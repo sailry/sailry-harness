@@ -251,7 +251,7 @@ func (s *State) card(c *ui.Context, a *Attachment, list []*Attachment, actions A
 					if a.Status == Sending {
 						ui.Text(c, fmt.Sprintf("%d%%", int(a.Progress*100))).FontSize(12).FontWeight(500)
 					} else {
-						ui.Spinner(c).FontSize(16).Label(tip)
+						kit.Busy(c).Label(tip)
 					}
 				})
 			}

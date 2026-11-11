@@ -75,6 +75,9 @@ flaky.0.answer: |-
 
   `Reserve` 先检查座位是否被占用，再插入预订记录，这是**两条独立的语句**。两个同时到达的请求都会看到座位空闲。测试没有问题，是代码存在竞态。
 flaky.1.user: "修掉它，然后跑一遍完整的测试。"
+flaky.queue.ci: "CI 通过后创建拉取请求"
+flaky.queue.note: "在更新日志里补一行修复说明"
+flaky.held.bisect: "二分定位首个失败的提交"
 flaky.table.notice: "显示 12 行中的 3 行"
 flaky.1.answer: |-
   已修复。检查和插入现在处于同一个可串行化事务中，第二个请求会以 `ErrSeatTaken` 失败。
@@ -120,6 +123,8 @@ invoice.4.answer: |-
   - 它们都以欧元结算，回填时可以默认设为 `EUR`。
   - 加上这个默认值后，剩余批次应当可以原样通过。
 invoice.5.user: "先只回填 2024 年的。"
+invoice.queue.next: "然后回填 2025 年的数据"
+invoice.queue.finance: "把两年的合计发给财务团队"
 invoice.5.answer: "已按你的要求停止，完成了 12 批中的 3 批。已写入的 15 000 行数据有效，予以保留。"
 
 review.title: "和团队一起评审结账页改版"
@@ -138,6 +143,7 @@ review.0.answer: |-
   - **支付**：流程正确，梳理工作延续到了退款路径。
   - **无障碍**：因缺少测试账号而失败，需要重新运行。
 review.1.user: "重新做一次无障碍检查，同时测一下性能。"
+review.held.visual: "对比移动端断点"
 review.delegate: "3 位评审成员 · 结账页改版"
 
 onboard.title: "设计新手引导清单"
@@ -270,6 +276,19 @@ hash.0.answer: |-
   2. 把每个键哈希到同一个环上。
   3. 键归属于顺时针方向遇到的第一个节点。
 
+  读取时先查哈希环，再访问键所属的节点：
+
+  ```mermaid
+  sequenceDiagram
+      participant C as 客户端
+      participant R as 哈希环
+      participant N as 节点 B
+      C->>R: hash("user:42")
+      R-->>C: 顺时针第一个节点是节点 B
+      C->>N: GET user:42
+      N-->>C: 值
+  ```
+
   节点下线时，只有它的键需要迁移到下一个节点。平均迁移量为
 
   $$
@@ -360,6 +379,10 @@ release.1.think: "三行：每个用户可见的变化各占一行，迁移说�
 
 translate.title: "翻译错误提示"
 translate.0.user: "把“Seat already taken”和“Rate limit exceeded”翻译成德语和法语。"
+translate.1.user: "再加上西班牙语和日语。"
+translate.1.partial: "**西班牙语**\n\n- Seat already taken：«El asiento ya está ocupado»"
+translate.queue.tone: "各语言都保持正式语气"
+translate.held.check: "对照术语表检查这些字符串"
 translate.0.answer: |-
   | 英语 | 德语 | 法语 |
   |---|---|---|
@@ -408,6 +431,8 @@ tool.screenshot: "页面截图"
 
 deploy.title: "将 2.4.0-rc.3 发布到预发布环境"
 deploy.0.user: "把候选版本 2.4.0-rc.3 发布到预发布环境，并运行迁移任务。"
+deploy.queue.prod: "预发环境正常后，准备生产环境的发布"
+deploy.queue.notes: "在团队频道发布本次发布摘要"
 deploy.0.think: "镜像已经构建好。预发布环境要经过堡垒机访问，而这个工作区还没有信任过这两台主机的密钥，所以先处理它们。然后是 values 文件、密钥文件、扩容、打标签和迁移任务。"
 deploy.approval.replaced: "此主机已记录的密钥添加于 10 月 12 日"
 deploy.ask.prompt: "什么时候开始发布？"
@@ -485,3 +510,47 @@ metrics.suggest.activation: "B2B 激活率 基准"
 metrics.suggest.retention: "SaaS 第 4 周留存"
 metrics.2.user: "截取每周仪表盘，并和图表、报告一起附上。"
 metrics.2.answer: "这是仪表盘现在的样子，还有留存图表和报告。移动端的截图已经不在了：页面在保存之前就被重新构建了。"
+
+# 用量：这一年里更早的对话标题，先按项目，再是不属于项目的对话。
+usage.harbor-api.1: "为预订列表添加分页"
+usage.harbor-api.2: "修复可订时段的时区问题"
+usage.harbor-api.3: "加快夜间结算任务"
+usage.harbor-api.4: "为退款处理编写测试"
+usage.harbor-api.5: "升级支付客户端"
+usage.harbor-api.6: "排查预订查询变慢的原因"
+usage.harbor-api.7: "为预订查找添加索引"
+usage.harbor-api.8: "整理重试中间件"
+usage.harbor-api.9: "为公开接口编写文档"
+usage.harbor-api.10: "轮换签名密钥"
+usage.harbor-api.11: "修复重复发送的确认邮件"
+usage.harbor-api.12: "审查取消流程"
+usage.lumen-web.1: "重做定价页"
+usage.lumen-web.2: "修复仪表盘的布局偏移"
+usage.lumen-web.3: "为设置页添加深色模式"
+usage.lumen-web.4: "重构表单校验"
+usage.lumen-web.5: "加快首屏加载"
+usage.lumen-web.6: "为编辑器添加快捷键"
+usage.lumen-web.7: "修复移动端的图表提示"
+usage.lumen-web.8: "为注册流程编写端到端测试"
+usage.lumen-web.9: "更新空状态"
+usage.lumen-web.10: "本地化账单页面"
+usage.lumen-web.11: "整理组件库"
+usage.lumen-web.12: "修复头像上传失败"
+usage.notes.1: "拟定第四季度增长计划"
+usage.notes.2: "总结客户访谈"
+usage.notes.3: "起草定价实验简报"
+usage.notes.4: "比较推荐计划"
+usage.notes.5: "重写激活备忘录"
+usage.notes.6: "收集流失原因"
+usage.notes.7: "规划新闻通讯日程"
+usage.notes.8: "回顾漏斗笔记"
+usage.chat.1: "解释数据库隔离级别"
+usage.chat.2: "比较消息队列方案"
+usage.chat.3: "编写匹配日期的正则表达式"
+usage.chat.4: "把 shell 脚本改写为 Go"
+usage.chat.5: "解释证书如何续期"
+usage.chat.6: "起草给供应商的回复"
+usage.chat.7: "规划三天的团建"
+usage.chat.8: "总结一篇研究论文"
+usage.chat.9: "调试 cron 表达式"
+usage.chat.10: "比较 TCP 和 QUIC"

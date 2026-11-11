@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -246,6 +247,75 @@ func TestRecoverAfterReset(t *testing.T) {
 			t.Fatal("startup outlived Close")
 		}
 		<-stalled.closed
+	})
+	t.Run("uncertain_outcome_resolved_by_request", func(t *testing.T) {
+		stored := protocol.Output{Kind: "notifications_updated"}
+		conflict := protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "session changed"}
+		unconfirmed := protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Host update was started but reconnection could not be confirmed"}
+		completed := func(value protocol.Result[protocol.Output, protocol.Fault]) *protocol.RequestOutcome {
+			return &protocol.RequestOutcome{Kind: "completed", Data: value}
+		}
+		for _, test := range []struct {
+			name     string
+			outcome  *protocol.RequestOutcome // nil: the query itself fails
+			state    Settled
+			code     protocol.ErrorCode // "" for success
+			released bool
+		}{
+			{"applied", completed(protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}), RequestApplied, "", false},
+			{"failed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &conflict}), RequestFailed, protocol.ErrorCodeConflict, false},
+			{"recorded as unconfirmed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &unconfirmed}), RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true},
+			{"interrupted by a restart", &protocol.RequestOutcome{Kind: "unknown"}, RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true},
+			{"never admitted", &protocol.RequestOutcome{Kind: "not_admitted"}, RequestAbsent, protocol.ErrorCodeUnavailable, true},
+			{"still running", &protocol.RequestOutcome{Kind: "admitted"}, RequestPending, protocol.ErrorCodeOutcomeUnknown, false},
+			{"Node unreachable", nil, RequestPending, protocol.ErrorCodeOutcomeUnknown, false},
+		} {
+			// The reply is lost, or the Node answers a duplicate that it will not run again.
+			for _, loss := range []string{"lost reply", "duplicate retry"} {
+				t.Run(test.name+"/"+loss, func(t *testing.T) {
+					transport := &clientTransport{}
+					controller := New(transport)
+					request := controller.Prepare(protocol.Command{Kind: "rename_session", Data: &protocol.CommandRenameSessionPayload{Session: protocol.SessionID{1}, Title: "Changed"}})
+					mutations := 0
+					transport.dispatch = func(actual protocol.Request) (link.Admission, error) {
+						completion := make(chan link.Response, 1)
+						switch {
+						case actual.Command.Kind != "inspect_request":
+							mutations++
+							if loss == "duplicate retry" {
+								completion <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request is still running"}}
+							}
+							close(completion)
+						case test.outcome == nil:
+							return link.Admission{}, fault(protocol.ErrorCodeUnavailable, "Node is unreachable")
+						default:
+							completion <- link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: request.ID, Outcome: *test.outcome}}}
+						}
+						return link.Admission{Receipt: protocol.Receipt{ID: actual.ID, Durable: true}, Completion: completion}, nil
+					}
+					output, err := controller.Settle(context.Background(), request)
+					if test.code == "" {
+						if err != nil || output.Kind != stored.Kind {
+							t.Fatalf("applied request = %#v, %v", output, err)
+						}
+					} else if faultCode(err) != test.code || Released(err) != test.released || Retained(err) != (test.code == protocol.ErrorCodeOutcomeUnknown && !test.released) {
+						t.Fatalf("error = %v, released %t, retained %t", err, Released(err), Retained(err))
+					}
+					if test.state == RequestUnknown && test.outcome.Kind == "completed" && !strings.Contains(err.Error(), unconfirmed.Message) {
+						t.Fatalf("the recorded reason was lost: %v", err)
+					}
+					if mutations != 1 {
+						t.Fatalf("the mutation was sent %d times", mutations)
+					}
+					if test.outcome != nil {
+						resolution, err := controller.Resolve(context.Background(), request)
+						if err != nil || resolution.State != test.state {
+							t.Fatalf("resolution = %#v, %v", resolution, err)
+						}
+					}
+				})
+			}
+		}
 	})
 	t.Run("captured_request_outcome_without_replay", func(t *testing.T) {
 		transport := &clientTransport{}

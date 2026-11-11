@@ -79,6 +79,19 @@ func TestMCPElicitationLifecycle(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a subagent's server request is refused, not left waiting", func(t *testing.T) {
+		fixture, x := delegationFixture(t)
+		delegation := &protocol.Delegation{}
+		x.inv.Session.Delegation = &delegation
+		_, err := fixture.r.Elicit(x.ctx, x.inv.Run.Turn, canonical.ToolRequest{ID: "parent", Name: "remote"}, &sdk.ElicitRequest{Params: &sdk.ElicitParams{Mode: "form", Message: "Choose"}})
+		var failure *protocol.Fault
+		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodePermissionDenied || failure.Message != "MCP input is unavailable to a subagent; the main conversation must run this tool" {
+			t.Fatalf("subagent MCP input = %v", err)
+		}
+		if pending := fixture.readQuery("SELECT count(*) FROM agent_questions"); pending != 0 {
+			t.Fatalf("subagent MCP input recorded %d questions", pending)
+		}
+	})
 	t.Run("cleanup failure settles as uncertain before completion", func(t *testing.T) {
 		var closed atomic.Int32
 		tool := objectTool("remote", true, false, func(context.Context, canonical.ToolRequest) ToolResult {

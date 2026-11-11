@@ -6,13 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -49,8 +49,35 @@ func fixture(t *testing.T) (string, *gogit.Repository, string) {
 	}
 	return root, r, hash.String()
 }
+
+// fixtureService answers native Git without a process. Hunk staging asks Git
+// for a path's filter driver and for the blob of the staged text; the fixture
+// reports no driver and stores the text unconverted.
 func fixtureService() *Service {
-	return New(Options{Run: func(context.Context, string, []string, []byte) (CommandResult, error) {
+	return New(Options{Run: func(_ context.Context, root string, args []string, input []byte) (CommandResult, error) {
+		switch args[0] {
+		case "check-attr":
+			return CommandResult{Stdout: []byte(args[len(args)-1] + "\x00filter\x00unspecified\x00")}, nil
+		case "hash-object":
+			r, err := open(root)
+			if err != nil {
+				return CommandResult{}, err
+			}
+			blob := r.Storer.NewEncodedObject()
+			blob.SetType(plumbing.BlobObject)
+			writer, err := blob.Writer()
+			if err != nil {
+				return CommandResult{}, err
+			}
+			if _, err := writer.Write(input); err != nil {
+				return CommandResult{}, err
+			}
+			if err := writer.Close(); err != nil {
+				return CommandResult{}, err
+			}
+			hash, err := r.Storer.SetEncodedObject(blob)
+			return CommandResult{Stdout: []byte(hash.String() + "\n")}, err
+		}
 		return CommandResult{ExitCode: 0}, nil
 	}})
 }
@@ -198,14 +225,14 @@ func TestGitReadMapping(t *testing.T) {
 	})
 	t.Run("status_line_statistics_match_each_diff_scope", func(t *testing.T) {
 		root, r, commit := fixture(t)
-		index, err := indexRevision(root, r)
-		if err != nil {
-			t.Fatal(err)
-		}
 		if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("one\nstaged\nthree\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixtureService().UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: index, ExpectedHead: &commit}); err != nil {
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Add("file.txt"); err != nil {
 			t.Fatal(err)
 		}
 		for name, body := range map[string]string{"file.txt": "one\nstaged\nthree\nfour\nfive\n", "new.txt": "first\nsecond\n"} {
@@ -236,6 +263,64 @@ func TestGitReadMapping(t *testing.T) {
 					t.Fatalf("%s %s statistics = %+v, diff = %+v %v", entry.Path, scope, got[i], diff, err)
 				}
 			}
+		}
+	})
+	t.Run("status_line_statistics_are_bounded", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		// One byte over the limit: such a file is marked, not read and hashed.
+		huge, err := os.Create(filepath.Join(root, "huge.bin"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := errors.Join(huge.Truncate(statLimit+1), huge.Close()); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range map[string]string{"file.txt": "one\ntwo\nthree\nfour\n", "binary.dat": "a\x00b\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		body := "# branch.oid " + commit + "\x00# branch.head main\x001 .M N... 100644 100644 100644 abc def file.txt\x00? binary.dat\x00? huge.bin\x00"
+		s := New(Options{Run: func(context.Context, string, []string, []byte) (CommandResult, error) {
+			return CommandResult{Stdout: []byte(body)}, nil
+		}})
+		statistics := func() map[string][3]protocol.GitLineStats {
+			t.Helper()
+			s.Invalidate(root)
+			status, err := s.Status(ctx, root)
+			if err != nil || len(status.Entries) != 3 {
+				t.Fatal(status, err)
+			}
+			got := map[string][3]protocol.GitLineStats{}
+			for _, entry := range status.Entries {
+				got[entry.Path] = [3]protocol.GitLineStats{entry.StagedDiff, entry.UnstagedDiff, entry.Diff}
+			}
+			return got
+		}
+		uncounted := protocol.GitLineStats{Truncated: true}
+		if got, want := statistics(), map[string][3]protocol.GitLineStats{
+			"file.txt":   {{}, {Additions: 1}, {Additions: 1}},
+			"binary.dat": {{}, {}, {}},
+			"huge.bin":   {{}, uncounted, uncounted},
+		}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("statistics = %+v, want %+v", got, want)
+		}
+		// Out of time, a status still answers: the entries stay uncounted.
+		s.stats = 0
+		if got, want := statistics(), map[string][3]protocol.GitLineStats{
+			"file.txt":   {{}, uncounted, uncounted},
+			"binary.dat": {{}, uncounted, uncounted},
+			"huge.bin":   {{}, uncounted, uncounted},
+		}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("statistics without time = %+v, want %+v", got, want)
+		}
+		// A comparison cut short reports its coarse counts as uncounted.
+		before, after := content{data: []byte("a\nb\n"), exists: true, hash: plumbing.NewHash("01")}, content{data: []byte("a\nc\n"), exists: true, hash: plumbing.NewHash("02")}
+		if got := lineStats(before, after, nil, nil, time.Nanosecond); !got.Truncated {
+			t.Fatalf("cut comparison = %+v", got)
+		}
+		if got := lineStats(before, after, nil, nil, time.Minute); got != (protocol.GitLineStats{Additions: 1, Deletions: 1}) {
+			t.Fatalf("comparison = %+v", got)
 		}
 	})
 	t.Run("ahead_behind_matches_reachable_sets", func(t *testing.T) {
@@ -311,150 +396,6 @@ func TestGitReadMapping(t *testing.T) {
 func TestGitMutationMapping(t *testing.T) {
 	ctx := context.Background()
 	t.Run("manual hunk stages one selection and rejects stale sources", testManualHunks)
-	t.Run("index_publish_preserves_unrelated_and_rejects_stale", func(t *testing.T) {
-		root, r, commit := fixture(t)
-		s := fixtureService()
-		before, err := indexRevision(root, r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, "new.txt"), []byte("new\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		got, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"new.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: before, ExpectedHead: &commit})
-		if err != nil || got.Revision == before {
-			t.Fatal(got, err)
-		}
-		fresh, err := open(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		idx, err := fresh.Storer.Index()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := idx.Entry("file.txt"); err != nil {
-			t.Fatal("unrelated index entry lost", err)
-		}
-		if _, err := idx.Entry("new.txt"); err != nil {
-			t.Fatal(err)
-		}
-		_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt"}, Operation: protocol.GitIndexChangeUnstage, ExpectedIndex: before, ExpectedHead: &commit})
-		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
-		if _, err := os.Lstat(filepath.Join(root, ".git", "index.lock")); !os.IsNotExist(err) {
-			t.Fatal("owned lock leaked", err)
-		}
-	})
-	t.Run("index_update_replaces_conflicting_entries_and_filters_once", func(t *testing.T) {
-		root, r, _ := fixture(t)
-		s := fixtureService()
-		update := func(operation protocol.GitIndexChange, paths ...string) error {
-			t.Helper()
-			fresh, err := open(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			revision, err := indexRevision(root, fresh)
-			if err != nil {
-				t.Fatal(err)
-			}
-			current, err := head(fresh)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: paths, Operation: operation, ExpectedIndex: revision, ExpectedHead: current.Head})
-			return err
-		}
-		write := func(name, body string) {
-			t.Helper()
-			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		requireIndex := func(want ...string) {
-			t.Helper()
-			fresh, err := open(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			idx, err := fresh.Storer.Index()
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := []string{}
-			for _, entry := range idx.Entries {
-				got = append(got, entry.Mode.String()+" "+entry.Name)
-			}
-			sort.Strings(got)
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("index = %q, want %q", got, want)
-			}
-		}
-		// Several untracked paths share one ignore filter; an ignored one rejects the update.
-		write(".gitignore", "*.log\n")
-		write("dir/a.txt", "a\n")
-		write("dir/b.txt", "b\n")
-		write("dir/c.log", "c\n")
-		requireFault(t, update(protocol.GitIndexChangeStage, "dir/a.txt", "dir/c.log"), protocol.ErrorCodeInvalidRequest)
-		requireIndex("0100644 file.txt")
-		if err := update(protocol.GitIndexChangeStage, "dir/a.txt", "dir/b.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 dir/b.txt", "0100644 file.txt")
-		// HEAD has no such directory yet: the staged file still diffs and unstages.
-		if diff, err := s.Diff(ctx, root, "dir/b.txt", protocol.GitDiffScopeStaged); err != nil || diff.Additions != 1 {
-			t.Fatal(diff, err)
-		}
-		if err := update(protocol.GitIndexChangeUnstage, "dir/b.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
-		w, err := r.Worktree()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Commit("Add directory", &gogit.CommitOptions{Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(200, 0)}}); err != nil {
-			t.Fatal(err)
-		}
-		// A file staged over a directory displaces the entries below it.
-		if err := os.RemoveAll(filepath.Join(root, "dir")); err != nil {
-			t.Fatal(err)
-		}
-		write("dir", "file\n")
-		if err := update(protocol.GitIndexChangeStage, "dir"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir", "0100644 file.txt")
-		// HEAD holds a directory there, so unstaging the file only removes it.
-		if err := update(protocol.GitIndexChangeUnstage, "dir"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 file.txt")
-		if err := update(protocol.GitIndexChangeStage, "dir"); err != nil {
-			t.Fatal(err)
-		}
-		// Restoring a file below it displaces the staged file.
-		if err := update(protocol.GitIndexChangeUnstage, "dir/a.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
-		// A file staged below a tracked file displaces that file, and unstaging the file restores it.
-		if err := os.Remove(filepath.Join(root, "file.txt")); err != nil {
-			t.Fatal(err)
-		}
-		write("file.txt/inner.txt", "inner\n")
-		if err := update(protocol.GitIndexChangeStage, "file.txt/inner.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt/inner.txt")
-		if err := update(protocol.GitIndexChangeUnstage, "file.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
-	})
 	t.Run("hunk_transform_uses_observed_source", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		s := fixtureService()
@@ -480,6 +421,139 @@ func TestGitMutationMapping(t *testing.T) {
 		}
 		_, err = s.EditIndex(ctx, root, "file.txt", result.Revision, &commit, fmtHash(sum[:]), func(text string) (string, error) { t.Fatal("stale source ran transform"); return text, nil })
 		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
+	})
+	t.Run("transfers_with_a_remote_run_outside_the_root_lock", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		var log []string
+		s := New(Options{
+			Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+				log = append(log, strings.Join(args, " "))
+				return CommandResult{}, nil
+			},
+			Lock: func(string) func() {
+				log = append(log, "lock")
+				return func() { log = append(log, "unlock") }
+			},
+		})
+		index, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		action := func(kind string, data any) error {
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: kind, Data: data}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		for _, probe := range []struct {
+			name string
+			run  func() error
+			want []string
+		}{
+			{"push", func() error { return action("push", protocol.GitActionPushPayload{}) }, []string{"push --progress"}},
+			{"fetch", func() error { return action("fetch", protocol.GitActionFetchPayload{All: true}) }, []string{"fetch --progress --all"}},
+			// The transfer of a pull is a fetch without the lock; git pull then integrates under it.
+			{"pull", func() error { return action("pull", protocol.GitActionPullPayload{Rebase: true}) }, []string{"fetch --progress", "lock", "pull --progress --rebase --no-edit", "unlock"}},
+			{"sync", func() error { return action("sync", protocol.GitActionSyncPayload{}) }, []string{"fetch --progress", "lock", "pull --progress --no-rebase --no-edit", "unlock", "push --progress"}},
+			{"local action", func() error {
+				return action("add_remote", protocol.GitActionAddRemotePayload{Name: "origin", Url: "https://example.invalid/repository.git"})
+			}, []string{"lock", "remote add -- origin https://example.invalid/repository.git", "unlock"}},
+			{"commit and sync", func() error {
+				input := protocol.CommandCreateGitCommitPayload{Message: "Change", ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")}
+				input.Options.After = protocol.GitAfterCommitSync
+				_, err := s.CreateCommit(ctx, root, input)
+				return err
+			}, []string{"lock", "commit --message Change", "unlock", "fetch --progress", "lock", "pull --progress --no-rebase --no-edit", "unlock", "push --progress"}},
+		} {
+			log = nil
+			if err := probe.run(); err != nil || !reflect.DeepEqual(log, probe.want) {
+				t.Fatalf("%s = %q %v, want %q", probe.name, log, err, probe.want)
+			}
+		}
+		// A pull whose transfer fails does not reach the worktree.
+		failing := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			log = append(log, args[0])
+			return CommandResult{ExitCode: 128, Stderr: []byte("fatal: Authentication failed")}, nil
+		}})
+		log = nil
+		requireFault(t, failing.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "pull", Data: protocol.GitActionPullPayload{}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")}), protocol.ErrorCodePermissionDenied)
+		if !reflect.DeepEqual(log, []string{"fetch"}) {
+			t.Fatalf("failed pull ran %q", log)
+		}
+	})
+	t.Run("remote_branch_deletion_names_the_longest_configured_remote", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		for _, remote := range []string{"origin", "origin/team"} {
+			if _, err := r.CreateRemote(&config.RemoteConfig{Name: remote, URLs: []string{"https://example.invalid/" + remote + ".git"}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var log []string
+		s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			log = append(log, strings.Join(args, " "))
+			return CommandResult{}, nil
+		}})
+		index, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		remove := func(branch string) error {
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: branch, Commit: commit}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		for branch, want := range map[string]string{
+			"origin/topic":      "push --progress --force-with-lease=refs/heads/topic:" + commit + " origin :refs/heads/topic",
+			"origin/team/topic": "push --progress --force-with-lease=refs/heads/topic:" + commit + " origin/team :refs/heads/topic",
+		} {
+			log = nil
+			if err := remove(branch); err != nil || !reflect.DeepEqual(log, []string{want}) {
+				t.Fatalf("%s = %q %v, want %q", branch, log, err, want)
+			}
+		}
+		log = nil
+		requireFault(t, remove("upstream/topic"), protocol.ErrorCodeNotConfigured)
+		for _, branch := range []string{"--receive-pack=tool/topic", "/topic"} {
+			if err := remove(branch); err == nil || len(log) != 0 {
+				t.Fatalf("%q ran %q %v", branch, log, err)
+			}
+		}
+	})
+	t.Run("discard_refuses_paths_head_does_not_hold", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		for name, body := range map[string]string{"staged.txt": "only copy\n", "untracked.txt": "draft\n", "file.txt": "edited\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Add("staged.txt"); err != nil {
+			t.Fatal(err)
+		}
+		index, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ran [][]string
+		s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			ran = append(ran, args)
+			return CommandResult{}, nil
+		}})
+		discard := func(paths ...string) error {
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "discard", Data: protocol.GitActionDiscardPayload{Paths: paths}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		// One path HEAD does not hold refuses the whole selection before Git runs.
+		for _, paths := range [][]string{{"staged.txt"}, {"untracked.txt"}, {"file.txt", "staged.txt"}} {
+			requireFault(t, discard(paths...), protocol.ErrorCodeInvalidRequest)
+		}
+		if len(ran) != 0 {
+			t.Fatalf("refused discard ran Git: %q", ran)
+		}
+		if err := discard("file.txt"); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"restore", "--source=HEAD", "--staged", "--worktree", "--", ":(literal)file.txt"}
+		if len(ran) != 1 || !reflect.DeepEqual(ran[0], want) {
+			t.Fatalf("discard ran %q", ran)
+		}
 	})
 	t.Run("branch_create_no_native_process", func(t *testing.T) {
 		root, r, commit := fixture(t)
@@ -510,7 +584,6 @@ func TestCLIArgs(t *testing.T) {
 		{"discard_literal", protocol.GitAction{Kind: "discard", Data: protocol.GitActionDiscardPayload{Paths: []string{"space name.txt", "[literal].txt"}}}, []string{"restore", "--source=HEAD", "--staged", "--worktree", "--", ":(literal)space name.txt", ":(literal)[literal].txt"}},
 		{"continue", protocol.GitAction{Kind: "continue"}, []string{"rebase", "--continue"}},
 		{"remote", protocol.GitAction{Kind: "add_remote", Data: protocol.GitActionAddRemotePayload{Name: "origin", Url: "ssh://git@example.test/repo"}}, []string{"remote", "add", "--", "origin", "ssh://git@example.test/repo"}},
-		{"delete_remote_branch", protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: "origin/team/topic", Commit: strings.Repeat("a", 40)}}, []string{"push", "--force-with-lease=refs/heads/team/topic:" + strings.Repeat("a", 40), "origin", ":refs/heads/team/topic"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -526,15 +599,6 @@ func TestCLIArgs(t *testing.T) {
 	}
 	if got := redact("https://user:password@example.test/repo?token=hidden password=secret"); strings.Contains(got, "password@") || strings.Contains(got, "hidden") || strings.Contains(got, "secret") {
 		t.Fatal(got)
-	}
-	for _, branch := range []string{"--receive-pack=tool/topic", "/topic"} {
-		action := protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: branch, Commit: strings.Repeat("a", 40)}}
-		_, err := CLIArgs(action, "main", "", 0)
-		requireFault(t, err, protocol.ErrorCodeInvalidRequest)
-	}
-	remote := protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: "origin/topic"}}
-	if got := actionRemotes(remote); !reflect.DeepEqual(got, []string{"origin"}) {
-		t.Fatal("remote branch deletion does not require its remote", got)
 	}
 	for stderr, code := range map[string]protocol.ErrorCode{
 		"error: Your local changes to the following files would be overwritten by checkout:\n\tCargo.lock\n": protocol.ErrorCodeConflict,

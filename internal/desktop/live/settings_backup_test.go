@@ -102,6 +102,22 @@ func checkBackupSettingsHelpers(t *testing.T) {
 	if encoded, err := json.Marshal(protocol.Command{Kind: "save_backup_settings", Data: schedule}); err != nil || strings.Contains(string(encoded), "replace") {
 		t.Errorf("schedule request = %s, %v", encoded, err)
 	}
+	// Retention is saved alone too; the Node's record of its last backup is
+	// shown with the problem a failure's code stands for.
+	if retention := backupKeepUpdate(7, saved); kind(retention) != [4]string{"keep", "keep", "keep", "keep"} || retention.Settings.Keep != 7 ||
+		retention.Settings.Revision != 7 || saved.Keep != 0 || !reflect.DeepEqual(retention.Settings.Schedule, saved.Schedule) {
+		t.Errorf("retention update = %+v", retention)
+	}
+	denied := protocol.ErrorCodePermissionDenied
+	ended := saved
+	ended.Keep, ended.Last = 14, &protocol.BackupOutcome{FinishedMs: 1_700_000_000_000, Error: &denied, Reason: "backup folder is not writable"}
+	if got := backupTarget(ended); got.Keep != 14 || got.Last != (settings.BackupLast{At: time.UnixMilli(1_700_000_000_000), Problem: "backup_denied", Reason: "backup folder is not writable"}) {
+		t.Errorf("failed backup = %+v", got.Last)
+	}
+	ended.Last = &protocol.BackupOutcome{FinishedMs: 1_700_000_000_000, Skipped: 3}
+	if got := backupTarget(ended).Last; got.Problem != "" || got.Skipped != 3 || got.At.IsZero() {
+		t.Errorf("finished backup = %+v", got)
+	}
 	edited := target
 	edited.Time, edited.Timezone = time.Date(2026, 1, 1, 23, 5, 0, 0, time.Local), " Europe/Berlin "
 	if got := backupScheduleOf(edited); got != (backupSchedule{enabled: true, hour: 23, minute: 5, timezone: "Europe/Berlin"}) {

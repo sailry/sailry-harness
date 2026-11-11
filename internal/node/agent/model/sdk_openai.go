@@ -42,7 +42,8 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 	texts, tools, reasoning := map[string]string{}, map[string]bool{}, map[string]bool{}
 	callItems := map[string]map[string]any{}
 	sourceItems := map[int64]map[string]any{}
-	terminal := false
+	terminal, incomplete := false, false
+	reason := fantasy.FinishReasonStop
 	toolCount := 0
 	emitTool := func(item map[string]any) bool {
 		id := wireString(item["call_id"])
@@ -55,8 +56,16 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 		}
 		arguments := wireString(item["arguments"])
 		if !json.Valid([]byte(arguments)) {
-			emitter.fail(fmt.Errorf("model tool input is incomplete"))
-			return false
+			// A call the response ended inside is not a call: the complete
+			// calls and the partial answer stay.
+			if incomplete || item["status"] == "incomplete" {
+				return true
+			}
+			if strings.TrimSpace(arguments) != "" {
+				emitter.fail(fmt.Errorf("model tool input is incomplete"))
+				return false
+			}
+			arguments = "{}"
 		}
 		tools[id] = true
 		toolCount++
@@ -144,7 +153,7 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 					return
 				}
 			}
-		case "response.failed", "response.incomplete", "error":
+		case "response.failed", "error":
 			response := wireObject(value["response"])
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
 			if output := wireArray(response["output"]); len(output) > 0 {
@@ -153,9 +162,22 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 			emitter.facts.body, _ = json.Marshal(value)
 			emitter.fail(fmt.Errorf("model response ended with %s", wireString(value["type"])))
 			return
-		case "response.completed":
+		case "response.completed", "response.incomplete":
+			// An incomplete response is a terminal that keeps its partial
+			// output and usage; its reason is how the answer ended.
 			terminal = true
 			response := wireObject(value["response"])
+			if wireString(value["type"]) == "response.incomplete" {
+				incomplete = true
+				switch wireString(wireObject(response["incomplete_details"])["reason"]) {
+				case "max_output_tokens":
+					reason = fantasy.FinishReasonLength
+				case "content_filter":
+					reason = fantasy.FinishReasonContentFilter
+				default:
+					reason = fantasy.FinishReasonOther
+				}
+			}
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
 			if output := wireArray(response["output"]); len(output) > 0 {
 				emitter.responseSources(output)
@@ -205,8 +227,7 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 		emitter.fail(io.ErrUnexpectedEOF)
 		return
 	}
-	reason := fantasy.FinishReasonStop
-	if toolCount > 0 {
+	if toolCount > 0 && !incomplete {
 		reason = fantasy.FinishReasonToolCalls
 	}
 	emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: reason})
@@ -223,6 +244,25 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 	defer stream.Close()
 	tools := map[int64]*chatTool{}
 	reason := ""
+	// Reasoning a model writes inline in its content is reasoning. A provider
+	// that also reports reasoning in its own field is read from that field.
+	var inline thinkingFilter
+	structured := false
+	write := func(parts []thinkingPart) bool {
+		for _, part := range parts {
+			kind, id := fantasy.StreamPartTypeTextDelta, "text"
+			if part.thinking {
+				if structured {
+					continue
+				}
+				kind, id = fantasy.StreamPartTypeReasoningDelta, "reasoning"
+			}
+			if !emitter.emit(fantasy.StreamPart{Type: kind, ID: id, Delta: part.text}) {
+				return false
+			}
+		}
+		return true
+	}
 	for stream.Next() {
 		value, err := decodeSDK(stream.Current().RawJSON())
 		if err != nil {
@@ -238,12 +278,13 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 				emitter.chatSources(message)
 			}
 			if text, ok := delta["content"].(string); ok && text != "" {
-				if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "text", Delta: text}) {
+				if !write(inline.push(text)) {
 					return
 				}
 			}
 			for _, field := range []string{"reasoning_content", "reasoning"} {
 				if text, ok := delta[field].(string); ok && text != "" {
+					structured = true
 					if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeReasoningDelta, ID: "reasoning", Delta: text}) {
 						return
 					}
@@ -285,6 +326,10 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 			}
 		}
 	}
+	// A tag the stream left unfinished is what it was: text, or open reasoning.
+	if !write(inline.finish()) {
+		return
+	}
 	if err := stream.Err(); err != nil {
 		emitter.fail(err)
 		return
@@ -301,8 +346,16 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 	for _, index := range indices {
 		tool := tools[index]
 		if tool.id == "" || tool.name == "" || !json.Valid([]byte(tool.input)) {
-			emitter.fail(fmt.Errorf("model tool input is incomplete"))
-			return
+			// The output limit cut this call: it is dropped, the complete
+			// calls and the partial answer stay.
+			if reason == "length" {
+				continue
+			}
+			if tool.id == "" || tool.name == "" || strings.TrimSpace(tool.input) != "" {
+				emitter.fail(fmt.Errorf("model tool input is incomplete"))
+				return
+			}
+			tool.input = "{}"
 		}
 		if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: tool.id, ToolCallName: tool.name, ToolCallInput: tool.input}) {
 			return

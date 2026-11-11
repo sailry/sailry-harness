@@ -249,7 +249,7 @@ export function listMediaModels(): Promise<{provider: string; provider_name: str
 export function prepareMediaSettings(settings: MediaSettings): string;
 
 export type DirectoryCursor = {revision: string; directory: boolean; name: string};
-export function listDirectory(path: string, after?: DirectoryCursor | null): Promise<{path: string; entries: {name: string; kind: "file" | "directory" | "symlink" | "other"; size: number}[]; truncated: boolean; unsupported_names: number; revision: string; next: DirectoryCursor | null}>;
+export function listDirectory(path: string, after?: DirectoryCursor | null): Promise<{path: string; entries: {name: string; kind: "file" | "directory" | "symlink" | "other"; size: number; modified_ms?: number}[]; truncated: boolean; unsupported_names: number; revision: string; next: DirectoryCursor | null}>;
 export function searchFiles(options: {query: string; regex: boolean; case_sensitive: boolean; globs: string[]}): Promise<{matches: {path: string; line_number: number; line: string}[]; scanned_files: number; skipped: number; truncated: boolean}>;
 export function cancelFileSearch(): void;
 export function prepareFileAction(action: {kind: "write"; path: string; text: string; revision: string | null} | {kind: "create_directory" | "trash"; path: string} | {kind: "rename" | "copy"; from: string; to: string}): string;

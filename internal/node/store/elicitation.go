@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"net/url"
 	"slices"
 	"strings"
 
@@ -58,9 +57,11 @@ func validateMCPSpec(spec protocol.ConversationQuestionSpec) error {
 			seen[field.Name] = true
 		}
 	case *protocol.ConversationQuestionInputUrlPayload:
-		address, err := url.Parse(value.Url)
-		if spec.Input.Kind != "url" || err != nil || address.Host == "" || address.User != nil || address.Scheme != "https" && address.Scheme != "http" || value.ElicitationID == "" {
+		if spec.Input.Kind != "url" || value.ElicitationID == "" {
 			return invalid("MCP input URL is invalid")
+		}
+		if !protocol.QuestionLinkAllowed(value.Url) {
+			return invalid("MCP URL requires HTTPS or loopback HTTP without user information")
 		}
 	default:
 		return invalid("MCP input must not change model content")

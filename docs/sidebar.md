@@ -94,7 +94,8 @@ reference disables the drag under `updated`.
 ### Rows
 
 28 DIPs, text 14, indent 30, the dashed guide at 16 under projects, the
-status slot (loader, waiting, unread dot) on its elbow. Hover shows Pin or
+status slot (`kit.LoaderIn` 12 in the row's text color while running, the
+waiting or unread dot) on its elbow. Hover shows Pin or
 Unpin (`PinOff`) and Archive (`Inbox`); otherwise the age, and in pinned
 rows the project's name. Running rows show no age. The pointer resting on
 a row shows its hover card (`kit.SessionCard`, `sidebar/details.rs`) right
@@ -158,6 +159,8 @@ element by element:
 | `project_host` (`kit.Select`) | The hosts of `Data.Hosts`; disabled when editing and while saving. Changing it clears the path, since a path belongs to its host |
 | `project_repository`, `project_branch` | Clone only; the branch is optional |
 | `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path. The answer is dropped if the host or the path changed meanwhile |
+| Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with the busy mark (`kit.Busy`) from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
+| `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path, its Projects group listing that host's registered projects (`projectPlaces`). The answer is dropped if the host or the path changed meanwhile |
 | Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with a `ui.Spinner` from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
 
 The preview checks `CheckProject` (`project_required`,
@@ -219,6 +222,10 @@ projection keeps the Node's order under every preference, the sidebar orders
 it, and the choice survives a restart of the runtime through
 `preferences.json`.
 `internal/desktop/shell/shell_test.go`: Show more.
+`internal/desktop/shell/loading_test.go` (`TestShellRules/LoadingMarks`): a
+running row has the 12 DIP loader; the sidebar alone asks for frames while a
+session runs, for none with Reduce Motion, and has no loader and asks for
+none once no session runs.
 
 ## Deviations
 
@@ -235,6 +242,7 @@ it, and the choice survives a restart of the runtime through
 | No terminals in the tree | Terminals come with the terminal work |
 | The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
 | The live project menu keeps New terminal, Records, Worktrees and AI CLI | They were accepted with the page; the reference's live menu has Overview, Edit, New session, Copy path and Remove, then the items packages contribute. Contributed items follow Records here; the bundled ones these four replace are not repeated ([plugins](plugins.md#deviations)) |
+| The running row's loader is MyGo's `loading.Swirl` in one color | The user's decision; the dot matrix in the info, warning and danger colors is removed ([components.md](components.md#deviations)) |
 | The appearance popover lays the icons out six to a row | `kit.Popover` with Kit ghost buttons; the reference's popover wraps them freely |
 
 ## B3 live wiring

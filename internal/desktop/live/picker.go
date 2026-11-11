@@ -1,6 +1,8 @@
 package live
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -19,11 +21,26 @@ func (r *Runtime) files(host string) (picker.Source, bool) {
 	return picker.Source{Browse: owner.browseFiles, Manage: owner.manageFiles}, true
 }
 
+// browseProblem is the picker's reason for a read that failed: the directory
+// is not there, the Node may not read it, or its host did not answer. Any
+// other fault is the plain failure.
+func browseProblem(err error) string {
+	switch faultCode(err) {
+	case protocol.ErrorCodeNotFound:
+		return "directory_missing"
+	case protocol.ErrorCodePermissionDenied:
+		return "directory_denied"
+	case protocol.ErrorCodeUnavailable, "":
+		return "directory_host_unavailable"
+	}
+	return "directory_failed"
+}
+
 // browseFiles reads a directory of this runtime's Node, page after page, and
 // answers on the UI thread. A page that continues another directory fails the
 // read rather than mixing two listings.
 func (r *Runtime) browseFiles(directory string, done func(picker.Listing, string)) {
-	fail := func() { r.enqueue(func(*ui.Context) { done(picker.Listing{}, "files_directory_failed") }) }
+	fail := func(problem string) { r.enqueue(func(*ui.Context) { done(picker.Listing{}, problem) }) }
 	started := r.async(func() {
 		var listing picker.Listing
 		var target *string
@@ -34,8 +51,12 @@ func (r *Runtime) browseFiles(directory string, done func(picker.Listing, string
 		for {
 			output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "browse_files", Data: protocol.CommandBrowseFilesPayload{Directory: target, After: after}})
 			page, valid := detail[protocol.FileBrowserListing](output.Data)
-			if err != nil || !valid || after != nil && page.Directory.Path != listing.Path {
-				fail()
+			if err != nil {
+				fail(browseProblem(err))
+				return
+			}
+			if !valid || after != nil && page.Directory.Path != listing.Path {
+				fail("directory_failed")
 				return
 			}
 			if after == nil {
@@ -49,7 +70,11 @@ func (r *Runtime) browseFiles(directory string, done func(picker.Listing, string
 				target = &listing.Path
 			}
 			for _, entry := range page.Directory.Entries {
-				listing.Entries = append(listing.Entries, picker.Entry{Name: entry.Name, Kind: string(entry.Kind), Size: entry.Size})
+				item := picker.Entry{Name: entry.Name, Kind: string(entry.Kind), Size: entry.Size}
+				if entry.ModifiedMs != nil {
+					item.Modified = time.UnixMilli(int64(*entry.ModifiedMs))
+				}
+				listing.Entries = append(listing.Entries, item)
 			}
 			if after = page.Directory.Next; after == nil {
 				break
@@ -58,7 +83,7 @@ func (r *Runtime) browseFiles(directory string, done func(picker.Listing, string
 		r.enqueue(func(*ui.Context) { done(listing, "") })
 	})
 	if !started {
-		fail()
+		fail("directory_host_unavailable")
 	}
 }
 
@@ -122,16 +147,37 @@ func (r *Runtime) bindPicker() {
 	}
 }
 
+// chooseFile opens the picker on this machine's files for a settings form
+// that reads the chosen file here, as a plugin package is read before its
+// upload. name is the local host's as the form shows it; valid reports
+// whether the form still wants the answer.
+func (r *Runtime) chooseFile(name, title, initial string, valid func() bool, selected func(string)) {
+	source, ok := r.files("")
+	if !ok {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	}
+	r.App.Sidebar.Picker.Open(picker.Options{Mode: picker.File, Title: title, Confirm: "directory_open", Initial: initial,
+		Source: source, Host: name, Valid: valid, Choose: func(paths []string) bool {
+			if !valid() || len(paths) != 1 {
+				return false
+			}
+			selected(paths[0])
+			return true
+		}})
+}
+
 // chooseDirectory opens the picker on a host's directories for a settings
-// form; valid reports whether the form still wants the answer.
-func (r *Runtime) chooseDirectory(host, title, initial string, valid func() bool, selected func(string)) {
+// form, under the host's name as the form shows it; valid reports whether the
+// form still wants the answer.
+func (r *Runtime) chooseDirectory(host, name, title, initial string, valid func() bool, selected func(string)) {
 	source, ok := r.files(host)
 	if !ok {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
 		return
 	}
 	r.App.Sidebar.Picker.Open(picker.Options{Mode: picker.Directory, Title: title, Confirm: "directory_title", Initial: initial,
-		Source: source, Valid: valid, Choose: func(paths []string) bool {
+		Source: source, Host: name, Valid: valid, Choose: func(paths []string) bool {
 			if !valid() || len(paths) != 1 {
 				return false
 			}

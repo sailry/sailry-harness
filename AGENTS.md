@@ -88,7 +88,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   feature's deviations. Right-click menus are OS-native; left-click menus use
   Kit menus or popovers.
 - Approved layouts are the baseline. Removed controls must not return through
-  backend work.
+  backend work. Read [docs/removed-ui.md](docs/removed-ui.md) before adding any
+  control found in Rust or another reference.
 
 ## Code organization
 

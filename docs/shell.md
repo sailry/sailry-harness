@@ -55,7 +55,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `selection.go` | `SystemShortcuts`, the selected text dialog |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
-| `demo.go` | Demo mode: the window's two stages, `Demo`, `Prefs` |
+| `demo.go` | Demo mode: the window's two stages, `Demo`, `DemoConversation`, `DemoUsage`, `Prefs` |
 
 ## Entry point
 
@@ -68,6 +68,42 @@ mygo.NewWindow(mygo.WindowOptions{StateKey: "main", Content: ui.View(app.View), 
 
 `cmd/sailry-desktop` also imports `github.com/egoist/mygo/locales/zh-Hans`, so
 MyGo's own strings follow the app into Chinese.
+
+### Start failures and a second launch
+
+A Desktop that cannot start its Node (`cmd/sailry-desktop/failure.go`) runs the
+MyGo application only to show one native error message
+(`mygo.Dialog.Message`, type `error`) and quits: `start_failed` with the
+failure's own text as the detail, or `start_profile_in_use` with the profile
+path when another process holds the profile lock. The failure is still written
+to standard error.
+
+A Desktop on the default profile takes MyGo's single-instance lock
+(`App.RequestSingleInstanceLock`) before it opens anything. A second launch
+hands over to the first and exits; the first raises its active window, or
+opens one when none is left (`App.OnSecondInstance`). A Desktop started with
+`--data-dir` or `--preview` takes no lock, so development profiles run beside
+the default one; a second Desktop on the same explicit profile gets the
+message. The profile lock itself (`flock`, `LockFileEx`) ends with the process
+that holds it, so a crash leaves no stale lock; the lock file stays in place
+and never blocks a start.
+
+The updater starts the new application before the old one has quit. That
+launch would be handed to the Desktop that is quitting and exit with it, so
+`desktopBackend.Stop`, which the updater calls before it replaces or restarts
+the application, marks the environment the new process inherits
+(`SAILRY_DESKTOP_SUCCESSOR`). A successor asks for the lock every 100 ms, for
+at most ten seconds, until the Desktop it replaces has quit (`instanceLock`),
+and that Desktop ignores the hand-overs meanwhile.
+
+| Deviation from Rust | Reason |
+|---|---|
+| Start failures are shown in a native message | Rust prints them to standard error, where a user who opened the application from its icon never sees them |
+| A second launch raises the running Desktop | Rust starts a second process that fails on the profile lock |
+
+Not covered: a launch while the previous Desktop is still inside its quit
+sequence is handed to that process, which is closing and shows nothing. The
+Node's shutdown deadline bounds that window at five seconds.
 
 ## Frame
 
@@ -142,7 +178,8 @@ a submenu of the chosen host's forwards, each opening its address, over
 with the name of every host that has an update, opening its page with the
 update dialog, since the approved picker rows carry no trailing Update; and,
 for a paired host, `live_revoke`, which opens the page's confirmation). The host page has the right
-column too: its metrics, toggled by the details button and ⌥⌘B.
+column too: its metrics summary, closed until the details button or ⌥⌘B
+opens it.
 
 A host's name shows as it is (`App.hostName`): only the preview's hosts and
 the local host before its Node names it (`local_host_name`) are i18n keys, so
@@ -164,7 +201,12 @@ the session overview (`composer.OverviewButton`, `Hooks.Overview`; see
 the plugins' header contributions (`Hooks.PluginHeader`) and the preview tag. A plugin's header
 contribution is the same `kit.IconLook` at `HeaderButton` as the shell's own
 buttons, `ButtonGap` apart, its popover under its end; an `indicator` or
-`metric` is not drawn in the header. Tooltips show the shortcut.
+`metric` is not drawn in the header. Tooltips show the shortcut. The window
+opens and closes a header `popover` itself, on the press, an outside press
+and Escape, as the source does: the package is not asked, so a package that
+answers no `change` event still opens. The popover is `kit.Popover` with the
+package's panel (its `handler`) in a scroll: the declared width, 480 without
+one, at most the window less 32, and at most the window's height less 110.
 
 The band is two regions, split at the right column's left edge
 (`headerSide`):
@@ -451,22 +493,24 @@ does and the demo's panels and order are never saved. The Node keeps running.
 
 | While the demo shows | |
 |---|---|
-| Conversation, composer, sidebar and panel actions | The preview's: they change the demo's memory. `Hooks.Conversation`, `RenderChild`, `WorkspaceProject`, `PluginHeader` on the conversation page, `Overview`, `OpenKnowledge` and the sidebar's `Actions` are not called, so no command reaches a Node |
+| Conversation, composer, sidebar and panel actions | The preview's: they change the demo's memory. `Hooks.Conversation`, `RenderChild`, `WorkspaceProject`, `Overview`, `OpenKnowledge` and the sidebar's `Actions` are not called, so no command reaches a Node |
 | A sent message | Plays the demo's reply (`preview.DemoReplies`) |
 | Models | One provider, DeepSeek: DeepSeek V4.1 Pro (selected), DeepSeek V4.1 and DeepSeek V4.1 Flash (`preview.DemoModels`, `DemoFamilies`). They exist in the composer's context only; Settings lists the profile's own providers |
 | Identification | None, by the user's decision of 2026-11-11: no header tag, toast, badge or title suffix. `kit.SetDemo` marks the frame and `kit.PreviewNotice` and the preview-only hints stay silent; an action the demo cannot play does nothing |
 | Context ring | Reads the tokens used of the model's window, as a measured indicator does (`conversation.Usage.Window`, 200k for the demo's models): `48k / 200k 24%`, the same as its tooltip. The preview, whose usage has no window, keeps its compaction hint |
+| Statistics figures and context panel | The statistics package's own, as over a session: its five figures in the context bar, each with its rows on hover, and its context panel in the header (`Hooks.PluginHeader`). `Hooks.DemoConversation` runs after the demo's composer context is built and sets the figures (`composer.State.Metrics`). The controller mounts the package's composer view for each demo conversation shown, without a session, under the presentation `demo/<id>` (`internal/desktop/live/plugin_demo.go`); what the view reads as the composer's state is built from the conversation's own `Session.Usage` (`demoStatistics`: one token in eight is output, the cached part of the input, the cost, the speed as output over its time, the context used of the window). No other package is mounted over a demo conversation: theirs would ask the Node. Nothing is asked of a Node for it; the package's bundle is the one another of its mounts already read, and is read from the Node only where none has it. The mounts and their contributions leave with the demo. A profile without the package enabled shows no figures, as a session does |
 | Archive prompt | Names the conversation and offers Archive, as the application's does; it archives in the demo's memory |
-| Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live |
+| Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live, but for the usage a plugin page reads (next row) |
+| Usage page (the statistics package) | The demo's usage ledger (`preview.DemoUsage`, held by the demo and read through `App.DemoUsage`): a year of model responses over the demo's projects, provider and models, generated from a fixed seed around today, with the demo conversations' own usage counted exactly. Plugin pages are mounted with it as their host's `UsageSample` (`live.Runtime.pluginUsageSample`), which answers `usageSources` (one source, this device), `readUsageChoices`, `readUsageInventory`, `watchUsage` and `refreshUsage` in the Node's shapes and asks no Node. `Hooks.DemoChanged` tells the mounted pages when the switch is flipped or the demo is written in another language (`plugins.Host.SetUsageSample`): the calls waiting in `nextUsageSources` and `nextUsageChange` wake, the page's watch moves to the other ledger under a later cursor, and an open page redraws |
 | Activity centre | Empty |
 | Terminal and Browser tabs | Not offered (`panel.State.Demo`): they would start a shell or load a page. The per-conversation panels keep the demo's tabs in the demo's stage |
 | Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): nothing is read or written, and the worktree manager, which a live project's actions open, is not offered |
 | Project editor and appearance | Saved to the demo's memory. The host directory picker and Open folder are not offered: the demo has no host whose directories it could list |
 | Session overview (header) | `preview.Overview` over the demo conversation, not `Hooks.Overview`. An output or a source opens the demo's file in the panel (`preview.Asset`); a cited page opens nothing |
-| Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values, an authorization link (no page opens) and a denial's reason, which shows on the call's row (`preview.Reason`). A request read again or sent again changes the demo's rows |
+| Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values and an authorization link (no page opens). A request read again or sent again changes the demo's rows |
 | Editing a sent message | Save replaces the message in memory. New chat from a selection opens a demo chat with the quote as its draft |
 | Links standing alone in a reply | The demo's own resolver (`preview.Embed` on the demo's `conversation.State`): its files as cards, its pictures and a tool's pictures as thumbnails. The controller's resolver is not called |
-| Composer host control, plugin modes, pasted files | The hosts are the window's own and choosing one changes only the demo draft; no plugin mode is offered; a pasted or dropped file plays a transfer and is not read |
+| Composer plugin modes, pasted files | No plugin mode is offered; a pasted or dropped file plays a transfer and is not read |
 | Queue | Edited, reordered and sent in memory. A subagent's session (`Session.ReadOnly`) has its read-only tray and no composer |
 | Shortcuts `conversation.stop`, `composer.focus`, `composer.models` | Act on the demo's composer; the model controls list the demo's models |
 | Close and quit prompt | Considers the window's own documents only: `live.Runtime.UnsavedDocuments` reads the controller's projects, never the demo's stage, and Save all saves those |
@@ -546,9 +590,18 @@ Phase 1–2 screens.
 `internal/desktop/live/demo_mode_test.go` (`TestDemoMode`): Demo mode over a
 real Node: the settings' order, the switch, the swap and the way back, no
 command sent by the demo's actions, no notice text, the model shown and the
-preference saved. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
+preference saved; the statistics package's figures with their cards and its
+context panel over a demo conversation, from the conversation's usage
+(`statistics`: `demoStatistics` and `demoComposer`), with no view or
+statistics command sent and nothing left after the way back; the Usage page's calls answer from the demo's ledger
+without a command and from the Node again after the way back, the waiting
+call moving over. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
 demo shows every value of the view model's enumerations and sets every
-field, both catalogs have the same keys, and the models' names.
+field, both catalogs have the same keys, and the models' names; its `usage`
+step reads the ledger over every range, filter, grouping and page of
+records. `internal/desktop/plugins/host_usage_test.go` (a step of
+`TestHostSDKCalls`): the usage calls with a sample, with another and with
+none.
 
 ## Deviations
 
@@ -570,7 +623,9 @@ field, both catalogs have the same keys, and the models' names.
 | ⌘/ opens Settings | No Shortcuts section before phase 5 |
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
 | System shortcuts register at launch only | Keys changed in Settings take effect at the next launch |
-| Demo mode shows no plugin controls in the conversation's header or composer | They mount over a Node's session, which a demo conversation is not |
+| Demo mode shows only the statistics package's controls in the conversation's header and context bar | The other packages' mount over a Node's session and ask it, which a demo conversation is not. The statistics package reads the composer state alone, which the host builds from the demo conversation's usage |
+| A header popover does not open on hover | The source opens one whose declaration sets `hover` while the pointer is over it. No official package declares it; the press opens here |
+| A Usage page filter chosen before the Demo mode switch is flipped stays chosen | The page keeps its own query; the host answers it from the other ledger, which has no such project, provider or model, until the filter is cleared |
 | The selected text is the preview's sample | Reading another app's selection needs the platform's accessibility APIs and a Node |
 | About opens Settings, which has no About section | Settings sections beyond Appearance, Providers and Plugins are later phases |
 | Save (⌘S) and Logs are disabled | The preview has no file editor or log folder (the reference disables Logs without one) |
@@ -585,6 +640,10 @@ field, both catalogs have the same keys, and the models' names.
 | Save all in a window that is not the asking one saves in that window's next frame | Each window's Runtime writes its own files on its UI frame; the prompt polls every 100 ms while saves are under way and only then |
 | Details on a toast for a notice without a conversation opens the notification centre without expanding that notice | The centre's expansion state belongs to its page |
 | Plugin notifications are not gated by the per-kind notification switches | The existing Notifier rule: the three switches name approval, input and task outcomes |
+| A click on a notice without a conversation or citation only reads it; Details on its toast opens the centre | The reference opens the publishing package's page (`shell/activity/attention.rs`). The notice view model does not carry its package, and a package may have no page; a reminder's text is whole in the row and the centre |
+| A background notice the system channel did not take is shown at the next focus, not while the window is in the background | The reference adds the toast at once. A MyGo toast's time runs in the background, so a toast added there is gone before its user returns |
+| A remote host's notices that exist when its connection is first read raise no toast | They were raised for whoever was connected then; the bell and the centre list them |
+| The `terminal` notice details are not read | Nothing on either side writes them (publishing accepts `text` only); the reference's reader is unreachable. The protocol type stays |
 | With the live `OpenLink` set, `#heading` links in replies no longer scroll | MyGo hands every link to `OnLink` once it is set; knowledge links need it |
 
 ## B3 live wiring
@@ -614,16 +673,31 @@ technical report that excludes authored title/body and raw provider errors.
 Copying the report emits `notification_report_copied` after the clipboard write.
 Read/dismiss use captured identifiers and ordinary Node commands; transient
 attention read/dismiss remains Client-owned. One application-lifetime Notifier
-observes Client independently of frames, suppresses categories from controller
-preferences and delivers each new notice once, through one channel. While a
-window is focused that window takes the notice: `Runtime.PresentNotice` adds a
-Kit toast with a Details action, which opens the notice's conversation, or the
-notification centre for a notice without one. A notice of a conversation that
-window is showing has no toast and no system notification. With no focused
-window the notice is a system notification, which the first notification
-preference switches off; that switch does not silence in-app toasts. The
-Notifier's UI scheduler remains alive when all windows are closed; it closes
-before Client shutdown.
+observes the local Client and the controller of every connected host
+(`Notifier.SetNetwork`, following `Network.onChange`) independently of frames,
+suppresses categories from controller preferences and delivers each new notice
+once, through one channel. A host's notices from before this application first
+read them are not news. While a window is focused that window takes the notice:
+`Runtime.PresentNotice` adds a Kit toast with a Details action, which opens the
+notice's conversation, or the notification centre for a notice without one. A
+notice of a conversation that window is showing has no toast and no system
+notification. With no focused window the notice is a system notification, which
+the first notification preference switches off; that switch does not silence
+in-app toasts. A background notice the system channel did not take, because
+that switch is off or the system refused it (`Notifier.Undelivered`), is kept,
+at most `NotificationLimit` of them, and shown as a toast by the next window
+that takes the focus (`Notifier.Returned`), unless it was read or dismissed
+meanwhile. The Notifier's UI scheduler remains alive when all windows are
+closed; it closes before Client shutdown.
+
+A notice carries its package's `presentation`. The toast and the system
+notification are headed by the package's heading in the window's language
+(`shell.NoticeHeading`: `locales[language]`, else `heading`) above the notice's
+title and message; a `persistent` notice's toast stays until it is closed. The
+bell and the centre keep the notice's own title and use the heading only for a
+notice without one. System notices (`power`, `diagnostic`, `system` details)
+keep the application's headings. The centre's Source names the notice's own
+host (`App.noticeSource`), not the local one.
 
 Closing a window or quitting asks once before something is lost.
 `cmd/sailry-desktop/closing.go` owns the decision: MyGo's `Window.OnClose` and

@@ -133,6 +133,15 @@ func workspaceFailures(t *testing.T) {
 		{gitOperation, fault(protocol.ErrorCodeConflict, ""), kit.Conflict, "git_action_conflict"},
 		{gitOperation, fault(protocol.ErrorCodeInvalidRequest, ""), kit.Failed, "git_action_failed"},
 		{gitOperation, fault(protocol.ErrorCodeOutcomeUnknown, ""), kit.Uncertain, "git_action_unknown"},
+		{fileSave, fault(protocol.ErrorCodePermissionDenied, ""), kit.Failed, "workspace_action_failed"},
+		{fileSave, fault(protocol.ErrorCodeConflict, ""), kit.Conflict, "workspace_changed"},
+		{fileSave, fault(protocol.ErrorCodeOutcomeUnknown, ""), kit.Uncertain, "workspace_action_unknown"},
+	}
+	// A save the file's change refused has no toast: the editor asks instead.
+	for _, code := range []protocol.ErrorCode{protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeNotFound} {
+		if _, key := workspaceFailure(fileSave, fault(code, "")); key != "" {
+			t.Errorf("refused save %v toasts %q", code, key)
+		}
 	}
 	for _, lang := range []string{"en", "zh-CN"} {
 		keys := i18n.Keys(lang)
@@ -149,10 +158,30 @@ func workspaceFailures(t *testing.T) {
 	for _, key := range []string{"worktree_main", "worktree_locked", "worktree_unavailable", "worktree_prune_on_select", "worktree_listing_partial",
 		"worktree_base", "worktree_path", "worktree_actions", "workspace_open_worktree", "worktree_load_failed", "worktree_missing_project",
 		"worktree_no_repository", "worktree_revision_failed", "worktree_context_changed", "worktree_open_busy", "worktree_created",
-		"worktree_removed", "worktree_remove_confirm", "worktree_prune", "worktree_prune_confirm", "worktree_pruned"} {
+		"worktree_removed", "worktree_remove_confirm", "worktree_prune", "worktree_prune_confirm", "worktree_pruned", "worktree_unused"} {
 		if !slices.Contains(i18n.Keys("en"), key) || !slices.Contains(i18n.Keys("zh-CN"), key) {
 			t.Errorf("the worktree manager has no copy for %q", key)
 		}
+	}
+}
+
+// worktreeManagerUnused checks which worktrees the manager marks as used by
+// no session: the project's linked ones only.
+func worktreeManagerUnused(t *testing.T) {
+	project, other := protocol.ProjectID{1}, protocol.ProjectID{2}
+	tree := func(id byte, owner *protocol.ProjectID, path string, main bool) protocol.Worktree {
+		return protocol.Worktree{ID: protocol.WorktreeID{id}, Project: owner, Path: path, Main: main}
+	}
+	snapshot := protocol.Snapshot{
+		Worktrees: []protocol.Worktree{tree(1, &project, "/repo", true), tree(2, &project, "/repo/.sailry/worktrees/used", false),
+			tree(3, &project, "/repo/.sailry/worktrees/left", false), tree(4, &other, "/other/.sailry/worktrees/left", false), tree(5, nil, "/profile/workspaces/sessions/one", false)},
+		Sessions: []protocol.Session{{Worktree: protocol.WorktreeID{2}}},
+	}
+	if got := unusedWorktrees(snapshot, &project); len(got) != 1 || !got["/repo/.sailry/worktrees/left"] {
+		t.Fatalf("unused worktrees = %v", got)
+	}
+	if got := unusedWorktrees(snapshot, nil); len(got) != 0 {
+		t.Fatalf("a directory without a project marks %v", got)
 	}
 }
 

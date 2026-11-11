@@ -161,7 +161,7 @@ func TestExternalBrowserNodeIntegration(t *testing.T) {
 	}
 	commandFixture(t, node, protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: history.Page.Runs[0].Turn}})
 	settled("stopped turn kept its browser", func() bool {
-		return read().Page.Runs[0].Status == protocol.ConversationStatusInterrupted && len(node.externalBrowser.Sessions()) == 0 && processes() == ""
+		return read().Page.Runs[0].Status == protocol.ConversationStatusCancelled && len(node.externalBrowser.Sessions()) == 0 && processes() == ""
 	})
 
 	// Stopping the Node closes every remaining browser.

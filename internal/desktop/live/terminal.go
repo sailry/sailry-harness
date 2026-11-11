@@ -189,7 +189,7 @@ func (r *Runtime) terminalScreen(c *ui.Context, id string) {
 		}
 	}
 	if state != nil && state.reading {
-		ui.Spinner(c).Label(i18n.T(c, "terminal"))
+		ui.Row(c.Key("attaching")).Fill().Center().Children(func() { kit.Loader(c, 20) })
 		return
 	}
 	if state == nil || state.failed || state.terminal == nil {

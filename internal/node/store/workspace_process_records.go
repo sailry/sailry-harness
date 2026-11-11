@@ -195,7 +195,7 @@ func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, no
 		// A reserved delivery keeps the evidence its notice was rendered from.
 		return nil, false, nil
 	case record.Task.State != protocol.ConversationBackgroundStatePending:
-		record.Task.Delivery, record.Task.Recovered, record.Task.Suppressed = nil, false, false
+		record.Task.Delivery, record.Task.Recovered, record.Task.Suppressed, record.Task.Hold = nil, false, false, nil
 	}
 	record.FollowUp = command.FollowUp
 	elapsed := stalled.ElapsedMs
@@ -341,16 +341,15 @@ func RecoverCommands(ctx context.Context, db *sql.Conn, now time.Time) ([]protoc
 				return nil, err
 			}
 			if run.Notice && run.Status == protocol.ConversationStatusQueued {
-				if _, _, err := FinishTurn(ctx, db, run.Turn, protocol.ConversationStatusCancelled, nil, now); err != nil {
-					return nil, err
-				}
-				if _, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", run.Turn.String()); err != nil {
+				// The unstarted notice turn leaves the queue without pausing it
+				// or raising attention: nothing of the user's was interrupted.
+				if _, err := cancelAutomaticInput(ctx, db, run, nil, now); err != nil {
 					return nil, err
 				}
 			}
 		}
 		record.Task.Delivery = nil
-		record.Task.Recovered, record.Task.Suppressed = true, true
+		record.Task.Recovered, record.Task.Suppressed, record.Task.Hold = true, true, new(protocol.ConversationBackgroundHoldInterrupted)
 		if err := saveBackgroundRecord(ctx, db, &record); err != nil {
 			return nil, err
 		}

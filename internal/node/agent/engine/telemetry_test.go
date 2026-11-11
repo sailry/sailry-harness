@@ -23,6 +23,10 @@ func TestCountedTools(t *testing.T) {
 	t.Run("every registered built-in is counted or excluded with a reason", func(t *testing.T) {
 		r, x := builtinsFixture(t, catalog)
 		registered := r.builtins(x)
+		// Discovery joins the catalog after the deferral pass.
+		if search := r.builtinSearch(x); search != nil {
+			registered = append(registered, *search)
+		}
 		var names []string
 		for _, tool := range registered {
 			names = append(names, tool.Definition.Name)

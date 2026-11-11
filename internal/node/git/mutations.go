@@ -16,6 +16,16 @@ func (s *Service) CreateCommit(ctx context.Context, root string, input protocol.
 	if strings.TrimSpace(input.Message) == "" || len(input.Message) > 16*1024 || strings.ContainsRune(input.Message, 0) {
 		return result, invalid("invalid Git commit message")
 	}
+	// The commit holds the root lock; its push or sync runs after it.
+	unlock := s.lock(root)
+	locked := true
+	release := func() {
+		if locked {
+			locked = false
+			unlock()
+		}
+	}
+	defer release()
 	if err := s.Check(ctx, root, input.ExpectedIndex, input.ExpectedHead, input.ExpectedBranch); err != nil {
 		return result, err
 	}
@@ -50,6 +60,7 @@ func (s *Service) CreateCommit(ctx context.Context, root string, input protocol.
 		return result, fault(protocol.ErrorCodeOutcomeUnknown, "Git commit result could not be confirmed")
 	}
 	result.ID = *h.Head
+	release()
 	follow := func() error {
 		if input.Options.After == protocol.GitAfterCommitNone {
 			return nil
@@ -61,15 +72,15 @@ func (s *Service) CreateCommit(ctx context.Context, root string, input protocol.
 			if _, err := r.Remote(*input.Options.PushRemote); err != nil {
 				return mapError(err)
 			}
-			_, err := s.command(ctx, root, []string{"push", "--set-upstream", *input.Options.PushRemote, "HEAD:refs/heads/" + *input.ExpectedBranch}, nil, false)
+			_, err := s.network(ctx, root, []string{"push", "--set-upstream", *input.Options.PushRemote, "HEAD:refs/heads/" + *input.ExpectedBranch})
 			return err
 		}
 		if input.Options.After == protocol.GitAfterCommitSync {
-			if _, err := s.command(ctx, root, []string{"pull", "--no-rebase", "--no-edit"}, nil, false); err != nil {
+			if err := s.pull(ctx, root, "--no-rebase"); err != nil {
 				return err
 			}
 		}
-		_, err := s.command(ctx, root, []string{"push"}, nil, false)
+		_, err := s.network(ctx, root, []string{"push"})
 		return err
 	}
 	if err := follow(); err != nil {

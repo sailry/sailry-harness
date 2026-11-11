@@ -127,6 +127,19 @@ type BackupTarget struct {
 	Time                             time.Time // the daily time
 	Timezone                         string
 	PassphraseSet, CredentialsSet    bool
+	// Keep is how many of this Node's backups stay in storage; 0 keeps all.
+	Keep int
+	// Last is how the most recent backup ended.
+	Last BackupLast
+}
+
+// BackupLast is the most recent backup's outcome; At is zero before any.
+// Problem is the i18n key of a failure, "" after a success; Reason is the
+// Node's own account of it; Skipped counts the items the backup left out.
+type BackupLast struct {
+	At              time.Time
+	Problem, Reason string
+	Skipped         int
 }
 
 // Model is the settings pages' view model.
@@ -165,7 +178,7 @@ type Model struct {
 	Sandbox        Stored[bool]
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
-	TextSize       float64 // 12..18 by 2
+	TextSize       float64 // 12..18, a pixel a step
 
 	// Shortcuts.
 	Keys Keys
@@ -297,7 +310,10 @@ type Model struct {
 	Python        Stored[Python]
 	OCR           LocalModels
 	Knowledge     LocalModels // embedding models (knowledge-settings)
-	Decision      LocalModels // decision models
+	// Collections are the selected host's knowledge collections; the
+	// preview has none.
+	Collections []viewmodel.KnowledgeCollection
+	Decision    LocalModels // decision models
 
 	// Permissions.
 	Permissions []preview.Permission

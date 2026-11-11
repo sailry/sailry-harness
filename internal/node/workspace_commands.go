@@ -205,13 +205,33 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		return node.readWorkspaceCatalog(ctx, command)
 	}
 	access := core.FileAccessForRequest(request, request.Plugin != nil)
-	if request.Command.Durable() && command.Kind != "run_command" && command.Kind != "stop_command" && command.Kind != "stop_commands" && command.Kind != "write_command" {
-		node.effects.Lock()
-		effect.release = node.effects.Unlock
-	}
+	registrations := node.locks.registrations.Load()
 	source, root, err := node.workspaceRoots(ctx, command, request.Plugin != nil)
 	if err != nil {
 		return protocol.Output{}, err
+	}
+	if request.Command.Durable() {
+		switch command.Kind {
+		case "run_git_action", "create_git_commit":
+			// The Git service locks the root itself, around its local work
+			// only, so that a transfer with a remote does not hold it.
+		case "run_command", "stop_command", "stop_commands", "write_command":
+		case "create_worktree", "create_managed_worktree", "remove_worktree":
+			effect.release = node.locks.registration()
+		default:
+			effect.release = node.locks.effect(source, root)
+		}
+		if effect.release != nil && node.locks.registrations.Load() != registrations {
+			// A project or worktree was registered, moved or removed while
+			// this effect waited; it must not run in a root that changed.
+			current, target, err := node.workspaceRoots(ctx, command, request.Plugin != nil)
+			if err != nil {
+				return protocol.Output{}, err
+			}
+			if current != source || target != root {
+				return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "worktree changed while the operation waited; retry"}
+			}
+		}
 	}
 	if files.SupportsRead(command.Kind) {
 		return node.inspectWorkspaceFiles(ctx, request, root, access)
@@ -337,6 +357,8 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
 			return out, nil, store.DiscardAttachment(ctx, db, caller, input.Worktree, input.Attachment)
 		}
+		// The command still holds the effects lock; the discarded file goes now.
+		effect.after = func() { node.collectAttachmentsHeld(context.WithoutCancel(ctx)) }
 		return protocol.Output{Kind: "attachment_discarded", Data: protocol.OutputAttachmentDiscardedPayload{Attachment: input.Attachment}}, nil
 	case "restore_file_checkpoint":
 		return node.restoreWorkspaceCheckpoint(ctx, request, root)

@@ -43,6 +43,46 @@ func ReadArtifactHTML(ctx context.Context, profile string, artifact protocol.Art
 	return string(data), nil
 }
 
+// RemoveArtifacts deletes the artifact directories of the given sessions. The
+// caller names only sessions that keep no artifact row.
+func RemoveArtifacts(profile string, sessions []protocol.SessionID) error {
+	root, err := os.OpenRoot(profile)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	identity, err := root.Lstat("artifacts")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !identity.IsDir() {
+		return invalid("artifact storage is not an ordinary directory")
+	}
+	listing, err := root.Open("artifacts")
+	if err != nil {
+		return err
+	}
+	names, err := listing.Readdirnames(-1)
+	listing.Close()
+	if err != nil {
+		return err
+	}
+	owners := make(map[string]bool, len(sessions))
+	for _, session := range sessions {
+		owners[session.String()] = true
+	}
+	for _, name := range names {
+		if owners[name] {
+			// The root confines the removal; a link is removed, not followed.
+			err = errors.Join(err, root.RemoveAll("artifacts/"+name))
+		}
+	}
+	return err
+}
+
 // WriteArtifactHTML publishes a captured unreferenced revision. SQL metadata is
 // committed by the caller only after this physical receipt is returned.
 func WriteArtifactHTML(ctx context.Context, profile string, artifact protocol.ArtifactSummary, html string) (string, error) {

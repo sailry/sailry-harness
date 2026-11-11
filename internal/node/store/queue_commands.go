@@ -82,7 +82,16 @@ func setQueuePaused(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	if err := bumpQueue(ctx, db, session); err != nil {
 		return err
 	}
-	_, err := db.ExecContext(ctx, "UPDATE agent_queues SET paused=?2 WHERE session=?1", session.String(), paused)
+	_, err := db.ExecContext(ctx, "UPDATE agent_queues SET paused=?2,pause_reason=NULL WHERE session=?1", session.String(), paused)
+	return err
+}
+
+// pauseQueue pauses a session's queue and records why, for its clients.
+func pauseQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID, reason protocol.ConversationQueuePause) error {
+	if err := bumpQueue(ctx, db, session); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,pause_reason=?2 WHERE session=?1", session.String(), string(reason))
 	return err
 }
 func readQueuedMessage(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationQueuedMessage, error) {
@@ -111,11 +120,16 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 	if err := requireSession(ctx, db, session); err != nil {
 		return value, err
 	}
-	err := db.QueryRowContext(ctx, "SELECT revision,paused FROM agent_queues WHERE session=?1", session.String()).Scan(&value.Revision, &value.Paused)
+	var reason sql.NullString
+	err := db.QueryRowContext(ctx, "SELECT revision,paused,pause_reason FROM agent_queues WHERE session=?1", session.String()).Scan(&value.Revision, &value.Paused, &reason)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient,a.input FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
+	// The reason is read only while paused, so every resume clears it.
+	if value.Paused && reason.Valid {
+		value.PauseReason = new(protocol.ConversationQueuePause(reason.String))
+	}
+	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient,a.input,p.request FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
 	if err != nil {
 		return value, err
 	}
@@ -125,20 +139,28 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 		var revision uint64
 		var ready bool
 		var recipient sql.NullString
-		if err = rows.Scan(&body, &revision, &ready, &requestBody, &recipient, &capturedInput); err != nil {
+		var requestID string
+		if err = rows.Scan(&body, &revision, &ready, &requestBody, &recipient, &capturedInput, &requestID); err != nil {
 			return value, err
 		}
 		var run protocol.ConversationRun
-		var request protocol.Request
 		if err = json.Unmarshal(body, &run); err != nil {
 			return value, err
 		}
-		if err = json.Unmarshal(requestBody, &request); err != nil {
-			return value, err
+		id, e := protocol.ParseRequestID(requestID)
+		if e != nil {
+			return value, e
 		}
-		message, e := agentInput(request.Command)
+		// Captured input is read from the run: a request admitted inside a
+		// plugin transaction is stored as a digest, not as its command.
+		var message protocol.ConversationInput
 		if len(capturedInput) > 0 {
 			e = json.Unmarshal(capturedInput, &message)
+		} else {
+			var request protocol.Request
+			if e = json.Unmarshal(requestBody, &request); e == nil {
+				message, e = agentInput(request.Command)
+			}
 		}
 		if e != nil {
 			return value, e
@@ -147,7 +169,7 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 		pending := protocol.DefaultConversationPending()
 		pending.Turn = run.Turn
 		pending.Notice = run.Notice
-		pending.Request = &request.ID
+		pending.Request = &id
 		pending.Kind = run.Kind
 		pending.Revision = revision
 		pending.ConfigRevision = run.Revision
@@ -235,7 +257,7 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 		return run, err
 	}
 	if run.Status == protocol.ConversationStatusQueued || retained {
-		if _, err = ReleaseBackground(ctx, db, turn, true); err != nil {
+		if _, err = ReleaseBackground(ctx, db, turn, new(protocol.ConversationBackgroundHoldStopped)); err != nil {
 			return run, err
 		}
 		if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", turn.String()); err != nil {
@@ -256,7 +278,7 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 		}
 	case protocol.ConversationStatusRunning:
 		run.Status = protocol.ConversationStatusStopping
-		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
+		if err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseStopped); err != nil {
 			return run, err
 		}
 	}
@@ -299,6 +321,37 @@ func reorderQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID,
 	}
 	return bumpQueue(ctx, db, session)
 }
+
+// sameCapture reports whether two turns froze the same execution settings:
+// model, mode and permissions, roles, plugins and hooks. Guidance may join
+// only a turn it would have run identically to.
+func sameCapture(ctx context.Context, db *sql.Conn, a, b protocol.TurnID) (bool, error) {
+	var frozen [2][]byte
+	for i, turn := range []protocol.TurnID{a, b} {
+		capture, err := readTurnCapture(ctx, db, turn)
+		if err != nil {
+			return false, err
+		}
+		var hooks []byte
+		if err = db.QueryRowContext(ctx, "SELECT hooks FROM agent_runs WHERE turn=?1", turn.String()).Scan(&hooks); err != nil {
+			return false, err
+		}
+		if frozen[i], err = encode(struct {
+			Config  any
+			Roles   any
+			Plugins any
+			Hooks   string
+		}{capture.Config, capture.Roles, capture.Plugins, string(hooks)}); err != nil {
+			return false, err
+		}
+	}
+	return bytes.Equal(frozen[0], frozen[1]), nil
+}
+
+// tagGuidance addresses a queued input to the running turn. Compatible input
+// waits for that turn's next boundary, placed after the guidance already
+// waiting for it and ahead of ordinary items; input with other settings stays
+// an ordinary ready item in its place.
 func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID) error {
 	source, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
@@ -308,32 +361,103 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 	if err != nil {
 		return err
 	}
-	if target.Status != protocol.ConversationStatusRunning || target.Session != source.Session || target.Worktree != source.Worktree {
+	if target.Kind != protocol.ConversationRunKindTask || target.Status != protocol.ConversationStatusRunning {
+		return fault(protocol.ErrorCodeConflict, "guidance requires an active task recipient")
+	}
+	if source.Kind != protocol.ConversationRunKindTask || source.Notice || source.Continuation != nil || target.Session != source.Session || target.Worktree != source.Worktree {
 		return fault(protocol.ErrorCodeConflict, "guidance belongs to another execution scope")
 	}
-	a, err := readTurnCapture(ctx, db, turn)
+	compatible, err := sameCapture(ctx, db, turn, recipient)
 	if err != nil {
 		return err
 	}
-	b, err := readTurnCapture(ctx, db, recipient)
-	if err != nil {
-		return err
-	}
-	aa, _ := encode(a.Config)
-	bb, _ := encode(b.Config)
 	source.Guidance = &recipient
 	if err = putAgentRun(ctx, db, source); err != nil {
 		return err
 	}
-	if !bytes.Equal(aa, bb) {
+	if !compatible {
+		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
+			return err
+		}
 		_, err = startQueued(ctx, db, turn)
 		return err
 	}
 	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1", turn.String(), recipient.String()); err != nil {
 		return err
 	}
-	_, err = startQueued(ctx, db, turn)
-	return err
+	if _, err = startQueued(ctx, db, turn); err != nil {
+		return err
+	}
+	queue, err := ReadQueue(ctx, db, source.Session)
+	if err != nil {
+		return err
+	}
+	others := []protocol.TurnID{}
+	last := -1
+	for _, item := range queue.Items {
+		if item.Turn == turn {
+			continue
+		}
+		if item.Guidance != nil && *item.Guidance == recipient {
+			last = len(others)
+		}
+		others = append(others, item.Turn)
+	}
+	var before *protocol.TurnID
+	if last+1 < len(others) {
+		before = &others[last+1]
+	}
+	return reorderQueue(ctx, db, source.Session, turn, before)
+}
+
+// addressSuccessors batches guidance that outlived its recipient. When the
+// first such input starts its own turn, the inputs sent to the same recipient
+// that directly follow it are addressed to that turn, so they join it
+// together before its first model step instead of each being answered alone.
+func addressSuccessors(ctx context.Context, db *sql.Conn, primary protocol.ConversationRun) error {
+	if primary.Kind != protocol.ConversationRunKindTask || primary.Guidance == nil || primary.Notice || primary.Continuation != nil {
+		return nil
+	}
+	queue, err := ReadQueue(ctx, db, primary.Session)
+	if err != nil {
+		return err
+	}
+	for _, item := range queue.Items {
+		if item.Turn == primary.Turn {
+			continue
+		}
+		run, err := ReadAgentRun(ctx, db, item.Turn)
+		if err != nil {
+			return err
+		}
+		if item.Guidance != nil || !item.Ready || item.Notice || run.Kind != protocol.ConversationRunKindTask || run.Status != protocol.ConversationStatusQueued || run.Continuation != nil || run.Guidance == nil || *run.Guidance != *primary.Guidance {
+			return nil
+		}
+		compatible, err := sameCapture(ctx, db, item.Turn, primary.Turn)
+		if err != nil || !compatible {
+			return err
+		}
+		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1", item.Turn.String(), primary.Turn.String()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// releaseGuidance returns guidance its finished recipient never joined to the
+// ordinary queue. It keeps its place and readiness, so it starts by the queue
+// rules: at once after a turn that left the queue running, or on Send now or
+// Resume after a stop.
+func releaseGuidance(ctx context.Context, db *sql.Conn, recipient protocol.ConversationRun) error {
+	result, err := db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient=?1", recipient.Turn.String())
+	if err != nil {
+		return err
+	}
+	released, err := result.RowsAffected()
+	if err != nil || released == 0 {
+		return err
+	}
+	return bumpQueue(ctx, db, recipient.Session)
 }
 func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) ([]AgentGuidance, []protocol.Event, error) {
 	target, err := ReadAgentRun(ctx, db, recipient)
@@ -375,7 +499,9 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 			return nil, nil, e
 		}
 		run.Joined = &recipient
-		run.Guidance = &recipient
+		if run.Guidance == nil {
+			run.Guidance = &recipient
+		}
 		run.Status = protocol.ConversationStatusCompleted
 		run.StartedMs = target.StartedMs
 		run.FinishedMs = target.StartedMs

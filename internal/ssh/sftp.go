@@ -101,7 +101,12 @@ func List(client *sftp.Client, path string, after *protocol.SshCursor) (protocol
 		if strings.ContainsAny(entry.Name(), "/\x00") {
 			continue
 		}
-		entries = append(entries, protocol.FileEntry{Name: entry.Name(), Kind: entryKind(entry.Mode()), Size: uint64(max(entry.Size(), 0))})
+		item := protocol.FileEntry{Name: entry.Name(), Kind: entryKind(entry.Mode()), Size: uint64(max(entry.Size(), 0))}
+		if modified := entry.ModTime().UnixMilli(); modified > 0 {
+			stamp := uint64(modified)
+			item.ModifiedMs = &stamp
+		}
+		entries = append(entries, item)
 	}
 	entries, next := PageEntries(entries, after)
 	return protocol.SshDirectory{Path: path, Entries: entries, Next: next}, nil

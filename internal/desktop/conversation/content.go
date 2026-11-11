@@ -67,6 +67,7 @@ func FileIcon(f File) *ui.SVG {
 // Request edit). A document with a picture shows it on top.
 func fileCard(c *ui.Context, key string, f File, actions Actions) {
 	p := theme.Of(c)
+	size := textSize(c)
 	card := ui.Column(c.Key(key)).FillWidth().MinWidth(0).Radius(p.Radius2xl()).Border(1, p.Border).
 		Background(p.Surface.Alpha(0.8)).Clip()
 	card.Children(func() {
@@ -85,8 +86,8 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 					ui.Icon(c, FileIcon(f)).FontSize(28).TextColor(p.MutedForeground)
 				})
 				ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-					ui.Text(c, f.Name()).FontSize(14).SingleLine()
-					ui.Text(c, Kind(c, f)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+					ui.Text(c, f.Name()).FontSize(size).SingleLine()
+					ui.Text(c, Kind(c, f)).FontSize(size - 2).SingleLine().TextColor(p.MutedForeground)
 				})
 			})
 			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "artifact_open"), 28, false).OnClick(func() { actions.OpenFile(f) })
@@ -163,7 +164,7 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 		ui.Text(c.Key(struct {
 			Key   string
 			Index int
-		}{key, i}), i18n.T(c, "chat_image_missing")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+		}{key, i}), i18n.T(c, "chat_image_missing")).FontSize(textSize(c)).TextColor(theme.Of(c).MutedForeground)
 	}
 }
 
@@ -188,6 +189,7 @@ func visual(c *ui.Context, key string, v *Visual) {
 // icon, title and outcome in its tone.
 func notices(c *ui.Context, list []Notice) {
 	p := theme.Of(c)
+	size := textSize(c)
 	ui.Row(c.Key("notices")).Justify(ui.End).Children(func() {
 		ui.Column(c).Gap(6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).MaxWidth(bubbleMax).
 			Label(i18n.T(c, "background_notice_title")).Children(func() {
@@ -197,9 +199,9 @@ func notices(c *ui.Context, list []Notice) {
 					if n.Agent {
 						icon = icons.Bot
 					}
-					ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
-					ui.Text(c, n.Title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-					ui.Text(c, i18n.T(c, outcomeKey(n.Outcome))).FontSize(14).Shrink(0).TextColor(outcomeTone(p, n.Outcome))
+					ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(p.MutedForeground)
+					ui.Text(c, n.Title).FontSize(size).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+					ui.Text(c, i18n.T(c, outcomeKey(n.Outcome))).FontSize(size).Shrink(0).TextColor(outcomeTone(p, n.Outcome))
 				})
 			}
 		})
@@ -226,7 +228,7 @@ func outcomeTone(p *theme.Palette, o NoticeOutcome) ui.Color {
 // the answer, its numbered sources and the provider's suggestions.
 func (s *State) grounding(c *ui.Context, key string, b Block) {
 	head := Call{Label: i18n.T(c, "chat_search_result"), Icon: "globe"}
-	t := rowSize(ui.ButtonBase(c.Key("search-"+key)), false).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
+	t := rowSize(ui.ButtonBase(c.Key("search-"+key)), textSize(c), false).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
 		Justify(ui.Start).Cursor(ui.CursorPointer)
 	hovered := t.Hovered() || t.FocusVisible()
 	sw := &kit.Sweep{}
@@ -251,6 +253,7 @@ func (s *State) searchResult(c *ui.Context) {
 		return
 	}
 	p := theme.Of(c)
+	size := textSize(c) // the answer's and its sources', under the dialog's own title
 	b := s.result
 	open := true
 	options := markdown.Options{Theme: s.md.Theme, OnLink: func(link string) {
@@ -282,9 +285,9 @@ func (s *State) searchResult(c *ui.Context) {
 							}
 							ui.Row(c.Key(i)).Gap(8).MinWidth(0).Children(func() {
 								if numbered {
-									ui.Text(c, fmt.Sprint(i+1)).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
+									ui.Text(c, fmt.Sprint(i+1)).FontSize(size - 2).Shrink(0).TextColor(p.MutedForeground)
 								}
-								ui.Link(c, title, src.URI).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+								ui.Link(c, title, src.URI).FontSize(size).SingleLine().Shrink(1).MinWidth(0)
 							})
 						}
 					})
@@ -330,7 +333,7 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 	}
 	s.disclosure(c, "retry-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 		ui.Scroll(c).MaxHeight(160).Children(func() {
-			ui.Text(c, r.Detail).Selectable().FontSize(14).TextColor(p.MutedForeground)
+			ui.Text(c, r.Detail).Selectable().FontSize(textSize(c)).TextColor(p.MutedForeground)
 		})
 	})
 }
@@ -340,6 +343,7 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 // finished one opens its summary, a failed one its cause.
 func (s *State) compaction(c *ui.Context, t *Turn) {
 	p := theme.Of(c)
+	size := textSize(c)
 	k := t.Compaction
 	key := map[CompactionState]string{
 		Compacted: "chat_compacted", CompactionRunning: "chat_compacting", CompactionQueued: "chat_compact_queued",
@@ -360,13 +364,13 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 			cause = i18n.T(c, "compact_reason_unknown")
 		}
 		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-			ui.Text(c, cause).Selectable().FontSize(14).TextColor(p.Danger)
+			ui.Text(c, cause).Selectable().FontSize(size).TextColor(p.Danger)
 		})
 	case k.Summary != "":
 		head := Call{Label: label, Icon: "file-text"}
 		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 			ui.Scroll(c).MaxHeight(240).Children(func() {
-				ui.Text(c, k.Summary).Selectable().FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
+				ui.Text(c, k.Summary).Selectable().FontSize(size).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
 			})
 		})
 	default:
@@ -377,9 +381,9 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 		ui.Row(c.Key("compaction")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(tone).Children(func() {
 			ui.Box(c).Height(1).Grow(1).Background(p.Border)
 			if k.State == CompactionRunning || k.State == CompactionQueued {
-				kit.Shimmer(c, label, 14, p.MutedForeground)
+				kit.Shimmer(c, label, size, p.MutedForeground)
 			} else {
-				ui.Text(c, label).FontSize(14)
+				ui.Text(c, label).FontSize(size)
 			}
 			ui.Box(c).Height(1).Grow(1).Background(p.Border)
 		})
@@ -388,12 +392,13 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 
 func diffBadge(c *ui.Context, added, removed int) {
 	p := theme.Of(c)
+	size := textSize(c) - 2
 	ui.Row(c).Gap(6).Shrink(0).Children(func() {
 		if added > 0 || removed == 0 {
-			ui.Text(c, fmt.Sprintf("+%d", added)).Font("monospace").FontSize(12).TextColor(p.Success)
+			ui.Text(c, fmt.Sprintf("+%d", added)).Font("monospace").FontSize(size).TextColor(p.Success)
 		}
 		if removed > 0 {
-			ui.Text(c, fmt.Sprintf("−%d", removed)).Font("monospace").FontSize(12).TextColor(p.Danger)
+			ui.Text(c, fmt.Sprintf("−%d", removed)).Font("monospace").FontSize(size).TextColor(p.Danger)
 		}
 	})
 }
@@ -407,6 +412,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 	if ch == nil || len(ch.Files) == 0 {
 		return
 	}
+	size := textSize(c) // the texts'; the card's tile, rows and buttons keep their sizes
 	added, removed := 0, 0
 	for _, f := range ch.Files {
 		added, removed = added+f.Added, removed+f.Removed
@@ -420,7 +426,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 				ui.Icon(c, icons.FileText).FontSize(20).TextColor(p.MutedForeground)
 			})
 			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-				ui.Text(c, i18n.T(c, "turn_changes_count", "count", len(ch.Files))).FontSize(14)
+				ui.Text(c, i18n.T(c, "turn_changes_count", "count", len(ch.Files))).FontSize(size)
 				diffBadge(c, added, removed)
 			})
 			undo := i18n.T(c, "turn_changes_undo")
@@ -451,7 +457,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 			done := all || ch.Undone[f.Path]
 			row.Children(func() {
 				dir := f.Path[:strings.LastIndexByte(f.Path, '/')+1]
-				ui.RichText(c, ui.Span{Text: dir, Color: p.MutedForeground}, ui.Span{Text: f.Path[len(dir):]}).FontSize(14).SingleLine().
+				ui.RichText(c, ui.Span{Text: dir, Color: p.MutedForeground}, ui.Span{Text: f.Path[len(dir):]}).FontSize(size).SingleLine().
 					Grow(1).Shrink(1).MinWidth(0)
 				ui.Row(c).Width(deltaWidth).Shrink(0).Justify(ui.End).Children(func() {
 					if !hovered {
@@ -476,12 +482,12 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 				BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Background(p.Muted.Alpha(0.2)).Cursor(ui.CursorPointer).Justify(ui.Start)
 			hovered := t.Hovered()
 			t.Children(func() {
-				ui.Text(c, label).FontSize(14).TextColor(p.MutedForeground)
+				ui.Text(c, label).FontSize(size).TextColor(p.MutedForeground)
 				chevron := icons.ChevronRight
 				if more {
 					chevron = icons.ChevronDown
 				}
-				ch := ui.Icon(c, chevron).FontSize(caretSize).TextColor(p.MutedForeground)
+				ch := ui.Icon(c, chevron).FontSize(caretSize(size)).TextColor(p.MutedForeground)
 				if !hovered {
 					ch.Opacity(0)
 				}

@@ -134,6 +134,9 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		f.Message = "Model stream ended before a completion event"
 	}
+	if errors.Is(err, stallError{}) {
+		f.Kind, f.Message = Network, "Model stream sent no data for 600 seconds"
+	}
 	f.Message = safeDiagnostic(f.Message, secrets)
 	return f
 }

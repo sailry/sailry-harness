@@ -187,8 +187,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	}
 	if owner := r.conversationRuntime(cv, comp); owner == nil {
 		cv.Session.Connection = conversation.Offline
-		// The Host is gone: a draft may still move to another one.
-		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue, Hosts: r.composerHosts(comp), Projects: r.composerProjects()},
+		// The Host is gone: the read-only bar still names the draft's project.
+		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue, Projects: r.composerProjects()},
 			&conversationActions{r: r, c: c, cv: cv, comp: comp}
 	} else if owner != r {
 		return owner.conversation(c, cv, comp)
@@ -287,7 +287,9 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			ctx.Families = append(ctx.Families, family)
 		}
 	}
-	ctx.Hosts, ctx.Projects = r.composerHosts(comp), r.composerProjects()
+	// Context.Hosts stays empty: the composer has no host choice
+	// (docs/removed-ui.md); a draft runs on its project's Node.
+	ctx.Projects = r.composerProjects()
 	if s, ok := r.session(cv.ID); ok {
 		ctx.LocationLocked = true
 		comp.Project = ""
@@ -718,7 +720,12 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			}
 			if guide {
 				if run, ok := x.activeRun(); ok {
-					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, finish)
+					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, func(output protocol.Output, ok bool) {
+						finish(output, ok)
+						if queued, admitted := detail[protocol.QueuedTurn](output.Data); ok && admitted {
+							x.guided(queued.ID, run.Turn)
+						}
+					})
 				} else {
 					delete(x.r.composerOutgoing, x.cv.ID)
 					x.unavailable()

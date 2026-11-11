@@ -182,6 +182,57 @@ func RegisterLocalModel(ctx context.Context, db *sql.Conn, capabilities localmod
 	return protocol.Output{Kind: "local_model", Data: protocol.OutputLocalModelPayload{ID: id}}, nil, nil
 }
 
+// ForgetLocalModel deletes the registration of a model whose files were
+// removed and reports whether it did. A model the settings select or a
+// knowledge collection names stays registered, so that the choice keeps its
+// name and the collection its model. A pinned model has no registration and
+// stays listed.
+func ForgetLocalModel(ctx context.Context, db *sql.Conn, id string) (bool, error) {
+	settings, err := ReadLocalModelSettings(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	for _, choice := range settings.Choices {
+		if choice.Model != nil && *choice.Model == id {
+			return false, nil
+		}
+	}
+	rows, err := db.QueryContext(ctx, "SELECT body FROM knowledge_collections")
+	if err != nil {
+		return false, err
+	}
+	used := false
+	for rows.Next() && !used {
+		var body []byte
+		var stored struct {
+			Collection struct {
+				Definition struct {
+					Model *string `json:"model"`
+				} `json:"definition"`
+			} `json:"collection"`
+		}
+		if err := rows.Scan(&body); err != nil {
+			rows.Close()
+			return false, err
+		}
+		if err := json.Unmarshal(body, &stored); err != nil {
+			rows.Close()
+			return false, err
+		}
+		model := stored.Collection.Definition.Model
+		used = model != nil && *model == id
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil || used {
+		return false, err
+	}
+	result, err := db.ExecContext(ctx, "DELETE FROM local_models WHERE id=?1", id)
+	if err != nil {
+		return false, err
+	}
+	deleted, err := result.RowsAffected()
+	return deleted > 0, err
+}
+
 // AuthorizeLocalModelRemoval admits a plugin's model removal only as the
 // approved tool call that captured it. Controllers pass.
 func AuthorizeLocalModelRemoval(ctx context.Context, db *sql.Conn, request protocol.Request) error {

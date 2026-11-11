@@ -40,9 +40,25 @@ func TestWelcomeGuide(t *testing.T) {
 		tt.Frame()
 	}
 	snapshot(t, tt, "welcome-guide")
-	if !tt.HasText(i18n.In("en", "telemetry_welcome")) {
-		t.Fatalf("no diagnostics note: %q", tt.Texts())
-	}
+	// The guide ends with the picker: no diagnostics note and no Settings
+	// button (docs/removed-ui.md).
+	t.Run("no diagnostics note or Settings", func(t *testing.T) {
+		if note := "Anonymous diagnostics are on by default. You can change this in Settings"; tt.HasText(note) {
+			t.Errorf("the guide has the diagnostics note %q", note)
+		}
+		picker := false // the guide's parts follow the page's, in order
+		for _, e := range tt.AccessAll() {
+			switch {
+			case e.Role == ui.RoleButton && e.Name == "DeepSeek":
+				picker = true
+			case picker && e.Role == ui.RoleButton && e.Name == i18n.In("en", "settings"):
+				t.Errorf("the guide has a Settings button under its picker, at %v", e.Bounds)
+			}
+		}
+		if !picker {
+			t.Fatalf("no picker in the guide: %q", tt.Texts())
+		}
+	})
 	clickButton(t, tt, "DeepSeek")
 	tt.Frame()
 	tt.Advance(time.Second)
@@ -57,17 +73,6 @@ func TestWelcomeGuide(t *testing.T) {
 	}
 	if p := a.Prefs(); p.WelcomeSeen == nil || !*p.WelcomeSeen {
 		t.Error("the guide is not remembered as seen")
-	}
-	// The note's Settings closes the guide as seen and opens Settings ›
-	// General, where diagnostics are.
-	a.Welcome.Seen = false
-	tt.Frame()
-	clickButton(t, tt, i18n.In("en", "settings"))
-	tt.Frame()
-	tt.Advance(time.Second)
-	tt.Frame()
-	if a.Welcome.Open || !a.Welcome.Seen || a.Page != SettingsPage || a.Settings.Section != settings.General || tt.HasText(i18n.In("en", "onboarding_title")) {
-		t.Fatalf("Settings: %+v page %d %s", a.Welcome, a.Page, a.Settings.Section)
 	}
 }
 

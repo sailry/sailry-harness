@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -244,7 +245,7 @@ func (state *pluginNativeState) renderArtifact(view *ui.Context, element plugins
 		return ui.Element{}, mounted.err
 	}
 	if mounted.pending || mounted.content == nil {
-		return ui.Row(view).Fill().Center().Children(func() { ui.Spinner(view) }), nil
+		return ui.Row(view).Fill().Center().Children(func() { kit.Loader(view, 20) }), nil
 	}
 	rendered := false
 	region := ui.Column(view).Fill().MinWidth(0).MinHeight(0).Disabled(suspended).Children(func() {

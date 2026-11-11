@@ -84,7 +84,7 @@ func (session *session) execute(ctx context.Context, action protocol.ExternalBro
 	if err != nil {
 		var known *protocol.Fault
 		if errors.As(err, &known) {
-			return nil, err
+			return nil, known
 		}
 		return nil, unavailable(err.Error())
 	}
@@ -178,7 +178,7 @@ func (session *session) element(ctx context.Context, selector string, limit time
 	cancel()
 	if err != nil {
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-			return unavailable("Element not found: " + selector)
+			return &missing{unavailable("Element not found: " + selector)}
 		}
 		return failed("Element lookup failed", err)
 	}
@@ -187,6 +187,23 @@ func (session *session) element(ctx context.Context, selector string, limit time
 	return chromedp.Do(acting, chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 		return use(ctx, t, nodes[0])
 	}))
+}
+
+// errNotFound marks the fault of a selector that matched nothing in time.
+var errNotFound = errors.New("element not found")
+
+// missing is that fault. It still reads as the fault it wraps, so every
+// caller reports it unchanged, and a wait can tell it from a failure.
+type missing struct{ fault error }
+
+func (missing *missing) Error() string        { return missing.fault.Error() }
+func (missing *missing) Unwrap() error        { return missing.fault }
+func (missing *missing) Is(target error) bool { return target == errNotFound }
+
+// waited reports that a page condition did not hold within its own limit
+// while the call itself was not interrupted.
+func waited(ctx context.Context, err error) bool {
+	return ctx.Err() == nil && (errors.Is(err, chromedp.ErrPollingTimeout) || errors.Is(err, context.DeadlineExceeded))
 }
 
 // center scrolls a node into view and returns its middle in the viewport.
@@ -278,7 +295,7 @@ func click(ctx context.Context, session *session, arguments map[string]any) (map
 	if err != nil {
 		return nil, err
 	}
-	limit := time.Duration(integer(arguments, "wait_timeout", 10)) * time.Second
+	limit := waitFor(arguments, "wait_timeout", 10)
 	var described any
 	err = session.element(ctx, selector, limit, true, func(ctx context.Context, t *chromedp.Target, node *chromedp.Node) error {
 		described, _ = callOn(ctx, t, node, describeElement, 50)
@@ -775,14 +792,31 @@ func handleAlert(_ context.Context, session *session, arguments map[string]any) 
 	return map[string]any{"success": true, "action": action, "had_active_alert": seen}, nil
 }
 
-func wait(ctx context.Context, _ *session, arguments map[string]any) (map[string]any, error) {
+// waitFor is how long a call waits for a page condition: the seconds the
+// model asked for, at most waitLimit. A longer wait would run into the call
+// deadline, which closes the browser instead of answering.
+func waitFor(arguments map[string]any, name string, fallback int64) time.Duration {
+	seconds := min(max(integer(arguments, name, fallback), 0), int64(waitLimit/time.Second))
+	return time.Duration(seconds) * time.Second
+}
+
+// elapsed names a wait that ended without its condition.
+func elapsed(limit time.Duration) string {
+	return fmt.Sprintf(" after %ds", int(limit/time.Second))
+}
+
+func wait(ctx context.Context, session *session, arguments map[string]any) (map[string]any, error) {
 	seconds, _ := argument[float64](arguments, "seconds")
 	duration, err := waitDuration(seconds)
 	if err != nil {
 		return nil, err
 	}
+	if duration > waitLimit {
+		// The result reports the time that actually passed.
+		duration, seconds = waitLimit, waitLimit.Seconds()
+	}
 	select {
-	case <-time.After(duration):
+	case <-session.clock.After(duration):
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -794,12 +828,15 @@ func waitForElement(ctx context.Context, session *session, arguments map[string]
 	if err != nil {
 		return nil, err
 	}
-	limit := time.Duration(integer(arguments, "timeout", 30)) * time.Second
+	limit := waitFor(arguments, "timeout", 30)
 	var described any
 	err = session.element(ctx, selector, limit, boolean(arguments, "visible", false), func(ctx context.Context, t *chromedp.Target, node *chromedp.Node) error {
 		described, _ = callOn(ctx, t, node, `function(){return String(this.innerText||'').trim().slice(0,100)}`)
 		return nil
 	})
+	if errors.Is(err, errNotFound) {
+		return nil, unavailable("Element not found" + elapsed(max(limit, time.Second)) + ": " + selector)
+	}
 	if err != nil {
 		return nil, failed("Wait failed", err)
 	}
@@ -807,13 +844,16 @@ func waitForElement(ctx context.Context, session *session, arguments map[string]
 }
 
 func waitForPageLoad(ctx context.Context, session *session, arguments map[string]any) (map[string]any, error) {
-	limit := time.Duration(integer(arguments, "timeout", 30)) * time.Second
+	limit := waitFor(arguments, "timeout", 30)
 	bound, cancel, err := session.top(ctx, limit+time.Second)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
 	if _, err := chromedp.Run(bound, chromedp.PollFunction[bool]("() => document.readyState === 'complete'", chromedp.WithPollingTimeout(limit))); err != nil {
+		if waited(ctx, err) {
+			return nil, unavailable("Page load timeout" + elapsed(limit))
+		}
 		return nil, failed("Page load wait failed", err)
 	}
 	address, title, err := session.location(ctx)
@@ -828,7 +868,7 @@ func waitForText(ctx context.Context, session *session, arguments map[string]any
 	if err != nil {
 		return nil, err
 	}
-	limit := time.Duration(integer(arguments, "timeout", 30)) * time.Second
+	limit := waitFor(arguments, "timeout", 30)
 	target, owner, err := session.scope()
 	if err != nil {
 		return nil, err
@@ -840,6 +880,9 @@ func waitForText(ctx context.Context, session *session, arguments map[string]any
 		options = append(options, chromedp.WithPollingInFrame(owner))
 	}
 	if _, err := chromedp.Run(bound, chromedp.PollFunction[bool]("(text) => !!document.body && document.body.innerText.includes(text)", options...)); err != nil {
+		if waited(ctx, err) {
+			return nil, unavailable("Text '" + text + "' not found" + elapsed(limit))
+		}
 		return nil, failed("Text '"+text+"' not found", err)
 	}
 	return map[string]any{"success": true, "found": true, "text": text}, nil

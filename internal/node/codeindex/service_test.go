@@ -7,15 +7,21 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// idle is a watch that never reports a change.
-type idle struct{ initial bool }
+// idle is a watch that never reports a change. closed, when set, closes with
+// the subscription.
+type idle struct {
+	initial bool
+	closed  chan struct{}
+}
 
 func (w *idle) Next(ctx context.Context) (protocol.Update, error) {
 	if !w.initial {
@@ -26,7 +32,12 @@ func (w *idle) Next(ctx context.Context) (protocol.Update, error) {
 	return protocol.Update{}, ctx.Err()
 }
 
-func (*idle) Close() error { return nil }
+func (w *idle) Close() error {
+	if w.closed != nil {
+		close(w.closed)
+	}
+	return nil
+}
 
 type fixture struct {
 	t       *testing.T
@@ -337,6 +348,57 @@ func TestIndexRebuildable(t *testing.T) {
 		if len(callees) != 1 || callees[0].Confidence != nil || len(callees[0].Targets) != 0 {
 			t.Errorf("callees %+v", callees)
 		}
+	})
+	t.Run("watch batches name the changed files", func(t *testing.T) {
+		f := newFixture(t)
+		f.write("main.rs", "pub fn main() {}\n")
+		f.search("")
+		worktree, _ := f.service.worktree(f.id, f.root)
+		f.service.Observed(f.id, []string{
+			filepath.Join(f.root, "main.rs"), filepath.Join(f.root, "src", "lib.rs"),
+			// Never indexed: the root, Git's files, other formats and other trees.
+			f.root, filepath.Join(f.root, ".git", "index"), filepath.Join(f.root, "vendor", ".git", "HEAD"),
+			filepath.Join(f.root, "notes.unknownext"), filepath.Join(filepath.Dir(f.root), "outside.rs"),
+		})
+		generation, changed := worktree.dirty.snapshot()
+		equal(t, "changed", changed, map[string]uint64{"main.rs": generation - 1, "src/lib.rs": generation})
+		// The remembered paths only order a reconcile and stay bounded.
+		for index := range maxChanged + 8 {
+			f.service.Observed(f.id, []string{filepath.Join(f.root, "generated", strconv.Itoa(index)+".rs")})
+		}
+		_, changed = worktree.dirty.snapshot()
+		equal(t, "bounded", len(changed), maxChanged)
+		f.write("main.rs", "pub fn renamed() {}\n")
+		f.service.Observed(f.id, []string{filepath.Join(f.root, "main.rs")})
+		equal(t, "reindexed", names2(f.search("").Symbols), "renamed")
+	})
+	t.Run("an idle worktree releases its watch and reopens on the next query", func(t *testing.T) {
+		f := newFixture(t)
+		closed := make(chan struct{})
+		f.service.watch = func(context.Context, string, protocol.WorktreeID) (link.Subscription, error) {
+			return &idle{closed: closed}, nil
+		}
+		f.write("main.rs", "pub fn main() {}\n")
+		first := f.search("")
+		f.service.releaseIdle(time.Now().Add(idleRelease - time.Minute))
+		select {
+		case <-closed:
+			t.Fatal("a used worktree lost its watch")
+		default:
+		}
+		f.service.releaseIdle(time.Now().Add(idleRelease + time.Second))
+		select {
+		case <-closed:
+		case <-time.After(10 * time.Second):
+			t.Fatal("an idle worktree kept its watch")
+		}
+		f.service.mutex.Lock()
+		held := len(f.service.worktrees)
+		f.service.mutex.Unlock()
+		equal(t, "held", held, 0)
+		f.service.watch = func(context.Context, string, protocol.WorktreeID) (link.Subscription, error) { return &idle{}, nil }
+		again := f.search("")
+		equal(t, "reopened", []any{names2(again.Symbols), again.IndexRevision}, []any{"main", first.IndexRevision})
 	})
 	t.Run("replaces symbols, text index and metadata together", func(t *testing.T) {
 		f := newFixture(t)

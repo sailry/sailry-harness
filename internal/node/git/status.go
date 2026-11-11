@@ -14,6 +14,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	fdiff "github.com/go-git/go-git/v5/plumbing/format/diff"
 	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -159,6 +160,9 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	}
 	times := map[string]int64{}
 	filtered := result.Entries[:0]
+	// Line statistics share the status deadline with Git itself. Past their
+	// share the remaining entries keep the uncounted marker they were parsed with.
+	budget := time.Now().Add(s.stats)
 	for _, entry := range result.Entries {
 		if err := checkContext(limited); err != nil {
 			return protocol.GitStatus{}, err
@@ -168,25 +172,42 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 			result.OmittedPaths++
 			continue
 		}
-		if info, e := os.Lstat(path); e == nil {
+		info, statErr := os.Lstat(path)
+		if statErr == nil {
 			times[entry.Path] = info.ModTime().UnixMilli()
 			if info.ModTime().UnixMilli() >= 0 {
 				entry.ModifiedMs = ptr(uint64(info.ModTime().UnixMilli()))
 			}
 		}
-		if !entry.Conflicted {
+		if remaining := time.Until(budget); !entry.Conflicted && remaining > 0 {
 			committed, committedErr := content{}, treeErr
 			if committedErr == nil {
-				committed, committedErr = treeContent(r, tree, entry.Path, 1024*1024)
+				committed, committedErr = treeContent(r, tree, entry.Path, statLimit)
 			}
 			indexed, indexedErr := content{}, indexErr
 			if item := staged[entry.Path]; indexedErr == nil && item != nil {
-				indexed, indexedErr = blobContent(r, item.Hash, item.Mode, 1024*1024)
+				indexed, indexedErr = blobContent(r, item.Hash, item.Mode, statLimit)
 			}
-			working, workingErr := workingContent(root, entry.Path, 1024*1024)
-			entry.StagedDiff = lineStats(entry.Path, protocol.GitDiffScopeStaged, committed, indexed, committedErr, indexedErr)
-			entry.UnstagedDiff = lineStats(entry.Path, protocol.GitDiffScopeUnstaged, indexed, working, indexedErr, workingErr)
-			entry.Diff = lineStats(entry.Path, protocol.GitDiffScopeAll, committed, working, committedErr, workingErr)
+			var working content
+			var workingErr error
+			if statErr == nil && info.Mode().IsRegular() && info.Size() > statLimit {
+				// A file over the limit is neither read nor hashed: status
+				// already says that it changed.
+				working = content{exists: true, binary: true, large: true}
+			} else {
+				working, workingErr = workingContent(root, entry.Path, statLimit)
+			}
+			// An entry changed on one side only needs one comparison.
+			entry.StagedDiff = lineStats(committed, indexed, committedErr, indexedErr, remaining)
+			entry.UnstagedDiff = lineStats(indexed, working, indexedErr, workingErr, time.Until(budget))
+			switch {
+			case committedErr == nil && indexedErr == nil && sameContent(committed, indexed):
+				entry.Diff = entry.UnstagedDiff
+			case indexedErr == nil && workingErr == nil && sameContent(indexed, working):
+				entry.Diff = entry.StagedDiff
+			default:
+				entry.Diff = lineStats(committed, working, committedErr, workingErr, time.Until(budget))
+			}
 		}
 		filtered = append(filtered, entry)
 	}
@@ -197,17 +218,43 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	return result, nil
 }
 
-// lineStats counts one scope of a status entry from sides that were already
-// read. A side that could not be read leaves the scope uncounted.
-func lineStats(path string, scope protocol.GitDiffScope, before, after content, beforeErr, afterErr error) protocol.GitLineStats {
+func sameContent(a, b content) bool {
+	return a.exists == b.exists && a.hash == b.hash && a.mode == b.mode && !a.large && !b.large
+}
+
+// lineStats counts the changed lines between two sides that were already
+// read. A side that could not be read, a side over the inspection limit and a
+// comparison that ran out of time leave the scope marked as uncounted. Binary
+// content counts no lines.
+func lineStats(before, after content, beforeErr, afterErr error, limit time.Duration) protocol.GitLineStats {
 	if beforeErr != nil || afterErr != nil {
 		return protocol.GitLineStats{Truncated: true}
 	}
-	diff, err := renderDiff(path, scope, before, after)
-	if err != nil {
+	if sameContent(before, after) {
+		return protocol.GitLineStats{}
+	}
+	if before.large || after.large || limit <= 0 {
 		return protocol.GitLineStats{Truncated: true}
 	}
-	return protocol.GitLineStats{Additions: diff.Additions, Deletions: diff.Deletions, Truncated: diff.Truncated}
+	if bytes.IndexByte(before.data, 0) >= 0 || bytes.IndexByte(after.data, 0) >= 0 || !utf8.Valid(before.data) || !utf8.Valid(after.data) {
+		return protocol.GitLineStats{}
+	}
+	started := time.Now()
+	var stats protocol.GitLineStats
+	for _, chunk := range chunksWithin(before.data, after.data, limit) {
+		lines := uint64(strings.Count(chunk.Content(), "\n"))
+		if chunk.Content() != "" && !strings.HasSuffix(chunk.Content(), "\n") {
+			lines++
+		}
+		switch chunk.Type() {
+		case fdiff.Add:
+			stats.Additions += lines
+		case fdiff.Delete:
+			stats.Deletions += lines
+		}
+	}
+	stats.Truncated = time.Since(started) >= limit
+	return stats
 }
 
 // ParseStatus reads source-native porcelain v2, including its NUL-framed paths.

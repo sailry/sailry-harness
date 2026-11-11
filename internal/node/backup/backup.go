@@ -37,19 +37,14 @@ type Plan struct {
 	Destination   *protocol.BackupDestination
 	Local         *protocol.BackupLocal
 	OnlineEnabled bool
-	Auth          Auth
-	Transport     http.RoundTripper
+	// Keep is how many of the Node's newest backups a location retains; zero keeps all.
+	Keep      uint32
+	Auth      Auth
+	Transport http.RoundTripper
 }
 
-// Export seals the packed snapshot and publishes it to every enabled location.
+// Export publishes the sealed snapshot to every enabled location.
 func Export(ctx context.Context, plan Plan, packed *Packed, id string) (protocol.BackupRecord, error) {
-	passphrase, err := Passphrase(plan.Auth.Passphrase)
-	if err != nil {
-		return protocol.BackupRecord{}, err
-	}
-	if err := Seal(ctx, packed, passphrase); err != nil {
-		return protocol.BackupRecord{}, err
-	}
 	record := NewRecord(packed, id)
 	exported := false
 	for _, location := range []protocol.BackupLocation{protocol.BackupLocationLocal, protocol.BackupLocationOnline} {
@@ -74,24 +69,43 @@ func NewRecord(packed *Packed, id string) protocol.BackupRecord {
 	return protocol.BackupRecord{
 		ID: id, Node: packed.Snapshot.Manifest.Node, CreatedMs: uint64(time.Now().UnixMilli()),
 		SizeBytes: packed.Size, Files: uint32(len(packed.Snapshot.Manifest.Files)), Sha256: packed.SHA256,
+		Skipped: packed.Snapshot.Manifest.SkippedTotal,
 	}
 }
 
-// List merges the configured locations, newest first.
+// List merges the configured locations, newest first. A location that cannot
+// be read, a record that does not read back and copies that disagree mark the
+// page partial instead of hiding the backups that can be restored; the call
+// fails only when no configured location answers.
 func List(ctx context.Context, plan Plan) (protocol.BackupPage, error) {
 	records := map[string]protocol.BackupRecord{}
 	locations := map[string]protocol.BackupLocations{}
 	partial := false
+	var failure error
+	answered := 0
 	for _, location := range []protocol.BackupLocation{protocol.BackupLocationLocal, protocol.BackupLocationOnline} {
 		if location == protocol.BackupLocationLocal && plan.Local == nil || location == protocol.BackupLocationOnline && plan.Destination == nil {
 			continue
 		}
 		page, err := list(ctx, plan, location)
 		if err != nil {
-			return protocol.BackupPage{}, err
+			if code(err) == protocol.ErrorCodeCancelled {
+				return protocol.BackupPage{}, err
+			}
+			if failure == nil {
+				failure = err
+			}
+			partial = true
+			continue
 		}
+		answered++
 		partial = partial || page.Partial
 		for _, record := range page.Records {
+			if previous, ok := records[record.ID]; ok && previous != record {
+				// The first copy listed stays; the other is not offered.
+				partial = true
+				continue
+			}
 			entry := locations[record.ID]
 			if location == protocol.BackupLocationLocal {
 				entry.Local = true
@@ -99,11 +113,11 @@ func List(ctx context.Context, plan Plan) (protocol.BackupPage, error) {
 				entry.Online = true
 			}
 			locations[record.ID] = entry
-			if previous, ok := records[record.ID]; ok && previous != record {
-				return protocol.BackupPage{}, invalid("backup copies have different metadata")
-			}
 			records[record.ID] = record
 		}
+	}
+	if answered == 0 && failure != nil {
+		return protocol.BackupPage{}, failure
 	}
 	page := protocol.BackupPage{Records: make([]protocol.BackupRecord, 0, len(records)), Partial: partial, Locations: locations}
 	for _, record := range records {
@@ -111,6 +125,33 @@ func List(ctx context.Context, plan Plan) (protocol.BackupPage, error) {
 	}
 	sortRecords(page.Records)
 	return page, nil
+}
+
+// Prune deletes the Node's own backups beyond the newest plan.Keep in every
+// enabled location and returns how many it removed. Backups of other Nodes in
+// a shared location, records that do not read back and every location when
+// Keep is zero are left alone. A backup's commit marker goes first, so a
+// half-removed backup is never listed.
+func Prune(ctx context.Context, plan Plan, node protocol.NodeID) (int, error) {
+	if plan.Keep == 0 {
+		return 0, nil
+	}
+	removed := 0
+	for _, location := range []protocol.BackupLocation{protocol.BackupLocationLocal, protocol.BackupLocationOnline} {
+		enabled := plan.Local != nil && plan.Local.Enabled
+		if location == protocol.BackupLocationOnline {
+			enabled = plan.OnlineEnabled && plan.Destination != nil
+		}
+		if !enabled {
+			continue
+		}
+		count, err := prune(ctx, plan, location, node)
+		removed += count
+		if err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
 }
 
 func sortRecords(records []protocol.BackupRecord) {

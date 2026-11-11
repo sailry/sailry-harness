@@ -92,7 +92,7 @@ func (service *Service) storage(ctx context.Context, stored store.KnowledgeStore
 	if err := indexingCancelled(ctx); err != nil {
 		return err
 	}
-	if err := index.Prune(ctx, binding, locators); err != nil {
+	if err := index.Prune(ctx, binding, locators, nil); err != nil {
 		return err
 	}
 	var err error

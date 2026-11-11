@@ -28,7 +28,7 @@ func TestRemovedSessionStopsCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	node.processSessionEvents([]protocol.Event{{Kind: "session_changed"}, {Kind: "sessions_removed", Data: []protocol.SessionID{removed}}})
+	node.processSessionEvents([]protocol.Event{{Kind: "session_changed"}, {Kind: "sessions_removed", Data: []protocol.SessionID{removed}}}, func([]protocol.SessionID) {})
 	select {
 	case session := <-stopped:
 		if session != removed {

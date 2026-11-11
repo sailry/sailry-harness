@@ -410,12 +410,17 @@ func (r *Runtime) consumeChild(x *execution, session protocol.SessionID, turn *p
 
 // stopChildren cancels every child of the turn's session, foreground or
 // background, including those earlier turns left running. Children cannot
-// delegate, so the session's children are its whole subtree.
+// delegate, so the session's children are its whole subtree. The turn keeps
+// the children it cancelled: one that finishes and leaves the runtime before
+// the turn settles them still has its completion record consumed.
 func (r *Runtime) stopChildren(x *execution) {
 	r.mu.Lock()
 	for _, child := range r.children {
 		if child.root == x.inv.Session.ID {
 			child.cancel()
+			if !slices.Contains(x.stopped, child) {
+				x.stopped = append(x.stopped, child)
+			}
 		}
 	}
 	r.mu.Unlock()
@@ -467,6 +472,11 @@ func (r *Runtime) settleChildren(x *execution, stopped []*delegatedChild) {
 	for r.ctx.Err() == nil {
 		changed := r.activitySignal()
 		r.mu.Lock()
+		for _, child := range x.stopped {
+			if !slices.Contains(stopped, child) {
+				stopped = append(stopped, child)
+			}
+		}
 		for _, child := range r.children {
 			if child.root == x.inv.Session.ID && child.ctx.Err() != nil && !slices.Contains(stopped, child) {
 				stopped = append(stopped, child)

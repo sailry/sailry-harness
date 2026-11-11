@@ -175,13 +175,13 @@ func TestPluginStorageTools(t *testing.T) {
 		t.Fatalf("storage turn made %d model requests", len(offered))
 	}
 	notes := []string{"read_note", "list_notes", "save_note", "delete_note"}
-	if !slices.Contains(offered[0], operations.Alias("task-notes", "progress")) || slices.ContainsFunc(notes, func(name string) bool {
-		return slices.Contains(offered[0], operations.Alias("task-notes", name))
+	if !slices.Contains(offered[0], "progress") || slices.ContainsFunc(notes, func(name string) bool {
+		return slices.Contains(offered[0], name)
 	}) {
 		t.Fatalf("first request must offer progress and defer storage: %v", offered[0])
 	}
 	for _, name := range append(notes, "progress") {
-		if !slices.Contains(offered[1], operations.Alias("task-notes", name)) {
+		if !slices.Contains(offered[1], name) {
 			t.Fatalf("task-notes %s was not offered after discovery: %v", name, offered[1])
 		}
 	}

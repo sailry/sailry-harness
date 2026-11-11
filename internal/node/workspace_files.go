@@ -77,9 +77,10 @@ func (node *Node) readWorkspaceArtifact(ctx context.Context, request protocol.Re
 func (node *Node) restoreWorkspaceCheckpoint(ctx context.Context, request protocol.Request, root string) (protocol.Output, error) {
 	input := request.Command.Data.(*protocol.CommandRestoreFileCheckpointPayload)
 	var capture protocol.ConversationCheckpointContent
+	var settled []*protocol.ConversationCheckpointVersion
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		capture, err = store.PrepareCheckpointRestore(ctx, db, input.Session, input.Checkpoint, input.Worktree, root)
+		capture, settled, err = store.PrepareCheckpointRestore(ctx, db, input.Session, input.Checkpoint, input.Worktree, root)
 		return err
 	})
 	if err != nil {
@@ -89,7 +90,7 @@ func (node *Node) restoreWorkspaceCheckpoint(ctx context.Context, request protoc
 		return protocol.Output{}, err
 	}
 	defer node.watches.changed(root, nil)
-	value, err := files.RestoreCheckpoint(ctx, root, capture)
+	value, err := files.RestoreCheckpoint(ctx, root, capture, settled)
 	return protocol.Output{Kind: "file_restored", Data: value}, err
 }
 func (node *Node) applyWorkspaceHunk(ctx context.Context, request protocol.Request, root string) (protocol.Output, error) {

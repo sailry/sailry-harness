@@ -160,7 +160,7 @@ func catalog(c *ui.Context, m *Model) {
 						}
 					}
 					if m.Live && m.Compaction.Pending {
-						ui.Spinner(c).Size(14, 14) // the threshold is being saved
+						kit.Busy(c) // the threshold is being saved
 					}
 					ui.Textf(c, "%.0f%%", m.Compaction.Draft).FontSize(14).Width(40).TextAlign(ui.End)
 				})

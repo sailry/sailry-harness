@@ -3,14 +3,17 @@ package files
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
 	"image/png"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -62,6 +65,72 @@ func TestFileInspectionPages(t *testing.T) {
 	if err != nil || len(result.Counts) != 1 || result.Counts[0].Count != 2 {
 		t.Fatalf("search count: %+v %v", result, err)
 	}
+
+	// A browsed entry carries its modified time, optional on the wire.
+	t.Run("modified time", func(t *testing.T) {
+		directory := t.TempDir()
+		stamp := time.Date(2026, 11, 8, 14, 32, 10, 0, time.UTC)
+		if err := os.Mkdir(filepath.Join(directory, "folder"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "notes.md"), []byte("notes"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"folder", "notes.md"} {
+			if err := os.Chtimes(filepath.Join(directory, name), stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+		}
+		listing, err := Browse(ctx, &directory, nil)
+		if err != nil || len(listing.Directory.Entries) != 2 {
+			t.Fatalf("browsing %s: %+v %v", directory, listing, err)
+		}
+		for _, entry := range listing.Directory.Entries {
+			if entry.ModifiedMs == nil || *entry.ModifiedMs != uint64(stamp.UnixMilli()) {
+				t.Errorf("%s was modified at %v, want %d", entry.Name, entry.ModifiedMs, stamp.UnixMilli())
+			}
+		}
+		encoded, err := json.Marshal(listing.Directory.Entries[1])
+		if want := fmt.Sprintf(`{"modified_ms":%d,"name":"notes.md","kind":"file","size":5}`, stamp.UnixMilli()); err != nil || string(encoded) != want {
+			t.Errorf("the entry encodes as %s %v, want %s", encoded, err, want)
+		}
+		var decoded protocol.FileEntry
+		if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.ModifiedMs == nil || *decoded.ModifiedMs != uint64(stamp.UnixMilli()) {
+			t.Errorf("the entry decodes as %+v %v", decoded, err)
+		}
+		if err := json.Unmarshal([]byte(`{"name":"a","kind":"file","size":1}`), &decoded); err != nil || decoded.ModifiedMs != nil {
+			t.Errorf("an entry without a time decodes as %+v %v", decoded, err)
+		}
+	})
+
+	// A directory that is not there is told from one the Node may not read,
+	// and both from a Node that cannot answer.
+	t.Run("browse faults", func(t *testing.T) {
+		directory := t.TempDir()
+		missing := filepath.Join(directory, "gone")
+		if _, err := Browse(ctx, &missing, nil); fault(err).Code != protocol.ErrorCodeNotFound {
+			t.Errorf("a missing directory answers %v", err)
+		}
+		locked := filepath.Join(directory, "locked")
+		if err := os.MkdirAll(filepath.Join(locked, "inner"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+		// A privileged process, and a file system without modes, read it
+		// all the same.
+		if _, err := os.ReadDir(locked); err == nil {
+			return
+		}
+		inner := filepath.Join(locked, "inner")
+		for _, path := range []string{locked, inner} {
+			if _, err := Browse(ctx, &path, nil); fault(err).Code != protocol.ErrorCodePermissionDenied {
+				t.Errorf("%s answers %v", path, err)
+			}
+		}
+	})
 }
 func TestImagePreparation(t *testing.T) {
 	t.Parallel()
@@ -92,4 +161,43 @@ func TestImagePreparation(t *testing.T) {
 	if _, _, _, err = PrepareImage([]byte("not an image")); err == nil {
 		t.Fatal("invalid image was accepted")
 	}
+	t.Run("a capture above the inspection limit is reduced", func(t *testing.T) {
+		// Noise does not compress, so this capture is larger than a file
+		// image may be and still too large after its side is bounded.
+		noise := image.NewNRGBA(image.Rect(0, 0, 2000, 1500))
+		random := rand.New(rand.NewPCG(1, 2))
+		for index := range noise.Pix {
+			noise.Pix[index] = byte(random.Uint32())
+			if index%4 == 3 {
+				noise.Pix[index] = 255
+			}
+		}
+		var capture bytes.Buffer
+		if err := png.Encode(&capture, noise); err != nil {
+			t.Fatal(err)
+		}
+		if capture.Len() <= protocol.MAX_IMAGE_BYTES || capture.Len() > MaxCaptureBytes {
+			t.Fatalf("fixture is %d bytes", capture.Len())
+		}
+		if _, _, _, err := PrepareImage(capture.Bytes()); err == nil {
+			t.Fatal("a file image above the inspection limit was accepted")
+		}
+		facts, sent, data, err := PrepareCapture(capture.Bytes())
+		if err != nil || sent == nil {
+			t.Fatalf("capture was refused: %+v %v", sent, err)
+		}
+		config, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if err != nil || uint32(config.Width) != sent.Width || uint32(config.Height) != sent.Height {
+			t.Fatalf("reduced capture does not decode as reported: %+v %+v %v", config, sent, err)
+		}
+		if facts.Width != 2000 || facts.Height != 1500 || sent.Width > protocol.MAX_IMAGE_SIDE || sent.Width < minimumImageSide ||
+			sent.Width*3 != sent.Height*4 && sent.Width*3/4 != sent.Height || len(data) > sentImageBytes || sent.Size != uint64(len(data)) {
+			t.Fatalf("reduced capture: source %+v sent %+v, %d bytes", facts, sent, len(data))
+		}
+	})
+	t.Run("a capture above 20 MiB is refused", func(t *testing.T) {
+		if _, _, _, err := PrepareCapture(make([]byte, MaxCaptureBytes+1)); err == nil {
+			t.Fatal("an oversized capture was accepted")
+		}
+	})
 }

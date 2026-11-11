@@ -35,10 +35,6 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
-	sandbox := protocol.DefaultSandboxSettings()
-	if err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; sandbox, err = store.ReadSandboxSettings(ctx, db); return err }); err != nil {
-		return nil, err
-	}
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
 		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) || operations.ScopedOperation(declaration.Operation) {
@@ -60,6 +56,18 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
+			sandbox := protocol.DefaultSandboxSettings()
+			if declaration.Operation == protocol.ToolOperationRunCommand {
+				// Each command follows the setting as it is now, not as it
+				// was when the turn started.
+				if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+					var err error
+					sandbox, err = store.ReadSandboxSettings(ctx, db)
+					return err
+				}); err != nil {
+					return err
+				}
+			}
 			command, err := operations.Command(declaration.Operation, call.Arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled)
 			if declaration.Operation == protocol.ToolOperationApplyChanges {
 				var patch struct {

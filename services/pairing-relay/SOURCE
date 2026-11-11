@@ -1,5 +1,13 @@
-Unchanged tracked service source from:
+Tracked service source from:
 https://github.com/sailry/sailry-public
 Commit: eaad1b7f18e448c8c4e9e9286e19560c8a351ae1
 Path: services/pairing-relay
 License: Apache-2.0
+
+Changed in this repository:
+- src/exchange.ts: the rate limiter takes the source slot before the global
+  slot and refuses on a read once the global budget is spent. Upstream takes
+  the global slot first, so one source could spend the global budget.
+- test/exchange.test.ts: tests for that limiter.
+- README.md: the rate-limit paragraph describes it and its remaining window.
+Every other file is unchanged.

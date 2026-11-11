@@ -147,16 +147,46 @@ func (node *Node) executeBackup(caller protocol.NodeID, request protocol.Request
 				return err
 			}
 		}
+		if request.Command.Kind == "export_backup" {
+			// The outcome is kept with the command's own result, so a
+			// scheduled backup that failed with nobody connected is on the
+			// Backup page when its user returns.
+			if err := store.RecordBackupOutcome(node.ctx, db, backupOutcome(output, operationErr, node.dispatch.clock.Now().UnixMilli())); err != nil {
+				return err
+			}
+		}
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
-		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "backup operation result could not be recorded; inspect the backup list using the original request identifier"})
+		if configuration {
+			return node.unapplied(caller, request.ID, err)
+		}
+		// The operation ran outside the transaction, so its result is what is stored.
+		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	if configuration && operationErr == nil {
 		node.publish()
 		node.wakeDispatch()
 	}
 	return response(output, operationErr)
+}
+
+// backupOutcome is the Backup page's record of one finished backup.
+func backupOutcome(output protocol.Output, failure error, finished int64) protocol.BackupOutcome {
+	outcome := protocol.BackupOutcome{FinishedMs: uint64(finished)}
+	if failure == nil {
+		if record, ok := output.Data.(protocol.BackupRecord); ok {
+			outcome.Skipped = record.Skipped
+		}
+		return outcome
+	}
+	code, reason := protocol.ErrorCodeInternal, failure.Error()
+	var fault *protocol.Fault
+	if errors.As(failure, &fault) {
+		code, reason = fault.Code, fault.Message
+	}
+	outcome.Error, outcome.Reason = &code, reason
+	return outcome
 }
 
 func (node *Node) backupPlan(ctx context.Context, expected *uint64) (backup.Plan, error) {
@@ -170,8 +200,10 @@ func (node *Node) backupPlan(ctx context.Context, expected *uint64) (backup.Plan
 	return plan, err
 }
 
-// captureBackup copies the databases while both are closed under their
-// exclusive leases, reopens them, and then archives the listed content.
+// captureBackup pins one state of both databases, copies it with SQLite's
+// online backup and archives the content that state lists. The exclusive
+// leases last only until both read transactions exist: the Node keeps
+// reading and writing while the copy, the capture and the upload run.
 func (node *Node) captureBackup(ctx context.Context, revision uint64) (backup.Plan, *backup.Packed, error) {
 	profile, storage := node.profile.Ownership.Path, node.profile.Store
 	main, err := storage.Node.Exclusive(ctx)
@@ -183,45 +215,50 @@ func (node *Node) captureBackup(ctx context.Context, revision uint64) (backup.Pl
 		_ = main.Close()
 		return backup.Plan{}, nil, err
 	}
-	plan, roots, err := store.BackupSource(ctx, main.Connection(), node.ID(), profile, revision)
-	var snapshot *backup.Snapshot
-	if err == nil {
-		snapshot, err = backup.NewSnapshot(profile, node.ID())
+	var pinned []*store.Pinned
+	for _, exclusive := range []*store.Exclusive{main, knowledge} {
+		if err == nil {
+			var state *store.Pinned
+			if state, err = exclusive.Pin(ctx); err == nil {
+				pinned = append(pinned, state)
+			}
+		}
 	}
+	err = errors.Join(err, main.Close(), knowledge.Close())
+	release := func() {
+		for _, state := range pinned {
+			_ = state.Close()
+		}
+	}
+	defer release()
 	if err != nil {
-		_ = knowledge.Close()
-		_ = main.Close()
+		return backup.Plan{}, nil, err
+	}
+	plan, roots, err := store.BackupSource(ctx, pinned[0].Connection(), node.ID(), profile, revision)
+	if err != nil {
 		return backup.Plan{}, nil, err
 	}
 	plan.Transport = backupTransport()
-	// Once a handle is closed, every exit attempts to reopen both databases.
-	var closed []*store.Closed
-	for _, exclusive := range []*store.Exclusive{main, knowledge} {
-		if err != nil {
-			_ = exclusive.Close()
-			continue
-		}
-		var paused *store.Closed
-		if paused, err = exclusive.Pause(ctx); err != nil {
-			_ = exclusive.Close()
-			continue
-		}
-		closed = append(closed, paused)
+	passphrase, err := backup.Passphrase(plan.Auth.Passphrase)
+	if err != nil {
+		return backup.Plan{}, nil, err
 	}
-	for _, paused := range closed {
+	snapshot, err := backup.NewSnapshot(profile, node.ID())
+	if err != nil {
+		return backup.Plan{}, nil, err
+	}
+	for index, name := range []string{"node.sqlite", "knowledge.sqlite"} {
 		if err == nil {
-			err = snapshot.Freeze(ctx, paused.Path())
+			err = snapshot.Freeze(ctx, name, pinned[index].Copy)
 		}
 	}
-	for index := len(closed) - 1; index >= 0; index-- {
-		err = errors.Join(err, closed[index].Reopen(context.WithoutCancel(ctx)))
-	}
+	release()
 	if err == nil {
 		err = snapshot.Capture(ctx, roots)
 	}
 	var packed *backup.Packed
 	if err == nil {
-		packed, err = snapshot.Pack(ctx)
+		packed, err = snapshot.Pack(ctx, passphrase)
 	}
 	if err != nil {
 		_ = snapshot.Close()

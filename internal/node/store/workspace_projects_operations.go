@@ -88,12 +88,3 @@ func FinishRemovedWorktree(ctx context.Context, db *sql.Conn, id protocol.Worktr
 	}
 	return []protocol.Event{{Kind: "worktree_removed", Data: protocol.EventWorktreeRemovedPayload{ID: id}}}, nil
 }
-
-// RegisterClonedProject reuses the existing source registration after the native
-// clone and canonical-directory validation have completed outside SQL.
-func RegisterClonedProject(ctx context.Context, db *sql.Conn, draft protocol.ProjectsDraft, canonical string) (protocol.Output, []protocol.Event, error) {
-	if err := validateProject(draft.Name, canonical, draft.Appearance); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	return createProject(ctx, db, draft, PreparedPaths{Path: canonical})
-}

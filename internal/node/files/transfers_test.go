@@ -34,6 +34,44 @@ func transferFixture(t *testing.T) (*Transfers, string, protocol.NodeID) {
 func TestTransferRegistryAndStreams(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	t.Run("staging of an earlier process is removed at start", func(t *testing.T) {
+		t.Parallel()
+		root, _ := filesFixture(t)
+		profile, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		staging := filepath.Join(profile, "tmp")
+		if err := os.Mkdir(staging, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{transferPrefix + protocol.NewStreamID().String(), "command-output"} {
+			if err := os.WriteFile(filepath.Join(staging, name), []byte("staged"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		transfers := NewTransfers(profile)
+		defer transfers.Close()
+		entries, err := os.ReadDir(staging)
+		if err != nil || len(entries) != 1 || entries[0].Name() != "command-output" {
+			t.Fatalf("staging after start: %v, %v", entries, err)
+		}
+		// Staging made by this process stays until its transfer ends.
+		spec := protocol.FileUploadSpec{Worktree: protocol.NewWorktreeID(), Path: "received.txt", Size: 5, Revision: revision([]byte("hello"))}
+		upload, err := transfers.UploadFile(ctx, protocol.NodeID{1}, root, spec, core.ManualFiles)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entries, err = os.ReadDir(staging); err != nil || len(entries) != 2 {
+			t.Fatalf("staging during an upload: %v, %v", entries, err)
+		}
+		if err := transfers.Cancel(protocol.NodeID{1}, upload.Stream); err != nil {
+			t.Fatal(err)
+		}
+		if entries, err = os.ReadDir(staging); err != nil || len(entries) != 1 {
+			t.Fatalf("staging after a cancelled upload: %v, %v", entries, err)
+		}
+	})
 	for _, scenario := range []string{"publish", "digest mismatch", "expiry", "active cancellation"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()

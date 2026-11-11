@@ -251,7 +251,7 @@ func tab(c *ui.Context, key any, icon *ui.SVG, label string, active, busy bool, 
 	b.Children(func() {
 		if busy {
 			// The tab's content is loading: the spinner stands for its icon.
-			ui.Spinner(c).FontSize(14).Shrink(0)
+			kit.Busy(c)
 		} else {
 			ui.Icon(c, icon).FontSize(14).Shrink(0)
 		}
@@ -733,7 +733,7 @@ func empty(c *ui.Context, icon *ui.SVG, key string) {
 // the session's are read, else the resource's empty state.
 func (s *State) vacant(c *ui.Context, k Kind, key string) {
 	if s.Actions != nil && s.Actions.Loading != nil && s.Actions.Loading(k) {
-		ui.Column(c.Key("loading")).Grow(1).Center().Children(func() { ui.Spinner(c).Label(i18n.T(c, ResourceOf(k).Label)) })
+		ui.Column(c.Key("loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20).Label(i18n.T(c, ResourceOf(k).Label)) })
 		return
 	}
 	empty(c, ResourceOf(k).Icon, key)

@@ -188,6 +188,91 @@ func TestAgentStatistics(t *testing.T) {
 			}
 		})
 	}
+	t.Run("vendor_pricing", func(t *testing.T) {
+		t.Parallel()
+		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+		ctx := t.Context()
+		builtin := func(id string) *protocol.ConversationPresetsPresetRef {
+			return &protocol.ConversationPresetsPresetRef{Source: protocol.ConversationPresetsSource{Kind: "builtin"}, ID: id}
+		}
+		price := func(input, output float64) string {
+			return fmt.Sprintf(`{"cost":{"input":%g,"output":%g,"cache_read":0.5}}`, input, output)
+		}
+		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Answer"))
+			message.Usage = &canonical.Usage{Input: ptr(uint64(100)), Output: ptr(uint64(20)), CacheRead: ptr(uint64(2))}
+			record := canonical.NewRecord(turn, "message", &message, now)
+			record.Provenance.Author = "assistant"
+			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+			// The fixture channel speaks Chat Completions; 98 input, 20 output and 2 cached tokens.
+			for _, test := range []struct {
+				name     string
+				saved    *protocol.ConversationPresetsPresetRef
+				captured *protocol.ConversationPresetsPresetRef
+				catalog  map[string]string
+				micros   uint64
+			}{
+				{name: "preset vendor before the protocol's", saved: builtin("deepseek"), catalog: map[string]string{"deepseek": price(1, 2), "openai": price(2, 8)}, micros: 139},
+				{name: "captured preset before the saved one", saved: builtin("xai"), captured: builtin("deepseek"), catalog: map[string]string{"deepseek": price(1, 2), "xai": price(2, 8)}, micros: 139},
+				{name: "preset under its catalog name", saved: builtin("qwen"), catalog: map[string]string{"alibaba": price(3, 6), "openai": price(2, 8)}, micros: 415},
+				{name: "preset brand", saved: builtin("compatible-chat"), catalog: map[string]string{"openai": price(2, 8), "reseller": price(9, 9)}, micros: 357},
+				{name: "protocol vendor without a preset", catalog: map[string]string{"openai": price(2, 8), "reseller": price(9, 9)}, micros: 357},
+				{name: "foreign preset is not a vendor", saved: &protocol.ConversationPresetsPresetRef{Source: protocol.ConversationPresetsSource{Kind: "partner"}, ID: "deepseek"}, catalog: map[string]string{"deepseek": price(1, 2), "openai": price(2, 8)}, micros: 357},
+				{name: "one price elsewhere", saved: builtin("deepseek"), catalog: map[string]string{"first": price(1, 2), "second": price(1, 2), "unpriced": `{"limit":{"context":1}}`}, micros: 139},
+				{name: "disputed price elsewhere", saved: builtin("deepseek"), catalog: map[string]string{"first": price(1, 2), "second": price(2, 4)}},
+				{name: "unknown model", saved: builtin("deepseek"), catalog: map[string]string{}},
+			} {
+				provider, err := currentProvider(ctx, db, session.Config.Provider, nil)
+				if err != nil {
+					return err
+				}
+				provider.Provider.Preset = test.saved
+				if err = saveProviderConfiguration(ctx, db, *provider); err != nil {
+					return err
+				}
+				capture := "null"
+				if test.captured != nil {
+					body, err := encode(test.captured)
+					if err != nil {
+						return err
+					}
+					capture = string(body)
+				}
+				if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET provider=json_set(json(provider),'$.preset',json(?1)) WHERE turn=?2", capture, turn.String()); err != nil {
+					return err
+				}
+				if _, err = db.ExecContext(ctx, "DELETE FROM model_catalog"); err != nil {
+					return err
+				}
+				for supplier, body := range test.catalog {
+					if _, err = db.ExecContext(ctx, "INSERT INTO model_catalog(provider,id,body) VALUES(?1,'fixture',?2)", supplier, []byte(body)); err != nil {
+						return err
+					}
+				}
+				statistics, err := ReadAgentStatistics(ctx, db, session.ID)
+				if err != nil {
+					return err
+				}
+				query := protocol.DefaultUsageQuery()
+				query.StartMs, query.EndMs, query.Dimension = now.Add(-time.Hour).UnixMilli(), now.Add(time.Hour).UnixMilli(), protocol.UsageDimensionModel
+				output, err := ReadAgentCommand(ctx, db, node, protocol.Command{Kind: "read_usage", Data: &query})
+				if err != nil {
+					return err
+				}
+				for surface, cost := range map[string]*protocol.UsageCost{"session": statistics.Cost, "report": output.Data.(protocol.UsageReport).Totals.Cost} {
+					if test.micros == 0 && cost != nil || test.micros != 0 && (cost == nil || cost.UsdMicros != test.micros) {
+						t.Errorf("%s: %s cost = %#v, want %d", test.name, surface, cost, test.micros)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("latency_quality", func(t *testing.T) {
 		var mean agentStatisticMean
 		mean.observe(ptr(uint64(math.MaxUint64)))

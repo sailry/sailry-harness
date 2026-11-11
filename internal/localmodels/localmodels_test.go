@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/jonboulle/clockwork"
 
+	"github.com/sailry/sailry-harness/internal/localmodels/assets"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -273,6 +276,35 @@ func TestRegistryVerification(t *testing.T) {
 		}
 		if _, err := registry.Resource(protocol.ModelsKindDecision, id, nil); err != nil || state(registry, id) != "installed" {
 			t.Fatalf("after the wait: state %q, resource %v", state(registry, id), err)
+		}
+	})
+	t.Run("a file the volume cannot hold is not requested", func(t *testing.T) {
+		var requests atomic.Int64
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			requests.Add(1)
+			_, _ = writer.Write(body)
+		}))
+		t.Cleanup(server.Close)
+		address, err := url.Parse(server.URL + "/model.gguf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(body)
+		directory := filepath.Join(t.TempDir(), "model")
+		// No volume holds four exbibytes.
+		download := assets.Download{File: assets.File{Name: "model.gguf", Size: 1 << 62, SHA256: hex.EncodeToString(digest[:])}, URL: address}
+		prepare := func() error {
+			return assets.Prepare(t.Context(), assets.Client(server.Client().Transport), directory, []assets.Download{download}, func(assets.Progress) {})
+		}
+		if err := prepare(); !errors.Is(err, assets.ErrStorage) || !strings.Contains(err.Error(), "not enough free space for model.gguf") || requests.Load() != 0 {
+			t.Fatalf("oversized file: %v after %d requests", err, requests.Load())
+		}
+		if entries, err := os.ReadDir(directory); err != nil || len(entries) != 0 {
+			t.Fatalf("refused transfer left %v (%v)", entries, err)
+		}
+		download.File.Size = uint64(len(body))
+		if err := prepare(); err != nil || requests.Load() != 1 || !assets.Ready(directory, []assets.File{download.File}) {
+			t.Fatalf("fitting file: %v after %d requests", err, requests.Load())
 		}
 	})
 	t.Run("unpinned revision", func(t *testing.T) {
@@ -616,4 +648,115 @@ func TestDownloadCancel(t *testing.T) {
 			}
 		})
 	}
+
+	// leftovers writes half of the model as an interrupted download would
+	// leave it, with a checkpoint for the given address digest.
+	definition := decisionModel(body, pinnedRevision, uint64(len(body)))
+	partial := fmt.Sprintf(".model.gguf-%d-%s.part", len(body), definition.Assets[0].Sha256)
+	leftovers := func(t *testing.T, directory, endpoint string) {
+		t.Helper()
+		prefix := sha256.Sum256(body[:half])
+		checkpoint := fmt.Sprintf(`{"version":1,"endpoint":%q,"received":%d,"sha256":%q,"validator":{"Etag":"\"fixture\""}}`, endpoint, half, hex.EncodeToString(prefix[:]))
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range map[string][]byte{partial: body[:half], partial + ".json": []byte(checkpoint)} {
+			if err := os.WriteFile(filepath.Join(directory, name), content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	listing := func(t *testing.T, directory string) []string {
+		t.Helper()
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		return names
+	}
+	var requests sync.Mutex
+	serve := func(t *testing.T, ranges *[]string) *httptest.Server {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			requests.Lock()
+			*ranges = append(*ranges, request.Header.Get("Range"))
+			requests.Unlock()
+			writer.Header().Set("ETag", `"fixture"`)
+			http.ServeContent(writer, request, "", time.Time{}, bytes.NewReader(body))
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+
+	t.Run("start sweeps what cannot be resumed", func(t *testing.T) {
+		var ranges []string
+		registry, id, err := configured(t, serve(t, &ranges), newEngines().capabilities(), definition)
+		if err != nil {
+			t.Fatalf("configure: %v", err)
+		}
+		root, err := registry.Root()
+		if err != nil {
+			t.Fatal(err)
+		}
+		directory := filepath.Join(root, "decision", id)
+		leftovers(t, directory, strings.Repeat("0", 64))
+		stray := ".other.bin-4-" + strings.Repeat("ab", 32) + ".part"
+		for _, name := range []string{stray, stray + ".json", ".tmp-0011223344556677", ".gone.part.json"} {
+			if err := os.WriteFile(filepath.Join(directory, name), []byte("left"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// A recent partial download with its checkpoint is all that stays.
+		if err := registry.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if got := listing(t, directory); !slices.Equal(got, []string{partial, partial + ".json"}) {
+			t.Fatalf("after the sweep: %v", got)
+		}
+		// One that was not written for the retention period goes.
+		old := registry.clock.Now().Add(-assets.PartRetention - time.Hour)
+		if err := os.Chtimes(filepath.Join(directory, partial), old, old); err != nil {
+			t.Fatal(err)
+		}
+		registry.sweep()
+		if got := listing(t, directory); len(got) != 0 {
+			t.Fatalf("an abandoned partial download stayed: %v", got)
+		}
+		// So does one whose checkpoint is lost: its bytes cannot continue.
+		leftovers(t, directory, strings.Repeat("0", 64))
+		if err := os.Remove(filepath.Join(directory, partial+".json")); err != nil {
+			t.Fatal(err)
+		}
+		registry.sweep()
+		if got := listing(t, directory); len(got) != 0 {
+			t.Fatalf("a partial download without a checkpoint stayed: %v", got)
+		}
+	})
+
+	t.Run("a checkpoint of another address starts over", func(t *testing.T) {
+		var ranges []string
+		registry, id, err := configured(t, serve(t, &ranges), newEngines().capabilities(), definition)
+		if err != nil {
+			t.Fatalf("configure: %v", err)
+		}
+		root, err := registry.Root()
+		if err != nil {
+			t.Fatal(err)
+		}
+		leftovers(t, filepath.Join(root, "decision", id), strings.Repeat("0", 64))
+		if err := registry.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.Install(t.Context(), id, nil); err != nil {
+			t.Fatalf("install: %v", err)
+		}
+		requests.Lock()
+		defer requests.Unlock()
+		if len(ranges) != 1 || ranges[0] != "" || state(registry, id) != "installed" {
+			t.Fatalf("range requests %q, state %q", ranges, state(registry, id))
+		}
+	})
 }

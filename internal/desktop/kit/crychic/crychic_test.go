@@ -22,6 +22,7 @@ import (
 	"github.com/ELY-Open-Source/CrychicUI/color"
 	"github.com/ELY-Open-Source/CrychicUI/desktop"
 	"github.com/ELY-Open-Source/CrychicUI/devtools"
+	"github.com/ELY-Open-Source/CrychicUI/diagram"
 	"github.com/ELY-Open-Source/CrychicUI/feedback"
 	"github.com/ELY-Open-Source/CrychicUI/files"
 	"github.com/ELY-Open-Source/CrychicUI/form"
@@ -305,6 +306,11 @@ var probes = []probe{
 		selected, sort := 1, files.SortName
 		return func(c *ui.Context) { files.FileList(c, "t:files", folder, &selected, &sort, listCopy) }
 	}},
+	{name: "diagram.Mermaid", english: []string{"Diagram"}, idle: func() func(*ui.Context) {
+		return func(c *ui.Context) {
+			diagram.Mermaid(c, "flowchart LR\n  Cart --> Pay\n  Pay -->|ok| Shipped", diagram.MermaidOptions{Label: "t:flow", Failed: "t:failed"})
+		}
+	}},
 }
 
 var (
@@ -547,6 +553,10 @@ func TestPolicy(t *testing.T) {
 			_, _, ok["branches, repeated"] = BranchPicker(c, "t:branches", []code.Branch{{Name: "main"}, {Name: "main"}}, &current, &query, code.BranchPickerOptions{})
 			_, ok["blame"] = Blame(c, "t:blame", []code.BlameLine{{Text: "package main", At: day}}, code.BlameOptions{})
 			_, ok["blame, no time"] = Blame(c, "t:blame", []code.BlameLine{{Author: "Ada", Text: "package main"}}, code.BlameOptions{})
+			_, ok["mermaid"] = Mermaid(c, "flowchart LR\n  Cart --> Pay", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid, a syntax error"] = Mermaid(c, "flowchart LR\n  Cart -->", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid, no kind"] = Mermaid(c, "no such diagram", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid, a reserved property"] = Mermaid(c, "flowchart LR\n  A --> B\n  style A fill:var(--pele-bg)", diagram.MermaidOptions{Failed: "t:failed"})
 		}, theme.Light)
 		s.settle()
 		for name, built := range ok {

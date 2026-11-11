@@ -82,6 +82,11 @@ func (b *demo) deploy() *Conversation {
 		Question: &composer.Ask{ID: ship.ID + "/ask", Prompt: b.t("deploy.ask.prompt"),
 			Options: strings.Split(b.t("deploy.ask.options"), "\n"), Retry: true},
 	}
+	// The user paused the queue until the approvals are decided.
+	c.Queue = []composer.Queued{
+		{ID: id + "/queued-prod", Text: b.t("deploy.queue.prod"), Wait: composer.WaitPaused},
+		{ID: id + "/queued-notes", Text: b.t("deploy.queue.notes"), Wait: composer.WaitPaused},
+	}
 	return c
 }
 

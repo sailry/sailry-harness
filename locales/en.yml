@@ -182,6 +182,7 @@ worktree_prune_on_select: Unavailable · click to clean up
 worktree_pruned: Stale worktree registration removed
 worktree_prune_failed: "Not cleaned up: the directory exists, is locked, or could not be verified"
 worktree_main: Main
+worktree_unused: No session
 worktree_path_exists: Path already exists
 worktree_prune: Clean up stale worktree
 worktree_prune_confirm: Remove this stale registration; no files are deleted
@@ -282,6 +283,11 @@ workspace_action_failed: "Workspace action failed"
 workspace_changed: "Workspace changed; reload before trying again"
 workspace_action_unknown: "Outcome uncertain; inspect before trying again"
 workspace_saved: "Saved"
+files_changed_on_disk: Changed on disk
+files_conflict_description: "Overwrite replaces the file on disk with your draft; Reload discards your draft"
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: "Completed"
 workspace_native_unavailable: "File action unavailable"
 workspace_invalid: "Check the entered values"
@@ -362,3 +368,37 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: "Indexing · %{count} items"
+knowledge_collection_ready: "Up to date · %{count} items"
+knowledge_collection_paused: Paused
+knowledge_collection_failed: "Failed · %{reason}"
+knowledge_collection_failures: "%{count} not indexed · %{reason}"
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
+model_library_speech_unsupported: Speech models cannot be added from the library
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: "Last %{count}"
+backup_keep_confirm: "Keep only the last %{count} backups?"
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: "%{count} items skipped"
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

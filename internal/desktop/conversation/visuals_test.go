@@ -1,9 +1,12 @@
 package conversation_test
 
 import (
+	"bytes"
 	"image/png"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +15,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -41,9 +46,9 @@ func pictures(tt *ui.Tester) int {
 }
 
 // checkMermaidBlocks is the headless smoke of ```mermaid blocks in a
-// reply: limu draws a diagram that is not a data chart, a theme switch and
-// a narrower window keep it, and a source limu cannot read or a block with
-// no end stays code.
+// reply: a diagram that is not a data chart is drawn as a picture, a theme
+// switch and a narrower window keep it, and a source that cannot be read
+// or a block with no end stays code.
 func checkMermaidBlocks(t *testing.T) {
 	t.Helper()
 	mode := theme.Light
@@ -206,8 +211,8 @@ func (st *chartStage) count(s string) int {
 // checkCharts is the proof of the charts in a reply, in Chinese, light
 // and dark: bars, lines and a pie are drawn natively, small, with no card
 // and one title, and show the value under the pointer; a flowchart stays
-// limu's picture without a card; nothing moves at rest; and data the
-// painters cannot show falls back without a panic.
+// a picture without a card; nothing moves at rest; and data the painters
+// cannot show falls back without a panic.
 func checkCharts(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		t.Run("bar", func(t *testing.T) {
@@ -346,7 +351,7 @@ func checkCharts(t *testing.T) {
 			st := stageCharts(dark, conversation.Block{Kind: conversation.TextBlock, Text: fence(flowSource)})
 			d, ok := st.tt.AccessByRole(ui.RoleImage, "flowchart")
 			if !ok || d.Focusable || d.Bounds.W <= 0 || d.Bounds.H <= 0 || d.Bounds.H > 420 {
-				t.Fatalf("no limu diagram: %v %+v", ok, d)
+				t.Fatalf("no diagram: %v %+v", ok, d)
 			}
 			if intro, _ := st.tt.Find(chartIntro); d.Bounds.X != intro.X {
 				t.Errorf("the diagram starts at %v, the text at %v", d.Bounds.X, intro.X)
@@ -408,7 +413,7 @@ func checkCharts(t *testing.T) {
 
 // checkHostileCharts draws data a model may write that a chart cannot
 // show, or can only with care: none panics, each is a native chart or
-// falls back to limu's picture or its code, and what is drawn keeps
+// falls back to the diagram's picture or its code, and what is drawn keeps
 // within the caps.
 func checkHostileCharts(t *testing.T) {
 	list := func(n int, item func(i int) string) string {
@@ -487,4 +492,329 @@ func checkHostileCharts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The diagrams of the proof frames, as a model writes them.
+const (
+	seqSource   = "sequenceDiagram\n    participant C as 客户端\n    participant R as 哈希环\n    participant N as 节点 B\n    C->>R: hash(\"user:42\")\n    R-->>C: 节点 B\n    C->>N: GET user:42\n    N-->>C: 值\n"
+	classSource = "classDiagram\n    class Ring {\n        +points []uint32\n        +Add(node string)\n        +Node(key string) string\n    }\n    class Node {\n        +name string\n        +Get(key string) Value\n    }\n    class Value\n    Ring \"1\" o-- \"*\" Node : places\n    Node --> Value : returns\n"
+	stateSource = "stateDiagram-v2\n    [*] --> Queued\n    Queued --> Running: start\n    Running --> Completed: done\n    Running --> Failed: error\n    Failed --> Queued: retry\n    Completed --> [*]\n"
+	erSource    = "erDiagram\n    TEAM ||--o{ MEMBER : has\n    TEAM ||--o{ PROJECT : owns\n    PROJECT ||--o{ SESSION : contains\n    TEAM {\n        string id PK\n        string name\n    }\n    SESSION {\n        string id PK\n        datetime started\n    }\n"
+	ganttSource = "gantt\n    title Release plan\n    dateFormat YYYY-MM-DD\n    section Build\n    Parser :a1, 2026-11-02, 5d\n    Renderer :a2, after a1, 7d\n    section Ship\n    Review :b1, after a2, 3d\n    Release :milestone, m1, after b1, 0d\n"
+)
+
+// diagramKinds is a source of every kind of diagram that is not a data
+// chart, with the name its kind gives it.
+var diagramKinds = []struct{ kind, src string }{
+	{"flowchart", flowSource},
+	{"sequence", seqSource},
+	{"class", classSource},
+	{"state", stateSource},
+	{"er", erSource},
+	{"gantt", ganttSource},
+	{"gitGraph", "gitGraph\n    commit id: \"Alpha\"\n    commit id: \"Beta\"\n    branch develop\n    commit id: \"Gamma\"\n    checkout main\n    merge develop\n"},
+	{"journey", "journey\n    title Release day\n    section Morning\n      Tag the build: 5: Ada\n      Run the gate: 3: Ada\n      Fix a flake: 1: Ada, Lin\n    section Afternoon\n      Publish: 5: Ada\n      Write notes: 4: Lin\n"},
+	{"mindmap", "mindmap\n    Sailry\n        Host[Host]\n        Desktop(Desktop)\n        Mobile\n"},
+	{"timeline", "timeline\n    title Release history\n    2024 : Prototype\n    2025 : Desktop : Host\n    2026 : Mobile\n"},
+	{"quadrantChart", "quadrantChart\n  x-axis Low effort --> High effort\n  y-axis Low value --> High value\n  quadrant-1 Plan\n  quadrant-2 Do\n  quadrant-3 Drop\n  quadrant-4 Delegate\n"},
+	{"sankey", "sankey\n\nSignups,Activated,280\n\nSignups,Dropped,120\n\nActivated,Retained,190\n"},
+	{"requirement", "requirementDiagram\n\nrequirement \"retry_delivery\" {\n    id: 1\n    text: \"A failed webhook is sent again\"\n    risk: high\n    verifymethod: test\n}\n"},
+	{"c4", "C4Context\n    title System context\n    Person(user, \"User\", \"Asks questions\")\n    System(app, \"App\", \"Answers them\")\n    Rel(user, app, \"Asks\")\n"},
+	{"block", "block\n  columns 3\n  parse layout paint cache\n"},
+	{"architecture", "architecture-beta\n    service web(server)[Web]\n    service api(server)[API]\n    service db(database)[Store]\n    web:B --> T:db\n    api:B --> T:db\n    align row web api\n"},
+	{"kanban", "kanban\n  todo[To do]\n    task1[Write the adapter]\n"},
+	{"packet", "packet\ntitle Frame header\n+16: \"Kind\"\n+16: \"Flags\"\n32-47: \"Length\"\n48-63: \"Stream\"\n64-95: \"Payload\"\n"},
+	{"radar", "radar-beta\n  axis s[\"Speed\"], c[\"Cost\"], q[\"Quality\"]\n  axis r[\"Reach\"], e[\"Ease\"], t[\"Trust\"]\n  curve a[\"Plan A\"]{85, 90, 80, 70, 75, 90}\n  curve b[\"Plan B\"]{70, 75, 85, 80, 90, 85}\n\n  max 100\n  min 0\n"},
+	{"treemap", "treemap-beta\n\"Desktop\"\n    \"Kit\": 10\n    \"Conversation\": 20\n\"Host\"\n    \"Node\": 15\n    \"Link\": 25\n"},
+	{"venn", "venn-beta\n  set A[\"Desktop\"]\n  set B[\"Mobile\"]\n  union A,B[\"Client\"]\n"},
+	{"usecase", "usecase-beta\nactor Reader\nSearch\nReader -- \"with a query\" --> Search\n"},
+	{"swimlane", "swimlane-beta\n  subgraph Review\n    read[Read the change]\n    reply[Leave a reply]\n  end\n"},
+	{"wardley", "wardley-beta\ntitle Hosting\n\ncomponent Own servers [0.45, 0.40] (inertia)\ncomponent Managed platform [0.65, 0.45]\n\nOwn servers -> Managed platform\n"},
+	{"treeView", "treeView-beta\n    \"internal\"\n        \"desktop\"\n            \"kit\"\n        \"node\"\n"},
+	{"railroad", "railroad-ebnf-beta\ndigit = \"0\" | \"1\" | \"2\" ;\nnumber = digit ;\n"},
+	{"ishikawa", "ishikawa-beta\n    Slow build\n    Cache\n        Cold cache\n        Wrong key\n    Tests\n        Run in series\n    Machine\n        Few cores\n"},
+	{"eventmodeling", "eventmodeling\n\ntf 01 ui InviteForm\ntf 02 cmd SendInvite\ntf 03 evt InviteSent\n"},
+	{"cynefin", "cynefin-beta\n  title Incident kinds\n\n  complex\n  complicated\n  clear\n  chaotic\n"},
+	{"agentflow", "agentflow-beta TB\n  flow team[\"Release Team\"]\n    flow builder[\"Builder\"]\n      build[\"Build the package\"]@{ shape: task }\n    end\n\n    flow checker[\"Checker\"]\n      verify[\"Verify the package\"]@{ shape: task }\n    end\n\n    builder --> checker\n  end\n"},
+	{"info", "info showInfo\n"},
+}
+
+// diagramFailed reports an error box in the window, under either title
+// it may have, or the title the library gives one by itself.
+func diagramFailed(tt *ui.Tester) bool {
+	for _, lang := range []string{"en", "zh-CN"} {
+		if tt.HasText(i18n.In(lang, "artifact_preview_failed")) {
+			return true
+		}
+	}
+	return tt.HasText("Diagram failed")
+}
+
+// coded counts the code blocks of mermaid source in the window, by their
+// headers.
+func coded(tt *ui.Tester) int {
+	n := 0
+	for _, text := range tt.Texts() {
+		if text == "mermaid" {
+			n++
+		}
+	}
+	return n
+}
+
+// debugLog collects the debug log, and returns how often it says s.
+func debugLog(t *testing.T) func(s string) int {
+	t.Helper()
+	var log bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return func(s string) int { return strings.Count(log.String(), s) }
+}
+
+// checkDiagrams is the proof of the diagrams in a reply that are not data
+// charts: each kind is one picture named for assistive technology, within
+// the caps, with no card, no error box and nothing moving; data charts
+// stay native; a source that cannot be drawn is its code, with no notice;
+// a block still being written is its code, read by nobody; and the demo's
+// diagrams draw.
+func checkDiagrams(t *testing.T) {
+	t.Run("flowchart and sequence", func(t *testing.T) {
+		for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+			for kind, src := range map[string]string{"flowchart": flowSource, "sequence": seqSource} {
+				tt := replyTester("Here:\n\n"+fence(src)+"\n\nDone.", &mode)
+				tt.Advance(time.Second)
+				d, ok := tt.AccessByRole(ui.RoleImage, kind)
+				if !ok || d.Focusable || d.Bounds.W <= 0 || d.Bounds.H <= 0 || d.Bounds.H > 420 {
+					t.Fatalf("no %s picture: %v %+v", kind, ok, d)
+				}
+				if pictures(tt) != 1 || coded(tt) != 0 || diagramFailed(tt) || !tt.HasText("Done.") {
+					t.Errorf("%s: %d pictures, %d code blocks, failed %v: %q", kind, pictures(tt), coded(tt), diagramFailed(tt), tt.Texts())
+				}
+			}
+		}
+	})
+	t.Run("kinds", func(t *testing.T) {
+		for _, tc := range diagramKinds {
+			t.Run(tc.kind, func(t *testing.T) {
+				start := time.Now()
+				st := stageCharts(false, conversation.Block{Kind: conversation.TextBlock, Text: fence(tc.src)})
+				first := time.Since(start)
+				st.tt.SetSize(chartStageWidth, 760)
+				st.tt.Frame()
+				st.tt.Frame()
+				d, ok := st.tt.AccessByRole(ui.RoleImage, tc.kind)
+				if !ok || d.Focusable || d.Bounds.W <= 0 || d.Bounds.H <= 0 {
+					t.Fatalf("no picture named %s: %v %+v %q", tc.kind, ok, d, st.tt.Texts())
+				}
+				t.Logf("%s is drawn at %v, first shown in %v", tc.kind, d.Bounds, first)
+				// The room the reply gives the picture is what is capped:
+				// one still past the cap at the smallest scale, as a
+				// Wardley map is by a fraction, scrolls in a box of it.
+				if b := d.Bounds; b.X+b.W > chartStageWidth {
+					t.Errorf("the picture takes %v", b)
+				}
+				if intro, _ := st.tt.Find(chartIntro); d.Bounds.X != intro.X {
+					t.Errorf("the picture starts at %v, the text at %v", d.Bounds.X, intro.X)
+				}
+				above, _ := st.tt.Find(chartIntro)
+				below, ok := st.tt.Find(chartOutro)
+				if room := below.Y - above.Y - above.H; !ok || room <= 0 || room > 420+40 {
+					t.Errorf("the picture takes %v between %v and %v", room, above, below)
+				}
+				if pictures(st.tt) != 1 || coded(st.tt) != 0 || diagramFailed(st.tt) {
+					t.Errorf("%d pictures, %d code blocks, failed %v: %q", pictures(st.tt), coded(st.tt), diagramFailed(st.tt), st.tt.Texts())
+				}
+				if st.moves(2 * time.Second) {
+					t.Error("the picture moves at rest")
+				}
+			})
+		}
+	})
+	t.Run("native", func(t *testing.T) {
+		// A data chart is still the painters': it takes the focus and
+		// reads its values, which a picture does not.
+		for title, src := range map[string]string{"Weekly active teams": barSource, "流量来源": pieSource} {
+			mode := theme.Light
+			tt := replyTester(fence(src), &mode)
+			if plot, ok := tt.AccessByRole(ui.RoleImage, title); !ok || !plot.Focusable || pictures(tt) != 1 || coded(tt) != 0 {
+				t.Errorf("%q is not a native chart: %v %+v", title, ok, plot)
+			}
+		}
+	})
+	t.Run("titles", func(t *testing.T) {
+		// The block's title is a caption and the name.
+		const title = "读取路径"
+		st := stageCharts(false, conversation.Block{Kind: conversation.VisualBlock, Visual: &conversation.Visual{Title: title, Mermaid: seqSource}})
+		if _, ok := st.tt.AccessByRole(ui.RoleImage, title); !ok || st.count(title) != 2 || pictures(st.tt) != 1 {
+			t.Errorf("a titled sequence: named %v, %d titles: %q", ok, st.count(title), st.tt.Texts())
+		}
+		caption, _ := st.tt.Find(title)
+		if intro, _ := st.tt.Find(chartIntro); caption.X != intro.X {
+			t.Errorf("the caption starts at %v, the text at %v", caption.X, intro.X)
+		}
+		// A picture that draws its title has no caption above it.
+		st = stageCharts(false, conversation.Block{Kind: conversation.VisualBlock, Visual: &conversation.Visual{Title: title, Mermaid: ganttSource}})
+		if _, ok := st.tt.AccessByRole(ui.RoleImage, title); !ok || st.count(title) != 1 {
+			t.Errorf("a gantt with its own title: named %v, %d titles: %q", ok, st.count(title), st.tt.Texts())
+		}
+		// The source's title for assistive technology names an untitled block.
+		st = stageCharts(false, conversation.Block{Kind: conversation.TextBlock, Text: fence("flowchart LR\n    accTitle: Signup funnel\n    A[Visit] --> B[Sign up]\n")})
+		if _, ok := st.tt.AccessByRole(ui.RoleImage, "Signup funnel"); !ok || st.count("Signup funnel") != 1 {
+			t.Errorf("an accTitle: named %v: %q", ok, st.tt.Texts())
+		}
+		// A source that cannot be drawn under a title is that title and its code.
+		st = stageCharts(false, conversation.Block{Kind: conversation.VisualBlock, Visual: &conversation.Visual{Title: title, Mermaid: "flowchart LR\n  Cart -->\n"}})
+		if pictures(st.tt) != 0 || st.count(title) != 1 || diagramFailed(st.tt) {
+			t.Errorf("an undrawable visual: %d pictures, %d titles, failed %v: %q", pictures(st.tt), st.count(title), diagramFailed(st.tt), st.tt.Texts())
+		}
+	})
+	t.Run("fallback", func(t *testing.T) {
+		// A finished block that cannot be drawn is its code, with no error
+		// box and no notice.
+		for _, tc := range []struct {
+			name, src string
+			long      bool
+		}{
+			{"syntax error", "flowchart LR\n  Cart -->\n", false},
+			{"unknown kind", "no such diagram\n", false},
+			{"reserved property", "flowchart LR\n    A --> B\n    style A fill:var(--pele-bg)\n", false},
+			{"reserved property, spaced", "flowchart LR\n    A --> B\n    style A stroke:VAR(  --_line )\n", false},
+			{"past the library's limit", "flowchart TD\n" + strings.Repeat("    A --> B\n", 5000), true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				says := debugLog(t)
+				mode := theme.Light
+				tt := replyTester("Here:\n\n"+fence(tc.src)+"\n\nDone.", &mode)
+				tt.Advance(time.Second)
+				if pictures(tt) != 0 || diagramFailed(tt) {
+					t.Errorf("%d pictures, failed %v: %q", pictures(tt), diagramFailed(tt), tt.Texts())
+				}
+				// A long block's header is above the window.
+				if !tc.long && (coded(tt) != 1 || !tt.HasText("Done.")) {
+					t.Errorf("%d code blocks: %q", coded(tt), tt.Texts())
+				}
+				if says("crychic: Mermaid") != 0 {
+					t.Error("the library was shown a source it cannot draw")
+				}
+			})
+		}
+	})
+	t.Run("streaming", func(t *testing.T) {
+		// A reply written a character at a time: the block is code until
+		// its fence closes, nothing reads it before, and it is read once.
+		says := debugLog(t)
+		const full = "Here:\n\n```mermaid\nflowchart LR\n    Cart --> Pay\n    Pay -->|ok| Shipped\n```\n\nDone."
+		text := ""
+		s := conversation.New()
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			turns := []conversation.Turn{{ID: "stream", User: "Draw it", Reply: conversation.Reply{Status: conversation.Running,
+				Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: text}}}}}
+			ui.Column(c).Fill().Children(func() { conversation.View(c, s, "stream", turns, nil, noActions{}) })
+		}, 900, 900)
+		tt.SetLocale("en")
+		closed := false
+		for i, r := range full {
+			text = full[:i+len(string(r))]
+			tt.Frame()
+			if diagramFailed(tt) {
+				t.Fatalf("an error shows after %q: %q", text, tt.Texts())
+			}
+			if closed = strings.Count(text, "```") == 2; closed {
+				continue
+			}
+			if pictures(tt) != 0 || says("crychic: Mermaid") != 0 {
+				t.Fatalf("an unfinished block is drawn or read after %q: %d pictures, %d log lines", text, pictures(tt), says("crychic: Mermaid"))
+			}
+			if open := strings.Contains(text, "```mermaid\n"); open && coded(tt) != 1 {
+				t.Fatalf("an unfinished block is not its code after %q: %q", text, tt.Texts())
+			}
+		}
+		tt.Advance(time.Second)
+		for range 10 {
+			tt.Frame()
+		}
+		if _, ok := tt.AccessByRole(ui.RoleImage, "flowchart"); !closed || !ok || coded(tt) != 0 || !tt.HasText("Done.") {
+			t.Errorf("the finished block is not drawn: %q", tt.Texts())
+		}
+		if says("Mermaid drew") != 1 || says("Mermaid failed") != 0 {
+			t.Errorf("the library drew %d times and failed %d", says("Mermaid drew"), says("Mermaid failed"))
+		}
+		if says("Cart") != 0 || says("Shipped") != 0 {
+			t.Error("the log holds the source")
+		}
+	})
+	t.Run("demo", func(t *testing.T) {
+		// Every diagram of the demo draws, and there is a flowchart and a
+		// sequence diagram among them in both languages.
+		fences := regexp.MustCompile("(?s)```mermaid\n(.*?\n)```")
+		for _, lang := range []string{"en", "zh-CN"} {
+			d := preview.Demo(lang, "local")
+			all := slices.Clone(d.Unassigned)
+			for _, p := range d.Projects {
+				all = append(all, p.Conversations...)
+			}
+			kinds := map[string]int{}
+			for _, cv := range all {
+				for _, turn := range cv.Turns {
+					for _, b := range turn.Reply.Blocks {
+						var blocks []conversation.Block
+						switch {
+						case b.Kind == conversation.VisualBlock && b.Visual != nil:
+							blocks = append(blocks, b)
+						case b.Kind == conversation.TextBlock:
+							for _, m := range fences.FindAllStringSubmatch(b.Text, -1) {
+								blocks = append(blocks, conversation.Block{Kind: conversation.TextBlock, Text: fence(m[1])})
+							}
+						}
+						for _, block := range blocks {
+							st := stageCharts(false, block)
+							if pictures(st.tt) != 1 || coded(st.tt) != 0 || diagramFailed(st.tt) {
+								t.Errorf("%s: a visual of %s in %s is not drawn: %q", lang, turn.ID, cv.ID, st.tt.Texts())
+								continue
+							}
+							for _, a := range st.tt.AccessAll() {
+								if a.Role != ui.RoleImage {
+									continue
+								}
+								if a.Focusable {
+									kinds["chart"]++
+								} else {
+									kinds[a.Name]++
+									st.tt.SetScale(2)
+									st.shot(t, "diagram-demo-"+a.Name+"-"+lang, false)
+								}
+							}
+						}
+					}
+				}
+			}
+			if kinds["flowchart"] == 0 || kinds["sequence"] == 0 {
+				t.Errorf("%s: the demo draws %v, want a flowchart and a sequence diagram", lang, kinds)
+			}
+		}
+	})
+	t.Run("snapshots", func(t *testing.T) {
+		// The common kinds, two to a frame, light and dark, as pictures to
+		// look at: $SAILRY_SNAPSHOTS/conversation-chart-diagram-<kinds>-zh-CN-<mode>.png.
+		// The gantt marks today, so its frame changes with the day.
+		for _, dark := range []bool{false, true} {
+			for _, pair := range []struct{ name, a, b string }{
+				{"flow-sequence", flowSource, seqSource},
+				{"class-state", classSource, stateSource},
+				{"er-gantt", erSource, ganttSource},
+			} {
+				st := stageCharts(dark, conversation.Block{Kind: conversation.TextBlock, Text: fence(pair.a) + "\n\n" + fence(pair.b)})
+				st.tt.SetSize(chartStageWidth, 1120)
+				st.tt.SetScale(2)
+				st.tt.Frame()
+				st.tt.Advance(time.Second)
+				if pictures(st.tt) != 2 || coded(st.tt) != 0 || diagramFailed(st.tt) {
+					t.Errorf("%s: %d pictures: %q", pair.name, pictures(st.tt), st.tt.Texts())
+				}
+				st.shot(t, "diagram-"+pair.name, dark)
+			}
+		}
+	})
 }

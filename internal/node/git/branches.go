@@ -94,7 +94,7 @@ func operation(root string, r *gogit.Repository) *string {
 	if err != nil {
 		return nil
 	}
-	for _, item := range []struct{ path, name string }{{"MERGE_HEAD", "merge"}, {"CHERRY_PICK_HEAD", "cherry-pick"}, {"rebase-merge", "rebase"}, {"rebase-apply", "rebase"}} {
+	for _, item := range []struct{ path, name string }{{"MERGE_HEAD", "merge"}, {"CHERRY_PICK_HEAD", "cherry-pick"}, {"REVERT_HEAD", "revert"}, {"rebase-merge", "rebase"}, {"rebase-apply", "rebase"}} {
 		if _, err := os.Lstat(filepath.Join(dir, item.path)); err == nil {
 			return ptr(item.name)
 		}

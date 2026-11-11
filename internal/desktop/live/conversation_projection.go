@@ -154,6 +154,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	associations := map[string][]toolAssociation{}
 	// User entries replace the captured pending input once canonical history arrives.
 	canonicalUsers := map[protocol.TurnID]bool{}
+	summarized := map[int]bool{}
 	for _, entry := range page.Entries {
 		owner := owners[entry.Turn]
 		position, ok := positions[owner]
@@ -225,6 +226,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
+					summarized[position] = true
 					if text, ok := detail[string](part.Data); ok {
 						t.Compaction.Summary += text
 					}
@@ -243,6 +245,14 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				}
 			}
 			t.Reply.Citations = append(t.Reply.Citations, v)
+		}
+	}
+	// A completed compaction whose loaded turn holds no summary compacted nothing.
+	for _, r := range runs {
+		if position, ok := positions[r.Turn]; ok && r.Kind == "compaction" && r.Status == "completed" && !summarized[position] && !slices.Contains(snapshot.Missing, r.Turn) {
+			if k := turns[position].Compaction; k != nil {
+				k.State = conversation.CompactionUnneeded
+			}
 		}
 	}
 	for _, draft := range snapshot.Drafts {
@@ -268,7 +278,12 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				}
 			}
 			title := failureKey(*r.Error)
-			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
+			// A compaction that failed has said so, with this cause, on its own block.
+			if !slices.ContainsFunc(t.Reply.Blocks, func(block conversation.Block) bool {
+				return block.Kind == conversation.ErrorBlock && block.Label == "chat_compact_failed" && block.Text == r.Error.Message
+			}) {
+				t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
+			}
 			if position == len(turns)-1 && session.Diagnostic == nil {
 				session.Diagnostic = &conversation.Diagnostic{Title: title, Fields: [][2]string{{"code", string(r.Error.Code)}}, Detail: r.Error.Message}
 			}
@@ -316,6 +331,13 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				projected.Warning = true
 				projected.Running = false
 				projected.State = conversation.StateInterrupted
+			case "cancelled":
+				// Stop closed the request: the call reads as a plain row of a
+				// stopped turn, not as one that failed or lost its approval.
+				projected.Warning = false
+				projected.Pending = false
+				projected.Running = false
+				projected.State = conversation.StateNone
 			}
 		}
 		if a.State != "pending" {
@@ -398,13 +420,66 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	}
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
-		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
+		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil, Wait: queueWait(page, item)}
 		for _, file := range item.Attachments {
 			q.Attachments = append(q.Attachments, &composer.Attachment{ID: file.ID.String(), Name: file.Spec.Name, Mime: file.Spec.MediaType, Size: int64(file.Spec.Size), Status: composer.Ready})
 		}
 		queue = append(queue, q)
 	}
 	return turns, session, interactions, queue
+}
+
+// queueWait is why a queued item is not starting: its own turn ended before
+// its input was recorded, it is held until it is started, or the queue is
+// paused, by the reason the Node gave. Guidance waits for its recipient.
+func queueWait(page protocol.ConversationPage, item protocol.ConversationPending) composer.Wait {
+	if item.Guidance != nil {
+		return composer.WaitNone
+	}
+	if slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
+		return run.Turn == item.Turn && (run.Status == "failed" || run.Status == "cancelled" || run.Status == "interrupted")
+	}) {
+		return composer.WaitUnsent
+	}
+	if !page.Queue.Paused {
+		if !item.Ready {
+			return composer.WaitHeld
+		}
+		return composer.WaitNone
+	}
+	if page.Queue.PauseReason != nil {
+		switch *page.Queue.PauseReason {
+		case protocol.ConversationQueuePauseStopped:
+			return composer.WaitStopped
+		case protocol.ConversationQueuePauseInterrupted:
+			return composer.WaitInterrupted
+		}
+	}
+	return composer.WaitPaused
+}
+
+// heldResults are the finished background results the Node keeps back from
+// automatic delivery, with its reason; the user's next turn takes them.
+func heldResults(page protocol.ConversationPage) []composer.HeldResult {
+	var held []composer.HeldResult
+	for _, task := range page.Background {
+		if task.State != protocol.ConversationBackgroundStatePending || task.Hold == nil || task.Delivery != nil {
+			continue
+		}
+		wait := composer.WaitHeld
+		switch *task.Hold {
+		case protocol.ConversationBackgroundHoldLimit:
+			wait = composer.WaitLimit
+		case protocol.ConversationBackgroundHoldStopped:
+			wait = composer.WaitStopped
+		case protocol.ConversationBackgroundHoldInterrupted:
+			wait = composer.WaitInterrupted
+		case protocol.ConversationBackgroundHoldFailed:
+			wait = composer.WaitFailed
+		}
+		held = append(held, composer.HeldResult{ID: task.ID, Title: task.Title, Wait: wait})
+	}
+	return held
 }
 
 func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn protocol.TurnID) int {
@@ -433,14 +508,19 @@ func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn pr
 			return 0
 		}
 	}
+	// Guidance is pending for the turn that takes it: the turn it joined,
+	// which for a batch that outlived its recipient is the successor, not the
+	// recipient it was sent to; or, not joined yet, the turn it waits for.
 	for _, run := range page.Runs {
-		if run.Guidance == nil || *run.Guidance != turn {
+		if run.Joined != nil {
+			if *run.Joined == turn && !slices.ContainsFunc(page.Entries, func(entry protocol.ConversationEntry) bool {
+				return entry.Turn == run.Turn && entry.Author == "user"
+			}) {
+				return 0
+			}
 			continue
 		}
-		delivered := run.Joined != nil && *run.Joined == turn && slices.ContainsFunc(page.Entries, func(entry protocol.ConversationEntry) bool {
-			return entry.Turn == run.Turn && entry.Author == "user"
-		})
-		if !delivered && (run.Status == "queued" || run.Joined != nil && *run.Joined == turn) {
+		if run.Status == "queued" && run.Guidance != nil && *run.Guidance == turn {
 			return 0
 		}
 	}
@@ -996,6 +1076,8 @@ func projectResource(reply *conversation.Reply, data any) {
 		if json.Unmarshal(raw, &started) == nil && started.Started > 0 {
 			reply.PhaseElapsed = max(0, time.Since(time.UnixMilli(started.Started)))
 		}
+	case "output_limit":
+		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.LimitBlock})
 	case "compaction_failure":
 		var v struct {
 			Failure protocol.ConversationCompactionFailure `json:"failure"`

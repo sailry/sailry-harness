@@ -104,7 +104,8 @@ func (inbox *Inbox) MarkRead(ctx context.Context, id NoticeID, clients map[proto
 		if err != nil {
 			return err
 		}
-		if output.Kind != "notifications_updated" {
+		// The Node answers a single read with the notice itself.
+		if output.Kind != "notification" {
 			return fault(protocol.ErrorCodeInternal, "notification update response expected")
 		}
 	} else if controller := clients[id.Node]; controller != nil {

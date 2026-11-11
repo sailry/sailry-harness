@@ -174,9 +174,6 @@ question_other: 기타
 question_decline: 거절
 interaction_submit: 제출
 interaction_cancel: 취소
-approval_deny_reason: 이유를 적어 거부
-approval_reason: 이유
-approval_reason_cancel: 취소
 approval_receipt: 승인 영수증
 approval_busy: 승인 대기 중
 approval_ssh_trust: '%{host}:%{port} 신뢰 — %{algorithm} %{fingerprint}'
@@ -320,6 +317,7 @@ worktree_remove_busy: 작업 트리가 사용 중입니다
 worktree_remove_dirty: Worktree에 커밋되지 않은 변경 사항이 있으므로 제거할 수 없습니다
 worktree_remove_conflict: 워크트리 변경, 제거하기 전에 새로 고침
 worktree_remove_missing: 찾을 수 없음
+worktree_unused: No session
 git_branch_exists: 브랜치가 이미 존재함
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: 스테이징을 업데이트할 수 없습니다. 다시 시도하십시오
@@ -903,7 +901,6 @@ message_display_compact: 간결하게
 message_display_detailed: 자세히
 message_text_extra_large: 아주 크게
 message_text_large: 크게
-message_text_size_value: '%{size}px'
 message_text_small: 작게
 message_text_standard: 표준
 model_library_manage: 모델 관리
@@ -1057,7 +1054,6 @@ telemetry_send_action: 진단 정보 보내기
 telemetry_support: 지원
 telemetry_title: 진단 및 개인정보
 telemetry_unknown: 결과를 알 수 없습니다. 새로고침하여 확인하세요
-telemetry_welcome: 익명 진단은 기본적으로 켜져 있으며 설정에서 변경할 수 있습니다
 terminal_environment: 전역 환경 변수
 terminal_environment_add: 환경 변수 추가
 terminal_input: 입력
@@ -1180,6 +1176,16 @@ search_driver_auto: 자동
 knowledge_settings: 기본 설정
 knowledge_default_model: 벡터 모델
 knowledge_keyword_only: 키워드만
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: 판단
 runtime_decision_model: 모델
 runtime_decision_enable: 판단 사용
@@ -1546,6 +1552,31 @@ metrics_worker: 미리 보기 작업자
 metrics_indexer: 인덱서 미리보기
 metrics_loading: 메트릭을 기다리는 중(미리보기)
 metrics_error: 메트릭을 사용할 수 없음 (미리보기)
+host_node_uptime: Sailry 실행 시간
+host_sampling: 샘플을 기다리는 중
+host_sampling_failed: 호스트 데이터가 업데이트되지 않음
+host_metric_unavailable: 데이터 없음
+host_cores: '%{count}코어'
+host_load: 부하
+host_core: 코어 %{index} · %{value}
+host_memory_total: 총 %{value}
+host_memory_used: 사용 중
+host_memory_cached: 캐시
+host_memory_swap: 스왑
+host_utilization: 사용률
+host_network_total: 부팅 후 누적
+host_disk_write: 쓰기
+host_disk_read: 읽기
+host_storage: 저장소
+host_partition_count: 파티션 %{count}개
+host_read_short: R
+host_write_short: W
+host_process_search: 검색 프로세스
+host_process_limited: 사용량별 상위 2048 프로세스 표시
+host_process_name: 프로세스
+host_pid: PID
+host_process_empty: 프로세스 없음
+host_process_no_matches: 일치하는 프로세스 없음
 port_title: 포트 전달
 port_mappings: 포트 매핑
 port_add: 새 전달
@@ -1693,6 +1724,11 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
 workspace_native_unavailable: File action unavailable
 workspace_invalid: Check the entered values
@@ -1998,6 +2034,7 @@ knowledge_saved: 저장됨
 knowledge_cancel_requested: 취소 요청됨
 model_library_failed: 모델을 불러올 수 없습니다
 model_library_partial: 일부 결과를 사용할 수 없습니다
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: 사용 불가
 dictation_unavailable: 로컬 음성 입력을 사용할 수 없음
 dictation_model_missing: 먼저 음성 모델 다운로드하기
@@ -2089,7 +2126,7 @@ directory_action_failed: 작업 실패; 경로와 권한 확인
 directory_address: 경로 입력
 directory_count_hidden: 숨김 %{count}개
 directory_create: 새 폴더
-directory_denied: 미리 보기 접근 거부; 다른 디렉터리 선택
+directory_denied: 이 폴더를 열 권한이 없습니다
 directory_devices: 장치
 directory_extension_kind: '%{extension} 파일'
 directory_go_to: 폴더로 이동
@@ -2101,7 +2138,7 @@ directory_json_kind: JSON 파일
 directory_keep_both: 둘 다 가져가
 directory_list: 목록
 directory_markdown_kind: Markdown 문서
-directory_missing: 이 호스트의 미리보기에 없는 경로; 미리보기 위치로 돌아가기
+directory_missing: 폴더를 찾을 수 없습니다
 directory_refresh: 새로고침
 directory_root: 루트
 directory_stale: 양식 경로가 변경되었습니다. 선택기를 다시 엽니다
@@ -2196,3 +2233,38 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: Last %{count}
+backup_keep_confirm: Keep only the last %{count} backups?
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

@@ -327,8 +327,11 @@ dispatch service and require an online Node.
   the request loader uses the latest summary. Context-length errors can trigger at
   most two reactive compactions.
 - **Tools.** Each turn builds model declarations from its captured tool instances.
-  Additional tools are discovered through `tool_search` without granting
-  permissions. Approvals settle before calls run. Adjacent read-only concurrent
+  The everyday file, command, Git, code and web tools are offered on the first
+  request; the others are listed by name and discovered through `tool_search`
+  without granting permissions. The model reads declared tool names; internal
+  aliases stay behind the model boundary
+  ([details](docs/plugins.md#tool-catalog)). Approvals settle before calls run. Adjacent read-only concurrent
   calls run together, up to eight at a time. Results keep request order.
 - **Approvals.** Node owns each approval's five-minute deadline.
 - **Work modes.** Standard is the default. Plan is read-only with a reviewed
@@ -469,9 +472,11 @@ dispatch service and require an online Node.
   The controls around the terminal remain Kit controls.
 - Flutter consumes shared Client state rather than its own conversation state
   machine.
-- Mermaid diagrams and math use limu and Untie through their MyGo adapters if
-  their B10 spikes pass; failed rendering keeps source text. They never use a
-  WebView. Session HTML uses an opaque-origin sandboxed MyGo WebView without a
+- Mermaid diagrams are drawn by CrychicUI's `diagram.Mermaid` on pele-go, and
+  xychart and pie by the conversation's own painter from the model limu's
+  parser reads; math uses Untie through its MyGo adapter if its B10 spike
+  passes. Failed rendering keeps source text. They never use a WebView.
+  Session HTML uses an opaque-origin sandboxed MyGo WebView without a
   bridge; browser content remains untrusted.
 - Voice reading and global selection shortcuts stay local to the controller and
   never start an Agent turn.

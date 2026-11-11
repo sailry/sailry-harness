@@ -5,8 +5,9 @@ import (
 )
 
 // processSessionEvents stops the commands of removed sessions. The store has
-// already dismissed their evidence in the removing transaction.
-func (node *Node) processSessionEvents(changes []protocol.Event) {
+// already dismissed their evidence in the removing transaction. after runs
+// once those commands have stopped.
+func (node *Node) processSessionEvents(changes []protocol.Event, after func([]protocol.SessionID)) {
 	for _, change := range changes {
 		if change.Kind != "sessions_removed" {
 			continue
@@ -22,6 +23,7 @@ func (node *Node) processSessionEvents(changes []protocol.Event) {
 			for _, session := range removed {
 				_, _ = node.processes.CloseSession(node.ctx, session)
 			}
+			after(removed)
 		}()
 	}
 }

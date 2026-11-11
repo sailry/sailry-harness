@@ -60,7 +60,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		languageModel = x.renewedModel
 	}
 	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)}
-	parts = append(parts, r.delegationContext(x, state), x.skillContext, childBudgetContext(x, state))
+	parts = append(parts, r.delegationContext(x, state), x.skillContext, r.deferredContext(x, state), childBudgetContext(x, state))
 	if state.Context.Environment != nil {
 		parts = append(parts, *state.Context.Environment)
 	}
@@ -107,6 +107,10 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if err != nil {
 		return err
 	}
+	projected, tools, schemas = x.names.request(projected, tools, schemas)
+	if err = r.toolMediaAssets(x.ctx, binding, projected, assets); err != nil {
+		return err
+	}
 	call, err := model.BuildCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets})
 	if err != nil {
 		return err
@@ -141,13 +145,12 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		out.record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true, Inference: &canonical.Inference{Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model}}
 		var streamErr error
 		var attempts []model.Attempt
-		escaped := false
 		metric := r.telemetry.Capture()
 		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			r.observeModel(metric, binding, attempt)
-			if attempt.Failure != nil && attempt.Failure.Retryable() && !escaped && attempt.Index < 5 {
+			if attempt.RetryDelay != nil {
 				record := r.observationRecord(x, binding, purpose, attempt)
-				limit, delay := uint64(5), uint64(60000)
+				limit, delay := uint64(5), uint64(attempt.RetryDelay.Milliseconds())
 				code := string(attempt.Failure.Kind)
 				message := attempt.Failure.Message
 				record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}
@@ -157,7 +160,6 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			attempts = append(attempts, attempt)
 			return nil
 		}, func(part fantasy.StreamPart) bool {
-			escaped = true
 			if x.ctx.Err() != nil {
 				return false
 			}
@@ -178,6 +180,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			err = streamErr
 		}
 		out.order()
+		x.names.restore(out.blocks)
 		empty := out.empty()
 		var billing []canonical.Record
 		for _, attempt := range attempts {

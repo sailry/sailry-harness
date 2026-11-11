@@ -134,21 +134,12 @@ func DemoModels() []Model {
 func DemoComposer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := Composer(d, c, worktree)
 	ctx.Families, ctx.Teams = DemoFamilies, nil
-	// The hosts are the window's own: only the local one is named by a key.
-	for i := range ctx.Hosts {
-		ctx.Hosts[i].Key = ctx.Hosts[i].Name == "local_host_name"
-	}
 	if c.Session.ReadOnly {
 		// A subagent's session has no composer, only its queue's tray.
 		ctx.Readonly, ctx.Child = true, true
 		ctx.Interactions = composer.Interactions{}
 	}
 	return ctx
-}
-
-// Reason notes why the call id of c was denied, on its row.
-func Reason(c *Conversation, id, reason string) {
-	eachCall(c, id, func(call *cv.Call) { call.Error = reason })
 }
 
 // attached visits the files of c: the ones its messages carry, then the ones

@@ -56,9 +56,9 @@ func (r *Runtime) libraryFrame(owner *Runtime) {
 }
 
 // searchLibrary reads the hub's first page for the request. An empty page
-// that has a successor is followed, so that a page whose results the Node
-// filtered out does not read as "no models". A failure is the
-// model_library_failed toast; a hub that answered in part is said so.
+// that has a successor is followed (followLibrary), so that a page whose
+// results the Node filtered out does not read as "no models". A failure is
+// the model_library_failed toast; a hub that answered in part is said so.
 func (r *Runtime) searchLibrary(owner *Runtime, request settings.LibraryRequest) {
 	lib := &r.localModels.library
 	if lib.cancel != nil {
@@ -93,28 +93,44 @@ func (r *Runtime) searchLibrary(owner *Runtime, request settings.LibraryRequest)
 	lib.cancel = cancel
 	search := protocol.ModelsSearch{Hub: libraryHub(request.Hub), Kind: kind, Query: request.Query}
 	started := owner.async(func() {
-		var page protocol.ModelsPage
-		for {
+		finish(followLibrary(search, func(search protocol.ModelsSearch) (protocol.ModelsPage, error) {
 			output, err := owner.controller.Do(ctx, protocol.Command{Kind: "search_models", Data: search})
-			next, valid := detail[protocol.ModelsPage](output.Data)
+			page, valid := detail[protocol.ModelsPage](output.Data)
 			if err == nil && (output.Kind != "model_search" || !valid) {
 				err = fmt.Errorf("unexpected model search response")
 			}
-			if err != nil {
-				finish(page, err)
-				return
-			}
-			page.Items, page.Partial = append(page.Items, next.Items...), page.Partial || next.Partial
-			if len(page.Items) > 0 || next.NextCursor == nil {
-				finish(page, nil)
-				return
-			}
-			search.Cursor = next.NextCursor
-		}
+			return page, err
+		}))
 	})
 	if !started {
 		m.LibraryLoad.Loading, m.LibraryLoad.Loaded = false, true
 	}
+}
+
+// libraryAnswers bounds the answers one search follows. A Node skips up to
+// three hub pages without a compatible model per answer, so a query that
+// matches only other kinds of model stops after nine hub pages instead of
+// reading the hub's whole listing while the dialog waits.
+const libraryAnswers = 3
+
+// followLibrary reads the first answer with results. An answer without any
+// that names a successor is followed, libraryAnswers at most; results that
+// may lie beyond that are reported as a partial page.
+func followLibrary(search protocol.ModelsSearch, read func(protocol.ModelsSearch) (protocol.ModelsPage, error)) (protocol.ModelsPage, error) {
+	var page protocol.ModelsPage
+	for range libraryAnswers {
+		next, err := read(search)
+		if err != nil {
+			return page, err
+		}
+		page.Items, page.Partial = append(page.Items, next.Items...), page.Partial || next.Partial
+		if len(page.Items) > 0 || next.NextCursor == nil {
+			return page, nil
+		}
+		search.Cursor = next.NextCursor
+	}
+	page.Partial = true
+	return page, nil
 }
 
 // libraryItem is the result of a row and the Node that found it.

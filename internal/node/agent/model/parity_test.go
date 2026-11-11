@@ -16,12 +16,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
 	"github.com/cespare/xxhash/v2"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -452,6 +454,10 @@ func TestRequestParity(t *testing.T) {
 	t.Run("cancellation", func(t *testing.T) { cancellationFixture(t, false) })
 	t.Run("early_iterator_release", func(t *testing.T) { cancellationFixture(t, true) })
 	t.Run("incomplete_tools_and_eof", incompleteFixture)
+	t.Run("stalled_response", stallFixture)
+	t.Run("output_limit", limitFixture)
+	t.Run("inline_thinking", thinkingFixture)
+	t.Run("context_limit", contextFixture)
 	t.Run("one_request_on_rejection", rejectionFixture)
 	t.Run("usage_presence", usagePresenceFixture)
 	t.Run("additional_source_contracts", additionalParityFixtures)
@@ -727,6 +733,261 @@ func cancellationFixture(t *testing.T, early bool) {
 		t.Error("explicit cancellation was not surfaced as failure")
 	}
 	<-closed
+}
+
+// thinkingFixture splits inline reasoning tags at every byte, in the filter
+// and in a Chat Completions stream.
+func thinkingFixture(t *testing.T) {
+	read := func(parts []thinkingPart, text, thinking *string) {
+		for _, part := range parts {
+			if part.thinking {
+				*thinking += part.text
+			} else {
+				*text += part.text
+			}
+		}
+	}
+	for _, row := range []struct{ input, text, thinking string }{
+		{"<think>hidden</think>visible", "visible", "hidden"},
+		{"<THINKING data='a>b'>hidden</thinking >visible", "visible", "hidden"},
+		{"<think>hid<think/>den</think>visible", "visible", "hidden"},
+		{"你好 <thinking-mode>x", "你好 <thinking-mode>x", ""},
+		{"</think>shown", "</think>shown", ""},
+		{"text<thin", "text<thin", ""},
+		{"<think/>shown", "shown", ""},
+		{"a < b and <thinker>", "a < b and <thinker>", ""},
+		{"<think>hidden</thi", "", "hidden</thi"},
+		{"before<think>one</think>between<thinking>two</thinking>after", "beforebetweenafter", "onetwo"},
+	} {
+		for boundary := 0; boundary <= len(row.input); boundary++ {
+			var filter thinkingFilter
+			var text, thinking string
+			read(filter.push(row.input[:boundary]), &text, &thinking)
+			read(filter.push(row.input[boundary:]), &text, &thinking)
+			read(filter.finish(), &text, &thinking)
+			if text != row.text || thinking != row.thinking {
+				t.Fatalf("%q split at %d: text %q, thinking %q", row.input, boundary, text, thinking)
+			}
+		}
+	}
+	chunk := func(field, text string) string {
+		delta, _ := json.Marshal(map[string]string{field: text})
+		return `data: {"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":` + string(delta) + `,"finish_reason":null}]}` + "\n\n"
+	}
+	end := `data: {"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
+	for _, row := range []struct {
+		name, stream, text, reasoning string
+		order                         []fantasy.StreamPartType
+	}{
+		{"split tags", chunk("content", "<thi") + chunk("content", "nk>Plan") + chunk("content", " it</th") + chunk("content", "ink>Done") + end, "Done", "Plan it",
+			[]fantasy.StreamPartType{fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeFinish}},
+		{"reported reasoning wins", chunk("reasoning_content", "Reported") + chunk("content", "<think>Copy</think>Done") + end, "Done", "Reported",
+			[]fantasy.StreamPartType{fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeFinish}},
+		{"unfinished tag is text", chunk("content", "a <thin") + end, "a <thin", "",
+			[]fantasy.StreamPartType{fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeFinish}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			server := serverFixture(t, row.stream)
+			language, err := newSDK(t.Context(), transportConfig{Kind: "chat", Model: "fixture", Endpoint: server.URL, Key: "captured-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text, reasoning string
+			var order []fantasy.StreamPartType
+			for _, part := range collect(t, language, requestCall(t, "chat")) {
+				order = append(order, part.Type)
+				switch part.Type {
+				case fantasy.StreamPartTypeTextDelta:
+					text += part.Delta
+				case fantasy.StreamPartTypeReasoningDelta:
+					reasoning += part.Delta
+				}
+			}
+			if text != row.text || reasoning != row.reasoning || !reflect.DeepEqual(order, row.order) {
+				t.Errorf("text %q, reasoning %q, parts %v", text, reasoning, order)
+			}
+		})
+	}
+}
+
+// limitFixture ends a reply at the output limit inside a tool call: the
+// partial answer and the complete calls stay, and the cut call is dropped or
+// reaches the engine with the error the model reads, by wire.
+func limitFixture(t *testing.T) {
+	events := func(values ...string) string {
+		var stream strings.Builder
+		for _, value := range values {
+			// Messages names each event; the other wires ignore the line.
+			var event struct{ Type string }
+			json.Unmarshal([]byte(value), &event)
+			if event.Type != "" {
+				stream.WriteString("event: " + event.Type + "\n")
+			}
+			stream.WriteString("data: " + value + "\n\n")
+		}
+		return stream.String()
+	}
+	type call struct {
+		id, input string
+		failed    bool
+	}
+	for _, row := range []struct {
+		name, kind, stream string
+		calls              []call
+		finish             fantasy.FinishReason
+	}{
+		{"responses", "responses", events(
+			`{"type":"response.output_text.delta","item_id":"message","delta":"Partial"}`,
+			`{"type":"response.output_item.added","output_index":1,"item":{"id":"item-1","type":"function_call","call_id":"whole","name":"read","arguments":""}}`,
+			`{"type":"response.output_item.done","output_index":1,"item":{"id":"item-1","type":"function_call","call_id":"whole","name":"read","arguments":"{\"path\":\"a\"}","status":"completed"}}`,
+			`{"type":"response.output_item.added","output_index":2,"item":{"id":"item-2","type":"function_call","call_id":"cut","name":"read","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","item_id":"item-2","delta":"{\"path\":"}`,
+			`{"type":"response.incomplete","response":{"id":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":7,"output_tokens":5,"total_tokens":12},"output":[{"id":"message","type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial"}]},{"id":"item-1","type":"function_call","call_id":"whole","name":"read","arguments":"{\"path\":\"a\"}","status":"completed"},{"id":"item-2","type":"function_call","call_id":"cut","name":"read","arguments":"{\"path\":","status":"incomplete"}]}}`,
+		), []call{{"whole", `{"path":"a"}`, false}}, fantasy.FinishReasonLength},
+		{"responses_other_reason", "responses", events(
+			`{"type":"response.output_text.delta","item_id":"message","delta":"Partial"}`,
+			`{"type":"response.incomplete","response":{"id":"response","status":"incomplete","incomplete_details":{"reason":"paused"},"output":[]}}`,
+		), nil, fantasy.FinishReasonOther},
+		{"anthropic", "anthropic", events(
+			`{"type":"message_start","message":{"id":"message","type":"message","role":"assistant","model":"claude-opus-4-8","content":[],"usage":{"input_tokens":7,"output_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Partial"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"whole","name":"read","input":{}}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a\"}"}}`,
+			`{"type":"content_block_stop","index":1}`,
+			`{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"cut","name":"read","input":{}}}`,
+			`{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}`,
+			`{"type":"content_block_stop","index":2}`,
+			`{"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":5}}`,
+			`{"type":"message_stop"}`,
+		), []call{{"whole", `{"path":"a"}`, false}, {"cut", `{}`, true}}, fantasy.FinishReasonLength},
+		{"anthropic_without_input", "anthropic", events(
+			`{"type":"message_start","message":{"id":"message","type":"message","role":"assistant","model":"claude-opus-4-8","content":[],"usage":{"input_tokens":7,"output_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"plain","name":"read","input":{}}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}`,
+			`{"type":"message_stop"}`,
+		), []call{{"plain", `{}`, false}}, fantasy.FinishReasonToolCalls},
+		{"chat", "chat", events(
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Partial"},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"whole","type":"function","function":{"name":"read","arguments":"{\"path\":\"a\"}"}}]},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"cut","type":"function","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`,
+		) + "data: [DONE]\n\n", []call{{"whole", `{"path":"a"}`, false}}, fantasy.FinishReasonLength},
+		{"chat_without_input", "chat", events(
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"plain","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		) + "data: [DONE]\n\n", []call{{"plain", `{}`, false}}, fantasy.FinishReasonToolCalls},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			server := serverFixture(t, row.stream)
+			name := "fixture"
+			if row.kind == "anthropic" {
+				name = "claude-opus-4-8"
+			}
+			language, err := newSDK(t.Context(), transportConfig{Kind: row.kind, Model: name, Endpoint: server.URL, Key: "captured-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls []call
+			var text string
+			var finish fantasy.FinishReason
+			for _, part := range collect(t, language, requestCall(t, row.kind)) {
+				switch part.Type {
+				case fantasy.StreamPartTypeTextDelta:
+					text += part.Delta
+				case fantasy.StreamPartTypeToolCall:
+					block := canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: part.ID, Name: part.ToolCallName, Arguments: json.RawMessage(part.ToolCallInput)}}
+					if err := ApplyStreamMetadata(&block, part); err != nil {
+						t.Fatal(err)
+					}
+					failure := block.Data.(*canonical.ToolRequest).Error
+					if failure != nil && (failure.Code != -32602 || !strings.Contains(failure.Message, "output limit")) {
+						t.Errorf("cut call error = %+v", failure)
+					}
+					calls = append(calls, call{part.ID, part.ToolCallInput, failure != nil})
+				case fantasy.StreamPartTypeFinish:
+					finish = part.FinishReason
+				}
+			}
+			if !reflect.DeepEqual(calls, row.calls) || finish != row.finish {
+				t.Errorf("calls = %+v, finish = %q", calls, finish)
+			}
+			if partial := !strings.HasSuffix(row.name, "without_input"); partial && text != "Partial" {
+				t.Errorf("partial answer = %q", text)
+			}
+		})
+	}
+}
+
+// stallFixture leaves a provider silent before its response and inside its
+// stream: the request is released, the failure is a retryable network one and
+// a step that showed nothing is sent again.
+func stallFixture(t *testing.T) {
+	prefixes := map[string]string{"responses": "responses-partial.sse", "anthropic": "", "google": "", "chat": ""}
+	for kind, prefix := range prefixes {
+		for _, phase := range []string{"headers", "stream"} {
+			t.Run(kind+"_"+phase, func(t *testing.T) {
+				var lock sync.Mutex
+				requests := 0
+				released := make(chan struct{}, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					io.Copy(io.Discard, request.Body)
+					lock.Lock()
+					requests++
+					first := requests == 1
+					lock.Unlock()
+					writer.Header().Set("Content-Type", "text/event-stream")
+					if !first {
+						writer.Write(fixture(t, kind+"-text.sse"))
+						return
+					}
+					if phase == "stream" {
+						writer.WriteHeader(http.StatusOK)
+						if prefix != "" {
+							writer.Write(fixture(t, prefix))
+						}
+						writer.(http.Flusher).Flush()
+					}
+					<-request.Context().Done()
+					released <- struct{}{}
+				}))
+				t.Cleanup(server.Close)
+				name := "fixture"
+				if kind == "anthropic" {
+					name = "claude-opus-4-8"
+				}
+				language, err := newSDK(t.Context(), transportConfig{Kind: kind, Model: name, Endpoint: server.URL, Key: "captured-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				sdk := language.(*sdkModel)
+				sdk.client.Transport = responseTransport{base: sdk.client.Transport.(responseTransport).base, stall: 50 * time.Millisecond}
+				var attempts []Attempt
+				var texts []string
+				err = Run(t.Context(), language, requestCall(t, kind), Main, &policyClock{}, func(attempt Attempt) error { attempts = append(attempts, attempt); return nil }, func(part fantasy.StreamPart) bool {
+					if part.Type == fantasy.StreamPartTypeTextDelta {
+						texts = append(texts, part.Delta)
+					}
+					return true
+				})
+				<-released
+				if len(attempts) == 0 || attempts[0].Failure == nil || attempts[0].Failure.Kind != Network || !attempts[0].Failure.Retryable() || attempts[0].Failure.Message != "Model stream sent no data for 600 seconds" {
+					t.Fatalf("stalled attempt = %+v", attempts)
+				}
+				// A partial answer was shown, so that step is not sent again.
+				if shown := phase == "stream" && prefix != ""; shown {
+					if err == nil || len(attempts) != 1 || len(texts) != 1 {
+						t.Errorf("shown stall: attempts=%d texts=%v error=%v", len(attempts), texts, err)
+					}
+				} else if err != nil || len(attempts) != 2 || len(texts) == 0 {
+					t.Errorf("silent stall: attempts=%d texts=%v error=%v", len(attempts), texts, err)
+				}
+			})
+		}
+	}
 }
 
 func incompleteFixture(t *testing.T) {

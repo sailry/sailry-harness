@@ -21,8 +21,9 @@ are disabled. User-authored text is retained literally in Markdown.
 Attachment metadata and resolved conversation image references accompany each
 export document. Asset names combine attachment identity with a sanitized name.
 A repeated identity with changed metadata fails. A reference to a tool image
-resolves only within the exported conversation. Unknown image references remain
-unchanged. Node-owned attachment download supplies the bytes; exports grant no
+resolves only within the exported conversation and only in assistant text; the
+reference rewrites user text too once an assistant message names the same image.
+Unknown image references remain unchanged. Node-owned attachment download supplies the bytes; exports grant no
 extra filesystem or tool access.
 
 `internal/desktop/exporter.Render` returns Markdown, standalone HTML or PNG bytes.

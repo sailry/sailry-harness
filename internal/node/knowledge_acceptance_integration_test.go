@@ -540,7 +540,8 @@ func TestKnowledgeAgentTools(t *testing.T) {
 		t.Fatalf("the turn made %d model requests, want %d", len(requests), len(script.steps))
 	}
 	for _, tool := range tools {
-		if !slices.Contains(requests[1], tool) {
+		// The model reads a package tool under its declared name.
+		if !slices.Contains(requests[1], declaredToolName(tool)) {
 			t.Errorf("%s was not offered after discovery; offered %v", tool, requests[1])
 		}
 	}

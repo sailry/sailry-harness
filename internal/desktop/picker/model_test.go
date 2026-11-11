@@ -3,6 +3,7 @@ package picker
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 // TestModel covers the picker's rules without a window: what the hidden
@@ -137,10 +138,119 @@ func TestModel(t *testing.T) {
 		t.Errorf("after trashing: %+v", empty.Entries)
 	}
 
+	// The Modified column orders by time inside the folders and the files,
+	// an entry without one first; today's and yesterday's times are told
+	// from the dates in the reader's time zone.
+	t.Run("modified", func(t *testing.T) {
+		now := time.Date(2026, 11, 11, 15, 0, 0, 0, time.UTC)
+		dated := []Entry{
+			{Name: "old.txt", Kind: "file", Modified: now.Add(-72 * time.Hour)},
+			{Name: "undated.txt", Kind: "file"},
+			{Name: "new.txt", Kind: "file", Modified: now.Add(-time.Hour)},
+			{Name: "folder", Kind: "directory", Modified: now},
+			{Name: "archive", Kind: "directory", Modified: now.Add(-24 * time.Hour)},
+		}
+		order := func(descending bool) (out []string) {
+			shown := Visible(dated, true, "")
+			Order(dated, shown, "modified", descending, kind)
+			for _, i := range shown {
+				out = append(out, dated[i].Name)
+			}
+			return
+		}
+		if got := order(false); !slices.Equal(got, []string{"archive", "folder", "undated.txt", "old.txt", "new.txt"}) {
+			t.Errorf("by modified: %q", got)
+		}
+		if got := order(true); !slices.Equal(got, []string{"folder", "archive", "new.txt", "old.txt", "undated.txt"}) {
+			t.Errorf("by modified descending: %q", got)
+		}
+		east := time.FixedZone("east", 8*3600)
+		for _, c := range []struct {
+			modified, now time.Time
+			want          int
+		}{
+			{time.Time{}, now, -1},
+			{now, now, 0},
+			{now.Add(-15 * time.Hour), now, 0},
+			{now.Add(-16 * time.Hour), now, 1},
+			{now.Add(-40 * time.Hour), now, 2},
+			{now.Add(10 * time.Hour), now, 2},
+			// 23:00 the day before in UTC is 07:00 today eight hours east.
+			{now.Add(-16 * time.Hour), now.In(east), 0},
+		} {
+			if got := Day(c.modified, c.now); got != c.want {
+				t.Errorf("Day(%v, %v) = %d, want %d", c.modified, c.now, got, c.want)
+			}
+		}
+		// The preview's files carry sizes and times against its own clock.
+		sample := slices.IndexFunc(home.Entries, func(e Entry) bool { return e.Name == "release-notes.md" })
+		if sample < 0 || home.Entries[sample].Kind != "file" || home.Entries[sample].Size != 6200 || Day(home.Entries[sample].Modified, CatalogNow) != 0 {
+			t.Errorf("the preview's root lists %+v", home.Entries)
+		}
+	})
+
+	// A directory picker selects directories alone and always has a choice;
+	// the file pickers select anything and choose files.
+	t.Run("selection rules", func(t *testing.T) {
+		l := Listing{Separator: "/", Path: "/work", Entries: []Entry{{Name: "src", Kind: "directory"}, {Name: "a.go", Kind: "file"}, {Name: "link", Kind: "symlink"}}}
+		for i, want := range []bool{true, false, false} {
+			if Selectable(Directory, l.Entries[i]) != want || !Selectable(File, l.Entries[i]) || !Selectable(Files, l.Entries[i]) {
+				t.Errorf("%s is selectable in the wrong modes", l.Entries[i].Name)
+			}
+		}
+		for _, c := range []struct {
+			mode     Mode
+			selected []int
+			want     []string
+		}{
+			{Directory, nil, []string{"/work"}},
+			{Directory, []int{0}, []string{"/work/src"}},
+			{Directory, []int{1}, nil},
+			{File, nil, nil},
+			{File, []int{0}, nil},
+			{File, []int{1}, []string{"/work/a.go"}},
+			{Files, []int{0, 1, 2}, []string{"/work/a.go"}},
+		} {
+			if got := Resolve(c.mode, l, c.selected); !slices.Equal(got, c.want) {
+				t.Errorf("Resolve(%d, %v) = %q, want %q", c.mode, c.selected, got, c.want)
+			}
+		}
+		// A name that only starts with a dot has no extension to name.
+		if key, extension := KindKey(Entry{Name: ".gitignore", Kind: "file"}); key != "directory_file_kind" || extension != "" {
+			t.Errorf(".gitignore is a %s %q", key, extension)
+		}
+		if key, extension := KindKey(Entry{Name: "a.deb", Kind: "file"}); key != "directory_extension_kind" || extension != "DEB" {
+			t.Errorf("a.deb is a %s %q", key, extension)
+		}
+	})
+
+	// The sidebar marks the longest location holding the directory, by
+	// whole path steps.
+	t.Run("nearest location", func(t *testing.T) {
+		locations := []Location{{Kind: "root", Path: "/"}, {Kind: "home", Path: "/home/me"}, {Kind: "project", Path: "/home/me/work"}, {Path: ""}}
+		for path, want := range map[string]string{
+			"/": "/", "/usr/lib": "/", "/home/me": "/home/me", "/home/me/notes": "/home/me", "/home/me/work": "/home/me/work",
+			"/home/me/work/src": "/home/me/work", "/home/me/workshop": "/home/me", "/home/meadow": "/",
+		} {
+			if got, ok := Nearest(Listing{Separator: "/", Path: path}, locations); !ok || got != want {
+				t.Errorf("Nearest(%s) = %q, want %q", path, got, want)
+			}
+		}
+		if got, ok := Nearest(Listing{Separator: `\`, Path: `D:\data`}, []Location{{Path: `C:\`}, {Path: `D:\`}}); !ok || got != `D:\` {
+			t.Errorf(`Nearest(D:\data) = %q`, got)
+		}
+		if _, ok := Nearest(Listing{Separator: `\`, Path: `D:\data`}, []Location{{Path: `C:\`}}); ok {
+			t.Error("a directory under no location has a nearest one")
+		}
+	})
+
+	t.Run("view", views)
+
 	t.Run("tile classes", func(t *testing.T) {
 		for name, want := range map[string]string{
 			"main.go": "code", "notes.md": "text", "paper.PDF": "pdf", "photo.jpeg": "image", "data.csv": "sheet",
 			"backup.tar": "archive", "song.mp3": "audio", "clip.mov": "video", "Makefile": "file", ".gitignore": "file",
+			"code_amd64.deb": "package", "app.dmg": "package", "disk.iso": "archive", "old.7z": "archive", "book.xls": "sheet",
 		} {
 			if got := Class(Entry{Name: name, Kind: "file"}); got != want {
 				t.Errorf("Class(%q) = %q, want %q", name, got, want)

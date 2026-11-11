@@ -64,6 +64,13 @@ Desktop ships the unmodified libghostty-vt library pinned by the MyGo terminal
 plugin. Provenance and the retained MIT notice are in
 third_party_licenses/ghostty-terminal.md and third_party_licenses/ghostty-MIT.txt.
 
+Loading indicators
+Desktop's loading marks are drawn by the loading plugin of the pinned MyGo
+module, which follows the indicators of loading-dev
+(https://github.com/jakubkrehel/loading, MIT, Copyright 2026 Jakub Krehel).
+Provenance and the retained notice are in third_party_licenses/loading-dev.md
+and third_party_licenses/loading-dev-MIT.txt.
+
 Offline conversation export
 html2canvas, Apache ECharts, MathJax and Mermaid retain their licenses and
 source checksums in internal/desktop/exporter/assets/.

@@ -103,7 +103,7 @@ func (binding *NativeBinding) renderControl(view *ui.Context, element NativeElem
 		sentinel := ui.Row(view).FillWidth().Height(1).Center()
 		if loading {
 			sentinel.Height(32).Gap(8).Children(func() {
-				ui.Spinner(view)
+				kit.Busy(view)
 				nativeText(view, label).TextColor(theme.Of(view).MutedForeground)
 			})
 		}

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/disk"
 )
 
 // readTimeout bounds each wait for response headers or body bytes.
@@ -91,10 +93,13 @@ func Prepare(ctx context.Context, client *http.Client, directory string, downloa
 			if !partial.complete(specification) {
 				phase = Downloading
 				report(completed + partial.received)
-				err := receive(ctx, client, download, partial, func(received, bytes uint64) {
-					transferred += bytes
-					report(completed + received)
-				})
+				err := room(directory, specification.Name, specification.Size-partial.received)
+				if err == nil {
+					err = receive(ctx, client, download, partial, func(received, bytes uint64) {
+						transferred += bytes
+						report(completed + received)
+					})
+				}
 				if syncErr := partial.file.Sync(); syncErr != nil {
 					_ = partial.file.Close()
 					return storage(syncErr)
@@ -149,6 +154,17 @@ func Prepare(ctx context.Context, client *http.Client, directory string, downloa
 	// Asset completion does not prove the consumer's native model validation.
 	notify(Progress{Phase: phase, Percent: 100})
 	return nil
+}
+
+// room refuses, before any request, a file whose remaining bytes the volume of
+// the model directory cannot hold. A volume that does not report its free space
+// refuses nothing: the write itself reports a full one.
+func room(directory, name string, remaining uint64) error {
+	usage, err := disk.Usage(directory)
+	if err != nil || usage.Free >= remaining {
+		return nil
+	}
+	return storageMessage(fmt.Sprintf("not enough free space for %s: %d bytes needed, %d free", name, remaining, usage.Free))
 }
 
 // receive appends the response body to the partial file. A rejected range

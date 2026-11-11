@@ -56,7 +56,10 @@ func plainTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui
 func show(cv *preview.Conversation) (*conversation.State, *preview.Conversation, *ui.Tester) {
 	s := conversation.New()
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, &cv.Session, noActions{}) })
+		ui.Column(c).Fill().Children(func() {
+			conversation.View(c, s, cv.ID, cv.Turns, &cv.Session, noActions{})
+			conversation.Navigation(c, s)
+		})
 	}, 1024, 760)
 	tt.Frame()
 	return s, cv, tt

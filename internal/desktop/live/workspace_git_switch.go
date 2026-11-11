@@ -10,22 +10,30 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// workspaceRemoteBranch splits a remote-tracking branch into its remote and
+// the branch there. A remote's name may hold a slash, so the longest listed
+// remote that begins the name is the one meant, as the Node resolves it.
+func workspaceRemoteBranch(remotes []string, name string) (remote, branch string, ok bool) {
+	for _, candidate := range remotes {
+		if strings.HasPrefix(name, candidate+"/") && len(candidate) > len(remote) {
+			remote = candidate
+		}
+	}
+	if remote == "" {
+		return "", "", false
+	}
+	return remote, name[len(remote)+1:], true
+}
 func workspaceTrackingBranch(branches protocol.GitBranches, remoteBranch string) (string, bool) {
 	for _, branch := range branches.Entries {
 		if !branch.Remote && branches.Sync.Tracking[branch.Name] == remoteBranch {
 			return branch.Name, false
 		}
 	}
-	remote := ""
-	for _, name := range branches.Sync.Remotes {
-		if strings.HasPrefix(remoteBranch, name+"/") && len(name) > len(remote) {
-			remote = name
-		}
-	}
-	if remote == "" {
+	_, local, ok := workspaceRemoteBranch(branches.Sync.Remotes, remoteBranch)
+	if !ok {
 		return "", false
 	}
-	local := strings.TrimPrefix(remoteBranch, remote+"/")
 	for _, branch := range branches.Entries {
 		if !branch.Remote && branch.Name == local {
 			return local, true

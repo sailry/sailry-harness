@@ -89,6 +89,12 @@ type BackupSettings struct {
 	Local                 *BackupLocal       `json:"local,omitempty"`
 	OnlineEnabled         bool               `json:"online_enabled"`
 	Schedule              *BackupSchedule    `json:"schedule,omitempty"`
+	// Keep is how many of this Node's newest backups each location retains
+	// after a backup; zero keeps all.
+	Keep uint32 `json:"keep,omitempty"`
+	// Last is the outcome of the most recent backup. The Node owns it: a
+	// saved value is ignored.
+	Last *BackupOutcome `json:"last,omitempty"`
 }
 
 func DefaultBackupSettings() BackupSettings {
@@ -100,6 +106,8 @@ func DefaultBackupSettings() BackupSettings {
 		Local:                 nil,
 		OnlineEnabled:         true,
 		Schedule:              nil,
+		Keep:                  0,
+		Last:                  nil,
 	}
 }
 func (value *BackupSettings) UnmarshalJSON(data []byte) error {
@@ -109,6 +117,8 @@ func (value *BackupSettings) UnmarshalJSON(data []byte) error {
 	decoded.Local = nil
 	decoded.OnlineEnabled = true
 	decoded.Schedule = nil
+	decoded.Keep = 0
+	decoded.Last = nil
 	if err := DecodeObject(data, &decoded, []string{"revision", "credentials_configured"}, true); err != nil {
 		return err
 	}
@@ -130,6 +140,38 @@ func (value BackupSettings) MarshalJSON() ([]byte, error) {
 		delete(fields, "online_enabled")
 	}
 	return json.Marshal(fields)
+}
+
+// BackupOutcome is how one backup ended. Error is absent after a success;
+// Reason is the failure's message; Skipped counts the content left out.
+type BackupOutcome struct {
+	FinishedMs uint64     `json:"finished_ms"`
+	Error      *ErrorCode `json:"error,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
+	Skipped    uint32     `json:"skipped,omitempty"`
+}
+
+func DefaultBackupOutcome() BackupOutcome {
+	return BackupOutcome{
+		FinishedMs: 0,
+		Error:      nil,
+		Reason:     "",
+		Skipped:    0,
+	}
+}
+func (value *BackupOutcome) UnmarshalJSON(data []byte) error {
+	type plain BackupOutcome
+	decoded := plain{}
+	if err := DecodeObject(data, &decoded, []string{"finished_ms"}, true); err != nil {
+		return err
+	}
+	*value = BackupOutcome(decoded)
+	return nil
+}
+func (value BackupOutcome) MarshalJSON() ([]byte, error) {
+	type plain BackupOutcome
+	encoded := plain(value)
+	return json.Marshal(encoded)
 }
 
 type BackupLocal struct {
@@ -354,6 +396,8 @@ type BackupRecord struct {
 	SizeBytes uint64 `json:"size_bytes"`
 	Files     uint32 `json:"files"`
 	Sha256    string `json:"sha256"`
+	// Skipped counts the content the backup left out.
+	Skipped uint32 `json:"skipped,omitempty"`
 }
 
 func DefaultBackupRecord() BackupRecord {
@@ -364,6 +408,7 @@ func DefaultBackupRecord() BackupRecord {
 		SizeBytes: 0,
 		Files:     0,
 		Sha256:    "",
+		Skipped:   0,
 	}
 }
 func (value *BackupRecord) UnmarshalJSON(data []byte) error {

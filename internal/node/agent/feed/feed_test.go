@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestConversationFeed(t *testing.T) {
-	for _, scenario := range []string{"reservation precedes commit", "retained lag recovery", "retained gap resets", "committed supersedes draft", "stop seals late partials", "draft bytes are bounded"} {
+	for _, scenario := range []string{"reservation precedes commit", "retained lag recovery", "retained gap resets", "committed supersedes draft", "stop seals late partials", "draft bytes are bounded", "a long turn keeps streaming"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
@@ -68,6 +69,27 @@ func TestConversationFeed(t *testing.T) {
 							t.Fatalf("retained order=%d, want %d", frame.Sequence, i)
 						}
 					}
+				}
+			case "a long turn keeps streaming":
+				entry := protocol.DefaultConversationEntry()
+				entry.Turn = turn
+				for i := range maxFinalized + 2 {
+					entry.ID = fmt.Sprint("entry-", i)
+					h.Publish(session, protocol.ConversationChange{Kind: "entry", Data: entry})
+				}
+				before := h.Sequence(session)
+				// The newest committed entry still drops its late delta.
+				if err = h.Delta(session, protocol.ConversationDraft{ID: entry.ID, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "late"}}}); err != nil || h.Sequence(session) != before {
+					t.Fatalf("late delta revived a committed entry: %v", err)
+				}
+				if err = h.Delta(session, protocol.ConversationDraft{ID: "reply", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "partial"}}}); err != nil || h.Sequence(session) != before+1 {
+					t.Fatalf("streaming stopped after many committed entries: %v", err)
+				}
+				h.mu.Lock()
+				remembered, ordered := len(h.sessions[session].finalized), len(h.sessions[session].finalizedOrder)
+				h.mu.Unlock()
+				if remembered != maxFinalized || ordered != maxFinalized {
+					t.Fatalf("committed entries remembered: %d, %d", remembered, ordered)
 				}
 			case "committed supersedes draft", "stop seals late partials", "draft bytes are bounded":
 				draft := protocol.ConversationDraft{ID: "reply", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "partial"}}}

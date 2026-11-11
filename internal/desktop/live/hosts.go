@@ -32,6 +32,9 @@ type liveHost struct {
 	metricsDetail  bool
 	metricsError   string
 	sample         *protocol.HostMetricsSample
+	// metrics is the last sample as the page shows it, whose history the
+	// next one continues (host.Metrics.Follow).
+	metrics        *host.Metrics
 	install        *sshInstallation
 	update         *hostUpdate
 	active         []hostActivity
@@ -72,7 +75,7 @@ func (r *Runtime) closeHosts() {
 func (r *Runtime) ensureHost(id string, owner *Runtime, local bool) *liveHost {
 	state := r.hosts[id]
 	if state == nil {
-		state = &liveHost{owner: owner, view: &host.Host{ID: id, Live: true, Local: local, Detail: "host_unknown", Runtime: host.Runtime{Live: true, Uptime: -1}}}
+		state = &liveHost{owner: owner, view: &host.Host{ID: id, Live: true, Local: local, Detail: "host_unknown", Runtime: host.Runtime{Live: true, Uptime: -1, NodeUptime: -1}}}
 		if local {
 			state.view.Name = "local_host_name"
 		} else {
@@ -208,11 +211,15 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 				details = append(details, *part)
 			}
 		}
+		// The platform is the header's line alone: the runtime facts do not
+		// repeat it.
 		view.Detail = strings.Join(details, " · ")
-		view.Runtime.System = view.Detail
-		view.Runtime.Uptime = time.Duration(min(info.HostUptimeSecs, uint64((1<<63-1)/int64(time.Second)))) * time.Second
+		// The computer's uptime and the Node's are two facts: a Node started
+		// minutes ago on a computer up for days shows both.
+		view.Runtime.Uptime, view.Runtime.NodeUptime = seconds(info.HostUptimeSecs), seconds(info.NodeUptimeSecs)
 		view.Runtime.Known = true
 	}
+	view.Offline = state.owner == nil || !state.owner.controller.Connected()
 	if state.owner == nil {
 		return
 	}
@@ -265,6 +272,12 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	}
 }
 
+// seconds is a count of seconds as a duration, the longest one for a count
+// past it.
+func seconds(count uint64) time.Duration {
+	return time.Duration(min(count, uint64((1<<63-1)/int64(time.Second)))) * time.Second
+}
+
 func (r *Runtime) hostsFrame(c *ui.Context) {
 	if r.parent != nil {
 		return
@@ -282,14 +295,11 @@ func (r *Runtime) hostsFrame(c *ui.Context) {
 		selected = r.App.Host
 	}
 	footer := r.App.Settings.SidebarMetrics && r.App.NavShown()
-	width, _ := c.Size()
-	nav := float32(0)
-	if r.App.NavShown() {
-		nav = shell.ClampNav(r.App.NavWidth)
-	}
-	panelVisible := shell.PanelFits(width, nav, shell.ClampPanel(r.App.PanelWidth, width, nav))
 	for id, state := range r.hosts {
-		detailed := r.App.Page == shell.HostPage && r.App.Host == id && r.App.Metrics && panelVisible
+		// The host's page is its monitor: it samples in detail while it
+		// shows, as the reference's bind_host_monitor, whether or not the
+		// summary column is open.
+		detailed := r.App.Page == shell.HostPage && r.App.Host == id
 		demand := detailed || footer && selected == id
 		if state.owner != nil && (state.info == nil || r.App.Page == shell.HostPage && r.App.Host == id) {
 			if !state.infoPending && !now.Before(state.infoNext) {

@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -15,11 +16,49 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// NoticeHeading is the heading a package gave its notice, in a language, ""
+// when it gave none: a reminder says Reminder above its own title. System
+// notices keep the application's headings.
+func NoticeHeading(n *viewmodel.Notice, language string) string {
+	if n.Presentation == nil {
+		return ""
+	}
+	if n.Details != nil {
+		switch n.Details.Kind {
+		case "power", "diagnostic", "system":
+			return ""
+		}
+	}
+	if heading := n.Presentation.Locales[language]; heading != "" {
+		return heading
+	}
+	return n.Presentation.Heading
+}
+
+// noticeTitle names a notice in the bell and the centre: its own title, and a
+// notice without one by its package's heading before the generic fallback.
 func noticeTitle(c *ui.Context, n *viewmodel.Notice) string {
+	if strings.TrimSpace(n.Title) == "" {
+		if heading := NoticeHeading(n, i18n.Match(c.Locale())); heading != "" {
+			return heading
+		}
+	}
 	if n.TitleKey != "" {
 		return i18n.T(c, n.TitleKey)
 	}
 	return n.Title
+}
+
+// noticeSource names the host a notice came from.
+func (a *App) noticeSource(c *ui.Context, n *viewmodel.Notice) string {
+	if a.Data.Workspace != nil {
+		for _, host := range a.Data.Workspace.Hosts {
+			if host.ID == n.Node {
+				return a.hostName(c, host.Name)
+			}
+		}
+	}
+	return a.hostName(c, n.Host)
 }
 
 func (a *App) noticeIDs(read bool) []string {
@@ -116,7 +155,7 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 				ui.Text(c, text).FontSize(14).Selectable()
 			}
 		}
-		facts := [][2]string{{i18n.T(c, "notification_source"), a.hostName(c, n.Host)}}
+		facts := [][2]string{{i18n.T(c, "notification_source"), a.noticeSource(c, n)}}
 		if !n.Time.IsZero() {
 			facts = append(facts, [2]string{i18n.T(c, "notification_time"), n.Time.Local().Format("2006-01-02 15:04:05")})
 		}
@@ -133,10 +172,6 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 				facts = append(facts, [2]string{i18n.T(c, "notification_result"), i18n.T(c, statusKey(value.Status))})
 				if value.StartedMs != nil && value.FinishedMs != nil {
 					facts = append(facts, [2]string{i18n.T(c, "notification_duration"), i18n.T(c, "notification_seconds", "count", max(0, (*value.FinishedMs-*value.StartedMs)/int64(time.Second/time.Millisecond)))})
-				}
-			case *protocol.NotificationDetailsTerminal:
-				if value.Code != nil {
-					facts = append(facts, [2]string{i18n.T(c, "notification_exit_code"), fmt.Sprint(*value.Code)})
 				}
 			case *protocol.NotificationDetailsPowerPayload:
 				facts = append(facts, [2]string{i18n.T(c, "notification_result"), fmt.Sprint(value.Code)})

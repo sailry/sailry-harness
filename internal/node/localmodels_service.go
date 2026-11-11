@@ -257,7 +257,7 @@ func (node *Node) configureLocalModels(caller protocol.NodeID, request protocol.
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
-		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "local model configuration result could not be recorded; read the settings before retrying"})
+		return node.unapplied(caller, request.ID, err)
 	}
 	if prepared != nil {
 		controls.registry.Apply(prepared)
@@ -300,16 +300,7 @@ func (node *Node) executeLocalModelConfiguration(db *sql.Conn, caller protocol.N
 // installation lane. Only installations are observable.
 func (node *Node) submitLocalModel(caller protocol.NodeID, request protocol.Request, completion chan link.Response) {
 	registry := node.localModels.registry
-	recording := context.WithoutCancel(node.ctx)
-	settle := func(result link.Response) link.Response {
-		err := node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
-			return admission.Complete(recording, db, caller, request.ID, result)
-		})
-		if err != nil {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "local model operation result could not be recorded; read the local models before retrying"})
-		}
-		return result
-	}
+	settle := func(result link.Response) link.Response { return node.settle(caller, request.ID, result) }
 	var id string
 	removing := request.Command.Kind == "delete_local_model"
 	if removing {
@@ -368,5 +359,40 @@ func (node *Node) changeLocalModel(ctx context.Context, caller protocol.NodeID, 
 			return err
 		}
 	}
-	return registry.Remove(id)
+	if err := registry.Remove(id); err != nil {
+		return err
+	}
+	return node.forgetLocalModel(id)
+}
+
+// forgetLocalModel drops the registration of a model whose files were
+// removed, so that the list and the per-kind limit hold only models that
+// are installed, can be installed again from the pinned catalog, or are
+// still named by the settings or a knowledge collection. Deleting such a
+// kept model again after it is no longer named removes it.
+func (node *Node) forgetLocalModel(id string) error {
+	controls := node.localModels
+	controls.configuring.Lock()
+	defer controls.configuring.Unlock()
+	var prepared *localmodels.Prepared
+	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
+		forgotten, err := store.ForgetLocalModel(node.ctx, db, id)
+		if err != nil || !forgotten {
+			return err
+		}
+		catalog, err := store.ReadLocalModelCatalog(node.ctx, db)
+		if err != nil {
+			return err
+		}
+		prepared, err = controls.registry.Prepare(catalog.Settings, catalog.Definitions)
+		return err
+	})
+	if err != nil {
+		return nodeFault(err)
+	}
+	if prepared != nil {
+		// followLocalModels records and announces the shorter list.
+		controls.registry.Apply(prepared)
+	}
+	return nil
 }

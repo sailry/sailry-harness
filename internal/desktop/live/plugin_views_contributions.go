@@ -3,6 +3,7 @@ package live
 import (
 	"cmp"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -132,6 +133,10 @@ func rootPluginRegistryCurrent(root *Runtime, owner *pluginContributionOwner) bo
 	if owner.draft == "" {
 		return true
 	}
+	// A demo conversation's contributions last as long as the demo has it.
+	if id, demo := strings.CutPrefix(owner.draft, pluginDemoPresentation); demo {
+		return root.App.DemoConversation(id) != nil
+	}
 	conversation := root.pluginComposerView(owner.draft)
 	if conversation == nil {
 		return false
@@ -173,9 +178,15 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 			}
 		}
 	}
+	demo := strings.HasPrefix(owner.draft, pluginDemoPresentation)
 	desired := map[string]protocol.PluginInfo{}
 	for _, info := range root.pluginViewCatalog(owner.owner) {
 		extension := info.Extension
+		// Over a demo conversation the statistics package alone is shown: it
+		// reads the composer state and nothing of the Node.
+		if demo && info.Summary.Name != pluginStatisticsPackage {
+			continue
+		}
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil ||
 			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
 			len(pluginViewDeclarations(info.Summary.Name, extension.Ui, owner.scope.Surface.Kind)) == 0 {

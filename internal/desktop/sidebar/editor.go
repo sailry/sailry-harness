@@ -319,7 +319,7 @@ func (s *State) browse(c *ui.Context, register bool) {
 		return generation == s.editorGeneration && e.host == host && (register || e.Open && e.Path == original)
 	}
 	o := picker.Options{Mode: picker.Directory, Title: "directory_title", Confirm: "directory_title", Initial: strings.TrimSpace(original),
-		Source: source, Preview: s.Actions == nil, Valid: current, Pending: func() bool { return e.Pending },
+		Source: source, Projects: s.projectPlaces(host), Preview: s.Actions == nil, Valid: current, Pending: func() bool { return e.Pending },
 		Choose: func(paths []string) bool {
 			if !current() || len(paths) != 1 {
 				return false

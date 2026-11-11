@@ -26,6 +26,12 @@ var browserToolSchema = json.RawMessage(`{"type":"object","properties":{"action"
 // initiating controller's browser. The package's host script prepares each
 // call and formats its result around these native tools.
 func (node *Node) browserTools(ctx context.Context, inv *store.AgentInvocation) ([]engine.Tool, error) {
+	// Only the controller that started the turn has a browser to drive. A
+	// turn started by Mobile, a Host or a schedule has none, and tools that
+	// could only answer "disconnected" are not offered.
+	if !node.browsers.available(inv.Caller) {
+		return nil, nil
+	}
 	var infos []protocol.PluginInfo
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		for _, reference := range inv.Turn.Plugins {
@@ -70,6 +76,13 @@ func (node *Node) browserTool(inv *store.AgentInvocation, owner protocol.PluginR
 	calls := map[string]*protocol.Request{}
 	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: name, InputSchema: schema}, SchemaJSON: browserToolSchema, ReadOnly: readOnly, Approval: !readOnly,
 		Binding: &store.ApprovalBinding{Owner: owner, Tool: name, Operation: &operation}}
+	// A capture is a read; saving it in the project asks first.
+	tool.Confirm = func(call canonical.ToolRequest) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		current := calls[call.ID]
+		return current != nil && browserRequiresApproval(current.Command.Data.(*protocol.CommandUseBrowserPayload).Action)
+	}
 	tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
 		var input struct {
 			Action    string                     `json:"action"`
@@ -93,28 +106,29 @@ func (node *Node) browserTool(inv *store.AgentInvocation, owner protocol.PluginR
 		if err := validateBrowserAction(action); err != nil {
 			return err
 		}
+		if readOnly && browserRequiresApproval(action) && inv.Turn.Config.Mode == protocol.WorkModePlan {
+			return browserFault(protocol.ErrorCodePermissionDenied, "planning turns cannot save browser captures")
+		}
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "use_browser", Data: &protocol.CommandUseBrowserPayload{Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: action}})
 		mu.Lock()
 		calls[call.ID] = &request
 		mu.Unlock()
 		return nil
 	}
-	if !readOnly {
-		tool.ConfigureApproval = func(ctx context.Context, db *sql.Conn, call canonical.ToolRequest, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {
-			mu.Lock()
-			current := calls[call.ID]
-			mu.Unlock()
-			if current == nil {
-				return value, errors.New("native tool was not prepared")
-			}
-			return store.ConfigureWorkspaceApproval(ctx, db, inv.Run.Turn, value, operation, current.Command, nil)
+	tool.ConfigureApproval = func(ctx context.Context, db *sql.Conn, call canonical.ToolRequest, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {
+		mu.Lock()
+		current := calls[call.ID]
+		mu.Unlock()
+		if current == nil {
+			return value, errors.New("native tool was not prepared")
 		}
-		tool.Approved = func(call canonical.ToolRequest, _ protocol.ApprovalID, request protocol.RequestID) {
-			mu.Lock()
-			defer mu.Unlock()
-			if current := calls[call.ID]; current != nil {
-				current.ID = request
-			}
+		return store.ConfigureWorkspaceApproval(ctx, db, inv.Run.Turn, value, operation, current.Command, nil)
+	}
+	tool.Approved = func(call canonical.ToolRequest, _ protocol.ApprovalID, request protocol.RequestID) {
+		mu.Lock()
+		defer mu.Unlock()
+		if current := calls[call.ID]; current != nil {
+			current.ID = request
 		}
 	}
 	tool.Execute = func(ctx context.Context, call canonical.ToolRequest) engine.ToolResult {
@@ -125,9 +139,14 @@ func (node *Node) browserTool(inv *store.AgentInvocation, owner protocol.PluginR
 		if current == nil {
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
+		// A turn keeps the package it started with, but browser authority
+		// follows the package as it is now.
+		if err := node.pluginEnabled(ctx, owner.Name); err != nil {
+			return workspaceToolFault(err)
+		}
 		// The call goes to the controller that started the turn, never through
 		// this Node's own dispatch identity.
-		output, err := node.browsers.execute(ctx, inv.Caller, current.ID, *current.Command.Data.(*protocol.CommandUseBrowserPayload))
+		output, err := node.useBrowser(ctx, inv.Caller, current.ID, *current.Command.Data.(*protocol.CommandUseBrowserPayload))
 		if err != nil {
 			return workspaceToolFault(err)
 		}

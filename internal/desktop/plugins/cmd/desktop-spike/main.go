@@ -379,6 +379,7 @@ func fixtureSurfaces(scope protocol.PluginContext) []desktop.NativeComponent {
 			}
 			result := ui.Column(view).Grow(1).MinHeight(0).Children(func() {
 				conversation.View(view, messages, scope.Session.String(), nil, &conversation.Session{}, actions)
+				conversation.Navigation(view, messages)
 			})
 			return result, actions.failure
 		}},

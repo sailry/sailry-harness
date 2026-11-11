@@ -38,32 +38,87 @@ One browser process tree belongs to one conversation session.
 
 | Fact | Value |
 | --- | --- |
-| Sessions per Node | 4; a fifth is `busy` "close an external browser session before starting another" |
+| Running browsers per Node | 4 |
+| Idle period | 10 minutes without a call, then the browser closes |
 | User data directory | `<profile>/browser/sessions/<session>/profile`, private, kept between browser starts |
-| Temporary files | `<profile>/tmp/browser-<session>-*` with `downloads/`, removed when the browser closes |
+| Temporary files | `<profile>/tmp/browser-<session>-*` with `downloads/` and staged uploads, removed when the browser closes |
 | Viewport | 1280 × 900, headless |
 | Deadlines | 45 s per operation, 25 s page load, 15 s script |
+| Waits | At most 30 s per call |
 
 Operations of one session run one at a time. The browser starts on the first
 operation that needs it and is reused until it closes. It closes when:
 
 - `close_session` runs;
-- an operation is interrupted by its deadline, by its turn stopping or by Node
-  stopping. The fault is `cancelled` "external browser call interrupted; browser
-  session closed" for a read action and `outcome_unknown` "external browser call
-  interrupted; effects may have occurred; browser session closed; verify before
-  retrying" for a control action;
+- no call used it for the idle period (a standard timer, restarted after every
+  call and stopped while a call runs);
+- another conversation needs a browser while four run: the browser idle longest
+  closes first. Only when a call is under way in all four is the answer `busy`
+  "every external browser session of this Node is in use; retry when one of
+  them finishes its call";
+- an operation is interrupted by its 45 s deadline, by its turn stopping or by
+  Node stopping. The fault is `cancelled` "external browser call interrupted;
+  browser session closed" for a read action and `outcome_unknown` "external
+  browser call interrupted; effects may have occurred; browser session closed;
+  verify before retrying" for a control action;
 - a stopped turn ends, whichever tool it was in;
-- the conversation is removed (`sessions_removed`);
+- the conversation is archived (`session_changed` with `archived`) or removed
+  (`sessions_removed`, which also deletes its profile);
 - Node stops (`Browsers.Shutdown`, before the Node waits for its work).
 
-Closing asks the browser to exit, then kills its process group (a job object on
-Windows, the parent-death signal on Linux as well), waits for the process and
-kills any process still using the session's user data directory. A Node that
-did not stop cleanly is recovered at the next start: `New` kills processes whose
-`--user-data-dir` is below `<profile>/browser/sessions/` and removes stale
-`<profile>/tmp/browser-*` directories. A browser whose process exited on its
-own is replaced on the next operation.
+A wait that runs out is not an interruption. `wait`, `wait_for_element`,
+`wait_for_page_load`, `wait_for_text` and the `wait_timeout` of `click` are
+limited to 30 s whatever the model asked for, which is below the operation
+deadline, and answer `unavailable` "Element not found after 30s: <selector>",
+"Text '<text>' not found after 30s" or "Page load timeout after 30s" with the
+browser and its pages intact. `wait` reports the seconds it actually waited.
+
+The profile outlives the browser, so cookies and other website data are there
+when the conversation's next call starts a browser again. Open pages are not:
+the first result from a browser started over an existing profile carries
+`"notice": "a new browser was started for this call; pages opened earlier are
+closed and cookies are kept"`. `Browsers.Remove` closes the browser and deletes
+`<profile>/browser/sessions/<session>`. `Node.externalBrowserEvents` calls it
+for every removed conversation, delegated ones included, and
+`Node.removeExternalBrowserProfiles` calls it at Node start for every profile
+whose conversation no longer exists, which covers a Node that stopped between
+the removal and the deletion. Archiving and removing a project keep the
+profiles of the conversations that remain.
+
+Closing asks the browser to exit, which lets it write its profile, then kills
+its process group (a job object on Windows, the parent-death signal on Linux as
+well), waits for the process and kills any process still using the session's
+user data directory. Node stop interrupts running calls first and then closes
+every browser the same way, in parallel.
+
+A Node that did not stop cleanly is recovered at the next start: `New` kills
+processes whose `--user-data-dir` is below `<profile>/browser/sessions/` and
+removes stale `<profile>/tmp/browser-*` directories. Node records no process
+ID, so a reused one cannot be mistaken for a browser: a process is a leftover
+only by the command line it runs with now, and only a browser started by a Node
+of this profile carries that directory. On macOS and Linux the browser also
+exits by itself when its DevTools pipe closes with the Node, on Windows with
+the job object. A browser whose process exited on its own is replaced on the
+next operation.
+
+## Reach
+
+The managed browser is a web browser with the network position of the Node's
+host. The boundary is:
+
+- URL arguments are `http` or `https` without credentials. A page cannot open
+  `file:` either: the browser refuses a local read or navigation that a web
+  page starts.
+- Loopback and private-network addresses are reachable, as in Rust. Local
+  development servers are the main use of browser automation, and `navigate` is
+  a read action that needs no approval. The public address policy of
+  `web_fetch` does not apply here.
+- Files leave the worktree only through `file_upload` and enter it only through
+  `save_download`, `screenshot` with `save_to_artifacts` and `print_to_pdf`.
+  The browser's download directory is the session's temporary directory and is
+  not bounded in size until the browser closes.
+- The profile uses the browser's own unencrypted cookie store inside the
+  private Node profile, so deleting it with the conversation matters.
 
 ## Command
 
@@ -91,9 +146,10 @@ or on the turn's for a plugin call made for a turn.
 | --- | --- |
 | Arguments | A JSON object of at most 64 KiB |
 | URLs (`navigate`, `new_tab`, `new_window`) | `http` or `https` without credentials |
-| `wait` seconds | Non-negative and representable |
+| `wait` seconds | Non-negative and representable; waits end at 30 s |
 | Result | 48 KiB of text and 128 entries per collection; `truncated` reports a cut |
 | Upload, saved download | 10 MiB |
+| Capture | 20 MiB from the browser; reduced to 1568 px and 3 MiB (`files.PrepareCapture`) |
 | Saved capture or PDF | 20 MiB |
 
 ## Plugin authority
@@ -104,6 +160,12 @@ read action and `external_browser.control` for every other action
 action, must be enabled as installed now, and the call must name the session
 and worktree of its scope. A plan-mode turn may use only read actions. The
 decision is repeated before and after the browser starts.
+
+A turn's tool is bound to the package the turn captured, so its call repeats
+the part that can change during the turn: `Node.pluginEnabled` reads the
+package as installed now, before and after the browser starts, and answers
+`not_configured` "plugin is disabled" for a package that was disabled or
+removed since.
 
 Read actions are `extract_text`, `extract_attribute`, `extract_links`,
 `page_info`, `page_source`, the three frame switches, `navigate`, `back`,
@@ -130,7 +192,10 @@ Every path is worktree-relative and goes through `core.OpenFiles` with
 `core.RestrictedFiles`.
 
 - `file_upload` reads the file through the confined service, copies it into the
-  session's temporary directory and hands that copy to the page.
+  session's temporary directory and hands that copy to the page. The browser
+  keeps the path and reads the bytes when the page submits or reads the file,
+  so the copy stays after the call. A browser keeps its 16 latest copies; all
+  go when it closes.
 - Page downloads land in the session's `downloads/` directory. `downloads` lists
   completed files; `save_download {file_name}` copies one into
   `assets/generated/` and never replaces a file.
@@ -172,15 +237,27 @@ ask through the existing approval prompt.
   that need no browser, recovery of stale files, and a host without an
   installed browser: one `not_configured` fault for every call and an unchanged
   profile.
+- `externalbrowser.TestBrowserLifetime`: with a fake clock and stand-in
+  browsers, the idle close and its restart notice, the longest idle browser
+  giving up its place at the limit, `busy` only when every browser is in use,
+  the limit under concurrent starts, a wait cut at 30 s with the browser kept,
+  `Close` against `Remove`, staged uploads kept and bounded, and Node stop.
 - `node.TestExternalBrowserRouting`: the public command's checks and admission,
-  plugin authority, all 49 tools offered in a real turn, approval and plan
-  mode. No browser starts; it skips without an installed browser.
+  plugin authority, all 49 tools offered in a real turn, approval, plan mode
+  and a package disabled during its turn. No browser starts; it skips without
+  an installed browser.
+- `node.TestBrowserToolBinding`: a removed conversation loses its profile, an
+  archived and an open one keep theirs, and a Node start deletes the profile
+  of a conversation that no longer exists.
 - `//go:build integration` `externalbrowser.TestManagedBrowserIntegration` and
   `node.TestExternalBrowserNodeIntegration` launch a local Chrome or Chromium
   against loopback pages and skip without one. They cover every operation
-  group, upload and download confinement, interruption, the session limit,
-  session removal, a stopped turn, Node stop and crash recovery, and assert that
-  no browser process survives.
+  group, upload and download confinement, a file sent after its upload call
+  returned (and failing once the staged copy is gone), a 60 s wait for an
+  absent element answered at 30 s with the browser intact, a page refused
+  `file:`, interruption, the place given up at the session limit with a cookie
+  kept across browsers, session removal with its profile, a stopped turn, Node
+  stop and crash recovery, and assert that no browser process survives.
 
 ## Deviations
 
@@ -195,5 +272,9 @@ ask through the existing approval prompt.
 | A dialog is answered when it opens by the session's policy (dismiss by default); `handle_alert` sets the policy and reports whether a dialog opened since it last changed | An open dialog blocks every DevTools call on the page |
 | A cross-site frame is a separate target; a frame that went away is reported as "the selected frame is gone; switched to default content" | Site isolation stays on |
 | Closing the last window leaves the session without a window ("no browser window is open; open a new tab") | The browser process stays owned until the session closes |
-| Captures are bounded by `files.PrepareImage` (1568 px side, 3 MiB) | Reuses the existing image bound instead of a second reducer |
-| A removed conversation closes its browser | Rust kept it until Node stopped |
+| Captures are bounded by the file-image reducer (`files.PrepareCapture`: 20 MiB in, 1568 px side and 3 MiB out) | Reuses the existing image bound instead of a second reducer. Rust reduced captures to 1 MiB |
+| A removed conversation closes its browser and loses its browser profile | Rust kept the browser until Node stopped and never deleted the profile, which holds sign-in cookies |
+| A staged upload stays until the browser closes (16 latest per browser) | Rust deleted it when the call returned, before the page could read it |
+| An idle browser closes after 10 minutes, and at the limit the longest idle one gives up its place | Rust kept every browser until Node stopped and answered `busy` to a fifth conversation with no way to free one |
+| Waits end at 30 s and answer an ordinary error | Rust took the timeout as given; at 45 s the call deadline closed the whole browser |
+| A result says when its browser was started over an existing profile | The model would otherwise act on pages that are gone |

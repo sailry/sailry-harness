@@ -238,7 +238,7 @@ func devices(c *ui.Context, m *Model, execution bool) {
 						// A pairing being removed cannot be removed again.
 						if m.pairing.status.Revoking[d.ID] {
 							ui.Row(c.Key("revoking")).Size(28, 28).Center().Children(func() {
-								ui.Spinner(c).Size(14, 14).Label(i18n.T(c, "live_revoke"))
+								kit.Busy(c).Label(i18n.T(c, "live_revoke"))
 							})
 							return
 						}
@@ -397,7 +397,7 @@ func addHost(c *ui.Context, m *Model) {
 			// A step under way shows in its button, which cannot start another.
 			kit.Primary(c.Key("ok"), action, false).Disabled(m.ConnectionPending || !pr.status.Recovery && !pr.installable()).Children(func() {
 				if m.ConnectionPending {
-					ui.Spinner(c).Size(14, 14)
+					kit.Busy(c)
 				}
 				ui.Text(c, action).FontSize(14)
 			}).OnClick(func() {

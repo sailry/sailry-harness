@@ -77,20 +77,6 @@ func (r *Runtime) projectComposerModes(c *ui.Context, cv *viewmodel.Conversation
 	}
 }
 
-// composerHosts are the Hosts a draft can run on: this computer and the
-// paired ones whose connection is bound, with the draft's own even while it
-// is away so the control still names it.
-func (r *Runtime) composerHosts(comp *composer.State) []composer.Host {
-	root := r.localRuntime()
-	var hosts []composer.Host
-	for _, h := range root.App.Data.Hosts {
-		if h.Local || h.ID == comp.Host || root.runtimeFor(h.ID) != nil {
-			hosts = append(hosts, composer.Host{ID: h.ID, Name: h.Name, Key: h.Name == "local_host_name", Local: h.Local})
-		}
-	}
-	return hosts
-}
-
 func (r *Runtime) composerProjects() []composer.Project {
 	var projects []composer.Project
 	for _, p := range r.localRuntime().App.Data.Projects {
@@ -123,8 +109,12 @@ func staleReference(ctx *composer.Context, reference composer.Reference) bool {
 }
 
 // projectComposerQueue marks the queue's rows the running turn is taking as
-// guidance, and adds the message still on its way to the Host.
+// guidance, lists the background results held back from delivery, and adds
+// the message still on its way to the Host.
 func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Context) {
+	if _, state, ok := x.state(); ok {
+		ctx.Held = heldResults(state.Page)
+	}
 	if run, active := x.activeRun(); active {
 		for i := range ctx.Queue {
 			if item, ok := x.queued(ctx.Queue[i].ID); ok && item.Guidance != nil && *item.Guidance == run.Turn {
@@ -132,6 +122,7 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 			}
 		}
 	}
+	x.settleGuidance()
 	if outgoing, sending := r.composerOutgoing[x.cv.ID]; sending {
 		if outgoing.Text == "" {
 			outgoing.Text = i18n.T(x.c, "chat_attachment_count", "count", len(outgoing.Attachments))
@@ -169,14 +160,107 @@ func (x *conversationActions) queueCommand(command protocol.Command) {
 		}
 		guide, guiding := command.Data.(protocol.CommandGuideQueuedTurnPayload)
 		update, valid := detail[protocol.ConversationQueueUpdate](output.Data)
-		if !guiding || !valid {
-			return
+		if guiding && valid && guidanceSeparate(update.Queue, guide.Turn) {
+			kit.Notify(c, "", i18n.T(c, "queue_guidance_separate"))
 		}
-		for _, item := range update.Queue.Items {
-			if item.Turn == guide.Turn && item.Ready && item.Guidance == nil {
-				kit.Notify(c, "", i18n.T(c, "queue_guidance_separate"))
-			}
+	})
+}
+
+// sentGuidance is guidance sent from the composer: the turn it was sent to,
+// and whether the queue has listed it as waiting for that turn.
+type sentGuidance struct {
+	recipient protocol.TurnID
+	guiding   bool
+}
+
+// guidanceFate is what became of guidance sent from the composer.
+type guidanceFate int
+
+const (
+	guidanceWaiting   guidanceFate = iota // not listed yet
+	guidanceGuiding                       // waiting for its recipient
+	guidanceSettled                       // joined, started, held or changed by the user
+	guidanceSeparated                     // other settings: queued as its own turn
+	guidanceOutlived                      // its recipient ended first: queued as its own turn
+)
+
+// guidanceOutcome reads the fate of the guidance turn from the page. Guidance
+// that is an ordinary item again while its recipient still runs was edited or
+// paused by the user, which needs no report.
+func guidanceOutcome(page protocol.ConversationPage, turn protocol.TurnID, sent sentGuidance) guidanceFate {
+	run := func(id protocol.TurnID) (protocol.ConversationRun, bool) {
+		index := slices.IndexFunc(page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == id })
+		if index < 0 {
+			return protocol.ConversationRun{}, false
 		}
+		return page.Runs[index], true
+	}
+	index := slices.IndexFunc(page.Queue.Items, func(item protocol.ConversationPending) bool { return item.Turn == turn })
+	if index < 0 {
+		if own, listed := run(turn); sent.guiding || listed && (own.Joined != nil || own.Status != "queued") {
+			return guidanceSettled
+		}
+		return guidanceWaiting
+	}
+	item := page.Queue.Items[index]
+	if item.Guidance != nil {
+		return guidanceGuiding
+	}
+	if recipient, listed := run(sent.recipient); !listed || recipient.Status != "running" && recipient.Status != "stopping" {
+		return guidanceOutlived
+	}
+	if !item.Ready || sent.guiding {
+		return guidanceSettled
+	}
+	return guidanceSeparated
+}
+
+// guided remembers guidance the Node admitted until its fate is known.
+func (x *conversationActions) guided(turn, recipient protocol.TurnID) {
+	if x.r.guidanceSent == nil {
+		x.r.guidanceSent = map[string]map[protocol.TurnID]sentGuidance{}
+	}
+	if x.r.guidanceSent[x.cv.ID] == nil {
+		x.r.guidanceSent[x.cv.ID] = map[protocol.TurnID]sentGuidance{}
+	}
+	x.r.guidanceSent[x.cv.ID][turn] = sentGuidance{recipient: recipient}
+}
+
+// settleGuidance says once that guidance sent from the composer runs as its
+// own turn: its settings differ from the recipient's, or the recipient ended
+// before it could join.
+func (x *conversationActions) settleGuidance() {
+	sent := x.r.guidanceSent[x.cv.ID]
+	if len(sent) == 0 {
+		return
+	}
+	_, state, ok := x.state()
+	if !ok {
+		return
+	}
+	for turn, guidance := range sent {
+		switch guidanceOutcome(state.Page, turn, guidance) {
+		case guidanceGuiding:
+			guidance.guiding = true
+			sent[turn] = guidance
+		case guidanceSettled:
+			delete(sent, turn)
+		case guidanceSeparated:
+			delete(sent, turn)
+			kit.Notify(x.c, "", i18n.T(x.c, "queue_guidance_separate"))
+		case guidanceOutlived:
+			delete(sent, turn)
+			kit.Notify(x.c, "", i18n.T(x.c, "queue_guidance_outlived"))
+		}
+	}
+}
+
+// guidanceSeparate reports whether guidance the Node admitted as turn stays
+// an ordinary queued item: its settings differ from the recipient's, so it
+// runs as its own turn. The answer to the command says so once.
+func guidanceSeparate(queue protocol.ConversationQueue, turn protocol.TurnID) bool {
+	return slices.ContainsFunc(queue.Items, func(item protocol.ConversationPending) bool {
+		return item.Turn == turn && item.Ready && item.Guidance == nil
 	})
 }
 

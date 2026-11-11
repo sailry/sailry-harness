@@ -440,6 +440,17 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 			}
 		}
 	}
+	// The statistics package's control is the window's to open: a press
+	// shows its panel and leaves the button enabled, a second one closes it.
+	click(button(statistics))
+	if opened := button(statistics); !opened.Expanded || opened.Disabled {
+		t.Errorf("a press on %q left it expanded %v, disabled %v", statistics, opened.Expanded, opened.Disabled)
+	}
+	shots("first-run-context-panel")
+	click(button(statistics))
+	if closed := button(statistics); closed.Expanded || closed.Disabled {
+		t.Errorf("a second press on %q left it expanded %v, disabled %v", statistics, closed.Expanded, closed.Disabled)
+	}
 	shots("first-run-draft")
 
 	// New session over the draft stays enabled and puts the caret back.
@@ -610,7 +621,21 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 		t.Fatalf("the filter did not narrow the entries: %q", tester.Texts())
 	}
 	press(zh("directory_filter")) // the field's clear button
-	press(zh("directory_hidden"))
+	// The hidden-files toggle is an item of the header's More menu.
+	choose := func(name string, roles ...ui.Role) {
+		t.Helper()
+		all := tester.AccessAll()
+		for i := len(all) - 1; i >= 0; i-- {
+			if all[i].Name == name && slices.Contains(roles, all[i].Role) {
+				tester.ClickAt(all[i].Bounds.X+all[i].Bounds.W/2, all[i].Bounds.Y+all[i].Bounds.H/2)
+				settle()
+				return
+			}
+		}
+		t.Fatalf("no %q in the picker's menu: %q", name, tester.Texts())
+	}
+	choose(zh("more"), ui.RoleMenuButton, ui.RoleButton)
+	choose(zh("directory_hidden"), ui.RoleMenuItem, ui.RoleMenuItemCheckBox, ui.RoleMenuItemRadio)
 	if !tester.HasText(".secret") || !tester.HasText("alpha") || r.Preferences.Data.FilePicker == nil || !r.Preferences.Data.FilePicker.Hidden {
 		t.Fatalf("the hidden toggle did not show and save: %q", tester.Texts())
 	}

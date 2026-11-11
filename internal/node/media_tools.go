@@ -106,12 +106,21 @@ func mediaFault(code protocol.ErrorCode, message string) error {
 }
 
 // mediaArguments are what the model may send. Inspection names one image
-// source; generation names at most a plain output file name.
+// source; generation names at most a plain output file name, and a video may
+// name the job an earlier call left unsaved.
 type mediaArguments struct {
 	Prompt     string  `json:"prompt"`
 	Path       *string `json:"path"`
 	Attachment *string `json:"attachment"`
 	FileName   *string `json:"file_name"`
+	Job        *string `json:"job"`
+}
+
+// mediaCall is one prepared call: the request its approval names and, for a
+// video, the provider job it fetches instead of submitting the prompt.
+type mediaCall struct {
+	request protocol.Request
+	job     string
 }
 
 // mediaAction checks the arguments and returns the action the approval
@@ -122,6 +131,12 @@ func mediaAction(kind protocol.MediaKind, arguments json.RawMessage) (protocol.M
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&input) != nil {
 		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "invalid media arguments")
+	}
+	// A job is a plain identifier: it becomes one segment of the provider URL.
+	if input.Job != nil && (kind != protocol.MediaKindVideo || *input.Job == "" || len(*input.Job) > 128 || strings.Trim(*input.Job, ".") == "" || strings.ContainsFunc(*input.Job, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.')
+	})) {
+		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "job must be the identifier an earlier video result named")
 	}
 	if strings.TrimSpace(input.Prompt) == "" || len(input.Prompt) > mediaPromptBytes || !utf8.ValidString(input.Prompt) {
 		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "media prompt must be nonempty and bounded")
@@ -178,7 +193,7 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpe
 	}
 	operation := spec.Operation
 	var mu sync.Mutex
-	calls := map[string]*protocol.Request{}
+	calls := map[string]*mediaCall{}
 	// The binding has no owning package: the tool is the Node's own, and a
 	// session rule remembers it by name and operation.
 	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: spec.Name, Description: spec.Description, InputSchema: schema}, SchemaJSON: spec.Parameters,
@@ -208,9 +223,15 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpe
 				return mediaFault(protocol.ErrorCodeConflict, "a file already exists at the media output path")
 			}
 		}
-		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "use_media", Data: &protocol.CommandUseMediaPayload{Turn: inv.Run.Turn, Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: action}})
+		prepared := &mediaCall{request: protocol.NewRequest(node.ID(), protocol.Command{Kind: "use_media", Data: &protocol.CommandUseMediaPayload{Turn: inv.Run.Turn, Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: action}})}
+		// The action was decoded from the same arguments.
+		var input mediaArguments
+		_ = json.Unmarshal(call.Arguments, &input)
+		if input.Job != nil {
+			prepared.job = *input.Job
+		}
 		mu.Lock()
-		calls[call.ID] = &request
+		calls[call.ID] = prepared
 		mu.Unlock()
 		return nil
 	}
@@ -222,13 +243,13 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpe
 			if current == nil {
 				return value, errors.New("native tool was not prepared")
 			}
-			return store.ConfigureWorkspaceApproval(ctx, db, inv.Run.Turn, value, operation, current.Command, nil)
+			return store.ConfigureWorkspaceApproval(ctx, db, inv.Run.Turn, value, operation, current.request.Command, nil)
 		}
 		tool.Approved = func(call canonical.ToolRequest, _ protocol.ApprovalID, request protocol.RequestID) {
 			mu.Lock()
 			defer mu.Unlock()
 			if current := calls[call.ID]; current != nil {
-				current.ID = request
+				current.request.ID = request
 			}
 		}
 	}
@@ -240,7 +261,7 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpe
 		if current == nil {
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
-		action := current.Command.Data.(*protocol.CommandUseMediaPayload).Action
+		action := current.request.Command.Data.(*protocol.CommandUseMediaPayload).Action
 		binding, err := node.mediaBinding(ctx, inv, route)
 		if err != nil {
 			return workspaceToolFault(mediaModelFault(err))
@@ -250,9 +271,9 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpe
 		case *protocol.MediaActionInspectPayload:
 			result, err = node.inspectMedia(ctx, inv, binding, *input)
 		case *protocol.MediaActionImagePayload:
-			result, err = node.generateMedia(ctx, inv, binding, route, kind, input.Prompt, input.Path)
+			result, err = node.generateMedia(ctx, inv, binding, route, kind, input.Prompt, input.Path, "")
 		case *protocol.MediaActionVideoPayload:
-			result, err = node.generateMedia(ctx, inv, binding, route, kind, input.Prompt, input.Path)
+			result, err = node.generateMedia(ctx, inv, binding, route, kind, input.Prompt, input.Path, current.job)
 		}
 		if err != nil {
 			return workspaceToolFault(mediaModelFault(err))
@@ -438,30 +459,64 @@ func (node *Node) recordMediaUsage(ctx context.Context, inv *store.AgentInvocati
 	return nodeFault(node.agent.RecordMediaUsage(ctx, inv.Session.ID, inv.Run.Turn, binding.Provider, binding.Config.Model, kind, usage))
 }
 
-// generateMedia runs the provider call, writes the asset through the confined
-// file service without replacing a file, and records the result and usage.
-func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation, binding model.Binding, route mediaRoute, kind protocol.MediaKind, prompt, target string) (engine.ToolResult, error) {
-	var output model.MediaOutput
-	var err error
+// publishGenerated writes a generated file below the worktree through the
+// confined file service, without replacing a file, and tells its watchers.
+func (node *Node) publishGenerated(ctx context.Context, root, target string, data []byte, limit uint64) error {
+	confined, err := core.OpenFiles(root, core.RestrictedFiles)
+	if err != nil {
+		return err
+	}
+	defer confined.Close()
+	parents := strings.Split(path.Dir(target), "/")
+	for index := range parents {
+		if directory := strings.Join(parents[:index+1], "/"); directory != "." {
+			if err := confined.CreateDirectory(directory); err != nil {
+				return err
+			}
+		}
+	}
+	file, err := confined.PrepareFileTarget(context.WithoutCancel(ctx), target, nil, limit)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	sum := blake3.Sum256(data)
+	if _, err := file.Write(bytes.NewReader(data), uint64(len(data)), hex.EncodeToString(sum[:])); err != nil {
+		return err
+	}
+	node.watches.changed(root, nil)
+	return nil
+}
+
+// videoJobFault reports a video job the provider accepted and that left no
+// saved file. A job the provider ended, or whose answer is unusable, is a
+// definite error. Any other failure leaves the job running at the provider:
+// the answer names it so a later call fetches it instead of paying again.
+func videoJobFault(output model.MediaOutput, err error) error {
+	fault := nodeFault(mediaModelFault(err)).(*protocol.Fault)
+	var failure *model.Failure
+	if output.Ended || errors.As(err, &failure) && (failure.Kind == model.InvalidResponse || failure.Kind == model.InvalidRequest) {
+		return mediaFault(fault.Code, "video job "+output.Job+" produced no video: "+fault.Message)
+	}
+	return mediaFault(protocol.ErrorCodeOutcomeUnknown, "video job "+output.Job+" was accepted but its result was not saved: "+fault.Message+videoJobResume(output.Job))
+}
+
+// videoJobResume tells the model how to fetch a job the provider still holds.
+func videoJobResume(job string) string {
+	return `; call generate_video again with "job": "` + job + `" to fetch it, and do not submit the prompt again without it`
+}
+
+// generateMedia takes the output target, runs the provider call, writes the
+// asset through the confined file service without replacing a file, and
+// records the result and usage. A job fetches a video an earlier call
+// submitted instead of submitting the prompt.
+func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation, binding model.Binding, route mediaRoute, kind protocol.MediaKind, prompt, target, job string) (engine.ToolResult, error) {
 	limit := uint64(model.MaxMediaImageBytes)
 	if kind == protocol.MediaKindVideo {
 		limit = model.MaxMediaVideoBytes
-		output, err = model.GenerateVideo(ctx, binding, prompt, node.mediaPoll)
-		if err != nil && output.Job != "" {
-			// The provider accepted the job; stopping or failing locally does
-			// not cancel it.
-			return engine.ToolResult{}, mediaFault(protocol.ErrorCodeOutcomeUnknown, "video job "+output.Job+" was accepted but its result was not saved: "+mediaModelFault(err).Error())
-		}
-	} else {
-		output, err = model.GenerateImage(ctx, binding, route.channel, prompt)
 	}
-	if err != nil {
-		return engine.ToolResult{}, err
-	}
-	// The provider call is billed whether or not the file can be saved.
-	if err := node.recordMediaUsage(ctx, inv, binding, kind, output.Usage); err != nil {
-		return engine.ToolResult{}, err
-	}
+	// The target is taken before the provider is asked, so a call that cannot
+	// save its file is refused before it is paid for.
 	confined, err := core.OpenFiles(inv.Worktree.Path, core.RestrictedFiles)
 	if err != nil {
 		return engine.ToolResult{}, err
@@ -477,14 +532,46 @@ func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation,
 	}
 	file, err := confined.PrepareFileTarget(context.WithoutCancel(ctx), target, nil, limit)
 	if err != nil {
+		var fault *protocol.Fault
+		if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeRevisionConflict {
+			// An earlier call of the same step saved this file after both were prepared.
+			return engine.ToolResult{}, mediaFault(protocol.ErrorCodeConflict, "a file already exists at the media output path")
+		}
+		return engine.ToolResult{}, err
+	}
+	defer file.Close()
+	var output model.MediaOutput
+	switch {
+	case kind != protocol.MediaKindVideo:
+		output, err = model.GenerateImage(ctx, binding, route.channel, prompt)
+	case job != "":
+		output, err = model.ResumeVideo(ctx, binding, job, node.mediaPoll)
+	default:
+		output, err = model.GenerateVideo(ctx, binding, prompt, node.mediaPoll)
+	}
+	if err != nil && output.Job != "" {
+		return engine.ToolResult{}, videoJobFault(output, err)
+	}
+	if err != nil {
 		return engine.ToolResult{}, err
 	}
 	sum := blake3.Sum256(output.Data)
-	revision := hex.EncodeToString(sum[:])
-	if _, err := file.Write(bytes.NewReader(output.Data), uint64(len(output.Data)), revision); err != nil {
-		return engine.ToolResult{}, err
+	_, saved := file.Write(bytes.NewReader(output.Data), uint64(len(output.Data)), hex.EncodeToString(sum[:]))
+	if saved != nil && output.Job != "" {
+		// The provider still holds the video; its usage is counted by the
+		// call that saves it.
+		fault := nodeFault(saved).(*protocol.Fault)
+		return engine.ToolResult{}, mediaFault(fault.Code, "video job "+output.Job+" finished but its file was not saved: "+fault.Message+videoJobResume(output.Job))
+	}
+	// The provider call is billed whether or not the file was saved.
+	recorded := node.recordMediaUsage(ctx, inv, binding, kind, output.Usage)
+	if saved != nil {
+		return engine.ToolResult{}, saved
 	}
 	node.watches.changed(inv.Worktree.Path, nil)
+	if recorded != nil {
+		return engine.ToolResult{}, mediaFault(protocol.ErrorCodeOutcomeUnknown, "media was saved at "+target+" but its usage could not be recorded")
+	}
 	data := map[string]any{"path": target, "media_type": output.MediaType, "size": len(output.Data), "provider": binding.Provider.Name, "model": binding.Config.Model}
 	if output.Job != "" {
 		data["job"] = output.Job

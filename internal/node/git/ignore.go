@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -136,6 +139,45 @@ func (s *Service) trash(ctx context.Context, root string, paths []string, untrac
 	}
 	return nil
 }
+
+// heldByHead reports whether the HEAD tree records an entry at path. It reads
+// no blob, so it costs the same for a large file. An unborn branch holds nothing.
+func heldByHead(tree *object.Tree, path string) (bool, error) {
+	entry, err := headEntry(tree, path)
+	return entry != nil, err
+}
+
+// headEntry finds the entry the HEAD tree records at path, nil when it records
+// none. A path below a file or submodule of HEAD is not recorded: go-git
+// reports the object there, which is not a tree, as an object it cannot find.
+func headEntry(tree *object.Tree, path string) (*object.TreeEntry, error) {
+	if tree == nil {
+		return nil, nil
+	}
+	entry, err := tree.FindEntry(path)
+	switch {
+	case err == nil:
+		return entry, nil
+	case errors.Is(err, object.ErrEntryNotFound), errors.Is(err, object.ErrFileNotFound), errors.Is(err, object.ErrDirectoryNotFound):
+		return nil, nil
+	case errors.Is(err, plumbing.ErrObjectNotFound):
+		for end := strings.IndexByte(path, '/'); end >= 0; {
+			parent, e := tree.FindEntry(path[:end])
+			if e != nil {
+				break
+			}
+			if parent.Mode != filemode.Dir {
+				return nil, nil
+			}
+			next := strings.IndexByte(path[end+1:], '/')
+			if next < 0 {
+				break
+			}
+			end += next + 1
+		}
+	}
+	return nil, mapError(err)
+}
 func (s *Service) discardAll(ctx context.Context, root string, paths []string) error {
 	if err := pathsValid(paths); err != nil {
 		return err
@@ -153,9 +195,9 @@ func (s *Service) discardAll(ctx context.Context, root string, paths []string) e
 		if _, err := safePath(root, path); err != nil {
 			return err
 		}
-		if value, err := treeContent(r, tree, path, maxFile); err != nil {
+		if held, err := heldByHead(tree, path); err != nil {
 			return err
-		} else if value.exists {
+		} else if held {
 			tracked = append(tracked, path)
 		} else {
 			added = append(added, path)

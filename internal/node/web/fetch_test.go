@@ -34,14 +34,23 @@ func responseFixture(body, contentType string) *http.Response {
 
 func TestPrivateAddressRejected(t *testing.T) {
 	t.Parallel()
-	for _, input := range []string{"http://127.0.0.1/", "http://[::1]/", "http://[::ffff:127.0.0.1]/", "http://10.0.0.1/", "http://169.254.169.254/", "http://100.64.0.1/", "http://192.0.2.1/", "http://198.19.1.1/", "http://[2001:db8::1]/", "http://[2002:0808:0808::1]/", "http://host.local/", "http://localhost./", "http://child.localhost/"} {
+	for _, input := range []string{"http://127.0.0.1/", "http://[::1]/", "http://[::ffff:127.0.0.1]/", "http://10.0.0.1/", "http://169.254.169.254/", "http://100.64.0.1/", "http://192.0.2.1/", "http://198.19.1.1/", "http://[2001:db8::1]/", "http://[2002:0808:0808::1]/", "http://host.local/", "http://localhost./", "http://child.localhost/",
+		// Address spellings a resolver or a proxy reads as loopback or private.
+		"http://127.1/", "http://2130706433/", "http://0x7f000001/", "http://0x7f.0.0.1/", "http://0177.0.0.1/", "http://127.0.0.1./", "http://10.1/", "http://0/", "http://0x/",
+		// A host that ends in a number is an address or nothing.
+		"http://1.2.3.4.5/", "http://256.1.1.1/", "http://1..2/", "http://example.08/", "http://4294967296/"} {
 		if _, err := publicURL(input); err == nil {
 			t.Fatal("private URL accepted", input)
 		}
 	}
-	for _, input := range []string{"https://8.8.8.8/", "https://[2001:4860:4860::8888]/", "https://example.com/path#fragment"} {
+	for _, input := range []string{"https://8.8.8.8/", "https://[2001:4860:4860::8888]/", "https://example.com/path#fragment", "https://1e100.net/", "https://0x.example/"} {
 		if _, err := publicURL(input); err != nil {
 			t.Fatal(input, err)
+		}
+	}
+	for input, host := range map[string]string{"https://134744072/dns": "8.8.8.8", "https://8.8.2056:8443/": "8.8.8.8:8443", "https://0x8.010.8.8/": "8.8.8.8"} {
+		if parsed, err := publicURL(input); err != nil || parsed.Host != host {
+			t.Fatalf("%s reads as %v, %v", input, parsed, err)
 		}
 	}
 	options := fetchFixture()

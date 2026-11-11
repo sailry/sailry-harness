@@ -19,6 +19,25 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// browserScope checks that a browser command names a conversation of this
+// Node together with that conversation's worktree, and returns the worktree
+// root.
+func (node *Node) browserScope(ctx context.Context, id protocol.SessionID, worktree protocol.WorktreeID, plugin bool) (string, error) {
+	var session protocol.Session
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		session, err = store.ReadSession(ctx, db, id)
+		return err
+	}); err != nil {
+		return "", nodeFault(err)
+	}
+	if session.Worktree != worktree {
+		return "", &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource session belongs to another worktree"}
+	}
+	root, err := node.workspaceRoot(ctx, worktree, plugin)
+	return root, nodeFault(err)
+}
+
 // dispatchExternalBrowser admits a managed browser operation durably and runs
 // it against the session's browser on this Node. A plugin call made for a
 // turn stops with that turn; every other call stops with the Node.
@@ -33,20 +52,9 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 	if _, err := externalbrowser.Validate(input.Action, input.Arguments); err != nil {
 		return link.Admission{}, err
 	}
-	var session protocol.Session
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		session, err = store.ReadSession(ctx, db, input.Session)
-		return err
-	}); err != nil {
-		return link.Admission{}, nodeFault(err)
-	}
-	if session.Worktree != input.Worktree {
-		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource session belongs to another worktree"}
-	}
-	root, err := node.workspaceRoot(ctx, input.Worktree, request.Plugin != nil)
+	root, err := node.browserScope(ctx, input.Session, input.Worktree, request.Plugin != nil)
 	if err != nil {
-		return link.Admission{}, nodeFault(err)
+		return link.Admission{}, err
 	}
 	operation, finish, err := node.beginPluginExecution(node.ctx, request)
 	if err != nil {
@@ -91,13 +99,7 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 		defer close(completion)
 		output, effectErr := node.externalBrowser.Execute(operation, call)
 		finish()
-		outcome := response(output, effectErr)
-		if err := node.profile.Store.Node.Write(context.WithoutCancel(node.ctx), func(db *sql.Conn) error {
-			return admission.Complete(context.WithoutCancel(node.ctx), db, caller, request.ID, outcome)
-		}); err != nil {
-			outcome = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"})
-		}
-		completion <- outcome
+		completion <- node.settle(caller, request.ID, response(output, effectErr))
 	}()
 	return result, nil
 }
@@ -216,8 +218,11 @@ func (node *Node) externalBrowserTool(inv *store.AgentInvocation, owner protocol
 		}
 		input := current.Command.Data.(*protocol.CommandUseExternalBrowserPayload)
 		// The turn's context stops the call; an interrupted call closes the
-		// session's browser.
-		output, err := node.externalBrowser.Execute(ctx, externalbrowser.Call{Request: current.ID, Session: input.Session, Root: inv.Worktree.Path, Action: input.Action, Arguments: input.Arguments})
+		// session's browser. A turn keeps the package it started with, but
+		// browser authority follows the package as it is now, so the
+		// decision is repeated around browser startup.
+		output, err := node.externalBrowser.Execute(ctx, externalbrowser.Call{Request: current.ID, Session: input.Session, Root: inv.Worktree.Path, Action: input.Action, Arguments: input.Arguments,
+			Check: func(ctx context.Context) error { return node.pluginEnabled(ctx, owner.Name) }})
 		if err != nil {
 			return workspaceToolFault(err)
 		}
@@ -226,23 +231,66 @@ func (node *Node) externalBrowserTool(inv *store.AgentInvocation, owner protocol
 	return tool
 }
 
-// externalBrowserEvents closes the browsers of removed sessions.
+// pluginEnabled refuses a browser tool of a package the user disabled or
+// removed after the turn captured it.
+func (node *Node) pluginEnabled(ctx context.Context, name string) error {
+	return node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadPlugin(ctx, db, name)
+		if err != nil {
+			return err
+		}
+		if current == nil || !current.Summary.Enabled {
+			return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin is disabled"}
+		}
+		return nil
+	})
+}
+
+// externalBrowserEvents follows conversations that end. A removed
+// conversation loses its browser and its browser profile, which holds its
+// website sign-ins; an archived one loses only its running browser.
 func (node *Node) externalBrowserEvents(changes []protocol.Event) {
+	var removed, archived []protocol.SessionID
 	for _, change := range changes {
-		if change.Kind != "sessions_removed" {
-			continue
-		}
-		removed, valid := dispatchPayload[[]protocol.SessionID](change.Data)
-		if !valid {
-			continue
-		}
-		// The command lock may be held here and a close waits for the
-		// session's running call, so it runs on its own. It touches only the
-		// browser owner, which outlives the Node's other services.
-		go func() {
-			for _, session := range removed {
-				node.externalBrowser.Close(session)
+		switch change.Kind {
+		case "sessions_removed":
+			sessions, _ := dispatchPayload[[]protocol.SessionID](change.Data)
+			removed = append(removed, sessions...)
+		case "session_changed":
+			if session, valid := dispatchPayload[protocol.Session](change.Data); valid && session.Archived {
+				archived = append(archived, session.ID)
 			}
-		}()
+		}
+	}
+	if len(removed)+len(archived) == 0 {
+		return
+	}
+	// The command lock may be held here and a close waits for the session's
+	// running call, so it runs on its own. It touches only the browser
+	// owner, which outlives the Node's other services.
+	go func() {
+		for _, session := range removed {
+			node.externalBrowser.Remove(session)
+		}
+		for _, session := range archived {
+			node.externalBrowser.Close(session)
+		}
+	}()
+}
+
+// removeExternalBrowserProfiles deletes the browser profiles of conversations
+// that no longer exist: those removed while their profile could not be, or
+// by a Node that stopped before it got to it. A read that fails keeps the
+// profile for the next start.
+func (node *Node) removeExternalBrowserProfiles(ctx context.Context) {
+	for _, session := range node.externalBrowser.Profiles() {
+		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			_, err := store.ReadSession(ctx, db, session)
+			return err
+		})
+		var missing *protocol.Fault
+		if errors.As(err, &missing) && missing.Code == protocol.ErrorCodeNotFound {
+			node.externalBrowser.Remove(session)
+		}
 	}
 }

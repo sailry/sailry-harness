@@ -21,6 +21,40 @@ context and is independent of the controller's observation context.
 Completed replay returns its original success or fault without another mutation
 or event. Reusing an ID for different content returns Conflict. An admitted or
 unknown request returns OutcomeUnknown and never executes again automatically.
+
+Every admitted request ends in one of two final states
+(`internal/node/admission`):
+
+- `completed`: it ended, and its success or its fault is stored. A request
+  whose whole effect was in the transaction that failed changed nothing, so
+  that failure is stored as its result (`Node.unapplied`); a retry gets the
+  same fault and the controller starts a new request.
+- `unknown`: the Node stopped while the request ran. Startup sets this for
+  every request still `admitted`, and it never changes again. The Node cannot
+  tell which of them took effect, so it does not guess.
+
+`admitted` therefore always means "running, or its result is being stored".
+A result that could not be stored with its transaction is written again in a
+transaction of its own every second (`admission.Settle`) until it is stored or
+the Node stops; a stopping Node makes one last attempt. Only a commit that the
+store could not confirm leaves a request admitted until the next start.
+
+`InspectRequest` answers "what became of request X" for the controller that
+sent it: `not_admitted`, `admitted`, `completed` with the stored result, or
+`unknown`. Any paired or local controller may ask; a Node that forwarded a
+request to another Node asks that Node the same way, with
+`admission.Digest` of the serialized request. Controllers resolve every
+unobserved outcome through `Client.Settle`, described in
+[Unobserved outcomes](#unobserved-outcomes).
+
+Completed and unknown requests are deleted `admission.Retention` (7 days)
+after their admission, at startup and once a day. A retry later than that is
+a new request. Requests that a turn, a queued turn, an approval or a dispatch
+job refers to are kept, because those rows read their input and result from
+the ledger; they go when their owner is removed. The `requests.at` column
+(Unix seconds, added in place) holds the admission time; a row written before
+it existed is dated at the first pass that sees it.
+
 `InspectRequest` checks a lowercase 64-character BLAKE3 digest and reports the
 recorded outcome without admitting or replaying the original command. The digest
 covers the request as this engine serializes it: Go writes a union's content
@@ -58,6 +92,39 @@ cannot reach: backups, exports and file copies made earlier (including
 Rust release, and blocks the filesystem or an SSD has already released or
 remapped. Connections saved by a turn before the update no longer count as
 created by that turn.
+
+### Unobserved outcomes
+
+A controller that did not see the result of a durable request (the reply was
+lost, or the Node answered a duplicate with OutcomeUnknown) has one way to
+resolve it, `Client.Settle` in `internal/client/resolve.go`. It executes the
+request once and, on an unknown outcome, asks the Node by request ID:
+
+| Node answers | Settle returns | The caller |
+|---|---|---|
+| `completed`, success | the stored output, no error | treats it as the success it is |
+| `completed`, fault | the stored fault | reports the failure |
+| `completed` with an OutcomeUnknown fault, or `unknown` | OutcomeUnknown, `client.Released` | drops the request, says once that the result could not be confirmed, starts a new request next time |
+| `not_admitted` | Unavailable "did not reach the Node", `client.Released` | drops the request, reports a failure; nothing changed |
+| `admitted`, or the Node cannot be asked | OutcomeUnknown, `client.Retained` | keeps the request; the same request settled again resolves it |
+
+The Desktop's `Runtime.execute` uses it for every command it sends that way
+(sends, queue actions, settings saves, provider and package commands) and
+keeps a request only while `client.Retained` holds. Flows that poll their own
+long operation (Host installation, uploads, plugin requests) call
+`Client.Resolve` or `Client.Outcome` directly.
+
+Differences from Rust, deliberate:
+
+- Rust has no final state: an `admitted` request whose result write failed
+  stays admitted until restart, and an `unknown` one answers OutcomeUnknown to
+  every retry, which the Desktop kept sending. Go retries the result write,
+  stores the failure of a request that was not applied, and releases a request
+  the Node can never answer.
+- Rust never deletes a ledger row. Go deletes settled, unreferenced rows after
+  7 days.
+- Rust confirms an unobserved settings save in the Desktop
+  (`settings/requests.rs`); Go does it in the Client for every command.
 
 Protocol and stored JSON is decoded in one pass by `protocol.Decoder`
 (`encoding/json/jsontext` tokens, per-type member tables built once). The wire
@@ -102,6 +169,18 @@ Attention has its own revision. Batches apply as one command transaction. Remova
 retains immutable history and refuses active tasks. Project-scoped ordering is
 stored in the committed event log and remains separate from controller pins.
 
+Removal reclaims what only removed sessions can reach, in the removing
+transaction: artifacts with no revision still published in a remaining
+conversation, and the checkpoint text and attachment bindings of turns that a
+removed session owns and no remaining session lists. A fork shares its source's
+turns, so they keep their checkpoints and attachments until the last fork that
+lists them is removed. An attachment row goes with its last binding; an upload
+that no turn bound stays with its composer. After the commit the Node deletes
+the artifact directories of removed sessions that keep no artifact and collects
+the attachment files left without a row. Archiving and rewinding reclaim nothing:
+a rewound turn stays restorable until its session is removed. Canonical records
+and their blobs are kept.
+
 `move_conversation` and `fork_conversation_at` share one target rule: the
 conversation is a root conversation at the expected revision, it belongs to a
 project, the worktree belongs to that project and is not removed, no turn is
@@ -119,11 +198,53 @@ wake assertion or telemetry sender.
 Plugin callers are refused, a cancellation stores nothing, and a repeated
 incident answers with its first notice without another event.
 
+The Node writes its own notices in the transaction of the change they report
+(`internal/node/store/notifications_system.go`), as Rust's
+`store/notifications/system.rs`:
+
+- A finished run of a main session writes one `task` notice: success for
+  `completed`, error for `failed` and `interrupted`, with the session's title,
+  the run's times and its fault code. `FinishTurn` writes it, so restart
+  recovery reports the runs it interrupts. A `cancelled` run is one its user
+  stopped and has no notice; a delegated run reports to its parent and has
+  none. A failure is not reported twice: a compaction failure that stopped the
+  turn, or a `system` diagnostic of the same incident and turn, is its notice.
+- A conversation entry the system writes with a compaction failure writes one
+  `diagnostic` notice naming that entry. The store writes it for any such
+  entry; the Go engine does not record compaction failures as entries yet (a
+  failed compaction fails its run, which the `task` notice reports), so this
+  notice has no producer in the engine today.
+- A turn that a dispatch job started and that begins to wait for an approval
+  or an answer writes one `task` notice whose status is still `running`:
+  warning for an approval, info for input. A scheduled run usually has no
+  connected controller to derive that attention, so the Node keeps it. The
+  notice has no finish time while the wait is open and gets one when the wait
+  ends; each later wait of the turn is a new notice. An answer or a stop marks
+  it read. A request that expired (the engine cancels an approval, and times
+  out a question other than plan acceptance, after 300 seconds) or that an
+  interruption closed stays unread, so its user finds it on return. Turns a
+  controller started have none: the controller derives their attention
+  itself, and it skips that derivation while the Node's notice is open, so a
+  wait is told once. Rust has no such notice.
+- A dispatch job that ends `failed` or `unknown` writes one `system`
+  diagnostic (`plugin_callback`, incident = the job's request, with the
+  package and handler), including a job refused when it is claimed. A job
+  whose callback admitted a turn is reported by that turn's `task` notice
+  instead, and a cancelled or skipped job has none. Rust has no such notice.
+
 `read_media_settings`, `list_media_models` and `save_media_settings` store which
 configured provider model serves the vision, image, video and speech purposes,
 and `synthesize_speech` reads text aloud with the assigned speech model. The
 settings appear in the snapshot and are captured with each admitted turn.
 Capability tags, routing, channels and limits are in [media.md](media.md).
+
+`save_network_settings` checks the expected revision, makes the selection the
+Link's effective one and only then stores it, so a selection whose relays
+could not be reached changes nothing and is not the one the next start uses.
+A selection that was applied but could not be stored is taken back; when the
+commit itself could not be confirmed the effective selection stays. Rust
+stores the selection before applying it and keeps it when the relays fail
+(`store/network.rs`); this order is the deliberate difference.
 
 `count_feature {feature}` counts one use of a desktop feature in the usage
 window and answers `feature_counted`. It is a v1 extension, not durable,
@@ -156,9 +277,19 @@ the last two). The transfer then runs on its own goroutine, outside both command
 lanes, for at most 30 seconds. An unpaired target answers `not_found` "target
 Node is not paired". Once dispatch begins, a failed dispatch, a lost completion,
 the limit or Node shutdown records `outcome_unknown` "remote session creation
-could not be confirmed; automatic replay is disabled". Replay returns the
-recorded outcome and never sends again; the controller inspects the target with
-the same request ID.
+could not be confirmed; send the same request again to resolve it".
+
+Replay of any other recorded outcome returns it and never sends again. Replay of
+an unknown outcome, recorded or left by an interrupted Node, packages the import
+again and sends it under the same request ID. The target admits by that ID, so
+it answers an import it already holds from its own ledger and creates the
+session only if the earlier one never arrived; the controller receives that
+answer. The outcome stays unknown while the forward is still in flight, when the
+provider, its secret or the roles changed so the import cannot be rebuilt or the
+target answers `conflict` for different content, and when the target cannot be
+reached. The source ledger keeps the unknown outcome it recorded; the answer is
+read from the target on each replay. The Desktop keeps the request of an unknown
+creation with its draft and sends it again with the next Send.
 
 `import_session` is accepted only from the paired caller named as its source,
 never from the local controller. The bundle must be consistent: the
@@ -189,7 +320,9 @@ tool.
 | Deviation from Rust | Reason |
 |---|---|
 | `create_session_at` whose target is this Node still creates the session locally | The Desktop creates every session through it; Rust refuses a local target |
+| A replayed forward with an unknown outcome sends the identical import again | Rust records the unknown outcome as final and its replay never sends, so a draft could not create its session after one lost answer; the target deduplicates on the request ID, which makes the resend safe |
 | Private providers are deleted with their session | Rust retains them; a removed session should not leave a forwarded secret behind |
+| Removal deletes the checkpoint text and bound attachments that only removed sessions reach | Rust prunes artifacts only and never reclaims checkpoints or attachments; a deleted conversation should not keep file contents and uploads of up to 64 MiB each |
 | `save_backup_settings`, `save_search_settings`, `restore_backup`, `restore_backup_file`, `dispatch` and `plugin_transaction` are kept by digest | Rust stores them raw although they can carry a secret; the other digested commands match Rust |
 | File and command bodies are stored raw | Rust also keeps `file-v1:` and `command-v1:` digests for file writes and command executions; they hold no credential field |
 
@@ -220,6 +353,55 @@ with their owning backend phases. Connection and plugin assistant session
 creation is unavailable until those services land. Source-compatible captures
 and projections extend in those owning phases without adding another history.
 
+## Shutdown
+
+`Node.Stop` refuses new work, cancels every worker and closes the Node in
+dependency order: command lanes, plugin status, agent turns, logins, terminals,
+network, port forwards, supervised tasks, the knowledge index, local models,
+external browsers, plugins and MCP servers, requests in flight, telemetry,
+commands with transfers and watchers, then storage and the profile lock.
+
+The whole sequence has the Rust Node's five-second deadline. Supervised tasks
+(logins, plugin commands) may finish until that deadline and are cancelled at
+it. When the deadline passes, `Stop` logs the stage that did not stop and the
+stages it never reached, closes each database that no read or write still
+uses, releases the profile lock and returns `core.ErrShutdownTimeout` naming
+the stage. The caller exits; the Desktop updater continues with the
+installation, because the profile is released.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The deadline covers the whole shutdown, not only supervised tasks | Rust aborts its tasks at the deadline and then closes the rest; a goroutine cannot be aborted, so every wait needs the bound or one worker that ignores cancellation keeps a windowless process holding the profile lock |
+| Stages after the one that did not stop are not run | They would wait for the same worker. What they would have released is what a crash leaves, and the next start clears it: terminals end with their pseudo-terminal, recorded command groups are killed, external browsers are closed, temporary files are removed |
+| A database still in use at the deadline is left open | Closing it would wait for the worker; SQLite recovers its log at the next start |
+
+### Leftovers of an earlier run
+
+`OpenProfile` removes them right after it takes the profile lock and before
+the identity, the databases or any component is opened (`sweepProfile`), so
+nothing it removes is in use by this process and no other process owns the
+profile:
+
+- everything in `tmp`: database copies and staged files of a backup, the
+  unpacked staging of a restore, sealed archives, staged inputs, command
+  scratch and retained output, transfer and browser scratch. The one exception
+  is the `command-group-*` records, which the process service reads at its
+  start to kill the command groups a crashed Node left and then removes
+- `storage/.upgrade-*`, `storage/.schema-reference-*` and
+  `storage/backups/.upgrade-*`, the scratch of a schema check or update. The
+  kept pre-update copies (`storage/backups/node-before-upgrade-*`) stay
+- `plugins/packages/.staging-*` and `python/staging/environment-*`, a plugin
+  package or Python environment whose installation ended before it was
+  published. Published packages and environments stay
+
+A link is removed, never followed; a read-only tree is made writable first. A
+leftover that cannot be removed is logged and does not stop the start.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The scratch space is cleared at every start | Rust removes nothing (`runtime-core/src/profile.rs`), so a backup or restore that was killed leaves plain copies of the database, stored credentials included, until someone deletes them by hand |
+| Not swept: `.sailry-restore-<uuid>` beside a restore target, `desktop/updater/download-*` | The first lies outside the profile at a path the Node no longer knows; the second belongs to the Desktop updater |
+
 ## Store
 
 `internal/node/store` has one writer goroutine that groups waiting jobs into one
@@ -232,13 +414,29 @@ keeps up to eight idle.
   committed: the interrupted job receives its cancellation, every other job of
   the batch fails with the retryable `busy` fault "storage transaction was rolled
   back; retry the operation", and the writer continues with the next batch. Jobs
-  are not replayed, because a callback may have changed state outside SQL. The
-  writer stops with OutcomeUnknown only when `COMMIT` fails and the rollback
-  cannot confirm that nothing was written.
+  are not replayed, because a callback may have changed state outside SQL.
+- A `COMMIT` that fails is decided by whether the connection still holds a
+  transaction, not by the error of the `ROLLBACK` that follows. SQLite rolls
+  the transaction back itself when a commit cannot be written (a full disk, an
+  I/O error) and the `ROLLBACK` then only reports that none is active; a
+  refused commit that leaves the transaction open is rolled back. Both are known
+  to be uncommitted and answer the retryable `busy` fault; a full disk answers
+  `busy` "storage is full; free disk space and retry the operation", also when
+  a write statement meets it. Only when the connection can neither roll back
+  nor begin does the batch answer `outcome_unknown`. The writer then closes
+  that connection, which discards any transaction it held, and opens another
+  that must take the write lock; later batches run on it. While no connection
+  can be opened each batch answers `unavailable` and tries again, so no state
+  needs a restart.
 - Startup accepts an empty database or owned storage at generation 1. Any other
   state is refused with "existing data was not changed" and left untouched; no
-  path removes or resets a database. Every start checks each owned table with
-  `PRAGMA foreign_key_check` and refuses storage with an orphaned row.
+  path removes or resets a database. A database that was just created, updated
+  or restored is checked table by table with `PRAGMA foreign_key_check` and
+  refused with an orphaned row. A start on a current database does not repeat
+  the scan: every connection enforces foreign keys, so the scan could only find
+  a row written behind them, it would lock the user out for it, and it reads
+  every child row (measured: 0.38 s per million rows with the file cached),
+  which grows with history.
 - File checkpoints draw their row number from the `file_checkpoints` counter. A
   profile written before this rule has checkpoints above its counter; startup
   raises the counter through the in-place update (rehearsal, backup, apply).
@@ -270,5 +468,10 @@ family. There is no profile importer or direct cross-engine opening: the
 database files of a Rust release (`node.turso`, `knowledge.turso`, the older
 `node.db` and `node.sqlite3`, and their side files) are moved, unopened and
 unchanged, into `storage/rust-archive/` at the first start, and the data in them
-does not appear. A name the archive already holds is never replaced: the Node
-refuses to start and names the archive. Platform compilation and runtime acceptance are distinct.
+does not appear. The set found at one start stays together: every target is
+checked before the first file moves. When the archive already holds one of the
+names, because a Rust build ran in the profile again and created a new
+`node.turso`, the whole set goes to the next numbered sibling that holds none
+(`storage/rust-archive-2/`, `-3`, ...). Nothing is replaced or deleted and the
+Node never refuses to start over an archive. Platform compilation and runtime
+acceptance are distinct.
