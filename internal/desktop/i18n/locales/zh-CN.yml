@@ -865,6 +865,9 @@ sandbox_settings_saved: 已保存
 sandbox_settings_unknown: 无法确认是否已保存命令沙箱设置，请重新加载查看
 session_order_created: 创建时间
 session_order_updated: 更新时间
+session_order_recent: 最近更新
+session_order_name: 名称
+sidebar_sort: 排序
 settings_about_description: 应用版本与构建信息
 settings_backup_description: 管理数据与备份
 settings_build: 构建类型

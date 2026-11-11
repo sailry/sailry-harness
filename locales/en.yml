@@ -31,6 +31,9 @@ settings_sessions: Sessions
 settings_session_order: Session order
 session_order_created: Created
 session_order_updated: Updated
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 tool_write_file: Write file
 tool_list_directory: Browse directory
 tool_search_files: Search files

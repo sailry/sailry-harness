@@ -3,12 +3,14 @@ package live
 import (
 	"encoding/json"
 	"math"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -20,8 +22,9 @@ func TestSidebarProjection(t *testing.T) {
 	project := protocol.ProjectID{1}
 	worktree := protocol.WorktreeID{1}
 	hidden := protocol.ProjectID{2}
-	ids := []protocol.SessionID{{1}, {2}, {3}, {4}, {5}, {6}, {7}}
-	finished := []int64{20, 10}
+	second := protocol.ProjectID{3}
+	ids := []protocol.SessionID{{1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}}
+	finished := []int64{20, 10, 5}
 	sessions := []protocol.Session{
 		{ID: ids[0], Project: &project, CreationOrder: 3, Revision: 9, Activity: protocol.ActivitySummary{Title: "First", Attention: protocol.ActivityAttention{Revision: 12}}},
 		{ID: ids[1], CreationOrder: 4, Activity: protocol.ActivitySummary{Title: "Chat"}},
@@ -30,11 +33,12 @@ func TestSidebarProjection(t *testing.T) {
 		{ID: ids[4], Project: &project, CreationOrder: 5, Archived: true},
 		{ID: ids[5], CreationOrder: 6},
 		{ID: ids[6], Project: &hidden, CreationOrder: 7},
+		{ID: ids[7], Project: &second, CreationOrder: 8, Activity: protocol.ActivitySummary{Title: "Zeta", Run: &protocol.ConversationRun{Status: protocol.ConversationStatusCompleted, FinishedMs: &finished[2]}}},
 	}
 	sessions[0].Worktree = worktree
 	delegation := &protocol.Delegation{}
 	sessions[5].Delegation = &delegation
-	snapshot := protocol.Snapshot{Node: node, Projects: []protocol.Project{{ID: project, Name: "Workspace", Path: "/fixture/workspace", Appearance: protocol.ProjectsAppearance{Icon: "folder", Color: "none"}}}, Worktrees: []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/linked"}}, Sessions: sessions}
+	snapshot := protocol.Snapshot{Node: node, Projects: []protocol.Project{{ID: project, Name: "Workspace", Path: "/fixture/workspace", Appearance: protocol.ProjectsAppearance{Icon: "folder", Color: "none"}}, {ID: second, Name: "atlas", Path: "/fixture/atlas"}}, Worktrees: []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/linked"}}, Sessions: sessions}
 	prefs := preferences.Default()
 	order := uint64(math.MaxUint64)
 	pins := map[string]preferences.Pin{preferences.PinKey(node, ids[0].String()): {Pinned: true, Order: &order}, preferences.PinKey(node, ids[1].String()): {Pinned: true}, preferences.PinKey(protocol.NodeID{2}, ids[2].String()): {Pinned: true}}
@@ -55,22 +59,83 @@ func TestSidebarProjection(t *testing.T) {
 	if d.Find(ids[2].String()).Status != viewmodel.Unread || d.Find(ids[3].String()).Status != viewmodel.Running {
 		t.Fatal("Client activity lanes did not reach presentation status")
 	}
-	want := []string{ids[1].String(), ids[0].String(), ids[2].String(), ids[3].String()}
-	if got := sidebar.New(d, "").Order(); !slices.Equal(got, want) {
-		t.Fatalf("sidebar order %v, want %v", got, want)
-	}
-	updated := "updated"
-	prefs.SessionOrder = &updated
-	d = Sidebar(snapshot, prefs)
-	var shown []string
-	for _, cv := range d.Projects[0].Conversations {
-		if !cv.Archived {
-			shown = append(shown, cv.ID)
+	// The projection keeps the Node's order whatever the preference; the
+	// sidebar sorts it. Pins lead in every order: the legacy pin, then the
+	// ordered one. Then the projects, each with its sessions: the Node lists
+	// Workspace before atlas, whose only run is the oldest.
+	name := func(id protocol.SessionID) string { return id.String() }
+	for _, c := range []struct {
+		preference string
+		want       []string
+	}{
+		// A profile that never chose is updated: what never ran first, then
+		// the last run, newest first; Workspace ran last.
+		{"", []string{name(ids[1]), name(ids[0]), name(ids[2]), name(ids[3]), name(ids[7])}},
+		{"updated", []string{name(ids[1]), name(ids[0]), name(ids[2]), name(ids[3]), name(ids[7])}},
+		// Created: the newest project first, sessions in the Node's order.
+		{"created", []string{name(ids[1]), name(ids[0]), name(ids[7]), name(ids[2]), name(ids[3])}},
+		// Name: atlas, then Workspace with First, Older activity, Recent activity.
+		{"name", []string{name(ids[1]), name(ids[0]), name(ids[7]), name(ids[3]), name(ids[2])}},
+	} {
+		prefs.SessionOrder = nil
+		if c.preference != "" {
+			prefs.SessionOrder = &c.preference
+		}
+		if err := prefs.Validate(); err != nil {
+			t.Fatalf("session order %q: %v", c.preference, err)
+		}
+		d = Sidebar(snapshot, prefs)
+		var shown []string
+		for _, cv := range d.Projects[0].Conversations {
+			if !cv.Archived {
+				shown = append(shown, cv.ID)
+			}
+		}
+		if d.Projects[0].Name != "Workspace" || !slices.Equal(shown, []string{name(ids[0]), name(ids[2]), name(ids[3])}) {
+			t.Fatalf("%q: the projection left the Node's order: %v", c.preference, shown)
+		}
+		state := sidebar.New(d, "")
+		*state.Sort = int(sidebar.SortOf(c.preference))
+		if got := state.Order(); !slices.Equal(got, c.want) {
+			t.Fatalf("%q: sidebar order %v, want %v", c.preference, got, c.want)
 		}
 	}
-	if !slices.Equal(shown, []string{ids[0].String(), ids[2].String(), ids[3].String()}) {
-		t.Fatalf("updated order %v", shown)
-	}
+	t.Run("order survives a restart", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "preferences.json")
+		start := func() *Runtime {
+			r := &Runtime{ctx: t.Context(), App: shell.NewLive(Sidebar(snapshot, preferences.Default())), Preferences: preferences.Open(path)}
+			r.applyPreferences()
+			return r
+		}
+		r := start()
+		if r.Preferences.Data.SessionOrder != nil || r.App.Settings.Model.SessionOrder != int(sidebar.SortUpdated) || *r.App.Sidebar.Sort != int(sidebar.SortUpdated) {
+			t.Fatalf("a new profile starts in order %d", r.App.Settings.Model.SessionOrder)
+		}
+		// Unchanged, the default writes no choice.
+		r.savePreferences()
+		r.workers.Wait()
+		if r.Preferences.Data.SessionOrder != nil {
+			t.Fatalf("the default order was written as %q", *r.Preferences.Data.SessionOrder)
+		}
+		for _, by := range []sidebar.Sort{sidebar.SortName, sidebar.SortCreated} {
+			// The sort menu sets the sidebar's order, which is the setting.
+			*r.App.Sidebar.Sort = int(by)
+			r.savePreferences()
+			r.workers.Wait()
+			if stored := preferences.Open(path).Data.SessionOrder; stored == nil || *stored != by.Preference() {
+				t.Fatalf("order %q was stored as %v", by.Preference(), stored)
+			}
+			r = start()
+			if r.App.Settings.Model.SessionOrder != int(by) || *r.App.Sidebar.Sort != int(by) {
+				t.Fatalf("order %q came back as %d", by.Preference(), r.App.Settings.Model.SessionOrder)
+			}
+			// After the chat, atlas leads by name and as the newest project;
+			// by the default, Workspace would.
+			if got := r.App.Sidebar.Order(); got[1] != name(ids[7]) {
+				t.Fatalf("order %q after the restart lists %v", by.Preference(), got)
+			}
+		}
+	})
 	if snapshot.Sessions[0].ID != ids[0] || prefs.Pin(node, ids[0].String()).Order == nil || *prefs.Pin(node, ids[0].String()).Order != math.MaxUint64 {
 		t.Fatal("presentation changed authority order or full-width preference")
 	}

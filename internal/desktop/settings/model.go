@@ -160,7 +160,7 @@ type Model struct {
 
 	// Conversation.
 	Sandbox        Stored[bool]
-	SessionOrder   int     // 0 created, 1 updated
+	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
 	TextSize       float64 // 12..18 by 2
 
@@ -338,7 +338,7 @@ func NewModel(d *preview.Settings) *Model {
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
-		Sandbox:   stored(d.Sandbox), TextSize: 14,
+		Sandbox:   stored(d.Sandbox), TextSize: 14, SessionOrder: 1,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
 		Host:   stored(TerminalHost{Env: d.Env}),

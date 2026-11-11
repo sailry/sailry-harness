@@ -865,6 +865,9 @@ sandbox_settings_saved: Guardado
 sandbox_settings_unknown: No se pudo confirmar el guardado; vuelve a cargar para comprobarlo
 session_order_created: Creación
 session_order_updated: Actualización
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: Versión de la aplicación e información de compilación
 settings_backup_description: Gestionar datos y copias de seguridad
 settings_build: Tipo de construcción

@@ -38,6 +38,8 @@ var (
 	PanelRight       = load("panel-right")
 	Network          = load("network")
 	Folder           = load("folder")
+	FolderPlus       = load("folder-plus")
+	ListFilter       = load("list-filter")
 	Info             = load("info")
 	Inbox            = load("inbox")
 	Cpu              = load("cpu")

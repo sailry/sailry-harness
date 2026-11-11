@@ -82,19 +82,74 @@ func MovePin(ids []string, source, target string, after bool) ([]string, bool) {
 	return out, !slices.Equal(out, ids)
 }
 
-// Recent is a conversation as the recent group lists it.
-type Recent struct {
-	ID       string
-	Created  int
-	Archived bool
+// Sort is the order of the projects and of the conversations in the chats
+// and in each project. Its values are the session_order preference's.
+type Sort int
+
+const (
+	// SortCreated keeps the order the data comes in: the Node's, newest
+	// created first, with a manual order another controller saved on it.
+	// Projects come oldest first, so they are reversed.
+	SortCreated Sort = iota
+	// SortUpdated puts what never ran first, then the last run, newest first.
+	SortUpdated
+	// SortName compares names without case; a conversation without a title
+	// comes first.
+	SortName
+)
+
+// sortNames are the preference's values, by Sort.
+var sortNames = []string{"created", "updated", "name"}
+
+// Preference is the order's value in the session_order preference.
+func (s Sort) Preference() string { return sortNames[min(max(s, SortCreated), SortName)] }
+
+// SortOf is the order a session_order preference names; one that names
+// none, as a profile that never chose, is the default: SortUpdated.
+func SortOf(preference string) Sort {
+	if i := slices.Index(sortNames, preference); i >= 0 {
+		return Sort(i)
+	}
+	return SortUpdated
 }
 
-// RecentOrder lists conversations that are not archived, newest first by
-// creation; ties keep their order (client::sessions::recent). There is no
-// cutoff and no limit.
-func RecentOrder(list []Recent) []Recent {
-	out := slices.DeleteFunc(slices.Clone(list), func(r Recent) bool { return r.Archived })
-	slices.SortStableFunc(out, func(a, b Recent) int { return b.Created - a.Created })
+// Sorts are the orders as the sort menu lists them, with their copy.
+var Sorts = []struct {
+	Sort  Sort
+	Label string // i18n key
+}{{SortUpdated, "session_order_recent"}, {SortCreated, "session_order_created"}, {SortName, "session_order_name"}}
+
+// Entry is a conversation or a project as Sorted orders it: its title or
+// name, and its last run, zero when it never ran. A project's last run is
+// the latest of its conversations'.
+type Entry struct {
+	ID      string
+	Name    string
+	Updated time.Time
+}
+
+// Sorted orders entries given in creation order, newest first. The sorts
+// are stable, so equal entries keep that order. The pinned group is not
+// sorted by it: pins keep their own order (OrderPins).
+func Sorted(list []Entry, by Sort) []Entry {
+	out := slices.Clone(list)
+	switch by {
+	case SortUpdated:
+		slices.SortStableFunc(out, func(a, b Entry) int {
+			// What never ran is new: it leads, as the reference's.
+			switch {
+			case a.Updated.IsZero() == b.Updated.IsZero():
+				return b.Updated.Compare(a.Updated)
+			case a.Updated.IsZero():
+				return -1
+			}
+			return 1
+		})
+	case SortName:
+		slices.SortStableFunc(out, func(a, b Entry) int {
+			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		})
+	}
 	return out
 }
 

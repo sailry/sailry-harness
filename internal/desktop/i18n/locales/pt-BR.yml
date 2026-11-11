@@ -865,6 +865,9 @@ sandbox_settings_saved: Salvo
 sandbox_settings_unknown: Não foi possível confirmar o salvamento; recarregue para verificar
 session_order_created: Criação
 session_order_updated: Atualização
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: Informações de versão e compilação do aplicativo
 settings_backup_description: Gerenciar dados e backups
 settings_build: Tipo de construção

@@ -127,12 +127,14 @@ type App struct {
 	// previewRail is the preview's rail in the shared UI state file, which a
 	// live window writes back as it found it (Prefs).
 	previewRail struct{ features, unpinned []string }
-	more        bool // the rail's More popover
-	search      search
-	activity    bool // the activity centre's popover
-	reading     *reading
-	shown       string // the conversation selected when a project page opened
-	overview    *projectOverview
+	// previewOrder is the preview's session order in that file, kept likewise.
+	previewOrder string
+	more         bool // the rail's More popover
+	search       search
+	activity     bool // the activity centre's popover
+	reading      *reading
+	shown        string // the conversation selected when a project page opened
+	overview     *projectOverview
 	// The panes that take the focus: the main column, where the
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
@@ -200,6 +202,8 @@ func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 	for _, f := range Features {
 		a.features = append(a.features, f.ID)
 	}
+	// The sidebar's sort menu and the settings' session order are one choice.
+	a.Sidebar.Sort = &st.Model.SessionOrder
 	return a
 }
 

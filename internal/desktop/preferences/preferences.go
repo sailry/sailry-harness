@@ -226,7 +226,7 @@ func (d Data) Validate() error {
 		value   *string
 		allowed []string
 	}{
-		{d.Language, Languages}, {d.MessageDisplay, []string{"detailed", "compact"}}, {d.SessionOrder, []string{"created", "updated"}}, {d.UpdateChannel, []string{"stable", "experience"}},
+		{d.Language, Languages}, {d.MessageDisplay, []string{"detailed", "compact"}}, {d.SessionOrder, []string{"created", "updated", "name"}}, {d.UpdateChannel, []string{"stable", "experience"}},
 	} {
 		if choice.value != nil && !slices.Contains(choice.allowed, *choice.value) {
 			return errors.New("invalid desktop preference choice")

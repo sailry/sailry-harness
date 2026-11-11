@@ -1499,6 +1499,9 @@ settings_sessions: 会话列表
 settings_session_order: 会话排序
 session_order_created: 创建时间
 session_order_updated: 更新时间
+session_order_recent: 最近更新
+session_order_name: 名称
+sidebar_sort: 排序
 settings_terminal: 终端
 settings_security: 安全
 settings_plugins: 插件

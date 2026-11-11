@@ -1,10 +1,11 @@
 // Package sidebar is the conversation navigation beside the rail: pinned
-// conversations, chats without a project, projects with their conversations
-// as a tree, and recent conversations. See docs/sidebar.md.
+// conversations, chats without a project, and projects with their
+// conversations as a tree. See docs/sidebar.md.
 package sidebar
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -34,6 +35,11 @@ type State struct {
 	Metrics  *Metrics
 	records  recordsState
 	Selected string // conversation ID
+	// Sort is the order of the projects and of the conversations in the
+	// chats and in each project, as a Sort: the session order preference,
+	// which the sort menu sets. New gives the sidebar its own, SortUpdated;
+	// the shell points it at the setting.
+	Sort *int
 	// shown is set when the sidebar opens a conversation, also the selected
 	// one; the shell takes it to go back to the conversation.
 	shown bool
@@ -65,11 +71,8 @@ type confirm struct {
 }
 
 func New(d *viewmodel.Data, selected string) *State {
-	s := &State{Data: d, Selected: selected, open: map[string]*bool{}, more: map[string]bool{}}
-	// The recent group starts closed.
-	closed := false
-	s.open["recent"] = &closed
-	return s
+	order := int(SortUpdated)
+	return &State{Data: d, Selected: selected, Sort: &order, open: map[string]*bool{}, more: map[string]bool{}}
 }
 
 // opened returns the expansion flag of a group or project, open at first.
@@ -125,21 +128,6 @@ func (s *State) pinned() []*preview.Conversation {
 	return out
 }
 
-// recent returns the conversations not archived, newest first.
-func (s *State) recent() []*preview.Conversation {
-	byID := map[string]*preview.Conversation{}
-	var list []Recent
-	s.each(func(cv *preview.Conversation) {
-		byID[cv.ID] = cv
-		list = append(list, Recent{ID: cv.ID, Created: cv.Created, Archived: cv.Archived})
-	})
-	var out []*preview.Conversation
-	for _, r := range RecentOrder(list) {
-		out = append(out, byID[r.ID])
-	}
-	return out
-}
-
 // each runs fn on every conversation: those without a project, then each
 // project's.
 func (s *State) each(fn func(cv *preview.Conversation)) {
@@ -153,18 +141,56 @@ func (s *State) each(fn func(cv *preview.Conversation)) {
 	}
 }
 
-func listed(list []*preview.Conversation) []*preview.Conversation {
-	var out []*preview.Conversation
+// sort is the order chosen, SortUpdated for a value that is none.
+func (s *State) sort() Sort {
+	if *s.Sort < int(SortCreated) || *s.Sort > int(SortName) {
+		return SortUpdated
+	}
+	return Sort(*s.Sort)
+}
+
+// sessions returns the conversations of a list that are not archived, in
+// the order chosen. The list is in creation order, newest first.
+func (s *State) sessions(list []*preview.Conversation) []*preview.Conversation {
+	byID := map[string]*preview.Conversation{}
+	var entries []Entry
 	for _, cv := range list {
 		if !cv.Archived {
-			out = append(out, cv)
+			byID[cv.ID] = cv
+			entries = append(entries, Entry{ID: cv.ID, Name: cv.Title, Updated: cv.Updated})
 		}
+	}
+	var out []*preview.Conversation
+	for _, e := range Sorted(entries, s.sort()) {
+		out = append(out, byID[e.ID])
 	}
 	return out
 }
 
-// Order is the order of next and previous conversation: pinned, chats,
-// each project's, then recent, without repeats.
+// projects returns the projects in the order chosen. The data lists them
+// oldest first; a project's last run is the latest of its conversations'.
+func (s *State) projects() []*preview.Project {
+	byID := map[string]*preview.Project{}
+	var entries []Entry
+	for _, pr := range slices.Backward(s.Data.Projects) {
+		e := Entry{ID: pr.ID, Name: pr.Name}
+		for _, cv := range pr.Conversations {
+			if !cv.Archived && cv.Updated.After(e.Updated) {
+				e.Updated = cv.Updated
+			}
+		}
+		byID[pr.ID] = pr
+		entries = append(entries, e)
+	}
+	var out []*preview.Project
+	for _, e := range Sorted(entries, s.sort()) {
+		out = append(out, byID[e.ID])
+	}
+	return out
+}
+
+// Order is the order of next and previous conversation: pinned, chats, then
+// each project's, as the sidebar lists them, without repeats.
 func (s *State) Order() []string {
 	seen := map[string]bool{}
 	var ids []string
@@ -177,11 +203,10 @@ func (s *State) Order() []string {
 		}
 	}
 	add(s.pinned())
-	add(listed(s.Data.Unassigned))
-	for _, p := range s.Data.Projects {
-		add(listed(p.Conversations))
+	add(s.sessions(s.Data.Unassigned))
+	for _, p := range s.projects() {
+		add(s.sessions(p.Conversations))
 	}
-	add(s.recent())
 	return ids
 }
 
@@ -204,38 +229,20 @@ func View(c *ui.Context, s *State) {
 			})
 		}
 		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat}, func() {
-			list := listed(s.Data.Unassigned)
-			if len(list) == 0 {
-				empty(c, "project_sessions_empty")
-				return
-			}
-			s.limited(c, "unassigned", list, func(cv *preview.Conversation) {
+			s.limited(c, "unassigned", s.sessions(s.Data.Unassigned), func(cv *preview.Conversation) {
 				s.conversation(c, cv, rowPlain)
 			})
 		})
 		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }}, func() {
-			if len(s.Data.Projects) == 0 {
-				empty(c, "connection_no_projects")
-				return
-			}
 			ui.Column(c).Gap(2).Children(func() {
-				for _, pr := range s.Data.Projects {
+				for _, pr := range s.projects() {
 					s.project(c, pr)
 				}
 			})
 		})
-		section(c, s, "recent", i18n.T(c, "recent_sessions"), nil, func() {
-			for _, cv := range s.recent() {
-				s.conversation(c.Key("recent"), cv, rowRecent)
-			}
-		})
 	})
 	metricsFooter(c, s.Metrics)
 	s.dialogs(c)
-}
-
-func empty(c *ui.Context, key string) {
-	ui.Text(c, i18n.T(c, key)).FontSize(14).Padding(4, 8, 4, indent).TextColor(theme.Of(c).MutedForeground.Alpha(0.7))
 }
 
 // add is a group header's "+" button.
@@ -245,20 +252,19 @@ type add struct {
 }
 
 // groupIcons are the theme's icon.group.* slots of the groups; pinned
-// conversations take the recent group's.
-var groupIcons = map[string]string{"pinned": "group.recent", "unassigned": "group.unassigned", "projects": "group.projects", "recent": "group.recent"}
+// conversations take the icon.group.recent slot.
+var groupIcons = map[string]string{"pinned": "group.recent", "unassigned": "group.unassigned", "projects": "group.projects"}
 
-// section is a collapsible group under a muted title whose chevron, and "+"
-// when it has one, show while the pointer is over it. A theme with an icon
-// for the group shows it before the title. The group grows open and closed
-// (MyGo's collapsible motion).
+// section is a collapsible group under a muted title whose chevron shows
+// while the pointer is over it. Its actions always show at the header's
+// right, as the rows' buttons: the projects' sort menu, then the group's
+// "+" when it has one. A theme with an icon for the group shows it before
+// the title. The group grows open and closed (MyGo's collapsible motion);
+// an empty one is its header alone.
 func section(c *ui.Context, s *State, key, title string, plus *add, body func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Children(func() {
 		muted := p.MutedForeground.Alpha(0.7)
-		if key == "recent" {
-			muted = p.SidebarForeground.Alpha(0.5)
-		}
 		var parts ui.CollapsibleParts
 		ui.Row(c).Height(32).AlignItems(ui.Center).Children(func() {
 			parts = ui.CollapsibleBase(c, s.opened(key))
@@ -274,16 +280,37 @@ func section(c *ui.Context, s *State, key, title string, plus *add, body func())
 					chevron.Opacity(0)
 				}
 			})
-			if plus != nil {
-				b := kit.IconButton(c.Key("add"), icons.Plus, i18n.T(c, plus.label), 20, false).TextColor(muted).
-					Margin(0, 4, 0, 0).OnClick(plus.run)
-				if !hovered && !b.Hovered() && !b.FocusVisible() {
-					b.Opacity(0)
-				}
+			if plus == nil {
+				return
 			}
+			// The rows' buttons: 20 square, 8 apart and from the edge.
+			ui.Row(c).Gap(8).PaddingEnd(8).AlignItems(ui.Center).Children(func() {
+				icon := icons.Plus
+				if key == "projects" {
+					s.sortMenu(c, muted)
+					icon = icons.FolderPlus
+				}
+				kit.IconButton(c.Key("add"), icon, i18n.T(c, plus.label), 20, false).TextColor(muted).OnClick(plus.run)
+			})
 		})
 		parts.Panel(body)
 	})
+}
+
+// sortMenu is the projects' sort button: a menu of the orders with a check
+// on the one chosen, which also orders the conversations of the chats and
+// of each project.
+func (s *State) sortMenu(c *ui.Context, color ui.Color) {
+	label := i18n.T(c, "sidebar_sort")
+	kit.MenuButton(c.Key("sort"), "sidebar-sort", func(b ui.Element) {
+		kit.IconLook(c, b, icons.ListFilter, label, "", 20, false).TextColor(color)
+	}, func(m *kit.Menu) {
+		for _, o := range Sorts {
+			if m.Item(i18n.T(c, o.Label)).Checked(o.Sort == s.sort()).Chosen() {
+				*s.Sort = int(o.Sort)
+			}
+		}
+	}, kit.MenuOptions{CheckRight: true})
 }
 
 // limited shows the first Limit conversations of a list and a toggle for the
@@ -329,13 +356,8 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 			}
 		})
 		parts.Panel(func() {
-			list := listed(pr.Conversations)
-			if len(list) == 0 {
-				empty(c, "project_sessions_empty")
-				return
-			}
 			ui.Column(c).Gap(2).Children(func() {
-				s.limited(c, pr.ID, list, func(cv *preview.Conversation) {
+				s.limited(c, pr.ID, s.sessions(pr.Conversations), func(cv *preview.Conversation) {
 					s.conversation(c, cv, rowTree)
 				})
 			})
@@ -350,7 +372,6 @@ const (
 	rowPlain  rowKind = iota // chats without a project
 	rowTree                  // under a project, on the tree guide
 	rowPinned                // pinned: the project's name, and drags to reorder
-	rowRecent                // recent: no status
 )
 
 // conversation is a session row: its status, title and age, and on hover a
@@ -377,7 +398,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	switch {
 	case selected:
 		text = p.SidebarAccentForeground
-	case hovered || cv.Status == preview.Running && kind != rowRecent:
+	case hovered || cv.Status == preview.Running:
 		text = p.SidebarForeground
 	}
 	b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title})
@@ -390,9 +411,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		return
 	}
 	b.TextColor(text).Children(func() {
-		if kind != rowRecent {
-			status(c, cv.Status)
-		}
+		status(c, cv.Status)
 		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1)
 		if s.nonMainWorktree(cv) {
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)

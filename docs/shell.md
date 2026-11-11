@@ -317,7 +317,9 @@ open as before when `ui.SafeToOpen` allows them.
 ## UI preferences
 
 `Prefs` keeps the sidebar's width and openness, the panel's width,
-openness, tabs and active tab, the projects closed in the sidebar, and
+openness, tabs and active tab, the projects closed in the sidebar, the
+preview's sidebar order (`sessionOrder`; a profile keeps its own in its
+preferences, docs/sidebar.md) and
 the rail's order and unpinned features, in `ui-state.json` in MyGo's user
 data folder (beside `window-state.json`, which `StateKey` keeps the
 bounds in). `LoadPrefs` falls back to the defaults and clamps widths.

@@ -110,6 +110,21 @@ func firstRun(t *testing.T) {
 		}
 		run(300 * time.Millisecond)
 	}
+	// idle lets what is in flight end on the window's own clock, then shows
+	// the window for a second and returns the frames it drew. The toasts and
+	// their motion run on that clock, which run moves by how many frames the
+	// machine draws meanwhile: left to it, a toast still arriving or just
+	// leaving counts as redraws of an idle page. Eight seconds, a refresh at
+	// a time, are past a toast's five and its motion; a view that never
+	// settles still asks for frames afterwards.
+	idle := func() int {
+		settle()
+		for range 480 {
+			tester.Advance(17 * time.Millisecond)
+		}
+		settle()
+		return run(time.Second)
+	}
 	listed := func(id string) bool {
 		for _, shown := range r.App.Sidebar.Order() {
 			if shown == id {
@@ -209,6 +224,12 @@ func firstRun(t *testing.T) {
 	}
 	second.Close()
 
+	// The conversation page, its draft focused, redraws nothing while idle.
+	before = len(sent())
+	if frames := idle(); frames != 0 || len(sent()) != before || r.App.Page != shell.ConversationPage {
+		t.Fatalf("the conversation page redrew %d times and sent %v while idle", frames, sent()[before:])
+	}
+
 	// A draft with input survives navigation; an untouched one leaves no trace.
 	r.App.Navigate(shell.SettingsPage)
 	settle()
@@ -221,11 +242,8 @@ func firstRun(t *testing.T) {
 	if r.App.Data.Find(draft) != nil || len(r.App.Data.Unassigned) != 0 || len(controller.Snapshot().Sessions) != 0 {
 		t.Fatal("an untouched draft was kept after navigating away")
 	}
-	if tester.FramePending() {
-		settle()
-	}
 	before = len(sent())
-	if frames := run(time.Second); frames > 2 || len(sent()) != before {
+	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
 	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent)

@@ -85,7 +85,7 @@ func New() *State { return &State{Section: General, Model: NewModel(preview.Sett
 // NewLive has controller defaults and no preview fixtures or simulated loads.
 func NewLive() *State {
 	return &State{Section: General, Model: &Model{Live: true, Keys: NewKeys(), Toast: 1,
-		Notify: [4]bool{true, true, true, true}, TextSize: 14, FontSize: 14, PasteProtection: true}}
+		Notify: [4]bool{true, true, true, true}, TextSize: 14, SessionOrder: 1, FontSize: 14, PasteProtection: true}}
 }
 
 // Nav builds the settings navigation in place of the sessions.

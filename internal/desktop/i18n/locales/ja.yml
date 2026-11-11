@@ -865,6 +865,9 @@ sandbox_settings_saved: 保存済み
 sandbox_settings_unknown: コマンドサンドボックスの設定の保存を確認できませんでした。再読み込みしてください
 session_order_created: 作成日時
 session_order_updated: 更新日時
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: アプリケーションのバージョンとビルド情報
 settings_backup_description: データとバックアップを管理
 settings_build: ビルドタイプ

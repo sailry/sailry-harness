@@ -1,13 +1,19 @@
 package shell
 
 import (
+	"cmp"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -20,6 +26,250 @@ func TestSidebarSessions(t *testing.T) {
 	t.Run("SidebarReordersPins", testSidebarReordersPins)
 	t.Run("SidebarDeleteConfirms", testSidebarDeleteConfirms)
 	t.Run("SidebarNewSession", testSidebarNewSession)
+	t.Run("SidebarGroups", testSidebarGroups)
+}
+
+// groupsData is a live-shaped sidebar that tells the three orders apart, for
+// the projects, the chats and a project's sessions: projects come oldest
+// first and sessions newest first, as a Node lists them, and their names
+// and last runs disagree with that. "Keel survey" is pinned.
+func groupsData() *viewmodel.Data {
+	ago := func(d time.Duration) time.Time { return preview.Now.Add(-d) }
+	session := func(id, title string, d time.Duration) *viewmodel.Conversation {
+		return &viewmodel.Conversation{ID: id, Title: title, Updated: ago(d)}
+	}
+	keel := session("keel", "Keel survey", 6*time.Hour)
+	keel.Pinned = true
+	return &viewmodel.Data{
+		Unassigned: []*viewmodel.Conversation{
+			session("mango", "mango notes", 2*time.Hour),
+			session("apple", "Apple review", 5*time.Minute),
+			session("banana", "banana split", 24*time.Hour),
+		},
+		Projects: []*viewmodel.Project{
+			{ID: "harbor", Name: "harbor", Path: "/fixture/harbor", Conversations: []*viewmodel.Conversation{
+				session("rigging", "Rigging", time.Hour),
+				session("ballast", "Ballast", 4*time.Hour),
+				session("deck", "deck plan", 2*time.Hour),
+				keel,
+			}},
+			{ID: "atlas", Name: "Atlas", Path: "/fixture/atlas", Conversations: []*viewmodel.Conversation{
+				session("index", "Index maps", 72*time.Hour),
+				session("contour", "contour lines", 120*time.Hour),
+			}},
+			{ID: "cedar", Name: "cedar", Path: "/fixture/cedar", Conversations: []*viewmodel.Conversation{
+				session("grain", "Grain", 10*time.Minute),
+			}},
+		},
+		Workspace: &viewmodel.Workspace{},
+	}
+}
+
+// sidebarNamed finds the sidebar's elements assistive technology names so,
+// top to bottom.
+func sidebarNamed(tt *ui.Tester, names ...string) []ui.AccessInfo {
+	var out []ui.AccessInfo
+	for _, info := range tt.AccessAll() {
+		if info.Bounds.X >= RailWidth && info.Bounds.X+info.Bounds.W <= RailWidth+NavWidth && slices.Contains(names, info.Name) {
+			out = append(out, info)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b ui.AccessInfo) int { return cmp.Compare(a.Bounds.Y, b.Bounds.Y) })
+	return out
+}
+
+// The groups: an empty one is its header alone, there is no Recent group,
+// the header actions show without the pointer, and the sort menu orders the
+// projects and the sessions, pinned ones staying first, and is kept.
+func testSidebarGroups(t *testing.T) {
+	zh := func(key string) string { return i18n.In("zh-CN", key) }
+	open := func(a *App) *ui.Tester {
+		a.Mode = theme.Dark
+		tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+		tt.SetLocale("zh-CN")
+		tt.Move(900, 600) // away from the sidebar: nothing in it is hovered
+		settle(tt)
+		return tt
+	}
+	// drawn reports whether something is painted in a control's box: the
+	// icon of a button that is not hidden.
+	drawn := func(tt *ui.Tester, info ui.AccessInfo) bool {
+		img := tt.Image()
+		scale := float32(img.Bounds().Dx()) / 1280
+		b := info.Bounds
+		x0, y0 := int(b.X*scale), int(b.Y*scale)
+		corner := img.At(x0, y0)
+		for y := y0; y < int((b.Y+b.H)*scale); y++ {
+			for x := x0; x < int((b.X+b.W)*scale); x++ {
+				if img.At(x, y) != corner {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	actions := func(tt *ui.Tester) (chat, sort, add ui.AccessInfo) {
+		t.Helper()
+		found := sidebarNamed(tt, zh("workspace_new_session"), zh("sidebar_sort"), zh("project_add"))
+		if len(found) != 3 {
+			t.Fatalf("the header actions are %+v", found)
+		}
+		// The chats' header is above the projects'; in it, sort is left of add.
+		chat, sort, add = found[0], found[1], found[2]
+		if sort.Bounds.X > add.Bounds.X {
+			sort, add = add, sort
+		}
+		if chat.Name != zh("workspace_new_session") || sort.Name != zh("sidebar_sort") || add.Name != zh("project_add") {
+			t.Fatalf("the header actions are %q, %q, %q", chat.Name, sort.Name, add.Name)
+		}
+		return chat, sort, add
+	}
+
+	// A fresh profile: both groups are their headers alone.
+	empty := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+	tt := open(empty)
+	snapshot(t, tt, "sidebar-empty")
+	for _, key := range []string{"project_sessions_empty", "connection_no_projects", "recent_sessions"} {
+		if tt.HasText(zh(key)) {
+			t.Errorf("the empty sidebar shows %q: %q", zh(key), tt.Texts())
+		}
+	}
+	if !tt.HasText(zh("sessions_unassigned")) || !tt.HasText(zh("projects")) {
+		t.Fatalf("the empty sidebar lost a group header: %q", tt.Texts())
+	}
+	chat, sort, add := actions(tt)
+	for _, b := range []ui.AccessInfo{chat, sort, add} {
+		if b.Bounds.W != 20 || b.Bounds.H != 20 || !drawn(tt, b) {
+			t.Errorf("%q is %vx%v, drawn %v, without the pointer", b.Name, b.Bounds.W, b.Bounds.H, drawn(tt, b))
+		}
+	}
+	if chat.Bounds.X != add.Bounds.X || add.Bounds.X-sort.Bounds.X-sort.Bounds.W != 8 || sort.Bounds.Y != add.Bounds.Y {
+		t.Errorf("the header actions are not in line: chat %+v, sort %+v, add %+v", chat.Bounds, sort.Bounds, add.Bounds)
+	}
+
+	// Two projects with sessions, for the look.
+	two := groupsData()
+	two.Projects = two.Projects[:2]
+	tt = open(NewLive(two))
+	snapshot(t, tt, "sidebar-projects")
+	if tt.HasText(zh("recent_sessions")) {
+		t.Errorf("the Recent group shows: %q", tt.Texts())
+	}
+	// The header actions end where a row's buttons do: 8 from its edge.
+	chat, _, add = actions(tt)
+	row := sidebarNamed(tt, "Apple review")[0].Bounds
+	for _, b := range []ui.AccessInfo{chat, add} {
+		if b.Bounds.X+b.Bounds.W != row.X+row.W-8 || b.Bounds.W != 20 || b.Bounds.H != 20 || !drawn(tt, b) {
+			t.Errorf("%q %+v does not end 8 from the row's edge %+v", b.Name, b.Bounds, row)
+		}
+	}
+
+	// Each order, chosen in the menu: the pinned session stays first, then
+	// the chats, then each project with its sessions.
+	a := NewLive(groupsData())
+	tt = open(a)
+	names := []string{"Keel survey", "mango notes", "Apple review", "banana split", "harbor", "Rigging", "Ballast", "deck plan", "Atlas", "Index maps", "contour lines", "cedar", "Grain"}
+	rows := func() []string {
+		var out []string
+		for _, info := range sidebarNamed(tt, names...) {
+			out = append(out, info.Name)
+		}
+		return out
+	}
+	choose := func(key string) {
+		t.Helper()
+		tt.Move(900, 600)
+		_, sort, _ := actions(tt)
+		tt.ClickAt(sort.Bounds.X+sort.Bounds.W/2, sort.Bounds.Y+sort.Bounds.H/2)
+		settle(tt)
+		if key == "" {
+			return
+		}
+		clickItem(t, tt, zh(key))
+		settle(tt)
+	}
+	updated := []string{"Keel survey", "Apple review", "mango notes", "banana split", "cedar", "Grain", "harbor", "Rigging", "deck plan", "Ballast", "Keel survey", "Atlas", "Index maps", "contour lines"}
+	if got := rows(); !slices.Equal(got, updated) || a.Settings.Model.SessionOrder != int(sidebar.SortUpdated) {
+		t.Fatalf("the default order, recently updated, is %d: %q", a.Settings.Model.SessionOrder, got)
+	}
+	choose("")
+	snapshot(t, tt, "sidebar-sort-menu")
+	var items []string
+	for _, info := range tt.AccessAll() {
+		if info.Role == ui.RoleMenuItem || info.Role == ui.RoleMenuItemCheckBox || info.Role == ui.RoleMenuItemRadio {
+			items = append(items, fmt.Sprintf("%s %v", info.Name, info.Checked))
+		}
+	}
+	if want := []string{zh("session_order_recent") + " true", zh("session_order_created") + " false", zh("session_order_name") + " false"}; !slices.Equal(items, want) {
+		t.Fatalf("the sort menu is %q, want %q", items, want)
+	}
+	tt.Key(0, ui.KeyEscape)
+	settle(tt)
+	for _, c := range []struct {
+		key  string
+		sort sidebar.Sort
+		want []string
+	}{
+		{"session_order_created", sidebar.SortCreated, []string{"Keel survey", "mango notes", "Apple review", "banana split", "cedar", "Grain", "Atlas", "Index maps", "contour lines", "harbor", "Rigging", "Ballast", "deck plan", "Keel survey"}},
+		{"session_order_name", sidebar.SortName, []string{"Keel survey", "Apple review", "banana split", "mango notes", "Atlas", "contour lines", "Index maps", "cedar", "Grain", "harbor", "Ballast", "deck plan", "Keel survey", "Rigging"}},
+		{"session_order_recent", sidebar.SortUpdated, updated},
+	} {
+		choose(c.key)
+		if got := rows(); !slices.Equal(got, c.want) || a.Settings.Model.SessionOrder != int(c.sort) {
+			t.Errorf("%s gives order %d:\n got %q\nwant %q", c.key, a.Settings.Model.SessionOrder, got, c.want)
+		}
+		// Next and previous conversation follow the rows.
+		if got, want := a.Sidebar.Order(), map[sidebar.Sort][]string{
+			sidebar.SortCreated: {"keel", "mango", "apple", "banana", "grain", "index", "contour", "rigging", "ballast", "deck"},
+			sidebar.SortName:    {"keel", "apple", "banana", "mango", "contour", "index", "grain", "ballast", "deck", "rigging"},
+			sidebar.SortUpdated: {"keel", "apple", "mango", "banana", "grain", "rigging", "deck", "ballast", "index", "contour"},
+		}[c.sort]; !slices.Equal(got, want) {
+			t.Errorf("%s: next and previous go %q, want %q", c.key, got, want)
+		}
+	}
+
+	// The preview keeps the choice in the UI state file across a relaunch;
+	// a live window leaves the preview's alone, its profile keeping its own.
+	p, _ := newTester(t)
+	if p.Settings.Model.SessionOrder != int(sidebar.SortUpdated) {
+		t.Fatalf("the preview starts in order %d", p.Settings.Model.SessionOrder)
+	}
+	p.Settings.Model.SessionOrder = int(sidebar.SortName)
+	dir := t.TempDir()
+	if err := SavePrefs(dir, p.Prefs()); err != nil {
+		t.Fatal(err)
+	}
+	again := New(preview.Load())
+	again.SetPrefs(LoadPrefs(dir))
+	if got := again.Sidebar.Order(); again.Settings.Model.SessionOrder != int(sidebar.SortName) || !slices.Equal(got, p.Sidebar.Order()) ||
+		slices.Equal(got, New(preview.Load()).Sidebar.Order()) {
+		t.Errorf("the relaunched preview is in order %d: %q", again.Settings.Model.SessionOrder, got)
+	}
+	live := NewLive(groupsData())
+	live.SetPrefs(LoadPrefs(dir))
+	if live.Settings.Model.SessionOrder != int(sidebar.SortUpdated) || live.Prefs().SessionOrder != "name" {
+		t.Errorf("a live window took the preview's order: %d, wrote back %q", live.Settings.Model.SessionOrder, live.Prefs().SessionOrder)
+	}
+
+	// A UI state file from before: no order, and the names of groups that
+	// are gone. It loads, keeping what it has.
+	old := t.TempDir()
+	state := `{"navWidth": 300, "navOpen": true, "panelWidth": 420, "collapsed": ["recent", "notes"], "recent": {"open": true}, "recentOpen": false}`
+	if err := os.WriteFile(filepath.Join(old, PrefsFile), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded := LoadPrefs(old)
+	b := New(preview.Load())
+	b.SetPrefs(loaded)
+	bt := ui.NewTesterWith(b.View, 1280, 820, opaque)
+	bt.SetLocale("en")
+	bt.Frame()
+	if loaded.NavWidth != 300 || b.NavWidth != 300 || b.Settings.Model.SessionOrder != int(sidebar.SortUpdated) {
+		t.Errorf("the old UI state loaded as %+v, order %d", loaded, b.Settings.Model.SessionOrder)
+	}
+	if got := b.Sidebar.Collapsed(); !slices.Equal(got, []string{"notes"}) || bt.HasText(i18n.In("en", "recent_sessions")) {
+		t.Errorf("the old UI state collapsed %q, Recent shows %v", got, bt.HasText(i18n.In("en", "recent_sessions")))
+	}
 }
 
 // newSession finds the sidebar's New session button and the Chats group's

@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/onboarding"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 )
 
 // Prefs are the window's UI preferences that come back after a relaunch:
@@ -29,8 +30,11 @@ type Prefs struct {
 	PanelTabs  []panel.Tab `json:"panelTabs,omitempty"`
 	PanelTab   panel.Tab   `json:"panelTab"`
 	Collapsed  []string    `json:"collapsed,omitempty"`
-	Features   []string    `json:"features,omitempty"` // the rail's order
-	Unpinned   []string    `json:"unpinned,omitempty"` // features off the rail
+	// SessionOrder is the preview's sidebar order, a session_order value; a
+	// profile keeps its own in its preferences.
+	SessionOrder string   `json:"sessionOrder,omitempty"`
+	Features     []string `json:"features,omitempty"` // the rail's order
+	Unpinned     []string `json:"unpinned,omitempty"` // features off the rail
 	// WelcomeSeen is whether the welcome guide was dismissed; nil in a file from
 	// before it counts as seen, and no file at all as a first launch.
 	WelcomeSeen *bool `json:"welcomeSeen,omitempty"`
@@ -87,7 +91,7 @@ func (a *App) Prefs() Prefs {
 	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: kept(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
-		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned,
+		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
 		Panes: a.panes.Saved(),
 	}
 	if keeps(a.Panel.Active) {
@@ -97,6 +101,7 @@ func (a *App) Prefs() Prefs {
 	}
 	if a.Preview {
 		p.Features, p.Unpinned = a.features, a.unpinnedList()
+		p.SessionOrder = sidebar.Sort(a.Settings.Model.SessionOrder).Preference()
 		p.WelcomeSeen = &a.Welcome.Seen
 	}
 	return p
@@ -121,8 +126,10 @@ func (a *App) SetPrefs(p Prefs) {
 			pins[f] = false
 		}
 		a.SetFeaturePreferences(p.Features, pins)
+		a.Settings.Model.SessionOrder = int(sidebar.SortOf(p.SessionOrder))
 	} else {
 		a.previewRail.features, a.previewRail.unpinned = p.Features, p.Unpinned
+		a.previewOrder = p.SessionOrder
 	}
 	// After the panel's tabs, which a terminal pane needs: a pane whose
 	// terminal is gone leaves its group, and one whose session is not there
