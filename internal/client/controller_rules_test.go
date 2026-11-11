@@ -157,6 +157,86 @@ func TestControllerRulesAndInbox(t *testing.T) {
 			t.Fatal("notification target lost its Rust union representation")
 		}
 	})
+	t.Run("inbox_durable_read_accepts_the_node_answer", func(t *testing.T) {
+		transport := &clientTransport{}
+		controller := New(transport)
+		t.Cleanup(func() { _ = controller.Close() })
+		stored := protocol.DefaultNotificationNotice()
+		stored.ID, stored.Sequence, stored.Read = protocol.NewNotificationID(), 4, true
+		transport.dispatch = func(request protocol.Request) (link.Admission, error) {
+			input, err := payload[protocol.CommandMarkNotificationReadPayload](request.Command.Data)
+			if request.Command.Kind != "mark_notification_read" || err != nil || input.ID != stored.ID {
+				t.Fatalf("unexpected read command: %+v", request.Command)
+			}
+			completed := make(chan link.Response, 1)
+			// The Node, like Rust, answers with the notice it marked.
+			completed <- link.Response{Output: protocol.Output{Kind: "notification", Data: stored}}
+			return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completed}, nil
+		}
+		notice := Notice{ID: NoticeID{Node: controller.Target(), Cursor: stored.Sequence, Target: NoticeTarget{Kind: "notification", Notification: stored.ID}}, Kind: "notification"}
+		var inbox Inbox
+		inbox.Merge(controller.Target(), []Notice{notice})
+		if err := inbox.MarkRead(t.Context(), notice.ID, map[protocol.NodeID]*Client{controller.Target(): controller}); err != nil {
+			t.Fatalf("durable notice could not be marked read: %v", err)
+		}
+		if inbox.Unread() != 0 {
+			t.Fatal("durable notice stayed unread after the Node marked it")
+		}
+	})
+	t.Run("scheduled_wait_is_one_durable_notice", func(t *testing.T) {
+		for _, scenario := range []struct {
+			name    string
+			waiting protocol.ActivityWaiting
+			level   protocol.NotificationKind
+			kind    string
+		}{
+			{"approval", protocol.ActivityWaitingApproval, protocol.NotificationKindWarning, "approval"},
+			{"input", protocol.ActivityWaitingInput, protocol.NotificationKindInfo, "input"},
+		} {
+			t.Run(scenario.name, func(t *testing.T) {
+				session := protocol.DefaultSession()
+				session.ID = protocol.NewSessionID()
+				run := protocol.DefaultConversationRun()
+				run.Turn, run.Session, run.Status, run.Sequence = protocol.NewTurnID(), session.ID, protocol.ConversationStatusRunning, 1
+				session.Activity.Run = &run
+				snapshot := protocol.DefaultSnapshot()
+				snapshot.Node, snapshot.Cursor, snapshot.Sessions = protocol.NodeID{1}, 1, []protocol.Session{session}
+				var feed activityFeed
+				feed.observe(snapshot)
+				durable := protocol.DefaultNotificationNotice()
+				durable.ID, durable.Sequence = protocol.NewNotificationID(), 1
+				durable.Content.Kind, durable.Content.Session = scenario.level, &session.ID
+				durable.Content.Details = &protocol.NotificationDetails{Kind: "task", Data: &protocol.NotificationDetailsTask{Turn: run.Turn, Status: protocol.ConversationStatusRunning}}
+				// The notice is applied first, then the activity it explains.
+				snapshot.Cursor, snapshot.Notifications = 2, []protocol.NotificationNotice{durable}
+				feed.observe(snapshot)
+				waiting := scenario.waiting
+				snapshot.Sessions[0].Activity.Waiting = &waiting
+				snapshot.Cursor = 3
+				feed.observe(snapshot)
+				if len(feed.notices) != 1 || feed.notices[0].Kind != scenario.kind || feed.notices[0].ID.Target.Kind != "notification" {
+					t.Fatalf("scheduled wait notices: %+v", feed.notices)
+				}
+				// Without a durable notice the transition still raises its own.
+				snapshot.Sessions[0].Activity.Waiting = nil
+				snapshot.Cursor, snapshot.Notifications[0].Read = 4, true
+				feed.observe(snapshot)
+				snapshot.Sessions[0].Activity.Waiting = &waiting
+				snapshot.Cursor = 5
+				feed.observe(snapshot)
+				if len(feed.notices) != 2 || feed.notices[0].ID.Target.Kind != "session" || feed.notices[0].Kind != scenario.kind {
+					t.Fatalf("interactive wait notices: %+v", feed.notices)
+				}
+				// A late controller sees the wait it never observed.
+				var late activityFeed
+				snapshot.Notifications[0].Read = false
+				late.observe(snapshot)
+				if len(late.notices) != 1 || late.notices[0].Kind != scenario.kind || late.notices[0].Read {
+					t.Fatalf("late controller notices: %+v", late.notices)
+				}
+			})
+		}
+	})
 	t.Run("queued_pulls_cancel_independently", func(t *testing.T) {
 		for _, kind := range []string{"observer", "forwarder"} {
 			t.Run(kind, func(t *testing.T) {

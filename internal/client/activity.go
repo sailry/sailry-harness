@@ -182,8 +182,15 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 			case "task":
 				if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
 					notice.Kind = "failed"
-					if task.Status == protocol.ConversationStatusCompleted {
+					switch task.Status {
+					case protocol.ConversationStatusCompleted:
 						notice.Kind = "completed"
+					case protocol.ConversationStatusRunning:
+						// The Node's durable notice of a scheduled run that waits.
+						notice.Kind = "input"
+						if entry.Content.Kind == protocol.NotificationKindWarning {
+							notice.Kind = "approval"
+						}
 					}
 					if task.Error != nil {
 						notice.Error = &protocol.Fault{Code: *task.Error}
@@ -240,6 +247,12 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		kind := "input"
 		if *activity.Waiting == protocol.ActivityWaitingApproval {
 			kind = "approval"
+		}
+		// The Node already told this wait durably; one notice per wait.
+		if slices.ContainsFunc(feed.notices, func(notice Notice) bool {
+			return notice.ID.Target.Kind == "notification" && notice.Kind == kind && !notice.Read && notice.Session != nil && *notice.Session == session.ID
+		}) {
+			continue
 		}
 		notice := Notice{ID: NoticeID{Node: snapshot.Node, Cursor: snapshot.Cursor, Target: NoticeTarget{Kind: "session", Session: session.ID}},
 			Project: session.Project, Worktree: &session.Worktree, Title: activity.Title, Kind: kind, Session: &session.ID}
