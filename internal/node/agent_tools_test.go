@@ -33,6 +33,15 @@ type agentToolScript struct {
 	plan    func(step int, results map[string]string) [][3]string
 }
 
+// declaredToolName is the name a model reads for a package tool's alias when
+// no other captured tool declares the same name.
+func declaredToolName(alias string) string {
+	if rest, found := strings.CutPrefix(alias, "plugin_"); found && len(rest) > 17 && rest[16] == '_' {
+		return rest[17:]
+	}
+	return alias
+}
+
 func (script *agentToolScript) reset(plan func(int, map[string]string) [][3]string) {
 	script.mu.Lock()
 	defer script.mu.Unlock()
@@ -283,6 +292,8 @@ func TestAgentManagementTools(t *testing.T) {
 		offered, prompts := script.offered, script.prompts
 		script.mu.Unlock()
 		for _, name := range slices.Concat(managers, catalog, scoped[1:]) {
+			// The model reads a package tool under its declared name.
+			name = declaredToolName(name)
 			if slices.Contains(offered[0], name) {
 				t.Fatalf("%s must be deferred until discovery: %v", name, offered[0])
 			}

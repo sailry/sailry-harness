@@ -327,8 +327,11 @@ dispatch service and require an online Node.
   the request loader uses the latest summary. Context-length errors can trigger at
   most two reactive compactions.
 - **Tools.** Each turn builds model declarations from its captured tool instances.
-  Additional tools are discovered through `tool_search` without granting
-  permissions. Approvals settle before calls run. Adjacent read-only concurrent
+  The everyday file, command, Git, code and web tools are offered on the first
+  request; the others are listed by name and discovered through `tool_search`
+  without granting permissions. The model reads declared tool names; internal
+  aliases stay behind the model boundary
+  ([details](docs/plugins.md#tool-catalog)). Approvals settle before calls run. Adjacent read-only concurrent
   calls run together, up to eight at a time. Results keep request order.
 - **Approvals.** Node owns each approval's five-minute deadline.
 - **Work modes.** Standard is the default. Plan is read-only with a reviewed

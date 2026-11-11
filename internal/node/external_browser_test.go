@@ -246,7 +246,9 @@ func TestExternalBrowserRouting(t *testing.T) {
 			t.Fatalf("browser turn made %d model requests: %v", len(offered), results)
 		}
 		for _, name := range declared {
-			if !slices.Contains(offered[1], name) {
+			// The built-in browser package declares some of the same names;
+			// those keep their aliases and the rest use the declared names.
+			if !slices.Contains(offered[1], name) && !slices.Contains(offered[1], declaredToolName(name)) {
 				t.Fatalf("declared tool %s was not offered: %v", name, offered[1])
 			}
 		}

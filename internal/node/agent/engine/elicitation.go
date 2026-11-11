@@ -18,6 +18,12 @@ func (r *Runtime) Elicit(ctx context.Context, turn protocol.TurnID, parent canon
 	if owner == nil || ctx.Err() != nil || owner.ctx.Err() != nil || request == nil || request.Params == nil {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "MCP input requires an active tool call"}
 	}
+	// A question belongs to the conversation the user reads and answers. A
+	// subagent has none, so its server's request is refused instead of waiting
+	// on an answer nobody can give.
+	if owner.inv.Session.Delegation != nil {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "MCP input is unavailable to a subagent; the main conversation must run this tool"}
+	}
 	parameters := request.Params
 	mode := parameters.Mode
 	if mode == "" && parameters.URL != "" {

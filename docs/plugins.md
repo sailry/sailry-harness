@@ -71,7 +71,8 @@ quotas and revision check; another package cannot read the value. Writes are
 authorized by the storage scope (approval source `storage`) and refused in Plan
 mode. Lists accept a positive safe integer limit and return at most 100 keys.
 The model receives the entry or page itself. These tools are found through tool
-search unless declared `initial`. A `progress.update` tool with the progress
+search unless declared `initial` ([Tool catalog](#tool-catalog)). A
+`progress.update` tool with the progress
 presentation is offered on the first request, validates the snapshot against
 the 64 KiB text budget and returns it as `progress`. Handler tools keep their
 script binding.
@@ -80,6 +81,54 @@ The store records each tool call with the presentation, grouping and display
 its package declares. Installed packages are resolved from the version the turn
 captured, by operation or handler alias and by MCP alias for server tools, so
 an installed `progress` tool is recorded and projected as progress.
+
+## Tool catalog
+
+`internal/node/agent/engine/tools.go` decides once per turn which captured tools
+the first model request carries; the rest stay discoverable through
+`tool_search` and their names are sent in the turn context under
+`Deferred tools`, without the ones the conversation already loaded.
+
+- A package tool starts visible when every operation it declares (its own, its
+  handler's and its flow's) is one of the 21 everyday operations: `files.read`,
+  `files.read_lines`, `files.list`, `files.find`, `files.search`, `files.write`,
+  `files.edit`, `files.apply`, `code.search`, `code.outline`, `code.graph`,
+  `git.status`, `git.diff`, `process.run`, `process.read`, `process.stop`,
+  `web.fetch`, `web.search`, `progress.update`, `roles.list` and
+  `artifacts.revisions`.
+- A tool declared `initial` starts visible to the main agent only. The tools of
+  the package that owns the selected conversation mode start visible.
+- Of the Node's own tools `read_tool_output`, `load_skill`,
+  `read_skill_resource`, `set_session_title` and `ask_user` start visible;
+  `list_sessions`, `read_session`, `search_session`, the management, role, team
+  and media tools are discoverable. The delegation tools start visible in
+  Flagship mode or when the message selects a role.
+- A plugin assistant turn and a child whose role lists its tools defer nothing
+  and have no `tool_search`.
+- `set_session_title` and `ask_user` belong to the conversation the user reads.
+  A child never has them: a role that lists either fails the child with
+  `role references an unavailable tool`, and an MCP server's input request in a
+  child is refused with a tool error instead of waiting for an answer.
+
+Records, approvals, session rules, hooks (`SAILRY_HOOK_TOOL`) and telemetry
+identify a package tool by its alias `plugin_<16 hex>_<name>` and an MCP tool by
+`mcp_<label>_<24 hex>`. Only the model boundary
+(`internal/node/agent/engine/names.go`) renames them: a package tool is offered
+under its declared name and an MCP tool as `mcp__{server}__{tool}`, in the
+declarations, the tool calls and results of the history, the `Deferred tools`
+list and `tool_search` queries and results; a model's call is mapped back before
+it is stored. A name is used only when it is unique among the turn's tools and
+the names earlier calls of the conversation used, is not itself shaped like an
+alias and fits the provider rule (at most 64 characters of `[A-Za-z0-9_-]`).
+Otherwise a package tool keeps its alias; equal or overlong MCP names take an
+eight-character hash of the alias, cut to 64 characters. Compaction requests
+carry no tools and keep the stored names.
+
+Deviations from Rust: a declared name that breaks the provider rule keeps its
+alias instead of being sent as declared; an MCP tool declared `initial` starts
+visible to the main agent, where Rust always defers MCP tools outside a selected
+mode; a child's MCP input request is refused, where Rust records a question the
+parent page never shows.
 
 The task supervisor bounds Node work. The installation queue permits eight
 pending preparations and serializes each resource through durable publication.

@@ -60,7 +60,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		languageModel = x.renewedModel
 	}
 	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)}
-	parts = append(parts, r.delegationContext(x, state), x.skillContext, childBudgetContext(x, state))
+	parts = append(parts, r.delegationContext(x, state), x.skillContext, r.deferredContext(x, state), childBudgetContext(x, state))
 	if state.Context.Environment != nil {
 		parts = append(parts, *state.Context.Environment)
 	}
@@ -107,6 +107,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if err != nil {
 		return err
 	}
+	projected, tools, schemas = x.names.request(projected, tools, schemas)
 	call, err := model.BuildCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets})
 	if err != nil {
 		return err
@@ -178,6 +179,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			err = streamErr
 		}
 		out.order()
+		x.names.restore(out.blocks)
 		empty := out.empty()
 		var billing []canonical.Record
 		for _, attempt := range attempts {
