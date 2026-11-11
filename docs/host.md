@@ -130,6 +130,20 @@ and reconnect confirmation. `ReadHostInstall` supplies connecting, detecting,
 installing and pairing stages. Only a confirmed matching Node result displays
 Current. Release catalog acquisition belongs to B14.
 
+A controller and a Host exchange execution calls only when their protocol
+numbers and their releases are the same (`link.CheckHost`, and the Host's own
+check of each call). Contracts stay at v1 and change in place until the first
+release ([ARCHITECTURE.md](../ARCHITECTURE.md#contract-and-storage-versions)),
+so the protocol number alone does not show that two builds agree. Releases are
+compared by semantic-version precedence without build metadata. The older
+side is the one to update and a release that cannot be read counts as older;
+the `version_mismatch` fault names the side (`update_host`). A Host that does
+not match stays offline with that fault as its runtime error and no Client is
+started for it, so it is inspected every ten seconds instead of reconnecting;
+an older Host shows Update, which works over SSH and does not need a
+compatible Link. Two development builds of one release with different
+contracts are not told apart.
+
 An update whose result was not observed keeps its request and offers Check
 status, which asks the Node what became of that request
 ([node.md](node.md#unobserved-outcomes)). A recorded success shows Current and
@@ -268,6 +282,7 @@ confirmation, cancel and busy state.
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
 | Update Download prepares the update instead of acquiring a release | The frozen protocol has a single install/update command. Apply runs it: the remote machine downloads and verifies the release feed's installer and archive, or the execution Node uploads `host-artifacts/<goos>-<goarch>/` when that directory holds a locally built `sailry-host` |
 | A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends |
+| Compatibility also requires the same release | Rust compares only the protocol number (`link/src/compatibility.rs`), which it bumps with its contracts. Here contracts change in place at v1, and mismatched builds failed as "unknown Node event" and reconnected every ten seconds |
 | The joining side does not check a pairing ticket's expiry | Rust rejects a ticket that its own clock finds expired or more than 60 seconds from expiry (`link/src/network/pairing.rs`, `rendezvous.rs`), so a correct ticket from a Host whose clock was 7.4 seconds ahead was refused. The sharing side enforces the lifetime and the token |
 | Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
 | An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
