@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -15,6 +16,7 @@ import (
 func TestRailOpensPages(t *testing.T) {
 	t.Run("live plugin navigation", testLivePluginNavigation)
 	t.Run("live project pages", testLiveProjectPages)
+	t.Run("search opens the project", testSearchOpensProject)
 	a, tt := newTester(t)
 	clickButton(t, tt, i18n.In("en", "files"))
 	tt.Advance(time.Second)
@@ -383,5 +385,41 @@ func TestSplitFirstFrame(t *testing.T) {
 	save, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "files_save"))
 	if row.Bounds.Y > 140 || save.Bounds.Y > 140 {
 		t.Errorf("the split's columns do not start at the top: tree row %v, Save %v", row.Bounds, save.Bounds)
+	}
+}
+
+// The search's project opens the project's page where the window has one,
+// as the sidebar's Project does, and reveals its rows in the preview.
+func testSearchOpensProject(t *testing.T) {
+	choose := func(a *App, tt *ui.Tester, name string) {
+		t.Helper()
+		a.search = search{open: true, folder: "projects"}
+		tt.Frame()
+		tt.Type(name)
+		tt.Frame()
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		if a.search.open {
+			t.Fatalf("the search stayed open: %q", tt.Texts())
+		}
+	}
+	project := &viewmodel.Project{ID: "project", Host: "node", Name: "Live project", Path: "/live/project"}
+	app := NewLive(&viewmodel.Data{Projects: []*viewmodel.Project{project}, Workspace: &viewmodel.Workspace{}})
+	var opened *viewmodel.Project
+	app.Sidebar.Actions = &sidebar.Actions{Overview: func(pr *viewmodel.Project) { opened = pr }}
+	tester := ui.NewTesterWith(app.View, 1280, 820, opaque)
+	tester.SetLocale("en")
+	tester.Frame()
+	choose(app, tester, "Live project")
+	if opened != project {
+		t.Fatalf("the search opened %+v", opened)
+	}
+	a, tt := newTester(t)
+	a.Navigate(ActivityPage)
+	a.NavOpen = false
+	tt.Frame()
+	choose(a, tt, a.Data.Projects[0].Name)
+	if a.Page != ConversationPage || !a.NavOpen {
+		t.Fatalf("the preview's project: page %d, sidebar %v", a.Page, a.NavOpen)
 	}
 }

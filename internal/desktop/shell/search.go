@@ -105,7 +105,13 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 	case "projects":
 		var list []Choice
 		for _, pr := range a.Data.Projects {
+			// A project opens its page, as the sidebar's Project does; the
+			// preview has no such page and reveals the project's rows.
 			list = append(list, Choice{ID: pr.ID, Label: pr.Name, Icon: icons.Folder, Keywords: []string{pr.Path}, run: func() {
+				if a.Sidebar.Actions != nil && a.Sidebar.Actions.Overview != nil {
+					a.Sidebar.Actions.Overview(pr)
+					return
+				}
 				a.Page, a.NavOpen = ConversationPage, true
 				a.Sidebar.Reveal(pr.ID)
 			}})

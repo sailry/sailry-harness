@@ -307,7 +307,9 @@ page was left, cancels the recording.
 
 ⌘K or the rail: a dialog 480 wide. Root rows: Chats,
 Projects, Hosts, Settings (folders) and the features. A folder lists its
-items with a check on the current one. `Filter` keeps rows whose label or
+items with a check on the current one; a project opens its page
+(`sidebar.Actions.Overview`, the sidebar's Project), and in the preview,
+which has no such page, its rows in the sidebar. `Filter` keeps rows whose label or
 keyword holds the query, case folded, in order, dropping empty groups;
 `Next` moves round. Enter opens a folder or runs a row, Escape clears the
 query then closes, Backspace on an empty query goes back, `reference_back`
