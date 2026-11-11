@@ -716,6 +716,37 @@ func TestCompactionAtThreshold(t *testing.T) {
 	})
 }
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
+
+// A transient failure is retried after the wait the retry record announces.
+func TestTransientRetryRecord(t *testing.T) {
+	after := 7 * time.Second
+	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down", RetryAfter: &after}}
+	f := newFixture(t, &scriptedModel{scripts: []script{response(limited), response(text("Done"), finish())}})
+	f.start()
+	turn := f.submit("Task")
+	select {
+	case wait := <-f.r.clock.(*manualClock).waits:
+		if wait.duration != after {
+			t.Fatalf("retry wait = %s", wait.duration)
+		}
+		close(wait.advance)
+	case <-f.ctx.Done():
+		t.Fatal("the failed request was not retried")
+	}
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	var retries []protocol.ConversationRecoveryRetry
+	for _, record := range f.state().Records {
+		if execution := record.Metadata.Execution; execution != nil && execution.Retry != nil {
+			if !record.Metadata.Runtime.UserVisible || record.Metadata.Runtime.AgentVisible {
+				t.Fatal("retry record has the wrong audience")
+			}
+			retries = append(retries, *execution.Retry)
+		}
+	}
+	if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 5 || *retries[0].DelayMs != 7000 || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
+		t.Fatalf("retries = %+v", retries)
+	}
+}
 func TestReactiveCompactionAtMostTwo(t *testing.T) {
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())

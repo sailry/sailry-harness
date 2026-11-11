@@ -259,9 +259,20 @@ reference, all deliberate:
   `store.agentStatisticsBudget`, which performs no request and therefore shows
   the catalog value until a turn has asked the server.
 
-Main transport attempts have at most five additional transient retries, 60 seconds
-apart, before any output event escapes. Summary output stays buffered and has one
-additional transient retry after five seconds. Authentication, quota, invalid
+Main transport attempts have at most five additional transient retries before
+any output event escapes. Summary output stays buffered and has one additional
+transient retry. `model.Run` is the only retry loop: the provider SDKs run with
+their own retries off. A retry waits 5 seconds, then twice as long each time up
+to 60 seconds (5, 10, 20, 40, 60), each wait spread by a fifth
+(`cenkalti/backoff` exponential schedule), so five retries wait about 135
+seconds and never more than 162. A positive `Retry-After` (header, or
+`retry_after_ms` from a plugin adapter) replaces the scheduled wait, capped at
+60 seconds; a provider that asks for longer is asked again after 60. Stopping
+the turn ends a wait at once. The retry record carries the wait that was
+actually chosen (`delay_ms`). The reference parses `Retry-After` and ignores
+it, waiting a fixed 60 seconds five times (5 seconds once for a summary); Go
+differs deliberately, so a brief failure is retried within seconds and a rate
+limit is retried when the provider says. Authentication, quota, invalid
 requests and malformed/truncated streams are terminal. Every attempted request
 reports timing, optional usage and failure facts once through the engine observer.
 Unknown token counts remain unknown; an explicitly reported zero remains known.
