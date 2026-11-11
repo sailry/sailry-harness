@@ -125,6 +125,11 @@ and `synthesize_speech` reads text aloud with the assigned speech model. The
 settings appear in the snapshot and are captured with each admitted turn.
 Capability tags, routing, channels and limits are in [media.md](media.md).
 
+`count_feature {feature}` counts one use of a desktop feature in the usage
+window and answers `feature_counted`. It is a v1 extension, not durable,
+accepted only from the controller on the Node's own device and only for an
+identifier of the closed list in [settings.md](settings.md#usage-tables).
+
 `list_associated_sessions` pages the sessions bound to one association, newest
 first, with a limit of 1 to 100 and a `before` cursor that must belong to the
 same association. A plugin scope with a worktree confines the page to it, and a

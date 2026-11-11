@@ -704,7 +704,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 | Page | Control | Live behavior |
 |---|---|---|
 | General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and work runs: a turn, a command, an installation, a knowledge collection indexing changed sources, a code index query or a backup (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
-| General | Error reports, Usage metrics | `save_telemetry_settings`; the Node reapplies consent after each committed change. With Error reports off no failure is reported or kept for a later report; with Usage metrics off nothing is counted and no timer runs. Turning either off drops what was pending |
+| General | Error reports, Usage metrics | `save_telemetry_settings`; the Node reapplies consent after each committed change. With Error reports off no failure, interface hang or crash is reported or kept for a later report; with Usage metrics off nothing is counted, feature uses included, and no timer runs. Turning either off drops what was pending |
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
 | About | Version, Build | `link.ProductVersion`; `settings_build_release` when the build carries a revision, otherwise `settings_build_debug` |
@@ -728,8 +728,10 @@ Deviations from the reference:
 | Rotated files are named `current-<time>.log`, not `current.log.<n>` | lumberjack names its backups; size, count and the active name match |
 | Records are written synchronously; there is no bounded queue that drops under load, no macOS unified-log sink and no temporary preview log | `log/slog` with lumberjack has neither; the preview installs no log |
 | A report's public fields travel as `contexts.sailry`, not `extra` | sentry-go's event has no free `extra` object |
-| No panic reports and no debug images | Go has no process panic hook that could report before exit |
-| A package and a package's tool are always reported as `third_party` | The bundled-identity check that lets the reference name official packages is not ported |
+| A panic is reported at the next launch, not before exit, and there are no debug images | Go has no process panic hook that could report before exit, and MyGo recovers panics only in its IPC, protocol and FFI handlers: a panic in a view or an interface callback ends the process. `debug.SetCrashOutput` keeps the runtime's traceback for the next launch (Interface reports below) |
+| A failed operation's package is always reported as `third_party` (`logging.Remote`); only usage counters name a shipped package | Records carry a package's name without the digest that proves it is the shipped one |
+| A shipped package updated past the embedded copy counts as `third_party` | Its digest no longer equals the embedded tree's, the one proof of identity the Node has |
+| `plan_review` is no longer a counted name | No tool of that name is registered; the counted built-ins are now derived from the registered tools |
 | A cancelled command, and any refusal of a read whose caller has gone, is recorded as `cancelled` at info level and never reported | Closing a window abandons its reads; that is not a failure of the Node |
 | Every command that changes data is recorded, under its own kind even when a package sends it, with its provider and worktree where the payload names them | The user's November 11, 2026 decision: the reference's partial table left most failed changes undiagnosable. The reference's reads keep their records |
 | Only command records are written | The reference's other record sites (runs, model streams, MCP, attachments, sign-in, desktop feedback) are not ported; their fields are in the policy and unused |
@@ -751,12 +753,73 @@ attaches only when the installed log lies in its own profile.
 | Files | `<profile>/logs/<desktop\|host>/current.log`, mode 0600 in a 0700 directory, with `writer.lock` held by the one writing process. 10 MiB a file, ten files, rotated by size only. Earlier daily `YYYY-MM-DD.log` files are removed once the Node owns the profile |
 | Records | `<UTC time, microseconds> <DEBUG\|INFO\|WARN\|ERROR> <application> key=value…` in the policy's order. Only the policy's keys are written; strings lose control characters and stop at 256 characters. Records of other libraries stay with the previous `slog` handler |
 | Commands | `logging_commands.go` records every command that changes data: `begin`, `admitted` and one outcome (`completed`, `failed` with the fault code such as `revision_conflict`, `cancelled`, or `interrupted` with `outcome_unknown`), each with the kind, Node, caller, request and `duration_us`. The rule follows the registry: a command with durable admission (`protocol.Command.Durable`) is always recorded, and so is any command the file does not name. Commands without durable admission are classified one by one in `transientCommands`; see the classes below. A package's unrecorded commands appear as `plugin_command` with its name, digest and settings revision, its reads at DEBUG. Not found, invalid request and network unavailability are WARN |
-| Command classes | Of 364 commands, 189 are durable and 5 transient ones change state (`complete_browser`, `refresh_model_catalog`, `dismiss_installation`, `cancel_local_model`, `request_computer_permission`): full records. 3 registry reads keep the reference's full record and 18 reads its slow record (100 ms, failed or uncertain). Unrecorded: 132 read-only commands (reads, probes, cancelled reads, `send_diagnostics`, `synthesize_speech`, a schedule's reads), 13 transfers that open or cancel a byte stream whose durable finishing command is the recorded change, and 4 interactive terminal commands (`claim_terminal`, `input_terminal`, `resize_terminal`, `set_terminal_appearance`) that would bury the log. `TestCommandLogClassification` fails for a registered command that is neither durable nor classified |
+| Command classes | Of 365 commands, 189 are durable and 5 transient ones change state (`complete_browser`, `refresh_model_catalog`, `dismiss_installation`, `cancel_local_model`, `request_computer_permission`): full records. 3 registry reads keep the reference's full record and 18 reads its slow record (100 ms, failed or uncertain). Unrecorded: 132 read-only commands (reads, probes, cancelled reads, `send_diagnostics`, `synthesize_speech`, a schedule's reads), 13 transfers that open or cancel a byte stream whose durable finishing command is the recorded change, and 5 interactive commands (`claim_terminal`, `input_terminal`, `resize_terminal`, `set_terminal_appearance` and the desktop's `count_feature`) that would bury the log. `TestCommandLogClassification` fails for a registered command that is neither durable nor classified |
 | Redaction | A record names only typed identifiers from the top level of the payload: `session` (`SessionID`), `turn` (`TurnID` in `turn` or `recipient`), `provider` (`ProviderID`) and `worktree` (`WorktreeID`). No other field is read, so payloads, results, prompts, message text, file contents and paths, endpoints, credentials and environment values cannot reach a record |
 | Disclosure | `logging.Remote`: `area`, `phase`, `operation`, `code` and `cause_code` as lowercase tokens, `duration_us`, `elapsed_us` and `count`, a SemVer `app_version`, and a package only as `third_party`. Identifiers, names, details and paths never pass |
 | Attachment | The last 500 records in the last mebibyte of the active file, each reduced by `Remote`, one JSON object a line. Rotated files are not read |
 | Error reports | While Error reports is on, an ERROR record with `phase=failed` becomes one Sentry event (`<area>.<operation>:<code>`, exception `SailryError`, module-relative stack frames) with up to 50 earlier WARN records as breadcrumbs: ten an hour for one fingerprint, 32 in flight, ten seconds each, no redirects |
-| Usage metrics | While Usage metrics is on, launches, finished task turns, calls of the listed built-in, MCP and package tools, model requests and web searches are counted by result, mode, error code, duration and tokens. A window of at most 256 groups is posted to Telemetry.sh by table 15 minutes after its first count and at shutdown; a model is named only when a built-in preset lists it |
+| Usage metrics | While Usage metrics is on, launches, finished task turns, tool calls, model requests, web searches and desktop feature uses are counted in the tables below. A window of at most 256 groups, and separately at most 256 feature groups, is posted to Telemetry.sh by table 15 minutes after its first count and at shutdown; a model is named only when a built-in preset lists it |
+| Interface reports | `cmd/sailry-desktop/diagnostics.go` and `telemetry/interface.go`. Both traces are *reduced*: an optional class word, each goroutine's number and state, and each frame as `function:line`. A reduced trace has no panic message, argument, file path, register or source. **Crash**: `debug.SetCrashOutput` copies a fatal panic's traceback to `<profile>/logs/desktop/interface-crash.raw` (0600) while the process prints it and exits as before; the next launch reduces it to `interface-crash.txt`, empties the raw copy and, while Error reports is on, sends one event `interface.crash:<class>`. **Hang**: while frames are drawn and for 30 s after the last one, a watchdog asks the interface thread for a heartbeat every second with `mygo.RunOnMain`, which draws nothing; a heartbeat unanswered for 5 s while a window is visible and the system is awake writes every goroutine's reduced trace to `interface-hang.txt` and, while Error reports is on, sends one event `interface.hang:unresponsive`, once for that hang. Two seconds between the watchdog's own ticks (sleep, a debugger) restart the measurement; `Power.OnSuspend` and hidden or minimized windows pause it; native dialogs and menus run nested loops that still answer. An idle interface has no heartbeat and no timer. Both files stay local and are written whatever the switch says; the events carry the exception's frames, the reduced trace as `goroutines.txt`, and the usual tags, under the ten-an-hour limit |
+
+### Usage tables
+
+Every row carries `event_id`, `window_start`, `window_end`, `count`,
+`installation_id`, `channel`, `application`, `os`, `arch` and `release`, and
+only the dimensions listed here. `TestCountersAndInterfaceReports` sends one of
+each observation and fails for any other key, for a feature outside the list
+and for a planted secret, path or name.
+
+| Table | Dimensions and sums |
+|---|---|
+| `app_launches` | none |
+| `turns` | `result` (`completed`, `failed`, `cancelled`), `mode` (`code`, `plan`, `flagship`), `subagent`, `error_code` |
+| `tool_calls` | `tool` (`source`, `name`), `result` (`success`, `error`, `denied`, `cancelled`), `error_code`; `elapsed_us_total`, `elapsed_us_max` |
+| `model_requests` | `api`, `authentication`, `model` (a built-in preset's identifier or `custom`), `result`, `http_status_class` (`1xx`…`5xx`, `unknown`), `error_code`, `retries`; `input`, `output`, `cache_read`, `cache_write` |
+| `search_requests` | `driver`, `result`, `error_code`; `elapsed_us_total` |
+| `feature_uses` | `feature` |
+
+`tool.source` and `tool.name` (`engine.CountedTool`, from the tools the turn
+registered; a name the turn did not register is not counted):
+
+| Source | Name | Rule |
+|---|---|---|
+| `builtin` | the registered name | A tool without a package binding is registered by the Node itself: the engine's `set_session_title`†, `ask_user`, `list_sessions`, `read_session`, `search_session`, `read_tool_output`, `spawn_agent`, `guide_agent`, `wait_agent`, `load_skill`, `read_skill_resource`, `tool_search`, and the Node's `manage_skills`, `manage_mcp`, `manage_plugins`, `list_agents`, `add_agent`, `edit_agent`, `delete_agent`, `apply_agents`, `list_teams`, `add_team`, `edit_team`, `delete_team`, `apply_team`. The set is derived, not listed: a new built-in is counted under its name. † `telemetry.UncountedBuiltins` leaves a tool out with its reason (`set_session_title`: asked for once in every session, so its count repeats the session count). `TestCountedTools` and `TestTelemetryOffSendsNothing` fail for a registered tool that is neither |
+| `official` | `<package>.<tool>` | The tool's owning package is one the application ships: its reference equals an embedded package's by name **and** digest (`operations.Official`, the test `CaptureCatalog` applies), and the tool is one that package's embedded manifest declares. Both parts are the embedded manifest's own spelling |
+| `mcp` | none | A connected server's tool, whoever declares the server |
+| `third_party` | none | Any other package's tool, including a package installed under a shipped package's name |
+
+`feature` is one identifier of `protocol.FeatureUse`'s closed list. The
+desktop sends it with `count_feature`, a command that carries the identifier
+alone; the Node counts it only from the controller on its own device and
+refuses anything outside the list. A window that shows a remote Host still
+counts on the local Node only. One count is one use in the window; no row has
+an order, a time within the window, or a second dimension.
+
+| Identifier | Counted when |
+|---|---|
+| `page.conversation`, `page.activity`, `page.files`, `page.git`, `page.market`, `page.host`, `page.settings`, `page.notifications`, `page.project` | The page shown changes to it. A window's first frame counts nothing |
+| `page.plugin_page.official:<package>`, `page.plugin_page.third_party` | A package's page is shown. `<package>` is sent only for a package whose Node reports its origin as bundled, and accepted only when the local Node ships a package of that name |
+| `settings.section.general`, `.appearance`, `.conversation`, `.shortcuts`, `.dictation`, `.providers`, `.connectors`, `.teams`, `.plugins`, `.skills`, `.knowledge`, `.decision`, `.terminal`, `.connections`, `.hooks`, `.runtime`, `.ocr`, `.permissions`, `.backup`, `.about`, `.plugin_page` | The settings section shown changes to it; `.plugin_page` is any package's settings page |
+| `panel.tab.browser`, `.terminal`, `.files`, `.git`, `.history`, `.documents`, `.artifact`, `.subagent` | A tab of that kind opens in the right panel (`panel.State.Show` of a tab not yet open) |
+| `panes.split` | A pane is split off beside another |
+| `composer.submit`; `composer.submit.has_attachment`, `.has_reference`, `.dictated`, `.queued`, `.guided`, `.edited`; `composer.mode.code`, `.plan`, `.flagship`; `composer.permission.ask`, `.project`, `.full` | A message is submitted: once, and once for each flag that applies, its mode and its permission level. The counts are marginal; nothing ties one flag to another. `.dictated` means dictation was started in that draft |
+| `composer.model_picker`, `search.palette` | The model controls or the search palette open |
+| `read_aloud.os_voice`, `read_aloud.model_voice` | A reading starts, by the voice that reads it |
+| `dictation.start`, `session.export` | Dictation starts; an export is requested |
+| `theme.change.builtin`, `theme.change.package` | The theme changes to the built-in one or to a package's, never named |
+| `settings.save.provider`, `.team`, `.role`, `.connector`, `.mcp`, `.plugin`, `.hooks`, `.backup`, `.terminal`, `.media`, `.power`, `.telemetry`, `.network`, `.sandbox`, `.search`, `.compaction`, `.python`, `.local_models`, `.code_index`, `.knowledge`, `.credential`, `.ssh`, `.database`, `.defaults` | A command of that settings family is sent (`live/feature_usage.go` `savedFeatures`, from the command's kind alone, never its values) |
+
+An interface event's class is `unresponsive` for a hang and, for a crash, one
+of `panic.nil_dereference`, `panic.index_out_of_range`,
+`panic.slice_out_of_range`, `panic.divide_by_zero`, `panic.type_assertion`,
+`panic.nil_map`, `panic.closed_channel`, `panic.runtime_error`, `panic.other`,
+`fatal.concurrent_map`, `fatal.deadlock`, `fatal.out_of_memory`,
+`fatal.stack_overflow`, `fatal.other`, `signal` or `unknown`.
+
+Limits of the watchdog: it follows frames, so an interface callback that
+blocks more than 30 s after the last frame, with no frame in between, is not
+seen; and the raw traceback of a crash, which may hold a panic's message,
+stays in the profile's log directory until the next launch reduces it.
 
 ## B13 Backup wiring
 

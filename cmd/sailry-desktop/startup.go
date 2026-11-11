@@ -46,6 +46,7 @@ type desktopBackend struct {
 	Preferences *preferences.Store
 	close       sync.Once
 	logs        func()
+	reports     *interfaceReports
 	err         error
 }
 
@@ -68,6 +69,7 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)
 	// The application runs without its log when the log cannot be opened.
 	backend.logs, _ = logging.Install(path, "desktop")
+	backend.reports = catchCrashes()
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
 		Network:     &link.NetworkScope{Internet: true},
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
@@ -76,6 +78,7 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 		backend.closeLogs()
 		return nil, err
 	}
+	backend.reports.start(backend.Node.Telemetry())
 	backend.Client = client.New(link.NewLocal(backend.Node.ID(), backend.Node.ID(), backend.Node))
 	if err = backend.Client.Start(ctx); err != nil {
 		return nil, errors.Join(err, backend.Close())
@@ -93,6 +96,7 @@ func (backend *desktopBackend) closeLogs() {
 func (backend *desktopBackend) Close() error {
 	backend.close.Do(func() {
 		var network, controller, nodeErr error
+		backend.reports.close()
 		if backend.Network != nil {
 			network = backend.Network.Close()
 		}

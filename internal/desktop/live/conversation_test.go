@@ -1077,10 +1077,9 @@ func TestComposerSendRouting(t *testing.T) {
 				actions.Send(message)
 				r.workers.Wait()
 				tester.Frame()
-				transport.mu.Lock()
-				last := transport.requests[len(transport.requests)-1]
-				transport.mu.Unlock()
-				if last.ID != first {
+				// The transport also carries the submission's feature counts.
+				retried := turns()
+				if last := retried[len(retried)-1]; last.ID != first {
 					t.Fatal("explicit retry changed uncertain request identity")
 				}
 				again := func() protocol.RequestID {

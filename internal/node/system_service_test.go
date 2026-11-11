@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,13 +13,17 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/agent/engine"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -461,12 +466,9 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		node.telemetry.Observe(telemetry.Turn("completed", protocol.WorkModeCode, false, nil))
 		node.telemetry.Observe(telemetry.Turn("completed", protocol.WorkModeCode, false, nil))
 		capture := node.telemetry.Capture()
-		tool, counted := telemetry.CaptureTool("read_session")
-		if _, workspace := telemetry.CaptureTool("write_file"); workspace || !counted || capture == nil {
-			t.Fatalf("a workspace tool is counted (%v), a listed tool is not (%v) or no consent was captured", workspace, !counted)
-		}
-		if owned, _ := telemetry.CaptureTool("plugin_0123456789abcdef_private_name"); owned != (telemetry.Tool{Source: "third_party"}) {
-			t.Fatalf("a package's tool is named: %+v", owned)
+		tool, counted := telemetry.BuiltinTool("read_session")
+		if !counted || capture == nil {
+			t.Fatalf("a built-in tool is not counted (%v) or no consent was captured", !counted)
 		}
 		capture.Record(telemetry.ToolCall(tool, "denied", &denied, 3*time.Millisecond))
 		if usage.started() != 2 || usage.count() != 0 {
@@ -511,6 +513,100 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		stopped = true
 		if server.count() != 12 || usage.count() != sent || usage.started() != timers || usage.stopped() != 2 {
 			t.Fatalf("after switching off: %d reports, %d usage requests, %d timers, %d stopped", server.count(), usage.count(), usage.started(), usage.stopped())
+		}
+	})
+	t.Run("feature counters take the local controller's closed list only", func(t *testing.T) {
+		t.Parallel()
+		usage := &usageFixture{}
+		node := systemNodeFixture(t, Options{Telemetry: telemetry.Options{Transport: usage, Timer: usage.timer,
+			Lookup: environment(map[string]string{"SAILRY_TELEMETRY_KEY": "usage-key"})}})
+		count := func(caller protocol.NodeID, feature protocol.FeatureUse) *protocol.Fault {
+			t.Helper()
+			accepted, err := node.Dispatch(context.Background(), caller, protocol.NewRequest(node.ID(), protocol.Command{Kind: "count_feature", Data: protocol.CommandCountFeaturePayload{Feature: feature}}))
+			if err != nil {
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) {
+					t.Fatal(err)
+				}
+				return fault
+			}
+			response := <-accepted.Completion
+			if response.Fault == nil && response.Output.Kind != "feature_counted" {
+				t.Fatalf("output = %+v", response.Output)
+			}
+			return response.Fault
+		}
+		shipped, err := operations.OfficialPackages()
+		if err != nil || len(shipped) == 0 {
+			t.Fatal(shipped, err)
+		}
+		official := protocol.FeatureUsePagePluginOfficial + protocol.FeatureUse(shipped[0])
+
+		save := func(metrics bool) {
+			t.Helper()
+			settings := commandFixture(t, node, protocol.Command{Kind: "read_telemetry_settings"}).Data.(protocol.TelemetrySettings)
+			commandFixture(t, node, protocol.Command{Kind: "save_telemetry_settings", Data: protocol.TelemetryUpdate{Revision: settings.Revision, Metrics: metrics}})
+		}
+		// Off: the count is accepted, and nothing is kept or scheduled.
+		save(false)
+		windows := usage.started()
+		if fault := count(node.ID(), protocol.FeatureUsePageSettings); fault != nil {
+			t.Fatal(fault)
+		}
+		if usage.started() != windows || node.telemetry.Capture() != nil {
+			t.Fatalf("usage off started %d windows", usage.started()-windows)
+		}
+		save(true)
+		for _, feature := range []protocol.FeatureUse{protocol.FeatureUsePageSettings, protocol.FeatureUsePageSettings, protocol.FeatureUseSaveTelemetry, official} {
+			if fault := count(node.ID(), feature); fault != nil {
+				t.Fatalf("%s: %v", feature, fault)
+			}
+		}
+		// Outside the closed list, a package the application does not ship
+		// under a planted name, or a controller that is not this device.
+		for _, feature := range []protocol.FeatureUse{"", "page.unknown", "settings.save./Users/someone/private", protocol.FeatureUsePagePluginOfficial + "my-private-package",
+			protocol.FeatureUsePagePluginOfficial + protocol.FeatureUse(shipped[0]) + " copy"} {
+			if fault := count(node.ID(), feature); fault == nil || fault.Code != protocol.ErrorCodeInvalidRequest {
+				t.Errorf("feature %q: %v", feature, fault)
+			}
+		}
+		if fault := count(protocol.NodeID{1}, protocol.FeatureUsePageSettings); fault == nil {
+			t.Error("another controller counted a feature")
+		}
+		usage.fire()
+		rows := map[string]float64{}
+		for _, batch := range usage.batches(t) {
+			if batch.Table != "feature_uses" {
+				continue
+			}
+			for _, row := range batch.Data {
+				rows[row["feature"].(string)] = row["count"].(float64)
+				for key := range row {
+					if !slices.Contains([]string{"event_id", "window_start", "window_end", "count", "installation_id", "channel", "application", "os", "arch", "release", "feature"}, key) {
+						t.Errorf("feature row carries %q", key)
+					}
+				}
+			}
+		}
+		if want := map[string]float64{"page.settings": 2, "settings.save.telemetry": 1, string(official): 1}; !reflect.DeepEqual(rows, want) {
+			t.Fatalf("feature rows = %v, want %v", rows, want)
+		}
+
+		// Every tool the Node registers itself is counted under its own name
+		// or left out with a stated reason; none is silently uncounted.
+		project := protocol.NewProjectID()
+		invocation := &store.AgentInvocation{}
+		invocation.Worktree.Project = &project
+		registered, err := node.agentTools(invocation)
+		if err != nil || len(registered) < 13 {
+			t.Fatalf("%d registered tools, %v", len(registered), err)
+		}
+		for _, tool := range registered {
+			name := tool.Definition.Name
+			counted, ok := engine.CountedTool(registered, name)
+			if reason := telemetry.UncountedBuiltins[name]; ok == (reason != "") || ok && counted != (telemetry.Tool{Source: "builtin", Name: name}) {
+				t.Errorf("registered tool %q is counted as %+v (%v) with exclusion %q", name, counted, ok, reason)
+			}
 		}
 	})
 }

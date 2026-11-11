@@ -60,6 +60,7 @@ type Runtime struct {
 	localModels              localModelState
 	media                    mediaState
 	dictation                dictationState
+	usage                    featureUsage
 	permissions              permissionState
 	knowledgeWanted          string // the citation the knowledge viewer was last asked for
 	pendingSession           string
@@ -186,6 +187,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{controller: controller, ctx: ctx, cancel: cancel, Preferences: prefs, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+	controller.OnDispatch(countSaved(controller))
 	snapshot := controller.Snapshot()
 	d := Sidebar(snapshot, prefs.Data)
 	d.Notices = Notices(controller.Notices())
@@ -419,6 +421,7 @@ func (r *Runtime) afterFrame() {
 	}
 	r.finishFrame()
 	r.conversationCopies = nil
+	r.countFrame()
 	r.pluginViewsAfterFrame()
 	r.pruneDrafts()
 	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.seenConversation(session) {

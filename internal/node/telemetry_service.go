@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
@@ -27,7 +28,35 @@ func newTelemetry(options telemetry.Options) *telemetry.Control {
 			}
 		}
 	}
+	if options.Packages == nil {
+		// A catalog that cannot be read names no package.
+		options.Packages, _ = operations.OfficialPackages()
+	}
 	return telemetry.New(options)
+}
+
+// Telemetry is the process's reporting control, for the application's own
+// interface hang and crash reports.
+func (node *Node) Telemetry() *telemetry.Control { return node.telemetry }
+
+// dispatchFeature counts one use of a desktop feature. Only the application
+// on this device may count, and only an identifier of the closed list: the
+// interface of a remote Host is counted by its own device, never here. It is
+// not durable and changes nothing but the current usage window, which keeps
+// nothing while usage metrics are off.
+func (node *Node) dispatchFeature(caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	if request.Plugin != nil || caller != node.ID() {
+		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "feature counters require the local controller"}
+	}
+	observation, listed := node.telemetry.FeatureUse(request.Command.Data.(*protocol.CommandCountFeaturePayload).Feature)
+	if !listed {
+		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "unknown feature"}
+	}
+	node.telemetry.Observe(observation)
+	completion := make(chan link.Response, 1)
+	completion <- response(protocol.Output{Kind: "feature_counted"}, nil)
+	close(completion)
+	return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
 }
 
 // initTelemetry gives the process its saved consent and anonymous identity,

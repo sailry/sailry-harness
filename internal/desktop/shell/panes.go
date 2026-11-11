@@ -29,6 +29,8 @@ type workspace struct {
 	seen string
 	// closing is the terminal pane whose closing waits to be confirmed.
 	closing panes.Target
+	// splits counts the panes split off (Usage).
+	splits int
 }
 
 // handle returns pane t's focus handle.
@@ -115,6 +117,9 @@ func (a *App) focusPane(t panes.Target) {
 func (a *App) dropPane(c *ui.Context, dest, t panes.Target, p panes.Placement) {
 	if !a.panes.Drop(dest, t, p) {
 		return
+	}
+	if p != panes.Center {
+		a.panes.splits++
 	}
 	a.focusPane(t)
 	a.standAlone()

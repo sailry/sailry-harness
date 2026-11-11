@@ -150,6 +150,7 @@ func run() error {
 					}
 				})
 				speech.SetSynthesizer(backend.Client.SynthesizeSpeech)
+				speech.OnStarted(runtime.CountReadAloud)
 			}
 			bindConversation(ctx, entry, speech)
 			bindFiles(entry, backend.Client.Target())
@@ -209,6 +210,7 @@ func run() error {
 		}
 		windows = append(windows, entry)
 		active = entry
+		backend.reports.watch(entry.window, app)
 		entry.window.OnFocus(func() { active = entry; refreshCommands() })
 		entry.window.OnBlur(entry.save)
 		entry.window.OnClose(func(*mygo.CloseEvent) { entry.save() })

@@ -111,6 +111,7 @@ type State struct {
 	Data    *preview.Workspace
 	Tabs    []Tab
 	Active  Tab
+	opened  []Kind // kinds of the tabs opened since TakeOpened
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
@@ -194,6 +195,9 @@ func (s *State) Show(t Tab) {
 	}
 	if item(t.Kind) && t.ID != "" && s.pr != nil {
 		s.pr.show(t.Kind, t.ID)
+	}
+	if !slices.Contains(s.Tabs, t) {
+		s.opened = append(s.opened, t.Kind)
 	}
 	s.Tabs, s.Active = Opened(s.Tabs, t), t
 	if t.Kind == Browser || t.Kind == Terminal {
