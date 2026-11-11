@@ -75,9 +75,6 @@ flaky.0.answer: |-
 
   `Reserve` 先检查座位是否被占用，再插入预订记录，这是**两条独立的语句**。两个同时到达的请求都会看到座位空闲。测试没有问题，是代码存在竞态。
 flaky.1.user: "修掉它，然后跑一遍完整的测试。"
-flaky.queue.ci: "CI 通过后创建拉取请求"
-flaky.queue.note: "在更新日志里补一行修复说明"
-flaky.held.bisect: "二分定位首个失败的提交"
 flaky.table.notice: "显示 12 行中的 3 行"
 flaky.1.answer: |-
   已修复。检查和插入现在处于同一个可串行化事务中，第二个请求会以 `ErrSeatTaken` 失败。
@@ -123,8 +120,6 @@ invoice.4.answer: |-
   - 它们都以欧元结算，回填时可以默认设为 `EUR`。
   - 加上这个默认值后，剩余批次应当可以原样通过。
 invoice.5.user: "先只回填 2024 年的。"
-invoice.queue.next: "然后回填 2025 年的数据"
-invoice.queue.finance: "把两年的合计发给财务团队"
 invoice.5.answer: "已按你的要求停止，完成了 12 批中的 3 批。已写入的 15 000 行数据有效，予以保留。"
 
 review.title: "和团队一起评审结账页改版"
@@ -143,7 +138,6 @@ review.0.answer: |-
   - **支付**：流程正确，梳理工作延续到了退款路径。
   - **无障碍**：因缺少测试账号而失败，需要重新运行。
 review.1.user: "重新做一次无障碍检查，同时测一下性能。"
-review.held.visual: "对比移动端断点"
 review.delegate: "3 位评审成员 · 结账页改版"
 
 onboard.title: "设计新手引导清单"
@@ -379,10 +373,6 @@ release.1.think: "三行：每个用户可见的变化各占一行，迁移说�
 
 translate.title: "翻译错误提示"
 translate.0.user: "把“Seat already taken”和“Rate limit exceeded”翻译成德语和法语。"
-translate.1.user: "再加上西班牙语和日语。"
-translate.1.partial: "**西班牙语**\n\n- Seat already taken：«El asiento ya está ocupado»"
-translate.queue.tone: "各语言都保持正式语气"
-translate.held.check: "对照术语表检查这些字符串"
 translate.0.answer: |-
   | 英语 | 德语 | 法语 |
   |---|---|---|
@@ -554,3 +544,26 @@ usage.chat.7: "规划三天的团建"
 usage.chat.8: "总结一篇研究论文"
 usage.chat.9: "调试 cron 表达式"
 usage.chat.10: "比较 TCP 和 QUIC"
+
+# Goals in pursuit (demo_goal.go)
+pursuit.title: "把图表迁移到新的颜色令牌"
+pursuit.text: "把仪表盘的所有图表迁移到新的颜色令牌，并保持视觉测试全部通过"
+pursuit.0.user: "把仪表盘的所有图表迁移到新的颜色令牌，并保持视觉测试全部通过"
+pursuit.0.answer: "还有四个图表在读取旧的 `--chart-*` 变量：面积图、柱状图、环形图和迷你图。我会逐个迁移，每迁移一个就先跑它的视觉测试。"
+pursuit.1.answer: "面积图和柱状图已改用 `--color-data-*`，视觉测试全部通过，没有更新基线。还剩环形图和迷你图。"
+pursuit.2.think: "环形图按索引给扇区取色，所以令牌的顺序要和图例一致。"
+pursuit.marker: "继续执行目标"
+pursuit.paused: "已暂停"
+pursuit.reason.turns: "已达轮次上限"
+pursuit.turns: "轮次"
+pursuit.time: "用时"
+pursuit.tokens: "Token"
+pursuit.pause: "暂停"
+pursuit.resume: "继续"
+pursuit.edit: "编辑"
+pursuit.clear: "清除"
+limited.title: "让结账测试全部通过"
+limited.text: "让 main 上的结账端到端测试全部通过，不跳过任何用例"
+limited.0.user: "让 main 上的结账端到端测试全部通过，不跳过任何用例"
+limited.0.answer: "这套测试共 35 个用例，main 上有 11 个失败。我会按它们阻塞其他用例的多少依次修复。"
+limited.1.answer: "这是最后一个自动轮次。已完成：11 个失败中的 7 个已修复并合入分支。剩余：4 个用例，都在礼品卡和登录流程里。下一步：`cart/totals.ts` 中礼品卡金额在优惠券生效前就被取整了。"

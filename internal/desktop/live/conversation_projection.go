@@ -123,7 +123,11 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				t.Reply.Status = conversation.Unsynced
 			}
 		}
-		if r.Input != nil {
+		// A turn a package continued shows the package's marker, never its
+		// prompt, which is input for the model.
+		if r.Continuation != nil {
+			t.Marker = continuationMarker(r.Continuation)
+		} else if r.Input != nil {
 			t.User = r.Input.Message.Text
 		}
 		for _, notice := range r.Notices {
@@ -163,6 +167,11 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		}
 		t := &turns[position]
 		if entry.Author == "user" {
+			// The continued turn's own input is the package's prompt; guidance
+			// joined into it is the user's and shows as usual.
+			if t.Marker != nil && entry.Turn == owner {
+				continue
+			}
 			if !canonicalUsers[owner] {
 				t.User = ""
 				canonicalUsers[owner] = true
@@ -420,7 +429,13 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	}
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
-		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil, Wait: queueWait(page, item)}
+		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
+		// A queued continuation is an automatic row named by its marker: its
+		// prompt is not a message to read, edit or send ahead.
+		if index := slices.IndexFunc(page.Runs, func(r protocol.ConversationRun) bool { return r.Turn == item.Turn && r.Continuation != nil }); index >= 0 {
+			marker := continuationMarker(page.Runs[index].Continuation)
+			q.Text, q.Notice, q.Marker = "", true, &composer.Text{Label: marker.Label, Locales: marker.Locales}
+		}
 		for _, file := range item.Attachments {
 			q.Attachments = append(q.Attachments, &composer.Attachment{ID: file.ID.String(), Name: file.Spec.Name, Mime: file.Spec.MediaType, Size: int64(file.Spec.Size), Status: composer.Ready})
 		}
@@ -429,57 +444,13 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	return turns, session, interactions, queue
 }
 
-// queueWait is why a queued item is not starting: its own turn ended before
-// its input was recorded, it is held until it is started, or the queue is
-// paused, by the reason the Node gave. Guidance waits for its recipient.
-func queueWait(page protocol.ConversationPage, item protocol.ConversationPending) composer.Wait {
-	if item.Guidance != nil {
-		return composer.WaitNone
+// continuationMarker is the label a package declared for its continuation;
+// without one the transcript names the turn generically.
+func continuationMarker(continuation *protocol.ConversationContinuation) *conversation.Marker {
+	if continuation.Marker == nil {
+		return &conversation.Marker{}
 	}
-	if slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
-		return run.Turn == item.Turn && (run.Status == "failed" || run.Status == "cancelled" || run.Status == "interrupted")
-	}) {
-		return composer.WaitUnsent
-	}
-	if !page.Queue.Paused {
-		if !item.Ready {
-			return composer.WaitHeld
-		}
-		return composer.WaitNone
-	}
-	if page.Queue.PauseReason != nil {
-		switch *page.Queue.PauseReason {
-		case protocol.ConversationQueuePauseStopped:
-			return composer.WaitStopped
-		case protocol.ConversationQueuePauseInterrupted:
-			return composer.WaitInterrupted
-		}
-	}
-	return composer.WaitPaused
-}
-
-// heldResults are the finished background results the Node keeps back from
-// automatic delivery, with its reason; the user's next turn takes them.
-func heldResults(page protocol.ConversationPage) []composer.HeldResult {
-	var held []composer.HeldResult
-	for _, task := range page.Background {
-		if task.State != protocol.ConversationBackgroundStatePending || task.Hold == nil || task.Delivery != nil {
-			continue
-		}
-		wait := composer.WaitHeld
-		switch *task.Hold {
-		case protocol.ConversationBackgroundHoldLimit:
-			wait = composer.WaitLimit
-		case protocol.ConversationBackgroundHoldStopped:
-			wait = composer.WaitStopped
-		case protocol.ConversationBackgroundHoldInterrupted:
-			wait = composer.WaitInterrupted
-		case protocol.ConversationBackgroundHoldFailed:
-			wait = composer.WaitFailed
-		}
-		held = append(held, composer.HeldResult{ID: task.ID, Title: task.Title, Wait: wait})
-	}
-	return held
+	return &conversation.Marker{Label: continuation.Marker.Label, Locales: continuation.Marker.Locales}
 }
 
 func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn protocol.TurnID) int {

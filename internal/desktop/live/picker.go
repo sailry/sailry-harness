@@ -65,7 +65,11 @@ func (r *Runtime) browseFiles(directory string, done func(picker.Listing, string
 					listing.Parent = *page.Parent
 				}
 				for _, location := range page.Locations {
-					listing.Locations = append(listing.Locations, picker.Location{Kind: string(location.Kind), Name: location.Name, Path: location.Path})
+					place := picker.Location{Kind: string(location.Kind), Name: location.Name, Path: location.Path}
+					if location.Medium != nil {
+						place.Medium = string(*location.Medium)
+					}
+					listing.Locations = append(listing.Locations, place)
 				}
 				target = &listing.Path
 			}
@@ -168,8 +172,9 @@ func (r *Runtime) chooseFile(name, title, initial string, valid func() bool, sel
 }
 
 // chooseDirectory opens the picker on a host's directories for a settings
-// form, under the host's name as the form shows it; valid reports whether the
-// form still wants the answer.
+// form, under the host's name as the form shows it, which the picker shows
+// for a host other than this device; valid reports whether the form still
+// wants the answer.
 func (r *Runtime) chooseDirectory(host, name, title, initial string, valid func() bool, selected func(string)) {
 	source, ok := r.files(host)
 	if !ok {
@@ -177,7 +182,7 @@ func (r *Runtime) chooseDirectory(host, name, title, initial string, valid func(
 		return
 	}
 	r.App.Sidebar.Picker.Open(picker.Options{Mode: picker.Directory, Title: title, Confirm: "directory_title", Initial: initial,
-		Source: source, Host: name, Valid: valid, Choose: func(paths []string) bool {
+		Source: source, Host: name, Remote: r.runtimeFor(host) != r.localRuntime(), Valid: valid, Choose: func(paths []string) bool {
 			if !valid() || len(paths) != 1 {
 				return false
 			}

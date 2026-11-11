@@ -37,6 +37,7 @@ var unshown = map[string]string{
 	"composer.Queued.Load":                     "a live queue's request",
 	"composer.Queued.Save":                     "a live queue's request",
 	"composer.Queued.Revision":                 "a live queue's revision",
+	"composer.Queued.Marker":                   "a continuation is queued only for the moment before it starts",
 	"composer.Ask.Busy":                        "a moment while an answer is on its way",
 	"conversation.Editing.Pending":             "a moment while a message's replacement is on its way",
 }

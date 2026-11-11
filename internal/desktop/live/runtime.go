@@ -139,6 +139,9 @@ type Runtime struct {
 	// has not seen settled, by conversation and turn: a message that did not
 	// join its recipient is reported once.
 	guidanceSent map[string]map[protocol.TurnID]sentGuidance
+	// queueHalts is the last halt read for each conversation's queue, by
+	// conversation: a halt is reported when it begins, once.
+	queueHalts map[string]protocol.ConversationQueuePause
 	// overviews are the asset inventories the overview popover read.
 	overviews map[protocol.SessionID]*overviewRead
 }

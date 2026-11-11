@@ -76,9 +76,6 @@ flaky.0.answer: |-
 
   `Reserve` checks whether the seat is taken and then inserts the reservation in **two separate statements**. Two requests that arrive together both see the seat as free. The test is right; the code has a race.
 flaky.1.user: "Fix it and run the whole suite."
-flaky.queue.ci: "Open a pull request once CI is green"
-flaky.queue.note: "Add a line about the fix to the changelog"
-flaky.held.bisect: "Bisect the first failing commit"
 flaky.table.notice: "3 of 12 rows shown"
 flaky.1.answer: |-
   Fixed. The check and the insert now share one serializable transaction, so the second request fails with `ErrSeatTaken`.
@@ -124,8 +121,6 @@ invoice.4.answer: |-
   - They were all billed in euros, so the backfill can default them to `EUR`.
   - With that default the remaining batches should pass unchanged.
 invoice.5.user: "Run the backfill for 2024 only first."
-invoice.queue.next: "Then run the backfill for 2025"
-invoice.queue.finance: "Send the finance team the totals for both years"
 invoice.5.answer: "Stopped at your request after 3 of 12 batches. The 15 000 rows written so far are valid and stay in place."
 
 review.title: "Review the checkout redesign with the team"
@@ -144,7 +139,6 @@ review.0.answer: |-
   - **Payments**: the flow is correct; the trace continues into the refund path.
   - **Accessibility**: the pass failed on a missing test account and needs another run.
 review.1.user: "Run the accessibility pass again and measure performance too."
-review.held.visual: "Compare the mobile breakpoints"
 review.delegate: "3 reviewers · checkout redesign"
 
 onboard.title: "Design the onboarding checklist"
@@ -380,10 +374,6 @@ release.1.think: "Three lines: one for each user-facing change, and the migratio
 
 translate.title: "Translate the error messages"
 translate.0.user: "Translate \"Seat already taken\" and \"Rate limit exceeded\" into German and French."
-translate.1.user: "Add Spanish and Japanese as well."
-translate.1.partial: "**Spanish**\n\n- Seat already taken: «El asiento ya está ocupado»"
-translate.queue.tone: "Keep the tone formal in every language"
-translate.held.check: "Check the strings against the glossary"
 translate.0.answer: |-
   | English | German | French |
   |---|---|---|
@@ -556,3 +546,26 @@ usage.chat.7: "Plan a three-day offsite"
 usage.chat.8: "Summarize a research paper"
 usage.chat.9: "Debug a cron expression"
 usage.chat.10: "Compare TCP and QUIC"
+
+# Goals in pursuit (demo_goal.go)
+pursuit.title: "Move the charts to the new color tokens"
+pursuit.text: "Move every dashboard chart to the new color tokens and keep the visual tests green"
+pursuit.0.user: "Move every dashboard chart to the new color tokens and keep the visual tests green"
+pursuit.0.answer: "Four charts still read the old `--chart-*` variables: area, bar, donut and sparkline. I will move them one at a time and run each chart's visual tests before the next."
+pursuit.1.answer: "Area and bar now read `--color-data-*`. Their visual tests pass without new baselines. Donut and sparkline remain."
+pursuit.2.think: "The donut maps its slices by index, so the token order has to match the legend."
+pursuit.marker: "Continue goal"
+pursuit.paused: "Paused"
+pursuit.reason.turns: "Turn limit reached"
+pursuit.turns: "Turns"
+pursuit.time: "Time"
+pursuit.tokens: "Tokens"
+pursuit.pause: "Pause"
+pursuit.resume: "Resume"
+pursuit.edit: "Edit"
+pursuit.clear: "Clear"
+limited.title: "Get the checkout suite passing"
+limited.text: "Make the checkout end-to-end suite pass on main without skipping a test"
+limited.0.user: "Make the checkout end-to-end suite pass on main without skipping a test"
+limited.0.answer: "The suite has 35 tests and 11 fail on main. I will fix them in order of how many others they block."
+limited.1.answer: "This was the last automatic turn. Done: 7 of the 11 failures are fixed and merged into the branch. Remaining: 4 tests, all in the gift card and sign-in flows. Next step: the gift card total is rounded before the coupon applies, in `cart/totals.ts`."

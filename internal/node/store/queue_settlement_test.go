@@ -519,7 +519,7 @@ func TestBackgroundDelivery(t *testing.T) {
 					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
 						return err
 					}
-					for index := 0; index < noticeLimit; index++ {
+					for index := 0; index < automaticLimit; index++ {
 						if next, err := deliver(fmt.Sprintf("chain-%d", index)); err != nil || next == nil {
 							return fmt.Errorf("notice turn %d did not start: %v", index, err)
 						}

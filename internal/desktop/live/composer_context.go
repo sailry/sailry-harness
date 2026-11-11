@@ -109,12 +109,10 @@ func staleReference(ctx *composer.Context, reference composer.Reference) bool {
 }
 
 // projectComposerQueue marks the queue's rows the running turn is taking as
-// guidance, lists the background results held back from delivery, and adds
-// the message still on its way to the Host.
+// guidance, and adds the message still on its way to the Host. The rows say
+// nothing about why they wait and held background results are not rows
+// (docs/removed-ui.md): what the user must know is a toast, once.
 func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Context) {
-	if _, state, ok := x.state(); ok {
-		ctx.Held = heldResults(state.Page)
-	}
 	if run, active := x.activeRun(); active {
 		for i := range ctx.Queue {
 			if item, ok := x.queued(ctx.Queue[i].ID); ok && item.Guidance != nil && *item.Guidance == run.Turn {
@@ -123,6 +121,7 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 		}
 	}
 	x.settleGuidance()
+	x.reportHalt()
 	if outgoing, sending := r.composerOutgoing[x.cv.ID]; sending {
 		if outgoing.Text == "" {
 			outgoing.Text = i18n.T(x.c, "chat_attachment_count", "count", len(outgoing.Attachments))
@@ -252,6 +251,53 @@ func (x *conversationActions) settleGuidance() {
 			delete(sent, turn)
 			kit.Notify(x.c, "", i18n.T(x.c, "queue_guidance_outlived"))
 		}
+	}
+}
+
+// queueHalt is why the Node stopped sending a queue that still holds the
+// user's input, when it was not the user who stopped it: "interrupted" after
+// a turn lost its owner, "unrecorded" after a turn ended before its input
+// reached history; "" otherwise. The user's own Stop or pause is no halt.
+func queueHalt(page protocol.ConversationPage) protocol.ConversationQueuePause {
+	if !page.Queue.Paused || page.Queue.PauseReason == nil ||
+		!slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool { return !item.Notice }) {
+		return ""
+	}
+	switch reason := *page.Queue.PauseReason; reason {
+	case protocol.ConversationQueuePauseInterrupted, protocol.ConversationQueuePauseUnrecorded:
+		return reason
+	}
+	return ""
+}
+
+// haltBegan records the halt read for a conversation's queue and reports
+// whether it began since the last read. The state a conversation is first
+// read in is recorded only, so a restart does not repeat an old halt.
+func (r *Runtime) haltBegan(id string, halt protocol.ConversationQueuePause) bool {
+	seen, known := r.queueHalts[id]
+	if r.queueHalts == nil {
+		r.queueHalts = map[string]protocol.ConversationQueuePause{}
+	}
+	r.queueHalts[id] = halt
+	return known && halt != seen && halt != ""
+}
+
+// reportHalt says once that the queue stopped sending: a warning after an
+// interruption, whose outcome is uncertain, and an error for a message that
+// was not sent. The rows stay ordinary queued rows.
+func (x *conversationActions) reportHalt() {
+	session, state, ok := x.state()
+	if !ok || state.Page.Session != session.ID {
+		return // not read yet
+	}
+	halt := queueHalt(state.Page)
+	if !x.r.haltBegan(x.cv.ID, halt) {
+		return
+	}
+	if halt == protocol.ConversationQueuePauseInterrupted {
+		kit.Toast(x.c, kit.Uncertain, i18n.T(x.c, "queue_halt_interrupted"))
+	} else {
+		kit.Toast(x.c, kit.Failed, i18n.T(x.c, "queue_halt_unsent"))
 	}
 }
 

@@ -88,7 +88,8 @@ func workspaceFailure(kind string, err error) (kit.Outcome, string) {
 	case fileSave:
 		switch {
 		case fileSaveConflict(err):
-			// The editor asks what to do with the draft instead.
+			// The editor asks what to do with the draft instead; Save all
+			// in the close prompt tells its own toast (closing.go).
 			return outcome, ""
 		case code == protocol.ErrorCodeConflict:
 			return outcome, "workspace_changed"

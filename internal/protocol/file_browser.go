@@ -10,17 +10,18 @@ import (
 type FileBrowserLocationKind string
 
 const (
-	FileBrowserLocationKindHome      FileBrowserLocationKind = "home"
-	FileBrowserLocationKindDesktop   FileBrowserLocationKind = "desktop"
-	FileBrowserLocationKindDocuments FileBrowserLocationKind = "documents"
-	FileBrowserLocationKindDownloads FileBrowserLocationKind = "downloads"
-	FileBrowserLocationKindVolume    FileBrowserLocationKind = "volume"
-	FileBrowserLocationKindRoot      FileBrowserLocationKind = "root"
+	FileBrowserLocationKindHome         FileBrowserLocationKind = "home"
+	FileBrowserLocationKindDesktop      FileBrowserLocationKind = "desktop"
+	FileBrowserLocationKindDocuments    FileBrowserLocationKind = "documents"
+	FileBrowserLocationKindDownloads    FileBrowserLocationKind = "downloads"
+	FileBrowserLocationKindApplications FileBrowserLocationKind = "applications"
+	FileBrowserLocationKindVolume       FileBrowserLocationKind = "volume"
+	FileBrowserLocationKindRoot         FileBrowserLocationKind = "root"
 )
 
 func (value FileBrowserLocationKind) MarshalJSON() ([]byte, error) {
 	switch value {
-	case FileBrowserLocationKindHome, FileBrowserLocationKindDesktop, FileBrowserLocationKindDocuments, FileBrowserLocationKindDownloads, FileBrowserLocationKindVolume, FileBrowserLocationKindRoot:
+	case FileBrowserLocationKindHome, FileBrowserLocationKindDesktop, FileBrowserLocationKindDocuments, FileBrowserLocationKindDownloads, FileBrowserLocationKindApplications, FileBrowserLocationKindVolume, FileBrowserLocationKindRoot:
 		return json.Marshal(string(value))
 	default:
 		return nil, fmt.Errorf("unknown FileBrowserLocationKind %q", value)
@@ -32,7 +33,7 @@ func (value *FileBrowserLocationKind) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch FileBrowserLocationKind(decoded) {
-	case FileBrowserLocationKindHome, FileBrowserLocationKindDesktop, FileBrowserLocationKindDocuments, FileBrowserLocationKindDownloads, FileBrowserLocationKindVolume, FileBrowserLocationKindRoot:
+	case FileBrowserLocationKindHome, FileBrowserLocationKindDesktop, FileBrowserLocationKindDocuments, FileBrowserLocationKindDownloads, FileBrowserLocationKindApplications, FileBrowserLocationKindVolume, FileBrowserLocationKindRoot:
 		*value = FileBrowserLocationKind(decoded)
 		return nil
 	default:
@@ -53,10 +54,54 @@ func (value *FileBrowserLocationKind) UnmarshalText(data []byte) error {
 	return value.UnmarshalJSON(encoded)
 }
 
+type FileBrowserMedium string
+
+const (
+	FileBrowserMediumInternal FileBrowserMedium = "internal"
+	FileBrowserMediumExternal FileBrowserMedium = "external"
+	FileBrowserMediumNetwork  FileBrowserMedium = "network"
+)
+
+func (value FileBrowserMedium) MarshalJSON() ([]byte, error) {
+	switch value {
+	case FileBrowserMediumInternal, FileBrowserMediumExternal, FileBrowserMediumNetwork:
+		return json.Marshal(string(value))
+	default:
+		return nil, fmt.Errorf("unknown FileBrowserMedium %q", value)
+	}
+}
+func (value *FileBrowserMedium) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	switch FileBrowserMedium(decoded) {
+	case FileBrowserMediumInternal, FileBrowserMediumExternal, FileBrowserMediumNetwork:
+		*value = FileBrowserMedium(decoded)
+		return nil
+	default:
+		return fmt.Errorf("unknown FileBrowserMedium %q", decoded)
+	}
+}
+func (value FileBrowserMedium) MarshalText() ([]byte, error) {
+	if _, err := value.MarshalJSON(); err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+func (value *FileBrowserMedium) UnmarshalText(data []byte) error {
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return err
+	}
+	return value.UnmarshalJSON(encoded)
+}
+
 type FileBrowserLocation struct {
-	Kind FileBrowserLocationKind `json:"kind"`
-	Name string                  `json:"name"`
-	Path string                  `json:"path"`
+	Medium *FileBrowserMedium      `json:"medium,omitempty"`
+	Kind   FileBrowserLocationKind `json:"kind"`
+	Name   string                  `json:"name"`
+	Path   string                  `json:"path"`
 }
 
 func DefaultFileBrowserLocation() FileBrowserLocation {

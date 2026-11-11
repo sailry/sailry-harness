@@ -61,7 +61,11 @@ type Turn struct {
 	// Compaction makes the turn a context compaction: a marker row, its summary
 	// or failure, and no reply frame.
 	Compaction *Compaction
-	Reply      Reply
+	// Marker makes the turn one a package continued by itself: a compact
+	// marker row stands in place of its input, which is the package's prompt
+	// to the model and not a message of the user.
+	Marker *Marker
+	Reply  Reply
 	// Editing turns the bubble into an editor of the message; nil shows it.
 	Editing *Editing
 	// Controls says which of the message's actions apply.
@@ -264,6 +268,13 @@ type Notice struct {
 	Title   string
 	Agent   bool
 	Outcome NoticeOutcome
+}
+
+// Marker is the label of a turn a package continued: its English and its
+// translations by locale. Without a label the row shows the generic one.
+type Marker struct {
+	Label   string
+	Locales map[string]string
 }
 
 // CompactionState is where a context compaction is.

@@ -76,15 +76,19 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if session.Config.Mode == protocol.WorkModePlan || session.Delegation != nil {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "session does not accept automatic input")
+	if session.Config.Mode == protocol.WorkModePlan {
+		return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalPlan, "session does not accept automatic input", nil)
 	}
-	blocked, err := backgroundBlocked(ctx, db, session.ID)
+	refusal, err := automaticRefusal(ctx, db, session.ID)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if blocked {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "session has pending input")
+	if refusal != nil {
+		code, message := protocol.ErrorCodeBusy, "session has pending input"
+		if *refusal == protocol.ConversationContinuationRefusalChild {
+			code, message = protocol.ErrorCodeConflict, "session does not accept automatic input"
+		}
+		return protocol.Output{}, nil, continuationRefused(code, *refusal, message, nil)
 	}
 	if input.After != nil {
 		run, e := visibleAgentRun(ctx, db, session.ID, *input.After)
@@ -96,8 +100,43 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 			return protocol.Output{}, nil, e
 		}
 		if run.Origin != nil || run.Status != protocol.ConversationStatusCompleted || latest != input.After.String() {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "continuation source is no longer current")
+			return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalStale, "continuation source is no longer current", nil)
 		}
+	}
+	// The continuation's own declared limit bounds the chain it joins.
+	limit := automaticLimit
+	if input.Limit != nil {
+		if *input.Limit == 0 || *input.Limit > automaticLimitMax {
+			return protocol.Output{}, nil, invalid("continuation limit is out of range")
+		}
+		limit = int(*input.Limit)
+	}
+	chain, err := ReadAutomaticChain(ctx, db, session.ID)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	// A continuation the user asked for starts a new chain. The package says
+	// so, as it may also submit a turn in the user's name.
+	if !input.User && chain.Count >= limit {
+		chain.Limit = limit
+		return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalLimit, "automatic turn limit reached", &chain)
+	}
+	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1", fence.Package.Name)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	continuation := &protocol.ConversationContinuation{Package: fence.Package, Limit: input.Limit, User: input.User}
+	if info != nil && info.Extension != nil {
+		continuation.Marker = info.Extension.ContinuationMarker
+		if input.Marker != nil {
+			marker, declared := info.Extension.ContinuationMarkers[*input.Marker]
+			if !declared {
+				return protocol.Output{}, nil, invalid("continuation marker is not declared")
+			}
+			continuation.Marker, continuation.Kind = &marker, input.Marker
+		}
+	} else if input.Marker != nil {
+		return protocol.Output{}, nil, invalid("continuation marker is not declared")
 	}
 	if err = validateAgentInput(input.Message); err != nil {
 		return protocol.Output{}, nil, err
@@ -132,19 +171,23 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1", fence.Package.Name)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	run.Continuation = &protocol.ConversationContinuation{Package: fence.Package}
-	if info != nil && info.Extension != nil {
-		run.Continuation.Marker = info.Extension.ContinuationMarker
-	}
+	run.Continuation = continuation
 	if err = putAgentRun(ctx, db, run); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	events, err := activityEvent(ctx, db, session.ID)
 	return protocol.Output{Kind: "queued_turn", Data: turn}, events, err
+}
+
+// continuationRefused is the fault of a refused continue_turn. Its details
+// name the reason so a package can wait, pause or report instead of treating
+// every refusal alike.
+func continuationRefused(code protocol.ErrorCode, reason protocol.ConversationContinuationRefusal, message string, chain *AutomaticChain) error {
+	details := protocol.FaultDetailsContinuationPayload{Reason: reason}
+	if chain != nil {
+		details.Count, details.Limit = new(uint32(chain.Count)), new(uint32(chain.Limit))
+	}
+	return &protocol.Fault{Code: code, Message: message, Details: &protocol.FaultDetails{Kind: "continuation", Data: details}}
 }
 
 func checkAutomaticInput(ctx context.Context, db *sql.Conn, run protocol.ConversationRun) (*protocol.Fault, error) {

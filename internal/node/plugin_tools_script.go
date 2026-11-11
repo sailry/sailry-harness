@@ -180,8 +180,9 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		if tool.Hosted {
 			// A plain handler acts only through its package's own grants, each
 			// checked when the script dispatches, so the call itself asks for
-			// nothing. A planning turn still refuses one that is not read-only.
-			tool.Approval = false
+			// nothing unless the package declares that it needs the user's
+			// consent. A planning turn still refuses one that is not read-only.
+			tool.Approval = handler.Approval && !readOnly
 		} else if pluginStorageHandler(handler) {
 			// Writes confined to the package's own values are authorized by
 			// the storage scope.
@@ -293,7 +294,8 @@ const (
 // frozen invocation, never from the controller's live selection.
 func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo, names []string, selected []protocol.ToolOperation) (map[string]any, error) {
 	roster := invocation.Turn.Roles
-	automatic := invocation.Run.Continuation != nil
+	// A notice turn and a continuation are both turns no user started.
+	automatic := invocation.Run.Notice || invocation.Run.Continuation != nil
 	options, err := plugins.CapturedOptions(info, invocation.Turn.Config)
 	if err != nil {
 		return nil, err
@@ -315,7 +317,7 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 	assistant := invocation.Turn.Config.Assistant
 	input := map[string]any{"tools": names, "project": invocation.Worktree.Project,
 		"resources": assistant == nil || assistant.Package == plugins.PackageReference(info),
-		"roles":     roles, "options": options, "session_revision": nil, "automatic": automatic,
+		"roles":     roles, "options": options, "session_revision": nil, "automatic": automatic, "notice": invocation.Run.Notice,
 		"mode": invocation.Turn.Config.Mode, "config": nil, "execution": nil, "team": nil, "models": nil, "message": nil,
 		"connections": map[string]any{"bound": invocation.Turn.Config.Resource, "databases": []any{}, "ssh": []any{}}}
 	aliases := []string{}
@@ -323,6 +325,10 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 		aliases = append(aliases, plugins.ToolAlias(info.Summary.Name, name))
 	}
 	input["names"] = aliases
+	// A package sees only its own continuation and the marker it chose.
+	if continuation := invocation.Run.Continuation; continuation != nil && continuation.Package.Name == info.Summary.Name {
+		input["continuation"] = map[string]any{"marker": continuation.Kind}
+	}
 	if slices.Contains(selected, protocol.ToolOperationApplyRoles) {
 		input["session_revision"] = strconv.FormatUint(invocation.Turn.Revision, 10)
 	}
@@ -337,7 +343,7 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 		}
 	}
 	// Only a person's own text: package-authored, notice and delegated input stay private.
-	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && !automatic && !invocation.Run.Notice && invocation.Session.Delegation == nil {
+	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && !automatic && invocation.Session.Delegation == nil {
 		message := invocation.Message.Text
 		if strings.TrimSpace(message) != "" {
 			end := min(len(message), pluginTurnMessageBytes)

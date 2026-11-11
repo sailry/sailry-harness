@@ -28,7 +28,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `options.go` | Mode and permission menus (with the packages' modes), project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, the controls' score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
-| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray |
+| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray. Every row starts with the same 24 DIP slot (`queueLead`) so the labels share one edge: the drag handle on a row that can be moved (a message or a compaction outside a child session; dimmed while read-only), the loader on a row being taken (pending guidance, the outgoing row, a background notice that is next to be delivered), otherwise the muted icon of its kind (`square-terminal` for a notice, which is delivered in its own order and never moved; in a child session `minimize` for a compaction and the chat icon for a message) |
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
 | `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
@@ -57,8 +57,7 @@ rebuilt each frame from backend data.
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
-| `Queued.Wait` | Why the row is not starting, in muted text after its label: held until started, paused (by the user, after Stop, after a turn lost its owner), or not sent when its own turn ended before its input was recorded; `live.queueWait` reads it from the item, its run and `Queue.pause_reason` |
-| `Context.Held`, `HeldResult{ID, Title, Wait}` | Finished background results the Node keeps back from automatic delivery (`ConversationBackgroundTask.hold`): rows without actions after the messages, saying why (automatic limit, after Stop, after interruption, after failure, or held). The user's next turn takes them. Demo mode carries them on `viewmodel.Conversation.Held`; its in-memory actions follow the Node: Stop pauses the rows that waited in order, a send or Send now resumes a paused queue and takes the held results, withdrawn guidance is held |
+| `Queued.Marker` | A continuation a package queued ([goal](goal.md)): an automatic row as a notice is, its text the package's marker in the window's language (`turn_continued` when the package declared none); `live.Conversation` sets it from the run's `continuation` |
 | `Context.Outgoing` | A queued or guiding message still on its way to the Host: the tray's last row, its actions disabled |
 | `Context.Child` | A subagent's session: no composer, a read-only queue tray |
 | `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker ([removed-ui.md](removed-ui.md)). The live window leaves it empty |
@@ -290,7 +289,9 @@ The usage at the bar's end is `State.Metrics`, drawn by
 `conversation.UsageBar` (the reference's `conversation/usage.rs`,
 `usage/external.rs`, `usage/summary.rs` and `live/context.rs` `context_bar`):
 figures 12 apart, each a 14 icon and its value in muted 14, in their declared
-order.
+order. The figures and their cards keep these sizes: they do not follow the
+message text size, which scales the transcript's content only (user decision
+2026-11-12; `TestGrouping/UsageSize`).
 
 - A live session's figures are the packages' (`live/plugin_metrics.go`): the
   footer slot's first, a provider's account status (`provider-status`
@@ -377,7 +378,11 @@ Then a spacer and the approvals and question. An empty strip keeps its
 row, so the composer does not move. Preview: Git totals are the Git
 page's changes; the stress conversation has the goals plugin's badge, two
 commands (one on port 5173) and its live turn's progress and subagent.
-`Badge`, `StopCommand` and `OpenService` toast `preview_notice`.
+`Badge`, `StopCommand` and `OpenService` toast `preview_notice`. Demo mode
+adds two goals of the goals plugin (`preview/demo_goal.go`): one in pursuit
+(Goal, Running, the time; Pause, Edit, Clear) and one paused at the turn
+limit (Goal, Paused, the reason; Resume, Edit, Clear), each with its turns,
+time and tokens as the badge's details.
 
 ## Actions
 
@@ -509,8 +514,25 @@ is queued as its own turn, either because its settings differ from the running
 turn's (`queue_guidance_separate`, also the answer to `guide_queued_turn`) or
 because the reply ended before it could join (`queue_guidance_outlived`).
 Guidance the user edited, paused or withdrew is not reported. The Rust desktop
-shows neither the row reasons, the held results nor the second toast; they
-exist because the Go Node reports `pause_reason` and `hold`.
+does not show the second toast.
+
+The strip lists queued input only. A row says nothing about why it waits, and
+a background result the Node holds back from automatic delivery
+(`ConversationBackgroundTask.hold`) is not a row
+([removed-ui.md](removed-ui.md)). What the user must know is one toast when it
+happens (`reportHalt`, `queueHalt`): the Node's `pause_reason` is read only to
+decide it. `interrupted` over a queue that holds user input is the warning
+`queue_halt_interrupted` (the turn lost its owner, so its outcome is
+uncertain); `unrecorded` is the error `queue_halt_unsent` (a turn ended before
+its input reached history, and the message is a row again). The user's own
+Stop (`stopped`) and pause (`user`) are not reported. `Runtime.queueHalts`
+keeps the last halt read per conversation, so a halt is reported when it
+begins and not on later frames; the state a conversation is first read in is
+only recorded, so a restart repeats nothing. The rows stay ordinary rows the
+user sends, edits or removes; Send now or a new message resumes the queue.
+The Go desktop has no paused-queue strip and no resume action: the root
+catalogs' `queue_paused` and `queue_paused_count` are the Rust application's.
+Demo conversations carry no pause reason and report nothing.
 
 Queue rows use optional `Load`/`Save` callbacks to read complete input and keep
 editor drafts until revision-checked saves succeed. Existing `Actions` remain the

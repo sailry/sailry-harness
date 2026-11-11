@@ -52,6 +52,9 @@ type pluginViewState struct {
 	closed       bool
 	// locale is the window's resolved catalog, which package text follows.
 	locale string
+	// remounts are the bundles of the usage pages the Demo mode switch
+	// disposed (demoChanged), which their next mounts take.
+	remounts map[pluginMountKey]protocol.PluginDesktopBundle
 }
 
 type pluginMountedView struct {
@@ -327,24 +330,34 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 		mounted.hooks = hooks
 		_ = registry.SetActivity(scope.Package, false, false)
 	}
+	// The package is immutable, so a bundle read once is mounted again
+	// without asking the Node.
+	remount := func(bundle protocol.PluginDesktopBundle) *pluginMountedView {
+		root.enqueue(func(current *ui.Context) {
+			if mounted.ctx.Err() != nil || !root.pluginViewCurrent(mounted) {
+				return
+			}
+			mounted.loading = false
+			root.mountPluginView(current, mounted, bundle)
+		})
+		return mounted
+	}
+	// A usage page the Demo mode switch disposed takes the bundle it had.
+	if bundle, kept := root.pluginViews.remounts[key]; kept {
+		delete(root.pluginViews.remounts, key)
+		if bundle.Package == scope.Package {
+			return remount(bundle)
+		}
+	}
 	// A demo conversation's mount takes the bundle another mount of the
-	// package read: the package is immutable, and the demo asks the Node
-	// nothing it has answered.
+	// package read: the demo asks the Node nothing it has answered.
 	if strings.HasPrefix(key.scope.presentation, pluginDemoPresentation) {
 		for _, other := range root.pluginViews.mounts {
 			if other == mounted || other.bundle == nil || other.owner != owner || other.scope.Package != scope.Package ||
 				other.scope.Surface.Kind != scope.Surface.Kind {
 				continue
 			}
-			bundle := *other.bundle
-			root.enqueue(func(current *ui.Context) {
-				if mounted.ctx.Err() != nil || !root.pluginViewCurrent(mounted) {
-					return
-				}
-				mounted.loading = false
-				root.mountPluginView(current, mounted, bundle)
-			})
-			return mounted
+			return remount(*other.bundle)
 		}
 	}
 	if !owner.async(func() {

@@ -118,13 +118,14 @@ func TestPluginTurnInput(t *testing.T) {
 	t.Run("automatic, notice and delegated turns keep the message private", func(t *testing.T) {
 		automatic := invocation()
 		automatic.Run.Continuation = &protocol.ConversationContinuation{}
-		if input := build(t, automatic, names); input["automatic"] != true || input["message"] != nil {
-			t.Fatalf("automatic input = %v %v", input["automatic"], input["message"] != nil)
+		if input := build(t, automatic, names); input["automatic"] != true || input["notice"] != false || input["message"] != nil {
+			t.Fatalf("automatic input = %v %v %v", input["automatic"], input["notice"], input["message"] != nil)
 		}
+		// The goal loop counts a notice turn as automatic and names it apart.
 		notice := invocation()
 		notice.Run.Notice = true
-		if input := build(t, notice, names); input["automatic"] != false || input["message"] != nil {
-			t.Fatalf("notice input = %v %v", input["automatic"], input["message"] != nil)
+		if input := build(t, notice, names); input["automatic"] != true || input["notice"] != true || input["message"] != nil {
+			t.Fatalf("notice input = %v %v %v", input["automatic"], input["notice"], input["message"] != nil)
 		}
 		child := invocation()
 		delegation := &protocol.Delegation{}

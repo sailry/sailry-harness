@@ -725,6 +725,7 @@ directory_home: 主文件夹
 directory_desktop: 桌面
 directory_documents: 文档
 directory_downloads: 下载
+directory_applications: 应用程序
 directory_locations: 位置
 directory_count_directories: '%{count} 个文件夹'
 directory_count_files: '%{count} 个文件'
@@ -2215,13 +2216,8 @@ directory_fallback: 无法打开 %{path}，已显示主文件夹
 directory_trash: 移到废纸篓
 directory_trash_confirm: 将“%{name}”移到废纸篓
 queue_guidance_outlived: 回复已结束，已排队为新消息
-queue_wait_held: 暂缓
-queue_wait_paused: 已暂停
-queue_wait_stopped: 停止后暂停
-queue_wait_interrupted: 中断后暂停
-queue_wait_unsent: 未发送
-queue_wait_limit: 已达自动续接上限
-queue_wait_failed: 失败后暂缓
+queue_halt_interrupted: 回复已中断，排队消息已保留
+queue_halt_unsent: 消息未发送，已保留在队列中
 chat_output_limit: 回复已达输出上限
 start_failed: Sailry 无法启动
 start_profile_in_use: Sailry 已在使用此数据目录运行

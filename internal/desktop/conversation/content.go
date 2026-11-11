@@ -338,6 +338,26 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 	})
 }
 
+// marker is the row of a turn a package continued, in the window's language:
+// the package's label between two lines, as a compaction's marker and one
+// row high.
+func marker(c *ui.Context, m *Marker) {
+	p := theme.Of(c)
+	size := textSize(c)
+	label := m.Label
+	if s := m.Locales[i18n.Match(c.Locale())]; s != "" {
+		label = s
+	}
+	if label == "" {
+		label = i18n.T(c, "turn_continued")
+	}
+	ui.Row(c.Key("marker")).FillWidth().Height(rowHeight(size)).Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
+		ui.Box(c).Height(1).Grow(1).Background(p.Border)
+		ui.Text(c, label).FontSize(size)
+		ui.Box(c).Height(1).Grow(1).Background(p.Border)
+	})
+}
+
 // compaction is a compaction turn: a centered status between two lines,
 // shimmering while it runs, with the failure's cause as its tooltip; a
 // finished one opens its summary, a failed one its cause.

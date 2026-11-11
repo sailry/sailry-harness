@@ -130,6 +130,17 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 					return protocol.Output{}, nil, err
 				}
 				admitted = &turn
+				// The ledger keeps only the digest of a transaction, so a
+				// turn it admits carries its input on the run.
+				if message, e := agentInput(command); e == nil {
+					input, e := encode(message)
+					if e != nil {
+						return protocol.Output{}, nil, e
+					}
+					if _, e = db.ExecContext(ctx, "UPDATE agent_runs SET input=coalesce(input,?2) WHERE turn=?1", turn.ID.String(), input); e != nil {
+						return protocol.Output{}, nil, e
+					}
+				}
 			}
 		}
 		if admitted != nil {

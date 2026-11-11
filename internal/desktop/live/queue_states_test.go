@@ -10,9 +10,10 @@ import (
 )
 
 // TestQueueStates covers what the queue tray and the transcript read from the
-// Node's queue: why a row is not starting, which background results are held,
-// what became of guidance sent from the composer, which turn pending guidance
-// belongs to, and how an approval closed by Stop reads.
+// Node's queue: plain rows whatever they wait on, the halt that is reported
+// once, no rows for held background results, what became of guidance sent
+// from the composer, which turn pending guidance belongs to, and how an
+// approval closed by Stop reads.
 func TestQueueStates(t *testing.T) {
 	session := protocol.SessionID{1}
 	running, ended, item := protocol.TurnID{1}, protocol.TurnID{2}, protocol.TurnID{3}
@@ -25,94 +26,101 @@ func TestQueueStates(t *testing.T) {
 		}
 		return page
 	}
-	t.Run("row reasons", func(t *testing.T) {
+	// The tray lists queued input as plain rows: the Node's pause reason
+	// decides only whether a halt is reported, once, as a toast.
+	t.Run("halt", func(t *testing.T) {
 		for _, row := range []struct {
 			name   string
 			change func(*protocol.ConversationPage, *protocol.ConversationPending)
-			want   composer.Wait
+			want   protocol.ConversationQueuePause
 		}{
-			{"queued in order", func(*protocol.ConversationPage, *protocol.ConversationPending) {}, composer.WaitNone},
-			{"guiding", func(page *protocol.ConversationPage, pending *protocol.ConversationPending) {
-				pending.Guidance = &running
-				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseStopped)
-			}, composer.WaitNone},
-			{"held", func(_ *protocol.ConversationPage, pending *protocol.ConversationPending) { pending.Ready = false }, composer.WaitHeld},
+			{"queued in order", func(*protocol.ConversationPage, *protocol.ConversationPending) {}, ""},
+			{"held", func(_ *protocol.ConversationPage, pending *protocol.ConversationPending) { pending.Ready = false }, ""},
 			{"paused by the user", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
 				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseUser)
-			}, composer.WaitPaused},
+			}, ""},
 			{"paused by stop", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
 				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseStopped)
-			}, composer.WaitStopped},
-			{"paused by a lost turn", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
-				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseInterrupted)
-			}, composer.WaitInterrupted},
+			}, ""},
 			{"paused without a reason", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
 				// An older Node, or a failed child session.
 				page.Queue.Paused = true
-			}, composer.WaitPaused},
-			{"behind input that was not recorded", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
-				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseUnrecorded)
-			}, composer.WaitPaused},
-			{"retained after stop", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
-				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseStopped)
-				page.Runs = append(page.Runs, protocol.ConversationRun{Session: session, Turn: item, Kind: "task", Status: "cancelled"})
-			}, composer.WaitUnsent},
-			{"retained after failure", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
+			}, ""},
+			{"a turn lost its owner", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
+				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseInterrupted)
+			}, protocol.ConversationQueuePauseInterrupted},
+			{"input was not recorded", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
 				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseUnrecorded)
 				page.Runs = append(page.Runs, protocol.ConversationRun{Session: session, Turn: item, Kind: "task", Status: "failed"})
-			}, composer.WaitUnsent},
+			}, protocol.ConversationQueuePauseUnrecorded},
+			{"resumed with a stale reason", func(page *protocol.ConversationPage, _ *protocol.ConversationPending) {
+				page.Queue.PauseReason = new(protocol.ConversationQueuePauseInterrupted)
+			}, ""},
+			{"only a notice waits", func(page *protocol.ConversationPage, pending *protocol.ConversationPending) {
+				page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseInterrupted)
+				pending.Notice = true
+			}, ""},
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				page := base()
 				pending := protocol.ConversationPending{Turn: item, Kind: "task", Ready: true, Preview: "Next"}
 				row.change(&page, &pending)
 				page.Queue.Items = []protocol.ConversationPending{pending}
-				if got := queueWait(page, pending); got != row.want {
-					t.Fatalf("wait = %d, want %d", got, row.want)
+				if got := queueHalt(page); got != row.want {
+					t.Fatalf("halt = %q, want %q", got, row.want)
 				}
+				// Whatever it waits on, the row is the same plain row.
 				_, _, _, queue := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
-				if len(queue) != 1 || queue[0].Wait != row.want || queue[0].Guided != (pending.Guidance != nil) {
-					t.Fatalf("projected queue = %+v, want wait %d", queue, row.want)
+				want := composer.Queued{ID: item.String(), Text: "Next", Notice: pending.Notice}
+				if len(queue) != 1 || queue[0].ID != want.ID || queue[0].Text != want.Text || queue[0].Notice != want.Notice || queue[0].Guided || queue[0].Joining {
+					t.Fatalf("projected queue = %+v, want %+v", queue, want)
 				}
 			})
 		}
-	})
-	t.Run("held results", func(t *testing.T) {
 		page := base()
-		task := func(id string, state protocol.ConversationBackgroundState, hold *protocol.ConversationBackgroundHold) protocol.ConversationBackgroundTask {
-			value := protocol.DefaultConversationBackgroundTask()
-			value.ID, value.Session, value.Title, value.State, value.Hold = id, session, "Build "+id, state, hold
-			value.Suppressed = hold != nil
-			return value
+		page.Queue.Paused, page.Queue.PauseReason = true, new(protocol.ConversationQueuePauseInterrupted)
+		if got := queueHalt(page); got != "" {
+			t.Fatalf("an empty queue halts on %q", got)
 		}
-		delivering := task("delivering", protocol.ConversationBackgroundStatePending, new(protocol.ConversationBackgroundHoldLimit))
-		delivering.Delivery = &running
-		page.Background = []protocol.ConversationBackgroundTask{
-			task("running", protocol.ConversationBackgroundStateRunning, nil),
-			task("waiting", protocol.ConversationBackgroundStatePending, nil),
-			task("limit", protocol.ConversationBackgroundStatePending, new(protocol.ConversationBackgroundHoldLimit)),
-			task("stopped", protocol.ConversationBackgroundStatePending, new(protocol.ConversationBackgroundHoldStopped)),
-			task("interrupted", protocol.ConversationBackgroundStatePending, new(protocol.ConversationBackgroundHoldInterrupted)),
-			task("failed", protocol.ConversationBackgroundStatePending, new(protocol.ConversationBackgroundHoldFailed)),
-			task("other", protocol.ConversationBackgroundStatePending, new(protocol.ConversationBackgroundHoldOther)),
-			task("taken", protocol.ConversationBackgroundStateDelivered, new(protocol.ConversationBackgroundHoldStopped)),
-			delivering,
-		}
-		want := []composer.HeldResult{
-			{ID: "limit", Title: "Build limit", Wait: composer.WaitLimit},
-			{ID: "stopped", Title: "Build stopped", Wait: composer.WaitStopped},
-			{ID: "interrupted", Title: "Build interrupted", Wait: composer.WaitInterrupted},
-			{ID: "failed", Title: "Build failed", Wait: composer.WaitFailed},
-			{ID: "other", Title: "Build other", Wait: composer.WaitHeld},
-		}
-		got := heldResults(page)
-		if len(got) != len(want) {
-			t.Fatalf("held results = %+v", got)
-		}
-		for index := range want {
-			if got[index] != want[index] {
-				t.Fatalf("held result %d = %+v, want %+v", index, got[index], want[index])
+	})
+	t.Run("a halt is reported when it begins, once", func(t *testing.T) {
+		const interrupted, unsent = protocol.ConversationQueuePauseInterrupted, protocol.ConversationQueuePauseUnrecorded
+		r := &Runtime{}
+		for step, row := range []struct {
+			id   string
+			halt protocol.ConversationQueuePause
+			want bool
+		}{
+			{"old", interrupted, false}, // halted before this desktop read it: a restart repeats nothing
+			{"old", interrupted, false},
+			{"new", "", false},
+			{"new", unsent, true},
+			{"new", unsent, false}, // every later frame
+			{"new", "", false},     // sent again
+			{"new", unsent, true},  // and failed again
+			{"new", interrupted, true},
+			{"old", "", false},
+			{"old", interrupted, true},
+		} {
+			if got := r.haltBegan(row.id, row.halt); got != row.want {
+				t.Fatalf("step %d: %s reads %q: reported %v, want %v", step, row.id, row.halt, got, row.want)
 			}
+		}
+	})
+	// Background results held back from delivery are not queue rows
+	// (docs/removed-ui.md): the tray has nothing to draw for them.
+	t.Run("held results are not rows", func(t *testing.T) {
+		page := base()
+		for _, hold := range []protocol.ConversationBackgroundHold{protocol.ConversationBackgroundHoldLimit, protocol.ConversationBackgroundHoldStopped,
+			protocol.ConversationBackgroundHoldInterrupted, protocol.ConversationBackgroundHoldFailed, protocol.ConversationBackgroundHoldOther} {
+			task := protocol.DefaultConversationBackgroundTask()
+			task.ID, task.Session, task.Title, task.State = string(hold), session, "Build "+string(hold), protocol.ConversationBackgroundStatePending
+			task.Hold, task.Suppressed = &hold, true
+			page.Background = append(page.Background, task)
+		}
+		_, _, _, queue := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+		if len(queue) != 0 {
+			t.Fatalf("held results became queue rows: %+v", queue)
 		}
 	})
 	t.Run("guidance fate", func(t *testing.T) {

@@ -428,6 +428,15 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 			return nil, nil, err
 		}
 	}
+	// An automatic turn that starts takes back the unread mark its
+	// predecessor raised: the session is working by itself again, and the
+	// turn that ends the chain raises the mark. Otherwise every automatic
+	// turn of a package loop would flag a session the user has already read.
+	if run.Notice || run.Continuation != nil {
+		if _, err = db.ExecContext(ctx, "UPDATE session_attention SET revision=revision+1,unread=0 WHERE session=?1 AND unread=1", run.Session.String()); err != nil {
+			return nil, nil, err
+		}
+	}
 	if err = bumpQueue(ctx, db, run.Session); err != nil {
 		return nil, nil, err
 	}

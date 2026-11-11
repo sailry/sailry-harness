@@ -2776,13 +2776,8 @@ code_index_settings_failed: 无法读取或保存代码索引设置
 code_index_settings_conflict: 代码索引设置已更改，请重试
 code_index_settings_unknown: 无法确认是否已保存代码索引设置
 queue_guidance_outlived: 回复已结束，已排队为新消息
-queue_wait_held: 暂缓
-queue_wait_paused: 已暂停
-queue_wait_stopped: 停止后暂停
-queue_wait_interrupted: 中断后暂停
-queue_wait_unsent: 未发送
-queue_wait_limit: 已达自动续接上限
-queue_wait_failed: 失败后暂缓
+queue_halt_interrupted: 回复已中断，排队消息已保留
+queue_halt_unsent: 消息未发送，已保留在队列中
 chat_output_limit: 回复已达输出上限
 knowledge_collections: 集合
 knowledge_collection_pending: 等待索引

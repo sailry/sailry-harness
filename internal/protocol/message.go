@@ -226,7 +226,83 @@ func (value FaultDetailsProjectRemovalPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// ConversationContinuationRefusal says why a session admitted no automatic
+// turn: the session is in Plan mode, is a child, is archived or lost its
+// worktree; its queue is paused or holds input; a turn is running; an
+// approval or question is pending; the automatic turn limit is reached; or
+// the turn the continuation follows is no longer the latest.
+type ConversationContinuationRefusal string
+
+const (
+	ConversationContinuationRefusalPlan        ConversationContinuationRefusal = "plan"
+	ConversationContinuationRefusalChild       ConversationContinuationRefusal = "child"
+	ConversationContinuationRefusalArchived    ConversationContinuationRefusal = "archived"
+	ConversationContinuationRefusalWorktree    ConversationContinuationRefusal = "worktree"
+	ConversationContinuationRefusalQueuePaused ConversationContinuationRefusal = "queue_paused"
+	ConversationContinuationRefusalQueuedInput ConversationContinuationRefusal = "queued_input"
+	ConversationContinuationRefusalRunning     ConversationContinuationRefusal = "running"
+	ConversationContinuationRefusalInteraction ConversationContinuationRefusal = "interaction"
+	ConversationContinuationRefusalLimit       ConversationContinuationRefusal = "limit"
+	ConversationContinuationRefusalStale       ConversationContinuationRefusal = "stale"
+)
+
+func (value ConversationContinuationRefusal) MarshalJSON() ([]byte, error) {
+	switch value {
+	case ConversationContinuationRefusalPlan, ConversationContinuationRefusalChild, ConversationContinuationRefusalArchived, ConversationContinuationRefusalWorktree, ConversationContinuationRefusalQueuePaused, ConversationContinuationRefusalQueuedInput, ConversationContinuationRefusalRunning, ConversationContinuationRefusalInteraction, ConversationContinuationRefusalLimit, ConversationContinuationRefusalStale:
+		return json.Marshal(string(value))
+	default:
+		return nil, fmt.Errorf("unknown ConversationContinuationRefusal %q", value)
+	}
+}
+func (value *ConversationContinuationRefusal) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	switch ConversationContinuationRefusal(decoded) {
+	case ConversationContinuationRefusalPlan, ConversationContinuationRefusalChild, ConversationContinuationRefusalArchived, ConversationContinuationRefusalWorktree, ConversationContinuationRefusalQueuePaused, ConversationContinuationRefusalQueuedInput, ConversationContinuationRefusalRunning, ConversationContinuationRefusalInteraction, ConversationContinuationRefusalLimit, ConversationContinuationRefusalStale:
+		*value = ConversationContinuationRefusal(decoded)
+		return nil
+	default:
+		return fmt.Errorf("unknown ConversationContinuationRefusal %q", decoded)
+	}
+}
+
+// FaultDetailsContinuationPayload accompanies a refused continue_turn. Count
+// and Limit are the session's automatic turns since its last user input and
+// the bound they are held to; both are set for the limit refusal.
+type FaultDetailsContinuationPayload struct {
+	Reason ConversationContinuationRefusal `json:"reason"`
+	Count  *uint32                         `json:"count,omitempty"`
+	Limit  *uint32                         `json:"limit,omitempty"`
+}
+
+func DefaultFaultDetailsContinuationPayload() FaultDetailsContinuationPayload {
+	return FaultDetailsContinuationPayload{
+		Reason: ConversationContinuationRefusal(""),
+		Count:  nil,
+		Limit:  nil,
+	}
+}
+func (value *FaultDetailsContinuationPayload) UnmarshalJSON(data []byte) error {
+	type plain FaultDetailsContinuationPayload
+	decoded := plain{}
+	decoded.Count = nil
+	decoded.Limit = nil
+	if err := DecodeObject(data, &decoded, []string{"reason"}, false); err != nil {
+		return err
+	}
+	*value = FaultDetailsContinuationPayload(decoded)
+	return nil
+}
+func (value FaultDetailsContinuationPayload) MarshalJSON() ([]byte, error) {
+	type plain FaultDetailsContinuationPayload
+	encoded := plain(value)
+	return json.Marshal(encoded)
+}
+
 var faultDetailsVariants = variantFactories{"plugin_requires_newer": func() any { return new(FaultDetailsPluginRequiresNewerPayload) },
+	"continuation":            func() any { return new(FaultDetailsContinuationPayload) },
 	"storage_conflict":        nil,
 	"plugin_value_conflict":   nil,
 	"worktree_path_not_found": nil,
@@ -4255,6 +4331,10 @@ func (value CommandDeliverBackgroundPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// CommandContinueTurnPayload admits one automatic turn for a package. Marker
+// names one of the package's declared continuation_markers; Limit declares
+// how many automatic turns the session may start in a row without user input
+// while this package continues it.
 type CommandContinueTurnPayload struct {
 	Session          SessionID          `json:"session"`
 	After            *TurnID            `json:"after"`
@@ -4262,6 +4342,9 @@ type CommandContinueTurnPayload struct {
 	Key              string             `json:"key"`
 	ExpectedRevision uint64             `json:"expected_revision"`
 	Scope            PluginStorageScope `json:"scope"`
+	Marker           *string            `json:"marker,omitempty"`
+	Limit            *uint32            `json:"limit,omitempty"`
+	User             bool               `json:"user,omitempty"`
 }
 
 func DefaultCommandContinueTurnPayload() CommandContinueTurnPayload {
@@ -4272,11 +4355,17 @@ func DefaultCommandContinueTurnPayload() CommandContinueTurnPayload {
 		Key:              "",
 		ExpectedRevision: 0,
 		Scope:            PluginStorageScope(""),
+		Marker:           nil,
+		Limit:            nil,
+		User:             false,
 	}
 }
 func (value *CommandContinueTurnPayload) UnmarshalJSON(data []byte) error {
 	type plain CommandContinueTurnPayload
 	decoded := plain{}
+	decoded.Marker = nil
+	decoded.Limit = nil
+	decoded.User = false
 	if err := DecodeObject(data, &decoded, []string{"session", "message", "key", "expected_revision", "scope"}, false); err != nil {
 		return err
 	}

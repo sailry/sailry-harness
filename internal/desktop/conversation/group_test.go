@@ -32,6 +32,50 @@ func TestGrouping(t *testing.T) {
 	t.Run("Elapsed", testElapsed)
 	t.Run("Disclosures", testDisclosures)
 	t.Run("TextSize", testTextSize)
+	t.Run("UsageSize", testUsageSize)
+}
+
+// The context bar's figures and their cards do not follow the message text
+// size: at 12, 14 and 20 a figure is as wide as its text measures at 14, in
+// the bar and in the compact button, and a card's value, in tabular figures,
+// is the same at each.
+func testUsageSize(t *testing.T) {
+	const value, label, detail = "48.2k", "Tokens", "41.0k"
+	figures := [][]Metric{{{ID: "tokens", Label: label, Value: value, Rows: []Row{{Label: "This session", Value: detail}}}}}
+	var card ui.Rect
+	for _, size := range []uint8{12, 14, 20} {
+		for _, compact := range []bool{false, true} {
+			var want float32
+			open := false
+			tt := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
+				want, _ = c.MeasureText(0, ui.Span{Text: value, Size: 14})
+				ui.Column(c).Fill().AlignItems(ui.End).Padding(40).Children(func() {
+					ui.Spacer(c)
+					UsageBar(c, nil, figures, compact, &open)
+				})
+			}, 600, 400)
+			tt.SetLocale("en")
+			tt.Frame()
+			figure, ok := tt.Find(value)
+			if !ok || math.Abs(float64(figure.W-want)) > 1 {
+				t.Fatalf("size %d, compact %v: the figure is %v wide, its text %v at 14: %q", size, compact, figure.W, want, tt.Texts())
+			}
+			tt.Move(figure.X+figure.W/2, figure.Y+figure.H/2)
+			tt.Advance(time.Second)
+			tt.Frame()
+			tt.Advance(time.Second)
+			tt.Frame()
+			line, ok := tt.Find(detail)
+			if card.W == 0 {
+				card = line
+			}
+			if !ok || line.W != card.W || line.H != card.H {
+				t.Errorf("size %d, compact %v: the card's value is %v by %v, at 12 %v by %v: %q", size, compact, line.W, line.H, card.W, card.H, tt.Texts())
+			}
+		}
+	}
 }
 
 // ink measures what is drawn in r of img, a frame at scale, in DIPs: the

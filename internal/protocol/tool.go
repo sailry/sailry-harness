@@ -161,6 +161,9 @@ type ToolHandler struct {
 	Operation  *ToolOperation  `json:"operation"`
 	Flow       *ToolFlow       `json:"flow"`
 	Result     *string         `json:"result"`
+	// Approval makes a plain handler's call ask for the ordinary tool
+	// approval, which it otherwise never does.
+	Approval bool `json:"approval,omitempty"`
 }
 
 func DefaultToolHandler() ToolHandler {
@@ -171,12 +174,14 @@ func DefaultToolHandler() ToolHandler {
 		Operation:  nil,
 		Flow:       nil,
 		Result:     nil,
+		Approval:   false,
 	}
 }
 func (value *ToolHandler) UnmarshalJSON(data []byte) error {
 	type plain ToolHandler
 	decoded := plain{}
 	decoded.ReadOnly = false
+	decoded.Approval = false
 	if err := DecodeObject(data, &decoded, []string{"name", "parameters"}, true); err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -145,5 +146,64 @@ func TestPluginContinuationAdmission(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+// TestPluginTransactionSubmit admits a session's first turn through a plugin
+// transaction, whose ledger entry is only a digest: the turn still starts
+// with its message, and the session is titled by it.
+func TestPluginTransactionSubmit(t *testing.T) {
+	t.Parallel()
+	storage, node, first, previous, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if err := queueFixtureInput(ctx, db, first.ID, previous, now); err != nil {
+			return err
+		}
+		if _, _, err := FinishTurn(ctx, db, previous, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		output, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &first.Config})
+		if err != nil {
+			return err
+		}
+		session := output.Data.(protocol.Session)
+		info := pluginTestInfo("submit-fixture", 'e')
+		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
+		extension.Actions = []protocol.PluginAction{protocol.PluginActionControlConversation}
+		info.Extension = &extension
+		info, err = InstallPlugin(ctx, db, info, 0, true)
+		if err != nil {
+			return err
+		}
+		scope := protocol.DefaultPluginContext()
+		scope.Package, scope.Session, scope.Worktree = plugins.PackageReference(info), &session.ID, &session.Worktree
+		request := protocol.NewRequest(node, protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: []protocol.PluginTransactionOperation{{
+			Kind: "submit", Data: protocol.PluginTransactionOperationSubmitPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Submitted by a package"}},
+		}}}})
+		request.Plugin = &scope
+		// The ledger stores this command as a digest, not as JSON.
+		if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), []byte("credential-v1:"+strings.Repeat("0", 64))); err != nil {
+			return err
+		}
+		if _, _, err = ExecutePluginStorageCommand(ctx, db, node, storage.Profile, node, request); err != nil {
+			return fmt.Errorf("a transaction could not submit a turn: %w", err)
+		}
+		queue, err := ReadQueue(ctx, db, session.ID)
+		if err != nil || len(queue.Items) != 1 || queue.Items[0].Preview != "Submitted by a package" {
+			return fmt.Errorf("queued input = %+v: %v", queue.Items, err)
+		}
+		invocation, _, err := ClaimNext(ctx, db, now)
+		if err != nil || invocation == nil || invocation.Session.ID != session.ID || invocation.Message.Text != "Submitted by a package" {
+			return fmt.Errorf("the submitted turn did not start with its message: %v", err)
+		}
+		if title, err := activityTitle(ctx, db, session.ID); err != nil || title != "Submitted by a package" {
+			return fmt.Errorf("session title = %q: %v", title, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -337,7 +337,7 @@ func (s *State) browse(c *ui.Context, register bool) {
 		}}
 	for _, h := range s.Data.Hosts {
 		if h.ID == host {
-			o.Host = s.hostLabel(c, h)
+			o.Host, o.Remote = s.hostLabel(c, h), !h.Local
 		}
 	}
 	if register {

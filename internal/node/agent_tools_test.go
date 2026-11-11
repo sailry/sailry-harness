@@ -470,18 +470,15 @@ func TestAgentManagementTools(t *testing.T) {
 						{"brief", "write_brief", `{"title":"Notes","html":"<p>Outline</p>"}`},
 						{"memory", "save_memory", `{"kind":"user","title":"Editor theme","body":"Prefers a dark theme"}`},
 					}
-					// The goals package offers no tool to a planning turn.
+					// The goals package offers no writing tool to a planning
+					// turn. Its plain update handler asks for nothing; with no
+					// goal set it answers that, so no goal turns follow.
+					// create_goal declares that it asks and is covered with
+					// the goal loop.
 					if level.mode != protocol.WorkModePlan {
-						calls = append(calls, [3]string{"goal", "create_goal", `{"description":"Ship the release"}`})
+						calls = append(calls, [3]string{"goal", "update_goal", `{"status":"paused"}`})
 					}
 					return calls
-				case 3:
-					// An active goal continues its session with further turns
-					// after this one ends, and those turns would answer from
-					// the next subtest's script: the turn finishes its goal.
-					if level.mode != protocol.WorkModePlan {
-						return [][3]string{{"finish", "update_goal", `{"goal_id":"` + field(t, current, "goal", "goal", "id") + `","expected_revision":"` + field(t, current, "goal", "goal", "revision") + `","description":"Ship the release","state":"completed"}`}}
-					}
 				}
 				return nil
 			})
@@ -492,8 +489,8 @@ func TestAgentManagementTools(t *testing.T) {
 			if refused := strings.Contains(results["memory"], "planning mode permits read-only tools"); refused != planning {
 				t.Errorf("memory under %s returned %.300q", level.name, results["memory"])
 			}
-			if !planning && (strings.Contains(results["memory"], "permission_denied") || !strings.Contains(results["goal"], "Ship the release") || !strings.Contains(results["finish"], `"state":"completed"`)) {
-				t.Errorf("own storage was not written: %.300q, %.300q, %.300q", results["memory"], results["goal"], results["finish"])
+			if !planning && (strings.Contains(results["memory"], "permission_denied") || !strings.Contains(results["goal"], "No goal is set")) {
+				t.Errorf("own storage was not reached: %.300q, %.300q", results["memory"], results["goal"])
 			}
 			// The artifact and, outside Plan, the memory transaction record
 			// their storage authority; the plain goal handlers record none.
