@@ -130,6 +130,9 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
+		if err = bindAgentAttachments(ctx, db, turn.ID, session.Worktree, v.Message.Attachments); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		if err = tagGuidance(ctx, db, turn.ID, target.Turn); err != nil {
 			return protocol.Output{}, nil, err
 		}

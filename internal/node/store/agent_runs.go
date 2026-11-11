@@ -423,6 +423,11 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	if err != nil {
 		return nil, nil, err
 	}
+	if session.Delegation == nil {
+		if err = addressSuccessors(ctx, db, run); err != nil {
+			return nil, nil, err
+		}
+	}
 	if err = bumpQueue(ctx, db, run.Session); err != nil {
 		return nil, nil, err
 	}

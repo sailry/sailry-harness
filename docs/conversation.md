@@ -483,6 +483,30 @@ without an owner.
   transaction, and is an ordinary queued item at its place: it starts next
   after a turn that left the queue running, and waits in a paused queue until
   Send now or Resume.
+- **Batched guidance.** Guidance joins its recipient at a boundary: after
+  tool results or a finished reply, before the next model step, never behind
+  a failed step. One transaction takes every input waiting for the turn, in
+  the order sent, and appends each as its own user record under its own turn
+  with its own attachments and references; the model then answers them in a
+  single step. Input that arrives after the batch was taken waits for the
+  next boundary. A batch that overfills the context goes through the turn's
+  ordinary compaction and, when that cannot recover, fails the turn with
+  `context_overflow`; nothing is truncated. `guide_turn` binds attachments
+  like `queue_turn`, so an attachment that is not stored yet refuses the
+  message.
+- **Compatibility.** Guidance joins only a recipient that froze the same
+  settings: session config (model, mode, permission), roles, plugins and
+  hooks. Other input stays an ordinary ready item at its place and starts its
+  own turn with its own settings. Compatible guidance is placed after the
+  guidance already waiting for its recipient and ahead of ordinary items.
+- **Outlived guidance.** Guidance released by a recipient that ended first
+  keeps its order. When the first of it starts a turn, the inputs sent to the
+  same recipient that directly follow it, are ready and froze the same
+  settings are addressed to that turn and join it before its first model
+  step, so a pile of guidance is still answered together.
+- **Queued messages.** Ordinary queued messages are strict FIFO: each starts
+  its own turn with the settings it was queued with, one at a time. They are
+  never combined.
 - **Pausing.** The queue is paused by `stop_turn`, by a turn that ends
   `interrupted` without a stop (Node shutdown, restart recovery) and by a turn
   that ends before its own input reached history, which stays in the queue as
@@ -533,11 +557,56 @@ without an owner.
   remaining results are marked suppressed, logged (`status=held`), stay
   visible as pending background tasks and join the user's next message.
 
+### Queue item states
+
+An item is a row of `agent_pending`; `ready`, the recipient and the queue's
+`paused` flag decide what it does. Every transition is one store transaction
+and bumps the item or queue revision that its command checks.
+
+| State | Stored as | Leaves by |
+|---|---|---|
+| Held | queued run, `ready=0` | `start_queued_turn`, `send_queued_turn`, `guide_queued_turn`, `remove_queued_turn` |
+| Queued | queued run, `ready=1`, no recipient | claim when the session has no running turn and the queue runs; `remove_queued_turn`; `guide_queued_turn` |
+| Guiding | `ready=1`, recipient is the running turn | join at the boundary; `withdraw_guidance` (held); `edit_queued_turn` or `set_queue_paused` (queued); recipient ends or restart (queued); `remove_queued_turn` |
+| Joined | run `completed` with `joined`, row deleted | terminal; shown under the joining turn |
+| Running | run `running`; row kept until its input is recorded | turn end |
+| Retained | run `failed`, `cancelled` or `interrupted` before its input was recorded, row kept, queue paused | `start_queued_turn` or `send_queued_turn` (queued again), `remove_queued_turn` |
+| Removed | run `cancelled`, row deleted | terminal |
+
+| Trigger | Effect | Test |
+|---|---|---|
+| `queue_turn` | held item at the end | `engine.TestQueueOrder` |
+| `start_queued_turn` | held to queued, queue resumed | `engine.TestQueueOrder` |
+| `guide_turn`, same settings | guiding, after the recipient's other guidance | `store.TestGuidanceQueue/pending guidance is taken together` |
+| `guide_turn`, other settings | queued in place | `store.TestGuidanceQueue/other settings stay ordinary` |
+| `guide_turn` with an attachment not stored | refused, nothing admitted | `store.TestGuidanceQueue/pending guidance is taken together` |
+| Boundary | all guiding items joined in order in one step; later ones next boundary | `engine.TestGuidanceBatch`, `store.TestGuidanceQueue` |
+| `edit_queued_turn` | new text, guiding to queued; stale revision refused | `store.TestGuidanceQueue/queue commands` |
+| `guide_queued_turn` | held or queued to guiding; compaction refused | `store.TestGuidanceQueue/queue commands` |
+| `withdraw_guidance` | guiding to held | `store.TestGuidanceQueue/queue commands` |
+| `move_queued_turn` | new position; stale queue revision refused | `store.TestGuidanceQueue/queue commands` |
+| `set_queue_paused` | pause: guiding to queued, nothing starts or joins; resume: first ready item starts | `store.TestGuidanceQueue/queue commands` |
+| `remove_queued_turn` | removed | `store.TestGuidanceQueue/queue commands` |
+| `send_queued_turn` | item first, running turn stopped, queue resumed | `store.TestQueueSettlement/send now replaces the running turn` |
+| `stop_turn` | queue paused; items stay; guiding to queued when the turn ends | `store.TestQueueSettlement/guidance after stop waits for *` |
+| Turn completes or fails after its input | guiding to queued; next ready item starts | `store.TestQueueSettlement/guidance after completion starts`, `guidance after failure starts`, `failure keeps queued input running` |
+| Turn ends before its input | retained, queue paused | `store.TestQueueSettlement/failure before input holds the queue` |
+| Outlived guidance starts | following guidance of the same recipient joins it | `store.TestGuidanceQueue/outlived guidance starts one turn`, `engine.TestGuidanceBatch` |
+| Node restart | guiding to queued once, queue paused when it holds user input; queued notice turns cancelled | `store.TestQueueSettlement/guidance after restart waits for resume`, `restart cancels a queued notice turn without pausing` |
+| `compact_context` while running | compaction item waits its turn; not editable, not guidance | `store.TestGuidanceQueue/queue commands` |
+| Background result | notice turn admitted only into an empty running queue; cancelled at claim when user input is queued | `store.TestBackgroundDelivery`, `store.TestBackgroundSchedulingAndContinuationFence` |
+| `remove_session` with waiting input | refused `busy` until the items are removed | `store.TestGuidanceQueue/queue commands` |
+| `set_session_archived` | queue unchanged | `store.TestGuidanceQueue/queue commands` |
+
 ### Differences from the reference
 
 | Difference | Reason |
 |---|---|
 | A child whose owner cancelled it without a stop command (its parent turn ended) ends `interrupted`; the reference ends it `cancelled` | The label is delegation's; neither outcome is delivered automatically |
+| Outlived guidance batches only the inputs sent to the same recipient; the reference also folds every following ready compatible queued message into that turn | An ordinary queued message keeps the turn it was queued for; the reference combines it only when it happens to follow released guidance |
+| Guidance compatibility does not compare the provider snapshot or the compaction capture | The joined input runs under the recipient's frozen provider either way; a provider edit is not a per-message choice |
+| A joined guidance run ends `completed` with `joined` set; the reference uses `continued` | Existing Go behaviour that the desktop projection reads |
+| A paused queue cannot hold guiding items, so a boundary needs no pause check; the reference checks at the boundary | Pausing already returns guidance to the queue in both |
 | Notice turns are bounded per session by a flat count of eight; the plan described a chain depth of four | A flat count needs no lineage between results and also bounds independent results arriving apart; eight leaves room for a fan-out, and each notice turn carries up to 16 results |
 | Held results reuse the `suppressed` task flag instead of a dedicated reason | No protocol change; the log names the reason. A visible reason needs a new field on the background task |
 | Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |

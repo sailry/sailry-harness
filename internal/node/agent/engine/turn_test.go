@@ -843,3 +843,135 @@ func TestTurnSettlement(t *testing.T) {
 		}
 	})
 }
+
+func TestGuidanceBatch(t *testing.T) {
+	// prompt returns the user inputs of one model request, in order, leaving
+	// out the context the engine adds around them.
+	prompt := func(request fantasy.Call) []string {
+		sent := map[string]bool{"Initial": true, "One": true, "Two": true, "Three": true, "Four": true}
+		var out []string
+		for _, message := range request.Prompt {
+			if message.Role != fantasy.MessageRoleUser {
+				continue
+			}
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && sent[value.Text] {
+					out = append(out, value.Text)
+				}
+			}
+		}
+		return out
+	}
+	guide := func(f *engineFixture, turn protocol.TurnID, value string) protocol.TurnID {
+		input := protocol.DefaultConversationInput()
+		input.Text = value
+		return f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
+	}
+	// held is a model step that reports its request and waits to be released.
+	held := func(requests chan<- fantasy.Call, release <-chan struct{}, reply string) script {
+		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			if !yield(text(reply)) {
+				return
+			}
+			requests <- request
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return
+			}
+			yield(finish())
+		}
+	}
+	started := func(t *testing.T, f *engineFixture, requests <-chan fantasy.Call) fantasy.Call {
+		t.Helper()
+		select {
+		case request := <-requests:
+			return request
+		case <-f.ctx.Done():
+			t.Fatal("model step did not start")
+			return fantasy.Call{}
+		}
+	}
+	t.Run("pending guidance joins one model step", func(t *testing.T) {
+		requests := make(chan fantasy.Call, 3)
+		first, second := make(chan struct{}), make(chan struct{})
+		m := &scriptedModel{scripts: []script{held(requests, first, "Working"), held(requests, second, "Adjusted"), response(text("Done"), finish())}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Initial")
+		started(t, f, requests)
+		guided := []protocol.TurnID{guide(f, turn, "One"), guide(f, turn, "Two"), guide(f, turn, "Three")}
+		close(first)
+		if got := prompt(started(t, f, requests)); !reflect.DeepEqual(got, []string{"Initial", "One", "Two", "Three"}) {
+			t.Fatalf("second request carried %v", got)
+		}
+		// Guidance sent after the batch was taken joins the next step.
+		late := guide(f, turn, "Four")
+		close(second)
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		if m.count() != 3 {
+			t.Fatalf("requests=%d", m.count())
+		}
+		m.mu.Lock()
+		last := prompt(m.calls[2])
+		m.mu.Unlock()
+		if !reflect.DeepEqual(last, []string{"Initial", "One", "Two", "Three", "Four"}) {
+			t.Fatalf("third request carried %v", last)
+		}
+		// Each input stays its own record under its own turn.
+		var owners []protocol.TurnID
+		for _, record := range f.state().Records {
+			if record.Provenance.Author == "user" {
+				owners = append(owners, record.Turn)
+			}
+		}
+		if !reflect.DeepEqual(owners, append([]protocol.TurnID{turn}, append(guided, late)...)) {
+			t.Fatalf("input records belong to %v", owners)
+		}
+		for _, id := range append(guided, late) {
+			if run := f.waitRun(id, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != turn {
+				t.Fatal("guidance was not joined to its turn")
+			}
+		}
+	})
+	t.Run("guidance outliving a failed turn starts one turn", func(t *testing.T) {
+		requests := make(chan fantasy.Call, 2)
+		release := make(chan struct{})
+		failing := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			requests <- request
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return
+			}
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
+		}
+		m := &scriptedModel{scripts: []script{failing, response(text("Handled together"), finish())}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Initial")
+		started(t, f, requests)
+		guided := []protocol.TurnID{guide(f, turn, "One"), guide(f, turn, "Two"), guide(f, turn, "Three")}
+		close(release)
+		// The failed step takes no guidance; the queue keeps running and the
+		// three inputs start a single turn.
+		f.waitRun(guided[0], protocol.ConversationStatusCompleted)
+		if run := f.waitRun(turn, protocol.ConversationStatusFailed); run.Error == nil {
+			t.Fatal("failed turn lost its error")
+		}
+		if m.count() != 2 {
+			t.Fatalf("requests=%d", m.count())
+		}
+		m.mu.Lock()
+		got := prompt(m.calls[1])
+		m.mu.Unlock()
+		if !reflect.DeepEqual(got, []string{"Initial", "One", "Two", "Three"}) {
+			t.Fatalf("successor request carried %v", got)
+		}
+		for _, id := range guided[1:] {
+			if run := f.waitRun(id, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != guided[0] {
+				t.Fatal("outlived guidance was answered on its own")
+			}
+		}
+	})
+}

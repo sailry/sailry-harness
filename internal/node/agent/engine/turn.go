@@ -301,13 +301,18 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			continue
 		}
-		joined, err := r.guidance(x)
-		if err != nil {
-			return err
-		}
-		if joined {
-			x.foregroundSteered = true
-			continue
+		// Every input waiting for this turn joins here as one batch: after tool
+		// results or a finished reply, before the next model step. A failed step
+		// takes none; the turn ends and its guidance returns to the queue.
+		if failed := lastMessage(state.Records); failed == nil || failed.Error == nil {
+			joined, err := r.guidance(x)
+			if err != nil {
+				return err
+			}
+			if joined {
+				x.foregroundSteered = true
+				continue
+			}
 		}
 		selected, err := r.selectedAgent(x, state)
 		if err != nil {

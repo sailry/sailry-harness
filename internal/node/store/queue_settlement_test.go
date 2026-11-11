@@ -22,7 +22,19 @@ func queueFixtureCommand(ctx context.Context, db *sql.Conn, storage *Store, node
 	if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body); err != nil {
 		return protocol.Output{}, err
 	}
+	// A refused command leaves nothing behind, as its own transaction would.
+	if _, err = db.ExecContext(ctx, "SAVEPOINT fixture_command"); err != nil {
+		return protocol.Output{}, err
+	}
 	output, _, err := ExecuteAgentCommand(ctx, db, node, storage.Profile, node, request, now)
+	if err != nil {
+		if _, rollback := db.ExecContext(ctx, "ROLLBACK TO fixture_command"); rollback != nil {
+			return output, rollback
+		}
+	}
+	if _, release := db.ExecContext(ctx, "RELEASE fixture_command"); release != nil {
+		return output, release
+	}
 	return output, err
 }
 
@@ -161,12 +173,24 @@ func TestQueueSettlement(t *testing.T) {
 					if _, err = RecoverRuns(ctx, db, now); err != nil {
 						return err
 					}
-					if _, err = held(ctx, db, session.ID, guided, now); err != nil {
+					released, err := held(ctx, db, session.ID, guided, now)
+					if err != nil {
 						return err
 					}
 					queue, err := ReadQueue(ctx, db, session.ID)
 					if err != nil {
 						return err
+					}
+					// A second recovery finds nothing left to release.
+					if _, err = RecoverRuns(ctx, db, now); err != nil {
+						return err
+					}
+					again, item, err := queueFixtureItem(ctx, db, session.ID, guided)
+					if err != nil {
+						return err
+					}
+					if again.Revision != queue.Revision || len(again.Items) != 1 || item == nil || item.Revision != released.Revision {
+						return errors.New("recovery released the guidance more than once")
 					}
 					if _, err = queueFixtureCommand(ctx, db, storage, node, "set_queue_paused", &protocol.CommandSetQueuePausedPayload{Session: session.ID, ExpectedRevision: queue.Revision, Paused: false}, now); err != nil {
 						return err
@@ -472,6 +496,365 @@ func TestBackgroundDelivery(t *testing.T) {
 					}
 					if next, _, err := ClaimNext(ctx, db, now); err != nil || next == nil || !next.Run.Notice {
 						return fmt.Errorf("user input did not reset the chain: %v", err)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// TestGuidanceQueue covers the queue and guidance transitions listed in
+// docs/conversation.md that TestQueueSettlement does not.
+func TestGuidanceQueue(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"pending guidance is taken together", "other settings stay ordinary", "outlived guidance starts one turn", "queue commands"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+			ctx := t.Context()
+			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				if err := queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
+					return err
+				}
+				command := func(kind string, data any) (protocol.Output, error) {
+					return queueFixtureCommand(ctx, db, storage, node, kind, data, now)
+				}
+				send := func(kind, text string, attachments ...protocol.AttachmentID) (protocol.TurnID, error) {
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return protocol.TurnID{}, err
+					}
+					message := protocol.ConversationInput{Text: text, Attachments: attachments}
+					var data any = &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: current.Revision, Message: message}
+					if kind == "queue_turn" {
+						data = &protocol.CommandQueueTurnPayload{Session: session.ID, ExpectedRevision: current.Revision, Message: message}
+					}
+					output, err := command(kind, data)
+					if err != nil {
+						return protocol.TurnID{}, err
+					}
+					return output.Data.(protocol.QueuedTurn).ID, nil
+				}
+				// order checks the queue's items and which of them wait for a recipient.
+				order := func(want []protocol.TurnID, recipients ...*protocol.TurnID) error {
+					queue, err := ReadQueue(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if len(queue.Items) != len(want) {
+						return fmt.Errorf("queue holds %d items, want %d", len(queue.Items), len(want))
+					}
+					for i, item := range queue.Items {
+						if item.Turn != want[i] {
+							return fmt.Errorf("queue position %d holds another item", i)
+						}
+						if i < len(recipients) && (item.Guidance == nil) != (recipients[i] == nil) || i < len(recipients) && item.Guidance != nil && *item.Guidance != *recipients[i] {
+							return fmt.Errorf("queue position %d waits for the wrong recipient", i)
+						}
+					}
+					return nil
+				}
+				texts := func(values []AgentGuidance) []string {
+					out := []string{}
+					for _, value := range values {
+						out = append(out, value.Message.Text)
+					}
+					return out
+				}
+				revision := func(id protocol.TurnID) uint64 {
+					_, item, _ := queueFixtureItem(ctx, db, session.ID, id)
+					if item == nil {
+						return 0
+					}
+					return item.Revision
+				}
+				switch scenario {
+				case "pending guidance is taken together":
+					waiting, err := send("queue_turn", "Ordinary")
+					if err != nil {
+						return err
+					}
+					first, err := send("guide_turn", "First")
+					if err != nil {
+						return err
+					}
+					attachment := protocol.DefaultAttachment()
+					attachment.ID = protocol.NewAttachmentID()
+					attachment.Spec.Worktree = session.Worktree
+					body, err := encode(attachment)
+					if err != nil {
+						return err
+					}
+					if _, err = db.ExecContext(ctx, "INSERT INTO attachments(id,worktree,caller,body) VALUES(?1,?2,?3,?4)", attachment.ID.String(), session.Worktree.String(), node[:], body); err != nil {
+						return err
+					}
+					second, err := send("guide_turn", "Second", attachment.ID)
+					if err != nil {
+						return err
+					}
+					// An attachment that is not stored yet cannot be sent.
+					if _, err = send("guide_turn", "Uploading", protocol.NewAttachmentID()); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+						return fmt.Errorf("guidance with a missing attachment was admitted: %v", err)
+					}
+					third, err := send("guide_turn", "Third")
+					if err != nil {
+						return err
+					}
+					if err = order([]protocol.TurnID{first, second, third, waiting}, &turn, &turn, &turn, nil); err != nil {
+						return err
+					}
+					batch, _, err := TakeGuidance(ctx, db, turn)
+					if err != nil {
+						return err
+					}
+					if got := texts(batch); fmt.Sprint(got) != "[First Second Third]" {
+						return fmt.Errorf("batch = %v", got)
+					}
+					if len(batch[1].Message.Attachments) != 1 || batch[1].Message.Attachments[0] != attachment.ID {
+						return errors.New("guidance lost its attachment")
+					}
+					bound, err := ListTurnAttachments(ctx, db, second)
+					if err != nil || len(bound) != 1 {
+						return fmt.Errorf("attachment is not bound to its own message: %v", err)
+					}
+					for _, id := range []protocol.TurnID{first, second, third} {
+						run, err := ReadAgentRun(ctx, db, id)
+						if err != nil {
+							return err
+						}
+						if run.Status != protocol.ConversationStatusCompleted || run.Joined == nil || *run.Joined != turn {
+							return errors.New("joined guidance is not recorded with its turn")
+						}
+					}
+					if err = order([]protocol.TurnID{waiting}, nil); err != nil {
+						return err
+					}
+					// Guidance sent after the batch was taken waits for the next one.
+					if _, err = send("guide_turn", "Fourth"); err != nil {
+						return err
+					}
+					if batch, _, err = TakeGuidance(ctx, db, turn); err != nil || fmt.Sprint(texts(batch)) != "[Fourth]" {
+						return fmt.Errorf("later guidance = %v: %v", texts(batch), err)
+					}
+					if batch, _, err = TakeGuidance(ctx, db, turn); err != nil || len(batch) != 0 {
+						return fmt.Errorf("guidance was delivered twice: %v", err)
+					}
+				case "other settings stay ordinary":
+					first, err := send("guide_turn", "Same settings")
+					if err != nil {
+						return err
+					}
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					config := current.Config
+					changed := protocol.PermissionProject
+					if config.Permission == changed {
+						changed = protocol.PermissionAsk
+					}
+					config.Permission = changed
+					if _, err = command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: current.Revision, Config: config}); err != nil {
+						return err
+					}
+					other, err := send("guide_turn", "Other settings")
+					if err != nil {
+						return err
+					}
+					if err = order([]protocol.TurnID{first, other}, &turn, nil); err != nil {
+						return err
+					}
+					if _, item, _ := queueFixtureItem(ctx, db, session.ID, other); !item.Ready {
+						return errors.New("input with other settings is not ready to start")
+					}
+					batch, _, err := TakeGuidance(ctx, db, turn)
+					if err != nil || fmt.Sprint(texts(batch)) != "[Same settings]" {
+						return fmt.Errorf("batch = %v: %v", texts(batch), err)
+					}
+					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					next, _, err := ClaimNext(ctx, db, now)
+					if err != nil {
+						return err
+					}
+					if next == nil || next.Run.Turn != other || next.Turn.Config.Permission != changed {
+						return errors.New("input with other settings did not start with its own settings")
+					}
+				case "outlived guidance starts one turn":
+					waiting, err := send("queue_turn", "Ordinary")
+					if err != nil {
+						return err
+					}
+					if _, err = command("start_queued_turn", &protocol.CommandStartQueuedTurnPayload{Turn: waiting}); err != nil {
+						return err
+					}
+					ids := []protocol.TurnID{}
+					for _, text := range []string{"First", "Second", "Third"} {
+						id, err := send("guide_turn", text)
+						if err != nil {
+							return err
+						}
+						ids = append(ids, id)
+					}
+					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusFailed, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "fixture failure"}, now); err != nil {
+						return err
+					}
+					if err = order(append(ids, waiting), nil, nil, nil, nil); err != nil {
+						return err
+					}
+					next, _, err := ClaimNext(ctx, db, now)
+					if err != nil {
+						return err
+					}
+					if next == nil || next.Run.Turn != ids[0] || next.Message.Text != "First" {
+						return errors.New("the first outlived input did not start")
+					}
+					// The rest of the batch waits for that turn; the ordinary item does not.
+					if err = order([]protocol.TurnID{ids[1], ids[2], waiting}, &ids[0], &ids[0], nil); err != nil {
+						return err
+					}
+					if again, _, err := ClaimNext(ctx, db, now); err != nil || again != nil {
+						return fmt.Errorf("batched input started beside its turn: %v", err)
+					}
+					batch, _, err := TakeGuidance(ctx, db, ids[0])
+					if err != nil || fmt.Sprint(texts(batch)) != "[Second Third]" {
+						return fmt.Errorf("successor batch = %v: %v", texts(batch), err)
+					}
+					for _, id := range ids[1:] {
+						run, err := ReadAgentRun(ctx, db, id)
+						if err != nil {
+							return err
+						}
+						if run.Joined == nil || *run.Joined != ids[0] || run.Guidance == nil || *run.Guidance != turn {
+							return errors.New("batched input lost its origin or its turn")
+						}
+					}
+					if err = queueFixtureInput(ctx, db, session.ID, ids[0], now); err != nil {
+						return err
+					}
+					if _, _, err = FinishTurn(ctx, db, ids[0], protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if next, _, err = ClaimNext(ctx, db, now); err != nil || next == nil || next.Run.Turn != waiting {
+						return fmt.Errorf("the ordinary item did not keep its own turn: %v", err)
+					}
+				default:
+					held, err := send("queue_turn", "Held")
+					if err != nil {
+						return err
+					}
+					guided, err := send("guide_turn", "Guided")
+					if err != nil {
+						return err
+					}
+					// Two clients: the second edit carries a stale item revision.
+					stale := revision(guided)
+					if _, err = command("edit_queued_turn", &protocol.CommandEditQueuedTurnPayload{Turn: guided, ExpectedRevision: stale, Message: protocol.ConversationInput{Text: "Edited"}}); err != nil {
+						return err
+					}
+					if _, err = command("edit_queued_turn", &protocol.CommandEditQueuedTurnPayload{Turn: guided, ExpectedRevision: stale, Message: protocol.ConversationInput{Text: "Lost update"}}); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
+						return fmt.Errorf("stale edit = %v", err)
+					}
+					// An edited item no longer waits for the turn; it is guided again explicitly.
+					if err = order([]protocol.TurnID{guided, held}, nil, nil); err != nil {
+						return err
+					}
+					if _, err = command("guide_queued_turn", &protocol.CommandGuideQueuedTurnPayload{Turn: guided, Recipient: turn, ExpectedRevision: revision(guided)}); err != nil {
+						return err
+					}
+					if _, err = command("guide_queued_turn", &protocol.CommandGuideQueuedTurnPayload{Turn: held, Recipient: turn, ExpectedRevision: revision(held)}); err != nil {
+						return err
+					}
+					if err = order([]protocol.TurnID{guided, held}, &turn, &turn); err != nil {
+						return err
+					}
+					if _, err = command("withdraw_guidance", &protocol.CommandWithdrawGuidancePayload{Turn: held, ExpectedRevision: revision(held)}); err != nil {
+						return err
+					}
+					if _, item, _ := queueFixtureItem(ctx, db, session.ID, held); item == nil || item.Guidance != nil || item.Ready {
+						return errors.New("withdrawn guidance is not a held item")
+					}
+					if _, err = command("withdraw_guidance", &protocol.CommandWithdrawGuidancePayload{Turn: held, ExpectedRevision: revision(held)}); !providerFixtureFault(err, protocol.ErrorCodeConflict) {
+						return fmt.Errorf("second withdrawal = %v", err)
+					}
+					queue, err := ReadQueue(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if _, err = command("move_queued_turn", &protocol.CommandMoveQueuedTurnPayload{Session: session.ID, ExpectedRevision: queue.Revision, Turn: held, Before: &guided}); err != nil {
+						return err
+					}
+					if _, err = command("move_queued_turn", &protocol.CommandMoveQueuedTurnPayload{Session: session.ID, ExpectedRevision: queue.Revision, Turn: guided, Before: &held}); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
+						return fmt.Errorf("stale move = %v", err)
+					}
+					if err = order([]protocol.TurnID{held, guided}, nil, &turn); err != nil {
+						return err
+					}
+					// Pausing returns waiting guidance to the queue and holds everything.
+					if queue, err = ReadQueue(ctx, db, session.ID); err != nil {
+						return err
+					}
+					if _, err = command("set_queue_paused", &protocol.CommandSetQueuePausedPayload{Session: session.ID, ExpectedRevision: queue.Revision, Paused: true}); err != nil {
+						return err
+					}
+					if batch, _, err := TakeGuidance(ctx, db, turn); err != nil || len(batch) != 0 {
+						return fmt.Errorf("a paused queue delivered guidance: %v", err)
+					}
+					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if next, _, err := ClaimNext(ctx, db, now); err != nil || next != nil {
+						return fmt.Errorf("a paused queue started input: %v", err)
+					}
+					// A session with waiting input cannot be deleted; archiving keeps the queue.
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if _, _, err = removeSession(ctx, db, session.ID, current.Revision); !providerFixtureFault(err, protocol.ErrorCodeBusy) {
+						return fmt.Errorf("session with queued input was deleted: %v", err)
+					}
+					if _, _, err = archiveSession(ctx, db, protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: current.Revision, Archived: true}); err != nil {
+						return err
+					}
+					if err = order([]protocol.TurnID{held, guided}, nil, nil); err != nil {
+						return err
+					}
+					if _, err = command("remove_queued_turn", &protocol.CommandRemoveQueuedTurnPayload{Turn: held, ExpectedRevision: revision(held)}); err != nil {
+						return err
+					}
+					if queue, err = ReadQueue(ctx, db, session.ID); err != nil {
+						return err
+					}
+					if _, err = command("set_queue_paused", &protocol.CommandSetQueuePausedPayload{Session: session.ID, ExpectedRevision: queue.Revision, Paused: false}); err != nil {
+						return err
+					}
+					next, _, err := ClaimNext(ctx, db, now)
+					if err != nil {
+						return err
+					}
+					if next == nil || next.Run.Turn != guided || next.Message.Text != "Edited" {
+						return errors.New("the resumed queue did not start the edited item")
+					}
+					// A compaction item is not guidance and has no editable input.
+					if current, err = ReadSession(ctx, db, session.ID); err != nil {
+						return err
+					}
+					output, err := command("compact_context", &protocol.CommandCompactContextPayload{Session: session.ID, ExpectedRevision: current.Revision})
+					if err != nil {
+						return err
+					}
+					compaction := output.Data.(protocol.QueuedTurn).ID
+					if _, err = command("guide_queued_turn", &protocol.CommandGuideQueuedTurnPayload{Turn: compaction, Recipient: guided, ExpectedRevision: revision(compaction)}); !providerFixtureFault(err, protocol.ErrorCodeConflict) {
+						return fmt.Errorf("guided compaction = %v", err)
+					}
+					if again, _, err := ClaimNext(ctx, db, now); err != nil || again != nil {
+						return fmt.Errorf("compaction started beside the running turn: %v", err)
 					}
 				}
 				return nil

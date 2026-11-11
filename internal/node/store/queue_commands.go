@@ -293,6 +293,37 @@ func reorderQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID,
 	}
 	return bumpQueue(ctx, db, session)
 }
+
+// sameCapture reports whether two turns froze the same execution settings:
+// model, mode and permissions, roles, plugins and hooks. Guidance may join
+// only a turn it would have run identically to.
+func sameCapture(ctx context.Context, db *sql.Conn, a, b protocol.TurnID) (bool, error) {
+	var frozen [2][]byte
+	for i, turn := range []protocol.TurnID{a, b} {
+		capture, err := readTurnCapture(ctx, db, turn)
+		if err != nil {
+			return false, err
+		}
+		var hooks []byte
+		if err = db.QueryRowContext(ctx, "SELECT hooks FROM agent_runs WHERE turn=?1", turn.String()).Scan(&hooks); err != nil {
+			return false, err
+		}
+		if frozen[i], err = encode(struct {
+			Config  any
+			Roles   any
+			Plugins any
+			Hooks   string
+		}{capture.Config, capture.Roles, capture.Plugins, string(hooks)}); err != nil {
+			return false, err
+		}
+	}
+	return bytes.Equal(frozen[0], frozen[1]), nil
+}
+
+// tagGuidance addresses a queued input to the running turn. Compatible input
+// waits for that turn's next boundary, placed after the guidance already
+// waiting for it and ahead of ordinary items; input with other settings stays
+// an ordinary ready item in its place.
 func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID) error {
 	source, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
@@ -302,32 +333,87 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 	if err != nil {
 		return err
 	}
-	if target.Status != protocol.ConversationStatusRunning || target.Session != source.Session || target.Worktree != source.Worktree {
+	if target.Kind != protocol.ConversationRunKindTask || target.Status != protocol.ConversationStatusRunning {
+		return fault(protocol.ErrorCodeConflict, "guidance requires an active task recipient")
+	}
+	if source.Kind != protocol.ConversationRunKindTask || source.Notice || source.Continuation != nil || target.Session != source.Session || target.Worktree != source.Worktree {
 		return fault(protocol.ErrorCodeConflict, "guidance belongs to another execution scope")
 	}
-	a, err := readTurnCapture(ctx, db, turn)
+	compatible, err := sameCapture(ctx, db, turn, recipient)
 	if err != nil {
 		return err
 	}
-	b, err := readTurnCapture(ctx, db, recipient)
-	if err != nil {
-		return err
-	}
-	aa, _ := encode(a.Config)
-	bb, _ := encode(b.Config)
 	source.Guidance = &recipient
 	if err = putAgentRun(ctx, db, source); err != nil {
 		return err
 	}
-	if !bytes.Equal(aa, bb) {
+	if !compatible {
+		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
+			return err
+		}
 		_, err = startQueued(ctx, db, turn)
 		return err
 	}
 	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1", turn.String(), recipient.String()); err != nil {
 		return err
 	}
-	_, err = startQueued(ctx, db, turn)
-	return err
+	if _, err = startQueued(ctx, db, turn); err != nil {
+		return err
+	}
+	queue, err := ReadQueue(ctx, db, source.Session)
+	if err != nil {
+		return err
+	}
+	others := []protocol.TurnID{}
+	last := -1
+	for _, item := range queue.Items {
+		if item.Turn == turn {
+			continue
+		}
+		if item.Guidance != nil && *item.Guidance == recipient {
+			last = len(others)
+		}
+		others = append(others, item.Turn)
+	}
+	var before *protocol.TurnID
+	if last+1 < len(others) {
+		before = &others[last+1]
+	}
+	return reorderQueue(ctx, db, source.Session, turn, before)
+}
+
+// addressSuccessors batches guidance that outlived its recipient. When the
+// first such input starts its own turn, the inputs sent to the same recipient
+// that directly follow it are addressed to that turn, so they join it
+// together before its first model step instead of each being answered alone.
+func addressSuccessors(ctx context.Context, db *sql.Conn, primary protocol.ConversationRun) error {
+	if primary.Kind != protocol.ConversationRunKindTask || primary.Guidance == nil || primary.Notice || primary.Continuation != nil {
+		return nil
+	}
+	queue, err := ReadQueue(ctx, db, primary.Session)
+	if err != nil {
+		return err
+	}
+	for _, item := range queue.Items {
+		if item.Turn == primary.Turn {
+			continue
+		}
+		run, err := ReadAgentRun(ctx, db, item.Turn)
+		if err != nil {
+			return err
+		}
+		if item.Guidance != nil || !item.Ready || item.Notice || run.Kind != protocol.ConversationRunKindTask || run.Status != protocol.ConversationStatusQueued || run.Continuation != nil || run.Guidance == nil || *run.Guidance != *primary.Guidance {
+			return nil
+		}
+		compatible, err := sameCapture(ctx, db, item.Turn, primary.Turn)
+		if err != nil || !compatible {
+			return err
+		}
+		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1", item.Turn.String(), primary.Turn.String()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // releaseGuidance returns guidance its finished recipient never joined to the
@@ -385,7 +471,9 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 			return nil, nil, e
 		}
 		run.Joined = &recipient
-		run.Guidance = &recipient
+		if run.Guidance == nil {
+			run.Guidance = &recipient
+		}
 		run.Status = protocol.ConversationStatusCompleted
 		run.StartedMs = target.StartedMs
 		run.FinishedMs = target.StartedMs
