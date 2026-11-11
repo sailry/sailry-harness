@@ -29,7 +29,7 @@ import (
 // a Settings page. Files and Git stay native core pages.
 var pluginAuditPackages = []string{
 	"activity-board", "browser", "city-trader", "databases", "doudizhu", "external-browser", "gomoku",
-	"liars-dice", "media", "memory", "poker", "reminders", "reversi", "scheduled-tasks", "ssh",
+	"liars-dice", "memory", "poker", "reminders", "reversi", "scheduled-tasks", "ssh",
 	"statistics", "task-plaza", "web-search", "xiangqi",
 }
 

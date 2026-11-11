@@ -1913,6 +1913,7 @@ updates_receipt_failed: The update was installed; could not save recovery detail
 updates_profile_inside: The data profile is inside Sailry; move it before updating
 compatibility_update_unavailable: This version is not available for automatic update yet
 settings_media: Media models
+settings_media_description: Manage models for image, audio and video tasks
 provider_cap_vision: Vision
 provider_cap_tools: Tools
 provider_cap_reasoning: Reasoning

@@ -1,0 +1,268 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "media",
+  "version": "0.1.4",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": [
+        "media.inspect",
+        "media.image",
+        "media.video",
+        "media.settings.read",
+        "media.settings.write"
+      ],
+      "settings_page": {
+        "navigation": {
+          "label": "Media models",
+          "locales": {
+            "zh-CN": "媒体模型"
+          },
+          "icon": {
+            "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><line x1=\"22\" x2=\"2\" y1=\"6\" y2=\"6\" /><line x1=\"22\" x2=\"2\" y1=\"18\" y2=\"18\" /><line x1=\"6\" x2=\"6\" y1=\"2\" y2=\"22\" /><line x1=\"18\" x2=\"18\" y1=\"2\" y2=\"22\" /></svg>"
+          }
+        },
+        "placement": {
+          "group": "ai",
+          "order": 200
+        },
+        "entry": "dev.sailry.platform/desktop/settings.js"
+      },
+      "tools": [
+        {
+          "name": "inspect_image",
+          "presentation": "summary",
+          "description": "Ask the admitted session model about one image; an explicit fallback is used only when unsupported. Supply a worktree-relative path or an attachment ID from this conversation and a question in prompt. Do not replay an uncertain request.",
+          "handler": {
+            "name": "inspect",
+            "operation": "media.inspect",
+            "result": "result",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "prompt": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Select exactly one image source: path or attachment, never both."
+                },
+                "attachment": {
+                  "type": "string",
+                  "description": "Select exactly one image source: attachment or path, never both."
+                }
+              },
+              "required": [
+                "prompt"
+              ],
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  "then": {
+                    "not": {
+                      "required": [
+                        "attachment"
+                      ]
+                    }
+                  },
+                  "else": {
+                    "required": [
+                      "attachment"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "display": {
+            "label": "Inspect image",
+            "locales": {
+              "zh-CN": "识别图片",
+              "zh-TW": "檢視圖片",
+              "ja": "画像を確認",
+              "ko": "이미지 확인",
+              "fr": "Examiner l’image",
+              "de": "Bild untersuchen",
+              "es": "Examinar imagen",
+              "pt-BR": "Examinar imagem",
+              "ru": "Осмотреть изображение",
+              "en": "Inspect image"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><line x1=\"22\" x2=\"2\" y1=\"6\" y2=\"6\" /><line x1=\"22\" x2=\"2\" y1=\"18\" y2=\"18\" /><line x1=\"6\" x2=\"6\" y1=\"2\" y2=\"22\" /><line x1=\"18\" x2=\"18\" y1=\"2\" y2=\"22\" /></svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              }
+            },
+            "output": {
+              "paths": {
+                "value": {
+                  "source": "arguments",
+                  "path": "/path"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "generate_image",
+          "presentation": "details",
+          "description": "Generate a real PNG with the admitted session model; an explicit fallback is used only when unsupported. Describe the subject, purpose, style, composition and constraints in prompt. Save under assets/generated without replacing existing files. file_name is an optional plain .png name. Do not substitute SVG or replay an uncertain generation.",
+          "handler": {
+            "name": "image",
+            "operation": "media.image",
+            "result": "result",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "prompt": {
+                  "type": "string"
+                },
+                "file_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Generate image",
+            "locales": {
+              "zh-CN": "生成图片",
+              "zh-TW": "生成圖片",
+              "ja": "画像を生成",
+              "ko": "이미지 생성",
+              "fr": "Générer une image",
+              "de": "Bild erzeugen",
+              "es": "Generar imagen",
+              "pt-BR": "Gerar imagem",
+              "ru": "Создать изображение",
+              "en": "Generate image"
+            },
+            "output": {
+              "body": {
+                "text": {
+                  "source": "arguments",
+                  "path": "/prompt"
+                },
+                "path": {
+                  "source": "result",
+                  "path": "/path"
+                }
+              }
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><line x1=\"22\" x2=\"2\" y1=\"6\" y2=\"6\" /><line x1=\"22\" x2=\"2\" y1=\"18\" y2=\"18\" /><line x1=\"6\" x2=\"6\" y1=\"2\" y2=\"22\" /><line x1=\"18\" x2=\"18\" y1=\"2\" y2=\"22\" /></svg>"
+            }
+          }
+        },
+        {
+          "name": "generate_video",
+          "presentation": "details",
+          "description": "Generate a video with the admitted session model; an explicit fallback is used only when unsupported. Save under assets/generated without replacing existing files. file_name is an optional plain name ending in .mp4. Stopping local work does not cancel a job already accepted by the provider. Do not replay an uncertain generation.",
+          "handler": {
+            "name": "video",
+            "operation": "media.video",
+            "result": "result",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "prompt": {
+                  "type": "string"
+                },
+                "file_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Generate video",
+            "locales": {
+              "zh-CN": "生成视频",
+              "zh-TW": "生成影片",
+              "ja": "動画を生成",
+              "ko": "동영상 생성",
+              "fr": "Générer une vidéo",
+              "de": "Video erzeugen",
+              "es": "Generar vídeo",
+              "pt-BR": "Gerar vídeo",
+              "ru": "Создать видео",
+              "en": "Generate video"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><line x1=\"22\" x2=\"2\" y1=\"6\" y2=\"6\" /><line x1=\"22\" x2=\"2\" y1=\"18\" y2=\"18\" /><line x1=\"6\" x2=\"6\" y1=\"2\" y2=\"22\" /><line x1=\"18\" x2=\"18\" y1=\"2\" y2=\"22\" /></svg>"
+            },
+            "output": {
+              "paths": {
+                "value": {
+                  "source": "result",
+                  "path": "/path"
+                }
+              },
+              "preview": {
+                "parts": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/job"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "display": {
+        "label": "Media",
+        "locales": {
+          "zh-CN": "媒体"
+        },
+        "icon": "reicon:video/image"
+      },
+      "description": {
+        "label": "Generate images and work with media",
+        "locales": {
+          "zh-CN": "生成图片与处理媒体"
+        }
+      },
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": [
+          "dev.sailry.platform/host/main.js"
+        ],
+        "handlers": [
+          "inspect",
+          "image",
+          "video",
+          "result"
+        ]
+      },
+      "desktop": {
+        "resources": [
+          "dev.sailry.platform/desktop/settings.js",
+          "dev.sailry.platform/desktop/view.js",
+          "dev.sailry.platform/desktop/locales.js"
+        ]
+      },
+      "category": "data",
+      "tint": "teal"
+    }
+  }
+}

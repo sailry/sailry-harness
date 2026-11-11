@@ -1913,6 +1913,7 @@ updates_receipt_failed: Обновление было установлено; н
 updates_profile_inside: Профиль данных находится внутри Sailry; переместите его перед обновлением
 compatibility_update_unavailable: Эта версия пока недоступна для автоматического обновления
 settings_media: Фотомодели СМИ
+settings_media_description: Управление моделями для изображений, аудио и видео задач
 provider_cap_vision: Видение
 provider_cap_tools: Инструменты
 provider_cap_reasoning: Обоснование

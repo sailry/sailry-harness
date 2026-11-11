@@ -1,0 +1,94 @@
+[
+  {
+    "name": "inspect_image",
+    "operation": "media.inspect",
+    "description": "Ask a vision model about one image. The model assigned to Vision in Media models answers; without an assignment the conversation model does. Supply a worktree-relative path or an attachment ID from this conversation and a question in prompt. Do not replay an uncertain request.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "Select exactly one image source: path or attachment, never both."
+        },
+        "attachment": {
+          "type": "string",
+          "description": "Select exactly one image source: attachment or path, never both."
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "path"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "attachment"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "attachment"
+            ]
+          }
+        }
+      ]
+    },
+    "read_only": true,
+    "concurrent": false
+  },
+  {
+    "name": "generate_image",
+    "operation": "media.image",
+    "description": "Generate a real PNG with the model assigned to Image in Media models; without an assignment the conversation model generates it. Describe the subject, purpose, style, composition and constraints in prompt. Save under assets/generated without replacing existing files. file_name is an optional plain .png name. Do not substitute SVG or replay an uncertain generation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "file_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "name": "generate_video",
+    "operation": "media.video",
+    "description": "Generate a video with the model assigned to Video in Media models; without an assignment the conversation model generates it. Save under assets/generated without replacing existing files. file_name is an optional plain name ending in .mp4. Stopping local work does not cancel a job already accepted by the provider. Do not replay an uncertain generation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "file_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
+  }
+]

@@ -28,6 +28,7 @@ const (
 	Plugins      Section = "settings_plugins"
 	Skills       Section = "settings_skills"
 	Knowledge    Section = "settings_knowledge"
+	Media        Section = "settings_media"
 	Decision     Section = "settings_decision"
 	Terminal     Section = "settings_terminal"
 	Connections  Section = "settings_connections"
@@ -56,7 +57,7 @@ var Groups = []struct {
 	}},
 	{"settings_group_ai", []Item{
 		{Providers, icons.Cpu}, {Connectors, icons.Plug}, {Teams, icons.Users}, {Plugins, icons.Gallery},
-		{Skills, icons.Bot}, {Knowledge, icons.BookOpen}, {Decision, icons.BrainCircuit},
+		{Skills, icons.Bot}, {Knowledge, icons.BookOpen}, {Media, icons.Image}, {Decision, icons.BrainCircuit},
 	}},
 	{"settings_group_tools", []Item{
 		{Terminal, icons.Terminal}, {Connections, icons.Network}, {Hooks, icons.Settings2},
@@ -143,7 +144,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		desc = i18n.T(c, desc)
 	}
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
-		if s.Live && s.Section != General && s.Section != Appearance && s.Section != Conversation && s.Section != Shortcuts && s.Section != Providers && s.Section != Hooks && s.Section != Connections && s.Section != Plugins && s.Section != Skills && s.Section != Runtime && s.Section != Connectors && s.Section != Terminal && s.Section != Dictation && s.Section != OCR && s.Section != Knowledge && s.Section != Decision && s.Section != Permissions && s.Section != Backup && s.Section != About {
+		if s.Live && s.Section != General && s.Section != Appearance && s.Section != Conversation && s.Section != Shortcuts && s.Section != Providers && s.Section != Hooks && s.Section != Connections && s.Section != Plugins && s.Section != Skills && s.Section != Runtime && s.Section != Connectors && s.Section != Terminal && s.Section != Dictation && s.Section != OCR && s.Section != Knowledge && s.Section != Media && s.Section != Decision && s.Section != Permissions && s.Section != Backup && s.Section != About {
 			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable"), Card: true})
 			return
 		}
@@ -168,6 +169,8 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			plugins(c, s)
 		case Skills:
 			skills(c, s)
+		case Media:
+			mediaModels(c, s.Model)
 		case Terminal:
 			terminal(c, s.Model)
 		case Connections:

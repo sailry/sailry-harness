@@ -1913,6 +1913,7 @@ updates_receipt_failed: La mise à jour a été installée; impossible d'enregis
 updates_profile_inside: Le profil de données est à l'intérieur de Sailry; déplacez-le avant la mise à jour
 compatibility_update_unavailable: Cette version ne permet pas encore la mise à jour automatique
 settings_media: Modèles de médias
+settings_media_description: Gérer les modèles pour les tâches image, audio et vidéo
 provider_cap_vision: Vision
 provider_cap_tools: Outils
 provider_cap_reasoning: Raisonnement

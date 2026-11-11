@@ -10,7 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Providers › Media models: the model the Node uses for vision
+// Settings › Media models: the model the Node uses for vision
 // and for generating images, video and speech. The assignments and the
 // models offered are read again whenever the providers or the assignments
 // change, and a choice saves all four at the revision read.

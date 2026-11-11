@@ -112,7 +112,7 @@ func BeginApproval(ctx context.Context, db *sql.Conn, turn protocol.TurnID, iden
 		return value, nil, err
 	}
 	if binding != nil {
-		if binding.Tool != identity.Name || !containsPlugin(capture.Plugins, binding.Owner) {
+		if binding.Tool != identity.Name || !approvalOwnerAdmitted(capture.Plugins, binding.Owner) {
 			return value, nil, fault(protocol.ErrorCodePermissionDenied, "approval owner is outside the admitted tool catalog")
 		}
 	}
@@ -186,6 +186,12 @@ func BeginApproval(ctx context.Context, db *sql.Conn, turn protocol.TurnID, iden
 	}
 	events, err := activityEvent(ctx, db, run.Session)
 	return value, events, err
+}
+
+// approvalOwnerAdmitted reports whether the binding's owner is in the turn's
+// catalog. A binding without an owner belongs to one of the Node's own tools.
+func approvalOwnerAdmitted(values []protocol.PluginReference, owner protocol.PluginReference) bool {
+	return owner == protocol.PluginReference{} || containsPlugin(values, owner)
 }
 func containsPlugin(values []protocol.PluginReference, want protocol.PluginReference) bool {
 	a, _ := encode(want)
@@ -287,7 +293,7 @@ func resolveApproval(ctx context.Context, db *sql.Conn, input protocol.CommandRe
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if binding.Tool != call.Name || !containsPlugin(capture.Plugins, binding.Owner) {
+		if binding.Tool != call.Name || !approvalOwnerAdmitted(capture.Plugins, binding.Owner) {
 			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "approval owner is outside the admitted tool catalog")
 		}
 		body, e := encode(choice)

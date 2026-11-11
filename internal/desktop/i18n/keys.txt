@@ -1925,6 +1925,7 @@ updates_receipt_failed
 updates_profile_inside
 compatibility_update_unavailable
 settings_media
+settings_media_description
 provider_cap_vision
 provider_cap_tools
 provider_cap_reasoning

@@ -214,5 +214,41 @@
     "es": "Aplicar equipo",
     "pt-BR": "Aplicar equipe",
     "ru": "Применить команду"
+  },
+  "tool_inspect_image": {
+    "en": "Inspect image",
+    "zh-CN": "识别图片",
+    "zh-TW": "檢視圖片",
+    "ja": "画像を確認",
+    "ko": "이미지 확인",
+    "fr": "Examiner l’image",
+    "de": "Bild untersuchen",
+    "es": "Examinar imagen",
+    "pt-BR": "Examinar imagem",
+    "ru": "Осмотреть изображение"
+  },
+  "tool_generate_image": {
+    "en": "Generate image",
+    "zh-CN": "生成图片",
+    "zh-TW": "生成圖片",
+    "ja": "画像を生成",
+    "ko": "이미지 생성",
+    "fr": "Générer une image",
+    "de": "Bild erzeugen",
+    "es": "Generar imagen",
+    "pt-BR": "Gerar imagem",
+    "ru": "Создать изображение"
+  },
+  "tool_generate_video": {
+    "en": "Generate video",
+    "zh-CN": "生成视频",
+    "zh-TW": "生成影片",
+    "ja": "動画を生成",
+    "ko": "동영상 생성",
+    "fr": "Générer une vidéo",
+    "de": "Video erzeugen",
+    "es": "Generar vídeo",
+    "pt-BR": "Gerar vídeo",
+    "ru": "Создать видео"
   }
 }

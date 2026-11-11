@@ -141,7 +141,7 @@ func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool 
 	switch selection.Kind {
 	case "builtin":
 		var value protocol.PluginConversationToolBuiltinPayload
-		return json.Unmarshal(raw, &value) == nil && tool.Binding == nil && tool.Definition.Name == value.Name
+		return json.Unmarshal(raw, &value) == nil && (tool.Binding == nil || tool.Binding.Owner.Name == "") && tool.Definition.Name == value.Name
 	case "package":
 		var value protocol.PluginConversationToolPackagePayload
 		return json.Unmarshal(raw, &value) == nil && tool.Binding != nil && tool.Binding.Owner.Name == value.Package && tool.Definition.Name == operations.Alias(value.Package, value.Name)

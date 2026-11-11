@@ -633,6 +633,13 @@ graph fields and sets `graph_unavailable` to a short reason. File reads check
 each selected revision; stale ranges never expand against new source. Abandoning a Client search or outline sends its
 scoped `cancel_code_index_query` while the transport runtime remains available.
 
+`media.settings.read` and `media.settings.write` authorize
+`readMediaSettings`, `listMediaModels` and `prepareMediaSettings` on the
+captured settings surface. Image inspection and image and video generation are
+built-in tools (`inspect_image`, `generate_image`, `generate_video`): the
+actions and handler operations `media.inspect`, `media.image` and `media.video`
+still validate, but a declaration that names one binds no tool.
+
 `code.index.settings.read` and `code.index.settings.write` expose the Node index
 enable setting on the captured settings surface, without a worktree, session,
 turn or callback invocation. `web.settings.read` and `web.settings.write` retain

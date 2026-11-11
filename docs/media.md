@@ -2,8 +2,10 @@
 
 Node owns media routing in `internal/node/media_tools.go`, the assignments in
 `internal/node/store/media.go` and the provider calls in
-`internal/node/agent/model/media.go`. The bundled `media` package declares the
-agent tools; Node binds them. Preview data never calls a media model.
+`internal/node/agent/model/media.go`. The three agent tools are built in: their
+specifications are `internal/node/agent/operations/media.json` and Node binds
+them for each turn. No plugin package takes part. Preview data never calls a
+media model.
 
 ## Capability tags
 
@@ -70,9 +72,17 @@ bound never leaves part of a credential.
 
 ## Tools
 
-The `media` package declares `inspect_image`, `generate_image` and
-`generate_video`. A declared tool exists for a turn only when its kind routed.
-Inspection is read-only. Generation needs approval and is refused in plan mode.
+`inspect_image`, `generate_image` and `generate_video` are built-in tools under
+those plain names. A tool exists for a turn only when its kind routed.
+Inspection is read-only. Generation needs approval and is refused in plan mode;
+the approval is bound to the tool and operation without a plugin owner, and
+approving for the session is remembered. Labels and input and output display
+come from the engine's core tool presentation.
+
+`inspect_image` takes `prompt` and exactly one of `path` or `attachment`.
+Generation takes `prompt` and an optional plain `file_name`; the result is
+saved as `assets/generated/<file_name>`, named by a new identifier when the
+name is absent.
 
 Generation checks the output path before the provider call: it is
 worktree-relative, ends in `.png` or `.mp4` and names no existing file. The
@@ -82,6 +92,18 @@ result carries `path`, `media_type`, `size`, `provider`, `model` and a video
 conversation shows it; it is never sent back to the model. A video job that the
 provider accepted but whose result was not saved answers `outcome_unknown` and
 names the job.
+
+### Retired media package
+
+The bundled `media` package that declared these tools and a settings page is
+retired (`plugins.RetiredBundled`). At start Node removes a bundled-origin
+installation of it: the removal is recorded, the package is not installed
+again, and its captured versions stay readable for sent turns. A package from
+another source that declares a handler operation `media.inspect`, `media.image`
+or `media.video` still validates, but the declaration binds no tool. The plugin
+actions `media.settings.read` and `media.settings.write` still authorize the
+assignment commands. Records written under the package's tool aliases keep the
+presentation stored with them, so earlier conversations display unchanged.
 
 Each provider call records usage under the provider and model that ran it,
 marked with its media kind and hidden from the transcript and the model.
@@ -106,7 +128,7 @@ contracts and all routing.
 | Capability boxes | Settings › Providers › provider editor › model form, above Reasoning levels | `settings/providers.go` `capabilityForm` |
 | Capability marks | Provider rows' model chips; composer model picker rows | `settings/providers.go` `capabilityMarks`, `composer/models.go` `modelRow` |
 | Capability filter | Composer model picker's rail, under the families | `composer/models.go` `modelPicker` |
-| Media models | Settings › Providers, between Model data and Channels | `settings/providers.go` `mediaModels`, `live/settings_media.go` |
+| Media models | Settings › Media models, in the AI group after Knowledge | `settings/media.go` `mediaModels`, `live/settings_media.go` |
 | Read aloud | The turn's existing Read aloud / Stop reading action | `reader`, bound in `cmd/sailry-desktop` |
 
 The boxes are grouped Understands: Image; Can: Tools, Reasoning; Generates:
@@ -131,7 +153,8 @@ one again clears it.
 on the local Node whenever the snapshot's media revision or a provider's
 revision changes. A change that arrives during a read is read for when that
 read ends, and an answer older than the revision shown, as one overtaken by
-a save, is dropped. Each of the four rows (Vision, Image, Video, Speech) is a
+a save, is dropped. The section shows its title and description over one card
+without a group heading. Each of the four rows (Vision, Image, Video, Speech) is a
 Kit select of the candidates for that kind under Follow conversation model,
 which is an absent binding. A choice sends `save_media_settings` with all
 four bindings at the revision read. Failure, conflict and an uncertain
@@ -156,20 +179,25 @@ request under way and the clip playing.
 
 ## Tests
 
-`TestMediaSettings` (`internal/desktop/live`) drives the Providers page
+`TestMediaSettings` (`internal/desktop/live`) drives the Media models section
 against a fake Node: each row's options, the bindings and revision a choice
 saves, the draft and toast after conflict, failure and an uncertain outcome,
 the unavailable mark, and the tags a provider save sends.
 `TestProviderEditor` (`internal/desktop/settings`) covers the boxes showing
-tags, the Image rule and the draft handed to the save. `TestReadAloud`
+tags, the Image rule and the draft handed to the save.
+`TestSettingsSectionsOpen` (`internal/desktop/shell`) checks that the section
+has one navigation entry and four rows and that Models has none. `TestReadAloud`
 (`internal/desktop/reader`) covers parts, order, every fallback and Stop
 with a fake voice, player and OS speech. Its one clip for the real player
 is sixteen silent frames and a frame that fails to decode, heard as nothing
 and played into MyGo's null device where the machine has no output.
 
 `TestMediaDrivers` covers the channel table and request shapes against local
-fakes. `TestMediaTools` covers routing, a real turn that generates and inspects
-an image, output confinement, plan mode and speech. The store fixture
+fakes. `TestMediaTools` covers a profile with the retired package starting
+without it, routing, a real turn in which the model is offered and calls the
+built-in tools with no media package installed, no tool for a model without
+the capability, output confinement, the remembered session approval, plan mode
+and speech. The store fixture
 `provider_capability_tags_and_media_assignments` covers tags surviving a catalog
 refresh and assignment validation. No real provider is called.
 
@@ -181,7 +209,8 @@ refresh and assignment validation. No real provider is called.
 | `use_media` is not a routed controller command | It only identifies the approval; the engine tool runs the operation |
 | Account sign-in variants of the hosted image tool are untested | Tests use API-key fakes only |
 | The capability filter is in the composer picker's rail, not on the Providers page | The picker already filters by family there; the Providers page keeps its search and provider-type filter unchanged |
-| Media models sit on the Providers page | Desktop has no Media section |
+| The retired package's `imagegen` skill has no core counterpart | Core has no built-in skills; the tool description carries the rule |
+| Protocol keeps the `media.inspect`, `media.image` and `media.video` action and operation values | Stored plugin records, approvals and captures decode strictly |
 | A hosted image tool unticked and saved comes back as `image` when ticked later | The editor only knows the hosted tool from the tags it opened with |
 | Media models and the read-aloud voice are the local Node's | The page's other Node settings are too; read aloud is a controller effect |
 | MP3 playback through real audio hardware is not covered by tests | Tests replace the player; the decoder and output are MyGo's |

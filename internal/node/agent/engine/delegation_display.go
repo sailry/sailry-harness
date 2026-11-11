@@ -41,7 +41,8 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 			name = value.Name
 		}
 		manager, catalog := managementLabels[name], slices.Contains(catalogToolNames, name)
-		if !slices.Contains([]string{"spawn_agent", "guide_agent", "wait_agent", "load_skill", "read_skill_resource"}, name) && manager == "" && !catalog || findTool(owner.tools, name) == nil {
+		media, shown := mediaDisplays()[name]
+		if !slices.Contains([]string{"spawn_agent", "guide_agent", "wait_agent", "load_skill", "read_skill_resource"}, name) && manager == "" && !catalog && !shown || findTool(owner.tools, name) == nil {
 			continue
 		}
 		if record.Metadata.Presentation == nil {
@@ -69,6 +70,14 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 			}
 		}
 		field := func(path string) *protocol.ToolDisplayField { return &protocol.ToolDisplayField{Path: path} }
+		if shown {
+			media.Label, media.Locales = display.Label, display.Locales
+			if name == "inspect_image" {
+				p.Tools[name] = protocol.ToolPresentationSummary
+			}
+			p.Displays[name] = media
+			continue
+		}
 		if manager != "" {
 			display.Input = &protocol.ToolDisplayInput{Summary: field("/name")}
 			display.Output = managementOutput(name)
@@ -133,3 +142,17 @@ func managementOutput(name string) *protocol.ToolDisplayProjectionOutput {
 	}
 	return &output
 }
+
+// mediaDisplays are how the media tools' calls are shown: the inspected
+// path, the generated image under its prompt, and a video's path and job.
+var mediaDisplays = sync.OnceValue(func() map[string]protocol.ToolDisplay {
+	var values map[string]protocol.ToolDisplay
+	if err := json.Unmarshal([]byte(`{
+		"inspect_image":{"label":"","locales":{},"icon":"reicon:video/image","input":{"summary":{"path":"/path","code":true}},"output":{"paths":{"value":{"source":"arguments","path":"/path"}}}},
+		"generate_image":{"label":"","locales":{},"icon":"reicon:video/image","output":{"body":{"text":{"source":"arguments","path":"/prompt"},"path":{"source":"result","path":"/path"}}}},
+		"generate_video":{"label":"","locales":{},"icon":"reicon:video/image","output":{"paths":{"value":{"source":"result","path":"/path"}},"preview":{"parts":[{"value":{"source":"result","path":"/job"}}]}}}
+	}`), &values); err != nil {
+		panic(err)
+	}
+	return values
+})

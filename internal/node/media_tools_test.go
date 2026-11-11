@@ -22,6 +22,7 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/process"
@@ -106,9 +107,11 @@ func (eyes *mediaEyes) Stream(_ context.Context, call fantasy.Call) (fantasy.Str
 	}, nil
 }
 
-// TestMediaTools proves media routing, a real turn that generates and inspects
-// an image through the bundled media package, output confinement, plan mode
-// and read-aloud synthesis against a local fake provider.
+// TestMediaTools proves media routing, the withdrawal of the bundled media
+// package from an existing profile, a real turn that generates and inspects
+// an image with the Node's own tools, a turn whose models offer none, output
+// confinement, plan mode and read-aloud synthesis against a local fake
+// provider.
 func TestMediaTools(t *testing.T) {
 	t.Run("routing", func(t *testing.T) {
 		entry := func(id string, vision bool, generates ...protocol.MediaGeneration) protocol.ConversationModel {
@@ -201,7 +204,7 @@ func TestMediaTools(t *testing.T) {
 		return slices.Clone(requests[path])
 	}
 
-	tool := func(name string) string { return operations.Alias("media", name) }
+	tool := func(name string) string { return name }
 	discover := [3]string{"discover", "tool_search", `{"query":"select:` + strings.Join([]string{tool("generate_image"), tool("inspect_image"), tool("generate_video")}, ",") + `"}`}
 	painter := &mediaScript{results: map[string]string{}, steps: [][][3]string{
 		{discover},
@@ -212,10 +215,17 @@ func TestMediaTools(t *testing.T) {
 		{discover},
 		{{"paint", tool("generate_image"), `{"prompt":"A blue circle","file_name":"circle.png"}`}},
 	}}
+	bare := &mediaScript{results: map[string]string{}, steps: [][][3]string{{discover}}}
+	asker := &mediaScript{results: map[string]string{}, steps: [][][3]string{
+		{discover},
+		{{"first", tool("generate_image"), `{"prompt":"A green triangle","file_name":"first.png"}`}},
+		{{"second", tool("generate_image"), `{"prompt":"A green triangle","file_name":"second.png"}`}},
+	}}
 	eyes := &mediaEyes{}
 	var bound []string
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
+	profile := filepath.Join(t.TempDir(), "profile")
+	options := Options{
 		Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
 			mu.Lock()
 			bound = append(bound, binding.Config.Model)
@@ -225,6 +235,10 @@ func TestMediaTools(t *testing.T) {
 				return painter, nil
 			case "planner":
 				return planner, nil
+			case "bare":
+				return bare, nil
+			case "asker":
+				return asker, nil
 			case "eyes":
 				return eyes, nil
 			}
@@ -233,17 +247,86 @@ func TestMediaTools(t *testing.T) {
 		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(context.Context, process.Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
 			return protocol.ProcessCompletion{}, errors.New("media tools must not launch a process")
 		}},
-	})
+	}
+	// An existing profile holds the bundled media package, enabled, with its
+	// settings page and its three tools.
+	installed := func(node *Node) []string {
+		var names []string
+		for _, summary := range snapshotFixture(t, node).Plugins {
+			if summary.Name == "media" {
+				names = append(names, summary.Name)
+				continue
+			}
+			info := commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: &protocol.CommandReadPluginPayload{Name: summary.Name}}).Data.(protocol.PluginInfo)
+			if info.Extension == nil {
+				continue
+			}
+			for _, declaration := range info.Extension.Tools {
+				if declaration.Handler != nil && declaration.Handler.Operation != nil {
+					if _, media := mediaOperationKind(*declaration.Handler.Operation); media {
+						names = append(names, summary.Name+"/"+declaration.Name)
+					}
+				}
+			}
+		}
+		return names
+	}
+	earlier, err := StartWithOptions(t.Context(), profile, options)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if found := installed(earlier); len(found) != 0 {
+		t.Fatalf("a fresh profile holds a media package or a package media tool: %v", found)
+	}
+	fixture, err := filepath.Abs(filepath.Join("testdata", "media-0.1.4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired, err := earlier.plugins.manager.Install(t.Context(), fixture, "", "media")
+	if err != nil || retired.Extension == nil || retired.Extension.SettingsPage == nil || len(retired.Extension.Tools) != 3 {
+		t.Fatalf("media 0.1.4 fixture: %#v %v", retired.Issues, err)
+	}
+	retired.Origin = &protocol.PluginOrigin{Kind: "bundled"}
+	if err := earlier.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		_, err := store.InstallPlugin(t.Context(), db, retired, 0, true)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if found := installed(earlier); !slices.Equal(found, []string{"media"}) {
+		t.Fatalf("the existing profile's media package: %v", found)
+	}
+	if err := earlier.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The same profile starts without the package: it contributes no
+	// settings page and no tool, and it is not installed again.
+	node, err := StartWithOptions(t.Context(), profile, options)
+	if err != nil {
+		t.Fatalf("a profile holding the withdrawn media package did not start: %v", err)
+	}
 	defer node.Stop(context.Background())
-	// The bundled media package is installed and enabled by default.
+	if found := installed(node); len(found) != 0 {
+		t.Fatalf("the withdrawn media package still contributes: %v", found)
+	}
+	var recorded bool
+	var captured protocol.PluginInfo
+	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+		var err error
+		if recorded, err = store.PluginRecorded(t.Context(), db, "media"); err != nil {
+			return err
+		}
+		// A turn that captured the package still resolves its version.
+		captured, err = store.ReadPluginVersion(t.Context(), db, protocol.PluginReference{Name: "media", Digest: retired.Summary.Digest})
+		return err
+	}); err != nil || !recorded || captured.Extension == nil || len(captured.Extension.Tools) != 3 {
+		t.Fatalf("the withdrawal lost the removal record or the captured version: recorded %v, %v", recorded, err)
+	}
 	secret := protocol.NewSecret("media-key")
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Media fixture", true
 	provider.Api, provider.Authentication, provider.Endpoint, provider.DefaultModel = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, server.URL+"/v1", "plain"
-	for _, id := range []string{"plain", "planner", "eyes", "painter", "voice"} {
+	for _, id := range []string{"plain", "planner", "bare", "asker", "eyes", "painter", "voice"} {
 		entry := protocol.DefaultConversationModel()
 		entry.ID, entry.Context, entry.Output, entry.Tools, entry.CustomCapabilities = id, 32000, 8000, true, true
 		switch id {
@@ -282,10 +365,16 @@ func TestMediaTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer subscription.Close()
-	run := func(t *testing.T, name string, mode protocol.WorkMode) (protocol.Session, protocol.ConversationHistory) {
+	// run completes one turn. With a decision the turn asks for approval and
+	// every prompt is answered with it; prompts counts them.
+	prompts := 0
+	run := func(t *testing.T, name string, mode protocol.WorkMode, decision ...string) (protocol.Session, protocol.ConversationHistory) {
 		t.Helper()
 		config := protocol.DefaultSessionConfig()
 		config.Provider, config.Model, config.Mode, config.Permission = provider.ID, name, mode, protocol.PermissionFull
+		if len(decision) != 0 {
+			config.Permission = protocol.PermissionAsk
+		}
 		session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 		commandFixture(t, node, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
 			Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Make a picture"},
@@ -298,6 +387,15 @@ func TestMediaTools(t *testing.T) {
 				return err
 			}); err != nil {
 				t.Fatal(err)
+			}
+			for _, approval := range history.Page.Approvals {
+				if approval.State == protocol.ConversationApprovalStatePending && len(decision) != 0 {
+					if !approval.CanRemember {
+						t.Fatalf("media approval cannot be remembered: %+v", approval)
+					}
+					prompts++
+					commandFixture(t, node, protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: session.ID, Approval: approval.ID, Decision: protocol.ConversationDecision{Kind: decision[0]}}})
+				}
 			}
 			for _, run := range history.Page.Runs {
 				switch run.Status {
@@ -415,29 +513,85 @@ func TestMediaTools(t *testing.T) {
 	t.Run("output path stays inside the worktree", func(t *testing.T) {
 		inv := &store.AgentInvocation{Session: session}
 		inv.Worktree.Path = root
-		operation := protocol.ToolOperationGenerateImage
-		generate := node.mediaTool(inv, protocol.PluginReference{}, tool("generate_image"), operation, protocol.MediaKindImage, mediaRoute{}, nil)
-		before := len(seen("/v1/images/generations"))
-		for path, code := range map[string]protocol.ErrorCode{
-			"../escape.png": "", "/tmp/escape.png": "", "assets/../../escape.png": "", "assets/generated/note.svg": protocol.ErrorCodeInvalidRequest,
-			"assets/generated/square.png": protocol.ErrorCodeConflict,
-		} {
-			arguments, err := json.Marshal(map[string]string{"prompt": "A red square", "path": path})
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = generate.Prepare(t.Context(), canonical.ToolRequest{ID: "confined", Arguments: arguments})
-			var fault *protocol.Fault
-			if err == nil || code != "" && (!errors.As(err, &fault) || fault.Code != code) {
-				t.Fatalf("output path %q was not refused with %q: %v", path, code, err)
+		specs, err := operations.MediaSpecs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var generate engine.Tool
+		for _, spec := range specs {
+			if spec.Name == "generate_image" {
+				if generate, err = node.mediaTool(inv, spec, protocol.MediaKindImage, mediaRoute{}); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
-		if err := generate.Prepare(t.Context(), canonical.ToolRequest{ID: "confined", Arguments: json.RawMessage(`{"prompt":"A red square","path":"assets/generated/other.png"}`)}); err != nil {
+		before := len(seen("/v1/images/generations"))
+		for arguments, code := range map[string]protocol.ErrorCode{
+			`{"prompt":"A red square","file_name":"../escape.png"}`:       protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"A red square","file_name":"/tmp/escape.png"}`:     protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"A red square","file_name":"nested\\escape.png"}`:  protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"A red square","file_name":"note.svg"}`:            protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"A red square","path":"../escape.png"}`:            protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"A red square","file_name":"other.png","extra":1}`: protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"  ","file_name":"other.png"}`:                     protocol.ErrorCodeInvalidRequest,
+			`{"prompt":"A red square","file_name":"square.png"}`:          protocol.ErrorCodeConflict,
+		} {
+			err := generate.Prepare(t.Context(), canonical.ToolRequest{ID: "confined", Arguments: json.RawMessage(arguments)})
+			var fault *protocol.Fault
+			if !errors.As(err, &fault) || fault.Code != code {
+				t.Fatalf("arguments %s were not refused with %q: %v", arguments, code, err)
+			}
+		}
+		if err := generate.Prepare(t.Context(), canonical.ToolRequest{ID: "confined", Arguments: json.RawMessage(`{"prompt":"A red square","file_name":"other.png"}`)}); err != nil {
 			t.Fatalf("confined output path was refused: %v", err)
+		}
+		if err := generate.Prepare(t.Context(), canonical.ToolRequest{ID: "unnamed", Arguments: json.RawMessage(`{"prompt":"A red square"}`)}); err != nil {
+			t.Fatalf("generation without a file name was refused: %v", err)
 		}
 		if _, err := os.Stat(filepath.Join(filepath.Dir(root), "escape.png")); !errors.Is(err, os.ErrNotExist) || len(seen("/v1/images/generations")) != before {
 			t.Fatalf("refused output reached the provider or the disk: %v", err)
 		}
+	})
+
+	t.Run("generation asks and a session approval is remembered", func(t *testing.T) {
+		before := len(seen("/v1/images/generations"))
+		run(t, "asker", protocol.WorkModeCode, "approve_session")
+		asker.mu.Lock()
+		results := asker.results
+		asker.mu.Unlock()
+		for _, name := range []string{"first.png", "second.png"} {
+			if _, err := os.Stat(filepath.Join(root, "assets", "generated", name)); err != nil {
+				t.Fatalf("approved generation did not write %s: %v (%v)", name, err, results)
+			}
+		}
+		if prompts != 1 || len(seen("/v1/images/generations")) != before+2 {
+			t.Fatalf("two generations asked %d times and reached the provider %d times", prompts, len(seen("/v1/images/generations"))-before)
+		}
+	})
+
+	t.Run("no capable model offers no tool", func(t *testing.T) {
+		// Nothing is assigned and the conversation model has no media tag.
+		current := commandFixture(t, node, protocol.Command{Kind: "read_media_settings"}).Data.(protocol.MediaSettings)
+		cleared := assign(current.Revision, map[protocol.MediaKind]string{})
+		before := len(seen("/v1/images/generations"))
+		run(t, "bare", protocol.WorkModeCode)
+		bare.mu.Lock()
+		offered, results := bare.offered, bare.results
+		bare.mu.Unlock()
+		if len(offered) != 2 {
+			t.Fatalf("turn made %d model requests: %v", len(offered), results)
+		}
+		for _, names := range offered {
+			for _, name := range []string{"generate_image", "inspect_image", "generate_video"} {
+				if slices.Contains(names, name) {
+					t.Fatalf("%s was offered without a capable model: %v", name, names)
+				}
+			}
+		}
+		if strings.Contains(results["discover"], "generate_image") || len(seen("/v1/images/generations")) != before {
+			t.Fatalf("tool search found a media tool: %q", results["discover"])
+		}
+		assign(cleared.Revision, map[protocol.MediaKind]string{protocol.MediaKindVision: "eyes", protocol.MediaKindImage: "painter", protocol.MediaKindSpeech: "voice"})
 	})
 
 	t.Run("plan mode refuses generation", func(t *testing.T) {

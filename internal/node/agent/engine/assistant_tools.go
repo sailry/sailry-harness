@@ -16,6 +16,7 @@ var assistantBuiltins = []string{
 	"spawn_agent", "guide_agent", "wait_agent",
 	"list_agents", "add_agent", "edit_agent", "delete_agent", "apply_agents",
 	"list_teams", "add_team", "edit_team", "delete_team", "apply_team",
+	"inspect_image", "generate_image", "generate_video",
 }
 
 // applyAssistant narrows the captured tools to the frozen assistant declaration

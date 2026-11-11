@@ -62,10 +62,14 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 				(invocation.Session.Delegation != nil || invocation.Turn.Config.Resource != nil || invocation.Turn.Roles.Execution != protocol.ConversationExecutionTeam) {
 				continue
 			}
-			// A media tool exists only when its purpose routed to a model, and a
-			// managed browser tool only when this Node can run that browser.
+			// The media tools are the Node's own: a package's declaration of a
+			// media operation binds nothing. A managed browser tool exists
+			// only when this Node can run that browser.
 			if operation := declaration.Handler.Operation; operation != nil {
-				if _, media := mediaOperationKind(*operation); media || *operation == protocol.ToolOperationReadExternalBrowser || *operation == protocol.ToolOperationControlExternalBrowser {
+				if _, media := mediaOperationKind(*operation); media {
+					continue
+				}
+				if *operation == protocol.ToolOperationReadExternalBrowser || *operation == protocol.ToolOperationControlExternalBrowser {
 					if _, bound := native[plugins.ToolAlias(info.Summary.Name, declaration.Name)]; !bound {
 						continue
 					}

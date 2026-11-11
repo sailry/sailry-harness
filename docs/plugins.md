@@ -17,7 +17,10 @@ inventory, configuration and enable choice.
 Bundled defaults are initialized once. Startup refreshes an existing bundled
 package only for strictly newer SemVer precedence and respects removal records.
 Same versions, build metadata changes and older versions do not replace an
-installed package. Application version 0.1.6 is the first Go release; its ported
+installed package. A retired bundled package (`plugins.RetiredBundled`, now
+`media`) is removed at startup when its installation is of bundled origin: the
+removal record and captured versions stay, and its pages, tools and skills no
+longer appear ([media.md](media.md#retired-media-package)). Application version 0.1.6 is the first Go release; its ported
 sources and pinned packages match the reviewed 0.1.5 Desktop/Host; the protocol remains v1.
 
 Repository discovery freezes a Git commit before inspecting or installing files.
@@ -361,4 +364,7 @@ like any MCP tool. Core supplies only the helper:
   Node shutdown. A failed overlay step leaves the launch without an overlay.
 - The retired `computer.read` and `computer.control` operations are not
   registered: the reference keeps them only as unavailable metadata.
+- A declared handler operation `media.inspect`, `media.image` or `media.video`
+  binds no tool: image inspection and image and video generation are built-in
+  tools.
 
