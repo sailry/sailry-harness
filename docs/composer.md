@@ -57,6 +57,8 @@ rebuilt each frame from backend data.
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
+| `Queued.Wait` | Why the row is not starting, in muted text after its label: held until started, paused (by the user, after Stop, after a turn lost its owner), or not sent when its own turn ended before its input was recorded; `live.queueWait` reads it from the item, its run and `Queue.pause_reason` |
+| `Context.Held`, `HeldResult{ID, Title, Wait}` | Finished background results the Node keeps back from automatic delivery (`ConversationBackgroundTask.hold`): rows without actions after the messages, saying why (automatic limit, after Stop, after interruption, after failure, or held). The user's next turn takes them |
 | `Context.Outgoing` | A queued or guiding message still on its way to the Host: the tray's last row, its actions disabled |
 | `Context.Child` | A subagent's session: no composer, a read-only queue tray |
 | `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker ([removed-ui.md](removed-ui.md)). The live window leaves it empty |
@@ -448,6 +450,15 @@ models, features, declared efforts and the family rail; score reads select the
 nearest measured effort. The `@` catalog exposes real context and same-project
 sessions; `/` exposes available models, reasoning, compaction, modes and prompts.
 Later catalogs contribute neither fixture rows nor empty headings.
+
+Guidance sent from the composer is followed until its fate is known
+(`live/composer_context.go`, `guidanceOutcome`): one neutral toast says that it
+is queued as its own turn, either because its settings differ from the running
+turn's (`queue_guidance_separate`, also the answer to `guide_queued_turn`) or
+because the reply ended before it could join (`queue_guidance_outlived`).
+Guidance the user edited, paused or withdrew is not reported. The Rust desktop
+shows neither the row reasons, the held results nor the second toast; they
+exist because the Go Node reports `pause_reason` and `hold`.
 
 Queue rows use optional `Load`/`Save` callbacks to read complete input and keep
 editor drafts until revision-checked saves succeed. Existing `Actions` remain the

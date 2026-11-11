@@ -2215,3 +2215,11 @@ directory_host_unavailable
 directory_fallback
 directory_trash
 directory_trash_confirm
+queue_guidance_outlived
+queue_wait_held
+queue_wait_paused
+queue_wait_stopped
+queue_wait_interrupted
+queue_wait_unsent
+queue_wait_limit
+queue_wait_failed

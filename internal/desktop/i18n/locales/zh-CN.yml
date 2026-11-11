@@ -2203,3 +2203,11 @@ directory_host_unavailable: 主机不可用
 directory_fallback: 无法打开 %{path}，已显示主文件夹
 directory_trash: 移到废纸篓
 directory_trash_confirm: 将“%{name}”移到废纸篓
+queue_guidance_outlived: 回复已结束，已排队为新消息
+queue_wait_held: 暂缓
+queue_wait_paused: 已暂停
+queue_wait_stopped: 停止后暂停
+queue_wait_interrupted: 中断后暂停
+queue_wait_unsent: 未发送
+queue_wait_limit: 已达自动续接上限
+queue_wait_failed: 失败后暂缓

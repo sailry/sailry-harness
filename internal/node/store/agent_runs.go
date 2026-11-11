@@ -254,11 +254,21 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 }
 func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocation, []protocol.Event, error) {
 	events := []protocol.Event{}
+	delivered := false
 	for {
 		var id string
 		err := db.QueryRowContext(ctx, "SELECT a.turn FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND p.recipient IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, events, nil
+			if delivered {
+				return nil, events, nil
+			}
+			delivered = true
+			admitted, changed, err := scheduleDeliveries(ctx, db, now)
+			events = append(events, changed...)
+			if err != nil || !admitted {
+				return nil, events, err
+			}
+			continue
 		}
 		if err != nil {
 			return nil, events, err
@@ -413,6 +423,11 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	if err != nil {
 		return nil, nil, err
 	}
+	if session.Delegation == nil {
+		if err = addressSuccessors(ctx, db, run); err != nil {
+			return nil, nil, err
+		}
+	}
 	if err = bumpQueue(ctx, db, run.Session); err != nil {
 		return nil, nil, err
 	}
@@ -424,8 +439,20 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err != nil {
 		return run, nil, err
 	}
-	if run.Status == protocol.ConversationStatusStopping && status == protocol.ConversationStatusCompleted {
-		status = protocol.ConversationStatusInterrupted
+	origin, err := readDelegation(ctx, db, turn)
+	if err != nil {
+		return run, nil, err
+	}
+	// stop_turn already paused the queue; whatever resumed it since then, such
+	// as Send now, is the user's later decision and is not undone here.
+	stopped := run.Status == protocol.ConversationStatusStopping
+	// A deliberate stop ends the turn cancelled whatever it was doing; only a
+	// lost owner (Node shutdown, restart recovery) is interrupted.
+	if stopped && status != protocol.ConversationStatusInterrupted {
+		status = protocol.ConversationStatusCancelled
+		if failure != nil && failure.Code != protocol.ErrorCodeOutcomeUnknown {
+			failure = nil
+		}
 	}
 	run.Status = status
 	run.Error = failure
@@ -437,22 +464,54 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err = putAgentRun(ctx, db, run); err != nil {
 		return run, nil, err
 	}
-	if err = closeInteractions(ctx, db, turn, "interrupted"); err != nil {
+	closed := "cancelled"
+	if status == protocol.ConversationStatusInterrupted {
+		closed = "interrupted"
+	}
+	if err = closeInteractions(ctx, db, turn, closed); err != nil {
 		return run, nil, err
 	}
-	if failure != nil || status == protocol.ConversationStatusFailed || status == protocol.ConversationStatusInterrupted || status == protocol.ConversationStatusCancelled {
-		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
+	pause, retained := false, false
+	if origin != nil {
+		pause = failure != nil || status != protocol.ConversationStatusCompleted
+	} else {
+		// Guidance its recipient never joined becomes ordinary queued input.
+		if err = releaseGuidance(ctx, db, run); err != nil {
+			return run, nil, err
+		}
+		if !stopped {
+			// A failed turn keeps the queue and automatic delivery running.
+			// Only a lost owner or input that never reached history holds them.
+			if retained, err = retainedTurn(ctx, db, turn); err != nil {
+				return run, nil, err
+			}
+			pause = status == protocol.ConversationStatusInterrupted || retained
+		}
+	}
+	if pause {
+		switch {
+		case status == protocol.ConversationStatusInterrupted:
+			err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseInterrupted)
+		case retained:
+			err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseUnrecorded)
+		case status == protocol.ConversationStatusCancelled:
+			err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseStopped)
+		default:
+			// A failed child holds its own queue; no reason is shown for it.
+			err = setQueuePaused(ctx, db, run.Session, true)
+		}
+		if err != nil {
 			return run, nil, err
 		}
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO session_attention(session,revision,unread) VALUES(?1,1,1) ON CONFLICT(session) DO UPDATE SET revision=revision+1,unread=1", run.Session.String()); err != nil {
-		return run, nil, err
+	// Attention marks a main task turn that ended without the user: completed,
+	// failed or interrupted. Stopped turns, compaction and child runs do not.
+	if origin == nil && run.Kind == protocol.ConversationRunKindTask && status != protocol.ConversationStatusCancelled {
+		if _, err = db.ExecContext(ctx, "INSERT INTO session_attention(session,revision,unread) VALUES(?1,1,1) ON CONFLICT(session) DO UPDATE SET revision=revision+1,unread=1", run.Session.String()); err != nil {
+			return run, nil, err
+		}
 	}
 	events, err := activityEvent(ctx, db, run.Session)
-	if err != nil {
-		return run, nil, err
-	}
-	origin, err := readDelegation(ctx, db, turn)
 	if err != nil {
 		return run, nil, err
 	}
@@ -473,7 +532,19 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		return run, nil, err
 	}
 	events = append(events, changed...)
-	changed, err = ReleaseBackground(ctx, db, turn, run.Notice)
+	var hold *protocol.ConversationBackgroundHold
+	if run.Notice {
+		// Results a notice turn ended without taking wait for the user.
+		switch status {
+		case protocol.ConversationStatusCancelled:
+			hold = new(protocol.ConversationBackgroundHoldStopped)
+		case protocol.ConversationStatusInterrupted:
+			hold = new(protocol.ConversationBackgroundHoldInterrupted)
+		default:
+			hold = new(protocol.ConversationBackgroundHoldFailed)
+		}
+	}
+	changed, err = ReleaseBackground(ctx, db, turn, hold)
 	if err != nil {
 		return run, nil, err
 	}
@@ -487,25 +558,28 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		}
 		events = append(events, changed...)
 	}
-	var identity []byte
-	if err = db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {
+	node, err := nodeIdentity(ctx, db)
+	if err != nil {
 		return run, nil, err
 	}
-	if len(identity) != 32 {
-		return run, nil, invalid("invalid Node identity")
-	}
-	var node protocol.NodeID
-	copy(node[:], identity)
 	_, changed, err = ScheduleBackground(ctx, db, node, owner, now)
 	events = append(events, changed...)
 	return run, events, err
 }
 func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
-	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT body FROM agent_runs WHERE json_extract(body,'$.status') IN ('running','stopping')")
+	// A queued child the user stopped before the restart was a deliberate
+	// stop: it ends cancelled, not as lost work.
+	events, err := SettleStoppedChildren(ctx, db, now)
 	if err != nil {
 		return nil, err
 	}
-	events := []protocol.Event{}
+	// A delegated run that never started is claimed only through its in-memory
+	// owner, which a restart loses; left queued it would block every later
+	// child of its conversation.
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status')='queued' AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))")
+	if err != nil {
+		return nil, err
+	}
 	for _, run := range runs {
 		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "execution was interrupted; model and tool calls were not replayed"}
 		_, changed, e := FinishTurn(ctx, db, run.Turn, protocol.ConversationStatusInterrupted, failure, now)
@@ -525,6 +599,13 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 		}
 		events = append(events, changed...)
 	}
-	_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)")
+	// No turn survives a restart, so no guidance has a recipient left to join.
+	if _, err = db.ExecContext(ctx, "UPDATE agent_queues SET revision=revision+1 WHERE session IN (SELECT t.session FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient IS NOT NULL)"); err != nil {
+		return nil, err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient IS NOT NULL"); err != nil {
+		return nil, err
+	}
+	_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,pause_reason='interrupted',revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)")
 	return events, err
 }

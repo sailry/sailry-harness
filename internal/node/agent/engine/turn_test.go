@@ -17,6 +17,7 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -297,7 +298,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			}
 		}
 		close(hold)
-		f.waitRun(turn, protocol.ConversationStatusInterrupted)
+		f.waitRun(turn, protocol.ConversationStatusCancelled)
 		if starts.Load() != 8 {
 			t.Fatalf("stopped turn started %d calls", starts.Load())
 		}
@@ -488,7 +489,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 		t.Fatal("no partial")
 	}
 	f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
-	f.waitRun(turn, protocol.ConversationStatusInterrupted)
+	f.waitRun(turn, protocol.ConversationStatusCancelled)
 	select {
 	case <-closed:
 	default:
@@ -558,7 +559,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 		}
 		fixture.waitingApproval()
 		fixture.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
-		fixture.waitRun(turn, protocol.ConversationStatusInterrupted)
+		fixture.waitRun(turn, protocol.ConversationStatusCancelled)
 		var order []string
 		for _, record := range fixture.state().Records {
 			if message := record.Message(); message != nil {
@@ -604,7 +605,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 			t.Fatal(err)
 		}
 		close(release)
-		fixture.waitRun(turn, protocol.ConversationStatusInterrupted)
+		fixture.waitRun(turn, protocol.ConversationStatusCancelled)
 		if model.count() != 0 {
 			t.Fatal("stopped claim started a model request")
 		}
@@ -760,5 +761,415 @@ func TestSystemPromptByteStable(t *testing.T) {
 	}
 	if strings.Contains(first, "Session environment") || strings.Contains(first, "Session title") {
 		t.Fatal("dynamic turn state entered the system prompt")
+	}
+}
+func TestTurnSettlement(t *testing.T) {
+	t.Run("stop closes the pending question as cancelled", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(call("ask", "ask_user", `{"prompt":"Choose","input":{"kind":"choice","options":["First (Recommended)","Second"],"multiple":false}}`), finish())}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Task")
+		question := f.waitingQuestion()
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+		f.waitRun(turn, protocol.ConversationStatusCancelled)
+		var after protocol.ConversationQuestion
+		if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+			var err error
+			after, err = store.ReadQuestion(f.ctx, db, question.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if after.State.Kind != "cancelled" {
+			t.Fatalf("stopped question=%+v", after.State)
+		}
+		if f.readQuery("SELECT unread FROM session_attention WHERE session='"+f.session.ID.String()+"' UNION ALL SELECT 0 LIMIT 1") != 0 {
+			t.Fatal("a stopped turn raised attention")
+		}
+	})
+	t.Run("failed finishing write is repeated", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(text("Answer"), finish())}}
+		f := newFixture(t, m)
+		// The store refuses the terminal write until the trigger is dropped.
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			_, err := db.ExecContext(f.ctx, "CREATE TRIGGER refuse_finish BEFORE UPDATE OF body ON agent_runs WHEN json_extract(NEW.body,'$.status')='completed' BEGIN SELECT RAISE(ABORT,'injected storage failure'); END")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		f.start()
+		turn := f.submit("Task")
+		timer := f.r.clock.(*manualClock)
+		for range 2 {
+			select {
+			case wait := <-timer.waits:
+				if wait.duration != settlementRetry {
+					t.Fatalf("settlement wait=%s", wait.duration)
+				}
+				close(wait.advance)
+			case <-f.ctx.Done():
+				t.Fatal("the failed finishing write was not repeated")
+			}
+		}
+		var run protocol.ConversationRun
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			var err error
+			if run, err = store.ReadAgentRun(f.ctx, db, turn); err != nil {
+				return err
+			}
+			_, err = db.ExecContext(f.ctx, "DROP TRIGGER refuse_finish")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if run.Status != protocol.ConversationStatusRunning {
+			t.Fatalf("unsettled run is %s", run.Status)
+		}
+		// An attempt that began before the trigger was dropped waits once more.
+		settled := make(chan struct{})
+		defer close(settled)
+		go func() {
+			for {
+				select {
+				case wait := <-timer.waits:
+					close(wait.advance)
+				case <-settled:
+					return
+				}
+			}
+		}()
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		if m.count() != 1 {
+			t.Fatal("repeated settlement replayed the model")
+		}
+	})
+}
+
+func TestTurnEndHookStatus(t *testing.T) {
+	for _, row := range []struct {
+		name    string
+		scripts []script
+		status  protocol.ConversationStatus
+		want    []string
+	}{
+		{"completed turn", []script{response(text("Done"), finish())}, protocol.ConversationStatusCompleted, []string{"completed"}},
+		{"failed turn", []script{response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})}, protocol.ConversationStatusFailed, []string{"failed"}},
+		{"stopped turn", nil, protocol.ConversationStatusCancelled, nil},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			started := make(chan struct{}, 1)
+			scripts := row.scripts
+			if scripts == nil {
+				scripts = []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+					started <- struct{}{}
+					<-ctx.Done()
+				}}
+			}
+			f := newFixture(t, &scriptedModel{scripts: scripts})
+			var mu sync.Mutex
+			var statuses []string
+			f.r.hooksForTurn = func(ctx context.Context, inv *store.AgentInvocation) *hooks.Binding {
+				return hooks.New(hooks.Capture{
+					Admitted: true,
+					Turn:     inv.Run.Turn,
+					Stop:     ctx,
+					Settings: protocol.HooksSettings{Enabled: true, TurnEnd: &protocol.HooksScript{Enabled: true, Command: "fixture", TimeoutMs: 1000}},
+					Claim:    func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64) error { return nil },
+					Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
+						return nil
+					},
+					Launch: func(_ context.Context, _ string, _ uint64, environment map[string]string) (protocol.ProcessCompletion, error) {
+						mu.Lock()
+						statuses = append(statuses, environment["SAILRY_HOOK_STATUS"])
+						mu.Unlock()
+						return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+					},
+				})
+			}
+			f.start()
+			turn := f.submit("Initial")
+			if row.scripts == nil {
+				select {
+				case <-started:
+				case <-f.ctx.Done():
+					t.Fatal("model step did not start")
+				}
+				f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+			}
+			f.waitRun(turn, row.status)
+			mu.Lock()
+			defer mu.Unlock()
+			if !reflect.DeepEqual(statuses, row.want) {
+				t.Fatalf("turn end hook statuses %v, want %v", statuses, row.want)
+			}
+		})
+	}
+}
+
+func TestGuidanceBatch(t *testing.T) {
+	// prompt returns the user inputs of one model request, in order, leaving
+	// out the context the engine adds around them.
+	prompt := func(request fantasy.Call) []string {
+		sent := map[string]bool{"Initial": true, "One": true, "Two": true, "Three": true, "Four": true}
+		var out []string
+		for _, message := range request.Prompt {
+			if message.Role != fantasy.MessageRoleUser {
+				continue
+			}
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && sent[value.Text] {
+					out = append(out, value.Text)
+				}
+			}
+		}
+		return out
+	}
+	guide := func(f *engineFixture, turn protocol.TurnID, value string) protocol.TurnID {
+		input := protocol.DefaultConversationInput()
+		input.Text = value
+		return f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
+	}
+	// held is a model step that reports its request and waits to be released.
+	held := func(requests chan<- fantasy.Call, release <-chan struct{}, reply string) script {
+		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			if !yield(text(reply)) {
+				return
+			}
+			requests <- request
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return
+			}
+			yield(finish())
+		}
+	}
+	started := func(t *testing.T, f *engineFixture, requests <-chan fantasy.Call) fantasy.Call {
+		t.Helper()
+		select {
+		case request := <-requests:
+			return request
+		case <-f.ctx.Done():
+			t.Fatal("model step did not start")
+			return fantasy.Call{}
+		}
+	}
+	t.Run("pending guidance joins one model step", func(t *testing.T) {
+		requests := make(chan fantasy.Call, 3)
+		first, second := make(chan struct{}), make(chan struct{})
+		m := &scriptedModel{scripts: []script{held(requests, first, "Working"), held(requests, second, "Adjusted"), response(text("Done"), finish())}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Initial")
+		started(t, f, requests)
+		guided := []protocol.TurnID{guide(f, turn, "One"), guide(f, turn, "Two"), guide(f, turn, "Three")}
+		close(first)
+		if got := prompt(started(t, f, requests)); !reflect.DeepEqual(got, []string{"Initial", "One", "Two", "Three"}) {
+			t.Fatalf("second request carried %v", got)
+		}
+		// Guidance sent after the batch was taken joins the next step.
+		late := guide(f, turn, "Four")
+		close(second)
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		if m.count() != 3 {
+			t.Fatalf("requests=%d", m.count())
+		}
+		m.mu.Lock()
+		last := prompt(m.calls[2])
+		m.mu.Unlock()
+		if !reflect.DeepEqual(last, []string{"Initial", "One", "Two", "Three", "Four"}) {
+			t.Fatalf("third request carried %v", last)
+		}
+		// Each input stays its own record under its own turn.
+		var owners []protocol.TurnID
+		for _, record := range f.state().Records {
+			if record.Provenance.Author == "user" {
+				owners = append(owners, record.Turn)
+			}
+		}
+		if !reflect.DeepEqual(owners, append([]protocol.TurnID{turn}, append(guided, late)...)) {
+			t.Fatalf("input records belong to %v", owners)
+		}
+		for _, id := range append(guided, late) {
+			if run := f.waitRun(id, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != turn {
+				t.Fatal("guidance was not joined to its turn")
+			}
+		}
+	})
+	t.Run("guidance outliving a failed turn starts one turn", func(t *testing.T) {
+		requests := make(chan fantasy.Call, 2)
+		release := make(chan struct{})
+		failing := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			requests <- request
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return
+			}
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
+		}
+		m := &scriptedModel{scripts: []script{failing, response(text("Handled together"), finish())}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Initial")
+		started(t, f, requests)
+		guided := []protocol.TurnID{guide(f, turn, "One"), guide(f, turn, "Two"), guide(f, turn, "Three")}
+		close(release)
+		// The failed step takes no guidance; the queue keeps running and the
+		// three inputs start a single turn.
+		f.waitRun(guided[0], protocol.ConversationStatusCompleted)
+		if run := f.waitRun(turn, protocol.ConversationStatusFailed); run.Error == nil {
+			t.Fatal("failed turn lost its error")
+		}
+		if m.count() != 2 {
+			t.Fatalf("requests=%d", m.count())
+		}
+		m.mu.Lock()
+		got := prompt(m.calls[1])
+		m.mu.Unlock()
+		if !reflect.DeepEqual(got, []string{"Initial", "One", "Two", "Three"}) {
+			t.Fatalf("successor request carried %v", got)
+		}
+		for _, id := range guided[1:] {
+			if run := f.waitRun(id, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != guided[0] {
+				t.Fatal("outlived guidance was answered on its own")
+			}
+		}
+	})
+}
+
+// TestGuidanceBatchOverflow covers a batch of guidance that overfills the
+// context: the turn compacts and retries like any other overflow, fails on a
+// context_overflow step when that cannot recover, and loses nothing. Joined inputs
+// stay whole in history under their own turns; input sent during the last
+// attempt goes back to the queue whole and starts its own turn.
+func TestGuidanceBatchOverflow(t *testing.T) {
+	one, two, three := strings.Repeat("one ", 500), strings.Repeat("two ", 500), strings.Repeat("three ", 500)
+	carried := func(request fantasy.Call) []string {
+		var out []string
+		for _, message := range request.Prompt {
+			if message.Role != fantasy.MessageRoleUser {
+				continue
+			}
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+					switch value.Text {
+					case one:
+						out = append(out, "one")
+					case two:
+						out = append(out, "two")
+					case three:
+						out = append(out, "three")
+					}
+				}
+			}
+		}
+		return out
+	}
+	guide := func(f *engineFixture, turn protocol.TurnID, value string) protocol.TurnID {
+		input := protocol.DefaultConversationInput()
+		input.Text = value
+		return f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
+	}
+	requests := make(chan fantasy.Call, 2)
+	first, second := make(chan struct{}), make(chan struct{})
+	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
+	// held reports its request and waits before it ends with part.
+	held := func(release <-chan struct{}, parts ...fantasy.StreamPart) script {
+		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			requests <- request
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return
+			}
+			for _, part := range parts {
+				if !yield(part) {
+					return
+				}
+			}
+		}
+	}
+	started := func(f *engineFixture) fantasy.Call {
+		t.Helper()
+		select {
+		case request := <-requests:
+			return request
+		case <-f.ctx.Done():
+			t.Fatal("model step did not start")
+			return fantasy.Call{}
+		}
+	}
+	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
+	m := &scriptedModel{scripts: []script{
+		held(first, text("Working"), finish()),
+		response(overflow), summary, response(overflow), summary, held(second, overflow),
+		response(text("Answered"), finish()),
+	}}
+	f := newFixture(t, m)
+	f.start()
+	turn := f.submit("Initial")
+	started(f)
+	joined := []protocol.TurnID{guide(f, turn, one), guide(f, turn, two)}
+	close(first)
+	// Both recoveries are spent; guidance sent during the last attempt has no
+	// boundary left to join at.
+	started(f)
+	late := guide(f, turn, three)
+	close(second)
+	failed := f.waitRun(turn, protocol.ConversationStatusFailed)
+	// The run's fault is a protocol code; the failed step's record names the
+	// overflow.
+	if failed.Error == nil || failed.Error.Code != protocol.ErrorCodeUnavailable {
+		t.Fatalf("turn error = %+v", failed.Error)
+	}
+	if n := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); n != 2 {
+		t.Fatalf("compactions=%d", n)
+	}
+	// Joined inputs are whole records of their own turns.
+	for _, id := range joined {
+		if run := f.waitRun(id, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != turn {
+			t.Fatal("guidance was not joined to its turn")
+		}
+	}
+	// The input that had not joined is an ordinary item again and runs whole.
+	if run := f.waitRun(late, protocol.ConversationStatusCompleted); run.Joined != nil {
+		t.Fatal("late guidance joined the failed turn")
+	}
+	if m.count() != 7 {
+		t.Fatalf("requests=%d", m.count())
+	}
+	m.mu.Lock()
+	batch, last := carried(m.calls[1]), carried(m.calls[6])
+	m.mu.Unlock()
+	// The whole batch reached the model: nothing was cut to make it fit.
+	if !reflect.DeepEqual(batch, []string{"one", "two"}) {
+		t.Fatalf("overflowing request carried %v", batch)
+	}
+	if len(last) == 0 || last[len(last)-1] != "three" {
+		t.Fatalf("late guidance request carried %v", last)
+	}
+	state := f.state()
+	owners := map[string]protocol.TurnID{}
+	for _, record := range state.Records {
+		if message := record.Message(); message != nil && record.Provenance.Author == "user" {
+			for _, block := range message.Content {
+				if value, ok := block.Data.(*canonical.TextContent); ok {
+					owners[value.Text] = record.Turn
+				}
+			}
+		}
+	}
+	if owners[one] != joined[0] || owners[two] != joined[1] || owners[three] != late {
+		t.Fatal("an input was shortened or recorded under another turn")
+	}
+	code := ""
+	for _, record := range state.Records {
+		if message := record.Message(); message != nil && record.Turn == turn && message.Error != nil && message.Error.Code != nil {
+			code = *message.Error.Code
+		}
+	}
+	if code != "context_overflow" {
+		t.Fatalf("failed step code = %q", code)
 	}
 }
