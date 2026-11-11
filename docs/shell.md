@@ -585,6 +585,10 @@ field, both catalogs have the same keys, and the models' names.
 | Save all in a window that is not the asking one saves in that window's next frame | Each window's Runtime writes its own files on its UI frame; the prompt polls every 100 ms while saves are under way and only then |
 | Details on a toast for a notice without a conversation opens the notification centre without expanding that notice | The centre's expansion state belongs to its page |
 | Plugin notifications are not gated by the per-kind notification switches | The existing Notifier rule: the three switches name approval, input and task outcomes |
+| A click on a notice without a conversation or citation only reads it; Details on its toast opens the centre | The reference opens the publishing package's page (`shell/activity/attention.rs`). The notice view model does not carry its package, and a package may have no page; a reminder's text is whole in the row and the centre |
+| A background notice the system channel did not take is shown at the next focus, not while the window is in the background | The reference adds the toast at once. A MyGo toast's time runs in the background, so a toast added there is gone before its user returns |
+| A remote host's notices that exist when its connection is first read raise no toast | They were raised for whoever was connected then; the bell and the centre list them |
+| The `terminal` notice details are not read | Nothing on either side writes them (publishing accepts `text` only); the reference's reader is unreachable. The protocol type stays |
 | With the live `OpenLink` set, `#heading` links in replies no longer scroll | MyGo hands every link to `OnLink` once it is set; knowledge links need it |
 
 ## B3 live wiring
@@ -614,16 +618,31 @@ technical report that excludes authored title/body and raw provider errors.
 Copying the report emits `notification_report_copied` after the clipboard write.
 Read/dismiss use captured identifiers and ordinary Node commands; transient
 attention read/dismiss remains Client-owned. One application-lifetime Notifier
-observes Client independently of frames, suppresses categories from controller
-preferences and delivers each new notice once, through one channel. While a
-window is focused that window takes the notice: `Runtime.PresentNotice` adds a
-Kit toast with a Details action, which opens the notice's conversation, or the
-notification centre for a notice without one. A notice of a conversation that
-window is showing has no toast and no system notification. With no focused
-window the notice is a system notification, which the first notification
-preference switches off; that switch does not silence in-app toasts. The
-Notifier's UI scheduler remains alive when all windows are closed; it closes
-before Client shutdown.
+observes the local Client and the controller of every connected host
+(`Notifier.SetNetwork`, following `Network.onChange`) independently of frames,
+suppresses categories from controller preferences and delivers each new notice
+once, through one channel. A host's notices from before this application first
+read them are not news. While a window is focused that window takes the notice:
+`Runtime.PresentNotice` adds a Kit toast with a Details action, which opens the
+notice's conversation, or the notification centre for a notice without one. A
+notice of a conversation that window is showing has no toast and no system
+notification. With no focused window the notice is a system notification, which
+the first notification preference switches off; that switch does not silence
+in-app toasts. A background notice the system channel did not take, because
+that switch is off or the system refused it (`Notifier.Undelivered`), is kept,
+at most `NotificationLimit` of them, and shown as a toast by the next window
+that takes the focus (`Notifier.Returned`), unless it was read or dismissed
+meanwhile. The Notifier's UI scheduler remains alive when all windows are
+closed; it closes before Client shutdown.
+
+A notice carries its package's `presentation`. The toast and the system
+notification are headed by the package's heading in the window's language
+(`shell.NoticeHeading`: `locales[language]`, else `heading`) above the notice's
+title and message; a `persistent` notice's toast stays until it is closed. The
+bell and the centre keep the notice's own title and use the heading only for a
+notice without one. System notices (`power`, `diagnostic`, `system` details)
+keep the application's headings. The centre's Source names the notice's own
+host (`App.noticeSource`), not the local one.
 
 Closing a window or quitting asks once before something is lost.
 `cmd/sailry-desktop/closing.go` owns the decision: MyGo's `Window.OnClose` and
