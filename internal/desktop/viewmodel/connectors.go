@@ -20,6 +20,8 @@ const (
 	ServerStarting
 	ServerDown
 	ServerAuth
+	// ServerIdle is a server that may connect and has not been asked to.
+	ServerIdle
 )
 
 type ConnectorServer struct {
@@ -34,6 +36,9 @@ type ConnectorServer struct {
 	Tools     int
 	Updated   string
 	Error     string
+	// Problem is the i18n key of what keeps the server from connecting, ""
+	// when it may connect; Error then holds the reason, when one is known.
+	Problem string
 }
 
 type ConnectorField struct {

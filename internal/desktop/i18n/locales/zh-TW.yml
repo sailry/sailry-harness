@@ -1086,6 +1086,10 @@ connector_expired: 已過期
 connector_confirmation: 需要確認
 connector_failed: 連線失敗
 connector_server_disabled: 服務已停用
+connector_package_disabled: 外掛已停用
+connector_account_disabled: 帳號已停用
+connector_configuration_required: 需要設定
+connector_unavailable: 無法使用
 connector_search: 搜尋連接器
 connector_all_methods: 所有方式
 connector_filter: 驗證方式

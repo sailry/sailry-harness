@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -161,20 +164,28 @@ func mcpDirectory(value, packageRoot, dataRoot string) (string, string, error) {
 	return root, relative, nil
 }
 
+// projectPluginMCP fills each server's permission, availability and last
+// runtime status. It reads configuration and authorization and starts nothing.
 func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInfo) error {
 	if len(info.Mcp) == 0 {
 		return nil
 	}
 	reference := plugins.PackageReference(*info)
 	var settings store.ResolvedPluginSettings
+	var connections []protocol.PluginConnectorConnection
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		settings, err = store.ResolvePluginSettings(ctx, db, reference)
+		if settings, err = store.ResolvePluginSettings(ctx, db, reference); err != nil {
+			return err
+		}
+		connections, err = store.Connections(ctx, db)
 		return err
 	})
 	if err != nil {
 		return err
 	}
+	declarations := store.ConnectorDeclarations(*info)
+	launched := false
 	for index := range info.Mcp {
 		entry := &info.Mcp[index]
 		entry.Allowed = true
@@ -182,32 +193,43 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 			entry.Allowed = allowed
 		}
 		entry.Availability = protocol.PluginMcpAvailabilityAvailable
-		if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
+		if info.Summary.Compatibility.Kind != "compatible" {
+			entry.Availability = protocol.PluginMcpAvailabilityUnavailable
+		} else if !info.Summary.Enabled {
 			entry.Availability = protocol.PluginMcpAvailabilityPackageDisabled
 		} else if !entry.Allowed {
 			entry.Availability = protocol.PluginMcpAvailabilityServerDisabled
-		} else if info.Settings != nil {
-			for _, name := range info.Settings.Required {
-				field := info.Settings.Properties[name]
-				if field.Secret == nil || field.Secret.Server == nil || *field.Secret.Server != entry.Name {
-					continue
+		} else {
+			if info.Settings != nil {
+				for _, name := range info.Settings.Required {
+					field := info.Settings.Properties[name]
+					if field.Secret == nil || field.Secret.Server == nil || *field.Secret.Server != entry.Name {
+						continue
+					}
+					if _, configured := settings.Secrets[name]; !configured {
+						entry.Availability = protocol.PluginMcpAvailabilityConfigurationRequired
+					}
 				}
-				if _, configured := settings.Secrets[name]; !configured {
-					entry.Availability = protocol.PluginMcpAvailabilityConfigurationRequired
-				}
+			}
+			if entry.Availability == protocol.PluginMcpAvailabilityAvailable {
+				entry.Availability = connectorAvailability(*info, declarations, connections, entry.Name)
 			}
 		}
 		entry.Runtime = node.plugins.mcp.Status(reference, entry.Name)
+		launched = launched || entry.Transport == protocol.PluginMcpTransportStdio && entry.Availability == protocol.PluginMcpAvailabilityAvailable
+	}
+	if info.Settings == nil && !launched {
+		return nil
+	}
+	declared, err := node.declaredPluginMCP(ctx, reference)
+	if err != nil {
+		return err
+	}
+	configuration, err := store.EffectivePluginMCP(settings, declared)
+	if err != nil {
+		return err
 	}
 	if info.Settings != nil {
-		declared, err := node.declaredPluginMCP(ctx, reference)
-		if err != nil {
-			return err
-		}
-		configuration, err := store.EffectivePluginMCP(settings, declared)
-		if err != nil {
-			return err
-		}
 		targets := store.MCPSettingsTargets(info.Settings, configuration)
 		for name, field := range info.Settings.Properties {
 			if field.Secret == nil || field.Secret.Server == nil {
@@ -223,5 +245,68 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 			}
 		}
 	}
+	// A server launched from the bundled helper cannot start without it: the
+	// entry says so with the reason instead of waiting for a failed check.
+	for index := range info.Mcp {
+		entry := &info.Mcp[index]
+		if entry.Availability != protocol.PluginMcpAvailabilityAvailable || !computerServer(configuration.Servers[entry.Name]) {
+			continue
+		}
+		if _, err := computer.Executable(); err != nil {
+			entry.Availability = protocol.PluginMcpAvailabilityUnavailable
+			fault := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: err.Error()}
+			errors.As(err, &fault)
+			entry.Runtime = &protocol.PluginMcpRuntime{State: protocol.PluginMcpRuntimeStateFailed, Fault: fault, UpdatedAtMs: uint64(time.Now().UnixMilli())}
+		}
+	}
 	return nil
+}
+
+// connectorAvailability is what the accounts bound to a server allow: a
+// declared connector that injects into it, or authorizes it, needs a usable
+// connection unless every credential it declares is optional.
+func connectorAvailability(info protocol.PluginInfo, declarations []protocol.PluginConnectorDeclaration, connections []protocol.PluginConnectorConnection, server string) protocol.PluginMcpAvailability {
+	for _, declaration := range declarations {
+		bound := slices.ContainsFunc(declaration.Inject, func(item protocol.PluginConnectorInjection) bool {
+			return item.Server != nil && *item.Server == server
+		}) || slices.ContainsFunc(declaration.Auth, func(auth protocol.PluginConnectorAuth) bool {
+			value, declared := dispatchPayload[protocol.PluginConnectorAuthMcpOauthPayload](auth.Data)
+			return declared && auth.Kind == "mcp_oauth" && value.Server == server
+		})
+		if !bound {
+			continue
+		}
+		index := slices.IndexFunc(connections, func(connection protocol.PluginConnectorConnection) bool {
+			return connection.Package.Name == info.Summary.Name && connection.Connector == declaration.ID
+		})
+		if index < 0 {
+			// Manual headers and anonymous custom servers need no account.
+			optional := info.McpSource != nil || !slices.ContainsFunc(declaration.Auth, func(auth protocol.PluginConnectorAuth) bool {
+				value, declared := dispatchPayload[protocol.PluginConnectorAuthSecretPayload](auth.Data)
+				return !declared || auth.Kind != "secret" || slices.ContainsFunc(value.Fields, func(name string) bool {
+					return !slices.ContainsFunc(declaration.Fields, func(field protocol.PluginConnectorField) bool { return field.Name == name && field.Optional })
+				})
+			})
+			if optional {
+				continue
+			}
+			return protocol.PluginMcpAvailabilityConnectionRequired
+		}
+		connection := connections[index]
+		switch connection.State {
+		case protocol.PluginConnectorStateConnected:
+			if !connection.Enabled {
+				return protocol.PluginMcpAvailabilityConnectionDisabled
+			}
+		case protocol.PluginConnectorStateExpired:
+			return protocol.PluginMcpAvailabilityAuthorizationExpired
+		case protocol.PluginConnectorStateNeedsConfirmation:
+			return protocol.PluginMcpAvailabilityConsentRequired
+		case protocol.PluginConnectorStateFailed:
+			return protocol.PluginMcpAvailabilityUnavailable
+		default:
+			return protocol.PluginMcpAvailabilityConnectionRequired
+		}
+	}
+	return protocol.PluginMcpAvailabilityAvailable
 }

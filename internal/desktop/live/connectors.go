@@ -1,6 +1,8 @@
 package live
 
 import (
+	"encoding/json"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -84,7 +87,13 @@ func (r *Runtime) initConnectorUI() {
 	})
 }
 
+// connectorError reports a connector command's error: a failure with the
+// host's reason under it, a conflict or an uncertain outcome.
 func (r *Runtime) connectorError(c *ui.Context, err error) {
+	if reason := faultMessage(err); reason != "" && connectorOutcome(err) == kit.Failed {
+		kit.Error(c, i18n.T(c, "connector_failed"), reason)
+		return
+	}
 	r.reportKeys(c, err, "connector_failed", "connector_conflict", "connector_unknown")
 }
 
@@ -181,7 +190,7 @@ func (r *Runtime) projectConnectors() {
 			}
 			for _, server := range info.Mcp {
 				if server.Name == *injection.Server {
-					service.Servers = append(service.Servers, connectorServer(server))
+					service.Servers = append(service.Servers, r.connectorServer(connection.Package.Name, server))
 					covered[connection.Package.Name][server.Name] = true
 				}
 			}
@@ -193,13 +202,22 @@ func (r *Runtime) projectConnectors() {
 		var servers []viewmodel.ConnectorServer
 		for _, server := range info.Mcp {
 			if !covered[name][server.Name] {
-				servers = append(servers, connectorServer(server))
+				servers = append(servers, r.connectorServer(name, server))
 			}
 		}
 		if len(servers) == 0 {
 			continue
 		}
-		service := viewmodel.ConnectorService{ID: "mcp:" + name, Type: connectorTypeID(protocol.PluginReference{Name: name}, "server"), Name: strings.TrimPrefix(name, "mcp-"), Revision: info.Summary.Revision, Manual: info.McpSource != nil, Servers: servers}
+		// The service's type is its package's connector, so its credentials
+		// open that connector's editor; a package without one has none.
+		kind := connectorTypeID(protocol.PluginReference{Name: name}, "server")
+		for _, id := range slices.Sorted(maps.Keys(r.authorizations.types)) {
+			if r.authorizations.types[id].Package.Name == name {
+				kind = id
+				break
+			}
+		}
+		service := viewmodel.ConnectorService{ID: "mcp:" + name, Type: kind, Name: strings.TrimPrefix(name, "mcp-"), Revision: info.Summary.Revision, Manual: info.McpSource != nil, Servers: servers}
 		if info.McpSource != nil {
 			body, _ := detail[protocol.PluginMcpDefinitionStreamableHttpPayload](info.McpSource.Data)
 			if info.McpSource.Kind == "stdio" {
@@ -220,27 +238,73 @@ func (r *Runtime) projectConnectors() {
 	r.App.Settings.ConnTypes, r.App.Settings.Services = types, services
 }
 
+// connectorProblems are the availabilities that keep a server from
+// connecting, as the status each shows.
+var connectorProblems = map[protocol.PluginMcpAvailability]string{
+	protocol.PluginMcpAvailabilityPackageDisabled:       "connector_package_disabled",
+	protocol.PluginMcpAvailabilityServerDisabled:        "connector_server_disabled",
+	protocol.PluginMcpAvailabilityConfigurationRequired: "connector_configuration_required",
+	protocol.PluginMcpAvailabilityConnectionDisabled:    "connector_account_disabled",
+	protocol.PluginMcpAvailabilityAuthorizationExpired:  "connector_expired",
+	protocol.PluginMcpAvailabilityConsentRequired:       "connector_confirmation",
+	protocol.PluginMcpAvailabilityUnavailable:           "connector_unavailable",
+}
+
+// mcpFailure is the reason the last check of a server failed, for the package
+// content and settings it checked.
+type mcpFailure struct {
+	digest   string
+	settings uint64
+	reason   string
+}
+
+// connectorServer is the server with a check of it in flight shown as
+// connecting. The host keeps no state for a server that never connected, so
+// one whose last check failed shows that failure until the package changes
+// or a check succeeds.
+func (r *Runtime) connectorServer(name string, value protocol.PluginMcp) viewmodel.ConnectorServer {
+	server := connectorServer(value)
+	if server.Problem != "" || server.State == viewmodel.ServerAuth {
+		return server
+	}
+	key := name + "\x00" + value.Name
+	summary := r.authorizations.packages[name].Summary
+	if failure, failed := r.authorizations.mcpFailed[key]; failed && server.State == viewmodel.ServerIdle && failure.digest == summary.Digest && failure.settings == summary.SettingsRevision {
+		server.State, server.Error = viewmodel.ServerDown, failure.reason
+	}
+	if r.authorizations.mcpChecking[key] {
+		server.State = viewmodel.ServerStarting
+	}
+	return server
+}
+
+// connectorServer projects a server's availability and runtime. A server that
+// may connect and was never asked to is idle, not failed; one that may not
+// carries the problem, and a failed one its fault's message.
 func connectorServer(value protocol.PluginMcp) viewmodel.ConnectorServer {
-	server := viewmodel.ConnectorServer{Name: value.Name, Allowed: value.Allowed, State: viewmodel.ServerDown}
+	server := viewmodel.ConnectorServer{Name: value.Name, Allowed: value.Allowed, State: viewmodel.ServerIdle}
 	switch value.Transport {
 	case protocol.PluginMcpTransportStreamableHttp:
 		server.Transport = 1
 	case protocol.PluginMcpTransportSse:
 		server.Transport = 2
 	}
-	if value.Availability == protocol.PluginMcpAvailabilityConnectionRequired || value.Availability == protocol.PluginMcpAvailabilityAuthorizationExpired || value.Availability == protocol.PluginMcpAvailabilityConsentRequired {
+	server.Problem = connectorProblems[value.Availability]
+	if value.Availability == protocol.PluginMcpAvailabilityConnectionRequired {
 		server.State = viewmodel.ServerAuth
 	}
 	if runtime := value.Runtime; runtime != nil {
 		server.Tools = int(runtime.Tools)
 		server.Updated = time.UnixMilli(int64(runtime.UpdatedAtMs)).Local().Format("2006-01-02 15:04:05")
-		switch runtime.State {
-		case protocol.PluginMcpRuntimeStateConnecting:
-			server.State = viewmodel.ServerStarting
-		case protocol.PluginMcpRuntimeStateConnected:
-			server.State = viewmodel.ServerUp
-		case protocol.PluginMcpRuntimeStateFailed:
-			server.State = viewmodel.ServerDown
+		if value.Availability == protocol.PluginMcpAvailabilityAvailable {
+			switch runtime.State {
+			case protocol.PluginMcpRuntimeStateConnecting:
+				server.State = viewmodel.ServerStarting
+			case protocol.PluginMcpRuntimeStateConnected:
+				server.State = viewmodel.ServerUp
+			case protocol.PluginMcpRuntimeStateFailed:
+				server.State = viewmodel.ServerDown
+			}
 		}
 		if runtime.Fault != nil {
 			server.Error = runtime.Fault.Message
@@ -382,24 +446,73 @@ func (r *Runtime) connectorPackage(id string) (protocol.PluginInfo, bool) {
 	return info, exists
 }
 
+// reconnectMCP checks every server of the service that may connect. Each
+// shows as connecting until its check returns, and the outcome is a toast:
+// the tools found, the failure with its reason, a conflict or an uncertain
+// outcome.
 func (r *Runtime) reconnectMCP(id string) {
 	info, exists := r.connectorPackage(id)
 	if !exists {
 		return
 	}
+	name := info.Summary.Name
 	for _, server := range info.Mcp {
-		if !server.Allowed {
+		if !server.Allowed || server.Availability != protocol.PluginMcpAvailabilityAvailable {
 			continue
 		}
-		r.execute(protocol.Command{Kind: "check_plugin_mcp", Data: protocol.CommandCheckPluginMcpPayload{Package: protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}, Server: server.Name}}, func(c *ui.Context, output protocol.Output, err error) {
-			r.connectorError(c, err)
+		key := name + "\x00" + server.Name
+		if r.authorizations.mcpChecking[key] {
+			continue
+		}
+		r.authorizations.mcpChecking[key] = true
+		command := protocol.Command{Kind: "check_plugin_mcp", Data: protocol.CommandCheckPluginMcpPayload{Package: protocol.PluginReference{Name: name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}, Server: server.Name}}
+		r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
+			delete(r.authorizations.mcpChecking, key)
+			// A check changes nothing to recover: the next Reconnect is a new
+			// check, not the uncertain one's recorded answer again.
+			if encoded, failed := json.Marshal(command); failed == nil {
+				delete(r.uncertain, "\x00"+string(encoded))
+			}
+			delete(r.authorizations.mcpFailed, key)
 			if err == nil {
 				result, _ := detail[protocol.PluginMcpCheck](output.Data)
 				kit.Toast(c, kit.Done, i18n.T(c, "connector_mcp_reconnected", "n", len(result.Tools)))
+			} else if reason := faultMessage(err); reason != "" && connectorOutcome(err) == kit.Failed {
+				r.authorizations.mcpFailed[key] = mcpFailure{digest: info.Summary.Digest, settings: info.Summary.SettingsRevision, reason: reason}
+				kit.Error(c, i18n.T(c, "connector_mcp_failed"), reason)
+			} else {
+				r.connectorError(c, err)
 			}
+			r.projectConnectors()
 			r.readConnectorPackages()
 		})
 	}
+	r.projectConnectors()
+}
+
+// connectorOutcome is how a command's error ended: a conflict and an
+// uncertain outcome are not failures.
+func connectorOutcome(err error) kit.Outcome {
+	switch faultCode(err) {
+	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
+		return kit.Conflict
+	case protocol.ErrorCodeOutcomeUnknown:
+		return kit.Uncertain
+	}
+	return kit.Failed
+}
+
+// faultMessage is the host's reason for a fault, "" for any other error.
+func faultMessage(err error) string {
+	var fault *link.FaultError
+	if errors.As(err, &fault) {
+		return fault.Fault.Message
+	}
+	var pointer *protocol.Fault
+	if errors.As(err, &pointer) {
+		return pointer.Message
+	}
+	return ""
 }
 
 func (r *Runtime) allowMCP(id, server string, allowed bool) {

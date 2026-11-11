@@ -1086,6 +1086,10 @@ connector_expired: Abgelaufen
 connector_confirmation: Bestätigung erforderlich
 connector_failed: Verbindung fehlgeschlagen
 connector_server_disabled: Server deaktiviert
+connector_package_disabled: Plugin deaktiviert
+connector_account_disabled: Konto deaktiviert
+connector_configuration_required: Konfiguration erforderlich
+connector_unavailable: Nicht verfügbar
 connector_search: Konnektoren suchen
 connector_all_methods: Alle Methoden
 connector_filter: Anmeldemethode

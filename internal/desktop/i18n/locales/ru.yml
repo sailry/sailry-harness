@@ -1086,6 +1086,10 @@ connector_expired: Истекло
 connector_confirmation: Нужно подтверждение
 connector_failed: Ошибка подключения
 connector_server_disabled: Сервер отключён
+connector_package_disabled: Плагин отключён
+connector_account_disabled: Аккаунт отключён
+connector_configuration_required: Требуется настройка
+connector_unavailable: Недоступно
 connector_search: Поиск коннекторов
 connector_all_methods: Все способы
 connector_filter: Способ аутентификации

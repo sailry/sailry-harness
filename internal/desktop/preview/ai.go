@@ -144,6 +144,7 @@ const (
 	ServerStarting = viewmodel.ServerStarting
 	ServerDown     = viewmodel.ServerDown
 	ServerAuth     = viewmodel.ServerAuth
+	ServerIdle     = viewmodel.ServerIdle
 )
 
 // Server is an MCP server of a connector or added by hand.

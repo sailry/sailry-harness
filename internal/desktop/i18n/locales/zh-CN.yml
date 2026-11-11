@@ -1086,6 +1086,10 @@ connector_expired: 已过期
 connector_confirmation: 需要确认
 connector_failed: 连接失败
 connector_server_disabled: 服务已停用
+connector_package_disabled: 插件已停用
+connector_account_disabled: 账号已停用
+connector_configuration_required: 需要配置
+connector_unavailable: 不可用
 connector_search: 搜索连接器
 connector_all_methods: 全部方式
 connector_filter: 认证方式

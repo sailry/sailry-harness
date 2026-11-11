@@ -145,7 +145,8 @@ _model_required, _model_duplicate, _limits_invalid), `mcpEditor.Check`
 `pluginConfig.Check` (plugins_settings_required, _number,
 _secret_required), `skillInstall.Check` (skills_invalid,
 skill_source_link_invalid). Pure helpers: `ProviderStatus`,
-`StatusOf` (connector status), `serviceItems` (connector menu),
+`StatusOf` (connector status and reason), `serviceItems` (the connector
+menu's available actions),
 `Classified`, `Update`, `MarketAction`. `BackupTarget.Check` (backup_invalid,
 backup_passphrase_required, backup_passphrase_invalid,
 backup_passphrase_mismatch).
@@ -241,6 +242,7 @@ save is pending, as its Cancel is disabled then.
   idle), environment variable validation, hook and backup checks,
   `Stored.Commit`; `TestProviderEditor` (steps, back, checks, save,
   statuses, capability boxes) with the Media models rows, `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
+  statuses, capability boxes, media rows), `TestConnectors` (statuses, menus per state, the disabled menu button, MCP check), `TestTeams`,
   `TestExtensions` (classification, configuration checks, market actions,
   skill sources, a section closing the details).
   `TestDraftChecks` also renders the Connections rows of a local Host, remote
@@ -306,6 +308,11 @@ save is pending, as its Cancel is disabled then.
   ellipsis menu has the same items); consent review for changed targets
   (connectors/consent.rs) and the plugin-declared MCP configuration form
   are not built.
+- Connectors: an available server that was never asked to connect reads
+  Not connected where the reviewed implementation shows no status, so a row
+  always says why it has no tools. The row's ellipsis is disabled when the row
+  has no action; statuses and menu rules are in
+  [Declared authorization](connectors.md#server-status-and-row-actions).
 - Teams: role and team appearance (icon and color picker) is not
   built; roles show the agent mark in their ID's color. The team list's
   right-click menu is folded into the editor's Duplicate and Delete.

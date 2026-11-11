@@ -3,6 +3,8 @@ package live
 import (
 	"context"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,12 +17,14 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/ui"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -424,6 +428,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	tester.SetSize(1280, 1100)
 	shots("settings-providers-empty")
 	tester.SetSize(1280, 820)
+	firstRunConnectors(t, r, tester, settle, sent, shots)
 	firstRunLocation(t, r, tester, settle, shots)
 }
 
@@ -502,4 +507,267 @@ func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 		t.Errorf("the project %v and the branch %v are not side by side on one line", bar[0].Bounds, bar[1].Bounds)
 	}
 	shots("context-git-project")
+}
+
+// firstRunConnectors shows the connectors of the new profile and of a server
+// added by hand, served in this process: each row's own status, the menu of
+// the actions it has, and what each item does. It is a step of
+// firstRunChinese and reaches no outside endpoint.
+func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string)) {
+	t.Setenv("SAILRY_HELPERS_DIR", t.TempDir()) // no computer helper, as a run from source
+	zh := func(key string, a ...any) string { return i18n.In("zh-CN", key, a...) }
+	count := func(kind string) (n int) {
+		for _, name := range sent() {
+			if name == kind {
+				n++
+			}
+		}
+		return n
+	}
+	service := func(name string) *settings.ConnStatus {
+		t.Helper()
+		for i := range r.App.Settings.Services {
+			if s := &r.App.Settings.Services[i]; s.Name == name {
+				status := settings.StatusOf(s)
+				return &status
+			}
+		}
+		t.Fatalf("no %q connector: %+v", name, r.App.Settings.Services)
+		return nil
+	}
+	// open opens the menu of the row named name and returns its items.
+	open := func(name string) (items []ui.AccessInfo) {
+		t.Helper()
+		row := -1
+		for i := range r.App.Settings.Services {
+			if r.App.Settings.Services[i].Name == name {
+				row = i
+			}
+		}
+		var menus []ui.AccessInfo
+		for _, info := range tester.AccessAll() {
+			if info.Name == zh("more") {
+				menus = append(menus, info)
+			}
+		}
+		if row < 0 || len(menus) != len(r.App.Settings.Services) {
+			t.Fatalf("row %q is %d of %d menus", name, row, len(menus))
+		}
+		if menus[row].Disabled {
+			return nil
+		}
+		tester.ClickAt(menus[row].Bounds.X+menus[row].Bounds.W/2, menus[row].Bounds.Y+menus[row].Bounds.H/2)
+		settle()
+		for _, info := range tester.AccessAll() {
+			if info.Role == ui.RoleMenuItem {
+				items = append(items, info)
+			}
+		}
+		return items
+	}
+	// choose opens the row's menu, which must list want alone, and picks item.
+	choose := func(name string, want []string, item string) {
+		t.Helper()
+		items := open(name)
+		var listed []string
+		var target *ui.AccessInfo
+		for i := range items {
+			listed = append(listed, items[i].Name)
+			if items[i].Name == zh(item) {
+				target = &items[i]
+			}
+		}
+		var labels []string
+		for _, key := range want {
+			labels = append(labels, zh(key))
+		}
+		if !slices.Equal(listed, labels) || target == nil {
+			t.Fatalf("the menu of %q lists %q, want %q with %q", name, listed, labels, zh(item))
+		}
+		tester.ClickAt(target.Bounds.X+target.Bounds.W/2, target.Bounds.Y+target.Bounds.H/2)
+		settle()
+	}
+	press := func(name string) {
+		t.Helper()
+		// The last one: a dialog's own button comes after its frame's.
+		var info *ui.AccessInfo
+		for _, x := range tester.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == name {
+				info = &x
+			}
+		}
+		if info == nil {
+			t.Fatalf("no %q button: %q", name, tester.Texts())
+		}
+		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		settle()
+	}
+	dismiss := func() {
+		for range 8 {
+			info, ok := tester.AccessByRole(ui.RoleButton, zh("close"))
+			if !ok {
+				return
+			}
+			tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+			settle()
+		}
+	}
+
+	r.App.Settings.Open(settings.Connectors)
+	settle()
+	settle()
+	// Nothing was asked to connect: no row has failed. The disabled package
+	// says so, the server that takes an optional key and the one that needs
+	// an account are not connected.
+	if tester.HasText(zh("connector_mcp_failed")) || count("check_plugin_mcp") != 0 {
+		t.Errorf("a new profile shows a failed connector or checked one: %q", tester.Texts())
+	}
+	if st := service("computer"); st.Problem != "connector_package_disabled" {
+		t.Errorf("computer %+v", *st)
+	}
+	if st := service("context7"); st.Problem != "connector_not_connected" || st.Failed {
+		t.Errorf("context7 %+v", *st)
+	}
+	if st := service("github"); st.Problem != "connector_not_connected" || st.Failed {
+		t.Errorf("github %+v", *st)
+	}
+	shots("connectors-fresh")
+	if items := open("context7"); len(items) == 0 {
+		t.Fatal("context7 has no menu")
+	}
+	shots("connectors-fresh-menu")
+	tester.Key(0, ui.KeyEscape)
+	settle()
+
+	// Each item does its action; none of them here reaches the network.
+	before := len(sent())
+	choose("computer", []string{"connector_details"}, "connector_details")
+	if !tester.HasText(zh("connector_mcp_server")) || !tester.HasText("desktop") {
+		t.Errorf("computer's details: %q", tester.Texts())
+	}
+	press(zh("close"))
+	choose("context7", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_add_credentials")
+	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("Context7") {
+		t.Fatalf("Add credentials did not open context7's editor: %q", tester.Texts())
+	}
+	shots("connectors-add-credentials")
+	press(zh("settings_cancel"))
+	choose("github", []string{"connector_connect", "connector_details"}, "connector_connect")
+	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("GitHub") {
+		t.Fatalf("Connect did not open github's editor: %q", tester.Texts())
+	}
+	press(zh("settings_cancel"))
+	if acted := sent()[before:]; len(acted) != 0 {
+		t.Errorf("opening details and editors sent %q", acted)
+	}
+
+	// The enabled computer package without its helper is unavailable and
+	// says why; it has nothing to reconnect.
+	computer, _ := r.connectorPackage("mcp:computer")
+	r.connectorCommand(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "computer", ExpectedRevision: computer.Summary.Revision, Enabled: true}}, nil)
+	settle()
+	settle()
+	if st := service("computer"); st.Problem != "connector_unavailable" || !strings.Contains(st.Reason, "helper") {
+		t.Errorf("computer without its helper %+v", *st)
+	}
+	choose("computer", []string{"connector_details"}, "connector_details")
+	if !tester.HasText(service("computer").Reason) {
+		t.Errorf("computer's details do not give the reason: %q", tester.Texts())
+	}
+	shots("connectors-helper-missing-details")
+	press(zh("close"))
+
+	// A server added by hand connects, lists its tools and reconnects.
+	fixture := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+	for _, name := range []string{"echo", "ping"} {
+		sdk.AddTool(fixture, &sdk.Tool{Name: name}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{}, nil, nil
+		})
+	}
+	endpoint := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return fixture }, nil))
+	defer func() {
+		endpoint.CloseClientConnections()
+		endpoint.Close()
+	}()
+	saved := false
+	r.App.Settings.ConnectorActions.SaveMCP(settings.MCPDraft{Name: "fixture", Server: viewmodel.ConnectorServer{Name: "fixture", Transport: 1, URL: endpoint.URL}}, func(ok bool) { saved = ok })
+	settle()
+	settle()
+	if !saved || count("install_mcp") != 1 || count("check_plugin_mcp") != 1 {
+		t.Fatalf("adding the server: saved %v, %d installs, %d checks", saved, count("install_mcp"), count("check_plugin_mcp"))
+	}
+	connected := zh("connector_mcp_reconnected", "n", 2)
+	if st := service("fixture"); st.Tools != 2 || !tester.HasText(connected) {
+		t.Fatalf("the added server %+v: %q", *st, tester.Texts())
+	}
+	dismiss()
+	shots("connectors-connected")
+	manual := []string{"connector_configure", "connector_remove", "connector_mcp_reconnect", "connector_details"}
+	if items := open("fixture"); len(items) != len(manual) {
+		t.Fatalf("the connected server's menu has %d items", len(items))
+	}
+	shots("connectors-connected-menu")
+	tester.Key(0, ui.KeyEscape)
+	settle()
+	choose("fixture", manual, "connector_mcp_reconnect")
+	settle()
+	if count("check_plugin_mcp") != 2 || !tester.HasText(connected) || service("fixture").Tools != 2 {
+		t.Errorf("Reconnect: %d checks, %+v: %q", count("check_plugin_mcp"), *service("fixture"), tester.Texts())
+	}
+	dismiss()
+
+	// With the endpoint gone the kept connection cannot be closed for sure:
+	// that Reconnect is uncertain, said as such, and the row has failed. The
+	// next one fails outright with its reason: in the toast, on the row and
+	// in the details.
+	endpoint.CloseClientConnections() // a kept stream would hold Close
+	endpoint.Close()
+	choose("fixture", manual, "connector_mcp_reconnect")
+	settle()
+	if st := service("fixture"); count("check_plugin_mcp") != 3 || !st.Failed || !tester.HasText(zh("connector_unknown")) {
+		t.Fatalf("Reconnect over a lost connection: %d checks, %+v: %q", count("check_plugin_mcp"), *st, tester.Texts())
+	}
+	dismiss()
+	choose("fixture", manual, "connector_mcp_reconnect")
+	settle()
+	failed := service("fixture")
+	if count("check_plugin_mcp") != 4 || !failed.Failed || failed.Reason == "" {
+		t.Fatalf("Reconnect to a closed endpoint: %d checks, %+v", count("check_plugin_mcp"), *failed)
+	}
+	if tester.HasText(zh("connector_unknown")) || !tester.HasText(failed.Reason) {
+		t.Errorf("the failure's toast does not give %q: %q", failed.Reason, tester.Texts())
+	}
+	shots("connectors-failed")
+	dismiss()
+	choose("fixture", manual, "connector_details")
+	if !tester.HasText(zh("connector_mcp_error")) || !tester.HasText(failed.Reason) {
+		t.Errorf("the failed server's details: %q", tester.Texts())
+	}
+	shots("connectors-failed-details")
+	press(zh("close"))
+
+	// Configure opens the server's editor; the switch stops the server, which
+	// then has nothing to reconnect; Delete removes it after its prompt.
+	choose("fixture", manual, "connector_configure")
+	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_save")); !ok {
+		t.Fatalf("Configure did not open the server's editor: %q", tester.Texts())
+	}
+	press(zh("settings_cancel"))
+	if err := tester.Click(zh("connector_server_allowed") + " fixture"); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	settle()
+	if st := service("fixture"); count("set_plugin_mcp_allowed") != 1 || st.Problem != "connector_server_disabled" {
+		t.Fatalf("the switch: %d commands, %+v", count("set_plugin_mcp_allowed"), *st)
+	}
+	dismiss()
+	stopped := []string{"connector_configure", "connector_remove", "connector_details"}
+	choose("fixture", stopped, "connector_remove")
+	press(zh("connector_remove"))
+	settle()
+	if count("remove_plugin") != 1 || slices.ContainsFunc(r.App.Settings.Services, func(s viewmodel.ConnectorService) bool { return s.Name == "fixture" }) {
+		t.Errorf("Delete: %d removals, %+v", count("remove_plugin"), r.App.Settings.Services)
+	}
+	dismiss()
 }

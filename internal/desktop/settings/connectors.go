@@ -23,11 +23,13 @@ import (
 var connectorMethods = []string{"", "connector_oauth", "connector_application", "connector_token", "connector_cli"}
 
 // ConnStatus is a service's status: the i18n key of a problem, or "" with the
-// status kind.
+// status kind. Reason is why a failed or unavailable service is so, when the
+// host said.
 type ConnStatus struct {
 	Problem    string
 	Connecting bool
 	Failed     bool
+	Reason     string
 	Tools      int // connected: its tools; -1 not connected
 }
 
@@ -50,28 +52,36 @@ func StatusOf(s *preview.Service) ConnStatus {
 			return ConnStatus{Problem: "connector_failed", Tools: -1}
 		}
 	}
-	tools, up := 0, len(s.Servers) > 0
+	tools, up, connecting := 0, false, false
 	for _, x := range s.Servers {
 		if !x.Allowed {
 			return ConnStatus{Problem: "connector_server_disabled", Tools: -1}
+		}
+		if x.Problem != "" {
+			return ConnStatus{Problem: x.Problem, Reason: x.Error, Tools: -1}
 		}
 		switch x.State {
 		case preview.ServerAuth:
 			return ConnStatus{Problem: "connector_not_connected", Tools: -1}
 		case preview.ServerDown:
-			return ConnStatus{Failed: true, Tools: -1}
+			return ConnStatus{Failed: true, Reason: x.Error, Tools: -1}
 		case preview.ServerStarting:
-			return ConnStatus{Connecting: true, Tools: -1}
+			connecting = true
+		case preview.ServerUp:
+			up = true
+			tools += x.Tools
 		}
-		tools += x.Tools
 	}
-	if !up && !s.Account {
+	switch {
+	case connecting:
+		return ConnStatus{Connecting: true, Tools: -1}
+	case up:
+		return ConnStatus{Tools: tools}
+	case !s.Account:
+		// Nothing connected yet: no server, or none asked to connect.
 		return ConnStatus{Problem: "connector_not_connected", Tools: -1}
 	}
-	if !up {
-		return ConnStatus{Tools: -1}
-	}
-	return ConnStatus{Tools: tools}
+	return ConnStatus{Tools: -1}
 }
 
 // connectorEditor is the add dialog's query, the type chosen, its method tab,
@@ -80,6 +90,7 @@ type connectorEditor struct {
 	open     bool
 	query    string
 	kind     *preview.ConnectorType
+	direct   bool   // opened on its connector: no list to go back to
 	service  string // the service edited, "" for a new one
 	revision uint64
 	method   int
@@ -212,10 +223,12 @@ func serviceTile(c *ui.Context, name string) {
 }
 
 // statusView is a problem as muted text, a spinner while connecting, a dot
-// with the tools or the failure.
+// with the tools or the failure. A known reason is its tooltip.
 func statusView(c *ui.Context, st ConnStatus) {
 	p := theme.Of(c)
-	ui.Row(c.Key("status")).Shrink(0).Gap(8).Children(func() {
+	row := ui.Row(c.Key("status")).Shrink(0).Gap(8)
+	kit.Tooltip(c, row, st.Reason)
+	row.Children(func() {
 		muted := func(s string) { ui.Text(c, s).FontSize(14).TextColor(p.MutedForeground).SingleLine() }
 		switch {
 		case st.Problem != "":
@@ -261,53 +274,21 @@ func serviceRow(c *ui.Context, m *Model, s *preview.Service) {
 					}
 				}
 			}
+			items := m.serviceItems(s)
+			if len(items) == 0 {
+				kit.Action(c.Key("menu"), icons.Ellipsis, t("more"), true)
+				return
+			}
 			kit.MenuButton(c.Key("menu"), "connector-menu-"+s.ID, func(b ui.Element) {
 				kit.IconLook(c, b, icons.Ellipsis, t("more"), "", 28, false)
 			}, func(menu *Menu) {
-				for _, k := range serviceItems(s) {
+				for _, k := range items {
 					it := menu.Item(t(k))
 					if k == "connector_remove" {
 						it.Danger()
 					}
 					if it.Chosen() {
-						switch k {
-						case "connector_remove":
-							m.connRemoving = s.ID
-						case "connector_details":
-							m.connDetails = s.ID
-						case "connector_confirm":
-							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Confirm != nil {
-								m.ConnectorActions.Confirm(s.ID)
-							} else {
-								m.editService(s)
-							}
-						case "connector_probe":
-							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Probe != nil {
-								m.ConnectorActions.Probe(s.ID)
-							} else {
-								notice(c)
-							}
-						case "connector_mcp_reconnect":
-							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Reconnect != nil {
-								m.ConnectorActions.Reconnect(s.ID)
-							} else {
-								notice(c)
-							}
-						case "connector_add_credentials":
-							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.ConfigureMCP != nil {
-								m.ConnectorActions.ConfigureMCP(s.ID)
-							} else {
-								m.editService(s)
-							}
-						case "connector_configure", "connector_bind", "connector_reauthorize", "connector_connect":
-							if s.Manual && k != "connector_connect" {
-								m.editServer(s)
-							} else {
-								m.editService(s)
-							}
-						default:
-							notice(c)
-						}
+						m.serviceAction(c, s, k)
 					}
 				}
 			}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
@@ -315,48 +296,130 @@ func serviceRow(c *ui.Context, m *Model, s *preview.Service) {
 	}, nil)
 }
 
-// serviceItems is configure and delete for servers added by hand; the
-// account's edit, check and delete; credentials; then reconnect and details
-// for services with servers. They are i18n keys, in order.
-func serviceItems(s *preview.Service) []string {
+// serviceAction does the row menu's item k for the service.
+func (m *Model) serviceAction(c *ui.Context, s *preview.Service, k string) {
+	actions := m.ConnectorActions
+	if !m.Live || actions == nil {
+		actions = &ConnectorActions{}
+	}
+	switch k {
+	case "connector_remove":
+		m.connRemoving = s.ID
+	case "connector_details":
+		m.connDetails = s.ID
+	case "connector_confirm":
+		if actions.Confirm != nil {
+			actions.Confirm(s.ID)
+		} else {
+			m.editService(s)
+		}
+	case "connector_probe":
+		if actions.Probe != nil {
+			actions.Probe(s.ID)
+		} else {
+			notice(c)
+		}
+	case "connector_mcp_reconnect":
+		if actions.Reconnect != nil {
+			actions.Reconnect(s.ID)
+		} else {
+			notice(c)
+		}
+	case "connector_add_credentials":
+		m.addCredentials(s)
+	case "connector_connect":
+		if s.Account {
+			m.editService(s)
+		} else {
+			m.addCredentials(s)
+		}
+	case "connector_configure", "connector_bind", "connector_reauthorize":
+		if s.Manual {
+			m.editServer(s)
+		} else {
+			m.editService(s)
+		}
+	}
+}
+
+// serviceItems are the actions the service's row can do now, as i18n keys in
+// order: configure and delete for servers added by hand; the account's edit,
+// check and delete; the credentials of a service whose plugin declares a
+// connector; then reconnect for servers that may connect and details for
+// services with servers. An action that cannot act is not listed.
+func (m *Model) serviceItems(s *preview.Service) []string {
 	var out []string
+	kind := m.connType(s.Type)
+	waiting := slices.ContainsFunc(s.Servers, func(x preview.Server) bool {
+		return x.Allowed && x.Problem == "" && x.State == preview.ServerAuth
+	})
 	switch {
 	case s.Manual:
 		out = []string{"connector_configure", "connector_remove"}
-		if slices.ContainsFunc(s.Servers, func(server preview.Server) bool { return server.State == preview.ServerAuth }) {
+		if waiting && kind != nil {
 			out = append(out, "connector_connect")
 		}
 	case s.Account:
-		label := "connector_configure"
-		switch {
-		case s.State == preview.NeedsConfirmation:
-			label = "connector_confirm"
-		case s.Method == "connector_cli":
-			label = "connector_bind"
-		case s.Method == "connector_oauth" && s.State == preview.Unconnected:
-			label = "connector_connect"
-		case s.Method == "connector_oauth":
-			label = "connector_reauthorize"
-		}
-		out = append(out, label)
-		if s.AccountOn && len(s.Servers) == 0 && (s.State == preview.Connected || s.State == preview.ConnFailed || s.State == preview.Expired) {
-			out = append(out, "connector_probe")
+		if kind != nil {
+			label := "connector_configure"
+			switch {
+			case s.State == preview.NeedsConfirmation:
+				label = "connector_confirm"
+			case s.Method == "connector_cli":
+				label = "connector_bind"
+			case s.Method == "connector_oauth" && s.State == preview.Unconnected:
+				label = "connector_connect"
+			case s.Method == "connector_oauth":
+				label = "connector_reauthorize"
+			}
+			out = append(out, label)
+			if kind.Enabled && s.AccountOn && len(s.Servers) == 0 && (s.State == preview.Connected || s.State == preview.ConnFailed || s.State == preview.Expired) {
+				out = append(out, "connector_probe")
+			}
 		}
 		out = append(out, "connector_remove")
-	default:
-		key := "connector_add_credentials"
-		if slices.ContainsFunc(s.Servers, func(x preview.Server) bool { return x.State == preview.ServerAuth }) {
-			key = "connector_connect"
+	case kind != nil && kind.Enabled && len(kind.Methods) > 0:
+		if waiting {
+			out = append(out, "connector_connect")
+		} else {
+			out = append(out, "connector_add_credentials")
 		}
-		out = append(out, key)
 	}
-	if slices.ContainsFunc(s.Servers, func(x preview.Server) bool { return x.Allowed && x.State != preview.ServerAuth }) {
+	if reconnectable(s) {
 		out = append(out, "connector_mcp_reconnect")
 	}
 	if len(s.Servers) > 0 {
 		out = append(out, "connector_details")
 	}
 	return out
+}
+
+// reconnectable reports whether a server of the service may be asked to
+// connect: allowed, with nothing in its way and not connecting already.
+func reconnectable(s *preview.Service) bool {
+	if s.Account && !s.AccountOn {
+		return false
+	}
+	return slices.ContainsFunc(s.Servers, func(x preview.Server) bool {
+		return x.Allowed && x.Problem == "" && x.State != preview.ServerAuth && x.State != preview.ServerStarting
+	})
+}
+
+func (m *Model) connType(id string) *preview.ConnectorType {
+	for i := range m.ConnTypes {
+		if id != "" && m.ConnTypes[i].ID == id {
+			return &m.ConnTypes[i]
+		}
+	}
+	return nil
+}
+
+// addCredentials opens the editor on the service's connector for a new
+// account: its methods and fields, as Add after choosing the connector.
+func (m *Model) addCredentials(s *preview.Service) {
+	if k := m.connType(s.Type); k != nil {
+		m.connector = connectorEditor{open: true, kind: k, fields: map[string]string{}, direct: true}
+	}
 }
 
 func (m *Model) editService(s *preview.Service) {
@@ -430,7 +493,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 		}
 		k := e.kind
 		ui.Row(c.Key("header")).Gap(12).Children(func() {
-			if e.service == "" {
+			if e.service == "" && !e.direct {
 				kit.Action(c.Key("back"), icons.ArrowLeft, t("provider_step_back"), e.pending).OnClick(func() { e.kind = nil })
 			}
 			ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name) })
@@ -602,6 +665,9 @@ func serviceDetails(c *ui.Context, m *Model) {
 		case st.Problem != "":
 			summary = t(st.Problem)
 		}
+		if st.Reason != "" {
+			summary += " · " + st.Reason
+		}
 		kit.MediaRow(c, s.Name, summary, func() { serviceTile(c, s.Name) }, nil)
 		fact := func(key, label string, value func()) {
 			ui.Row(c.Key(key)).Gap(12).Padding(8, 12).Children(func() {
@@ -627,14 +693,12 @@ func serviceDetails(c *ui.Context, m *Model) {
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("close"), t("close")).OnClick(func() { open = false })
-			kit.Primary(c.Key("reconnect"), t("connector_mcp_reconnect"), false).
-				Children(func() { ui.Text(c, t("connector_mcp_reconnect")).FontSize(14) }).OnClick(func() {
-				if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Reconnect != nil {
-					m.ConnectorActions.Reconnect(s.ID)
-				} else {
-					notice(c)
-				}
-			})
+			if reconnectable(s) {
+				kit.Primary(c.Key("reconnect"), t("connector_mcp_reconnect"), false).
+					Children(func() { ui.Text(c, t("connector_mcp_reconnect")).FontSize(14) }).OnClick(func() {
+					m.serviceAction(c, s, "connector_mcp_reconnect")
+				})
+			}
 		})
 	}).Width(min(560, width(c)-48)).Label(s.Name)
 	if !open {
