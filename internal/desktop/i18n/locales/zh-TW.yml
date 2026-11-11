@@ -108,9 +108,6 @@ plugins_configure: 設定
 plugins_uninstall: 解除安裝
 plugins_install: 安裝
 plugins_information: 資訊
-plugins_actions: 外掛操作
-plugins_official: 官方
-plugins_third_party: 三方
 plugins_none: 暫無外掛
 composer: 描述你想完成的任務…
 composer_attachment: 新增附件
@@ -119,11 +116,8 @@ chat_stop: 停止
 composer_select_model: 選擇模型
 composer_effort: 推理強度
 composer_effort_unavailable: 預設
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: 語音輸入
 turn_reasoning: 思考過程
-turn_tools_count: '%{count} 個工具呼叫'
 turn_latest: 回到最新回覆
 chat_navigation: 訊息導航
 chat_new: 新建會話
@@ -137,7 +131,6 @@ turn_thinking: 正在思考
 tool_failed: 工具執行失敗
 approval_pending: 等待審批
 content_copied: 已複製
-turn_work: 處理過程
 tool_copy: 複製
 tool_interrupted: 結果未確認
 tool_not_executed: 審批已中斷，未執行
@@ -198,9 +191,6 @@ tool_read_session: 讀取會話
 tool_search_session: 搜尋會話
 tool_find_tools: 尋找工具
 tool_read_output: 讀取工具輸出
-question_answered: 已回答
-interaction_cancelled: 已取消
-question_url_accepted: 已同意開啟
 approval_allow_prefix: 允許前綴「%{prefix}」
 approval_preview_result: 已記錄本回合的示例審批選擇。未修改檔案、執行命令或呼叫模型。
 file_changes_shortened: 差異已截斷
@@ -231,7 +221,6 @@ connection_search_empty: 無匹配結果
 connection_search: 搜尋
 activity_completed: 已完成
 activity_failed: 失敗
-activity_idle: 空閒
 activity_approval: 待批准
 activity_input: 待回覆
 activity_no_project: 對話
@@ -257,7 +246,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 張
 recent_sessions: 最近
 workspace_archive: 歸檔會話
-session_unarchive: 取消歸檔
 session_delete: 刪除會話
 session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
 workspace_rename: 重新命名
@@ -278,7 +266,6 @@ session_fork_worktree: 在新工作樹中建立聊天分支
 files_open: 開啟檔案
 session_new_window: 在新視窗中開啟
 session_window_failed: 無法開啟新視窗
-workspace_open_session: 開啟會話
 project_edit: 編輯專案
 project_remove: 移除專案
 workspace_new_terminal: 建立終端
@@ -381,7 +368,6 @@ connection_no_projects: 暫無專案
 workspace_project: 專案概覽
 resource_browser: 瀏覽器
 terminal: 終端
-resource_terminal_preview: 終端 UI 預覽，未啟動 Shell 或執行命令
 resource_browser_preview: 瀏覽器 UI 預覽，未載入網頁或訪問網路
 file_tree: 專案檔案
 file_empty: 開啟檔案
@@ -519,11 +505,7 @@ git_untracked: 未跟蹤
 git_view_changes: 變更
 git_view_diff: 檢視差異
 git_view_options: 檢視與排序
-hunks_reject: 拒絕
 hunks_stage: 暫存
-hunks_accept: 接受
-hunks_accepted: 已接受此區塊
-hunks_state_accepted: 已接受
 navigation_tabs: 開啟的標籤
 market_category_documents: 文件
 turn_changes_undo_all: 撤銷修改
@@ -626,7 +608,6 @@ chat_rewind: 回退到此回合
 chat_rewind_action: 回退
 chat_rewind_confirm: 保留此回合並移除後續訊息？檔案不變
 chat_search: 搜尋對話
-chat_search_query: 搜尋內容
 chat_search_result: 搜尋結果
 chat_status_unsynced: 狀態未同步
 compact_reason_unknown: 此次失敗未記錄具體原因
@@ -665,14 +646,12 @@ composer_permission_full: 完全許可權
 composer_permission_ask_description: 修改檔案和執行命令前詢問
 composer_permission_project_description: 自動修改專案檔案，執行命令前詢問
 composer_permission_full_description: 自動修改檔案和執行命令，可影響專案外檔案
-composer_permission_preview: 僅預覽，不授予許可權
 composer_host_local: 本機
 composer_host_remote: 遠端
 composer_no_project: 對話
 composer_branch_none: 無 worktree
 composer_settings: 會話設定
 composer_back: 返回
-location_search: 選擇工作位置
 location_create: 新建工作樹並繼續
 git_no_matches: 無匹配項
 composer_model_settings: 模型與強度
@@ -684,7 +663,6 @@ composer_feature_fast: 快速
 composer_feature_fast_unsupported: 目前模型不支援
 composer_execution_model: 單一模型
 composer_team_lead: 組長
-composer_team_default: 預設團隊
 composer_team_manage: 管理團隊
 model_score_overall: 綜合分
 model_score_tested: 實測 %{effort} 檔
@@ -724,7 +702,6 @@ reference_context: 工作區上下文
 reference_databases: 資料庫
 reference_ssh: SSH 連線
 reference_empty: 沒有匹配的引用
-reference_remove: 移除引用
 reference_host: 主機
 reference_project: 專案
 reference_worktree: worktree
@@ -1522,12 +1499,10 @@ update_download: 預覽下載
 update_apply: 預覽應用
 update_retry: 重試預覽
 update_unavailable: 當前不可更新（示例）
-update_unavailable_note: 此示例主機暫不支援自動更新
 update_versions: '%{current} → %{target}'
 update_version: 當前版本：%{current}
 update_preview: UI 狀態預覽，按鈕僅切換示例快照；不會檢查網路、下載、安裝或重啟主機
 update_target_changed: 目標主機已不可用，請關閉後重新開啟
-update_error_preview: 示例請求失敗，沒有執行真實更新
 metrics_title: 主機指標
 metrics_preview: UI 示例資料，未採集真實主機指標或程序
 metrics_cpu: CPU
@@ -1601,20 +1576,15 @@ selection_title: 選取文字
 selection_unavailable: 無法讀取選取文字
 selection_empty: 未選取文字
 terminal_search_placeholder: 搜尋終端
-terminal_match_previous: 上一個匹配
-terminal_match_next: 下一個匹配
 workspace_no_terminal: 當前 worktree 沒有終端
 workspace_close_terminal: 關閉終端
 workspace_terminal_preview: 終端 UI 預覽。已保留專案和 worktree 歸屬，未啟動 PTY 或 shell；真實終端繪製與輸入在終端階段接入。
 pane_drag: 拖動分屏
 terminal_connecting: 連線中
-terminal_exited: 終端已退出
 terminal_take_control: 接管
 terminal_other_controller: 由另一裝置控制
 terminal_unavailable: 終端不可用，請檢查主機連線
-cli_preview: UI 示例：僅建立終端預覽，不檢測程式、不執行命令
 updates_network_failed: 更新下載失敗，請重試
-updates_preview_unavailable: 預覽模式不可更新
 updates_completed: Sailry 已更新
 port_exists: 此埠已新增
 port_failed: 無法轉發，請檢查埠和連線
@@ -1693,12 +1663,9 @@ workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 修改要求：
 hooks_project_required: 選擇專案
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 停止失敗，請重試
 background_stop_unknown: 停止結果未確認，請檢視命令狀態
 subagent_stop: Stop subagent
@@ -1737,7 +1704,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: 檔案較大，僅顯示前 128 KiB 的文字內容
 files_create: 新建
-files_directory_changed: 目錄已變化，請重新載入
 files_directory_failed: 無法載入目錄，請重試
 files_discard: 放棄草稿
 files_discard_description: 丟棄未儲存修改？正在儲存的內容仍可能寫入
@@ -1785,7 +1751,6 @@ git_initialize: 初始化 Git
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: 釋出分支
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: 儲藏更改並切換
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -2189,7 +2154,6 @@ chat_provider_session: '%{name} · 會話'
 chat_provider_node: '%{name} · 主機'
 chat_config_desktop: 桌面配置
 usage_read_failed: 無法讀取用量，請重試
-queue_draft_changed: 佇列已改變，編輯草稿已保留
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode

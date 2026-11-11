@@ -181,7 +181,8 @@ in Rust: either paired side may command the other.
 Port actions are additive callbacks over the accepted picker. Each window owns
 its Client Forwarders, binds only a loopback listener, and releases its forwards
 on window close. Open uses the confirmed local address through the native
-opener; Create reports backend failure while retaining the entered ports. A
+opener; Create reports a forward that could not start as `port_failed`, as the
+reference does, while retaining the entered ports. A
 port stream that fails to open is released on the Node with `cancel_port` even
 when the caller's cancellation caused the failure; that cleanup waits at most
 two seconds.
