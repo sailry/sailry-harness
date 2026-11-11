@@ -531,6 +531,10 @@ func (p *workspaceProject) projectStatus(value protocol.GitStatus) {
 	p.data.Changes = []viewmodel.FileChange{}
 	for _, entry := range value.Entries {
 		change := viewmodel.FileChange{Path: entry.Path, Staged: workspaceChange(entry.Staged), Unstaged: workspaceChange(entry.Unstaged), Untracked: entry.Untracked, Added: int(entry.Diff.Additions), Removed: int(entry.Diff.Deletions), Hunks: old[entry.Path]}
+		if entry.Conflicted {
+			// An unmerged path is a change still to be staged.
+			change.Unstaged = "U"
+		}
 		change.Status = change.Unstaged
 		if change.Status == "" {
 			change.Status = change.Staged

@@ -91,7 +91,7 @@ func (pr *Project) changesToolbar(c *ui.Context, open func(path string)) {
 	for _, e := range entries {
 		add, del = add+e.Added, del+e.Removed
 	}
-	unstaged := len(indexPaths(entries, "stage")) > 0
+	unstaged := len(pr.stagePaths(entries, false)) > 0
 	staged := len(indexPaths(entries, "unstage")) > 0
 	key := "git_unstage"
 	if unstaged {
@@ -115,6 +115,19 @@ func (pr *Project) changesToolbar(c *ui.Context, open func(path string)) {
 				pr.gitAction(c, GitAction{Kind: kind})
 			})
 	})
+}
+
+// stagePaths are the paths Stage sends for entries. A conflicted file is
+// staged only as the file of its own row, which records its resolution; a
+// folder, a group and Stage all leave each conflict to be resolved by itself.
+func (pr *Project) stagePaths(entries []preview.FileChange, file bool) []string {
+	var out []string
+	for _, relative := range indexPaths(entries, "stage") {
+		if file || !pr.gitConflicted(relative) {
+			out = append(out, relative)
+		}
+	}
+	return out
 }
 
 // stats is a change's +N −M, each only when not 0.
@@ -251,26 +264,13 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 					case mixed:
 						state = ui.CheckMixed
 					}
-					eligible := false
-					for _, entry := range entries {
-						if !pr.gitConflicted(entry.Path) {
-							eligible = true
-						}
+					kind := "git_stage"
+					paths := pr.stagePaths(entries, r.entry != nil)
+					if checked {
+						kind, paths = "git_unstage", indexPaths(entries, "unstage")
 					}
-					box := ui.CheckboxState(c.Key("check"), &state, "").Label(i18n.T(c, label)).Shrink(0).Disabled(!pr.gitWritable() || !eligible)
+					box := ui.CheckboxState(c.Key("check"), &state, "").Label(i18n.T(c, label)).Shrink(0).Disabled(!pr.gitWritable() || len(paths) == 0)
 					if box.Changed() {
-						kind := "git_stage"
-						operation := "stage"
-						if checked {
-							kind = "git_unstage"
-							operation = "unstage"
-						}
-						paths := []string{}
-						for _, relative := range indexPaths(entries, operation) {
-							if !pr.gitConflicted(relative) {
-								paths = append(paths, relative)
-							}
-						}
 						pr.gitAction(c, GitAction{Kind: kind, Paths: paths})
 					}
 				})

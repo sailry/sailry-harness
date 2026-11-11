@@ -191,6 +191,26 @@ func TestGitPage(t *testing.T) {
 			t.Fatalf("Undo sent %+v", sent)
 		}
 	})
+	// Staging a conflicted file from its own row records its resolution;
+	// Stage all, a folder and a group leave the conflict.
+	t.Run("StageResolvesConflict", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		var sent GitAction
+		pr.Actions = &Actions{Git: func(_ *ui.Context, a GitAction) { sent = a }}
+		pr.SetGitState(GitState{Known: true, Kind: "repository", Head: true, Conflicts: map[string]bool{"README.md": true}})
+		tt.Frame()
+		if paths := pr.stagePaths(pr.Data.Changes, false); slices.Contains(paths, "README.md") || len(paths) == 0 {
+			t.Fatalf("Stage all sends %q", paths)
+		}
+		rightClickRow(t, tt, "README.md")
+		if err := tt.ChooseMenuItem(en("git_stage")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if sent.Kind != "git_stage" || !slices.Equal(sent.Paths, []string{"README.md"}) {
+			t.Fatalf("sent %+v", sent)
+		}
+	})
 	// Commit's menu commits, amends or commits and pushes; Amend fills the
 	// message with the last commit's and shows that it amends.
 	t.Run("CommitSplitMenu", func(t *testing.T) {

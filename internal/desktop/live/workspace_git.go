@@ -57,9 +57,11 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 				}
 			}
 		}
+		// Staging a conflicted file records its resolution; the panel sends
+		// one only for that file's own row.
 		eligible := paths[:0]
 		for _, relative := range paths {
-			if !conflicts[relative] {
+			if a.Kind == "git_stage" || !conflicts[relative] {
 				eligible = append(eligible, relative)
 			}
 		}

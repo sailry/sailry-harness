@@ -140,9 +140,14 @@ effects retain their original command and completion until Check result settles.
 
 History uses actual Node cursor pages of 100 entries, retained previous pages,
 real offset ranges and partial-content flags. Amending always uses the canonical
-head message, independently of the displayed history page. Conflict paths disable
-their staging controls and commits; active merge/rebase state supplies Continue
-and Abort. Empty-staged commits choose tracked or all changes, and commits with a
+head message, independently of the displayed history page. A conflicted path
+shows as an unstaged change with the letter U and blocks commits. Stage on that
+file's own row records its resolution; Stage all, a folder and a group skip
+conflicted paths, and a conflicted path has no Unstage. Active merge, rebase or
+cherry-pick state supplies Continue, once no conflict remains, and Abort.
+Before, a conflicted path had no staging control at all and, having neither a
+staged nor an unstaged kind, no row in the staged and unstaged groups, so
+Continue could only be reached through a terminal. Empty-staged commits choose tracked or all changes, and commits with a
 push or sync follow-up choose an existing remote when no upstream is set. A
 confirmed commit with failed follow-up reports the follow-up failure separately.
 
