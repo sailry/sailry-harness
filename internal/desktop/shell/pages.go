@@ -66,6 +66,11 @@ func (a *App) closable() bool {
 // the selection as it is: the sidebar marks those, so they go back too.
 func (a *App) followSelection() {
 	opened := a.Sidebar.TakeShown()
+	if a.Sidebar.TakeDraft() {
+		// New session: the draft's editor takes the focus, also when the
+		// page already shows that draft.
+		a.Composer(a.Sidebar.Selected).Focus()
+	}
 	switch a.Page {
 	case ConversationPage, SettingsPage:
 		return

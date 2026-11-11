@@ -14,9 +14,13 @@ import (
 // from the backend's data. The composer reads it and changes none of it;
 // the user's choices go to State and the backend through Actions.
 type Context struct {
-	Models   []Model
-	Families []Family // the model picker's rail, in order
-	Teams    []Team
+	Models []Model
+	// MemberModels are the models a team member may take, nil for Models:
+	// on another Node only that Node's own, since a member's choice is not
+	// forwarded with the local Node's provider as the lead's is.
+	MemberModels []Model
+	Families     []Family // the model picker's rail, in order
+	Teams        []Team
 	// Interactions are the approvals and question the run waits on.
 	Interactions Interactions
 	// Activity is what runs around the conversation: the activity strip.

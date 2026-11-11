@@ -1375,6 +1375,15 @@ func testSessionForwarding(t *testing.T) {
 	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture"), modelKey(localProvider, "fixture")}; !slices.Equal(got, want) {
 		t.Fatalf("a draft on another Node offers %q, want %q", got, want)
 	}
+	// A team member there takes only that Node's own models; the local Node
+	// has no narrower list.
+	members := remote.memberModels(remote.offeredModels(cv.ID, remote.models()))
+	if len(members) != 1 || members[0].ID != modelKey(remoteProvider, "fixture") {
+		t.Fatalf("a member on another Node is offered %v, want only %s", members, modelKey(remoteProvider, "fixture"))
+	}
+	if own := local.memberModels(local.models()); own != nil {
+		t.Fatalf("a member on the local Node is offered a narrower list: %v", own)
+	}
 	for _, outcome := range []struct {
 		code  protocol.ErrorCode
 		toast string

@@ -146,7 +146,10 @@ name. On
 the right the plugins' header contributions (`Hooks.PluginHeader`), the
 activity strip, the preview tag and the details toggle
 (`PanelRight`, selected while the panel shows). Tooltips show the
-shortcut.
+shortcut. A plugin's header contribution is the same `kit.IconLook` at
+`HeaderButton` as the shell's own buttons, `ButtonGap` apart, its popover
+under its end; an `indicator` or `metric` is not drawn in the header. The
+activity strip takes no room, and no gap, without a group.
 
 ### Icon buttons
 
@@ -165,8 +168,8 @@ size around its badge.
 
 A control that cannot act is disabled or absent, never a normal button
 whose click does nothing: the details toggle without room for the panel
-is disabled, the sidebar toggle is absent without a side column, and New
-session is disabled over the unsent chat (docs/sidebar.md).
+is disabled, and the sidebar toggle is absent without a side column. New
+session over the unsent chat focuses its composer again (docs/sidebar.md).
 
 ## Shortcuts
 

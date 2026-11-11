@@ -35,6 +35,15 @@ func (s *State) controlModelID() string {
 	return s.Model
 }
 
+// controlModels are the models the controls choose among: a member's own
+// list when the context has one, otherwise the lead's.
+func (s *State) controlModels(ctx *Context) []Model {
+	if s.memberSelection() != nil && ctx.MemberModels != nil {
+		return ctx.MemberModels
+	}
+	return ctx.Models
+}
+
 func (s *State) controlModel(models []Model) Model {
 	if member := s.memberSelection(); member != nil {
 		copy := *s

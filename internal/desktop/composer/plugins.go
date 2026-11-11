@@ -9,7 +9,19 @@ type StatusCallbacks struct {
 	Render  func(*ui.Context, string) bool
 }
 
-func (state *State) SetPluginControls(render func(*ui.Context, string)) {
+// ControlPlace is where a slot's package controls are asked for. The
+// composer slot has the toolbar's start and end groups, by each control's
+// alignment, and the compact settings popover, which takes them all as rows;
+// the other slots have one place, ControlStart.
+type ControlPlace int
+
+const (
+	ControlStart ControlPlace = iota
+	ControlEnd
+	ControlMenu
+)
+
+func (state *State) SetPluginControls(render func(*ui.Context, string, ControlPlace)) {
 	state.pluginControls = render
 }
 
@@ -21,8 +33,8 @@ func (state *State) SetStatusCallbacks(callbacks *StatusCallbacks) {
 	state.statusCallbacks = callbacks
 }
 
-func (state *State) renderPluginControls(view *ui.Context, slot string) {
+func (state *State) renderPluginControls(view *ui.Context, slot string, place ControlPlace) {
 	if state.pluginControls != nil {
-		state.pluginControls(view, slot)
+		state.pluginControls(view, slot, place)
 	}
 }

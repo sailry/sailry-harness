@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -26,7 +27,7 @@ func (pr *Project) notebookEditorPreview(c *ui.Context, path string, own bool) {
 			return
 		}
 		if len(page.Cells) == 0 && !page.Failed {
-			ui.Text(c, i18n.T(c, "notebook_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "notebook_empty")})
 		}
 		palette := theme.Of(c)
 		for _, cell := range page.Cells {

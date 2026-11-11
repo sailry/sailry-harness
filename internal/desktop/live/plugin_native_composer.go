@@ -302,7 +302,7 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 		"session": state.scope.Session, "connected": runtime.controller.Connected(), "connection": connection,
 		"busy": busy, "configuring": busy && !runtime.composerSaving[view.ID], "readonly": readonly,
 		"model_tools": modelTools, "model": model, "context_limit": contextLimit, "statistics": statistics,
-		"compacting": compacting, "has_messages": hasMessages, "sidebar": runtime.App.NavOpen,
+		"compacting": compacting, "has_messages": hasMessages, "sidebar": runtime.App.NavShown(),
 		"options": options, "operations": state.composerOperationsAvailable(config),
 	}, nil
 }

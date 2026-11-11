@@ -40,7 +40,7 @@ const (
 // choices the user makes for it, kept per conversation, and which of its
 // popovers show.
 type State struct {
-	pluginControls    func(*ui.Context, string)
+	pluginControls    func(*ui.Context, string, ControlPlace)
 	pluginCommand     func(Reference) (string, bool)
 	statusCallbacks   *StatusCallbacks
 	ActivityCallbacks *ActivityCallbacks
@@ -108,6 +108,10 @@ type State struct {
 func New(model string) *State {
 	return &State{Model: model, Effort: 2, caret: -1, Features: map[string]string{}}
 }
+
+// Focus puts the keyboard focus in the draft at the next frame that builds
+// the composer: New session over the draft already shown asks for it.
+func (s *State) Focus() { s.focus = true }
 
 // Chosen returns the model chosen, the first one when the ID is unknown.
 func (s *State) Chosen(models []Model) Model {
@@ -213,7 +217,7 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.referencePicker(c, ctx, actions, surface)
 			s.contextBar(c, ctx, actions)
 		})
-		s.renderPluginControls(c, "footer")
+		s.renderPluginControls(c, "footer", ControlStart)
 	})
 	s.filePicker(c, ctx, actions)
 }
@@ -299,7 +303,9 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 					actions.SendQueued(id)
 				}
 			case submit():
-				k.SetText("")
+				// What the owner left: nothing, or the draft it keeps until
+				// the send is confirmed. Clearing here would lose that one.
+				k.SetText(s.Draft)
 			}
 			return true
 		case k.Key == ui.KeyTab && k.Mods == 0:
@@ -311,9 +317,9 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 				return true
 			}
 			msg := s.message(ctx)
-			k.SetText("")
 			s.clear()
 			actions.Queue(msg)
+			k.SetText(s.Draft)
 			return true
 		case k.Key == ui.KeyUp && k.Mods == 0:
 			// recall_message: an empty draft takes the last message.
@@ -335,9 +341,11 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 }
 
 // toolbar is attach, then the settings popover when compact, mode and
-// permission; at the end, which wraps under them when it does not fit, the
-// rings, the model chip unless compact, dictation, and send or stop (hidden
-// while dictating, unless a reply runs). Everything is 4 apart.
+// permission, and the packages' start-aligned controls; at the end, which
+// wraps under them when it does not fit, the packages' end-aligned controls,
+// the rings, the model chip unless compact, dictation, and send or stop
+// (hidden while dictating, unless a reply runs). Compact, the packages'
+// controls are rows of the settings popover. Everything is 4 apart.
 func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit func() bool) {
 	compact := s.width > 0 && s.width < compactWidth
 	ui.Row(c.Key("toolbar")).FillWidth().MinWidth(0).MinHeight(32).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
@@ -351,14 +359,19 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 				s.permissionMenu(c, ctx)
 			}
 			s.indicators(c, ctx, true)
-			s.renderPluginControls(c, "composer")
+			if !compact {
+				s.renderPluginControls(c, "composer", ControlStart)
+			}
 		})
 		ui.Row(c.Key("end")).Gap(4).Wrap().Justify(ui.End).AlignItems(ui.Center).MinWidth(0).Shrink(1).Margin(0, 0, 0, ui.Auto).Children(func() {
+			if !compact {
+				s.renderPluginControls(c, "composer", ControlEnd)
+			}
+			s.renderPluginControls(c, "model", ControlStart)
 			s.indicators(c, ctx, false)
 			if s.Indicator != nil {
 				s.Indicator(c)
 			}
-			s.renderPluginControls(c, "model")
 			if !compact {
 				s.modelChip(c, ctx, actions)
 			}
@@ -435,9 +448,9 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 				s.projectButton(c, ctx, actions, toolbarForm)
 				s.worktreeMenu(c, ctx, actions, toolbarForm)
 			}
-			s.renderPluginControls(c, "context")
+			s.renderPluginControls(c, "context", ControlStart)
 		})
-		s.renderPluginControls(c, "statistics")
+		s.renderPluginControls(c, "statistics", ControlStart)
 		if s.Metrics != nil {
 			s.Metrics(c, compact, &s.stats)
 		}

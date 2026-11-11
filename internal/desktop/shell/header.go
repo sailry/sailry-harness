@@ -37,7 +37,7 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 		})
 		pad := max(lights-left, 0) + 12
-		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(buttonGap).Children(func() {
+		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(ButtonGap).Children(func() {
 			// The toggle belongs to the side column: a page without one shows
 			// none, as the reference's module header.
 			if a.HasNavigation() {

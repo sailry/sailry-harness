@@ -281,10 +281,10 @@ func (r *Runtime) hostsFrame(c *ui.Context) {
 	if r.App.Page == shell.HostPage {
 		selected = r.App.Host
 	}
-	footer := r.App.Settings.SidebarMetrics && r.App.NavOpen
+	footer := r.App.Settings.SidebarMetrics && r.App.NavShown()
 	width, _ := c.Size()
 	nav := float32(0)
-	if r.App.NavOpen {
+	if r.App.NavShown() {
 		nav = shell.ClampNav(r.App.NavWidth)
 	}
 	panelVisible := shell.PanelFits(width, nav, shell.ClampPanel(r.App.PanelWidth, width, nav))

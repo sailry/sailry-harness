@@ -34,7 +34,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `dictation.go` | Dictation button and level meter |
 | `interactions.go` | Interactions contract, `Actions`, approval and question capsules |
 | `activity.go` | The activity strip: Git changes, plugin Status badges, task progress, background commands and ports, running subagents |
-| `indicator.go` | `Indicator`, the toolbar's progress rings and the `Ring` drawing |
+| `indicator.go` | `Indicator`, the toolbar's progress rings, drawn by `kit.Ring` |
 
 ## Entry point
 
@@ -63,7 +63,8 @@ rebuilt each frame from backend data.
 | `Context.Last` | Up in an empty draft recalls it |
 | `Context.Readonly` | Disables input and controls |
 | `Context.Indicators`, `Indicator{ID, Percent, Loading, Tone, Hint, Start, Panel, Open, Toggle, Disabled}` | The toolbar's progress rings in order (below); empty for a draft without a session |
-| `Context.SendBlocked` | Holds Send, Enter and Tab although the draft has input: the Node is away, the project or worktree is unavailable, a request is under way |
+| `Context.SendBlocked` | Holds Send, Enter and Tab although the draft has input: the Node is away, the project or worktree is unavailable, a request is under way, or, live, no model is configured (`SelectModel` then opens the model settings from the chip) |
+| `Context.MemberModels` | The models a team member may take; nil for `Models`. On another Node only that Node's own: a member's model is resolved there, and the local Node's providers reach it only as the lead of a forwarded session |
 | `Context.SelectModel` | Opens the Node's model settings from the Select model chip while `Models` is empty; nil disables that chip |
 | `Context.Interactions` | Approvals and the question (below) |
 | `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame; `Indicator` builds the preview's ring, a live session's are `Context.Indicators` |
@@ -106,8 +107,16 @@ The toolbar is one wrapping row, at least 32 high, its children 4 apart:
 
 | Group | Wide (680 and up) | Compact (under 680) |
 |---|---|---|
-| Start | Attach, mode, permission, start-aligned rings, the packages' composer controls | Attach, the settings button, start-aligned rings, the packages' composer controls |
-| End, pushed to the right and wrapping under the start when it does not fit | Rings, the model chip, dictation, send or stop | Rings, dictation, send or stop |
+| Start | Attach, mode, permission, start-aligned rings, the packages' start-aligned composer controls | Attach, the settings button, start-aligned rings |
+| End, pushed to the right and wrapping under the start when it does not fit | The packages' end-aligned composer controls, rings, the model chip, dictation, send or stop | Rings, dictation, send or stop |
+
+A package's composer control is asked for with its place (`SetPluginControls`,
+`ControlStart`, `ControlEnd`, `ControlMenu`): split by its alignment while the
+toolbar is wide, and a row of the settings popover (`MenuRow`), after the
+permission, while it is compact. An indicator is never one of them: it is a
+ring. The worktree actions the location menu already has (`create_worktree`,
+`fork_worktree`) are left out. A package's context-slot control is the context
+bar's own button (`ContextButton`).
 
 - Attach, the settings button, dictation and send are round, 32 across, with a
   16 icon. Mode, permission and the model chip are `subtle`: Kit's default
@@ -152,8 +161,8 @@ composer slot, end-aligned, order 90, no handler) is `Context.Indicators`.
 - Place: in the toolbar's end group in every layout, directly before the
   model chip, or before dictation when the chip is folded away. It never
   moves into the settings popover.
-- Geometry: Kit's `ProgressCircle` at 20 draws 15 across with a stroke of 15%
-  of that (2.25), inside a wrapper that adds 4 on each side and does not
+- Geometry: `kit.Ring` (`kit.RingSize`), as the reference's `ProgressCircle`
+  at 20, draws 15 across with a stroke of 15% of that (2.25), inside a wrapper that adds 4 on each side and does not
   shrink. With the toolbar's gap the ring ends 8 before the model chip.
 - Drawing: a full track at 20% of the color, and over it the arc of `Percent`
   (0 to 100, clamped) clockwise from the top with flat ends. An unmeasured
@@ -179,7 +188,9 @@ composer slot, end-aligned, order 90, no handler) is `Context.Indicators`.
   them. A session whose usage is unknown shows the empty ring with `0`.
 
 The preview's ring is `State.Indicator` (`conversation.ContextRing`, the
-reference's `usage/preview.rs`), with `composer_compression_hint`.
+reference's `usage/preview.rs`), with `composer_compression_hint`. The shell
+sets it for the preview alone: a live session's ring is the package's, and
+both would be two rings.
 
 ## Activity strip
 
@@ -359,7 +370,8 @@ moves `State.Dictation`; the view is unchanged.
 
 Team choices use the Node's catalog and the session's frozen role profiles.
 `State.MemberModels` separates member edits from the lead model controls;
-inherited choices do not become explicit overrides. Team and member saves retain
+inherited choices do not become explicit overrides. A member's picker lists
+`Context.MemberModels` when the context has them (`controlModels`). Team and member saves retain
 their original revision and uncertain request identity. First input, guidance
 and queued input wait for successful saves; failures preserve the draft.
 Existing sessions retain their captured role references in `@ Agents`; unsent
@@ -487,7 +499,9 @@ and the Escape order (picker before stop); approvals and the question.
 `internal/desktop/shell/footer_test.go` (`TestContextRingBesideModel`): the
 session ring's size, place before the chip and the microphone, that it is no
 control, its arc and tones by pixel, its tooltip, the rule without a session,
-the folds under 680 and 440, and Send without a model, blocked and with one.
+the folds under 680 and 440 with the places the packages' controls are asked
+for, and Send without a model, blocked and with one, by the button and by
+Enter, which leaves a draft its owner keeps.
 `SAILRY_UI_SHOTS=<directory>` saves those steps' frames for review.
 `TestUsageCompact`: the small location buttons before the usage button between
 the two widths, and no location on the bar below 440.
@@ -506,9 +520,12 @@ and every failure, over a fake microphone and recognizer.
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |
 | Chips are `TextRanges` (primary color, weight 500), deleted whole by Backspace; no click on a chip | A MyGo text area draws no inline elements |
 | The model score ring is a tooltip with axis bars | No ring component; the data is the same |
-| `composer.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. Kit takes the drawing, and `conversation.ContextRing` and the plugin indicator with it, when Kit is free to change |
+| `kit.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. The composer, `conversation.ContextRing` and the plugin controls share the one drawing |
 | A ring's value changes at once | Kit's `ProgressCircle` eases a changed value over its normal duration |
-| The preview's ring is 20 across and shows the scene's usage | The reference's preview ring is the same 15 and always empty; `conversation.ContextRing` is outside this package |
+| The preview's ring shows the scene's usage | The reference's preview ring is always empty; ours is the same `kit.Ring`, 15 across |
+| An indicator's `ID` is the package's name and the entry's ID | Two packages may declare the same entry ID; the ring's key has to be unique |
+| The model slot's package controls are not segments of the model chip | Out of this round; they stay the slot's own controls before the rings |
+| Enter and Tab leave the editor what the owner left in `State.Draft` | The live owner keeps the draft until the send is confirmed; clearing the editor after the action lost it on the keyboard path only |
 | The model name truncates at its end | The reference truncates it in the middle and measures the chip to fold the effort into an icon (`model_controls/fit.rs`); a MyGo text has an end ellipsis only |
 | Member badges are initials; collision handling is left to the logic half | UI-first scope |
 | File picker: list view only, no grid, context menu or go-to address | Kept to the attach flow |

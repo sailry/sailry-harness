@@ -2,18 +2,23 @@ package live
 
 import (
 	"context"
+	"image/png"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -223,4 +228,181 @@ func firstRun(t *testing.T) {
 	if frames := run(time.Second); frames > 2 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
+	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent)
+}
+
+// firstRunChinese shows the first-run window in Chinese: the draft without a
+// ring, the header's buttons, New session's refocus, a plugin page entered
+// once, and no English where the catalog has Chinese. It is a step of
+// firstRun; SAILRY_UI_SHOTS names a directory that receives its frames.
+func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string) {
+	// shots saves the frame in the light and the dark theme.
+	shots := func(name string) {
+		dir := os.Getenv("SAILRY_UI_SHOTS")
+		if dir == "" {
+			return
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, dark := range []bool{false, true} {
+			tester.SetDark(dark)
+			settle()
+			suffix := "-light"
+			if dark {
+				suffix = "-dark"
+			}
+			file, err := os.Create(filepath.Join(dir, name+"-zh-CN"+suffix+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(file, tester.Image())
+			file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		tester.SetDark(false)
+		settle()
+	}
+	zh := func(key string) string { return i18n.In("zh-CN", key) }
+	// english are the catalog's English texts that have a Chinese one.
+	english := map[string]string{}
+	for _, key := range i18n.Keys("en") {
+		if en := i18n.In("en", key); en != zh(key) {
+			english[en] = key
+		}
+	}
+	// translated fails for a text on screen the catalog has in Chinese, and
+	// with known for a Latin-only text that is not one of those names.
+	translated := func(page string, known ...string) {
+		t.Helper()
+		for _, shown := range tester.Texts() {
+			if key, exists := english[shown]; exists {
+				t.Errorf("%s shows %q in English although %s is translated", page, shown, key)
+			}
+			if known == nil || strings.TrimSpace(shown) == "" || slices.Contains(known, shown) {
+				continue
+			}
+			if !strings.ContainsFunc(shown, func(r rune) bool { return r > unicode.MaxASCII }) && strings.ContainsFunc(shown, unicode.IsLetter) {
+				t.Errorf("%s shows the untranslated %q", page, shown)
+			}
+		}
+	}
+	button := func(name string) ui.AccessInfo {
+		t.Helper()
+		info, ok := tester.AccessByRole(ui.RoleButton, name)
+		if !ok {
+			t.Fatalf("no %q button: %q", name, tester.Texts())
+		}
+		return info
+	}
+	click := func(info ui.AccessInfo) {
+		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		settle()
+	}
+
+	tester.SetLocale("zh-CN")
+	r.App.Navigate(shell.ConversationPage)
+	r.App.Sidebar.NewChat()
+	settle()
+	settle()
+	// The toast of the failed send was made in English before the switch.
+	if _, shown := tester.AccessByRole(ui.RoleButton, zh("close")); shown {
+		click(button(zh("close")))
+	}
+	draft := r.App.Sidebar.Selected
+	if !strings.HasPrefix(draft, "draft/") {
+		t.Fatalf("New session did not open a draft: %q", draft)
+	}
+	// The plugins' own names stay as they are; everything else is Chinese.
+	// The location control read Chats while packages were mounted in English.
+	translated("the first-run conversation", "Sailry", "SSH", "Git")
+	if tester.HasText("Chats") || !tester.HasText(zh("composer_no_project")) {
+		t.Errorf("the context bar does not read %q: %q", zh("composer_no_project"), tester.Texts())
+	}
+
+	// A draft has no session and so no context ring.
+	cv, comp := r.App.Data.Find(draft), r.App.Composer(draft)
+	if projected, _ := r.conversation(view(), cv, comp); len(projected.Indicators) != 0 {
+		t.Errorf("a draft shows %d context rings", len(projected.Indicators))
+	}
+
+	// Every button of the header, the plugins' as the shell's own, is the
+	// same box on one line, the ones side by side one gap apart.
+	var header []ui.AccessInfo
+	for _, info := range tester.AccessAll() {
+		if info.Role == ui.RoleButton && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+			header = append(header, info)
+		}
+	}
+	names := func() (all []string) {
+		for _, info := range header {
+			all = append(all, info.Name)
+		}
+		return
+	}
+	statistics := "上下文" // the statistics package's header control
+	if !slices.Contains(names(), statistics) || !slices.Contains(names(), zh("details")) || len(header) < 3 {
+		t.Fatalf("the header's buttons are %q", names())
+	}
+	for index, info := range header {
+		if info.Bounds.W != shell.HeaderButton || info.Bounds.H != shell.HeaderButton || info.Bounds.Y != header[0].Bounds.Y {
+			t.Errorf("header button %q is %v, want %v square at %v", info.Name, info.Bounds, shell.HeaderButton, header[0].Bounds.Y)
+		}
+		// The title lies between the navigation's toggle and the rest.
+		if index > 0 && header[index-1].Name != zh("sidebar_toggle") {
+			if gap := info.Bounds.X - (header[index-1].Bounds.X + header[index-1].Bounds.W); gap != shell.ButtonGap {
+				t.Errorf("%q starts %v after %q, want %v", info.Name, gap, header[index-1].Name, shell.ButtonGap)
+			}
+		}
+	}
+	shots("first-run-draft")
+
+	// New session over the draft stays enabled and puts the caret back.
+	details := button(zh("details"))
+	click(details)
+	if tester.Focused(zh("composer")) {
+		t.Fatal("the editor kept the focus when the details opened")
+	}
+	again := button(zh("conversation"))
+	if again.Disabled {
+		t.Error("New session is disabled over the draft")
+	}
+	click(again)
+	if r.App.Sidebar.Selected != draft || len(r.App.Data.Unassigned) != 1 || !tester.Focused(zh("composer")) {
+		t.Errorf("New session over the draft: selected %q of %d, editor focused %v", r.App.Sidebar.Selected, len(r.App.Data.Unassigned), tester.Focused(zh("composer")))
+	}
+	click(button(zh("details")))
+
+	// Entering a plugin page reads its view and loads its data once.
+	before := len(sent())
+	scheduled := "定时任务" // the scheduled-tasks package's rail entry
+	click(button(scheduled))
+	settle()
+	entry := map[string]int{}
+	for _, kind := range sent()[before:] {
+		entry[kind]++
+	}
+	for _, kind := range []string{"read_plugin_view", "scheduled-tasks:list_plugin_keys", "scheduled-tasks:read_project_catalog", "scheduled-tasks:list_plugin_models", "scheduled-tasks:list_teams"} {
+		if entry[kind] != 1 {
+			t.Errorf("entering the page sent %s %d times: %q", kind, entry[kind], sent()[before:])
+		}
+	}
+	translated("the scheduled tasks page", "Sailry", "SSH", "Git")
+	shots("scheduled-tasks")
+
+	// The providers' settings of a profile without one.
+	r.App.Settings.Open(settings.Providers)
+	r.App.Navigate(shell.SettingsPage)
+	settle()
+	settle()
+	if !tester.HasText(zh("provider_empty_live")) {
+		t.Errorf("the providers' settings do not say %q: %q", zh("provider_empty_live"), tester.Texts())
+	}
+	translated("the providers' settings")
+	// Tall enough for the empty list under the model data.
+	tester.SetSize(1280, 1100)
+	shots("settings-providers-empty")
+	tester.SetSize(1280, 820)
 }

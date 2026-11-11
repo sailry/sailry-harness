@@ -229,7 +229,7 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 // another, and the effort track.
 func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 	p := theme.Of(c)
-	m := s.controlModel(ctx.Models)
+	m := s.controlModel(s.controlModels(ctx))
 	effortIndex := s.controlEffort()
 	list := efforts(m)
 	s.teamRow(c, ctx)
@@ -505,9 +505,10 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 	if s.open == nil {
 		s.open = map[string]bool{}
 	}
+	models := s.controlModels(ctx)
 	// The capabilities the models have, in the order they first appear.
 	var capabilities []Capability
-	for _, m := range ctx.Models {
+	for _, m := range models {
 		for _, capability := range m.Capabilities {
 			if !slices.ContainsFunc(capabilities, func(known Capability) bool { return known.ID == capability.ID }) {
 				capabilities = append(capabilities, capability)
@@ -520,7 +521,7 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 	}
 	var providers []string
 	seen := map[string]bool{}
-	for _, m := range ctx.Models {
+	for _, m := range models {
 		if shown(m) && !seen[m.Provider] {
 			seen[m.Provider] = true
 			providers = append(providers, m.Provider)
@@ -589,7 +590,7 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 				if !open {
 					continue
 				}
-				for _, m := range ctx.Models {
+				for _, m := range models {
 					if m.Provider == pr && shown(m) {
 						s.modelRow(c, m)
 					}

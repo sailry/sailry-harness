@@ -122,38 +122,18 @@ func usageButton(c *ui.Context, u *Usage, open *bool) {
 }
 
 // ContextRing is the composer's context indicator, left of the model chip:
-// Kit's ProgressCircle at 20 DIPs with 4 on each side, the track and the part
-// used, muted, with the compaction hint as its tooltip. Preview data has no
-// indicator panel to open, so it takes no clicks.
+// Kit's ring with 4 on each side, the track and the part used, muted, with
+// the compaction hint as its tooltip. Preview data has no indicator panel to
+// open, so it takes no clicks.
 func ContextRing(c *ui.Context, u *Usage) {
 	if u == nil {
 		return
 	}
-	p := theme.Of(c)
-	v := math.Max(0, math.Min(1, u.Context))
-	box := ui.Box(c.Key("context")).Size(20, 20).Margin(0, 4).Shrink(0)
-	kit.Tooltip(c, box, i18n.T(c, "composer_compression_hint"))
-	box.Label(fmt.Sprintf("%s %d%%", i18n.T(c, "composer_compression_hint"), int(v*100+0.5))).
-		Draw(func(pt *ui.Painter, r ui.Rect) {
-			cx, cy, rad := r.X+r.W/2, r.Y+r.H/2, r.W/2-2
-			var track ui.Path
-			track.Circle(cx, cy, rad)
-			pt.StrokePath(&track, 2, p.MutedForeground.Alpha(0.25))
-			if v <= 0 {
-				return
-			}
-			var arc ui.Path
-			start := -math.Pi / 2
-			steps := max(2, int(48*v))
-			for i := 0; i <= steps; i++ {
-				a := start + 2*math.Pi*v*float64(i)/float64(steps)
-				x, y := cx+rad*float32(math.Cos(a)), cy+rad*float32(math.Sin(a))
-				if i == 0 {
-					arc.MoveTo(x, y)
-				} else {
-					arc.LineTo(x, y)
-				}
-			}
-			pt.StrokePath(&arc, 2, p.MutedForeground)
-		})
+	percent := math.Max(0, math.Min(1, u.Context)) * 100
+	hint := i18n.T(c, "composer_compression_hint")
+	box := ui.Row(c.Key("context")).Shrink(0).PaddingX(4).AlignItems(ui.Center)
+	kit.Tooltip(c, box, hint)
+	box.Children(func() {
+		kit.Ring(c, percent, false, kit.Neutral, fmt.Sprintf("%s %d%%", hint, int(percent+0.5)))
+	})
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -223,10 +224,10 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 	root := r.localRuntime()
 	if root.App.Page == shell.ConversationPage {
 		if conversation := root.App.Data.Find(root.App.Sidebar.Selected); conversation != nil {
-			composer := root.App.Composer(conversation.ID)
-			if owner := root.conversationRuntime(conversation, composer); owner != nil {
-				if registry := owner.pluginRegistry(composerPluginScope(owner, conversation, composer), conversation.ID); registry != nil {
-					owner.renderPluginControls(view, registry, protocol.PluginUiSlotHeader)
+			draft := root.App.Composer(conversation.ID)
+			if owner := root.conversationRuntime(conversation, draft); owner != nil {
+				if registry := owner.pluginRegistry(composerPluginScope(owner, conversation, draft), conversation.ID); registry != nil {
+					owner.renderPluginControls(view, registry, protocol.PluginUiSlotHeader, composer.ControlStart)
 				}
 			}
 		}
@@ -251,7 +252,7 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 					r.renderPluginHeaderFilter(current, mounted, filter)
 				}
 				if overflow {
-					button := kit.IconButton(current.Key("overflow"), icons.Settings2, content.FiltersLabel, 28, false)
+					button := kit.IconButton(current.Key("overflow"), icons.Settings2, content.FiltersLabel, shell.HeaderButton, false)
 					button.OnClick(func() { mounted.headerOverflow = !mounted.headerOverflow })
 					kit.Popover(current, button, &mounted.headerOverflow, func() {
 						ui.Column(current).Width(240).Gap(4).Padding(8).Children(func() {
@@ -278,17 +279,24 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 				ui.Text(current, item.Value).FontSize(14).FontWeight(600).TextColor(color)
 			})
 		}
-		for _, action := range content.Actions {
-			icon, _ := icons.Plugin(action.Icon)
-			if action.Menu != nil {
-				kit.MenuButton(current.Key(action.ID), action.ID, func(button ui.Element) {
-					kit.IconLook(current, button.Disabled(action.Disabled), icon, action.Label, "", 28, false)
-				}, func(menu *kit.Menu) { r.pluginHeaderMenu(menu, mounted, action.Menu) })
-			} else {
-				kit.IconButton(current.Key(action.ID), icon, action.Label, 28, false).Disabled(action.Disabled).
-					OnClick(func() { r.emitPluginHeader(mounted, action.ID) })
-			}
+		if len(content.Actions) == 0 {
+			return
 		}
+		// The page's actions are header buttons like the native ones: the
+		// same Kit icon button, size and gap.
+		ui.Row(current.Key("actions")).Shrink(0).Gap(shell.ButtonGap).AlignItems(ui.Center).Children(func() {
+			for _, action := range content.Actions {
+				icon, _ := icons.Plugin(action.Icon)
+				if action.Menu != nil {
+					kit.MenuButton(current.Key(action.ID), action.ID, func(button ui.Element) {
+						kit.IconLook(current, button.Disabled(action.Disabled), icon, action.Label, "", shell.HeaderButton, false)
+					}, func(menu *kit.Menu) { r.pluginHeaderMenu(menu, mounted, action.Menu) })
+				} else {
+					kit.IconButton(current.Key(action.ID), icon, action.Label, shell.HeaderButton, false).Disabled(action.Disabled).
+						OnClick(func() { r.emitPluginHeader(mounted, action.ID) })
+				}
+			}
+		})
 	})
 }
 

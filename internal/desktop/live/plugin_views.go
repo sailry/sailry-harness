@@ -420,6 +420,10 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		return
 	}
 	mounted.runtime = runtime
+	// The entry is noted before the view exists, as the reference does: the
+	// view's first change already carries it. Noted after the mount it is a
+	// second change, and the view loads everything twice.
+	host.Enter()
 	mounted.mounted, err = runtime.Mount(bundle, mounted.scope)
 	if err != nil {
 		r.failPluginView(view, mounted, err, "plugin_initialization_failed")
@@ -429,7 +433,6 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		_ = mounted.registry.SetActivity(mounted.scope.Package, true, false)
 	}
 	delete(root.pluginViews.failures, mounted.key)
-	host.Enter()
 }
 
 func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
@@ -526,9 +529,8 @@ func (r *Runtime) renderMountedPlugin(view *ui.Context, mounted *pluginMountedVi
 		if mounted.failure != nil {
 			kit.IconButton(view.Key("plugin-retry"), icons.RotateCw, i18n.T(view, "chat_retry"), 28, false).
 				OnClick(func() { r.retryPluginView(view, mounted) })
-		} else if mounted.loading {
-			ui.Spinner(view.Key("plugin-loading"))
 		}
+		// A mount takes a few frames; a spinner would only flash.
 		return false
 	}
 	_, err := mounted.mounted.Render(view.Key(mounted.generation))

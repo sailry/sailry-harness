@@ -37,6 +37,7 @@ MyGo bases.
 | `Tag`, `Badge` | Own | A short label; `Badge` in a `Tone` | Counts in a toolbar (`Toolbar` count) | composer, settings, shell |
 | `StatusDot`, `StatusRing` | Own | A state as an 8 DIP dot; `StatusRing` on a mark or avatar | State with words; prefer an icon in rows | settings, sidebar, shell |
 | `Loader` | Own (custom drawing) | The sidebar's running indicator, dot matrix at `FPS` | Loading content (`Skeleton`) | conversation, settings, sidebar |
+| `Ring` | Own (custom drawing; pinned MyGo has no progress circle) | A share of a whole as a 15 DIP circle (`RingSize`), or its sweep while loading, in a tone: context usage | Progress of an operation in a row (`ui.Progress`) | composer, conversation, live |
 | `Indicator`, `ThinkingOf` | Own (custom drawing) | The transcript's thinking indicator | Anything else | conversation |
 | `Orb` | Own (custom drawing) | A breathing dot | — | unused |
 | `Shimmer`, `Sweep` | Own (custom drawing) | Text of a running activity; `Sweep` shares one band across a row's texts | Static labels | conversation, host |
@@ -192,8 +193,11 @@ MyGo bases.
 - Colors that must be opaque use `kit.Opaque(c)`: `ui.Color.Alpha`
   multiplies the existing alpha, so `Alpha(1)` keeps a translucent token
   translucent.
-- Empty and unavailable states use `kit.Result`, including the ones a
-  plugin declares (`EmptyState`, an empty `CardList` or `DataTable`).
+- Empty and unavailable states of a page, a list or a document use
+  `kit.Result`, including the ones a plugin declares (`EmptyState`, an empty
+  `CardList` or `DataTable`). A picker, a menu, a popover or a dialog's body
+  with nothing to list says so in one muted line of its own row height, as
+  `kit.Command` does.
 - Brand marks keep their own colors via `ui.Image`, never `ui.Icon`, which
   tints. Provider marks come from Lobe Icons.
 

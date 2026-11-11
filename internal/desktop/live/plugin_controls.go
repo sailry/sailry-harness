@@ -2,7 +2,6 @@ package live
 
 import (
 	"encoding/json"
-	"math"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -11,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -63,11 +63,15 @@ func composerPluginScope(r *Runtime, cv *viewmodel.Conversation, comp *composer.
 func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversation, comp *composer.State, context *composer.Context) {
 	scope := composerPluginScope(r, cv, comp)
 	registry := r.pluginRegistry(scope, cv.ID)
-	comp.SetPluginControls(func(view *ui.Context, slot string) {
+	comp.SetPluginControls(func(view *ui.Context, slot string, place composer.ControlPlace) {
 		if registry != nil {
-			r.renderPluginControls(view, registry, protocol.PluginUiSlot(slot))
+			r.renderPluginControls(view, registry, protocol.PluginUiSlot(slot), place)
 		}
 	})
+	// Indicators report a running conversation: a draft has no usage yet.
+	if registry != nil && scope.Session != nil {
+		context.Indicators = append(context.Indicators, r.pluginIndicators(registry)...)
+	}
 	r.projectPluginStatus(comp, context, scope, registry)
 	if registry == nil {
 		comp.SetPluginCommand(nil)
@@ -159,13 +163,72 @@ func (r *Runtime) invokePluginControl(registry *plugins.Registry, key plugins.Co
 	r.localRuntime().wake()
 }
 
-func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Registry, slot protocol.PluginUiSlot) {
+// pluginIndicators are the composer slot's indicators as the toolbar's rings.
+func (r *Runtime) pluginIndicators(registry *plugins.Registry) []composer.Indicator {
+	var rings []composer.Indicator
+	for _, entry := range registry.Entries(protocol.PluginUiSlotComposer) {
+		if entry.Declaration.Kind != "indicator" {
+			continue
+		}
+		ring := composer.Indicator{ID: entry.Key.Package.Name + ":" + entry.Key.ID, Hint: "0", Start: entry.Declaration.Align == protocol.PluginUiAlignStart}
+		var indicator protocol.PluginUiIndicator
+		if json.Unmarshal(entry.State.Value, &indicator) == nil && string(entry.State.Value) != "null" {
+			ring.Loading, ring.Hint = indicator.Loading, indicator.Hint
+			if indicator.Percent != nil {
+				ring.Percent = *indicator.Percent
+			}
+			switch indicator.Tone {
+			case "warning":
+				ring.Tone = kit.Caution
+			case "danger":
+				ring.Tone = kit.Negative
+			}
+		}
+		if entry.Declaration.Handler != nil {
+			ring.Open, ring.Disabled = indicator.Open, !entry.State.Enabled
+			ring.Panel = func(view *ui.Context) {
+				ui.Column(view).Width(320).Padding(8).Children(func() { r.renderPluginContribution(view, entry.Key) })
+			}
+			ring.Toggle = func(open bool) { r.invokePluginControl(registry, entry.Key, "change", open) }
+		}
+		rings = append(rings, ring)
+	}
+	return rings
+}
+
+// renderPluginControls builds a slot's controls for one place. The composer
+// slot's are split by their alignment between the toolbar's groups, or are
+// all rows of the settings popover; its indicators are the toolbar's rings
+// (pluginIndicators) and the worktree actions the location menu already has
+// are left out. The header shows no indicator or metric.
+func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Registry, slot protocol.PluginUiSlot, place composer.ControlPlace) {
 	for _, entry := range registry.Entries(slot) {
-		r.renderPluginControl(view.Key(pluginControlIdentity(entry.Key)), registry, entry)
+		kind := entry.Declaration.Kind
+		switch slot {
+		case protocol.PluginUiSlotComposer:
+			intent := ""
+			if entry.Declaration.Intent != nil {
+				intent = *entry.Declaration.Intent
+			}
+			end := entry.Declaration.Align == protocol.PluginUiAlignEnd
+			if kind == "indicator" || intent == string(protocol.PluginUiIntentCreateWorktree) || intent == string(protocol.PluginUiIntentForkWorktree) ||
+				place != composer.ControlMenu && end != (place == composer.ControlEnd) {
+				continue
+			}
+		case protocol.PluginUiSlotHeader:
+			if kind == "indicator" || kind == "metric" {
+				continue
+			}
+		}
+		r.renderPluginControl(view.Key(pluginControlIdentity(entry.Key)), registry, entry, place == composer.ControlMenu)
 	}
 }
 
-func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Registry, entry plugins.ContributionEntry) {
+// renderPluginControl is one control: in the header Kit's icon button at the
+// header's size, as the native ones; as a row of the composer's settings
+// popover; on the context bar the bar's small button; elsewhere the
+// composer's round ghost button.
+func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Registry, entry plugins.ContributionEntry, row bool) {
 	identity := pluginControlIdentity(entry.Key)
 	if r.pluginControls == nil {
 		r.pluginControls = map[string]*pluginControlPresentation{}
@@ -179,7 +242,13 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 	palette := theme.Of(view)
 	selected := false
 	_ = json.Unmarshal(entry.State.Value, &selected)
+	header := entry.Declaration.Slot == protocol.PluginUiSlotHeader
 	if entry.Retry {
+		if header {
+			kit.IconButton(view.Key(identity+"/retry"), icons.RotateCw, label+" · "+i18n.T(view, "plugins_retry"), shell.HeaderButton, false).
+				OnClick(func() { r.retryPluginContribution(entry.Key) })
+			return
+		}
 		kit.Ghost(view, label, false).Disabled(true)
 		kit.IconButton(view.Key(identity+"/retry"), icons.RotateCw, i18n.T(view, "plugins_retry"), 28, false).
 			OnClick(func() { r.retryPluginContribution(entry.Key) })
@@ -192,21 +261,35 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 		label = indicator.Hint
 	}
 	look := func(button ui.Element) {
-		kit.GhostLook(view, button, selected).Label(label).Disabled(!entry.State.Enabled).
+		button.Disabled(!entry.State.Enabled)
+		switch {
+		case header:
+			kit.IconLook(view, button, icon, label, "", shell.HeaderButton, selected)
+			return
+		case row:
+			composer.MenuRow(view, kit.GhostLook(view, button, selected).Label(label), icon, label, palette.Foreground, nil)
+			return
+		}
+		if entry.Declaration.Slot == protocol.PluginUiSlotContext && entry.Declaration.Kind != "indicator" {
+			// The context bar's own look, as the project and worktree beside it.
+			composer.ContextButton(view, button, icon, label, selected, entry.Declaration.Kind == "select" || entry.Declaration.Kind == "menu")
+			return
+		}
+		kit.GhostLook(view, button, selected).Label(label).
 			Height(32).PaddingX(12).Gap(6).Radius(16).TextColor(palette.Foreground).
 			Children(func() {
 				if entry.State.Loading {
 					ui.Spinner(view).Size(16, 16)
 				} else if entry.Declaration.Kind == "indicator" {
-					pluginIndicator(view, indicator)
+					kit.Ring(view, indicatorPercent(indicator), indicator.Loading, indicatorTone(indicator), indicator.Hint)
 				} else {
 					ui.Icon(view, icon).FontSize(16)
 				}
-				if entry.Declaration.Slot != "model" && entry.Declaration.Slot != "header" && entry.Declaration.Kind != "indicator" {
+				if entry.Declaration.Slot != "model" && entry.Declaration.Kind != "indicator" {
 					ui.Text(view, label).FontSize(14).SingleLine()
 				}
 			})
-		if entry.Declaration.Slot == "model" || entry.Declaration.Slot == "header" || entry.Declaration.Kind == "indicator" {
+		if entry.Declaration.Slot == "model" || entry.Declaration.Kind == "indicator" {
 			kit.Tooltip(view, button, label)
 		}
 	}
@@ -238,7 +321,11 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 			r.renderPluginContribution(view, entry.Key)
 		})
 		if panel != (ui.Element{}) {
-			panel.AttachTo(button, ui.AnchorTopStart, ui.AnchorBottomStart).Width(320).Padding(12)
+			if header {
+				panel.AttachTo(button, ui.AnchorBottomEnd, ui.AnchorTopEnd).Width(320).Padding(12)
+			} else {
+				panel.AttachTo(button, ui.AnchorTopStart, ui.AnchorBottomStart).Width(320).Padding(12)
+			}
 		}
 		if wasOpen && !state.open {
 			r.invokePluginControl(registry, entry.Key, "change", false)
@@ -345,46 +432,21 @@ func (r *Runtime) pluginChoicePicker(view *ui.Context, registry *plugins.Registr
 	}
 }
 
-func pluginIndicator(view *ui.Context, indicator protocol.PluginUiIndicator) {
-	palette := theme.Of(view)
-	color := palette.MutedForeground
+// indicatorPercent and indicatorTone are a published indicator as Kit's ring
+// takes it: an unmeasured value is 0, any tone but warning and danger muted.
+func indicatorPercent(indicator protocol.PluginUiIndicator) float64 {
+	if indicator.Percent == nil {
+		return 0
+	}
+	return *indicator.Percent
+}
+
+func indicatorTone(indicator protocol.PluginUiIndicator) kit.Tone {
 	switch indicator.Tone {
 	case "warning":
-		color = palette.Warning
+		return kit.Caution
 	case "danger":
-		color = palette.Danger
+		return kit.Negative
 	}
-	percent := 0.0
-	if indicator.Percent != nil {
-		percent = min(max(*indicator.Percent/100, 0), 1)
-	}
-	ui.Box(view).Size(20, 20).MarginX(4).Shrink(0).Label(indicator.Hint).Draw(func(painter *ui.Painter, bounds ui.Rect) {
-		var track ui.Path
-		track.Circle(bounds.X+bounds.W/2, bounds.Y+bounds.H/2, bounds.W/2-2)
-		painter.StrokePath(&track, 2, color.Alpha(0.25))
-		fraction, start := percent, -math.Pi/2
-		if indicator.Loading {
-			fraction = 0.24
-			if !view.Preferences().ReduceMotion {
-				start += float64(painter.Now().UnixMilli()%1600) / 1600 * 2 * math.Pi
-				painter.AnimationFrameRate(kit.FPS)
-			}
-		}
-		if fraction <= 0 {
-			return
-		}
-		var path ui.Path
-		steps := max(2, int(48*fraction))
-		for index := 0; index <= steps; index++ {
-			angle := start + 2*math.Pi*fraction*float64(index)/float64(steps)
-			horizontal := bounds.X + bounds.W/2 + (bounds.W/2-2)*float32(math.Cos(angle))
-			vertical := bounds.Y + bounds.H/2 + (bounds.H/2-2)*float32(math.Sin(angle))
-			if index == 0 {
-				path.MoveTo(horizontal, vertical)
-			} else {
-				path.LineTo(horizontal, vertical)
-			}
-		}
-		painter.StrokePath(&path, 2, color)
-	})
+	return kit.Neutral
 }

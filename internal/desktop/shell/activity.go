@@ -226,6 +226,11 @@ func (a *App) strip(c *ui.Context) {
 		// Keep the header's tools reachable in a narrow window.
 		slots = 2
 	}
+	if len(groups) == 0 {
+		// An empty strip would still take one of the header's gaps, leaving
+		// the buttons on either side of it twice as far apart.
+		return
+	}
 	ui.Row(c.Key("strip")).Gap(12).Shrink(0).Children(func() {
 		for _, l := range []lane{laneWaiting, laneRunning, laneCompleted} {
 			list := groups[l]

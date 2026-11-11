@@ -86,6 +86,24 @@ func (r *Runtime) offeredModels(id string, models []composer.Model) []composer.M
 	return offered
 }
 
+// memberModels are those of offered a team member may take: nil for all of
+// them on the local Node, and on another Node only that Node's own, since a
+// member's model is resolved there and the local Node's providers reach it
+// only as the lead of a forwarded session.
+func (r *Runtime) memberModels(offered []composer.Model) []composer.Model {
+	if r.parent == nil {
+		return nil
+	}
+	own := []composer.Model{}
+	for _, model := range offered {
+		provider, _, _ := strings.Cut(model.ID, "/")
+		if slices.ContainsFunc(r.snapshot().Providers, func(p protocol.ConversationProvider) bool { return p.ID.String() == provider }) {
+			own = append(own, model)
+		}
+	}
+	return own
+}
+
 // creationCommand creates a session on this Node with config: by the Node
 // itself where the provider is its own, and forwarded by the local Node,
 // which holds the provider at revision and its credential, where it is not.

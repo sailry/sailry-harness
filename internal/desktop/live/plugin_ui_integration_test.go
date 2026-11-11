@@ -171,6 +171,7 @@ func TestPluginUIIntegration(t *testing.T) {
 	wait("plugin inventory", func() bool {
 		return runtime.pluginViews != nil && len(runtime.pluginViews.navigation) > 0 && runtime.packages.infos["gomoku"].Extension != nil
 	})
+	auditContextRing(t, runtime, tester, session.ID.String(), wait)
 	order, pins := runtime.App.FeaturePreferences()
 	gameID := "plugin:" + controller.Target().String() + "/gomoku"
 	pins[gameID] = true

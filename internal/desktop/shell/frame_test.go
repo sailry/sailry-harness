@@ -112,32 +112,25 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 
 // The launcher is titled "details" and lists the six resources in order
 // from the top of the panel, each row opening its resource.
-func TestPanelLauncherStartsAtTop(t *testing.T) {
+func TestPanelLauncherCentred(t *testing.T) {
 	for _, lang := range []string{"en", "zh-CN"} {
 		_, tt := newTester(t)
 		tt.SetLocale(lang)
 		tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
 		tt.Advance(time.Second)
 		tt.Frame()
-		title, ok := tt.Find(i18n.In(lang, "details"))
-		if !ok {
-			t.Fatalf("%s: no launcher title: %q", lang, tt.Texts())
+		// The launcher has no title: its rows are centred between the header
+		// and the window's bottom edge.
+		// The first and last rows have labels no other control carries.
+		head, ok := tt.AccessByRole(ui.RoleButton, i18n.In(lang, panel.Resources[0].Label))
+		tail, found := tt.AccessByRole(ui.RoleButton, i18n.In(lang, panel.Resources[len(panel.Resources)-1].Label))
+		if !ok || !found || head.Bounds.X < 640 || tail.Bounds.X != head.Bounds.X {
+			t.Fatalf("%s: launcher rows %v %v: %+v %+v", lang, ok, found, head.Bounds, tail.Bounds)
 		}
-		top := title.Y
-		for i, r := range panel.Resources {
-			row, ok := tt.AccessByRole(ui.RoleButton, i18n.In(lang, r.Label))
-			if !ok {
-				t.Fatalf("%s: no launcher row %q", lang, r.Label)
-			}
-			if row.Bounds.Y <= top {
-				t.Fatalf("%s: row %d %q at %v is not below %v", lang, i, r.Label, row.Bounds.Y, top)
-			}
-			top = row.Bounds.Y
-		}
-		// Six 40 DIP rows 8 apart from under the 40 DIP header: the last
-		// row ends far above a vertically centred list's.
-		if top > HeaderHeight+40+5*48+8 {
-			t.Fatalf("%s: the rows do not start at the top: last row at %v", lang, top)
+		first, last := head.Bounds.Y, tail.Bounds.Y+tail.Bounds.H
+		above, below := first-HeaderHeight, 820-last
+		if above < 80 || above-below > 2 || below-above > 2 {
+			t.Fatalf("%s: the rows are not vertically centred: %v above, %v below", lang, above, below)
 		}
 	}
 	for _, r := range panel.Resources {
@@ -658,11 +651,11 @@ func testIconButtons(t *testing.T) {
 			tag = b
 		}
 	}
-	if got := trail.X - (toggle.Bounds.X + toggle.Bounds.W); got != buttonGap {
-		t.Errorf("the title starts %v after the toggle, want %v", got, buttonGap)
+	if got := trail.X - (toggle.Bounds.X + toggle.Bounds.W); got != ButtonGap {
+		t.Errorf("the title starts %v after the toggle, want %v", got, ButtonGap)
 	}
-	if got := details.Bounds.X - (tag.X + tag.W); got != buttonGap {
-		t.Errorf("details starts %v after the preview tag, want %v", got, buttonGap)
+	if got := details.Bounds.X - (tag.X + tag.W); got != ButtonGap {
+		t.Errorf("details starts %v after the preview tag, want %v", got, ButtonGap)
 	}
 	// One hover fill: the same box, and so the same number of pixels, on
 	// each, and nothing outside it.
@@ -719,7 +712,7 @@ func testIconButtons(t *testing.T) {
 		}
 	}
 	for i := range 5 {
-		if want := float32(HeaderHeight + 8 + i*(RailButton+buttonGap)); rail[i].Y != want {
+		if want := float32(HeaderHeight + 8 + i*(RailButton+ButtonGap)); rail[i].Y != want {
 			t.Errorf("rail button %d is at %v, want %v", i, rail[i].Y, want)
 		}
 	}

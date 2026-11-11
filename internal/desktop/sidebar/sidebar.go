@@ -5,7 +5,6 @@ package sidebar
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -35,13 +34,12 @@ type State struct {
 	Metrics  *Metrics
 	records  recordsState
 	Selected string // conversation ID
-	// Showing is whether the page shown is the selected conversation, which
-	// the shell sets each frame. Over another page (a host, a project) the
-	// sidebar's rows and New session lead back to the conversation.
-	Showing bool
 	// shown is set when the sidebar opens a conversation, also the selected
 	// one; the shell takes it to go back to the conversation.
-	shown   bool
+	shown bool
+	// asked is set when New session is asked; the shell takes it to put the
+	// focus in the draft's editor.
+	asked   bool
 	open    map[string]*bool
 	more    map[string]bool
 	created int
@@ -191,7 +189,7 @@ func (s *State) Order() []string {
 func View(c *ui.Context, s *State) {
 	s.drawn = false
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
-		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), s.AtDraft()).FillWidth()
+		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
 		kit.NewSessionArt(c, b).Children(func() {
 			ui.Icon(c, icons.Plus).FontSize(16)
 			ui.Text(c, i18n.T(c, "conversation")).FontSize(14).SingleLine()
@@ -205,7 +203,7 @@ func View(c *ui.Context, s *State) {
 				})
 			})
 		}
-		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat, s.AtDraft()}, func() {
+		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat}, func() {
 			list := listed(s.Data.Unassigned)
 			if len(list) == 0 {
 				empty(c, "project_sessions_empty")
@@ -215,7 +213,7 @@ func View(c *ui.Context, s *State) {
 				s.conversation(c, cv, rowPlain)
 			})
 		})
-		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }, false}, func() {
+		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }}, func() {
 			if len(s.Data.Projects) == 0 {
 				empty(c, "connection_no_projects")
 				return
@@ -242,9 +240,8 @@ func empty(c *ui.Context, key string) {
 
 // add is a group header's "+" button.
 type add struct {
-	label    string // i18n key
-	run      func()
-	disabled bool
+	label string // i18n key
+	run   func()
 }
 
 // groupIcons are the theme's icon.group.* slots of the groups; pinned
@@ -279,7 +276,7 @@ func section(c *ui.Context, s *State, key, title string, plus *add, body func())
 			})
 			if plus != nil {
 				b := kit.IconButton(c.Key("add"), icons.Plus, i18n.T(c, plus.label), 20, false).TextColor(muted).
-					Margin(0, 4, 0, 0).Disabled(plus.disabled).OnClick(plus.run)
+					Margin(0, 4, 0, 0).OnClick(plus.run)
 				if !hovered && !b.Hovered() && !b.FocusVisible() {
 					b.Opacity(0)
 				}
@@ -581,14 +578,20 @@ func (s *State) TakeShown() bool {
 	return shown
 }
 
+// TakeDraft reports, once, whether New session was asked since the last
+// call: the shell then puts the focus in the draft's editor, also when the
+// page already shows that draft and nothing else changes.
+func (s *State) TakeDraft() bool {
+	asked := s.asked
+	s.asked = false
+	return asked
+}
+
 // unsent reports whether a conversation is a new one nothing was sent in:
-// the reference's single draft. A live draft is the runtime's, under its
-// "draft/" ID; a saved session without a title is not one.
+// the reference's single draft. Live, the runtime owns the drafts and keeps
+// them out of the sidebar's data, so none of its rows is one.
 func (s *State) unsent(cv *preview.Conversation) bool {
-	if cv.Title != "" || len(cv.Turns) != 0 || cv.Status != preview.Idle || cv.Archived {
-		return false
-	}
-	return s.Actions == nil || strings.HasPrefix(cv.ID, "draft/")
+	return s.Actions == nil && cv.Title == "" && len(cv.Turns) == 0 && cv.Status == preview.Idle && !cv.Archived
 }
 
 // unsentIn returns the unsent conversation of a list, nil for none.
@@ -601,17 +604,12 @@ func (s *State) unsentIn(list []*preview.Conversation) *preview.Conversation {
 	return nil
 }
 
-// AtDraft reports whether the page shows the unsent chat New session would
-// open. New session cannot act then, so its buttons are disabled.
-func (s *State) AtDraft() bool {
-	cv := s.unsentIn(s.Data.Unassigned)
-	return s.Showing && cv != nil && cv.ID == s.Selected
-}
-
 // NewChat opens an empty chat without a project, in memory only: the unsent
 // one when there is one, as the reference keeps a single draft, otherwise a
-// new one.
+// new one. The button stays enabled over the draft already shown: its click
+// puts the focus back in the draft's editor (TakeDraft).
 func (s *State) NewChat() {
+	s.asked = true
 	if cv := s.unsentIn(s.Data.Unassigned); cv != nil {
 		s.show(cv.ID)
 		return
@@ -630,6 +628,7 @@ func (s *State) NewChat() {
 // newIn opens an empty conversation in a project, in memory only: its
 // unsent one when it has one, otherwise a new one.
 func (s *State) newIn(pr *preview.Project) {
+	s.asked = true
 	if cv := s.unsentIn(pr.Conversations); cv != nil {
 		*s.opened("project/" + pr.ID) = true
 		s.show(cv.ID)

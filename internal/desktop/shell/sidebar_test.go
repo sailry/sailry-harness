@@ -46,9 +46,9 @@ func newSession(t *testing.T, tt *ui.Tester) (button, plus ui.AccessInfo) {
 	return button, plus
 }
 
-// New session opens the one unsent chat and never stacks another. While the
-// page already shows that chat the button cannot act, so it is disabled;
-// everywhere else it is enabled and its click shows.
+// New session opens the one unsent chat and never stacks another. It is
+// always enabled: while the page already shows that chat its click puts the
+// focus back in the draft's editor.
 func testSidebarNewSession(t *testing.T) {
 	a, tt := newTester(t)
 	press := func() {
@@ -72,11 +72,31 @@ func testSidebarNewSession(t *testing.T) {
 	if draft == selected || count() != before+1 || !tt.HasText(i18n.In("en", "welcome_title")) {
 		t.Fatalf("New session opened %q among %d chats", draft, count())
 	}
-	if b, plus := disabled(); !b || !plus {
-		t.Fatalf("over the unsent chat New session is disabled %v, its + %v", b, plus)
+	editor := i18n.In("en", "composer")
+	if b, plus := disabled(); b || plus || !tt.Focused(editor) {
+		t.Fatalf("over the unsent chat New session is disabled %v, its + %v, the editor focused %v", b, plus, tt.Focused(editor))
 	}
-	snapshot(t, tt, "new-session-disabled")
-	press()
+	// The focus leaves the editor; New session over the same draft brings
+	// it back, as does the Chats group's "+".
+	for _, again := range []string{"button", "plus"} {
+		if err := tt.Click(i18n.In("en", "details")); err != nil {
+			t.Fatal(err)
+		}
+		settle(tt)
+		if tt.Focused(editor) {
+			t.Fatalf("%s: the details toggle left the focus in the editor", again)
+		}
+		b, plus := newSession(t, tt)
+		if again == "plus" {
+			b = plus
+		}
+		tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		settle(tt)
+		if !tt.Focused(editor) || a.Sidebar.Selected != draft || count() != before+1 {
+			t.Fatalf("%s: New session over the draft focused the editor %v, selected %q among %d", again, tt.Focused(editor), a.Sidebar.Selected, count())
+		}
+	}
+	snapshot(t, tt, "new-session-refocus")
 	tt.Key(ui.Cmd, ui.KeyN)
 	settle(tt)
 	if a.Sidebar.Selected != draft || count() != before+1 {
@@ -130,18 +150,24 @@ func testSidebarNewSession(t *testing.T) {
 		t.Fatalf("New session after sending opened %q among %d", a.Sidebar.Selected, count())
 	}
 
-	// Live: the runtime's draft is the unsent chat; a saved session without
-	// a title is not.
+	// Live: the runtime owns the drafts, reuses the one of a location and
+	// keeps them out of the sidebar's list; a saved session without a title
+	// is not one.
 	live := NewLive(&viewmodel.Data{
 		Unassigned: []*viewmodel.Conversation{{ID: "saved"}},
 		Workspace:  &viewmodel.Workspace{},
 	})
 	drafts := 0
 	live.Sidebar.Actions = &sidebar.Actions{NewDraft: func(*viewmodel.Project) {
-		drafts++
-		cv := &viewmodel.Conversation{ID: fmt.Sprintf("draft/%d", drafts)}
-		live.Data.Unassigned = append([]*viewmodel.Conversation{cv}, live.Data.Unassigned...)
-		live.Page, live.Sidebar.Selected = ConversationPage, cv.ID
+		if drafts == 0 {
+			drafts++
+			cv := &viewmodel.Conversation{ID: fmt.Sprintf("draft/%d", drafts)}
+			live.Data.Unassigned = append([]*viewmodel.Conversation{cv}, live.Data.Unassigned...)
+			listed := *live.Data
+			listed.Unassigned = live.Data.Unassigned[1:]
+			live.Sidebar.Data = &listed
+		}
+		live.Page, live.Sidebar.Selected = ConversationPage, "draft/1"
 	}}
 	live.Sidebar.Selected = "saved"
 	a, tt = live, ui.NewTesterWith(live.View, 1280, 820, opaque)
@@ -154,14 +180,24 @@ func testSidebarNewSession(t *testing.T) {
 	if drafts != 1 || a.Sidebar.Selected != "draft/1" {
 		t.Fatalf("live New session made %d drafts, selected %q", drafts, a.Sidebar.Selected)
 	}
-	if b, plus := disabled(); !b || !plus {
-		t.Fatalf("over the live draft New session is disabled %v, its + %v", b, plus)
+	if b, plus := disabled(); b || plus || !tt.Focused(editor) {
+		t.Fatalf("over the live draft New session is disabled %v, its + %v, the editor focused %v", b, plus, tt.Focused(editor))
+	}
+	if err := tt.Click(i18n.In("en", "details")); err != nil {
+		t.Fatal(err)
+	}
+	settle(tt)
+	if tt.Focused(editor) {
+		t.Fatal("the details toggle left the focus in the live draft's editor")
 	}
 	press()
+	if !tt.Focused(editor) {
+		t.Fatal("New session over the live draft did not focus its editor")
+	}
 	a.Do("conversation.new")
 	settle(tt)
-	if drafts != 1 || count() != 2 {
-		t.Fatalf("live New session stacked drafts: %d, %d chats", drafts, count())
+	if drafts != 1 || count() != 2 || len(a.Sidebar.Data.Unassigned) != 1 {
+		t.Fatalf("live New session stacked drafts: %d, %d chats, %d listed", drafts, count(), len(a.Sidebar.Data.Unassigned))
 	}
 }
 

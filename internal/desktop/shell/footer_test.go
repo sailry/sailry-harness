@@ -23,9 +23,17 @@ import (
 type sent struct {
 	composer.Actions
 	messages []composer.Message
+	// keep is the state whose draft Send puts back, as an owner does that
+	// holds the draft until the send is confirmed; nil lets it clear.
+	keep *composer.State
 }
 
-func (s *sent) Send(m composer.Message) { s.messages = append(s.messages, m) }
+func (s *sent) Send(m composer.Message) {
+	s.messages = append(s.messages, m)
+	if s.keep != nil {
+		s.keep.Draft = m.Text
+	}
+}
 
 // composerAlone builds the selected preview conversation's composer by
 // itself in a window of the given width, so its toolbar folds at the
@@ -102,8 +110,8 @@ func TestContextRingBesideModel(t *testing.T) {
 		t.Fatalf("no model chip for %q", m.Name)
 	}
 	b := chip.Bounds
-	if r.W != 20 || r.H != 20 {
-		t.Errorf("ring is %vx%v, want 20x20", r.W, r.H)
+	if r.W != kit.RingSize || r.H != kit.RingSize {
+		t.Errorf("ring is %vx%v, want the Kit ring's %v", r.W, r.H, kit.RingSize)
 	}
 	if gap := b.X - (r.X + r.W); gap < 0 || gap > 12 {
 		t.Errorf("ring ends %v before the chip, want it directly left", gap)
@@ -339,8 +347,28 @@ func ringTooltip(t *testing.T) {
 // context bar for that popover.
 func ringFolds(t *testing.T) {
 	project := preview.Load().Projects[0].Name
+	// places are where the composer slot's package controls were asked for.
+	var places []composer.ControlPlace
+	recorded := withSession(func(s *composer.State, _ *composer.Context) {
+		s.SetPluginControls(func(_ *ui.Context, slot string, place composer.ControlPlace) {
+			if slot == "composer" {
+				places = append(places, place)
+			}
+		})
+	})
+	// The wide toolbar has them at its two ends.
+	composerAlone(t, "en", 960, recorded)
+	if !slices.Contains(places, composer.ControlStart) || !slices.Contains(places, composer.ControlEnd) || slices.Contains(places, composer.ControlMenu) {
+		t.Errorf("the wide toolbar places the package controls at %v", places)
+	}
 	for _, width := range []int{640, 440} {
-		tt, comp, _ := composerAlone(t, "en", width, withSession(nil))
+		tt, comp, _ := composerAlone(t, "en", width, recorded)
+		// The first frame is built before the composer knows its width.
+		places = nil
+		tt.Frame()
+		if len(places) != 0 {
+			t.Errorf("%d: the compact toolbar keeps the package controls at %v", width, places)
+		}
 		shot(t, tt, fmt.Sprintf("session-ring-%d", width))
 		r, ok := tt.Access(ringHint)
 		if !ok {
@@ -369,6 +397,9 @@ func ringFolds(t *testing.T) {
 		tt.Advance(time.Second)
 		tt.Frame()
 		shot(t, tt, fmt.Sprintf("settings-%d", width))
+		if !slices.Contains(places, composer.ControlMenu) || slices.Contains(places, composer.ControlStart) || slices.Contains(places, composer.ControlEnd) {
+			t.Errorf("%d: the settings popover places the package controls at %v", width, places)
+		}
 		for _, key := range []string{"composer_mode_code", "composer_permission_ask"} {
 			if !tt.HasText(i18n.In("en", key)) {
 				t.Errorf("%d: the settings popover lacks %s", width, key)
@@ -387,6 +418,18 @@ func ringFolds(t *testing.T) {
 			shot(t, tt, fmt.Sprintf("settings-project-%d", width))
 			if !tt.HasText(i18n.In("en", "project_add")) {
 				t.Errorf("%d: the project row opened no menu: %q", width, tt.Texts())
+			}
+		}
+	}
+	// The review's frames: the session's composer in Chinese at each width.
+	if os.Getenv("SAILRY_UI_SHOTS") != "" {
+		for _, width := range []int{960, 640, 440} {
+			for _, mode := range []string{"light", "dark"} {
+				tt, _, _ := composerAlone(t, "zh-CN", width, withSession(nil))
+				tt.SetDark(mode == "dark")
+				tt.Frame()
+				tt.Frame()
+				shot(t, tt, fmt.Sprintf("composer-%d-zh-CN-%s", width, mode))
 			}
 		}
 	}
@@ -478,6 +521,25 @@ func sendWithoutModel(t *testing.T) {
 	if len(actions.messages) != 1 || actions.messages[0].Text != "Continue" || comp.Draft != "" {
 		t.Errorf("send delivered %+v and left the draft %q", actions.messages, comp.Draft)
 	}
+	// Enter sends the same way and clears the draft the owner let go.
+	comp.Draft = "Again"
+	tt.Frame()
+	enter(tt)
+	if len(actions.messages) != 2 || actions.messages[1].Text != "Again" || comp.Draft != "" {
+		t.Errorf("Enter delivered %+v and left the draft %q", actions.messages, comp.Draft)
+	}
+	// An owner that keeps the draft until the send is confirmed keeps it on
+	// Enter as on the button, in the state and in the editor.
+	actions.keep = comp
+	comp.Draft = "Held"
+	tt.Frame()
+	enter(tt)
+	tt.Frame()
+	field, _ := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+	if len(actions.messages) != 3 || comp.Draft != "Held" || field.Value != "Held" {
+		t.Errorf("Enter cleared the draft its owner kept: %d messages, draft %q, editor %q", len(actions.messages), comp.Draft, field.Value)
+	}
+	actions.keep = nil
 }
 
 // Below the compact width the usage under the composer is one button after

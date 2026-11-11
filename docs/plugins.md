@@ -253,7 +253,14 @@ for that concept, at the same sizes and tokens:
   MyGo's `Auto` height and basis stretch an element to its limit. `truncate` on
   a container reaches its text children, which MyGo's `SingleLine` does not.
 - `SelectField` is not searchable and `ModelPopup` opens a menu; the source
-  searches the select and opens the model picker popover.
+  searches the select and opens the model picker popover. The select stays
+  Kit's as it is. The composer's model picker is a page of the composer's own
+  state (its families, team member and effort), not a component a package's
+  control can be given, so `ModelPopup` keeps Kit's menu.
+- A page is told it was entered (`Host.Enter`) before it is mounted, so the
+  entry is part of the first change it reads and it loads its data once. Told
+  after the mount, the entry was a second change and every entry command of
+  the page went out twice.
 - `readBrowserSettings` reports an unsupported browser: the host keeps no
   browser profile, so the Browser page shows the package's unavailable notice.
 

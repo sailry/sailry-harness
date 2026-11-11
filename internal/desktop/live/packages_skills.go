@@ -158,10 +158,11 @@ func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocum
 		}
 		r.enqueue(func(c *ui.Context) {
 			if err == nil {
-				r.packages.documents[id] = document.Content
+				body := skillBody(document.Content)
+				r.packages.documents[id] = body
 				for _, list := range [][]viewmodel.Skill{r.App.Settings.SkillList, r.App.Settings.MarketSkills} {
 					if index := slices.IndexFunc(list, func(row viewmodel.Skill) bool { return row.ID == id }); index >= 0 {
-						list[index].Content = document.Content
+						list[index].Content = body
 					}
 				}
 			}
@@ -169,4 +170,22 @@ func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocum
 			done()
 		})
 	})
+}
+
+// skillBody is a skill document without its YAML frontmatter: the name,
+// description and display names it declares are already shown above the body.
+func skillBody(content string) string {
+	rest, found := strings.CutPrefix(strings.TrimLeft(content, "\ufeff \t\r\n"), "---")
+	if !found {
+		return content
+	}
+	for _, end := range []string{"\n---", "\n..."} {
+		if index := strings.Index(rest, end); index >= 0 {
+			if line := strings.IndexByte(rest[index+1:], '\n'); line >= 0 {
+				return strings.TrimLeft(rest[index+1+line:], "\r\n")
+			}
+			return ""
+		}
+	}
+	return content
 }

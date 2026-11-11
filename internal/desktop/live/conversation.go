@@ -269,6 +269,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		}
 	}
 	ctx.Models = r.offeredModels(cv.ID, ctx.Models)
+	ctx.MemberModels = r.memberModels(ctx.Models)
 	for i := range ctx.Models {
 		model := &ctx.Models[i]
 		if model.ID == comp.Model && model.Reasoning {

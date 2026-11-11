@@ -26,7 +26,7 @@ to the frame (`docs/shell.md`).
 s := sidebar.New(data, selectedID)
 sidebar.View(c, s)          // in the navigation column
 s.NewChat()                 // ⌘N, the button and the chats' "+"
-s.Showing = onConversation  // set by the shell each frame
+s.TakeDraft()               // New session was asked for: focus the composer
 s.TakeShown()               // the sidebar opened a conversation: go to it
 s.OpenEditor(nil)           // ⌘⌥N and the projects' "+"; a project to edit it
 s.Order()                   // the order of ⌘⇧[ and ⌘⇧]
@@ -101,13 +101,14 @@ As the reference keeps a single draft (`new_live_conversation` activates
 the `Key::Draft` panel when there is one), New session never stacks empty
 chats: `NewChat` opens the unsent chat when there is one and makes a new
 one otherwise. A chat is unsent while it has no title, no turns and is
-idle; live, only the runtime's `draft/` conversations count, so a saved
-session without a title is not one.
+idle. That rule is the preview's alone: live, the runtime's `NewDraft`
+decides, and its drafts are not in the sidebar's data at all (`listSidebar`),
+which is the one place that keeps them out of the tree.
 
 | State | New session and the chats' "+" |
 |---|---|
 | Another session shows, or a host or project page | Enabled: opens the unsent chat, or a new one, on the conversation page |
-| The conversation page already shows the unsent chat (`AtDraft`) | Disabled (Kit's disabled primary look): there is nothing to open. ⌘N and the menu's item do nothing |
+| The conversation page already shows the unsent chat | Enabled, as the reference's: the chat stays as it is and its composer takes the focus again (`TakeDraft`, `composer.State.Focus`). ⌘N and the menu's item do the same |
 
 ### Project editor
 
@@ -143,9 +144,10 @@ their owning Client actions and projections without changing the accepted UI.
 host, clone names and destinations. `internal/desktop/shell/sidebar_test.go`:
 the native menu pins and renames, an empty rename stays out and Escape
 gives up, pins reorder, the editor validates and adds, removal names the
-project and removes it; New session opens one unsent chat, is disabled over
-it, enabled elsewhere and leads back from a host page, in the preview and
-with the live draft action (`testSidebarNewSession`).
+project and removes it; New session opens one unsent chat, stays enabled over
+it and gives its editor the focus back, and leads back from a host page, in
+the preview and with the live draft action (`testSidebarNewSession`).
+`internal/desktop/live/first_run_test.go` does the same against a real Node.
 `internal/desktop/shell/shell_test.go`: Show more.
 
 ## Deviations
@@ -153,7 +155,6 @@ with the live draft action (`testSidebarNewSession`).
 | Deviation | Reason |
 |---|---|
 | Rename is in place | The plan asks for inline rename; the reference renames in a dialog |
-| New session is disabled over the unsent chat | The reference keeps it enabled and focuses the draft's composer again; the composer has no exported focus request, so the button would do nothing visible. With one, it can stay enabled as the reference's |
 | Pinned rows reorder by dragging | The plan asks for it; the reference orders pins by when they were pinned |
 | Project sessions do not reorder by dragging; no split folders | Not in this phase |
 | The pinned group does not append the host's running sessions | The preview has one host's pins only |

@@ -49,7 +49,7 @@ const (
 const (
 	HeaderButton = 28
 	RailButton   = 36
-	buttonGap    = 8
+	ButtonGap    = 8
 )
 
 // Motion is the columns' open and close: Kit's duration_normal along
@@ -243,7 +243,6 @@ func (a *App) View(c *ui.Context) {
 	a.shortcuts(c)
 	a.followSelection()
 	a.followPanes()
-	a.Sidebar.Showing = a.Page == ConversationPage
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color.
 	band, panel := p.TitleBar, p.Background
@@ -545,7 +544,12 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
 		conversation.UsageBar(c, cv.Session.Usage, compact, open)
 	}
-	comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
+	// The preview draws its own ring. A live session's is a package's
+	// indicator, which its context carries: both would be two rings.
+	comp.Indicator = nil
+	if a.Preview {
+		comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
+	}
 	var act ConversationActions = &actions{a: a, c: c, cv: cv, comp: comp}
 	if a.Preview && a.transfers.Advance(comp.Attachments, c.Now()) {
 		c.After(preview.Tick)

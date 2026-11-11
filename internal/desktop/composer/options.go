@@ -145,22 +145,28 @@ const (
 	menuForm
 )
 
-// contextButton is a location control. On the context bar it is Kit's small
-// round ghost button in the bar's muted color: 24 high, 8 at each end, a 14
-// icon, the label and the menu's caret 4 apart, at most 192 wide. In the
-// settings popover it is a menu row.
-func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form controlForm) ui.Element {
-	p := theme.Of(c)
-	kit.GhostLook(c, b, false).Label(label)
-	if form == menuForm {
-		return menuRow(c, b, icon, label, p.Foreground, icons.ChevronRight)
-	}
-	return b.Height(24).PaddingX(8).Gap(4).Radius(12).MaxWidth(192).MinWidth(0).Shrink(1).TextColor(p.MutedForeground).
-		Children(func() {
-			ui.Icon(c, icon).FontSize(14).Shrink(0)
-			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+// ContextButton is a control on the context bar: Kit's small round ghost
+// button in the bar's muted color, 24 high, 8 at each end, a 14 icon and the
+// label 4 apart, at most 192 wide; caret adds a menu's caret. The packages'
+// context controls wear it too.
+func ContextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, selected, caret bool) ui.Element {
+	return kit.GhostLook(c, b, selected).Label(label).Height(24).PaddingX(8).Gap(4).Radius(12).MaxWidth(192).MinWidth(0).Shrink(1).
+		TextColor(theme.Of(c).MutedForeground).Children(func() {
+		ui.Icon(c, icon).FontSize(14).Shrink(0)
+		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		if caret {
 			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0)
-		})
+		}
+	})
+}
+
+// contextButton is a location control: on the context bar a ContextButton
+// with a caret, in the settings popover a menu row.
+func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form controlForm) ui.Element {
+	if form == menuForm {
+		return MenuRow(c, kit.GhostLook(c, b, false).Label(label), icon, label, theme.Of(c).Foreground, icons.ChevronRight)
+	}
+	return ContextButton(c, b, icon, label, false, true)
 }
 
 // projectButton is the location: the project's name, or Chats for none,
@@ -310,12 +316,12 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 		// row_text: a 16 icon, the label, and a 16 chevron, 8 apart, in a
 		// small ghost button 32 high.
 		row := func(key string, icon *ui.SVG, label string, color ui.Color, page settingsPage) {
-			menuRow(c, kit.Ghost(c.Key(key), label, false), icon, label, color, icons.ChevronRight).
+			MenuRow(c, kit.Ghost(c.Key(key), label, false), icon, label, color, icons.ChevronRight).
 				OnClick(func() { s.page = page })
 		}
 		back := func() {
 			label := i18n.T(c, "composer_back")
-			menuRow(c, kit.Ghost(c.Key("back"), label, false), icons.ChevronLeft, label, p.Foreground, nil).
+			MenuRow(c, kit.Ghost(c.Key("back"), label, false), icons.ChevronLeft, label, p.Foreground, nil).
 				OnClick(func() { s.page = settingsMain })
 		}
 		choices := func(list []choice, chosen int, color func(int) ui.Color, pick func(int)) {
@@ -359,6 +365,7 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			}
 			row("mode-page", m.icon, i18n.T(c, m.label), p.Foreground, settingsMode)
 			row("permission-page", pm.icon, i18n.T(c, pm.label), danger(s.Permission), settingsPermission)
+			s.renderPluginControls(c, "composer", ControlMenu)
 			if narrow {
 				s.projectButton(c, ctx, actions, menuForm)
 				s.worktreeMenu(c, ctx, actions, menuForm)
@@ -370,10 +377,10 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 	}
 }
 
-// menuRow is a control as a row of the settings popover (Form::Menu): a
+// MenuRow is a control as a row of the settings popover (Form::Menu): a
 // small ghost button 32 high and as wide as the panel, a 16 icon, the label
 // and a 16 slot for the chevron, 8 apart.
-func menuRow(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Color, chevron *ui.SVG) ui.Element {
+func MenuRow(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Color, chevron *ui.SVG) ui.Element {
 	return b.FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Justify(ui.Start).TextColor(color).Children(func() {
 		ui.Icon(c, icon).FontSize(16).Shrink(0)
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0)
