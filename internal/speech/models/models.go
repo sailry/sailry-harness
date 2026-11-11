@@ -274,12 +274,45 @@ func (m *Manager) Capture(id *protocol.ModelID) (*Capture, error) {
 }
 
 // Ready reports whether every file of the model is present with its pinned
-// size and SHA-256. It hashes the files, so it runs off the UI thread.
+// size and SHA-256. The files are hashed once; a receipt then covers them
+// until one changes, so a dictation does not read the whole model before it
+// records. The first check hashes the files, so it runs off the UI thread.
 func (c *Capture) Ready() bool {
-	if c.definition != nil {
-		return assets.Ready(c.directory, files(c.definition))
+	list, marker := pinned(c.definition)
+	return ready(c.directory, list, marker)
+}
+
+// pinned are a model's files and the marker that binds a receipt to them;
+// a nil definition is the recommended model.
+func pinned(definition *protocol.ModelsDefinition) ([]assets.File, string) {
+	if definition == nil {
+		return recommendedFiles, recommendedSource
 	}
-	return assets.Ready(c.directory, recommendedFiles)
+	return files(definition), localmodels.ID(definition)
+}
+
+// ready verifies the files of one model directory. A receipt
+// (assets.Recorded) proves that files of these sizes, modification times
+// and file identities were hashed for this marker; without one the files
+// are hashed and the receipt is written.
+func ready(directory string, list []assets.File, marker string) bool {
+	// A stamp names the directory as the file system resolves it.
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return false
+	}
+	if found := assets.StampOf(resolved, list, marker); found != nil && assets.Recorded(resolved, marker, found) {
+		return true
+	}
+	observed := assets.Candidate(resolved, list)
+	if observed == nil {
+		return false
+	}
+	if _, err := assets.Mark(resolved, list, marker, observed); err == nil || errors.Is(err, assets.ErrInvalidAsset) {
+		return err == nil
+	}
+	// A directory that cannot be written is hashed every time.
+	return assets.Ready(resolved, list)
 }
 
 // Paths are the model's graph and vocabulary.

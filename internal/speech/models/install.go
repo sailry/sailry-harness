@@ -79,6 +79,11 @@ func (m *Manager) install(ctx context.Context, id *protocol.ModelID, definition 
 			return err
 		}
 	}
+	// The receipt of this verification lets a dictation start without
+	// hashing the model again.
+	if list, marker := pinned(definition); !ready(path, list, marker) {
+		return assets.ErrInvalidAsset
+	}
 	return nil
 }
 

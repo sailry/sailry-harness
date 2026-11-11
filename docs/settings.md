@@ -709,7 +709,14 @@ manager, not `ReadLocalModels`.
   (resume, size and SHA-256) over `netproxy.Transport()`, so they follow the
   desktop's proxy settings. A downloaded model counts as installed only after
   the recognizer was constructed over it. A model in use by a dictation is
-  neither removed nor downloaded again. `Open` clears what a crash left:
+  neither removed nor downloaded again. `Capture.Ready` hashes a model's
+  files once and then trusts the receipt the Node registry also uses
+  (`validated` and `.verified` in the model's directory: the sizes,
+  modification times and file identities that were hashed, bound to the
+  definition); the files are hashed again only after one of them changed or
+  the receipt is gone. An installation writes the receipt, so the first
+  dictation after it does not hash either. A directory that cannot be
+  written is hashed every time. `Open` clears what a crash left:
   index drafts (`models/.speech-*.json`), partial downloads that cannot be
   resumed or were not written for 7 days (`assets.Sweep`,
   [details](models.md#deviations-1)), and the holders of interrupted
@@ -749,6 +756,7 @@ Deviations from the reference:
 | Outside macOS the access row always reads Allowed | Only macOS gates the microphone per application; the reference shows an inert Request on Windows |
 | A refused or restricted microphone is the `dictation_permission` toast | The reference's permission card with its system-settings link is not part of the accepted page |
 | A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
+| A dictation starts on the model's receipt instead of hashing the model | The reference hashes every file (about 240 MB for the recommended model) before each recording; a file changed in place is still found, because its size, modification time or change time differs |
 | Leftovers of a crash are cleared when the manager opens, and an interrupted removal is undone or finished | The reference names its holder at random and sweeps nothing, so the files of a model stayed in a holder nothing could find |
 | Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
 | The speech, ONNX Runtime and capture libraries load only from the executable's directory, or `Contents/Resources` of the macOS application bundle | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |

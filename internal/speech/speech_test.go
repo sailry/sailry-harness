@@ -374,6 +374,14 @@ func checkModelDownload(t *testing.T) {
 		t.Fatal("no change was announced")
 	}
 
+	// The installation left the receipt that spares a dictation the hash
+	// of the whole model.
+	for _, name := range []string{"validated", ".verified"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			t.Fatalf("no receipt after the installation: %v", err)
+		}
+	}
+
 	// A restart finds it installed; a lease verifies the files again and
 	// keeps the model from being removed.
 	manager, err = models.Open(t.Context(), options)
@@ -392,6 +400,23 @@ func checkModelDownload(t *testing.T) {
 	}
 	if lease.Ready() {
 		t.Fatal("changed files are ready")
+	}
+	// The receipt covered the files as they were: restored files are hashed
+	// again, and files without a receipt are hashed and get one.
+	if err := os.WriteFile(filepath.Join(root, "tokens.txt"), tokens, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !lease.Ready() {
+		t.Fatal("restored files are not ready")
+	}
+	if err := os.Remove(filepath.Join(root, ".verified")); err != nil {
+		t.Fatal(err)
+	}
+	if !lease.Ready() {
+		t.Fatal("files without a receipt are not ready")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".verified")); err != nil {
+		t.Fatalf("the hash left no receipt: %v", err)
 	}
 	lease.Release()
 	if err := manager.Remove(id); err != nil {
