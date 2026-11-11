@@ -14,11 +14,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// TestScheduledRunsAfterMerge describes, from the scheduling side, behaviour
+// TestScheduledRuns describes, from the scheduling side, behaviour
 // that the plugin authority and the stop status own. Each scenario fires a
 // task the way the scheduled-tasks package registers it: one handler with a
 // Node-wide scope whose callback is start_session.
-func TestScheduledRunsAfterMerge(t *testing.T) {
+func TestScheduledRuns(t *testing.T) {
 	t.Parallel()
 	type task struct {
 		storage *Store
