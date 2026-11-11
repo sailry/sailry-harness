@@ -456,6 +456,7 @@ func TestRequestParity(t *testing.T) {
 	t.Run("incomplete_tools_and_eof", incompleteFixture)
 	t.Run("stalled_response", stallFixture)
 	t.Run("output_limit", limitFixture)
+	t.Run("inline_thinking", thinkingFixture)
 	t.Run("one_request_on_rejection", rejectionFixture)
 	t.Run("usage_presence", usagePresenceFixture)
 	t.Run("additional_source_contracts", additionalParityFixtures)
@@ -731,6 +732,81 @@ func cancellationFixture(t *testing.T, early bool) {
 		t.Error("explicit cancellation was not surfaced as failure")
 	}
 	<-closed
+}
+
+// thinkingFixture splits inline reasoning tags at every byte, in the filter
+// and in a Chat Completions stream.
+func thinkingFixture(t *testing.T) {
+	read := func(parts []thinkingPart, text, thinking *string) {
+		for _, part := range parts {
+			if part.thinking {
+				*thinking += part.text
+			} else {
+				*text += part.text
+			}
+		}
+	}
+	for _, row := range []struct{ input, text, thinking string }{
+		{"<think>hidden</think>visible", "visible", "hidden"},
+		{"<THINKING data='a>b'>hidden</thinking >visible", "visible", "hidden"},
+		{"<think>hid<think/>den</think>visible", "visible", "hidden"},
+		{"你好 <thinking-mode>x", "你好 <thinking-mode>x", ""},
+		{"</think>shown", "</think>shown", ""},
+		{"text<thin", "text<thin", ""},
+		{"<think/>shown", "shown", ""},
+		{"a < b and <thinker>", "a < b and <thinker>", ""},
+		{"<think>hidden</thi", "", "hidden</thi"},
+		{"before<think>one</think>between<thinking>two</thinking>after", "beforebetweenafter", "onetwo"},
+	} {
+		for boundary := 0; boundary <= len(row.input); boundary++ {
+			var filter thinkingFilter
+			var text, thinking string
+			read(filter.push(row.input[:boundary]), &text, &thinking)
+			read(filter.push(row.input[boundary:]), &text, &thinking)
+			read(filter.finish(), &text, &thinking)
+			if text != row.text || thinking != row.thinking {
+				t.Fatalf("%q split at %d: text %q, thinking %q", row.input, boundary, text, thinking)
+			}
+		}
+	}
+	chunk := func(field, text string) string {
+		delta, _ := json.Marshal(map[string]string{field: text})
+		return `data: {"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":` + string(delta) + `,"finish_reason":null}]}` + "\n\n"
+	}
+	end := `data: {"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
+	for _, row := range []struct {
+		name, stream, text, reasoning string
+		order                         []fantasy.StreamPartType
+	}{
+		{"split tags", chunk("content", "<thi") + chunk("content", "nk>Plan") + chunk("content", " it</th") + chunk("content", "ink>Done") + end, "Done", "Plan it",
+			[]fantasy.StreamPartType{fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeFinish}},
+		{"reported reasoning wins", chunk("reasoning_content", "Reported") + chunk("content", "<think>Copy</think>Done") + end, "Done", "Reported",
+			[]fantasy.StreamPartType{fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeFinish}},
+		{"unfinished tag is text", chunk("content", "a <thin") + end, "a <thin", "",
+			[]fantasy.StreamPartType{fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeFinish}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			server := serverFixture(t, row.stream)
+			language, err := newSDK(t.Context(), transportConfig{Kind: "chat", Model: "fixture", Endpoint: server.URL, Key: "captured-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text, reasoning string
+			var order []fantasy.StreamPartType
+			for _, part := range collect(t, language, requestCall(t, "chat")) {
+				order = append(order, part.Type)
+				switch part.Type {
+				case fantasy.StreamPartTypeTextDelta:
+					text += part.Delta
+				case fantasy.StreamPartTypeReasoningDelta:
+					reasoning += part.Delta
+				}
+			}
+			if text != row.text || reasoning != row.reasoning || !reflect.DeepEqual(order, row.order) {
+				t.Errorf("text %q, reasoning %q, parts %v", text, reasoning, order)
+			}
+		})
+	}
 }
 
 // limitFixture ends a reply at the output limit inside a tool call: the

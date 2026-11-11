@@ -195,6 +195,18 @@ or between two reads of its stream, is cancelled and fails as a network error
 and the plugin transport do. A step that has shown nothing then takes the
 retry path below; stopping the turn still cancels the request at once.
 
+Chat Completions content passes through the inline thinking filter
+(`model/thinking.go`, from Goose): text between `<think>` or `<thinking>` tags,
+in any case, with attributes, nested or split across deltas, is reasoning, and
+a self-closed tag is removed. A tag still arriving is held back up to 8 KiB; a
+stray closing tag and an unfinished tag at the end are text, and reasoning that
+never closed stays reasoning. Once the provider reports reasoning in
+`reasoning_content` or `reasoning`, inline reasoning is dropped, since that
+field is its source. Inline reasoning is stored and replayed as any other
+reasoning of the wire. The reference buffers inline reasoning and emits it once
+when the stream ends; Go streams it as reasoning in the order it arrives, so a
+long thought shows while it is written.
+
 A reply that ends at the output limit is an answer, not a failure. Responses
 `response.incomplete` is a terminal that keeps its text, reasoning, complete
 calls and usage: `max_output_tokens` finishes as length, `content_filter` as

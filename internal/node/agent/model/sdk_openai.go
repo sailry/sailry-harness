@@ -244,6 +244,25 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 	defer stream.Close()
 	tools := map[int64]*chatTool{}
 	reason := ""
+	// Reasoning a model writes inline in its content is reasoning. A provider
+	// that also reports reasoning in its own field is read from that field.
+	var inline thinkingFilter
+	structured := false
+	write := func(parts []thinkingPart) bool {
+		for _, part := range parts {
+			kind, id := fantasy.StreamPartTypeTextDelta, "text"
+			if part.thinking {
+				if structured {
+					continue
+				}
+				kind, id = fantasy.StreamPartTypeReasoningDelta, "reasoning"
+			}
+			if !emitter.emit(fantasy.StreamPart{Type: kind, ID: id, Delta: part.text}) {
+				return false
+			}
+		}
+		return true
+	}
 	for stream.Next() {
 		value, err := decodeSDK(stream.Current().RawJSON())
 		if err != nil {
@@ -259,12 +278,13 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 				emitter.chatSources(message)
 			}
 			if text, ok := delta["content"].(string); ok && text != "" {
-				if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "text", Delta: text}) {
+				if !write(inline.push(text)) {
 					return
 				}
 			}
 			for _, field := range []string{"reasoning_content", "reasoning"} {
 				if text, ok := delta[field].(string); ok && text != "" {
+					structured = true
 					if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeReasoningDelta, ID: "reasoning", Delta: text}) {
 						return
 					}
@@ -305,6 +325,10 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 				reason = finish
 			}
 		}
+	}
+	// A tag the stream left unfinished is what it was: text, or open reasoning.
+	if !write(inline.finish()) {
+		return
 	}
 	if err := stream.Err(); err != nil {
 		emitter.fail(err)
