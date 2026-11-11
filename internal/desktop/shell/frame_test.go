@@ -960,7 +960,7 @@ func testHeaderSplit(t *testing.T) {
 						t.Errorf("%s: the page's actions end at %v, the fold toggle starts at %v", name, end(g), f.Bounds.X)
 					}
 					for _, info := range tt.AccessAll() {
-						if b := info.Bounds; info.Role == ui.RoleButton && b.W > 0 && b.Y+b.H <= HeaderHeight && b.X >= end(g) && info.Name != en("details") {
+						if b := info.Bounds; info.Role == ui.RoleButton && b.W > 0 && b.Y >= 0 && b.Y+b.H <= HeaderHeight && b.X >= end(g) && info.Name != en("details") {
 							t.Errorf("%s: %q at %v is beside the fold toggle", name, info.Name, b)
 						}
 					}

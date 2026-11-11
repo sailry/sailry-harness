@@ -184,10 +184,12 @@ func (s *State) gitChanges(c *ui.Context, ch Changes, actions Actions) {
 		})
 	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.changes = !s.act.changes })
 	placeStart(kit.Popover(c, b, &s.act.changes, func() {
+		// The files' count leads; the totals end the line, over the rows'.
 		ui.Row(c.Key("totals")).Gap(8).Padding(0, 4, 4, 4).AlignItems(ui.Center).Children(func() {
-			ui.Textf(c, "+%d", ch.Added).FontSize(14).FontWeight(600).TextColor(p.Success)
-			ui.Textf(c, "-%d", ch.Removed).FontSize(14).FontWeight(600).TextColor(p.Danger)
-			ui.Text(c, i18n.T(c, "directory_count_files", "count", ch.Files)).FontSize(14).TextColor(p.MutedForeground)
+			ui.Text(c, i18n.T(c, "directory_count_files", "count", ch.Files)).FontSize(13).SingleLine().TextColor(p.MutedForeground)
+			ui.Spacer(c)
+			ui.Textf(c, "+%d", ch.Added).FontSize(13).FontWeight(600).SingleLine().TextColor(p.Success)
+			ui.Textf(c, "-%d", ch.Removed).FontSize(13).FontWeight(600).SingleLine().TextColor(p.Danger)
 		})
 		for _, f := range ch.Recent {
 			dir, base := path.Split(f.Path)

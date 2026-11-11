@@ -149,11 +149,16 @@ func testStripFolds(t *testing.T) {
 	if !ok {
 		t.Fatal("no sidebar toggle")
 	}
-	// The title is what the band names between the toggle and the strip.
+	// The title is the conversation's, in the band between the toggle and
+	// the strip (a transcript row scrolled under the band is not it).
+	shown := a.Data.Find(a.Sidebar.Selected)
+	if shown == nil || shown.Title == "" {
+		t.Fatalf("no titled conversation is shown: %q", a.Sidebar.Selected)
+	}
 	titled := false
 	for _, info := range tt.AccessAll() {
 		b := info.Bounds
-		if info.Name == "" || b.W == 0 || b.Y+b.H > HeaderHeight || b.X < toggle.Bounds.X+toggle.Bounds.W || b.X >= box.X {
+		if info.Name != shown.Title || b.W == 0 || b.Y < 0 || b.Y+b.H > HeaderHeight || b.X < toggle.Bounds.X+toggle.Bounds.W || b.X >= box.X {
 			continue
 		}
 		titled = true
