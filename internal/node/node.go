@@ -755,8 +755,10 @@ func (node *Node) run(lane *commandLane) {
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
 		}
-		// A clone and the checks above run unlocked. Only recording which
-		// roots exist excludes workspace effects.
+		// A clone and the checks above run unlocked; recording which roots
+		// exist excludes workspace effects. Creating or removing a worktree
+		// is the one registration that also runs Git under that exclusion
+		// (workspaceIO): the root appears on disk apart from its row.
 		registered := func() {}
 		if projectEffect {
 			registered = node.locks.registration()
