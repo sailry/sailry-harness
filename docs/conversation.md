@@ -31,8 +31,8 @@ Kit's `MessageScroller`.
 | `tools.go` | Tool rows, groups, sequences, outputs, diffs, tables, progress, question history, subagents |
 | `jump.go` | The jump-to-latest button |
 | `content.go` | File cards, thumbnails (Kit's `ImageGroup`), notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
-| `visuals.go` | Mermaid in a reply: the `mermaid` code block and `VisualBlock`, the parse and layout cache, limu's picture scaled to the reply, the caption |
-| `chart.go` | Data charts drawn natively from limu's parsed model: xychart (bars, lines, both orientations) and pie, their checks, hover and keyboard pick, tips and legends |
+| `visuals.go` | Mermaid in a reply: the `mermaid` code block and `VisualBlock`, the parse cache, CrychicUI's picture (`diagram.Mermaid`) scaled to the reply, the caption |
+| `chart.go` | Data charts drawn natively from the model limu's parser reads: xychart (bars, lines, both orientations) and pie, their checks, hover and keyboard pick, tips and legends |
 | `viewer.go` | The image viewer: `Viewer` is `kit.Viewer[Image]` (zoom 0.25–8 by 1.25, pan, turn, flip, gallery and its counter) drawn by `kit.ImageViewer` |
 | `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
 | `edit.go` | The inline editor of a sent message |
@@ -250,7 +250,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `Compaction.Elapsed`, `CompactionInterrupted` | The compaction turn's label carries its duration; an interrupted one reads `chat_compact_interrupted` |
 | `Reply.PhaseElapsed` | The Compacting phase row carries how long it has run |
 | `File.Document`, `Exportable`, `Interactive` | A published document's More menu adds Export HTML and, unless it is an interactive preview, Export image; both disabled while `Exportable` is false |
-| `VisualBlock` / `Block.Visual` (`Title`, `Mermaid`) | The chart or diagram in line with the reply's text, with no card: `Title` is one small muted caption above it and its accessible name. An xychart or pie is drawn natively and any other diagram by limu (`github.com/firede/limu` and `limumygo` v0.5.0), as [B10 visuals](#b10-visuals) describes; a source limu cannot read shows as code |
+| `VisualBlock` / `Block.Visual` (`Title`, `Mermaid`) | The chart or diagram in line with the reply's text, with no card: `Title` is one small muted caption above it and its accessible name. An xychart or pie is drawn natively and any other diagram by CrychicUI's `diagram.Mermaid` (on `github.com/Broderick-Westrope/pele-go` v0.2.0), as [B10 visuals](#b10-visuals) describes; a source that cannot be drawn shows as code |
 | `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
 | `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
 | `Session.Loading` | Loader and "Loading conversation" instead of the list |
@@ -507,20 +507,24 @@ These routes use additive Node identity without rewriting protocol SessionIDs.
 A fenced `mermaid` block inside a reply's Markdown (the `mermaid` entry of the
 replies' `markdown.Options.Code`) and a `VisualBlock` are drawn in place by
 `showVisual` (`visuals.go`), with no WebView and no card: no border, fill or
-padding, the left edge in line with the text. limu parses each source once
-(at most 256 are kept). A block that is still streaming, is empty, is over
-64 KiB, or that limu cannot read shows as the ordinary code block; the chart
-replaces the code when the fence closes.
+padding, the left edge in line with the text. Each source is read once (at
+most 256 are kept). A block that is still streaming, is empty, is over
+64 KiB, or that cannot be drawn shows as the ordinary code block, with no
+error box and no notice; the chart replaces the code when the fence closes.
+Until then the source is not parsed, laid out or logged, so a half-written
+diagram never shows an error.
 
 **One title.** A `VisualBlock`'s `Title`, or else a data chart's Mermaid
 `title`, is one 12 DIP muted caption line above the visual and its accessible
 name; without either the name is the diagram's kind (`xychart`, `pie`,
-`flowchart`). Nothing is titled twice: a native chart never draws the
-Mermaid title inside itself, and a limu picture that draws its own title
-shows no caption.
+`flowchart`); a diagram that is not a data chart takes the source's
+`accTitle` before its kind. Nothing is titled twice: a native chart never
+draws the Mermaid title inside itself, and a picture that draws its own
+title shows no caption.
 
 **Data charts** (`chart.go`). `xychart-beta` and `pie` are drawn natively
-from limu's parsed model (`Diagram.Model`) with MyGo's `ui/chart` scales,
+from the model limu's parser reads (`diagram.Prepare`, then
+`xychart.ParsePrepared` or `pie.ParsePrepared`) with MyGo's `ui/chart` scales,
 `Plot`, `Pie`, `Sector`, `SliceAt` and `Anchor`:
 
 | Mermaid | Drawn |
@@ -549,8 +553,8 @@ Nothing animates: there is no arrival animation, as the virtual list would
 replay it whenever a turn scrolls back in, and no frame is asked for at rest.
 
 **Hostile data** never panics and is never drawn wrong on purpose. `chartOf`
-returns no chart, and the source falls back to limu's picture (or to the
-code block when limu cannot lay it out), for: no series or more than 8; no
+returns no chart, and the source falls back to the diagram's picture (or to
+the code block when that cannot be drawn), for: no series or more than 8; no
 category or more than 366; a value that is infinite; no finite value at all;
 series of different lengths on a numeric x-axis; a range a float64 cannot
 span; a pie with no slice, more than 12, a negative or non-finite value, or
@@ -560,12 +564,31 @@ categories, and repeated category labels are separate categories. Titles,
 labels and series names of any length are cut with an ellipsis (60
 characters read out and in legends, 20 in a tip, 14 on an axis).
 
-**Other diagrams** are limu's picture, laid out per reply width in the app's
-fonts (at most 32 widths per source, laid out again only when the width
-changes) and painted in the palette (`ThemeOnly`), so a theme switch lays
-nothing out. The picture keeps its natural size, scaled down to the reply's
-width and to 420 DIP of height; one that would shrink below 0.7 keeps that
-scale in a 420 DIP box that scrolls both ways.
+**Other diagrams** are CrychicUI's `diagram.Mermaid`
+([crychic.md](crychic.md#diagrams)), which lays the source out with pele-go
+in the app's font and text size and paints the result itself: every kind
+pele-go draws (33, among them flowchart, sequence, class, state, ER, gantt,
+journey, mindmap, timeline, gitGraph, quadrant, sankey, C4 and block).
+`crychic.MermaidOf` renders the source first, once per source, font and text
+size (at most 256 are kept): it gives the picture's size, kind, `accTitle`
+and whether it draws a title, and refuses a source the library would answer
+with its error box, which then shows as code. The picture keeps its natural
+size, scaled down to the reply's width and to 420 DIP of height; one that
+would shrink below 0.7 keeps that scale in a 420 DIP box that scrolls both
+ways. It is built under the app's theme with the palette's `Muted` as the
+node fill, `Secondary` as its second tone, `Border` as the outline and half
+the radius, as before; lines and text are the text color and series take the
+accent and status tones, which the library fixes. The library's 200 ms
+arrival is held still, a picture has role image with its name and takes no
+focus, and nothing moves at rest.
+
+Against limu's picture, which this replaces, the layout no longer follows the
+reply's width: a wide left-to-right flowchart is scaled down, then scrolls,
+where limu turned it to run down, and a chart or gantt is drawn at pele-go's
+own width. A source is laid out twice when first shown (the check, then the
+library) and again by the library whenever its element is built anew or the
+theme changes, where limu kept one layout per width and repainted on a theme
+switch.
 
 Math is bound by `bindMath`. The default build has no typesetter
 (`math_source.go`): formulas keep their source text, which is the documented
@@ -845,7 +868,7 @@ model fails it until a demo conversation shows it.
 | `lumen-web/tracker` | A connector's form: text with length bounds, multiline text, an integer with a range, yes or no, one choice and several, required and optional; declinable |
 | `lumen-web/metrics` | Search sources, citations and the search's suggestions; files of every kind and preview state, a published document and a published page; generated pictures; a tool's pictures, one of them gone; a reply's links as a file card and as pictures; two charts (weekly active teams as bars, week-4 retention as a line); math, a diagram and links; a draft with attachments in every status. The report is its last turn, so the session overview lists its cited pages and outputs |
 | `growth-notes/sign-in` | A project that is a plain folder; a connector's authorization link, declinable |
-| `chat/hashing` (pinned) | Markdown: headings, lists, a table, code, a quote, math, a task list, links; its last message open in its editor |
+| `chat/hashing` (pinned) | Markdown: headings, lists, a table, code, a quote, math, a sequence diagram, a task list, links; its last message open in its editor |
 | `chat/handbook` | A built-in tool's label, a handoff summary, compaction turns in every state with their duration, a reply compacting with its elapsed time, a queued run |
 | `chat/staging` | A connection recovering with a diagnostic, an unsynced run awaiting a response, a question that cannot be answered meanwhile, export disabled, an older page that did not load |
 | `chat/release-notes` | A run stopping while the model thinks |
@@ -913,9 +936,10 @@ destination, the rewind toast's backup action, and
 | A row's single-line label and its detail are `ui.RichText` of one span, levelled by `kit.LevelSpan`, running or not | `kit.Sweep` draws its band with `Painter.RichText`, whose line starts from the theme's 14 whatever the span's size; a plain `ui.Text` at another message text size sits up to 2 DIPs off the band, and a label laid out one way while running and another once settled would move |
 | A code block's Copy is an icon button confirmed by a toast, not MyGo's `CopyButton` with its "Copy" and "Copied" texts | The user's decision: the icon alone; outcomes show as toasts |
 | Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
-| Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | limu lays a 64 KiB bounded source out once per width; Rust prepares images off the UI thread |
-| Mermaid xychart and pie are drawn by our own painter (`chart.go`) on MyGo's `ui/chart`, not by limu's picture or a CrychicUI chart | Verified gap: limu's picture has no hover and draws its title; CrychicUI's `chart` components fail the conversation's rules ([docs/crychic.md](crychic.md#charts)): their value tips are MyGo's delayed opaque tooltip or an own surface outside the plot, their colors are the status tones, and they cannot draw Mermaid's shared-axis bar and line mix, a y range, gaps or horizontal series |
-| Radar, quadrant, sankey and treemap stay limu's picture | They are not category/value charts the painter draws; they get the card-free, capped presentation of every diagram |
+| Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | pele-go lays a bounded source out (64 KiB here, 50,000 characters and 5,000 edges in pele-go) when it is first shown and when the theme changes; Rust prepares images off the UI thread. The library's error box never shows in a transcript: the adapter checks the source first |
+| A diagram is not laid out for the reply's width | `diagram.Mermaid` passes pele-go no width; the picture is scaled down to 0.7, then scrolls. limu, which it replaced at the user's request, laid out per width |
+| Mermaid xychart and pie are drawn by our own painter (`chart.go`) on MyGo's `ui/chart`, not by the diagram's picture or a CrychicUI chart | Verified gap: the picture has no hover and draws its title; CrychicUI's `chart` components fail the conversation's rules ([docs/crychic.md](crychic.md#charts)): their value tips are MyGo's delayed opaque tooltip or an own surface outside the plot, their colors are the status tones, and they cannot draw Mermaid's shared-axis bar and line mix, a y range, gaps or horizontal series |
+| Radar, quadrant, sankey and treemap stay the diagram's picture | They are not category/value charts the painter draws; they get the card-free, capped presentation of every diagram |
 | Visuals have no card, and a diagram is left-aligned and scaled down rather than centered at its own size | The accepted minimal presentation of charts in a conversation |
 | ⌘F is a window shortcut, not an entry in the native menu | The shell's menu has no conversation commands yet |
 | Subagent tabs show Bot, not the identicon | `panel.look` returns an icon; the identicon is a drawing |

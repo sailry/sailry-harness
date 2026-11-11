@@ -24,8 +24,8 @@ against Sailry's own MyGo pin; notices are in
   surface only through an adapter that clears the card. The findings per
   component are in [Floating surfaces](#floating-surfaces).
 - **Only verified components.** A component is used once it is in the lists
-  below with a status that allows it. Never import `diagram`: it links pele-go
-  and adds about 6 MB.
+  below with a status that allows it. The `diagram` package links pele-go:
+  only `diagram.Mermaid` is used, through its adapter ([Diagrams](#diagrams)).
 - **Sound is off.** `crychic.Setup()` (`internal/desktop/kit/crychic`), called
   once in `cmd/sailry-desktop` before the first window, mutes the cue the
   library plays on every interaction. A muted cue returns before a sound is
@@ -87,6 +87,8 @@ source, not exercised.
   | `files.Dropzone` | a file drag is over it *(read; the tester has no drag-over)* |
 
   `media.Waveform` does not loop: it grows once on arrival and eases `played`.
+  `diagram.Mermaid` lays its source out during a build, on the UI goroutine,
+  when it first builds and when its source, font, text size or colors change.
 - **Logs.** Components log state changes through the library's `kit.Log`, and
   each cue is logged by `sound`, all with `slog.Debug` under the `crychic: `
   prefix, with counts and indexes but no typed text *(read)*. Sailry's handler
@@ -309,6 +311,81 @@ What to use instead, with the surface Kit's:
 - `Blame` highlights with MyGo's editor language named by `Lang`; an unknown
   name leaves the text plain.
 
+### Diagrams
+
+| Component | Signature | Panics on | Copy | Status |
+|---|---|---|---|---|
+| `diagram.Mermaid` | `(c, source string, o MermaidOptions) ui.Element` | nothing: a source it cannot draw shows an error box | `Label` (the accessible name; else the source's `accTitle`, else English `Diagram`), `Failed` (the error box's title; else English `Diagram failed`). The box's message is pele-go's, in English | adapter |
+
+It draws a Mermaid source natively, with no WebView and no JavaScript:
+`github.com/Broderick-Westrope/pele-go` v0.2.0 (MIT, a pure Go port of Pele
+1.10.0, standard library only) lays the source out and returns SVG, which the
+component reads into shapes and text runs and paints itself. All 33 of
+pele-go's kinds are registered: flowchart, sequence, class, state, er, gantt,
+gitGraph, journey, mindmap, timeline, quadrantChart, sankey, requirement, c4,
+block, architecture, kanban, packet, radar, treemap, venn, usecase, swimlane,
+wardley, treeView, railroad, ishikawa, eventmodeling, cynefin, agentflow,
+info, pie and xychart. The conversation uses it for every kind but the two
+data charts ([conversation.md](conversation.md#b10-visuals)), in place of
+limu's renderer and its MyGo adapter (`limumygo`), which are no longer
+linked. limu itself stays for its parser alone: the conversation's chart
+painter reads an `xychart-beta` or `pie` source's data with it.
+
+- **Adapter.** `crychic.Mermaid(c, source, o) (ui.Element, bool)` builds
+  nothing, and returns false, for a source the component would answer with
+  its error box, so the caller shows the source its own way: a transcript
+  shows the code block and never a red box. The component gives no result to
+  ask, so `crychic.MermaidOf(c, source)` renders the source with pele-go
+  first, with the component's own options and measurer, and keeps what it
+  learns per source, font and text size (at most 256): whether it draws, the
+  size it draws at, its kind, its `accTitle` and whether it draws a title of
+  its own. A caller sizes its layout from that. This is the one place Sailry
+  imports pele-go itself.
+- **What fails.** A source pele-go rejects (a syntax error, an unknown kind,
+  more than 50,000 characters or 5,000 edges), and a drawing the component
+  cannot read. pele-go passes the value of a `style` or `classDef` property
+  through as written, and the component fails the whole drawing on a `var()`
+  of a custom property in pele-go's own namespaces that it does not know, so
+  the adapter refuses a source that names one (`var(--_…)`, `var(--pele-…)`).
+  No other markup of a model's source reaches the reader: pele-go keeps
+  style properties to its own list and draws no links or images (both are
+  switched off).
+- **Name.** The adapter fills an empty `Label` with the source's `accTitle`,
+  else with the kind, so the library's English `Diagram` is never read out.
+  Give `Failed` from i18n all the same.
+- **Size.** The picture fills the width it is given up to its natural width
+  at the theme's text size, keeps its proportions and never grows past it.
+  The component passes pele-go no width, so the layout does not depend on the
+  room: the caller scales the picture or scrolls it.
+- **Colors.** `Text` for text and lines, `TextMuted`, `Surface` for node
+  fills, `SurfaceHover` for their second tone, `Border` for outlines,
+  `Background` behind edge labels (nothing is painted behind the picture),
+  `Radius` for corners, `Danger`, and for series `Accent`, `Success`,
+  `Warning`, `Danger`, three mixes of them and `TextMuted`, with no option.
+  Under `theme.Apply` alone the node fill is the page's own color in the
+  light appearance; a caller that wants another fill builds the picture
+  under `ui.Themed`, as the conversation does.
+- **Cost.** The layout runs on the UI goroutine inside the build, and again
+  whenever the source, font, text size or a color changes, so on every theme
+  switch. The scene lives in the element (`ui.Local`): an element built anew,
+  as when a virtual list brings a turn back, lays out again. With the
+  adapter's own render a new source is laid out twice. In the conversation's
+  test a reply with one diagram was first shown in 5 to 430 ms with both
+  layouts, most kinds in 20 to 130 ms and a radar slowest.
+- **Arrival.** The component rises 6 DIP and fades in over 200 ms every time
+  it is built anew. The adapter holds it still (no offset, full opacity), as
+  a virtual list would replay it; after those 200 ms nothing asks for a
+  frame.
+- **Logs.** One debug record per layout, `crychic: Mermaid drew` with the
+  source's length, the number of text runs and the size, or `crychic: Mermaid
+  failed` with pele-go's code, line and column: never the source *(tested)*.
+- **Access.** Role image with the name; no focus, no value and nothing to
+  interact with. The text inside the picture is painted, not exposed.
+
+Verified by the probe and the adapter's cases in `internal/desktop/kit/crychic`
+and by `TestLiveBlocks/diagrams` in `internal/desktop/conversation`, which
+draws every kind above but the two charts.
+
 ### Charts
 
 The `chart` package is a fixed look over MyGo's own `ui/chart`. The
@@ -446,6 +523,14 @@ The audit's decisions stand where ours does more; none was overturned here.
 - **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
   cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
   when those features are added.
+- **Replaced:** limu's renderer in the conversation by `diagram.Mermaid`,
+  at the user's request. What the conversation's own wrapper did stays ours
+  and is kept: code while the block streams and when it cannot be drawn, no
+  card, one title, the name for assistive technology, the caps on width and
+  height with the scroll past them, and no motion
+  ([conversation.md](conversation.md#b10-visuals)). What limu did and the
+  component does not: lay a diagram out for the reply's width, keep one
+  layout across remounts, and repaint without a layout on a theme switch.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
   rows and editors, the composer and conversation components, and the
@@ -464,6 +549,11 @@ The audit's decisions stand where ours does more; none was overturned here.
 Measured before `code.DiffView`, `files.FileIcon` and `files.FileList` were
 verified. They add no package: `code`, `files` and MyGo's `ui/editor` were
 already linked.
+
+`diagram.Mermaid` links the `diagram` package and pele-go, estimated at about
+6 MB before it was approved, while limu's layout, scene and style packages
+and `limumygo` are no longer linked. The table has not been measured again
+since: rebuild and add the row.
 
 ## Adding a component
 

@@ -276,6 +276,19 @@ hash.0.answer: |-
   2. 把每个键哈希到同一个环上。
   3. 键归属于顺时针方向遇到的第一个节点。
 
+  读取时先查哈希环，再访问键所属的节点：
+
+  ```mermaid
+  sequenceDiagram
+      participant C as 客户端
+      participant R as 哈希环
+      participant N as 节点 B
+      C->>R: hash("user:42")
+      R-->>C: 顺时针第一个节点是节点 B
+      C->>N: GET user:42
+      N-->>C: 值
+  ```
+
   节点下线时，只有它的键需要迁移到下一个节点。平均迁移量为
 
   $$

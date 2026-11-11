@@ -7,6 +7,7 @@ require (
 	filippo.io/age v1.3.2
 	filippo.io/edwards25519 v1.2.0
 	github.com/Bios-Marcel/wastebasket/v2 v2.0.3
+	github.com/Broderick-Westrope/pele-go v0.2.0
 	github.com/ELY-Open-Source/CrychicUI v0.0.0-20261110123803-1c55e6a884bb
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -25,7 +26,6 @@ require (
 	github.com/ebitengine/purego v0.11.3
 	github.com/egoist/mygo v0.8.4-0.20261109104234-eadf1fce6af3
 	github.com/firede/limu v0.5.0
-	github.com/firede/limu/limumygo v0.5.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gabriel-vasile/mimetype v1.4.16
 	github.com/getsentry/sentry-go v0.50.0
