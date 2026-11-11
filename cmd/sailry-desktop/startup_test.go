@@ -61,3 +61,32 @@ func TestStartFailureCopy(t *testing.T) {
 		})
 	}
 }
+
+func TestInstanceLock(t *testing.T) {
+	t.Parallel()
+	for _, item := range []struct {
+		name      string
+		answers   []bool // of each request, the last one repeating
+		successor bool
+		locked    bool
+		requests  int
+	}{
+		{"the first Desktop owns the lock", []bool{true}, false, true, 1},
+		{"a second launch is handed over and exits", []bool{false}, false, false, 1},
+		{"a successor waits for the Desktop it replaces to quit", []bool{false, false, false, true}, true, true, 4},
+		{"a successor beside a Desktop that stays gives up", []bool{false}, true, false, successorAttempts + 1},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			t.Parallel()
+			requests, pauses := 0, 0
+			locked := instanceLock(func() bool {
+				answer := item.answers[min(requests, len(item.answers)-1)]
+				requests++
+				return answer
+			}, item.successor, func() { pauses++ })
+			if locked != item.locked || requests != item.requests || pauses != item.requests-1 {
+				t.Fatalf("locked %v after %d requests and %d pauses", locked, requests, pauses)
+			}
+		})
+	}
+}

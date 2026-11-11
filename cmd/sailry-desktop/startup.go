@@ -6,8 +6,10 @@ import (
 	"flag"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/core"
@@ -46,9 +48,11 @@ type desktopBackend struct {
 	Network     *live.Network
 	Preferences *preferences.Store
 	close       sync.Once
-	logs        func()
-	reports     *interfaceReports
-	err         error
+	// stopped is set once the backend was closed for a successor.
+	stopped atomic.Bool
+	logs    func()
+	reports *interfaceReports
+	err     error
 }
 
 func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, error) {
@@ -117,6 +121,10 @@ func (backend *desktopBackend) Close() error {
 // application next. A shutdown that passed its deadline has released the
 // profile, and the exit that follows ends the work that did not stop.
 func (backend *desktopBackend) Stop() error {
+	// The application started next inherits the mark and waits for this one
+	// to quit instead of handing its launch over to it.
+	backend.stopped.Store(true)
+	_ = os.Setenv(successorVariable, "1")
 	err := backend.Close()
 	if errors.Is(err, core.ErrShutdownTimeout) {
 		slog.Error("Node shutdown", "error", err.Error())

@@ -46,7 +46,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if !options.Preview && options.DataDir == "" && !mygo.App.RequestSingleInstanceLock() {
+	successor := os.Getenv(successorVariable) != ""
+	_ = os.Unsetenv(successorVariable)
+	if !options.Preview && options.DataDir == "" && !instanceLock(mygo.App.RequestSingleInstanceLock, successor, successorWait) {
 		// The Desktop that owns the default profile was told and raises its window.
 		return nil
 	}
@@ -302,6 +304,10 @@ func run() error {
 		}
 		// Another launch of the default profile hands over to this one.
 		mygo.App.OnSecondInstance(func([]string, string) {
+			if backend.stopped.Load() {
+				// The launch is this Desktop's successor, waiting for it to quit.
+				return
+			}
 			if active == nil && !options.Preview {
 				if err := openWindow(""); err != nil {
 					log.Printf("desktop composition: %v", err)

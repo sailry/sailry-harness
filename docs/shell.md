@@ -88,6 +88,14 @@ message. The profile lock itself (`flock`, `LockFileEx`) ends with the process
 that holds it, so a crash leaves no stale lock; the lock file stays in place
 and never blocks a start.
 
+The updater starts the new application before the old one has quit. That
+launch would be handed to the Desktop that is quitting and exit with it, so
+`desktopBackend.Stop`, which the updater calls before it replaces or restarts
+the application, marks the environment the new process inherits
+(`SAILRY_DESKTOP_SUCCESSOR`). A successor asks for the lock every 100 ms, for
+at most ten seconds, until the Desktop it replaces has quit (`instanceLock`),
+and that Desktop ignores the hand-overs meanwhile.
+
 | Deviation from Rust | Reason |
 |---|---|
 | Start failures are shown in a native message | Rust prints them to standard error, where a user who opened the application from its icon never sees them |
