@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -96,12 +98,10 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	overrides := map[string]json.RawMessage{}
 	var contextParts []string
 	if host.Turn != nil {
-		input := pluginTurnInput(invocation, info, names)
-		var selected []protocol.ToolOperation
-		for _, declaration := range info.Extension.Tools {
-			if slices.Contains(names, declaration.Name) && declaration.Handler != nil && declaration.Handler.Operation != nil {
-				selected = append(selected, *declaration.Handler.Operation)
-			}
+		selected := pluginSelectedOperations(info, names)
+		input, err := pluginTurnInput(invocation, info, names, selected)
+		if err != nil {
+			return nil, err
 		}
 		connections, err := node.connectionTurnInput(ctx, invocation, selected)
 		if err != nil {
@@ -242,9 +242,61 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	return tools, nil
 }
 
-func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo, names []string) map[string]any {
-	input := map[string]any{"tools": names, "project": invocation.Worktree.Project, "resources": invocation.Turn.Config.Assistant == nil,
-		"roles": []any{}, "options": invocation.Turn.Config.Options[info.Summary.Name], "session_revision": nil, "automatic": false,
+// pluginSelectedOperations lists every operation the selected tools can reach:
+// the tool's own, its handler's and each operation of its flow.
+func pluginSelectedOperations(info protocol.PluginInfo, names []string) []protocol.ToolOperation {
+	var selected []protocol.ToolOperation
+	for _, declaration := range info.Extension.Tools {
+		if !slices.Contains(names, declaration.Name) {
+			continue
+		}
+		if declaration.Operation != nil {
+			selected = append(selected, *declaration.Operation)
+		}
+		if handler := declaration.Handler; handler != nil {
+			if handler.Operation != nil {
+				selected = append(selected, *handler.Operation)
+			}
+			if handler.Flow != nil {
+				selected = append(selected, handler.Flow.Operations...)
+			}
+		}
+	}
+	return selected
+}
+
+const (
+	pluginTurnRoleSummaryChars = 1024
+	pluginTurnMessageBytes     = 4096
+)
+
+// pluginTurnInput is the turn.initialize input. Every field comes from the
+// frozen invocation, never from the controller's live selection.
+func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo, names []string, selected []protocol.ToolOperation) (map[string]any, error) {
+	roster := invocation.Turn.Roles
+	automatic := invocation.Run.Continuation != nil
+	options, err := plugins.CapturedOptions(info, invocation.Turn.Config)
+	if err != nil {
+		return nil, err
+	}
+	roles := []any{}
+	if slices.Contains(selected, protocol.ToolOperationDelegateAgent) {
+		for _, profile := range roster.Profiles {
+			purpose := strings.TrimSpace(profile.Description)
+			if purpose == "" {
+				purpose = strings.TrimSpace(profile.Instructions)
+			}
+			if characters := []rune(purpose); len(characters) > pluginTurnRoleSummaryChars {
+				purpose = string(characters[:pluginTurnRoleSummaryChars])
+			}
+			roles = append(roles, map[string]any{"key": profile.Key, "name": profile.Name, "description": purpose,
+				"read_only": profile.ReadOnly, "tools": pluginRoleTools(roster, profile)})
+		}
+	}
+	assistant := invocation.Turn.Config.Assistant
+	input := map[string]any{"tools": names, "project": invocation.Worktree.Project,
+		"resources": assistant == nil || assistant.Package == plugins.PackageReference(info),
+		"roles":     roles, "options": options, "session_revision": nil, "automatic": automatic,
 		"mode": invocation.Turn.Config.Mode, "config": nil, "execution": nil, "team": nil, "models": nil, "message": nil,
 		"connections": map[string]any{"bound": invocation.Turn.Config.Resource, "databases": []any{}, "ssh": []any{}}}
 	aliases := []string{}
@@ -252,22 +304,55 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 		aliases = append(aliases, plugins.ToolAlias(info.Summary.Name, name))
 	}
 	input["names"] = aliases
+	if slices.Contains(selected, protocol.ToolOperationApplyRoles) {
+		input["session_revision"] = strconv.FormatUint(invocation.Turn.Revision, 10)
+	}
 	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) {
-		input["config"], input["execution"], input["models"] = invocation.Turn.Config, invocation.Turn.Roles.Execution, invocation.Turn.Roles.Models
+		models := roster.Models
+		if models == nil {
+			models = map[protocol.RoleID]protocol.RoleModel{}
+		}
+		input["config"], input["execution"], input["models"] = invocation.Turn.Config, roster.Execution, models
+		if roster.Team != nil {
+			input["team"] = map[string]any{"id": roster.Team.ID, "revision": strconv.FormatUint(roster.Team.Revision, 10)}
+		}
 	}
-	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && invocation.Session.Delegation == nil {
+	// Only a person's own text: package-authored, notice and delegated input stay private.
+	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && !automatic && !invocation.Run.Notice && invocation.Session.Delegation == nil {
 		message := invocation.Message.Text
-		if len(message) > 4096 {
-			for len(message) > 4096 {
-				message = message[:len(message)-1]
-			}
-			message = strings.ToValidUTF8(message, "")
-		}
 		if strings.TrimSpace(message) != "" {
-			input["message"] = message
+			end := min(len(message), pluginTurnMessageBytes)
+			for end > 0 && end < len(message) && !utf8.RuneStart(message[end]) {
+				end--
+			}
+			input["message"] = message[:end]
 		}
 	}
-	return input
+	return input, nil
+}
+
+// pluginRoleTools reports whether the role's captured model can call tools. A
+// role without its own model follows the lead's.
+func pluginRoleTools(roster protocol.RoleSnapshot, profile protocol.RoleProfile) bool {
+	model := profile.Model
+	if override, exists := roster.Models[profile.ID]; exists {
+		model = &override
+	}
+	if model == nil {
+		return true
+	}
+	for _, provider := range roster.Providers {
+		if provider.ID != model.Provider {
+			continue
+		}
+		for _, entry := range provider.Models {
+			if entry.ID == model.Model {
+				return entry.Tools
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func pluginResultFailed(value any) bool {
