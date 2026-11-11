@@ -1,7 +1,9 @@
 package sidebar
 
 import (
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -30,8 +32,10 @@ type Actions struct {
 	NewTerminal   func(*viewmodel.Project)
 }
 
-func (s *State) removeLabel() string {
-	if s.Actions != nil {
+// removeLabel is the removal's confirming action: the preview names its
+// record, the demo as a live window does.
+func (s *State) removeLabel(c *ui.Context) string {
+	if s.Actions != nil || kit.Demo(c) {
 		return "project_remove"
 	}
 	return "project_remove_preview"

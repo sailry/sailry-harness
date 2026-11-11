@@ -1578,7 +1578,6 @@ settings_notify_failed_description: 任务失败或意外中断时发送提醒
 settings_toast_description: 应用内提示消息保持显示的时间
 settings_paste_description: 粘贴多行内容前确认
 settings_seconds: "%{count} 秒"
-interaction_preview_notice: 交互示例 · 仅记录选择，不执行任务
 interaction_preview_prompt: 展示提问与计划确认交互
 interaction_preview_result: 已记录本次示例选择，未连接执行节点或运行任务
 interaction_menu_single: 单选问题示例
@@ -2772,3 +2771,8 @@ media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
+settings_experimental: 实验
+settings_experimental_description: 开发与调试设置
+settings_demo_mode: 演示模式
+settings_demo_mode_description: 显示示例会话，用于验收与截图
+provider_deepseek: DeepSeek

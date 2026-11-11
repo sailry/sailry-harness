@@ -13,7 +13,7 @@ import (
 
 // notice tells that an action would leave the preview: it would write
 // files, run git, a terminal or a model.
-func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
+func notice(c *ui.Context) { kit.PreviewNotice(c) }
 
 func (s *State) notice(c *ui.Context) {
 	if s.Actions != nil {
@@ -181,7 +181,7 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	m.Separator()
 	if m.Item(t("project_remove")).Chosen() {
 		s.confirm = confirm{open: true, title: t("project_remove"), message: i18n.T(c, "project_remove_named", "name", pr.Path),
-			action: t(s.removeLabel()), run: func() { s.remove(pr) }}
+			action: t(s.removeLabel(c)), run: func() { s.remove(pr) }}
 	}
 	if m.Item(t("cli_launch")).Chosen() {
 		if s.Actions != nil && s.Actions.CLI != nil {

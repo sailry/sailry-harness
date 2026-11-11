@@ -152,7 +152,7 @@ func (s *State) attachments(c *ui.Context, actions Actions) {
 			s.attachmentCallbacks.Image(action, a)
 			return
 		}
-		kit.Message(c, i18n.T(c, "preview_notice"))
+		kit.PreviewNotice(c)
 	})
 	if len(s.Attachments) == 0 {
 		return

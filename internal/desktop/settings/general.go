@@ -34,7 +34,6 @@ func general(c *ui.Context, m *Model) {
 					report(c, m.Power.Commit(), powerMessages)
 				}
 			}
-			kit.SwitchRow(c, "metrics", i18n.T(c, "settings_sidebar_metrics"), "", &m.SidebarMetrics)
 		})
 	})
 	kit.Group(c, "notifications", i18n.T(c, "settings_notifications"), "", nil, func() {

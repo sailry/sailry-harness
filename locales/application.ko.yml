@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "작업이 실패하거나 중단될 때 알
 settings_toast_description: "앱 내 알림이 표시되는 기간"
 settings_paste_description: "여러 줄을 붙여넣기 전에 확인하기"
 settings_seconds: "%{count}초"
-interaction_preview_notice: "상호 작용 미리보기 · 선택만 기록; 작업이 실행되지 않음"
 interaction_preview_prompt: "미리보기 질문 및 계획 확인"
 interaction_preview_result: "미리보기 선택 기록; 실행 Node 또는 작업 없음"
 interaction_menu_single: "단일 선택 미리 보기"

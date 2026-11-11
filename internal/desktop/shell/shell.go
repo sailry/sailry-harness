@@ -587,7 +587,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		if changing, done := a.voice.Advance(&comp.Dictation, c.Now()); changing {
 			c.After(preview.Tick)
 		} else if done {
-			kit.Message(c, i18n.T(c, "preview_notice"))
+			kit.PreviewNotice(c)
 		}
 	}
 	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
@@ -817,7 +817,7 @@ func (x *actions) OpenChild(id string) {
 // write a file or leave the window only say so in the preview.
 func (x *actions) notice() {
 	if x.a.Preview {
-		kit.Message(x.c, i18n.T(x.c, "preview_notice"))
+		kit.PreviewNotice(x.c)
 		return
 	}
 	kit.Notify(x.c, "", i18n.T(x.c, "unavailable"))

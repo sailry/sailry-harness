@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "Notifier lorsque les tâches échouent ou s
 settings_toast_description: "Durée pendant laquelle les notifications intégrées restent visibles"
 settings_paste_description: "Confirmer avant de coller plusieurs lignes"
 settings_seconds: "%{count} secondes"
-interaction_preview_notice: "· Enregistre les choix uniquement ; aucune tâche n'est exécutée"
 interaction_preview_prompt: "Questions de prévisualisation et confirmation du plan"
 interaction_preview_result: "Choix d'aperçu enregistré; aucune exécution Node ou tâches"
 interaction_menu_single: "Aperçu à choix unique"

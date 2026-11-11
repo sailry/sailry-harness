@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "タスクが失敗したり中断された�
 settings_toast_description: "アプリケーション内通知が表示される期間"
 settings_paste_description: "複数行を貼り付ける前に確認する(M)"
 settings_seconds: "%{count}秒"
-interaction_preview_notice: "インタラクションのプレビュー · 選択のみを記録します。タスクは実行されません"
 interaction_preview_prompt: "予想問題と計画確認"
 interaction_preview_result: "プレビュー選択が記録されました。実行ノードやタスクはありません"
 interaction_menu_single: "単一選択プレビュー"

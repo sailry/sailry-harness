@@ -713,7 +713,9 @@ func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 			if sc.Tested != "" {
 				ui.Text(c, i18n.T(c, "model_score_tested", "effort", sc.Tested)).FontSize(12).TextColor(p.MutedForeground)
 			}
-			ui.Text(c, i18n.T(c, "model_score_preview")).FontSize(12).TextColor(p.MutedForeground)
+			if !kit.Demo(c) {
+				ui.Text(c, i18n.T(c, "model_score_preview")).FontSize(12).TextColor(p.MutedForeground)
+			}
 		})
 	})
 }

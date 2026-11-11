@@ -153,6 +153,9 @@ type Model struct {
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool
+	// DemoMode shows the demo conversations in place of the window's own
+	// (Experimental).
+	DemoMode       bool
 	Notify         [4]bool // system, approval, completed, failed
 	Toast          int     // of ToastSeconds
 	Power          Stored[bool]

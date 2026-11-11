@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "Notificar quando as tarefas falham ou são 
 settings_toast_description: "Por quanto tempo as notificações no aplicativo permanecem visíveis"
 settings_paste_description: "Confirmar antes de colar várias linhas"
 settings_seconds: "%{count} segundos"
-interaction_preview_notice: "· Registra somente as escolhas; nenhuma tarefa é executada"
 interaction_preview_prompt: "Perguntas de pré-visualização e confirmação do plano"
 interaction_preview_result: "Escolha de visualização gravada; nenhuma execução Node ou tarefas"
 interaction_menu_single: "Pré-visualização de escolha única"

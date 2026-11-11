@@ -142,7 +142,7 @@ func (s *State) editorDialog(c *ui.Context) {
 	kit.Dialog(c.Key("editor"), &e.Open, func() {
 		ui.Column(c.Key("head")).Gap(6).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
-			if s.Actions == nil {
+			if s.Actions == nil && !kit.Demo(c) {
 				ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
 			}
 		})
@@ -197,7 +197,7 @@ func (s *State) editorDialog(c *ui.Context) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.Open = false })
 			saveKey := "settings_save_preview"
-			if s.Actions != nil {
+			if s.Actions != nil || kit.Demo(c) {
 				saveKey = "settings_save"
 			}
 			save := i18n.T(c, saveKey)

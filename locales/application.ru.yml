@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "Уведомлять при сбоях ил
 settings_toast_description: "Как долго уведомления в приложении остаются видимыми"
 settings_paste_description: "Подтвердить перед вставлением нескольких строк"
 settings_seconds: "%{count} секунд"
-interaction_preview_notice: "· Записывает только выборы; никакие задачи не выполняются"
 interaction_preview_prompt: "Вопросы предварительного просмотра и подтверждение плана"
 interaction_preview_result: "Выбор предварительного просмотра зарегистрирован; выполнение Node или задач не выполнено"
 interaction_menu_single: "Предварительный просмотр с одним выбором"

@@ -104,7 +104,10 @@ type State struct {
 	documentView    func(*ui.Context, string) bool
 	historyConfirm  confirm
 	Live            bool
-	HasProject      bool
+	// Demo is the demo conversations' panel: it has no terminal or browser,
+	// which would start a shell or load a page (lists).
+	Demo       bool
+	HasProject bool
 	// Session reports that the live conversation shown has a session: an
 	// unsent draft has no checkpoints or documents to list (lists).
 	Session bool
@@ -297,6 +300,9 @@ func (s *State) Close(t Tab) bool {
 // an unsent chat without a project does not have (the reference's
 // Scope.offers).
 func (s *State) lists(k Kind) bool {
+	if s.Demo {
+		return k != Terminal && k != Browser
+	}
 	if !s.Live {
 		return true
 	}

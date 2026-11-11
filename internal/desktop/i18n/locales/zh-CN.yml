@@ -1949,3 +1949,8 @@ media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
+settings_experimental: 实验
+settings_experimental_description: 开发与调试设置
+settings_demo_mode: 演示模式
+settings_demo_mode_description: 显示示例会话，用于验收与截图
+provider_deepseek: DeepSeek

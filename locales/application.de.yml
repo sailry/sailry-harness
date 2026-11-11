@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "Benachrichtigung, wenn Aufgaben fehlschlage
 settings_toast_description: "Wie lange In-App-Benachrichtigungen sichtbar bleiben"
 settings_paste_description: "Bestätigen vor dem Einfügen mehrerer Zeilen"
 settings_seconds: "%{count} Sekunden"
-interaction_preview_notice: "Interaktionsvorschau · Zeichnet nur Auswahlmöglichkeiten auf; es werden keine Aufgaben ausgeführt"
 interaction_preview_prompt: "Vorschaufragen und Planbestätigung"
 interaction_preview_result: "Vorschauauswahl aufgezeichnet; keine Ausführung Node oder Aufgaben"
 interaction_menu_single: "Single-choice-Vorschau"

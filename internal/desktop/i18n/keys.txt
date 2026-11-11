@@ -1961,3 +1961,8 @@ media_load_failed
 panel_history_empty
 panel_documents_empty
 connections_copy_id
+settings_experimental
+settings_experimental_description
+settings_demo_mode
+settings_demo_mode_description
+provider_deepseek

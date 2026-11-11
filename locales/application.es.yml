@@ -1430,7 +1430,6 @@ settings_notify_failed_description: "Notificar cuando las tareas fallan o se int
 settings_toast_description: "Cuánto tiempo permanecen visibles las notificaciones en la aplicación"
 settings_paste_description: "Confirmar antes de pegar varias líneas"
 settings_seconds: "%{count} segundos"
-interaction_preview_notice: "· Registra solo las opciones; no se ejecutan tareas"
 interaction_preview_prompt: "Preguntas de vista previa y confirmación del plan"
 interaction_preview_result: "Opción de vista previa grabada; no se ejecutó Node ni tareas"
 interaction_menu_single: "Vista previa de una sola opción"
