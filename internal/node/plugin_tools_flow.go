@@ -15,6 +15,21 @@ import (
 	"lukechampine.com/blake3"
 )
 
+// pluginStorageHandler reports whether a handler's declared effects are
+// confined to its package's own stored values.
+func pluginStorageHandler(handler protocol.ToolHandler) bool {
+	declared := []protocol.ToolOperation{}
+	if handler.Operation != nil {
+		declared = append(declared, *handler.Operation)
+	}
+	if handler.Flow != nil {
+		declared = append(declared, handler.Flow.Operations...)
+	}
+	return len(declared) != 0 && !slices.ContainsFunc(declared, func(operation protocol.ToolOperation) bool {
+		return operation != protocol.ToolOperationSetValue && operation != protocol.ToolOperationDeleteValue && operation != protocol.ToolOperationStorageTransaction
+	})
+}
+
 func pluginOperationCommand(owner *pluginScriptTurn, operation protocol.ToolOperation, arguments json.RawMessage) (protocol.Command, error) {
 	kind := ""
 	switch operation {

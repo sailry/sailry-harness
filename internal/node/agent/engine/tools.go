@@ -295,7 +295,9 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
 			continue
 		}
-		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && !tool.Delegation && call.Name != "ask_user" {
+		// A planning turn still writes the conversation's own artifacts.
+		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && !tool.Delegation && call.Name != "ask_user" &&
+			!(tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationWriteArtifact) {
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
 			continue
 		}

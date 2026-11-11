@@ -427,6 +427,64 @@ func TestAgentManagementTools(t *testing.T) {
 		}
 	})
 
+	// An artifact belongs to its conversation and a package's values to the
+	// package: neither asks the user at any permission level. A plain script
+	// handler asks for nothing either. Only the artifact survives Plan mode.
+	for _, level := range []struct {
+		name       string
+		mode       protocol.WorkMode
+		permission protocol.Permission
+	}{{"ask", protocol.WorkModeCode, protocol.PermissionAsk}, {"project", protocol.WorkModeCode, protocol.PermissionProject}, {"plan", protocol.WorkModePlan, protocol.PermissionAsk}} {
+		t.Run("own storage under "+level.name, func(t *testing.T) {
+			var results map[string]string
+			_, approvals, _ := turn(t, level.mode, level.permission, func(approval protocol.ConversationApproval) string {
+				t.Errorf("a write to own storage asked the user: %+v", approval)
+				return "deny"
+			}, func(step int, current map[string]string) [][3]string {
+				results = current
+				switch step {
+				case 1:
+					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief,create_goal,save_memory"}`}}
+				case 2:
+					calls := [][3]string{
+						{"brief", "write_brief", `{"title":"Notes","html":"<p>Outline</p>"}`},
+						{"memory", "save_memory", `{"kind":"user","title":"Editor theme","body":"Prefers a dark theme"}`},
+					}
+					// The goals package offers no tool to a planning turn.
+					if level.mode != protocol.WorkModePlan {
+						calls = append(calls, [3]string{"goal", "create_goal", `{"description":"Ship the release"}`})
+					}
+					return calls
+				}
+				return nil
+			})
+			planning := level.mode == protocol.WorkModePlan
+			if !strings.Contains(results["brief"], `"title":"Notes"`) || strings.Contains(results["brief"], "permission_denied") {
+				t.Errorf("artifact was not written: %.300q", results["brief"])
+			}
+			if refused := strings.Contains(results["memory"], "planning mode permits read-only tools"); refused != planning {
+				t.Errorf("memory under %s returned %.300q", level.name, results["memory"])
+			}
+			if !planning && (strings.Contains(results["memory"], "permission_denied") || !strings.Contains(results["goal"], "Ship the release")) {
+				t.Errorf("own storage was not written: %.300q, %.300q", results["memory"], results["goal"])
+			}
+			// The artifact and, outside Plan, the memory transaction record
+			// their storage authority; the plain goal handler records none.
+			expected := 2
+			if planning {
+				expected = 1
+			}
+			if len(approvals) != expected {
+				t.Errorf("recorded %d approvals: %+v", len(approvals), approvals)
+			}
+			for _, approval := range approvals {
+				if approval.Source != protocol.ConversationApprovalSourceStorage || approval.State != protocol.ConversationApprovalStateApproved || approval.CanRemember {
+					t.Errorf("storage write was not authorized by its scope: %+v", approval)
+				}
+			}
+		})
+	}
+
 	t.Run("plan mode", func(t *testing.T) {
 		var results map[string]string
 		_, approvals, _ := turn(t, protocol.WorkModePlan, protocol.PermissionFull, func(protocol.ConversationApproval) string {

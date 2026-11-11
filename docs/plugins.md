@@ -124,6 +124,21 @@ Otherwise a package tool keeps its alias; equal or overlong MCP names take an
 eight-character hash of the alias, cut to 64 characters. Compaction requests
 carry no tools and keep the stored names.
 
+A call that changes something asks for approval before it runs, except where
+the write cannot leave its owner:
+
+- `artifacts.write` writes the conversation's own artifact. It is approved with
+  source `storage` at every permission level and in Plan mode; a child has no
+  such tool.
+- A tool, handler or flow whose declared operations are only `storage.set`,
+  `storage.delete` and `storage.transaction` writes its package's own values and
+  is approved with source `storage`. Plan mode refuses it.
+- A plain script handler (no operation, no flow) records no approval: every
+  command its script dispatches is checked against the package's grants on
+  admission. Plan mode refuses one that is not read-only.
+- Every other handler or flow that is not read-only asks the user under Ask and
+  Project permission.
+
 Deviations from Rust: a declared name that breaks the provider rule keeps its
 alias instead of being sent as declared; an MCP tool declared `initial` starts
 visible to the main agent, where Rust always defers MCP tools outside a selected
