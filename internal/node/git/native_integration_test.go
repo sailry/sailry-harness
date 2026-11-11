@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +132,58 @@ func TestNativeGitIntegration(t *testing.T) {
 			if entry.Path == path {
 				t.Fatal("stale registration retained", entries)
 			}
+		}
+	})
+	t.Run("worktree_manager_faults", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		s := service(t)
+		parent := t.TempDir()
+		named := func(err error, code protocol.ErrorCode, message string) {
+			t.Helper()
+			requireFault(t, err, code)
+			var value *protocol.Fault
+			if !errors.As(err, &value) || value.Message != message {
+				t.Fatalf("fault message = %v, want %q", err, message)
+			}
+		}
+		path, err := s.CreateWorktree(ctx, root, filepath.Join(parent, "linked"), "linked-fixture", commit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.CreateWorktree(ctx, root, filepath.Join(parent, "other"), "linked-fixture", commit)
+		named(err, protocol.ErrorCodeConflict, BranchExists)
+		_, err = s.CreateWorktree(ctx, root, path, "second-fixture", commit)
+		named(err, protocol.ErrorCodeConflict, DestinationExists)
+		untracked := filepath.Join(path, "untracked.txt")
+		if err := os.WriteFile(untracked, []byte("draft\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		named(s.RemoveWorktree(ctx, path, commit, "linked-fixture"), protocol.ErrorCodeConflict, WorktreeDirty)
+		if err := os.Remove(untracked); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.command(ctx, root, []string{"worktree", "lock", "--", path}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		listed, err := s.ListWorktrees(ctx, root)
+		if err != nil || len(listed.Entries) != 2 || !listed.Entries[0].Main || listed.Entries[0].Locked {
+			t.Fatal(listed, err)
+		}
+		if linked := listed.Entries[1]; linked.Path != path || linked.Main || !linked.Locked || !linked.Available || linked.Branch == nil || *linked.Branch != "linked-fixture" {
+			t.Fatalf("locked worktree listing: %+v", linked)
+		}
+		named(s.RemoveWorktree(ctx, path, commit, "linked-fixture"), protocol.ErrorCodeBusy, WorktreeLocked)
+		named(s.PruneWorktree(ctx, root, path), protocol.ErrorCodeBusy, WorktreeLocked)
+		if _, err := s.command(ctx, root, []string{"worktree", "unlock", "--", path}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		named(s.PruneWorktree(ctx, root, path), protocol.ErrorCodeConflict, WorktreePathExists)
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+		listed, err = s.ListWorktrees(ctx, root)
+		if err != nil || len(listed.Entries) != 2 || listed.Entries[1].Path != path || listed.Entries[1].Available || listed.Entries[1].Locked {
+			t.Fatalf("stale worktree listing: %+v %v", listed, err)
 		}
 	})
 }

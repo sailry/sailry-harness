@@ -12,6 +12,9 @@ import (
 
 func TestPanelProjection(t *testing.T) {
 	t.Run("panel tabs close, stay closed and never show a blank body", panelTabs)
+	t.Run("worktree manager lists every worktree with its markers and actions", worktreeManagerEntries)
+	t.Run("Git and worktree failures name their cause", workspaceFailures)
+	t.Run("worktree manager rows act against the Node", worktreeManagerLive)
 	t.Run("manual hunk selection retains displayed coordinate identity", func(t *testing.T) {
 		patch := "@@ -1,2 +1,2 @@\n-before\n+after\n tail\n@@ -20,2 +20,2 @@\n-old\n+new\n end\n"
 		hunks := workspaceHunks(patch)

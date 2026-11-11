@@ -267,6 +267,73 @@ workspace_records: Comptes rendus de session
 worktree_manage: Gérer les arbres de travail
 worktree_create: Nouvel arbre de travail
 worktree_remove: Supprimer l'arbre de travail
+workspace_open_worktree: Ouvrir l'arbre de travail
+worktree_actions: Actions de Worktree
+worktree_main: Main
+worktree_locked: Verrouillé
+worktree_unavailable: Répertoire indisponible
+worktree_prune_on_select: Indisponible · cliquez pour nettoyer
+worktree_listing_partial: Liste partielle de l'arbre de travail
+worktree_base: Point de départ
+worktree_path: Chemin
+worktree_load_failed: Impossible de charger les arbres de travail
+worktree_missing_project: Sélectionner un projet
+worktree_no_repository: Ce répertoire n'est pas un dépôt Git
+worktree_revision_failed: Impossible de résoudre le point de départ
+worktree_context_changed: Projet modifié, rouvrez cette vue
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+worktree_remove_confirm: Supprimer ce répertoire de l'arborescence de travail; conserver la branche Git
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_pruned: Enregistrement de l'arbre de travail obsolète supprimé
+worktree_prune_failed: 'Non nettoyé : le répertoire existe, est verrouillé ou n''a pas pu être vérifié'
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_outcome_unknown: Résultat non confirmé, vérifiez l'arbre de travail
+worktree_conflict: Conflits de propriété de branche, répertoire ou projet
+worktree_invalid: Vérifier la branche et le chemin absolu
+worktree_not_found: Projet, répertoire ou commit initial non trouvé
+worktree_request_failed: Opération échouée, vérifier les autorisations et la connexion
+worktree_path_exists: Path already exists
+worktree_remove_locked: L'arbre de travail est verrouillé
+worktree_remove_busy: Worktree est en cours d'utilisation
+worktree_remove_dirty: Worktree a des modifications non validées; ne peut pas supprimer
+worktree_remove_conflict: Arbre de travail modifié, actualiser avant de supprimer
+worktree_remove_missing: Page non trouvée
+git_branch_exists: Branche existe déjà
+git_branch_checked_out: Branch is checked out in another worktree
+git_index_failed: Impossible de mettre à jour le staging, réessayez
+git_index_changed: Git état changé, sélectionner à nouveau
+git_index_busy: Git est occupé ou l'opération a expiré, réessayez sous peu
+git_index_denied: Impossible d'accéder au fichier ou à l'index, vérifiez les autorisations
+git_index_missing: Le fichier ou le référentiel n'existe plus, sélectionnez à nouveau
+git_index_unknown: Résultat d'étape non confirmé, actualiser et réviser
+git_index_conflict: Git état modifié, actualiser
+git_branch_revision: Dépôt modifié, actualiser
+git_identity_missing: Configurer un nom et un email Git
+git_commit_unavailable: Valider incomplet, vérifier la sortie Git ; votre message est conservé
+git_commit_failed: La validation a échoué, vérifiez les conflits, les modifications intermédiaires et les verrous ; votre message est conservé
+git_commit_unknown: Le résultat de la validation n'est pas confirmé ; il a peut-être été complété. Vérifiez l'historique avant de continuer
+git_branch_busy: Le dépôt est occupé
+git_branch_conflict: Branche ou fichiers modifiés
+git_branch_failed: Impossible de changer de branche
+git_branch_unknown: Résultat de commutation non confirmé, vérifier la branche et les fichiers
+git_merge_conflict: La branche a changé ou a des conflits
+git_merge_failed: Fusion échouée, vérifier les conflits et la connexion
+git_merge_unknown: Résultat de fusion non confirmé, vérifier l'arbre de travail et l'historique
+git_branch_delete_conflict: Branche modifiée ou en cours d'utilisation
+git_branch_delete_failed: Impossible de supprimer la branche
+git_branch_delete_unknown: Résultat de suppression non confirmé, vérifier les branches et le suivi
+git_branch_rename_conflict: Branche modifiée, actualiser avant de renommer
+git_branch_rename_failed: Impossible de renommer la branche
+git_branch_rename_unknown: Renommer le résultat non confirmé, vérifier les branches et le suivi
+git_branch_create_failed: Impossible de créer la branche
+git_branch_create_unknown: Résultat de création non confirmé, vérifiez la liste des branches
+git_action_conflict: Git état modifié, actualiser
+git_action_failed: Git opération a échoué
+git_action_unknown: Git résultat non confirmé, actualiser avant de continuer
+git_auth_failed: Git authentification échouée
 cli_launch: Lancer la CLI IA
 workspace_memory_only: Aperçu des modifications uniquement
 workspace_confirm: Confirmer

@@ -267,6 +267,73 @@ workspace_records: Sitzungsaufzeichnungen
 worktree_manage: Verwalten von Arbeitsbäumen
 worktree_create: Neuer Arbeitsbaum
 worktree_remove: Worktree entfernen
+workspace_open_worktree: Arbeitsbaum öffnen
+worktree_actions: Worktree-Aktionen
+worktree_main: Main
+worktree_locked: Gesperrt
+worktree_unavailable: Verzeichnis nicht verfügbar
+worktree_prune_on_select: Nicht verfügbar · klicken Sie zum Aufräumen
+worktree_listing_partial: Partielle Arbeitsbaumliste
+worktree_base: Ausgangspunkt
+worktree_path: Pfad
+worktree_load_failed: Konnte keine Worktrees laden
+worktree_missing_project: Ein Projekt auswählen
+worktree_no_repository: Dieses Verzeichnis ist kein Git-Repository
+worktree_revision_failed: Der Startpunkt konnte nicht aufgelöst werden
+worktree_context_changed: Projekt geändert, diese Ansicht neu öffnen
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+worktree_remove_confirm: Löschen Sie dieses Worktree-Verzeichnis; behalten Sie den Zweig Git
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_pruned: Veraltete Worktree-Registrierung entfernt
+worktree_prune_failed: 'Nicht bereinigt: Das Verzeichnis existiert, ist gesperrt oder konnte nicht überprüft werden'
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_outcome_unknown: Ergebnis unbestätigt, Arbeitsbaum überprüfen
+worktree_conflict: Zweig-, Verzeichnis- oder Projektbesitzkonflikte
+worktree_invalid: Prüfen Sie den Zweig und den absoluten Pfad
+worktree_not_found: Projekt, Verzeichnis oder Start-Commit nicht gefunden
+worktree_request_failed: Operation fehlgeschlagen, Berechtigungen und Verbindung prüfen
+worktree_path_exists: Path already exists
+worktree_remove_locked: Worktree ist gesperrt
+worktree_remove_busy: Worktree ist im Einsatz
+worktree_remove_dirty: Worktree enthält nicht übernommene Änderungen; kann nicht entfernt werden
+worktree_remove_conflict: Worktree geändert, vor dem Entfernen aktualisieren
+worktree_remove_missing: Seite nicht gefunden
+git_branch_exists: Zweig existiert bereits
+git_branch_checked_out: Branch is checked out in another worktree
+git_index_failed: Konnte das Staging nicht aktualisieren, versuchen Sie es erneut
+git_index_changed: Git Zustand geändert, erneut auswählen
+git_index_busy: Git ist besetzt oder der Vorgang ist abgelaufen, versuchen Sie es in Kürze erneut
+git_index_denied: Kann nicht auf die Datei oder den Index zugreifen, Berechtigungen überprüfen
+git_index_missing: Die Datei oder das Repository existiert nicht mehr, wählen Sie erneut
+git_index_unknown: Staging-Ergebnis ist nicht bestätigt, aktualisieren und überprüfen
+git_index_conflict: Git Zustand geändert, aktualisieren
+git_branch_revision: Repository geändert, aktualisieren
+git_identity_missing: Konfigurieren Sie einen Git Namen und E-Mail
+git_commit_unavailable: Commit unvollständig, Ausgabe Git überprüfen; Ihre Nachricht wird beibehalten
+git_commit_failed: Commit fehlgeschlagen; prüfen Sie Konflikte, vorgemerkte Änderungen und Sperren. Ihre Nachricht bleibt erhalten
+git_commit_unknown: Übergabeergebnis nicht bestätigt; möglicherweise abgeschlossen. Überprüfen Sie den Verlauf, bevor Sie fortfahren. Kein automatischer Neuversuch
+git_branch_busy: Repository ist besetzt
+git_branch_conflict: Zweig oder Dateien geändert
+git_branch_failed: Konnte Branche nicht wechseln
+git_branch_unknown: Switch-Ergebnis unbestätigt, Zweig und Dateien überprüfen
+git_merge_conflict: Zweig geändert oder hat Konflikte
+git_merge_failed: Zusammenführung fehlgeschlagen, Konflikte und Verbindung prüfen
+git_merge_unknown: Merge-Ergebnis unbestätigt, Arbeitsbaum und Verlauf überprüfen
+git_branch_delete_conflict: Zweigstelle geändert oder wird verwendet
+git_branch_delete_failed: Zweig konnte nicht gelöscht werden
+git_branch_delete_unknown: Löschungsergebnis unbestätigt, Zweige und Tracking überprüfen
+git_branch_rename_conflict: Zweig geändert, vor Umbenennung aktualisieren
+git_branch_rename_failed: Zweig konnte nicht umbenannt werden
+git_branch_rename_unknown: Ergebnis unbestätigt umbenennen, Zweige und Tracking überprüfen
+git_branch_create_failed: Konnte den Zweig nicht erstellen
+git_branch_create_unknown: Erstellungsergebnis unbestätigt, überprüfen Sie die Zweigliste
+git_action_conflict: Git Zustand geändert, aktualisieren
+git_action_failed: Git Operation fehlgeschlagen
+git_action_unknown: Git Ergebnis nicht bestätigt, aktualisieren Sie vor dem Fortfahren
+git_auth_failed: Git Authentifizierung fehlgeschlagen
 cli_launch: AI-CLI starten
 workspace_memory_only: Nur Vorschau der Änderungen
 workspace_confirm: Bestätigen

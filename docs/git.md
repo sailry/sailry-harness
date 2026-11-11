@@ -122,6 +122,26 @@ the commit field has the focus they take Down first and the chord drops.
 Deleting a stash names it by its message in the confirmation and drops it by
 its ID.
 
+The worktree manager lists every worktree `list_worktrees` reports for the
+project: the main one, linked ones, a locked marker and stale registrations
+whose directory is gone, with the current worktree checked. Choosing an
+available worktree offers Open worktree (registers it, then switches the unsent
+draft or moves the idle conversation), Copy path and Remove worktree; choosing a
+stale one confirms a targeted `prune_worktree`. Removal names the path and its
+consequence once and sends `remove_worktree` with the listed head and branch; the
+Node, as Git does, refuses a dirty, locked or busy worktree. Removal is not
+offered for the current, main, locked or detached worktree, and pruning is per
+entry. New worktree asks for a starting point (branch, tag or commit, resolved by
+`resolve_git_revision`), a new branch and a path. A pruned worktree's Node
+record is not deleted; no command exists for that.
+
+Git and worktree failures are named by the operation and the fault's code,
+refined by the fault messages `internal/node/git` exports for causes that share
+a code (branch exists, branch checked out in another worktree, destination
+exists, locked, uncommitted changes, path still exists). `workspaceFailure`
+owns that mapping and `mutateNamed` applies it; file operations, the Git
+pending re-check and conversation moves keep their generic toasts.
+
 Default tests use temporary go-git repositories, injected native responses and
 static argv. Integration-tagged probes execute native Git only in disposable
 repositories; `TestLargeRepositoryIntegration` covers status, change inventory

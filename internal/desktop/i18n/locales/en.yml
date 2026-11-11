@@ -267,6 +267,73 @@ workspace_records: Session records
 worktree_manage: Manage worktrees
 worktree_create: New worktree
 worktree_remove: Remove worktree
+workspace_open_worktree: Open worktree
+worktree_actions: Worktree actions
+worktree_main: Main
+worktree_locked: Locked
+worktree_unavailable: Directory unavailable
+worktree_prune_on_select: Unavailable · click to clean up
+worktree_listing_partial: Partial worktree list
+worktree_base: Starting point
+worktree_path: Path
+worktree_load_failed: Could not load worktrees
+worktree_missing_project: Select a project
+worktree_no_repository: This directory is not a Git repository
+worktree_revision_failed: Could not resolve the starting point
+worktree_context_changed: Project changed, reopen this view
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+worktree_remove_confirm: Delete this worktree directory; keep the Git branch
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_pruned: Stale worktree registration removed
+worktree_prune_failed: 'Not cleaned up: the directory exists, is locked, or could not be verified'
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_outcome_unknown: Outcome unconfirmed, check the worktree
+worktree_conflict: Branch, directory or project ownership conflicts
+worktree_invalid: Check the branch and absolute path
+worktree_not_found: Project, directory or starting commit not found
+worktree_request_failed: Operation failed, check permissions and connection
+worktree_path_exists: Path already exists
+worktree_remove_locked: Worktree is locked
+worktree_remove_busy: Worktree is in use
+worktree_remove_dirty: Worktree has uncommitted changes; cannot remove
+worktree_remove_conflict: Worktree changed, refresh before removing
+worktree_remove_missing: Worktree not found
+git_branch_exists: Branch already exists
+git_branch_checked_out: Branch is checked out in another worktree
+git_index_failed: Could not update staging, try again
+git_index_changed: Git state changed, select again
+git_index_busy: Git is busy or the operation timed out, try again shortly
+git_index_denied: Cannot access the file or index, check permissions
+git_index_missing: The file or repository no longer exists, select again
+git_index_unknown: Staging outcome is unconfirmed, refresh and review
+git_index_conflict: Git state changed, refresh
+git_branch_revision: Repository changed, refresh
+git_identity_missing: Configure a Git name and email
+git_commit_unavailable: Commit incomplete, check Git output; your message is retained
+git_commit_failed: Commit failed, check conflicts, staged changes and locks; your message is retained
+git_commit_unknown: Commit outcome unconfirmed; it may have completed. Check history before continuing. No automatic retry
+git_branch_busy: Repository is busy
+git_branch_conflict: Branch or files changed
+git_branch_failed: Could not switch branch
+git_branch_unknown: Switch outcome unconfirmed, check the branch and files
+git_merge_conflict: Branch changed or has conflicts
+git_merge_failed: Merge failed, check conflicts and connection
+git_merge_unknown: Merge outcome unconfirmed, check the worktree and history
+git_branch_delete_conflict: Branch changed or is in use
+git_branch_delete_failed: Could not delete branch
+git_branch_delete_unknown: Deletion outcome unconfirmed, check branches and tracking
+git_branch_rename_conflict: Branch changed, refresh before renaming
+git_branch_rename_failed: Could not rename branch
+git_branch_rename_unknown: Rename outcome unconfirmed, check branches and tracking
+git_branch_create_failed: Could not create branch
+git_branch_create_unknown: Creation outcome unconfirmed, check the branch list
+git_action_conflict: Git state changed, refresh
+git_action_failed: Git operation failed
+git_action_unknown: Git outcome unconfirmed, refresh before continuing
+git_auth_failed: Git authentication failed
 cli_launch: Launch AI CLI
 workspace_memory_only: Changes preview only
 workspace_confirm: Confirm

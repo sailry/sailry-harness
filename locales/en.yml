@@ -181,6 +181,15 @@ activity_board_waiting: Awaiting approval
 worktree_prune_on_select: Unavailable · click to clean up
 worktree_pruned: Stale worktree registration removed
 worktree_prune_failed: "Not cleaned up: the directory exists, is locked, or could not be verified"
+worktree_main: Main
+worktree_path_exists: Path already exists
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+git_branch_checked_out: Branch is checked out in another worktree
 activity_board_running: Running
 activity_board_empty: No activity
 activity_all_projects: All projects
