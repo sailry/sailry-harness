@@ -135,6 +135,18 @@ The Node writes its own notices in the transaction of the change they report
   entry; the Go engine does not record compaction failures as entries yet (a
   failed compaction fails its run, which the `task` notice reports), so this
   notice has no producer in the engine today.
+- A turn that a dispatch job started and that begins to wait for an approval
+  or an answer writes one `task` notice whose status is still `running`:
+  warning for an approval, info for input. A scheduled run usually has no
+  connected controller to derive that attention, so the Node keeps it. The
+  notice is marked read when the turn stops waiting for it, and each later
+  wait of the turn is a new notice. Turns a controller started have none: the
+  controller derives their attention itself. Rust has no such notice.
+- A dispatch job that ends `failed` or `unknown` writes one `system`
+  diagnostic (`plugin_callback`, incident = the job's request, with the
+  package and handler), including a job refused when it is claimed. A job
+  whose callback admitted a turn is reported by that turn's `task` notice
+  instead, and a cancelled or skipped job has none. Rust has no such notice.
 
 `read_media_settings`, `list_media_models` and `save_media_settings` store which
 configured provider model serves the vision, image, video and speech purposes,

@@ -63,3 +63,13 @@ contract and SDK change and is not done here.
 
 Deviation from Rust: Rust starts every occurrence and has no overlap rule;
 its `queue` is the same unused label.
+
+## Notices
+
+A scheduled run has nobody watching it, so the Node reports it durably
+([Node notices](node.md)): the run's own completed, failed or interrupted
+notice; one notice while a dispatch-started turn waits for an approval or an
+answer; and one error notice for a job that failed, or whose outcome is
+unknown, before any turn existed. Approvals and questions expire by their own
+rules; until then the job stays `running` and its handler's next occurrences
+are skipped.

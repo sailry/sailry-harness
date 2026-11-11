@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"runtime"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -127,4 +129,91 @@ func compactionNotice(ctx context.Context, db *sql.Conn, session protocol.Sessio
 		return nil, err
 	}
 	return []protocol.Event{{Kind: "notification_changed", Data: notice}}, nil
+}
+
+// waitingNotice keeps one durable notice while a turn that a dispatch job
+// started waits for an approval or an answer: nobody may be connected when a
+// scheduled run stops for its user. The notice is a task notice whose status
+// is still running; its kind is warning for an approval and info for input.
+// It is marked read as soon as the turn stops waiting for that.
+func waitingNotice(ctx context.Context, db *sql.Conn, session protocol.SessionID, summary protocol.ActivitySummary) ([]protocol.Event, error) {
+	open, err := readBodies[protocol.NotificationNotice](ctx, db, `SELECT body FROM notifications
+		WHERE json_extract(body,'$.read')=0 AND json_extract(body,'$.content.session')=?1
+		AND json_extract(body,'$.content.details.type')='task' AND json_extract(body,'$.content.details.data.status')='running'
+		ORDER BY sequence`, session.String())
+	if err != nil {
+		return nil, err
+	}
+	waiting := summary.Run != nil && summary.Run.Status == protocol.ConversationStatusRunning && summary.Waiting != nil
+	kind := protocol.NotificationKindInfo
+	if waiting && *summary.Waiting == protocol.ActivityWaitingApproval {
+		kind = protocol.NotificationKindWarning
+	}
+	events := []protocol.Event{}
+	told := false
+	for _, notice := range open {
+		task, valid := dispatchValue[protocol.NotificationDetailsTask](notice.Content.Details.Data)
+		if waiting && valid && task.Turn == summary.Run.Turn && notice.Content.Kind == kind {
+			told = true
+			continue
+		}
+		notice.Read = true
+		if err := putNotice(ctx, db, notice); err != nil {
+			return nil, err
+		}
+		events = append(events, protocol.Event{Kind: "notification_changed", Data: notice})
+	}
+	if !waiting || told {
+		return events, nil
+	}
+	var dispatched bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM dispatch_jobs j JOIN requests r ON r.id=json_extract(j.body,'$.request')
+		WHERE j.status='running' AND r.status='completed' AND json_extract(r.result,'$.Ok.kind')='queued_turn'
+		AND json_extract(r.result,'$.Ok.data.id')=?1)`, summary.Run.Turn.String()).Scan(&dispatched); err != nil || !dispatched {
+		return events, err
+	}
+	notice, err := insertNotice(ctx, db, "", protocol.NotificationDraft{
+		Title: summary.Title, Kind: kind, Session: &session,
+		Details: &protocol.NotificationDetails{Kind: "task", Data: &protocol.NotificationDetailsTask{
+			Turn: summary.Run.Turn, Status: protocol.ConversationStatusRunning, StartedMs: summary.Run.StartedMs,
+		}},
+	}, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	return append(events, protocol.Event{Kind: "notification_changed", Data: notice}), nil
+}
+
+// dispatchNotice reports a callback that failed or whose outcome is unknown,
+// once per job. A job that admitted a turn is reported by that turn's own
+// run notice instead.
+func dispatchNotice(ctx context.Context, db *sql.Conn, job protocol.DispatchJob, reference *protocol.PluginReference, timestamp int64) ([]protocol.Event, error) {
+	if job.Error == nil || job.Status != protocol.DispatchStatusFailed && job.Status != protocol.DispatchStatusUnknown {
+		return nil, nil
+	}
+	var admitted bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM requests WHERE id=?1 AND status='completed' AND json_extract(result,'$.Ok.kind')='queued_turn')", job.Request.String()).Scan(&admitted); err != nil || admitted {
+		return nil, err
+	}
+	report := protocol.NotificationSystemSystemDiagnostic{
+		Incident: job.Request, Source: protocol.NotificationSystemSystemSourcePluginCallback,
+		Phase: protocol.NotificationSystemDiagnosticPhaseCallback, Reason: protocol.NotificationSystemDiagnosticReasonFailure,
+		Code: job.Error.Code, Request: &job.Request, Operation: &job.Handler,
+		Version: link.ProductVersion, Platform: runtime.GOOS + "-" + runtime.GOARCH,
+	}
+	if reference != nil {
+		version := "unknown"
+		if err := db.QueryRowContext(ctx, "SELECT coalesce(json_extract(body,'$.summary.version'),'unknown') FROM plugin_packages WHERE digest=?1 AND name=?2", reference.Digest, reference.Name).Scan(&version); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		report.Plugin = &protocol.NotificationSystemDiagnosticPlugin{Name: reference.Name, Version: version}
+	}
+	// A handler name is the package's own text and need not be a report token.
+	if !pluginStatusDiagnosticValid(report) {
+		report.Operation = nil
+	}
+	if !pluginStatusDiagnosticValid(report) {
+		report.Plugin = nil
+	}
+	return RecordPluginStatusDiagnostic(ctx, db, report, timestamp)
 }

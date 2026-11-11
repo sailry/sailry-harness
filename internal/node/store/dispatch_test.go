@@ -295,7 +295,7 @@ func TestDispatchContracts(test *testing.T) {
 				return fmt.Errorf("occurrence behind a queued run was not skipped: %+v", list)
 			}
 			running := list[1].ID
-			work, _, err := claimDispatchJobs(ctx, db, fixture.node, 2600)
+			work, _, _, err := claimDispatchJobs(ctx, db, fixture.node, 2600)
 			if err != nil {
 				return err
 			}
@@ -389,7 +389,7 @@ func TestDispatchContracts(test *testing.T) {
 			if err != nil {
 				return err
 			}
-			work, _, err := claimDispatchJobs(ctx, db, fixture.node, 2)
+			work, _, _, err := claimDispatchJobs(ctx, db, fixture.node, 2)
 			if err != nil {
 				return err
 			}
@@ -462,7 +462,7 @@ func TestDispatchContracts(test *testing.T) {
 					return err
 				}
 			}
-			work, _, err := claimDispatchJobs(ctx, db, fixture.node, 2)
+			work, _, _, err := claimDispatchJobs(ctx, db, fixture.node, 2)
 			if err != nil {
 				return err
 			}

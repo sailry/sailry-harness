@@ -154,7 +154,13 @@ func activityEvent(ctx context.Context, db *sql.Conn, session protocol.SessionID
 	if err != nil {
 		return nil, err
 	}
-	return []protocol.Event{{Kind: "conversation_changed", Data: protocol.EventConversationChangedPayload{Session: session, Activity: &summary}}}, nil
+	// The notice precedes the activity it explains, so a controller that
+	// applies events one at a time sees it before the waiting transition.
+	notices, err := waitingNotice(ctx, db, session, summary)
+	if err != nil {
+		return nil, err
+	}
+	return append(notices, protocol.Event{Kind: "conversation_changed", Data: protocol.EventConversationChangedPayload{Session: session, Activity: &summary}}), nil
 }
 
 // AppendCanonical preserves immutable record identity and updates only derived
