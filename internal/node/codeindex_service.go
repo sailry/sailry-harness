@@ -47,7 +47,9 @@ func codeIndexCommand(kind string) bool {
 // applies the saved enablement.
 func (node *Node) initCodeIndex(ctx context.Context) error {
 	watch := func(ctx context.Context, root string, worktree protocol.WorktreeID) (link.Subscription, error) {
-		return node.watches.subscribe(ctx, root, node.ID(), worktree, false)
+		return node.watches.observe(ctx, root, node.ID(), worktree, false, func(paths []string) {
+			node.codeIndex.service.Observed(worktree, paths)
+		})
 	}
 	node.codeIndex = &codeIndexControls{
 		service:   codeindex.New(node.profile.Ownership.Path, watch),
