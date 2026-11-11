@@ -1,7 +1,7 @@
 package host
 
 import (
-	"strconv"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -10,15 +10,22 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// MetricsPanel is the host's metrics in the right column, titled by the
-// window's header: the preview's note, the host, then the processor and memory, the network, the
-// disks and the busiest processes; a loading bar until the first sample. A
+// summaryProcesses is how many of the busiest processes the summary lists.
+const summaryProcesses = 5
+
+// MetricsPanel is the host's metrics summary in the right column, titled by
+// the window's header and closed until the user opens it: the preview's
+// note, the host, then the processor and the memory as a value over a bar
+// and the last minute's line, the network's rates over theirs, the real
+// volumes (Metrics.Volumes) each with how full it is, and the busiest
+// processes. A loading bar holds its place until the first sample. A
 // failure shows only as a toast.
 func MetricsPanel(c *ui.Context, s *State, h *Host) {
 	if h == nil {
 		return
 	}
 	p := theme.Of(c)
+	t := tonesOf(p)
 	ui.Scroll(c.Key("metrics")).Grow(1).MinHeight(0).Padding(16).Gap(16).Children(func() {
 		if !h.Live {
 			ui.Text(c, i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
@@ -42,70 +49,58 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 			}
 			return
 		}
-		unknown := i18n.T(c, "host_unknown")
-		or := func(v string) string {
-			if v == "" {
-				return unknown
-			}
-			return v
+		var cpu, memory, received, sent []float64
+		for _, point := range m.History {
+			cpu, memory = append(cpu, point.CPU), append(memory, point.Memory)
+			received, sent = append(received, point.Received), append(sent, point.Transmitted)
 		}
-		ui.Column(c.Key("load")).Gap(8).Children(func() {
-			fact(c, i18n.T(c, "metrics_cpu"), or(Percent(m.CPU)))
-			total := unknown
-			used := unknown
-			if m.Memory > 0 {
-				total = Bytes(float64(m.Memory))
-				used = or(Bytes(float64(m.MemoryUsed)))
-			}
-			fact(c, i18n.T(c, "metrics_memory"), used+" / "+total)
-			if v, ok := Usage(m.MemoryUsed, m.Memory); ok {
-				ui.Progress(c.Key("memory"), v/100).FillWidth().Height(4).Label(i18n.T(c, "metrics_memory"))
-			}
-		})
-		rate := func(v uint64) string {
-			if r := Rate(v, m.Interval); r != "" {
-				return i18n.T(c, "metrics_rate", "value", r)
-			}
-			return unknown
+		meter(c, "cpu", i18n.T(c, "metrics_cpu"), orDash(Percent(m.CPU)), m.CPU, cpu, t.load(m.CPU, t.cpu))
+		used, known := Usage(m.MemoryUsed, m.Memory)
+		value := dash
+		if known {
+			value = Bytes(float64(m.MemoryUsed)) + " / " + Bytes(float64(m.Memory))
+		} else {
+			used = math.NaN()
+		}
+		meter(c, "memory", i18n.T(c, "metrics_memory"), value, used, memory, t.load(used, t.memory))
+		down, up := math.NaN(), math.NaN()
+		if m.Interval > 0 {
+			down, up = float64(m.Received)/m.Interval.Seconds(), float64(m.Transmitted)/m.Interval.Seconds()
 		}
 		ui.Column(c.Key("network")).Gap(8).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_network")).FontSize(14).FontWeight(600)
-			fact(c, i18n.T(c, "metrics_download"), rate(m.Received))
-			fact(c, i18n.T(c, "metrics_upload"), rate(m.Transmitted))
+			top := ceiling(received, sent)
+			fact(c, i18n.T(c, "metrics_download"), rate(c, down), t.download)
+			fact(c, i18n.T(c, "metrics_upload"), rate(c, up), t.upload)
+			areaChart(c, "chart", 40, top, nil, nil, i18n.T(c, "metrics_network"), series{received, t.download}, series{sent, t.upload})
 		})
 		ui.Column(c.Key("disks")).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_disks")).FontSize(14).FontWeight(600)
-			if len(m.Disks) == 0 {
+			volumes := m.Volumes()
+			if len(volumes) == 0 {
 				kit.Result(c, kit.ResultProps{Icon: icons.HardDrive, Title: i18n.T(c, "metrics_no_disks"), Card: true})
 			}
-			for i, d := range m.Disks {
-				ui.Column(c.Key(i)).Gap(4).Children(func() {
-					ui.Text(c, d.Mount).FontSize(14).SingleLine()
-					ui.Text(c, d.FileSystem+" / "+or(Bytes(float64(d.Total-min(d.Available, d.Total))))+" / "+or(Bytes(float64(d.Total)))).
+			for _, d := range volumes {
+				ui.Column(c.Key(d.Mount)).Gap(4).Children(func() {
+					space, percent := d.Used()
+					fact(c, d.Mount, Percent(percent), ui.Color{})
+					ui.Progress(c.Key("capacity"), percent/100).FillWidth().Height(4).Label(d.Mount).TextColor(t.capacity(percent))
+					ui.Text(c, d.FileSystem+" · "+Bytes(float64(space))+" / "+Bytes(float64(d.Total))).
 						FontSize(12).SingleLine().TextColor(p.MutedForeground)
-					readLabel, writtenLabel := "metrics_read", "metrics_written"
-					read, written := or(Bytes(float64(d.ReadBytes))), or(Bytes(float64(d.Written)))
-					if h.Live {
-						readLabel, writtenLabel = "live_metrics_read", "live_metrics_written"
-						read, written = i18n.T(c, "metrics_rate", "value", read), i18n.T(c, "metrics_rate", "value", written)
-					}
-					fact(c, i18n.T(c, readLabel), read)
-					fact(c, i18n.T(c, writtenLabel), written)
 				})
 			}
 		})
-		ui.Column(c.Key("processes")).Gap(12).Children(func() {
+		ui.Column(c.Key("processes")).Gap(8).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_processes")).FontSize(14).FontWeight(600)
 			if len(m.Processes) == 0 {
 				kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "metrics_no_processes"), Card: true})
 			}
-			for i, x := range m.Processes {
-				ui.Column(c.Key("process-" + strconv.Itoa(i))).Gap(4).Children(func() {
-					ui.Text(c, h.label(c, x.Name)).FontSize(14).SingleLine()
-					ui.Row(c).Gap(12).Children(func() {
-						ui.Text(c, or(Percent(x.CPU))).FontSize(12).TextColor(p.MutedForeground)
-						ui.Text(c, or(Bytes(float64(x.Memory)))).FontSize(12).TextColor(p.MutedForeground)
-					})
+			rows := SortProcesses(m.Processes, "", "cpu", true)
+			for i, x := range rows[:min(len(rows), summaryProcesses)] {
+				ui.Row(c.Key(i)).Gap(12).Children(func() {
+					ui.Text(c, h.label(c, x.Name)).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+					ui.Text(c, orDash(Percent(x.CPU))).FontSize(12).Font("monospace").SingleLine().TextColor(p.MutedForeground)
+					ui.Text(c, orDash(Bytes(float64(x.Memory)))).FontSize(12).Font("monospace").SingleLine().Width(72).TextAlign(ui.End).TextColor(p.MutedForeground)
 				})
 			}
 		})
@@ -116,37 +111,26 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 	s.metricsFailed = h.MetricsError
 }
 
-// processSkeleton holds the processes table's place until the first sample:
-// five 32 DIP rows, the first on the table head, of three blocks and one at
-// the end, half a row high.
-func processSkeleton(c *ui.Context) {
-	p := theme.Of(c)
-	const row = 32
-	block := func(w float32) { kit.Skeleton(c, kit.SkeletonProps{Width: w, Height: row / 2}) }
-	ui.Column(c.Key("process-skeleton")).FillWidth().Busy(true).Children(func() {
-		for i := range 5 {
-			r := ui.Row(c.Key(i)).Height(row).PaddingX(12).Gap(12).ClipX().Justify(ui.SpaceBetween)
-			if i == 0 {
-				r.Background(p.TableHead)
-			} else {
-				r.BorderWidth(1, 0, 0, 0).BorderColor(p.TableRowBorder)
-			}
-			r.Children(func() {
-				ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).ClipX().Children(func() {
-					block(96)
-					block(192)
-					block(64)
-				})
-				block(96)
-			})
+// meter is a load in the summary: its label and value, a MyGo progress bar
+// of its percentage, and the last minute's line under it.
+func meter(c *ui.Context, key, label, value string, percent float64, history []float64, tone ui.Color) {
+	ui.Column(c.Key(key)).Gap(8).Children(func() {
+		fact(c, label, value, ui.Color{})
+		if !math.IsNaN(percent) {
+			ui.Progress(c.Key("bar"), min(max(percent, 0), 100)/100).FillWidth().Height(4).Label(label).TextColor(tone)
 		}
+		areaChart(c, "chart", 32, 100, nil, nil, label, series{history, tone})
 	})
 }
 
-// fact is a metric's row: the label, the value after it.
-func fact(c *ui.Context, label, value string) {
-	ui.Row(c.Key(label)).Gap(12).Children(func() {
-		ui.Text(c, label).FontSize(14).Grow(1).Shrink(1)
-		ui.Text(c, value).FontSize(14).SingleLine()
+// fact is a metric's row: the label, after its series' mark when tone is
+// one, and the value at the end.
+func fact(c *ui.Context, label, value string, tone ui.Color) {
+	ui.Row(c.Key(label)).Gap(8).AlignItems(ui.Center).Children(func() {
+		if tone != (ui.Color{}) {
+			tick(c, tone)
+		}
+		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		ui.Text(c, value).FontSize(14).Font("monospace").SingleLine()
 	})
 }

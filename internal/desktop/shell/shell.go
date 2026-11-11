@@ -157,7 +157,9 @@ type App struct {
 	// Host is the host chosen in the rail, whose page HostPage shows;
 	// hosts are the host pages' data, made from the dataset as first
 	// shown, and their UI state. Metrics is whether the host page's right
-	// column shows the metrics (layout.panel_open of Page::Host).
+	// column shows the metrics summary (layout.panel_open of Page::Host):
+	// closed until the user opens it, as the reference's, since the page
+	// itself is the monitor.
 	Host    string
 	hosts   map[string]*host.Host
 	hostUI  map[string]*host.State
@@ -211,7 +213,7 @@ func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 		Sidebar: sidebar.New(d, selected), Settings: st, Messages: conversation.New(),
 		Panel: panel.New(d.Workspace), Projects: panel.NewProjects(d.Workspace),
 		drafts: map[string]*composer.State{}, unpinned: map[string]bool{}, Host: "local",
-		Welcome: onboarding.Guide{Seen: true}, Metrics: true,
+		Welcome: onboarding.Guide{Seen: true},
 	}
 	for _, f := range Features {
 		a.features = append(a.features, f.ID)

@@ -1073,8 +1073,14 @@ func testHeaderSplit(t *testing.T) {
 	}
 	shot(t, tt, "en-conversation-panel-closed")
 
-	// The host page: the metrics' title in the band, none in the column.
+	// The host page: its summary column is closed until the toggle opens
+	// it, then the metrics' title shows in the band, none in the column.
 	a.openHost("remote", false)
+	still(tt)
+	if _, shown := tt.Find(en("metrics_title")); shown || a.Metrics {
+		t.Error("the host page opened with its summary column")
+	}
+	clickButton(t, tt, en("details"))
 	still(tt)
 	title, ok := tt.Find(en("metrics_title"))
 	if !ok || title.Y+title.H > HeaderHeight || title.X != split+12 {
@@ -1215,6 +1221,7 @@ func headerFrames(t *testing.T) {
 	still(tt)
 	shot(t, tt, "settings-media")
 	a.openHost("remote", false)
+	a.Metrics = true
 	still(tt)
 	shot(t, tt, "host-metrics")
 	a.Navigate(ConversationPage)

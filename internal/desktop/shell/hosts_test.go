@@ -11,15 +11,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-// The rail's host menu opens the host's page with its metrics in the right
-// column; the update dialog plays its phases; ⌘W closes the page.
+// The rail's host menu opens the host's page: its monitor in the main
+// column, the summary column closed until its toggle opens it; the update
+// dialog plays its phases; ⌘W closes the page.
 func TestHostPage(t *testing.T) {
 	a, tt := newTester(t)
 	a.openHost("remote", false)
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	for _, s := range []string{"workspace_host_status", "workspace_runtime", "workspace_running", "metrics_title", "port_title"} {
+	for _, s := range []string{"workspace_host_status", "host_utilization", "host_storage", "workspace_running", "workspace_runtime", "port_title"} {
 		if !tt.HasText(i18n.In("en", s)) {
 			t.Errorf("no %s: %q", s, tt.Texts())
 		}
@@ -34,6 +35,18 @@ func TestHostPage(t *testing.T) {
 	}
 	clickButton(t, tt, i18n.In("en", "close"))
 	tt.Frame()
+	// The page is the monitor, so the summary column starts closed, as the
+	// reference's (panel_open of Page::Host); the toggle opens and closes it.
+	if a.Metrics || tt.HasText(i18n.In("en", "metrics_title")) {
+		t.Error("the page opened with its summary column")
+	}
+	a.togglePanel()
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !a.Metrics || !tt.HasText(i18n.In("en", "metrics_title")) {
+		t.Errorf("the toggle did not open the summary: %q", tt.Texts())
+	}
 	a.togglePanel()
 	tt.Frame()
 	tt.Advance(time.Second)
@@ -61,6 +74,112 @@ func TestHostPage(t *testing.T) {
 		t.Errorf("live host menu: %q", lt.Texts())
 	}
 	t.Run("rail menu", testHostMenu)
+	t.Run("layout", testHostLayout)
+}
+
+// The host page is laid out as the reference's. The sessions' side column
+// stays beside it, and the hosts are the rail picker's, which lists every
+// one. The header shows once, then the monitor's cards, the running agents,
+// the projects and the runtime, in that order. The summary column lists
+// only the volumes that hold the user's files.
+func testHostLayout(t *testing.T) {
+	a, tt := newTester(t)
+	en := func(key string) string { return i18n.In("en", key) }
+	count := func() map[string]int {
+		out := map[string]int{}
+		for _, text := range tt.Texts() {
+			out[text]++
+		}
+		return out
+	}
+	// Tall enough for the whole page.
+	tt.SetSize(1280, 2200)
+	a.openHost("remote", false)
+	tt.Frame()
+	settle(tt)
+	h, _ := a.hostPage()
+	if h.Metrics == nil {
+		t.Fatalf("no sample: %q", tt.Texts())
+	}
+
+	t.Run("side column", func(t *testing.T) {
+		if !a.HasNavigation() || !a.NavShown() || !sessionsShown(tt) {
+			t.Fatalf("the host page has no side column: navigation %v, shown %v, sessions %v", a.HasNavigation(), a.NavShown(), sessionsShown(tt))
+		}
+		// The column is past the rail and before the page.
+		name, ok := tt.Find(en("workspace_host_status"))
+		if !ok || name.X < RailWidth+NavWidth {
+			t.Errorf("the page starts at %v, want past the %v side column", name, RailWidth+NavWidth)
+		}
+	})
+	t.Run("sections in order", func(t *testing.T) {
+		order := []string{
+			en("workspace_host_status"), en("remote_host_detail"), en("host_uptime"), en("host_node_uptime"),
+			en("metrics_cpu"), en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
+			en("host_storage"), en("host_process_search"), en("host_pid"),
+			en("workspace_running"), en("projects"), en("workspace_runtime"), en("host_version"),
+		}
+		texts, at := tt.Texts(), 0
+		for _, want := range order {
+			i := slices.Index(texts[at:], want)
+			if i < 0 {
+				t.Fatalf("no %q in its place: %q", want, texts)
+			}
+			at += i + 1
+		}
+	})
+	t.Run("header once", func(t *testing.T) {
+		shown := count()
+		for _, key := range []string{"workspace_host_status", "remote_host_detail", "host_uptime", "host_node_uptime"} {
+			if shown[en(key)] != 1 {
+				t.Errorf("%s shows %d times: %q", key, shown[en(key)], tt.Texts())
+			}
+		}
+	})
+	t.Run("summary volumes", func(t *testing.T) {
+		// The sampler lists every mount; neither the page nor its summary
+		// shows a device or a system one.
+		real := h.Metrics.Disks[0].Mount
+		h.Metrics.Disks = append(h.Metrics.Disks,
+			host.Disk{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
+			host.Disk{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39})
+		tt.Frame()
+		before := count()
+		if before[real] == 0 || before["/dev"] != 0 || before["/System/Volumes/VM"] != 0 {
+			t.Fatalf("the page's volumes: %q", tt.Texts())
+		}
+		a.togglePanel()
+		tt.Frame()
+		settle(tt)
+		after := count()
+		if !a.Metrics || after[en("metrics_title")] == 0 {
+			t.Fatalf("the summary did not open: %q", tt.Texts())
+		}
+		if after[real] <= before[real] || after["/dev"] != 0 || after["/System/Volumes/VM"] != 0 {
+			t.Errorf("the summary's volumes: %q %d then %d, /dev %d, /System/Volumes/VM %d", real, before[real], after[real], after["/dev"], after["/System/Volumes/VM"])
+		}
+		a.togglePanel()
+		tt.Frame()
+		settle(tt)
+	})
+	t.Run("hosts in the rail", func(t *testing.T) {
+		// The reference lists hosts in the rail's picker, not in the side
+		// column: the other host shows once it opens.
+		other := en("local_host_name")
+		if tt.HasText(other) {
+			t.Fatalf("%q shows before the picker opens: %q", other, tt.Texts())
+		}
+		clickItem(t, tt, en("hosts"))
+		tt.Frame()
+		for _, x := range a.Data.Hosts {
+			if !tt.HasText(en(x.Name)) {
+				t.Errorf("the picker does not list %q: %q", en(x.Name), tt.Texts())
+			}
+		}
+		if !tt.HasText(en("host_add")) {
+			t.Errorf("the picker has no Add host: %q", tt.Texts())
+		}
+	})
 }
 
 // The host picker's right-click menu lists the chosen host's port forwards,
