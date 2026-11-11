@@ -2198,3 +2198,11 @@ settings_demo_mode_description: 显示示例会话，用于验收与截图
 provider_deepseek: DeepSeek
 start_failed: Sailry 无法启动
 start_profile_in_use: Sailry 已在使用此数据目录运行
+backup_keep: 保留的备份
+backup_keep_all: 全部
+backup_keep_last: 最近 %{count} 个
+backup_keep_confirm: 仅保留最近 %{count} 个备份？
+backup_keep_consequence: 每次备份后，将从存储中删除此节点更早的备份，且无法恢复
+backup_last: 上次备份
+backup_last_done: 已完成
+backup_last_skipped: 已跳过 %{count} 项

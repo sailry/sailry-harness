@@ -147,6 +147,14 @@ func (node *Node) executeBackup(caller protocol.NodeID, request protocol.Request
 				return err
 			}
 		}
+		if request.Command.Kind == "export_backup" {
+			// The outcome is kept with the command's own result, so a
+			// scheduled backup that failed with nobody connected is on the
+			// Backup page when its user returns.
+			if err := store.RecordBackupOutcome(node.ctx, db, backupOutcome(output, operationErr, node.dispatch.clock.Now().UnixMilli())); err != nil {
+				return err
+			}
+		}
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
@@ -157,6 +165,24 @@ func (node *Node) executeBackup(caller protocol.NodeID, request protocol.Request
 		node.wakeDispatch()
 	}
 	return response(output, operationErr)
+}
+
+// backupOutcome is the Backup page's record of one finished backup.
+func backupOutcome(output protocol.Output, failure error, finished int64) protocol.BackupOutcome {
+	outcome := protocol.BackupOutcome{FinishedMs: uint64(finished)}
+	if failure == nil {
+		if record, ok := output.Data.(protocol.BackupRecord); ok {
+			outcome.Skipped = record.Skipped
+		}
+		return outcome
+	}
+	code, reason := protocol.ErrorCodeInternal, failure.Error()
+	var fault *protocol.Fault
+	if errors.As(failure, &fault) {
+		code, reason = fault.Code, fault.Message
+	}
+	outcome.Error, outcome.Reason = &code, reason
+	return outcome
 }
 
 func (node *Node) backupPlan(ctx context.Context, expected *uint64) (backup.Plan, error) {

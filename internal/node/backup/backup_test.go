@@ -443,4 +443,105 @@ func TestBackupArchiveLayout(t *testing.T) {
 			t.Fatalf("cancelled list: %v", err)
 		}
 	})
+
+	t.Run("retention and damaged records", func(t *testing.T) {
+		passphrase := protocol.NewSecret(fixturePassphrase)
+		directory := filepath.Join(t.TempDir(), "backups")
+		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}, Auth: Auth{Passphrase: &passphrase}}
+		node := snapshot.Manifest.Node
+		// publish stores one backup as made by owner at the given time.
+		publish := func(owner protocol.NodeID, created uint64) string {
+			t.Helper()
+			id := uuid.NewString()
+			if _, err := Export(t.Context(), plan, packed, id); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, id+".json")
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest remoteManifest
+			if err := json.Unmarshal(body, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest.Record.Node, manifest.Record.CreatedMs = owner, created
+			if body, err = json.Marshal(manifest); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return id
+		}
+		oldest, older, newer, newest := publish(node, 1000), publish(node, 2000), publish(node, 3000), publish(node, 4000)
+		foreign := publish(protocol.NodeID{9}, 500)
+		damaged, truncated := uuid.NewString(), uuid.NewString()
+		if err := os.WriteFile(filepath.Join(directory, damaged+".json"), []byte("not a record"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, truncated+".json"), []byte(`{"version":1,"record":{"id":"`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		listed := func(plan Plan) (ids []string, partial bool) {
+			t.Helper()
+			page, err := List(t.Context(), plan)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			for _, record := range page.Records {
+				ids = append(ids, record.ID)
+			}
+			return ids, page.Partial
+		}
+		// Damaged records are passed over and flagged; the rest is offered.
+		if ids, partial := listed(plan); !slices.Equal(ids, []string{newest, newer, older, oldest, foreign}) || !partial {
+			t.Fatalf("list beside damaged records = %v, partial %v", ids, partial)
+		}
+		// A second location that does not answer does not hide the first.
+		offline := plan
+		offline.Destination = &protocol.BackupDestination{Kind: protocol.BackupKindWebdav, Endpoint: "https://backup.invalid/dav"}
+		if ids, partial := listed(offline); len(ids) != 5 || !partial {
+			t.Fatalf("list with an unreachable location = %v, partial %v", ids, partial)
+		}
+		offline.Local = nil
+		if _, err := List(t.Context(), offline); err == nil {
+			t.Fatal("a list no location answered succeeded")
+		}
+
+		// Keeping all is the default: nothing is ever deleted unasked.
+		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 0 {
+			t.Fatalf("prune without a limit = %d, %v", removed, err)
+		}
+		plan.Keep = 2
+		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 2 {
+			t.Fatalf("prune = %d, %v", removed, err)
+		}
+		// The Node's two newest stay, with another Node's backup and the
+		// records that could not be read.
+		if ids, _ := listed(plan); !slices.Equal(ids, []string{newest, newer, foreign}) {
+			t.Fatalf("after retention = %v", ids)
+		}
+		for _, id := range []string{oldest, older} {
+			for _, name := range []string{id, id + ".json"} {
+				if _, err := os.Lstat(filepath.Join(directory, name)); !os.IsNotExist(err) {
+					t.Fatalf("pruned backup left %s: %v", name, err)
+				}
+			}
+		}
+		for _, name := range []string{damaged + ".json", truncated + ".json", foreign + ".json", filepath.Join(foreign, "000000.bin")} {
+			if _, err := os.Lstat(filepath.Join(directory, name)); err != nil {
+				t.Fatalf("retention touched %s: %v", name, err)
+			}
+		}
+		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 0 {
+			t.Fatalf("second prune = %d, %v", removed, err)
+		}
+		// A kept backup still restores.
+		if _, file, err := Fetch(t.Context(), plan, newer, protocol.BackupLocationLocal, t.TempDir()); err != nil {
+			t.Fatalf("fetch after retention: %v", err)
+		} else {
+			_ = file.Close()
+		}
+	})
 }

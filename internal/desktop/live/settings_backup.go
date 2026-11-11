@@ -167,7 +167,21 @@ func backupTarget(value protocol.BackupSettings) settings.BackupTarget {
 		target.Schedule, target.Timezone = s.Enabled, s.Timezone
 		target.Time = time.Date(2026, 1, 1, int(s.Hour), int(s.Minute), 0, 0, time.Local)
 	}
+	target.Keep = int(value.Keep)
+	if last := value.Last; last != nil {
+		target.Last = settings.BackupLast{At: time.UnixMilli(int64(min(last.FinishedMs, 1<<62))), Reason: last.Reason, Skipped: int(last.Skipped)}
+		if last.Error != nil {
+			_, target.Last.Problem = backupFailure(&protocol.Fault{Code: *last.Error, Message: last.Reason})
+		}
+	}
 	return target
+}
+
+// backupKeepUpdate saves only how many backups stay stored; every secret
+// is kept.
+func backupKeepUpdate(keep int, saved protocol.BackupSettings) protocol.BackupUpdate {
+	saved.Keep = uint32(keep)
+	return protocol.BackupUpdate{Settings: saved, Identity: backupKeep(), Secret: backupKeep(), SessionToken: backupKeep(), Passphrase: backupKeep()}
 }
 
 func backupScheduleOf(target settings.BackupTarget) backupSchedule {
@@ -442,6 +456,12 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			}
 			command := protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, saved)}
 			owner.submitBackup(command, "backup_saved", backupFailure, func(err error) { done(err == nil) })
+		},
+		Keep: func(keep int) {
+			if owner := ready(); owner != nil && keep >= 0 && uint32(keep) != owner.backupSettings.saved.Keep {
+				command := protocol.Command{Kind: "save_backup_settings", Data: backupKeepUpdate(keep, owner.backupSettings.saved)}
+				owner.submitBackup(command, "backup_saved", backupFailure, nil)
+			}
 		},
 		ChooseFolder: func(initial string, selected func(string)) {
 			owner := state.shown

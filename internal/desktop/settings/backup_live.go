@@ -37,7 +37,9 @@ type BackupActions struct {
 	Host string
 	// Save saves the storage dialog's draft with its typed secrets. The
 	// schedule's draft is saved as it changes.
-	Save         func(target BackupTarget, done func(bool))
+	Save func(target BackupTarget, done func(bool))
+	// Keep saves how many of the Node's backups stay stored; 0 keeps all.
+	Keep         func(keep int)
 	ChooseFolder func(initial string, selected func(string))
 	Export, Now  func()
 	// Import chooses a local archive.

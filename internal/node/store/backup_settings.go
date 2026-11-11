@@ -137,7 +137,10 @@ func SaveBackupSettings(ctx context.Context, db *sql.Conn, input protocol.Backup
 			*change.current = nil
 		}
 	}
+	// The last outcome is the Node's record, not a setting.
+	last := stored.Settings.Last
 	stored.Settings = input.Settings
+	stored.Settings.Last = last
 	if stored.Settings.Revision >= math.MaxInt64 {
 		return protocol.BackupSettings{}, nil, invalid("backup settings revision is exhausted")
 	}
@@ -158,6 +161,22 @@ func SaveBackupSettings(ctx context.Context, db *sql.Conn, input protocol.Backup
 		return protocol.BackupSettings{}, nil, err
 	}
 	return stored.Settings, []protocol.Event{{Kind: "backup_settings_changed", Data: protocol.EventBackupSettingsChangedPayload{Revision: stored.Settings.Revision}}}, nil
+}
+
+// RecordBackupOutcome keeps how the most recent backup ended, for the Backup
+// page. It is not a settings change: the revision stays.
+func RecordBackupOutcome(ctx context.Context, db *sql.Conn, outcome protocol.BackupOutcome) error {
+	stored, err := readBackup(ctx, db)
+	if err != nil {
+		return err
+	}
+	stored.Settings.Last = &outcome
+	body, err := encode(stored)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO backup_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
+	return err
 }
 
 // configureBackupDispatch registers the one controller-only scheduled command.
@@ -232,6 +251,7 @@ func BackupPlan(ctx context.Context, db *sql.Conn, expected *uint64) (backup.Pla
 	}
 	return backup.Plan{
 		Destination: stored.Settings.Destination, Local: stored.Settings.Local, OnlineEnabled: stored.Settings.OnlineEnabled,
+		Keep: stored.Settings.Keep,
 		Auth: backup.Auth{
 			Identity: stored.Auth.Identity, Secret: stored.Auth.Secret,
 			SessionToken: stored.Auth.SessionToken, Passphrase: stored.Auth.Passphrase,

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -30,7 +31,15 @@ func (node *Node) changeBackup(ctx context.Context, caller protocol.NodeID, requ
 			}
 		}
 		record, err := backup.Export(ctx, plan, packed, request.ID.String())
-		return protocol.Output{Kind: "backup", Data: record}, err
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		// The new backup is published; a retention failure does not undo it
+		// and the next backup prunes again.
+		if removed, err := backup.Prune(ctx, plan, node.ID()); err != nil {
+			slog.Warn("Backup retention failed", "removed", removed, "error", err)
+		}
+		return protocol.Output{Kind: "backup", Data: record}, nil
 	case *protocol.CommandRestoreBackupPayload:
 		plan, err := node.backupPlan(ctx, &input.ExpectedRevision)
 		if err != nil {
