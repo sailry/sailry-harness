@@ -170,8 +170,8 @@ func (r *Runtime) initNodeSettings() {
 }
 
 // nodeSettingsFrame keeps the pages on the selected host's Node and follows
-// what that Node reports: its roles and teams, and newer power and team
-// settings.
+// what that Node reports: its roles and teams, and newer power, compaction
+// and team settings.
 func (r *Runtime) nodeSettingsFrame() {
 	root := r.localRuntime()
 	owner := root.settingsOwner()
@@ -185,6 +185,7 @@ func (r *Runtime) nodeSettingsFrame() {
 	if owner.snapshot().PowerSettingsRevision != owner.powerObservedRevision && !root.App.Settings.Power.Pending {
 		owner.readPower()
 	}
+	owner.followCompaction()
 }
 
 // showNodeSettings turns the pages to owner's Node, or to none: the Node

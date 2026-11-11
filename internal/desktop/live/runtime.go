@@ -102,6 +102,7 @@ type Runtime struct {
 	lastFeatures             string
 	lastKeys                 string
 	powerObservedRevision    uint64
+	compactionObserved       uint64
 	updates                  *Updates
 	updatesFocused           func() bool
 	prefsRevision            uint64

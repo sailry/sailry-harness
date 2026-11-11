@@ -50,6 +50,7 @@ func (r *Runtime) refreshModelCatalog() {
 // readProviders reads the Node's preset directory and compaction threshold
 // for the pages; an answer for a Node they left is dropped.
 func (r *Runtime) readProviders() {
+	r.compactionObserved = r.snapshot().CompactionSettingsRevision
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}})
 		r.enqueue(func(c *ui.Context) {
@@ -65,29 +66,50 @@ func (r *Runtime) readProviders() {
 				r.projectProviderSnapshot()
 			}
 		})
-		result, failed := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
-		r.enqueue(func(c *ui.Context) {
-			if !r.showsSettings() {
-				return
-			}
-			if failed != nil {
-				r.reportKeys(c, failed, "compaction_settings_load_failed", "compaction_settings_conflict", "compaction_settings_load_failed")
-				return
-			}
-			if value, ok := detail[protocol.ConversationCompactionSettings](result.Data); ok {
-				field := &r.App.Settings.Compaction
-				if !field.Pending {
-					pristine := field.Draft == field.Saved
-					field.Saved = float64(value.Percent)
-					if pristine {
-						field.Draft = field.Saved
-					}
-					field.Revision = value.Revision
-				}
-			}
-		})
+		r.fetchCompaction()
 	})
 	r.projectProviderSnapshot()
+}
+
+// fetchCompaction reads the Node's compaction threshold off the UI thread.
+// A draft the user holds stays; only the saved value and revision move.
+func (r *Runtime) fetchCompaction() {
+	result, failed := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
+	r.enqueue(func(c *ui.Context) {
+		if !r.showsSettings() {
+			return
+		}
+		if failed != nil {
+			r.reportKeys(c, failed, "compaction_settings_load_failed", "compaction_settings_conflict", "compaction_settings_load_failed")
+			return
+		}
+		if value, ok := detail[protocol.ConversationCompactionSettings](result.Data); ok {
+			field := &r.App.Settings.Compaction
+			if !field.Pending {
+				pristine := field.Draft == field.Saved
+				field.Saved = float64(value.Percent)
+				if pristine {
+					field.Draft = field.Saved
+				}
+				field.Revision = value.Revision
+			}
+		}
+	})
+}
+
+// followCompaction reads the threshold again when the Node reports a
+// revision newer than the one the pages hold, as another controller's save
+// is. A save under way or a draft waits, as in the reference.
+func (r *Runtime) followCompaction() {
+	field := &r.App.Settings.Compaction
+	revision := r.snapshot().CompactionSettingsRevision
+	if field.Pending || field.Draft != field.Saved || revision == r.compactionObserved {
+		return
+	}
+	r.compactionObserved = revision
+	if field.Revision < revision {
+		r.async(r.fetchCompaction)
+	}
 }
 
 // presetBrand is the family an entry belongs to: its declared brand, else

@@ -1,8 +1,10 @@
 package live
 
 import (
+	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -23,6 +25,10 @@ import (
 func TestSettingsTarget(t *testing.T) {
 	nodes := []protocol.NodeID{{1}, {2}}
 	transports := make([]*conversationTestTransport, len(nodes))
+	reporting := make([]*settingsTestTransport, len(nodes))
+	// external is the compaction revision another controller saved on a
+	// Node, 0 for none; the Node's transport guards it.
+	external := make([]uint64, len(nodes))
 	controllers := make([]*client.Client, len(nodes))
 	for index, node := range nodes {
 		snapshot := protocol.DefaultSnapshot()
@@ -45,6 +51,9 @@ func TestSettingsTarget(t *testing.T) {
 				input.Revision++
 				return output("power_settings", input)
 			case "read_compaction_settings":
+				if external[index] != 0 {
+					return output("compaction_settings", protocol.ConversationCompactionSettings{Revision: external[index], Percent: 85})
+				}
 				return output("compaction_settings", protocol.ConversationCompactionSettings{Revision: revision, Percent: uint8(60 + 10*index)})
 			case "save_compaction_settings":
 				input, _ := detail[protocol.ConversationCompactionSettings](request.Command.Data)
@@ -88,7 +97,8 @@ func TestSettingsTarget(t *testing.T) {
 			return link.Response{}, false
 		}
 		transports[index] = transport
-		controllers[index] = client.New(transport)
+		reporting[index] = &settingsTestTransport{conversationTestTransport: transport}
+		controllers[index] = client.New(reporting[index])
 		if err := controllers[index].Start(t.Context()); err != nil {
 			t.Fatal(err)
 		}
@@ -282,4 +292,67 @@ func TestSettingsTarget(t *testing.T) {
 		settle()
 		held(t, 0)
 	})
+
+	t.Run("another controller's compaction save is followed", func(t *testing.T) {
+		transports[0].mu.Lock()
+		external[0] = 4
+		later := transports[0].snapshot
+		transports[0].mu.Unlock()
+		later.Cursor++
+		later.CompactionSettingsRevision = 4
+		reporting[0].report(later)
+		for end := time.Now().Add(10 * time.Second); controllers[0].Snapshot().CompactionSettingsRevision != 4; time.Sleep(time.Millisecond) {
+			if time.Now().After(end) {
+				t.Fatal("the Node's newer compaction revision did not reach the Client")
+			}
+		}
+		reads := count(0, "read_compaction_settings")
+		// A draft waits: the read would move the value under the slider.
+		m.Compaction.Draft = 90
+		root.nodeSettingsFrame()
+		settle()
+		if count(0, "read_compaction_settings") != reads || m.Compaction.Revision != 1 {
+			t.Errorf("the threshold was read over a draft: %+v", m.Compaction)
+		}
+		m.Compaction.Draft = m.Compaction.Saved
+		root.nodeSettingsFrame()
+		settle()
+		if count(0, "read_compaction_settings") != reads+1 || m.Compaction.Revision != 4 || m.Compaction.Saved != 85 || m.Compaction.Draft != 85 {
+			t.Errorf("the pages show %+v after %d reads, want the other controller's 85 at revision 4", m.Compaction, count(0, "read_compaction_settings")-reads)
+		}
+		root.nodeSettingsFrame()
+		settle()
+		if count(0, "read_compaction_settings") != reads+1 {
+			t.Error("a revision already read was read again")
+		}
+	})
+}
+
+// settingsTestTransport keeps a fixture Node's subscriptions, so a test can
+// send what the Node reports after its first snapshot.
+type settingsTestTransport struct {
+	*conversationTestTransport
+	streams []*conversationTestSubscription
+}
+
+func (t *settingsTestTransport) Subscribe(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
+	subscription, err := t.conversationTestTransport.Subscribe(ctx, topic)
+	if stream, ok := subscription.(*conversationTestSubscription); ok && topic.Kind == "node" {
+		t.mu.Lock()
+		t.streams = append(t.streams, stream)
+		t.mu.Unlock()
+	}
+	return subscription, err
+}
+
+// report sends a later snapshot to every subscription of the Node.
+func (t *settingsTestTransport) report(snapshot protocol.Snapshot) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, stream := range t.streams {
+		select {
+		case stream.updates <- protocol.Update{Kind: "snapshot", Data: snapshot}:
+		default:
+		}
+	}
 }
