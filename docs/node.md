@@ -429,6 +429,7 @@ installation, because the profile is released.
 | The deadline covers the whole shutdown, not only supervised tasks | Rust aborts its tasks at the deadline and then closes the rest; a goroutine cannot be aborted, so every wait needs the bound or one worker that ignores cancellation keeps a windowless process holding the profile lock |
 | Stages after the one that did not stop are not run | They would wait for the same worker. What they would have released is what a crash leaves, and the next start clears it: terminals end with their pseudo-terminal, recorded command groups are killed, external browsers are closed, temporary files are removed |
 | A database still in use at the deadline is left open | Closing it would wait for the worker; SQLite recovers its log at the next start |
+| No collection starts after the deadline | The abandoned sequence goes on in its goroutine if the stage ends before the process does. A collection of package versions, attachments or artifacts deletes the files no row names, and the released profile may already have its next owner, so `Node.abandoned` stops each of them; the next owner's own collections do the work |
 
 ### Leftovers of an earlier run
 
