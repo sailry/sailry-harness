@@ -107,6 +107,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if err != nil {
 		return err
 	}
+	if err = r.toolMediaAssets(x.ctx, binding, projected, assets); err != nil {
+		return err
+	}
 	call, err := model.BuildCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets})
 	if err != nil {
 		return err

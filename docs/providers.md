@@ -138,6 +138,52 @@ captured provider/model scope. Provider metadata conversion is owned by
 Tool calls without a result and results without a call are omitted from the
 request, for SDK and plugin transports alike.
 
+Media a tool returns is model input as media, never as base64 text.
+`store.AppendCanonical` moves every binary field a new tool result declares
+beside a MIME key into a blob and leaves a slot in the stored value. Reloading
+the turn's history lifts the `inline_data` of a JSON result (at its root, or in
+the `data` of a `computer`, `browser`, `external_browser` or `file_image`
+output) out of the value into the in-memory result's attachments; an MCP result
+keeps its image, audio and resource content. `BuildCall` then emits one tool
+message: the result text followed by its media parts, which each wire renders
+its own way:
+
+| Wire | Tool media |
+| --- | --- |
+| Anthropic Messages | `image` blocks, and a PDF as a `document` block, inside the `tool_result` content |
+| OpenAI Responses | `input_image` parts in the `function_call_output` content list |
+| Chat Completions | The tool message ends with "This tool result included an image that is uploaded in the next message."; the images of one assistant turn follow its tool messages in a single user message |
+| Gemini | `inlineData` parts inside the `functionResponse` for `gemini-3*` models, beside it for earlier ones |
+| Plugin adapter | `image` content blocks in the result's MCP envelope, when the adapter declares vision |
+
+Only a model with the vision capability receives images: the listed model's
+tag, or the provider's default vision channel for a model the provider does not
+list. Any other model reads "(tool image omitted: model does not support
+images)" in the result text. Producers keep the reference's size rules (file
+images 5 MiB and 1568 px, browser captures 1 MiB and 1568 px); media a
+producer did not bound is refused above 5 MiB with "(tool image omitted:
+larger than 5 MiB)". Media with an `audience` annotation that excludes the
+assistant is not sent.
+
+Differences from the reference, all deliberate:
+
+- The reference lifts media in every outgoing projection; Go lifts once when a
+  record is loaded, so history and token estimates never hold the base64.
+- The reference sends a tool result's stored attachments. Go's only attachment
+  is a generated image, which is shown and never sent back
+  ([media.md](media.md)), so attachments a tool declares are not model input.
+- The 5 MiB bound and its note, and the note that replaces audio or binary
+  content a wire cannot carry, exist only here; the reference drops such
+  content silently or lets the provider reject the request.
+- Chat images are deferred until the tool messages of the assistant turn end,
+  so several results never interleave user messages between tool messages.
+- An MCP resource blob that is an image is sent as an image on every wire.
+- The reference omits the older images of an MCP server with `keep_images`
+  from each request, across the history; Go applies `keep_images` to each
+  result when the tool runs, so earlier results keep their images.
+- The reference sends an adapter every content block; Go adds lifted images
+  only for an adapter that declares vision.
+
 Account credentials are authorized before every inference and before compaction.
 A credential that is still valid is read locally; an expired one is renewed
 through its provider flow, and the transport is rebuilt only when the secret
@@ -199,6 +245,9 @@ Repeated visible file reads can reuse earlier complete ranges; visibility change
 or compaction membership invalidate that reuse. Numbered file/search/edit and
 persisted-result page previews affect only the outgoing copy. Image and MCP
 annotations limit assistant audiences before request serialization and compaction.
+`TestToolResultMedia` holds each wire's tool-media layout and the refusals;
+`TestToolMedia` runs a tool that returns a picture through storage, reload and
+the next request.
 
 The provider editor's capability boxes and the Providers page's Media models
 group are described in [media.md](media.md#desktop). A model the user tagged

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
@@ -162,11 +161,16 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 					return call, err
 				}
 				flush()
-				text, err := responseText(value, request.Assets)
+				text, media, err := responseContent(binding, value, request.Assets)
 				if err != nil {
 					return call, err
 				}
-				call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleTool, Content: []fantasy.MessagePart{fantasy.ToolResultPart{ToolCallID: value.ID, Output: fantasy.ToolResultOutputContentText{Text: text}}}})
+				// A tool message is its result followed by the media it carries.
+				parts := []fantasy.MessagePart{fantasy.ToolResultPart{ToolCallID: value.ID, Output: fantasy.ToolResultOutputContentText{Text: text}}}
+				for _, file := range media {
+					parts = append(parts, file)
+				}
+				call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleTool, Content: parts})
 			case "image", "document":
 				var value canonical.AssetContent
 				if err := decodeBlock(block.Data, &value); err != nil {
@@ -402,72 +406,4 @@ func replacePointer(value any, pointer string, replacement any) error {
 		}
 	}
 	return nil
-}
-
-func responseText(response canonical.ToolResponse, assets map[string][]byte) (string, error) {
-	raw, err := payloadText(response.Result, assets)
-	if err != nil {
-		return "", err
-	}
-	if response.Format == canonical.JSON {
-		return raw, nil
-	}
-	var value map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
-		return "", err
-	}
-	if response.Format == canonical.MCPError {
-		var message string
-		json.Unmarshal(value["message"], &message)
-		var code any
-		json.Unmarshal(value["code"], &code)
-		failure := fmt.Sprintf("Mcp error: %v: %s", code, message)
-		if data := value["data"]; len(data) > 0 && string(data) != "null" {
-			failure += " data: " + string(data)
-		}
-		return "The tool call returned the following error:\n" + failure, nil
-	}
-	var parts []map[string]json.RawMessage
-	if err := json.Unmarshal(value["content"], &parts); err != nil {
-		return "", err
-	}
-	texts := []string{}
-	for _, part := range parts {
-		var kind string
-		json.Unmarshal(part["type"], &kind)
-		if kind == "text" {
-			var text string
-			json.Unmarshal(part["text"], &text)
-			texts = append(texts, text)
-		} else if kind == "resource" {
-			var resource map[string]json.RawMessage
-			json.Unmarshal(part["resource"], &resource)
-			if resource["text"] != nil {
-				var text string
-				json.Unmarshal(resource["text"], &text)
-				texts = append(texts, text)
-			} else if resource["blob"] != nil {
-				var blob, mime string
-				json.Unmarshal(resource["blob"], &blob)
-				json.Unmarshal(resource["mimeType"], &mime)
-				data, err := base64.StdEncoding.DecodeString(blob)
-				if err != nil {
-					texts = append(texts, blob)
-				} else if utf8.Valid(data) {
-					texts = append(texts, string(data))
-				} else {
-					if mime == "" {
-						mime = "application/octet-stream"
-					}
-					texts = append(texts, fmt.Sprintf("[Binary content (%s) - %d bytes]", mime, len(data)))
-				}
-			}
-		}
-	}
-	if len(texts) == 0 {
-		if structured := value["structuredContent"]; len(structured) > 0 {
-			return string(structured), nil
-		}
-	}
-	return strings.Join(texts, " "), nil
 }
