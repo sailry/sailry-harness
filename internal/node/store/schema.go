@@ -36,6 +36,18 @@ func (storage *Store) Close() error {
 	return errors.Join(knowledge, node)
 }
 
+// CloseIdle closes each database that no read or write is using.
+func (storage *Store) CloseIdle() error {
+	var knowledge, node error
+	if storage.Knowledge != nil {
+		knowledge = storage.Knowledge.closeIdle()
+	}
+	if storage.Node != nil {
+		node = storage.Node.closeIdle()
+	}
+	return errors.Join(knowledge, node)
+}
+
 // rustDatabases are the database files the Rust Node kept in storage. Each
 // name also covers its side files (name-wal, name-log and the like).
 var rustDatabases = [...]string{
@@ -43,34 +55,52 @@ var rustDatabases = [...]string{
 }
 
 // RustArchive is the storage subdirectory that receives the Rust databases.
+// A later set of them goes to a numbered sibling ("rust-archive-2", ...).
 const RustArchive = "rust-archive"
 
-// archiveRustDatabases moves the Rust Node's databases into the archive
-// directory, unopened and unchanged; nothing is imported or deleted. A name
-// the archive already holds is never replaced.
+// archiveRustDatabases moves the Rust Node's databases out of storage,
+// unopened and unchanged; nothing is imported, replaced or deleted. The set
+// found at one start stays together: every target is checked before the first
+// move, and when an archive already holds one of the names, as after another
+// run of a Rust build, the whole set goes to the next archive that holds none.
 func archiveRustDatabases(storage string) error {
 	entries, err := os.ReadDir(storage)
 	if err != nil {
 		return err
 	}
-	archive := filepath.Join(storage, RustArchive)
+	var names []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if !entry.Type().IsRegular() || !slices.ContainsFunc(rustDatabases[:], func(database string) bool {
+		if entry.Type().IsRegular() && slices.ContainsFunc(rustDatabases[:], func(database string) bool {
 			return name == database || strings.HasPrefix(name, database+"-")
 		}) {
-			continue
+			names = append(names, name)
 		}
-		if err := core.PrivateDirectory(archive); err != nil {
-			return err
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	archive := filepath.Join(storage, RustArchive)
+	for number := 2; ; number++ {
+		held := false
+		for _, name := range names {
+			if _, err := os.Lstat(filepath.Join(archive, name)); err == nil {
+				held = true
+				break
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
-		target := filepath.Join(archive, name)
-		if _, err := os.Lstat(target); err == nil {
-			return fmt.Errorf("archive Rust database %q: %q already holds that name; move the archive directory away and start again", name, archive)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+		if !held {
+			break
 		}
-		if err := os.Rename(filepath.Join(storage, name), target); err != nil {
+		archive = filepath.Join(storage, fmt.Sprintf("%s-%d", RustArchive, number))
+	}
+	if err := core.PrivateDirectory(archive); err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := os.Rename(filepath.Join(storage, name), filepath.Join(archive, name)); err != nil {
 			return fmt.Errorf("archive Rust database %q: %w", name, err)
 		}
 	}
@@ -283,6 +313,12 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 	}
 	if err := validate(ctx, connection); err != nil {
 		return err
+	}
+	// Every connection enforces foreign keys, so a database this build left
+	// current holds no orphan and is not scanned again at each start. One
+	// that was just created, updated or restored is audited.
+	if definition.state == schemaCurrent {
+		return nil
 	}
 	return auditReferences(ctx, connection)
 }

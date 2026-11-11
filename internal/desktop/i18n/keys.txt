@@ -2260,3 +2260,17 @@ queue_wait_unsent
 queue_wait_limit
 queue_wait_failed
 chat_output_limit
+start_failed
+start_profile_in_use
+backup_keep
+backup_keep_all
+backup_keep_last
+backup_keep_confirm
+backup_keep_consequence
+backup_last
+backup_last_done
+backup_last_skipped
+backup_restart_restored
+backup_restart_consequence
+backup_restart_invalid
+backup_restart_failed

@@ -977,7 +977,10 @@ so an action finishes and toasts after the page has moved on.
 | Back up now | `export_backup` | |
 | Import › Restore | file picker, `upload_backup`, upload stream, `restore_backup_file` | A refused restore releases the staged upload with `cancel_file_transfer` |
 | Restore from storage | `list_backups`, `restore_backup` | Each record offers its local and online copies |
+| Restart with restored profile | none: `node.CheckRestoredProfile`, `node.SwapProfile` in the Desktop process | Offered once after a restore succeeded on this Desktop's own Node (`BackupActions.Restartable`); a remote host's restore stays a directory on that host. See "Restart on a restored profile" below |
 | Unarchive, Delete | `set_session_archived`, `remove_session` | Delete confirms first, naming the session |
+| Backups to keep | `save_backup_settings` | `BackupSettings.keep`: 0 keeps every backup (the default), a number keeps that many of this Node's newest. Choosing a number is confirmed once (`backup_keep_confirm`, `backup_keep_consequence`); All is saved at once. A count the page does not offer is listed as held |
+| Last backup | `read_backup_settings` | `BackupSettings.last`, shown once a backup has ended: its time, the count of skipped items, and Completed or the problem its error code stands for, with the Node's reason as the tooltip. Read with the settings, so a backup that ran while the page was open shows when the page is entered again |
 | Archive all, Delete all | `archive_sessions`, `remove_sessions` | Named at the revisions in the snapshot; delegated sessions follow their parents |
 
 The restore form names the host, shows `backup_restore_consequence` once and
@@ -985,12 +988,65 @@ asks for the passphrase (blank uses the saved one) and the new profile path.
 The Node refuses a path that exists with content or lies inside the running
 profile, so a restore never writes over a live profile.
 
+### Restart on a restored profile
+
+A restore writes a new directory and never the running profile. After it, the
+page asks once whether to restart on it (`backup_restart_restored`,
+`backup_restart_consequence`). `cmd/sailry-desktop/restore.go` then:
+
+1. checks the restored directory while the Node still runs
+   (`node.CheckRestoredProfile`): it is another directory outside the profile,
+   no process owns it, and this build opens its identity and both databases,
+   which is the version check. The passphrase was proved by the restore that
+   decrypted the archive. A refusal is the toast `backup_restart_invalid` and
+   changes nothing;
+2. asks about unsaved documents and running work as a quit does;
+3. stops the Node (`desktopBackend.Stop`) and calls `node.SwapProfile`, which
+   repeats the checks, confirms that no process owns the profile, points the
+   restored database's stored paths (projects, worktrees, knowledge sources) at
+   the profile's path, and renames: the restored directory next to the profile
+   (`<profile>.restored-<time>`, which proves both are on one volume), the
+   profile to `<profile>.before-restore-<YYYYMMDD-HHMMSS>`, the restored
+   directory to the profile's path. A failure undoes the renames and the
+   paths, so the profile is either what it was or the restored one;
+4. starts the application again with the same arguments
+   (`mygo.App.Relaunch`). A failure in step 3 is first shown in a native
+   message (`backup_restart_failed` with the reason); the application then
+   starts on the profile it had.
+
+The profile that was in use is never deleted: it stays beside the new one
+under its dated name, with everything a backup leaves out (Desktop
+preferences, plugin data, local models, Python environments, logs). Those do
+not move to the restored profile, which starts with default Desktop
+preferences.
+
+Identity: a backup holds `link.key`, so the restored profile is the same Node
+to every paired controller, which is what a replacement machine needs. On one
+machine the swap retires the old copy, so one runs. Across machines nothing
+detects a second running copy: controllers reach whichever answers, and each
+copy accepts work the other never sees. The restore form says so once
+(`backup_restore_consequence`: run only one copy at a time). A restored copy
+is not given a new identity, because that would silently drop every pairing
+and the database is bound to its Node ID.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The Desktop can restart on the restored profile | Rust and the earlier port stop at the directory; using it needs `--data-dir` or moving directories by hand in a terminal |
+
+Not covered: the two renames that exchange the profiles are not one atomic
+step. A crash between them leaves no directory at the profile's path, and the
+next start creates an empty profile there; the kept and the restored
+directories are both beside it. On Windows a rename fails while any process
+holds a file inside the directory; that case is undone and reported, and was
+not run there.
+
 Outcomes are toasts only: `backup_saved`, `backup_exported`,
 `backup_restored`, `backup_archived`, `backup_unarchived`, `backup_deleted`;
 `backup_conflict`, `backup_invalid`, `backup_denied`, `backup_unknown`,
 `backup_failed`; for sessions `backup_sessions_busy`, `session_changed`,
-`backup_sessions_unknown`, `backup_sessions_failed`. A request whose outcome is
-unknown is retained and sent again by the same action.
+`backup_sessions_unknown`, `backup_sessions_failed`; `backup_restart_invalid`.
+A request whose outcome is unknown is retained and sent again by the same
+action.
 
 Backend ownership: `internal/node/backup` (archive, encryption, storage,
 restore staging), `internal/node/backup_service*.go` (commands),
@@ -1009,3 +1065,12 @@ Deviations from the reference:
 | A file restore with an unknown outcome is staged again when repeated | The staged stream belongs to the first request |
 | A running action is not cancelled when the page is left | Its toast still reports the outcome |
 | An archived session that never ran shows no date | A session carries no archive time |
+| The databases are copied while the Node runs | The reference checkpoints and closes both databases and copies their files, so every read and write waits for the copy. Here both databases are pinned in read transactions under their exclusive leases (`store.Exclusive.Pin`), the leases end, and SQLite's online backup copies the pinned pages (`store.Pinned.Copy`). The content roots are read on the same pinned connection, so the archive lists exactly what the database copy references |
+| A project folder inside the profile that is not a managed workspace is left out | The reference refuses every backup once such a folder is registered ("worktree is outside a managed profile workspace"). It is the user's folder, as one outside the profile, and only Sailry's own workspaces are archived |
+| Symbolic links are archived as links | The reference refuses a backup that meets one, which fails every workspace that ran `npm install` or holds a Python environment. A link is a tar symlink entry and a `links` record in the manifest; its target is kept as written and never followed. On restore the links are created last, and a manifest in which a file or link lies beneath a link is refused, so nothing is written through one |
+| Content that cannot be archived is left out and recorded | The reference fails the whole backup, database included. Only the databases and `link.key` are required. A special file, an unreadable file, a name that cannot be stored, a root that no longer exists, content beyond the export limit, and a file that still differs after three reads are left out; a linked checkout whose Git metadata changes during three reads keeps its pointer file. The manifest's `skipped` lists the first 1000 with the reason and `skipped_total` counts all |
+| The archive is encrypted as it is written | The reference writes the plain archive, then encrypts it into a second file. `Snapshot.Pack` writes tar, gzip and age in one stream; restore decrypts and unpacks in one stream. What stays plain in the profile's private `tmp` is the snapshot (database copies and staged files, whose checksums the manifest needs before the content) and the unpacked restore staging |
+| The Node records how its last backup ended (`BackupSettings.last`: time, error code, reason, skipped count) | The reference keeps nothing, so a scheduled backup that fails with no client connected leaves no trace. `executeBackup` writes the outcome in the transaction that completes the request; saving settings keeps it and it does not change the revision. The durable notice for a failed scheduled run is the dispatcher's (`store/notifications_system.go`), not a second one from here |
+| Retention (`BackupSettings.keep`) | The reference never removes a backup, so a daily schedule fills its storage. After a published backup, `backup.Prune` removes this Node's oldest backups beyond the count from every enabled location: the record first, then the parts. Backups of another Node, records that cannot be read and everything when `keep` is 0 are left alone. A retention failure is logged and does not fail the backup |
+| One unreadable record does not hide the others | The reference fails the whole listing. A record that is not a readable manifest is passed over, a location that does not answer is left out, and either sets `partial`; the listing fails only when no configured location answers |
+| A wrong passphrase, a damaged archive and a failed write are different errors | The reference and the earlier port report every restore failure as a decryption failure: "backup passphrase is incorrect", "backup file is damaged or is not a Sailry backup", "backup archive is damaged or incomplete", or the storage failure itself |

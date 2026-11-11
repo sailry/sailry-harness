@@ -37,14 +37,22 @@ type BackupActions struct {
 	Host string
 	// Save saves the storage dialog's draft with its typed secrets. The
 	// schedule's draft is saved as it changes.
-	Save         func(target BackupTarget, done func(bool))
+	Save func(target BackupTarget, done func(bool))
+	// Keep saves how many of the Node's backups stay stored; 0 keeps all.
+	Keep         func(keep int)
 	ChooseFolder func(initial string, selected func(string))
 	Export, Now  func()
 	// Import chooses a local archive.
 	Import func(selected func(string))
 	// List reads the stored backups into Records.
-	List              func()
-	Restore           func(restore BackupRestore, done func(bool))
+	List    func()
+	Restore func(restore BackupRestore, done func(bool))
+	// Restart puts the profile restored at target in place of the one in
+	// use, which is kept beside it, and starts the application again. It is
+	// offered after a restore while Restartable: the page shows this
+	// Desktop's own Node.
+	Restart           func(target string)
+	Restartable       bool
 	Unarchive, Delete func(id string)
 	ArchiveAll        func()
 	DeleteAll         func()
@@ -161,6 +169,8 @@ func restoreDialog(c *ui.Context, m *Model) {
 			a.Restore(request, func(ok bool) {
 				if ok {
 					d.restoring, d.records, d.restore = false, false, BackupRestore{}
+					// The restored profile can take this one's place.
+					d.restart, d.restarting = request.Target, a.Restartable
 				}
 			})
 		}, m.Backup.Pending)

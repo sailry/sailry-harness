@@ -127,6 +127,19 @@ type BackupTarget struct {
 	Time                             time.Time // the daily time
 	Timezone                         string
 	PassphraseSet, CredentialsSet    bool
+	// Keep is how many of this Node's backups stay in storage; 0 keeps all.
+	Keep int
+	// Last is how the most recent backup ended.
+	Last BackupLast
+}
+
+// BackupLast is the most recent backup's outcome; At is zero before any.
+// Problem is the i18n key of a failure, "" after a success; Reason is the
+// Node's own account of it; Skipped counts the items the backup left out.
+type BackupLast struct {
+	At              time.Time
+	Problem, Reason string
+	Skipped         int
 }
 
 // Model is the settings pages' view model.

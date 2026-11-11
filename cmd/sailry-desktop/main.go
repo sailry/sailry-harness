@@ -46,11 +46,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	successor := os.Getenv(successorVariable) != ""
+	_ = os.Unsetenv(successorVariable)
+	if !options.Preview && options.DataDir == "" && !instanceLock(mygo.App.RequestSingleInstanceLock, successor, successorWait) {
+		// The Desktop that owns the default profile was told and raises its window.
+		return nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend, err := openBackend(ctx, options)
 	if err != nil {
-		return err
+		return reportStartFailure(err)
 	}
 	defer func() {
 		if err := backend.Close(); err != nil {
@@ -102,8 +108,15 @@ func run() error {
 	if backend.Client != nil && backend.Preferences != nil {
 		// The updater quits after it replaced the application: nothing is
 		// left to ask about.
-		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Close, func() { mygo.RunOnMain(guard.pass) })
+		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Stop, func() { mygo.RunOnMain(guard.pass) })
 		defer updates.Service.Close()
+	}
+	var restart *profileRestart
+	if backend.Client != nil {
+		restart = newProfileRestart(backend, func() {
+			guard.passing = true
+			mygo.App.Relaunch()
+		})
 	}
 	var refreshCommands func()
 	refreshCommands = func() {
@@ -202,6 +215,13 @@ func run() error {
 				}
 			})
 			runtime.SetPreferencesChanged(applyPreferences)
+			runtime.SetRestartProfile(func(restored string, refused func(error)) {
+				restart.run(restored, refused, func(proceed func()) {
+					if !guard.ask(entry, windows, true, proceed) {
+						proceed()
+					}
+				})
+			})
 			if updates != nil {
 				runtime.SetUpdates(updates, func() bool { return active == entry })
 			}
@@ -310,6 +330,21 @@ func run() error {
 		if updates != nil {
 			updates.Service.Startup()
 		}
+		// Another launch of the default profile hands over to this one.
+		mygo.App.OnSecondInstance(func([]string, string) {
+			if backend.stopped.Load() {
+				// The launch is this Desktop's successor, waiting for it to quit.
+				return
+			}
+			if active == nil && !options.Preview {
+				if err := openWindow(""); err != nil {
+					log.Printf("desktop composition: %v", err)
+				}
+			}
+			if active != nil {
+				guard.raise(active)
+			}
+		})
 		mygo.App.OnNotificationClick(func(id string) {
 			if active == nil && !options.Preview {
 				if err := openWindow(""); err != nil {

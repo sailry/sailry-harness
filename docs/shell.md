@@ -69,6 +69,42 @@ mygo.NewWindow(mygo.WindowOptions{StateKey: "main", Content: ui.View(app.View), 
 `cmd/sailry-desktop` also imports `github.com/egoist/mygo/locales/zh-Hans`, so
 MyGo's own strings follow the app into Chinese.
 
+### Start failures and a second launch
+
+A Desktop that cannot start its Node (`cmd/sailry-desktop/failure.go`) runs the
+MyGo application only to show one native error message
+(`mygo.Dialog.Message`, type `error`) and quits: `start_failed` with the
+failure's own text as the detail, or `start_profile_in_use` with the profile
+path when another process holds the profile lock. The failure is still written
+to standard error.
+
+A Desktop on the default profile takes MyGo's single-instance lock
+(`App.RequestSingleInstanceLock`) before it opens anything. A second launch
+hands over to the first and exits; the first raises its active window, or
+opens one when none is left (`App.OnSecondInstance`). A Desktop started with
+`--data-dir` or `--preview` takes no lock, so development profiles run beside
+the default one; a second Desktop on the same explicit profile gets the
+message. The profile lock itself (`flock`, `LockFileEx`) ends with the process
+that holds it, so a crash leaves no stale lock; the lock file stays in place
+and never blocks a start.
+
+The updater starts the new application before the old one has quit. That
+launch would be handed to the Desktop that is quitting and exit with it, so
+`desktopBackend.Stop`, which the updater calls before it replaces or restarts
+the application, marks the environment the new process inherits
+(`SAILRY_DESKTOP_SUCCESSOR`). A successor asks for the lock every 100 ms, for
+at most ten seconds, until the Desktop it replaces has quit (`instanceLock`),
+and that Desktop ignores the hand-overs meanwhile.
+
+| Deviation from Rust | Reason |
+|---|---|
+| Start failures are shown in a native message | Rust prints them to standard error, where a user who opened the application from its icon never sees them |
+| A second launch raises the running Desktop | Rust starts a second process that fails on the profile lock |
+
+Not covered: a launch while the previous Desktop is still inside its quit
+sequence is handed to that process, which is closing and shows nothing. The
+Node's shutdown deadline bounds that window at five seconds.
+
 ## Frame
 
 | Metric | Value (reference) |
