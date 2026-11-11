@@ -266,6 +266,12 @@ func firstRun(t *testing.T) {
 	}
 	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent)
 
+	// The Chinese pass ends on a conversation; Update is on the providers'
+	// settings.
+	r.App.Settings.Open(settings.Providers)
+	r.App.Navigate(shell.SettingsPage)
+	settle()
+
 	// Model data's Update is busy from the press until the Node answers: a
 	// second press sends nothing, and the answer gives the button back.
 	update := func() ui.AccessInfo {
