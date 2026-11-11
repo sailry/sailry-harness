@@ -21,6 +21,17 @@ uncertain exchanges. An OAuth connection with no refresh declaration or no
 refresh token sends nothing: it answers `expired` "connector authorization
 cannot be refreshed" and keeps no uncertain marker.
 
+A connector renewal marks its grant uncertain before the request and settles
+it by what happened, as a provider account's renewal does. A request that never
+left the Node (the connection could not be set up) removes the marker and
+answers `unavailable`; the next use renews again. A definite refusal (`401`, or
+an OAuth error such as `invalid_grant`) removes the marker and answers `expired`
+"connector authorization was refused; connect again". Anything else that left
+the Node (no answer, a `5xx`, an unreadable grant) keeps the marker, because the
+service may have replaced the renewal credential, and every later use answers
+`outcome_unknown` until the connection is signed in again. MCP OAuth sign-ins
+follow the same three outcomes.
+
 Public connection projections contain metadata, status and consent requirements.
 Credentials stay in Node configuration storage and are absent from public events,
 UI caches and MCP settings projections. HTTP/MCP resolve only declared
