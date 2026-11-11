@@ -398,7 +398,7 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 		if stopped {
 			tone = p.Danger
 		}
-		ui.Row(c.Key("compaction")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(tone).Children(func() {
+		ui.Row(c.Key("compaction")).FillWidth().Height(rowHeight(size)).Gap(8).AlignItems(ui.Center).TextColor(tone).Children(func() {
 			ui.Box(c).Height(1).Grow(1).Background(p.Border)
 			if k.State == CompactionRunning || k.State == CompactionQueued {
 				kit.Shimmer(c, label, size, p.MutedForeground)

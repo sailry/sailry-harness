@@ -4,7 +4,8 @@ B3 installs the controller's message text size in window-scoped Kit preferences.
 The transcript's content text follows it, 12 to 18 DIPs with the default 14
 (`textSize` in `tools.go`): user bubbles, reply Markdown, the status header, the
 tool, question, subagent, step and phase rows and what they open, notices,
-sources, compaction, the changes card's texts, captions and the footer's time.
+sources, compaction, the changes card's texts, captions, a chart's axis labels
+and legend, and the footer's time.
 Every measure in this document is the one at 14. A row is `size+10` high, its
 icon `size+2` and its caret `size-2`; text a DIP or two smaller than the body
 keeps that difference. Controls keep Kit's sizes: buttons, menus, popovers,
@@ -541,7 +542,12 @@ ticks only, ticks share one unit (`k`, `M`, `B` from ten thousand), category
 labels that would overlap are left out and long ones are cut at 14
 characters. An axis title shows only when the source gives one, small and
 muted. The legend shows under the plot only for several series of which the
-source named at least one. Colors are `theme.Tints` (blue, violet, teal,
+source named at least one. These follow the message text size
+(`TestLiveBlocks/content sizes`): axis labels, axis titles and the legend
+stay three DIPs under it, a pie's legend two under it on rows six higher than
+its text, and the plot's height and the room its axes take grow in proportion
+(`size/14`). The pie's 180 DIP box holds no text and keeps its size, and the
+tip over a mark is a tooltip, which keeps Kit's 12. Colors are `theme.Tints` (blue, violet, teal,
 amber, gray; the lighter end in dark mode), stepping toward the background
 from the sixth series.
 
