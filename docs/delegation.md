@@ -94,6 +94,13 @@ transaction. Optional automatic continuation reuses ordinary admission and
 preserves real completion when scheduling fails. Package callback execution is
 owned by its later runtime phase.
 
+Conversation statistics total a session's own usage and, apart from it in
+`delegated`, the tokens, cost and generation time of the child turns its turns
+delegated. Children are Sailry sessions, so this stays within Sailry's own
+usage. A fork inherits the delegated totals of the turns it inherits. The
+parent's statistics refresh when a child run starts, finishes or changes an
+interaction, not after each child response.
+
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
 conversation feed; ordinary approval ownership remains on the child session.
@@ -109,3 +116,6 @@ described in [Teams and roles](teams.md#agent-catalog-tools).
 - A failed parent turn cancels the session's children as a stopped one does,
   as in Rust. A turn whose only failure is its completion hook does not: the
   hook runs after children are settled and Go does not settle them twice.
+- Rust refreshes a parent's statistics after every child event. Go refreshes
+  them with the parent's feed (child start, finish and interactions); the
+  totals are the same once the child settles.
