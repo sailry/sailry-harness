@@ -182,6 +182,7 @@ worktree_prune_on_select: Unavailable · click to clean up
 worktree_pruned: Stale worktree registration removed
 worktree_prune_failed: "Not cleaned up: the directory exists, is locked, or could not be verified"
 worktree_main: Main
+worktree_unused: No session
 worktree_path_exists: Path already exists
 worktree_prune: Clean up stale worktree
 worktree_prune_confirm: Remove this stale registration; no files are deleted

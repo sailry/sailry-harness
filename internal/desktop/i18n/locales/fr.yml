@@ -320,6 +320,7 @@ worktree_remove_busy: Worktree est en cours d'utilisation
 worktree_remove_dirty: Worktree a des modifications non validées; ne peut pas supprimer
 worktree_remove_conflict: Arbre de travail modifié, actualiser avant de supprimer
 worktree_remove_missing: Page non trouvée
+worktree_unused: No session
 git_branch_exists: Branche existe déjà
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: Impossible de mettre à jour le staging, réessayez

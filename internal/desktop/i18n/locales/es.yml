@@ -320,6 +320,7 @@ worktree_remove_busy: Worktree está en uso
 worktree_remove_dirty: Worktree tiene cambios sin confirmar; no se puede eliminar
 worktree_remove_conflict: Árbol de trabajo cambiado, actualizar antes de eliminar
 worktree_remove_missing: Página no encontrada
+worktree_unused: No session
 git_branch_exists: La sucursal ya existe
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: No se pudo actualizar la preparación, inténtelo de nuevo

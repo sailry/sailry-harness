@@ -334,6 +334,7 @@ worktree_remove_busy
 worktree_remove_dirty
 worktree_remove_conflict
 worktree_remove_missing
+worktree_unused
 git_branch_exists
 git_branch_checked_out
 git_index_failed

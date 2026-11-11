@@ -320,6 +320,7 @@ worktree_remove_busy: 작업 트리가 사용 중입니다
 worktree_remove_dirty: Worktree에 커밋되지 않은 변경 사항이 있으므로 제거할 수 없습니다
 worktree_remove_conflict: 워크트리 변경, 제거하기 전에 새로 고침
 worktree_remove_missing: 찾을 수 없음
+worktree_unused: No session
 git_branch_exists: 브랜치가 이미 존재함
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: 스테이징을 업데이트할 수 없습니다. 다시 시도하십시오

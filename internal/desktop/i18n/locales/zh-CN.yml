@@ -320,6 +320,7 @@ worktree_remove_busy: worktree 正在使用，请稍后重新打开
 worktree_remove_dirty: worktree 包含未提交改动，不能移除
 worktree_remove_conflict: worktree 有改动、会话占用或引用已变化，请检查后重新打开
 worktree_remove_missing: worktree 或所属项目已不存在，请重新打开管理列表
+worktree_unused: 无会话
 git_branch_exists: 分支已存在，换个名称
 git_branch_checked_out: 分支已在其他 worktree 中检出
 git_index_failed: 暂存区更新失败，请重试

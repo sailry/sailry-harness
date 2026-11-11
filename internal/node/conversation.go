@@ -13,7 +13,7 @@ import (
 
 func (node *Node) conversationEvents(changes []protocol.Event) {
 	node.externalBrowserEvents(changes)
-	node.processSessionEvents(changes)
+	node.processSessionEvents(changes, node.removeSessionWorkspaces)
 	sessions := map[protocol.SessionID]bool{}
 	refreshStatistics := false
 	for _, change := range changes {

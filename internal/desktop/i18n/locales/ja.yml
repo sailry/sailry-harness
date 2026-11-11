@@ -320,6 +320,7 @@ worktree_remove_busy: ワークトリーが使用中
 worktree_remove_dirty: ワークトリーには未コミットの変更があり、削除できません
 worktree_remove_conflict: ワークトリーが変更されました。削除する前に更新してください
 worktree_remove_missing: ワークトリーが見つかりません
+worktree_unused: No session
 git_branch_exists: ブランチは既に存在します
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: ステージを更新できませんでした。もう一度試してください

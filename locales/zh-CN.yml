@@ -431,6 +431,7 @@ worktree_prune_on_select: 不可用 · 点击清理记录
 worktree_pruned: 已清理失效工作树记录
 worktree_prune_failed: 未清理：目录仍存在、被锁定或无法确认状态
 worktree_main: 主 worktree
+worktree_unused: 无会话
 worktree_path_exists: 路径已存在
 worktree_prune: 清理失效 worktree
 worktree_prune_confirm: 移除此失效记录，不删除任何文件

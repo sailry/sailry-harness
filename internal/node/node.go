@@ -253,6 +253,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	value.initDispatch(options.DispatchClock)
 	value.initPluginStatus()
+	value.sweepSessionWorkspaces()
 	if options.Network != nil {
 		if err := value.bindNetwork(ctx, *options.Network); err != nil {
 			_ = value.Stop(context.Background())

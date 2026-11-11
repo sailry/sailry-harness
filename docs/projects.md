@@ -68,6 +68,22 @@ second step finds the objects present, so the root is held for a short
 negotiation and the merge or rebase. The cost is a second contact with the
 remote, which a credential that asks for each connection answers twice.
 
+Deleting a session removes what only it used, once its background commands
+have stopped; archiving removes nothing. The private workspace of a session
+without a project, `workspaces/sessions/<session>` in the profile, is deleted,
+and a directory an earlier process could not delete goes at the next start. A
+managed worktree, `.sailry/worktrees/<id>` in the project, is removed exactly
+as Remove worktree does it and under the same conditions: no remaining
+session uses it or used it in an earlier revision, and Git reports it clean,
+on a branch, unlocked and with no operation under way. Its branch and commits
+stay. A worktree with uncommitted or untracked files is kept, and the worktree
+manager marks every linked worktree no session uses as `No session`, where it
+can be opened or removed. The workspace of a plugin assistant or a saved
+connection is shared by its conversations and is never removed with one. The
+reference keeps all of these directories forever and shows nowhere which
+worktrees are unused. The delete confirmation does not yet say that the files
+of a session without a project go with it.
+
 Core Files and Repository subscriptions share one root watcher. The desktop's
 branch/worktree projections and native badge consume these Node-owned services;
 plugins do not own native panel state. Native lifecycle behavior is covered by
