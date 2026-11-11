@@ -446,6 +446,17 @@ browser_forward: 앞으로
 browser_reload: 새로고침
 browser_address: 주소 검색 또는 입력
 browser_new_tab: 새 탭
+browser_empty: 탐색 시작
+browser_stop: 중지
+browser_invalid_address: 잘못된 주소
+browser_unavailable: 브라우저를 시작할 수 없습니다
+browser_load_failed: 페이지를 불러오지 못했습니다
+browser_annotate: 요소 선택
+browser_cancel_selection: 선택 취소
+browser_inspect: 웹 검사기
+browser_annotation_stale: 페이지 또는 대화가 변경되었습니다
+browser_annotation_invalid: 선택한 요소를 읽을 수 없습니다
+browser_annotation_unavailable: 선택한 요소를 캡처할 수 없습니다
 content_document: 문서
 content_source: 소스
 resource_project_empty: 프로젝트 선택

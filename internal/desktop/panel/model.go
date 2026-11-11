@@ -130,6 +130,7 @@ type State struct {
 	view              kit.Viewer[conversation.Image] // the image viewer over a previewed picture
 	children          map[string]string              // the subagent sessions open, their titles by ID
 	pagesOf           map[string]*page               // the browser tabs' addresses and history, by ID
+	focusAddress      bool                           // the browser tab opened last has yet to focus its address
 	terms             map[string]*term               // the terminal tabs' state, by ID
 	// Child builds a subagent's session in its tab, the transcript the shell
 	// owns.
@@ -181,6 +182,8 @@ func (s *State) SetCreateResource(create func(Kind) bool) { s.createResource = c
 
 // New opens another browser page or terminal.
 func (s *State) New(k Kind) {
+	// A new browser tab takes the keyboard in its address field.
+	s.focusAddress = k == Browser
 	if s.createResource != nil && s.createResource(k) {
 		return
 	}

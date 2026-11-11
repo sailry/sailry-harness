@@ -49,6 +49,16 @@ func main() {
 		mu.Unlock()
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		writer.Header().Set("Cache-Control", "no-store")
+		switch request.URL.Path {
+		case "/slow":
+			// Long enough for the chrome to show the load.
+			time.Sleep(1500 * time.Millisecond)
+			fmt.Fprint(writer, `<!doctype html><html><head><title>Browser probe slow</title></head><body><h1>Slow page</h1></body></html>`)
+			return
+		case "/wide":
+			fmt.Fprint(writer, `<!doctype html><html><head><title>Browser probe wide</title></head><body style="margin:0"><div style="width:3000px;height:40px;background:linear-gradient(90deg,#06c,#c06)"></div><button id="pick" style="position:fixed;left:40px;top:80px;width:160px;height:40px">Pick me</button></body></html>`)
+			return
+		}
 		if request.URL.Path == "/next" {
 			fmt.Fprint(writer, `<!doctype html><html><head><title>Browser probe next</title></head><body><h1>Next page</h1><a href="/">First</a></body></html>`)
 			return
@@ -85,6 +95,8 @@ func main() {
 					err = fmt.Errorf("browser tab: %w", err)
 				} else {
 					fmt.Printf("Browser tab probe passed: %d fetches of / and %d of /next\n", requests("/"), requests("/next"))
+					// The reported page, when the network reaches it.
+					fmt.Println("Outside page:", tab.Visit(ctx, "https://www.baidu.com/"))
 				}
 			}
 			result <- err

@@ -313,7 +313,7 @@ func panelTabs(t *testing.T) {
 	// The reported case: History opened on the draft, then its close button.
 	closes("draft History", text("panel_history_empty"), show(panel.Tab{Kind: panel.History}))
 	closes("draft Documents", text("panel_documents_empty"), show(panel.Tab{Kind: panel.Documents}))
-	closes("draft Browser", text("browser_address"), browser)
+	closes("draft Browser", text("browser_empty"), browser)
 	closes("draft Files", text("resource_project_empty"), openKind(panel.Files))
 	closes("draft Git", text("resource_project_empty"), openKind(panel.Changes))
 	closes("draft Artifact", "Code editor", artifact)
@@ -423,7 +423,7 @@ func panelTabs(t *testing.T) {
 			return app.Panel.Active
 		})
 	}
-	closes("session Browser", text("browser_address"), browser)
+	closes("session Browser", text("browser_empty"), browser)
 	closes("session Files", text("file_empty"), openKind(panel.Files))
 	closes("session file", "README.md", show(panel.Tab{Kind: panel.Files, ID: "README.md"}))
 	closes("session Git", "", openKind(panel.Changes))

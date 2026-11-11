@@ -446,6 +446,17 @@ browser_forward: 前進
 browser_reload: 重新整理
 browser_address: 搜尋或輸入網址
 browser_new_tab: 新標籤頁
+browser_empty: 開始瀏覽
+browser_stop: 停止
+browser_invalid_address: 網址無效
+browser_unavailable: 瀏覽器無法啟動
+browser_load_failed: 網頁載入失敗
+browser_annotate: 選擇元素
+browser_cancel_selection: 取消選擇
+browser_inspect: 網頁偵錯程式
+browser_annotation_stale: 網頁或對話已變更
+browser_annotation_invalid: 無法讀取所選元素
+browser_annotation_unavailable: 無法擷取所選元素
 content_document: 文件
 content_source: 原始碼
 resource_project_empty: 選擇專案

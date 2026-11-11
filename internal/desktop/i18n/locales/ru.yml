@@ -446,6 +446,17 @@ browser_forward: Вперёд
 browser_reload: Перезагрузить
 browser_address: Поиск или ввод адреса
 browser_new_tab: Новая вкладка
+browser_empty: Начать просмотр
+browser_stop: Остановить
+browser_invalid_address: Неверный адрес
+browser_unavailable: Браузер не может быть запущен
+browser_load_failed: Страница не загружена
+browser_annotate: Выбрать элемент
+browser_cancel_selection: Отменить выбор
+browser_inspect: Веб-инспектор
+browser_annotation_stale: Страница или разговор изменились
+browser_annotation_invalid: Не удалось прочитать выбранный элемент
+browser_annotation_unavailable: Не удалось снять выбранный элемент
 content_document: Документ
 content_source: Источник
 resource_project_empty: Выберите проект

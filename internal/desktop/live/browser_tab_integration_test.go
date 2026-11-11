@@ -8,6 +8,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,8 +26,8 @@ import (
 // App over a real temporary Node (KEY-015, PANEL-041 to PANEL-045, PANEL-048). The headless tester hosts no WebView and MyGo exports no
 // fake of one, so the page behind the tab is a fake history that writes the
 // tab's address and history flags as the WebView callbacks of browserLoad do.
-// Everything else is production: the shortcut, the chrome, the address
-// validation, the Node's browser call routing and the adapter's tab planning.
+// Everything else is production: the shortcut, the chrome with its loading,
+// failed and selecting states and its menu, the address policy, the Node's browser call routing and the adapter's tab planning.
 // The real WebView history, the main-thread hop of executeBrowserCall and the
 // page script are covered by the browserprobe program.
 func TestLiveBrowserTabIntegration(t *testing.T) {
@@ -94,6 +95,8 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	sync := func(id string) {
 		tab, past := runtime.browser.tabs[id], histories[id]
 		tab.url, tab.back, tab.forward = past.entries[past.at], past.at > 0, past.at < len(past.entries)-1
+		// As OnDidNavigate and OnDidFinishLoad: the page is there and loaded.
+		tab.loading, tab.failure = false, ""
 	}
 	actions := runtime.App.Panel.BrowserActions
 	actions.Navigate = func(id, address string) {
@@ -116,7 +119,12 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	}
 	actions.Back = func(id string) { histories[id].at--; sync(id) }
 	actions.Forward = func(id string) { histories[id].at++; sync(id) }
-	actions.Reload = func(id string) { reloads++; production.Reload(id) }
+	actions.Reload = func(id string) {
+		reloads++
+		production.Reload(id)
+		// After the production reload, as the page's events.
+		runtime.enqueue(func(*ui.Context) { sync(id) })
+	}
 
 	runtime.OpenSession(shown.ID.String())
 	tester := ui.NewTester(runtime.App.View, 1440, 1000)
@@ -239,7 +247,8 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 
 	t.Logf("KEY-015 passed: ⌘T opened browser tab %s with an empty address and Back, Forward and Reload disabled", id)
 
-	// PANEL-045: Enter loads the address, as https:// when it names no scheme.
+	// PANEL-045: Enter loads the address, as https:// when it names a host
+	// without a scheme and as a web search when it names none.
 	enter := func(address string) {
 		click(element(ui.RoleTextField, "Search or enter an address"))
 		tester.Key(ui.Cmd, ui.KeyA)
@@ -256,6 +265,10 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	wait("a refused address", func() bool { return true })
 	if tab := runtime.browser.tabs[id]; tab.url != "https://example.com" || len(histories[id].entries) != 1 {
 		t.Fatalf("a file address was loaded: %q, history %v", tab.url, histories[id].entries)
+	}
+	// Words are a web search, which the address field shows.
+	if address, ok := panel.BrowserDestination("two words"); !ok || address != "https://www.google.com/search?q=two+words" {
+		t.Fatalf("words go to %q", address)
 	}
 	enter("http://example.org/next")
 	chrome("the second address", "http://example.org/next", true, false, true)
@@ -291,6 +304,90 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	}
 
 	t.Logf("PANEL-043, PANEL-044 passed: the Reload button and ⌘R reloaded the page %d times", reloads)
+
+	// The page's state in the chrome. The fake history finishes a load at
+	// once, so the states are the tab's, set as the page's events set them.
+	named := func(role ui.Role, name string) []ui.AccessInfo {
+		var found []ui.AccessInfo
+		for _, entry := range tester.AccessAll() {
+			if entry.Role == role && entry.Name == name && entry.Bounds.W > 0 && entry.Bounds.H > 0 {
+				found = append(found, entry)
+			}
+		}
+		return found
+	}
+	bar := func() bool {
+		for _, entry := range tester.AccessAll() {
+			if entry.Role == ui.RoleProgress && entry.Bounds.H > 0 && entry.Bounds.H <= 2 {
+				return true
+			}
+		}
+		return false
+	}
+	page := runtime.browser.tabs[id]
+	if bar() || len(named(ui.RoleButton, "Stop")) != 0 || element(ui.RoleButton, "Select element").Disabled {
+		t.Fatal("a loaded page shows a progress bar or Stop, or offers no element selection")
+	}
+	page.begin()
+	wait("a loading page", func() bool {
+		return bar() && len(named(ui.RoleButton, "Stop")) == 1 && len(named(ui.RoleButton, "Reload")) == 0
+	})
+	if !element(ui.RoleButton, "Select element").Disabled {
+		t.Fatal("Select element is enabled while the page loads")
+	}
+	click(element(ui.RoleButton, "Stop"))
+	wait("Stop", func() bool { return !page.loading && !bar() && len(named(ui.RoleButton, "Reload")) == 1 })
+	page.loading, page.failure = false, "browser_load_failed"
+	wait("a failed page", func() bool {
+		return tester.HasText("Page failed to load") && len(named(ui.RoleButton, "Reload")) == 2 && !bar()
+	})
+	if !element(ui.RoleButton, "Select element").Disabled {
+		t.Fatal("Select element is enabled on a failed page")
+	}
+	// The body's Reload, under the toolbar's, loads the address again.
+	retry := named(ui.RoleButton, "Reload")
+	if retry[0].Bounds.Y > retry[1].Bounds.Y {
+		retry[0], retry[1] = retry[1], retry[0]
+	}
+	click(retry[1])
+	wait("Reload on a failed page", func() bool { return reloads == 3 })
+	page.loading, page.failure = false, ""
+	// A selection under way shows as Cancel selection, which ends it.
+	page.pick = &browserPick{token: "probe", cancel: func() {}}
+	wait("a selecting page", func() bool { return len(named(ui.RoleButton, "Cancel selection")) == 1 })
+	click(element(ui.RoleButton, "Cancel selection"))
+	wait("Cancel selection", func() bool { return page.pick == nil && len(named(ui.RoleButton, "Select element")) == 1 })
+	// The menu lists the web inspector and the settings; there is one
+	// control that opens a tab, the header's.
+	if len(named(ui.RoleButton, "New tab")) != 0 {
+		t.Fatal("the toolbar has a New tab button beside the header's +")
+	}
+	click(element(ui.RoleMenuButton, "More actions"))
+	var items []string
+	wait("the browser's menu", func() bool {
+		items = items[:0]
+		for _, entry := range tester.AccessAll() {
+			if entry.Role == ui.RoleMenuItem {
+				items = append(items, entry.Name)
+			}
+		}
+		return len(items) == 2
+	})
+	if !strings.HasPrefix(items[0], "Web inspector") || !strings.HasPrefix(items[1], "Settings") {
+		t.Fatalf("the browser's menu lists %q", items)
+	}
+	tester.Key(0, ui.KeyEscape)
+	wait("the menu closed", func() bool {
+		for _, entry := range tester.AccessAll() {
+			if entry.Role == ui.RoleMenuItem {
+				return false
+			}
+		}
+		return true
+	})
+	chrome("after the chrome states", "http://example.org/next", true, false, true)
+
+	t.Log("the chrome passed: a loading page showed the bar and Stop, a loaded one Reload, a failed one its error and Reload, a selecting one Cancel selection; the menu listed the web inspector and Settings")
 
 	// PANEL-048: the Node routes a session's use_browser to this controller,
 	// whose adapter addresses the tabs of that session only, and the result

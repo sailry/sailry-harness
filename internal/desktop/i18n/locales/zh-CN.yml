@@ -446,6 +446,17 @@ browser_forward: 前进
 browser_reload: 刷新
 browser_address: 搜索或输入网址
 browser_new_tab: 新标签页
+browser_empty: 开始浏览
+browser_stop: 停止
+browser_invalid_address: 网址无效
+browser_unavailable: 浏览器无法启动
+browser_load_failed: 网页加载失败
+browser_annotate: 选择元素
+browser_cancel_selection: 取消选择
+browser_inspect: 网页调试器
+browser_annotation_stale: 网页或会话已更改
+browser_annotation_invalid: 无法读取所选元素
+browser_annotation_unavailable: 无法截取所选元素
 content_document: 文档
 content_source: 源码
 resource_project_empty: 选择项目
