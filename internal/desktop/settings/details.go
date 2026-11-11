@@ -203,7 +203,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 			})
 		}
 	}
-	summary(c, pk.Name, pk.Description, func() { kit.Tile(c, pk.Name, icons.Puzzle) }, action)
+	summary(c, pk.Name, pk.Description, func() { pluginTile(c, pk, 56, false) }, action)
 	if msg := compatibility(c, pk); msg != "" {
 		ui.Row(c.Key("required")).Gap(8).Children(func() {
 			ui.Text(c, msg).FontSize(14).Grow(1).TextColor(p.MutedForeground)

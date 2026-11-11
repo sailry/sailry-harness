@@ -53,6 +53,8 @@ type ConnectorType struct {
 	Methods                        []string
 	Fields                         []ConnectorField
 	Enabled                        bool
+	// Icon is the icon the connector declares, as Package.Icon.
+	Icon string
 }
 
 type ConnectorService struct {
@@ -66,4 +68,6 @@ type ConnectorService struct {
 	Manual                      bool
 	Servers                     []ConnectorServer
 	Fields                      map[string]string
+	// Icon is the icon its connector or package declares, as Package.Icon.
+	Icon string
 }

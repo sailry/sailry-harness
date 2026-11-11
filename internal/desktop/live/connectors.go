@@ -144,7 +144,7 @@ func (r *Runtime) projectConnectors() {
 	for _, id := range slices.Sorted(maps.Keys(r.authorizations.types)) {
 		value := r.authorizations.types[id]
 		declaration := value.Declaration
-		kind := viewmodel.ConnectorType{ID: id, Package: value.Package.Name, Name: declaration.Display.Label, Enabled: value.Enabled}
+		kind := viewmodel.ConnectorType{ID: id, Package: value.Package.Name, Name: declaration.Display.Label, Enabled: value.Enabled, Icon: pluginIconSource(declaration.Display.Icon)}
 		for _, auth := range declaration.Auth {
 			method := connectorMethod(protocol.PluginConnectorKind(auth.Kind))
 			if !slices.Contains(kind.Methods, method) {
@@ -162,11 +162,12 @@ func (r *Runtime) projectConnectors() {
 		connection := r.authorizations.connections[id]
 		value, exists := r.authorizations.types[id]
 		name := connection.Connector
+		icon := ""
 		if exists {
-			name = value.Declaration.Display.Label
+			name, icon = value.Declaration.Display.Label, pluginIconSource(value.Declaration.Display.Icon)
 		}
 		service := viewmodel.ConnectorService{
-			ID: id, Type: id, Name: name, Revision: connection.Revision, Method: connectorMethod(connection.Method),
+			ID: id, Type: id, Name: name, Icon: icon, Revision: connection.Revision, Method: connectorMethod(connection.Method),
 			Account: true, AccountOn: connection.Enabled, Fields: maps.Clone(connection.Fields),
 		}
 		if connection.Identity != nil {
@@ -218,6 +219,9 @@ func (r *Runtime) projectConnectors() {
 			}
 		}
 		service := viewmodel.ConnectorService{ID: "mcp:" + name, Type: kind, Name: strings.TrimPrefix(name, "mcp-"), Revision: info.Summary.Revision, Manual: info.McpSource != nil, Servers: servers}
+		if info.Extension != nil && info.Extension.Display != nil {
+			service.Icon = pluginIconSource(info.Extension.Display.Icon)
+		}
 		if info.McpSource != nil {
 			body, _ := detail[protocol.PluginMcpDefinitionStreamableHttpPayload](info.McpSource.Data)
 			if info.McpSource.Kind == "stdio" {

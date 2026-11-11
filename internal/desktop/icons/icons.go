@@ -187,8 +187,15 @@ func init() {
 	}
 }
 
-// ByName returns a named icon, nil when unknown.
-func ByName(name string) *ui.SVG { return named[name] }
+// ByName returns a named icon, nil when unknown: one of the view models'
+// names, or an icon a plugin declares (Plugin).
+func ByName(name string) *ui.SVG {
+	if icon := named[name]; icon != nil {
+		return icon
+	}
+	icon, _ := Plugin(name)
+	return icon
+}
 
 // menuIcons are the menu item icons made so far, by their SVG.
 var menuIcons sync.Map

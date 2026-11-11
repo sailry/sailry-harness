@@ -32,6 +32,9 @@ func Plugin(name string) (*ui.SVG, error) {
 	} else if alias, exists := pluginAliases[normalized]; exists {
 		normalized = alias
 	}
+	if strings.HasPrefix(normalized, "kubai:") {
+		return kubaiSVG(normalized)
+	}
 	if cached, exists := pluginIcons.Load(normalized); exists {
 		return cached.(*ui.SVG), nil
 	}

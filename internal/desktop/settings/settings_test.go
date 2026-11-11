@@ -1,7 +1,10 @@
 package settings
 
 import (
+	"encoding/json"
+	"image"
 	"image/png"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,9 +13,11 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -982,6 +987,224 @@ func TestExtensions(t *testing.T) {
 		press("plugins_download", false)
 		if done[2](true); !m.download.open {
 			t.Error("the first download closed the second's dialog")
+		}
+	})
+	// A card, a row and the details header draw the icon their package
+	// declares: its Kubai emblem in its tint, which moves only while the
+	// pointer is over it, or its own SVG on a tile. Only a package that
+	// declares none, or a name nothing draws, has the puzzle piece.
+	t.Run("declared icons", func(t *testing.T) {
+		manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
+		if err != nil || len(manifests) < 40 {
+			t.Fatalf("bundled manifests: %d, %v", len(manifests), err)
+		}
+		var rows []preview.Package
+		for _, name := range manifests {
+			data, err := fs.ReadFile(sailry.Plugins, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			type text struct {
+				Label   string            `json:"label"`
+				Locales map[string]string `json:"locales"`
+				Icon    json.RawMessage   `json:"icon"`
+			}
+			var manifest struct {
+				Name       string `json:"name"`
+				Version    string `json:"version"`
+				Extensions map[string]struct {
+					Display, Description text
+					Tint, Category       string
+				} `json:"extensions"`
+			}
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				t.Fatal(name, err)
+			}
+			extension := manifest.Extensions["dev.sailry.platform"]
+			row := preview.Package{ID: manifest.Name, Name: extension.Display.Locales["zh-CN"], Description: extension.Description.Locales["zh-CN"], Version: manifest.Version, Latest: manifest.Version,
+				Tint: extension.Tint, Category: "market_category_" + extension.Category, Source: "market_details_source_official", Official: true, Versions: []string{manifest.Version}}
+			var own struct {
+				Svg string `json:"svg"`
+			}
+			if json.Unmarshal(extension.Display.Icon, &row.Icon) != nil && json.Unmarshal(extension.Display.Icon, &own) == nil {
+				row.Icon = own.Svg
+			}
+			if row.Name == "" {
+				row.Name = extension.Display.Label
+			}
+			if row.Description == "" {
+				row.Description = extension.Description.Label
+			}
+			if row.Name == "" || row.Icon == "" {
+				t.Fatalf("%s: name %q, icon %q", name, row.Name, row.Icon)
+			}
+			rows = append(rows, row)
+		}
+		m := NewModel(preview.SettingsData())
+		m.MarketPlugins = rows
+		m.Packages = nil
+		for i, row := range rows {
+			if i%3 != 0 {
+				row.Installed, row.Enabled = true, true
+				m.Packages = append(m.Packages, row)
+			}
+		}
+		s := &State{Model: m}
+		page, mode := 0, theme.Dark
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", mode)
+			p := theme.Of(c)
+			ui.Column(c).Fill().Background(p.Background).TextColor(p.Foreground).Children(func() {
+				switch page {
+				case 0:
+					MarketPage(c, s)
+				case 1:
+					ui.Scroll(c.Key("plugins")).Fill().Children(func() {
+						ui.Column(c).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Children(func() { plugins(c, s) })
+					})
+				default:
+					ui.Column(c.Key("details")).Width(520).Grow(1).Children(func() { DetailsPanel(c, s) })
+				}
+			})
+		}, 900, 2500, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("zh-CN")
+		shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
+		if err := os.MkdirAll(shots, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		settle := func() {
+			t.Helper()
+			tt.Frame()
+			for range 400 {
+				if !tt.FramePending() {
+					return
+				}
+				tt.Advance(50 * time.Millisecond)
+				tt.Frame()
+			}
+			t.Fatalf("the window still asks for frames with nothing moving: %q", tt.Texts())
+		}
+		save := func(name string) {
+			t.Helper()
+			file, err := os.Create(filepath.Join(shots, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			if err := png.Encode(file, tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// where is the box of the emblem: the leading 44 DIPs of the card's
+		// summary button, or the 64 before the details' title.
+		where := func(title string) ui.Rect {
+			t.Helper()
+			if page == 2 {
+				at, found := tt.Find(title)
+				if !found {
+					t.Fatalf("no %q: %q", title, tt.Texts())
+				}
+				return ui.Rect{X: at.X - 72, Y: at.Y + at.H/2 - 30, W: 64, H: 60}
+			}
+			card, found := tt.AccessByRole(ui.RoleButton, title)
+			if !found {
+				t.Fatalf("no %q card: %q", title, tt.Texts())
+			}
+			return ui.Rect{X: card.Bounds.X - 4, Y: card.Bounds.Y, W: 44, H: card.Bounds.H}
+		}
+		// mark is the pixels of the emblem.
+		mark := func(title string) string {
+			t.Helper()
+			settle()
+			at := where(title)
+			img := tt.Image()
+			scale := float32(img.Bounds().Dx()) / 900
+			area := image.Rect(int(at.X*scale), int(at.Y*scale), int((at.X+at.W)*scale), int((at.Y+at.H)*scale))
+			var pixels []byte
+			for y := area.Min.Y; y < area.Max.Y; y++ {
+				pixels = append(pixels, img.Pix[img.PixOffset(area.Min.X, y):img.PixOffset(area.Max.X, y)]...)
+			}
+			return string(pixels)
+		}
+		subject := &m.MarketPlugins[0]
+		for i := range m.MarketPlugins {
+			if m.MarketPlugins[i].ID == "files" {
+				subject = &m.MarketPlugins[i]
+			}
+		}
+		installed := m.installedPackage(subject.ID)
+		if subject.Icon != "reicon:folders/folder" || installed == nil {
+			t.Fatalf("the Files package declares %q, installed %v", subject.Icon, installed != nil)
+		}
+		for index, step := range []struct {
+			name string
+			of   *preview.Package
+			open func()
+		}{
+			{"market", subject, func() { page = 0 }},
+			{"plugins", installed, func() { page = 1 }},
+			{"plugin-details", installed, func() {
+				page = 2
+				s.ShowDetails(DetailPlugin, subject.ID)
+			}},
+		} {
+			step.open()
+			declared := step.of.Icon
+			drawn := mark(step.of.Name)
+			for _, dark := range []bool{true, false} {
+				mode = map[bool]theme.Mode{true: theme.Dark, false: theme.Light}[dark]
+				tt.SetDark(dark)
+				settle()
+				save(step.name + "-icons-zh-CN-" + map[bool]string{true: "dark", false: "light"}[dark])
+			}
+			mode = theme.Dark
+			tt.SetDark(true)
+			if again := mark(step.of.Name); again != drawn {
+				t.Errorf("%s: the emblem at rest changed between frames", step.name)
+			}
+			step.of.Icon = ""
+			placeholder := mark(step.of.Name)
+			if placeholder == drawn {
+				t.Errorf("%s: the declared icon draws as the placeholder", step.name)
+			}
+			step.of.Icon = "reicon:missing/icon"
+			if mark(step.of.Name) != placeholder {
+				t.Errorf("%s: an unknown icon name does not fall back to the placeholder", step.name)
+			}
+			step.of.Icon = "kubai:rocket"
+			if other := mark(step.of.Name); other == placeholder || other == drawn {
+				t.Errorf("%s: a library icon named by its id is not drawn", step.name)
+			}
+			step.of.Icon = declared
+			if index > 0 {
+				continue
+			}
+			// The pointer over the card plays the motion, which asks for
+			// frames only until it ends; with less motion it asks for none.
+			at := where(subject.Name)
+			at.X += 120
+			tt.Move(at.X, at.Y+at.H/2)
+			tt.Frame()
+			if !tt.FramePending() {
+				t.Error("the hovered emblem does not move")
+			}
+			if hovered := mark(subject.Name); hovered == drawn {
+				t.Error("the emblem's hover pose is its rest pose")
+			}
+			save("market-icons-hover-zh-CN-dark")
+			tt.Move(2, 2)
+			if mark(subject.Name) != drawn {
+				t.Error("the emblem did not return to rest")
+			}
+			tt.SetPreferences(ui.Preferences{ReduceTransparency: true, ReduceMotion: true})
+			tt.Frame()
+			tt.Move(at.X, at.Y+at.H/2)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Error("the emblem moves while the desktop asks for less motion")
+			}
+			tt.Move(2, 2)
+			tt.SetPreferences(ui.Preferences{ReduceTransparency: true})
 		}
 	})
 }

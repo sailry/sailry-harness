@@ -46,12 +46,18 @@ func MediaRecord(c *ui.Context, title string, tile, badge, description func()) u
 	})
 }
 
+// Tint is the emblem colors of a record that declares none, chosen by its
+// name's FNV hash.
+func Tint(name string) [2]ui.Color {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return theme.Tints[h.Sum32()%uint32(len(theme.Tints))]
+}
+
 // Tile is the emblem of a record: a gradient chosen by the name's FNV hash,
 // radius 11, with a white glyph 5/9 of its size, or the name's initial.
 func Tile(c *ui.Context, name string, glyph *ui.SVG) {
-	h := fnv.New32a()
-	h.Write([]byte(name))
-	tint := theme.Tints[h.Sum32()%uint32(len(theme.Tints))]
+	tint := Tint(name)
 	ui.Row(c).Size(TileSize, TileSize).Radius(11).Center().
 		Gradient(tint[0], tint[1], 180).TextColor(theme.OnTint).Children(func() {
 		if glyph != nil {

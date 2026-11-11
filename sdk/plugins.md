@@ -257,6 +257,29 @@ remain unavailable. Update inspection keeps compatible candidates separate from
 newer releases requiring Sailry updates. Desktop's application update entry applies
 to its local execution Node; a remote requirement identifies the affected Node.
 
+## Icons
+
+A `display.icon` (package, navigation, tool, connection, UI entry) is either
+`{"kind": "Name", "data": "<name>"}` or
+`{"kind": "Svg", "data": {"svg": "<svg ...>"}}` with the package's own markup.
+Names come from two catalogs:
+
+- `reicon:<group>/<name>` is a monochrome outline glyph from
+  [Reicon](https://github.com/dqev/reicon), for example `reicon:time/calendar`. It follows
+  the text color and is the right choice for navigation, tools, menus and
+  script `Icon` components. The accepted names are listed in
+  `internal/protocol/icon_names.txt`.
+- `kubai:<id>` is a colored emblem from Kubai Icons, for example
+  `kubai:folder-plus`. Browse the set at <https://kubai.yldm.ai/>; the accepted
+  ids are listed in `internal/protocol/kubai_icon_names.txt`. Use it for the
+  package's own `display.icon`. In a text-colored slot it draws as a static
+  colored icon and does not follow the text color.
+
+Marketplace and plugin cards show the package icon as an emblem in the package
+`tint`. A `reicon:` package icon is shown as the Kubai emblem of the same
+subject where one exists, otherwise as its glyph on a tinted tile; an own SVG
+is always a glyph on a tinted tile. An unknown name is not a valid icon.
+
 ## Marketplace metadata
 
 The v1 extension may declare `category` (`development`, `documents`, `data`,

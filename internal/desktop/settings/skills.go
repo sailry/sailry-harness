@@ -121,7 +121,7 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 	if sk.Package != "" {
 		desc = skillSource(c, sk)
 	}
-	kit.ResourceCard(c, sk.ID, sk.Name, desc, func() { kit.Tile(c, sk.Name, icons.Bot) }, func() { s.ShowDetails(DetailSkill, sk.ID) }, func(bool) {
+	kit.ResourceCard(c, sk.ID, sk.Name, desc, func(bool) { kit.Tile(c, sk.Name, icons.Bot) }, func() { s.ShowDetails(DetailSkill, sk.ID) }, func(bool) {
 		if sk.Update {
 			kit.Action(c.Key("update"), icons.Download, t("settings_update"), false).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {

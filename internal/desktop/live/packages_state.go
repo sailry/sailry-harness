@@ -426,6 +426,12 @@ func packageView(info protocol.PluginInfo, locale string) viewmodel.Package {
 		if extension.Category != nil {
 			view.Category = "market_category_" + string(*extension.Category)
 		}
+		if extension.Display != nil {
+			view.Icon = pluginIconSource(extension.Display.Icon)
+		}
+		if extension.Tint != nil {
+			view.Tint = string(*extension.Tint)
+		}
 		for _, tool := range extension.Tools {
 			view.Tools = append(view.Tools, tool.Name)
 		}
@@ -477,6 +483,20 @@ func (r *Runtime) readPackage(name, version string, done func(bool)) {
 			}
 		})
 	})
+}
+
+// pluginIconSource is a declared icon as a view model carries it: its name,
+// or the markup of its own SVG.
+func pluginIconSource(icon *protocol.PluginDesktopIcon) string {
+	if icon == nil {
+		return ""
+	}
+	if icon.Kind == "Svg" {
+		value, _ := detail[protocol.PluginDesktopIconSvgPayload](icon.Data)
+		return value.Svg
+	}
+	name, _ := detail[string](icon.Data)
+	return name
 }
 
 func pluginNavigation(value protocol.PluginDesktopNavigation, locale string) string {

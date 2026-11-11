@@ -16,6 +16,14 @@ var iconNames string
 
 var navigationIcons = strings.Split(strings.TrimSpace(iconNames), "\n")
 
+// kubaiIconNames are the ids of Kubai Icons 0.4.1, which the desktop draws
+// through github.com/yldm-tech/mygo-kubai-icons: one id a line, sorted.
+//
+//go:embed kubai_icon_names.txt
+var kubaiIconNames string
+
+var emblemIcons = strings.Split(strings.TrimSpace(kubaiIconNames), "\n")
+
 func (navigation PluginDesktopNavigation) Valid() bool {
 	label := func(value string) bool {
 		return strings.TrimSpace(value) != "" && len(value) <= 128 && !strings.ContainsFunc(value, unicode.IsControl)
@@ -42,6 +50,10 @@ func (icon PluginDesktopIcon) Valid() bool {
 			if name != nil {
 				value = *name
 			}
+		}
+		if name, found := strings.CutPrefix(value, "kubai:"); found {
+			_, exists := slices.BinarySearch(emblemIcons, name)
+			return exists
 		}
 		name, found := strings.CutPrefix(value, "reicon:")
 		if !found {
