@@ -258,8 +258,18 @@ func browserChrome(t *testing.T) {
 	if app.Panel.Active.Kind != panel.Browser || !tester.HasText(text("browser_empty")) {
 		t.Fatalf("a new browser tab: %v; visible text: %q", app.Panel.Active, tester.Texts())
 	}
-	if _, found := control(ui.RoleButton, text("browser_new_tab")); found {
-		t.Fatal("the toolbar still has a New tab button beside the header's +")
+	// The toolbar's buttons are named in full, so a New tab button beside
+	// the header's + fails here whatever it is called.
+	first := need(ui.RoleButton, text("browser_back"))
+	var buttons []string
+	for _, info := range tester.AccessAll() {
+		if (info.Role == ui.RoleButton || info.Role == ui.RoleMenuButton) && info.Bounds.Y < first.Bounds.Y+first.Bounds.H && info.Bounds.Y+info.Bounds.H > first.Bounds.Y &&
+			info.Bounds.X >= float32(width)-app.PanelWidth-1 {
+			buttons = append(buttons, info.Name)
+		}
+	}
+	if want := []string{text("browser_back"), text("browser_forward"), text("browser_reload"), text("browser_annotate"), text("more")}; !slices.Equal(buttons, want) {
+		t.Fatalf("the toolbar's buttons are %q, want %q", buttons, want)
 	}
 	for _, name := range []string{"browser_back", "browser_forward", "browser_reload", "browser_annotate"} {
 		if info := need(ui.RoleButton, text(name)); !info.Disabled {
