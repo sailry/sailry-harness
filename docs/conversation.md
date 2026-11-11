@@ -44,8 +44,9 @@ Kit's `MessageScroller`.
 
 Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
 is in `internal/desktop/kit/motion.go`; the thinking indicator (`kit.Indicator`:
-MyGo's loading marks, Pulse while thinking, LinearDots while replying, Swirl
-while tools or subagents run) in `internal/desktop/kit/thinking.go`. Code blocks in messages and tool diffs
+the loading marks: Loop while thinking or waiting for the response, Chevrons
+while replying, Swirl while tools or subagents run, Trace while queued, a
+paused Pulse for no known phase) in `internal/desktop/kit/thinking.go`. Code blocks in messages and tool diffs
 are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/desktop/kit/code.go`);
 a block's header has its language and Copy as an icon button (`content_copy`,
 toast `content_copied`).
@@ -791,7 +792,9 @@ An item is a row of `agent_pending`; `ready`, the recipient and the queue's
 and bumps the item or queue revision that its command checks. The Desktop
 column is what the composer's queue strip shows: rows never say why they wait
 and held background results are not rows ([removed-ui.md](removed-ui.md),
-[composer.md](composer.md)).
+[composer.md](composer.md)). "Held" in the table is the Node's name for an
+item that is not ready to send (`ready=0`); it is neither the removed "Held"
+wait label nor a held background result.
 
 | State | Stored as | Leaves by | Desktop |
 |---|---|---|---|
@@ -970,7 +973,7 @@ destination, the rewind toast's backup action, and
 | Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |
 | The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
-| The phase's mark is one of MyGo's loading marks (`plugins/loading`: Pulse, LinearDots, Swirl), not Rust's dot figures (Orbits, Globe, Ribbon, Ring) | The user's decision: ready-made marks from one set with the sidebar's loader. The custom figures are removed; the marks move at the display's rate ([components.md](components.md#theming-caveats)) |
+| The phase's mark is one of MyGo's loading marks (`plugins/loading`: Swirl, Trace, a paused Pulse; and Kit's Loop and Chevrons, drawn as the set's marks MyGo lacks), not Rust's dot figures (Orbits, Globe, Ribbon, Ring) | The user's decision: ready-made marks from one set with the sidebar's loader. The custom figures are removed; the marks move at the display's rate ([components.md](components.md#theming-caveats)) |
 | Row texts are moved a fraction of a DIP by `kit.Level` so their capitals sit at the icon's middle; a question's row is as high as the others for one line (24), its icon and caret where theirs are | MyGo centres a text's line box and snaps its baseline, which left labels up to 1.2 DIPs below their icons ([components.md](components.md#text-beside-icons)); the wrapping row had its text at the top with the icon 2 below |
 | A row's single-line label and its detail are `ui.RichText` of one span, levelled by `kit.LevelSpan`, running or not | `kit.Sweep` draws its band with `Painter.RichText`, whose line starts from the theme's 14 whatever the span's size; a plain `ui.Text` at another message text size sits up to 2 DIPs off the band, and a label laid out one way while running and another once settled would move |
 | A code block's Copy is an icon button confirmed by a toast, not MyGo's `CopyButton` with its "Copy" and "Copied" texts | The user's decision: the icon alone; outcomes show as toasts |
