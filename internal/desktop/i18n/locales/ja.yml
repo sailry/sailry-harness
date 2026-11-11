@@ -1054,7 +1054,6 @@ telemetry_send_action: 診断情報を送信
 telemetry_support: サポート
 telemetry_title: 診断とプライバシー
 telemetry_unknown: 結果は不明です。再読み込みして確認してください
-telemetry_welcome: 匿名の診断は既定で有効です。設定で変更できます
 terminal_environment: 大域環境変数
 terminal_environment_add: 環境変数を追加
 terminal_input: 入力

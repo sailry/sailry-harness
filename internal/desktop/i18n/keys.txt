@@ -1073,7 +1073,6 @@ telemetry_send_action
 telemetry_support
 telemetry_title
 telemetry_unknown
-telemetry_welcome
 terminal_environment
 terminal_environment_add
 terminal_input

@@ -1054,7 +1054,6 @@ telemetry_send_action: 傳送診斷資訊
 telemetry_support: 支援
 telemetry_title: 診斷與隱私
 telemetry_unknown: 結果未知，請重新載入確認
-telemetry_welcome: 匿名診斷預設開啟，可在設定中變更
 terminal_environment: 全域性環境變數
 terminal_environment_add: 新增環境變數
 terminal_input: 輸入

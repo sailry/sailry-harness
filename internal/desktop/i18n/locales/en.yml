@@ -1054,7 +1054,6 @@ telemetry_send_action: Send diagnostics
 telemetry_support: Support
 telemetry_title: Diagnostics and privacy
 telemetry_unknown: The result is unknown. Reload to check
-telemetry_welcome: Anonymous diagnostics are on by default. You can change this in Settings
 terminal_environment: Global environment variables
 terminal_environment_add: Add environment variable
 terminal_input: Input

@@ -1054,7 +1054,6 @@ telemetry_send_action: Отправить диагностику
 telemetry_support: Поддержка
 telemetry_title: Диагностика и конфиденциальность
 telemetry_unknown: Результат неизвестен. Обновите для проверки
-telemetry_welcome: Анонимная диагностика включена по умолчанию. Это можно изменить в настройках
 terminal_environment: Глобальные экологические переменные
 terminal_environment_add: Добавить переменную среды
 terminal_input: Ввод
