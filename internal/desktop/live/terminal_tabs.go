@@ -1,7 +1,6 @@
 package live
 
 import (
-	"slices"
 	"strings"
 
 	myterminal "github.com/egoist/mygo/plugins/terminal"
@@ -83,7 +82,7 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 	root := r.localRuntime()
 	inventory := root.terminalInventory()
 	if owner == nil || root.packages == nil || root.packages.terminals == nil || !owner.controller.Connected() || worktree == (protocol.WorktreeID{}) {
-		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "terminal creation requires an available workspace"))
+		root.terminalUnavailable()
 		return "", false
 	}
 	request := owner.controller.Prepare(protocol.Command{Kind: "create_terminal", Data: protocol.TerminalLaunch{
@@ -118,6 +117,12 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 	return id, true
 }
 
+// terminalUnavailable is the toast of a terminal that cannot start: no
+// connected Node has a worktree for it.
+func (r *Runtime) terminalUnavailable() {
+	r.localRuntime().enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "terminal_unavailable")) })
+}
+
 // splitLiveTerminal starts a terminal beside terminal id, on its Node and in
 // its worktree.
 func (r *Runtime) splitLiveTerminal(id string) (string, bool) {
@@ -131,7 +136,7 @@ func (r *Runtime) splitLiveTerminal(id string) (string, bool) {
 		owner, info, exists = state.owner, state.conn.current(), true
 	}
 	if !exists || info.Worktree == nil {
-		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "terminal worktree is unavailable"))
+		root.terminalUnavailable()
 		return "", false
 	}
 	return root.createLiveTerminal(owner, *info.Worktree)
@@ -221,13 +226,15 @@ func (r *Runtime) dropTerminalTab(id string) {
 	if inventory.focus == id {
 		inventory.focus = ""
 	}
-	state := root.App.Panel
-	state.Tabs, state.Active = panel.Closed(state.Tabs, panel.Tab{Kind: panel.Terminal, ID: id}, state.Active)
+	// The tab is in the panel of the conversation that opened it, shown or not.
+	root.App.DropPanelTab(panel.Tab{Kind: panel.Terminal, ID: id})
 }
 
 // terminalsFrame keeps the terminal tabs in step with the Nodes: a tab whose
 // terminal its Node closed or no longer reports leaves, and a terminal whose
-// tab is gone is detached. Tabs of a Node that is not connected stay.
+// tab is gone is detached. Tabs of a Node that is not connected stay. The
+// tabs are every conversation's: a terminal of a conversation that is not
+// shown stays attached and keeps running, and its tab is there on return.
 func (r *Runtime) terminalsFrame(c *ui.Context) {
 	if r.parent != nil || r.packages == nil || r.packages.terminals == nil {
 		return
@@ -248,7 +255,7 @@ func (r *Runtime) terminalsFrame(c *ui.Context) {
 	owners := r.terminalOwners()
 	settled := r.terminalOwnersSettled()
 	tabs := map[string]bool{}
-	for _, tab := range slices.Clone(r.App.Panel.Tabs) {
+	for _, tab := range r.App.AllPanelTabs() {
 		if tab.Kind != panel.Terminal {
 			continue
 		}

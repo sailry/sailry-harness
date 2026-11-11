@@ -41,9 +41,67 @@ func testSessionResources(t *testing.T) {
 		t.Fatalf("the preview lists %v", got)
 	}
 	s.Live = true
+	// A terminal needs a worktree: an unsent chat without a project has
+	// none, so Terminal is neither listed nor opened by its shortcut there.
+	if got := kinds(s); !slices.Equal(got, []Kind{Browser, Files, Changes}) || s.Offers(Terminal) {
+		t.Fatalf("a live draft without a worktree lists %v", got)
+	}
+	if s.Open(Terminal); len(s.Tabs) != 0 {
+		t.Fatalf("Terminal opened without a worktree: %v", s.Tabs)
+	}
+	s.Worktree = true
 	if got := kinds(s); !slices.Equal(got, []Kind{Browser, Terminal, Files, Changes}) {
 		t.Fatalf("a live draft lists %v", got)
 	}
+	// Terminal starts another terminal every time; Browser shows its page.
+	s.Open(Terminal)
+	s.Open(Browser)
+	s.Open(Terminal)
+	s.Open(Browser)
+	if want := []Tab{{Terminal, "1"}, {Browser, "2"}, {Terminal, "3"}}; !slices.Equal(s.Tabs, want) || s.Active != want[1] {
+		t.Fatalf("opened %v, active %v", s.Tabs, s.Active)
+	}
+	// Closing a live terminal's tab asks first, then ends its shell: the
+	// tab leaves when its Node has closed the terminal.
+	var closed []string
+	s.TerminalActions = &TerminalActions{Close: func(id string) { closed = append(closed, id) }}
+	tt := ui.NewTester(func(c *ui.Context) { View(c, s, nil, kit.KeyText) }, 560, 600)
+	tt.SetLocale("en")
+	if s.Close(Tab{Terminal, "3"}); len(s.Tabs) != 3 || len(closed) != 0 {
+		t.Fatalf("a terminal tab closed unasked: %v, %v", s.Tabs, closed)
+	}
+	tt.Frame()
+	if !tt.HasText("Close terminal") || tt.Click("Cancel") != nil {
+		t.Fatalf("no confirmation: %q", tt.Texts())
+	}
+	tt.Frame()
+	if len(closed) != 0 || tt.HasText("Close terminal") {
+		t.Fatalf("Cancel closed %v", closed)
+	}
+	s.Close(Tab{Terminal, "3"})
+	tt.Frame()
+	if err := tt.Click("Close"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !slices.Equal(closed, []string{"3"}) || len(s.Tabs) != 3 {
+		t.Fatalf("confirmed: closed %v, tabs %v", closed, s.Tabs)
+	}
+	// Another conversation's tabs take the strip, and come back.
+	mine, shown := slices.Clone(s.Tabs), s.Active
+	s.Mount([]Tab{{Browser, "9"}}, Tab{}, false)
+	if !slices.Equal(s.Tabs, []Tab{{Browser, "9"}}) || s.Active != (Tab{Browser, "9"}) {
+		t.Fatalf("mounted %v, active %v", s.Tabs, s.Active)
+	}
+	if s.New(Browser); s.Active != (Tab{Browser, "10"}) {
+		t.Fatalf("a new page beside a mounted one is %v", s.Active)
+	}
+	s.Mount(mine, shown, false)
+	if !slices.Equal(s.Tabs, mine) || s.Active != shown {
+		t.Fatalf("mounted back %v, active %v", s.Tabs, s.Active)
+	}
+	s.Mount(nil, Tab{}, false)
+	s.TerminalActions = nil
 	s.Session = true
 	if got := kinds(s); len(got) != len(Resources) {
 		t.Fatalf("a live session lists %v", got)

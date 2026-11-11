@@ -14,6 +14,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -222,12 +223,20 @@ func panelTabs(t *testing.T) {
 	}
 	// launcherLists checks the launcher's rows and the "+" menu against the
 	// kinds the conversation offers.
-	launcherLists := func(state string, session bool) {
+	// offered is what a conversation lists: History and Documents belong to
+	// a session, and a terminal needs a worktree.
+	offered := func(kind panel.Kind, session, terminal bool) bool {
+		if kind == panel.Terminal {
+			return terminal
+		}
+		return session || kind != panel.History && kind != panel.Documents
+	}
+	launcherLists := func(state string, session, terminal bool) {
 		t.Helper()
 		app.PanelOpen = true
 		settle()
 		for _, resource := range panel.Resources {
-			want := session || resource.Kind != panel.History && resource.Kind != panel.Documents
+			want := offered(resource.Kind, session, terminal)
 			if _, listed := row(resource.Label); listed != want {
 				t.Fatalf("%s: the launcher lists %q: %v, want %v; visible text: %q", state, resource.Label, listed, want, tester.Texts())
 			}
@@ -254,7 +263,7 @@ func panelTabs(t *testing.T) {
 			}
 		}
 		for _, resource := range panel.Resources {
-			want := session || resource.Kind != panel.History && resource.Kind != panel.Documents
+			want := offered(resource.Kind, session, terminal)
 			if items[text(resource.Label)] != want {
 				t.Fatalf("%s: the + menu lists %q: %v, want %v; items %v", state, resource.Label, items[text(resource.Label)], want, items)
 			}
@@ -308,7 +317,7 @@ func panelTabs(t *testing.T) {
 	if !app.PanelOpen || !app.Panel.Live || app.Panel.Session {
 		t.Fatalf("the draft's panel: open %v, live %v, session %v", app.PanelOpen, app.Panel.Live, app.Panel.Session)
 	}
-	launcherLists("draft", false)
+	launcherLists("draft", false, false)
 	shot("panel-launcher-draft")
 	// The reported case: History opened on the draft, then its close button.
 	closes("draft History", text("panel_history_empty"), show(panel.Tab{Kind: panel.History}))
@@ -318,15 +327,33 @@ func panelTabs(t *testing.T) {
 	closes("draft Git", text("resource_project_empty"), openKind(panel.Changes))
 	closes("draft Artifact", "Code editor", artifact)
 	closes("draft Subagent", text("chat_child_unavailable"), child)
-	// A terminal needs a worktree: the draft opens no tab for one and says
-	// so in a toast.
+	// The reported failure: Terminal on a new chat without a project. The
+	// chat has no worktree, the window refused the creation itself and
+	// reported its fault as the generic "operation failed". Terminal is not
+	// offered there now (launcherLists above): neither Open nor its
+	// shortcut opens a tab, asks the Node or toasts.
+	if app.Panel.Worktree || app.Panel.Offers(panel.Terminal) {
+		t.Fatal("a draft without a project is offered a terminal")
+	}
 	app.Panel.Open(panel.Terminal)
+	tester.Key(ui.Ctrl, ui.KeyBackquote)
 	settle()
-	if len(app.Panel.Tabs) != 0 {
-		t.Fatalf("a draft without a project opened a terminal tab: %v", app.Panel.Tabs)
+	if len(app.Panel.Tabs) != 0 || len(controller.Snapshot().Terminals) != 0 {
+		t.Fatalf("a draft without a project opened a terminal: tabs %v, Node terminals %d", app.Panel.Tabs, len(controller.Snapshot().Terminals))
+	}
+	for _, key := range []string{"chat_action_failed", "terminal_unavailable"} {
+		if tester.HasText(text(key)) {
+			t.Fatalf("Terminal on a draft without a project toasts %q", text(key))
+		}
+	}
+	// Asked for all the same, the creation names its reason.
+	r.createPanelResource(panel.Terminal)
+	settle()
+	if !tester.HasText(text("terminal_unavailable")) || tester.HasText(text("chat_action_failed")) || len(app.Panel.Tabs) != 0 {
+		t.Fatalf("a terminal that cannot start does not say why: %q", tester.Texts())
 	}
 	if err := tester.Click(text("close")); err != nil {
-		t.Fatalf("no toast for the terminal a draft cannot open: %v; visible text: %q", err, tester.Texts())
+		t.Fatal(err)
 	}
 	settle()
 
@@ -398,7 +425,7 @@ func panelTabs(t *testing.T) {
 	if len(app.Panel.Tabs) != 0 {
 		t.Fatalf("selecting the session opened tabs: %v", app.Panel.Tabs)
 	}
-	launcherLists("session", true)
+	launcherLists("session", true, true)
 	shot("panel-launcher-session")
 
 	// History and Documents open from the launcher and show their empty
@@ -441,24 +468,13 @@ func panelTabs(t *testing.T) {
 		t.Fatalf("a Git refresh reopened a closed tab: %v", app.Panel.Tabs)
 	}
 
-	// A terminal tab is a Node terminal: closing the tab detaches it, and
-	// the running terminal does not bring the tab back.
 	if runtime.GOOS == "windows" {
-		t.Log("the terminal tab is not exercised on Windows here; its ConPTY check is the integration program's")
+		t.Log("the terminal tabs are not exercised on Windows here; their ConPTY check is the integration program's")
 	} else {
-		closes("session Terminal", "", func() panel.Tab {
-			before := len(controller.Snapshot().Terminals)
-			app.Panel.Open(panel.Terminal)
-			wait("a Node terminal for the tab", func() bool {
-				return len(controller.Snapshot().Terminals) == before+1 && app.Panel.Active.Kind == panel.Terminal
-			})
-			return app.Panel.Active
+		panelConversations(t, panelFixture{
+			r: r, controller: controller, tester: tester, settle: settle, wait: wait, shot: shot, text: text, row: row, strip: strip, do: do,
+			session: session, config: config,
 		})
-		for _, terminal := range controller.Snapshot().Terminals {
-			if terminal.Status.Kind != "closed" {
-				do(protocol.Command{Kind: "close_terminal", Data: protocol.CommandCloseTerminalPayload{Worktree: session.Worktree, Terminal: terminal.ID}})
-			}
-		}
 	}
 
 	// Several tabs: closing one that is not shown keeps the shown one, and
@@ -508,5 +524,329 @@ func panelTabs(t *testing.T) {
 	}
 	if !slices.Equal(again.App.Panel.Tabs, []panel.Tab{second}) {
 		t.Fatalf("the relaunched window's tabs: %v, want %v", again.App.Panel.Tabs, []panel.Tab{second})
+	}
+}
+
+// panelFixture is panelTabs' window for panelConversations.
+type panelFixture struct {
+	r          *Runtime
+	controller *client.Client
+	tester     *ui.Tester
+	settle     func()
+	wait       func(string, func() bool)
+	shot       func(string)
+	text       func(string) string
+	row, strip func(string) (ui.AccessInfo, bool)
+	do         func(protocol.Command) protocol.Output
+	session    protocol.Session
+	config     protocol.SessionConfig
+}
+
+// panelConversations is panelTabs' part on terminal tabs and on the panel
+// belonging to its conversation, against the real Node: Terminal opens a new
+// Node terminal as a tab every time; each conversation has its own tabs,
+// shown tab and column, which leave and come back with it while its terminals
+// keep running; a draft that becomes its session keeps its tabs; closing a
+// terminal's tab asks and then ends its shell; and a conversation that is
+// removed or archived takes its terminals and tabs with it.
+func panelConversations(t *testing.T, f panelFixture) {
+	r, app, tester, settle, wait, text := f.r, f.r.App, f.tester, f.settle, f.wait, f.text
+	first := f.session.ID.String()
+	terminals := func(tabs []panel.Tab) []string {
+		var ids []string
+		for _, tab := range tabs {
+			if tab.Kind == panel.Terminal {
+				ids = append(ids, tab.ID)
+			}
+		}
+		return ids
+	}
+	status := func(id string) string {
+		for _, info := range f.controller.Snapshot().Terminals {
+			if info.ID.String() == id {
+				return info.Status.Kind
+			}
+		}
+		return ""
+	}
+	running := func() int {
+		count := 0
+		for _, info := range f.controller.Snapshot().Terminals {
+			if info.Status.Kind == "running" {
+				count++
+			}
+		}
+		return count
+	}
+	strips := func(title string) (found []ui.AccessInfo) {
+		for _, info := range tester.AccessAll() {
+			if info.Role == ui.RoleButton && info.Name == title && info.Bounds.X >= 1280-app.PanelWidth && info.Bounds.H == 28 && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+				found = append(found, info)
+			}
+		}
+		return found
+	}
+	// confirm answers the dialog that asks before a terminal's tab closes.
+	confirm := func(answer string) {
+		t.Helper()
+		wait("the close confirmation", func() bool {
+			return tester.HasText(text("workspace_close_terminal")) && tester.HasText(text("settings_cancel"))
+		})
+		var button ui.AccessInfo
+		for _, info := range tester.AccessAll() {
+			if info.Role == ui.RoleButton && info.Name == text(answer) && info.Bounds.Y > shell.HeaderHeight && info.Bounds.Y >= button.Bounds.Y {
+				button = info
+			}
+		}
+		if button.Name == "" {
+			t.Fatalf("the confirmation has no %q: %q", text(answer), tester.Texts())
+		}
+		tester.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
+		settle()
+	}
+	label := text(panel.ResourceOf(panel.Terminal).Label)
+
+	// The first conversation, a session of a Git project: Terminal in the
+	// launcher opens a terminal's tab, and Terminal in the "+" menu another.
+	app.PanelOpen = true
+	settle()
+	launch, listed := f.row(panel.ResourceOf(panel.Terminal).Label)
+	if !listed || len(app.Panel.Tabs) != 0 {
+		t.Fatalf("the session's launcher lists no Terminal: tabs %v, text %q", app.Panel.Tabs, tester.Texts())
+	}
+	tester.ClickAt(launch.Bounds.X+launch.Bounds.W/2, launch.Bounds.Y+launch.Bounds.H/2)
+	wait("the launcher's Terminal starts a Node terminal", func() bool {
+		ids := terminals(app.Panel.Tabs)
+		return len(ids) == 1 && status(ids[0]) == "running" && app.Panel.Active.ID == ids[0]
+	})
+	one := app.Panel.Active
+	var add ui.AccessInfo
+	for _, info := range tester.AccessAll() {
+		if info.Role == ui.RoleMenuButton && info.Name == text("details") && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+			add = info
+		}
+	}
+	if add.Name == "" {
+		t.Fatalf("no + button over the terminal: %q", tester.Texts())
+	}
+	tester.ClickAt(add.Bounds.X+add.Bounds.W/2, add.Bounds.Y+add.Bounds.H/2)
+	settle()
+	item := ui.AccessInfo{}
+	for _, info := range tester.AccessAll() {
+		if (info.Role == ui.RoleMenuItem || info.Role == ui.RoleMenuItemCheckBox || info.Role == ui.RoleMenuItemRadio) && info.Name == label {
+			item = info
+		}
+	}
+	if item.Name == "" {
+		t.Fatalf("the + menu lists no Terminal: %q", tester.Texts())
+	}
+	tester.ClickAt(item.Bounds.X+item.Bounds.W/2, item.Bounds.Y+item.Bounds.H/2)
+	wait("the + menu's Terminal starts a second Node terminal", func() bool {
+		ids := terminals(app.Panel.Tabs)
+		return len(ids) == 2 && ids[0] == one.ID && status(ids[1]) == "running" && app.Panel.Active.ID == ids[1] && len(strips(label)) == 2
+	})
+	two := app.Panel.Active
+	wait("both terminals attach", func() bool {
+		return r.packages.terminals[one.ID] != nil && r.packages.terminals[one.ID].terminal != nil &&
+			r.packages.terminals[two.ID] != nil && r.packages.terminals[two.ID].terminal != nil
+	})
+	f.shot("panel-terminals-two")
+	firstTabs := slices.Clone(app.Panel.Tabs)
+
+	// A new chat without a project is another conversation: it shows none of
+	// the first one's tabs, its panel is closed, and the terminals keep
+	// running attached.
+	r.newDraft(nil)
+	settle()
+	draft := app.Sidebar.Selected
+	if !strings.HasPrefix(draft, "draft/") || len(app.Panel.Tabs) != 0 || app.PanelOpen || app.Panel.Offers(panel.Terminal) {
+		t.Fatalf("a new chat shows the session's panel: %q, tabs %v, open %v", draft, app.Panel.Tabs, app.PanelOpen)
+	}
+	if !slices.Equal(app.ConversationTabs(first), firstTabs) || running() != 2 || r.packages.terminals[one.ID] == nil || r.packages.terminals[two.ID] == nil {
+		t.Fatalf("the hidden conversation lost its terminals: tabs %v, running %d", app.ConversationTabs(first), running())
+	}
+	// Typed text keeps the unsent chat when another conversation shows.
+	app.Composer(draft).Draft = "Keep my tabs"
+	app.PanelOpen = true
+	app.Panel.New(panel.Browser)
+	settle()
+	app.Panel.Show(panel.Tab{Kind: panel.Files})
+	page := app.Panel.Tabs[0]
+	settle()
+	draftTabs := slices.Clone(app.Panel.Tabs)
+	if len(draftTabs) != 2 || page.Kind != panel.Browser || slices.Contains(firstTabs, page) {
+		t.Fatalf("the draft's tabs: %v", draftTabs)
+	}
+	f.shot("panel-second-conversation")
+	// Back and forth: each conversation has its own tabs and shown tab.
+	wait("the first conversation's tabs come back", func() bool {
+		r.OpenSession(first)
+		return app.Sidebar.Selected == first && slices.Equal(app.Panel.Tabs, firstTabs) && app.Panel.Active == two && app.PanelOpen && len(strips(label)) == 2
+	})
+	if !slices.Equal(app.ConversationTabs(draft), draftTabs) {
+		t.Fatalf("the draft's tabs while the session shows: %v", app.ConversationTabs(draft))
+	}
+	// The window state names each session's tabs; an unsent chat's are not
+	// kept, as its ID is the window's.
+	if saved := app.Prefs(); saved.PanelOf != first || !slices.Equal(saved.PanelTabs, firstTabs) || len(saved.Panels) != 0 {
+		t.Fatalf("the saved panels: of %q, tabs %v, others %v", saved.PanelOf, saved.PanelTabs, saved.Panels)
+	}
+	app.Sidebar.Selected = draft
+	settle()
+	if !slices.Equal(app.Panel.Tabs, draftTabs) || !app.PanelOpen {
+		t.Fatalf("the draft's tabs did not come back: %v, open %v", app.Panel.Tabs, app.PanelOpen)
+	}
+
+	// The draft becomes its session: the tabs stay its own, the browser
+	// page with them, and the session's private worktree takes a terminal.
+	cv, comp := app.Data.Find(draft), app.Composer(draft)
+	r.enqueue(func(c *ui.Context) {
+		actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
+		actions.Send(composer.Message{Text: comp.Draft, Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission})
+	})
+	wait("the draft becomes a session", func() bool {
+		return !strings.HasPrefix(app.Sidebar.Selected, "draft/") && app.Panel.Session && app.Panel.Worktree
+	})
+	second := app.Sidebar.Selected
+	if second == first || !slices.Equal(app.Panel.Tabs, draftTabs) || len(app.ConversationTabs(draft)) != 0 || !app.PanelOpen {
+		t.Fatalf("the created session %q lost its draft's tabs: %v", second, app.Panel.Tabs)
+	}
+	if tab := r.browser.tabs[page.ID]; tab == nil || tab.conversation != second {
+		t.Fatalf("the draft's browser page is not the session's: %+v", tab)
+	}
+	if !app.Panel.Offers(panel.Terminal) {
+		t.Fatal("a session without a project is offered no terminal")
+	}
+	app.Panel.Open(panel.Terminal)
+	wait("a terminal in the session's private worktree", func() bool {
+		ids := terminals(app.Panel.Tabs)
+		return len(ids) == 1 && status(ids[0]) == "running" && running() == 3
+	})
+	three := app.Panel.Active
+	for _, info := range f.controller.Snapshot().Terminals {
+		if info.ID.String() == three.ID && (info.Worktree == nil || *info.Worktree == f.session.Worktree) {
+			t.Fatalf("the session's terminal is not in its own worktree: %+v", info)
+		}
+	}
+	if tester.HasText(text("chat_action_failed")) && len(terminals(app.Panel.Tabs)) != 1 {
+		t.Fatalf("the terminal failed: %q", tester.Texts())
+	}
+
+	// A draft in a project that is a plain folder has the project's
+	// worktree: it is offered a terminal, and one starts there.
+	plain, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, valid := detail[protocol.Project](f.do(protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
+		Name: "Plain folder", Path: plain, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"},
+	}}).Data)
+	if !valid {
+		t.Fatal("the plain folder's project was not returned")
+	}
+	wait("the plain folder in the sidebar", func() bool {
+		for _, shown := range app.Data.Projects {
+			if shown.ID == folder.ID.String() {
+				r.newDraft(shown)
+				return true
+			}
+		}
+		return false
+	})
+	wait("a draft in the plain folder", func() bool {
+		return strings.HasPrefix(app.Sidebar.Selected, "draft/") && app.Data.ProjectOf(app.Sidebar.Selected) != nil && app.Panel.Worktree && app.Panel.Offers(panel.Terminal)
+	})
+	folderDraft := app.Sidebar.Selected
+	if len(app.Panel.Tabs) != 0 || app.PanelOpen {
+		t.Fatalf("the project's draft shows another conversation's panel: %v", app.Panel.Tabs)
+	}
+	app.PanelOpen = true
+	app.Panel.Open(panel.Terminal)
+	wait("a terminal in the plain folder", func() bool {
+		ids := terminals(app.Panel.Tabs)
+		return len(ids) == 1 && status(ids[0]) == "running" && running() == 4
+	})
+	four := app.Panel.Active
+	for _, info := range f.controller.Snapshot().Terminals {
+		if info.ID.String() == four.ID && workspaceString(info.Directory) != plain {
+			t.Fatalf("the draft's terminal runs in %q, want %q", workspaceString(info.Directory), plain)
+		}
+	}
+	// The draft is left empty and goes: its terminal ends and its tabs go
+	// with it. The other conversations' terminals are not touched.
+	wait("a removed draft ends its terminal", func() bool {
+		r.OpenSession(first)
+		return app.Sidebar.Selected == first && app.Data.Find(folderDraft) == nil && status(four.ID) == "closed" && !app.HasPanelTab(four)
+	})
+	if running() != 3 || !slices.Equal(app.Panel.Tabs, firstTabs) || !slices.Equal(terminals(app.ConversationTabs(second)), []string{three.ID}) {
+		t.Fatalf("removing a draft disturbed the others: running %d, tabs %v, second %v", running(), app.Panel.Tabs, app.ConversationTabs(second))
+	}
+
+	// Closing a terminal's tab asks first. Cancel keeps the shell; Close ends
+	// it on the Node, and only then does the tab leave. ⌘W asks the same.
+	closeButton := func(index int) {
+		t.Helper()
+		var button ui.AccessInfo
+		wait("the terminal tabs at rest", func() bool {
+			found := strips(label)
+			if len(found) <= index {
+				return false
+			}
+			previous := button.Bounds.X
+			button = found[index]
+			return button.Bounds.X == previous
+		})
+		x, y := button.Bounds.X+button.Bounds.W-14, button.Bounds.Y+button.Bounds.H/2
+		tester.Move(x, y)
+		tester.Frame()
+		tester.ClickAt(x, y)
+	}
+	closeButton(1)
+	confirm("settings_cancel")
+	if status(two.ID) != "running" || !slices.Equal(app.Panel.Tabs, firstTabs) || tester.HasText(text("settings_cancel")) {
+		t.Fatalf("Cancel closed the terminal: %s, tabs %v", status(two.ID), app.Panel.Tabs)
+	}
+	closeButton(1)
+	confirm("close")
+	wait("the confirmed close ends the Node terminal", func() bool {
+		return status(two.ID) == "closed" && slices.Equal(app.Panel.Tabs, []panel.Tab{one}) && r.packages.terminals[two.ID] == nil
+	})
+	if status(one.ID) != "running" || status(three.ID) != "running" {
+		t.Fatalf("closing one terminal ended another: %s %s", status(one.ID), status(three.ID))
+	}
+	found := strips(label)
+	if len(found) != 1 {
+		t.Fatalf("the strip after the close: %q", tester.Texts())
+	}
+	tester.ClickAt(found[0].Bounds.X+12, found[0].Bounds.Y+found[0].Bounds.H/2)
+	settle()
+	tester.Key(ui.Cmd, ui.KeyW)
+	confirm("close")
+	wait("⌘W ends the last terminal", func() bool { return status(one.ID) == "closed" && len(app.Panel.Tabs) == 0 })
+
+	// An archived session takes its terminal and its tabs with it.
+	var current protocol.Session
+	for _, candidate := range f.controller.Snapshot().Sessions {
+		if candidate.ID.String() == second {
+			current = candidate
+		}
+	}
+	f.do(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: current.ID, ExpectedRevision: current.Revision, Archived: true}})
+	wait("an archived session ends its terminal", func() bool {
+		return status(three.ID) == "closed" && len(app.ConversationTabs(second)) == 0 && !slices.Contains(app.PanelConversations(), second)
+	})
+	if running() != 0 || len(app.AllPanelTabs()) != 0 || app.Sidebar.Selected != first {
+		t.Fatalf("after the archive: running %d, tabs %v, selected %q", running(), app.AllPanelTabs(), app.Sidebar.Selected)
+	}
+	// The archived session's browser page left with its tab.
+	settle()
+	if r.browser.tabs[page.ID] != nil {
+		t.Fatal("the archived session's browser page stayed")
+	}
+	// The closed panel left no toast of a failure.
+	for _, key := range []string{"chat_action_failed", "workspace_action_failed", "terminal_unavailable"} {
+		if tester.HasText(text(key)) {
+			t.Fatalf("the terminal steps left the toast %q: %q", text(key), tester.Texts())
+		}
 	}
 }

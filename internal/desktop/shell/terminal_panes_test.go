@@ -52,7 +52,11 @@ func testLiveTerminalPane(t *testing.T) {
 	}
 	// The terminal's tab closes, as when its Node closed it: the pane leaves.
 	tab := panel.Tab{Kind: panel.Terminal, ID: term.ID}
-	a.Panel.Tabs, a.Panel.Active = panel.Closed(a.Panel.Tabs, tab, a.Panel.Active)
+	// The tab is its conversation's, which the focused session pane's is not.
+	if slices.Contains(a.Panel.Tabs, tab) || !a.HasPanelTab(tab) {
+		t.Fatalf("the terminal's tab is not its own conversation's: shown %v", a.Panel.Tabs)
+	}
+	a.DropPanelTab(tab)
 	tt.Frame()
 	if g := a.panes.Displayed(); g == nil || slices.Contains(g.Targets(), term) || len(g.Targets()) != 3 {
 		t.Fatalf("the closed terminal keeps its pane: %v", a.panes.Groups)

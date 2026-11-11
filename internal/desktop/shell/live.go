@@ -60,6 +60,7 @@ func (a *App) ReplaceConversationID(before, after string) {
 	if a.Sidebar.Selected == before {
 		a.Sidebar.Selected = after
 	}
+	a.renamePanel(before, after)
 	if a.panes.Active == session(before) {
 		a.panes.Active = session(after)
 	}

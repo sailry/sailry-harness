@@ -22,6 +22,12 @@ func (r *Runtime) createPanelResource(kind panel.Kind) bool {
 	}
 	owner := root.selectedRuntime()
 	if owner == nil || !owner.controller.Connected() || owner.workspace == nil || owner.workspace.selected == (protocol.WorktreeID{}) {
+		if kind == panel.Terminal {
+			// The panel offers no terminal here (panel.State.Worktree); one
+			// asked for all the same names why it cannot start.
+			root.terminalUnavailable()
+			return true
+		}
 		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "resource creation requires an available workspace"))
 		return true
 	}

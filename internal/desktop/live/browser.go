@@ -106,7 +106,8 @@ func (r *Runtime) browserFrame() {
 		state.serving[owner] = cancel
 	}
 	for id, tab := range state.tabs {
-		if !slices.Contains(r.App.Panel.Tabs, panel.Tab{Kind: panel.Browser, ID: id}) {
+		// A page stays with its tab in any conversation's panel.
+		if !r.App.HasPanelTab(panel.Tab{Kind: panel.Browser, ID: id}) {
 			if tab.view != nil {
 				tab.view.Destroy()
 			}
