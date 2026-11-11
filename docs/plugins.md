@@ -456,15 +456,20 @@ empty so the text remains aligned.
   resources, adapters and provider presets are distinct, reference each other
   and carry their actions; `artifact_view` needs both artifact actions;
   `enabled_service` is `code_index` on a host package with `code_index.read`;
-  `conversation_options` parses as an option schema. Three rules differ on
+  `conversation_options` parses as an option schema; a permission
+  contribution names a read-only check, a declared request handler and the
+  package's own actions. Three rules differ on
   purpose: a handler may be bound to `agents.guide`
   ([delegation](delegation.md)), which the source refuses; a `display` icon
   is not checked, because the tile accepts `ailogo:` names the source's icon
   list lacks; and a server tool's name may be 512 bytes, as in the source,
   where this validator allowed 128. Not ported to install time: the field
   rules inside one model sign-in, model resource, model adapter, provider
-  preset, connector, conversation mode, permissions contribution, artifact
-  view and tool `display`.
+  preset, connector, conversation mode, artifact view and tool `display`.
+- A request on the `permissions` surface is confined as in the source: it
+  carries no worktree, session or turn, reads only a contribution's `check`,
+  calls only its `request`, and inside those callbacks runs only commands
+  whose action a contribution lists.
 - The `provider` slot validates and is not drawn. Settings shows a channel's
   5h and 7d quota from the Node's own `provider_quotas`
   ([settings](settings.md)); the bundled `provider-status` `provider_usage`

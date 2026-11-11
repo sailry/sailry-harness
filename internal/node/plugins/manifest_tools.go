@@ -285,6 +285,38 @@ func validateTool(tool protocol.ToolDeclaration, extension protocol.PluginExtens
 	return nil
 }
 
+// validatePermissions checks each system permission a package contributes:
+// its callbacks are declared, its check cannot write, and the actions its
+// callbacks may use are the package's own.
+func validatePermissions(extension protocol.PluginExtension) error {
+	if len(extension.Permissions) > 32 {
+		return packageFault("too many plugin permission contributions")
+	}
+	for _, entry := range extension.Permissions {
+		if strings.TrimSpace(entry.Subject) == "" || len(entry.Subject) > 256 ||
+			entry.RequestGroup != nil && (*entry.RequestGroup == "" || len(*entry.RequestGroup) > 128) {
+			return packageFault("invalid plugin permission contribution")
+		}
+		for _, action := range entry.Actions {
+			if !slices.Contains(extension.Actions, action) {
+				return packageFault("plugin permission contribution uses an undeclared action")
+			}
+		}
+		if entry.Check == nil {
+			// Only the application's own entries have no callback.
+			if entry.Subject != "sailry" || entry.Request != nil || len(entry.Actions) != 0 {
+				return packageFault("plugin permission contribution has no check callback")
+			}
+			continue
+		}
+		if extension.Host == nil || !slices.Contains(extension.Host.ReadOnly, *entry.Check) ||
+			entry.Request != nil && !slices.Contains(extension.Host.Handlers, *entry.Request) {
+			return packageFault("plugin permission callback is not declared")
+		}
+	}
+	return nil
+}
+
 // validateModels checks the cross references between a package's model
 // declarations and the actions each of them needs.
 func validateModels(extension protocol.PluginExtension) error {

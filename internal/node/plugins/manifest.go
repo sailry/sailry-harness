@@ -329,6 +329,9 @@ func validateExtension(extension protocol.PluginExtension) error {
 	if err := validateModels(extension); err != nil {
 		return err
 	}
+	if err := validatePermissions(extension); err != nil {
+		return err
+	}
 	if err := ValidateCards(extension); err != nil {
 		return err
 	}

@@ -107,6 +107,11 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if !declared {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin does not declare this software action")
 	}
+	if scope.Surface.Kind == "permissions" {
+		if err := checkPluginPermissionSurface(request, info, action); err != nil {
+			return err
+		}
+	}
 	settings := scope.Surface.Kind == "settings"
 	if settings && info.Extension.SettingsPage == nil {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin has no settings contribution")
@@ -254,6 +259,45 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		if scope.Session == nil || !slices.Contains(info.Extension.Actions, required) {
 			return fault(protocol.ErrorCodePermissionDenied, "plugin conversation storage is outside its declared actions")
 		}
+	}
+	return nil
+}
+
+// checkPluginPermissionSurface confines the permissions surface to what a
+// permission contribution names: its check and request callbacks, and inside
+// them the software actions the contribution lists.
+func checkPluginPermissionSurface(request protocol.Request, info protocol.PluginInfo, action protocol.PluginAction) error {
+	scope, entries := request.Plugin, info.Extension.Permissions
+	if !info.Summary.Enabled || len(entries) == 0 || scope.Turn != nil || scope.Worktree != nil || scope.Session != nil {
+		return fault(protocol.ErrorCodePermissionDenied, "permission contribution is unavailable")
+	}
+	named := func(handler func(protocol.PermissionsContribution) *string, name string) bool {
+		return slices.ContainsFunc(entries, func(entry protocol.PermissionsContribution) bool {
+			declared := handler(entry)
+			return declared != nil && *declared == name
+		})
+	}
+	allowed := false
+	switch request.Command.Kind {
+	case "read_plugin_callback":
+		input, err := providerPayload[protocol.CommandReadPluginCallbackPayload](request.Command)
+		if err != nil {
+			return err
+		}
+		allowed = named(func(entry protocol.PermissionsContribution) *string { return entry.Check }, input.Handler)
+	case "call_plugin":
+		input, err := providerPayload[protocol.CommandCallPluginPayload](request.Command)
+		if err != nil {
+			return err
+		}
+		allowed = named(func(entry protocol.PermissionsContribution) *string { return entry.Request }, input.Handler)
+	default:
+		allowed = action != "" && slices.ContainsFunc(entries, func(entry protocol.PermissionsContribution) bool {
+			return slices.Contains(entry.Actions, action)
+		})
+	}
+	if !allowed {
+		return fault(protocol.ErrorCodePermissionDenied, "command is not declared by a permission contribution")
 	}
 	return nil
 }

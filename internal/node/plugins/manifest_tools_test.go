@@ -138,6 +138,21 @@ func testToolDeclarations(t *testing.T) {
 				ID: "notes", Auth: protocol.ConversationPresetsAuth{Kind: "plugin", Data: &protocol.ConversationPresetsAuthPluginPayload{Flow: "missing"}},
 			}}
 		}, false},
+		{"permission with declared callbacks", func(extension *protocol.PluginExtension) {
+			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture", Check: new("recall"), Request: new("save"), Actions: []protocol.PluginAction{protocol.PluginActionReadStorage}}}
+		}, true},
+		{"permission checked by a handler that may write", func(extension *protocol.PluginExtension) {
+			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture", Check: new("save")}}
+		}, false},
+		{"permission requested by an undeclared handler", func(extension *protocol.PluginExtension) {
+			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture", Check: new("recall"), Request: new("missing")}}
+		}, false},
+		{"permission using an undeclared action", func(extension *protocol.PluginExtension) {
+			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture", Check: new("recall"), Actions: []protocol.PluginAction{protocol.PluginActionControlComputer}}}
+		}, false},
+		{"permission without a check", func(extension *protocol.PluginExtension) {
+			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture"}}
+		}, false},
 	} {
 		t.Run(current.name, func(t *testing.T) {
 			var extension protocol.PluginExtension

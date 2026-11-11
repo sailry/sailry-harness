@@ -73,6 +73,42 @@ func testPluginControllerAuthority(t *testing.T) {
 			}
 		}
 		info.Summary.Enabled = true
+		// The permissions surface reaches only what a permission contribution names.
+		check, grant := "check", "grant"
+		info.Extension.Permissions = []protocol.PermissionsContribution{{Kind: protocol.PermissionsKind("accessibility"), Subject: "dev.fixture",
+			Check: &check, Request: &grant, Actions: []protocol.PluginAction{protocol.PluginActionReadStorage}}}
+		scope.Surface.Kind = "permissions"
+		for _, scenario := range []struct {
+			name    string
+			command protocol.Command
+			change  func(*protocol.PluginContext, *protocol.PluginInfo)
+			denied  bool
+		}{
+			{"declared check", protocol.Command{Kind: "read_plugin_callback", Data: &protocol.CommandReadPluginCallbackPayload{Handler: check}}, nil, false},
+			{"declared request", protocol.Command{Kind: "call_plugin", Data: &protocol.CommandCallPluginPayload{Handler: grant}}, nil, false},
+			{"request handler read as a check", protocol.Command{Kind: "read_plugin_callback", Data: &protocol.CommandReadPluginCallbackPayload{Handler: grant}}, nil, true},
+			{"another handler", protocol.Command{Kind: "call_plugin", Data: &protocol.CommandCallPluginPayload{Handler: "other"}}, nil, true},
+			{"listed action", protocol.Command{Kind: "read_plugin_value"}, nil, false},
+			{"declared action the contribution does not list", protocol.Command{Kind: "write_plugin_value"}, nil, true},
+			{"command without an action", protocol.Command{Kind: "read_plugin_settings"}, nil, true},
+			{"session scope", protocol.Command{Kind: "read_plugin_value"}, func(scope *protocol.PluginContext, _ *protocol.PluginInfo) {
+				scope.Session = &session.ID
+			}, true},
+			{"package without a contribution", protocol.Command{Kind: "read_plugin_value"}, func(_ *protocol.PluginContext, info *protocol.PluginInfo) {
+				info.Extension.Permissions = nil
+			}, true},
+		} {
+			captured, current, extension := scope, info, *info.Extension
+			current.Extension = &extension
+			if scenario.change != nil {
+				scenario.change(&captured, &current)
+			}
+			err := CheckPluginRequest(ctx, db, protocol.Request{Plugin: &captured, Command: scenario.command}, current)
+			var rejected *protocol.Fault
+			if !scenario.denied && err != nil || scenario.denied && (!errors.As(err, &rejected) || rejected.Code != protocol.ErrorCodePermissionDenied) {
+				return fmt.Errorf("%s: unexpected permission surface result: %v", scenario.name, err)
+			}
+		}
 		scope.Surface.Kind = "workspace"
 		worktree := session.Worktree
 		scope.Worktree = &worktree
