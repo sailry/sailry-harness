@@ -92,22 +92,35 @@ func devices(c *ui.Context, m *Model, execution bool) {
 	kit.Card(c, func() {
 		for _, d := range list {
 			row := ui.Row(c.Key(d.ID)).Padding(12, 0).Gap(12)
-			if execution {
-				row.ContextMenu(func(menu *ui.Menu) {
-					// Editing a host's network asks the host for it.
-					if menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
-						if m.ConnectionActions != nil && m.ConnectionActions.EditNetwork != nil {
-							m.ConnectionActions.EditNetwork(d)
-						} else {
-							notice(c)
-						}
+			row.ContextMenu(func(menu *ui.Menu) {
+				// Editing a host's network asks the host for it.
+				if execution && menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
+					if m.ConnectionActions != nil && m.ConnectionActions.EditNetwork != nil {
+						m.ConnectionActions.EditNetwork(d)
+					} else {
+						notice(c)
 					}
-				})
-			}
+				}
+				if menu.Item(i18n.T(c, "connections_copy_id")).Chosen() {
+					c.WriteClipboard(d.ID)
+				}
+			})
 			row.Children(func() {
-				kit.MediaRow(c, deviceName(c, d), d.ID, func() {
+				kit.MediaRecord(c, deviceName(c, d), func() {
 					ui.Icon(c, platformIcon(d)).FontSize(20).TextColor(p.Foreground)
-				}, nil)
+				}, nil, func() {
+					// One muted line: the system, the Sailry release and the
+					// start of the Node ID, whose tooltip is the whole ID.
+					ui.Row(c).MinWidth(0).Gap(4).Children(func() {
+						if detail := deviceDetail(d); detail != "" {
+							ui.Text(c, detail+" ·").FontSize(14).LineHeight(1.3).SingleLine().Shrink(1).TextColor(p.Description())
+						}
+						short := ui.Text(c, deviceShortID(d.ID)).FontSize(14).LineHeight(1.3).SingleLine().Shrink(0).TextColor(p.Description())
+						if deviceShortID(d.ID) != d.ID {
+							kit.Tooltip(c, short, d.ID)
+						}
+					})
+				})
 				ui.Row(c).Shrink(0).Gap(12).Children(func() {
 					if d.Online && !d.Local && d.RTT > 0 {
 						ui.Textf(c, "%d ms", d.RTT).FontSize(14).TextColor(p.MutedForeground)
@@ -151,7 +164,26 @@ func deviceName(c *ui.Context, d viewmodel.Device) string {
 	if d.Name != "" {
 		return d.Name
 	}
-	return i18n.T(c, "connections_device", "id", d.ID)
+	return i18n.T(c, "connections_device", "id", deviceShortID(d.ID))
+}
+
+// deviceShortID is the start of a Node ID, enough to tell devices apart.
+func deviceShortID(id string) string { return id[:min(8, len(id))] }
+
+// deviceDetail is what a device reported of itself: its system with the
+// version when known, then its Sailry release.
+func deviceDetail(d viewmodel.Device) string {
+	system := map[string]string{"macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android"}[d.Platform]
+	if system != "" && d.OS != "" {
+		system += " " + d.OS
+	}
+	if d.Version == "" {
+		return system
+	}
+	if system == "" {
+		return "Sailry " + d.Version
+	}
+	return system + " · Sailry " + d.Version
 }
 
 // deviceStatus is the status label's key: the route of an online remote

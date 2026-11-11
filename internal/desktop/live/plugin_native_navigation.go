@@ -34,11 +34,6 @@ func (state *pluginNativeState) navigationOperations() {
 	operations["sailry/ui.workspaceMode"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
 		return pluginNativeJSON("main")
 	}
-	// The browser package's settings: this host keeps no browser profile and
-	// imports none, so its page shows the package's unavailable notice.
-	operations["sailry/ui.readBrowserSettings"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
-		return pluginNativeJSON(map[string]bool{"supported": false, "enabled": false, "persistent": false})
-	}
 	operations["sailry/ui.fileResource"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage("null"), nil
 	}

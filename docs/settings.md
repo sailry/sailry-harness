@@ -240,6 +240,16 @@ save is pending, as its Cancel is disabled then.
   statuses, capability boxes, media rows), `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
   `TestExtensions` (classification, configuration checks, market actions,
   skill sources, a section closing the details).
+  `TestDraftChecks` also renders the Connections rows of a local Host, remote
+  Hosts and a Mobile controller: the detail line, the short ID's tooltip and
+  Copy ID in each row's native menu.
+- `internal/desktop/chrome/chrome_test.go`: the reference's key and cipher
+  vectors, a read-only import of a synthetic profile with its skipped rows, the
+  schema check, confined profile discovery, the failure states, and no secret
+  logged.
+- `internal/desktop/live/browser_settings_test.go`: the Browser page's four
+  calls against a synthetic profile, a fixed password and a cookie store in
+  memory, and the package's real page rendered in zh-CN.
 - `internal/desktop/shell/settings_test.go`: every section opens with its title in
   en and zh-CN, light and dark (snapshots with `SAILRY_SNAPSHOTS`); ⌘/
   opens Shortcuts, recording holds the window's keys, a conflicting key
@@ -398,6 +408,15 @@ Mobile controllers are never queried as execution Nodes. The local execution
 Node has no revoke action. Existing row menus revoke trust after confirmation,
 and host Edit actions open the selected Node's network editor.
 
+A device row's second line is one muted line: the system's name with its
+version, `Sailry <release>` and the first eight characters of the Node ID, each
+part only when known. The system version is the Host's `inspect_host` answer,
+so the local Host and bound Hosts show it; Mobile controllers and offline peers
+do not. The release is the peer's reported software version. Hovering the short
+ID shows the whole ID in a tooltip, and every row's native right-click menu has
+Copy ID (`connections_copy_id`), after Edit on Host rows. The route stays in
+the status label.
+
 The Add dialog retains its pairing and SSH drafts across method changes. PIN
 pairing uses `PairPINOnNetwork` with the selected relay network and one retained
 claim identity across uncertain attempts. It does not change the controller's
@@ -434,6 +453,47 @@ The preview constructor remains isolated and shows its existing empty sharing
 code. The previously documented sharing-scope and WSL UI deviations remain.
 Executable acceptance and cross-platform runtime checks belong to the
 coordinator; this wiring's implementation review uses static checks only.
+
+## Browser page wiring
+
+The Browser page is the bundled `browser` package's `settings.js`; the desktop
+answers its four `sailry/ui` calls in `internal/desktop/live/browser_settings.go`
+as the reference host does. They need a settings view of a package that
+declares `browser.read` (read, list) or `browser.control` (set, import);
+otherwise they fail with "browser capability is unavailable in this view".
+
+| Call | Answer |
+|---|---|
+| `readBrowserSettings()` | `{supported, enabled, persistent}`: macOS; a profile-backed desktop; `browser_persistent`, on by default |
+| `setBrowserPersistent(value)` | Stores the preference; `browser_import_unavailable` off macOS or without a profile |
+| `listBrowserProfiles()` | `[{id, name}]` with IDs made for this view and scan; never a path |
+| `importBrowserProfile(id)` | `{count, skipped}`; `null` when the user refuses the Keychain prompt |
+
+A view runs one scan or import at a time; another, an unsupported system or a
+desktop without a profile answers `browser_import_unavailable`, and an ID the
+last scan did not return `browser_chrome_missing`. The Chrome reader
+(`internal/desktop/chrome`) answers `browser_chrome_missing`,
+`browser_chrome_access_denied`, `browser_chrome_failed` (also a database Chrome
+holds locked), `browser_chrome_schema` (a cookie store that is not version 24),
+`browser_chrome_key_denied` and `browser_chrome_cipher`; a store that cannot be
+read back answers `browser_import_failed`. The page shows each as its toast.
+
+The import opens the profile's cookie database read-only in place, leaves out
+partitioned and expired cookies and values that are not `v10`, reads the
+`Chrome Safe Storage` password of account `Chrome` through `mygo.Secrets` (an
+in-process Keychain query, so the system's prompt names Sailry), decrypts with
+Chromium's PBKDF2-HMAC-SHA1 and AES-128-CBC scheme and checks each value's
+host digest. Cookies are set in the browser tabs' store through MyGo's
+`Session.Cookies`, read back, and counted when the store holds them as given;
+the rest count as skipped. The password, the derived key and the decrypted
+values are overwritten after use and are never logged or sent to a Node or a
+package; the page receives names and counts only.
+
+Deviations from the reference: there is no permission dialog before the
+Keychain prompt (see B13 Permissions), so the system's prompt is the consent;
+the Keychain's user-cancelled status (-128) is the silent `null`, any other
+Keychain failure is `browser_chrome_key_denied`; the value handed to WebKit is
+a Go string, which cannot be overwritten.
 
 ## B10 Terminal wiring
 

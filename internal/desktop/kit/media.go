@@ -15,6 +15,18 @@ const TileSize = 36
 // one-line description in muted text at 70%, 2 DIPs below it. Either function
 // may be nil.
 func MediaRow(c *ui.Context, title, description string, tile, badge func()) ui.Element {
+	var line func()
+	if description != "" {
+		line = func() {
+			ui.Text(c, description).FontSize(14).LineHeight(1.3).SingleLine().TextColor(theme.Of(c).Description())
+		}
+	}
+	return MediaRecord(c, title, tile, badge, line)
+}
+
+// MediaRecord is MediaRow with the description line built by the caller, for
+// a line with parts of its own, such as one that has a tooltip.
+func MediaRecord(c *ui.Context, title string, tile, badge, description func()) ui.Element {
 	p := theme.Of(c)
 	return ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).Children(func() {
 		if tile != nil {
@@ -27,8 +39,8 @@ func MediaRow(c *ui.Context, title, description string, tile, badge func()) ui.E
 					ui.Row(c).Shrink(0).Children(badge)
 				}
 			})
-			if description != "" {
-				ui.Text(c, description).FontSize(14).LineHeight(1.3).SingleLine().TextColor(p.Description())
+			if description != nil {
+				description()
 			}
 		})
 	})
