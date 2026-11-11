@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/core"
 )
 
 func TestPreviewFlagNoNode(t *testing.T) {
@@ -32,5 +36,28 @@ func TestPreviewFlagNoNode(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("preview changed profile path: %v", err)
 		}
+	}
+}
+
+func TestStartFailureCopy(t *testing.T) {
+	t.Parallel()
+	owned := fmt.Errorf("open profile: %w", &core.ProfileInUseError{Path: "/profiles/main"})
+	for _, item := range []struct {
+		name            string
+		lang            string
+		failure         error
+		message, detail string
+	}{
+		{"a profile another process owns is named", "en", owned, "Sailry is already running with this data folder", "/profiles/main"},
+		{"the message follows the system language", "zh-CN", owned, "Sailry 已在使用此数据目录运行", "/profiles/main"},
+		{"any other failure shows its reason", "en", errors.New("Node database is not in WAL mode"), "Sailry could not start", "Node database is not in WAL mode"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			t.Parallel()
+			message, detail := startFailureCopy(item.lang, item.failure)
+			if message != item.message || detail != item.detail {
+				t.Fatalf("start failure copy: %q, %q", message, detail)
+			}
+		})
 	}
 }

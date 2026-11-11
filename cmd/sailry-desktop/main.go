@@ -46,11 +46,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if !options.Preview && options.DataDir == "" && !mygo.App.RequestSingleInstanceLock() {
+		// The Desktop that owns the default profile was told and raises its window.
+		return nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend, err := openBackend(ctx, options)
 	if err != nil {
-		return err
+		return reportStartFailure(err)
 	}
 	defer func() {
 		if err := backend.Close(); err != nil {
@@ -296,6 +300,17 @@ func run() error {
 		if updates != nil {
 			updates.Service.Startup()
 		}
+		// Another launch of the default profile hands over to this one.
+		mygo.App.OnSecondInstance(func([]string, string) {
+			if active == nil && !options.Preview {
+				if err := openWindow(""); err != nil {
+					log.Printf("desktop composition: %v", err)
+				}
+			}
+			if active != nil {
+				guard.raise(active)
+			}
+		})
 		mygo.App.OnNotificationClick(func(id string) {
 			if active == nil && !options.Preview {
 				if err := openWindow(""); err != nil {

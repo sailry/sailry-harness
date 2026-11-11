@@ -362,3 +362,5 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder

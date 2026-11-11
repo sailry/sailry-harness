@@ -1,9 +1,13 @@
 package node
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,4 +88,58 @@ func TestStopDeadline(t *testing.T) {
 		}
 		value.work.Done()
 	})
+}
+
+// TestProfileLockAfterKill runs itself as the owner of a profile and kills
+// that process: the operating system must release the lock with it, and the
+// lock file that stays behind must not stop the next owner.
+func TestProfileLockAfterKill(t *testing.T) {
+	const variable = "SAILRY_TEST_PROFILE_OWNER"
+	if path := os.Getenv(variable); path != "" {
+		if _, err := OpenProfile(context.Background(), path); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Println("owned")
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "profile")
+	owner := exec.Command(os.Args[0], "-test.run=^TestProfileLockAfterKill$")
+	owner.Env = append(os.Environ(), variable+"="+path)
+	output, err := owner.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = owner.Process.Kill()
+		_ = owner.Wait()
+	})
+	line, err := bufio.NewReader(output).ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != "owned" {
+		t.Fatalf("owner process: %q %v", line, err)
+	}
+	var owned *core.ProfileInUseError
+	if _, err := OpenProfile(ctx, path); !errors.As(err, &owned) {
+		t.Fatalf("a second owner of a live profile: %v", err)
+	}
+	if err := owner.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = owner.Wait()
+	if _, err := os.Stat(filepath.Join(path, "node.lock")); err != nil {
+		t.Fatalf("lock file after the owner died: %v", err)
+	}
+	profile, err := OpenProfile(ctx, path)
+	if err != nil {
+		t.Fatalf("profile after its owner was killed: %v", err)
+	}
+	if err := profile.Close(); err != nil {
+		t.Fatal(err)
+	}
 }

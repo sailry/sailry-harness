@@ -2196,3 +2196,5 @@ settings_experimental_description: 开发与调试设置
 settings_demo_mode: 演示模式
 settings_demo_mode_description: 显示示例会话，用于验收与截图
 provider_deepseek: DeepSeek
+start_failed: Sailry 无法启动
+start_profile_in_use: Sailry 已在使用此数据目录运行
