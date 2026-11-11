@@ -4,11 +4,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 
-	"github.com/fsnotify/fsnotify"
-
+	"github.com/sailry/sailry-harness/internal/node/fswatch"
 	"github.com/sailry/sailry-harness/internal/node/knowledge/source"
 )
 
@@ -19,7 +19,7 @@ type rules map[string][]source.Watch
 // backend leaves the periodic rescan active.
 type watches struct {
 	refresh    func()
-	backend    *fsnotify.Watcher
+	backend    *fswatch.Watcher
 	registered map[string]bool
 	desired    rules
 	incomplete bool
@@ -38,7 +38,7 @@ func newWatches(refresh func()) *watches {
 
 func (watches *watches) start() {
 	watches.close()
-	backend, err := fsnotify.NewWatcher()
+	backend, err := fswatch.New()
 	if err != nil {
 		return
 	}
@@ -46,11 +46,11 @@ func (watches *watches) start() {
 	go func() {
 		for {
 			select {
-			case event, open := <-backend.Events:
+			case batch, open := <-backend.Events:
 				if !open {
 					return
 				}
-				if watches.relevant(event) {
+				if slices.ContainsFunc(batch, watches.relevant) {
 					watches.refresh()
 				}
 			case _, open := <-backend.Errors:
@@ -71,22 +71,22 @@ func (watches *watches) close() {
 	}
 }
 
-func (watches *watches) relevant(event fsnotify.Event) bool {
+func (watches *watches) relevant(event fswatch.Event) bool {
 	watches.mu.Lock()
 	defer watches.mu.Unlock()
-	if _, watched := watches.rules[event.Name]; watched {
-		if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+	if _, watched := watches.rules[event.Path]; watched {
+		if event.Lost {
 			// A removed or renamed directory invalidates its registration.
 			watches.failed.Store(true)
 		}
 		return true
 	}
-	parent, found := watches.rules[filepath.Dir(event.Name)]
+	parent, found := watches.rules[filepath.Dir(event.Path)]
 	if !found {
 		return false
 	}
-	name := filepath.Base(event.Name)
-	metadata, err := os.Lstat(event.Name)
+	name := filepath.Base(event.Path)
+	metadata, err := os.Lstat(event.Path)
 	for _, rule := range parent {
 		if err == nil && rule.Accepts(name, metadata.IsDir()) || err != nil && (rule.Accepts(name, false) || rule.Accepts(name, true)) {
 			return true
@@ -117,7 +117,7 @@ func (watches *watches) add(base string, found []source.Watch) {
 		if watches.registered[path] || watches.backend == nil {
 			continue
 		}
-		if err := watches.backend.Add(path); err != nil {
+		if err := watches.backend.Dir(base, path); err != nil {
 			watches.failed.Store(true)
 			slog.Warn("knowledge watch unavailable; periodic rescan remains active", "error", err)
 			continue
@@ -136,7 +136,7 @@ func (watches *watches) finish(complete bool) {
 			}
 			// A removed directory already dropped its own registration.
 			if watches.backend != nil {
-				_ = watches.backend.Remove(path)
+				watches.backend.Drop(path)
 			}
 			delete(watches.registered, path)
 			watches.changed = true

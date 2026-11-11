@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -29,11 +31,61 @@ func message(err error) string {
 	return err.Error()
 }
 
+// attempts bounds how often a pass reads a source that keeps failing with
+// unchanged metadata, and how often a failed collection is retried on the
+// timer. A changed file, a mutation and Invalidate start the count again.
+const attempts = 3
+
+// reported bounds the failures named in a collection's progress.
+const reported = 8
+
+// failed is one source a pass could not index.
+type failed struct {
+	stat      source.Stat
+	reason    string
+	attempts  int
+	directory bool
+}
+
+// failures is what the last pass of one collection could not index. It is
+// kept in memory: a restart tries every source again.
+type failures struct {
+	generation, epoch uint64
+	sources           map[string]failed
+	// collection counts the consecutive passes that failed as a whole.
+	collection int
+}
+
+// retryable reports failures a later pass may still resolve.
+func (failures *failures) retryable() bool {
+	if failures.collection > 0 {
+		return failures.collection < attempts
+	}
+	for _, source := range failures.sources {
+		if source.attempts < attempts {
+			return true
+		}
+	}
+	return false
+}
+
+// progress adds the failures to a collection's progress, the first by path.
+func (failures *failures) progress(progress *protocol.KnowledgeProgress) {
+	progress.Failed = uint64(len(failures.sources))
+	progress.Failures = []protocol.KnowledgeFailure{}
+	for _, path := range slices.Sorted(maps.Keys(failures.sources)) {
+		if len(progress.Failures) == reported {
+			break
+		}
+		progress.Failures = append(progress.Failures, protocol.KnowledgeFailure{Path: path, Reason: failures.sources[path].reason})
+	}
+}
+
 func (service *Service) run() {
 	defer close(service.done)
 	watches := newWatches(service.Refresh)
 	defer watches.close()
-	for service.wait(watches.needsPoll()) {
+	for service.wait(watches.needsPoll() || service.retry) {
 		service.mu.Lock()
 		ctx := service.pass
 		service.mu.Unlock()
@@ -48,7 +100,8 @@ func (service *Service) run() {
 }
 
 // wait blocks until a pass is due. A burst of requests ends after a quiet
-// interval, bounded for continuous edits.
+// interval, bounded for continuous edits. poll also runs a pass after five
+// minutes without a request.
 func (service *Service) wait(poll bool) bool {
 	clock := service.options.Clock
 	var timeout <-chan time.Time
@@ -78,8 +131,10 @@ func (service *Service) wait(poll bool) bool {
 	}
 }
 
-// sweep runs one pass over every collection. A collection that fails is
-// reported as paused and the others continue.
+// sweep runs one pass over every collection. A source that cannot be read
+// is recorded on its collection and the pass continues; a collection that
+// fails as a whole is reported paused with its reason and the others
+// continue. Both are tried again on the next pass.
 func (service *Service) sweep(ctx context.Context, watches *watches) error {
 	watches.begin()
 	catalog, err := service.options.Catalog(ctx)
@@ -98,35 +153,49 @@ func (service *Service) sweep(ctx context.Context, watches *watches) error {
 	if err := service.index.Retain(ctx, ids); err != nil {
 		return err
 	}
-	complete := true
+	maps.DeleteFunc(service.failures, func(id protocol.KnowledgeID, _ *failures) bool { return !slices.Contains(ids, id) })
+	epoch := service.epoch.Load()
+	complete, retry := true, false
 	for _, stored := range catalog {
 		if err := indexingCancelled(ctx); err != nil {
 			return err
 		}
-		err := service.collection(ctx, stored, choice, installed, watches)
+		generation := stored.Collection.Progress.Generation
+		previous := service.failures[stored.Collection.ID]
+		if previous == nil || previous.generation != generation || previous.epoch != epoch {
+			previous = &failures{}
+		}
+		found := &failures{generation: generation, epoch: epoch, sources: map[string]failed{}}
+		service.failures[stored.Collection.ID] = found
+		err := service.collection(ctx, stored, choice, installed, watches, previous, found)
 		if err == nil {
+			retry = retry || found.retryable()
 			continue
 		}
 		if err := indexingCancelled(ctx); err != nil {
 			return err
 		}
 		complete = false
+		found.collection = previous.collection + 1
+		found.sources = map[string]failed{}
+		retry = retry || found.retryable()
 		slog.Warn("knowledge indexing paused", "collection", stored.Collection.ID.String(), "error", message(err))
 		sources, chunks, _ := service.index.Counts(ctx, service.binding(stored, choice))
-		generation := stored.Collection.Progress.Generation
 		_ = service.options.Progress(ctx, stored.Collection.ID, generation, protocol.KnowledgeProgress{
 			Status: protocol.KnowledgeStatusPaused, Sources: sources, Completed: sources, Chunks: chunks,
 			Skipped: stored.Collection.Progress.Skipped, Generation: generation,
+			Failures: []protocol.KnowledgeFailure{{Reason: message(err)}},
 		})
 	}
 	if err := indexingCancelled(ctx); err != nil {
 		return err
 	}
+	service.retry = retry
 	watches.finish(complete)
 	return nil
 }
 
-func (service *Service) collection(ctx context.Context, stored store.KnowledgeStored, choice protocol.ModelsLocalChoice, installed map[string]bool, watches *watches) error {
+func (service *Service) collection(ctx context.Context, stored store.KnowledgeStored, choice protocol.ModelsLocalChoice, installed map[string]bool, watches *watches, previous, found *failures) error {
 	index := service.index
 	binding := service.binding(stored, choice)
 	if err := index.Bind(ctx, binding); err != nil {
@@ -224,18 +293,62 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 	}
 	clock := service.options.Clock
 	last := clock.Now()
-	var locators []string
+	// locators are the sources to keep; kept are the directories whose
+	// published sources stay because the scan could not enter them.
+	var locators, kept []string
+	separator := string(filepath.Separator)
+	if selected.Kind == "worktree" {
+		separator = "/"
+	}
+	// reading is the file whose stamp the scan last asked about, so a
+	// failure can be tied to the metadata it failed with.
+	var reading struct {
+		path string
+		stat source.Stat
+	}
+	// fail records a source this pass could not index. Its published text
+	// stays until the source is read again.
+	fail := func(path, reason string, stat source.Stat, directory, tried bool) {
+		entry := failed{stat: stat, reason: reason, attempts: 1, directory: directory}
+		if before, known := previous.sources[path]; known && before.stat == stat && before.directory == directory {
+			entry.attempts = before.attempts
+			if tried {
+				entry.attempts++
+			}
+		}
+		if tried {
+			slog.Info("knowledge source failed", "collection", binding.ID.String(), "path", path, "reason", reason, "attempt", entry.attempts)
+		}
+		found.sources[path] = entry
+		locators = append(locators, path)
+		if directory {
+			kept = append(kept, path+separator)
+		}
+	}
 	for {
+		var fatal error
+		exhausted := false
 		entry, err := scan.Next(func(path string, stat source.Stat) (bool, error) {
 			if !matches(path) {
 				return true, nil
 			}
+			reading.path, reading.stat = path, stat
 			cached, err := index.Cached(ctx, binding, path, stat, definition.Tags, model != "")
 			if err == nil && !cached {
+				if before, known := previous.sources[path]; known && before.stat == stat && before.attempts >= attempts {
+					// It failed this often with the same metadata; do
+					// not read it again until it changes.
+					exhausted = true
+					return false, newFault(protocol.ErrorCodeUnavailable, before.reason)
+				}
 				err = starting()
 			}
+			fatal = err
 			return cached, err
 		}, func(found []source.Watch) { watches.add(watched, found) })
+		if fatal != nil {
+			return fatal
+		}
 		if err != nil {
 			return err
 		}
@@ -252,6 +365,14 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 				progress.Completed++
 				locators = append(locators, entry.Path)
 			}
+		case entry.Failed:
+			if entry.Directory || matches(entry.Path) {
+				var stat source.Stat
+				if reading.path == entry.Path {
+					stat = reading.stat
+				}
+				fail(entry.Path, entry.Reason, stat, entry.Directory, !exhausted)
+			}
 		case entry.Document == nil:
 			if !entry.Excluded {
 				progress.Skipped++
@@ -259,70 +380,33 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 			}
 		case matches(entry.Document.Path):
 			document := entry.Document
-			progress.Sources++
-			locators = append(locators, document.Path)
-			indexed := Document{Locator: document.Path, Revision: document.Revision, ModifiedMs: document.ModifiedMs, Embedded: model != "", Tags: definition.Tags}
-			unchanged, err := index.Unchanged(ctx, binding, indexed)
+			reason, err := service.publish(ctx, stored, selected, root, binding, model, choice, document, starting)
 			if err != nil {
 				return err
 			}
-			if !unchanged {
-				if err := starting(); err != nil {
-					return err
-				}
-				var parts []Part
-				for _, part := range document.Parts {
-					encoded, err := service.parts(ctx, model, choice, part)
-					if err != nil {
-						return err
-					}
-					parts = append(parts, encoded...)
-				}
-				if err := indexingCancelled(ctx); err != nil {
-					return err
-				}
-				same, err := service.unchanged(ctx, selected, root, document)
-				if err != nil {
-					return err
-				}
-				if !same {
-					return newFault(protocol.ErrorCodeRevisionConflict, "knowledge file changed before publication")
-				}
-				if selected.Kind == "worktree" {
-					moved, err := service.options.Root(ctx, selected.Worktree)
-					if err != nil {
-						return err
-					}
-					if moved != root {
-						return newFault(protocol.ErrorCodeRevisionConflict, "knowledge worktree moved")
-					}
-				}
-				if err := index.Replace(ctx, binding, indexed, parts); err != nil {
-					return err
-				}
+			if reason != "" {
+				fail(document.Path, reason, document.Stat, false, true)
+				break
 			}
-			if err := index.Remember(ctx, binding, document.Path, document.Stat); err != nil {
-				return err
-			}
+			progress.Sources++
+			locators = append(locators, document.Path)
 			progress.Completed++
 		}
 		if active && clock.Since(last) >= 500*time.Millisecond {
 			if _, progress.Chunks, err = index.Counts(ctx, binding); err != nil {
 				return err
 			}
+			found.progress(&progress)
 			if err := report(progress); err != nil {
 				return err
 			}
 			last = clock.Now()
 		}
 	}
-	if !scan.Complete() {
-		return newFault(protocol.ErrorCodeUnavailable, "knowledge source scan was incomplete")
-	}
 	if err := indexingCancelled(ctx); err != nil {
 		return err
 	}
-	if err := index.Prune(ctx, binding, locators); err != nil {
+	if err := index.Prune(ctx, binding, locators, kept); err != nil {
 		return err
 	}
 	if progress.Sources, progress.Chunks, err = index.Counts(ctx, binding); err != nil {
@@ -330,7 +414,62 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 	}
 	progress.Completed = progress.Sources
 	progress.Status = protocol.KnowledgeStatusReady
+	found.progress(&progress)
 	return report(progress)
+}
+
+// publish chunks, embeds and replaces one extracted document. It returns
+// the reason when this document could not be indexed and an error when the
+// collection cannot continue.
+func (service *Service) publish(ctx context.Context, stored store.KnowledgeStored, selected store.KnowledgeSource, root string, binding Binding, model string, choice protocol.ModelsLocalChoice, document *source.Document, starting func() error) (string, error) {
+	index := service.index
+	indexed := Document{Locator: document.Path, Revision: document.Revision, ModifiedMs: document.ModifiedMs, Embedded: model != "", Tags: stored.Collection.Definition.Tags}
+	unchanged, err := index.Unchanged(ctx, binding, indexed)
+	if err != nil {
+		return "", err
+	}
+	if !unchanged {
+		if err := starting(); err != nil {
+			return "", err
+		}
+		var parts []Part
+		for _, part := range document.Parts {
+			encoded, err := service.parts(ctx, model, choice, part)
+			if err != nil {
+				if cancelled := indexingCancelled(ctx); cancelled != nil {
+					return "", cancelled
+				}
+				return message(err), nil
+			}
+			parts = append(parts, encoded...)
+		}
+		if err := indexingCancelled(ctx); err != nil {
+			return "", err
+		}
+		same, err := service.unchanged(ctx, selected, root, document)
+		if err != nil {
+			if cancelled := indexingCancelled(ctx); cancelled != nil {
+				return "", cancelled
+			}
+			return message(err), nil
+		}
+		if !same {
+			return "knowledge file changed before publication", nil
+		}
+		if selected.Kind == "worktree" {
+			moved, err := service.options.Root(ctx, selected.Worktree)
+			if err != nil {
+				return "", err
+			}
+			if moved != root {
+				return "", newFault(protocol.ErrorCodeRevisionConflict, "knowledge worktree moved")
+			}
+		}
+		if err := index.Replace(ctx, binding, indexed, parts); err != nil {
+			return "", err
+		}
+	}
+	return "", index.Remember(ctx, binding, document.Path, document.Stat)
 }
 
 func (service *Service) scan(ctx context.Context, selected store.KnowledgeSource, root string) (*source.Scan, error) {

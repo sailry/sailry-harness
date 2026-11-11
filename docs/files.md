@@ -178,3 +178,53 @@ checkpoint, matching the reference detail reader. Later disk changes cannot
 alter that display. Change sets and notebooks retain their declared result;
 failed calls never acquire a successful diff. Unified file headers and hunk
 metadata do not contribute to the conversation's added/deleted line counts.
+
+## File watches
+
+`internal/node/fswatch` is the one file watcher of the Node. The workspace
+watch (`internal/node/workspace_watch.go`) and the knowledge worker use it;
+the code index subscribes to the workspace watch.
+
+| System | Backend | Cost |
+|---|---|---|
+| macOS | One FSEvents stream per watched root, through purego, on one serial dispatch queue | No descriptor per file or directory |
+| Linux | fsnotify (inotify): the tree is walked and every directory added, new directories as they appear | One inotify watch per directory, bounded by `fs.inotify.max_user_watches` |
+| Windows | fsnotify (`ReadDirectoryChangesW`), added per directory like Linux | One handle per directory |
+
+fsnotify's kqueue backend is not used on macOS: it opens every file of a
+watched directory. Measured on macOS 27.2 with fsnotify v1.10.1, a tree of
+20,000 files in 200 directories held 20,205 descriptors and took 0.58 s to
+add; the FSEvents stream holds none and starts in 3 ms. The limit of the
+process is `kern.maxfilesperproc` (184,320 on that machine), shared with the
+databases, terminals and child processes of the Node.
+
+- Workspace watch: one watcher per worktree root, at most 32 roots, covering
+  the root and the Git directories outside it (a linked worktree's Git and
+  common directories). It opens with the first subscription of a root, outside
+  the owner's lock, and closes with the last one or when the worktree is
+  removed. Subscribers are the Files and Repository topics, the plugin
+  repository status and the code index; the code index gives its subscription
+  up after ten minutes without a query.
+- Events: FSEvents coalesces for 100 ms; each subscription then waits 200 ms
+  after the first change before it publishes `files_changed`. The Git filter
+  decides whether a batch matters to the repository.
+- Dropped events: when FSEvents reports dropped events, or more than 4,096
+  events wait for the reader, the batch becomes one event that names the
+  watched root, which every consumer treats as "everything may have changed".
+- Failure: a root that cannot be watched answers `Unavailable` "file watch is
+  unavailable". On Linux that includes an exhausted inotify watch limit; there
+  is no polling fallback for the workspace watch. The knowledge worker rescans
+  every five minutes while its watch is unavailable, and the code index marks
+  its results partial.
+- Symbolic links are not followed. On macOS reported paths are mapped back
+  below the root as the caller spelled it.
+
+Deviation from the reference: none in behavior. The reference uses the
+`notify` crate, which is FSEvents on macOS and inotify per directory on
+Linux; the Go port first used fsnotify on every system.
+
+Tests: `internal/node/fswatch` (`TestWatcher`: tree and single-directory
+events, descriptors held for 2,000 files, 256 roots) and
+`internal/node/workspace_watch_test.go` (`TestWorkspaceWatch`: shared watch,
+lifetime, concurrent open, removal). The Linux and Windows paths are compiled
+and vetted with `GOOS`, not run.

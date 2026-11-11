@@ -25,6 +25,30 @@ type LocalModel struct {
 	Percent        float64 // of a download
 }
 
+// KnowledgeState is what a knowledge collection is doing.
+type KnowledgeState int
+
+const (
+	KnowledgePending  KnowledgeState = iota // waiting for its indexing pass
+	KnowledgeIndexing                       // being read
+	KnowledgeReady                          // indexed
+	KnowledgePaused                         // paused by the user
+	KnowledgeFailed                         // could not be indexed as a whole
+)
+
+// KnowledgeCollection is a host's knowledge collection: its state, the
+// sources indexed so far, those that could not be indexed (Failed) with
+// the first one's Reason, or the collection's own when it failed as a
+// whole, and whether an action on it is under way.
+type KnowledgeCollection struct {
+	ID, Name string
+	State    KnowledgeState
+	Sources  uint64
+	Failed   uint64
+	Reason   string
+	Busy     bool
+}
+
 // LibraryModel is a model the model library finds (model_library rows).
 type LibraryModel struct {
 	ID, Name, Repo, Kind  string // Kind: model_library_embedding, _ocr, _speech, model_library_decision

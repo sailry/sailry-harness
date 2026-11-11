@@ -77,6 +77,7 @@ var (
 	FileText   = load("file-text")
 	Minus      = load("minus")
 	Pause      = load("pause")
+	Play       = load("play")
 	ArrowRight = load("arrow-right")
 	CircleUser = load("circle-user")
 	Eye        = load("eye")

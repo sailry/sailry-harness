@@ -52,6 +52,8 @@ type localModelState struct {
 	shown   *Runtime
 	visible bool
 	library modelLibraryState
+	// knowledge is whether the Knowledge page showed last frame.
+	knowledge bool
 }
 
 // localModelsFrame keeps the local-model pages on the selected host's
@@ -72,7 +74,7 @@ func (r *Runtime) localModelsFrame() {
 	}
 	visible := settingsPage && (m.Section == settings.OCR || m.Section == settings.Knowledge || m.Section == settings.Decision)
 	if !visible {
-		state.visible = false
+		state.visible, state.knowledge = false, false
 		return
 	}
 	owner := root.runtimeFor(root.App.Host)
@@ -87,6 +89,7 @@ func (r *Runtime) localModelsFrame() {
 	}
 	if owner == nil {
 		projectLocalModels(m.Model, &localModelState{}, nil)
+		m.Collections = nil
 		root.libraryFrame(nil)
 		return
 	}
@@ -105,6 +108,10 @@ func (r *Runtime) localModelsFrame() {
 		tasks = owner.packages.tasks
 	}
 	projectLocalModels(m.Model, s, tasks)
+	if m.Section == settings.Knowledge {
+		owner.knowledgeFrame(m.Model, entered || !state.knowledge)
+	}
+	state.knowledge = m.Section == settings.Knowledge
 	root.libraryFrame(owner)
 }
 
@@ -147,6 +154,10 @@ func (r *Runtime) modelActions() *settings.ModelActions {
 		LibraryCancel:  r.cancelLibraryModel,
 		LibraryDelete:  r.deleteLibraryModel,
 		LibraryDetails: r.readLibraryModel,
+		CollectionPause: func(id string, paused bool) {
+			on(func(owner *Runtime) { owner.pauseCollection(id, paused) })
+		},
+		CollectionUpdate: func(id string) { on(func(owner *Runtime) { owner.updateCollection(id) }) },
 	}
 }
 
@@ -224,13 +235,13 @@ func (s *localModelState) registryChanged(models []protocol.ModelsLocalModel) {
 }
 
 // watchLocalModels follows the Node's events: a changed registry replaces
-// the models, changed settings and a new snapshot mark what was read as
-// stale, read again while a page shows. A stream that ends is not opened
+// the models, changed settings, changed knowledge collections and a new
+// snapshot mark what was read as stale, read again while a page shows. A stream that ends is not opened
 // again until a page is entered anew.
 func (r *Runtime) watchLocalModels() {
 	s := &r.localModels
 	lost := func() {
-		r.enqueue(func(*ui.Context) { s.watching, s.unwatched, s.stale = false, true, true })
+		r.enqueue(func(*ui.Context) { s.watching, s.unwatched, s.stale, r.knowledge.stale = false, true, true, true })
 	}
 	s.watching = r.observe(func() {
 		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "node"})
@@ -250,7 +261,7 @@ func (r *Runtime) watchLocalModels() {
 				// The subscription opens with the snapshot the frame's own
 				// read already covers.
 				if !first {
-					r.enqueue(func(*ui.Context) { s.stale = true })
+					r.enqueue(func(*ui.Context) { s.stale, r.knowledge.stale = true, true })
 				}
 			case "event":
 				envelope, valid := detail[protocol.EventEnvelope](update.Data)
@@ -262,6 +273,9 @@ func (r *Runtime) watchLocalModels() {
 					if changed, valid := detail[protocol.EventLocalModelsChangedPayload](envelope.Event.Data); valid {
 						r.enqueue(func(*ui.Context) { s.registryChanged(changed.Models) })
 					}
+				case "knowledge_collections_changed":
+					// The event names no collection: the page reads them again.
+					r.enqueue(func(*ui.Context) { r.knowledge.stale = true })
 				case "local_model_settings_changed":
 					if changed, valid := detail[protocol.EventLocalModelSettingsChangedPayload](envelope.Event.Data); valid {
 						r.enqueue(func(*ui.Context) {

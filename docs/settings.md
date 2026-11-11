@@ -121,7 +121,8 @@ AI group fields: `Channels`, `Brands`, `Catalog`, `Compaction`
 `ConnQuery`, `ConnMethod`; `Teams`, `Roles`, `Concurrency` (Stored),
 `TeamTab`; `Packages`, `MarketPlugins`, `SkillList`, `MarketSkills`,
 `Themes`, `Library`, `SkillQuery`, the `Market*` filters; `Knowledge`
-and `Decision` (`LocalModels`).
+and `Decision` (`LocalModels`), `Collections`
+(`[]viewmodel.KnowledgeCollection`, live only).
 
 Loading states (`preview.Fetch`, played on the frame clock for
 `preview.LoadAfter`; nothing is fetched): `MarketLoad` shows six card
@@ -655,12 +656,30 @@ repeat, so an older answer never replaces the event's registry.
   picker's last choice (`Missing`) instead of being cleared silently.
 - **Knowledge.** There is no switch: Keyword only saves `enabled: false`, a
   model saves `enabled: true`.
+- **Collections.** The Knowledge page lists the host's knowledge collections
+  (`Model.Collections`, `settings/collections.go`) below the models, in a
+  group that is absent while the host has none. `live/settings_knowledge.go`
+  reads `list_knowledge_collections` when the page is entered and again
+  after each `knowledge_collections_changed` on the same `node`
+  subscription; the event carries no data, so the client projection keeps
+  no copy. A row is the collection's name over its state:
+  waiting, indexing with the sources read so far, up to date with the
+  sources indexed, paused, the number of sources that could not be indexed
+  with the first one's path and reason, or the reason the whole collection
+  failed. Its actions are Pause or Resume (`pause_knowledge_collection`)
+  and Update (`update_knowledge_collection` with the definition unchanged,
+  which reads the sources again and retries failed ones). Both are sent at
+  the revision read, lock the row while under way and report only failure,
+  conflict and an unknown outcome (`CollectionMessages`); the collections
+  are then read again. The preview has no collections.
 - **Library.** `LibraryRequest` (kind, hub, searched query, search serial)
   drives `search_models`; a search is abandoned when the request changes or
   the dialog closes. Install is `resolve_model` → `register_local_model` →
   `install_local_model`, Details is `read_model_versions` → `resolve_model`,
   Cancel is `cancel_local_model` (`knowledge_cancel_requested`), Delete is
-  `delete_local_model` after the confirmation (`knowledge_deleted`). An
+  `delete_local_model` after the confirmation (`knowledge_deleted`); the
+  Node then forgets the registration too, unless the model is still selected
+  or named by a collection ([details](models.md#deviations-1)). An
   install's request is retained for the installation queue's Retry and reused
   after an unknown outcome; a canceled install shows no toast.
 - **Preview.** Unchanged: `ModelActions` is nil, pages change in memory and
@@ -668,11 +687,17 @@ repeat, so an older answer never replaces the event's registry.
 
 Deviations from the Rust reference:
 
-- The library loads the first hub page only (following empty pages); the
-  accepted dialog has no load-more control.
+- The library loads the first hub page only; the accepted dialog has no
+  load-more control. An answer without a compatible model is followed at
+  most three times (`libraryAnswers`, nine hub pages with the Node's own
+  skipping) and then reported as `model_library_partial`, so a query that
+  matches only other kinds of model does not read the hub's whole listing.
 - `refresh_local_model` is not called: the accepted details dialogs have no
   Update control.
 - Only the save locks the page; a running download does not.
+- The Knowledge page lists the collections with their state and Pause,
+  Resume and Update; the reference shows no collection anywhere, so a paused
+  or failing one was invisible.
 
 ### Dictation (controller-local)
 
@@ -697,7 +722,20 @@ manager, not `ReadLocalModels`.
   (resume, size and SHA-256) over `netproxy.Transport()`, so they follow the
   desktop's proxy settings. A downloaded model counts as installed only after
   the recognizer was constructed over it. A model in use by a dictation is
-  neither removed nor downloaded again.
+  neither removed nor downloaded again. `Capture.Ready` hashes a model's
+  files once and then trusts the receipt the Node registry also uses
+  (`validated` and `.verified` in the model's directory: the sizes,
+  modification times and file identities that were hashed, bound to the
+  definition); the files are hashed again only after one of them changed or
+  the receipt is gone. An installation writes the receipt, so the first
+  dictation after it does not hash either. A directory that cannot be
+  written is hashed every time. `Open` clears what a crash left:
+  index drafts (`models/.speech-*.json`), partial downloads that cannot be
+  resumed or were not written for 7 days (`assets.Sweep`,
+  [details](models.md#deviations-1)), and the holders of interrupted
+  removals (`models/speech/.speech-delete-<id>`). A holder whose model the
+  index still lists is the removal that stopped before the index was saved:
+  its files are put back; any other holder is deleted.
 - `live/settings_models_speech.go` owns the page (`dictationFrame`, called by
   `drain`):
   - SDICT-001: `Model.MicrophoneGranted` is `capture.Status()`, read on every
@@ -720,8 +758,13 @@ manager, not `ReadLocalModels`.
   speech kind reach a Node in the reference, from its model library. The
   accepted Dictation page has no library, so nothing registers a speech model:
   `Manager.Register` and `Manager.Remove` exist and are tested but have no
-  control, and the library dialog still answers a speech result with
-  `dictation_unavailable`.
+  control. The library dialog opens only from the OCR, Knowledge and Decision
+  pages and searches that page's kind, so it lists no speech model; were a
+  result of the speech kind to appear, its Install answers
+  `model_library_speech_unsupported` instead of sending it to a Node, which
+  refuses the kind. Adding, deleting and updating a speech model from a hub
+  (settings audit D4, D7, D8) need a library entry on the Dictation page,
+  which is a layout decision and not part of the wiring.
 
 Deviations from the reference:
 
@@ -731,6 +774,8 @@ Deviations from the reference:
 | Outside macOS the access row always reads Allowed | Only macOS gates the microphone per application; the reference shows an inert Request on Windows |
 | A refused or restricted microphone is the `dictation_permission` toast | The reference's permission card with its system-settings link is not part of the accepted page |
 | A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
+| A dictation starts on the model's receipt instead of hashing the model | The reference hashes every file (about 240 MB for the recommended model) before each recording; a file changed in place is still found, because its size, modification time or change time differs |
+| Leftovers of a crash are cleared when the manager opens, and an interrupted removal is undone or finished | The reference names its holder at random and sweeps nothing, so the files of a model stayed in a holder nothing could find |
 | Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
 | The speech, ONNX Runtime and capture libraries load only from the executable's directory, or `Contents/Resources` of the macOS application bundle | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |
 

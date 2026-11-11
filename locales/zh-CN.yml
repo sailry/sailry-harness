@@ -2802,3 +2802,14 @@ queue_wait_unsent: 未发送
 queue_wait_limit: 已达自动续接上限
 queue_wait_failed: 失败后暂缓
 chat_output_limit: 回复已达输出上限
+knowledge_collections: 集合
+knowledge_collection_pending: 等待索引
+knowledge_collection_indexing: "索引中 · %{count} 项"
+knowledge_collection_ready: "已是最新 · %{count} 项"
+knowledge_collection_paused: 已暂停
+knowledge_collection_failed: "失败 · %{reason}"
+knowledge_collection_failures: "%{count} 项未索引 · %{reason}"
+knowledge_pause: 暂停
+knowledge_resume: 继续
+knowledge_update: 更新
+model_library_speech_unsupported: 模型库不支持添加语音模型

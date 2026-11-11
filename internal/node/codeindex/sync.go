@@ -230,7 +230,7 @@ type refreshed struct {
 }
 
 // refresh re-reads files under the sync lock and replaces changed ones, so
-// returned revisions match disk even when a path-less watch event has not
+// returned revisions match disk even when a watch event has not
 // reached them in the scan cursor.
 func (s *Service) refresh(ctx context.Context, worktree *worktree, index *index, progress *progress, paths []string, deadline time.Time) (refreshed, error) {
 	result := refreshed{checked: map[string]bool{}}

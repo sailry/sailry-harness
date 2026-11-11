@@ -37,7 +37,8 @@ one-based lines. An index build holds the keep-awake request (see
 |---|---|
 | The index fingerprint differs from the reference, so each engine rebuilds the other's rows | The parser and extraction rules are a different implementation; the index is disposable |
 | Full-text ranking uses SQLite FTS5 `bm25` | The reference ranks with its own database's score function; the ordering rules are the same, scores can differ |
-| A change marks the whole worktree stale and the next query rescans by revision | The reference invalidates single paths at each write site; the watch subscription already covers external and internal edits |
+| A change marks the whole worktree stale and the next query rescans by revision; the watch also names the changed files (`Service.Observed`), which move to the front of that reconcile, at most 4,096 remembered per worktree | The reference invalidates single paths at each write site; the watch subscription already covers external and internal edits |
+| A worktree without a query for ten minutes closes its index and gives up its file watch; the next query opens both and reconciles by revision | The reference keeps one watch per queried worktree for the life of the Node, which uses up the 32 watched roots |
 | The index setting is not tied to the code package's enabled state | The reference couples both; here a disabled package only removes its tools |
 | `code_search` and `code_outline` tool results keep the `{kind, data}` envelope | Direct operations return the command output; the reference returns the shaped data alone |
 | The prune deadline is checked between batches of 64 files | Checking per file adds nothing at that batch size |

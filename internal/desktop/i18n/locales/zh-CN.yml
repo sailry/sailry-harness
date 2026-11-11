@@ -1175,6 +1175,16 @@ search_driver_auto: 自动
 knowledge_settings: 默认设置
 knowledge_default_model: 向量模型
 knowledge_keyword_only: 仅关键词
+knowledge_collections: 集合
+knowledge_collection_pending: 等待索引
+knowledge_collection_indexing: 索引中 · %{count} 项
+knowledge_collection_ready: 已是最新 · %{count} 项
+knowledge_collection_paused: 已暂停
+knowledge_collection_failed: 失败 · %{reason}
+knowledge_collection_failures: '%{count} 项未索引 · %{reason}'
+knowledge_pause: 暂停
+knowledge_resume: 继续
+knowledge_update: 更新
 runtime_decision: 决策
 runtime_decision_model: 模型
 runtime_decision_enable: 启用决策
@@ -2018,6 +2028,7 @@ knowledge_saved: 已保存
 knowledge_cancel_requested: 已请求取消
 model_library_failed: 无法加载模型
 model_library_partial: 部分结果不可用
+model_library_speech_unsupported: 模型库不支持添加语音模型
 local_models_unavailable: 不可用
 dictation_unavailable: 本地语音输入不可用
 dictation_model_missing: 请先下载语音模型

@@ -13,10 +13,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Embedding is one model's vector of the query text.
+// Embedding is one model's vector of the query text. It is compared only
+// with vectors built by the same model and identity (Binding).
 type Embedding struct {
-	Model  string
-	Values []float32
+	Model    string
+	Identity string
+	Values   []float32
 }
 
 // filter admits only chunks of captured grants and applies source filters
@@ -151,7 +153,7 @@ func ranks(ctx context.Context, db *sql.Conn, query protocol.KnowledgeQuery, all
 	if query.Mode != protocol.KnowledgeModeKeyword {
 		for _, embedding := range embeddings {
 			rows, err := db.QueryContext(ctx, "SELECT c.key,c.vector FROM chunks c "+filter+" AND json_extract(admitted.value,'$.semantic')=1 AND k.model=?7 AND k.dimension=?8 AND c.vector IS NOT NULL",
-				grants, tags, path, after, before, choices, embedding.Model, len(embedding.Values))
+				grants, tags, path, after, before, choices, vectorKey(embedding.Model, embedding.Identity), len(embedding.Values))
 			if err != nil {
 				return nil, "", err
 			}

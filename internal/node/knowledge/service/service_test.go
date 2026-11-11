@@ -103,7 +103,7 @@ func newHarness(t *testing.T) *harness {
 			settings := fixture.settings()
 			return localmodels.Choice(&settings, protocol.ModelsKindEmbedding)
 		},
-		Dimension: func(model string) (int, bool) { return 2, model == localmodels.DefaultEmbedding },
+		Dimension: func(model string) (int, string, bool) { return 2, "fixture", model == localmodels.DefaultEmbedding },
 		Installed: func() (map[string]bool, error) {
 			fixture.mu.Lock()
 			defer fixture.mu.Unlock()
@@ -487,6 +487,32 @@ func TestKnowledgeQuery(t *testing.T) {
 		wantCode(t, put(binding, "late.md", "向量", nil), protocol.ErrorCodeCancelled)
 		if page := search(resumed, "向量", nil, embedding); page.Mode != protocol.KnowledgeModeHybrid || len(page.Hits) != 1 {
 			t.Fatalf("resumed = %s %v", page.Mode, names(page.Hits))
+		}
+
+		// The same model with other files keeps the text and drops the
+		// vectors: they are never compared with the changed model's.
+		repinned := resumed
+		repinned.Identity = "repinned"
+		changed := Embedding{Model: "bge-small-zh", Identity: "repinned", Values: []float32{1, 0}}
+		if page := search(repinned, "向量", nil, changed); page.Mode != protocol.KnowledgeModeKeyword || len(page.Hits) != 1 {
+			t.Fatalf("changed model before its pass = %s %v", page.Mode, names(page.Hits))
+		}
+		if err := index.Bind(ctx, repinned); err != nil {
+			t.Fatal(err)
+		}
+		for _, embedding := range []Embedding{embedding, changed} {
+			if page := search(repinned, "向量", nil, embedding); page.Mode != protocol.KnowledgeModeKeyword || len(page.Hits) != 1 {
+				t.Fatalf("changed model %q = %s %v", embedding.Identity, page.Mode, names(page.Hits))
+			}
+		}
+		if unchanged, err := index.Unchanged(ctx, repinned, Document{Locator: "source.md", Revision: strings.Repeat("a", 64), ModifiedMs: 20, Tags: []string{"selected"}, Embedded: true}); err != nil || unchanged {
+			t.Fatalf("document of the changed model unchanged = %v %v", unchanged, err)
+		}
+		if err := index.Bind(ctx, resumed); err != nil {
+			t.Fatal(err)
+		}
+		if err := put(resumed, "source.md", "向量", []float32{1, 0}); err != nil {
+			t.Fatal(err)
 		}
 
 		// Another model keeps the text and drops the vectors.

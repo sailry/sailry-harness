@@ -371,3 +371,14 @@ queue_wait_unsent: Not sent
 queue_wait_limit: Held at automatic limit
 queue_wait_failed: Held after failure
 chat_output_limit: Reply cut at the output limit
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: "Indexing · %{count} items"
+knowledge_collection_ready: "Up to date · %{count} items"
+knowledge_collection_paused: Paused
+knowledge_collection_failed: "Failed · %{reason}"
+knowledge_collection_failures: "%{count} not indexed · %{reason}"
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
+model_library_speech_unsupported: Speech models cannot be added from the library

@@ -58,6 +58,7 @@ type Runtime struct {
 	terminalSettings         terminalSettingsState
 	backupSettings           backupSettingsState
 	localModels              localModelState
+	knowledge                knowledgeState
 	media                    mediaState
 	dictation                dictationState
 	usage                    featureUsage

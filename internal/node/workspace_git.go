@@ -70,7 +70,11 @@ func (node *Node) workspaceGitEffect(ctx context.Context, request protocol.Reque
 			return protocol.Output{}, err
 		}
 		node.watches.remove(capture.Worktree.Path)
-		effect.after = func() { node.removeCodeIndexes(input.Worktree) }
+		effect.after = func() {
+			node.removeCodeIndexes(input.Worktree)
+			// The pass removes the knowledge collections of the worktree.
+			node.knowledge.Refresh()
+		}
 		effect.external = true
 		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
 			changes, err := store.FinishRemovedWorktree(ctx, db, input.Worktree)

@@ -1175,6 +1175,16 @@ search_driver_auto: Automatique
 knowledge_settings: Valeurs par défaut
 knowledge_default_model: Modèle vectoriel
 knowledge_keyword_only: Mots-clés uniquement
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: Décisions
 runtime_decision_model: Modèle
 runtime_decision_enable: Activer les décisions
@@ -2018,6 +2028,7 @@ knowledge_saved: Enregistré
 knowledge_cancel_requested: Annulation demandée
 model_library_failed: Impossible de charger les modèles
 model_library_partial: Certains résultats sont indisponibles
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: Indisponible
 dictation_unavailable: Entrée vocale locale non disponible
 dictation_model_missing: Télécharger un modèle de discours en premier

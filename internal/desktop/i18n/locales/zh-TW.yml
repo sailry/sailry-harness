@@ -1175,6 +1175,16 @@ search_driver_auto: 自動
 knowledge_settings: 預設設定
 knowledge_default_model: 向量模型
 knowledge_keyword_only: 僅關鍵字
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: 決策
 runtime_decision_model: 模型
 runtime_decision_enable: 啟用決策
@@ -2018,6 +2028,7 @@ knowledge_saved: 已儲存
 knowledge_cancel_requested: 已要求取消
 model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
