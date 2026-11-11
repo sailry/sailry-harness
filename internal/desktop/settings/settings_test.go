@@ -1843,6 +1843,8 @@ func TestExtensions(t *testing.T) {
 				return ui.Rect{X: at.X + 12, Y: middle - 10, W: 20, H: 20}, ui.Rect{X: at.X + 16, Y: middle - 16, W: 12, H: 3}
 			}
 			// The glyph is on its tint's gradient, in no color of its own.
+			// The declared icon is back: draw it before reading the tile.
+			settle()
 			inner, edge := tile(subject.Name)
 			if vivid(edge) == 0 {
 				t.Error("a glyph's tile has no tint")
