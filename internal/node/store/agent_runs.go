@@ -254,11 +254,21 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 }
 func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocation, []protocol.Event, error) {
 	events := []protocol.Event{}
+	delivered := false
 	for {
 		var id string
 		err := db.QueryRowContext(ctx, "SELECT a.turn FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND p.recipient IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, events, nil
+			if delivered {
+				return nil, events, nil
+			}
+			delivered = true
+			admitted, changed, err := scheduleDeliveries(ctx, db, now)
+			events = append(events, changed...)
+			if err != nil || !admitted {
+				return nil, events, err
+			}
+			continue
 		}
 		if err != nil {
 			return nil, events, err
@@ -521,15 +531,10 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		}
 		events = append(events, changed...)
 	}
-	var identity []byte
-	if err = db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {
+	node, err := nodeIdentity(ctx, db)
+	if err != nil {
 		return run, nil, err
 	}
-	if len(identity) != 32 {
-		return run, nil, invalid("invalid Node identity")
-	}
-	var node protocol.NodeID
-	copy(node[:], identity)
 	_, changed, err = ScheduleBackground(ctx, db, node, owner, now)
 	events = append(events, changed...)
 	return run, events, err

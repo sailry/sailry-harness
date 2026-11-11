@@ -365,3 +365,120 @@ func TestQueueSettlement(t *testing.T) {
 		})
 	}
 }
+
+func TestBackgroundDelivery(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"claim pass delivers once the queue resumes", "plan mode delivers", "automatic chain stops at its limit"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			mode := protocol.WorkModeCode
+			if name == "plan mode delivers" {
+				mode = protocol.WorkModePlan
+			}
+			storage, node, session, turn, now := agentHistoryFixture(t, mode)
+			ctx := context.Background()
+			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				if _, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", turn.String()); err != nil {
+					return err
+				}
+				deliver := func(key string) (*AgentInvocation, error) {
+					if _, err := backgroundFixtureRecord(ctx, db, session, turn, key, true, now); err != nil {
+						return nil, err
+					}
+					next, _, err := ClaimNext(ctx, db, now)
+					if err != nil || next == nil {
+						return nil, err
+					}
+					if !next.Run.Notice || len(next.Run.Notices) != 1 || next.Run.Notices[0].ID != key {
+						return nil, fmt.Errorf("claim was not the notice turn for %s", key)
+					}
+					_, _, err = FinishTurn(ctx, db, next.Run.Turn, protocol.ConversationStatusCompleted, nil, now)
+					return next, err
+				}
+				switch name {
+				case "claim pass delivers once the queue resumes":
+					if err := setQueuePaused(ctx, db, session.ID, true); err != nil {
+						return err
+					}
+					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if next, err := deliver("waiting"); err != nil || next != nil {
+						return fmt.Errorf("paused queue started a notice turn: %v", err)
+					}
+					// Resuming schedules nothing itself; the claim pass finds the result.
+					if err := setQueuePaused(ctx, db, session.ID, false); err != nil {
+						return err
+					}
+					next, _, err := ClaimNext(ctx, db, now)
+					if err != nil {
+						return err
+					}
+					if next == nil || !next.Run.Notice || len(next.Run.Notices) != 1 || next.Run.Notices[0].ID != "waiting" {
+						return errors.New("result stayed undelivered after its blocker cleared")
+					}
+				case "plan mode delivers":
+					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if next, err := deliver("planned"); err != nil || next == nil {
+						return fmt.Errorf("Plan mode withheld the result: %v", err)
+					}
+				default:
+					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					for index := 0; index < noticeLimit; index++ {
+						if next, err := deliver(fmt.Sprintf("chain-%d", index)); err != nil || next == nil {
+							return fmt.Errorf("notice turn %d did not start: %v", index, err)
+						}
+					}
+					if next, err := deliver("held"); err != nil || next != nil {
+						return fmt.Errorf("chain passed its limit: %v", err)
+					}
+					held, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='held'")
+					if err != nil {
+						return err
+					}
+					if held == nil || !held.Task.Suppressed || held.Task.State != protocol.ConversationBackgroundStatePending || held.Task.Delivery != nil {
+						return errors.New("held result does not wait for user input")
+					}
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					user, err := delegationFixtureParent(ctx, db, node, current, now)
+					if err != nil {
+						return err
+					}
+					// The fixture records no input, which is what removes the row.
+					if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", user.String()); err != nil {
+						return err
+					}
+					run, _, _, err := BindBackground(ctx, db, user)
+					if err != nil {
+						return err
+					}
+					// The fixture never confirms a notice turn's input, so the
+					// earlier results are released to this turn as well.
+					if len(run.Notices) == 0 || run.Notices[len(run.Notices)-1].ID != "held" {
+						return errors.New("user turn did not receive the held result")
+					}
+					if _, _, err = FinishTurn(ctx, db, user, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if _, err = backgroundFixtureRecord(ctx, db, session, turn, "after-user", true, now); err != nil {
+						return err
+					}
+					if next, _, err := ClaimNext(ctx, db, now); err != nil || next == nil || !next.Run.Notice {
+						return fmt.Errorf("user input did not reset the chain: %v", err)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

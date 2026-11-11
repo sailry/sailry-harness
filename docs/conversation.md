@@ -514,11 +514,32 @@ without an owner.
   cancelled without pausing the queue or raising attention; a queue that
   still holds the user's input is paused.
 
+- **Background results.** A finished background child, or a command that
+  asked for a follow-up, starts a notice turn when its session is free: not
+  archived, not a child, worktree present, queue running and empty, no
+  running turn and no pending approval or question. Work mode does not
+  matter; a notice turn in Plan mode runs under Plan's own restrictions.
+  Delivery is level-triggered: besides the two edges that finish a result,
+  every claim pass that finds nothing ready admits a notice turn for each
+  free session that still holds results, so a result waits only for its
+  blocker whichever command removed it. An admission that fails (for
+  example a disabled provider) leaves the results deliverable and is logged
+  once per session and reason (`event=node.background operation=deliver
+  status=refused`).
+- **Automatic chain limit.** A session starts at most eight notice turns in a
+  row without user input. The count covers started notice turns since the
+  last user turn or joined guidance; plugin continuations and automatic
+  turns that never started neither count nor reset it. At the limit the
+  remaining results are marked suppressed, logged (`status=held`), stay
+  visible as pending background tasks and join the user's next message.
+
 ### Differences from the reference
 
 | Difference | Reason |
 |---|---|
 | A child whose owner cancelled it without a stop command (its parent turn ended) ends `interrupted`; the reference ends it `cancelled` | The label is delegation's; neither outcome is delivered automatically |
+| Notice turns are bounded per session by a flat count of eight; the plan described a chain depth of four | A flat count needs no lineage between results and also bounds independent results arriving apart; eight leaves room for a fan-out, and each notice turn carries up to 16 results |
+| Held results reuse the `suppressed` task flag instead of a dedicated reason | No protocol change; the log names the reason. A visible reason needs a new field on the background task |
 | Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |
 | Guidance pending at a user Stop waits in the paused queue; the reference starts it as a successor turn at once | Stop means stop: nothing runs until the user sends or resumes, and the message stays visible and editable |
 | The ordinary claim skips guidance while its recipient runs, and every exit of the recipient releases it; the reference claims without looking at the recipient and repairs the tag on each exit path | One release point in `FinishTurn` and one in `RecoverRuns` cover Stop, failure, completion and restart |
