@@ -232,9 +232,20 @@ keeps up to eight idle.
   committed: the interrupted job receives its cancellation, every other job of
   the batch fails with the retryable `busy` fault "storage transaction was rolled
   back; retry the operation", and the writer continues with the next batch. Jobs
-  are not replayed, because a callback may have changed state outside SQL. The
-  writer stops with OutcomeUnknown only when `COMMIT` fails and the rollback
-  cannot confirm that nothing was written.
+  are not replayed, because a callback may have changed state outside SQL.
+- A `COMMIT` that fails is decided by whether the connection still holds a
+  transaction, not by the error of the `ROLLBACK` that follows. SQLite rolls
+  the transaction back itself when a commit cannot be written (a full disk, an
+  I/O error) and the `ROLLBACK` then only reports that none is active; a
+  refused commit that leaves the transaction open is rolled back. Both are known
+  to be uncommitted and answer the retryable `busy` fault; a full disk answers
+  `busy` "storage is full; free disk space and retry the operation", also when
+  a write statement meets it. Only when the connection can neither roll back
+  nor begin does the batch answer `outcome_unknown`. The writer then closes
+  that connection, which discards any transaction it held, and opens another
+  that must take the write lock; later batches run on it. While no connection
+  can be opened each batch answers `unavailable` and tries again, so no state
+  needs a restart.
 - Startup accepts an empty database or owned storage at generation 1. Any other
   state is refused with "existing data was not changed" and left untouched; no
   path removes or resets a database. Every start checks each owned table with

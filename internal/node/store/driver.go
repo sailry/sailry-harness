@@ -145,7 +145,7 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	}
 	state := &connections{
 		writeDB: writeDB, readDB: readDB,
-		writer: &writer{connection: connection, jobs: make(chan *writeJob), stop: make(chan struct{}), done: make(chan struct{})},
+		writer: &writer{database: writeDB, connection: connection, jobs: make(chan *writeJob), stop: make(chan struct{}), done: make(chan struct{})},
 	}
 	go state.writer.run()
 	return state, nil

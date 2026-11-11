@@ -53,9 +53,9 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 
 // Exclusive drains existing reads and admitted writes and blocks new leases.
 type Exclusive struct {
-	handle     *Handle
-	connection *sql.Conn
-	close      sync.Once
+	handle *Handle
+	writer *writer
+	close  sync.Once
 }
 
 func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
@@ -69,10 +69,11 @@ func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
 		handle.leases.Release(allLeases)
 		return nil, core.ErrStopped
 	}
-	return &Exclusive{handle: handle, connection: state.writer.connection}, nil
+	return &Exclusive{handle: handle, writer: state.writer}, nil
 }
 
-func (exclusive *Exclusive) Connection() *sql.Conn { return exclusive.connection }
+// Connection is the writer's connection, which is idle while every lease is held.
+func (exclusive *Exclusive) Connection() *sql.Conn { return exclusive.writer.connection }
 
 func (exclusive *Exclusive) Close() error {
 	exclusive.close.Do(func() { exclusive.handle.leases.Release(allLeases) })
@@ -92,7 +93,7 @@ func (handle *Handle) Pause(ctx context.Context) (*Closed, error) {
 		return nil, err
 	}
 	var busy, log, checkpointed int
-	if err := exclusive.connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
+	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
 		_ = exclusive.Close()
 		return nil, err
 	}

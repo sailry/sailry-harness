@@ -346,7 +346,7 @@ func backupStrings(ctx context.Context, db *sql.Conn, query string) ([]string, e
 func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
 	handle := exclusive.handle
 	var busy, log, checkpointed int
-	if err := exclusive.connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
+	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
 		return nil, err
 	}
 	if busy != 0 {
