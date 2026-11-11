@@ -16,8 +16,9 @@ import (
 
 func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 	file := findFile(pr.Data.Files, path)
-	if file == nil {
-		kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "file_empty")})
+	if file == nil || path == "" {
+		// No file is open: "" is the tree's root, not a file.
+		empty(c, icons.File, "file_empty")
 		return
 	}
 	item := pr.Files.item(path)

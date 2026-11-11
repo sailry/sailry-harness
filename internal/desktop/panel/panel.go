@@ -38,6 +38,7 @@ type Shortcut func(mods ui.Modifiers, key ui.Key) string
 // launcher's shortcuts.
 func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	s.Sync(pr)
+	s.nameDocument()
 	if len(s.Tabs) == 0 {
 		launcher(c, s, keys)
 		return
@@ -49,12 +50,8 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	}
 	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
-		if s.Live && t.Kind != Terminal && t.Kind != Files && t.Kind != Changes && t.Kind != History && t.Kind != Documents && t.Kind != Artifact && (t.Kind != Browser || s.BrowserActions == nil) {
-			key := "unavailable"
-			if (t.Kind == Files || t.Kind == Changes) && !s.HasProject {
-				key = "resource_project_empty"
-			}
-			kit.Result(c, kit.ResultProps{Icon: ResourceOf(t.Kind).Icon, Title: i18n.T(c, key)}).Grow(1).Justify(ui.Center)
+		if s.Live && t.Kind == Browser && s.BrowserActions == nil {
+			empty(c, icons.Web, "unavailable")
 			return
 		}
 		switch t.Kind {
@@ -72,9 +69,11 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		case Artifact:
 			s.artifact(c, t.ID)
 		case Subagent:
-			if s.Child != nil {
-				s.Child(c, t.ID)
+			if s.Child == nil {
+				empty(c, icons.Bot, "chat_child_unavailable")
+				return
 			}
+			s.Child(c, t.ID)
 		case Browser:
 			s.browser(c, t)
 		case Terminal:
@@ -168,7 +167,6 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 	ui.Row(c.Key("items")).Height(barHeight).Shrink(0).PaddingX(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 		ui.ScrollHorizontal(c.Key("tabs")).Grow(1).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
 			ui.Row(c).Gap(4).Height(barHeight).Children(func() {
-				closed := ""
 				for _, path := range pr.items(k) {
 					icon, label := itemLook(c, k, path)
 					if k == Files {
@@ -177,10 +175,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 					if k == Changes {
 						label = pr.gitDocumentLabel(path, label)
 					}
-					tab(c, path, icon, label, path == pr.shown(k), nil, func() { pr.show(k, path) }, func() { closed = path })
-				}
-				if closed != "" {
-					pr.close(k, closed)
+					tab(c, path, icon, label, path == pr.shown(k), nil, func() { pr.show(k, path) }, func() { pr.close(k, path) })
 				}
 			})
 		})
@@ -190,7 +185,8 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 // tab is a strip's tab: 28 DIPs up to 180 wide, the icon and the title, the
 // active one in tab_active, its close button showing on hover or on the
 // active tab. A tab with drag drags it, wearing the drag preview's look while
-// it does.
+// it does. show and close run after the build, as MyGo runs OnClick: they act
+// themselves, as nothing set by them is read in the pass that built the tab.
 func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, drag *panes.Drag, show, close func()) {
 	p := theme.Of(c)
 	b := ui.ButtonBase(c.Key(key)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
@@ -277,7 +273,6 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 	ui.Row(c.Key("strip")).Height(barHeight).Shrink(0).PaddingX(8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 		ui.ScrollHorizontal(c.Key("tabs")).Grow(1).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
 			ui.Row(c).Gap(4).Height(barHeight).Children(func() {
-				var closed *Tab
 				for _, t := range s.Tabs {
 					icon, label := s.look(c, t)
 					var drag *panes.Drag
@@ -285,10 +280,14 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 						// A terminal drags onto the workspace to open in a split.
 						drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
 					}
-					tab(c, t, icon, label, t == s.Active, drag, func() { s.Show(t) }, func() { closed = &t })
-				}
-				if closed != nil {
-					s.Close(*closed)
+					tab(c, t, icon, label, t == s.Active, drag, func() { s.Show(t) }, func() {
+						// The focus was on the button that closed: it stays in
+						// the panel, where ⌘W closes the next tab.
+						s.Close(t)
+						if s.Focus != nil {
+							s.Focus(c)
+						}
+					})
 				}
 			})
 		})
@@ -309,7 +308,10 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 			kit.IconLook(c, b, icons.Plus, i18n.T(c, "details"), "", 28, false)
 		}, func(m *kit.Menu) {
 			for _, r := range Resources {
-				if r.Kind == Documents {
+				if !s.lists(r.Kind) {
+					continue
+				}
+				if r.Kind == Documents && len(s.Data.Documents) > 0 {
 					for _, d := range s.Data.Documents {
 						t := Tab{Documents, d.ID}
 						if m.Item(d.Title).Icon(icons.FileText).Checked(t == s.Active).Chosen() {
@@ -343,6 +345,9 @@ func launcher(c *ui.Context, s *State, keys Shortcut) {
 		ui.Column(c.Key("launcher-rows")).FillWidth().MaxWidth(440+2*24).Padding(0, 24, 24, 24).Gap(8).AlignSelf(ui.Center).Children(func() {
 			for _, r := range Resources {
 				label := i18n.T(c, r.Label)
+				if !s.lists(r.Kind) {
+					continue
+				}
 				b := ui.ButtonBase(c.Key(r.Kind)).Label(label).FillWidth().Height(40).PaddingX(12).Gap(10).Radius(p.Radius).
 					Background(p.Secondary).TextColor(p.SecondaryForeground).Cursor(ui.CursorPointer)
 				if b.Hovered() {
@@ -593,6 +598,10 @@ func (s *State) history(c *ui.Context) {
 	if s.Live {
 		now = c.Now()
 	}
+	if len(s.Data.Checkpoints) == 0 {
+		s.vacant(c, History, "panel_history_empty")
+		return
+	}
 	ui.Scroll(c.Key("checkpoints")).Grow(1).Padding(12).Gap(8).Children(func() {
 		for _, cp := range s.Data.Checkpoints {
 			kit.Frost(c, ui.Column(c.Key(cp.ID)).Padding(12).Gap(8).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint).Children(func() {
@@ -660,7 +669,25 @@ func (s *State) document(c *ui.Context, id string) {
 			ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { kit.Markdown(c, d.Text, kit.MarkdownProps{}) })
 		}
 		status(c, d.Path, nil)
+		return
 	}
+	s.vacant(c, Documents, "panel_documents_empty")
+}
+
+// empty fills a tab that has nothing to show with the standard empty state:
+// the icon and a short title, centered.
+func empty(c *ui.Context, icon *ui.SVG, key string) {
+	kit.Result(c, kit.ResultProps{Icon: icon, Title: i18n.T(c, key)}).Grow(1).Justify(ui.Center)
+}
+
+// vacant fills a session resource's tab without content: a spinner while
+// the session's are read, else the resource's empty state.
+func (s *State) vacant(c *ui.Context, k Kind, key string) {
+	if s.Actions != nil && s.Actions.Loading != nil && s.Actions.Loading(k) {
+		ui.Column(c.Key("loading")).Grow(1).Center().Children(func() { ui.Spinner(c).Label(i18n.T(c, ResourceOf(k).Label)) })
+		return
+	}
+	empty(c, ResourceOf(k).Icon, key)
 }
 
 // placeholder fills a resource that does not render in the preview: its

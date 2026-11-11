@@ -139,6 +139,23 @@ func (p *workspaceProject) readPageResources(page protocol.ConversationPage) {
 		p.readOlderResources(p.session, page.NextBefore)
 	}
 }
+
+// resourcesLoading reports whether the session's checkpoints or documents
+// are being read, so their tab shows a spinner instead of its empty state.
+func (p *workspaceProject) resourcesLoading(kind panel.Kind) bool {
+	prefixes := []string{"checkpoints/", "older-resources/"}
+	if kind == panel.Documents {
+		prefixes = []string{"artifacts/"}
+	}
+	for key := range p.loading {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
 func (p *workspaceProject) sessionResourcesFrame() {
 	if p.session == (protocol.SessionID{}) {
 		return
