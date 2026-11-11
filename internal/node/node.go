@@ -292,6 +292,7 @@ func (node *Node) Stop(ctx context.Context) error {
 			node.externalBrowser.Shutdown()
 			pluginErr := node.closePlugins()
 			node.work.Wait()
+			node.collectPlugins(context.Background())
 			node.detachLogging()
 			node.telemetry.Close()
 			node.power.Close()

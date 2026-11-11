@@ -44,6 +44,66 @@ func packageFixture(t *testing.T, directory, name, text string) {
 func TestPackageBoundaries(t *testing.T) {
 	t.Parallel()
 	t.Run("Status declarations", testStatusExtension)
+	t.Run("unreferenced versions are collected", func(t *testing.T) {
+		manager := NewManager(t.TempDir())
+		if err := manager.Collect(nil); err != nil {
+			t.Fatalf("a profile without packages: %v", err)
+		}
+		source := t.TempDir()
+		write := func(version string) protocol.PluginInfo {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(`{"$schema":"`+ManifestSchema+`","name":"fixture","version":"`+version+`"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			info, err := manager.Install(t.Context(), source, "", "fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return info
+		}
+		held, unused := write("0.1.0"), write("0.1.1")
+		packages := filepath.Join(manager.profile, "plugins", "packages")
+		// Only canonical digest directories belong to the collector.
+		foreign := []string{".staging-fixture", "notes", strings.Repeat("g", 64), strings.Repeat("a", 62)}
+		for _, name := range foreign {
+			if err := os.Mkdir(filepath.Join(packages, name), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		file := strings.Repeat("b", 64)
+		if err := os.WriteFile(filepath.Join(packages, file), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.Collect(map[string]struct{}{held.Summary.Digest: {}}); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := os.ReadDir(packages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		expected := append([]string{held.Summary.Digest, file}, foreign...)
+		slices.Sort(expected)
+		if !slices.Equal(names, expected) {
+			t.Fatalf("package store after collection: %v", names)
+		}
+		if _, err := manager.PackageRoot(PackageReference(held)); err != nil {
+			t.Fatalf("the retained version: %v", err)
+		}
+		if _, err := manager.PackageRoot(PackageReference(unused)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the collected version: %v", err)
+		}
+		// A later installation publishes the collected version again.
+		if again := write("0.1.1"); again.Summary.Digest != unused.Summary.Digest {
+			t.Fatal("the same content produced another digest")
+		}
+		if _, err := manager.PackageRoot(PackageReference(unused)); err != nil {
+			t.Fatalf("the republished version: %v", err)
+		}
+	})
 	for _, name := range []string{"", "-plugin", "plugin-", "Plugin", "a--b", "a..b", "a/b", "a_b", strings.Repeat("a", 65)} {
 		if ValidateName(name) {
 			t.Errorf("accepted invalid package name %q", name)

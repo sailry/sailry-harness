@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -150,11 +152,31 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 		if err := node.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+		// Shutdown collected the version nothing refers to any more, and kept
+		// every installed one.
+		packages := filepath.Join(path, "plugins", "packages")
+		if _, err := os.Lstat(filepath.Join(packages, selected.Digest)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the removed package's version was not collected: %v", err)
+		}
+		for _, kept := range initial[1:] {
+			if _, err := os.Lstat(filepath.Join(packages, kept.Digest)); err != nil {
+				t.Fatalf("collection removed the installed %s: %v", kept.Name, err)
+			}
+		}
 		reopened, err := startFixtureNode(t.Context(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer reopened.Stop(context.Background())
+		if err := reopened.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			if _, err := store.ReadPluginVersion(t.Context(), db, protocol.PluginReference{Name: selected.Name, Digest: selected.Digest}); !pluginMessageFault(err, protocol.ErrorCodeNotConfigured) {
+				return fmt.Errorf("the collected version: %v", err)
+			}
+			_, err := store.ReadPluginVersion(t.Context(), db, protocol.PluginReference{Name: initial[1].Name, Digest: initial[1].Digest, SettingsRevision: initial[1].SettingsRevision})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
 		current := snapshotFixture(t, reopened).Plugins
 		if len(current) != len(initial)-1 || slices.ContainsFunc(current, func(value protocol.PluginSummary) bool { return value.Name == selected.Name }) {
 			t.Fatal("bootstrap resurrected a removed package or changed another package")

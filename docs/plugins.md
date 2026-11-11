@@ -23,6 +23,19 @@ removal record and captured versions stay, and its pages, tools and skills no
 longer appear ([media.md](media.md#retired-media-package)). Application version 0.1.6 is the first Go release; its ported
 sources and pinned packages match the reviewed 0.1.5 Desktop/Host; the protocol remains v1.
 
+Package versions and settings revisions are collected when the Node starts,
+before it admits a command, and when it stops, after its last work has ended
+(`store.CollectPlugins`, then `plugins.Manager.Collect`). A version stays
+while an installation, a queued or running dispatch job, an admitted turn, a
+saved or captured provider binding or a bound assistant names its digest; a
+settings revision stays while one of those names it. Everything else is
+deleted: first the `plugin_packages` and `plugin_settings` rows in one
+transaction, then the digest directories under `plugins/packages`. Only
+canonical digest directories are touched, an interrupted run leaves an orphan
+for the next one, and a failure is logged without blocking startup or
+shutdown. A retired or removed package therefore keeps exactly the versions
+that turns captured.
+
 Repository discovery freezes a Git commit before inspecting or installing files.
 One acquisition fetches a single revision at depth 1 into a temporary bare
 repository that is removed afterwards. A captured commit is fetched by its
@@ -371,6 +384,11 @@ empty so the text remains aligned.
   outlines, unchanged. Reicon glyphs that no bundled package, SDK example or
   application icon names are not embedded; such a name still validates and
   draws the placeholder.
+- Collection keeps two things the source deletes. A removed package keeps its
+  latest settings revision, because reinstalling it restores that
+  configuration here (the source starts a reinstalled package from no
+  configuration). A version named by a saved provider's binding stays, so a
+  provider saved before a package update still starts a turn.
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.
 - Cards with an embedded authorization browser use an isolated native MyGo page
