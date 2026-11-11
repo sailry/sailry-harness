@@ -41,7 +41,9 @@ the captured console/OEM code page while retaining original offsets.
 
 SQL-only registration, completion and recovery live in
 `store/workspace_process_records.go`. Recovery marks interrupted commands as
-recovered and suppressed; it never launches old work. B6 owns automatic delivery
+recovered and suppressed; it never launches old work, and the service kills
+the process groups a crashed Node left behind (see
+[Crash recovery](#crash-recovery)). B6 owns automatic delivery
 and background scheduling. `workspace_process.go` binds command routing and
 captured hook launches. `workspace_runtime.go` persists completion before
 publishing committed background tasks to conversation feeds. Client owns the
@@ -68,6 +70,90 @@ can be restored with its work intact, and removal is the action that ends it.
 The desktop closes an archived conversation's terminals because those belong to
 its panel; commands belong to the Node.
 
+## Outcomes and deadlines
+
+A command's exit status is the root's. When the root has exited but a
+descendant still holds an output stream, the two-second drain ends the read,
+the exit status and outcome are kept, and each stream that was still open is
+flagged `truncated`. The reference reports such a command as `unknown`; the
+status is known, so only the output is marked incomplete.
+
+A foreground command runs under its `timeout_ms` (120 seconds by default). Once
+it is promoted to the session it is background work: the deadline is cleared
+and only `Stop`, session removal or Node closure ends it. A command that is
+never promoted still times out.
+
+PTY commands start with `TERM=xterm-256color` and a 24 by 120 window, as the
+reference does. The Windows ConPTY path sets the same values and is compiled
+only; it has not run on Windows.
+
+## Stall monitor
+
+The service watches every background command, including a promoted one. When
+neither stream has produced output for `StallWindow` (15 minutes) it calls
+`Options.Stalled` once with the snapshot and the silent time. New output re-arms
+the watch, so a command that stalls again is reported again. The watch is a
+standard timer taken from `Options.After`; tests drive it with a clockwork fake
+clock.
+
+`store.StallCommand` records the report as a pending `stall:<command id>`
+background row beside the running command row, and the Node schedules the
+existing background delivery for it. A command that finishes settles its
+unread stall row in the completing transaction, so a session is told once that
+a command went quiet and not again after it ended. A stall never stops the
+command.
+
+## Stopping a session's commands
+
+`Service.StopAll(session)` is the call for a caller that must end a session's
+background work and keep the session: it signals every running background
+command of that session, returns their current snapshots without waiting, and
+the commands settle as `stopped` through the normal completion path. Finished
+entries stay readable and the session can start new commands at once. It holds
+no store transaction and is safe to call from a committed-change callback. The
+`stop_commands` command is this call. A running foreground command is not
+background work and is left to its turn, which cancels it.
+
+`Service.CloseSession(ctx, session)` is the removal variant: it kills every
+command of the session, waits for them and drops the entries.
+
+## Sandbox setting
+
+With `sandbox_commands` off, `run_command` runs unrestricted whatever `access`
+the model passed, as the reference does: the setting is the user's, and a
+model argument does not turn the sandbox back on. With it on, a missing
+`access` is `workspace` and an explicit one is kept.
+
+## Crash recovery
+
+While a Unix command runs, the service keeps
+`<profile>/tmp/command-group-<request id>`, holding the process group and the
+leader's start identity (the kernel start time on macOS; the boot id and
+start tick on Linux). The file is removed when the command ends. `New` reads
+the files a crashed Node left: a group whose leader is still alive with the
+same start identity is killed, anything else is a reused pid and is left
+alone, and the file is removed either way. A group whose leader has exited
+while descendants survive is not killed, because nothing ties the pid to the
+recorded command any more.
+
+Windows needs no record: the Job is kill-on-close, so the operating system
+ends the commands when the Node process dies. The Linux identity read is
+cross-compiled and vetted only.
+
+## Controller commands this desktop does not send
+
+Checked against the reference desktop:
+
+| Command | Reference desktop | This desktop |
+| --- | --- | --- |
+| `claim_terminal` | "Take control" on a terminal another controller owns | Sent the same way, see [panel.md](panel.md#b10-live-terminal-tabs) |
+| `stop_commands` | Sent when a conversation pane is closed | Not sent. Closing a pane only removes it from the split ([shell.md](shell.md)); commands are stopped one at a time from the running-commands tray, and removing the session stops them all |
+| `set_session_order` | Sent after a sidebar drag | Not sent; the sidebar's manual order is pins only ([sidebar.md](sidebar.md)) |
+| `read_git_head` | Read for the repository chip | Replaced by `inspect_git`, which carries the head with the status the desktop already reads |
+| `disconnect_connection` | No sender: only the result mapping in `settings/connectors/commands.rs` and tests name it | No sender; `feature_usage.go` keeps the mapping for a controller that does send it |
+
+The Node still serves all five for other controllers.
+
 ## Deviations and validation
 
 The required MyGo PTY import trial failed because its implementation is internal;
@@ -90,3 +176,8 @@ On macOS they are refused with `not_configured`: a `sandbox-exec` profile must
 name the pseudo-terminal device, which the pinned MyGo terminal opens inside its
 own launch and does not report. The reference sandboxes both. The Linux path is
 cross-compiled and vetted only; it has not run on Linux.
+
+The stall monitor and the cut-output outcome are tested with a fake clock and a
+fake runner; drain, promotion, PTY size and crash recovery run real processes
+under the integration tag on macOS. The Linux start-identity read and the
+Windows ConPTY size and `TERM` are compiled only.
