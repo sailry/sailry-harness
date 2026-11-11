@@ -14,6 +14,7 @@ preview: UI 预览
 preview_notice: 所有内容均为示例，仅在当前窗口内交互
 projects: 项目
 project_add: 添加项目
+project_new: 新建项目
 sidebar_pinned: 置顶
 sessions_unassigned: 对话
 workspace_new_session: 创建会话

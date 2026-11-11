@@ -16,6 +16,7 @@ preview_notice
 # Sidebar
 projects
 project_add
+project_new
 sidebar_pinned
 sessions_unassigned
 workspace_new_session

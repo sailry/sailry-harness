@@ -179,7 +179,8 @@ terminal, subagent and file-preview tabs are single-pane.
   resource's icon, centered, never a blank body: History
   `panel_history_empty`, Documents `panel_documents_empty` (a spinner while
   the session's are read, `Actions.Loading`), Files and Git without a
-  project `resource_project_empty`, Files without a file `file_empty`, a
+  project `resource_project_empty` (their pages add New project,
+  docs/shell.md), Files without a file `file_empty`, a
   browser tab before its first address `browser_address`, a preview or a
   subagent that is gone `artifact_preview_failed` and
   `chat_child_unavailable`. Documents opened without a document is one tab

@@ -3,8 +3,10 @@ package shell
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 )
 
 // pageFeatures are the rail features that open an independent page, and the
@@ -87,23 +89,43 @@ func (a *App) extensionDetails() bool {
 }
 
 // featurePage is a rail feature's page: Files and Git as the project's
-// resource, over the state the panel's tabs share; Activity and Market as
-// the reference's preview shows them, unavailable.
+// resource, over the state the panel's tabs share, in the preview and live
+// alike; Activity and Market as the reference's preview shows them,
+// unavailable.
 func (a *App) featurePage(c *ui.Context) {
 	if a.Page == PluginPage && a.Hooks.PluginPage != nil {
 		a.Hooks.PluginPage(c, a.pluginPage)
 		return
 	}
-	if !a.Preview && a.Data.ProjectOf(a.Sidebar.Selected) != nil {
-		a.unavailable(c)
-		return
-	}
 	if k := a.paged(); k != "" {
-		panel.Page(c, k, a.project(), func() { a.Navigate(FilesPage) })
+		pr := a.project()
+		switch {
+		case pr != nil:
+			panel.Page(c, k, pr, func() { a.Navigate(FilesPage) })
+		case a.Data.ProjectOf(a.Sidebar.Selected) != nil:
+			// The project is known and its worktree is not: its host is away.
+			a.unavailable(c)
+		default:
+			a.projectPrompt(c, k)
+		}
 		return
 	}
 	f, _ := a.lookupFeature(a.feature())
 	kit.Result(c, kit.ResultProps{Icon: f.Icon, Title: i18n.T(c, f.Label), SubTitle: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
+}
+
+// projectPrompt fills a Files or Git page without a project: the resource's
+// empty state and New project, which opens the project editor. The page has
+// no sidebar to build the editor, so it builds the sidebar's dialogs.
+func (a *App) projectPrompt(c *ui.Context, k panel.Kind) {
+	kit.Result(c, kit.ResultProps{Icon: panel.ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty"), Extra: func() {
+		label := i18n.T(c, "project_new")
+		kit.Primary(c.Key("new-project"), label, false).Children(func() {
+			ui.Icon(c, icons.Plus).FontSize(16)
+			ui.Text(c, label).FontSize(14)
+		}).OnClick(func() { a.Sidebar.OpenEditor(nil) })
+	}}).Grow(1).Justify(ui.Center)
+	sidebar.Dialogs(c, a.Sidebar)
 }
 
 // paged is the project resource the page shows, "" for none.

@@ -137,8 +137,7 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 					if a.Kind == "files_new_file" {
 						if written, ok := detail[protocol.FileWritten](out.Data); ok {
 							p.panel.FileOpen(written.Path)
-							p.runtime.App.PanelOpen = true
-							p.runtime.App.Panel.Show(panel.Tab{Kind: panel.Files, ID: written.Path})
+							p.showItem(panel.Files, written.Path)
 						}
 					}
 					kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))

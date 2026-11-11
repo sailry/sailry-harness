@@ -14,6 +14,7 @@ preview: UI preview
 preview_notice: Preview content; interactions stay in this window
 projects: Projects
 project_add: Add project
+project_new: New project
 sidebar_pinned: Pinned
 sessions_unassigned: Chats
 workspace_new_session: Create session

@@ -119,7 +119,12 @@ a pin (`feature_pin`/`feature_unpin`); rows drag to reorder
 (`MoveFeature`, a 4 DIP primary line). Every feature opens an
 independent page in the main column, as the reference's `Page`
 destinations do: Files and Git over the selected conversation's project
-(the same `panel.Project` the panel's tabs show, `docs/panel.md`),
+(the same `panel.Project` the panel's tabs show, `docs/panel.md`; in a
+live window `Hooks.WorkspaceProject`, the selected session's worktree read
+from its Node), `unavailable` while a project's worktree is not known, and
+without a project `resource_project_empty` over New project (`project_new`),
+which opens the project editor (`App.projectPrompt`; the page has no sidebar,
+so it builds `sidebar.Dialogs`),
 Activity and Market as the reference's preview shows them (`unavailable`).
 The panel shows on the conversation page only; selecting a conversation
 over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a menu with the hosts (check on the chosen one, `App.Host`),
@@ -425,7 +430,10 @@ and finds it read on the Node with the viewer on that chunk.
 `internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; a
 plugin's page has no session sidebar or toggle and starts at the rail; the
 Files and Git page and tab share a project's state, another project
-keeps its own.
+keeps its own; a live window's pages show the hook's project, are
+unavailable only without its worktree and offer New project without a
+project. `internal/desktop/live/rail_pages_test.go` drives both pages
+against a real Node.
 `internal/desktop/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
 Phase 1–2 screens.
 
@@ -466,7 +474,10 @@ preview aliases retain the explicit preview constructor and its interactions.
 callbacks only enqueue work. `App.View` drains it on the UI thread; `SetUpdate`
 binds MyGo Window.Update to schedule the frame. The live path never constructs
 fixtures, advances preview streams or simulates transfers, dictation or host
-metrics. Models, tools, file/Git data and later-phase settings stay unavailable.
+metrics. Models, tools and later-phase settings stay unavailable. A file or
+diff the live workspace opens (`workspaceProject.showItem`: a search result, a
+new file, a commit) shows on the rail's Files or Git page when that page is
+shown, and in the panel's tab otherwise.
 
 Search, breadcrumbs, the local host overview, activity lanes and pane existence
 follow Client snapshots. Sync calls Client.Refresh, replacing the Node topic

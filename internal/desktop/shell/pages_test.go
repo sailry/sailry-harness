@@ -14,6 +14,7 @@ import (
 // The rail's features open pages in the main column, never panel tabs.
 func TestRailOpensPages(t *testing.T) {
 	t.Run("live plugin navigation", testLivePluginNavigation)
+	t.Run("live project pages", testLiveProjectPages)
 	a, tt := newTester(t)
 	clickButton(t, tt, i18n.In("en", "files"))
 	tt.Advance(time.Second)
@@ -133,6 +134,87 @@ func TestRailOpensPages(t *testing.T) {
 			t.Fatalf("missing project discarded its captured owner: %q %q %v", node, project, shown)
 		}
 	})
+}
+
+// A live window's Files and Git pages show the selected conversation's
+// project, through the same adapter the panel's tabs use; without a project
+// they offer New project.
+func testLiveProjectPages(t *testing.T) {
+	project := &viewmodel.Project{ID: "project", Host: "node", Name: "Live project", Path: "/live/project",
+		Conversations: []*viewmodel.Conversation{{Node: "node", ID: "session", Title: "Live session"}}}
+	app := NewLive(&viewmodel.Data{
+		Projects:   []*viewmodel.Project{project},
+		Unassigned: []*viewmodel.Conversation{{Node: "node", ID: "loose", Title: "Loose session"}},
+		Workspace:  &viewmodel.Workspace{},
+	})
+	app.Sidebar.Selected = "session"
+	workspace := &viewmodel.Workspace{
+		Files:   &viewmodel.FileNode{Name: "project", Children: []*viewmodel.FileNode{{Name: "main.go", Path: "main.go"}}},
+		Changes: []viewmodel.FileChange{{Path: "main.go", Status: "M", Unstaged: "M", Added: 1}},
+	}
+	var read []string
+	var live *panel.Project
+	live = panel.NewLiveProject("worktree", workspace, &panel.Actions{ReadFile: func(path string) {
+		read = append(read, path)
+		live.SetFile(path, "package live")
+	}})
+	live.SetGitState(panel.GitState{Known: true, Kind: "repository", Head: true})
+	var shown *panel.Project
+	app.Hooks.WorkspaceProject = func() *panel.Project { return shown }
+	tester := ui.NewTesterWith(app.View, 1280, 820, opaque)
+	tester.SetLocale("en")
+	tester.Frame()
+	unavailable, prompt, create := i18n.In("en", "unavailable"), i18n.In("en", "resource_project_empty"), i18n.In("en", "project_new")
+
+	// The project is known and its worktree is not yet.
+	clickButton(t, tester, i18n.In("en", "files"))
+	tester.Frame()
+	if app.Page != FilesPage || !tester.HasText(unavailable) || tester.HasText(prompt) {
+		t.Fatalf("a project without a worktree is not unavailable: %q", tester.Texts())
+	}
+
+	shown = live
+	tester.Frame()
+	if tester.HasText(unavailable) {
+		t.Fatalf("the live Files page is unavailable: %q", tester.Texts())
+	}
+	clickTree(t, tester, "main.go")
+	tester.Frame()
+	tester.Frame()
+	if live.Files.File() != "main.go" || !slices.Contains(read, "main.go") || !codeHas(tester, "Code editor", "package live") {
+		t.Fatalf("the live Files page did not open the file: shown %q, read %v, %q", live.Files.File(), read, tester.Texts())
+	}
+	if len(app.Panel.Tabs) != 0 || app.PanelOpen {
+		t.Fatalf("the page opened panel tabs %v, panel %v", app.Panel.Tabs, app.PanelOpen)
+	}
+	clickButton(t, tester, i18n.In("en", "git"))
+	tester.Frame()
+	if _, ok := tester.AccessByRole(ui.RoleTreeItem, "main.go"); app.Page != GitPage || !ok || tester.HasText(unavailable) {
+		t.Fatalf("the live Git page does not list the change: %q", tester.Texts())
+	}
+	// The panel's tabs are the page's items once the conversation shows.
+	app.Navigate(ConversationPage)
+	app.openPanel(panel.Files)
+	tester.Frame()
+	if !slices.Contains(app.Panel.Tabs, panel.Tab{Kind: panel.Files, ID: "main.go"}) {
+		t.Fatalf("the panel lost the page's file: %v", app.Panel.Tabs)
+	}
+
+	// Without a project either page asks for one.
+	app.PanelOpen = false
+	app.Sidebar.Selected, shown = "loose", nil
+	for _, page := range []Page{FilesPage, GitPage} {
+		app.Navigate(page)
+		tester.Frame()
+		if !tester.HasText(prompt) || tester.HasText(unavailable) || app.Sidebar.Editing() {
+			t.Fatalf("page %d without a project: %q", page, tester.Texts())
+		}
+	}
+	clickButton(t, tester, create)
+	tester.Frame()
+	if !app.Sidebar.Editing() || !tester.HasText(i18n.In("en", "project_name")) {
+		t.Fatalf("New project did not open the project editor: %q", tester.Texts())
+	}
 }
 
 func testLivePluginNavigation(t *testing.T) {

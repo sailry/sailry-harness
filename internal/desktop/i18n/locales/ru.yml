@@ -14,6 +14,7 @@ preview: Предварительный просмотр UI
 preview_notice: Предварительный просмотр содержимого; взаимодействия остаются в этом окне
 projects: Проекты
 project_add: Добавить проект
+project_new: Новый проект
 sidebar_pinned: Закреплённые
 sessions_unassigned: Чаты
 workspace_new_session: Создать сеанс
