@@ -33,7 +33,8 @@ click outside: the banner (34 above, 28 below, 36 aside) with the 56 DIP
 white mark, the title (24 semibold) 14 under it and the description 6
 under that, in white over the gradient, and a white 32 DIP close at 12 from
 the top right; the providers' picker (20 above, 26 below, 28 aside); the
-diagnostics note and Settings, centered.
+diagnostics note (`telemetry_welcome`, muted) and a small ghost Settings 8
+under it, centered (36 aside, 24 below).
 
 ## Actions
 

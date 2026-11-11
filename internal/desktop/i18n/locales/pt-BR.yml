@@ -961,6 +961,7 @@ telemetry_send_action: Enviar diagnóstico
 telemetry_support: Suporte
 telemetry_title: Diagnóstico e privacidade
 telemetry_unknown: Resultado desconhecido. Recarregue para verificar
+telemetry_welcome: Os diagnósticos anônimos vêm ativados. Você pode alterar isso nas configurações
 terminal_environment: Variáveis ambientais globais
 terminal_environment_add: Adicionar variável de ambiente
 terminal_input: Entrada

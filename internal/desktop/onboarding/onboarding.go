@@ -24,10 +24,12 @@ type Guide struct {
 // View is the guide: a dialog 560 wide and 85% of the window high at most,
 // without the dialog's padding or close button. The banner, 34 over 28 under,
 // holds the white mark, the title and the description over the brand
-// gradient, with a white close at its top right; the picker follows. picker
-// draws the providers' picker (settings.ProviderPicker), whose choice
-// continues in Settings › Providers. Closing it in any way marks it seen.
-func View(c *ui.Context, g *Guide, picker func()) {
+// gradient, with a white close at its top right; the picker follows, then
+// the diagnostics note over Settings, centered. picker draws the providers'
+// picker (settings.ProviderPicker), whose choice continues in Settings ›
+// Providers; openSettings opens the settings where diagnostics are, after
+// the guide closed. Closing it in any way marks it seen.
+func View(c *ui.Context, g *Guide, picker, openSettings func()) {
 	if !g.Open {
 		return
 	}
@@ -43,6 +45,14 @@ func View(c *ui.Context, g *Guide, picker func()) {
 				ui.Text(c, i18n.T(c, "onboarding_description")).FontSize(14).TextAlign(ui.Center).Margin(6, 0, 0, 0).TextColor(theme.Welcome.Text)
 			})
 			ui.Column(c.Key("picker")).FillWidth().Padding(20, 28, 26, 28).Children(picker)
+			ui.Column(c.Key("telemetry")).FillWidth().AlignItems(ui.Center).Gap(8).Padding(0, 36, 24, 36).Children(func() {
+				ui.Text(c, i18n.T(c, "telemetry_welcome")).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
+				label := i18n.T(c, "settings")
+				kit.GhostLook(c, ui.ButtonBase(c.Key("settings")).Label(label), false).Height(28).PaddingX(8).OnClick(func() {
+					g.Open, g.Seen = false, true
+					openSettings()
+				}).Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+			})
 		})
 		x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 32, false).TextColor(theme.Welcome.Text).OnClick(func() { g.Open = false })
 		x.Absolute().Top(12).Right(12)
