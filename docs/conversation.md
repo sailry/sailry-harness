@@ -679,6 +679,17 @@ without an owner.
   a package keeps working is therefore unread once, at the end, not after
   every turn (`store.TestAutomaticChain/automatic turn takes back the unread
   mark`).
+- **Outcome notice.** One rule, `store.runNoticed`, decides which finished run
+  raises a durable task notification. A turn the user started, including a
+  continuation the user asked for, and a turn a dispatch job admitted report
+  `completed`, `failed` and `interrupted`. An automatic turn (a notice turn or
+  a package continuation the user did not ask for) reports only `failed` and
+  `interrupted`, so a broken chain is not silent and a chain of up to 100
+  successful turns does not evict the 200 kept notifications. A stopped turn
+  and a child run report nothing. The Node cannot know at a turn's end whether
+  another automatic turn follows, so every failed or interrupted automatic
+  turn is reported, not only the last; the success that ends a chain is its
+  package's to report (`store.TestAutomaticRunNotices`).
 - **Durable end.** A turn keeps its owner until its end is stored. When the
   finishing transaction fails, it is repeated every second, logged once
   (`operation=finish`), until it succeeds or the Node stops; a stopped Node
