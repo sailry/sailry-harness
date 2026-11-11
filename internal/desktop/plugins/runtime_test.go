@@ -460,7 +460,11 @@ export default class Example extends View {render(){return `+current.expression+
 			"reicon:ui/alert-triangle", "reicon:ui/trash2", "reicon:video/play",
 			"reicon:it/hashtag", "reicon:users/user", "reicon:newicons/hierarchy2", "reicon:money/coins",
 			"reicon:map/globe", "reicon:ui/magnifier", "reicon:users/users2", "reicon:newicons/hierarchy",
-			"reicon:business/diagram-tree", "reicon:video/image",
+			"reicon:business/diagram-tree", "reicon:video/image", "reicon:newicons/flash2",
+			"reicon:building/buildings", "reicon:building/city", "reicon:business/chart-bar",
+			"reicon:devices/cpu", "reicon:devices/monitor", "reicon:folders/folder", "reicon:it/code",
+			"reicon:like/heart", "reicon:newicons/book-square", "reicon:newicons/cards", "reicon:newicons/grid2",
+			"reicon:notifications/bell", "reicon:ui/box", "reicon:ui/crown", "reicon:ui/dark-light", "reicon:ui/database",
 			"icons/remix/progress-4-line.svg", "icons/remix/progress-2-line.svg",
 			"icons/remix/progress-6-line.svg", "icons/remix/close-circle-line.svg",
 			"icons/remix/checkbox-blank-circle-line.svg", "calendar", "database", "play", "sliders-horizontal",
@@ -476,10 +480,9 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Fatalf("core and host resolve icon %q differently", name)
 			}
 		}
-		// "reicon:ui/database" is a name of the catalog whose glyph is not
-		// embedded: nothing bundled names it since the packages' own icons
-		// are Phosphor's.
-		for _, unknown := range []string{"reicon:missing/icon", "reicon:ui/database", "ailogo:missing-brand", "ailogo:openai-color", "ailogo:",
+		// "reicon:it/window" is a name of the catalog whose glyph is not
+		// embedded: nothing bundled names it.
+		for _, unknown := range []string{"reicon:missing/icon", "reicon:it/window", "ailogo:missing-brand", "ailogo:openai-color", "ailogo:",
 			"phosphor:missing", "phosphor:database-fill", "phosphor:", "phosphor:../database", "phosphor:Database"} {
 			if _, err := icons.Plugin(unknown); err == nil {
 				t.Fatalf("unknown plugin icon %q was accepted", unknown)
@@ -500,27 +503,35 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Fatalf("%q has a brand mark", name)
 			}
 		}
-		// Every icon the bundled packages declare has its glyph, and each
-		// package's own icon is a declarable name, a brand's mark or the
-		// package's SVG.
+		// Every icon the bundled packages declare has its glyph. A package's
+		// own icon, drawn on its tile, is a Phosphor icon, a brand's mark or
+		// the package's SVG, and so may a connector's be; every other icon is
+		// drawn in the text color beside the application's outline icons and
+		// is neither.
 		manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
 		if err != nil || len(manifests) < 40 {
 			t.Fatalf("bundled manifests: %d, %v", len(manifests), err)
 		}
-		declared, own := map[string]bool{}, map[string]string{}
-		var walk func(value any)
-		walk = func(value any) {
+		declared, own, chrome := map[string]bool{}, map[string]string{}, 0
+		var walk func(manifest string, value any, tile bool)
+		walk = func(manifest string, value any, tile bool) {
 			switch value := value.(type) {
 			case map[string]any:
 				for key, child := range value {
 					if name, named := child.(string); named && key == "icon" && strings.Contains(name, ":") {
 						declared[name] = true
+						if !tile {
+							chrome++
+							if strings.HasPrefix(name, "phosphor:") || strings.HasPrefix(name, "ailogo:") {
+								t.Errorf("%s: %q is a tile's icon in a text-colored place", manifest, name)
+							}
+						}
 					}
-					walk(child)
+					walk(manifest, child, false)
 				}
 			case []any:
 				for _, child := range value {
-					walk(child)
+					walk(manifest, child, false)
 				}
 			}
 		}
@@ -536,11 +547,30 @@ export default class Example extends View {render(){return `+current.expression+
 					} `json:"display"`
 				} `json:"extensions"`
 			}
-			var document any
+			var document struct {
+				Extensions map[string]map[string]any `json:"extensions"`
+			}
 			if json.Unmarshal(data, &manifest) != nil || json.Unmarshal(data, &document) != nil {
 				t.Fatalf("%s does not parse", name)
 			}
-			walk(document)
+			for field, value := range document.Extensions["dev.sailry.platform"] {
+				switch connectors, listed := value.([]any); {
+				case field == "display":
+					walk(name, value, true)
+				case field == "connectors" && listed:
+					for _, connector := range connectors {
+						for part, value := range connector.(map[string]any) {
+							if part == "display" {
+								walk(name, value, true)
+							} else {
+								walk(name, map[string]any{part: value}, false)
+							}
+						}
+					}
+				default:
+					walk(name, map[string]any{field: value}, false)
+				}
+			}
 			var icon protocol.PluginDesktopIcon
 			if err := json.Unmarshal(manifest.Extensions["dev.sailry.platform"].Display.Icon, &icon); err != nil {
 				t.Fatalf("%s declares no icon of its own: %v", name, err)
@@ -556,8 +586,8 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Errorf("%s: its own icon %q is not a Phosphor icon or a brand's mark", name, *title)
 			}
 		}
-		if len(declared) < 30 {
-			t.Fatalf("bundled manifests declare %d icon names", len(declared))
+		if len(declared) < 30 || chrome < 80 {
+			t.Fatalf("bundled manifests declare %d icon names, %d of them in text-colored places", len(declared), chrome)
 		}
 		for name := range declared {
 			if icon, err := icons.Plugin(name); err != nil || icon == nil {

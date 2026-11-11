@@ -293,15 +293,16 @@ func testLivePluginNavigation(t *testing.T) {
 	if _, ok := headerButton(tester, toggle); !ok || !sessionsShown(tester) || !tester.HasText("Listed session") {
 		t.Fatalf("the conversation came back without its sessions: %q", tester.Texts())
 	}
-	// A feature's rail button draws the glyph its package declares, in the
-	// rail's text color as the application's own, and not the puzzle piece;
+	// A feature's rail button draws the outline glyph its package declares
+	// for navigation, in the rail's text color as the application's own, and
+	// not the puzzle piece;
 	// the window at rest asks for no frame.
 	var declared []Feature
 	for _, feature := range [][3]string{
-		{"activity-board", "活动看板", "phosphor:kanban"}, {"databases", "数据库", "phosphor:database"},
-		{"reminders", "待办提醒", "phosphor:bell"}, {"scheduled-tasks", "定时任务", "phosphor:calendar-check"},
-		{"ssh", "SSH", "phosphor:terminal-window"}, {"statistics", "统计", "phosphor:chart-bar"},
-		{"task-plaza", "任务广场", "phosphor:users-three"},
+		{"activity-board", "活动看板", "reicon:ui/grid"}, {"databases", "数据库", "reicon:ui/database"},
+		{"reminders", "待办提醒", "reicon:notifications/bell"}, {"scheduled-tasks", "定时任务", "reicon:time/calendar"},
+		{"ssh", "SSH", "reicon:it/terminal-square"}, {"statistics", "统计", "reicon:business/chart-bar"},
+		{"task-plaza", "任务广场", "reicon:building/buildings"},
 	} {
 		icon, err := icons.Plugin(feature[2])
 		if err != nil || icon == icons.Puzzle {

@@ -298,28 +298,44 @@ to its local execution Node; a remote requirement identifies the affected Node.
 A `display.icon` (package, navigation, tool, connection, UI entry) is either
 `{"kind": "Name", "data": "<name>"}` or
 `{"kind": "Svg", "data": {"svg": "<svg ...>"}}` with the package's own markup.
-Names come from three namespaces:
+Names come from three namespaces. Which one to use depends on where the icon
+is drawn:
+
+- The package's own `display.icon`, and a connector's, is drawn on a tile in
+  the marketplace, plugin cards, plugin details, the updates dialog and
+  connector tiles. Use `phosphor:` there, or `ailogo:` for a package or
+  connector of one brand.
+- Every other icon is drawn in the text color beside the application's outline
+  icons: navigation and rail entries, pages, panels, settings sidebar entries,
+  tools and tool rows, menus, commands, status badges and script `Icon`
+  components. Use an outline icon there, `reicon:`. A `phosphor:` name in such
+  a place still draws, but solid and heavier than its neighbors, and an
+  `ailogo:` name draws its one-color variant.
+
+The namespaces:
 
 - `phosphor:<name>` is an icon of [Phosphor Icons](https://phosphoricons.com),
   for example `phosphor:database` or `phosphor:calendar-check`. Browse the set
   on that site and use the icon's name as shown there; the fill weight is
   implied and no weight suffix is written. Every icon of the set is available.
-  It is one color and follows the text color, so the same name suits the
-  package's own `display.icon`, navigation, tools, menus and script `Icon`
-  components. The accepted names are listed in
+  It is a solid one-color glyph meant for the package's tile. The accepted
+  names are listed in
   `internal/protocol/phosphor_icon_names.txt`. A package that names one sets
   `min_sailry_version` to `0.1.6`.
 - `ailogo:<slug>` is a brand mark of the [AI Logo](https://ailogo.yldm.ai/)
   collection, for example `ailogo:github`. Use it for the `display.icon` of a
-  package, tool or connector that represents that one brand, and in view
-  components. Navigation, panel and contribution icons do not accept it. Name
+  package or connector that represents that one brand, and in view components.
+  Navigation, panel and contribution icons do not accept it. Name
   only the brand the package is for; when the collection lacks it, use a
   Phosphor icon or the package's own SVG rather than another company's mark.
 - `reicon:<group>/<name>` is a monochrome outline glyph from
   [Reicon](https://github.com/dqev/reicon), for example `reicon:time/calendar`.
-  The accepted names are listed in `internal/protocol/icon_names.txt`. It
-  remains valid for existing packages, but the application embeds only the
-  glyphs it and its bundled packages use; prefer `phosphor:` for new icons.
+  It follows the text color and matches the application's own icons, so it is
+  the one for navigation, tools, menus and script `Icon` components. The
+  accepted names are listed in `internal/protocol/icon_names.txt`. The
+  application embeds the glyphs it and its bundled packages use; a listed name
+  outside them is valid and shows a puzzle piece, so reuse a name an official
+  package uses.
 
 Marketplace cards, plugin cards, plugin details, the updates dialog and
 connector tiles show the package icon on a rounded tile. A Phosphor or Reicon
@@ -328,8 +344,8 @@ glyph, or the package's own SVG, is drawn in white on a gradient of the package
 `ailogo:` brand mark is drawn on a neutral tile instead, in the brand's colors
 where the collection has a color variant and in the foreground color
 otherwise. In text-colored places (the rail, settings sidebar, tool rows and
-menus) the same declared icon is drawn in the text color; a brand mark uses
-its one-color variant. A name that nothing draws shows a puzzle piece. An
+menus) the icon declared for that place is drawn in the text color. A name
+that nothing draws shows a puzzle piece. An
 unknown `phosphor:` or `reicon:` name is not a valid navigation icon.
 
 ## Marketplace metadata

@@ -25,8 +25,9 @@ Icons by 480 Design, licensed under CC BY 4.0
 `phosphor:<name>` declarations are not embedded here. The complete fill set is
 the archive `../phosphor/fill.zip`; see `../phosphor/SOURCE` and
 `third_party_licenses/phosphor-icons.md`. A package's own icon is a Phosphor
-glyph or a brand mark, so only the Reicon glyphs that the application, a
-bundled package or an SDK example still names are kept above.
+glyph or a brand mark; navigation, tool and other text-colored icons stay
+Reicon outlines. The Reicon glyphs kept above are those the application, a
+bundled package or an SDK example names.
 
 ## Remix Icon
 
