@@ -117,25 +117,14 @@ func (b *demo) releaseNotes() *Conversation {
 	return b.conv(id, "release.title", Running, 16*time.Minute, cv.Usage{Tokens: 5400, Speed: 80.6, Cost: 0.0033, Cached: 2800, Context: 0.02}, draft, shorter)
 }
 
-// translate is a chat whose host went offline: the reply it cut short, and
-// the queue and the background result that have waited since.
+// translate is a finished chat whose host went offline.
 func (b *demo) translate() *Conversation {
 	const id = "chat/translate"
 	ask := b.user(id+"/0", "translate.0.user")
 	ask.Reply = done(cv.Completed, 8)
 	ask.Reply.Blocks = []cv.Block{text(b.t("translate.0.answer"))}
-	more := b.user(id+"/1", "translate.1.user")
-	more.Reply = done(cv.Interrupted, 5)
-	more.Reply.Blocks = []cv.Block{text(b.t("translate.1.partial"))}
-	c := b.conv(id, "translate.title", Idle, 26*time.Hour, cv.Usage{Tokens: 2600, Speed: 82.4, Cost: 0.0015, Cached: 1200, Context: 0.01}, ask, more)
+	c := b.conv(id, "translate.title", Idle, 26*time.Hour, cv.Usage{Tokens: 2100, Speed: 82.4, Cost: 0.0012, Cached: 900, Context: 0.01}, ask)
 	c.Session.Connection = cv.Offline
 	c.Turns[0].Controls = cv.Controls{NoExport: true, NoWorktree: true}
-	c.Turns[1].Controls = cv.Controls{NoExport: true, NoWorktree: true}
-	c.Queue = []composer.Queued{
-		{ID: id + "/queued-tone", Text: b.t("translate.queue.tone"), Wait: composer.WaitInterrupted},
-	}
-	c.Held = []composer.HeldResult{
-		{ID: id + "/held-check", Title: b.t("translate.held.check"), Wait: composer.WaitInterrupted},
-	}
 	return c
 }

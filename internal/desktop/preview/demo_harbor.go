@@ -98,7 +98,7 @@ func (b *demo) rateLimit() *Conversation {
 	c.Queue = []composer.Queued{
 		{ID: id + "/queued-header", Text: b.t("limit.queue.header")},
 		{ID: id + "/queued-redis", Text: b.t("limit.queue.redis"), Guided: true, Joining: true},
-		{ID: id + "/queued-sheet", Text: b.t("limit.queue.sheet"), Wait: composer.WaitHeld, Attachments: []*composer.Attachment{
+		{ID: id + "/queued-sheet", Text: b.t("limit.queue.sheet"), Attachments: []*composer.Attachment{
 			{ID: "queued-limits", Name: "plan-limits.csv", Mime: "text/csv", Size: 18 << 10, Path: "~/Downloads/plan-limits.csv", Status: composer.Ready, Progress: 1}}},
 		{ID: id + "/queued-compact", Compaction: true},
 		{ID: id + "/queued-notice", Text: "go vet ./...", Notice: true},
@@ -178,18 +178,7 @@ func (b *demo) flakyTest() *Conversation {
 		{Path: "internal/booking/reserve_test.go", Added: 22, Removed: 1},
 		{Path: "docs/booking.md", Added: 5, Removed: 2},
 	}, Undone: map[string]bool{"docs/booking.md": true}}
-	c := b.conv(id, "flaky.title", Idle, 35*time.Minute, cv.Usage{Tokens: 31800, Speed: 64.2, Cost: 0.0188, Cached: 22100, Context: 0.16}, first, fix)
-	// A follow-up whose turn ended before it was recorded stays in the queue,
-	// with the message behind it; the nightly run's results wait for the user.
-	c.Queue = []composer.Queued{
-		{ID: id + "/queued-ci", Text: b.t("flaky.queue.ci"), Wait: composer.WaitUnsent},
-		{ID: id + "/queued-note", Text: b.t("flaky.queue.note"), Wait: composer.WaitPaused},
-	}
-	c.Held = []composer.HeldResult{
-		{ID: id + "/held-soak", Title: "go test ./internal/booking -race -count=500", Wait: composer.WaitFailed},
-		{ID: id + "/held-bisect", Title: b.t("flaky.held.bisect"), Wait: composer.WaitHeld},
-	}
-	return c
+	return b.conv(id, "flaky.title", Idle, 35*time.Minute, cv.Usage{Tokens: 31800, Speed: 64.2, Cost: 0.0188, Cached: 22100, Context: 0.16}, first, fix)
 }
 
 // invoices is a plan with a step in every state, calls that were denied,
@@ -258,15 +247,6 @@ func (b *demo) invoices() *Conversation {
 	only.Reply = done(cv.Cancelled, 21)
 	only.Reply.Blocks = []cv.Block{tools(batch), text(b.t("invoice.5.answer"))}
 
-	c := b.conv(id, "invoice.title", Idle, 4*time.Hour, cv.Usage{Tokens: 96400, Speed: 58.9, Cost: 0.0641, Cached: 71300, Context: 0.48},
+	return b.conv(id, "invoice.title", Idle, 4*time.Hour, cv.Usage{Tokens: 96400, Speed: 58.9, Cost: 0.0641, Cached: 71300, Context: 0.48},
 		plan, results, why, again, more, only)
-	// The stopped run left the queue paused and its background work held.
-	c.Queue = []composer.Queued{
-		{ID: id + "/queued-2025", Text: b.t("invoice.queue.next"), Wait: composer.WaitStopped},
-		{ID: id + "/queued-finance", Text: b.t("invoice.queue.finance"), Wait: composer.WaitStopped},
-	}
-	c.Held = []composer.HeldResult{
-		{ID: id + "/held-counts", Title: "psql -c 'select count(*) from invoices_v2 where year = 2024'", Wait: composer.WaitStopped},
-	}
-	return c
 }

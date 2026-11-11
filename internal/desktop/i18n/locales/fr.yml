@@ -2216,13 +2216,8 @@ directory_fallback: Could not open %{path}; showing the home folder
 directory_trash: Move to Trash
 directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
-queue_wait_held: Held
-queue_wait_paused: Paused
-queue_wait_stopped: Paused after stop
-queue_wait_interrupted: Paused after interruption
-queue_wait_unsent: Not sent
-queue_wait_limit: Held at automatic limit
-queue_wait_failed: Held after failure
+queue_halt_interrupted: Reply interrupted; queued messages kept
+queue_halt_unsent: Message not sent; kept in the queue
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder

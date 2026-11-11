@@ -379,6 +379,25 @@ func TestDemoMode(t *testing.T) {
 		var value any
 		return value, json.Unmarshal(body, &value)
 	}
+	// bind takes the SDK of a page's host, as the page's script does.
+	bind := func(host *desktopplugins.Host) error {
+		modules, err := host.Modules()
+		if err != nil {
+			return err
+		}
+		clear(sdk)
+		for _, module := range modules {
+			if module.Name != "sailry/sdk" {
+				continue
+			}
+			for _, export := range module.Exports {
+				if sdk[export.Name] = export.Sync; export.Sync == nil {
+					sdk[export.Name] = export.Async
+				}
+			}
+		}
+		return nil
+	}
 	at := func(value any, path ...string) any {
 		for _, key := range path {
 			object, _ := value.(map[string]any)
@@ -678,19 +697,8 @@ func TestDemoMode(t *testing.T) {
 			scope.Package, scope.Surface.Kind = reference, "workspace"
 			page = desktopplugins.NewHost(desktopplugins.HostBinding{Context: ctx, Client: controller, Scope: scope,
 				UsageSources: r.pluginUsageSources, UsageChanges: r.pluginUsageChanges(ctx), UsageSample: r.pluginUsageSample()})
-			modules, err := page.Modules()
-			if err != nil {
+			if err := bind(page); err != nil {
 				t.Fatal(err)
-			}
-			for _, module := range modules {
-				if module.Name != "sailry/sdk" {
-					continue
-				}
-				for _, export := range module.Exports {
-					if sdk[export.Name] = export.Sync; export.Sync == nil {
-						sdk[export.Name] = export.Async
-					}
-				}
 			}
 			settle()
 			asked := len(sent())
@@ -773,9 +781,11 @@ func TestDemoMode(t *testing.T) {
 			t.Errorf("the profile without a provider offers a model: %q", tester.Texts())
 		}
 
-		// The flip moves the Usage page's watch to the Node's own ledger,
-		// which a new profile has nothing in: the call that waited goes on
-		// with it and the Node is asked again.
+		// The flip disposes the Usage page, which mounts again in its
+		// initial state over the Node's own ledger: a filter chosen over the
+		// demo's projects and models matches nothing there. The old mount's
+		// host closes, so the call that waited on it ends; a mount that
+		// reads no usage stays as it is.
 		t.Run("usage", func(t *testing.T) {
 			if changes != 2 || r.pluginUsageSample() != nil || page == nil {
 				t.Fatalf("the switch told the plugin pages %d times; a sample %v", changes, r.pluginUsageSample() != nil)
@@ -784,28 +794,109 @@ func TestDemoMode(t *testing.T) {
 			read := func() bool {
 				return slices.ContainsFunc(sent()[asked:], func(kind string) bool { return strings.HasSuffix(kind, "read_usage") })
 			}
-			// The page is mounted for as long as the switch tells it; no
-			// frame is drawn meanwhile.
-			key := pluginMountKey{role: "navigation", name: "usage-fixture"}
-			r.pluginViews.mounts[key] = &pluginMountedView{key: key, host: page}
-			r.demoChanged()
-			delete(r.pluginViews.mounts, key)
-			var got usageAnswer
-			select {
-			case got = <-waiting:
-			case <-ctx.Done():
-				t.Fatal("the switch did not wake the Usage page's wait")
+			reference := protocol.PluginReference{Name: "statistics"}
+			info := protocol.DefaultPluginInfo()
+			for _, summary := range controller.Snapshot().Plugins {
+				if summary.Name == reference.Name {
+					reference, info.Summary = packageReference(summary), summary
+				}
 			}
+			extension := protocol.DefaultPluginExtension()
+			extension.Actions = []protocol.PluginAction{protocol.PluginActionReadUsage, protocol.PluginActionReadConversation}
+			info.Extension = &extension
+			// The page is mounted for as long as the switch tells it; no
+			// frame is drawn meanwhile. Beside it are the package's view
+			// over a composer, which cannot read usage, and the page of a
+			// package that declares no usage.
+			fixture := func(name, surface string, info protocol.PluginInfo, host *desktopplugins.Host) *pluginMountedView {
+				scope := protocol.DefaultPluginContext()
+				scope.Package, scope.Surface.Kind = reference, surface
+				mounted := &pluginMountedView{key: pluginMountKey{role: "navigation", name: name}, owner: r, info: info, scope: scope, host: host}
+				mounted.ctx, mounted.cancel = context.WithCancel(ctx)
+				r.pluginViews.mounts[mounted.key] = mounted
+				return mounted
+			}
+			host := func(surface string) *desktopplugins.Host {
+				scope := protocol.DefaultPluginContext()
+				scope.Package, scope.Surface.Kind = reference, surface
+				return desktopplugins.NewHost(desktopplugins.HostBinding{Context: ctx, Client: controller, Scope: scope,
+					UsageSources: r.pluginUsageSources, UsageChanges: r.pluginUsageChanges(ctx), UsageSample: r.pluginUsageSample()})
+			}
+			usage := fixture("usage-fixture", "workspace", info, page)
+			usage.bundle = &protocol.PluginDesktopBundle{Package: reference}
+			figures := fixture("figures-fixture", "composer", info, host("composer"))
+			plain := fixture("plain-fixture", "workspace", protocol.DefaultPluginInfo(), host("workspace"))
+			defer func() {
+				for _, mounted := range []*pluginMountedView{usage, figures, plain} {
+					if r.pluginViews.mounts[mounted.key] == mounted {
+						r.dropPluginView(mounted, true)
+					}
+					delete(r.pluginViews.mounts, mounted.key)
+					delete(r.pluginViews.remounts, mounted.key)
+				}
+			}()
+			if !pluginUsesUsage(usage) || pluginUsesUsage(figures) || pluginUsesUsage(plain) {
+				t.Fatalf("usage is read by the page %v, the composer view %v, a page without the action %v",
+					pluginUsesUsage(usage), pluginUsesUsage(figures), pluginUsesUsage(plain))
+			}
+			r.demoChanged()
+			page = nil // closed with its mount
+
+			// The page's mount is gone and closed, its bundle kept for the
+			// next one; the wait on its host ended.
+			if r.pluginViews.mounts[usage.key] != nil || usage.host != nil || usage.ctx.Err() == nil {
+				t.Fatalf("the Usage page's mount outlived the switch: listed %v, host %v, context %v",
+					r.pluginViews.mounts[usage.key] != nil, usage.host != nil, usage.ctx.Err())
+			}
+			if kept, ok := r.pluginViews.remounts[usage.key]; !ok || kept.Package != reference {
+				t.Errorf("the next mount has no bundle to take: %v", ok)
+			}
+			select {
+			case got := <-waiting:
+				if got.err == nil {
+					t.Errorf("the old page's wait went on after the switch: %v", got.value)
+				}
+			case <-ctx.Done():
+				t.Fatal("the switch did not end the old page's wait")
+			}
+			// The mounts that read no usage are the ones they were.
+			for _, mounted := range []*pluginMountedView{figures, plain} {
+				if r.pluginViews.mounts[mounted.key] != mounted || mounted.host == nil || mounted.ctx.Err() != nil {
+					t.Errorf("the switch remounted %s, which reads no usage", mounted.key.name)
+				}
+			}
+			if _, kept := r.pluginViews.remounts[plain.key]; kept || len(r.pluginViews.remounts) != 1 {
+				t.Errorf("%d mounts wait to be mounted again", len(r.pluginViews.remounts))
+			}
+			// A second switch finds no page to dispose.
+			r.demoChanged()
+			if len(r.pluginViews.remounts) != 1 || r.pluginViews.mounts[figures.key] != figures {
+				t.Error("a switch without the page changed the mounts")
+			}
+
+			// The page mounted again has a new host, as mountPluginView
+			// builds it: without a sample and without a watch, so the page
+			// starts from its first query, on the Node's own ledger, which
+			// a new profile has nothing in.
+			page = host("workspace")
+			if err := bind(page); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ask("nextUsageChange", `""`); err == nil {
+				t.Error("the new page inherited a watch")
+			}
+			if _, err := ask("watchUsage", month, "false"); err != nil {
+				t.Fatal(err)
+			}
+			value, err := ask("nextUsageChange", `""`)
+			got := usageAnswer{value, err}
 			// The Node's watch settles on a report, or on the Node's refusal.
 			for got.err == nil && at(got.value, "view", "report") == nil && !(read() && at(got.value, "view", "error") != nil) {
 				value, err := ask("nextUsageChange", quote(fmt.Sprint(at(got.value, "cursor"))))
 				got = usageAnswer{value, err}
 			}
 			if got.err != nil {
-				t.Fatalf("the Usage page's watch ended with the switch: %v", got.err)
-			}
-			if cursor, _ := strconv.ParseUint(fmt.Sprint(at(got.value, "cursor")), 10, 64); cursor == 0 {
-				t.Errorf("the watch moved under cursor %v", at(got.value, "cursor"))
+				t.Fatalf("the new page's watch failed: %v", got.err)
 			}
 			if report := at(got.value, "view", "report"); report != nil {
 				if groups, _ := at(report, "groups").([]any); at(report, "totals", "responses") != "0" || len(groups) != 0 {

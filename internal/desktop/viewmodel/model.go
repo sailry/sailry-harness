@@ -42,10 +42,6 @@ type Conversation struct {
 	Waiting composer.Interactions
 	// Queue is the messages sent while the reply runs.
 	Queue []composer.Queued
-	// Held are the background results kept back from automatic delivery,
-	// which the preview's conversations carry; a live session's come from
-	// its Node with the composer's context.
-	Held []composer.HeldResult
 	// Commands are its background commands; Badges the plugins' Status
 	// badges over its composer (the goals plugin's goal).
 	Commands []composer.Command

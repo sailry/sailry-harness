@@ -35,6 +35,7 @@ Commits are in this repository. Dates are the removal's.
 | 15 | A check mark on the chosen row | The model picker's effort rows, model rows and family tiles (`composer/models.go`) | The neutral fill `Palette.Selected` alone marks the choice; each is still selected for assistive technology. The mode and permission menus keep their checks | User decision, 2026-11-12 |
 | 16 | The score card or any tooltip over a score | The model picker's model rows and effort rows (`composer/models.go` `modelRow`, `effortColumn`) | The score is text at the row's end. The controls page keeps the card over its effort label (`scoreTip`), with the `model_score_*` copy | User decision, 2026-11-12 |
 | 17 | The host's name on a second line under the title | The file picker's heading (`picker/view.go` `heading`) | The heading is the title alone, level with the header bar. A host other than this device is named after the sidebar's first group heading, and after the title where the sidebar gives way; this device is not named ([files.md](files.md#host-file-picker)) | User decision, 2026-11-12 |
+| 17 | A wait reason on a queued row ("Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent"), and held background results as rows in the queue ("Held at automatic limit", "Held after failure") | The composer's queue strip (`composer/queue.go`) | The strip lists queued input only, as plain rows. A queue the Node stopped sending is one toast when it happens (`queue_halt_interrupted`, `queue_halt_unsent`); the user's own Stop or pause is not reported. The Node and the protocol keep `pause_reason` and `hold`; a held result joins the user's next message and shows in the transcript with the turn that takes it ([composer.md](composer.md), [conversation.md](conversation.md)) | User decision, 2026-11-12 |
 
 ## Guards
 
@@ -52,6 +53,7 @@ subtests of the feature's existing tests.
 | The model picker's chosen rows draw no check | `shell` `composerParity/model picker/selection dark` and `selection light` |
 | A score in the model picker opens no tooltip | `shell` `composerParity/model picker/scores open nothing` |
 | The file picker's heading is one line and names no local host | `picker` `TestModel/view/heading` |
+| The queue strip draws no wait reason, and no strip without queued input | `composer` `TestQueueTray`; `live` `TestQueueStates/held results are not rows`; the `queue_wait_*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
 
 A key on the guard's list cannot be added to `keys.txt` without editing the
 test, which points here.
