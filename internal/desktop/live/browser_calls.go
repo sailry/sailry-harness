@@ -181,7 +181,8 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 	}
 	selected := r.App.Sidebar.Selected == session
 	var tabs []*browserTab
-	for _, open := range r.App.Panel.Tabs {
+	// The session's tabs are in its own panel, shown or not.
+	for _, open := range r.App.AllPanelTabs() {
 		if open.Kind != panel.Browser {
 			continue
 		}
@@ -199,6 +200,7 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 		open := r.App.Panel.AddBrowser(show && selected)
 		tab := r.browserTabFor(open.ID)
 		tab.node, tab.conversation = node, session
+		r.App.MovePanelTab(open, session)
 		tabs = append(tabs, tab)
 		return tab
 	}
@@ -247,6 +249,9 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 		}
 		id := strconv.FormatUint(target.id, 10)
 		delete(state.tabs, id)
+		if !selected {
+			r.App.DropPanelTab(panel.Tab{Kind: panel.Browser, ID: id})
+		}
 		r.App.Panel.Close(panel.Tab{Kind: panel.Browser, ID: id})
 		return settled(browserValue(map[string]any{"closed": target.id}))
 	case request.Action == "focus" && target.url == "":

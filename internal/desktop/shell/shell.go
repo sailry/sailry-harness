@@ -171,6 +171,8 @@ type App struct {
 	selected selection
 	// panes is the split workspace (panes.go).
 	panes workspace
+	// panels are the conversations' right panels (panels.go).
+	panels conversationPanels
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -232,6 +234,9 @@ func (a *App) Composer(id string) *composer.State {
 func (a *App) View(c *ui.Context) {
 	defer a.updateFileSaveMenu(c)
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
+	// The panel is the selected conversation's before anything opens a tab
+	// in it (panels.go).
+	a.MountPanel()
 	if a.Hooks.BeforeFrame != nil {
 		a.Hooks.BeforeFrame(c)
 	}
@@ -245,6 +250,7 @@ func (a *App) View(c *ui.Context) {
 	theme.Apply(c, a.Theme, a.Mode)
 	kit.SetEffects(a.Effects)
 	a.shortcuts(c)
+	a.MountPanel()
 	a.followSelection()
 	a.followPanes()
 	p := theme.Of(c)
@@ -477,6 +483,12 @@ func (a *App) togglePanel() {
 
 // openPanel shows a resource in the right panel.
 func (a *App) openPanel(k panel.Kind) {
+	a.MountPanel()
+	a.syncPanel()
+	if !a.Panel.Offers(k) {
+		// A shortcut opens only what the launcher lists.
+		return
+	}
 	a.Page, a.PanelOpen = ConversationPage, true
 	a.Panel.Sync(a.project())
 	a.Panel.Open(k)

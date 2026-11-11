@@ -31,10 +31,11 @@ root runtime; `live/terminal.go` owns the MyGo terminal of each tab.
 
 | Action | Backend |
 |---|---|
-| New terminal (toolbar, launcher, +, ⌃`) | `create_terminal` in the selected worktree with unrestricted access. The prepared request ID is the terminal ID, so the tab shows before the Node answers; a failed creation takes the tab back and toasts |
+| New terminal (toolbar, launcher, +, ⌃`) | `create_terminal` in the selected worktree with unrestricted access, a new terminal and a new tab every time (the reference's `request_terminal`; Browser shows its open page instead). The prepared request ID is the terminal ID, so the tab shows before the Node answers; a failed creation takes the tab back and toasts |
+| Terminal offered | Only where the conversation has a worktree on a connected Node (`panel.State.Worktree`, set each frame from the selected runtime's `workspace.selected`): a session, also one without a project, which has its private worktree, and an unsent chat in a project, a Git folder or a plain one. An unsent chat without a project has none: the launcher and the + menu do not list Terminal and ⌃` does nothing there (the reference's `launcher::Scope::offers`). A creation asked for all the same toasts `terminal_unavailable` |
 | Toolbar folder | `TerminalInfo.Directory` through `TerminalActions.Folder` |
 | Close terminal | `close_terminal`, or `close_ssh_terminal` for a terminal without a worktree; the tab leaves on success or `not_found`, any other outcome keeps it and toasts failure, conflict or uncertain |
-| Closing the tab in the strip | Detaches the window only; the terminal keeps running and stays in the project's Terminal records |
+| Closing the tab in the strip, ⌘W | Asks first (`workspace_close_terminal` and the tab's title, Cancel or Close), then Close terminal: the shell ends on the Node and the tab leaves when it has |
 | Find | MyGo terminal search through `TerminalActions.Search` |
 | Saved tab after relaunch | The first frame that shows it subscribes again; a terminal that is not running is sent `open_terminal` first, which restarts a stored shell under the same ID |
 
@@ -44,7 +45,52 @@ Node that is not connected stay, a tab created by a command stays until its
 terminal first appears in a snapshot, and a saved tab no Node has reported
 leaves once the local Node and every discovered peer delivered a snapshot.
 Tabs with the preview's numeric IDs name no Node terminal and leave in live
-mode. A terminal whose tab is gone is detached, never closed.
+mode. A terminal whose tab is gone is detached, never closed. The tabs are
+every conversation's (`shell.App.AllPanelTabs`): a terminal of a conversation
+that is not shown stays attached and running, and its tab is there on return
+([Tabs per conversation](#tabs-per-conversation)).
+
+The reported failure, "operation failed" on Terminal in a new chat without a
+project, was the window refusing the creation itself: with no worktree
+selected `createPanelResource` reported an `unavailable` fault through the
+generic `Report`, and no command reached the Node. The Node rejects
+`create_terminal` without a worktree as well. The reference never offers a
+terminal there and has no home-directory fallback, so neither does the
+desktop.
+
+### Tabs per conversation
+
+The right panel belongs to the conversation, as the reference's
+`shell/session_scope.rs` and `session_scope/panels.rs` (`park_session_panel`,
+`sync_session_panel`, `promote`).
+
+| Fact | Reference | Desktop |
+|---|---|---|
+| The panel's content, shown item, openness and width | Per conversation (`Key::Draft`, `Key::Session(node, session)`); a conversation that never opened the panel shows it closed | Per conversation ID: `shell.ConversationPanel{Tabs, Active, Open, Width}` for every conversation but the shown one, whose are `panel.State` and `App.PanelOpen`, `App.PanelWidth` |
+| Browser pages | Per session or draft (`browsers.views` by `Owner`), promoted when the draft is created | The same: a page's tab is in its conversation's panel (`browserTab.conversation`) |
+| Terminals | Per Node and worktree, in the split workspace; the Node owns them | A tab of the conversation that opened it; the Node owns the shell |
+| Open files and diffs | Per Node and worktree | Per project (`panel.Project`, `State.Sync`), unchanged |
+| An unsent chat becoming its session | `State::promote` moves the draft's panel to the session | `App.ReplaceConversationID` moves the record by the draft's exact ID (`renamePanel`), with `browserAdopt` for its pages |
+| A session removed | `Event::Removed` closes its view | Its panel record is dropped and its terminals are closed on their Node |
+| Across a relaunch | Nothing of the panel is kept | Each session's tabs come back (below) |
+
+`App.MountPanel` (`shell/panels.go`) runs at the start of every frame, again
+after the live sidebar is listed (`live.conversationPanelsFrame`) and after
+the window's shortcuts: when the selection changed it parks the shown tabs
+under the conversation left and mounts the selected one's
+(`panel.State.Mount`). A terminal has one tab in the window: showing it in the
+selected conversation takes it out of another's. `conversationPanelsFrame`
+also moves a browser page an agent opened for a conversation that is not shown
+into that conversation's panel, and removes the panel of a conversation that
+is gone: an unsent chat no longer in the window, or a session no connected
+Node lists unarchived once every Node answered. Each of its terminal tabs is
+sent Close terminal first.
+
+`ui-state.json` keeps the shown conversation's tabs in the existing
+`panelTabs`, `panelTab` and `panelOpen`, names that conversation in `panelOf`
+and keeps the others in `panels`. A live window does not keep an unsent chat's
+panel, whose ID is the window's. A file without `panelOf`, from before, gives
+its tabs to the first conversation shown.
 
 Local terminals are a core feature, like Files and Git. The `terminal`
 resource kind is core-owned in live mode: a package's declared renderer for it
@@ -73,6 +119,10 @@ Deviations:
 |---|---|
 | While a terminal's split pane is displayed, its tab's screen is empty | MyGo shows a terminal in one view at a time; the pane owns the screen |
 | Terminal tabs keep the title Terminal | The accepted tab title is unchanged; the Node title shows in the project's Terminal records |
+| Terminals are tabs of the right panel, one strip per conversation, and several can be open (user decision 2026-11-11) | The reference shows terminals in the split workspace per worktree. Dragging a tab onto the conversation still splits |
+| A removed or archived conversation, and an unsent chat that is discarded, end their terminals (user decision 2026-11-11) | The reference leaves a worktree's terminals to the Node. Here a terminal is reachable only through its conversation's tab |
+| A terminal of an unsent chat is not listed after a relaunch | The chat's panel is not saved; the terminal keeps running on its Node and shows in the project's Terminal records |
+| A session's panel tabs come back after a relaunch | The reference keeps nothing of the panel. The accepted window state already restored the tabs; it restores them per session now |
 | A local terminal reports no activity (OSC 9;4, 133, 633) | MyGo's terminal view does not surface these sequences; SSH terminals report theirs |
 | An exited shell closes its terminal, tab and panes (user decision 2026-11-10) | The reference prunes only `closed` or missing terminals. The desktop closes an exited terminal once; a failed one stays to show its error, and a stopped one stays so it can be reopened |
 | A saved tab of a peer discovered after every known Node answered is dropped | A tab stores no Node; ownership is known only from snapshots |
@@ -496,7 +546,7 @@ at its width.
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
-| Browser tabs belong to the window, each to the conversation it was opened in | The accepted panel keeps one flat tab strip; the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
+| Browser tabs belong to the conversation they were opened in and show in its panel only | The strip is the conversation's ([Tabs per conversation](#tabs-per-conversation)); the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
 | Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
 | Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |

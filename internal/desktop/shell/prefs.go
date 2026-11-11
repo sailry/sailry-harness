@@ -29,7 +29,13 @@ type Prefs struct {
 	PanelOpen  bool        `json:"panelOpen"`
 	PanelTabs  []panel.Tab `json:"panelTabs,omitempty"`
 	PanelTab   panel.Tab   `json:"panelTab"`
-	Collapsed  []string    `json:"collapsed,omitempty"`
+	// PanelOf is the conversation PanelTabs, PanelTab and PanelOpen belong
+	// to, the one shown last; empty in a file from before the panel belonged
+	// to conversations, whose tabs the first conversation shown takes.
+	PanelOf string `json:"panelOf,omitempty"`
+	// Panels are the other conversations' panels (panels.go).
+	Panels    map[string]ConversationPanel `json:"panels,omitempty"`
+	Collapsed []string                     `json:"collapsed,omitempty"`
 	// SessionOrder is the preview's sidebar order, a session_order value; a
 	// profile keeps its own in its preferences.
 	SessionOrder string   `json:"sessionOrder,omitempty"`
@@ -90,7 +96,8 @@ func SavePrefs(dir string, p Prefs) error {
 func (a *App) Prefs() Prefs {
 	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
-		PanelTabs: kept(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
+		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
+		Panels:   a.savedPanels(),
 		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
 		Panes: a.panes.Saved(),
 	}
@@ -98,6 +105,12 @@ func (a *App) Prefs() Prefs {
 		p.PanelTab = a.Panel.Active
 	} else if len(p.PanelTabs) > 0 {
 		p.PanelTab = p.PanelTabs[len(p.PanelTabs)-1]
+	}
+	if a.keepsPanel(a.panels.mounted) {
+		p.PanelOf = a.panels.mounted
+	} else if a.panels.mounted != "" {
+		// An unsent chat's panel does not outlive the window.
+		p.PanelTabs, p.PanelTab, p.PanelOpen = nil, panel.Tab{}, false
 	}
 	if a.Preview {
 		p.Features, p.Unpinned = a.features, a.unpinnedList()
@@ -111,12 +124,7 @@ func (a *App) Prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
-	for _, t := range kept(p.PanelTabs) {
-		a.Panel.Show(t)
-	}
-	if p.PanelTab != (panel.Tab{}) && keeps(p.PanelTab) {
-		a.Panel.Show(p.PanelTab)
-	}
+	a.restorePanels(p)
 	a.Sidebar.SetCollapsed(p.Collapsed)
 	if a.Preview {
 		// Merged as a profile's are: a saved order keeps the fixed features
@@ -146,7 +154,7 @@ func (a *App) SetPrefs(p Prefs) {
 // a new window does not have: their tabs would come back empty.
 func keeps(t panel.Tab) bool { return t.Kind != panel.Artifact && t.Kind != panel.Subagent }
 
-func kept(tabs []panel.Tab) []panel.Tab {
+func keptTabs(tabs []panel.Tab) []panel.Tab {
 	var out []panel.Tab
 	for _, t := range tabs {
 		if keeps(t) {

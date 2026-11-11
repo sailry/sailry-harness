@@ -647,6 +647,108 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.corePanes("after exit")
 	t.Log("step 9 passed: exit closed Node terminal " + third + " and removed its tab and pane")
 
+	// (9b) Terminals are tabs of their conversation's panel. Terminal opens
+	// another terminal every time, each with its own shell; another
+	// conversation shows none of them while they keep running, and coming
+	// back shows them again. Closing a tab asks, then ends that shell alone.
+	app.Panel.Open(panel.Terminal)
+	window.wait("Terminal opens a second terminal tab", func() bool {
+		tabs := window.terminalTabs()
+		return len(tabs) == 2 && tabs[0] == first && window.status(tabs[1]) == "running" && len(window.buttons("Terminal")) == 2
+	})
+	fourth := window.terminalTabs()[1]
+	if app.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: fourth}) {
+		t.Fatalf("the new terminal is not shown: %v", app.Panel.Active)
+	}
+	window.run("second tab", fourth, "echo tab-two-$((6*7))", "tab-two-42")
+	window.runtime.showLiveTerminal(first)
+	window.run("first tab", first, "echo tab-one-$((5*5))", "tab-one-25")
+	if strings.Contains(window.screen(first), "tab-two-42") || strings.Contains(window.screen(fourth), "tab-one-25") ||
+		strings.Contains(window.mirror(first), "tab-two-42") || strings.Contains(window.mirror(fourth), "tab-one-25") {
+		t.Fatalf("the two terminals share input or output:\nfirst %q\nsecond %q", window.screen(first), window.screen(fourth))
+	}
+	otherOutput := do(protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}})
+	other, valid := detail[protocol.Session](otherOutput.Data)
+	if !valid {
+		t.Fatal("the second session was not returned")
+	}
+	window.wait("another conversation shows no terminal of this one", func() bool {
+		window.runtime.OpenSession(other.ID.String())
+		return app.Sidebar.Selected == other.ID.String() && len(app.Panel.Tabs) == 0 && !app.PanelOpen && len(window.buttons("Terminal")) == 0
+	})
+	// Hidden, both keep running and stay attached to the window.
+	for range 10 {
+		window.frame()
+	}
+	for _, id := range []string{first, fourth} {
+		if window.status(id) != "running" || window.runtime.packages.terminals[id] == nil || !app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: id}) {
+			t.Fatalf("hidden terminal %s did not keep running: Node %s", id, window.nodeTerminals())
+		}
+	}
+	app.PanelOpen = true
+	app.Panel.Open(panel.Terminal)
+	window.wait("the second conversation's own terminal", func() bool {
+		tabs := window.terminalTabs()
+		return len(tabs) == 1 && tabs[0] != first && tabs[0] != fourth && window.status(tabs[0]) == "running"
+	})
+	fifth := window.terminalTabs()[0]
+	window.wait("coming back shows the conversation's terminals", func() bool {
+		window.runtime.OpenSession(session.ID.String())
+		return app.Sidebar.Selected == session.ID.String() && slices.Equal(window.terminalTabs(), []string{first, fourth}) && app.PanelOpen &&
+			app.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: first}) && len(window.buttons("Terminal")) == 2
+	})
+	if !strings.Contains(window.screen(first), "tab-one-25") || !strings.Contains(window.screen(fourth), "tab-two-42") {
+		t.Fatal("the terminals lost their screens while hidden")
+	}
+	// The second tab's close button: the confirmation, then the Node ends
+	// that shell and the tab leaves.
+	// The panel slides back in: the tab is ready once it has come to rest.
+	var strip ui.AccessInfo
+	window.wait("the second terminal's tab at rest", func() bool {
+		found := window.buttons("Terminal")
+		if len(found) != 2 {
+			return false
+		}
+		previous := strip.Bounds.X
+		strip = found[1]
+		return strip.Bounds.X == previous && strip.Bounds.X+strip.Bounds.W <= 1440
+	})
+	closeX, closeY := strip.Bounds.X+strip.Bounds.W-14, strip.Bounds.Y+strip.Bounds.H/2
+	window.tester.Move(closeX, closeY)
+	window.frame()
+	window.tester.ClickAt(closeX, closeY)
+	window.wait("tab close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
+	if window.status(fourth) != "running" || len(window.terminalTabs()) != 2 {
+		t.Fatalf("the tab closed before it was confirmed: %s", window.nodeTerminals())
+	}
+	confirm := window.buttons("Close")
+	cx, cy := center(confirm[len(confirm)-1].Bounds)
+	window.tester.ClickAt(cx, cy)
+	window.wait("closing the tab ends its Node terminal", func() bool {
+		return window.status(fourth) == "closed" && slices.Equal(window.terminalTabs(), []string{first}) && window.runtime.packages.terminals[fourth] == nil
+	})
+	if window.status(first) != "running" || window.status(fifth) != "running" {
+		t.Fatalf("closing one tab disturbed another terminal: %s", window.nodeTerminals())
+	}
+	// Archiving the other conversation ends its terminal and drops its tabs.
+	var current protocol.Session
+	if err := setup.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range setup.Snapshot().Sessions {
+		if candidate.ID == other.ID {
+			current = candidate
+		}
+	}
+	do(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: other.ID, ExpectedRevision: current.Revision, Archived: true}})
+	window.wait("archiving a conversation ends its terminals", func() bool {
+		return window.status(fifth) == "closed" && len(app.ConversationTabs(other.ID.String())) == 0 && !app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: fifth})
+	})
+	if window.status(first) != "running" || !slices.Equal(window.terminalTabs(), []string{first}) {
+		t.Fatalf("the archive disturbed the shown conversation: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())
+	}
+	t.Log("step 9b passed: two terminals ran as two tabs with separate shells, stayed running while another conversation was shown, came back, one closed by its tab after confirmation, and an archived conversation's terminal ended")
+
 	terminalFindAndSettings(t, ctx, window, owner, profile, session, setup, first)
 }
 

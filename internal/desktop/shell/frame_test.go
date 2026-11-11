@@ -377,6 +377,120 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 			t.Errorf("restored tabs %v active %v, want %v", b.Panel.Tabs, b.Panel.Active, want)
 		}
 	})
+	// The panel is the conversation's: its tabs, the one shown and whether
+	// its column is open leave with the conversation and come back with it,
+	// also after a relaunch and when a draft becomes its session.
+	t.Run("panel per conversation", func(t *testing.T) {
+		a, tt := newTester(t)
+		kinds := func(tabs []panel.Tab) string {
+			var out []string
+			for _, tab := range tabs {
+				out = append(out, string(tab.Kind))
+			}
+			return strings.Join(out, " ")
+		}
+		// Terminal opens another terminal every time; Browser its page.
+		a.openPanel(panel.Terminal)
+		a.openPanel(panel.Terminal)
+		a.openPanel(panel.Browser)
+		a.openPanel(panel.Browser)
+		tt.Frame()
+		first := slices.Clone(a.Panel.Tabs)
+		if got := kinds(first); got != "terminal terminal browser" || !a.PanelOpen || a.Panel.Active != first[2] {
+			t.Fatalf("the first conversation's tabs %q, open %v, active %v", got, a.PanelOpen, a.Panel.Active)
+		}
+		a.PanelWidth = 500
+		// Another conversation never shows them: its panel is closed until
+		// it opens one of its own.
+		a.Sidebar.Selected = themeChat
+		tt.Frame()
+		if a.PanelOpen || len(a.Panel.Tabs) != 0 {
+			t.Fatalf("another conversation shows open %v, tabs %v", a.PanelOpen, a.Panel.Tabs)
+		}
+		a.openPanel(panel.Browser)
+		tt.Frame()
+		second := slices.Clone(a.Panel.Tabs)
+		if kinds(second) != "browser" || slices.Contains(first, second[0]) || !slices.Equal(a.ConversationTabs(preview.Big), first) {
+			t.Fatalf("the second conversation's tabs %v beside %v", second, a.ConversationTabs(preview.Big))
+		}
+		a.PanelWidth = 420
+		// Coming back restores the tabs, the shown one and the column.
+		a.Sidebar.Selected = preview.Big
+		tt.Frame()
+		if !slices.Equal(a.Panel.Tabs, first) || a.Panel.Active != first[2] || !a.PanelOpen || a.PanelWidth != 500 {
+			t.Fatalf("back: tabs %v, active %v, open %v, width %v", a.Panel.Tabs, a.Panel.Active, a.PanelOpen, a.PanelWidth)
+		}
+		if got := a.AllPanelTabs(); len(got) != 4 || !a.HasPanelTab(second[0]) {
+			t.Fatalf("all tabs %v", got)
+		}
+		// A relaunch brings each conversation its own.
+		dir := t.TempDir()
+		if err := SavePrefs(dir, a.Prefs()); err != nil {
+			t.Fatal(err)
+		}
+		saved := LoadPrefs(dir)
+		if saved.PanelOf != preview.Big || !slices.Equal(saved.PanelTabs, first) || !slices.Equal(saved.Panels[themeChat].Tabs, second) {
+			t.Fatalf("saved %+v", saved)
+		}
+		b := New(preview.Load())
+		b.SetPrefs(saved)
+		tb := ui.NewTesterWith(b.View, 1280, 820, opaque)
+		tb.Frame()
+		if b.Sidebar.Selected != preview.Big || !slices.Equal(b.Panel.Tabs, first) || !b.PanelOpen {
+			t.Fatalf("relaunched %q: tabs %v, open %v", b.Sidebar.Selected, b.Panel.Tabs, b.PanelOpen)
+		}
+		b.Sidebar.Selected = themeChat
+		tb.Frame()
+		if !slices.Equal(b.Panel.Tabs, second) || !b.PanelOpen {
+			t.Fatalf("relaunched second: tabs %v, open %v", b.Panel.Tabs, b.PanelOpen)
+		}
+		// A page opened after the relaunch takes no restored page's number.
+		b.Panel.New(panel.Browser)
+		if b.HasPanelTab(b.Panel.Active) && (slices.Contains(first, b.Panel.Active) || slices.Contains(second, b.Panel.Active)) {
+			t.Fatalf("a new page reuses %v", b.Panel.Active)
+		}
+		// A conversation shown first that is not the saved one leaves the
+		// saved tabs to theirs.
+		other := New(preview.Load())
+		other.Sidebar.Selected = themeChat
+		other.SetPrefs(saved)
+		if !slices.Equal(other.Panel.Tabs, nil) || !slices.Equal(other.ConversationTabs(preview.Big), first) {
+			t.Fatalf("the saved tabs went to %q: %v", other.Sidebar.Selected, other.Panel.Tabs)
+		}
+		// A file from before panels were per conversation names none: the
+		// first conversation shown takes its tabs.
+		old := saved
+		old.PanelOf, old.Panels = "", nil
+		legacy := New(preview.Load())
+		legacy.Sidebar.Selected = themeChat
+		legacy.SetPrefs(old)
+		tl := ui.NewTesterWith(legacy.View, 1280, 820, opaque)
+		tl.Frame()
+		if !slices.Equal(legacy.Panel.Tabs, first) || !legacy.PanelOpen || len(legacy.ConversationTabs(preview.Big)) != 0 {
+			t.Fatalf("an old file's tabs %v, open %v", legacy.Panel.Tabs, legacy.PanelOpen)
+		}
+		// A draft that becomes its session keeps its panel, shown or not.
+		a.ReplaceConversationID(themeChat, "session/created")
+		if !slices.Equal(a.ConversationTabs("session/created"), second) || len(a.ConversationTabs(themeChat)) != 0 {
+			t.Fatalf("the created session's tabs %v", a.ConversationTabs("session/created"))
+		}
+		a.ReplaceConversationID(preview.Big, "session/shown")
+		tt.Frame()
+		if !slices.Equal(a.Panel.Tabs, first) || !slices.Equal(a.ConversationTabs("session/shown"), first) {
+			t.Fatalf("the shown session's tabs %v", a.Panel.Tabs)
+		}
+		// A terminal has one tab in the window, and a removed conversation's
+		// panel leaves whole.
+		a.MovePanelTab(second[0], "session/shown")
+		if len(a.ConversationTabs("session/created")) != 0 || !slices.Contains(a.Panel.Tabs, second[0]) {
+			t.Fatalf("moved: %v", a.Panel.Tabs)
+		}
+		a.DropPanelTab(first[0])
+		a.DropPanel("session/shown")
+		if len(a.AllPanelTabs()) != 0 {
+			t.Fatalf("dropped: %v", a.AllPanelTabs())
+		}
+	})
 	// The file is one for the preview and every profile. The preview's rail
 	// comes back from it, merged with the features of now; a profile's rail
 	// is its own preferences', which the file neither replaces nor loses.

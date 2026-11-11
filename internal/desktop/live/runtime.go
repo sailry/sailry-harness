@@ -382,6 +382,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	}
 	r.draftsShown = map[string]bool{}
 	r.listSidebar()
+	r.conversationPanelsFrame()
 	owner := r.selectedRuntime()
 	if owner != nil {
 		owner.workspaceFrame(c)
@@ -394,6 +395,10 @@ func (r *Runtime) drain(c *ui.Context) {
 		r.App.Panel.Data = &viewmodel.Workspace{}
 		r.App.Panel.Session = false
 	}
+	// A terminal starts in the shown conversation's worktree on a connected
+	// Node; without one the panel does not offer Terminal.
+	r.App.Panel.Worktree = owner != nil && r.packages != nil && r.packages.terminals != nil && owner.controller.Connected() &&
+		owner.workspace != nil && owner.workspace.selected != (protocol.WorktreeID{})
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
 	r.backupSettingsFrame(c)

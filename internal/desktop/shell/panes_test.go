@@ -358,7 +358,7 @@ func TestPanesPersist(t *testing.T) {
 	}
 	// A terminal whose tab is gone leaves its group.
 	p := LoadPrefs(dir)
-	p.PanelTabs, p.PanelTab = nil, panel.Tab{}
+	p.PanelTabs, p.PanelTab, p.Panels = nil, panel.Tab{}, nil
 	c := New(preview.Load())
 	c.SetPrefs(p)
 	if got := c.panes.Members(session(themeChat)); len(got) != 2 {

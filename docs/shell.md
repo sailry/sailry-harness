@@ -48,6 +48,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `activity.go` | `NoticeAge`, `SortNotices`, the activity centre and the header's strip |
 | `knowledge.go` | `Source`, `ParseSource`, the knowledge viewer |
 | `prefs.go` | `Prefs`, `LoadPrefs`, `SavePrefs`, `ClampNav`, `PanelFits`, `ClampPanel` |
+| `panels.go` | `ConversationPanel`, `MountPanel`: the right panel per conversation (docs/panel.md, Tabs per conversation) |
 | `hosts.go` | The host page's data and state, `openHost`, `addHost` (docs/host.md) |
 | `transfers.go` | The Save as dialog's playback (docs/transfers.md) |
 | `welcome.go` | The welcome guide over the window (docs/onboarding.md) |
@@ -369,7 +370,11 @@ are unchanged and earlier files load.
 The file is one for the preview and every profile, so the rail's order and
 pins in it are the preview's: a live window keeps its own in the profile
 (`FeaturePreferences`), neither reads nor changes the file's, and writes
-back the ones it loaded. Artifact and subagent tabs are not saved: their
+back the ones it loaded. The panel's tabs are per conversation: `panelTabs`,
+`panelTab` and `panelOpen` are those of the conversation `panelOf` names, and
+`panels` holds the other conversations'. A file without `panelOf` loads as
+before, its tabs going to the first conversation shown
+([panel.md](panel.md#tabs-per-conversation)). Artifact and subagent tabs are not saved: their
 content does not outlive the run. Split panes whose session is away (a host
 not yet connected, another profile) are held as saved and return to their
 place when the session does (`panes.Workspace.Follow`); changing the layout
@@ -505,7 +510,10 @@ the pane's ID is the tab's, which is the Node terminal's. ⌘D and ⌘⇧D call
 `TerminalActions.Split`, which starts a Node terminal in the pane's worktree,
 and drop its tab beside the pane within the 9-pane limit. Closing a pane, after
 the existing confirmation, only removes it from the split: the terminal keeps
-running in its tab. A tab the live inventory prunes, because its Node closed
+running in its tab. Closing the tab itself ends the shell, after the same
+confirmation. A pane exists while any conversation's panel has its terminal's
+tab (`App.HasPanelTab`), so a split keeps a terminal whose conversation is not
+the selected one. A tab the live inventory prunes, because its Node closed
 the terminal or no longer reports it, takes its pane out of the split through
 `followPanes`. Saved `Prefs.Panes` and `Prefs.PanelTabs` come back at start-up
 and reattach when first shown. A shell that exits closes its terminal, so its

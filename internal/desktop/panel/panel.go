@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"slices"
+
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +41,7 @@ type Shortcut func(mods ui.Modifiers, key ui.Key) string
 func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	s.Sync(pr)
 	s.nameDocument()
+	s.confirmClose(c)
 	if len(s.Tabs) == 0 {
 		launcher(c, s, keys)
 		return
@@ -79,6 +82,36 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			s.terminal(c, t)
 		}
 	})
+}
+
+// confirmClose asks before a live terminal's tab closes, naming the terminal
+// and what closing does once, as the split workspace does for a pane: the
+// Node then ends the shell.
+func (s *State) confirmClose(c *ui.Context) {
+	t := s.closing
+	if t == (Tab{}) {
+		return
+	}
+	if !slices.Contains(s.Tabs, t) {
+		// Its shell exited, or its conversation was left, meanwhile.
+		s.closing = Tab{}
+		return
+	}
+	open := true
+	kit.Dialog(c.Key("close-terminal"), &open, func() {
+		ui.Text(c, i18n.T(c, "workspace_close_terminal")).FontSize(16).FontWeight(600)
+		ui.Text(c, s.Title(c, t)).FontSize(14).MaxWidth(400).TextColor(theme.Of(c).MutedForeground)
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { s.closing = Tab{} })
+			kit.Danger(c.Key("close"), i18n.T(c, "close")).OnClick(func() {
+				s.closing = Tab{}
+				s.TerminalActions.Close(t.ID)
+			})
+		})
+	})
+	if !open {
+		s.closing = Tab{}
+	}
 }
 
 // look is a tab's icon and title.

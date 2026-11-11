@@ -9,7 +9,8 @@ type TerminalActions struct {
 	View func(*ui.Context, string)
 	// Pane builds the same terminal's screen in a split pane. A terminal
 	// shows in one place at a time: its pane while that is displayed.
-	Pane   func(*ui.Context, string)
+	Pane func(*ui.Context, string)
+	// Close ends the terminal's shell; its tab leaves once the Node has.
 	Close  func(string)
 	Search func(string, string, bool, int) (int, int)
 	// Folder is the folder the terminal runs in, false while it is unknown.

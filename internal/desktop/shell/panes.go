@@ -85,7 +85,8 @@ func (a *App) prunePanes() {
 // paneExists reports whether t's session or terminal tab is still there.
 func (a *App) paneExists(t panes.Target) bool {
 	if t.Kind == panes.Terminal {
-		return slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Terminal, ID: t.ID})
+		// A terminal of a conversation that is not shown keeps its pane.
+		return a.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: t.ID})
 	}
 	return a.Data.Find(t.ID) != nil
 }
@@ -98,8 +99,12 @@ func (a *App) standAlone() {
 	if w.Active.Kind != panes.Terminal || w.Group(w.Active) >= 0 {
 		return
 	}
-	a.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: w.Active.ID})
-	a.PanelOpen = true
+	// Only in its own conversation's panel: another conversation's terminal
+	// waits in its tab there.
+	if tab := (panel.Tab{Kind: panel.Terminal, ID: w.Active.ID}); slices.Contains(a.Panel.Tabs, tab) {
+		a.Panel.Show(tab)
+		a.PanelOpen = true
+	}
 	w.Active = session(a.Sidebar.Selected)
 }
 

@@ -108,6 +108,12 @@ type State struct {
 	// Session reports that the live conversation shown has a session: an
 	// unsent draft has no checkpoints or documents to list (lists).
 	Session bool
+	// Worktree reports that the live conversation shown has a worktree on a
+	// connected Node, where a terminal can start: an unsent chat without a
+	// project has none, so Terminal is not offered there (lists).
+	Worktree bool
+	// closing is the live terminal tab whose closing waits to be confirmed.
+	closing Tab
 	Data    *preview.Workspace
 	Tabs    []Tab
 	Active  Tab
@@ -145,8 +151,16 @@ func New(w *preview.Workspace) *State {
 
 // Open shows a resource of the launcher, the "+" menu or a shortcut: its
 // tab when one is open, else a new one. Documents opens the first; Files
-// and Changes the project's file or diff shown last.
+// and Changes the project's file or diff shown last. Terminal starts another
+// terminal every time, as the reference's request_terminal does, and nothing
+// where the conversation cannot have one.
 func (s *State) Open(k Kind) {
+	if k == Terminal {
+		if s.lists(k) {
+			s.New(k)
+		}
+		return
+	}
 	if item(k) {
 		// The project's item shown last; the panel names it as it syncs
 		// when no project is known yet.
@@ -168,7 +182,7 @@ func (s *State) Open(k Kind) {
 			t.ID = s.Data.Documents[0].ID
 		}
 		s.Show(t)
-	case Browser, Terminal:
+	case Browser:
 		s.New(k)
 	default:
 		s.Show(Tab{Kind: k})
@@ -200,11 +214,43 @@ func (s *State) Show(t Tab) {
 		s.opened = append(s.opened, t.Kind)
 	}
 	s.Tabs, s.Active = Opened(s.Tabs, t), t
-	if t.Kind == Browser || t.Kind == Terminal {
-		var n int
-		if _, err := fmt.Sscan(t.ID, &n); err == nil {
-			s.pages = max(s.pages, n)
+	s.Reserve(t)
+}
+
+// Reserve keeps the numbers of browser pages and preview terminals unique in
+// the window: a tab that is not in the strip, as another conversation's,
+// still owns its number.
+func (s *State) Reserve(tabs ...Tab) {
+	for _, t := range tabs {
+		if t.Kind == Browser || t.Kind == Terminal {
+			var n int
+			if _, err := fmt.Sscan(t.ID, &n); err == nil {
+				s.pages = max(s.pages, n)
+			}
 		}
+	}
+}
+
+// Mount replaces the strip with a conversation's tabs and the one it showed
+// (docs/panel.md, Tabs per conversation). Restored tabs come from the saved
+// window state: the project takes their files and diffs as it does at
+// start-up (Sync).
+func (s *State) Mount(tabs []Tab, active Tab, restored bool) {
+	s.Tabs = nil
+	for _, t := range tabs {
+		if t.valid() {
+			s.Tabs = Opened(s.Tabs, t)
+		}
+	}
+	s.Reserve(s.Tabs...)
+	s.Active = Tab{}
+	if slices.Contains(s.Tabs, active) {
+		s.Active = active
+	} else if len(s.Tabs) > 0 {
+		s.Active = s.Tabs[len(s.Tabs)-1]
+	}
+	if restored {
+		s.synced = false
 	}
 }
 
@@ -223,8 +269,16 @@ func (t Tab) valid() bool {
 	return false
 }
 
-// Close closes t's tab. It reports whether a tab is left.
+// Close closes t's tab. It reports whether a tab is left. Closing a live
+// terminal's tab ends its shell, so it asks first (confirmClose): the tab
+// leaves once the Node has closed the terminal.
 func (s *State) Close(t Tab) bool {
+	if t.Kind == Terminal && s.TerminalActions != nil && s.TerminalActions.Close != nil {
+		if slices.Contains(s.Tabs, t) {
+			s.closing = t
+		}
+		return len(s.Tabs) > 0
+	}
 	if t.Kind == Files && t.ID != "" && s.pr != nil {
 		if s.pr.requestEditorClose(t.ID, func() { s.pr.close(t.Kind, t.ID); s.Tabs, s.Active = Closed(s.Tabs, t, s.Active) }) {
 			return len(s.Tabs) > 0
@@ -239,10 +293,22 @@ func (s *State) Close(t Tab) bool {
 
 // lists reports whether the launcher and the "+" menu offer k: the turns'
 // checkpoints and the documents belong to a session, which an unsent draft
-// of the live window does not have.
+// of the live window does not have, and a terminal needs a worktree, which
+// an unsent chat without a project does not have (the reference's
+// Scope.offers).
 func (s *State) lists(k Kind) bool {
-	return !s.Live || s.Session || k != History && k != Documents
+	if !s.Live {
+		return true
+	}
+	if k == Terminal {
+		return s.Worktree
+	}
+	return s.Session || k != History && k != Documents
 }
+
+// Offers reports whether the conversation shown can open k: a shortcut opens
+// only what the launcher lists.
+func (s *State) Offers(k Kind) bool { return s.lists(k) }
 
 // nameDocument gives the Documents tab opened without a document the first
 // one, once the session has any.
