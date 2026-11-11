@@ -45,6 +45,67 @@ func modelPickerAt(t *testing.T, width int, prepare func(*composer.State, *compo
 	return tt, comp, calm
 }
 
+// demoPicker is modelPickerAt over the demo's models, one provider with
+// capability marks and scores: DeepSeek V4.1 Pro at medium. prepare changes
+// the models of each frame.
+func demoPicker(t *testing.T, prepare func(models []composer.Model)) *ui.Tester {
+	t.Helper()
+	tt, comp, _ := composerWith(t, 960, func(_ *composer.State, ctx *composer.Context) {
+		ctx.Models, ctx.Families, ctx.Teams = preview.DemoModels(), preview.DemoFamilies, nil
+		if prepare != nil {
+			prepare(ctx.Models)
+		}
+	})
+	comp.Team, comp.Model, comp.Effort, comp.Features = "", "deepseek-v4.1-pro", 2, nil
+	tt.SetScale(2)
+	tt.Frame()
+	tt.Frame()
+	openControls(t, tt, zh("composer_model_settings")+": ", zh("composer_settings"))
+	pressButton(t, tt, preview.DemoModel) // the controls' model, which opens the picker
+	rest(tt)
+	return tt
+}
+
+// groupHeader is the picker's group named by its provider: the disclosure
+// that folds its models.
+func groupHeader(t *testing.T, tt *ui.Tester, provider string) ui.AccessInfo {
+	t.Helper()
+	header, ok := tt.AccessByRole(ui.RoleDisclosure, provider)
+	if !ok {
+		t.Fatalf("no group named %q: %q", provider, tt.Texts())
+	}
+	return header
+}
+
+// railTile is the rail's button named name: Back or a family's tile.
+func railTile(t *testing.T, tt *ui.Tester, name string) ui.AccessInfo {
+	t.Helper()
+	tile, ok := tt.AccessByRole(ui.RoleButton, name)
+	if !ok {
+		t.Fatalf("no rail button %q: %q", name, tt.Texts())
+	}
+	return tile
+}
+
+// effortRow is the effort column's row of a level.
+func effortRow(t *testing.T, tt *ui.Tester, level string) ui.AccessInfo {
+	t.Helper()
+	row, ok := tt.AccessByRole(ui.RoleOption, level)
+	if !ok {
+		t.Fatalf("no effort row %q: %q", level, tt.Texts())
+	}
+	return row
+}
+
+// clickRest clicks an element at its middle and lets the panel rest.
+func clickRest(tt *ui.Tester, e ui.AccessInfo) {
+	tt.ClickAt(e.Bounds.X+e.Bounds.W/2, e.Bounds.Y+e.Bounds.H/2)
+	rest(tt)
+}
+
+// near is whether two lengths are one, within half a DIP.
+func near(a, b float32) bool { return a-b <= 0.5 && b-a <= 0.5 }
+
 // openControls opens the model controls' popover from the model chip, whose
 // name starts with chip, or without one from the compact settings button,
 // and lets its entrance end.
@@ -388,12 +449,15 @@ func composerModels(t *testing.T) {
 		tt.Move(x+1, y)
 		tt.Frame()
 		column("after a move on Claude Sonnet 5.5", short)
-		// The group closes and opens: the row is under the pointer again.
+		// The group folds and unfolds: the row is under the pointer again.
 		key(ui.KeyUp)
 		key(ui.KeyUp)
 		column("with the focus on Claude Opus 5.5", composer.Efforts)
 		key(ui.KeyUp) // the group's name
 		key(ui.KeyEnter)
+		if _, ok := tt.AccessByRole(ui.RoleButton, "Claude Sonnet 5.5"); ok {
+			t.Fatalf("Enter on the group's name left its models shown: %q", tt.Texts())
+		}
 		key(ui.KeyEnter)
 		if row := modelRow(t, tt, "Claude Sonnet 5.5").Bounds; row != sonnet {
 			t.Fatalf("the row is %v after the group opened again, it was %v", row, sonnet)
@@ -565,6 +629,279 @@ func composerModels(t *testing.T) {
 		if names, _ := effortNames(tt); !slices.Equal(names, composer.Efforts) {
 			t.Errorf("the column lists %q", names)
 		}
+	})
+
+	// A group's name folds and unfolds its models, by the keys and by a
+	// click, and tells assistive technology which: with one provider too,
+	// where the list opened its first group again in the frame after.
+	t.Run("group folds", func(t *testing.T) {
+		tt := demoPicker(t, nil)
+		models := []string{preview.DemoModel, "DeepSeek V4.1", "DeepSeek V4.1 Flash"}
+		state := func(when string, open bool) {
+			t.Helper()
+			shown := 0
+			for _, name := range models {
+				if _, ok := tt.AccessByRole(ui.RoleButton, name); ok {
+					shown++
+				}
+			}
+			want := 0
+			if open {
+				want = len(models)
+			}
+			if header := groupHeader(t, tt, preview.DemoProvider); header.Expanded != open || shown != want {
+				t.Fatalf("%s the group is expanded %v with %d model rows, want expanded %v with %d: %q", when, header.Expanded, shown, open, want, tt.Texts())
+			}
+		}
+		state("as the picker opens", true)
+		// Up from the chosen model's row is the group's name.
+		tt.Key(0, ui.KeyUp)
+		tt.Frame()
+		if role, name := focusOf(tt); role != ui.RoleDisclosure || name != preview.DemoProvider {
+			t.Fatalf("Up from the first model is on %q (role %v), want the group's name", name, role)
+		}
+		tt.Key(0, ui.KeySpace)
+		rest(tt)
+		state("after Space on the group's name", false)
+		if role, name := focusOf(tt); role != ui.RoleDisclosure || name != preview.DemoProvider {
+			t.Errorf("the folded group left the focus on %q (role %v)", name, role)
+		}
+		tt.Key(0, ui.KeyEnter)
+		rest(tt)
+		state("after Enter on the group's name", true)
+		clickRest(tt, groupHeader(t, tt, preview.DemoProvider))
+		state("after a click on the group's name", false)
+		// The fold holds while the picker shows.
+		tt.Advance(time.Second)
+		tt.Frame()
+		state("a second after the click", false)
+		clickRest(tt, groupHeader(t, tt, preview.DemoProvider))
+		state("after a second click", true)
+	})
+
+	// The rail is Back and a tile for each family, 32 square, 4 apart, 6
+	// from the rail's sides: no capability filters and no line under the
+	// families (docs/removed-ui.md).
+	t.Run("rail", func(t *testing.T) {
+		tt := demoPicker(t, nil)
+		tt.Move(2, 2)
+		rest(tt)
+		panels, _ := popups(tt)
+		if len(panels) != 1 {
+			t.Fatalf("%d popovers, want the one panel", len(panels))
+		}
+		panel := panels[0].Bounds
+		name := zh("provider_deepseek")
+		back, tile := railTile(t, tt, zh("composer_model_settings")), railTile(t, tt, name)
+		for _, b := range []ui.AccessInfo{back, tile} {
+			if b.Bounds.W != 32 || b.Bounds.H != 32 {
+				t.Errorf("the rail's %q is %v, want 32 square", b.Name, b.Bounds)
+			}
+		}
+		if !near(tile.Bounds.X, back.Bounds.X) || !near(tile.Bounds.Y, back.Bounds.Y+32+4) {
+			t.Errorf("the family's tile is %v under Back %v, want 4 below it", tile.Bounds, back.Bounds)
+		}
+		if !tile.Checked || tile.Description != name {
+			t.Errorf("the chosen family's tile is selected %v with the tooltip %q, want it selected and named %q", tile.Checked, tile.Description, name)
+		}
+		// The popover's padding and edge, then 6; and 6, the gap, the line
+		// and the gap before the models.
+		row := modelRow(t, tt, preview.DemoModel)
+		if left, right := tile.Bounds.X-panel.X, row.Bounds.X-(tile.Bounds.X+tile.Bounds.W); !near(left, 12+1+6) || !near(right, 6+8+1+8) {
+			t.Errorf("the tile is %v from the panel's side and %v before the models, want 19 and 23: tile %v, panel %v, row %v", left, right, tile.Bounds, panel, row.Bounds)
+		}
+		buttons := 0
+		for _, e := range tt.AccessAll() {
+			if e.Role != ui.RoleButton || !inside(e.Bounds, panel) {
+				continue
+			}
+			if e.Name == zh("provider_cap_vision") || e.Name == zh("provider_cap_image") {
+				t.Errorf("the rail has a capability filter %q", e.Name)
+			}
+			if e.Bounds.X+e.Bounds.W <= tile.Bounds.X+tile.Bounds.W+0.5 {
+				buttons++
+			}
+		}
+		if buttons != 2 {
+			t.Errorf("the rail has %d buttons, want Back and the one family", buttons)
+		}
+		// Nothing is drawn under the last tile: the rail's fill alone.
+		p := probe{t, tt}
+		x, under := tile.Bounds.X+16, tile.Bounds.Y+32
+		ground := p.at(x, under+1)
+		for y := under + 1; y < under+16; y += 0.5 {
+			if got := p.at(x, y); !same(got, ground) {
+				t.Errorf("the rail draws %v at %v under its last tile, its fill is %v: want no line", got, y-under, ground)
+				break
+			}
+		}
+	})
+
+	// A family's tile shows that family's groups alone and is the selected
+	// one; a group folded stays folded while the rail is on another family,
+	// and a family not yet shown opens its first group.
+	t.Run("family filter", func(t *testing.T) {
+		tt, _, _ := modelPickerAt(t, 960, nil)
+		listed := func(when string, want map[string]bool) {
+			t.Helper()
+			for name, shown := range want {
+				if _, ok := tt.AccessByRole(ui.RoleButton, name); ok != shown {
+					t.Fatalf("%s the model %q is shown %v, want %v: %q", when, name, ok, shown, tt.Texts())
+				}
+			}
+		}
+		selected := func(when, want string) {
+			t.Helper()
+			for _, key := range []string{"provider_anthropic", "provider_openai", "provider_gemini", "provider_other"} {
+				if tile := railTile(t, tt, zh(key)); tile.Checked != (key == want) {
+					t.Errorf("%s the tile %q is selected %v", when, tile.Name, tile.Checked)
+				}
+			}
+		}
+		listed("as the picker opens", map[string]bool{"Claude Opus 5.5": true, "Claude Haiku 5.5": true, "GPT-5.2": false, "Gemini 3 Pro": false, "Qwen3 Coder": false})
+		selected("as the picker opens", "provider_anthropic")
+		clickRest(tt, railTile(t, tt, zh("provider_openai")))
+		listed("on OpenAI", map[string]bool{"Claude Opus 5.5": false, "Claude Haiku 5.5": false, "GPT-5.2": true, "Gemini 3 Pro": false})
+		selected("on OpenAI", "provider_openai")
+		clickRest(tt, groupHeader(t, tt, "OpenAI"))
+		listed("with OpenAI folded", map[string]bool{"GPT-5.2": false})
+		clickRest(tt, railTile(t, tt, zh("provider_anthropic")))
+		listed("back on Anthropic", map[string]bool{"Claude Opus 5.5": true, "Claude Sonnet 5.5": true, "GPT-5.2": false})
+		clickRest(tt, railTile(t, tt, zh("provider_openai")))
+		listed("back on OpenAI", map[string]bool{"Claude Opus 5.5": false, "GPT-5.2": false})
+		if header := groupHeader(t, tt, "OpenAI"); header.Expanded {
+			t.Errorf("the folded group is expanded after the rail came back to its family")
+		}
+		clickRest(tt, railTile(t, tt, zh("provider_gemini")))
+		listed("on Gemini", map[string]bool{"Gemini 3 Pro": true, "GPT-5.2": false})
+		selected("on Gemini", "provider_gemini")
+	})
+
+	// What is chosen is told by its fill alone, one neutral gray on the
+	// model's row, the effort's row and the family's tile, stronger than
+	// the fill of a row under the pointer; no check is drawn, and assistive
+	// technology has each as selected.
+	for _, mode := range []string{"dark", "light"} {
+		t.Run("selection "+mode, func(t *testing.T) {
+			tt, _, _ := modelPickerAt(t, 960, nil)
+			tt.SetDark(mode == "dark")
+			tt.Move(2, 2)
+			rest(tt)
+			p := probe{t, tt}
+			model, effort := modelRow(t, tt, "Claude Opus 5.5"), effortRow(t, tt, "medium")
+			tile, other := railTile(t, tt, zh("provider_anthropic")), railTile(t, tt, zh("provider_openai"))
+			if !model.Checked || !effort.Selected || !tile.Checked || other.Checked {
+				t.Errorf("selected: the model's row %v, the effort's row %v, the family's tile %v, another family's %v", model.Checked, effort.Selected, tile.Checked, other.Checked)
+			}
+			low := effortRow(t, tt, "low")
+			ground := p.edge(modelRow(t, tt, "Claude Haiku 5.5"))
+			if got := p.edge(low); !same(got, ground) {
+				t.Fatalf("rows at rest are filled %v and %v, want neither filled", ground, got)
+			}
+			// gray is how far a fill is from what is under it, which every
+			// channel is alike for a neutral one.
+			gray := func(what string, fill, under [3]int) int {
+				t.Helper()
+				d := [3]int{fill[0] - under[0], fill[1] - under[1], fill[2] - under[2]}
+				far := max(d[0], -d[0])
+				if max(d[0], d[1], d[2])-min(d[0], d[1], d[2]) > 3 || far < 6 {
+					t.Errorf("%s is filled %v over %v, want a neutral gray", what, fill, under)
+				}
+				return far
+			}
+			chosen := gray("the chosen model's row", p.edge(model), ground)
+			gray("the chosen effort's row", p.edge(effort), ground)
+			if !same(p.edge(model), p.edge(effort)) {
+				t.Errorf("the chosen model's row is filled %v, the chosen effort's %v: want one fill", p.edge(model), p.edge(effort))
+			}
+			at := func(e ui.AccessInfo) [3]int { return p.at(e.Bounds.X+3, e.Bounds.Y+e.Bounds.H/2) }
+			gray("the chosen family's tile", at(tile), at(other))
+			// No check: the end of the chosen effort's row, which has no
+			// score, is its fill.
+			fill, b := p.edge(effort), effort.Bounds
+		scan:
+			for x := b.X + b.W - 28; x <= b.X+b.W-4; x += 0.5 {
+				for y := b.Y + 10; y <= b.Y+22; y += 0.5 {
+					if got := p.at(x, y); !same(got, fill) {
+						t.Errorf("the chosen effort's row draws %v at its end, %v from its start, over its fill %v: want no check", got, x-b.X, fill)
+						break scan
+					}
+				}
+			}
+			// The row under the pointer is filled, fainter than the chosen.
+			p.hover(low)
+			if hovered := gray("the effort's row under the pointer", p.edge(low), ground); hovered >= chosen {
+				t.Errorf("the row under the pointer is %d from the panel and the chosen row %d: want the chosen one stronger", hovered, chosen)
+			}
+		})
+	}
+
+	// A score is the last thing of its row, ending at the row's padding, on
+	// the models' rows and the efforts' alike, so the scores are a column;
+	// a model without a score keeps the score's place, so its capability
+	// mark is under the others'.
+	t.Run("scores at the row's end", func(t *testing.T) {
+		vision, image := zh("provider_cap_vision"), zh("provider_cap_image")
+		tt := demoPicker(t, func(models []composer.Model) {
+			// Pro: the image mark, its score, and scores measured at two
+			// efforts. V4.1: its score alone. Flash: the vision mark alone.
+			pro, plain, flash := &models[0], &models[1], &models[2]
+			flash.Capabilities = pro.Capabilities[:1]
+			pro.Capabilities, plain.Capabilities = pro.Capabilities[1:], nil
+			pro.Scores = map[string]*composer.Score{"low": {Overall: 7.3, Tested: "low"}, "high": {Overall: 9.4, Tested: "high"}}
+		})
+		tt.Move(2, 2)
+		rest(tt)
+		// ends is how far before its row's end the element showing or
+		// named text ends.
+		ends := func(text string, row ui.AccessInfo) float32 {
+			t.Helper()
+			box, ok := tt.Find(text)
+			if !ok || !inside(box, row.Bounds) {
+				t.Fatalf("%q is %v (shown %v), not in the row %q %v: %q", text, box, ok, row.Name, row.Bounds, tt.Texts())
+			}
+			return row.Bounds.X + row.Bounds.W - (box.X + box.W)
+		}
+		pro, plain, flash := modelRow(t, tt, preview.DemoModel), modelRow(t, tt, "DeepSeek V4.1"), modelRow(t, tt, "DeepSeek V4.1 Flash")
+		low, high := effortRow(t, tt, "low"), effortRow(t, tt, "high")
+		if !near(low.Bounds.X+low.Bounds.W, high.Bounds.X+high.Bounds.W) || !near(pro.Bounds.X+pro.Bounds.W, plain.Bounds.X+plain.Bounds.W) {
+			t.Fatalf("the rows of a column end apart: the efforts %v and %v, the models %v and %v", low.Bounds, high.Bounds, pro.Bounds, plain.Bounds)
+		}
+		// Each column's scores end at one place, the rows' padding.
+		for _, column := range [][2]float32{{ends("7.3", low), ends("9.4", high)}, {ends("9.2", pro), ends("8.7", plain)}} {
+			if !near(column[0], column[1]) || column[0] < 7 || column[0] > 9 {
+				t.Errorf("a column's scores end %v and %v before the ends of their rows, want the padding, 8, for both", column[0], column[1])
+			}
+		}
+		// The marks: before the score's place, 8 apart from it.
+		scored, unscored := ends(image, pro), ends(vision, flash)
+		if !near(scored, unscored) || scored < 8+28+8-1 || scored > 8+28+8+1 {
+			t.Errorf("the capability marks end %v before the end of a row with a score and %v of one without, want 44 for both", scored, unscored)
+		}
+	})
+
+	// A score is text alone: the pointer at rest on one, a model's or an
+	// effort's, opens no tooltip and no card (docs/removed-ui.md).
+	t.Run("scores open nothing", func(t *testing.T) {
+		tt, _, _ := modelPickerAt(t, 960, nil)
+		still := func(what string, x, y float32) {
+			t.Helper()
+			if restTip(tt, x, y) || tt.HasText(zh("model_score_overall")) {
+				t.Errorf("the pointer at rest on %s opens a tooltip: %q", what, tt.Texts())
+			}
+			if panels, menus := popups(tt); len(panels) != 1 || menus != 0 {
+				t.Errorf("%d popovers and %d menu elements with the pointer on %s, want the one panel", len(panels), menus, what)
+			}
+		}
+		// Claude Opus 5.5's score was measured at high: it is at that
+		// row's end.
+		high := effortRow(t, tt, "high").Bounds
+		still("an effort's score", high.X+high.W-16, high.Y+high.H/2)
+		score, ok := tt.Find("8.6")
+		if !ok || !inside(score, modelRow(t, tt, "Claude Sonnet 5.5").Bounds) {
+			t.Fatalf("the score of Claude Sonnet 5.5 is %v (shown %v): %q", score, ok, tt.Texts())
+		}
+		still("a model's score", score.X+score.W/2, score.Y+score.H/2)
 	})
 }
 

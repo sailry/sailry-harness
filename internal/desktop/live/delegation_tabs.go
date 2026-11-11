@@ -126,4 +126,5 @@ func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
 	ctx.Readonly = true
 	conversation.View(c, r.App.Messages, id, cv.Turns, &cv.Session, actions)
 	composer.View(c, comp, ctx, actions)
+	conversation.Navigation(c, r.App.Messages)
 }

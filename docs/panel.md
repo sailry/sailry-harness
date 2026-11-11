@@ -468,6 +468,12 @@ yet, as one that came back with its conversation after a relaunch, belongs to
 the conversation whose panel has it, never to the selected one for being
 selected. Captures are measured, cropped and encoded within 1 MiB and
 1568 pixels by `live/browser_capture.go`, and the Node checks them again.
+With `save=true` the Node also publishes the checked capture as
+`assets/generated/browser-<request>.<jpg|png>` in the worktree, through the
+same confined, never-replacing write as generated media (`node.publishGenerated`),
+and returns its `path`. A capture is a read; a saving call asks first, as the
+reference does, and a planning turn refuses it with
+`planning turns cannot save browser captures`.
 
 A session document renders its own HTML (`live/document_view.go`,
 `panel/document_live.go`) in a WebView with an ephemeral session, no preload,
@@ -636,7 +642,6 @@ at its width.
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
 | Browser tabs belong to the conversation they were opened in and show in its panel only | The strip is the conversation's ([Tabs per conversation](#tabs-per-conversation)); the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
-| Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
 | Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |
 | The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |

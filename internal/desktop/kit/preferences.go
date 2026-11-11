@@ -35,5 +35,7 @@ func ToastDuration(c *ui.Context) time.Duration {
 	return time.Duration(preferencesOf(c).ToastSeconds) * time.Second
 }
 
-// MessageTextSize is the user and assistant body size in DIPs.
+// MessageTextSize is the size of a conversation's text in DIPs: the user
+// and assistant bodies, and the transcript's rows, which derive theirs
+// from it.
 func MessageTextSize(c *ui.Context) float32 { return float32(preferencesOf(c).MessageTextSize) }

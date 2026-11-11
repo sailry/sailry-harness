@@ -490,6 +490,16 @@ Mobile controllers are never queried as execution Nodes. The local execution
 Node has no revoke action. Existing row menus revoke trust after confirmation,
 and host Edit actions open the selected Node's network editor.
 
+A network save whose reply was lost is never sent again: the editor asks the
+Node what became of the request (`client.Resolve`) and stays locked with Retry
+only while the Node still runs it or cannot be asked. When the Node can never
+report it (it restarted during the save, or it recorded that the effect could
+not be confirmed), the settings the Node holds decide: the stored and the
+running selection both match, and the save succeeded; neither matches, and it
+failed; one matches, and the conflict toast reloads the editor. Sharing a
+pairing code settles its relay change the same way
+(`live/connections_network.go`).
+
 A device row's second line is one muted line: the system's name with its
 version, `Sailry <release>` and the first eight characters of the Node ID, each
 part only when known. The system version is the Host's `inspect_host` answer,

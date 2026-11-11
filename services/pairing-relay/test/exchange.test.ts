@@ -171,6 +171,25 @@ describe.each(["SQLite", "Blob contract"])("shared exchange: %s", backend => {
     expect((await exchange.execute("redeem", body, "third", NOW)).status).toBe(429);
   });
 
+  it("a concurrent burst from one source takes no more global slots than its allowance", async () => {
+    const { exchange } = setup({ ...limits, global: 7 });
+    const body = { request_id: requestId(NOW), code: "999999" };
+    const burst = await Promise.all(Array.from({ length: 20 }, () => exchange.execute("redeem", body, "noisy", NOW)));
+    expect(burst.filter(result => result.status === 404)).toHaveLength(5);
+    expect(burst.filter(result => result.status === 429)).toHaveLength(15);
+    for (let index = 0; index < 2; index++) expect((await exchange.execute("redeem", body, "other", NOW)).status).toBe(404);
+    expect((await exchange.execute("redeem", body, "third", NOW)).status).toBe(429);
+  });
+
+  it("a full window writes no record for a new source", async () => {
+    const { exchange, store } = setup({ ...limits, global: 2 });
+    const body = { request_id: requestId(NOW), code: "999999" };
+    for (const source of ["first", "second"]) expect((await exchange.execute("redeem", body, source, NOW)).status).toBe(404);
+    const before = (await store.list()).keys.length;
+    for (let index = 0; index < 10; index++) expect((await exchange.execute("redeem", body, `late-${index}`, NOW)).status).toBe(429);
+    expect((await store.list()).keys.length).toBe(before);
+  });
+
   it("cleanup preserves reused codes", async () => {
     const { exchange, store } = setup(limits, () => "123456");
     const first = await publish(exchange);

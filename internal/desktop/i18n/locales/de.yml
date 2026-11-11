@@ -900,7 +900,6 @@ message_display_compact: Kompakt
 message_display_detailed: Detailliert
 message_text_extra_large: Sehr groß
 message_text_large: Groß
-message_text_size_value: '%{size}px'
 message_text_small: Klein
 message_text_standard: Standard
 model_library_manage: Modelle verwalten
@@ -2204,3 +2203,12 @@ directory_host_unavailable: The host is unavailable
 directory_fallback: Could not open %{path}; showing the home folder
 directory_trash: Move to Trash
 directory_trash_confirm: Move “%{name}” to the Trash
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit

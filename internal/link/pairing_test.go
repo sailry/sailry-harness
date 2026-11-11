@@ -25,17 +25,34 @@ func TestPairingTicketMatchesRustAndBounds(t *testing.T) {
 		t.Fatal("ticket lost Rust numeric token or hex endpoint identity")
 	}
 	local := protocol.NodeID{2}
-	decoded, err := decodePairingTicket(string(encoded), local, now)
+	decoded, err := decodePairingTicket(string(encoded), local)
 	if err != nil || decoded.Token != ticket.Token || decoded.Address.ID != ticket.Address.ID {
 		t.Fatalf("valid ticket: %#v, %v", decoded, err)
+	}
+	// The sharer's clock is not the claimant's. A Host whose clock is ahead
+	// issues a ticket that expires more than its lifetime after the
+	// claimant's time (7.4 s were observed), and one whose clock is behind
+	// issues a ticket that looks expired. Only the sharer, which holds the
+	// deadline and accepts the token once, decides.
+	for name, skew := range map[string]time.Duration{"sharer_ahead": 7400 * time.Millisecond, "sharer_far_ahead": time.Hour, "sharer_behind": -2 * time.Minute} {
+		t.Run(name, func(t *testing.T) {
+			skewed := ticket
+			skewed.ExpiresAtMS = uint64(now.Add(skew + invitationLifetime).UnixMilli())
+			encoded, err := json.Marshal(skewed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decoded, err := decodePairingTicket(string(encoded), local); err != nil || decoded.Token != ticket.Token {
+				t.Fatalf("a ticket from a Host with another clock was refused: %v", err)
+			}
+		})
 	}
 	for _, test := range []struct {
 		name  string
 		field string
 		value any
 	}{
-		{"expired", "expires_at_ms", now.UnixMilli()},
-		{"too_far_future", "expires_at_ms", now.Add(invitationLifetime + time.Millisecond).UnixMilli()},
+		{"no_expiry", "expires_at_ms", 0},
 		{"wrong_version", "version", 2},
 		{"base64_token", "token", "AQID"},
 		{"short_token", "token", make([]uint16, 31)},
@@ -55,13 +72,13 @@ func TestPairingTicketMatchesRustAndBounds(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := decodePairingTicket(string(modified), local, now); err == nil {
+			if _, err := decodePairingTicket(string(modified), local); err == nil {
 				t.Fatal("invalid pairing ticket was accepted")
 			}
 		})
 	}
 	t.Run("self_pairing", func(t *testing.T) {
-		if _, err := decodePairingTicket(string(encoded), ticket.Address.ID, now); err == nil {
+		if _, err := decodePairingTicket(string(encoded), ticket.Address.ID); err == nil {
 			t.Fatal("self pairing was accepted")
 		}
 	})
@@ -74,18 +91,18 @@ func TestPairingTicketMatchesRustAndBounds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := decodePairingTicket(string(modified), local, now); err == nil {
+		if _, err := decodePairingTicket(string(modified), local); err == nil {
 			t.Fatal("oversized address set was accepted")
 		}
 	})
 	t.Run("ticket_size", func(t *testing.T) {
-		if _, err := decodePairingTicket(strings.Repeat(" ", 8193), local, now); err == nil {
+		if _, err := decodePairingTicket(strings.Repeat(" ", 8193), local); err == nil {
 			t.Fatal("oversized ticket was accepted")
 		}
 	})
 	t.Run("duplicate_fields", func(t *testing.T) {
 		modified := strings.Replace(string(encoded), `"version":1`, `"version":1,"version":1`, 1)
-		if _, err := decodePairingTicket(modified, local, now); err == nil {
+		if _, err := decodePairingTicket(modified, local); err == nil {
 			t.Fatal("duplicate pairing ticket field was accepted")
 		}
 	})

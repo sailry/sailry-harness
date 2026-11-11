@@ -181,9 +181,18 @@ No distributed read/delete lock or SQL transaction emulation is used.
 
 Rate limits use fixed UTC minute windows: at most 120 attempts per action
 globally, six publications and five redemptions/cancellations per source, with
-256 allocation slots per generation. A source that has spent its allowance is
-refused before it takes a global slot, so one source cannot drain the global
-budget. Cleanup reads at most 128 records per
+256 allocation slots per generation. A request takes its source slot, a
+conditional write, before a global slot, so one source uses at most its
+allowance of the global budget however its requests are timed. The global
+budget is shared on purpose, because it bounds guessing: 24 sources at five
+redemptions each spend it, and nobody else can redeem for the rest of that
+minute. Once it is spent a request is refused on a read and writes nothing.
+That read is not atomic with the writes: distinct sources that arrive
+together while the last global slots are being taken may each leave one
+source record and be refused, and such a request has used one of its source's
+slots without being served. Those records expire with the window. A request
+without a client address shares the single source `unknown`, and cancellation
+uses the redemption allowance. Cleanup reads at most 128 records per
 page and only deletes generations at least three minutes old. Cloudflare uses
 an alarm plus request-driven cleanup; EdgeOne uses a bounded native scheduled
 pass plus request-driven cleanup. Logical expiry is exactly the invitation/ID

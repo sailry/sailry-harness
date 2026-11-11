@@ -2,7 +2,6 @@ package live
 
 import (
 	"context"
-	"errors"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -10,6 +9,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// recoverSSH asks the Node what became of an installation or update whose
+// result was not seen, through the one resolver every such request uses.
 func (r *Runtime) recoverSSH(operation *sshInstallation) {
 	if operation.running {
 		return
@@ -19,6 +20,10 @@ func (r *Runtime) recoverSSH(operation *sshInstallation) {
 		return
 	}
 	if operation.partial || operation.request == nil {
+		if operation.expected != nil {
+			r.releaseHostUpdate(operation)
+			return
+		}
 		r.enqueue(func(c *ui.Context) {
 			r.failSSH(c, operation, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Host installation must be checked on the target"})
 		})
@@ -27,7 +32,7 @@ func (r *Runtime) recoverSSH(operation *sshInstallation) {
 	request := *operation.request
 	operation.running = true
 	r.async(func() {
-		outcome, err := r.controller.Outcome(r.ctx, request)
+		resolution, err := r.controller.Resolve(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			if operation.request == nil || operation.request.ID != request.ID {
 				return
@@ -40,25 +45,14 @@ func (r *Runtime) recoverSSH(operation *sshInstallation) {
 				r.failSSH(c, operation, err)
 				return
 			}
-			switch outcome.Kind {
-			case "completed":
-				result, ok := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-				if ok && result.Ok != nil {
-					r.completeSSH(c, operation, *result.Ok, nil)
-					return
-				}
-				if ok && result.Err != nil {
-					if result.Err.Code == protocol.ErrorCodeOutcomeUnknown {
-						operation.partial = true
-						r.completeSSH(c, operation, protocol.Output{}, result.Err)
-						return
-					}
-					// The Node recorded the failure: nothing is left to check.
-					operation.request, operation.uncertain = nil, false
-					r.endSSH(c, operation, result.Err, false)
-					return
-				}
-			case "not_admitted":
+			switch resolution.State {
+			case client.RequestApplied:
+				r.completeSSH(c, operation, resolution.Output, nil)
+			case client.RequestFailed:
+				// The Node recorded the failure: nothing is left to check.
+				operation.request, operation.uncertain = nil, false
+				r.endSSH(c, operation, resolution.Fault, false)
+			case client.RequestAbsent:
 				operation.running = true
 				r.async(func() {
 					output, executeErr := r.controller.Execute(r.ctx, request)
@@ -69,18 +63,33 @@ func (r *Runtime) recoverSSH(operation *sshInstallation) {
 						}
 					})
 				})
-				return
-			case "admitted":
+			case client.RequestPending:
 				r.failSSH(c, operation, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Host installation is still running"})
-				return
-			case "unknown":
+			case client.RequestUnknown:
+				// The Node can never tell. An update is answered by the Host
+				// itself; an installation is the user's to check on the target.
+				if operation.expected != nil {
+					r.toastSSH(c, resolution.Fault, true, true)
+					r.releaseHostUpdate(operation)
+					return
+				}
 				operation.partial = true
-				r.failSSH(c, operation, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Host installation result is unknown"})
-				return
+				r.endSSH(c, operation, resolution.Fault, true)
 			}
-			r.failSSH(c, operation, errors.New("Host installation receipt is invalid"))
 		})
 	})
+}
+
+// releaseHostUpdate ends an update whose result the Node cannot confirm. The
+// request is given up, so the next Apply is a new one, and the Host is asked
+// which release it runs: the same release shows it as current, an older one
+// offers the update again, and an unreachable Host offers Check again. The
+// saved connection stays for the next Apply.
+func (r *Runtime) releaseHostUpdate(operation *sshInstallation) {
+	operation.partial, operation.uncertain, operation.active = false, false, false
+	operation.request, operation.retry = nil, protocol.Command{}
+	operation.state.update.form = false
+	r.checkHostUpdate(operation.state)
 }
 
 func (r *Runtime) recoverSSHNetwork(operation *sshInstallation) {

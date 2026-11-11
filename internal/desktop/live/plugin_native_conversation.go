@@ -159,6 +159,7 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 			conversation.View(view, state.runtime.App.Messages, target.ID, target.Turns, &target.Session, mounted.actions)
 		}
 		composer.View(view, comp, &context, mounted.actions)
+		conversation.Navigation(view, state.runtime.App.Messages)
 	})
 	return region, nil
 }

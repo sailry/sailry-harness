@@ -127,7 +127,6 @@ contracts and all routing.
 | --- | --- | --- |
 | Capability boxes | Settings › Providers › provider editor › model form, above Reasoning levels | `settings/providers.go` `capabilityForm` |
 | Capability marks | Provider rows' model chips; composer model picker rows | `settings/providers.go` `capabilityMarks`, `composer/models.go` `modelRow` |
-| Capability filter | Composer model picker's rail, under the families | `composer/models.go` `modelPicker` |
 | Media models | Settings › Media models, in the AI group after Knowledge | `settings/media.go` `mediaModels`, `live/settings_media.go` |
 | Read aloud | The turn's existing Read aloud / Stop reading action | `reader`, bound in `cmd/sailry-desktop` |
 
@@ -145,9 +144,9 @@ those were the catalog's. A model that was already the user's keeps its
 boxes until the save returns the catalog's tags.
 
 Marks are the existing `Eye` (vision), `Image`, `Volume` (speech) icons and
-`reicon-video-play` (video), each with a tooltip. The picker's rail shows a
-filter toggle for each capability at least one offered model has; choosing
-one again clears it.
+`reicon-video-play` (video), each with a tooltip. The picker's rail has no
+capability filter ([removed-ui.md](removed-ui.md)): the marks on the rows
+tell what a model takes and makes.
 
 `Runtime.followMedia` reads `read_media_settings` and `list_media_models`
 on the local Node whenever the snapshot's media revision or a provider's
@@ -208,7 +207,6 @@ refresh and assignment validation. No real provider is called.
 | Speech synthesis records no session usage | The command has no session or turn to attribute it to |
 | `use_media` is not a routed controller command | It only identifies the approval; the engine tool runs the operation |
 | Account sign-in variants of the hosted image tool are untested | Tests use API-key fakes only |
-| The capability filter is in the composer picker's rail, not on the Providers page | The picker already filters by family there; the Providers page keeps its search and provider-type filter unchanged |
 | The retired package's `imagegen` skill has no core counterpart | Core has no built-in skills; the tool description carries the rule |
 | Protocol keeps the `media.inspect`, `media.image` and `media.video` action and operation values | Stored plugin records, approvals and captures decode strictly |
 | A hosted image tool unticked and saved comes back as `image` when ticked later | The editor only knows the hosted tool from the tags it opened with |

@@ -273,6 +273,14 @@ model and no download from these packages.
   The reference hashes them before startup completes.
 - **Availability check.** Catalog availability checks that the runtime files
   exist; size and digest are verified when the first model loads.
+- **Free space.** Before requesting a file, the download
+  (`assets.Prepare`, shared with the speech models) compares the bytes still
+  to receive with the free space of the model directory's volume and refuses
+  with a storage error that names the file, the bytes needed and the bytes
+  free; a partial file keeps its checkpoint. The check is per file, so a
+  cached file is never counted, and a volume that does not report its free
+  space refuses nothing. The reference has no such check and fails when the
+  write does.
 - **Image decoding.** Images are decoded by Go's `image` packages and
   `golang.org/x/image/webp`. JPEG pixels can differ from the reference decoder
   by one level; the recognized text of the fixtures is equal.

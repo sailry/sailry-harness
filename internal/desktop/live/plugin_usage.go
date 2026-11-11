@@ -25,6 +25,33 @@ func (r *Runtime) pluginUsageSources() []plugins.UsageSource {
 	return sources
 }
 
+// pluginUsageSample is the demo's usage while Demo mode shows, which the
+// usage calls of the plugin pages answer from in place of the Nodes; nil
+// otherwise. It is held in memory and nothing of it reaches a Node.
+func (r *Runtime) pluginUsageSample() *plugins.UsageSample {
+	ledger := r.localRuntime().App.DemoUsage()
+	if ledger == nil {
+		return nil
+	}
+	return &plugins.UsageSample{Report: ledger.Report, Inventory: ledger.Inventory}
+}
+
+// demoChanged follows Demo mode going on, off or into another language: the
+// mounted plugin pages answer usage from the other ledger, and an open Usage
+// page redraws with it.
+func (r *Runtime) demoChanged() {
+	root := r.localRuntime()
+	if root.pluginViews == nil {
+		return
+	}
+	sample := root.pluginUsageSample()
+	for _, mounted := range root.pluginViews.mounts {
+		if mounted.host != nil {
+			mounted.host.SetUsageSample(sample)
+		}
+	}
+}
+
 func (r *Runtime) pluginUsageChanges(ctx context.Context) <-chan struct{} {
 	root := r.localRuntime()
 	changed := make(chan struct{}, 1)

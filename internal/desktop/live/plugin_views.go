@@ -113,6 +113,7 @@ func (r *Runtime) initPluginViews() {
 	r.App.Hooks.SelectPlugin = r.selectPluginView
 	r.App.Hooks.PluginPage = r.renderPluginPage
 	r.App.Hooks.PluginHeader = r.renderPluginHeader
+	r.App.Hooks.DemoChanged = r.demoChanged
 }
 
 func (r *Runtime) closePluginViews() {
@@ -412,6 +413,7 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		Actions: actions, Contributions: mounted.hooks, Native: native,
 		ReadFiles:    slices.Contains(actions, protocol.PluginActionReadFiles),
 		UsageSources: root.pluginUsageSources, UsageChanges: root.pluginUsageChanges(mounted.ctx),
+		UsageSample: root.pluginUsageSample(),
 	})
 	mounted.host = host
 	modules, err := host.Modules()

@@ -169,6 +169,40 @@ func (value *ConversationBackgroundState) UnmarshalText(data []byte) error {
 	return value.UnmarshalJSON(encoded)
 }
 
+// ConversationBackgroundHold says why a pending, suppressed result starts no
+// notice turn and waits for the user's next message.
+type ConversationBackgroundHold string
+
+const (
+	ConversationBackgroundHoldLimit       ConversationBackgroundHold = "limit"
+	ConversationBackgroundHoldStopped     ConversationBackgroundHold = "stopped"
+	ConversationBackgroundHoldInterrupted ConversationBackgroundHold = "interrupted"
+	ConversationBackgroundHoldFailed      ConversationBackgroundHold = "failed"
+	ConversationBackgroundHoldOther       ConversationBackgroundHold = "other"
+)
+
+func (value ConversationBackgroundHold) MarshalJSON() ([]byte, error) {
+	switch value {
+	case ConversationBackgroundHoldLimit, ConversationBackgroundHoldStopped, ConversationBackgroundHoldInterrupted, ConversationBackgroundHoldFailed, ConversationBackgroundHoldOther:
+		return json.Marshal(string(value))
+	default:
+		return nil, fmt.Errorf("unknown ConversationBackgroundHold %q", value)
+	}
+}
+func (value *ConversationBackgroundHold) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	switch ConversationBackgroundHold(decoded) {
+	case ConversationBackgroundHoldLimit, ConversationBackgroundHoldStopped, ConversationBackgroundHoldInterrupted, ConversationBackgroundHoldFailed, ConversationBackgroundHoldOther:
+		*value = ConversationBackgroundHold(decoded)
+		return nil
+	default:
+		return fmt.Errorf("unknown ConversationBackgroundHold %q", decoded)
+	}
+}
+
 type ConversationBackgroundTask struct {
 	ID         string                         `json:"id"`
 	Session    SessionID                      `json:"session"`
@@ -184,6 +218,7 @@ type ConversationBackgroundTask struct {
 	Delivery   *TurnID                        `json:"delivery"`
 	Recovered  bool                           `json:"recovered"`
 	Suppressed bool                           `json:"suppressed"`
+	Hold       *ConversationBackgroundHold    `json:"hold,omitempty"`
 }
 
 func DefaultConversationBackgroundTask() ConversationBackgroundTask {
@@ -202,6 +237,7 @@ func DefaultConversationBackgroundTask() ConversationBackgroundTask {
 		Delivery:   nil,
 		Recovered:  false,
 		Suppressed: false,
+		Hold:       nil,
 	}
 }
 func (value *ConversationBackgroundTask) UnmarshalJSON(data []byte) error { return Decode(data, value) }

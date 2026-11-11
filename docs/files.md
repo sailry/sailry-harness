@@ -117,8 +117,15 @@ receive write-half EOF and acknowledge readiness before a durable finish
 publishes a retained target. Downloads retain their verified open source and
 Client verifies received bytes. Preparation, opening and idle limits are 8, 60
 and 30 seconds; injected clocks support deterministic tests. Cancellation cannot
-undo publication. Shutdown drains active workers before collecting orphaned
-attachment files.
+undo publication.
+
+A stored attachment file without an `attachments` row is collected: at Node
+start before any command is admitted, at shutdown after the transfer workers
+drain, and at once after `discard_attachment`. A
+finishing upload holds the Node's effects lock from publishing its file to
+committing its row, and a collection during operation holds the same lock, so a
+file is never taken between the two. Only ordinary files whose name is a
+canonical attachment ID are removed.
 
 Attachment IDs determine storage names; display names never become paths.
 SQL binds immutable ordered references to turns. Reads from agent execution
@@ -135,7 +142,22 @@ filesystem inference. Turn diffs join adjacent confirmed versions only when thei
 content matches, preserving gaps caused by external edits. Hunk reject uses exact
 whole-line context and a current revision; hunk stage uses the Git owner's one
 index writer with captured working, index and HEAD revisions. Restore refuses
-active turns and absent outcomes, and verifies the written after revision.
+active turns and absent outcomes, and verifies the written after revision. A
+file that already holds what it had before the change, or before an earlier
+change of the same turn, is answered as restored and left untouched; any other
+content is a conflict. Rust refuses the repeated restore as a conflict; the
+changes card remembers an Undo only while its conversation stays open, so a
+repeated Undo has to succeed rather than report a conflict that does not exist.
+
+A checkpoint is captured in the transaction that admits its request, so a
+replayed request is answered from the ledger before capture and an approval that
+already has a checkpoint is a `conflict`. Rust captures in a separate
+transaction and therefore accepts a repeated capture with identical content.
+
+Checkpoint text and attachment bindings live as long as a remaining session
+lists their turn; removing the last such session deletes them, the attachment
+rows that lose their last binding and then the attachment files
+([node.md](node.md#current-commands)).
 
 The accepted native Files layout, view-model fields and Actions remain the UI
 contract in [panel.md](panel.md). The coordinating Node owns shared native

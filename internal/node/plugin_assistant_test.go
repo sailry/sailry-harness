@@ -16,7 +16,6 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
-	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -192,7 +191,7 @@ func pluginAssistantAcceptance(t *testing.T) {
 	tools, prompt := slices.Clone(script.tools), script.prompt
 	script.mu.Unlock()
 	slices.Sort(tools)
-	allowed := []string{"ask_user", operations.Alias("assistant-fixture", "read_note"), operations.Alias("native-approval-fixture", "write"), "read_tool_output"}
+	allowed := []string{"ask_user", "read_note", "write", "read_tool_output"}
 	slices.Sort(allowed)
 	if !slices.Equal(tools, allowed) {
 		t.Fatalf("assistant request offered %v, declared %v", tools, allowed)

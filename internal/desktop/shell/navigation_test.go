@@ -28,6 +28,20 @@ func TestNavigationTicksLoadedPages(t *testing.T) {
 	if r.Value != "20/20" || len(cv.Turns) != 20 {
 		t.Fatalf("the rail reads %q over %d turns, want one page of 20", r.Value, len(cv.Turns))
 	}
+	// The rail is the pane's, not the list's: it reaches past the list, down
+	// the composer under it, so its ticks centre in the pane.
+	lists := 0
+	for _, e := range tt.AccessAll() {
+		if e.Role == ui.RoleLog && e.Bounds.H > 0 {
+			lists++
+			if list, rail := e.Bounds.Y+e.Bounds.H, r.Bounds.Y+r.Bounds.H; rail < list+60 || r.Bounds.Y > e.Bounds.Y {
+				t.Errorf("the rail spans %v, the list %v: want the rail over the composer too", r.Bounds, e.Bounds)
+			}
+		}
+	}
+	if lists != 1 {
+		t.Fatalf("%d transcript lists, want one to measure the rail against", lists)
+	}
 	snapshot(t, tt, "navigation")
 	// Ticks are 2.5 tall in 10 DIP slots: the rail's middle 200 DIPs hold
 	// them, and its ends are empty.

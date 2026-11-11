@@ -75,11 +75,12 @@ func diagnostic(c *ui.Context, d *Diagnostic) {
 		return
 	}
 	p := theme.Of(c)
+	size := textSize(c)
 	ui.Column(c.Key("diagnostic")).FillWidth().Padding(12).Gap(8).Radius(p.RadiusLg).Border(1, p.Danger.Alpha(0.4)).
 		Background(p.Danger.Alpha(0.06)).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, icons.TriangleAlert).FontSize(16).TextColor(p.Danger)
-			ui.Text(c, d.Title).FontSize(14).FontWeight(500).Grow(1).TextColor(p.Danger)
+			ui.Icon(c, icons.TriangleAlert).FontSize(rowIcon(size)).TextColor(p.Danger)
+			ui.Text(c, d.Title).FontSize(size).FontWeight(500).Grow(1).TextColor(p.Danger)
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(DiagnosticText(d))
 				kit.Message(c, i18n.T(c, "content_copied"))
@@ -87,13 +88,13 @@ func diagnostic(c *ui.Context, d *Diagnostic) {
 		})
 		for i, f := range d.Fields {
 			ui.Row(c.Key(i)).Gap(12).Children(func() {
-				ui.Text(c, f[0]).FontSize(13).Width(120).Shrink(0).TextColor(p.MutedForeground)
-				ui.Text(c, f[1]).Selectable().Font("monospace").FontSize(13).Grow(1).Shrink(1).MinWidth(0)
+				ui.Text(c, f[0]).FontSize(size - 1).Width(120).Shrink(0).TextColor(p.MutedForeground)
+				ui.Text(c, f[1]).Selectable().Font("monospace").FontSize(size - 1).Grow(1).Shrink(1).MinWidth(0)
 			})
 		}
 		if d.Detail != "" {
 			ui.Scroll(c).MaxHeight(120).Children(func() {
-				ui.Text(c, d.Detail).Selectable().Font("monospace").FontSize(12).TextColor(p.MutedForeground)
+				ui.Text(c, d.Detail).Selectable().Font("monospace").FontSize(size - 2).TextColor(p.MutedForeground)
 			})
 		}
 	})

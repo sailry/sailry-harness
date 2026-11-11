@@ -1,7 +1,15 @@
 # Conversation transcript
 
 B3 installs the controller's message text size in window-scoped Kit preferences.
-User bubbles and reply Markdown use 12, 14, 16 or 18 DIPs; the default stays 14.
+The transcript's content text follows it, 12 to 18 DIPs with the default 14
+(`textSize` in `tools.go`): user bubbles, reply Markdown, the status header, the
+tool, question, subagent, step and phase rows and what they open, notices,
+sources, compaction, the changes card's texts, captions and the footer's time.
+Every measure in this document is the one at 14. A row is `size+10` high, its
+icon `size+2` and its caret `size-2`; text a DIP or two smaller than the body
+keeps that difference. Controls keep Kit's sizes: buttons, menus, popovers,
+dialogs, tooltips, the banner, the welcome page and the composer's context bar
+and task capsule (`Steps`).
 The transcript retains a caller-owned Markdown theme for its palette/size pair,
 so shared Kit themes remain immutable and dynamic theme changes still apply.
 
@@ -358,6 +366,38 @@ of older work blocks. The latest failed run supplies the diagnostic card, and
 summary context estimates use their captured budget limit when reported context
 usage is absent.
 
+A compaction that ends without a summary (`engine/compaction.go`) saves, after
+its billed attempts, one system record whose `metadata.compaction.failure`
+names the source (`manual` or `automatic`), the stage (`budget`, `request`,
+`summary`, `history`), the reason, the HTTP status of the last attempt and the
+cause; a stopped turn records none. The page carries it as the resource
+`{"type":"compaction_failure","failure":{…}}`, statistics report it as the last
+compaction with outcome `failed`, and the run still fails with the same error.
+The transcript shows it as the error block `chat_compact_failed` with the
+cause, and then omits the run's own error block when it repeats that cause, so
+the failure reads once; the diagnostic card is unchanged. A manual compaction
+turn keeps its failed state and cause from the run. A completed compaction run
+whose loaded turn holds no summary shows `chat_compact_unneeded`; a turn whose
+entries are not loaded keeps `chat_compacted`.
+
+Differences from the reference, deliberate: the reference ends the turn
+normally with an English assistant message ("Ran into this error trying to
+compact: … Please try again or create a new session") and never writes the
+failure record its statistics, notifications and queue read. Go fails the run
+and writes the record, so each client words the notice in its own language. The
+reference's check that pauses the queue for a turn holding a failure that did
+not continue is not ported: the queue treats that turn as any other failed run.
+
+An answer the model's output limit cut short says so once. The engine records
+`metadata.runtime.output_limit_reached` on the reply; the page carries the
+resource `{"type":"output_limit"}` after that reply's parts when it requested no
+tool, which is the reply that ends its turn (a cut reply that requested tools
+goes on to their results and shows nothing). The transcript shows it as
+`LimitBlock`, one plain warning row `chat_output_limit` below the cut text, and
+keeps it with the answer rather than the work region; exports and the mobile
+transcript likewise keep the text before it as the answer and show no row. The
+reference stores the flag and shows nothing.
+
 Sent context/session mentions retain their canonical target bindings in private
 transcript state through `SetReferences`; inline MyGo text opens the bound target.
 A sent message is edited in its bubble. `Edit` captures the turn, the head
@@ -424,7 +464,14 @@ helpers select the latest relevant child run within that owner, preferring activ
 work to queued continuations. The waiting phase appears only after the parent's
 tool batch is committed and while its foreground wave remains unsettled; streamed
 output, consent and pending guidance take precedence. Background children do not
-hold this phase.
+hold this phase. Guidance is pending for the turn that takes it: the run's
+`joined` turn until its user record arrives, which for a batch that outlived
+its recipient is the successor rather than the `guidance` turn it was sent to.
+
+An approval that Stop closed (`cancelled`) leaves its call a plain row without
+state text or warning color, as part of a turn whose footer reads Stopped; an
+approval that lost its owner (`interrupted`) keeps the warning. A stopped
+session is idle in the sidebar, not failed.
 
 Child tabs subscribe to the real registered child session through the same Client
 cache. Their transcript and composer are read-only. The parent's composer presents
@@ -528,6 +575,216 @@ tag: one process-wide `untiemygo.Renderer` bound with `BindMarkdown` for
 needs `github.com/caelyreth/untie` and its `contrib/mygo` module in `go.mod`
 and an OpenType MATH font at `internal/desktop/conversation/math.otf`; until
 both are added the tag does not build.
+
+## Turn settlement and queue
+
+`store.FinishTurn` ends a turn and settles its session's queue in one
+transaction; `store.RecoverRuns` does the same for turns a restart left
+without an owner.
+
+- **Guidance.** A message sent to guide a running turn carries that turn as
+  its recipient and is skipped by the ordinary claim while the recipient can
+  still join it. When the recipient finishes or is recovered without joining
+  it, the message loses its recipient exactly once, in the finishing
+  transaction, and is an ordinary queued item at its place: it starts next
+  after a turn that left the queue running, and waits in a paused queue until
+  Send now or Resume.
+- **Batched guidance.** Guidance joins its recipient at a boundary: after
+  tool results or a finished reply, before the next model step, never behind
+  a failed step. One transaction takes every input waiting for the turn, in
+  the order sent, and appends each as its own user record under its own turn
+  with its own attachments and references; the model then answers them in a
+  single step. Input that arrives after the batch was taken waits for the
+  next boundary. A batch that overfills the context goes through the turn's
+  ordinary compaction (at most two recoveries) and, when that cannot recover,
+  fails the turn: the failed step's record carries `context_overflow` and the
+  run's fault is `unavailable`. Nothing is truncated: joined inputs stay whole
+  records of their own turns; input waiting during a recovery joins after the
+  compaction, before the retried step; input sent during the last attempt
+  returns to the queue whole and starts its own turn
+  (`engine.TestGuidanceBatchOverflow`). `guide_turn` binds attachments
+  like `queue_turn`, so an attachment that is not stored yet refuses the
+  message.
+- **Compatibility.** Guidance joins only a recipient that froze the same
+  settings: session config (model, mode, permission), roles, plugins and
+  hooks. Other input stays an ordinary ready item at its place and starts its
+  own turn with its own settings. Compatible guidance is placed after the
+  guidance already waiting for its recipient and ahead of ordinary items.
+- **Outlived guidance.** Guidance released by a recipient that ended first
+  keeps its order. When the first of it starts a turn, the inputs sent to the
+  same recipient that directly follow it, are ready and froze the same
+  settings are addressed to that turn and join it before its first model
+  step, so a pile of guidance is still answered together.
+- **Queued messages.** Ordinary queued messages are strict FIFO: each starts
+  its own turn with the settings it was queued with, one at a time. They are
+  never combined.
+- **Pausing.** The queue is paused by `stop_turn`, by a turn that ends
+  `interrupted` without a stop (Node shutdown, restart recovery) and by a turn
+  that ends before its own input reached history, which stays in the queue as
+  a retained item. A turn that fails after recording its input does not pause:
+  queued messages start and background results are delivered.
+- **Pause reason.** A paused queue carries `pause_reason` in the snapshot
+  and in every queue update: `user` (`set_queue_paused`), `stopped`
+  (`stop_turn`), `interrupted` (a turn lost its owner at shutdown or restart)
+  or `unrecorded` (a turn ended before its input reached history; when it also
+  lost its owner the reason is `interrupted`). The field is optional: it is
+  absent while the queue runs, for queues paused before the field existed and
+  for a child session whose turn failed. Any resume clears it.
+- **Send now.** `send_queued_turn` during a running turn stops that turn and
+  resumes the queue with the chosen item first. Finishing a stopped turn never
+  pauses again, so the chosen item starts as soon as the stopped turn ends.
+
+- **Stop.** A turn the user stopped ends `cancelled`, with no error unless
+  its outcome is uncertain, and its pending approvals and questions close as
+  `cancelled`. `interrupted` is kept for a turn that lost its owner: Node
+  shutdown and restart recovery, which also close interactions as
+  `interrupted`. A child stopped through its parent turn is a deliberate stop
+  too and ends `cancelled`. Any other ended turn closes its leftover interactions as
+  `cancelled`. Completion hooks run only for turns that ran to their end: the
+  hook binding is bound to the turn's stop and runs nothing once it is
+  stopped or the Node is stopping. The Turn End hook receives
+  `SAILRY_HOOK_STATUS` `completed` or `failed`, as in the reference; After
+  Tool hooks receive `succeeded` or `failed`. Hooks run only for task turns
+  outside Plan mode, which also excludes read-only sub-agents because their
+  session runs in Plan mode (`engine.TestTurnEndHookStatus`).
+- **Attention.** The session becomes unread when a main task turn ends
+  `completed`, `failed` or `interrupted`. Stopped turns, compaction runs and
+  child runs do not raise it.
+- **Durable end.** A turn keeps its owner until its end is stored. When the
+  finishing transaction fails, it is repeated every second, logged once
+  (`operation=finish`), until it succeeds or the Node stops; a stopped Node
+  leaves the run to restart recovery. Only the write is repeated: the model,
+  tools, hooks and cleanup have ended.
+- **Restart.** Running and stopping turns end `interrupted` with an uncertain
+  outcome and nothing is replayed. Queued delegated runs that never started
+  end the same way, except one the user had already stopped, which ends
+  `cancelled`. Queued notice turns and plugin continuations are
+  cancelled without pausing the queue or raising attention; a queue that
+  still holds the user's input is paused.
+
+- **Background results.** A finished background child, or a command that
+  asked for a follow-up, starts a notice turn when its session is free: not
+  archived, not a child, worktree present, queue running and empty, no
+  running turn and no pending approval or question. Work mode does not
+  matter; a notice turn in Plan mode runs under Plan's own restrictions.
+  Delivery is level-triggered: besides the two edges that finish a result,
+  every claim pass that finds nothing ready admits a notice turn for each
+  free session that still holds results, so a result waits only for its
+  blocker whichever command removed it. An admission that fails (for
+  example a disabled provider) leaves the results deliverable and is logged
+  once per session and reason (`event=node.background operation=deliver
+  status=refused`).
+- **Automatic chain limit.** A session starts at most eight notice turns in a
+  row without user input. The count covers started notice turns since the
+  last user turn or joined guidance; plugin continuations and automatic
+  turns that never started neither count nor reset it. At the limit the
+  remaining results are marked suppressed, logged (`status=held`), stay
+  visible as pending background tasks and join the user's next message.
+- **Held results.** A pending result that is `suppressed` starts no notice
+  turn and carries the optional `hold` on its background task, in the
+  snapshot and activity events: `limit` (automatic chain limit), `stopped`
+  (the user stopped the turn that was to receive it), `interrupted` (that
+  turn or the Node's restart lost it), `failed` (its notice turn failed
+  before taking it) or `other` (the notice turn was withdrawn at claim, for
+  example because user input was queued). The hold is cleared when a turn
+  reserves the result. A result that is pending without `suppressed` and not
+  delivered is waiting only for the session to be free; the queue's
+  `pause_reason` says why when the queue is paused.
+- **Stalled commands.** A background command that asked for a follow-up and
+  stays silent writes `stall:<id>` evidence with the outcome `stalled`
+  ([process](process.md)). It is delivered by the same rules as any result:
+  one notice turn per stall period, because evidence reserved for a turn is
+  not rewritten and only delivered evidence is renewed by the next period;
+  each such turn counts toward the automatic chain limit; and a session the
+  user stopped receives none, because its queue is paused and evidence
+  released by a stopped notice turn stays held across later periods until
+  the user's next message takes it (`store.TestStalledDelivery`).
+- **Turn callbacks.** After a main task turn ends, whatever its status, and
+  once that end is stored and published, the Node calls the `after_turn`
+  handler of every package the turn captured, as in the reference. Child
+  turns, compaction and a stopping Node call none. The call is an ordinary
+  `call_plugin` request dispatched for the turn's caller with the session
+  and worktree as context, so the callback runtime's allocation budget,
+  deadline and cancellation apply. Its input is `turn`, `status`,
+  `automatic` (the turn was itself a continuation) and the package's tool
+  `names`. A package that was disabled, removed or changed since the turn
+  has no callback; any other failure is logged
+  (`area=plugins operation=after_turn`) and never changes the ended turn.
+  A handler that issues `continue_turn` admits a continuation turn, whose
+  input is captured at admission because a plugin transaction stores only
+  a digest of its request.
+- **Cancelled foreground children.** A child that ends `cancelled` or
+  `interrupted` after its owning turn recorded the cancellation note has its
+  background task marked consumed, as the reference collects it; the model
+  was already told. When the child's end is stored first, the owning turn's
+  settlement consumes it after the child has settled
+  (`store.ConsumeStoppedChildren`, see [delegation](delegation.md)). The turn
+  keeps the children it cancelled, so one that finishes and leaves the runtime
+  before the turn settles them is consumed as well. A child cancelled any
+  other way stays a pending task.
+- **Plan review source.** The review offered after a completed Plan turn
+  points at the turn's last assistant message that is visible to the user
+  and has text, as in the reference, so a hidden runtime note recorded after
+  the answer does not suppress it. A source that carries an error, an
+  interrupted or failed finish, or a tool request still offers no review.
+
+### Queue item states
+
+An item is a row of `agent_pending`; `ready`, the recipient and the queue's
+`paused` flag decide what it does. Every transition is one store transaction
+and bumps the item or queue revision that its command checks.
+
+| State | Stored as | Leaves by |
+|---|---|---|
+| Held | queued run, `ready=0` | `start_queued_turn`, `send_queued_turn`, `guide_queued_turn`, `remove_queued_turn` |
+| Queued | queued run, `ready=1`, no recipient | claim when the session has no running turn and the queue runs; `remove_queued_turn`; `guide_queued_turn` |
+| Guiding | `ready=1`, recipient is the running turn | join at the boundary; `withdraw_guidance` (held); `edit_queued_turn` or `set_queue_paused` (queued); recipient ends or restart (queued); `remove_queued_turn` |
+| Joined | run `completed` with `joined`, row deleted | terminal; shown under the joining turn |
+| Running | run `running`; row kept until its input is recorded | turn end |
+| Retained | run `failed`, `cancelled` or `interrupted` before its input was recorded, row kept, queue paused | `start_queued_turn` or `send_queued_turn` (queued again), `remove_queued_turn` |
+| Removed | run `cancelled`, row deleted | terminal |
+
+| Trigger | Effect | Test |
+|---|---|---|
+| `queue_turn` | held item at the end | `engine.TestQueueOrder` |
+| `start_queued_turn` | held to queued, queue resumed | `engine.TestQueueOrder` |
+| `guide_turn`, same settings | guiding, after the recipient's other guidance | `store.TestGuidanceQueue/pending guidance is taken together` |
+| `guide_turn`, other settings | queued in place | `store.TestGuidanceQueue/other settings stay ordinary` |
+| `guide_turn` with an attachment not stored | refused, nothing admitted | `store.TestGuidanceQueue/pending guidance is taken together` |
+| Boundary | all guiding items joined in order in one step; later ones next boundary | `engine.TestGuidanceBatch`, `store.TestGuidanceQueue` |
+| `edit_queued_turn` | new text, guiding to queued; stale revision refused | `store.TestGuidanceQueue/queue commands` |
+| `guide_queued_turn` | held or queued to guiding; compaction refused | `store.TestGuidanceQueue/queue commands` |
+| `withdraw_guidance` | guiding to held | `store.TestGuidanceQueue/queue commands` |
+| `move_queued_turn` | new position; stale queue revision refused | `store.TestGuidanceQueue/queue commands` |
+| `set_queue_paused` | pause: guiding to queued, nothing starts or joins; resume: first ready item starts | `store.TestGuidanceQueue/queue commands` |
+| `remove_queued_turn` | removed | `store.TestGuidanceQueue/queue commands` |
+| `send_queued_turn` | item first, running turn stopped, queue resumed | `store.TestQueueSettlement/send now replaces the running turn` |
+| `stop_turn` | queue paused; items stay; guiding to queued when the turn ends | `store.TestQueueSettlement/guidance after stop waits for *` |
+| Turn completes or fails after its input | guiding to queued; next ready item starts | `store.TestQueueSettlement/guidance after completion starts`, `guidance after failure starts`, `failure keeps queued input running` |
+| Turn ends before its input | retained, queue paused | `store.TestQueueSettlement/failure before input holds the queue` |
+| Outlived guidance starts | following guidance of the same recipient joins it | `store.TestGuidanceQueue/outlived guidance starts one turn`, `engine.TestGuidanceBatch` |
+| Node restart | guiding to queued once, queue paused when it holds user input; queued notice turns cancelled | `store.TestQueueSettlement/guidance after restart waits for resume`, `restart cancels a queued notice turn without pausing` |
+| `compact_context` while running | compaction item waits its turn; not editable, not guidance | `store.TestGuidanceQueue/queue commands` |
+| Background result | notice turn admitted only into an empty running queue; cancelled at claim when user input is queued | `store.TestBackgroundDelivery`, `store.TestBackgroundSchedulingAndContinuationFence` |
+| Package `after_turn` issues `continue_turn` | continuation turn queued and started like any ready item; `automatic` on its own callback | `node.TestPluginAfterTurn` |
+| `remove_session` with waiting input | refused `busy` until the items are removed | `store.TestGuidanceQueue/queue commands` |
+| `set_session_archived` | queue unchanged | `store.TestGuidanceQueue/queue commands` |
+
+### Differences from the reference
+
+| Difference | Reason |
+|---|---|
+| Outlived guidance batches only the inputs sent to the same recipient; the reference also folds every following ready compatible queued message into that turn | An ordinary queued message keeps the turn it was queued for; the reference combines it only when it happens to follow released guidance |
+| Guidance compatibility does not compare the provider snapshot or the compaction capture | The joined input runs under the recipient's frozen provider either way; a provider edit is not a per-message choice |
+| A joined guidance run ends `completed` with `joined` set; the reference uses `continued` | Existing Go behaviour that the desktop projection reads |
+| A paused queue cannot hold guiding items, so a boundary needs no pause check; the reference checks at the boundary | Pausing already returns guidance to the queue in both |
+| Notice turns are bounded per session by a flat count of eight; the plan described a chain depth of four | A flat count needs no lineage between results and also bounds independent results arriving apart; eight leaves room for a fan-out, and each notice turn carries up to 16 results |
+| Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |
+| Guidance pending at a user Stop waits in the paused queue; the reference starts it as a successor turn at once | Stop means stop: nothing runs until the user sends or resumes, and the message stays visible and editable |
+| The ordinary claim skips guidance while its recipient runs, and every exit of the recipient releases it; the reference claims without looking at the recipient and repairs the tag on each exit path | One release point in `FinishTurn` and one in `RecoverRuns` cover Stop, failure, completion and restart |
+| A cancelled foreground child is consumed when it ends, keyed on the owner's recorded cancellation note; the reference collects it from the task that awaited the child | The store settles it in the child's own finishing write, so it does not depend on the owner turn still running |
+| A plan review whose chosen source has a tool request, an error or an unfinished answer is not offered; the reference checks only visibility and text | Existing Go validation; a review must point at a finished answer |
+| A stopped turn whose input was not recorded keeps that input as a retained queue item; the reference writes it into history | Nothing is lost and the user decides whether to send it again |
 
 ## UI state vs backend data
 
@@ -653,6 +910,7 @@ destination, the rewind toast's backup action, and
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
 | The phase's mark is one of MyGo's loading marks (`plugins/loading`: Pulse, LinearDots, Swirl), not Rust's dot figures (Orbits, Globe, Ribbon, Ring) | The user's decision: ready-made marks from one set with the sidebar's loader. The custom figures are removed; the marks move at the display's rate ([components.md](components.md#theming-caveats)) |
 | Row texts are moved a fraction of a DIP by `kit.Level` so their capitals sit at the icon's middle; a question's row is as high as the others for one line (24), its icon and caret where theirs are | MyGo centres a text's line box and snaps its baseline, which left labels up to 1.2 DIPs below their icons ([components.md](components.md#text-beside-icons)); the wrapping row had its text at the top with the icon 2 below |
+| A row's single-line label and its detail are `ui.RichText` of one span, levelled by `kit.LevelSpan`, running or not | `kit.Sweep` draws its band with `Painter.RichText`, whose line starts from the theme's 14 whatever the span's size; a plain `ui.Text` at another message text size sits up to 2 DIPs off the band, and a label laid out one way while running and another once settled would move |
 | A code block's Copy is an icon button confirmed by a toast, not MyGo's `CopyButton` with its "Copy" and "Copied" texts | The user's decision: the icon alone; outcomes show as toasts |
 | Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
 | Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | limu lays a 64 KiB bounded source out once per width; Rust prepares images off the UI thread |
@@ -667,6 +925,8 @@ destination, the rewind toast's backup action, and
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
 | MCP forms and authorization links are answered in the composer's question popover | The Node binds each request to its exact active parent call and persists its answer without adding a second transcript row |
+| Live deltas keep flowing however many entries a turn commits | The reference stops streaming for the rest of a turn after 4096 committed entries; the Node remembers the 4096 most recent ones, which is all a late delta can name |
+| A summary request the provider refuses for its size fails with the provider's own error | The reference replaces it with a fixed "Failed to compact: the base prompt … exceeds the model's effective context window" text that advises disabling extensions, which Sailry does not have; the summary input is already fitted to the captured limit before it is sent |
 | A plan review's history row shows its answers as plain lines, closed | The reference renders the plan as Markdown, open by default |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |
 
@@ -741,7 +1001,10 @@ shows the `chat_action_failed` toast.
 | Session of another project | `WrongTarget`: conversation belongs to another project |
 | Attachment that the same input does not carry | `InvalidRequest`: attachment references require an attachment of the same input |
 
-MCP form and URL elicitation uses the canonical question owner. Concurrent
+MCP form and URL elicitation uses the canonical question owner. An
+authorization link is HTTPS, or HTTP to `localhost` or a loopback address, with
+a host and no user information; the Node refuses any other request and the
+Desktop opens no other link. Concurrent
 questions keep distinct parent identities and decision wakes. Only active
 elicitation time pauses tool timing. Closing a turn joins its tool resources
 before settlement; failed cleanup retains `OutcomeUnknown`.

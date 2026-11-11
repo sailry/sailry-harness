@@ -15,6 +15,7 @@ import (
 	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -259,9 +260,9 @@ func validateBrowserAction(action protocol.BrowserAction) error {
 	return nil
 }
 
-// execute runs one admitted browser command. Node admission owns authority;
-// the initiating controller owns its WebView.
-func (registry *browserRegistry) execute(ctx context.Context, caller protocol.NodeID, id protocol.RequestID, input protocol.CommandUseBrowserPayload) (protocol.Output, error) {
+// useBrowser runs one admitted browser command. Node admission owns authority
+// and saved captures; the initiating controller owns its WebView.
+func (node *Node) useBrowser(ctx context.Context, caller protocol.NodeID, id protocol.RequestID, input protocol.CommandUseBrowserPayload) (protocol.Output, error) {
 	if err := validateBrowserAction(input.Action); err != nil {
 		return protocol.Output{}, err
 	}
@@ -269,38 +270,67 @@ func (registry *browserRegistry) execute(ctx context.Context, caller protocol.No
 	if err != nil {
 		return protocol.Output{}, err
 	}
-	if input.Action.Kind == "screenshot" && facts.Save {
-		// Saved captures need the generated-media publication owner, which
-		// this Node does not have yet.
-		return protocol.Output{}, browserFault(protocol.ErrorCodeNotConfigured, "saving browser captures is unavailable")
-	}
 	if ctx.Err() != nil {
 		return protocol.Output{}, browserFault(protocol.ErrorCodeCancelled, "browser call cancelled")
 	}
-	result, err := registry.call(ctx, caller, input.Session, id, input.Action)
+	result, err := node.browsers.call(ctx, caller, input.Session, id, input.Action)
 	if err != nil {
 		return protocol.Output{}, err
 	}
 	if input.Action.Kind == "screenshot" {
-		if result, err = browserCapture(result, facts.Format); err != nil {
+		pixels, err := browserCapture(result, facts.Format)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		if facts.Save {
+			// A saved capture is published like generated media: below
+			// assets/generated, never replacing a file.
+			var root string
+			if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				var err error
+				root, err = store.ReadWorkspaceRoot(ctx, db, input.Worktree, false)
+				return err
+			}); err != nil {
+				return protocol.Output{}, nodeFault(err)
+			}
+			extension := "jpg"
+			if facts.Format == protocol.BrowserFormatPng {
+				extension = "png"
+			}
+			target := "assets/generated/browser-" + id.String() + "." + extension
+			if err := node.publishGenerated(ctx, root, target, pixels.data, browserMaxImageBytes); err != nil {
+				return protocol.Output{}, err
+			}
+			pixels.facts["path"], _ = json.Marshal(target)
+		}
+		if result, err = json.Marshal(pixels.facts); err != nil {
 			return protocol.Output{}, err
 		}
 	}
 	return protocol.Output{Kind: "browser", Data: result}, nil
 }
 
-// browserCapture checks the controller's pixels and publishes them as declared
-// inline media. The controller supplies pixels and page facts; the Node owns
-// the encoding checks.
-func browserCapture(value json.RawMessage, format protocol.BrowserFormat) (json.RawMessage, error) {
-	invalid := func(message string) error { return browserFault(protocol.ErrorCodeInvalidRequest, message) }
+// browserPixels is one checked capture: the facts published with it, its
+// inline media among them, and its bytes.
+type browserPixels struct {
+	facts map[string]json.RawMessage
+	data  []byte
+}
+
+// browserCapture checks the controller's pixels and declares them as inline
+// media. The controller supplies pixels and page facts; the Node owns the
+// encoding checks and paths.
+func browserCapture(value json.RawMessage, format protocol.BrowserFormat) (browserPixels, error) {
+	invalid := func(message string) (browserPixels, error) {
+		return browserPixels{}, browserFault(protocol.ErrorCodeInvalidRequest, message)
+	}
 	var facts map[string]json.RawMessage
 	if json.Unmarshal(value, &facts) != nil || facts == nil {
-		return nil, invalid("browser capture is invalid")
+		return invalid("browser capture is invalid")
 	}
 	encoded, exists := facts["base64_image"]
 	if !exists {
-		return nil, invalid("browser capture is missing image data")
+		return invalid("browser capture is missing image data")
 	}
 	for _, reserved := range []string{"base64_image", "path", "inline_data", "file_data", "images"} {
 		delete(facts, reserved)
@@ -309,7 +339,7 @@ func browserCapture(value json.RawMessage, format protocol.BrowserFormat) (json.
 	_ = json.Unmarshal(encoded, &text)
 	pixels, err := base64.StdEncoding.DecodeString(text)
 	if err != nil {
-		return nil, invalid("browser capture contains invalid image data")
+		return invalid("browser capture contains invalid image data")
 	}
 	mime := "image/" + string(format)
 	bounded := len(pixels) <= browserMaxImageBytes
@@ -320,13 +350,13 @@ func browserCapture(value json.RawMessage, format protocol.BrowserFormat) (json.
 		bounded = err == nil && decoded == string(format) && config.Width > 0 && config.Height > 0 && max(config.Width, config.Height) <= browserMaxImageSide
 	}
 	if !bounded {
-		return nil, invalid("browser capture must be a bounded image of the requested format")
+		return invalid("browser capture must be a bounded image of the requested format")
 	}
 	facts["mime_type"], _ = json.Marshal(mime)
 	facts["width"], _ = json.Marshal(config.Width)
 	facts["height"], _ = json.Marshal(config.Height)
 	facts["inline_data"], _ = json.Marshal([]map[string]string{{"mime_type": mime, "data": base64.StdEncoding.EncodeToString(pixels)}})
-	return json.Marshal(facts)
+	return browserPixels{facts: facts, data: pixels}, nil
 }
 
 // dispatchBrowser completes a controller's browser call inline and admits a
@@ -378,14 +408,8 @@ func (node *Node) dispatchBrowser(ctx context.Context, caller protocol.NodeID, r
 	go func() {
 		defer node.work.Done()
 		defer close(completion)
-		output, effectErr := node.browsers.execute(node.ctx, caller, request.ID, *input)
-		outcome := response(output, effectErr)
-		if err := node.profile.Store.Node.Write(context.WithoutCancel(node.ctx), func(db *sql.Conn) error {
-			return admission.Complete(context.WithoutCancel(node.ctx), db, caller, request.ID, outcome)
-		}); err != nil {
-			outcome = response(protocol.Output{}, browserFault(protocol.ErrorCodeOutcomeUnknown, "operation result could not be recorded; inspect the target before retrying"))
-		}
-		completion <- outcome
+		output, effectErr := node.useBrowser(node.ctx, caller, request.ID, *input)
+		completion <- node.settle(caller, request.ID, response(output, effectErr))
 	}()
 	return result, nil
 }

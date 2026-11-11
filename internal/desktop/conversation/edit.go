@@ -48,7 +48,7 @@ func (s *State) editor(c *ui.Context, session string, t *Turn, actions Actions) 
 		box := ui.Column(c.Key("message-editor")).Width(bubbleMax).MaxWidth(bubbleMax).Shrink(1).Padding(6, 8).Gap(6)
 		bubble(c, box).Children(func() {
 			area := ui.TextAreaBase(c.Key("message-input"), &e.text).Label(i18n.T(c, "message_edit")).Lines(1, 12).
-				FontSize(kit.MessageTextSize(c)).LineHeight(1.6).Padding(3, 6).AutoFocus().ReadOnly(pending)
+				FontSize(textSize(c)).LineHeight(1.6).Padding(3, 6).AutoFocus().ReadOnly(pending)
 			composing := area.Composing() // the callback runs after this pass
 			area.OnTextKey(func(k ui.TextKey) bool {
 				switch {

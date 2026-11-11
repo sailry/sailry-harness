@@ -112,6 +112,15 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if err = bindAgentAttachments(ctx, db, turn.ID, session.Worktree, input.Message.Attachments); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	// The input is captured now: a continuation admitted inside a plugin
+	// transaction shares that request, whose stored body is only a digest.
+	message, err := encode(input.Message)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET input=?2 WHERE turn=?1", turn.ID.String(), message); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	body, err := encode(fence)
 	if err != nil {
 		return protocol.Output{}, nil, err
@@ -188,7 +197,14 @@ func cancelAutomaticInput(ctx context.Context, db *sql.Conn, run protocol.Conver
 	if _, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", run.Turn.String()); err != nil {
 		return nil, err
 	}
-	released, err := ReleaseBackground(ctx, db, run.Turn, run.Notice)
+	var hold *protocol.ConversationBackgroundHold
+	if run.Notice {
+		hold = new(protocol.ConversationBackgroundHoldOther)
+		if failure != nil && failure.Code == protocol.ErrorCodeOutcomeUnknown {
+			hold = new(protocol.ConversationBackgroundHoldInterrupted)
+		}
+	}
+	released, err := ReleaseBackground(ctx, db, run.Turn, hold)
 	if err != nil {
 		return nil, err
 	}

@@ -206,7 +206,7 @@ func workPart(part protocol.ConversationPart) bool {
 		if e == nil {
 			var kind string
 			_ = json.Unmarshal(v["type"], &kind)
-			return kind != "tool_started" && kind != "provider_context"
+			return kind != "tool_started" && kind != "provider_context" && kind != "output_limit"
 		}
 	}
 	return true
@@ -349,7 +349,13 @@ func composeExport(page protocol.ConversationPage, referenced map[exportImageKey
 					return result, e
 				}
 				cursor := 0
-				for _, span := range exportImageSpans(text) {
+				// Only assistant Markdown names conversation images; what the
+				// user typed stays as typed.
+				var spans []exportImageSpan
+				if !user {
+					spans = exportImageSpans(text)
+				}
+				for _, span := range spans {
 					image, ok := referenced[span.key]
 					if !ok {
 						continue

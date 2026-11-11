@@ -20,9 +20,33 @@ type portKey struct {
 	port uint16
 }
 
+// forwardRestores is how many times a forward that lost its Host is created
+// again each time the Host returns.
+const forwardRestores = 3
+
 type desktopForward struct {
 	forward *client.Forwarder
 	release func()
+	// source is the announced service the forward was opened from, kept to
+	// create the forward again.
+	source *client.ServiceSource
+	// restores counts the attempts made since the Host returned.
+	restores int
+}
+
+// restoreStep is what a frame does with one forward. A forward fails when
+// its Host's connection is lost and never recovers by itself; it is created
+// again on its local port once the Host is connected, at most forwardRestores
+// times, and the count starts over when the Host is lost again. A forward
+// that closed (the user or its service ended it) is left alone.
+func restoreStep(kind string, connected bool, restores int) (attempt bool, next int) {
+	if kind != "failed" {
+		return false, restores
+	}
+	if !connected {
+		return false, 0
+	}
+	return restores < forwardRestores, restores
 }
 
 type livePorts struct {
@@ -62,7 +86,75 @@ func (r *Runtime) forward(node string, port int) (*client.Forwarder, bool) {
 	return state.forwards[key].forward, state.busy[key]
 }
 
+// restoreForwards creates again the forwards that failed with their Host's
+// connection. The row shows the forward as not listening until then, and
+// stays so when the attempts are used up.
+func (r *Runtime) restoreForwards() {
+	state := r.ports
+	state.mu.Lock()
+	failed := map[portKey]int{}
+	for key, item := range state.forwards {
+		if !state.closed && !state.busy[key] && item.forward.State().Kind == "failed" {
+			failed[key] = item.restores
+		}
+	}
+	state.mu.Unlock()
+	for key, restores := range failed {
+		owner := r.runtimeFor(key.node)
+		connected := owner != nil && owner.controller.Connected() && (key.node == "" || owner.controller.Target().String() == key.node)
+		attempt, next := restoreStep("failed", connected, restores)
+		state.mu.Lock()
+		item, found := state.forwards[key]
+		if !found || state.closed || state.busy[key] || item.forward.State().Kind != "failed" {
+			state.mu.Unlock()
+			continue
+		}
+		if attempt {
+			next++
+			state.busy[key] = true
+		}
+		item.restores = next
+		state.forwards[key] = item
+		state.mu.Unlock()
+		if !attempt {
+			continue
+		}
+		if !r.async(func() {
+			forward, err := r.connectForward(owner, key.port, item.forward.LocalPort(), item.source)
+			state.mu.Lock()
+			delete(state.busy, key)
+			current, found := state.forwards[key]
+			restored := err == nil && found && current.forward == item.forward && !state.closed
+			if restored {
+				current.release()
+				state.forwards[key] = desktopForward{forward: forward, release: forward.OnChange(r.changed), source: item.source}
+			}
+			state.mu.Unlock()
+			if !restored && forward != nil {
+				_ = forward.Close()
+			}
+			r.changed()
+		}) {
+			state.mu.Lock()
+			delete(state.busy, key)
+			state.mu.Unlock()
+		}
+	}
+}
+
+func (r *Runtime) connectForward(owner *Runtime, remote, local uint16, source *client.ServiceSource) (*client.Forwarder, error) {
+	if source == nil {
+		return owner.controller.ForwardPort(r.ctx, remote, local)
+	}
+	encoded, err := json.Marshal(source)
+	if err != nil {
+		return nil, err
+	}
+	return owner.controller.ForwardService(r.ctx, encoded, local)
+}
+
 func (r *Runtime) portsFrame() {
+	r.restoreForwards()
 	state := r.ports
 	state.mu.Lock()
 	ports := map[string][]host.Port{}
@@ -162,24 +254,14 @@ func (r *Runtime) startForward(node string, remote, local uint16, source *client
 		return
 	}
 	if !r.async(func() {
-		var forward *client.Forwarder
-		var err error
-		if source == nil {
-			forward, err = owner.controller.ForwardPort(r.ctx, remote, local)
-		} else {
-			var encoded []byte
-			encoded, err = json.Marshal(source)
-			if err == nil {
-				forward, err = owner.controller.ForwardService(r.ctx, encoded, local)
-			}
-		}
+		forward, err := r.connectForward(owner, remote, local, source)
 		state.mu.Lock()
 		delete(state.busy, key)
 		if err == nil && !state.closed {
 			if previous, found := state.forwards[key]; found {
 				previous.release()
 			}
-			state.forwards[key] = desktopForward{forward: forward, release: forward.OnChange(r.changed)}
+			state.forwards[key] = desktopForward{forward: forward, release: forward.OnChange(r.changed), source: source}
 		}
 		closed := state.closed
 		state.mu.Unlock()

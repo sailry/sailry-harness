@@ -117,6 +117,20 @@ func FinishChildBackground(ctx context.Context, db *sql.Conn, child protocol.Con
 		if err = terminalCommandRecord(ctx, db, &record, outcome, summary, now); err != nil {
 			return nil, err
 		}
+		if child.Status == protocol.ConversationStatusCancelled || child.Status == protocol.ConversationStatusInterrupted {
+			// The owning turn already told the model about a foreground
+			// child it cancelled, so the result is not delivered again.
+			var reported bool
+			if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_events e, json_each(e.body,'$.metadata.runtime.notes.cancelled_subagents') n WHERE e.turn=?1 AND n.value=?2)", record.Task.Turn.String(), child.Session.String()).Scan(&reported); err != nil {
+				return nil, err
+			}
+			if reported {
+				record.Task.State = protocol.ConversationBackgroundStateConsumed
+				if err = saveBackgroundRecord(ctx, db, &record); err != nil {
+					return nil, err
+				}
+			}
+		}
 		owners[record.Task.Session] = true
 	}
 	return backgroundOwnerEvents(ctx, db, owners)
@@ -154,7 +168,10 @@ func ConsumeChildBackground(ctx context.Context, db *sql.Conn, parent protocol.T
 	return nil, nil
 }
 
-func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, suppress bool) ([]protocol.Event, error) {
+// ReleaseBackground returns the results reserved for a turn that did not take
+// them. With a hold they are suppressed: they start no notice turn and join
+// the user's next message, and the hold tells clients why.
+func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, hold *protocol.ConversationBackgroundHold) ([]protocol.Event, error) {
 	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE state='pending' AND delivery=?1", turn.String())
 	if err != nil {
 		return nil, err
@@ -162,7 +179,9 @@ func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	owners := map[protocol.SessionID]bool{}
 	for _, record := range records {
 		record.Task.Delivery = nil
-		record.Task.Suppressed = record.Task.Suppressed || suppress
+		if hold != nil {
+			record.Task.Suppressed, record.Task.Hold = true, hold
+		}
 		if err = saveBackgroundRecord(ctx, db, &record); err != nil {
 			return nil, err
 		}

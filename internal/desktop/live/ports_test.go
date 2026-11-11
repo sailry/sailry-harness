@@ -25,3 +25,30 @@ func TestForwardURL(t *testing.T) {
 		})
 	}
 }
+
+func TestRestoreStep(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		kind      string
+		connected bool
+		restores  int
+		attempt   bool
+		next      int
+	}{
+		"a listening forward is left alone":            {"listening", true, 0, false, 0},
+		"a forward the user or its service closed":     {"closed", true, 0, false, 0},
+		"a lost forward waits for its Host":            {"failed", false, 0, false, 0},
+		"the Host returned":                            {"failed", true, 0, true, 0},
+		"the last attempt":                             {"failed", true, forwardRestores - 1, true, forwardRestores - 1},
+		"the attempts are used up":                     {"failed", true, forwardRestores, false, forwardRestores},
+		"losing the Host again starts the count over":  {"failed", false, forwardRestores, false, 0},
+		"a forward restored earlier keeps no attempts": {"listening", false, 2, false, 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if attempt, next := restoreStep(test.kind, test.connected, test.restores); attempt != test.attempt || next != test.next {
+				t.Fatalf("restoreStep(%q, %v, %d) = %v, %d", test.kind, test.connected, test.restores, attempt, next)
+			}
+		})
+	}
+}

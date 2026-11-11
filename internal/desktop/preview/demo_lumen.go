@@ -43,7 +43,14 @@ func (b *demo) review() *Conversation {
 			{ID: rerun.ID + "/summary", Title: b.t("review.child.summary"), Model: DemoModel, Effort: "medium", Status: cv.ChildQueued},
 		}},
 	}
-	return b.conv(id, "review.title", Running, 5*time.Minute, cv.Usage{Tokens: 128400, Speed: 66.8, Cost: 0.0874, Cached: 98200, Context: 0.62}, first, rerun)
+	c := b.conv(id, "review.title", Running, 5*time.Minute, cv.Usage{Tokens: 128400, Speed: 66.8, Cost: 0.0874, Cached: 98200, Context: 0.62}, first, rerun)
+	// The team's background work kept reporting until the run of automatic
+	// turns reached its limit; the rest waits for the user.
+	c.Held = []composer.HeldResult{
+		{ID: id + "/held-visual", Title: b.t("review.held.visual"), Wait: composer.WaitLimit},
+		{ID: id + "/held-lighthouse", Title: "npx lighthouse http://localhost:5173/checkout --preset=desktop", Wait: composer.WaitLimit},
+	}
+	return c
 }
 
 // onboarding is the history rows of questions in every state, a plan

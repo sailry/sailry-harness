@@ -362,3 +362,12 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit

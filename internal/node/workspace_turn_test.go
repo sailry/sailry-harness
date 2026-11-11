@@ -204,4 +204,9 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 	if err != nil || string(data) != before {
 		t.Fatal("checkpoint restore did not restore original bytes", string(data), err)
 	}
+	// A controller that forgot the Undo repeats it; the restored file is no conflict.
+	repeated := commandFixture(t, node, protocol.Command{Kind: "restore_file_checkpoint", Data: protocol.CommandRestoreFileCheckpointPayload{Session: session.ID, Checkpoint: checkpoints.Files[0].ID, Worktree: session.Worktree}})
+	if restored, ok := repeated.Data.(protocol.ConversationCheckpointRestored); !ok || restored.Revision == nil || *restored.Revision != checkpoints.Files[0].Before.Revision {
+		t.Fatal("repeated restore did not report the restored revision", repeated)
+	}
 }

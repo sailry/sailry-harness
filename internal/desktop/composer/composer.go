@@ -86,14 +86,16 @@ type State struct {
 	layer  layer
 	member string // the team member whose model the controls set
 	family string // the picker's rail choice, "" for all
-	// capability is the rail's capability filter (Capability.ID), "" for none.
-	capability string
-	open       map[string]bool
-	efforts    effortState // the model picker's effort column
-	settings   bool        // the compact settings popover
-	stats      bool        // the compact usage popover
-	page       settingsPage
-	width      float32 // the toolbar's width last frame
+	// open is the picker's groups by provider: true for one that shows its
+	// models, false for one the user folded, no entry for one not yet
+	// touched. It is kept while the picker's page shows, across the rail's
+	// families, and starts anew as the page opens.
+	open     map[string]bool
+	efforts  effortState // the model picker's effort column
+	settings bool        // the compact settings popover
+	stats    bool        // the compact usage popover
+	page     settingsPage
+	width    float32 // the toolbar's width last frame
 
 	menus         map[string]string // this composer's menu IDs (menuID)
 	projectPicker bool

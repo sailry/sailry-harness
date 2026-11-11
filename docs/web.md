@@ -10,7 +10,10 @@ never invokes these services.
 
 `Fetcher` validates HTTP(S) URLs, rejects embedded credentials and local host
 names, and checks every resolved address against the source public-address
-policy and the Node's local interfaces. Every redirect is checked. Direct
+policy and the Node's local interfaces. A host that ends in a number is read as
+the IPv4 address a resolver or proxy would make of it (`http://127.1/`,
+`http://2130706433/`, `http://0x7f.0.0.1/`), as the reference's URL parser does,
+and is refused when that is not a valid address. Every redirect is checked. Direct
 connections resolve again immediately before dialing and connect only to the
 validated addresses. System proxies on macOS and Windows combine with the
 explicit environment settings. Proxy target checks use a bounded best-effort

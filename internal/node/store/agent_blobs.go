@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -102,6 +103,31 @@ func CaptureCanonicalPayload(ctx context.Context, db *sql.Conn, data json.RawMes
 	}
 	body, err := encode(value)
 	return canonical.Payload{Value: body, Assets: assets}, err
+}
+
+// captureCanonicalRecord moves the binary fields a new tool result declares
+// into blobs, so a stored result never holds its media inline. A result that
+// arrives with slots was captured already.
+func captureCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical.Record) error {
+	message := record.MutableMessage()
+	if message == nil {
+		return nil
+	}
+	for _, block := range message.Content {
+		response, ok := block.Data.(*canonical.ToolResponse)
+		// Only a field beside a MIME key is captured; every such key holds "mime".
+		if !ok || len(response.Result.Assets) > 0 || !bytes.Contains(response.Result.Value, []byte("mime")) {
+			continue
+		}
+		payload, err := CaptureCanonicalPayload(ctx, db, response.Result.Value)
+		if err != nil {
+			return err
+		}
+		if len(payload.Assets) > 0 {
+			response.Result = payload
+		}
+	}
+	return nil
 }
 func validateCanonicalAssets(ctx context.Context, db *sql.Conn, record canonical.Record) error {
 	message := record.MutableMessage()

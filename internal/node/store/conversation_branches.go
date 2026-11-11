@@ -38,6 +38,13 @@ func insertBranchSession(ctx context.Context, db *sql.Conn, previous protocol.Se
 	return value, err
 }
 func forkConversation(ctx context.Context, db *sql.Conn, input protocol.CommandForkConversationPayload) (protocol.Session, []protocol.Event, error) {
+	return branchConversation(ctx, db, input, false)
+}
+
+// branchConversation creates a session that shares the source's turns through
+// the boundary. A rewind backup also preserves the source's current plugin
+// conversation values, which an earlier rewind may have left without a record.
+func branchConversation(ctx context.Context, db *sql.Conn, input protocol.CommandForkConversationPayload, preserveCurrent bool) (protocol.Session, []protocol.Event, error) {
 	previous, err := checkedSession(ctx, db, input.Session, input.ExpectedRevision)
 	if err != nil {
 		return protocol.Session{}, nil, err
@@ -72,7 +79,7 @@ func forkConversation(ctx context.Context, db *sql.Conn, input protocol.CommandF
 	if err = rebuildCanonicalState(ctx, db, value.ID); err != nil {
 		return value, nil, err
 	}
-	if err = ForkPluginConversation(ctx, db, input.Session, value.ID, input.Through, false); err != nil {
+	if err = ForkPluginConversation(ctx, db, input.Session, value.ID, input.Through, preserveCurrent); err != nil {
 		return value, nil, err
 	}
 	value.Fork = &protocol.ConversationFork{Session: input.Session, Through: input.Through}
@@ -147,7 +154,7 @@ func rewindConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 		boundary = run.Sequence
 	}
 	if backup {
-		saved, _, e := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: input.Session, Through: *head, ExpectedRevision: current.Revision})
+		saved, _, e := branchConversation(ctx, db, protocol.CommandForkConversationPayload{Session: input.Session, Through: *head, ExpectedRevision: current.Revision}, true)
 		if e != nil {
 			return value, nil, e
 		}

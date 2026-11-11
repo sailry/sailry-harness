@@ -443,6 +443,9 @@ func TestDemo(t *testing.T) {
 			}
 		}
 	})
+
+	// The Usage page's figures in Demo mode.
+	t.Run("usage", testDemoUsage)
 }
 
 func sorted(set map[string]bool) []string {

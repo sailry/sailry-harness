@@ -28,15 +28,19 @@ type Hub struct {
 }
 
 type sessionFeed struct {
-	sequence      uint64
-	active        *protocol.TurnID
-	drafts        []protocol.ConversationDraft
-	finalized     map[string]bool
-	bytes         int
-	retained      []retainedFrame
-	retainedBytes int
-	background    map[string]protocol.ConversationBackgroundTask
-	observers     map[*Subscription]struct{}
+	sequence uint64
+	active   *protocol.TurnID
+	drafts   []protocol.ConversationDraft
+	// finalized holds the active turn's most recently committed entries, whose
+	// late deltas are dropped; nil seals the turn against every delta.
+	// finalizedOrder lists them oldest first so the oldest leaves at the bound.
+	finalized      map[string]bool
+	finalizedOrder []string
+	bytes          int
+	retained       []retainedFrame
+	retainedBytes  int
+	background     map[string]protocol.ConversationBackgroundTask
+	observers      map[*Subscription]struct{}
 }
 
 type retainedFrame struct {
@@ -50,6 +54,11 @@ func New(node protocol.NodeID) *Hub {
 func newSession() *sessionFeed {
 	return &sessionFeed{finalized: map[string]bool{}, background: map[string]protocol.ConversationBackgroundTask{}, observers: map[*Subscription]struct{}{}}
 }
+
+// accept lets the active turn stream again and forgets its committed entries;
+// seal drops every later delta.
+func (f *sessionFeed) accept() { f.finalized, f.finalizedOrder = map[string]bool{}, nil }
+func (f *sessionFeed) seal()   { f.finalized, f.finalizedOrder = nil, nil }
 func (h *Hub) prune() {
 	for id, f := range h.sessions {
 		if f.active == nil && len(f.observers) == 0 {
@@ -99,7 +108,7 @@ func (h *Hub) Seal(id protocol.SessionID, turn protocol.TurnID) []protocol.Conve
 	if f == nil || f.active == nil || *f.active != turn {
 		return nil
 	}
-	f.finalized = nil
+	f.seal()
 	var drafts []protocol.ConversationDraft
 	for _, d := range f.drafts {
 		if d.Turn == turn {
@@ -129,19 +138,19 @@ func (h *Hub) Publish(id protocol.SessionID, change protocol.ConversationChange)
 	case "run":
 		if run.Status == protocol.ConversationStatusRunning {
 			if f.active == nil || *f.active != run.Turn {
-				f.finalized = map[string]bool{}
+				f.accept()
 			}
 			turn := run.Turn
 			f.active = &turn
 		}
 		if run.Status == protocol.ConversationStatusStopping && f.active != nil && *f.active == run.Turn {
-			f.finalized = nil
+			f.seal()
 		}
 		if run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning && run.Status != protocol.ConversationStatusStopping {
 			f.drafts = slices.DeleteFunc(f.drafts, func(d protocol.ConversationDraft) bool { return d.Turn == run.Turn })
 			if f.active != nil && *f.active == run.Turn {
 				f.active = nil
-				f.finalized = map[string]bool{}
+				f.accept()
 			}
 		}
 	case "entry", "revealed", "hidden":
@@ -155,10 +164,14 @@ func (h *Hub) Publish(id protocol.SessionID, change protocol.ConversationChange)
 			turn, entryID = v.Turn, v.ID
 		}
 		f.drafts = slices.DeleteFunc(f.drafts, func(d protocol.ConversationDraft) bool { return d.Turn == turn && d.ID == entryID })
-		if f.active != nil && *f.active == turn && f.finalized != nil {
+		if f.active != nil && *f.active == turn && f.finalized != nil && !f.finalized[entryID] {
+			// A delta follows its entry's commit only briefly, so the most
+			// recent entries are enough and a long turn keeps streaming.
 			f.finalized[entryID] = true
-			if len(f.finalized) > maxFinalized {
-				f.finalized = nil
+			f.finalizedOrder = append(f.finalizedOrder, entryID)
+			if len(f.finalizedOrder) > maxFinalized {
+				delete(f.finalized, f.finalizedOrder[0])
+				f.finalizedOrder = f.finalizedOrder[1:]
 			}
 		}
 	case "delta":

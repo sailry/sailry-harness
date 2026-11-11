@@ -10,9 +10,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -71,6 +73,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		providerName                  sql.NullString
 		scope                         string
 		resource, assistant           sql.NullString
+		preset                        sql.NullString
 	}
 	captured := []usageRow{}
 	for rows.Next() {
@@ -79,7 +82,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
 		}
 		var row usageRow
-		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.provider, &row.model, &row.project, &row.worktree, &row.api, &row.authentication, &row.endpoint, &row.usage, &row.elapsed, &row.media, &row.sequence, &row.session, &row.turn, &row.first, &row.providerName, &row.scope, &row.resource, &row.assistant); err != nil {
+		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.provider, &row.model, &row.project, &row.worktree, &row.api, &row.authentication, &row.endpoint, &row.usage, &row.elapsed, &row.media, &row.sequence, &row.session, &row.turn, &row.first, &row.providerName, &row.scope, &row.resource, &row.assistant, &row.preset); err != nil {
 			rows.Close()
 			return report, err
 		}
@@ -187,7 +190,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		}
 		var cost *protocol.UsageCost
 		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
-			cost, e = estimateAgentCost(ctx, db, prices, row.api.String, row.model, usage)
+			cost, e = estimateAgentCost(ctx, db, prices, row.preset.String, row.api.String, row.model, usage)
 			if e != nil {
 				return report, e
 			}
@@ -382,32 +385,106 @@ func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.Conversation
 }
 
 // modelPrices holds the catalog entries one report has read, keyed by supplier
-// and model. An entry the catalog lacks is kept as nil.
+// and model; the empty supplier keys the entry every supplier agrees on. An
+// entry the catalog lacks is kept as nil.
 type modelPrices map[[2]string][]byte
 
-func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
-	supplier := ""
-	switch api {
-	case "responses", "chat_completions":
-		supplier = "openai"
-	case "anthropic":
-		supplier = "anthropic"
-	case "gemini":
-		supplier = "google"
+// catalogSuppliers names the models.dev supplier of a preset or brand that
+// models.dev lists under another identifier.
+var catalogSuppliers = map[string]string{"gemini": "google", "qwen": "alibaba", "moonshot": "moonshotai", "fireworks": "fireworks-ai", "together": "togetherai", "zhipu": "zhipuai", "doubao": "volcengine"}
+
+var presetBrands = sync.OnceValue(func() map[string]string {
+	brands := map[string]string{}
+	for _, preset := range providers.Bundled().Builtin {
+		if preset.Brand != nil {
+			brands[preset.ID] = *preset.Brand
+		}
 	}
-	if supplier == "" || usage.Input == nil || usage.Output == nil {
-		return nil, nil
+	return brands
+})
+
+// priceSuppliers lists, in order, the suppliers whose price applies to a
+// response: the vendor of its channel (the preset, then the preset's brand),
+// then the vendor its wire protocol belongs to.
+func priceSuppliers(preset, api string) []string {
+	var suppliers []string
+	for _, name := range []string{preset, presetBrands()[preset], map[string]string{"responses": "openai", "chat_completions": "openai", "anthropic": "anthropic", "gemini": "google"}[api]} {
+		if alias, ok := catalogSuppliers[name]; ok {
+			name = alias
+		}
+		if name != "" && !slices.Contains(suppliers, name) {
+			suppliers = append(suppliers, name)
+		}
 	}
-	body, known := prices[[2]string{supplier, model}]
-	if !known {
-		err := db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	return suppliers
+}
+
+// entry returns the catalog entry that prices a model: the first of the
+// suppliers that lists the exact identifier, else the entry of any other
+// supplier when all that list it state one price. Resellers price the same
+// identifier differently, so a model they disagree on stays unpriced.
+func (prices modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []string, model string) ([]byte, error) {
+	for _, supplier := range append(suppliers, "") {
+		key := [2]string{supplier, model}
+		body, known := prices[key]
+		if !known {
+			var err error
+			if supplier != "" {
+				err = db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
+				if errors.Is(err, sql.ErrNoRows) {
+					err = nil
+				}
+			} else {
+				body, err = agreedPrice(ctx, db, model)
+			}
+			if err != nil {
+				return nil, err
+			}
+			prices[key] = body
+		}
+		if body != nil {
+			return body, nil
+		}
+	}
+	return nil, nil
+}
+
+func agreedPrice(ctx context.Context, db *sql.Conn, model string) ([]byte, error) {
+	rows, err := db.QueryContext(ctx, "SELECT body FROM model_catalog WHERE id=?1 ORDER BY provider", model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var agreed []byte
+	price := ""
+	for rows.Next() {
+		var body []byte
+		if err = rows.Scan(&body); err != nil {
 			return nil, err
 		}
-		prices[[2]string{supplier, model}] = body
+		var entry struct {
+			Cost map[string]any `json:"cost"`
+		}
+		if json.Unmarshal(body, &entry) != nil || entry.Cost == nil {
+			continue
+		}
+		// Encoding a decoded object orders its keys, so equal prices compare equal.
+		cost, _ := json.Marshal(entry.Cost)
+		if agreed != nil && string(cost) != price {
+			return nil, rows.Err()
+		}
+		agreed, price = body, string(cost)
 	}
-	if body == nil {
+	return agreed, rows.Err()
+}
+
+func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, preset, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
+	if usage.Input == nil || usage.Output == nil {
 		return nil, nil
+	}
+	body, err := prices.entry(ctx, db, priceSuppliers(preset, api), model)
+	if err != nil || body == nil {
+		return nil, err
 	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(body, &object) != nil {

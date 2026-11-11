@@ -344,18 +344,36 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 	if budget < 0 {
 		return nil, invalid("conversation resources exceed the transport limit")
 	}
-	trimmed := map[protocol.TurnID]bool{}
-	for {
-		body, err := encode(page)
+	// Each entry is encoded once. The page's size is its metadata, its entries
+	// and the commas between them, so dropping an entry re-encodes only the
+	// metadata.
+	sizes := make([]int, len(page.Entries))
+	entryBytes := 0
+	for i := range page.Entries {
+		body, err := encode(page.Entries[i])
 		if err != nil {
 			return nil, err
 		}
-		if len(body) <= budget {
+		sizes[i] = len(body)
+		entryBytes += len(body)
+	}
+	trimmed := map[protocol.TurnID]bool{}
+	for {
+		entries := page.Entries
+		page.Entries = entries[:0]
+		metadata, err := encode(page)
+		page.Entries = entries
+		if err != nil {
+			return nil, err
+		}
+		if len(metadata)+entryBytes+max(len(entries)-1, 0) <= budget {
 			break
 		}
 		if len(page.Entries) > 1 {
 			trimmed[page.Entries[0].Turn] = true
 			page.Entries = page.Entries[1:]
+			entryBytes -= sizes[0]
+			sizes = sizes[1:]
 			retainConversationMetadata(page)
 			continue
 		}
@@ -371,7 +389,17 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 		turn := page.Runs[closed[0]].Turn
 		next := page.Runs[closed[1]].Turn
 		page.Runs = slices.Delete(page.Runs, closed[0], closed[0]+1)
-		page.Entries = slices.DeleteFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == turn })
+		kept := 0
+		for i, entry := range page.Entries {
+			if entry.Turn == turn {
+				entryBytes -= sizes[i]
+				continue
+			}
+			page.Entries[kept], sizes[kept] = entry, sizes[i]
+			kept++
+		}
+		clear(page.Entries[kept:])
+		page.Entries, sizes = page.Entries[:kept], sizes[:kept]
 		page.Approvals = slices.DeleteFunc(page.Approvals, func(a protocol.ConversationApproval) bool { return a.Turn == turn })
 		page.Questions = slices.DeleteFunc(page.Questions, func(q protocol.ConversationQuestion) bool { return q.Turn == turn })
 		page.Children = slices.DeleteFunc(page.Children, func(c protocol.ConversationChild) bool { return c.Origin.Turn == turn })

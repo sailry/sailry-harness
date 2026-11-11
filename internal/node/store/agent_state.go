@@ -166,6 +166,9 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 	if err := record.Validate(); err != nil {
 		return protocol.ConversationEntry{}, nil, invalid(err.Error())
 	}
+	if err := captureCanonicalRecord(ctx, db, &record); err != nil {
+		return protocol.ConversationEntry{}, nil, err
+	}
 	if err := validateCanonicalAssets(ctx, db, record); err != nil {
 		return protocol.ConversationEntry{}, nil, err
 	}

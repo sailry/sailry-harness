@@ -126,6 +126,7 @@ const (
 	RetryBlock                       // Retry: the model request retried
 	VisualBlock                      // Visual: a chart or diagram the model drew
 	CompactionBlock                  // Text: an automatic handoff's disclosed summary
+	LimitBlock                       // the answer ended at the model's output limit
 )
 
 // Block is one part of a reply.

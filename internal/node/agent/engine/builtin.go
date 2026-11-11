@@ -100,9 +100,6 @@ func (r *Runtime) builtins(x *execution) []Tool {
 	}))
 	values = append(values, r.delegationTools(x)...)
 	values = append(values, r.skillTools(x)...)
-	if tool := r.builtinSearch(x); tool != nil {
-		values = append(values, *tool)
-	}
 	return values
 }
 

@@ -83,6 +83,7 @@ func (client *Client) Dispatch(ctx context.Context, request protocol.Request) (l
 }
 
 // Execute never resubmits a command when observation of its result is lost.
+// Settle is Execute for a caller that wants such a result looked up.
 func (client *Client) Execute(ctx context.Context, request protocol.Request) (protocol.Output, error) {
 	admission, err := client.Dispatch(ctx, request)
 	if err != nil {

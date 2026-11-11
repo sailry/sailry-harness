@@ -76,6 +76,9 @@ flaky.0.answer: |-
 
   `Reserve` checks whether the seat is taken and then inserts the reservation in **two separate statements**. Two requests that arrive together both see the seat as free. The test is right; the code has a race.
 flaky.1.user: "Fix it and run the whole suite."
+flaky.queue.ci: "Open a pull request once CI is green"
+flaky.queue.note: "Add a line about the fix to the changelog"
+flaky.held.bisect: "Bisect the first failing commit"
 flaky.table.notice: "3 of 12 rows shown"
 flaky.1.answer: |-
   Fixed. The check and the insert now share one serializable transaction, so the second request fails with `ErrSeatTaken`.
@@ -121,6 +124,8 @@ invoice.4.answer: |-
   - They were all billed in euros, so the backfill can default them to `EUR`.
   - With that default the remaining batches should pass unchanged.
 invoice.5.user: "Run the backfill for 2024 only first."
+invoice.queue.next: "Then run the backfill for 2025"
+invoice.queue.finance: "Send the finance team the totals for both years"
 invoice.5.answer: "Stopped at your request after 3 of 12 batches. The 15 000 rows written so far are valid and stay in place."
 
 review.title: "Review the checkout redesign with the team"
@@ -139,6 +144,7 @@ review.0.answer: |-
   - **Payments**: the flow is correct; the trace continues into the refund path.
   - **Accessibility**: the pass failed on a missing test account and needs another run.
 review.1.user: "Run the accessibility pass again and measure performance too."
+review.held.visual: "Compare the mobile breakpoints"
 review.delegate: "3 reviewers · checkout redesign"
 
 onboard.title: "Design the onboarding checklist"
@@ -361,6 +367,10 @@ release.1.think: "Three lines: one for each user-facing change, and the migratio
 
 translate.title: "Translate the error messages"
 translate.0.user: "Translate \"Seat already taken\" and \"Rate limit exceeded\" into German and French."
+translate.1.user: "Add Spanish and Japanese as well."
+translate.1.partial: "**Spanish**\n\n- Seat already taken: «El asiento ya está ocupado»"
+translate.queue.tone: "Keep the tone formal in every language"
+translate.held.check: "Check the strings against the glossary"
 translate.0.answer: |-
   | English | German | French |
   |---|---|---|
@@ -409,6 +419,8 @@ tool.screenshot: "Capture page"
 
 deploy.title: "Release 2.4.0-rc.3 to staging"
 deploy.0.user: "Ship release candidate 2.4.0-rc.3 to staging and run the migration job."
+deploy.queue.prod: "When staging is healthy, prepare the production rollout"
+deploy.queue.notes: "Post the release summary in the team channel"
 deploy.0.think: "The image is built. Staging is reached through the bastion, and this workspace has not trusted either host key yet, so both come first. Then the values file, the secrets, the scale-up, the tag and the migration job."
 deploy.approval.replaced: "The key on record for this host was added on 12 October"
 deploy.ask.prompt: "When should the rollout start?"
@@ -486,3 +498,48 @@ metrics.suggest.activation: "b2b activation rate benchmark"
 metrics.suggest.retention: "week 4 retention saas"
 metrics.2.user: "Capture the weekly dashboard and attach it with the chart and the report."
 metrics.2.answer: "Here is the dashboard as it looks now, with the retention chart and the report. The mobile capture is gone: the page was rebuilt before it could be kept."
+
+# Usage: the titles of the year's earlier conversations, by project and then
+# the ones of no project.
+usage.harbor-api.1: "Add pagination to the bookings list"
+usage.harbor-api.2: "Fix the timezone bug in availability"
+usage.harbor-api.3: "Speed up the nightly settlement job"
+usage.harbor-api.4: "Write tests for refund handling"
+usage.harbor-api.5: "Upgrade the payment client"
+usage.harbor-api.6: "Trace the slow reservation query"
+usage.harbor-api.7: "Add an index for booking lookups"
+usage.harbor-api.8: "Clean up the retry middleware"
+usage.harbor-api.9: "Document the public endpoints"
+usage.harbor-api.10: "Rotate the signing keys"
+usage.harbor-api.11: "Fix the duplicate confirmation emails"
+usage.harbor-api.12: "Review the cancellation flow"
+usage.lumen-web.1: "Rebuild the pricing page"
+usage.lumen-web.2: "Fix the layout shift on the dashboard"
+usage.lumen-web.3: "Add dark mode to the settings pages"
+usage.lumen-web.4: "Refactor the form validation"
+usage.lumen-web.5: "Speed up the first page load"
+usage.lumen-web.6: "Add keyboard shortcuts to the editor"
+usage.lumen-web.7: "Fix the chart tooltips on mobile"
+usage.lumen-web.8: "Write end-to-end tests for sign-up"
+usage.lumen-web.9: "Update the empty states"
+usage.lumen-web.10: "Localize the billing screens"
+usage.lumen-web.11: "Tidy the component library"
+usage.lumen-web.12: "Fix the broken avatar upload"
+usage.notes.1: "Outline the Q4 growth plan"
+usage.notes.2: "Summarize the customer interviews"
+usage.notes.3: "Draft the pricing experiment brief"
+usage.notes.4: "Compare the referral programs"
+usage.notes.5: "Rewrite the activation memo"
+usage.notes.6: "Collect the churn reasons"
+usage.notes.7: "Plan the newsletter calendar"
+usage.notes.8: "Review the funnel notes"
+usage.chat.1: "Explain database isolation levels"
+usage.chat.2: "Compare message queue options"
+usage.chat.3: "Write a regular expression for dates"
+usage.chat.4: "Convert a shell script to Go"
+usage.chat.5: "Explain how certificates renew"
+usage.chat.6: "Draft a reply to the vendor"
+usage.chat.7: "Plan a three-day offsite"
+usage.chat.8: "Summarize a research paper"
+usage.chat.9: "Debug a cron expression"
+usage.chat.10: "Compare TCP and QUIC"

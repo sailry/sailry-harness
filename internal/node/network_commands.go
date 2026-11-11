@@ -72,18 +72,45 @@ func (node *Node) networkIO(ctx context.Context, command protocol.Command) (prot
 			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "network configuration is changing"}
 		}
 		defer node.networkUpdate.Unlock()
-		err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			_, err := store.SaveNetworkSelection(ctx, db, input.ExpectedRevision, input.Selection)
-			return err
-		})
-		if err != nil {
-			return protocol.Output{}, err
-		}
-		if err := node.network.SelectNetwork(ctx, input.Selection); err != nil {
+		if err := node.saveNetwork(ctx, input.ExpectedRevision, *node.network.NetworkSelection(), input.Selection, node.network.SelectNetwork); err != nil {
 			return protocol.Output{}, err
 		}
 		value, err := node.readNetwork(ctx)
 		return protocol.Output{Kind: "network_settings", Data: value}, err
 	}
 	return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "network command expected"}
+}
+
+// saveNetwork makes a selection effective and then stores it, so a selection
+// that could not be applied is never the one the next start uses. The caller
+// holds networkUpdate, the only writer of the stored selection, so the
+// revision checked before the relays change is the one the store checks
+// again. A selection that was applied but not stored is taken back; when the
+// commit itself could not be confirmed the effective selection stays, because
+// the store may hold it.
+func (node *Node) saveNetwork(ctx context.Context, expected uint64, previous, selection protocol.NetworkSelection, apply func(context.Context, protocol.NetworkSelection) error) error {
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		revision, _, err := store.ReadNetworkSelection(ctx, db)
+		if err == nil && revision != expected {
+			err = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "configuration revision changed; reload before editing"}
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err := apply(ctx, selection); err != nil {
+		return err
+	}
+	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := store.SaveNetworkSelection(ctx, db, expected, selection)
+		return err
+	})
+	if err == nil || nodeFault(err).(*protocol.Fault).Code == protocol.ErrorCodeOutcomeUnknown {
+		return err
+	}
+	if restored := apply(context.WithoutCancel(ctx), previous); restored != nil {
+		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "network selection was applied but could not be stored or taken back; read the network settings before retrying"}
+	}
+	return err
 }

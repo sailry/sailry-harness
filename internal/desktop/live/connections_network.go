@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -193,8 +194,14 @@ func connectionNetworkAddress(settings protocol.NetworkSettings, target protocol
 	return address, nil
 }
 
+// errConnectionNetworkUnrecorded: the Node can never report what the request
+// did, so the settings it holds now decide the change.
+var errConnectionNetworkUnrecorded = errors.New("host network change has no recorded outcome")
+
+// recoverConnectionNetwork asks the Node what became of a change whose reply
+// was not observed. It never sends the change again.
 func (r *Runtime) recoverConnectionNetwork(ctx context.Context, change *connectionNetworkChange) (protocol.Output, error) {
-	outcome, err := change.controller.Outcome(ctx, change.request)
+	resolution, err := change.controller.Resolve(ctx, change.request)
 	if err != nil && change.controller.Target() != r.controller.Target() {
 		previous, addressErr := connectionNetworkAddress(change.previous, change.controller.Target())
 		if addressErr != nil {
@@ -207,24 +214,38 @@ func (r *Runtime) recoverConnectionNetwork(ctx context.Context, change *connecti
 		if err := r.connections.endpoint.UpdatePeer(ctx, candidate); err != nil {
 			return protocol.Output{}, unknownConnectionNetwork()
 		}
-		outcome, err = change.controller.Outcome(ctx, change.request)
+		resolution, err = change.controller.Resolve(ctx, change.request)
 	}
 	if err != nil {
 		return protocol.Output{}, unknownConnectionNetwork()
 	}
-	switch outcome.Kind {
-	case "completed":
-		result, ok := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-		if ok && result.Ok != nil {
-			return *result.Ok, nil
-		}
-		if ok && result.Err != nil {
-			return protocol.Output{}, result.Err
-		}
-	case "not_admitted":
+	switch resolution.State {
+	case client.RequestApplied:
+		return resolution.Output, nil
+	case client.RequestFailed:
+		return protocol.Output{}, resolution.Fault
+	case client.RequestAbsent:
 		return protocol.Output{}, connectionFault(protocol.ErrorCodeInvalidRequest, "network change was not admitted")
+	case client.RequestUnknown:
+		return protocol.Output{}, errConnectionNetworkUnrecorded
 	}
 	return protocol.Output{}, unknownConnectionNetwork()
+}
+
+// settleConnectionNetwork decides a change the Node has no record of from the
+// settings it holds now. Both the stored and the running selection match: the
+// change is in effect. Neither matches: it did not take effect. One matches:
+// the Node holds something neither side asked for, which is a conflict; the
+// editor reloads and the next save brings both back in line.
+func settleConnectionNetwork(actual protocol.NetworkSettings, selected protocol.NetworkSelection) error {
+	stored, running := sameConnectionNetwork(actual.Selection, &selected), sameConnectionNetwork(actual.Effective, &selected)
+	switch {
+	case stored && running:
+		return nil
+	case !stored && !running:
+		return connectionFault(protocol.ErrorCodeInternal, "host network change did not take effect")
+	}
+	return connectionFault(protocol.ErrorCodeRevisionConflict, "host network settings changed")
 }
 
 func (r *Runtime) applyConnectionNetwork(ctx context.Context, change *connectionNetworkChange, inspect bool) (protocol.NetworkSettings, error) {
@@ -238,12 +259,24 @@ func (r *Runtime) applyConnectionNetwork(ctx context.Context, change *connection
 			output, err = r.recoverConnectionNetwork(ctx, change)
 		}
 	}
-	if err != nil {
-		return protocol.NetworkSettings{}, err
-	}
-	applied, ok := detail[protocol.NetworkSettings](output.Data)
-	if !ok || output.Kind != "network_settings" {
-		return protocol.NetworkSettings{}, unknownConnectionNetwork()
+	var applied protocol.NetworkSettings
+	if errors.Is(err, errConnectionNetworkUnrecorded) {
+		// A Node that restarted runs what it stored, so its settings are the
+		// answer its ledger no longer has.
+		if applied, err = readConnectionNetwork(ctx, change.controller); err != nil {
+			return protocol.NetworkSettings{}, unknownConnectionNetwork()
+		}
+		if err = settleConnectionNetwork(applied, change.selected); err != nil {
+			return protocol.NetworkSettings{}, err
+		}
+	} else {
+		if err != nil {
+			return protocol.NetworkSettings{}, err
+		}
+		var ok bool
+		if applied, ok = detail[protocol.NetworkSettings](output.Data); !ok || output.Kind != "network_settings" {
+			return protocol.NetworkSettings{}, unknownConnectionNetwork()
+		}
 	}
 	if change.controller.Target() != r.controller.Target() {
 		address, err := connectionNetworkAddress(applied, change.controller.Target())

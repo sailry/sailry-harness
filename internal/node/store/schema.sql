@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS requests (
     body BLOB NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('admitted','completed','unknown')),
     result TEXT,
+    at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(caller,id)
 );
 CREATE TABLE IF NOT EXISTS projects (
@@ -303,7 +304,8 @@ CREATE TABLE IF NOT EXISTS session_forks (
 CREATE TABLE IF NOT EXISTS agent_queues (
     session TEXT PRIMARY KEY REFERENCES sessions(id),
     revision INTEGER NOT NULL,
-    paused INTEGER NOT NULL CHECK(paused IN (0,1))
+    paused INTEGER NOT NULL CHECK(paused IN (0,1)),
+    pause_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS agent_pending (
     turn TEXT PRIMARY KEY REFERENCES turns(id),

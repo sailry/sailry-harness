@@ -1,5 +1,13 @@
 package store
 
+// agentUsagePreset selects the built-in preset of the channel a response used:
+// the one captured with its run or with the media model assigned to the
+// session, else the channel as it is saved now.
+const agentUsagePreset = `coalesce(
+ CASE WHEN json_extract(captured,'$.id')=json_extract(provider,'$.id') AND json_extract(captured,'$.preset.source.kind')='builtin' THEN json_extract(captured,'$.preset.id') END,
+ CASE WHEN json_extract(assigned,'$.id')=json_extract(provider,'$.id') AND json_extract(assigned,'$.preset.source.kind')='builtin' THEN json_extract(assigned,'$.preset.id') END,
+ (SELECT json_extract(saved.body,'$.provider.preset.id') FROM providers saved WHERE saved.id=json_extract(provider,'$.id') AND json_extract(saved.body,'$.provider.preset.source.kind')='builtin'))`
+
 // The indexed query reads captured execution configuration and canonical usage.
 const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
     coalesce(json_extract(e.body,'$.metadata.execution.source.id'),
@@ -10,7 +18,8 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
         THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END) AS model,
     coalesce(json_extract(e.body,'$.metadata.execution.source'),
         CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
-        THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider
+        THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider,
+    a.provider AS captured,json_extract(m.value,'$.provider') AS assigned
     FROM agent_events e JOIN turns t ON t.id=e.turn
     JOIN agent_runs a ON a.turn=t.id
     JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
@@ -42,7 +51,7 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
             WHEN 'database' THEN (SELECT json_extract(body,'$.name') FROM database_profiles WHERE id=json_extract(e.resource,'$.id'))
             WHEN 'ssh' THEN (SELECT json_extract(body,'$.name') FROM ssh_profiles WHERE id=json_extract(e.resource,'$.id'))
         END, json_extract(e.resource,'$.id'),
-        json_extract(e.assistant,'$.package.name') || ':' || json_extract(e.assistant,'$.id'),''),e.resource,e.assistant
+        json_extract(e.assistant,'$.package.name') || ':' || json_extract(e.assistant,'$.id'),''),e.resource,e.assistant,` + agentUsagePreset + `
     FROM responses e
     WHERE (?5='[]' OR e.provider_id IN (SELECT value FROM json_each(?5)))
     AND (?6='[]' OR e.model IN (SELECT value FROM json_each(?6)))

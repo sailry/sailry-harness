@@ -15,6 +15,11 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 	if err != nil {
 		return value, err
 	}
+	if operation == protocol.ToolOperationWriteArtifact {
+		// An artifact is stored with its own conversation, so every mode and
+		// permission level writes it without a prompt, a planning turn too.
+		return storageApproval(ctx, db, value)
+	}
 	if capture.Config.Mode == protocol.WorkModePlan {
 		return value, fault(protocol.ErrorCodePermissionDenied, "planning turns cannot authorize tools with side effects")
 	}
@@ -30,18 +35,26 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 			value.CanRemember = false
 			value.Prefix = nil
 		} else if supported && access == protocol.ProcessAccessUnrestricted && capture.Config.Permission != protocol.PermissionFull {
-			value.Source = protocol.ConversationApprovalSourceUser
-			value.State = protocol.ConversationApprovalStatePending
-			value.CanRemember = false
-			value.Prefix = nil
+			sandbox, err := ReadSandboxSettings(ctx, db)
+			if err != nil {
+				return value, err
+			}
+			// With the sandbox on, an unrestricted command leaves it: the user
+			// decides each one and no rule answers for them. With the sandbox
+			// off there is nothing to leave, so the command is an ordinary
+			// approval and keeps its session and prefix rules.
+			if sandbox.Enabled {
+				value.Source = protocol.ConversationApprovalSourceUser
+				value.State = protocol.ConversationApprovalStatePending
+				value.CanRemember = false
+				value.Prefix = nil
+				value.Choice = nil
+			}
 		}
-	} else if operation == protocol.ToolOperationSetValue || operation == protocol.ToolOperationDeleteValue {
+	} else if operation == protocol.ToolOperationSetValue || operation == protocol.ToolOperationDeleteValue || operation == protocol.ToolOperationStorageTransaction {
 		// A plugin writes only its own namespace, so the write is authorized
 		// by the storage scope instead of a user prompt.
-		value.Source = protocol.ConversationApprovalSourceStorage
-		value.State = protocol.ConversationApprovalStateApproved
-		value.CanRemember = false
-		value.Prefix = nil
+		return storageApproval(ctx, db, value)
 	} else if capture.Config.Permission == protocol.PermissionProject {
 		switch operation {
 		case protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationEditNotebook, protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationApplyChanges, protocol.ToolOperationCreateDirectory:
@@ -55,6 +68,16 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 		return value, err
 	}
 	return value, nil
+}
+
+// storageApproval settles an approval by the scope its write is confined to.
+func storageApproval(ctx context.Context, db *sql.Conn, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {
+	value.Source = protocol.ConversationApprovalSourceStorage
+	value.State = protocol.ConversationApprovalStateApproved
+	value.CanRemember = false
+	value.Prefix = nil
+	value.Choice = nil
+	return value, putApproval(ctx, db, value)
 }
 
 // ApprovedWorkspaceRequest keeps the exact durable identity already claimed by
@@ -79,9 +102,16 @@ func ApprovedWorkspaceRequest(ctx context.Context, db *sql.Conn, turn protocol.T
 	if !claimed || id != request.ID.String() {
 		return fault(protocol.ErrorCodePermissionDenied, "tool operation differs from its admitted approval")
 	}
-	if input, ok := request.Command.Data.(*protocol.CommandRunCommandPayload); ok {
-		if value.Access == nil || *value.Access != input.Access {
-			return fault(protocol.ErrorCodePermissionDenied, "prepared command access differs from approval")
+	input, command := request.Command.Data.(*protocol.CommandRunCommandPayload)
+	if command && (value.Access == nil || *value.Access != input.Access) {
+		return fault(protocol.ErrorCodePermissionDenied, "prepared command access differs from approval")
+	}
+	// A prefix answers for the command that runs. A handler script prepares
+	// that command from the model's arguments, which the rule was matched on.
+	if value.Choice != nil && value.Choice.Kind == "prefix" {
+		prefix, valid := value.Choice.Data.(*string)
+		if !command || !valid || !approvalPrefixMatches(input.Command, *prefix) {
+			return fault(protocol.ErrorCodePermissionDenied, "prepared command is outside the approved prefix")
 		}
 	}
 	return nil

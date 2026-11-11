@@ -900,7 +900,6 @@ message_display_compact: 简洁
 message_display_detailed: 详细
 message_text_extra_large: 特大
 message_text_large: 稍大
-message_text_size_value: '%{size}px'
 message_text_small: 小
 message_text_standard: 标准
 model_library_manage: 管理模型
@@ -2204,3 +2203,12 @@ directory_host_unavailable: 主机不可用
 directory_fallback: 无法打开 %{path}，已显示主文件夹
 directory_trash: 移到废纸篓
 directory_trash_confirm: 将“%{name}”移到废纸篓
+queue_guidance_outlived: 回复已结束，已排队为新消息
+queue_wait_held: 暂缓
+queue_wait_paused: 已暂停
+queue_wait_stopped: 停止后暂停
+queue_wait_interrupted: 中断后暂停
+queue_wait_unsent: 未发送
+queue_wait_limit: 已达自动续接上限
+queue_wait_failed: 失败后暂缓
+chat_output_limit: 回复已达输出上限

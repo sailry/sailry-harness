@@ -27,13 +27,16 @@ import (
 // Tool is one captured declaration and executor. Concurrency and authority are
 // properties of the captured registration, never arguments supplied by a model.
 type Tool struct {
-	Definition        fantasy.FunctionTool
-	SchemaJSON        json.RawMessage
-	ReadOnly          bool
-	Concurrent        bool
-	Deferred          bool
-	Delegation        bool
-	Approval          bool
+	Definition fantasy.FunctionTool
+	SchemaJSON json.RawMessage
+	ReadOnly   bool
+	Concurrent bool
+	Deferred   bool
+	Delegation bool
+	Approval   bool
+	// Confirm reports whether one prepared call of a tool without Approval
+	// asks first: a read-only tool with an optional project write.
+	Confirm           func(canonical.ToolRequest) bool
 	Binding           *store.ApprovalBinding
 	Execute           func(context.Context, canonical.ToolRequest) ToolResult
 	Prepare           func(context.Context, canonical.ToolRequest) error
@@ -52,7 +55,10 @@ type Tool struct {
 	// such tools by these declarations.
 	Hosted bool
 	Flow   []protocol.ToolOperation
-	schema *jsonschema.Schema
+	// Exposed is the name an MCP tool is offered under when no other tool
+	// owns it. A package tool is offered under its declared name.
+	Exposed string
+	schema  *jsonschema.Schema
 	// ExecutePrepared runs a call with arguments a package prepared. The call
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
@@ -82,6 +88,13 @@ func (r *Runtime) captureTools(x *execution) error {
 		x.tools = append(x.tools, scoped...)
 	}
 	builtins := r.builtins(x)
+	if x.inv.Session.Delegation != nil {
+		// The title and the question belong to the conversation the user
+		// reads. A child has neither, so a role cannot select them.
+		builtins = slices.DeleteFunc(builtins, func(tool Tool) bool {
+			return tool.Definition.Name == "set_session_title" || tool.Definition.Name == "ask_user"
+		})
+	}
 	x.tools = append(builtins, x.tools...)
 	for index := range x.tools {
 		if bind := x.tools[index].BindDelegation; bind != nil {
@@ -113,6 +126,12 @@ func (r *Runtime) captureTools(x *execution) error {
 		}
 		x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool { return !roleAllowsTool(x.childRole, tool) })
 	}
+	if err := r.deferTools(x); err != nil {
+		return err
+	}
+	if search := r.builtinSearch(x); search != nil {
+		x.tools = append(x.tools, *search)
+	}
 	for i := range x.tools {
 		tool := &x.tools[i]
 		compiler := jsonschema.NewCompiler()
@@ -141,11 +160,109 @@ func (r *Runtime) closeTools(x *execution) error {
 	}
 	return nil
 }
+
+// deferTools keeps the everyday worktree capabilities on the first request
+// and leaves every other captured tool discoverable, as the source selection
+// does. An assistant turn and a child whose role lists its tools defer
+// nothing. Until here Deferred carries the declaration: a package tool that
+// is not deferred declared itself initial.
+func (r *Runtime) deferTools(x *execution) error {
+	child := x.inv.Session.Delegation != nil
+	if x.inv.Turn.Config.Assistant != nil || child && x.childRole != nil && x.childRole.Tools != nil {
+		for index := range x.tools {
+			x.tools[index].Deferred = false
+		}
+		return nil
+	}
+	selected := ""
+	if x.resources != nil {
+		mode, err := x.resources.SelectedMode(x.inv.Turn.Config)
+		if err != nil {
+			return err
+		}
+		if mode != nil {
+			selected = mode.Package.Name
+		}
+	}
+	role := selectedRole(x.inv.Message) != nil
+	for index := range x.tools {
+		tool := &x.tools[index]
+		switch {
+		case tool.Delegation && role:
+			tool.Deferred = false
+		case tool.Binding == nil || tool.Binding.Owner.Name == "":
+			// The Node's own tools state their rule where they are built.
+			// The session history tools are discoverable.
+			if slices.Contains([]string{"list_sessions", "read_session", "search_session"}, tool.Definition.Name) {
+				tool.Deferred = true
+			}
+		default:
+			// A declared initial tool starts visible only to the main agent.
+			tool.Deferred = !(tool.Binding.Owner.Name == selected || visibleTool(*tool) || !tool.Deferred && !child)
+		}
+	}
+	return nil
+}
+
+// declaredOperations lists the operations a package tool declares: its bound
+// operation and the operations of its flow.
+func declaredOperations(tool Tool) []protocol.ToolOperation {
+	declared := tool.Flow
+	if tool.Binding != nil && tool.Binding.Operation != nil {
+		declared = append([]protocol.ToolOperation{*tool.Binding.Operation}, declared...)
+	}
+	return declared
+}
+
+// visibleTool reports whether every operation a tool declares starts visible.
+func visibleTool(tool Tool) bool {
+	declared := declaredOperations(tool)
+	return len(declared) != 0 && !slices.ContainsFunc(declared, func(operation protocol.ToolOperation) bool { return !visibleOperation(operation) })
+}
+
+// visibleOperation names the operations offered on the first request.
+func visibleOperation(operation protocol.ToolOperation) bool {
+	switch operation {
+	case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationListDirectory, protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
+		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
+		protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode,
+		protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff,
+		protocol.ToolOperationRunCommand, protocol.ToolOperationReadCommand, protocol.ToolOperationStopCommand,
+		protocol.ToolOperationFetchWeb, protocol.ToolOperationSearchWeb,
+		protocol.ToolOperationProgress, protocol.ToolOperationListRoles, protocol.ToolOperationListArtifactRevisions:
+		return true
+	}
+	return false
+}
+
+// deferredContext lists the names of the tools a turn starts without, so the
+// model knows what discovery can load. The list is fixed for the turn.
+func (r *Runtime) deferredContext(x *execution, state store.AgentState) string {
+	if x.deferredContext == nil {
+		names := r.exposure(x, state)
+		var deferred []string
+		for _, tool := range x.tools {
+			if tool.Deferred && !slices.Contains(state.LoadedTools, tool.Definition.Name) {
+				deferred = append(deferred, names.name(tool.Definition.Name))
+			}
+		}
+		slices.Sort(deferred)
+		text := ""
+		if len(deferred) != 0 {
+			text = "Deferred tools\n" + strings.Join(deferred, ", ")
+		}
+		x.deferredContext = &text
+	}
+	return *x.deferredContext
+}
+
 func (r *Runtime) declarations(x *execution, binding model.Binding, state store.AgentState) []fantasy.FunctionTool {
 	var values []fantasy.FunctionTool
 	if !capturedModel(binding).Tools {
 		return values
 	}
+	// The request renames these canonical declarations at the model boundary.
+	r.exposure(x, state)
 	for _, tool := range x.tools {
 		if !tool.Deferred || slices.Contains(state.LoadedTools, tool.Definition.Name) {
 			values = append(values, tool.Definition)
@@ -163,8 +280,11 @@ func findTool(tools []Tool, name string) *Tool {
 }
 
 func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
+	// Discovery answers with the names this turn offers its tools under.
+	r.exposure(x, state)
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
+	asks := make([]bool, len(calls))
 	var marks []canonical.Record
 	// Mark every allowed call before requesting the first approval.
 	for i, call := range calls {
@@ -179,7 +299,9 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
 			continue
 		}
-		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && !tool.Delegation && call.Name != "ask_user" {
+		// A planning turn still writes the conversation's own artifacts.
+		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && !tool.Delegation && call.Name != "ask_user" &&
+			!(tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationWriteArtifact) {
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
 			continue
 		}
@@ -198,7 +320,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				continue
 			}
 		}
-		if !tool.Approval {
+		if asks[i] = tool.Approval || tool.Confirm != nil && tool.Confirm(call); !asks[i] {
 			executable[i] = true
 			marks = append(marks, r.executableRecord(x, call, true))
 		}
@@ -208,7 +330,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	for i, call := range calls {
 		tool := findTool(x.tools, call.Name)
-		if tool == nil || !tool.Approval || results[i].Value != nil || results[i].Failure != nil {
+		if !asks[i] || results[i].Value != nil || results[i].Failure != nil {
 			continue
 		}
 		approved, err := r.approval(x, call, tool)
@@ -225,7 +347,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	concurrent := func(i int) bool {
 		tool := findTool(x.tools, calls[i].Name)
-		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !x.hooks.WrapsTools()
+		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !asks[i] && !x.hooks.WrapsTools()
 	}
 	for start := 0; start < len(calls); {
 		if x.ctx.Err() != nil {

@@ -658,6 +658,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	}
 	conversation.View(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act)
 	composer.View(c, comp, ctx, act)
+	conversation.Navigation(c, a.Messages)
 }
 
 // actions carries out the page's actions on the preview data. Preview
