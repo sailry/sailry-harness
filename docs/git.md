@@ -56,7 +56,9 @@ index is skipped. One update evaluates ignore rules once for all of its
 untracked paths. Staging a conflicted path records its resolution, as
 `git add` does anywhere; the reference refuses every index update while a
 conflict exists, which left Abort as the panel's only way out of a conflicted
-merge.
+merge. A directory the index records as a submodule is staged too: `git add`
+records the commit the submodule has checked out, where the reference refuses
+every directory.
 
 Unstaging and hunk staging create a detached candidate, retain an exclusive
 owned `index.lock`, compare source HEAD/index again and atomically publish the
@@ -92,6 +94,35 @@ A pull is two native commands, `git fetch` and then `git pull`, so that the
 transfer does not hold the worktree's effect order
 ([Projects](projects.md)); the reference runs `git pull` alone under its
 Node-wide lock.
+A native command that is stopped (its deadline, the silence limit, a cancelled
+request or Node shutdown) is first asked to end with a termination signal to
+its process group and killed two seconds later if it has not ended. Git removes
+its lock files (`index.lock`, the reference locks) when asked and cannot when
+killed, which is what the reference's immediate kill does: the stopped command
+then leaves a lock that fails every later one as busy. Windows has no such
+request for a process without a console, so its job is terminated at once and
+can leave the lock. A lock left by a crash of the machine or of the Node, or by
+the user's own Git, is never removed here, because another Git process may own
+it; operations report busy until `.git/index.lock` is deleted by hand.
+
+The agent's own `git` in a command and the panel are ordered against each other
+by Git's lock files only, not by the worktree's effect order: the loser fails
+as busy and nothing is written twice. The detached index writer used for
+unstaging and staged hunks takes the same `index.lock`.
+
+An unfinished revert (`REVERT_HEAD`) is reported as the operation `revert`, and
+Continue and Abort run `git revert --continue` and `--abort`. The reference
+reports it as a rebase and then refuses both, leaving no way out in the panel.
+The panel starts no revert itself; the state comes from a command.
+
+Status never runs a configured filter program (the overrides of the status
+arguments, as in the reference). Git therefore compares the raw worktree bytes
+of a filtered file whenever it has to read the file again (its recorded times
+no longer match, or equal the index's own time), and such a file, an LFS file
+for one, shows as modified with its stored form on the other side of the diff
+although nothing changed. Measured with a `tr` filter in a temporary
+repository; real LFS was not run.
+
 A remote's name may hold a slash, so deleting a remote branch and Pull from
 split `remote/branch` at the longest configured remote that begins the name, as
 the reference does; a name no configured remote begins is refused as not

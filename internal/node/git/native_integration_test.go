@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -407,6 +408,163 @@ func TestNativeGitIntegration(t *testing.T) {
 		}
 		if conflicted() {
 			t.Fatal("staging the resolved file left the conflict")
+		}
+	})
+	t.Run("staging_records_a_submodule_commit", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		inner := filepath.Join(root, "sub")
+		if err := os.Mkdir(inner, 0755); err != nil {
+			t.Fatal(err)
+		}
+		git := func(dir string, args ...string) string {
+			t.Helper()
+			result, err := s.command(ctx, dir, append([]string{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "advice.addEmbeddedRepo=false"}, args...), nil, false)
+			if err != nil {
+				t.Fatal(args, err)
+			}
+			return strings.TrimSpace(string(result.Stdout))
+		}
+		commit := func(body string) string {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(inner, "inner.txt"), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			git(inner, "add", "inner.txt")
+			git(inner, "commit", "--message", body)
+			return git(inner, "rev-parse", "HEAD")
+		}
+		git(inner, "init", "--initial-branch=main")
+		commit("first")
+		git(root, "add", "sub")
+		git(root, "commit", "--message", "Add submodule")
+		moved := commit("second")
+		status, err := s.Status(ctx, root)
+		if err != nil || len(status.Entries) != 1 || status.Entries[0].Path != "sub" {
+			t.Fatalf("status of a moved submodule = %#v %v", status.Entries, err)
+		}
+		fresh, err := open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision, err := indexRevision(root, fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := head(fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"sub"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: revision, ExpectedHead: current.Head}); err != nil {
+			t.Fatal(err)
+		}
+		if staged := git(root, "rev-parse", ":sub"); staged != moved {
+			t.Fatalf("staged submodule commit = %s, want %s", staged, moved)
+		}
+		// A directory that is no submodule is still no path to stage.
+		if err := os.Mkdir(filepath.Join(root, "plain"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if revision, err = indexRevision(root, fresh); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"plain"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: revision, ExpectedHead: current.Head})
+		requireFault(t, err, protocol.ErrorCodeInvalidRequest)
+	})
+	t.Run("a_stopped_command_leaves_no_index_lock", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("a Windows job is terminated without notice")
+		}
+		root, r, _ := fixture(t)
+		config, err := r.Config()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// git add holds index.lock while this clean filter waits. The filter
+		// tells when it runs: Git has then installed the handlers that remove
+		// its lock, which it does just after creating the file.
+		started := filepath.Join(t.TempDir(), "started")
+		config.Raw.Section("filter").Subsection("slow").SetOption("clean", "touch '"+started+"'; sleep 30; cat")
+		if err := r.SetConfig(config); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range map[string]string{".gitattributes": "*.dat filter=slow\n", "slow.dat": "data\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s := service(t)
+		stopping, stop := context.WithCancel(ctx)
+		defer stop()
+		ended := make(chan error, 1)
+		go func() {
+			_, err := s.run(stopping, root, []string{"add", "--", "slow.dat"}, nil)
+			ended <- err
+		}()
+		lock := filepath.Join(root, ".git", "index.lock")
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Lstat(started); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("git add did not run its filter")
+			}
+		}
+		if _, err := os.Lstat(lock); err != nil {
+			t.Fatalf("git add holds no index lock while its filter runs: %v", err)
+		}
+		stop()
+		if err := <-ended; !errors.Is(err, context.Canceled) {
+			t.Fatalf("stopped command = %v", err)
+		}
+		if _, err := os.Lstat(lock); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a stopped git add left its index lock: %v", err)
+		}
+	})
+	t.Run("a_conflicted_revert_is_an_operation_with_an_exit", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		git := func(args ...string) {
+			t.Helper()
+			if _, err := s.command(ctx, root, append([]string{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.test"}, args...), nil, false); err != nil && args[0] != "revert" {
+				t.Fatal(args, err)
+			}
+		}
+		for _, body := range []string{"one\nsecond\nthree\n", "one\nthird\nthree\n"} {
+			if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			git("commit", "--all", "--message", body[4:9])
+		}
+		git("revert", "HEAD~1")
+		state := func() (*string, protocol.CommandRunGitActionPayload) {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := indexRevision(root, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := head(fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return operation(root, fresh), protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "abort"}, ExpectedIndex: revision, ExpectedHead: current.Head, ExpectedBranch: current.Branch}
+		}
+		running, abort := state()
+		if running == nil || *running != "revert" {
+			t.Fatalf("operation = %v, want revert", running)
+		}
+		if err := s.Action(ctx, root, abort); err != nil {
+			t.Fatal(err)
+		}
+		if running, _ := state(); running != nil {
+			t.Fatalf("operation after abort = %q", *running)
+		}
+		if data, err := os.ReadFile(filepath.Join(root, "file.txt")); err != nil || string(data) != "one\nthird\nthree\n" {
+			t.Fatalf("abort left %q %v", data, err)
 		}
 	})
 	t.Run("a_path_below_a_file_of_head_is_not_held", func(t *testing.T) {

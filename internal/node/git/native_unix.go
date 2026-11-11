@@ -12,6 +12,12 @@ func prepareNative(cmd *exec.Cmd) (func(), error) {
 	return func() {}, nil
 }
 func ownNative(*exec.Cmd) error { return nil }
+
+// terminateNative asks the command's process group to end and reports that it
+// was asked.
+func terminateNative(cmd *exec.Cmd) bool {
+	return cmd.Process != nil && cmd.Process.Pid > 1 && syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) == nil
+}
 func killNative(cmd *exec.Cmd) {
 	if cmd.Process != nil && cmd.Process.Pid > 1 {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

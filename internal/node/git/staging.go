@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -35,9 +36,10 @@ func (s *Service) stage(ctx context.Context, root string, input protocol.Command
 	if err != nil {
 		return protocol.GitIndex{}, mapError(err)
 	}
-	tracked := map[string]bool{}
+	tracked, submodules := map[string]bool{}, map[string]bool{}
 	for _, entry := range idx.Entries {
 		tracked[entry.Name] = true
+		submodules[entry.Name] = entry.Mode == filemode.Submodule
 	}
 	// One ignore filter serves every untracked path of the update.
 	var filter *WatchFilter
@@ -62,6 +64,8 @@ func (s *Service) stage(ctx context.Context, root string, input protocol.Command
 			}
 		case err != nil:
 			return protocol.GitIndex{}, mapError(err)
+		case info.IsDir() && submodules[path]:
+			// git add records the commit the submodule has checked out.
 		case !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0:
 			return protocol.GitIndex{}, invalid("expected a regular Git resource")
 		case !tracked[path]:

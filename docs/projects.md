@@ -19,6 +19,11 @@ A clone has no total deadline; the reference's libgit2 clone has none either.
 It runs with `--progress` and is stopped only after two minutes without any
 output (see [Git](git.md)). The protocol has no command that cancels a project
 effect, so a user cannot stop a running clone; it ends with the Node.
+A Node that is killed during a clone cannot remove the destination: at the next
+start the request is `unknown`, nothing records that the directory was the
+clone's, and a retry is refused because the path exists until the user deletes
+it. The Node does not delete a directory at a user-chosen path on the strength
+of an earlier process.
 
 Linked worktree lifecycle uses native Git. A captured project and reserved
 worktree ID identify a managed checkout beneath the main worktree's

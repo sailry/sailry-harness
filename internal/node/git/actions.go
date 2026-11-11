@@ -221,7 +221,7 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 		}
 		return args, nil
 	case "continue", "abort":
-		if operation != "merge" && operation != "rebase" && operation != "cherry-pick" {
+		if operation != "merge" && operation != "rebase" && operation != "cherry-pick" && operation != "revert" {
 			return nil, invalid("no Git operation to continue or abort")
 		}
 		return []string{operation, "--" + action.Kind}, nil

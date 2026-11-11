@@ -73,7 +73,11 @@ func (w *captureWriter) Write(p []byte) (int, error) {
 // idleKey carries the silence limit of a network operation to the runner.
 type idleKey struct{}
 
-// errStalled reports a network operation killed after its silence limit.
+// stopGrace is how long a stopped Git has to end by itself, and then to be
+// reaped after the kill.
+const stopGrace = 2 * time.Second
+
+// errStalled reports a network operation stopped after its silence limit.
 var errStalled = errors.New("Git produced no output within the limit")
 
 func nativeRunner(environment []string) Runner {
@@ -146,11 +150,22 @@ func nativeRunner(environment []string) Runner {
 		go func() { _, err := io.Copy(stderr, errRead); drained <- err }()
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
+		// A stopped Git is asked to end first: it removes its lock files
+		// (index.lock, the reference locks) on a termination request and
+		// cannot on a kill, after which every later command finds them.
 		stop := func(reason error) (CommandResult, error) {
+			if terminateNative(cmd) {
+				select {
+				case <-done:
+					killNative(cmd)
+					return CommandResult{}, reason
+				case <-time.After(stopGrace):
+				}
+			}
 			killNative(cmd)
 			select {
 			case <-done:
-			case <-time.After(2 * time.Second):
+			case <-time.After(stopGrace):
 			}
 			return CommandResult{}, reason
 		}
@@ -217,7 +232,7 @@ func (s *Service) command(ctx context.Context, root string, args []string, input
 // network runs a transfer with a remote: clone, fetch, pull or push. A transfer
 // has no total deadline, because its duration follows the repository and the
 // connection. It is bounded by silence instead: Git reports progress while it
-// works, and a process that writes nothing for the idle limit is killed. Node
+// works, and a process that writes nothing for the idle limit is stopped. Node
 // shutdown cancels it through ctx.
 func (s *Service) network(ctx context.Context, root string, args []string) (CommandResult, error) {
 	args = append([]string{args[0], "--progress"}, args[1:]...)
