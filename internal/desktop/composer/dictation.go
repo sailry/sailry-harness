@@ -56,7 +56,7 @@ func (s *State) dictation(c *ui.Context, ctx *Context, actions Actions) {
 		case Recording:
 			waveform(c, d.Levels)
 		default:
-			ui.Spinner(c).FontSize(16)
+			kit.Busy(c)
 		}
 	}).OnClick(func() {
 		switch d.Phase {

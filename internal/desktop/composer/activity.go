@@ -183,8 +183,8 @@ func (s *State) gitChanges(c *ui.Context, ch Changes, actions Actions) {
 	b := chip(c.Key("git-changes"), name, s.act.changes, func() {
 		ui.Icon(c, icons.Network).FontSize(14)
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Textf(c, "+%d", ch.Added).FontSize(14).SingleLine().TextColor(p.Success)
-			ui.Textf(c, "-%d", ch.Removed).FontSize(14).SingleLine().TextColor(p.Danger)
+			chipText(c, "+"+strconv.Itoa(ch.Added)).TextColor(p.Success)
+			chipText(c, "-"+strconv.Itoa(ch.Removed)).TextColor(p.Danger)
 		})
 	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.changes = !s.act.changes })
 	placeStart(kit.Popover(c, b, &s.act.changes, func() {
@@ -252,10 +252,10 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 		ui.Icon(c, icon).FontSize(14)
 		ui.Row(c).Gap(8).Children(func() {
 			for _, sg := range b.Segment {
-				ui.Text(c, sg.Text.in(c)).FontSize(14).SingleLine().TextColor(tone(p, sg.Tone))
+				chipText(c, sg.Text.in(c)).TextColor(tone(p, sg.Tone))
 			}
 			if len(b.Segment) == 0 {
-				ui.Text(c, label).FontSize(14).SingleLine()
+				chipText(c, label)
 			}
 		})
 	})
@@ -327,15 +327,15 @@ func (s *State) progress(c *ui.Context, steps []conversation.Step, animated bool
 	label := i18n.T(c, "composer_todo_count", "completed", done, "total", len(steps))
 	trigger := chip(c.Key("todo"), i18n.T(c, "task_progress"), s.act.progress, func() {
 		ui.Icon(c, icons.Tasks).FontSize(14)
-		ui.Text(c, label).FontSize(14).SingleLine()
+		chipText(c, label)
 	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.progress = !s.act.progress })
 	placeStart(kit.Popover(c, trigger, &s.act.progress, func() {
 		ui.Scroll(c).MaxHeight(320).PaddingStart(8).Children(func() { conversation.Steps(c, steps, animated) })
 	}), trigger, 320, 12, 0)
 }
 
-// working is a capsule whose icon is a spinner while the session is
-// connected.
+// working is a capsule whose icon is the loader (kit.Loader), the icon's
+// size and in the chip's muted color, while the session is connected.
 func working(c *ui.Context, icon *ui.SVG, label string, running, open bool) ui.Element {
 	name := label
 	if running {
@@ -343,13 +343,16 @@ func working(c *ui.Context, icon *ui.SVG, label string, running, open bool) ui.E
 	}
 	return chip(c, name, open, func() {
 		if running {
-			ui.Spinner(c).FontSize(13)
+			kit.Loader(c, chipIcon)
 		} else {
-			ui.Icon(c, icon).FontSize(14)
+			ui.Icon(c, icon).FontSize(chipIcon)
 		}
-		ui.Text(c, label).FontSize(14).SingleLine()
+		chipText(c, label)
 	}).HasPopup(ui.PopupDialog)
 }
+
+// chipIcon is the size of a chip's icon, and of the busy mark in its place.
+const chipIcon = 14
 
 // count is one item has its own key.
 func count(c *ui.Context, one, many string, n int) string {
@@ -408,7 +411,7 @@ func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
 			}
 			b := chip(c.Key("service-"+strconv.Itoa(port)), label, false, func() {
 				ui.Icon(c, icons.Globe).FontSize(14)
-				ui.Text(c, label).FontSize(14).SingleLine()
+				chipText(c, label)
 			}).Disabled(!connected || busy).OnClick(func() { actions.OpenService(port) })
 			kit.Tooltip(c, b, i18n.T(c, "port_open_service"))
 		}

@@ -41,10 +41,10 @@ MyGo bases.
 | `Danger` | Own | Actions that remove something, after a confirmation | Deny on an approval (ghost) | conversation, settings |
 | `Tag`, `Badge` | Own | A short label; `Badge` in a `Tone` | Counts in a toolbar (`Toolbar` count) | composer, settings, shell |
 | `StatusDot`, `StatusRing` | Own | A state as an 8 DIP dot; `StatusRing` on a mark or avatar | State with words; prefer an icon in rows | settings, sidebar, shell |
-| `Loader` | Own (custom drawing) | The sidebar's running indicator, dot matrix at `FPS` | Loading content (`Skeleton`) | conversation, settings, sidebar |
+| `Loader`, `LoaderIn` | MyGo `plugins/loading` (`loading.Swirl`) | The app's one loader, in the muted color or the color given: running work (the sidebar's running rows 12, the composer's running capsules and rows 14) and content being read (a centred page 20) | Loading content that has a shape (`Skeleton`); an operation a control started (`Busy`) | composer, conversation, live, panel, plugins, settings, sidebar |
+| `Busy`, `BusyIn` | MyGo `plugins/loading` (`loading.Ring`) | The mark of an operation a control started, 14 (`BusySize`): before a busy button's label, in an icon's place, beside the value being saved. `BusyIn` takes the label's color on a filled button | Running work and loading pages (`Loader`); progress with a known share (`ui.Progress`, `Ring`) | composer, live, panel, plugins, settings, shell, sidebar |
 | `Ring` | Own (custom drawing; pinned MyGo has no progress circle) | A share of a whole as a 15 DIP circle (`RingSize`), or its sweep while loading, in a tone: context usage | Progress of an operation in a row (`ui.Progress`) | composer, conversation, live |
-| `Indicator`, `ThinkingOf` | Own (custom drawing) | The transcript's thinking indicator | Anything else | conversation |
-| `Orb` | Own (custom drawing) | A breathing dot | — | unused |
+| `Indicator`, `ThinkingOf` | MyGo `plugins/loading` | What a running turn does, 16 beside its phase: `loading.Pulse` thinking or waiting (held still for no known phase), `loading.LinearDots` replying, `loading.Swirl` while tools or subagents run | Anything else | conversation, plugins |
 | `Shimmer`, `Sweep` | Own (custom drawing) | Text of a running activity; `Sweep` shares one band across a row's texts | Static labels | conversation, host |
 | `Identicon`, `Agent`, `AgentColor` | Own (custom drawing) | A subagent's mark and color | User avatars | conversation, composer, settings, shell |
 
@@ -129,7 +129,7 @@ MyGo bases.
 | `ui.Slider` | Numbers on a range | — | settings (terminal, appearance) |
 | `ui.NumberInput` | Numbers typed | Only through `kit.NumberRow` (not yet used) | — |
 | `ui.SliderBase` | A custom-drawn slider (the model effort track, `composer/track.go`) | — | composer |
-| `ui.Progress`, `ui.Spinner` | Determinate and indeterminate progress in rows | Not for loading content (`kit.Skeleton`) | settings, host, transfers, composer |
+| `ui.Progress` | Determinate progress in rows, and the indeterminate bar | Not for loading content (`kit.Skeleton`). `ui.Spinner` is not used: it is the classic mark of spokes, 17.5 DIPs unless sized, and turns under Reduce Motion; `kit.Busy` and `kit.Loader` stand for it | settings, host, transfers, composer |
 | `ui.Scroll`, `ScrollHorizontal`, `ScrollBoth` | Scrolling regions | — | everywhere |
 | `ui.Table`, `ui.List`, `ui.Divider`, `ui.Link` | Tabular file lists, the transcript's virtual list, separators, links | — | composer, conversation |
 | `ui.CollapsibleBase` | Collapsing sections | — | sidebar, settings |
@@ -213,6 +213,37 @@ defined once in `kit/settings.go` and used by `Row`, `WideRow`, `LeadRow`,
 A row's overflow menu is an icon button (`IconLook` with the ellipsis, 28),
 named by its label for the tooltip and assistive technology, never an icon
 with the word beside it. A plugin's `Menu` with an icon is drawn the same way.
+A code block's Copy is one too (24, `content_copy`), in place of MyGo's
+`CopyButton` with its text, and confirms with the `content_copied` toast.
+
+### Text beside icons
+
+A row centres its boxes, and a text's box is its line: the ascent and the
+descent, whose middle is below the capitals' (0.36 DIP for the system font
+at 14), and MyGo then snaps the baseline to a device pixel (down with Core
+Text). Unlevelled, a 14 DIP label stands 0.86 DIP below its icon's middle at
+scale 1 and 0.40 at scale 2, an ideograph 1.04 and 0.56, a 13 DIP mono
+detail on the same line 1.19 and 0.76.
+
+`kit.Level(c, text, size)` puts a single line of text level with the icons
+of its row: it moves the box by the difference between where the line's
+metrics put the baseline and where the capitals' middle needs it (half the
+capital height of 0.7 em below the row's middle, to a whole DIP so no
+platform's snapping moves it), with a margin above and its opposite below,
+which keeps the box's size. `kit.LevelTop(c, text, size, height)` does the
+same for the first line of a text that may wrap in a row aligned to its top,
+whose icons take `(height - icon) / 2` above them. Levelled, the three are
+within 0.3 DIP of the icon at both scales (`kit` `TestSweepSharesRow/level
+with the icon`, and the transcript's own rows in `shell`
+`TestShellRules/LoadingMarks`).
+
+Levelled today: the transcript's tool, question, subagent, step and phase
+rows, the composer's capsules, context bar buttons and settings rows, the
+sidebar's group, project and session rows, `kit.Menu`'s rows and a code
+block's language. A smaller text after a levelled label (an age, a
+shortcut) stays unlevelled: its line already shares the label's baseline.
+A new row with an icon and a text levels its text the same way; no row
+offsets a text by hand.
 
 ### Visual details
 
@@ -257,12 +288,22 @@ with the word beside it. A plugin's `Menu` with an icon is drawn the same way.
 - Success and failure appear only as toasts (`kit.ToastHost` once,
   `kit.Toast`, `kit.Error`, `kit.Retry`, `kit.Notify`), never repeated in
   pages or dialogs and never replacing content or drafts.
-- A button whose operation runs is disabled and busy with `ui.Spinner`
+- A button whose operation runs is disabled and busy with `kit.Busy`
   (14) before its label, from the press until the outcome's toast
   (`kit.PrimaryBusy`, `kit.SecondaryBusy`, `kit.DangerBusy`,
   `kit.TextActionBusy`; `kit.BusyAction` holds an icon button's place with the
-  spinner). An operation that already shows its own progress (a bar, a stage
+  mark). An operation that already shows its own progress (a bar, a stage
   line, a row state) gets no second indicator: its button is only disabled.
+- Loading marks are MyGo's `plugins/loading` through Kit, one for each
+  thing that goes on, none drawn by a page: `kit.Loader` (Swirl) for running
+  work and content being read, `kit.Busy` (Ring) for the operation a control
+  started, `kit.Indicator` (Pulse, LinearDots, Swirl) for a running turn's
+  phase. A mark inside a control or beside 14 DIP text is at most 14
+  (`kit.BusySize`), the size of the icons there; a turn's phase mark is 16,
+  as the transcript's row icons; a centred page's loader is 20. Their color
+  is a theme token given by Kit (muted, or the row's text color through
+  `LoaderIn` and `BusyIn`); a subagent keeps its identicon in its own color.
+  A text that names running work still shimmers (`kit.Shimmer`, `kit.Sweep`).
 - OS notifications go through MyGo native, not a toast or a kit component.
 
 ## Theming caveats
@@ -278,4 +319,20 @@ with the word beside it. A plugin's `Menu` with an icon is drawn the same way.
 - Popover tokens are 95% opaque; `kit.Floating` makes its base opaque with
   `kit.Opaque` before tinting.
 - Looping drawings use `Painter.AnimationFrameRate(kit.FPS)`, not
-  `Element.Loop`, which runs at the display's rate.
+  `Element.Loop`, which runs at the display's rate. The loading marks are
+  the exception: MyGo's `plugins/loading` asks for `Painter.AnimationFrame`
+  and has no rate option, so they repaint at the display's rate (60 frames a
+  second on a 60 Hz display, 120 on ProMotion) while one shows. Only the
+  marks paint again, nothing is rebuilt (20 loaders for a second: 59 frames,
+  0 builds, `kit` `TestEffects/LoadingMarks`); a mark out of view or not
+  built asks for no frame, and with Reduce Motion each holds a still pose
+  and asks for none.
+
+## Deviations
+
+| Deviation | Reason |
+|---|---|
+| The loader's dot matrix, the thinking figures (Orbits, Globe, Ribbon, Ring) and the unused `Orb` are removed; `kit.Loader` and `kit.Indicator` show MyGo's `plugins/loading` marks | The user's decision: one set of ready-made marks. The loader is one color (it had the info, warning and danger colors by row) |
+| `ui.Spinner` is replaced by `kit.Busy` and, on centred loading pages, `kit.Loader` | It is the classic mark of spokes the set leaves out, 17.5 DIPs unless sized (the composer's capsules showed it so), and it ignores Reduce Motion |
+| The loading marks move at the display's rate, past the 60 fps cap | `plugins/loading` has no rate option; capping it would copy its drawing code |
+| `kit.Level` assumes capitals 0.7 em high | MyGo's `FontMetrics` has the ascent, descent and line gap, no cap height; the system UI fonts are within 0.02 em of it |

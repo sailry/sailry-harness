@@ -69,7 +69,7 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 	if pr.Actions != nil && pr.Data.Files != nil && len(pr.Data.Files.Children) == 0 {
 		state := v.directories[""]
 		if state.Loading {
-			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { ui.Spinner(c) })
+			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
 			return
 		}
 		if state.Loaded && !state.Failed {

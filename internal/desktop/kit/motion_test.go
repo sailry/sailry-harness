@@ -78,6 +78,8 @@ func TestSweepSharesRow(t *testing.T) {
 		t.Error("a row without texts in its sweep animates")
 	}
 
+	t.Run("level with the icon", testLevel)
+
 	// The band lights only the pixels the still text has: its glyphs sit
 	// exactly on the text's, in another font and size too, wherever the
 	// row lands on the pixel grid.

@@ -147,7 +147,7 @@ func (pr *Project) fileSearchView(c *ui.Context) {
 func (pr *Project) directoryTail(c *ui.Context, directory string) {
 	state := pr.Files.directories[directory]
 	if state.Loading {
-		ui.Row(c.Key("directory-loading")).Height(28).PaddingX(12).Gap(8).Children(func() { ui.Spinner(c).FontSize(14) })
+		ui.Row(c.Key("directory-loading")).Height(28).PaddingX(12).Gap(8).Children(func() { kit.Busy(c) })
 		return
 	}
 	if state.Failed {

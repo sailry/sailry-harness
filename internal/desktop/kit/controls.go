@@ -1,8 +1,6 @@
 package kit
 
 import (
-	"math"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -81,40 +79,6 @@ func Tag(c *ui.Context, text string) ui.Element {
 		Background(p.Primary.Alpha(0.12)).TextColor(p.Primary)
 }
 
-// Loader draws the sidebar's running indicator: a 2x3 dot matrix whose dots
-// light in turn. Custom drawing: MyGo has a Spinner of spokes but no dot
-// matrix, and a Spinner cannot be capped at 60fps.
-func Loader(c *ui.Context, size float32) ui.Element {
-	p := theme.Of(c)
-	colors := [3]ui.Color{p.Info, p.Warning, p.Danger}
-	return ui.Box(c).Size(size, size).Label("running").Draw(func(pt *ui.Painter, r ui.Rect) {
-		pt.AnimationFrameRate(FPS)
-		t := float64(pt.Now().UnixMilli()%1200) / 1200
-		d := r.W / 4
-		for i := range 6 {
-			col, row := i%2, i/2
-			phase := math.Mod(t-float64(i)/6+1, 1)
-			a := float32(0.25 + 0.75*math.Max(0, 1-phase*3))
-			x := r.X + d*0.5 + float32(col)*d*2
-			y := r.Y + float32(row)*(r.H/3) + (r.H/3-d)/2
-			pt.Fill(ui.Rect{X: x, Y: y, W: d, H: d}, colors[row].Alpha(a), d/2)
-		}
-	})
-}
-
-// Orb draws the thinking indicator (ui/thinking in the reference): a dot that
-// breathes. Custom drawing for the same reason as Loader.
-func Orb(c *ui.Context, size float32) ui.Element {
-	p := theme.Of(c)
-	return ui.Box(c).Size(size, size).Draw(func(pt *ui.Painter, r ui.Rect) {
-		pt.AnimationFrameRate(FPS)
-		t := float64(pt.Now().UnixMilli()%1600) / 1600
-		s := float32(0.55 + 0.25*math.Sin(t*2*math.Pi))
-		w := r.W * s
-		pt.Fill(ui.Rect{X: r.X + (r.W-w)/2, Y: r.Y + (r.H-w)/2, W: w, H: w}, p.Primary.Alpha(0.85), w/2)
-	})
-}
-
 // Secondary is Kit's outline button: a 1 DIP border over the
 // button.secondary fill, 32 high, its label 14.
 func Secondary(c *ui.Context, label string) ui.Element {
@@ -122,30 +86,30 @@ func Secondary(c *ui.Context, label string) ui.Element {
 }
 
 // PrimaryBusy is Primary with its label, and while the operation it started
-// runs MyGo's spinner before the label and no press.
+// runs the busy mark (Busy) before the label and no press.
 func PrimaryBusy(c *ui.Context, label string, disabled, busy bool) ui.Element {
 	return Primary(c, label, disabled || busy).Busy(busy).Children(func() {
 		if busy {
-			ui.Spinner(c).Size(14, 14)
+			Busy(c)
 		}
 		ui.Text(c, label).FontSize(14).SingleLine()
 	})
 }
 
-// BusyAction holds an Action's place while its operation runs: the spinner
-// for the icon, named by label, and no press.
+// BusyAction holds an Action's place while its operation runs: the busy
+// mark for the icon, named by label, and no press.
 func BusyAction(c *ui.Context, label string) ui.Element {
 	return ui.ButtonBase(c).Label(label).Disabled(true).Busy(true).Size(28, 28).Shrink(0).Center().
-		Children(func() { ui.Spinner(c).Size(14, 14) })
+		Children(func() { Busy(c) })
 }
 
-// SecondaryBusy is Secondary while the operation it started runs: MyGo's
-// spinner before the label, as a plugin control shows its loading, and no
+// SecondaryBusy is Secondary while the operation it started runs: the busy
+// mark before the label, as a plugin control shows its loading, and no
 // press until the operation ends.
 func SecondaryBusy(c *ui.Context, label string, busy bool) ui.Element {
 	return SecondaryLook(c, ui.ButtonBase(c).Label(label).Disabled(busy).Busy(busy)).Children(func() {
 		if busy {
-			ui.Spinner(c).Size(14, 14)
+			Busy(c)
 		}
 		ui.Text(c, label).FontSize(14).SingleLine()
 	})
@@ -171,12 +135,12 @@ func Danger(c *ui.Context, label string) ui.Element {
 	return dangerLook(c, label).Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
 }
 
-// DangerBusy is Danger, and while the removal it started runs the spinner
-// before its label and no press.
+// DangerBusy is Danger, and while the removal it started runs the busy
+// mark before its label and no press.
 func DangerBusy(c *ui.Context, label string, busy bool) ui.Element {
 	return dangerLook(c, label).Disabled(busy).Busy(busy).Children(func() {
 		if busy {
-			ui.Spinner(c).Size(14, 14)
+			BusyIn(c, theme.Of(c).DangerForeground)
 		}
 		ui.Text(c, label).FontSize(14).SingleLine()
 	})

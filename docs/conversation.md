@@ -36,8 +36,11 @@ Kit's `MessageScroller`.
 
 Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
 is in `internal/desktop/kit/motion.go`; the thinking indicator (`kit.Indicator`:
-Orbits, Globe, Ribbon, Ring) in `internal/desktop/kit/thinking.go`. Code blocks in messages and tool diffs
-are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/desktop/kit/code.go`).
+MyGo's loading marks, Pulse while thinking, LinearDots while replying, Swirl
+while tools or subagents run) in `internal/desktop/kit/thinking.go`. Code blocks in messages and tool diffs
+are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/desktop/kit/code.go`);
+a block's header has its language and Copy as an icon button (`content_copy`,
+toast `content_copied`).
 Answers are `kit.Markdown` (`internal/desktop/kit/markdown.go`, the `Chat`
 variant: 14 DIP text on 24 DIP lines, emphasis in `primary`, code on a
 3.5% foreground tint) with the transcript's shared selection; a running
@@ -184,7 +187,7 @@ The rules are `group.go`, tested in `group_test.go`.
    motion ID). Everything starts closed.
 8. **Continuing**: while the run is active the last tool row of the last
    block is drawn running, so the shimmer stays on the latest activity.
-9. **Phase row**: while active, the orb and the phase label, the band in the row's coordinates;
+9. **Phase row**: while active, the phase's mark (`kit.Indicator`, 16, muted) and the phase label, the band in the row's coordinates;
    hidden while a call is pending or running, a child runs, or a question
    waits.
 10. **Footer** (ended runs): copy the answer (`turn_copy`, toast
@@ -612,6 +615,11 @@ appearance (icon and color).
 - `bench_test.go`: 1000 turns scroll; `BenchmarkScroll`, `Steady`, `Jump`.
 - `internal/desktop/shell/shell_test.go`: send, stop, the reply playing to
   Completed, approvals and the question.
+- `internal/desktop/shell/loading_test.go` (`TestShellRules/LoadingMarks`):
+  in the demo's running conversation, the pending rows' and the question's
+  icon, label and mono detail are level within half a DIP at scale 1 and 2,
+  and the phase row has its mark before "thinking" and "replying"; with
+  `$SAILRY_SNAPSHOTS` it writes the `loading-*` frames.
 
 `TestLiveBlocks/transcript` drives the message actions with the pointer in
 Chinese and dark: the inline editor (open, Escape, Cancel, blur, Save, pending),
@@ -643,7 +651,9 @@ destination, the rewind toast's backup action, and
 | Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |
 | The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
-| Thinking figures (Orbits, Globe, Ribbon, Ring) approximate Rust's dot drawings | Drawn on the painter at 60 fps from the same states, not ported point for point |
+| The phase's mark is one of MyGo's loading marks (`plugins/loading`: Pulse, LinearDots, Swirl), not Rust's dot figures (Orbits, Globe, Ribbon, Ring) | The user's decision: ready-made marks from one set with the sidebar's loader. The custom figures are removed; the marks move at the display's rate ([components.md](components.md#theming-caveats)) |
+| Row texts are moved a fraction of a DIP by `kit.Level` so their capitals sit at the icon's middle; a question's row is as high as the others for one line (24), its icon and caret where theirs are | MyGo centres a text's line box and snaps its baseline, which left labels up to 1.2 DIPs below their icons ([components.md](components.md#text-beside-icons)); the wrapping row had its text at the top with the icon 2 below |
+| A code block's Copy is an icon button confirmed by a toast, not MyGo's `CopyButton` with its "Copy" and "Copied" texts | The user's decision: the icon alone; outcomes show as toasts |
 | Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
 | Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | limu lays a 64 KiB bounded source out once per width; Rust prepares images off the UI thread |
 | Mermaid xychart and pie are drawn by our own painter (`chart.go`) on MyGo's `ui/chart`, not by limu's picture or a CrychicUI chart | Verified gap: limu's picture has no hover and draws its title; CrychicUI's `chart` components fail the conversation's rules ([docs/crychic.md](crychic.md#charts)): their value tips are MyGo's delayed opaque tooltip or an own surface outside the plot, their colors are the status tones, and they cannot draw Mermaid's shared-axis bar and line mix, a y range, gaps or horizontal series |

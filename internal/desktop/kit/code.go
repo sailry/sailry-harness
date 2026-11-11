@@ -7,6 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -159,15 +161,23 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element 
 
 // CodeBlock is the Markdown hook (Options.CodeBlock) for code in
 // messages and documents: the language and Copy over a read-only editor
-// highlighting by the fence's language.
+// highlighting by the fence's language. Copy is an icon button, named by
+// its tooltip, in place of MyGo's CopyButton, which has the icon and a
+// text: it copies the block's code and confirms with the app's toast, as
+// its other copy buttons, and waits for a block still being written to
+// close, as MyGo's.
 func CodeBlock(c *ui.Context, b *markdown.CodeBlockView) {
 	p := theme.Of(c)
 	ui.Column(c).AlignSelf(ui.Stretch).Background(p.Background.Mix(p.Foreground, 0.035)).Border(1, p.Border).
 		Radius(p.Radius).Clip().Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Padding(4, 6, 0, 12).Children(func() {
-			ui.Text(c, b.Language).FontSize(12).TextColor(p.MutedForeground).Unselectable()
+			Level(c, ui.Text(c, b.Language).FontSize(12).TextColor(p.MutedForeground).Unselectable(), 12)
 			ui.Spacer(c)
-			b.CopyButton(c)
+			IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 24, false).TextColor(p.MutedForeground).
+				Disabled(b.Open).OnClick(func() {
+				c.WriteClipboard(b.Code())
+				Message(c, i18n.T(c, "content_copied"))
+			})
 		})
 		body := ui.Column(c).Padding(4, 0, 8, 4)
 		Code(c, body, b.Code(), CodeOptions{Language: editor.LanguageNamed(b.Language), Tint: true})

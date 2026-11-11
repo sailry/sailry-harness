@@ -691,6 +691,7 @@ func TestShellRules(t *testing.T) {
 			t.Errorf("Conversation moved: %v", got)
 		}
 	})
+	t.Run("LoadingMarks", testLoadingMarks)
 }
 
 func testSearchRules(t *testing.T) {

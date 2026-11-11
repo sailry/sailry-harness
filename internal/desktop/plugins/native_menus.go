@@ -204,7 +204,7 @@ func (binding *NativeBinding) renderTabs(view *ui.Context, identity string, prop
 					button := kit.Ghost(view, label, selected != nil && itemID == *selected).Padding(6, 10).Gap(6).MinWidth(0).Disabled(nativeProp(props, "disabled", false))
 					button.Children(func() {
 						if nativeProp(item, "loading", false) {
-							ui.Spinner(view).Size(14, 14)
+							kit.Busy(view)
 						} else if icon := nativeIcon(nativeProp(item, "icon", "")); icon != nil {
 							ui.Icon(view, icon).Size(14, 14)
 						}

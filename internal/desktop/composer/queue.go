@@ -160,7 +160,7 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 	row.Children(func() {
 		switch {
 		case item.Guided:
-			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 16) })
+			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 14) })
 		case draggable:
 			handle()
 		}
@@ -197,7 +197,7 @@ func (s *State) outgoingRow(c *ui.Context, item Queued) {
 	ui.Row(c.Key("outgoing")).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
 		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion).Children(func() {
 		if item.Guided {
-			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 16) })
+			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 14) })
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
 		if len(item.Attachments) > 0 {
