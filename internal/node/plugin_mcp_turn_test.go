@@ -221,6 +221,34 @@ func pluginMCPConversationAcceptance(t *testing.T) {
 		request.Plugin.Invocation != nil || !claimed || requestStatus != "completed" || receipt.Err != nil || receipt.Ok == nil {
 		t.Fatalf("script wrapper lost its exact native durable receipt: %+v, claimed=%v status=%s receipt=%+v", request, claimed, requestStatus, receipt)
 	}
+	// Each of the three one-call batches announces its completion once, in
+	// the transaction that stores its last result, so a controller's settled
+	// cursor and a plugin's status follow tool effects inside a running turn.
+	settled := 0
+	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+		settled = 0
+		for after := uint64(0); ; {
+			_, page, err := store.EventPage(t.Context(), db, node.ID(), after, 0)
+			if err != nil || len(page) == 0 {
+				return err
+			}
+			for _, envelope := range page {
+				after = envelope.Cursor
+				if envelope.Event.Kind != "tools_completed" {
+					continue
+				}
+				if value, ok := envelope.Event.Data.(*protocol.EventToolsCompletedPayload); !ok || value.Session != session.ID {
+					return fmt.Errorf("tool completion names another session: %+v", envelope.Event.Data)
+				}
+				settled++
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if settled != 3 {
+		t.Fatalf("tool batches announced %d completions, want 3", settled)
+	}
 	results := map[string]*canonical.ToolResponse{}
 	for _, record := range state.Records {
 		if message := record.Message(); message != nil {
