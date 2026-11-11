@@ -170,7 +170,7 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if capture.Config.Resource != nil {
 		return false, nil
 	}
-	rows, err := db.QueryContext(ctx, "SELECT r.body,r.result,a.binding FROM agent_approvals a JOIN turns t ON t.id=a.turn JOIN requests r ON r.id=a.request WHERE a.turn=?1 AND a.claimed=1 AND json_extract(a.body,'$.state')='approved' AND r.status='completed'", turn.String())
+	rows, err := db.QueryContext(ctx, "SELECT a.prepared,r.result,a.binding FROM agent_approvals a JOIN turns t ON t.id=a.turn JOIN requests r ON r.id=a.request AND r.caller=t.caller WHERE a.turn=?1 AND a.claimed=1 AND json_extract(a.body,'$.state')='approved' AND r.status='completed'", turn.String())
 	if err != nil {
 		return false, err
 	}
@@ -189,10 +189,18 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		if binding == nil || binding.Owner != owner {
 			continue
 		}
-		var request protocol.Request
-		if err := json.Unmarshal(body, &request); err != nil {
+		// The approval keeps the save without its secret; the ledger keeps
+		// only the digest of the request.
+		var prepared *struct {
+			Command *protocol.Command `json:"command"`
+		}
+		if err := json.Unmarshal(body, &prepared); err != nil {
 			return false, err
 		}
+		if prepared == nil || prepared.Command == nil {
+			continue
+		}
+		request := protocol.Request{Command: *prepared.Command}
 		var outcome protocol.Result[protocol.Output, protocol.Fault]
 		if err := json.Unmarshal([]byte(result), &outcome); err != nil {
 			return false, fault(protocol.ErrorCodeInternal, "stored request outcome is invalid")

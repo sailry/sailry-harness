@@ -1528,6 +1528,7 @@ session_changed: 세션이 변경되었습니다. 다시 시도하십시오
 project_changed: 프로젝트 변경; 편집기 다시 열기
 chat_action_failed: 작업 실패, 다시 시도하십시오
 chat_action_unknown: 결과 확인되지 않음; 원래 요청을 다시 시도하십시오
+chat_config_unavailable: 세션 구성을 사용할 수 없습니다. 제공자 확인
 notification_update_failed: 알림을 업데이트하지 못했습니다. 다시 시도하세요
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: 절전 모드를 방지할 수 없습니다

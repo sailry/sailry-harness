@@ -46,19 +46,19 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 		done(x.c, protocol.Session{}, err)
 		return
 	}
-	input := protocol.CommandCreateSessionAtPayload{Target: r.controller.Target(), Config: &config, ProviderRevision: revision}
+	var project *protocol.ProjectID
 	if x.comp.Project != "" {
 		id, err := protocol.ParseProjectID(x.comp.Project)
 		if err != nil {
 			done(x.c, protocol.Session{}, err)
 			return
 		}
-		input.Project = &id
+		project = &id
 	}
-	input.Worktree = r.draftWorktree(x.comp, input.Project)
+	command := r.creationCommand(project, r.draftWorktree(x.comp, project), config, revision)
 	r.attachmentSessionWaiters[before] = []attachmentSessionWaiter{done}
 	r.conversationCreating[before] = true
-	r.executeScoped("create/"+before, protocol.Command{Kind: "create_session_at", Data: input}, func(c *ui.Context, out protocol.Output, err error) {
+	r.executeCreation("create/"+before, command, func(c *ui.Context, out protocol.Output, err error) {
 		delete(r.conversationCreating, before)
 		waiters := r.attachmentSessionWaiters[before]
 		delete(r.attachmentSessionWaiters, before)
@@ -78,6 +78,7 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 			r.composerInitialized[x.cv.ID] = true
 			r.composerRevisions[x.cv.ID] = session.Revision
 			r.composerBases[x.comp] = session.Config
+			r.adoptForwarded(x.comp, session)
 			key, _ := json.Marshal(session.Config)
 			r.composerObserved[x.cv.ID] = string(key)
 			r.project()

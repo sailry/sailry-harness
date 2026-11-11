@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 func connectionDenied(message string) error {
@@ -324,7 +326,34 @@ func authorizeConnectionManagement(ctx context.Context, db *sql.Conn, request pr
 		binding == nil || binding.Owner != scope.Package || binding.Operation == nil || *binding.Operation != operation {
 		return false, connectionDenied("connection save differs from its claimed approval")
 	}
-	return creation, nil
+	return creation, recordConnectionSave(ctx, db, request)
+}
+
+// recordConnectionSave keeps the approved save on its approval without the
+// secret it carries. The request ledger holds only the digest of such a
+// command, so ConnectionCreated reads this record.
+func recordConnectionSave(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+	command := request.Command
+	encoded, err := encode(command)
+	if err != nil {
+		return err
+	}
+	switch command.Kind {
+	case "save_database":
+		input, _ := dispatchValue[protocol.CommandSaveDatabasePayload](command.Data)
+		input.Password = nil
+		command.Data = input
+	case "save_ssh":
+		input, _ := dispatchValue[protocol.CommandSaveSshPayload](command.Data)
+		input.Credential = nil
+		command.Data = input
+	}
+	prepared, err := encode(map[string]any{"command": command, "digest": fmt.Sprintf("%x", blake3.Sum256(encoded)), "targets": []any{}})
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "UPDATE agent_approvals SET prepared=?3 WHERE turn=?1 AND request=?2", request.Plugin.Turn.String(), request.ID.String(), prepared)
+	return err
 }
 
 func authorizeConnectionTrust(ctx context.Context, db *sql.Conn, request protocol.Request) error {

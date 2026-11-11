@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -572,6 +574,55 @@ func testConnectionWorkspaces(t *testing.T) {
 			created, err := ConnectionCreated(ctx, db, turn, owner, databaseTarget)
 			if err != nil || created {
 				return fmt.Errorf("a connection without an approved save counts as created: %v", err)
+			}
+			// An approved save is kept by digest in the ledger; the approval
+			// keeps the command without its password and still proves creation.
+			password, operation := protocol.NewSecret("created-connection-password"), protocol.ToolOperationSaveDatabaseConnection
+			added := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "Created", Connection: databaseFixtureSqlite(filepath.Join(t.TempDir(), "created.db"))}
+			save := protocol.NewRequest(node, protocol.Command{Kind: "save_database", Data: protocol.CommandSaveDatabasePayload{Profile: added, Password: &password}})
+			scope := protocol.DefaultPluginContext()
+			scope.Package, scope.Turn, scope.Session = owner, &turn, &used.ID
+			save.Plugin = &scope
+			approval := protocol.DefaultConversationApproval()
+			approval.ID, approval.Session, approval.Turn = protocol.NewApprovalID(), used.ID, turn
+			approval.State, approval.Source = protocol.ConversationApprovalStateApproved, protocol.ConversationApprovalSourceUser
+			approved, err := encode(approval)
+			if err != nil {
+				return err
+			}
+			bound, err := encode(ApprovalBinding{Owner: owner, Tool: "save_connection", Operation: &operation})
+			if err != nil {
+				return err
+			}
+			if _, err = db.ExecContext(ctx, "INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,'save-call',?3,?4,?5,1)", approval.ID.String(), turn.String(), approved, bound, save.ID.String()); err != nil {
+				return err
+			}
+			body, err := encode(save)
+			if err != nil {
+				return err
+			}
+			if _, err = admission.Admit(ctx, db, node, save, body); err != nil {
+				return err
+			}
+			if creation, err := authorizeConnectionManagement(ctx, db, save); err != nil || !creation {
+				return fmt.Errorf("approved save was not authorized as a creation: %v", err)
+			}
+			added.Revision = 1
+			if err = admission.Complete(ctx, db, node, save.ID, link.Response{Output: protocol.Output{Kind: "database_profile", Data: added}}); err != nil {
+				return err
+			}
+			var ledger, kept []byte
+			if err = db.QueryRowContext(ctx, "SELECT r.body,a.prepared FROM requests r JOIN agent_approvals a ON a.request=r.id WHERE r.id=?1", save.ID.String()).Scan(&ledger, &kept); err != nil {
+				return err
+			}
+			if !strings.HasPrefix(string(ledger), "credential-v1:") || strings.Contains(string(kept), password.Expose()) || !strings.Contains(string(kept), added.ID.String()) {
+				return fmt.Errorf("approved save was stored as %s and %s", ledger, kept)
+			}
+			if created, err = ConnectionCreated(ctx, db, turn, owner, databaseResource(added.ID)); err != nil || !created {
+				return fmt.Errorf("an approved completed save does not count as created: %v", err)
+			}
+			if created, err = ConnectionCreated(ctx, db, turn, owner, databaseTarget); err != nil || created {
+				return fmt.Errorf("another connection counts as created: %v", err)
 			}
 			statuses, err := ConnectionStatuses(ctx, db, turn, owner, captured, captured)
 			if err != nil || len(statuses) != 0 {

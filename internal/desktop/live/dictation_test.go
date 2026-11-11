@@ -329,6 +329,9 @@ func walkDictation(t *testing.T) {
 	permit = make(chan struct{})
 	fake.permit, fake.stubborn = permit, true
 	start()
+	// The worker is asking for the permission before the cancellation: one
+	// cancelled before it ran would return at once and release the model.
+	synctest.Wait()
 	dictate(composer.CancelDictation)
 	if d.Phase != composer.Idle || state.active == nil {
 		t.Fatal("cancelling while preparing left the button busy or released the owner early")

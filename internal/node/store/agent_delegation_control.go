@@ -193,15 +193,22 @@ func PendingGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnI
 	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.recipient=?1 AND json_extract(a.body,'$.status')='queued')", recipient.String()).Scan(&pending)
 	return pending, err
 }
-func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, now time.Time) (ChildState, *AgentInvocation, []protocol.Event, error) {
+
+// GuideChild guides or resumes a child of the parent turn. identity is the
+// recorded call, guide_agent or a package tool bound to agents.guide, and
+// locates it in the conversation; arguments are the ones that execute, which
+// such a package tool prepares.
+func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, now time.Time) (ChildState, *AgentInvocation, []protocol.Event, error) {
 	var args struct {
 		Session *protocol.SessionID `json:"session"`
 		Message string              `json:"message"`
 	}
-	if identity.Name != "guide_agent" {
+	if operation, err := delegationOperation(ctx, db, parent, identity.Name); err != nil {
+		return ChildState{}, nil, nil, err
+	} else if operation != protocol.ToolOperationGuideAgent {
 		return ChildState{}, nil, nil, invalid("invalid child guidance tool")
 	}
-	if err := protocol.DecodeObject(identity.Arguments, &args, []string{"session", "message"}, true); err != nil || args.Session == nil {
+	if err := protocol.DecodeObject(arguments, &args, []string{"session", "message"}, true); err != nil || args.Session == nil {
 		return ChildState{}, nil, nil, invalid("invalid child guidance arguments")
 	}
 	state, err := ReadChildState(ctx, db, parent, *args.Session, nil)
@@ -214,13 +221,13 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	recipient := state.Run.Turn
 	state.Recipient = &recipient
 	if state.Run.Status == protocol.ConversationStatusRunning {
-		inv, events, err := delegateAgent(ctx, db, node, parent, identity, identity.Arguments, nil, true, now, &state.Run)
+		inv, events, err := delegateAgent(ctx, db, node, parent, identity, arguments, nil, true, now, &state.Run)
 		if err == nil {
 			state.Run = inv.Run
 		}
 		return state, nil, events, err
 	}
-	inv, events, err := DelegateAgent(ctx, db, node, parent, identity, nil, false, now)
+	inv, events, err := DelegatePrepared(ctx, db, node, parent, identity, arguments, nil, false, now)
 	if err != nil {
 		return state, nil, events, err
 	}

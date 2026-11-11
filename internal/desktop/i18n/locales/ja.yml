@@ -1528,6 +1528,7 @@ session_changed: セッションが変更されました。やり直してくだ
 project_changed: プロジェクトが変更されました。エディタを再開してください
 chat_action_failed: 操作に失敗しました。もう一度試してください
 chat_action_unknown: 結果が確認されていません。元の要求をやり直します
+chat_config_unavailable: セッションの設定が利用できません。プロバイダを確認してください
 notification_update_failed: 通知を更新できませんでした。再試行してください
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: スリープを防止できませんでした

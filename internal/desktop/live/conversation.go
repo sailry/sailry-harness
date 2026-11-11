@@ -83,8 +83,11 @@ func modelKey(provider protocol.ProviderID, model string) string {
 func (r *Runtime) projectModels() {
 	var models []composer.Model
 	var providers []viewmodel.Provider
-	for _, p := range r.snapshot().Providers {
-		providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name, Enabled: p.Enabled})
+	own := len(r.snapshot().Providers)
+	for i, p := range r.composerProviders() {
+		if i < own {
+			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name, Enabled: p.Enabled})
+		}
 		if !p.Enabled {
 			continue
 		}
@@ -227,8 +230,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			if saved := r.Preferences.Data.Composer; saved != nil {
 				comp.Mode = modeChoice(saved.Mode)
 				comp.Permission = permissionChoice(saved.Permission)
-				if m := saved.Model; m != nil && m.Source == snapshot.Node {
-					for _, p := range snapshot.Providers {
+				if m := saved.Model; m != nil && (m.Source == snapshot.Node || r.forwards(m.Provider) && m.Source == r.parent.controller.Target()) {
+					for _, p := range r.composerProviders() {
 						if p.ID == m.Provider && p.Enabled && slices.ContainsFunc(p.Models, func(v protocol.ConversationModel) bool { return v.ID == m.Model }) {
 							config := protocol.DefaultSessionConfig()
 							config.Provider = m.Provider
@@ -262,7 +265,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			cv.Session.Connection = conversation.Reconnecting
 		}
 	}
-	ctx.Models = slices.Clone(ctx.Models)
+	ctx.Models = r.offeredModels(cv.ID, ctx.Models)
 	for i := range ctx.Models {
 		model := &ctx.Models[i]
 		if model.ID == comp.Model && model.Reasoning {
@@ -384,7 +387,7 @@ func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig
 }
 
 func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (protocol.SessionConfig, uint64, error) {
-	for _, p := range r.snapshot().Providers {
+	for _, p := range r.composerProviders() {
 		if !p.Enabled {
 			continue
 		}
@@ -420,7 +423,11 @@ func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (prot
 }
 
 func (r *Runtime) rememberConfig(config protocol.SessionConfig) {
-	r.Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Model: &preferences.Model{Source: r.controller.Target(), Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
+	source := r.controller.Target()
+	if r.forwards(config.Provider) {
+		source = r.parent.controller.Target()
+	}
+	r.Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
 }
 
 func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) ([]composer.Reference, []composer.Reference) {
@@ -455,10 +462,11 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 		refs = append(refs, composer.Reference{ID: "sessions", Kind: composer.Page, Label: "reference_sessions", Key: true, Group: "reference_group_context", Icon: icons.Chat, Children: sessions})
 	}
 	var models, efforts []composer.Reference
-	for _, m := range r.models() {
+	offered := r.offeredModels(cv.ID, r.models())
+	for _, m := range offered {
 		models = append(models, composer.Reference{ID: m.ID, Kind: composer.ModelCommand, Label: m.Name, Insert: m.ID, Description: m.Provider, Icon: icons.Bot})
 	}
-	chosen := comp.Chosen(r.models())
+	chosen := comp.Chosen(offered)
 	for _, e := range chosen.Efforts {
 		efforts = append(efforts, composer.Reference{ID: e, Kind: composer.EffortCommand, Label: e, Insert: e, Icon: icons.Bot})
 	}
@@ -669,7 +677,11 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	}
 	config, revision, err := x.r.composerConfig(x.comp, m)
 	if err != nil {
-		x.r.report(x.c, err, "session_changed")
+		if _, exists := x.r.session(x.cv.ID); exists {
+			x.r.report(x.c, err, "session_changed")
+		} else {
+			x.r.reportCreation(x.c, err)
+		}
 		return
 	}
 	x.r.rememberConfig(config)
@@ -720,17 +732,16 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		x.unavailable()
 		return
 	}
-	create := protocol.CommandCreateSessionAtPayload{Target: x.r.controller.Target(), Config: &config, ProviderRevision: revision}
+	var project *protocol.ProjectID
 	if x.comp.Project != "" {
 		if id, err := protocol.ParseProjectID(x.comp.Project); err == nil {
-			create.Project = &id
+			project = &id
 		} else {
 			x.unavailable()
 			return
 		}
 	}
-	create.Worktree = x.r.draftWorktree(x.comp, create.Project)
-	command := protocol.Command{Kind: "create_session_at", Data: create}
+	command := x.r.creationCommand(project, x.r.draftWorktree(x.comp, project), config, revision)
 	x.r.conversationCreations[x.cv.ID] = conversationCreation{key: creationKey(x.comp, m), command: command}
 	x.create(command, m, finish)
 }

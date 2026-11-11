@@ -1528,6 +1528,7 @@ session_changed: Session changed; try again
 project_changed: Project changed; reopen the editor
 chat_action_failed: Operation failed; try again
 chat_action_unknown: Result unconfirmed; retry the original request
+chat_config_unavailable: Session configuration unavailable; check the provider
 notification_update_failed: Notifications could not be updated; retry
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: Could not prevent sleep

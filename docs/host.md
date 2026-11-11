@@ -154,8 +154,8 @@ A session on a remote Host can use a provider configured only on this Desktop:
 the local Node forwards the provider, a transferable secret and the roles over
 the paired Link, and the Host keeps them private to that session
 ([node.md](node.md#session-forwarding)). The secret travels Node to Node and
-never reaches a controller. The Desktop composer does not send this yet; it
-still lists the selected Host's own providers.
+never reaches a controller. The Desktop composer sends it
+([composer.md](composer.md#session-creation-and-forwarding)).
 
 ## Host task automation
 

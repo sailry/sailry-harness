@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -206,7 +208,8 @@ func TestChildApprovalPath(t *testing.T) {
 
 // reviewScript drives the bundled code-review package: it freezes a review
 // scope, then delegates its groups through delegate_review, the package tool
-// bound to agents.delegate.
+// bound to agents.delegate. It then guides that child through the fixture
+// package's tool bound to agents.guide.
 type reviewScript struct {
 	fantasy.LanguageModel
 	mu       sync.Mutex
@@ -277,10 +280,11 @@ func (script *reviewScript) Stream(_ context.Context, call fantasy.Call) (fantas
 		}
 	}
 	scope, delegate := operations.Alias("code-review", "review_scope"), operations.Alias("code-review", "delegate_review")
+	guide := operations.Alias("guide-fixture", "guide_review")
 	var name, args string
 	switch script.requests {
 	case 1:
-		name, args = "tool_search", `{"query":"select:`+scope+","+delegate+`"}`
+		name, args = "tool_search", `{"query":"select:`+scope+","+delegate+","+guide+`"}`
 	case 2:
 		name, args = scope, `{"target":{"kind":"worktree","data":{"scope":"all"}}}`
 	case 3:
@@ -300,10 +304,16 @@ func (script *reviewScript) Stream(_ context.Context, call fantasy.Call) (fantas
 		encoded, _ := json.Marshal(map[string]any{"review_id": frozen.ReviewID, "groups": groups, "record_receipt": false, "title": "Review evidence"})
 		name, args = delegate, string(encoded)
 	case 4:
+		child := childSession.FindStringSubmatch(script.results["delegate"])
+		if child == nil {
+			return nil, fmt.Errorf("delegate_review names no child: %s", script.results["delegate"])
+		}
+		name, args = guide, `{"session":"`+child[1]+`","note":"Check the edge"}`
+	case 5:
 	default:
 		return nil, errors.New("unexpected extra review request")
 	}
-	id := map[int]string{1: "discover", 2: "scope", 3: "delegate"}[script.requests]
+	id := map[int]string{1: "discover", 2: "scope", 3: "delegate", 4: "guide"}[script.requests]
 	return func(yield func(fantasy.StreamPart) bool) {
 		if name != "" {
 			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: id, ToolCallName: name, ToolCallInput: args}) {
@@ -316,6 +326,38 @@ func (script *reviewScript) Stream(_ context.Context, call fantasy.Call) (fantas
 	}, nil
 }
 
+var childSession = regexp.MustCompile(`"session":"([0-9a-f-]{36})"`)
+
+// installGuideFixture installs a package whose tool is bound to agents.guide
+// and prepares the guidance from the arguments the model sent.
+func installGuideFixture(t *testing.T, node *Node) {
+	t.Helper()
+	source := t.TempDir()
+	entry := "dev.sailry.platform/main.js"
+	for name, body := range map[string]string{
+		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"guide-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["agents.delegate"],"host":{"entry":"` + entry + `","resources":["` + entry + `"],"handlers":["prepare"],"read_only":["prepare"]},"tools":[{"name":"guide_review","description":"Guide a delegated reviewer","handler":{"name":"prepare","operation":"agents.guide","parameters":{"type":"object","required":["session","note"],"properties":{"session":{"type":"string"},"note":{"type":"string"}},"additionalProperties":false}}}]}}}`,
+		entry:         `export function prepare(input){return {session:input.session,message:"prepared:"+input.note};}`,
+	} {
+		filename := filepath.Join(source, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	info, err := node.plugins.manager.Install(t.Context(), source, "", "guide-fixture")
+	if err != nil || len(info.Issues) != 0 || info.Extension == nil {
+		t.Fatalf("guide fixture is invalid: %+v, %v", info.Issues, err)
+	}
+	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		_, err := store.InstallPlugin(t.Context(), db, info, 0, true)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func reviewDelegation(t *testing.T) {
 	script := &reviewScript{results: map[string]string{}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
@@ -324,6 +366,7 @@ func reviewDelegation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer node.Stop(context.Background())
+	installGuideFixture(t, node)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -394,7 +437,10 @@ func reviewDelegation(t *testing.T) {
 		for _, run := range history.Page.Runs {
 			switch run.Status {
 			case protocol.ConversationStatusCompleted:
-				completed = true
+				// The guided child turn settles after the parent's.
+				script.mu.Lock()
+				completed = len(script.children) == 2
+				script.mu.Unlock()
 			case protocol.ConversationStatusFailed, protocol.ConversationStatusInterrupted, protocol.ConversationStatusCancelled:
 				script.mu.Lock()
 				t.Fatalf("review turn failed: %+v; results=%v", run.Error, script.results)
@@ -415,18 +461,30 @@ func reviewDelegation(t *testing.T) {
 	if err = json.Unmarshal([]byte(scope), &frozen); err != nil || frozen.ReviewID == "" {
 		t.Fatalf("review scope = %s", scope)
 	}
-	if script.requests != 4 || !strings.Contains(delegate, `"admitted":true`) || strings.Contains(delegate, "error") {
+	if script.requests != 5 || !strings.Contains(delegate, `"admitted":true`) || strings.Contains(delegate, "error") {
 		t.Fatalf("delegate_review after %d requests = %s", script.requests, delegate)
 	}
 	// The child runs the task the package prepared, not the arguments the
 	// model sent, and its origin is the call the model made.
-	if len(script.children) != 1 || !strings.Contains(script.children[0], "Frozen review capture:") || !strings.Contains(script.children[0], frozen.ReviewID) || !strings.Contains(script.children[0], "Gather evidence only") {
+	if len(script.children) != 2 || !strings.Contains(script.children[0], "Frozen review capture:") || !strings.Contains(script.children[0], frozen.ReviewID) || !strings.Contains(script.children[0], "Gather evidence only") {
 		t.Fatalf("delegated tasks = %q", script.children)
 	}
-	if len(history.Page.Children) != 1 || history.Page.Children[0].Run.Status != protocol.ConversationStatusCompleted || history.Page.Children[0].Origin.Session != session.ID {
+	// The guided turn continues the delegated child's session and originates
+	// from the guiding call.
+	if children := history.Page.Children; len(children) != 2 || children[0].Run.Status != protocol.ConversationStatusCompleted || children[0].Origin.Session != session.ID ||
+		children[1].Run.Session != children[0].Run.Session || children[1].Run.Turn == children[0].Run.Turn || children[1].Origin.Session != session.ID || children[1].Origin.Entry == children[0].Origin.Entry {
 		t.Fatalf("children = %+v", history.Page.Children)
 	}
 	if !strings.Contains(delegate, history.Page.Children[0].Run.Session.String()) {
 		t.Fatalf("delegate_review result %s names another child than %s", delegate, history.Page.Children[0].Run.Session)
+	}
+	// A package tool bound to agents.guide reaches the same child with the
+	// message the package prepared, which the model never sent.
+	guided := script.results["guide"]
+	if !strings.Contains(guided, history.Page.Children[0].Run.Session.String()) || !strings.Contains(guided, `"recipient"`) || strings.Contains(guided, "error") {
+		t.Fatalf("guide_review = %s", guided)
+	}
+	if !strings.Contains(script.children[1], "prepared:Check the edge") {
+		t.Fatalf("guided task = %q", script.children[1])
 	}
 }

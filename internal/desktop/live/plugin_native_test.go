@@ -167,7 +167,7 @@ func testNativeAssistantDraft(t *testing.T) {
 	var submitted []protocol.Request
 	for _, request := range transport.requests {
 		switch request.Command.Kind {
-		case "create_session_at":
+		case "create_session":
 			created = append(created, request)
 		case "submit_turn":
 			submitted = append(submitted, request)
@@ -176,8 +176,8 @@ func testNativeAssistantDraft(t *testing.T) {
 	if len(created) != 1 || len(submitted) != 2 || submitted[0].ID != submitted[1].ID {
 		t.Fatalf("assistant retry replaced admission identity: creates=%d submits=%d", len(created), len(submitted))
 	}
-	input, valid := detail[protocol.CommandCreateSessionAtPayload](created[0].Command.Data)
-	if !valid || input.Target != node || input.Worktree == nil || *input.Worktree != worktree || input.Project == nil || *input.Project != project ||
+	input, valid := detail[protocol.CommandCreateSessionPayload](created[0].Command.Data)
+	if !valid || created[0].Target != node || input.Worktree == nil || *input.Worktree != worktree || input.Project == nil || *input.Project != project ||
 		input.Config == nil || input.Config.Assistant == nil || input.Config.Assistant.Package != reference || input.Config.Assistant.ID != "review" {
 		t.Fatal("assistant first admission lost its captured configuration")
 	}

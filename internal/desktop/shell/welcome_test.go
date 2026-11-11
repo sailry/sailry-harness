@@ -58,10 +58,12 @@ func TestWelcomeGuide(t *testing.T) {
 }
 
 // The selection shortcut shows the captured text; Quote adds it to the
-// conversation's draft. ⌃⌥Space is the activate shortcut's key.
+// conversation's draft. ⌃⌥Space is the activate shortcut's key, written as
+// the platform's accelerator: Ctrl is CmdOrCtrl where it is the platform's
+// shortcut modifier.
 func TestSelection(t *testing.T) {
 	a, tt := newTester(t)
-	if a.SystemShortcuts()["Ctrl+Alt+Space"] != "system.activate" {
+	if a.SystemShortcuts()[Accelerator(ui.Ctrl|ui.Alt, ui.KeySpace)] != "system.activate" {
 		t.Errorf("system shortcuts %v", a.SystemShortcuts())
 	}
 	a.Do("system.selection")

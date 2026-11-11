@@ -33,6 +33,11 @@ func TestActivityStrip(t *testing.T) {
 
 	open := func(name, shows, shot string) {
 		t.Helper()
+		// The popover before is closed first: where the strip wraps, as
+		// with wider fonts, it lies over the capsules of the row above.
+		tt.Key(0, ui.KeyEscape)
+		tt.Advance(time.Second)
+		tt.Frame()
 		clickButton(t, tt, name)
 		tt.Advance(time.Second) // the popover's entrance
 		tt.Frame()

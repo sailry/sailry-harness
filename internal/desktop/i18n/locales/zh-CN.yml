@@ -1528,6 +1528,7 @@ session_changed: 会话已变化，请重新操作
 project_changed: 项目已变化，请重新打开编辑
 chat_action_failed: 操作失败，请重试
 chat_action_unknown: 结果未确认，可重试原请求
+chat_config_unavailable: 会话配置不可用，请检查供应商
 notification_update_failed: 通知更新失败，请重试
 session_archive_named: 归档“%{name}”并从活动会话中隐藏
 power_request_failed: 无法阻止设备休眠

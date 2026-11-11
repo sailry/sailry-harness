@@ -28,6 +28,37 @@ before its tag and escapes `<`, `>` and `&`, so a digest or replay identity
 computed by the Rust engine for the same request does not match and is answered
 with Conflict. Decoding accepts either order.
 
+The ledger keeps `credential-v1:<BLAKE3 hex>` of the serialized request instead
+of its body for every durable command whose payload can hold a secret
+(`admission.DigestOnly`): `put_credential`, `save_provider`,
+`complete_provider_login`, `import_session`, `save_ssh`, `save_database`,
+`save_search_settings`, `save_plugin_settings`, `save_plugin_mcp`, `install_mcp`,
+`start_connector_login`, `submit_connector_input`, `update_connection`,
+`save_backup_settings`, `restore_backup`, `restore_backup_file`, `dispatch` and
+`plugin_transaction`. The set is every durable command that reaches a
+`protocol.Secret`, directly or through a command carried by a schedule
+callback, plus `save_plugin_mcp`, whose environment and headers are free-form;
+`TestCommandLogClassification` derives it from the protocol source and fails
+for a command stored raw. Replay, Conflict, OutcomeUnknown after a crash and
+`InspectRequest` compare that digest and behave as for a raw body. Results are
+stored unchanged; no output carries a secret. A turn's approved `save_database`
+or `save_ssh` is kept on its approval (`agent_approvals.prepared`) without the
+password or credential, which is what proves that the turn created a
+connection.
+
+A database written before this rule holds such requests raw. Startup digests
+them through the in-place update: the rehearsal runs on a copy, the
+pre-update backup is digested too and its write-ahead log folded, and the live
+rows are rewritten with `PRAGMA secure_delete` on, which overwrites the freed
+content with zeros; the update is refused with "existing data was not changed"
+when secure deletion is unavailable. The write-ahead log is then checkpointed
+and truncated. The update is idempotent and the contracts stay v1. What it
+cannot reach: backups, exports and file copies made earlier (including
+`node-before-upgrade-*` backups of earlier updates), the untouched files of a
+Rust release, and blocks the filesystem or an SSD has already released or
+remapped. Connections saved by a turn before the update no longer count as
+created by that turn.
+
 Protocol and stored JSON is decoded in one pass by `protocol.Decoder`
 (`encoding/json/jsontext` tokens, per-type member tables built once). The wire
 and storage format and the accepted inputs are unchanged. A raw JSON value kept
@@ -133,10 +164,9 @@ credential identities, the configuration and role models are rewritten to them,
 and the session revision records a profile with the source Node and the captured
 provider. A plugin assistant binding requires the same package digest installed
 here. Turns of such a session run on the profile's provider and keep the
-forwarded roles without refreshing them. The ledger keeps
-`credential-v1:<BLAKE3 hex>` of the request instead of its body, so replay is
-exact and the secret is stored only in the private provider row;
-`inspect_request` compares that digest. The operation log names the command, the
+forwarded roles without refreshing them. The ledger keeps only the digest of
+the request, so the secret is stored only in the private provider row. The
+operation log names the command, the
 request and a worktree identifier only.
 
 Removing a forwarded session deletes its private providers and their secrets
@@ -155,7 +185,8 @@ tool.
 |---|---|
 | `create_session_at` whose target is this Node still creates the session locally | The Desktop creates every session through it; Rust refuses a local target |
 | Private providers are deleted with their session | Rust retains them; a removed session should not leave a forwarded secret behind |
-| Other credential-bearing commands keep their full ledger body | Only `import_session` is retained by digest here; Rust also digests `put_credential`, `save_provider` and similar commands |
+| `save_backup_settings`, `save_search_settings`, `restore_backup`, `restore_backup_file`, `dispatch` and `plugin_transaction` are kept by digest | Rust stores them raw although they can carry a secret; the other digested commands match Rust |
+| File and command bodies are stored raw | Rust also keeps `file-v1:` and `command-v1:` digests for file writes and command executions; they hold no credential field |
 
 ## Observation
 
@@ -206,6 +237,8 @@ keeps up to eight idle.
 - File checkpoints draw their row number from the `file_checkpoints` counter. A
   profile written before this rule has checkpoints above its counter; startup
   raises the counter through the in-place update (rehearsal, backup, apply).
+  The same update digests secret-bearing ledger rows stored raw
+  ([Admission and outcomes](#admission-and-outcomes)).
 - A plugin command that names a turn (`stop_turn`, `start_queued_turn`,
   `edit_queued_turn`, `remove_queued_turn`, `withdraw_guidance`,
   `send_queued_turn`, `read_queued_turn`, `run_command`) must name a turn of the

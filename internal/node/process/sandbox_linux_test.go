@@ -11,8 +11,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// The terminal subtest sets a process variable, so this test is not parallel.
 func TestSandboxArgsLinux(t *testing.T) {
-	t.Parallel()
 	policy := sandboxPolicy{paths: []allowedPath{{"/workspace/a/.git", false}, {"/workspace", true}, {"/usr", false}}, links: map[string]string{}}
 	args := sandboxArgsLinux(policy, "/usr/bin/sh")
 	for _, required := range []string{"--die-with-parent", "--unshare-pid", "--unshare-net", "--new-session"} {

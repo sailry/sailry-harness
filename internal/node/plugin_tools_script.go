@@ -58,7 +58,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	names := []string{}
 	for _, declaration := range info.Extension.Tools {
 		if declaration.Handler != nil && availablePluginTool(invocation, declaration) && selectedPluginTool(invocation, info, "", declaration.Name) {
-			if operation := declaration.Handler.Operation; operation != nil && *operation == protocol.ToolOperationDelegateAgent &&
+			if operation := declaration.Handler.Operation; operation != nil && (*operation == protocol.ToolOperationDelegateAgent || *operation == protocol.ToolOperationGuideAgent) &&
 				(invocation.Session.Delegation != nil || invocation.Turn.Config.Resource != nil || invocation.Turn.Roles.Execution != protocol.ConversationExecutionTeam) {
 				continue
 			}
@@ -184,7 +184,10 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 			tool.BeforeModel = owner.beforeModel(*host.Turn.BeforeModel)
 		}
 		if handler.Operation != nil {
-			if *handler.Operation == protocol.ToolOperationDelegateAgent {
+			// A package tool bound to agents.delegate or agents.guide runs
+			// the core tool with the arguments its script prepares.
+			if *handler.Operation == protocol.ToolOperationDelegateAgent || *handler.Operation == protocol.ToolOperationGuideAgent {
+				tool.Guidance = *handler.Operation == protocol.ToolOperationGuideAgent
 				tool.BindDelegation = func(bound engine.Tool) engine.Tool { return owner.bindNative(tool, bound, declaration, handler) }
 				tools = append(tools, tool)
 				continue

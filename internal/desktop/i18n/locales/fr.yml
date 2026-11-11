@@ -1528,6 +1528,7 @@ session_changed: La session a changé; réessayez
 project_changed: Projet modifié; rouvrir l'éditeur
 chat_action_failed: Opération a échoué; réessayez
 chat_action_unknown: Résultat non confirmé; réessayer la demande originale
+chat_config_unavailable: Configuration de session indisponible; vérifiez le fournisseur
 notification_update_failed: Impossible de mettre à jour les notifications ; réessayez
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: Impossible d’empêcher la veille

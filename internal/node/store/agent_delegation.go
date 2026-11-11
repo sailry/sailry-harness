@@ -49,42 +49,47 @@ func DelegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 }
 
 // DelegatePrepared admits a child for a call whose executing arguments differ
-// from the ones the model sent: a package tool bound to agents.delegate
-// prepares them. identity stays the recorded call, which locates it in the
+// from the ones the model sent: a package tool bound to agents.delegate or
+// agents.guide prepares them. identity stays the recorded call, which locates it in the
 // conversation; arguments describe the child.
 func DelegatePrepared(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready bool, now time.Time) (AgentInvocation, []protocol.Event, error) {
 	return delegateAgent(ctx, db, node, parent, identity, arguments, selected, ready, now, nil)
 }
 
-// delegatingTool reports whether a package tool of the turn's captured
-// packages is bound to agents.delegate. Core tool names never collide with
-// package aliases.
-func delegatingTool(ctx context.Context, db *sql.Conn, turn protocol.TurnID, name string) (bool, error) {
+// delegationOperation is the operation a delegation call runs: that of the
+// core tool, or the one a package tool of the turn's captured packages is
+// bound to. Core tool names never collide with package aliases.
+func delegationOperation(ctx context.Context, db *sql.Conn, turn protocol.TurnID, name string) (protocol.ToolOperation, error) {
+	switch name {
+	case "spawn_agent":
+		return protocol.ToolOperationDelegateAgent, nil
+	case "guide_agent":
+		return protocol.ToolOperationGuideAgent, nil
+	}
 	capture, err := readTurnCapture(ctx, db, turn)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	for _, reference := range capture.Plugins {
 		info, err := ReadPluginVersion(ctx, db, reference)
 		if err != nil {
-			return false, err
+			return "", err
 		}
 		if operation := plugins.ToolOperation(info, name); operation != nil {
-			return *operation == protocol.ToolOperationDelegateAgent, nil
+			return *operation, nil
 		}
 	}
-	return false, nil
+	return "", nil
 }
 func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready bool, now time.Time, guidance *protocol.ConversationRun) (AgentInvocation, []protocol.Event, error) {
 	empty := AgentInvocation{}
-	if identity.Name != "spawn_agent" && identity.Name != "guide_agent" {
-		delegates, err := delegatingTool(ctx, db, parent, identity.Name)
-		if err != nil {
-			return empty, nil, err
-		}
-		if !delegates {
-			return empty, nil, invalid("invalid delegation tool")
-		}
+	operation, err := delegationOperation(ctx, db, parent, identity.Name)
+	if err != nil {
+		return empty, nil, err
+	}
+	guiding := operation == protocol.ToolOperationGuideAgent
+	if operation != protocol.ToolOperationDelegateAgent && !guiding {
+		return empty, nil, invalid("invalid delegation tool")
 	}
 	parentRun, err := activeAgentRun(ctx, db, parent)
 	if err != nil {
@@ -109,7 +114,7 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 		return empty, nil, fault(protocol.ErrorCodeConflict, "child call was already admitted; execution was not replayed")
 	}
 	var args delegationArguments
-	if identity.Name == "guide_agent" {
+	if guiding {
 		var guide struct {
 			Session protocol.SessionID `json:"session"`
 			Message string             `json:"message"`

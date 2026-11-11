@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
@@ -446,8 +447,8 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 		s.Config = p.Config
 		t.sessions[s.ID] = s
 		response.Output = protocol.Output{Kind: "session", Data: s}
-	case "create_session_at":
-		p := request.Command.Data.(protocol.CommandCreateSessionAtPayload)
+	case "create_session":
+		p := request.Command.Data.(protocol.CommandCreateSessionPayload)
 		s := protocol.DefaultSession()
 		s.ID = protocol.SessionID{9}
 		s.Project = p.Project
@@ -874,7 +875,7 @@ func TestComposerSendRouting(t *testing.T) {
 			transport.mu.Lock()
 			var commands []protocol.Request
 			for _, request := range transport.requests {
-				if request.Command.Kind == "create_session_at" || request.Command.Kind == row.kind {
+				if request.Command.Kind == "create_session_at" || request.Command.Kind == "create_session" || request.Command.Kind == row.kind {
 					commands = append(commands, request)
 				}
 			}
@@ -921,15 +922,17 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 			}
 			if row.session != "existing" {
-				if len(commands) != 2 || commands[0].Command.Kind != "create_session_at" {
+				// A session on the Node that holds its provider is created by
+				// that Node itself.
+				if len(commands) != 2 || commands[0].Command.Kind != "create_session" || commands[0].Target != node {
 					t.Fatalf("new session routing = %#v", commands)
 				}
-				create := commands[0].Command.Data.(protocol.CommandCreateSessionAtPayload)
+				create := commands[0].Command.Data.(protocol.CommandCreateSessionPayload)
 				started := worktree
 				if based {
 					started = baseTree.ID
 				}
-				if create.Target != node || create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != started || create.ProviderRevision != 7 {
+				if create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != started || create.Config == nil || create.Config.Provider != provider || create.Config.Model != "fixture" {
 					t.Fatalf("captured project/Node scope = %#v", create)
 				}
 				// The session owns its draft's browser tab and no other: an agent
@@ -1133,6 +1136,7 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a session on another Node is forwarded by the local Node", testSessionForwarding)
 	t.Run("projected_default_effort", func(t *testing.T) {
 		provider := protocol.ProviderID{1}
 		snapshot := protocol.DefaultSnapshot()
@@ -1202,4 +1206,223 @@ func TestComposerSendRouting(t *testing.T) {
 
 func (t *conversationTestTransport) Open(context.Context, protocol.StreamID) (link.Stream, error) {
 	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
+}
+
+// testSessionForwarding sends from drafts whose Host is another Node. A
+// model of the local Node's provider is forwarded by the local Node, which
+// holds the provider and its credential; a model of the other Node's own
+// provider is created there. A refused or unconfirmed forward keeps the
+// draft and toasts its outcome.
+func testSessionForwarding(t *testing.T) {
+	localNode, remoteNode := protocol.NodeID{1}, protocol.NodeID{2}
+	project, worktree := protocol.ProjectID{3}, protocol.WorktreeID{4}
+	localProvider, remoteProvider, private := protocol.ProviderID{5}, protocol.ProviderID{6}, protocol.ProviderID{7}
+	credential := &protocol.CredentialRef{Node: localNode, ID: protocol.CredentialID{8}}
+	provider := func(id protocol.ProviderID, name string) protocol.ConversationProvider {
+		return protocol.ConversationProvider{ID: id, Revision: 7, Enabled: true, Name: name, Api: "responses", Authentication: "api_key",
+			Models: []protocol.ConversationModel{{ID: "fixture", DefaultEffort: protocol.Effort{Kind: "default"}}}}
+	}
+	held := provider(localProvider, "Local")
+	held.Credential = credential
+	transports := make([]*conversationTestTransport, 2)
+	controllers := make([]*client.Client, 2)
+	for index, node := range []protocol.NodeID{localNode, remoteNode} {
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = node
+		if index == 0 {
+			snapshot.Providers = []protocol.ConversationProvider{held}
+		} else {
+			snapshot.Providers = []protocol.ConversationProvider{provider(remoteProvider, "Remote")}
+			snapshot.Projects = []protocol.Project{{ID: project, Name: "Workspace", Path: "/fixture/project"}}
+			snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/worktree", Main: true}}
+		}
+		transports[index] = &conversationTestTransport{snapshot: snapshot}
+		transports[index].conversation = protocol.DefaultConversationSnapshot()
+		transports[index].conversation.Node = node
+		controllers[index] = client.New(transports[index])
+		if err := controllers[index].Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		defer controllers[index].Close()
+	}
+	// refusal answers the next forward; forwarded counts the sessions made.
+	var refusal protocol.ErrorCode
+	forwarded := byte(0)
+	transports[0].handle = func(request protocol.Request) (link.Response, bool) {
+		if request.Command.Kind != "create_session_at" {
+			return link.Response{}, false
+		}
+		if refusal != "" {
+			return link.Response{Fault: &protocol.Fault{Code: refusal, Message: "Claude sign-in is required on the execution Node"}}, true
+		}
+		input := request.Command.Data.(protocol.CommandCreateSessionAtPayload)
+		forwarded++
+		session := protocol.DefaultSession()
+		session.ID, session.Project, session.Worktree, session.Revision = protocol.SessionID{20 + forwarded}, input.Project, *input.Worktree, 1
+		copied := held
+		copied.ID, copied.Credential = private, &protocol.CredentialRef{Node: remoteNode, ID: protocol.CredentialID{9}}
+		session.Config = *input.Config
+		session.Config.Provider, session.Config.Credential = copied.ID, copied.Credential
+		session.Profile = &protocol.SessionProfile{Source: localNode, Provider: copied}
+		return link.Response{Output: protocol.Output{Kind: "session", Data: session}}, true
+	}
+	local, err := NewWithPreferences(t.Context(), controllers[0], preferences.Open(t.TempDir()+"/preferences.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	remote := local.newBinding(controllers[1])
+	defer remote.Close()
+	local.bindings = map[string]*Runtime{remoteNode.String(): remote}
+	local.project()
+	var context *ui.Context
+	var toasts []string
+	// rendered is the conversation on screen, if any.
+	var rendered *viewmodel.Conversation
+	tester := ui.NewTester(func(c *ui.Context) {
+		context = c
+		local.drain(c)
+		if rendered != nil {
+			local.conversation(c, rendered, local.App.Composer(rendered.ID))
+			local.finishFrame()
+		}
+		ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
+			toasts = toasts[:0]
+			for _, toast := range shown {
+				toasts = append(toasts, toast.Title)
+			}
+		})
+	}, 640, 400)
+	tester.SetLocale("en")
+	settle := func() {
+		for range 4 {
+			local.workers.Wait()
+			remote.workers.Wait()
+			tester.Frame()
+		}
+	}
+	settle()
+	sent := func(index int, kind string) (found []protocol.Request) {
+		transports[index].mu.Lock()
+		defer transports[index].mu.Unlock()
+		for _, request := range transports[index].requests {
+			if request.Command.Kind == kind {
+				found = append(found, request)
+			}
+		}
+		return
+	}
+	// draft is a new draft on the other Node's project with model chosen.
+	draft := func(model string) (*viewmodel.Conversation, *composer.State, *conversationActions) {
+		t.Helper()
+		var shown *viewmodel.Project
+		for _, candidate := range local.App.Data.Projects {
+			if candidate.Host == remoteNode.String() {
+				shown = candidate
+			}
+		}
+		if shown == nil {
+			t.Fatal("the other Node's project is not shown")
+		}
+		local.newDraft(shown)
+		cv := local.App.Data.Find(local.App.Sidebar.Selected)
+		comp := local.App.Composer(cv.ID)
+		comp.Host, comp.Project, comp.Worktree, comp.Model = remoteNode.String(), project.String(), "/fixture/worktree", model
+		comp.Team = defaultTeamID
+		if local.conversationRuntime(cv, comp) != remote {
+			t.Fatal("the draft is not the other Node's")
+		}
+		return cv, comp, &conversationActions{r: remote, c: context, cv: cv, comp: comp}
+	}
+	send := func(actions *conversationActions, comp *composer.State) {
+		actions.c = context
+		actions.Send(composer.Message{Text: "Captured draft", Model: comp.Model, Mode: composer.Code, Permission: composer.AskFirst})
+		settle()
+	}
+	offered := func(cv *viewmodel.Conversation) (ids []string) {
+		for _, model := range remote.offeredModels(cv.ID, remote.models()) {
+			ids = append(ids, model.ID)
+		}
+		return
+	}
+
+	cv, comp, actions := draft(modelKey(localProvider, "fixture"))
+	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture"), modelKey(localProvider, "fixture")}; !slices.Equal(got, want) {
+		t.Fatalf("a draft on another Node offers %q, want %q", got, want)
+	}
+	for _, outcome := range []struct {
+		code  protocol.ErrorCode
+		toast string
+	}{
+		{protocol.ErrorCodeNotConfigured, "chat_config_unavailable"},
+		{protocol.ErrorCodeRevisionConflict, "session_changed"},
+		{protocol.ErrorCodeOutcomeUnknown, "chat_action_unknown"},
+	} {
+		transports[0].mu.Lock()
+		refusal = outcome.code
+		transports[0].mu.Unlock()
+		before := len(sent(0, "create_session_at"))
+		send(actions, comp)
+		requests := sent(0, "create_session_at")
+		if len(requests) != before+1 || !slices.Contains(toasts, i18n.In("en", outcome.toast)) {
+			t.Fatalf("%s: %d forwards, toasts %q", outcome.code, len(requests)-before, toasts)
+		}
+		if comp.Draft != "Captured draft" || !strings.HasPrefix(cv.ID, "draft/") || len(sent(1, "submit_turn")) != 0 {
+			t.Fatalf("%s: draft %q, conversation %s, %d turns", outcome.code, comp.Draft, cv.ID, len(sent(1, "submit_turn")))
+		}
+	}
+	// The unconfirmed forward is sent again as the request it was.
+	transports[0].mu.Lock()
+	refusal = ""
+	transports[0].mu.Unlock()
+	send(actions, comp)
+	requests := sent(0, "create_session_at")
+	last := requests[len(requests)-1]
+	if last.ID != requests[len(requests)-2].ID || last.Target != localNode {
+		t.Fatalf("the retried forward: request %v after %v, to %v", last.ID, requests[len(requests)-2].ID, last.Target)
+	}
+	create := last.Command.Data.(protocol.CommandCreateSessionAtPayload)
+	if create.Target != remoteNode || create.ProviderRevision != 7 || create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != worktree ||
+		create.Config == nil || create.Config.Provider != localProvider || create.Config.Model != "fixture" || create.Config.Credential == nil || *create.Config.Credential != *credential {
+		t.Fatalf("forwarded creation = %+v, config %+v", create, create.Config)
+	}
+	if len(sent(1, "create_session_at"))+len(sent(1, "create_session")) != 0 {
+		t.Fatal("the other Node was asked to create the forwarded session")
+	}
+	created := (protocol.SessionID{21}).String()
+	turns := sent(1, "submit_turn")
+	if cv.ID != created || comp.Draft != "" || len(turns) != 1 || turns[0].Target != remoteNode {
+		t.Fatalf("after the forward: conversation %s, draft %q, turns %+v", cv.ID, comp.Draft, turns)
+	}
+	// The session shows the private provider it was given and sends on with it.
+	if comp.Model != modelKey(private, "fixture") {
+		t.Fatalf("the forwarded session's model = %q", comp.Model)
+	}
+	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture"), modelKey(private, "fixture")}; !slices.Equal(got, want) {
+		t.Fatalf("the forwarded session offers %q, want %q", got, want)
+	}
+	rendered = cv
+	settle()
+	if comp.Model != modelKey(private, "fixture") {
+		t.Fatalf("the forwarded session's model on screen = %q", comp.Model)
+	}
+	send(actions, comp)
+	rendered = nil
+	if turns = sent(1, "submit_turn"); len(turns) != 2 || len(sent(1, "set_session_config")) != 0 || len(sent(0, "create_session_at")) != len(requests) {
+		t.Fatalf("a later send: %d turns, %d configuration saves", len(turns), len(sent(1, "set_session_config")))
+	}
+
+	// The other Node's own provider creates the session there.
+	cv, comp, actions = draft(modelKey(remoteProvider, "fixture"))
+	send(actions, comp)
+	own := sent(1, "create_session")
+	if len(own) != 1 || own[0].Target != remoteNode || len(sent(0, "create_session_at")) != len(requests) || len(sent(0, "create_session")) != 0 {
+		t.Fatalf("creation with the Node's own provider: %+v", own)
+	}
+	if config := own[0].Command.Data.(protocol.CommandCreateSessionPayload).Config; config == nil || config.Provider != remoteProvider {
+		t.Fatalf("own creation config = %+v", config)
+	}
+	if cv.ID != (protocol.SessionID{9}).String() || comp.Draft != "" {
+		t.Fatalf("after the own creation: conversation %s, draft %q", cv.ID, comp.Draft)
+	}
 }

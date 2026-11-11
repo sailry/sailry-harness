@@ -1528,6 +1528,7 @@ session_changed: Bitte versuchen Sie es erneut
 project_changed: Projekt geändert; Editor neu öffnen
 chat_action_failed: Vorgang fehlgeschlagen; versuchen Sie es erneut
 chat_action_unknown: Ergebnis nicht bestätigt; versuchen Sie die ursprüngliche Anfrage erneut
+chat_config_unavailable: Sitzungskonfiguration nicht verfügbar; überprüfen Sie den Anbieter
 notification_update_failed: Benachrichtigungen konnten nicht aktualisiert werden; erneut versuchen
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: Ruhezustand konnte nicht verhindert werden

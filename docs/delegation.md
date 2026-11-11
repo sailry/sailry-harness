@@ -21,6 +21,12 @@ keeps the name and arguments the model sent and locates the child's origin; the
 prepared arguments describe the child. Store accepts a package alias only when
 the parent turn's captured packages bind it to `agents.delegate`.
 
+A package tool bound to `agents.guide` reaches `guide_agent` the same way: its
+script prepares `session` and `message`, a running child is guided, a settled
+one is resumed, and the result names the `recipient` turn. Store accepts the
+alias only when the captured packages bind it to `agents.guide`, and a session
+is required. `agents.wait` is not bound for packages.
+
 Foreground spawns return admitted identities and canonical pending receipts.
 The complete parent tool batch settles before its children become executable.
 Children from that response form one concurrent wave. Their durable final

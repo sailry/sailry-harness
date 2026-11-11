@@ -58,7 +58,9 @@ to unrestricted project turns that are not delegated children. They dispatch
 `put_team`, `remove_team` and `set_session_team` as the turn's caller, so the
 catalog has one owner. Revisions cross the tool boundary as decimal strings.
 The two listings are read-only; every other tool takes one non-rememberable
-approval and is refused in Plan mode. Application changes future admission
+approval and is refused in Plan mode. An agent or team definition is validated
+before the approval is requested, so an invalid one returns `invalid_request`
+without a prompt; a package tool bound to `roles.save` is checked the same way. Application changes future admission
 only: the turn context states the captured conversation revision, and a stale
 revision returns `revision_conflict` without rebasing. Package tools reach the
 same commands through the `roles.list`, `roles.save`, `roles.remove` and

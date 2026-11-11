@@ -1528,6 +1528,7 @@ session_changed: 會話已變化，請重新操作
 project_changed: 專案已變化，請重新開啟編輯
 chat_action_failed: 操作失敗，請重試
 chat_action_unknown: 結果未確認，可重試原請求
+chat_config_unavailable: 會話配置不可用，請檢查供應商
 notification_update_failed: 通知更新失敗，請重試
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: 無法阻止裝置休眠

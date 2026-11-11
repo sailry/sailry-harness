@@ -44,7 +44,9 @@ type Tool struct {
 	ContextParts      []string
 	BeforeModel       func(context.Context, []canonical.Record) (bool, error)
 	BindDelegation    func(Tool) Tool
-	schema            *jsonschema.Schema
+	// Guidance makes BindDelegation receive guide_agent instead of spawn_agent.
+	Guidance bool
+	schema   *jsonschema.Schema
 	// ExecutePrepared runs a call with arguments a package prepared. The call
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
@@ -77,7 +79,11 @@ func (r *Runtime) captureTools(x *execution) error {
 	x.tools = append(builtins, x.tools...)
 	for index := range x.tools {
 		if bind := x.tools[index].BindDelegation; bind != nil {
-			if delegate := findTool(builtins, "spawn_agent"); delegate != nil {
+			name := "spawn_agent"
+			if x.tools[index].Guidance {
+				name = "guide_agent"
+			}
+			if delegate := findTool(builtins, name); delegate != nil {
 				x.tools[index] = bind(*delegate)
 			}
 		}

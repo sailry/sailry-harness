@@ -1528,6 +1528,7 @@ session_changed: Sesión cambiada; inténtelo de nuevo
 project_changed: Proyecto cambiado; vuelva a abrir el editor
 chat_action_failed: La operación falló; inténtelo de nuevo
 chat_action_unknown: Resultado no confirmado; reintentar la solicitud original
+chat_config_unavailable: Configuración de sesión no disponible; compruebe el proveedor
 notification_update_failed: No se pudieron actualizar las notificaciones; reintentar
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: No se pudo evitar la suspensión

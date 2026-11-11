@@ -45,7 +45,11 @@ func hoverStill(t *testing.T, tt *ui.Tester, role ui.Role, x, y float32) {
 	if len(ps) != 1 {
 		t.Fatalf("%d panels open, want 1", len(ps))
 	}
+	// The panel within its rounded corners and edges, where the pixels are
+	// its own: what moves in the conversation behind shows through those.
 	panel := ps[0]
+	const inset = 12
+	panel.X, panel.Y, panel.W, panel.H = panel.X+inset, panel.Y+inset, panel.W-2*inset, panel.H-2*inset
 	base := tt.Image()
 	for i := range 40 {
 		tt.Move(x+float32(i%2), y)

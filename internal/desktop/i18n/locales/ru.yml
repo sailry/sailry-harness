@@ -1528,6 +1528,7 @@ session_changed: Сессия изменена; попробуйте снова
 project_changed: Проект изменен; переоткройте редактор
 chat_action_failed: Операция не удалась; попробуйте еще раз
 chat_action_unknown: Результат не подтвержден; повторите первоначальный запрос
+chat_config_unavailable: Конфигурация сеанса недоступна; проверьте поставщика
 notification_update_failed: Не удалось обновить уведомления; повторите попытку
 session_archive_named: Archive “%{name}” and hide it from active conversations
 power_request_failed: Не удалось предотвратить сон

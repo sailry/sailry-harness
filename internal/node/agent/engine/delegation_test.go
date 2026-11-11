@@ -210,7 +210,7 @@ func TestDelegationHandoff(t *testing.T) {
 			if err := f.r.save(parent.ctx, parent.inv.Session.ID, record); err != nil {
 				t.Fatal(err)
 			}
-			receipt := f.r.guideChild(parent, guide)
+			receipt := f.r.guideChild(parent, guide, guide.Arguments)
 			value, ok := receipt.Value.(map[string]any)
 			if !ok || receipt.Failure != nil || value["recipient"] != recipient.Turn || value["session"] != child.session || value["turn"] == recipient.Turn {
 				t.Fatalf("running guidance receipt: %+v", receipt)

@@ -334,6 +334,25 @@ attachments entered while the worktree is created stay in the composer. A failur
 leaves the draft and base unchanged; an uncertain result retries its captured
 request rather than creating a second worktree.
 
+### Session creation and forwarding
+
+A draft's first send or first attachment creates its session
+(`live/conversation_create.go`). A draft on the local Node, or on another Host
+with a model of that Host's own provider, sends `create_session` to that Node.
+A draft on another Host also offers the local Node's enabled providers
+(`composerProviders`, `offeredModels`); with one of their models the Desktop
+sends `create_session_at` through the local Node's controller, with the Host
+as `target`, the local provider's ID, its `credential` in `config` and its
+revision as `provider_revision`. The session that returns carries a private
+copy of the provider (`Session.Profile`): its composer shows and saves with
+that copy, and offers it beside the Host's own providers.
+
+A refused creation keeps the draft. `not_configured` (the provider is gone, or
+its Claude or ChatGPT sign-in stays with the Node it was made on) toasts
+`chat_config_unavailable`; a revision conflict toasts `session_changed`; an
+unconfirmed outcome toasts `chat_action_unknown` and the next send repeats
+the same request.
+
 ### Connection references
 
 `live/references_connections.go` fills the `@` Databases and SSH pages from the

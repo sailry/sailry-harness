@@ -41,15 +41,18 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 			case "spawn_agent":
 				return r.spawnChild(x, call, call.Arguments)
 			case "guide_agent":
-				return r.guideChild(x, call)
+				return r.guideChild(x, call, call.Arguments)
 			default:
 				return r.waitChild(x, call)
 			}
 		})
-		if name == "spawn_agent" {
+		if name != "wait_agent" {
 			tool.ExecutePrepared = func(ctx context.Context, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
 				if ctx.Err() != nil || x.ctx.Err() != nil {
 					return invalidTool("delegation is no longer active")
+				}
+				if name == "guide_agent" {
+					return r.guideChild(x, call, arguments)
 				}
 				return r.spawnChild(x, call, arguments)
 			}
@@ -196,13 +199,15 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 	})
 }
 
-func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest) ToolResult {
+// guideChild guides or resumes a child for call. arguments are the ones that
+// execute: the call's own, or those a package tool prepared from them.
+func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
 	var state store.ChildState
 	result := r.admitChild(x, call, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 		var inv *store.AgentInvocation
 		var events []protocol.Event
 		var err error
-		state, inv, events, err = store.GuideChild(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), r.clock.Now())
+		state, inv, events, err = store.GuideChild(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, r.clock.Now())
 		return inv, events, err
 	})
 	if result.Value == nil && result.Failure == nil {
