@@ -62,7 +62,8 @@ const agentStatisticsUsageRows = `WITH selected AS (
   CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
    THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider,
  json_extract(e.body,'$.metadata.execution.timing.elapsed_us') AS elapsed,
- json_extract(e.body,'$.metadata.execution.media') AS media
+ json_extract(e.body,'$.metadata.execution.media') AS media,
+ a.provider AS captured,json_extract(m.value,'$.provider') AS assigned
  FROM selected h JOIN agent_events e ON e.turn=h.turn
  JOIN turns t ON t.id=e.turn JOIN agent_runs a ON a.turn=t.id
  JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
@@ -71,7 +72,7 @@ const agentStatisticsUsageRows = `WITH selected AS (
  WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
  AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
  AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0)
- SELECT usage,model,json_extract(provider,'$.api'),elapsed,media,delegated FROM responses`
+ SELECT usage,model,json_extract(provider,'$.api'),elapsed,media,delegated,` + agentUsagePreset + ` FROM responses`
 
 // agentStatisticsMetrics totals the session's own usage and, apart from it,
 // the usage of the children its turns delegated.
@@ -83,6 +84,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 		api, media sql.NullString
 		elapsed    sql.NullInt64
 		delegated  bool
+		preset     sql.NullString
 	}
 	rows, err := db.QueryContext(ctx, agentStatisticsUsageRows, session.String())
 	if err != nil {
@@ -92,7 +94,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 	for rows.Next() {
 		var value row
 		var body []byte
-		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.media, &value.delegated); err != nil {
+		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.media, &value.delegated, &value.preset); err != nil {
 			rows.Close()
 			return result, delegated, err
 		}
@@ -109,7 +111,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 	for _, row := range records {
 		var cost *protocol.UsageCost
 		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
-			cost, err = estimateAgentCost(ctx, db, prices, row.api.String, row.model, row.usage)
+			cost, err = estimateAgentCost(ctx, db, prices, row.preset.String, row.api.String, row.model, row.usage)
 			if err != nil {
 				return result, delegated, err
 			}

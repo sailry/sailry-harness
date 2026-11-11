@@ -123,6 +123,22 @@ compaction overrides. Catalog lookups merge shared IDs conservatively across
 providers. Scores cover published model benchmarks and are separate from Sailry
 session usage; no provider account history is collected.
 
+Session and usage costs are reference prices from the stored models.dev catalog,
+not billed amounts. A response is priced by the exact model identifier under the
+vendor of the channel that ran it: the built-in preset the channel was created
+from (the one captured with the run, else the channel as saved now), then that
+preset's brand, then the vendor its wire protocol belongs to (OpenAI for
+Responses and Chat Completions, Anthropic, Google). Seven names differ from
+models.dev and are mapped in `store/agent_usage.go` (`gemini` to `google`, `qwen`
+to `alibaba`, `moonshot` to `moonshotai`, `fireworks` to `fireworks-ai`,
+`together` to `togetherai`, `zhipu` to `zhipuai`, `doubao` to `volcengine`). When
+none of these lists the model, the identifier is priced from the other vendors
+only if every one that states a price states the same one; resellers price one
+identifier differently, so a disputed or unknown model stays unpriced. Partner
+and package presets are not vendors. The Rust source prices by wire protocol
+alone, which leaves every Chat Completions vendor other than OpenAI, and the
+DeepSeek, OpenCode and Azure protocols, without a cost.
+
 ## Model requests
 
 Model capture copies provider, session configuration, secret and session identity.
