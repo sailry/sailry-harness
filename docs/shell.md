@@ -55,7 +55,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `selection.go` | `SystemShortcuts`, the selected text dialog |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
-| `demo.go` | Demo mode: the window's two stages, `Demo`, `DemoUsage`, `Prefs` |
+| `demo.go` | Demo mode: the window's two stages, `Demo`, `DemoConversation`, `DemoUsage`, `Prefs` |
 
 ## Entry point
 
@@ -164,7 +164,12 @@ the session overview (`composer.OverviewButton`, `Hooks.Overview`; see
 the plugins' header contributions (`Hooks.PluginHeader`) and the preview tag. A plugin's header
 contribution is the same `kit.IconLook` at `HeaderButton` as the shell's own
 buttons, `ButtonGap` apart, its popover under its end; an `indicator` or
-`metric` is not drawn in the header. Tooltips show the shortcut.
+`metric` is not drawn in the header. Tooltips show the shortcut. The window
+opens and closes a header `popover` itself, on the press, an outside press
+and Escape, as the source does: the package is not asked, so a package that
+answers no `change` event still opens. The popover is `kit.Popover` with the
+package's panel (its `handler`) in a scroll: the declared width, 480 without
+one, at most the window less 32, and at most the window's height less 110.
 
 The band is two regions, split at the right column's left edge
 (`headerSide`):
@@ -451,11 +456,12 @@ does and the demo's panels and order are never saved. The Node keeps running.
 
 | While the demo shows | |
 |---|---|
-| Conversation, composer, sidebar and panel actions | The preview's: they change the demo's memory. `Hooks.Conversation`, `RenderChild`, `WorkspaceProject`, `PluginHeader` on the conversation page, `Overview`, `OpenKnowledge` and the sidebar's `Actions` are not called, so no command reaches a Node |
+| Conversation, composer, sidebar and panel actions | The preview's: they change the demo's memory. `Hooks.Conversation`, `RenderChild`, `WorkspaceProject`, `Overview`, `OpenKnowledge` and the sidebar's `Actions` are not called, so no command reaches a Node |
 | A sent message | Plays the demo's reply (`preview.DemoReplies`) |
 | Models | One provider, DeepSeek: DeepSeek V4.1 Pro (selected), DeepSeek V4.1 and DeepSeek V4.1 Flash (`preview.DemoModels`, `DemoFamilies`). They exist in the composer's context only; Settings lists the profile's own providers |
 | Identification | None, by the user's decision of 2026-11-11: no header tag, toast, badge or title suffix. `kit.SetDemo` marks the frame and `kit.PreviewNotice` and the preview-only hints stay silent; an action the demo cannot play does nothing |
 | Context ring | Reads the tokens used of the model's window, as a measured indicator does (`conversation.Usage.Window`, 200k for the demo's models): `48k / 200k 24%`, the same as its tooltip. The preview, whose usage has no window, keeps its compaction hint |
+| Statistics figures and context panel | The statistics package's own, as over a session: its five figures in the context bar, each with its rows on hover, and its context panel in the header (`Hooks.PluginHeader`). `Hooks.DemoConversation` runs after the demo's composer context is built and sets the figures (`composer.State.Metrics`). The controller mounts the package's composer view for each demo conversation shown, without a session, under the presentation `demo/<id>` (`internal/desktop/live/plugin_demo.go`); what the view reads as the composer's state is built from the conversation's own `Session.Usage` (`demoStatistics`: one token in eight is output, the cached part of the input, the cost, the speed as output over its time, the context used of the window). No other package is mounted over a demo conversation: theirs would ask the Node. Nothing is asked of a Node for it; the package's bundle is the one another of its mounts already read, and is read from the Node only where none has it. The mounts and their contributions leave with the demo. A profile without the package enabled shows no figures, as a session does |
 | Archive prompt | Names the conversation and offers Archive, as the application's does; it archives in the demo's memory |
 | Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live, but for the usage a plugin page reads (next row) |
 | Usage page (the statistics package) | The demo's usage ledger (`preview.DemoUsage`, held by the demo and read through `App.DemoUsage`): a year of model responses over the demo's projects, provider and models, generated from a fixed seed around today, with the demo conversations' own usage counted exactly. Plugin pages are mounted with it as their host's `UsageSample` (`live.Runtime.pluginUsageSample`), which answers `usageSources` (one source, this device), `readUsageChoices`, `readUsageInventory`, `watchUsage` and `refreshUsage` in the Node's shapes and asks no Node. `Hooks.DemoChanged` tells the mounted pages when the switch is flipped or the demo is written in another language (`plugins.Host.SetUsageSample`): the calls waiting in `nextUsageSources` and `nextUsageChange` wake, the page's watch moves to the other ledger under a later cursor, and an open page redraws |
@@ -547,7 +553,10 @@ Phase 1–2 screens.
 `internal/desktop/live/demo_mode_test.go` (`TestDemoMode`): Demo mode over a
 real Node: the settings' order, the switch, the swap and the way back, no
 command sent by the demo's actions, no notice text, the model shown and the
-preference saved; the Usage page's calls answer from the demo's ledger
+preference saved; the statistics package's figures with their cards and its
+context panel over a demo conversation, from the conversation's usage
+(`statistics`: `demoStatistics` and `demoComposer`), with no view or
+statistics command sent and nothing left after the way back; the Usage page's calls answer from the demo's ledger
 without a command and from the Node again after the way back, the waiting
 call moving over. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
 demo shows every value of the view model's enumerations and sets every
@@ -577,7 +586,8 @@ none.
 | ⌘/ opens Settings | No Shortcuts section before phase 5 |
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
 | System shortcuts register at launch only | Keys changed in Settings take effect at the next launch |
-| Demo mode shows no plugin controls in the conversation's header or composer | They mount over a Node's session, which a demo conversation is not |
+| Demo mode shows only the statistics package's controls in the conversation's header and context bar | The other packages' mount over a Node's session and ask it, which a demo conversation is not. The statistics package reads the composer state alone, which the host builds from the demo conversation's usage |
+| A header popover does not open on hover | The source opens one whose declaration sets `hover` while the pointer is over it. No official package declares it; the press opens here |
 | A Usage page filter chosen before the Demo mode switch is flipped stays chosen | The page keeps its own query; the host answers it from the other ledger, which has no such project, provider or model, until the filter is cleared |
 | The selected text is the preview's sample | Reading another app's selection needs the platform's accessibility APIs and a Node |
 | About opens Settings, which has no About section | Settings sections beyond Appearance, Providers and Plugins are later phases |
