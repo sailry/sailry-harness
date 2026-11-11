@@ -114,13 +114,8 @@ func (link *Link) pairPINSelected(ctx context.Context, origin, pin string, relay
 	}{request, pin}, http.StatusOK, &redemption, []string{"ticket", "expires_at_ms"}); err != nil {
 		return EndpointAddress{}, err
 	}
-	now, err := pairingNowMS(relay.now())
-	if err != nil {
-		return EndpointAddress{}, err
-	}
-	if redemption.ExpiresAtMS <= now {
-		return EndpointAddress{}, pairingCodeExpired()
-	}
+	// The relay released the ticket and the sharer decides whether it is
+	// still valid; this clock is not compared with theirs.
 	return link.pairSelected(scoped, redemption.Ticket, relays)
 }
 
