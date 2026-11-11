@@ -1,10 +1,12 @@
 package shell
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -52,6 +56,14 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	}
 	// Choosing a tab shows its item and its kind's side list, whose
 	// selection stays the tree's own, as the files plugin's explorer.
+	// The tabs share the band over the panel with the session status: idle,
+	// the four tabs all show in it.
+	setRuns(a, false)
+	tt.Frame()
+	// The tabs share the band over the panel with the session status: idle,
+	// the four tabs all show in it.
+	setRuns(a, false)
+	tt.Frame()
 	click(t, tt, "README.md")
 	tt.Frame()
 	if _, ok := tt.AccessByRole(ui.RoleTreeItem, "README.md"); !ok || !tt.HasText("A native desktop Agent workspace.") {
@@ -618,6 +630,365 @@ func TestHeaderClearsTrafficLights(t *testing.T) {
 		t.Errorf("in full screen the toggle still starts at %v", b.Bounds.X)
 	}
 	t.Run("icon buttons", testIconButtons)
+	t.Run("header split", testHeaderSplit)
+}
+
+// headerLine is the x of the 1 DIP line the header's band shows between
+// from and to, -1 without exactly one: a column of pixels unlike those 2
+// DIPs on either side of it, at the band's top and bottom alike.
+func headerLine(tt *ui.Tester, from, to float32) float32 {
+	return lineAt(tt, from, to, 4, HeaderHeight-4)
+}
+
+// lineAt finds the one vertical line between from and to that shows on both
+// rows y0 and y1.
+func lineAt(tt *ui.Tester, from, to, y0, y1 float32) float32 {
+	img := tt.Image()
+	scale := float32(img.Bounds().Dx()) / 1280
+	found := float32(-1)
+	for x := from; x < to; x++ {
+		line := true
+		for _, y := range []float32{y0, y1} {
+			at := img.At(int((x+0.5)*scale), int(y*scale))
+			if at == img.At(int((x-2+0.5)*scale), int(y*scale)) || at == img.At(int((x+2+0.5)*scale), int(y*scale)) {
+				line = false
+			}
+		}
+		if line {
+			if found >= 0 {
+				return -1
+			}
+			found = x
+		}
+	}
+	return found
+}
+
+// status is the box of the header's session status: the strip's avatars of
+// the band, from the first to the last.
+func status(tt *ui.Tester) (ui.Rect, bool) {
+	var r ui.Rect
+	for _, info := range tt.AccessAll() {
+		b := info.Bounds
+		if info.Role != ui.RoleButton || b.Y+b.H > HeaderHeight || b.W == 0 {
+			continue
+		}
+		for _, lane := range []string{"activity_waiting", "activity_running", "activity_completed"} {
+			if !strings.Contains(info.Name, " · "+i18n.In("en", lane)) {
+				continue
+			}
+			if r.W == 0 {
+				r = b
+			}
+			end := max(r.X+r.W, b.X+b.W)
+			r.X = min(r.X, b.X)
+			r.W = end - r.X
+		}
+	}
+	return r, r.W > 0
+}
+
+// setRuns leaves every session idle, or the selected one running.
+func setRuns(a *App, running bool) {
+	each := func(list []*preview.Conversation) {
+		for _, cv := range list {
+			cv.Status = preview.Idle
+			if running && cv.ID == a.Sidebar.Selected {
+				cv.Status = preview.Running
+			}
+		}
+	}
+	for _, pr := range a.Data.Projects {
+		each(pr.Conversations)
+	}
+	each(a.Data.Unassigned)
+}
+
+// still shows the frame a change made outside an event settles to: the
+// frame that starts the columns' motion, then the one after it ended.
+func still(tt *ui.Tester) {
+	tt.Frame()
+	settle(tt)
+}
+
+// The header is two regions that meet at the right panel's left edge. The
+// session status and the fold toggle are fixed at the far right in both
+// states; the page's own actions end the main region, left of the split; the
+// band's divider is the column's; the panel's tabs and the details' titles
+// show in the band over the column, which has no strip row, title row or
+// close button of its own; the fold toggle is disabled with nothing to show.
+func testHeaderSplit(t *testing.T) {
+	a, tt := newTester(t)
+	en := func(k string) string { return i18n.In("en", k) }
+	fold := func() ui.AccessInfo {
+		t.Helper()
+		info, ok := headerButton(tt, en("details"))
+		if !ok {
+			t.Fatalf("no fold toggle: %q", tt.Texts())
+		}
+		return info
+	}
+	end := func(r ui.Rect) float32 { return r.X + r.W }
+	// below reports a control named name under the band, right of x.
+	below := func(role ui.Role, name string, x float32) bool {
+		for _, info := range tt.AccessAll() {
+			if b := info.Bounds; info.Role == role && info.Name == name && b.W > 0 && b.Y >= HeaderHeight && b.X >= x {
+				return true
+			}
+		}
+		return false
+	}
+	// The page's own action here is the preview tag, the last of the main
+	// region.
+	tag := func() ui.Rect {
+		t.Helper()
+		r, ok := tt.Find(en("preview"))
+		if !ok || r.Y+r.H > HeaderHeight {
+			t.Fatalf("no preview tag in the band: %v %v", r, ok)
+		}
+		return r
+	}
+	const split = 1280 - PanelWidth
+	for _, inset := range []float32{0, 138} {
+		// MyGo reports the window buttons' room at the right on Windows and
+		// Linux: the cluster ends 12 before it.
+		tt.SetTitleBar(ui.TitleBar{Height: 32, Right: inset})
+		want := 1280 - inset - 12 - HeaderButton
+		if got := HeaderInsets(ui.TitleBar{Right: inset}); got != 12+inset {
+			t.Errorf("inset %v: the header keeps %v clear", inset, got)
+		}
+		for _, running := range []bool{false, true} {
+			setRuns(a, running)
+			for _, open := range []bool{false, true} {
+				a.PanelOpen = open
+				still(tt)
+				name := fmt.Sprintf("inset %v, running %v, open %v", inset, running, open)
+				f := fold()
+				if f.Bounds.X != want || f.Bounds.Y != (HeaderHeight-HeaderButton)/2 || f.Disabled {
+					t.Errorf("%s: the fold toggle is %+v, want x %v", name, f, want)
+				}
+				st, shown := status(tt)
+				if shown != running {
+					t.Fatalf("%s: session status shown %v", name, shown)
+				}
+				// The cluster's left edge: the status, or the toggle alone
+				// with no doubled gap.
+				cluster := f.Bounds.X
+				if running {
+					if end(st) != f.Bounds.X-ButtonGap {
+						t.Errorf("%s: the session status %v does not end one gap before the toggle %v", name, st, f.Bounds)
+					}
+					cluster = st.X
+				}
+				g := tag()
+				line := headerLine(tt, RailWidth+NavWidth, 1280-inset-12)
+				if !open {
+					if end(g) != cluster-ButtonGap {
+						t.Errorf("%s: the page's actions end at %v, the cluster starts at %v", name, end(g), cluster)
+					}
+					if line >= 0 {
+						t.Errorf("%s: the closed panel leaves a divider at %v", name, line)
+					}
+					continue
+				}
+				if end(g) != split-12 {
+					t.Errorf("%s: the page's actions end at %v, want 12 before the split at %v", name, end(g), split)
+				}
+				if col := lineAt(tt, split-40, split+40, HeaderHeight+40, 700); line != split || col != split {
+					t.Errorf("%s: the band's divider is at %v, the column's at %v, want %v", name, line, col, split)
+				}
+			}
+		}
+	}
+	tt.SetTitleBar(ui.TitleBar{})
+	setRuns(a, true)
+	// The divider follows the column as it is resized.
+	a.PanelOpen, a.PanelWidth = true, 480
+	still(tt)
+	if line, col := headerLine(tt, RailWidth+NavWidth, 1200), lineAt(tt, 700, 900, HeaderHeight+40, 700); line != 800 || col != 800 {
+		t.Errorf("resized: the band's divider is at %v, the column's at %v, want 800", line, col)
+	}
+	a.PanelWidth = PanelWidth
+	still(tt)
+	// The panel's tabs show in the band over the panel: tabs, "+", the
+	// session status, the fold toggle; the column starts with the tab's
+	// content, not a second strip.
+	tt.Key(ui.Cmd, ui.KeyP)
+	still(tt)
+	for _, k := range []panel.Kind{panel.History, panel.Browser, panel.Terminal, panel.Documents} {
+		a.Panel.Open(k)
+	}
+	a.Panel.Show(a.Panel.Tabs[0])
+	still(tt)
+	shot(t, tt, "en-conversation-panel-open")
+	var tabs []ui.Rect
+	names := map[string]bool{}
+	for _, info := range tt.AccessAll() {
+		b := info.Bounds
+		if info.Role != ui.RoleButton || b.W == 0 || b.Y+b.H > HeaderHeight || b.X < split || info.Name == en("details") || info.Name == en("close") ||
+			strings.Contains(info.Name, " · ") {
+			continue
+		}
+		tabs = append(tabs, b)
+		names[info.Name] = true
+	}
+	// Five tabs do not fit beside the cluster: the rest scroll.
+	if len(tabs) < 2 || len(tabs) > len(a.Panel.Tabs) {
+		t.Fatalf("the band shows %d tabs of %v: %q", len(tabs), a.Panel.Tabs, tt.Texts())
+	}
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleButton && names[info.Name] && b.W > 0 && b.X >= split && b.Y >= HeaderHeight && b.Y < HeaderHeight+40 {
+			t.Errorf("the tab %q shows in a strip under the band at %v", info.Name, b)
+		}
+	}
+	plus, ok := tt.AccessByRole(ui.RoleMenuButton, en("details"))
+	all, found := tt.AccessByRole(ui.RoleMenuButton, en("navigation_tabs"))
+	st, _ := status(tt)
+	f := fold()
+	if !ok || !found || plus.Bounds.Y+plus.Bounds.H > HeaderHeight || all.Bounds.Y+all.Bounds.H > HeaderHeight {
+		t.Fatalf("the tabs' menus are not in the band: %+v %+v", plus.Bounds, all.Bounds)
+	}
+	if tabs[0].X != split+8 || !(end(tabs[0]) <= all.Bounds.X && end(all.Bounds) <= plus.Bounds.X && end(plus.Bounds) <= st.X && end(st) <= f.Bounds.X) {
+		t.Errorf("the band over the panel is not tabs, +, status, toggle: %v %v %v %v %v", tabs[0], all.Bounds, plus.Bounds, st, f.Bounds)
+	}
+	top := float32(820)
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; b.W > 0 && b.H > 0 && b.X >= split && b.Y >= HeaderHeight {
+			top = min(top, b.Y)
+		}
+	}
+	if top >= HeaderHeight+40 {
+		t.Errorf("the panel's content starts at %v, under a strip's room", top)
+	}
+	// A tab chosen in the band takes ⌘W, and its close button closes it.
+	n := len(a.Panel.Tabs)
+	tt.ClickAt(tabs[1].X+12, tabs[1].Y+tabs[1].H/2)
+	still(tt)
+	if a.Panel.Active != a.Panel.Tabs[1] {
+		t.Fatalf("the band's tab did not show: %v", a.Panel.Active)
+	}
+	tt.Key(ui.Cmd, ui.KeyW)
+	still(tt)
+	if len(a.Panel.Tabs) != n-1 {
+		t.Errorf("⌘W after choosing a tab in the band left %d of %d tabs", len(a.Panel.Tabs), n)
+	}
+	// The toggle is the panel's close control.
+	clickButton(t, tt, en("details"))
+	still(tt)
+	if a.PanelOpen || headerLine(tt, RailWidth+NavWidth, 1200) >= 0 {
+		t.Error("the fold toggle did not close the panel")
+	}
+	shot(t, tt, "en-conversation-panel-closed")
+
+	// The host page: the metrics' title in the band, none in the column.
+	a.openHost("remote", false)
+	still(tt)
+	title, ok := tt.Find(en("metrics_title"))
+	if !ok || title.Y+title.H > HeaderHeight || title.X != split+12 {
+		t.Errorf("the metrics' title is at %v, want in the band at %v", title, split+12)
+	}
+	if f := fold(); f.Disabled {
+		t.Errorf("the host page's toggle is %+v", f)
+	}
+	if headerLine(tt, RailWidth+NavWidth, 1200) != split {
+		t.Error("the host page's band has no divider at the split")
+	}
+
+	// A page without a right column: the toggle shows disabled.
+	for _, page := range []Page{FilesPage, ActivityPage, NotificationsPage, SettingsPage, MarketPage} {
+		a.Navigate(page)
+		still(tt)
+		if f := fold(); !f.Disabled || f.Bounds.X != 1280-12-HeaderButton {
+			t.Errorf("page %d with nothing to show: the toggle is %+v", page, f)
+		}
+	}
+	// The Market: selecting a card opens its details, titled in the band,
+	// with no title row or close button of their own; the toggle closes
+	// them and is disabled again.
+	card := a.Settings.Packages[0].Name
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleButton && strings.Contains(info.Name, card) && b.Y >= HeaderHeight && b.W > 100 {
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			break
+		}
+	}
+	still(tt)
+	if a.Settings.Details == nil {
+		t.Fatalf("the card opened no details: %q", tt.Texts())
+	}
+	title, ok = tt.Find(en("market_plugin_details"))
+	if !ok || title.Y+title.H > HeaderHeight || title.X != split+12 {
+		t.Errorf("the details' title is at %v, want in the band at %v", title, split+12)
+	}
+	if below(ui.RoleButton, en("close"), split) {
+		t.Error("the details keep a close button")
+	}
+	if f := fold(); f.Disabled {
+		t.Errorf("with details the toggle is %+v", f)
+	}
+	clickButton(t, tt, en("details"))
+	still(tt)
+	if f := fold(); a.Settings.Details != nil || !f.Disabled {
+		t.Errorf("the toggle left details %v, itself %+v", a.Settings.Details, f)
+	}
+	a.Navigate(ConversationPage)
+	headerFrames(t)
+}
+
+// headerFrames saves the header's states for review, in Chinese and dark.
+func headerFrames(t *testing.T) {
+	if os.Getenv("SAILRY_UI_SHOTS") == "" {
+		return
+	}
+	a := New(preview.Load())
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("zh-CN")
+	tt.SetDark(true)
+	a.Mode = theme.System
+	still(tt)
+	shot(t, tt, "conversation-panel-closed")
+	setRuns(a, false)
+	still(tt)
+	shot(t, tt, "conversation-panel-closed-idle")
+	a.PanelOpen = true
+	still(tt)
+	shot(t, tt, "conversation-panel-launcher-idle")
+	setRuns(a, true)
+	tt.Key(ui.Cmd, ui.KeyP)
+	still(tt)
+	for _, k := range []panel.Kind{panel.History, panel.Browser, panel.Terminal} {
+		a.Panel.Open(k)
+	}
+	still(tt)
+	shot(t, tt, "conversation-panel-open")
+	tt.SetTitleBar(ui.TitleBar{Height: 32, Right: 138})
+	still(tt)
+	shot(t, tt, "conversation-panel-open-right-inset")
+	a.PanelOpen = false
+	still(tt)
+	shot(t, tt, "conversation-panel-closed-right-inset")
+	tt.SetTitleBar(ui.TitleBar{})
+	a.PanelOpen = true
+	a.Navigate(MarketPage)
+	still(tt)
+	shot(t, tt, "market-nothing-selected")
+	a.Settings.ShowDetails(settings.DetailPlugin, a.Settings.Packages[0].ID)
+	still(tt)
+	still(tt)
+	shot(t, tt, "market-details")
+	a.Navigate(SettingsPage)
+	a.Settings.Section = settings.Plugins
+	a.Settings.ShowDetails(settings.DetailPlugin, a.Settings.Packages[0].ID)
+	still(tt)
+	still(tt)
+	shot(t, tt, "settings-plugins-details")
+	a.openHost("remote", false)
+	still(tt)
+	shot(t, tt, "host-metrics")
+	a.Navigate(ConversationPage)
+	tt.SetSize(RailWidth+NavWidth+MainMin+PanelMin-40, 820)
+	still(tt)
+	shot(t, tt, "narrow-window")
 }
 
 // The header's icon buttons are one Kit button: 28 square, centred in the

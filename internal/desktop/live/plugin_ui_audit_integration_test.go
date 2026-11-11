@@ -242,7 +242,8 @@ const kitPageColumn = 752
 
 // auditContextRing shows a session's context ring, the statistics package's
 // composer indicator, in Chinese: directly left of the model chip, its hint as
-// the tooltip, and gone on a draft. It is a step of TestPluginUIIntegration;
+// the tooltip, no tooltip while its usage is unknown (auditUnknownRing), and
+// gone on a draft. It is a step of TestPluginUIIntegration;
 // SAILRY_UI_SHOTS receives the light and the dark frame.
 func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session string, wait func(string, func() bool)) {
 	t.Helper()
@@ -260,14 +261,23 @@ func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session
 	var ring ui.AccessInfo
 	wait("the session's context ring", func() bool {
 		project()
-		if runtime.App.Sidebar.Selected != session || len(rings) != 1 || rings[0].Hint == "" {
+		if runtime.App.Sidebar.Selected != session || len(rings) != 1 {
 			return false
+		}
+		// A ring whose usage is unknown has no hint, so no name to find.
+		if rings[0].Hint == "" {
+			return true
 		}
 		var shown bool
 		ring, shown = tester.Access(rings[0].Hint)
 		return shown
 	})
 	hint := rings[0].Hint
+	if hint == "" {
+		auditUnknownRing(t, tester)
+		auditDraftRing(runtime, tester, session, wait, project, &rings, hint)
+		return
+	}
 	if strings.ContainsFunc(hint, unicode.IsLetter) && !strings.ContainsFunc(hint, func(r rune) bool { return unicode.Is(unicode.Han, r) }) {
 		t.Errorf("the ring's hint is not Chinese: %q", hint)
 	}
@@ -334,13 +344,48 @@ func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session
 		}
 		tester.SetDark(false)
 	}
+	auditDraftRing(runtime, tester, session, wait, project, &rings, hint)
+}
+
+// auditUnknownRing hovers the place of a ring whose usage is unknown,
+// directly left of the model chip: the ring stays and no tooltip shows, the
+// statistics package's placeholder "0" least of all.
+func auditUnknownRing(t *testing.T, tester *ui.Tester) {
+	t.Helper()
+	prefix := i18n.In("zh-CN", "composer_model_settings") + ": "
+	var chip ui.AccessInfo
+	for _, info := range tester.AccessAll() {
+		if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, prefix) {
+			chip = info
+		}
+	}
+	if chip.Name == "" {
+		t.Fatalf("no model chip: %q", tester.Texts())
+	}
+	rest := slices.Clone(tester.Texts())
+	// The ring ends the toolbar's gap of 8 before the chip, 4 at each side.
+	tester.Move(chip.Bounds.X-8-4-kit.RingSize/2, chip.Bounds.Y+chip.Bounds.H/2)
+	tester.Frame()
+	tester.Advance(2 * time.Second)
+	tester.Frame()
+	tester.Frame()
+	if under := tester.Texts(); !slices.Equal(under, rest) {
+		t.Errorf("the unknown ring shows a tooltip: %q at rest, %q under the pointer", rest, under)
+	}
+}
+
+// auditDraftRing checks that a draft, which has no session, is given no ring
+// and shows none, and goes back to the session.
+func auditDraftRing(runtime *Runtime, tester *ui.Tester, session string, wait func(string, func() bool), project func(), rings *[]composer.Indicator, hint string) {
 	tester.Move(1, 1)
-	// A draft has no session: its composer is given no ring and shows none.
 	runtime.App.Sidebar.NewChat()
 	wait("the draft without a ring", func() bool {
 		project()
-		_, shown := tester.Access(hint)
-		return strings.HasPrefix(runtime.App.Sidebar.Selected, "draft/") && len(rings) == 0 && !shown
+		shown := false
+		if hint != "" {
+			_, shown = tester.Access(hint)
+		}
+		return strings.HasPrefix(runtime.App.Sidebar.Selected, "draft/") && len(*rings) == 0 && !shown
 	})
 	runtime.OpenSession(session)
 	tester.SetLocale("en")

@@ -169,7 +169,9 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 	return ContextButton(c, b, icon, label, false, true)
 }
 
-// projectButton is the location: the project's name, or Chats for none,
+// projectButton is the location, the one project control of the bar: a
+// package's control of the same choice is not drawn beside it (live
+// plugin_controls.go). It reads the project's name, or Chats for none,
 // and a menu of Chats, the host's projects with a check on the current one,
 // then Add project.
 func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
@@ -226,10 +228,14 @@ func branchLabel(c *ui.Context, ctx *Context, worktree string) string {
 }
 
 // worktreeMenu chooses the worktree of the project: its checkouts with a
-// check, then New worktree where the folder is a Git repository.
+// check, then New worktree. It is the bar's second control and shows only
+// where there is a branch or worktree to choose: the project's folder is a
+// Git repository. A chat without a project, a plain folder and a folder not
+// yet inspected have none, and where a package's context control chooses the
+// branch (Context.PackageBranch) that one shows instead.
 func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	pr := s.project(ctx)
-	if pr == nil || ctx.Repository.Kind == Unavailable {
+	if pr == nil || ctx.Repository.Kind != Git || ctx.PackageBranch {
 		return
 	}
 	main := true
@@ -265,11 +271,9 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, form 
 				}
 			}
 		}
-		if ctx.Repository.Kind == Git {
-			m.Separator()
-			if m.Item(i18n.T(c, "location_create")).Icon(icons.Plus).Chosen() {
-				actions.CreateWorktree()
-			}
+		m.Separator()
+		if m.Item(i18n.T(c, "location_create")).Icon(icons.Plus).Chosen() {
+			actions.CreateWorktree()
 		}
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
 }

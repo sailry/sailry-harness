@@ -32,17 +32,16 @@ func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
 // Shortcut is a shortcut's text as menus and the launcher show it.
 type Shortcut func(mods ui.Modifiers, key ui.Key) string
 
-// View builds the panel, the tab host: one flat strip of tabs, each an
-// open item, over the active one, or the launcher. pr is the shown
-// project's state, nil when the conversation has none; keys writes the
-// launcher's shortcuts.
+// View builds the panel's content, the tab host's body: the active tab's
+// item, or the launcher. Its tabs are not a row of the panel: the window's
+// header shows them over the panel (Strip). pr is the shown project's state,
+// nil when the conversation has none; keys writes the launcher's shortcuts.
 func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	s.Sync(pr)
 	if len(s.Tabs) == 0 {
 		launcher(c, s, keys)
 		return
 	}
-	s.strip(c, pr, keys)
 	t := s.Active
 	if pr != nil && t.Kind != Files && t.Kind != Changes {
 		pr.promptDialog(c)
@@ -268,66 +267,71 @@ func scroll(s *ui.ScrollState, own bool) *ui.ScrollState {
 	return s
 }
 
-// strip is the tab row: every open item is a 28 DIP tab up to 180 wide with
-// its icon and title, the active one in tab_active, a close button showing on
-// hover; it scrolls sideways, and past four tabs a chevron lists them all.
-// "+" opens another resource or document.
-func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
-	p := theme.Of(c)
-	ui.Row(c.Key("strip")).Height(barHeight).Shrink(0).PaddingX(8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
-		ui.ScrollHorizontal(c.Key("tabs")).Grow(1).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
-			ui.Row(c).Gap(4).Height(barHeight).Children(func() {
-				var closed *Tab
-				for _, t := range s.Tabs {
-					icon, label := s.look(c, t)
-					var drag *panes.Drag
-					if t.Kind == Terminal {
-						// A terminal drags onto the workspace to open in a split.
-						drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
-					}
-					tab(c, t, icon, label, t == s.Active, drag, func() { s.Show(t) }, func() { closed = &t })
+// Strip builds the panel's tabs into the host's row, the header segment over
+// the panel: every open item is a 28 DIP tab up to 180 wide with its icon and
+// title, the active one in tab_active, a close button showing on hover; they
+// scroll sideways, and past four tabs a chevron lists them all. "+" opens
+// another resource or document. The tabs take only their own width, so the
+// row's gap before the chevron and "+" stays the host's. Without a tab it
+// builds nothing: the launcher lists the resources.
+func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
+	s.Sync(pr)
+	if len(s.Tabs) == 0 {
+		return
+	}
+	ui.ScrollHorizontal(c.Key("tabs")).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
+		ui.Row(c).Gap(4).Height(barHeight).Children(func() {
+			var closed *Tab
+			for _, t := range s.Tabs {
+				icon, label := s.look(c, t)
+				var drag *panes.Drag
+				if t.Kind == Terminal {
+					// A terminal drags onto the workspace to open in a split.
+					drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
 				}
-				if closed != nil {
-					s.Close(*closed)
-				}
-			})
+				tab(c, t, icon, label, t == s.Active, drag, func() { s.Show(t) }, func() { closed = &t })
+			}
+			if closed != nil {
+				s.Close(*closed)
+			}
 		})
-		if len(s.Tabs) > Overflow {
-			// Every tab with a check on the one shown.
-			kit.MenuButton(c.Key("all"), "panel-tabs", func(b ui.Element) {
-				kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "navigation_tabs"), "", 28, false)
-			}, func(m *kit.Menu) {
-				for _, t := range s.Tabs {
-					_, label := s.look(c, t)
-					if m.Item(label).Checked(t == s.Active).Chosen() {
+	})
+	ui.Spacer(c)
+	if len(s.Tabs) > Overflow {
+		// Every tab with a check on the one shown.
+		kit.MenuButton(c.Key("all"), "panel-tabs", func(b ui.Element) {
+			kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "navigation_tabs"), "", 28, false)
+		}, func(m *kit.Menu) {
+			for _, t := range s.Tabs {
+				_, label := s.look(c, t)
+				if m.Item(label).Checked(t == s.Active).Chosen() {
+					s.Show(t)
+				}
+			}
+		})
+	}
+	kit.MenuButton(c.Key("add"), "panel-add", func(b ui.Element) {
+		kit.IconLook(c, b, icons.Plus, i18n.T(c, "details"), "", 28, false)
+	}, func(m *kit.Menu) {
+		for _, r := range Resources {
+			if r.Kind == Documents {
+				for _, d := range s.Data.Documents {
+					t := Tab{Documents, d.ID}
+					if m.Item(d.Title).Icon(icons.FileText).Checked(t == s.Active).Chosen() {
 						s.Show(t)
 					}
 				}
-			})
-		}
-		kit.MenuButton(c.Key("add"), "panel-add", func(b ui.Element) {
-			kit.IconLook(c, b, icons.Plus, i18n.T(c, "details"), "", 28, false)
-		}, func(m *kit.Menu) {
-			for _, r := range Resources {
-				if r.Kind == Documents {
-					for _, d := range s.Data.Documents {
-						t := Tab{Documents, d.ID}
-						if m.Item(d.Title).Icon(icons.FileText).Checked(t == s.Active).Chosen() {
-							s.Show(t)
-						}
-					}
-					continue
-				}
-				it := m.Item(i18n.T(c, r.Label)).Icon(r.Icon).Checked(r.Kind == s.Active.Kind)
-				if r.Key != 0 && keys != nil {
-					it.Shortcut(keys(r.Mods, r.Key))
-				}
-				if it.Chosen() {
-					s.Open(r.Kind)
-				}
+				continue
 			}
-		}, kit.MenuOptions{CheckRight: true})
-	})
+			it := m.Item(i18n.T(c, r.Label)).Icon(r.Icon).Checked(r.Kind == s.Active.Kind)
+			if r.Key != 0 && keys != nil {
+				it.Shortcut(keys(r.Mods, r.Key))
+			}
+			if it.Chosen() {
+				s.Open(r.Kind)
+			}
+		}
+	}, kit.MenuOptions{CheckRight: true})
 }
 
 // launcher lists the resources to open: full-width 40 DIP rows, the icon,

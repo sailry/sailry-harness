@@ -92,8 +92,11 @@ Workspace's park does. Settings opens on General, as Workspace does.
 ⌘/ (`app.shortcuts`) opens Shortcuts, About in the app menu opens About,
 ⌘, opens the last section. The rail's Market opens `MarketPage` in the
 main column. `State.Details` shows `DetailsPanel` in the right column
-over the settings or the market; its Close, the pane's close, opening a
-section or navigating to another page clear it (navigation.rs).
+over the settings or the market, and its title (`DetailsTitle`) in the
+header band over that column (docs/shell.md). The panel has no title row
+and no close button: the header's details toggle, opening a section or
+navigating to another page clear it (navigation.rs). The toggle is
+disabled while no card is selected.
 
 ## View model
 
@@ -247,9 +250,14 @@ save is pending, as its Cancel is disabled then.
   does leaving the section by any way;
   a Node save toasts its outcome; the variable dialog refuses a bad name
   and keeps its draft; a plugin card opens its details in the right
-  column and Close shuts it.
+  column with the title in the header, no Close button, and the details
+  toggle, disabled before, shuts it.
 
 ## Deviations
+
+- The extension details have no title row and no close button; the title is
+  in the header band and the details toggle closes them (user decision
+  2026-11-11; docs/shell.md).
 
 - Preview pages show populated data where the reference shows
   "knowledge_host_required"/"hooks_project_required" without a host

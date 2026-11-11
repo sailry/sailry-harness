@@ -142,14 +142,54 @@ conversation in a project, breadcrumbs (`ui.Breadcrumbs`) of the project
 and the conversation, the project revealing its rows in the sidebar; on
 Files and Git, the project and the page, the project going back to the
 conversation with its rows revealed; on Activity and Market, its
-name. On
-the right the plugins' header contributions (`Hooks.PluginHeader`), the
-activity strip, the preview tag and the details toggle
-(`PanelRight`, selected while the panel shows). Tooltips show the
-shortcut. A plugin's header contribution is the same `kit.IconLook` at
-`HeaderButton` as the shell's own buttons, `ButtonGap` apart, its popover
-under its end; an `indicator` or `metric` is not drawn in the header. The
-activity strip takes no room, and no gap, without a group.
+name. The page's own actions end that main region: the plugins' header
+contributions (`Hooks.PluginHeader`) and the preview tag. A plugin's header
+contribution is the same `kit.IconLook` at `HeaderButton` as the shell's own
+buttons, `ButtonGap` apart, its popover under its end; an `indicator` or
+`metric` is not drawn in the header. Tooltips show the shortcut.
+
+The band is two regions, split at the right column's left edge
+(`headerSide`):
+
+| Region | Content |
+|---|---|
+| Main, any width | Sidebar toggle, title, then the page's own actions at its right end, left of the split |
+| Side, as wide as the column shows (`panelW × details`), at least its fixed cluster | The column's segment while the column shows, then the fixed cluster: the activity strip (session status) and the details toggle |
+
+- The details toggle (`PanelRight`, selected while the column shows) is the
+  last control of the window in both states, `HeaderInsets` from its edge:
+  12 plus `c.TitleBar().Right`. Nothing but the system's caption buttons is
+  right of it. The activity strip is directly left of it, `ButtonGap` apart,
+  open or closed; without a group it takes no room and no gap, so the toggle
+  does not move.
+- While the column shows, a 1 DIP line in `Border` continues the column's
+  left border through the band. Both are placed from the same
+  `panelW × details`, so they line up while the column opens, closes or is
+  resized.
+- The segment belongs to the column's content (`panelHeader`). On a
+  conversation it holds the panel's tab strip (`panel.Strip`: tabs, the
+  overflow chevron, "+"); there is no second strip row under the band, and a
+  tab's own toolbar stays in the body. Under extension details (Settings and
+  Market: plugin, skill, theme) it shows `settings.DetailsTitle`, and on the
+  Host page `metrics_title`, 12 from the split; those columns have no title
+  row and no close button of their own.
+- The toggle is the column's one close control. It closes the extension
+  details (`Settings.CloseDetails`), the metrics and the panel. It is
+  disabled when the page has nothing to show there (`hasDetails`: Market and
+  Settings with no card selected, Files, Git, Activity, Notifications and
+  plugin pages) and when the window has no room for the column. Selecting a
+  card opens the details.
+- The segment and the side row are not interactive, so the band's empty
+  parts, the gap between the tabs and "+" included, drag the window.
+- ⌘W with the focus on a tab of the band closes the active tab, as it does
+  with the focus in the column.
+
+`c.TitleBar()` in pinned MyGo: macOS reports the traffic lights as `Left`
+and no `Right`; Windows reports 46 for each caption button it shows as
+`Right` (138 for three) at 32 high; Linux reports the measured header-bar
+button widths as `Left` and `Right` by the desktop's button layout, and
+nothing where the compositor decorates; every system reports zero in full
+screen. The headless backend's `SetTitleBar` stands in for them in tests.
 
 ### Icon buttons
 
@@ -162,13 +202,13 @@ size around its badge.
 
 | Where | Size | Icon | Gap | Reference |
 |---|---|---|---|---|
-| Header (`HeaderButton`): sidebar toggle, details toggle, plugin contributions | 28 × 28, centred in the 48 band | 15 | 8, 12 from the window's edge | `Button::ghost().small()`: 24 × 24, icon 14, groups `gap_2` |
+| Header (`HeaderButton`): sidebar toggle, details toggle, plugin contributions | 28 × 28, centred in the 48 band | 15 | 8, 12 from the window's edge or its caption buttons (`HeaderInsets`) | `Button::ghost().small()`: 24 × 24, icon 14, groups `gap_2` |
 | Rail (`RailButton`): features, More, bell, installations, hosts, Search, Settings | 36 × 36 | 15 | 8, 8 under the band | ghost `size_9`: 36 × 36, icon 16, `gap_2` |
 | Activity strip avatars | 28 × 28 | avatar | 4 in a group, 12 between groups | `.size_7()`, `gap_1`, `gap_3` |
 
 A control that cannot act is disabled or absent, never a normal button
 whose click does nothing: the details toggle without room for the panel
-is disabled, and the sidebar toggle is absent without a side column. New
+or without anything to show is disabled, and the sidebar toggle is absent without a side column. New
 session over the unsent chat focuses its composer again (docs/sidebar.md).
 
 ## Shortcuts
@@ -360,7 +400,14 @@ the sidebar's dialogs too.
 toggle and ⌘B per page, no motion between pages, the saved choice across
 pages without a column and an earlier file (`testSideColumns`); the
 header's and the rail's icon buttons' boxes, gaps and hover fill and the
-disabled details toggle (`testIconButtons`); ⌘K search opening a conversation;
+disabled details toggle (`testIconButtons`); the header's two regions
+(`testHeaderSplit`, with a right title-bar inset of 0 and 138, a run active
+and none, the column open and closed): the toggle at the far right, the
+session status beside it, the page's actions left of the split, the band's
+line on the column's border also after a resize, the tabs in the band with
+no strip under it, the details and metrics titles in the band without a
+close button, and the toggle disabled with nothing to show
+(`SAILRY_UI_SHOTS=<directory>` saves its zh-CN dark frames); ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
 `internal/desktop/shell/knowledge_live_test.go` (`testLiveKnowledge`, run by
@@ -387,6 +434,10 @@ Phase 1–2 screens.
 | Breadcrumbs in the header | The plan asks for them; the reference shows a title |
 | Header icon buttons are 28 with a 15 icon, the rail's icon is 15 | Kit's accepted small button (docs/components.md); the reference's header buttons are 24 with a 14 icon and its rail icon is 16 |
 | The details toggle is disabled while the window has no room for the panel | It cannot act then; it used to dim and still take clicks |
+| The right column's tabs or title are in the header band, and the details toggle is its only close control (user decision 2026-11-11) | The reference gives the column its own strip row and each details page a title row with a close button. One band keeps the toggle in one place and gives the column its full height |
+| The header's session status shows on the conversation page only, beside the toggle | Its existing rule; other pages keep the toggle alone |
+| Window dragging over the band is not tested | The headless backend's `startDrag` does nothing; the segment and the side row carry no interactive flag |
+| Windows and Linux title-bar insets are simulated, not run | `ui.Tester.SetTitleBar`; only macOS was run |
 | The resize handles are drawn strips | `ui.Split` cannot close a pane to nothing |
 | Preferences are a JSON file beside `window-state.json` | MyGo's `WindowState` has no fields for the app's own state |
 | The notification center page, Activity board and Market | Later phases; Activity and Market show `unavailable`, Market not yet in Settings |

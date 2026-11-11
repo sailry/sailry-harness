@@ -52,8 +52,18 @@ func (s *State) ShowDetails(kind DetailKind, id string) {
 // CloseDetails closes the details page (CloseDetails).
 func (s *State) CloseDetails() { s.Details = nil }
 
-// DetailsPanel draws the details page in the right column: the header with
-// the title and Close, then the item's summary and content.
+// DetailsTitle is the details page's title, which the window's header shows
+// over the right column; "" without details.
+func DetailsTitle(c *ui.Context, s *State) string {
+	if s.Details == nil {
+		return ""
+	}
+	return i18n.T(c, map[DetailKind]string{DetailPlugin: "market_plugin_details", DetailSkill: "market_skill_details", DetailTheme: "market_theme_details"}[s.Details.Kind])
+}
+
+// DetailsPanel draws the details page in the right column: the item's
+// summary and content. Its title is the window header's (DetailsTitle), and
+// the header's fold toggle closes it.
 func DetailsPanel(c *ui.Context, s *State) {
 	d := s.Details
 	if d == nil {
@@ -64,12 +74,7 @@ func DetailsPanel(c *ui.Context, s *State) {
 	if !s.Live && d.Load.Advance(c.Now()) {
 		c.After(preview.Tick)
 	}
-	title := map[DetailKind]string{DetailPlugin: "market_plugin_details", DetailSkill: "market_skill_details", DetailTheme: "market_theme_details"}[d.Kind]
 	ui.Column(c.Key("extension-details")).Fill().MinWidth(0).Children(func() {
-		ui.Row(c.Key("header")).Height(44).PaddingX(12).Gap(8).Shrink(0).Children(func() {
-			ui.Text(c, t(title)).FontSize(14).Grow(1).SingleLine()
-			kit.Action(c.Key("close"), icons.Close, t("close"), false).OnClick(s.CloseDetails)
-		})
 		ui.Scroll(c.Key(d.ID)).Grow(1).Shrink(1).Children(func() {
 			ui.Column(c).Padding(20, 28, 28, 28).Gap(20).MinWidth(0).Children(func() {
 				switch d.Kind {

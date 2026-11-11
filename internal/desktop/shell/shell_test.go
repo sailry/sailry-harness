@@ -366,7 +366,12 @@ func TestSettingsNavigation(t *testing.T) {
 	if plugin.Enabled {
 		t.Error("the switch did not turn the plugin off")
 	}
-	// A card opens the plugin's details in the right column; Close shuts it.
+	// Without a card selected the fold toggle has nothing to show. A card
+	// opens the plugin's details in the right column, titled in the header,
+	// with no title row or close button of their own; the toggle shuts them.
+	if fold, ok := headerButton(tt, i18n.In("en", "details")); !ok || !fold.Disabled {
+		t.Errorf("the fold toggle with nothing selected is %+v", fold)
+	}
 	click(t, tt, plugin.Description)
 	tt.Advance(time.Second)
 	if a.Settings.Details == nil || !tt.HasText(i18n.In("en", "market_plugin_details")) {
@@ -374,10 +379,20 @@ func TestSettingsNavigation(t *testing.T) {
 	}
 	tt.Frame()
 	snapshot(t, tt, "plugin-details-light")
-	click(t, tt, i18n.In("en", "close"))
+	title, _ := tt.Find(i18n.In("en", "market_plugin_details"))
+	if title.Y+title.H > HeaderHeight || title.X != 1280-PanelWidth+12 {
+		t.Errorf("the details' title is at %v, want in the header over the column", title)
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "close")); ok {
+		t.Error("the details keep a close button")
+	}
+	if fold, ok := headerButton(tt, i18n.In("en", "details")); !ok || fold.Disabled {
+		t.Errorf("the fold toggle with details is %+v", fold)
+	}
+	clickButton(t, tt, i18n.In("en", "details"))
 	tt.Advance(time.Second)
 	if a.Settings.Details != nil {
-		t.Error("Close kept the details")
+		t.Error("the fold toggle kept the details")
 	}
 	// The details close with their page however it is left: Settings does
 	// not come back with them, by its key or by the rail.
@@ -508,7 +523,12 @@ func TestAppearancePackages(t *testing.T) {
 	if a.Theme != sage.ID {
 		t.Fatalf("theme %q after choosing %s", a.Theme, sage.Name)
 	}
-	if tt.HasText(i18n.In("en", "appearance_details")) || tt.HasText(sage.Release) {
+	// The header's fold toggle is named Details too: the page is under it.
+	listed := tt.HasText(sage.Release)
+	for _, info := range tt.AccessAll() {
+		listed = listed || info.Name == i18n.In("en", "appearance_details") && info.Bounds.Y >= HeaderHeight
+	}
+	if listed {
 		t.Errorf("the page still lists the details: %q", tt.Texts())
 	}
 	if err := tt.RightClick(sage.Name); err != nil {

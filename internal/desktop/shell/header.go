@@ -5,15 +5,19 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // header is the band above the rail and the columns: the app's name over the
-// sidebar, clear of the traffic lights, then the page's header: the sidebar
-// toggle, the breadcrumbs, the activity strip, the preview tag and the
-// details toggle. It drags the window.
+// sidebar, clear of the traffic lights, then two regions that meet at the
+// right panel's left edge. The main region is the page's: the sidebar toggle,
+// the title and, at its end, the page's own actions. The region over the
+// panel is the panel's: its tabs or its title. The session status and the
+// fold toggle are fixed at the window's far right, clear of the window
+// buttons, in both states. Its empty areas drag the window.
 func (a *App) header(c *ui.Context, f frame) {
 	p := theme.Of(c)
 	bar := c.TitleBar()
@@ -37,7 +41,9 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 		})
 		pad := max(lights-left, 0) + 12
-		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(ButtonGap).Children(func() {
+		// The main region ends one gap before the fixed cluster, and 12 before
+		// the split while the panel shows.
+		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(ButtonGap + 4*f.details).Gap(ButtonGap).Children(func() {
 			// The toggle belongs to the side column: a page without one shows
 			// none, as the reference's module header.
 			if a.HasNavigation() {
@@ -53,27 +59,88 @@ func (a *App) header(c *ui.Context, f frame) {
 			if a.Hooks.PluginHeader != nil {
 				a.Hooks.PluginHeader(c)
 			}
-			if a.Page == ConversationPage {
-				a.strip(c)
-			}
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
 			if a.Preview {
-				preview := ui.Row(c.Key("preview")).Radius(999).Background(p.Background)
+				preview := ui.Row(c.Key("preview")).Radius(999).Shrink(0).Background(p.Background)
 				kit.Tooltip(c, preview, i18n.T(c, "preview_notice"))
 				preview.Children(func() {
 					kit.Tag(c, i18n.T(c, "preview"))
 				})
 			}
-			if a.Page == ConversationPage || a.Page == HostPage {
-				label := i18n.T(c, "details")
-				// Too narrow: the panel stays chosen and shows when there is room.
-				// Until then the button cannot act, so it is disabled.
-				kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), HeaderButton, f.showsPanel).
-					Disabled(!f.fitted).OnClick(a.togglePanel)
-			}
 		})
+		a.headerSide(c, f, HeaderInsets(bar))
 	})
+}
+
+// HeaderInsets is the room the header keeps clear at the window's right
+// edge: 12, past the window buttons MyGo reports there (Windows and Linux;
+// none on macOS, whose lights are on the left).
+func HeaderInsets(bar ui.TitleBar) float32 { return 12 + bar.Right }
+
+// headerSide is the header from the split to the window's right edge. It is
+// as wide as the panel shows, so its left edge is the panel's, and holds the
+// panel's own header content, then the fixed cluster: the session status and
+// the fold toggle, end clear of the window's right edge. With the panel
+// closed only the cluster is left, at the end of the main region.
+func (a *App) headerSide(c *ui.Context, f frame, end float32) {
+	p := theme.Of(c)
+	shown := f.panelW * f.details
+	ui.Row(c.Key("side")).Height(HeaderHeight).Shrink(0).MinWidth(shown).PaddingEnd(end).Gap(ButtonGap).Children(func() {
+		if f.details > 0.001 {
+			// The column divider, continued through the band: the panel
+			// column's own left border is at the same place.
+			ui.Box(c.Key("split")).Absolute().Right(shown-1).Top(0).Size(1, HeaderHeight).Background(p.Border)
+			// The segment asks for no width of its own and takes what the
+			// column's width leaves beside the cluster, so the side is never
+			// wider than the column for its tabs.
+			seg := ui.Row(c.Key("segment")).Width(0).Grow(1).MinWidth(0).Height(HeaderHeight).ClipX().Gap(4)
+			seg.Children(func() { a.panelHeader(c, seg) })
+		}
+		if a.Page == ConversationPage {
+			a.strip(c)
+		}
+		// The fold toggle is the right column's only close control. It cannot
+		// act, and is disabled, while the page has nothing to show there or
+		// the window has no room for the column: the choice stays and shows
+		// when there is room.
+		kit.IconButtonHint(c.Key("details"), icons.PanelRight, i18n.T(c, "details"), a.hint("panel.toggle"), HeaderButton, f.showsPanel).
+			Disabled(!f.fitted || !a.hasDetails()).OnClick(a.togglePanel)
+	})
+}
+
+// hasDetails reports whether the page has something for the right column:
+// the conversation's panel, the host's metrics, or a selected extension's
+// details over Settings and the Market.
+func (a *App) hasDetails() bool {
+	return a.Page == ConversationPage || a.Page == HostPage || a.extensionDetails()
+}
+
+// panelHeader is the header segment over the right column, owned by what the
+// column shows: the details' title, or the panel's tabs and its "+".
+func (a *App) panelHeader(c *ui.Context, seg ui.Element) {
+	p := theme.Of(c)
+	title := func(text string) {
+		seg.PaddingStart(12)
+		ui.Text(c, text).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.Foreground)
+	}
+	if a.extensionDetails() {
+		title(settings.DetailsTitle(c, a.Settings))
+		return
+	}
+	if a.Page == HostPage {
+		title(i18n.T(c, "metrics_title"))
+		return
+	}
+	seg.PaddingStart(8)
+	a.syncPanel()
+	panel.Strip(c, a.Panel, a.project(), kit.KeyText)
+	// The tabs are the panel's: ⌘W with the focus on one closes the active
+	// tab, as it does inside the column. The segment itself takes no focus,
+	// so its gaps still drag the window.
+	if seg.Shortcut(CloseFocused.Mods, CloseFocused.Key) && !c.ShortcutRepeated() {
+		a.closeTab(c)
+	}
 }
 
 // trail is the page's title: on a conversation in a project, the project
