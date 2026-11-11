@@ -93,6 +93,18 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 			return err
 		}
 	}
+	for _, name := range plugins.RetiredBundled() {
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			current, err := store.ReadPlugin(ctx, db, name)
+			if err != nil || current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
+				return err
+			}
+			_, err = store.RemovePlugin(ctx, db, name, current.Summary.Revision)
+			return err
+		}); err != nil {
+			return err
+		}
+	}
 	var summaries []protocol.PluginSummary
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error

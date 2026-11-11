@@ -242,7 +242,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
-	media, err := node.mediaTools(ctx, inv)
+	media, err := node.mediaTools(inv)
 	if err != nil {
 		return nil, err
 	}
@@ -250,8 +250,8 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
-	bound, err := node.pluginTools(ctx, inv, append(append(append(append(tools, connections...), browsers...), managedBrowsers...), media...))
-	return append(bound, managed...), err
+	bound, err := node.pluginTools(ctx, inv, append(append(append(tools, connections...), browsers...), managedBrowsers...))
+	return append(append(bound, media...), managed...), err
 }
 func workspaceToolFault(err error) engine.ToolResult {
 	return engine.ToolResult{Failure: nodeFault(err).(*protocol.Fault)}

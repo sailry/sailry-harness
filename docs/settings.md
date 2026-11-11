@@ -34,7 +34,7 @@ live fetches never reuse preview timers or add a controller retry loop.
 The settings navigation and its pages, in the groups of the reference implementation
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
 Conversation, Shortcuts, Dictation), AI (Providers, Connectors, Teams,
-Plugins, Skills, Knowledge, Decision), Tools (Terminal, Connections, Hooks,
+Plugins, Skills, Knowledge, Media models, Decision), Tools (Terminal, Connections, Hooks,
 Runtime, OCR) and System (Permissions, Backup, About). Phase 5a built the
 App, Tools and System pages; phase 5b the AI group, the Market, MCP, the
 model library and the extension details page.
@@ -237,7 +237,7 @@ save is pending, as its Cancel is disabled then.
   conflict with another shortcut and with a fixed key, clear, reset,
   idle), environment variable validation, hook and backup checks,
   `Stored.Commit`; `TestProviderEditor` (steps, back, checks, save,
-  statuses, capability boxes, media rows), `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
+  statuses, capability boxes) with the Media models rows, `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
   `TestExtensions` (classification, configuration checks, market actions,
   skill sources, a section closing the details).
 - `internal/desktop/shell/settings_test.go`: every section opens with its title in
@@ -383,8 +383,10 @@ adapter sends them as the model's tags only when `CustomCapabilities` is set;
 other models keep the Node's tags. Discovery fills `Generates` from the
 catalog's output kinds for display. `Model.Media` (`Stored[[4]string]` of
 option keys in `viewmodel.MediaKinds` order), `MediaOptions`,
-`MediaUnavailable` and `SaveMedia` back the Media models group, which
-`live/settings_media.go` reads and saves. Controls, outcomes and deviations
+`MediaUnavailable` and `SaveMedia` back the Media models section
+(`settings/media.go`), which `live/settings_media.go` reads and saves. The
+section is core and takes the navigation place of the retired media package's
+page; the Providers page has no media rows. Controls, outcomes and deviations
 are in [media.md](media.md#desktop).
 
 ## B7 Connections wiring

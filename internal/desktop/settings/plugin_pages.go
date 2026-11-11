@@ -30,7 +30,7 @@ func (section Section) navigationOrder() uint16 {
 		return 160
 	case Skills:
 		return 170
-	case About, Knowledge, Appearance, Connections:
+	case About, Knowledge, Media, Appearance, Connections:
 		return 200
 	case Backup, Decision, Conversation:
 		return 300

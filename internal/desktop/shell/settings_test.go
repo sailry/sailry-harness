@@ -29,8 +29,36 @@ func TestSettingsSectionsOpen(t *testing.T) {
 					if !tt.HasText(title) {
 						t.Errorf("%s %v: %s lacks its title %q", lang, mode, it.Section, title)
 					}
+					name := string(it.Section) + map[theme.Mode]string{theme.Light: "-light", theme.Dark: "-dark"}[mode]
 					if lang == "en" {
-						snapshot(t, tt, string(it.Section)+map[theme.Mode]string{theme.Light: "-light", theme.Dark: "-dark"}[mode])
+						snapshot(t, tt, name)
+					}
+					// Media models is one section of its own: four rows that
+					// follow the conversation model, and nothing of it on
+					// Models.
+					if it.Section != settings.Media && it.Section != settings.Providers {
+						continue
+					}
+					if lang != "en" {
+						snapshot(t, tt, name+"-"+lang)
+					}
+					entries, follows := 0, 0
+					for _, x := range tt.AccessAll() {
+						if x.Role == ui.RoleButton && x.Name == i18n.In(lang, "settings_media") {
+							entries++
+						}
+						for _, row := range []string{"provider_cap_vision", "media_image", "media_video", "media_speech"} {
+							if x.Role == ui.RoleMenuButton && x.Name == i18n.In(lang, row) {
+								follows++
+							}
+						}
+					}
+					want := map[settings.Section]int{settings.Media: 4, settings.Providers: 0}[it.Section]
+					if entries != 1 || follows != want {
+						t.Errorf("%s %v: %s has %d Media models entries and %d media selects, want 1 and %d", lang, mode, it.Section, entries, follows, want)
+					}
+					if it.Section == settings.Media && !tt.HasText(i18n.In(lang, "settings_media_description")) {
+						t.Errorf("%s %v: Media models lacks its description", lang, mode)
 					}
 				}
 			}

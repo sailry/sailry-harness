@@ -1910,6 +1910,7 @@ updates_receipt_failed: 更新已安装，但无法保存恢复信息
 updates_profile_inside: 数据目录位于 Sailry 应用内，请移出后再更新
 compatibility_update_unavailable: 此版本暂不可自动更新
 settings_media: 媒体模型
+settings_media_description: 管理图像、音频和视频任务使用的模型
 provider_cap_vision: 识图
 provider_cap_tools: 工具
 provider_cap_reasoning: 推理

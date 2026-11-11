@@ -20,8 +20,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/files"
-	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -33,8 +33,6 @@ const (
 	mediaInspectIdle  = 120 * time.Second
 	defaultSpeechName = "alloy"
 )
-
-var mediaToolSchema = json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}`)
 
 // mediaRoute is the model one media purpose runs on for one turn.
 type mediaRoute struct {
@@ -79,48 +77,26 @@ func mediaOperationKind(operation protocol.ToolOperation) (protocol.MediaKind, b
 	return "", false
 }
 
-// mediaTools binds the media operations a turn's packages declare. A purpose
-// without a route has no native tool, so its declared tool is not offered.
-func (node *Node) mediaTools(ctx context.Context, inv *store.AgentInvocation) ([]engine.Tool, error) {
-	var infos []protocol.PluginInfo
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		for _, reference := range inv.Turn.Plugins {
-			info, err := store.ResolvePluginInfo(ctx, db, reference)
-			if err != nil {
-				return err
-			}
-			infos = append(infos, info)
-		}
-		return nil
-	})
+// mediaTools are the Node's own media tools. A purpose without a route has no
+// tool for the turn. They are discovered through tool_search unless an
+// assistant declaration names them.
+func (node *Node) mediaTools(inv *store.AgentInvocation) ([]engine.Tool, error) {
+	specs, err := operations.MediaSpecs()
 	if err != nil {
 		return nil, err
 	}
-	var schema map[string]any
-	if err := json.Unmarshal(mediaToolSchema, &schema); err != nil {
-		return nil, err
-	}
 	var tools []engine.Tool
-	for _, info := range infos {
-		if info.Extension == nil || info.Extension.Host == nil {
+	for _, spec := range specs {
+		kind, _ := mediaOperationKind(spec.Operation)
+		route, offered := routeMedia(inv, kind)
+		if !offered {
 			continue
 		}
-		for _, declaration := range info.Extension.Tools {
-			if declaration.Handler == nil || declaration.Handler.Operation == nil {
-				continue
-			}
-			operation := *declaration.Handler.Operation
-			kind, media := mediaOperationKind(operation)
-			if !media {
-				continue
-			}
-			route, offered := routeMedia(inv, kind)
-			if !offered {
-				continue
-			}
-			name := plugins.ToolAlias(info.Summary.Name, declaration.Name)
-			tools = append(tools, node.mediaTool(inv, plugins.PackageReference(info), name, operation, kind, route, schema))
+		tool, err := node.mediaTool(inv, spec, kind, route)
+		if err != nil {
+			return nil, err
 		}
+		tools = append(tools, tool)
 	}
 	return tools, nil
 }
@@ -129,61 +105,107 @@ func mediaFault(code protocol.ErrorCode, message string) error {
 	return &protocol.Fault{Code: code, Message: message}
 }
 
-func validMediaPrompt(prompt string) bool {
-	return strings.TrimSpace(prompt) != "" && len(prompt) <= mediaPromptBytes && utf8.ValidString(prompt)
+// mediaArguments are what the model may send. Inspection names one image
+// source; generation names at most a plain output file name.
+type mediaArguments struct {
+	Prompt     string  `json:"prompt"`
+	Path       *string `json:"path"`
+	Attachment *string `json:"attachment"`
+	FileName   *string `json:"file_name"`
 }
 
-func (node *Node) mediaTool(inv *store.AgentInvocation, owner protocol.PluginReference, name string, operation protocol.ToolOperation, kind protocol.MediaKind, route mediaRoute, schema map[string]any) engine.Tool {
-	readOnly := kind == protocol.MediaKindVision
+// mediaAction checks the arguments and returns the action the approval
+// names. Generated files are saved under assets/generated.
+func mediaAction(kind protocol.MediaKind, arguments json.RawMessage) (protocol.MediaAction, error) {
+	var input mediaArguments
+	decoder := json.NewDecoder(bytes.NewReader(arguments))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "invalid media arguments")
+	}
+	if strings.TrimSpace(input.Prompt) == "" || len(input.Prompt) > mediaPromptBytes || !utf8.ValidString(input.Prompt) {
+		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "media prompt must be nonempty and bounded")
+	}
+	if kind == protocol.MediaKindVision {
+		if (input.Path == nil) == (input.Attachment == nil) || input.FileName != nil {
+			return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "select one image source")
+		}
+		source := protocol.MediaSource{Kind: "path", Data: input.Path}
+		if input.Attachment != nil {
+			id, err := protocol.ParseAttachmentID(*input.Attachment)
+			if err != nil {
+				return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "invalid media arguments")
+			}
+			source = protocol.MediaSource{Kind: "attachment", Data: &id}
+		} else if err := core.CheckFilePath(*input.Path); err != nil {
+			return protocol.MediaAction{}, err
+		}
+		return protocol.MediaAction{Kind: "inspect", Data: &protocol.MediaActionInspectPayload{Prompt: input.Prompt, Source: source}}, nil
+	}
+	if input.Path != nil || input.Attachment != nil {
+		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "generation does not accept input files")
+	}
+	extension := ".png"
+	if kind == protocol.MediaKindVideo {
+		extension = ".mp4"
+	}
+	name := protocol.NewRequestID().String() + extension
+	if input.FileName != nil {
+		name = *input.FileName
+	}
+	if !strings.HasSuffix(name, extension) {
+		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "media output has an unsupported extension")
+	}
+	if strings.ContainsFunc(name, func(r rune) bool { return r == '/' || r == '\\' || r == ':' || r < 0x20 || r >= 0x7f && r <= 0x9f }) {
+		return protocol.MediaAction{}, mediaFault(protocol.ErrorCodeInvalidRequest, "media output requires a plain file name")
+	}
+	target := "assets/generated/" + name
+	// The output stays inside the worktree: the path is checked here and the
+	// confined file service writes it.
+	if err := core.CheckFilePath(target); err != nil {
+		return protocol.MediaAction{}, err
+	}
+	if kind == protocol.MediaKindVideo {
+		return protocol.MediaAction{Kind: "video", Data: &protocol.MediaActionVideoPayload{Prompt: input.Prompt, Path: target}}, nil
+	}
+	return protocol.MediaAction{Kind: "image", Data: &protocol.MediaActionImagePayload{Prompt: input.Prompt, Path: target}}, nil
+}
+
+func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpec, kind protocol.MediaKind, route mediaRoute) (engine.Tool, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
+		return engine.Tool{}, err
+	}
+	operation := spec.Operation
 	var mu sync.Mutex
 	calls := map[string]*protocol.Request{}
-	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: name, InputSchema: schema}, SchemaJSON: mediaToolSchema, ReadOnly: readOnly, Approval: !readOnly,
-		Binding: &store.ApprovalBinding{Owner: owner, Tool: name, Operation: &operation}}
+	// The binding has no owning package: the tool is the Node's own, and a
+	// session rule remembers it by name and operation.
+	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: spec.Name, Description: spec.Description, InputSchema: schema}, SchemaJSON: spec.Parameters,
+		ReadOnly: spec.ReadOnly, Concurrent: spec.Concurrent, Deferred: true, Approval: !spec.ReadOnly,
+		Binding: &store.ApprovalBinding{Tool: spec.Name, Operation: &operation}}
 	tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
-		action := protocol.MediaAction{}
-		switch kind {
-		case protocol.MediaKindVision:
-			var input protocol.MediaActionInspectPayload
-			if json.Unmarshal(call.Arguments, &input) != nil || !validMediaPrompt(input.Prompt) {
-				return mediaFault(protocol.ErrorCodeInvalidRequest, "invalid media arguments")
-			}
-			if value, ok := input.Source.Data.(*string); ok {
-				if err := core.CheckFilePath(*value); err != nil {
-					return err
-				}
-			}
-			action = protocol.MediaAction{Kind: "inspect", Data: &input}
-		default:
-			var input protocol.MediaActionImagePayload
-			if json.Unmarshal(call.Arguments, &input) != nil || !validMediaPrompt(input.Prompt) {
-				return mediaFault(protocol.ErrorCodeInvalidRequest, "invalid media arguments")
-			}
-			extension := ".png"
-			if kind == protocol.MediaKindVideo {
-				extension = ".mp4"
-			}
-			// The output stays inside the worktree: the path is checked here
-			// and the confined file service writes it.
-			if err := core.CheckFilePath(input.Path); err != nil {
-				return err
-			}
-			if path.Ext(input.Path) != extension {
-				return mediaFault(protocol.ErrorCodeInvalidRequest, "media output has an unsupported extension")
-			}
+		action, err := mediaAction(kind, call.Arguments)
+		if err != nil {
+			return err
+		}
+		target := ""
+		switch input := action.Data.(type) {
+		case *protocol.MediaActionImagePayload:
+			target = input.Path
+		case *protocol.MediaActionVideoPayload:
+			target = input.Path
+		}
+		if target != "" {
 			confined, err := core.OpenFiles(inv.Worktree.Path, core.RestrictedFiles)
 			if err != nil {
 				return err
 			}
 			defer confined.Close()
 			// An existing file is refused before the provider is called.
-			if existing, err := confined.Open(input.Path); err == nil {
+			if existing, err := confined.Open(target); err == nil {
 				existing.Close()
 				return mediaFault(protocol.ErrorCodeConflict, "a file already exists at the media output path")
-			}
-			if kind == protocol.MediaKindVideo {
-				action = protocol.MediaAction{Kind: "video", Data: &protocol.MediaActionVideoPayload{Prompt: input.Prompt, Path: input.Path}}
-			} else {
-				action = protocol.MediaAction{Kind: "image", Data: &input}
 			}
 		}
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "use_media", Data: &protocol.CommandUseMediaPayload{Turn: inv.Run.Turn, Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: action}})
@@ -192,7 +214,7 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, owner protocol.PluginRef
 		mu.Unlock()
 		return nil
 	}
-	if !readOnly {
+	if !spec.ReadOnly {
 		tool.ConfigureApproval = func(ctx context.Context, db *sql.Conn, call canonical.ToolRequest, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {
 			mu.Lock()
 			current := calls[call.ID]
@@ -237,7 +259,7 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, owner protocol.PluginRef
 		}
 		return result
 	}
-	return tool
+	return tool, nil
 }
 
 // mediaModelFault maps a driver failure to its protocol fault and keeps a
@@ -401,9 +423,7 @@ func (node *Node) inspectMedia(ctx context.Context, inv *store.AgentInvocation, 
 	if err := node.recordMediaUsage(ctx, inv, binding, protocol.MediaKindVision, usage); err != nil {
 		return engine.ToolResult{}, err
 	}
-	return engine.ToolResult{Value: map[string]any{"kind": "media", "data": map[string]any{
-		"text": text.String(), "provider": binding.Provider.Name, "model": binding.Config.Model,
-	}}}, nil
+	return engine.ToolResult{Value: map[string]any{"text": text.String(), "provider": binding.Provider.Name, "model": binding.Config.Model}}, nil
 }
 
 // recordMediaUsage counts the call under the provider and model that ran it.
@@ -469,7 +489,7 @@ func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation,
 	if output.Job != "" {
 		data["job"] = output.Job
 	}
-	result := engine.ToolResult{Value: map[string]any{"kind": "media", "data": data}}
+	result := engine.ToolResult{Value: data}
 	if kind == protocol.MediaKindImage {
 		// The stored image is shown with the tool result; it is never sent
 		// back to the model.

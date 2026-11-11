@@ -1910,6 +1910,7 @@ updates_receipt_failed: La actualización se instaló; no se pudo guardar los de
 updates_profile_inside: El perfil de datos está dentro de Sailry; muévalo antes de actualizar
 compatibility_update_unavailable: Esta versión aún no está disponible para actualizar automáticamente
 settings_media: Modelos de medios
+settings_media_description: Gestionar modelos para tareas de imagen, audio y vídeo
 provider_cap_vision: Visión
 provider_cap_tools: Herramientas
 provider_cap_reasoning: Razonamiento

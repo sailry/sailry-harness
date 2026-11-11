@@ -101,7 +101,7 @@ func applySessionApproval(ctx context.Context, db *sql.Conn, source protocol.Con
 		if e != nil {
 			return e
 		}
-		if binding.Tool != call.Name || !containsPlugin(capture.Plugins, binding.Owner) {
+		if binding.Tool != call.Name || !approvalOwnerAdmitted(capture.Plugins, binding.Owner) {
 			return fault(protocol.ErrorCodePermissionDenied, "approval owner is outside the admitted tool catalog")
 		}
 		value.State = protocol.ConversationApprovalStateApproved

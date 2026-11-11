@@ -52,7 +52,7 @@ type Tool struct {
 	Name   string `json:"name,omitempty"`
 }
 
-var builtinTools = []string{"ask_user", "plan_review", "list_sessions", "read_session", "search_session", "read_tool_output", "load_skill", "read_skill_resource", "tool_search", "manage_plugins", "manage_mcp", "manage_skills"}
+var builtinTools = []string{"ask_user", "plan_review", "list_sessions", "read_session", "search_session", "read_tool_output", "load_skill", "read_skill_resource", "tool_search", "manage_plugins", "manage_mcp", "manage_skills", "inspect_image", "generate_image", "generate_video"}
 
 // CaptureTool classifies a tool by its name alone. A workspace tool that is
 // neither listed, a package's nor a connected server's is not counted.

@@ -15,7 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// TestMediaSettings drives Settings › Providers against a Node that answers
+// TestMediaSettings drives Settings › Media models against a Node that answers
 // the media and provider commands: the capability tags a provider save
 // sends, and the media rows' options, saves and outcomes.
 func TestMediaSettings(t *testing.T) {
@@ -91,7 +91,7 @@ func TestMediaSettings(t *testing.T) {
 	}
 	defer r.Close()
 	m := r.App.Settings
-	m.Open(settings.Providers)
+	m.Open(settings.Media)
 	var toasts []string
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		r.mu.Lock()

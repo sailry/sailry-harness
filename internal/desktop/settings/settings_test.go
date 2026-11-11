@@ -352,7 +352,7 @@ func TestProviderEditor(t *testing.T) {
 		m.MediaUnavailable = [4]bool{false, false, false, true}
 		var toasts []string
 		tt := ui.NewTesterWith(func(c *ui.Context) {
-			providers(c, s)
+			mediaModels(c, m)
 			ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
 				toasts = toasts[:0]
 				for _, toast := range shown {

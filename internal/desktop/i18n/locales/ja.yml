@@ -1910,6 +1910,7 @@ updates_receipt_failed: 更新はインストールされましたが、回復�
 updates_profile_inside: データプロファイルは Sailry の中にあります。更新する前に移動してください
 compatibility_update_unavailable: このバージョンはまだ自動更新できません
 settings_media: メディアモデル
+settings_media_description: 画像、オーディオ、ビデオタスクのモデルを管理します
 provider_cap_vision: ビジョン
 provider_cap_tools: ツール
 provider_cap_reasoning: 推論

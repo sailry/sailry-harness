@@ -1910,6 +1910,7 @@ updates_receipt_failed: Das Update wurde installiert; Wiederherstellungsdetails 
 updates_profile_inside: Das Datenprofil befindet sich in Sailry; verschieben Sie es vor dem Aktualisieren
 compatibility_update_unavailable: Diese Version ist noch nicht automatisch verfügbar
 settings_media: Medienmodell
+settings_media_description: Verwalten von Modellen für Bild-, Audio- und Videoaufgaben
 provider_cap_vision: Bildverarbeitung
 provider_cap_tools: Werkzeuge
 provider_cap_reasoning: Denkaufwand
