@@ -134,12 +134,15 @@ func compactionNotice(ctx context.Context, db *sql.Conn, session protocol.Sessio
 // waitingNotice keeps one durable notice while a turn that a dispatch job
 // started waits for an approval or an answer: nobody may be connected when a
 // scheduled run stops for its user. The notice is a task notice whose status
-// is still running; its kind is warning for an approval and info for input.
-// It is marked read as soon as the turn stops waiting for that.
+// is still running; its kind is warning for an approval and info for input,
+// and it has no finish time while the wait is open. When the wait ends the
+// notice gets its finish time. An answer or a stop settles it as read; a
+// request that expired or was interrupted with nobody there stays unread for
+// its user's return.
 func waitingNotice(ctx context.Context, db *sql.Conn, session protocol.SessionID, summary protocol.ActivitySummary) ([]protocol.Event, error) {
 	open, err := readBodies[protocol.NotificationNotice](ctx, db, `SELECT body FROM notifications
-		WHERE json_extract(body,'$.read')=0 AND json_extract(body,'$.content.session')=?1
-		AND json_extract(body,'$.content.details.type')='task' AND json_extract(body,'$.content.details.data.status')='running'
+		WHERE json_extract(body,'$.content.session')=?1 AND json_extract(body,'$.content.details.type')='task'
+		AND json_extract(body,'$.content.details.data.status')='running' AND json_extract(body,'$.content.details.data.finished_ms') IS NULL
 		ORDER BY sequence`, session.String())
 	if err != nil {
 		return nil, err
@@ -149,15 +152,27 @@ func waitingNotice(ctx context.Context, db *sql.Conn, session protocol.SessionID
 	if waiting && *summary.Waiting == protocol.ActivityWaitingApproval {
 		kind = protocol.NotificationKindWarning
 	}
+	now := time.Now().UnixMilli()
 	events := []protocol.Event{}
 	told := false
 	for _, notice := range open {
 		task, valid := dispatchValue[protocol.NotificationDetailsTask](notice.Content.Details.Data)
-		if waiting && valid && task.Turn == summary.Run.Turn && notice.Content.Kind == kind {
+		if !valid {
+			continue
+		}
+		if waiting && task.Turn == summary.Run.Turn && notice.Content.Kind == kind {
 			told = true
 			continue
 		}
-		notice.Read = true
+		var unanswered bool
+		if err := db.QueryRowContext(ctx, `SELECT (EXISTS(SELECT 1 FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state') IN ('cancelled','interrupted'))
+			OR EXISTS(SELECT 1 FROM agent_questions WHERE turn=?1 AND json_extract(body,'$.state.kind') IN ('timed_out','interrupted')))
+			AND NOT EXISTS(SELECT 1 FROM agent_runs WHERE turn=?1 AND json_extract(body,'$.status') IN ('stopping','cancelled'))`, task.Turn.String()).Scan(&unanswered); err != nil {
+			return nil, err
+		}
+		task.FinishedMs = &now
+		notice.Content.Details.Data = &task
+		notice.Read = notice.Read || !unanswered
 		if err := putNotice(ctx, db, notice); err != nil {
 			return nil, err
 		}
@@ -177,7 +192,7 @@ func waitingNotice(ctx context.Context, db *sql.Conn, session protocol.SessionID
 		Details: &protocol.NotificationDetails{Kind: "task", Data: &protocol.NotificationDetailsTask{
 			Turn: summary.Run.Turn, Status: protocol.ConversationStatusRunning, StartedMs: summary.Run.StartedMs,
 		}},
-	}, time.Now().UnixMilli())
+	}, now)
 	if err != nil {
 		return nil, err
 	}

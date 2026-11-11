@@ -163,7 +163,7 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		id := NoticeID{Node: snapshot.Node, Cursor: entry.Sequence, Target: NoticeTarget{Kind: "notification", Notification: entry.ID}}
 		existing := slices.IndexFunc(feed.notices, func(notice Notice) bool { return notice.ID == id })
 		if existing >= 0 {
-			feed.notices[existing].Read = entry.Read
+			feed.notices[existing].Read, feed.notices[existing].Details = entry.Read, entry.Content.Details
 			continue
 		}
 		notice := Notice{ID: id, Title: entry.Content.Title, Message: entry.Content.Message,
@@ -250,7 +250,11 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		}
 		// The Node already told this wait durably; one notice per wait.
 		if slices.ContainsFunc(feed.notices, func(notice Notice) bool {
-			return notice.ID.Target.Kind == "notification" && notice.Kind == kind && !notice.Read && notice.Session != nil && *notice.Session == session.ID
+			if notice.ID.Target.Kind != "notification" || notice.Kind != kind || notice.Session == nil || *notice.Session != session.ID {
+				return false
+			}
+			task, err := payload[protocol.NotificationDetailsTask](notice.Details.Data)
+			return err == nil && task.FinishedMs == nil
 		}) {
 			continue
 		}

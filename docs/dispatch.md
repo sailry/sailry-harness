@@ -70,6 +70,8 @@ A scheduled run has nobody watching it, so the Node reports it durably
 ([Node notices](node.md)): the run's own completed, failed or interrupted
 notice; one notice while a dispatch-started turn waits for an approval or an
 answer; and one error notice for a job that failed, or whose outcome is
-unknown, before any turn existed. Approvals and questions expire by their own
-rules; until then the job stays `running` and its handler's next occurrences
+unknown, before any turn existed. An unanswered approval is cancelled and a
+question times out after 300 seconds, after which the run continues without
+it and the notice stays unread; only plan acceptance waits without a limit.
+While a run waits its job stays `running` and its handler's next occurrences
 are skipped.

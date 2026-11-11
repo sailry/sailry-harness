@@ -219,7 +219,10 @@ func TestControllerRulesAndInbox(t *testing.T) {
 				}
 				// Without a durable notice the transition still raises its own.
 				snapshot.Sessions[0].Activity.Waiting = nil
-				snapshot.Cursor, snapshot.Notifications[0].Read = 4, true
+				finished := int64(1)
+				closed := durable
+				closed.Content.Details = &protocol.NotificationDetails{Kind: "task", Data: &protocol.NotificationDetailsTask{Turn: run.Turn, Status: protocol.ConversationStatusRunning, FinishedMs: &finished}}
+				snapshot.Cursor, snapshot.Notifications = 4, []protocol.NotificationNotice{closed}
 				feed.observe(snapshot)
 				snapshot.Sessions[0].Activity.Waiting = &waiting
 				snapshot.Cursor = 5
@@ -229,7 +232,6 @@ func TestControllerRulesAndInbox(t *testing.T) {
 				}
 				// A late controller sees the wait it never observed.
 				var late activityFeed
-				snapshot.Notifications[0].Read = false
 				late.observe(snapshot)
 				if len(late.notices) != 1 || late.notices[0].Kind != scenario.kind || late.notices[0].Read {
 					t.Fatalf("late controller notices: %+v", late.notices)

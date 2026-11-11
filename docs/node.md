@@ -139,9 +139,14 @@ The Node writes its own notices in the transaction of the change they report
   or an answer writes one `task` notice whose status is still `running`:
   warning for an approval, info for input. A scheduled run usually has no
   connected controller to derive that attention, so the Node keeps it. The
-  notice is marked read when the turn stops waiting for it, and each later
-  wait of the turn is a new notice. Turns a controller started have none: the
-  controller derives their attention itself. Rust has no such notice.
+  notice has no finish time while the wait is open and gets one when the wait
+  ends; each later wait of the turn is a new notice. An answer or a stop marks
+  it read. A request that expired (the engine cancels an approval, and times
+  out a question other than plan acceptance, after 300 seconds) or that an
+  interruption closed stays unread, so its user finds it on return. Turns a
+  controller started have none: the controller derives their attention
+  itself, and it skips that derivation while the Node's notice is open, so a
+  wait is told once. Rust has no such notice.
 - A dispatch job that ends `failed` or `unknown` writes one `system`
   diagnostic (`plugin_callback`, incident = the job's request, with the
   package and handler), including a job refused when it is claimed. A job

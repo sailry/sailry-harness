@@ -293,12 +293,16 @@ func TestDispatchNotices(t *testing.T) {
 		_, err := db.ExecContext(ctx, "INSERT INTO agent_questions(id,turn,call,body) VALUES(?1,?2,?1,?3)", protocol.NewQuestionID().String(), turn.String(), `{"state":{"kind":"pending"}}`)
 		return err
 	}
-	answer := func(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
-		if _, err := db.ExecContext(ctx, "DELETE FROM agent_approvals WHERE turn=?1", turn.String()); err != nil {
+	// settle ends every pending request of the turn in the given states.
+	settle := func(ctx context.Context, db *sql.Conn, turn protocol.TurnID, approval, question string) error {
+		if _, err := db.ExecContext(ctx, `UPDATE agent_approvals SET body=json_object('state',?2) WHERE turn=?1 AND json_extract(body,'$.state')='pending'`, turn.String(), approval); err != nil {
 			return err
 		}
-		_, err := db.ExecContext(ctx, "DELETE FROM agent_questions WHERE turn=?1", turn.String())
+		_, err := db.ExecContext(ctx, `UPDATE agent_questions SET body=json_object('state',json_object('kind',?2)) WHERE turn=?1 AND json_extract(body,'$.state.kind')='pending'`, turn.String(), question)
 		return err
+	}
+	answer := func(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
+		return settle(ctx, db, turn, "approved", "answered")
 	}
 	for _, scenario := range []struct {
 		name     string
@@ -357,8 +361,9 @@ func TestDispatchNotices(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if len(events) != 2 || len(list) != 1 || !list[0].Read {
-					return fmt.Errorf("answered wait kept its notice unread: %+v", list)
+				task, _ = dispatchValue[protocol.NotificationDetailsTask](list[0].Content.Details.Data)
+				if len(events) != 2 || len(list) != 1 || !list[0].Read || task.FinishedMs == nil {
+					return fmt.Errorf("answered wait kept its notice open: %+v", list)
 				}
 				if err := ask(ctx, db, turn, scenario.approval); err != nil {
 					return err
@@ -372,6 +377,30 @@ func TestDispatchNotices(t *testing.T) {
 				}
 				if len(list) != 2 || list[0].Read == list[1].Read {
 					return fmt.Errorf("second wait was not reported once: %+v", list)
+				}
+				// A request that expires with nobody there stays unread.
+				if err := settle(ctx, db, turn, "cancelled", "timed_out"); err != nil {
+					return err
+				}
+				if _, err := activityEvent(ctx, db, session.ID); err != nil {
+					return err
+				}
+				list, err = notices(ctx, db, "task")
+				if err != nil {
+					return err
+				}
+				unread, closed := 0, 0
+				for _, notice := range list {
+					task, _ := dispatchValue[protocol.NotificationDetailsTask](notice.Content.Details.Data)
+					if !notice.Read {
+						unread++
+					}
+					if task.FinishedMs != nil {
+						closed++
+					}
+				}
+				if len(list) != 2 || unread != 1 || closed != 2 {
+					return fmt.Errorf("expired wait did not stay unread and closed: %+v", list)
 				}
 				return nil
 			})
