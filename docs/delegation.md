@@ -101,6 +101,11 @@ usage. A fork inherits the delegated totals of the turns it inherits. The
 parent's statistics refresh when a child run starts, finishes or changes an
 interaction, not after each child response.
 
+The desktop draws child rows from the parent's page, which carries every child
+run. It subscribes to a child's own conversation only while that child's
+activity waits on approval, to present the pending cards in the parent's
+composer, or while its tab is open.
+
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
 conversation feed; ordinary approval ownership remains on the child session.

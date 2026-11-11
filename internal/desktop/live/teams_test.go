@@ -278,9 +278,21 @@ func TestTeamsProjection(t *testing.T) {
 			})
 		}
 	})
-	t.Run("running capsule retains queued and stopping watches", func(t *testing.T) {
+	t.Run("capsule watches only children waiting on approval", func(t *testing.T) {
+		type row struct {
+			status  protocol.ConversationStatus
+			waiting *protocol.ActivityWaiting
+		}
+		var rows []row
 		for _, status := range []protocol.ConversationStatus{protocol.ConversationStatusQueued, protocol.ConversationStatusRunning, protocol.ConversationStatusStopping} {
-			t.Run(string(status), func(t *testing.T) {
+			rows = append(rows, row{status, nil}, row{status, new(protocol.ActivityWaitingInput)}, row{status, new(protocol.ActivityWaitingApproval)})
+		}
+		for _, row := range rows {
+			status, name := row.status, "working"
+			if row.waiting != nil {
+				name = string(*row.waiting)
+			}
+			t.Run(string(status)+"/"+name, func(t *testing.T) {
 				node, parent, childID, worktree := protocol.NodeID{1}, protocol.SessionID{1}, protocol.SessionID{2}, protocol.WorktreeID{1}
 				parentTurn := protocol.TurnID{1}
 				origin := &protocol.Delegation{Session: parent, Turn: parentTurn, Entry: "spawn"}
@@ -291,6 +303,7 @@ func TestTeamsProjection(t *testing.T) {
 				snapshot.Node = node
 				snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Main: true}}
 				snapshot.Sessions = []protocol.Session{{ID: parent, Revision: 1, Worktree: worktree, Config: config, Roles: protocol.DefaultRoleSnapshot()}, {ID: childID, Revision: 1, Worktree: worktree, Config: config, Roles: protocol.DefaultRoleSnapshot(), Delegation: &origin}}
+				snapshot.Sessions[1].Activity.Waiting = row.waiting
 				history := protocol.DefaultConversationSnapshot()
 				history.Node, history.Page.Session, history.Page.Revision = node, parent, 1
 				history.Page.Runs = []protocol.ConversationRun{{Session: parent, Worktree: worktree, Turn: parentTurn, Sequence: 1, Revision: 1, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusRunning}}
@@ -335,8 +348,9 @@ func TestTeamsProjection(t *testing.T) {
 				if status == protocol.ConversationStatusRunning {
 					want = 1
 				}
-				if len(context.Activity.Children) != want || !runtime.conversationSeen[childID] {
-					t.Fatal("capsule status filtering changed child observation", context.Activity.Children, runtime.conversationSeen)
+				watched := row.waiting != nil && *row.waiting == protocol.ActivityWaitingApproval
+				if len(context.Activity.Children) != want || runtime.conversationSeen[childID] != watched {
+					t.Fatal("capsule rows or child observation changed", context.Activity.Children, runtime.conversationSeen)
 				}
 			})
 		}

@@ -45,10 +45,15 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		}
 		runs[childSession.ID.String()] = child.Run
 		if child.Run.Status == "queued" || child.Run.Status == "running" || child.Run.Status == "stopping" {
-			r.watchChild(childSession.ID)
 			if child.Run.Status == protocol.ConversationStatusRunning {
 				ctx.Activity.Children = append(ctx.Activity.Children, childView(&state.Snapshot.Page, child, childSession, language))
 			}
+			// The parent's page carries each child's run. Only a child waiting
+			// on approval needs its own conversation, for the pending cards.
+			if childSession.Activity.Waiting == nil || *childSession.Activity.Waiting != protocol.ActivityWaitingApproval {
+				continue
+			}
+			r.watchChild(childSession.ID)
 			if details, ready := r.conversationState(childSession.ID); ready {
 				for _, approval := range details.Snapshot.Page.Approvals {
 					if approval.State != "pending" || approval.Startup != nil || approval.Ssh != nil || approval.Session != childSession.ID {
