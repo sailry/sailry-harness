@@ -116,6 +116,11 @@ whole-line context and a current revision; hunk stage uses the Git owner's one
 index writer with captured working, index and HEAD revisions. Restore refuses
 active turns and absent outcomes, and verifies the written after revision.
 
+Checkpoint text and attachment bindings live as long as a remaining session
+lists their turn; removing the last such session deletes them, the attachment
+rows that lose their last binding and then the attachment files
+([node.md](node.md#current-commands)).
+
 The accepted native Files layout, view-model fields and Actions remain the UI
 contract in [panel.md](panel.md). The coordinating Node owns shared native
 Files/Repository watches, scope authorization, durable admission, approval

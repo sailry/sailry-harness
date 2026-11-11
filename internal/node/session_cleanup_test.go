@@ -76,10 +76,25 @@ func TestStoredFileCollection(t *testing.T) {
 		}
 	})
 	t.Run("shutdown removes files without a row", func(t *testing.T) {
+		// A removal just before shutdown still finishes its file cleanup.
+		removed := sessionFixture(t, node)
+		artifacts := filepath.Join(profile, "artifacts")
+		for _, owner := range []string{removed.ID.String(), session.ID.String(), "notes"} {
+			if err := os.MkdirAll(filepath.Join(artifacts, owner, protocol.NewArtifactID().String()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(artifacts, owner, "1.html"), []byte("<p>Report</p>"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		commandFixture(t, node, protocol.Command{Kind: "remove_session", Data: &protocol.CommandRemoveSessionPayload{Session: removed.ID, ExpectedRevision: removed.Revision}})
 		unfinished := stored(protocol.NewAttachmentID().String())
 		stopped = true
 		if err := node.Stop(context.Background()); err != nil {
 			t.Fatal(err)
+		}
+		if entries, err := os.ReadDir(artifacts); err != nil || len(entries) != 2 || entries[0].Name() == removed.ID.String() || entries[1].Name() == removed.ID.String() {
+			t.Fatalf("removed session artifact directories: %v, %v", entries, err)
 		}
 		if present(unfinished) {
 			t.Fatal("shutdown kept an upload that has no row")
