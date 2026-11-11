@@ -4,17 +4,11 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
-	"github.com/firede/limu"
-	"github.com/firede/limu/layout"
-	"github.com/firede/limu/limumygo"
-	"github.com/firede/limu/scene"
-	"github.com/firede/limu/style"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -173,83 +167,21 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 	}
 }
 
+// visual is a VisualBlock: the chart or diagram of its Mermaid source in
+// place, with no card around it, under the block's title as one muted
+// caption line (visuals.go). A source that cannot be drawn shows as code.
 func visual(c *ui.Context, key string, v *Visual) {
-	p := theme.Of(c)
 	if v == nil || v.Mermaid == "" {
 		return
 	}
-	box := ui.Column(c.Key(key)).FillWidth().Gap(8).Padding(12).Radius(p.RadiusLg).Border(1, p.Border).Background(p.Surface.Alpha(0.8))
-	w := box.LayoutBounds().W - 24
-	box.Children(func() {
-		if v.Title != "" {
-			ui.Text(c, v.Title).FontSize(12).TextColor(p.MutedForeground)
-		}
-		sc, err := diagram(v.Mermaid, w)
-		if err != nil {
-			kit.Code(c, ui.Column(c.Key("source")), v.Mermaid, kit.CodeOptions{Tint: true})
-			return
-		}
-		look := &limumygo.Options{Look: style.Look{Theme: diagramTheme(p), ThemeOnly: true}, Fonts: limumygo.DefaultFonts}
-		ui.Row(c.Key("diagram")).FillWidth().Justify(ui.Center).Children(func() {
-			limumygo.View(c, sc, look).Label(v.Title)
-		})
+	box := ui.Column(c.Key(key)).FillWidth().MinWidth(0)
+	if showVisual(c, box, v.Mermaid, v.Title) {
+		return
+	}
+	box.Gap(visualGap).Children(func() {
+		caption(c, v.Title)
+		kit.Code(c, ui.Column(c.Key("source")), v.Mermaid, kit.CodeOptions{Tint: true})
 	})
-}
-
-// diagramKey is a laid out diagram: its source, at a width.
-type diagramKey struct {
-	src   string
-	width int
-}
-
-// laidOut is what limu made of a source at a width: its scene, or why it
-// could not read it.
-type laidOut struct {
-	sc  *scene.Scene
-	err error
-}
-
-// diagramLimit bounds the layouts kept: a window resized across many
-// widths starts over rather than keeping a scene for each.
-const diagramLimit = 256
-
-// diagrams keeps the scenes laid out, as layout measures every label, and
-// the sources limu could not read, so they are not parsed every frame.
-var diagrams = struct {
-	sync.Mutex
-	m map[diagramKey]laidOut
-}{m: map[diagramKey]laidOut{}}
-
-// diagram is src laid out for a width (a frame's whole DIPs; none before
-// the first layout), in the app's fonts and 14 DIP text.
-func diagram(src string, width float32) (*scene.Scene, error) {
-	k := diagramKey{src, max(int(width), 0)}
-	diagrams.Lock()
-	defer diagrams.Unlock()
-	if d, ok := diagrams.m[k]; ok {
-		return d.sc, d.err
-	}
-	o := &layout.Options{Measurer: limumygo.DefaultFonts, FontSize: 14, MaxWidth: float64(k.width), Snap: 0.5}
-	sc, err := limu.Layout(src, o)
-	if len(diagrams.m) >= diagramLimit {
-		clear(diagrams.m)
-	}
-	diagrams.m[k] = laidOut{sc, err}
-	return sc, err
-}
-
-// diagramTheme is limu's theme in the palette's colors: no fill behind
-// the diagram, the text, lines and outlines of the transcript, and the
-// series in the primary and the theme's accents.
-func diagramTheme(p *theme.Palette) *style.Theme {
-	col := func(c ui.Color) style.Color { return style.Color{R: c.R, G: c.G, B: c.B, A: c.A} }
-	return &style.Theme{
-		Bg: col(p.Surface.Alpha(0)), Fg: col(p.Foreground), Muted: col(p.MutedForeground), Line: col(p.MutedForeground),
-		Surface: col(p.Muted), SurfaceAlt: col(p.Secondary), Border: col(p.Border), Accent: col(p.Primary), Critical: col(p.Danger),
-		Series:      [8]style.Color{col(p.Primary), col(p.Orange), col(p.Success), col(p.Danger), col(p.Blue), col(p.Green), col(p.Yellow), col(p.Magenta)},
-		Radius:      float64(p.Radius) / 2,
-		StrokeWidth: 1,
-	}
 }
 
 // notices are background results, on the user's side as a bubble: each task's

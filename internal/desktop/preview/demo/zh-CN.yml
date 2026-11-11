@@ -228,6 +228,7 @@ metrics.report: |-
   - 激活率高于 B2B 基准
   - 定价测试之前需要先排查转化率
 metrics.chart.title: "周活跃团队"
+metrics.retention.title: "第 4 周留存率"
 metrics.1.user: "解释一下你用的留存率公式。"
 metrics.1.think: "对方要的是定义，不是数字。我应该给出公式，说明每一项统计的是什么，并指出数据的来源。"
 metrics.1.answer: |-

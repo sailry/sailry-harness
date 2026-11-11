@@ -102,12 +102,16 @@ const eventsCSV = "day,signups,activated,dashboards\n2026-11-02,412,268,731\n202
 
 const teamsChart = "xychart-beta\n    title \"Weekly active teams\"\n    x-axis [W40, W41, W42, W43, W44, W45]\n    y-axis \"teams\" 0 --> 2400\n    bar [1420, 1510, 1630, 1690, 1840, 2015]\n"
 
+// retentionChart is the second chart of the report: a line on a range of
+// its own.
+const retentionChart = "xychart-beta\n    title \"Week-4 retention\"\n    x-axis [W40, W41, W42, W43, W44, W45]\n    y-axis \"%\" 40 --> 70\n    line [52, 53, 55, 54, 56, 58]\n"
+
 const boardHTML = "<!doctype html>\n<title>Weekly metrics</title>\n<main>\n  <h1>Week 45</h1>\n  <label>Plan <select id=\"plan\"><option>All</option><option>Free</option><option>Pro</option></select></label>\n  <canvas id=\"teams\" width=\"640\" height=\"280\"></canvas>\n</main>\n<script type=\"module\" src=\"./board.js\"></script>\n"
 
 // metrics is an answer grounded on a search with its citations and the
 // search's own suggestions, output files of every kind and preview state
 // with a published document and a published page, pictures the model made
-// and pictures a tool returned, a chart, links that show as a file card and
+// and pictures a tool returned, two charts, links that show as a file card and
 // as pictures, and Markdown with math, a diagram and links.
 func (b *demo) metrics() *Conversation {
 	const id = "lumen-web/metrics"
@@ -150,6 +154,7 @@ func (b *demo) metrics() *Conversation {
 		}},
 		{Kind: cv.ImagesBlock, Images: []cv.Image{hero, cover}},
 		{Kind: cv.VisualBlock, Visual: &cv.Visual{Title: b.t("metrics.chart.title"), Mermaid: teamsChart}},
+		{Kind: cv.VisualBlock, Visual: &cv.Visual{Title: b.t("metrics.retention.title"), Mermaid: retentionChart}},
 	}
 	benchmark.End = end
 	report.Reply.Citations = []cv.Citation{benchmark, guide}
