@@ -64,7 +64,7 @@ func models() []Model {
 // the catalogs and the file picker's folder.
 func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := &composer.Context{
-		Models: d.Models, Families: Families, Teams: Teams, Interactions: c.Waiting, Queue: c.Queue,
+		Models: d.Models, Families: Families, Teams: Teams, Interactions: c.Waiting, Queue: c.Queue, Held: c.Held,
 		Files: entries(d), Readonly: false,
 	}
 	for _, h := range d.Hosts {
@@ -280,19 +280,32 @@ func SendQueued(c *Conversation, id string, now time.Time) {
 	case c.Running() && q.Compaction:
 		MoveQueued(c, id, c.Queue[0].ID)
 	case c.Running():
-		c.Queue[i].Guided = true
+		c.Queue[i].Guided, c.Queue[i].Wait = true, composer.WaitNone
 	default:
 		c.Queue = slices.Delete(c.Queue, i, i+1)
 		Send(c, q.Text, now)
 	}
 }
 
-// WithdrawGuidance returns a guiding message to the queue
+// resume lets a paused queue run again, as starting a turn does: its rows
+// wait in order. A message held until it is started, or one that was not
+// sent, stays as it is.
+func resume(c *Conversation) {
+	for i := range c.Queue {
+		switch c.Queue[i].Wait {
+		case composer.WaitPaused, composer.WaitStopped, composer.WaitInterrupted:
+			c.Queue[i].Wait = composer.WaitNone
+		}
+	}
+}
+
+// WithdrawGuidance returns a guiding message to the queue, held
 // (WithdrawGuidance).
 func WithdrawGuidance(c *Conversation, id string) {
 	for i := range c.Queue {
-		if c.Queue[i].ID == id {
-			c.Queue[i].Guided = false
+		if c.Queue[i].ID == id && c.Queue[i].Guided {
+			// Withdrawn guidance is held until it is sent.
+			c.Queue[i].Guided, c.Queue[i].Wait = false, composer.WaitHeld
 		}
 	}
 }
