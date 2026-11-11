@@ -677,8 +677,11 @@ repeat, so an older answer never replaces the event's registry.
 
 Deviations from the Rust reference:
 
-- The library loads the first hub page only (following empty pages); the
-  accepted dialog has no load-more control.
+- The library loads the first hub page only; the accepted dialog has no
+  load-more control. An answer without a compatible model is followed at
+  most three times (`libraryAnswers`, nine hub pages with the Node's own
+  skipping) and then reported as `model_library_partial`, so a query that
+  matches only other kinds of model does not read the hub's whole listing.
 - `refresh_local_model` is not called: the accepted details dialogs have no
   Update control.
 - Only the save locks the page; a running download does not.
