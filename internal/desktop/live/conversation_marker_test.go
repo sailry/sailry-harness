@@ -1,9 +1,11 @@
 package live
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -84,6 +86,20 @@ func TestContinuationMarker(t *testing.T) {
 		// A package without a declared marker gets the generic label at render.
 		if !row.Notice || row.Text != "" || row.Marker == nil || row.Marker.Label != "" {
 			t.Fatalf("queued continuation = %+v, marker %+v", row, row.Marker)
+		}
+		// The strip draws it without an editor, so it gets no reader or
+		// writer; a message queued beside it gets both.
+		message := protocol.TurnID{5}
+		both := page
+		both.Queue.Items = append(slices.Clone(page.Queue.Items), protocol.ConversationPending{Turn: message, Kind: "task", Ready: true, Preview: "Next"})
+		_, _, _, rows := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: both}})
+		cv := &viewmodel.Conversation{Queue: rows}
+		(&Runtime{}).enrichQueue(cv, both.Queue)
+		if len(cv.Queue) != 2 || cv.Queue[0].Load != nil || cv.Queue[0].Save != nil {
+			t.Fatalf("the queued continuation can be read or saved: %+v", cv.Queue)
+		}
+		if cv.Queue[1].ID != message.String() || cv.Queue[1].Load == nil || cv.Queue[1].Save == nil {
+			t.Fatalf("the queued message has no reader or writer: %+v", cv.Queue[1])
 		}
 	})
 }

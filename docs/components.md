@@ -44,7 +44,7 @@ MyGo bases.
 | `Loader`, `LoaderIn` | MyGo `plugins/loading` (`loading.Swirl`) | The app's one loader, in the muted color or the color given: running work (the sidebar's running rows 12, the composer's running capsules and rows 14) and content being read (a centred page 20) | Loading content that has a shape (`Skeleton`); an operation a control started (`Busy`) | composer, conversation, live, panel, plugins, settings, sidebar |
 | `Busy`, `BusyIn` | MyGo `plugins/loading` (`loading.Ring`) | The mark of an operation a control started, 14 (`BusySize`): before a busy button's label, in an icon's place, beside the value being saved. `BusyIn` takes the label's color on a filled button | Running work and loading pages (`Loader`); progress with a known share (`ui.Progress`, `Ring`) | composer, live, panel, plugins, settings, shell, sidebar |
 | `Ring` | Own (custom drawing; pinned MyGo has no progress circle) | A share of a whole as a 15 DIP circle (`RingSize`), or its sweep while loading, in a tone: context usage | Progress of an operation in a row (`ui.Progress`) | composer, conversation, live |
-| `Indicator`, `ThinkingOf` | MyGo `plugins/loading` | What a running turn does, 16 beside its phase: `loading.Pulse` thinking or waiting (held still for no known phase), `loading.LinearDots` replying, `loading.Swirl` while tools or subagents run | Anything else | conversation, plugins |
+| `Indicator`, `ThinkingOf` | MyGo `plugins/loading` | What a running turn does, 16 beside its phase: `kit.Loop` while the model thinks or the request waits, `kit.Chevrons` while it replies, `loading.Swirl` while tools or subagents run, `loading.Trace` while the run is queued, `loading.Pulse` held still for no known phase. Loop and Chevrons are the two marks of the set MyGo lacks (`kit/marks.go`) | Anything else | conversation, plugins |
 | `Shimmer`, `Sweep` | Own (custom drawing) | Text of a running activity; `Sweep` shares one band across a row's texts | Static labels | conversation, host |
 | `Identicon`, `Agent`, `AgentColor` | Own (custom drawing) | A subagent's mark and color | User avatars | conversation, composer, settings, shell |
 
@@ -313,7 +313,7 @@ offsets a text by hand.
 - Loading marks are MyGo's `plugins/loading` through Kit, one for each
   thing that goes on, none drawn by a page: `kit.Loader` (Swirl) for running
   work and content being read, `kit.Busy` (Ring) for the operation a control
-  started, `kit.Indicator` (Pulse, LinearDots, Swirl) for a running turn's
+  started, `kit.Indicator` (Loop, Chevrons, Swirl, Trace, a paused Pulse) for a running turn's
   phase. A mark inside a control or beside 14 DIP text is at most 14
   (`kit.BusySize`), the size of the icons there; a turn's phase mark is 16,
   as the transcript's row icons; a centred page's loader is 20. Their color

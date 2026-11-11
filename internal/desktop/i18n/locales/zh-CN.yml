@@ -241,7 +241,6 @@ knowledge_denied: 知识库访问被拒绝
 knowledge_page: 第 %{page} 页
 knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 张
-recent_sessions: 最近
 workspace_archive: 归档会话
 session_delete: 删除会话
 session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
@@ -511,7 +510,6 @@ browser_back: 后退
 browser_forward: 前进
 browser_reload: 刷新
 browser_address: 搜索或输入网址
-browser_new_tab: 新标签页
 browser_empty: 开始浏览
 browser_stop: 停止
 browser_invalid_address: 网址无效
@@ -877,10 +875,6 @@ local_models_empty: 暂无已安装模型
 local_models_status: 状态
 message_display_compact: 简洁
 message_display_detailed: 详细
-message_text_extra_large: 特大
-message_text_large: 稍大
-message_text_small: 小
-message_text_standard: 标准
 model_library_manage: 管理模型
 model_library_select: 选择
 model_library_selected: 已选择
@@ -1488,7 +1482,6 @@ host_runtime_preview: 此处仅展示 UI 示例快照；读取中或失败时保
 workspace_runtime_preview: 真实操作系统、运行时版本与主机指标将在公共节点接入后读取
 workspace_running: 运行中的 Agent
 host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
-workspace_no_running: 预览未启动 Agent 任务
 host_runtime_error: 运行环境读取失败（示例）：%{error}
 update_idle: 尚未检查（示例）
 update_checking: 正在检查（示例）
@@ -1519,8 +1512,6 @@ metrics_download: 下载
 metrics_upload: 上传
 metrics_disks: 磁盘
 metrics_no_disks: 暂无磁盘数据
-metrics_read: 累计读取
-metrics_written: 累计写入
 metrics_processes: 进程
 metrics_no_processes: 暂无进程数据
 metrics_worker: 示例工作进程
@@ -1612,7 +1603,6 @@ workspace_no_terminal: 当前 worktree 没有终端
 workspace_close_terminal: 关闭终端
 workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
 pane_drag: 拖动分屏
-terminal_connecting: 连接中
 terminal_take_control: 接管
 terminal_other_controller: 由另一设备控制
 terminal_unavailable: 终端不可用，请检查主机连接
@@ -1643,7 +1633,6 @@ notification_all: 全部
 notification_copy_report: 复制报告
 notification_report_copied: 报告已复制
 notification_duration: 用时
-notification_exit_code: 退出码
 notification_open_conversation: 打开会话
 notification_result: 结果
 notification_seconds: '%{count} 秒'
@@ -1741,7 +1730,6 @@ files_block_task: 任务列表
 files_bold: 粗体
 files_content_partial: 文件较大，仅显示前 128 KiB 的文本内容
 files_create: 新建
-files_directory_failed: 无法加载目录，请重试
 files_discard: 放弃草稿
 files_discard_description: 丢弃未保存修改？正在保存的内容仍可能写入
 files_discard_title: 放弃未保存的草稿
@@ -1843,11 +1831,8 @@ ssh_trust_title: 信任主机密钥
 usage_duration_ms: '%{value} ms'
 live_host_runtime_loading: 正在读取主机运行信息
 live_host_runtime_error: 无法读取主机运行信息
-live_host_no_running: 没有运行中的会话
 live_metrics_loading: 正在读取指标
 live_metrics_error: 无法读取主机指标
-live_metrics_read: 读取
-live_metrics_written: 写入
 live_update_idle: 检查主机更新
 live_update_checking: 正在检查更新
 live_update_current: 主机已是最新版本
@@ -2089,7 +2074,6 @@ updates_save_first: 请先保存打开的文档
 notification_details: 详情
 directory_action_failed: 操作失败，请检查路径和权限
 directory_address: 输入路径
-directory_count_hidden: '%{count} 个隐藏项'
 directory_create: 新建文件夹
 directory_denied: 没有权限访问此文件夹
 directory_devices: 设备
@@ -2114,7 +2098,6 @@ directory_volume: 磁盘
 directory_yaml_kind: YAML 文件
 files_entry_name: 名称
 files_paste_conflict: 目标已存在或路径不可用，请检查后重试
-files_trash_confirm: 确认删除“%{name}”
 live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识
 plugins_loading: 正在读取
 project_appearance: 项目外观
@@ -2191,7 +2174,6 @@ chat_provider_source: '%{name} · %{source}'
 chat_provider_session: '%{name} · 会话'
 chat_provider_node: '%{name} · 主机'
 chat_config_desktop: 桌面配置
-usage_read_failed: 无法读取用量，请重试
 settings_experimental: 实验
 settings_experimental_description: 开发与调试设置
 settings_demo_mode: 演示模式

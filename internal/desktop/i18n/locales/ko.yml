@@ -241,7 +241,6 @@ knowledge_denied: 지식 접근 거부됨
 knowledge_page: '%{page}페이지'
 knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 슬라이드 %{slide}
-recent_sessions: 최근
 workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
@@ -511,7 +510,6 @@ browser_back: 뒤로
 browser_forward: 앞으로
 browser_reload: 새로고침
 browser_address: 주소 검색 또는 입력
-browser_new_tab: 새 탭
 browser_empty: 탐색 시작
 browser_stop: 중지
 browser_invalid_address: 잘못된 주소
@@ -877,10 +875,6 @@ local_models_empty: 설치된 모델 없음
 local_models_status: 상태
 message_display_compact: 간결하게
 message_display_detailed: 자세히
-message_text_extra_large: 아주 크게
-message_text_large: 크게
-message_text_small: 작게
-message_text_standard: 표준
 model_library_manage: 모델 관리
 model_library_select: 선택
 model_library_selected: 선택됨
@@ -1488,7 +1482,6 @@ host_runtime_preview: UI 스냅샷만 표시하며 로딩 중이거나 실패해
 workspace_runtime_preview: 라이브 OS, 런타임 버전 및 호스트 메트릭에는 공유 Node이 필요합니다
 workspace_running: 실행 중인 에이전트
 host_activity_hint: 세션 활동 미리보기만; 실제 에이전트 또는 CLI 프로세스가 시작되지 않음
-workspace_no_running: 미리보기에서 시작된 에이전트 작업 없음
 host_runtime_error: '런타임을 읽을 수 없습니다 (미리보기): %{error}'
 update_idle: 체크되지 않음 (미리보기)
 update_checking: 검사 중 (미리보기)
@@ -1519,8 +1512,6 @@ metrics_download: 다운로드
 metrics_upload: 업로드
 metrics_disks: 디스크
 metrics_no_disks: 디스크 데이터 없음
-metrics_read: 전체 읽기
-metrics_written: 총 쓰기
 metrics_processes: 프로세스
 metrics_no_processes: 프로세스 데이터 없음
 metrics_worker: 미리 보기 작업자
@@ -1612,7 +1603,6 @@ workspace_no_terminal: 이 작업 트리에 터미널이 없습니다
 workspace_close_terminal: 터미널 닫기
 workspace_terminal_preview: 프로젝트와 워크트리 소유권이 있는 터미널 UI 미리보기; PTY나 셸이 시작되지 않음
 pane_drag: 분할하려면 드래그
-terminal_connecting: 연결 중
 terminal_take_control: 제어하세요
 terminal_other_controller: 다른 장치에서 제어됨
 terminal_unavailable: 터미널을 사용할 수 없습니다. 호스트 연결 확인
@@ -1643,7 +1633,6 @@ notification_all: 전체
 notification_copy_report: 보고서 복사
 notification_report_copied: 보고서를 복사했습니다
 notification_duration: 소요 시간
-notification_exit_code: 종료 코드
 notification_open_conversation: 대화 열기
 notification_result: 결과
 notification_seconds: '%{count}초'
@@ -1741,7 +1730,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: 이 큰 파일의 처음 128 KiB만 표시됩니다
 files_create: 만들기
-files_directory_failed: 폴더를 불러올 수 없습니다. 다시 시도하십시오
 files_discard: 초안 버리기
 files_discard_description: 저장되지 않은 변경 사항을 버리시겠습니까? 저장 중인 내용은 여전히 기록될 수 있습니다
 files_discard_title: 저장되지 않은 초안 버리기
@@ -1843,11 +1831,8 @@ ssh_trust_title: 호스트 키 신뢰
 usage_duration_ms: '%{value} ms'
 live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
-live_host_no_running: No running sessions
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
-live_metrics_read: Read
-live_metrics_written: Written
 live_update_idle: Check for Host updates
 live_update_checking: Checking for updates
 live_update_current: Host is up to date
@@ -2089,7 +2074,6 @@ updates_save_first: 열린 문서를 업데이트하기 전에 저장하기
 notification_details: 세부 정보
 directory_action_failed: 작업 실패; 경로와 권한 확인
 directory_address: 경로 입력
-directory_count_hidden: 숨김 %{count}개
 directory_create: 새 폴더
 directory_denied: 이 폴더를 열 권한이 없습니다
 directory_devices: 장치
@@ -2114,7 +2098,6 @@ directory_volume: 디스크
 directory_yaml_kind: YAML 파일
 files_entry_name: 이름
 files_paste_conflict: 대상이 존재하거나 경로를 사용할 수 없습니다
-files_trash_confirm: “%{name}” 삭제
 live_request_failed: 요청이 완료되지 않았습니다. Node 연결 및 디렉토리를 확인하십시오. 다시 시도하면 원래 요청 ID가 유지됩니다.
 plugins_loading: 로딩 중
 project_appearance: 프로젝트 외관
@@ -2191,7 +2174,6 @@ chat_provider_source: '%{name} · %{source}'
 chat_provider_session: '%{name} · 세션'
 chat_provider_node: '%{name} · 호스트'
 chat_config_desktop: 데스크톱 설정
-usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode

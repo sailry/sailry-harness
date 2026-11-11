@@ -154,30 +154,6 @@ func Lightbox(c *ui.Context, label string, images []*ui.Bitmap, captions []strin
 	return overlay.Lightbox(c, label, images, captions, at, open, o), true
 }
 
-// ShortcutSheet is overlay.ShortcutSheet for the user's own key bindings:
-// an action without keys is left out, and so is a group left empty. The
-// component is blocked (docs/crychic.md): its panel is opaque, not Kit's
-// frost. The adapter is kept for when the library takes a surface.
-func ShortcutSheet(c *ui.Context, title string, groups []overlay.ShortcutGroup, open *bool, o overlay.ShortcutSheetOptions) (ui.Element, bool) {
-	var kept []overlay.ShortcutGroup
-	for _, g := range groups {
-		var bound []overlay.Shortcut
-		for _, s := range g.Shortcuts {
-			if s.Label != "" && len(s.Keys) > 0 {
-				bound = append(bound, s)
-			}
-		}
-		if g.Title != "" && len(bound) > 0 {
-			kept = append(kept, overlay.ShortcutGroup{Title: g.Title, Shortcuts: bound})
-		}
-	}
-	if title == "" || len(kept) == 0 {
-		*open = false
-		return ui.Element{}, false
-	}
-	return overlay.ShortcutSheet(c, title, kept, open, o), true
-}
-
 // UpdatePrompt is desktop.UpdatePrompt as the content of a Kit floating
 // surface (kit.Dialog, kit.Popover). On its own the prompt is an opaque
 // card, which would cover the frost of the surface it sits in: here its

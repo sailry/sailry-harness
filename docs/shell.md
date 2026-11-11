@@ -505,7 +505,7 @@ does and the demo's panels and order are never saved. The Node keeps running.
 | Activity centre | Empty |
 | Terminal and Browser tabs | Not offered (`panel.State.Demo`): they would start a shell or load a page. The per-conversation panels keep the demo's tabs in the demo's stage |
 | Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): nothing is read or written, and the worktree manager, which a live project's actions open, is not offered |
-| Project editor and appearance | Saved to the demo's memory. The host directory picker and Open folder are not offered: the demo has no host whose directories it could list |
+| Project editor and appearance | Saved to the demo's memory. Open folder is not offered: the demo has no host whose directories it could list. The editor's Browse button opens the file picker over the sample catalog (`picker.Catalog`), as the preview does, without the preview's note |
 | Session overview (header) | `preview.Overview` over the demo conversation, not `Hooks.Overview`. An output or a source opens the demo's file in the panel (`preview.Asset`); a cited page opens nothing |
 | Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values and an authorization link (no page opens). A request read again or sent again changes the demo's rows |
 | Editing a sent message | Save replaces the message in memory. New chat from a selection opens a demo chat with the quote as its draft |

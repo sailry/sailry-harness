@@ -48,16 +48,18 @@ func (s *State) indicators(c *ui.Context, ctx *Context, start bool) {
 
 // indicator is one ring: 4 on each side of it and its hint as the tooltip.
 // One with a panel is a small round ghost button whose popover opens over
-// its end; the others are not pressable.
+// its end; the others are not pressable. The caller's context carries the
+// ring's key, so the root element takes c as it is: keying it again would
+// give every ring the same key.
 func (s *State) indicator(c *ui.Context, in *Indicator) {
 	if in.Panel == nil {
-		box := ui.Row(c.Key("ring")).Shrink(0).PaddingX(ringInset).AlignItems(ui.Center)
+		box := ui.Row(c).Shrink(0).PaddingX(ringInset).AlignItems(ui.Center)
 		kit.Tooltip(c, box, in.Hint)
 		box.Children(func() { kit.Ring(c, in.Percent, in.Loading, in.Tone, in.Hint) })
 		return
 	}
 	open := in.Open
-	b := kit.GhostLook(c, ui.ButtonBase(c.Key("ring")), open).Label(in.Hint).Height(24).PaddingX(ringInset).Radius(12).
+	b := kit.GhostLook(c, ui.ButtonBase(c), open).Label(in.Hint).Height(24).PaddingX(ringInset).Radius(12).
 		Shrink(0).Disabled(in.Disabled)
 	if !open {
 		kit.Tooltip(c, b, in.Hint)

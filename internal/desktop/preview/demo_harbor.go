@@ -7,7 +7,6 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	cv "github.com/sailry/sailry-harness/internal/desktop/conversation"
-	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
 
@@ -110,13 +109,8 @@ func (b *demo) rateLimit() *Conversation {
 		{ID: "cmd-k6", Command: "k6 run load/bookings.js --vus 50", Started: start.Add(-80 * time.Second), Status: composer.CommandStopping,
 			Output: "running (1m20.0s), 50/50 VUs, 18240 complete iterations"},
 	}
-	c.Badges = []composer.StatusBadge{{ID: "goals/status", Label: b.both("goal.label"), Icon: icons.Target,
-		Segment: []composer.Segment{{Text: b.both("goal.label"), Tone: kit.Neutral}, {Text: b.both("goal.running"), Tone: kit.Info}},
-		Details: []composer.Detail{{Label: b.both("goal.label"), Value: b.t("goal.text")}},
-		Panel: &composer.Panel{Body: b.both("goal.text"), Empty: b.both("goal.empty"), Buttons: []composer.PanelButton{
-			{ID: "goal-stop", Label: b.both("goal.stop")},
-			{ID: "goal-clear", Label: b.both("goal.clear"), Ghost: true},
-		}}}}
+	c.Badges = []composer.StatusBadge{b.goalBadge("goal.running", kit.Info, composer.Text{Label: "8m"},
+		"goal.text", "0 / 25", "8m", "48.2k", "pause", "edit", "clear")}
 	return c
 }
 

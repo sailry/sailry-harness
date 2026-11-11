@@ -32,7 +32,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
 | `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
-| `files.go` | File picker dialog |
+| `files.go` | File picker dialog; its table is built under `theme.Neutral`, so a chosen file has the neutral `Palette.Selected` fill, not the accent |
 | `dictation.go` | Dictation button and level meter |
 | `interactions.go` | Interactions contract, `Actions`, approval and question capsules |
 | `activity.go` | The activity strip: Git changes, plugin Status badges, task progress, background commands and ports, running subagents |
@@ -219,7 +219,8 @@ The context bar has one project control and at most one branch control:
   - What is chosen is told by its fill alone, with no check mark: the
     neutral `Palette.Selected` ([theme](theme.md)) on the chosen model's
     row, the effort's row and the family's tile, stronger than `Hover`. Each
-    is selected for assistive technology.
+    is selected for assistive technology. The team list of the same popover
+    marks the chosen execution the same way.
   - The efforts, 132 wide, a listbox named `composer_effort` under that
     heading (12, muted): the levels of one model as rows of the same shape,
     by their IDs, each with the score measured at it (`Model.Scores`, else

@@ -161,7 +161,7 @@ element by element:
 | `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path. The answer is dropped if the host or the path changed meanwhile |
 | Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with the busy mark (`kit.Busy`) from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
 | `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path, its Projects group listing that host's registered projects (`projectPlaces`). The answer is dropped if the host or the path changed meanwhile |
-| Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with a `ui.Spinner` from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
+| Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with the busy mark (`kit.PrimaryBusy`, which draws `kit.Busy`) from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
 
 The preview checks `CheckProject` (`project_required`,
 `project_duplicate_path`) or `CheckClone` (`project_clone_required`). Live,

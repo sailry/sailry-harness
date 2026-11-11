@@ -255,7 +255,6 @@ knowledge_page
 knowledge_cells
 knowledge_slide
 # Sidebar
-recent_sessions
 workspace_archive
 session_delete
 session_delete_named
@@ -526,7 +525,6 @@ browser_back
 browser_forward
 browser_reload
 browser_address
-browser_new_tab
 browser_empty
 browser_stop
 browser_invalid_address
@@ -896,10 +894,6 @@ local_models_empty
 local_models_status
 message_display_compact
 message_display_detailed
-message_text_extra_large
-message_text_large
-message_text_small
-message_text_standard
 model_library_manage
 model_library_select
 model_library_selected
@@ -1500,7 +1494,6 @@ host_runtime_preview
 workspace_runtime_preview
 workspace_running
 host_activity_hint
-workspace_no_running
 host_runtime_error
 update_idle
 update_checking
@@ -1531,8 +1524,6 @@ metrics_download
 metrics_upload
 metrics_disks
 metrics_no_disks
-metrics_read
-metrics_written
 metrics_processes
 metrics_no_processes
 metrics_worker
@@ -1624,7 +1615,6 @@ workspace_no_terminal
 workspace_close_terminal
 workspace_terminal_preview
 pane_drag
-terminal_connecting
 terminal_take_control
 terminal_other_controller
 terminal_unavailable
@@ -1655,7 +1645,6 @@ notification_all
 notification_copy_report
 notification_report_copied
 notification_duration
-notification_exit_code
 notification_open_conversation
 notification_result
 notification_seconds
@@ -1753,7 +1742,6 @@ files_block_task
 files_bold
 files_content_partial
 files_create
-files_directory_failed
 files_discard
 files_discard_description
 files_discard_title
@@ -1855,11 +1843,8 @@ ssh_trust_title
 usage_duration_ms
 live_host_runtime_loading
 live_host_runtime_error
-live_host_no_running
 live_metrics_loading
 live_metrics_error
-live_metrics_read
-live_metrics_written
 live_update_idle
 live_update_checking
 live_update_current
@@ -2101,7 +2086,6 @@ updates_save_first
 notification_details
 directory_action_failed
 directory_address
-directory_count_hidden
 directory_create
 directory_denied
 directory_devices
@@ -2126,7 +2110,6 @@ directory_volume
 directory_yaml_kind
 files_entry_name
 files_paste_conflict
-files_trash_confirm
 live_request_failed
 plugins_loading
 project_appearance
@@ -2203,7 +2186,6 @@ chat_provider_source
 chat_provider_session
 chat_provider_node
 chat_config_desktop
-usage_read_failed
 settings_experimental
 settings_experimental_description
 settings_demo_mode

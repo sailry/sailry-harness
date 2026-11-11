@@ -74,7 +74,8 @@ const resultWidth = 320
 
 // Result is an empty state or a load failure, centered: its icon in a
 // round tile, a title, a subtitle and actions. It is never an operation's
-// outcome, which is only a toast.
+// outcome, which is only a toast. Its root takes the caller's context as it
+// is, so a caller showing more than one under a parent keys each.
 func Result(c *ui.Context, p ResultProps) ui.Element {
 	pal := theme.Of(c)
 	glyph, fg, bg := icons.Info, pal.MutedForeground, pal.Muted
@@ -84,7 +85,7 @@ func Result(c *ui.Context, p ResultProps) ui.Element {
 	if p.Icon != nil {
 		glyph = p.Icon
 	}
-	root := ui.Column(c.Key("result")).Padding(40, 16).Gap(12).AlignItems(ui.Center)
+	root := ui.Column(c).Padding(40, 16).Gap(12).AlignItems(ui.Center)
 	if p.Card {
 		root.Border(1, pal.Border).BorderStyle(ui.BorderDashed).Radius(pal.RadiusLg).Background(pal.Surface)
 	}

@@ -836,6 +836,55 @@ func composerModels(t *testing.T) {
 		})
 	}
 
+	// The team list tells the chosen execution as the picker tells a model:
+	// by the same neutral fill, with no check at the row's end.
+	t.Run("team selection", func(t *testing.T) {
+		picker, _, _ := modelPickerAt(t, 960, nil)
+		picker.Move(2, 2)
+		rest(picker)
+		want := probe{t, picker}.edge(effortRow(t, picker, "medium"))
+
+		tt, comp, _ := composerWith(t, 960, nil)
+		comp.Team, comp.Model, comp.Effort, comp.Features = "", "claude-opus-5-5", 2, nil
+		tt.SetScale(2)
+		tt.Frame()
+		tt.Frame()
+		openControls(t, tt, zh("composer_model_settings")+": ", zh("composer_settings"))
+		pressButton(t, tt, zh("composer_execution_model")) // the execution's avatar, which opens the team list
+		tt.Move(2, 2)
+		rest(tt)
+		p := probe{t, tt}
+		var chosen, others []ui.AccessInfo
+		for _, e := range tt.AccessAll() {
+			if e.Role != ui.RoleButton || e.Bounds.H != 32 || e.Name == zh("composer_team_manage") {
+				continue
+			}
+			if e.Checked { // a selected button is reported as checked
+				chosen = append(chosen, e)
+			} else {
+				others = append(others, e)
+			}
+		}
+		if len(chosen) != 1 || chosen[0].Name != zh("composer_execution_model") || len(others) == 0 {
+			t.Fatalf("the team list has %d selected rows %+v and %d others: %q", len(chosen), chosen, len(others), tt.Texts())
+		}
+		row, ground := chosen[0], p.edge(others[0])
+		fill := p.edge(row)
+		if same(fill, ground) || !same(fill, want) {
+			t.Errorf("the chosen execution's row is filled %v over %v, want the picker's chosen fill %v", fill, ground, want)
+		}
+		b := row.Bounds
+	scan:
+		for x := b.X + b.W - 28; x <= b.X+b.W-4; x += 0.5 {
+			for y := b.Y + 8; y <= b.Y+24; y += 0.5 {
+				if got := p.at(x, y); !same(got, fill) {
+					t.Errorf("the chosen execution's row draws %v at its end, %v from its start, over its fill %v: want no check", got, x-b.X, fill)
+					break scan
+				}
+			}
+		}
+	})
+
 	// A score is the last thing of its row, ending at the row's padding, on
 	// the models' rows and the efforts' alike, so the scores are a column;
 	// a model without a score keeps the score's place, so its capability

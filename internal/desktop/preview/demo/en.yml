@@ -33,8 +33,6 @@ goal.label: "Goal"
 goal.running: "Running"
 goal.text: "Ship per-client rate limiting for bookings with p99 latency under 40 ms"
 goal.empty: "No goal"
-goal.stop: "Stop"
-goal.clear: "Clear"
 
 limit.title: "Add rate limiting to the booking API"
 limit.0.user: "Add per-client rate limiting to `POST /bookings`. Anonymous clients hammer it during flash sales."

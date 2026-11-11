@@ -79,6 +79,21 @@ func sidebarNamed(tt *ui.Tester, names ...string) []ui.AccessInfo {
 	return out
 }
 
+// sidebarGroups are the titles of the navigation column's groups, in order:
+// its disclosures that are not a project's row.
+func sidebarGroups(tt *ui.Tester, a *App) []string {
+	var out []string
+	for _, info := range tt.AccessAll() {
+		if info.Role != ui.RoleDisclosure || info.Bounds.X < RailWidth || info.Bounds.X+info.Bounds.W > RailWidth+a.NavWidth {
+			continue
+		}
+		if !slices.ContainsFunc(a.Data.Projects, func(p *viewmodel.Project) bool { return p.Name == info.Name }) {
+			out = append(out, info.Name)
+		}
+	}
+	return out
+}
+
 // The groups: an empty one is its header alone, there is no Recent group,
 // the header actions show without the pointer, and the sort menu orders the
 // projects and the sessions, pinned ones staying first, and is kept.
@@ -130,13 +145,15 @@ func testSidebarGroups(t *testing.T) {
 	empty := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
 	tt := open(empty)
 	snapshot(t, tt, "sidebar-empty")
-	for _, key := range []string{"project_sessions_empty", "connection_no_projects", "recent_sessions"} {
+	for _, key := range []string{"project_sessions_empty", "connection_no_projects"} {
 		if tt.HasText(zh(key)) {
 			t.Errorf("the empty sidebar shows %q: %q", zh(key), tt.Texts())
 		}
 	}
-	if !tt.HasText(zh("sessions_unassigned")) || !tt.HasText(zh("projects")) {
-		t.Fatalf("the empty sidebar lost a group header: %q", tt.Texts())
+	// The groups are named in full: a third group, as the Recent one that
+	// is gone, fails here whatever its title.
+	if got, want := sidebarGroups(tt, empty), []string{zh("sessions_unassigned"), zh("projects")}; !slices.Equal(got, want) {
+		t.Fatalf("the empty sidebar's groups are %q, want %q", got, want)
 	}
 	chat, sort, add := actions(tt)
 	for _, b := range []ui.AccessInfo{chat, sort, add} {
@@ -151,10 +168,11 @@ func testSidebarGroups(t *testing.T) {
 	// Two projects with sessions, for the look.
 	two := groupsData()
 	two.Projects = two.Projects[:2]
-	tt = open(NewLive(two))
+	withTwo := NewLive(two)
+	tt = open(withTwo)
 	snapshot(t, tt, "sidebar-projects")
-	if tt.HasText(zh("recent_sessions")) {
-		t.Errorf("the Recent group shows: %q", tt.Texts())
+	if got, want := sidebarGroups(tt, withTwo), []string{zh("sidebar_pinned"), zh("sessions_unassigned"), zh("projects")}; !slices.Equal(got, want) {
+		t.Errorf("the groups are %q, want %q", got, want)
 	}
 	// The header actions end where a row's buttons do: 8 from its edge.
 	chat, _, add = actions(tt)
@@ -268,8 +286,11 @@ func testSidebarGroups(t *testing.T) {
 	if loaded.NavWidth != 300 || b.NavWidth != 300 || b.Settings.Model.SessionOrder != int(sidebar.SortUpdated) {
 		t.Errorf("the old UI state loaded as %+v, order %d", loaded, b.Settings.Model.SessionOrder)
 	}
-	if got := b.Sidebar.Collapsed(); !slices.Equal(got, []string{"notes"}) || bt.HasText(i18n.In("en", "recent_sessions")) {
-		t.Errorf("the old UI state collapsed %q, Recent shows %v", got, bt.HasText(i18n.In("en", "recent_sessions")))
+	if got := b.Sidebar.Collapsed(); !slices.Equal(got, []string{"notes"}) {
+		t.Errorf("the old UI state collapsed %q", got)
+	}
+	if got, want := sidebarGroups(bt, b), []string{i18n.In("en", "sidebar_pinned"), i18n.In("en", "sessions_unassigned"), i18n.In("en", "projects")}; !slices.Equal(got, want) {
+		t.Errorf("the old UI state shows the groups %q, want %q", got, want)
 	}
 }
 
@@ -581,9 +602,11 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	}
 	clickButton(t, tt, en("directory_title"))
 	settle(tt)
+	// Each is a whole label: the counts line is asserted exactly, with every
+	// argument, so a changed wording or count fails here.
 	for _, text := range []string{en("directory_preview"), "sailry", "scratch", "many", en("directory_locations"), en("directory_devices"),
-		en("directory_count_directories", "count", 8), "/Users/alex"} {
-		if !tt.HasText(text) {
+		en("directory_counts_hidden", "directories", 8, "files", 11, "hidden", 1), "/Users/alex"} {
+		if !slices.Contains(tt.Texts(), text) {
 			t.Fatalf("the picker does not show %q: %q", text, tt.Texts())
 		}
 	}
@@ -628,7 +651,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	settle(tt)
 	a.Sidebar.Picker.Create(".cache")
 	settle(tt)
-	if tt.HasText(".cache") || !tt.HasText(en("directory_count_hidden", "count", 1)) {
+	if tt.HasText(".cache") || !slices.Contains(tt.Texts(), en("directory_counts_hidden", "directories", 1, "files", 1, "hidden", 1)) {
 		t.Fatalf("a hidden entry shows before the toggle: %q", tt.Texts())
 	}
 	// The hidden-files toggle is an item of the header's More menu.

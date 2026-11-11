@@ -2038,7 +2038,7 @@ git_add_remote: 添加远程仓库
 git_remote_name: 名称
 git_remote_url: 地址
 git_actions: Git 操作
-git_checkout: 切换到…
+git_checkout: "切换到"
 git_clone: 克隆…
 git_changes_menu: 更改
 git_pull_push: 拉取与推送
@@ -2062,22 +2062,22 @@ git_commit_sync_failed: 提交成功，同步未完成。请查看 Git 输出后
 git_discard_all: 放弃全部更改
 git_sync: 同步
 git_sync_rebase: 同步并变基
-git_pull_from: 从指定远程拉取…
+git_pull_from: "从指定远程拉取"
 git_fetch_prune: 获取并清理失效引用
 git_fetch_all: 从所有远程获取
-git_branch_from: 从其他分支创建…
-git_delete_remote_branch: 删除远程分支…
-git_remove_remote: 移除远程仓库…
+git_branch_from: "从其他分支创建"
+git_delete_remote_branch: "删除远程分支"
+git_remove_remote: "移除远程仓库"
 git_remove_remote_confirm: 移除远程配置和跟踪引用，保留本地分支
 git_stash_apply_latest: 应用最新储藏
 git_stash_pop_latest: 弹出最新储藏
-git_stash_drop_all: 删除全部储藏…
-git_stash_view: 查看储藏…
-git_tag_create: 创建标签…
+git_stash_drop_all: "删除全部储藏"
+git_stash_view: "查看储藏"
+git_tag_create: "创建标签"
 git_tag_message: 标签说明（可选）
-git_tag_delete: 删除标签…
-git_tag_delete_remote: 删除远程标签…
-git_tag_push: 推送标签…
+git_tag_delete: "删除标签"
+git_tag_delete_remote: "删除远程标签"
+git_tag_push: "推送标签"
 git_worktree_open: 打开 worktree…
 git_tracking_name: 本地分支名称
 git_no_matches: 无匹配项
@@ -2645,7 +2645,7 @@ artifact_request_edit: "请求修改"
 artifact_selection_context: "预览第 %{page} 页选中内容"
 artifact_edit_prompt: "修改要求："
 
-reference_group_context: "添加"
+reference_group_context: "上下文"
 updates_receipt_failed: "更新已安装，但无法保存恢复信息"
 updates_details: "详情"
 updates_recovery_failed: "草稿恢复未完成"
@@ -2701,7 +2701,6 @@ compaction_settings_load_failed: "无法读取压缩设置"
 compaction_settings_conflict: "压缩设置已更改，请重试"
 compaction_settings_failed: "无法保存压缩设置"
 compaction_settings_unknown: "保存结果未确认，请重试"
-hooks_project_required: "选择项目"
 workspace_action_failed: "工作区操作失败"
 workspace_changed: "工作区已变更，请刷新后重试"
 workspace_action_unknown: "结果尚不确定，请检查后再重试"

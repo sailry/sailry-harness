@@ -19,21 +19,29 @@ func (b *demo) goalMarker(key string) *cv.Marker {
 	return &cv.Marker{Label: label.Label, Locales: label.Locales}
 }
 
-// goalBadge is the plugin's Status badge: Goal, the state and what follows
-// it (the time while it runs, the reason once paused), the counters as its
-// tooltip, and the panel with the objective and its buttons.
+// goalBadge is goalStatus for the objective written under a key of the
+// demo's catalogs.
 func (b *demo) goalBadge(state string, tone kit.Tone, tail composer.Text, objective, turns, spent, tokens string, buttons ...string) composer.StatusBadge {
-	badge := composer.StatusBadge{ID: "goals/status", Label: b.both("goal.label"), Icon: icons.Target,
-		Segment: []composer.Segment{{Text: b.both("goal.label"), Tone: kit.Neutral}, {Text: b.both(state), Tone: tone}, {Text: tail, Tone: kit.Neutral}},
+	return goalStatus(state, tone, tail, b.both(objective), b.t(objective), turns, spent, tokens, buttons...)
+}
+
+// goalStatus is the plugin's Status badge: Goal, the state and what follows
+// it (the time while it runs, the reason once paused), the counters as its
+// tooltip, and the panel with the objective and its buttons. shown is the
+// objective as the tooltip reads it.
+func goalStatus(state string, tone kit.Tone, tail, objective composer.Text, shown, turns, spent, tokens string, buttons ...string) composer.StatusBadge {
+	label := (&demo{}).both // the package's labels, which carry their translations
+	badge := composer.StatusBadge{ID: "goals/status", Label: label("goal.label"), Icon: icons.Target,
+		Segment: []composer.Segment{{Text: label("goal.label"), Tone: kit.Neutral}, {Text: label(state), Tone: tone}, {Text: tail, Tone: kit.Neutral}},
 		Details: []composer.Detail{
-			{Label: b.both("goal.label"), Value: b.t(objective)},
-			{Label: b.both("pursuit.turns"), Value: turns},
-			{Label: b.both("pursuit.time"), Value: spent},
-			{Label: b.both("pursuit.tokens"), Value: tokens},
+			{Label: label("goal.label"), Value: shown},
+			{Label: label("pursuit.turns"), Value: turns},
+			{Label: label("pursuit.time"), Value: spent},
+			{Label: label("pursuit.tokens"), Value: tokens},
 		},
-		Panel: &composer.Panel{Body: b.both(objective), Empty: b.both("goal.empty")}}
+		Panel: &composer.Panel{Body: objective, Empty: label("goal.empty")}}
 	for index, key := range buttons {
-		badge.Panel.Buttons = append(badge.Panel.Buttons, composer.PanelButton{ID: "goal-" + key, Label: b.both("pursuit." + key), Ghost: index > 0})
+		badge.Panel.Buttons = append(badge.Panel.Buttons, composer.PanelButton{ID: "goal-" + key, Label: label("pursuit." + key), Ghost: index > 0})
 	}
 	return badge
 }

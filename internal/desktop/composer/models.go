@@ -530,22 +530,23 @@ func avatar(c *ui.Context, icon *ui.SVG, fill ui.Color, size float32, selected, 
 }
 
 // teamList is Model only, the default team and the teams with their member
-// counts and a check, then Manage teams.
+// counts, then Manage teams. The chosen one is told as the picker's rows
+// are, by the neutral Palette.Selected alone, with no check; assistive
+// technology has it as selected.
 func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
 	row := func(key, name string, icon *ui.SVG, fill ui.Color, count int, selected bool, pick func()) {
-		kit.Ghost(c.Key(key), name, selected).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
-			AccessSelected(selected).Children(func() {
+		b := kit.Ghost(c.Key(key), name, false).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
+			AccessSelected(selected)
+		if selected {
+			b.Background(p.Selected())
+		}
+		b.Children(func() {
 			avatar(c, icon, fill, member, true, false)
 			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 			if count >= 0 {
 				ui.Textf(c, "%d", count).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
 			}
-			ui.Box(c).Size(16, 16).Shrink(0).Children(func() {
-				if selected {
-					ui.Icon(c, icons.Check).FontSize(16)
-				}
-			})
 		}).OnClick(pick)
 	}
 	ui.Scroll(c.Key("teams")).FillWidth().Grow(1).Gap(4).Children(func() {

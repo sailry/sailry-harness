@@ -520,7 +520,7 @@ func TestPolicy(t *testing.T) {
 		if got, ok := source(1, agent.Source{URL: "https://go.dev/doc"}); !ok || got.Host != "go.dev" || got.Title != "go.dev" {
 			t.Errorf("a source with only an address became %+v %v", got, ok)
 		}
-		zoom, at, current, open, sheet, shut := math.NaN(), 9, -3, true, true, true
+		zoom, at, current, open, shut := math.NaN(), 9, -3, true, true
 		query, follow := "", false
 		ok := map[string]bool{}
 		broken := []code.GraphCommit{{Hash: "a"}, {Hash: "a"}}
@@ -539,8 +539,6 @@ func TestPolicy(t *testing.T) {
 			_, ok["link, no host"] = LinkPreview(c, "Go", "", nil)
 			_, ok["lightbox"] = Lightbox(c, "t:images", []*ui.Bitmap{photo, photo}, []string{"one"}, &at, &open, overlay.LightboxOptions{})
 			_, ok["lightbox, undecoded"] = Lightbox(c, "t:images", []*ui.Bitmap{photo, nil}, nil, &at, &shut, overlay.LightboxOptions{})
-			_, ok["shortcuts"] = ShortcutSheet(c, "t:keys", []overlay.ShortcutGroup{{Title: "t:panel", Shortcuts: []overlay.Shortcut{{Label: "t:unbound"}, {Label: "t:files", Keys: []string{"P"}}}},
-				{Title: "t:empty", Shortcuts: []overlay.Shortcut{{Label: "t:unbound"}}}}, &sheet, overlay.ShortcutSheetOptions{})
 			ZoomControl(c, "t:zoom", &zoom, navigation.ZoomControlOptions{})
 			_, ok["waveform"] = Waveform(c, "t:clip", []float64{-1, 3, math.NaN()}, 4, media.WaveformOptions{})
 			_, ok["waveform, no levels"] = Waveform(c, "t:clip", nil, 0, media.WaveformOptions{})
@@ -564,8 +562,8 @@ func TestPolicy(t *testing.T) {
 				t.Errorf("%s: built %v, want %v", name, built, want)
 			}
 		}
-		if zoom != 1 || at != 1 || current != 0 || !open || !sheet || shut {
-			t.Errorf("bound values after repair: zoom %v at %d current %d open %v sheet %v shut %v", zoom, at, current, open, sheet, shut)
+		if zoom != 1 || at != 1 || current != 0 || !open || shut {
+			t.Errorf("bound values after repair: zoom %v at %d current %d open %v shut %v", zoom, at, current, open, shut)
 		}
 		for _, text := range []string{"kept", "kept again", "kept too", "kept as well"} {
 			if !s.tt.HasText(text) {

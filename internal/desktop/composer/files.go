@@ -170,37 +170,42 @@ func (s *State) filePicker(c *ui.Context, ctx *Context, actions Actions) {
 					}
 					kit.Result(c.Key("empty"), kit.ResultProps{Icon: icons.FolderOpen, Title: i18n.T(c, key)}).Grow(1)
 				} else {
-					t := ui.Table(c.Key(f.dir.Path), &f.list, cols, len(rows), func(row, col int) {
-						e := rows[row]
-						switch col {
-						case 0:
-							ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center).Children(func() {
-								icon := fileIcon(e.Mime)
-								if e.Children != nil {
-									icon = icons.Folder
+					// MyGo fills a chosen row with its theme's accent, the app's
+					// emphasis color: under the neutral theme it takes the
+					// neutral selected fill, as the folder picker's entries do.
+					ui.Themed(c.Key("neutral"), theme.Neutral(c)).Background(ui.Transparent).Grow(1).MinHeight(0).Children(func() {
+						t := ui.Table(c.Key(f.dir.Path), &f.list, cols, len(rows), func(row, col int) {
+							e := rows[row]
+							switch col {
+							case 0:
+								ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center).Children(func() {
+									icon := fileIcon(e.Mime)
+									if e.Children != nil {
+										icon = icons.Folder
+									}
+									ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
+									ui.Text(c, e.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+								})
+							case 1:
+								if e.Children == nil {
+									ui.Text(c, size(c, e.Size)).FontSize(13).SingleLine().TextColor(p.MutedForeground)
 								}
-								ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
-								ui.Text(c, e.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-							})
-						case 1:
-							if e.Children == nil {
-								ui.Text(c, size(c, e.Size)).FontSize(13).SingleLine().TextColor(p.MutedForeground)
+							case 2:
+								kind := i18n.T(c, "directory_file_kind")
+								if e.Children != nil {
+									kind = i18n.T(c, "directory_folder_kind")
+								}
+								ui.Text(c, kind).FontSize(13).SingleLine().TextColor(p.MutedForeground)
 							}
-						case 2:
-							kind := i18n.T(c, "directory_file_kind")
-							if e.Children != nil {
-								kind = i18n.T(c, "directory_folder_kind")
+						}).Grow(1).Padding(0, 12)
+						if t.Submitted() && f.row >= 0 && f.row < len(rows) {
+							if e := rows[f.row]; e.Children != nil {
+								f.visit(e)
+							} else {
+								open()
 							}
-							ui.Text(c, kind).FontSize(13).SingleLine().TextColor(p.MutedForeground)
 						}
-					}).Grow(1).Padding(0, 12)
-					if t.Submitted() && f.row >= 0 && f.row < len(rows) {
-						if e := rows[f.row]; e.Children != nil {
-							f.visit(e)
-						} else {
-							open()
-						}
-					}
+					})
 				}
 				dirs, files := 0, 0
 				for _, e := range f.dir.Children {

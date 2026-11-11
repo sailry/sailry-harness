@@ -1,8 +1,10 @@
 package preview
 
 import (
+	"slices"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
@@ -59,6 +61,34 @@ func TestDemoGoals(t *testing.T) {
 			}
 			if len(badge.Details) != 4 || badge.Details[1].Value != "2 / 25" || badge.Panel == nil || len(badge.Panel.Buttons) != 3 || badge.Panel.Buttons[0].ID != "goal-pause" {
 				t.Fatalf("the badge's details and panel are %+v, %+v", badge.Details, badge.Panel)
+			}
+		})
+	}
+	// Every goal badge has the one shape: the conversation the demo opens
+	// on and the preview's, like the two above, read Goal, the state and
+	// the time, and offer Pause, Edit and Clear.
+	for name, badges := range map[string][]composer.StatusBadge{
+		"the demo's first conversation": Demo("en", "local").Find(DemoStart).Badges,
+		"the preview":                   {goal()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if len(badges) != 1 {
+				t.Fatalf("%d badges", len(badges))
+			}
+			badge := badges[0]
+			if len(badge.Segment) != 3 || badge.Segment[0].Text.Label != "Goal" || badge.Segment[1].Text.Label != "Running" ||
+				badge.Segment[1].Tone != kit.Info || badge.Segment[2].Text.Label == "" {
+				t.Fatalf("the badge reads %+v", badge.Segment)
+			}
+			var buttons []string
+			for _, button := range badge.Panel.Buttons {
+				buttons = append(buttons, button.ID+" "+button.Label.Label+" "+button.Label.Locales["zh-CN"])
+			}
+			if want := []string{"goal-pause Pause 暂停", "goal-edit Edit 编辑", "goal-clear Clear 清除"}; !slices.Equal(buttons, want) {
+				t.Fatalf("the panel offers %q, want %q", buttons, want)
+			}
+			if len(badge.Details) != 4 || badge.Details[0].Value == "" || badge.Details[0].Value != badge.Panel.Body.Label {
+				t.Fatalf("the badge's details are %+v over %+v", badge.Details, badge.Panel.Body)
 			}
 		})
 	}

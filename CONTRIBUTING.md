@@ -68,7 +68,8 @@ go generate ./internal/desktop/i18n
 ```
 
 The source catalogs include the accepted desktop additions in `zz-desktop.*.yml`.
-Those entries keep the current UI wording when shared catalogs use other labels.
+A key is defined in one file of a language: the generator fails on a key that
+two of them define, so a changed wording is edited where the key already is.
 
 The desktop entry point is:
 

@@ -24,7 +24,8 @@ import (
 const (
 	// chartWidth is the widest a chart is, chartHeight the height of a
 	// plot with its axis labels, and chartTall the most a chart of many
-	// rows takes; pieSize is a pie's box.
+	// rows takes, both at the text size 14 (chartScale); pieSize is a
+	// pie's box, which holds no text and keeps its size.
 	chartWidth  = 560
 	chartHeight = 200
 	chartTall   = 260
@@ -33,8 +34,6 @@ const (
 	maxPoints = 366
 	maxSeries = 8
 	maxSlices = 12
-	// axisFont is the size of axis labels, axis titles and the legend.
-	axisFont = 11
 	// barWidth is the widest a bar is, however few there are.
 	barWidth = 40
 	// tickRunes, tipRunes and labelRunes are the most characters of a
@@ -281,16 +280,28 @@ func seriesColor(p *theme.Palette, i int) ui.Color {
 	return c
 }
 
+// A chart's text follows the message text size as its caption does
+// (textSize), keeping what it was apart from 14: axis labels, axis titles
+// and an xychart's legend are three DIPs smaller, a pie's legend two, on
+// rows six higher than their text. The plot's height and the room its axes
+// take grow in proportion (chartScale), so a larger text leaves the marks
+// the same share of the chart. The tip over a mark is a tooltip and keeps
+// Kit's 12.
+func axisFont(size float32) float32   { return size - 3 }
+func legendFont(size float32) float32 { return size - 2 }
+func legendRow(size float32) float32  { return size + 6 }
+func chartScale(size float32) float32 { return size / 14 }
+
 // textWidth estimates s at the axis font: a full-width character takes
 // the font's size and any other a little over half of it. The axis is laid
 // out with the real widths; this only decides which labels to leave out.
-func textWidth(s string) float32 {
+func textWidth(s string, font float32) float32 {
 	var w float32
 	for _, r := range s {
 		if r >= 0x2E80 {
-			w += axisFont
+			w += font
 		} else {
-			w += axisFont * 0.58
+			w += font * 0.58
 		}
 	}
 	return w
@@ -398,10 +409,13 @@ func (d *dataChart) buildXY(c *ui.Context, name string, width float32) {
 	if width <= 0 || width > chartWidth {
 		width = chartWidth
 	}
+	size := textSize(c)
+	font, k := axisFont(size), chartScale(size)
 	height := float32(chartHeight)
 	if d.horizontal {
 		height = min(max(float32(n)*24+28, 120), chartTall)
 	}
+	height *= k
 	bars := 0
 	for _, s := range d.series {
 		if !s.line {
@@ -410,12 +424,12 @@ func (d *dataChart) buildXY(c *ui.Context, name string, width float32) {
 	}
 	// The room a category has along its axis, and the room its label
 	// takes there: the plot is what the value axis and the labels leave.
-	step, room := (width-48)/float32(n), float32(0)
+	step, room := (width-48*k)/float32(n), float32(0)
 	if d.horizontal {
-		step, room = (height-24)/float32(n), axisFont+4
+		step, room = (height-24*k)/float32(n), font+4
 	} else {
 		for _, l := range d.ticks {
-			room = max(room, textWidth(l)+10)
+			room = max(room, textWidth(l, font)+10)
 		}
 	}
 	band := mc.NewBand(d.labels...)
@@ -447,10 +461,10 @@ func (d *dataChart) buildXY(c *ui.Context, name string, width float32) {
 		above, below = below, above
 	}
 	axes.Label = func(_ mc.Side, t mc.Tick) {
-		ui.Text(c, t.Label).NoWrap().FontSize(axisFont).TextColor(p.MutedForeground)
+		ui.Text(c, t.Label).NoWrap().FontSize(font).TextColor(p.MutedForeground)
 	}
 	title := func(s string) ui.Element {
-		return ui.Text(c, s).FontSize(axisFont).SingleLine().MinWidth(0).TextColor(p.MutedForeground)
+		return ui.Text(c, s).FontSize(font).SingleLine().MinWidth(0).TextColor(p.MutedForeground)
 	}
 	ui.Column(c.Key("chart")).FillWidth().MaxWidth(chartWidth).MinWidth(0).Gap(4).Children(func() {
 		if above != "" {
@@ -691,6 +705,7 @@ func (d *dataChart) legend(c *ui.Context) {
 		return
 	}
 	p := theme.Of(c)
+	font := axisFont(textSize(c))
 	ui.Row(c.Key("legend")).Wrap().GapX(12).GapY(2).MinWidth(0).Children(func() {
 		for i, s := range d.series {
 			if s.name == "" {
@@ -703,7 +718,7 @@ func (d *dataChart) legend(c *ui.Context) {
 				} else {
 					mark.Size(8, 8).Radius(2)
 				}
-				ui.Text(c, s.name).FontSize(axisFont).SingleLine().MinWidth(0).TextColor(p.MutedForeground)
+				ui.Text(c, s.name).FontSize(font).SingleLine().MinWidth(0).TextColor(p.MutedForeground)
 			})
 		}
 	})
@@ -727,6 +742,7 @@ func (d *dataChart) buildPie(c *ui.Context, name string) {
 		pad = 0
 	}
 	slices := mc.Pie(values, pad)
+	size := textSize(c)
 	const outer = pieSize/2 - 2
 	ui.Row(c.Key("chart")).FillWidth().MaxWidth(chartWidth).MinWidth(0).Gap(20).AlignItems(ui.Center).Children(func() {
 		wheel := ui.Box(c.Key("pie")).Size(pieSize, pieSize).Shrink(0).Role(ui.RoleImage).Label(name)
@@ -765,7 +781,7 @@ func (d *dataChart) buildPie(c *ui.Context, name string) {
 		}
 		*row = -1
 		entry := func(i int) {
-			line := ui.Row(c.Key(i)).Height(20).Gap(6).MinWidth(0).AlignItems(ui.Center)
+			line := ui.Row(c.Key(i)).Height(legendRow(size)).Gap(6).MinWidth(0).AlignItems(ui.Center)
 			text := p.MutedForeground
 			if line.Hovered() {
 				*row = i
@@ -775,12 +791,12 @@ func (d *dataChart) buildPie(c *ui.Context, name string) {
 			}
 			line.Children(func() {
 				ui.Box(c).Size(8, 8).Shrink(0).Radius(2).Background(seriesColor(p, i))
-				ui.Text(c, d.labels[i]).FontSize(12).SingleLine().Shrink(1).MinWidth(0).TextColor(text)
+				ui.Text(c, d.labels[i]).FontSize(legendFont(size)).SingleLine().Shrink(1).MinWidth(0).TextColor(text)
 				value := d.share(i)
 				if d.showData {
 					value = number(values[i]) + " · " + value
 				}
-				ui.Text(c, value).FontSize(12).NoWrap().Shrink(0).TextColor(p.MutedForeground)
+				ui.Text(c, value).FontSize(legendFont(size)).NoWrap().Shrink(0).TextColor(p.MutedForeground)
 			})
 		}
 		// Up to six slices in one column, more in two.

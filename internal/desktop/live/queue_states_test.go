@@ -1,11 +1,16 @@
 package live
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -108,19 +113,63 @@ func TestQueueStates(t *testing.T) {
 		}
 	})
 	// Background results held back from delivery are not queue rows
-	// (docs/removed-ui.md): the tray has nothing to draw for them.
+	// (docs/removed-ui.md). The strip is drawn over the projection of a page
+	// that holds one of each kind: with a queued message it is that one row,
+	// and without one there is no strip, and no result's title shows.
 	t.Run("held results are not rows", func(t *testing.T) {
-		page := base()
-		for _, hold := range []protocol.ConversationBackgroundHold{protocol.ConversationBackgroundHoldLimit, protocol.ConversationBackgroundHoldStopped,
-			protocol.ConversationBackgroundHoldInterrupted, protocol.ConversationBackgroundHoldFailed, protocol.ConversationBackgroundHoldOther} {
-			task := protocol.DefaultConversationBackgroundTask()
-			task.ID, task.Session, task.Title, task.State = string(hold), session, "Build "+string(hold), protocol.ConversationBackgroundStatePending
-			task.Hold, task.Suppressed = &hold, true
-			page.Background = append(page.Background, task)
+		var titles []string
+		held := func(queued bool) protocol.ConversationPage {
+			page := base()
+			for _, hold := range []protocol.ConversationBackgroundHold{protocol.ConversationBackgroundHoldLimit, protocol.ConversationBackgroundHoldStopped,
+				protocol.ConversationBackgroundHoldInterrupted, protocol.ConversationBackgroundHoldFailed, protocol.ConversationBackgroundHoldOther} {
+				task := protocol.DefaultConversationBackgroundTask()
+				task.ID, task.Session, task.Title, task.State = string(hold), session, "Build "+string(hold), protocol.ConversationBackgroundStatePending
+				task.Hold, task.Suppressed = &hold, true
+				page.Background = append(page.Background, task)
+				titles = append(titles, task.Title)
+			}
+			if queued {
+				page.Queue.Items = []protocol.ConversationPending{{Turn: item, Kind: "task", Ready: true, Preview: "Next"}}
+			}
+			return page
 		}
-		_, _, _, queue := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
-		if len(queue) != 0 {
-			t.Fatalf("held results became queue rows: %+v", queue)
+		for _, row := range []struct {
+			name   string
+			queued bool
+		}{{"beside a queued message", true}, {"alone", false}} {
+			t.Run(row.name, func(t *testing.T) {
+				_, _, _, queue := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: held(row.queued)}})
+				comp := composer.New("")
+				tester := ui.NewTester(func(c *ui.Context) {
+					theme.Apply(c, "", theme.Light)
+					ui.Column(c).Fill().Justify(ui.End).Children(func() {
+						composer.View(c, comp, &composer.Context{Queue: queue, Activity: composer.Activity{Connected: true}}, &pickerViewActions{})
+					})
+				}, 800, 500)
+				tester.SetLocale("en")
+				tester.Frame()
+				tester.Frame()
+				// The strip is named by its count: one row, or no strip.
+				strips := 0
+				for _, info := range tester.AccessAll() {
+					for count := range len(titles) + 2 {
+						if info.Name == i18n.In("en", "queue_count", "count", count) {
+							strips++
+							if !row.queued || count != 1 {
+								t.Errorf("a strip of %d rows is drawn", count)
+							}
+						}
+					}
+					for _, title := range titles {
+						if strings.Contains(info.Name, title) || strings.Contains(info.Value, title) || strings.Contains(info.Description, title) {
+							t.Errorf("the held result %q is drawn: %+v", title, info)
+						}
+					}
+				}
+				if row.queued != (strips == 1) || row.queued != slices.Contains(tester.Texts(), "Next") {
+					t.Fatalf("%d strips drawn, texts %q", strips, tester.Texts())
+				}
+			})
 		}
 	})
 	t.Run("guidance fate", func(t *testing.T) {

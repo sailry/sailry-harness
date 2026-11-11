@@ -241,7 +241,6 @@ knowledge_denied: Acceso al conocimiento denegado
 knowledge_page: Página %{page}
 knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Diapositiva %{slide}
-recent_sessions: Reciente
 workspace_archive: Sesión de archivo
 session_delete: Eliminar sesión
 session_delete_named: Eliminar sesión “%{name}” y sus sub-agentes permanentemente
@@ -511,7 +510,6 @@ browser_back: Atrás
 browser_forward: Adelante
 browser_reload: Recargar
 browser_address: Buscar o introducir una dirección
-browser_new_tab: Una nueva pestaña
 browser_empty: Comience a navegar
 browser_stop: Detener
 browser_invalid_address: Dirección no válida
@@ -877,10 +875,6 @@ local_models_empty: No hay modelos instalados
 local_models_status: Estado
 message_display_compact: Compacto
 message_display_detailed: Detallada
-message_text_extra_large: Muy grande
-message_text_large: Grande
-message_text_small: Pequeño
-message_text_standard: Estándar
 model_library_manage: Gestionar modelos
 model_library_select: Seleccionar
 model_library_selected: Seleccionado
@@ -1488,7 +1482,6 @@ host_runtime_preview: Solo una instantánea de la interfaz; los valores existent
 workspace_runtime_preview: El sistema operativo en vivo, las versiones en tiempo de ejecución y las métricas de host requieren el Node compartido
 workspace_running: Agentes en Ejecución
 host_activity_hint: Solo vista previa de la actividad de la sesión; no se inicia ningún proceso real de Agente o CLI
-workspace_no_running: Ninguna tarea de agente iniciada en la vista previa
 host_runtime_error: 'No se pudo leer el tiempo de ejecución (vista previa): %{error}'
 update_idle: No seleccionada (vista previa)
 update_checking: Comprobación (vista previa)
@@ -1519,8 +1512,6 @@ metrics_download: Descargar
 metrics_upload: Subir
 metrics_disks: Disco
 metrics_no_disks: No hay datos de disco
-metrics_read: Total leído
-metrics_written: Total escrito
 metrics_processes: Procesos
 metrics_no_processes: Sin datos de proceso
 metrics_worker: Trabajador de vista previa
@@ -1612,7 +1603,6 @@ workspace_no_terminal: No hay terminales en este árbol de trabajo
 workspace_close_terminal: Cerrar la terminal
 workspace_terminal_preview: Vista previa de la interfaz de usuario del terminal con propiedad del proyecto y del árbol de trabajo; no se inicia ningún PTY ni shell
 pane_drag: Arrastrar para dividir
-terminal_connecting: Conectando
 terminal_take_control: Tome el control
 terminal_other_controller: Controlado por otro dispositivo
 terminal_unavailable: Terminal no disponible; compruebe la conexión del host
@@ -1643,7 +1633,6 @@ notification_all: Todas
 notification_copy_report: Copiar informe
 notification_report_copied: Informe copiado
 notification_duration: Duración
-notification_exit_code: Código de salida
 notification_open_conversation: Abrir conversación
 notification_result: Resultado
 notification_seconds: '%{count} segundos'
@@ -1741,7 +1730,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: Solo se muestran los primeros 128 KiB de este gran archivo
 files_create: Crear
-files_directory_failed: No se pudo cargar la carpeta; vuelva a intentarlo
 files_discard: Descartar el borrador
 files_discard_description: ¿Descartar los cambios no guardados? El contenido que se está guardando todavía puede ser escrito
 files_discard_title: Descartar el borrador no guardado
@@ -1843,11 +1831,8 @@ ssh_trust_title: Clave de host de confianza
 usage_duration_ms: '%{value} ms'
 live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
-live_host_no_running: No running sessions
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
-live_metrics_read: Read
-live_metrics_written: Written
 live_update_idle: Check for Host updates
 live_update_checking: Checking for updates
 live_update_current: Host is up to date
@@ -2089,7 +2074,6 @@ updates_save_first: Guardar documentos abiertos antes de actualizar
 notification_details: Detalles
 directory_action_failed: Operación fallida; compruebe ruta y permisos
 directory_address: Introduzca la ruta
-directory_count_hidden: '%{count} ocultos'
 directory_create: Una nueva carpeta
 directory_denied: Sin permiso para abrir esta carpeta
 directory_devices: Dispositivos
@@ -2114,7 +2098,6 @@ directory_volume: Disco
 directory_yaml_kind: Archivo YAML
 files_entry_name: Nombre
 files_paste_conflict: El destino existe o la ruta no está disponible
-files_trash_confirm: Suprímase “%{name}”
 live_request_failed: Solicitud incompleta; compruebe Node conexión y directorio. Reintentar mantiene el ID de solicitud original.
 plugins_loading: Cargando
 project_appearance: Apariencia del proyecto
@@ -2191,7 +2174,6 @@ chat_provider_source: '%{name} · %{source}'
 chat_provider_session: '%{name} · Sesión en curso'
 chat_provider_node: '%{name}'
 chat_config_desktop: Configuración de escritorio
-usage_read_failed: No se pudo cargar el uso, inténtelo de nuevo
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
