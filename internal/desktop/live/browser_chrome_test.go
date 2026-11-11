@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -504,14 +506,96 @@ func browserChrome(t *testing.T) {
 	if bounded := large.document(); !large.valid() || len(bounded) > browserContextBytes || !bytes.Contains(bounded, []byte(`"truncated":true`)) {
 		t.Fatalf("a large element's context is %d bytes (valid %v)", len(bounded), large.valid())
 	}
-	// A pick for a conversation no longer shown is refused with a toast.
-	tab.conversation = "another"
+	// The page is its conversation's. Another conversation takes the screen,
+	// an unsent chat in a project, as a pick arrives: the pick is refused
+	// with a toast and ends the selection, no composer takes it, and the
+	// page stays with its tab in its conversation's panel, off screen.
+	home, open := app.Sidebar.Selected, panel.Tab{Kind: panel.Browser, ID: id}
+	output, err := controller.Do(ctx, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
+		Name: "Another conversation", Path: t.TempDir(), Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, valid := detail[protocol.Project](output.Data)
+	if !valid {
+		t.Fatal("the project was not returned")
+	}
+	project := func() *viewmodel.Project {
+		for _, shown := range app.Data.Projects {
+			if shown.ID == folder.ID.String() {
+				return shown
+			}
+		}
+		return nil
+	}
+	for end := time.Now().Add(20 * time.Second); project() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("the project did not reach the window; visible text: %q", tester.Texts())
+		}
+		settle()
+	}
+	stale := func() int {
+		count := 0
+		for _, shown := range tester.Texts() {
+			if shown == text("browser_annotation_stale") {
+				count++
+			}
+		}
+		return count
+	}
+	ended := 0
+	tab.pick = &browserPick{token: token, cancel: func() { ended++ }}
+	settle()
+	need(ui.RoleButton, text("browser_cancel_selection"))
+	r.newDraft(project())
 	r.enqueue(func(c *ui.Context) { r.browserAttachElement(c, tab, element, picture) })
 	settle()
-	if len(comp.Attachments) != 2 || !tester.HasText(text("browser_annotation_stale")) {
-		t.Fatalf("a stale pick: %d attachments; visible text: %q", len(comp.Attachments), tester.Texts())
+	other := app.Sidebar.Selected
+	if other == home || !strings.HasPrefix(other, "draft/") || tab.conversation != home {
+		t.Fatalf("another conversation: %q shown, the page's is %q, was %q", other, tab.conversation, home)
+	}
+	if len(comp.Attachments) != 2 || len(app.Composer(other).Attachments) != 0 || stale() != 1 {
+		t.Fatalf("a stale pick: %d and %d attachments; visible text: %q", len(comp.Attachments), len(app.Composer(other).Attachments), tester.Texts())
+	}
+	if tab.pick != nil || ended != 1 {
+		t.Fatalf("a stale pick left the selection under way: %v, ended %d times", tab.pick, ended)
+	}
+	if slices.Contains(app.Panel.Tabs, open) || !slices.Contains(app.ConversationTabs(home), open) || r.browser.tabs[id] != tab {
+		t.Fatalf("the page did not stay with its conversation: shown %v, its own %v, page %v", app.Panel.Tabs, app.ConversationTabs(home), r.browser.tabs[id])
+	}
+	if tester.WebViewAt(float32(width)-40, float32(height)-40) != nil {
+		t.Fatal("the page stays on screen with another conversation")
 	}
 	dismiss()
+	// Its conversation shows again: the tab and its page with it, nothing
+	// selecting.
+	back := func(when string) {
+		t.Helper()
+		app.Sidebar.Selected = home
+		settle()
+		if !slices.Equal(app.Panel.Tabs, []panel.Tab{open}) || app.Panel.Active != open || !app.PanelOpen || r.browser.tabs[id] != tab || tab.conversation != home {
+			t.Fatalf("%s: tabs %v, active %v, open %v, page %+v", when, app.Panel.Tabs, app.Panel.Active, app.PanelOpen, r.browser.tabs[id])
+		}
+		if info := need(ui.RoleButton, text("browser_annotate")); info.Disabled {
+			t.Fatalf("%s: Select element is disabled", when)
+		}
+		fills(when)
+	}
+	back("the conversation shown again")
+	// A selection under way when its conversation leaves the screen ends
+	// there, with no pick and no toast.
+	toasts := stale()
+	tab.pick = &browserPick{token: token, cancel: func() { ended++ }}
+	settle()
+	need(ui.RoleButton, text("browser_cancel_selection"))
+	r.newDraft(project())
+	settle()
+	if app.Sidebar.Selected == home || tab.pick != nil || ended != 2 || stale() > toasts || len(comp.Attachments) != 2 {
+		t.Fatalf("a selection outlived its conversation's leaving the screen: shown %q, selecting %v, ended %d times, %d attachments; visible text: %q",
+			app.Sidebar.Selected, tab.pick != nil, ended, len(comp.Attachments), tester.Texts())
+	}
+	back("the conversation shown after a selection")
 
 	// A failed load: the body says so over the address and offers the
 	// reload; the page is not placed, and nothing is selectable.

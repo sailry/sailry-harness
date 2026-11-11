@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"image/png"
 	"os"
 	"os/exec"
@@ -780,6 +781,57 @@ func panelConversations(t *testing.T, f panelFixture) {
 	})
 	if running() != 3 || !slices.Equal(app.Panel.Tabs, firstTabs) || !slices.Equal(terminals(app.ConversationTabs(second)), []string{three.ID}) {
 		t.Fatalf("removing a draft disturbed the others: running %d, tabs %v, second %v", running(), app.Panel.Tabs, app.ConversationTabs(second))
+	}
+
+	// The agent's browser calls address the tabs of its own session's panel,
+	// shown or not. Two tabs opened in the shown session and left before a
+	// frame showed them have no page yet: they stay that session's. The
+	// session then shown lists its own page only, and the hidden session's
+	// call without a tab goes to the tab its own panel shows.
+	app.Panel.New(panel.Browser)
+	app.Panel.New(panel.Browser)
+	opened := slices.Clone(app.Panel.Tabs[len(firstTabs):])
+	r.OpenSession(second)
+	wait("the second session shows again", func() bool {
+		return app.Sidebar.Selected == second && slices.Contains(app.Panel.Tabs, page) && !slices.Contains(app.Panel.Tabs, opened[0])
+	})
+	if len(opened) != 2 || !slices.Equal(app.ConversationTabs(first), append(slices.Clone(firstTabs), opened...)) || r.browser.tabs[opened[0].ID] != nil || r.browser.tabs[opened[1].ID] != nil {
+		t.Fatalf("the hidden session's new tabs: %v in %v, pages %v %v", opened, app.ConversationTabs(first), r.browser.tabs[opened[0].ID], r.browser.tabs[opened[1].ID])
+	}
+	var answer struct {
+		Tab  uint64
+		Tabs []struct{ ID uint64 }
+	}
+	plan := r.planBrowserCall(r.controller.Target(), second, browserRequest{Action: "tabs"})
+	if plan.result == nil || plan.result.Ok == nil || json.Unmarshal(*plan.result.Ok, &answer) != nil || len(answer.Tabs) != 1 || answer.Tabs[0].ID != r.browser.tabs[page.ID].id {
+		t.Fatalf("the shown session's browser tabs: %+v", plan.result)
+	}
+	if r.browser.tabs[opened[0].ID] != nil || r.browser.tabs[opened[1].ID] != nil {
+		t.Fatal("the shown session's call took the hidden session's tabs")
+	}
+	shownTab := app.Panel.Active
+	focused := r.planBrowserCall(r.controller.Target(), first, browserRequest{Action: "focus"})
+	target := r.browser.tabs[opened[1].ID]
+	if focused.result == nil || focused.result.Ok == nil || json.Unmarshal(*focused.result.Ok, &answer) != nil || target == nil || answer.Tab != target.id {
+		t.Fatalf("the hidden session's call without a tab: %+v, want the tab its panel shows, %v", focused.result, opened[1])
+	}
+	if other := r.browser.tabs[opened[0].ID]; other == nil || other.conversation != first || target.conversation != first {
+		t.Fatalf("the hidden session's pages are not its own: %+v %+v", other, target)
+	}
+	if app.Panel.Active != shownTab || slices.Contains(app.Panel.Tabs, opened[1]) || app.ConversationActiveTab(first) != opened[1] {
+		t.Fatalf("the hidden session's call changed the shown panel: %v, active %v", app.Panel.Tabs, app.Panel.Active)
+	}
+	wait("the first session's new tabs come back with it", func() bool {
+		r.OpenSession(first)
+		return app.Sidebar.Selected == first && slices.Equal(app.Panel.Tabs, append(slices.Clone(firstTabs), opened...)) && app.Panel.Active == opened[1]
+	})
+	app.Panel.Show(two)
+	for _, tab := range opened {
+		app.Panel.Close(tab)
+	}
+	settle()
+	if !slices.Equal(app.Panel.Tabs, firstTabs) || app.Panel.Active != two || r.browser.tabs[opened[0].ID] != nil || r.browser.tabs[opened[1].ID] != nil {
+		t.Fatalf("closing the new tabs: %v, active %v", app.Panel.Tabs, app.Panel.Active)
 	}
 
 	// Closing a terminal's tab asks first. Cancel keeps the shell; Close ends

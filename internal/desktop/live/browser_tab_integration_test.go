@@ -469,15 +469,16 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	if tabs := listed("the other session's tabs", other); len(tabs) != 0 {
 		t.Fatalf("the other session sees the shown session's tab: %v", tabs)
 	}
-	// The other session's agent gets a tab of its own, behind the shown one.
+	// The other session's agent gets a tab of its own, in its own panel: the
+	// shown session's strip keeps its one tab.
 	refused("the other session reads", other, protocol.BrowserAction{Kind: "read", Data: protocol.DefaultBrowserActionReadPayload()},
 		protocol.ErrorCodeNotFound, "browser tab is empty; navigate to a URL before reading or interacting")
-	tabs := browserTabs()
-	if len(tabs) != 2 || tabs[0] != id || runtime.App.Panel.Active.ID != id {
-		t.Fatalf("panel tabs after the other session's call: %v, active %v", tabs, runtime.App.Panel.Active)
+	tabs, theirs := browserTabs(), runtime.App.ConversationTabs(other.ID.String())
+	if len(tabs) != 1 || tabs[0] != id || runtime.App.Panel.Active.ID != id || len(theirs) != 1 || theirs[0].Kind != panel.Browser {
+		t.Fatalf("panel tabs after the other session's call: %v, active %v, the other session's %v", tabs, runtime.App.Panel.Active, theirs)
 	}
-	own, _ := strconv.ParseUint(tabs[1], 10, 64)
-	if tab := runtime.browser.tabs[tabs[1]]; tab == nil || tab.conversation != other.ID.String() || tab.node != controller.Target() {
+	own, _ := strconv.ParseUint(theirs[0].ID, 10, 64)
+	if tab := runtime.browser.tabs[theirs[0].ID]; tab == nil || tab.conversation != other.ID.String() || tab.node != controller.Target() {
 		t.Fatalf("the other session's tab: %+v", tab)
 	}
 	if tabs := listed("the other session's own tab", other); len(tabs) != 1 || tabs[0]["id"] != float64(own) || tabs[0]["url"] != "" {

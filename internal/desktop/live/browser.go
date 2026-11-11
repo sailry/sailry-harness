@@ -123,13 +123,19 @@ func (r *Runtime) browserFrame() {
 		state.serving[owner] = cancel
 	}
 	for id, tab := range state.tabs {
-		// A page stays with its tab in any conversation's panel.
-		if !r.App.HasPanelTab(panel.Tab{Kind: panel.Browser, ID: id}) {
+		open := panel.Tab{Kind: panel.Browser, ID: id}
+		switch {
+		case !r.App.HasPanelTab(open):
+			// A page stays with its tab in any conversation's panel.
 			tab.endPick()
 			if tab.view != nil {
 				tab.view.Destroy()
 			}
 			delete(state.tabs, id)
+		case !slices.Contains(r.App.Panel.Tabs, open):
+			// Its conversation left the screen and keeps the page: the
+			// selection ends, as the reference's does with its browser's view.
+			tab.endPick()
 		}
 	}
 	for _, tab := range state.tabs {

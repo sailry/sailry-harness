@@ -464,11 +464,14 @@ func browserCaptureWithin(ctx context.Context, view *mygo.WebView, limit time.Du
 
 // browserAttachElement gives a picked element to the composer of the tab's
 // conversation while it is the one on screen: the element's picture and its
-// page context, two attachments that go together.
+// page context, two attachments that go together. A pick that arrives after
+// its conversation left the screen is refused and ends the selection: no
+// other conversation's composer takes it.
 func (r *Runtime) browserAttachElement(c *ui.Context, tab *browserTab, element *browserElement, picture []byte) bool {
 	root := r.localRuntime()
-	cv := root.App.Data.Find(root.App.Sidebar.Selected)
-	if cv == nil || cv.ID != tab.conversation {
+	cv := root.App.Data.Find(tab.conversation)
+	if cv == nil || cv.ID != root.App.Sidebar.Selected {
+		tab.endPick()
 		kit.Toast(c, kit.Failed, i18n.T(c, "browser_annotation_stale"))
 		return false
 	}

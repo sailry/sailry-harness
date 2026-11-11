@@ -415,7 +415,8 @@ Element selection (`live/browser_pick.go`, `live/browser_pick.js`, ported from
 the reference's `annotation` module): hover highlights, a click picks,
 Shift-click marks up to eight, Alt-click picks and ends the selection, the
 arrows walk the tree, Enter picks and Escape cancels; the selection stays on until it is cancelled, the page
-navigates, the tab closes or 120 seconds pass without a pick. The untrusted
+navigates, the tab closes, its conversation leaves the screen (the reference
+cancels with its browser's view) or 120 seconds pass without a pick. The untrusted
 page cannot call the app, so the script queues its messages and the adapter
 reads each as the answer of an evaluation awaiting the next one. Every field
 of a picked element is bounded and checked against the reference's limits
@@ -424,8 +425,10 @@ as a JPEG, and the page context is the reference's `browser_element` JSON,
 marked as untrusted data and reduced to 16 KiB. Both go to the composer of the
 tab's conversation as `browser-element-N.jpg` and `browser-element-N.json`
 through `composer.State.Attach`, together or, over the attachment limit, not
-at all. A pick for a conversation no longer on screen toasts
-`browser_annotation_stale`.
+at all. The tab's conversation is the one that owns its page
+(`browserTab.conversation`, the panel the tab is in): a pick that arrives once
+that conversation is no longer on screen toasts `browser_annotation_stale`,
+ends the selection and reaches no composer.
 
 Browser tabs share one website data store (`live/browser_settings.go`). On
 macOS with `browser_persistent` on, the default, it is the MyGo session named
@@ -450,7 +453,12 @@ action that outlives the call is abandoned (the Node has settled it by then)
 and the next call is served; an action still queued for the UI thread when
 its call ends does not run. `live/browser_calls.go` runs each call against the tabs opened in the call's
 conversation with the automation script of the reference, never with source
-the model provides. Captures are measured, cropped and encoded within 1 MiB and
+the model provides. Those are the browser tabs of that conversation's own
+panel, on screen or not: a call that names no tab goes to the one that panel
+shows (`shell.App.ConversationActiveTab`), and a tab that has shown no page
+yet, as one that came back with its conversation after a relaunch, belongs to
+the conversation whose panel has it, never to the selected one for being
+selected. Captures are measured, cropped and encoded within 1 MiB and
 1568 pixels by `live/browser_capture.go`, and the Node checks them again.
 
 A session document renders its own HTML (`live/document_view.go`,

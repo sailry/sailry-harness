@@ -131,6 +131,18 @@ func (a *App) ConversationTabs(id string) []panel.Tab {
 	return nil
 }
 
+// ConversationActiveTab is the tab a conversation's panel shows, on screen or
+// not.
+func (a *App) ConversationActiveTab(id string) panel.Tab {
+	if id == a.panels.mounted {
+		return a.Panel.Active
+	}
+	if kept := a.panels.parked[id]; kept != nil {
+		return kept.Active
+	}
+	return panel.Tab{}
+}
+
 // AllPanelTabs are the panel tabs of every conversation, the shown one's
 // first.
 func (a *App) AllPanelTabs() []panel.Tab {

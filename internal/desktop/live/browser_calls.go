@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"time"
 
@@ -186,8 +187,21 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 		if open.Kind != panel.Browser {
 			continue
 		}
-		tab := r.browserTabFor(open.ID)
-		if tab == nil || tab.node != node {
+		tab := state.tabs[open.ID]
+		if tab == nil {
+			// A tab that showed no page yet, as one that came back with a
+			// conversation not shown since, is its panel's conversation's:
+			// this session's in its own panel, and never the selected one's
+			// for being selected.
+			if !slices.Contains(r.App.ConversationTabs(session), open) {
+				continue
+			}
+			if tab = r.browserTabFor(open.ID); tab == nil {
+				continue
+			}
+			tab.node, tab.conversation = node, session
+		}
+		if tab.node != node {
 			continue
 		}
 		// A tab opened in the draft that became this session is already its
@@ -222,8 +236,9 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 	if len(tabs) == 0 {
 		add(false)
 	}
+	// Without a tab named, the one the session's own panel shows.
 	target := tabs[0]
-	if active := r.App.Panel.Active; active.Kind == panel.Browser {
+	if active := r.App.ConversationActiveTab(session); active.Kind == panel.Browser {
 		for _, tab := range tabs {
 			if strconv.FormatUint(tab.id, 10) == active.ID {
 				target = tab
