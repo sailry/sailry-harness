@@ -94,8 +94,22 @@ func TestCloseGuard(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root
 			project := closeTestDraft(fixture)
-			fixture.source.dispatch = func(protocol.Request) (link.Admission, error) {
-				return link.Admission{}, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "changed on disk"}}
+			revision := "r1"
+			project.files["b.go"] = protocol.FileContent{Path: "b.go", Text: "one\n", Revision: &revision}
+			project.panel.SetFile("b.go", "one\n")
+			project.panel.SetFileWritable("b.go", true)
+			project.panel.FileChanged("b.go", "three")
+			// Both files changed on disk: the writes are refused and the
+			// reads that follow return the other content.
+			fixture.source.dispatch = func(request protocol.Request) (link.Admission, error) {
+				if request.Command.Kind == "write_file" {
+					return link.Admission{}, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "changed on disk"}}
+				}
+				payload, _ := detail[protocol.CommandReadFilePayload](request.Command.Data)
+				other := "r9"
+				completion := make(chan link.Response, 1)
+				completion <- link.Response{Output: protocol.Output{Kind: "file", Data: protocol.FileContent{Path: payload.Path, Text: "other\n", Revision: &other}}}
+				return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
 			}
 			window := closeTestWindow(root)
 			root.SaveDocuments()
@@ -103,14 +117,35 @@ func TestCloseGuard(t *testing.T) {
 			synctest.Wait()
 			window.Frame()
 			window.Frame()
-			if names := root.UnsavedDocuments(); !slices.Equal(names, []string{"fixture/a.go"}) || root.SavingDocuments() {
+			if names := root.UnsavedDocuments(); !slices.Equal(names, []string{"fixture/a.go", "fixture/b.go"}) || root.SavingDocuments() {
 				t.Fatalf("after the failure: unsaved %v, saving %v", names, root.SavingDocuments())
 			}
 			if text, dirty := project.panel.FileDraft("a.go"); text != "two\n" || !dirty {
 				t.Fatalf("the draft changed: %q dirty=%v", text, dirty)
 			}
-			if !window.HasText(i18n.In("en", "workspace_changed")) {
-				t.Fatalf("no conflict toast: %q", window.Texts())
+			if text, dirty := project.panel.FileDraft("b.go"); text != "three\n" || !dirty {
+				t.Fatalf("the second draft changed: %q dirty=%v", text, dirty)
+			}
+			// One toast names both documents.
+			told := 0
+			for _, text := range window.Texts() {
+				if text == i18n.In("en", "files_changed_on_disk") {
+					told++
+				}
+			}
+			if told != 1 || !window.HasText("fixture/a.go\nfixture/b.go") {
+				t.Fatalf("no single conflict toast naming the documents: %q", window.Texts())
+			}
+			// Each draft is left marked as changed on disk for its editor.
+			synctest.Wait()
+			window.Frame()
+			for _, name := range []string{"a.go", "b.go"} {
+				if disk, changed := project.changedFiles[name]; !changed || disk.content.Revision == nil || *disk.content.Revision != "r9" {
+					t.Fatalf("%s is not marked as changed on disk: %+v", name, project.changedFiles)
+				}
+				if _, dirty := project.panel.FileDraft(name); !dirty {
+					t.Fatalf("%s lost its draft to the conflict", name)
+				}
 			}
 		})
 	})
