@@ -1,0 +1,55 @@
+# Removed UI
+
+Controls the accepted UI dropped on purpose. They must not come back.
+
+The Rust application and the root `locales/` catalogs still carry most of
+them, so a parity audit against either finds each one as a "missing"
+control. It is not missing. Before adding a control found in Rust or in
+another reference, read this list; a control on it stays out unless the user
+asks for it by name, and then its entry here is removed in the same change.
+
+The backend keeps the capability where one exists: the entries say what
+stays. Removing a control never removes a command, a protocol field or
+stored data.
+
+## The list
+
+Commits are in this repository. Dates are the removal's.
+
+| # | Removed | Where it would appear | Why, and what stays | Decision |
+|---|---|---|---|---|
+| 1 | A host choice in the composer, and a location dialog | The composer's context bar and its compact settings popover (`composer/options.go`, `composer/composer.go`) | The project menu lists every host's projects; choosing a project sets the host. A session keeps its Node and location. `Context.Hosts` and `Host` stay as execution-owner metadata; the live window leaves `Hosts` empty ([composer.md](composer.md)) | `6dea10e`, 2026-11-09 |
+| 2 | A header, footer, hint or check mark in the `@` and `/` picker | The reference picker over the input (`composer/references.go`) | The picker is a full-width list of one-line rows. Its title is the accessibility label only; group headings stay | `8299d17`, 2026-11-09 |
+| 3 | A Deny menu with "Deny with reason", and the reason field | The approval popover (`composer/interactions.go`) | Deny and Allow alone; Deny calls `Decide(id, Deny, "")`. The Node still accepts `deny_with_reason` from other clients and gives the reason to the model | `aad2e14`, 2026-11-09 |
+| 4 | State text on a question row, including "waiting for answer" | The conversation's question block (`conversation/tools.go`) | The row's icon carries the state | `aad2e14`, `00ca81e`, 2026-11-09 |
+| 5 | Red for a tool's returned error | A tool call's row in the conversation (`conversation/tools.go`) | Only a call that failed to run is red; an error the tool returned reads plain | `9bfa306`, 2026-11-09 |
+| 6 | An inline Connect button on an unconnected connector row | Settings › Connectors (`settings/connectors.go`) | Connect is in the row's menu | `d2275b5`, 2026-11-09 |
+| 7 | A Revoke or Remove pairing button for a host outside a menu | A host row in Settings › Connections (`settings/connections.go`); the host page's header (`host/page.go`) | Revoke is in the row's ⋯ menu, beside Edit network. The rail's right-click host menu asks for it too and opens the host page's confirmation ([host.md](host.md)) | `5689924`, 2026-11-09 |
+| 8 | The telemetry or diagnostics note, and a Settings button | The welcome guide (`onboarding/onboarding.go`) | The guide is its banner and the providers' picker. Diagnostics are in Settings › General ([onboarding.md](onboarding.md)) | `c2df963`, 2026-11-09 |
+| 9 | Transparency or blur values in a theme package | A theme's manifest and tokens (`internal/desktop/theme`, `themes/`) | Themes define colours only. Transparency and blur are the Appearance page's settings (`theme.Surfaces`) | User decision, 2026-11-10 |
+| 10 | The "local models" heading | Settings › Dictation (`settings/models.go`) | The model group has no heading | `45078c7`, 2026-11-09 |
+| 11 | A preview note in the provider editor; Add model as a footer row of the model list | Settings › Providers, the channel editor (`settings/`) | Add model is a button beside Refresh | `831c8a6`, 2026-11-09 |
+| 12 | A pane close that stops, closes or removes its session or terminal | The split workspace (`shell/panes.go`) | Closing a pane only detaches it from its split (`closePane` → `Detach`) and sends no command. A terminal pane's close confirmation stays. A terminal tab's own close in the right panel is a different control ([panel.md](panel.md)) | Split workspace decision |
+| 13 | The `git` plugin's Status-slot entry | The composer's activity strip (`live/plugin_status.go`) | The Git +/− badge is native core, from core Git status. The `files` and `git` packages are not mounted in the Status slot | Phase B5 |
+
+## Guards
+
+Tests fail when one of the cheaply checked controls returns. They are
+subtests of the feature's existing tests.
+
+| Guard | Test |
+|---|---|
+| The copy of removed controls is not in `keys.txt` | `i18n` `TestCatalogKeys/RemovedControls` |
+| The composer builds no host control, wide or compact | `shell` `composerParity/no host control` (a step of `TestComposerGuidesRunningTurn`); `live` `testSessionForwarding` |
+| The approval popover has no reason field and no Deny menu | `shell` `TestApprovalsAndQuestion/no deny reason`; `live` `interactionKinds` |
+| The welcome guide has no diagnostics note and no Settings button | `shell` `TestWelcomeGuide/no diagnostics note or Settings` |
+| The host page has no Remove pairing button | `shell` `testHostMenu` |
+
+A key on the guard's list cannot be added to `keys.txt` without editing the
+test, which points here.
+
+## Adding an entry
+
+When the user removes a control, add a row with what it was, where it would
+appear, what stays and the commit, and a guard where one is cheap: a key
+kept out of `keys.txt`, or an absence check in the feature's test.
