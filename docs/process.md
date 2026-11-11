@@ -174,6 +174,19 @@ Commands with no sender in the desktop's own pages, and who does send them:
 package or tool sends on either side. Its handler stays until the contract
 drops it.
 
+### Updates and changes with one end missing
+
+Every topic, update kind and conversation change kind has both an emitter in
+the Node and a consumer in the Client or desktop, except these:
+
+| Kind | Reference | Here | Missing |
+|---|---|---|---|
+| Topic and update `python` | The Client's `watch_python` feeds the running `load_skill` row's preparation stage and the preparation list of Settings › Runtime | The Node emits it (`internal/node/python_service.go`); nothing subscribes | Consumer: a dependency being prepared shows no stage |
+| Event `python_settings_changed` | Settings › Runtime reads again | The Client drops it; the page reads once per host | Consumer: another controller's index choice shows after a relaunch |
+| Conversation change `artifact`, and `artifacts` of the conversation snapshot | Published after `artifact_written`; the snapshot lists the session's artifacts | The Client reduces it (`internal/client/conversation_projection.go`); the Node neither publishes the change nor fills the snapshot's page | Emitter: the panel lists a written document when a run's status next changes, which reads the list again |
+| Conversation change `revealed` | Published when a visibility operation shows a hidden message, which only the empty-response operation writes | The Client reduces it; the engine decides an empty response's visibility when it writes the record and writes no visibility operation | Nothing: no cause exists here |
+| Conversation change `statistics_failed` | The conversation toasts `usage_read_failed` | The Client keeps the fault for plugin observers; the conversation shows no toast | Consumer: the desktop toast |
+
 ## Deviations and validation
 
 The required MyGo PTY import trial failed because its implementation is internal;
