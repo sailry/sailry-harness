@@ -30,7 +30,7 @@ Kit's `MessageScroller`.
 | `conversation.go` | `State`, `View`, turns, the reply's header, work region, phase row and footer |
 | `tools.go` | Tool rows, groups, sequences, outputs, diffs, tables, progress, question history, subagents |
 | `jump.go` | The jump-to-latest button |
-| `content.go` | File cards, thumbnails (Kit's `ImageGroup`), notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
+| `content.go` | File cards, thumbnails (Kit's `ImageGroup`), notices, grounding, retries, compaction turns, continuation markers, the changes card, `Cite`, `Kind`, `FileIcon` |
 | `visuals.go` | Mermaid in a reply: the `mermaid` code block and `VisualBlock`, the parse cache, CrychicUI's picture (`diagram.Mermaid`) scaled to the reply, the caption |
 | `chart.go` | Data charts drawn natively from the model limu's parser reads: xychart (bars, lines, both orientations) and pie, their checks, hover and keyboard pick, tips and legends |
 | `viewer.go` | The image viewer: `Viewer` is `kit.Viewer[Image]` (zoom 0.25–8 by 1.25, pan, turn, flip, gallery and its counter) drawn by `kit.ImageViewer` |
@@ -234,6 +234,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `Turn.Images`, `Turn.Files` | Attachments under the bubble: thumbnails (viewer on click) and file cards |
 | `Turn.Notices` (`Notice`: Title, Agent, Outcome) | Background results bubble, outcome tone danger/warning/muted |
 | `Turn.Compaction` (`State`, `Summary`, `Cause`) | A compaction turn: centered status (shimmer while running), summary or failure disclosure |
+| `Turn.Marker` (`Label`, `Locales`) | A turn a package continued ([goal](goal.md)): the package's label in the window's language between two lines, one row high (`rowHeight`), in place of the user message; `turn_continued` when the package declared none. The continuation's prompt is never shown; guidance joined into the turn shows as the user's message under the marker |
 | `Reply.Citations` (`URI`, `Title`, `End` in runes) | Numbered links placed in the answer's last text block (`Cite`) |
 | `Reply.Changes` (`Files`, `Undone`) | Changes card: count, totals, Undo/Review, 3 files then Show N more; per-file Review blocks and Undo on hover |
 | `Reply.Notice` | A notice-only run: no reply frame |
@@ -672,7 +673,12 @@ without an owner.
   session runs in Plan mode (`engine.TestTurnEndHookStatus`).
 - **Attention.** The session becomes unread when a main task turn ends
   `completed`, `failed` or `interrupted`. Stopped turns, compaction runs and
-  child runs do not raise it.
+  child runs do not raise it. An automatic turn (a notice turn or a package
+  continuation) takes the mark back when it starts, because the session is
+  working by itself again; the turn that ends the chain raises it. A session
+  a package keeps working is therefore unread once, at the end, not after
+  every turn (`store.TestAutomaticChain/automatic turn takes back the unread
+  mark`).
 - **Durable end.** A turn keeps its owner until its end is stored. When the
   finishing transaction fails, it is repeated every second, logged once
   (`operation=finish`), until it succeeds or the Node stops; a stopped Node
@@ -697,12 +703,25 @@ without an owner.
   example a disabled provider) leaves the results deliverable and is logged
   once per session and reason (`event=node.background operation=deliver
   status=refused`).
-- **Automatic chain limit.** A session starts at most eight notice turns in a
-  row without user input. The count covers started notice turns since the
-  last user turn or joined guidance; plugin continuations and automatic
-  turns that never started neither count nor reset it. At the limit the
-  remaining results are marked suppressed, logged (`status=held`), stay
-  visible as pending background tasks and join the user's next message.
+- **Automatic chain limit.** A session starts at most eight automatic turns
+  in a row without user input. The count covers started notice turns and
+  package continuations since the last user turn or joined guidance;
+  automatic turns that never started neither count nor reset it. A package
+  that owns a loop declares its own limit, 1 to 100, on each continuation:
+  the continuation is admitted while the count is below it, and notice turns
+  of the same chain follow the limit its latest continuation declared, so
+  one counter bounds the loop. A continuation the user asked for (a Resume
+  control) is the first turn of a new chain. At the limit a continuation is
+  refused with the reason `limit`, and the remaining results are marked
+  suppressed, logged (`status=held`), stay visible as pending background
+  tasks and join the user's next message or the package's next continuation
+  (`store.TestAutomaticChain`).
+- **Continuation admission.** `continue_turn` is refused with a named reason
+  in the fault's details (`kind: continuation`): `plan`, `child`, `archived`,
+  `worktree`, `queue_paused`, `queued_input`, `running`, `interaction`,
+  `limit` or `stale`. A continuation takes the session's waiting background
+  results as a user turn does, held ones included, and may name one of the
+  package's declared `continuation_markers`.
 - **Held results.** A pending result that is `suppressed` starts no notice
   turn and carries the optional `hold` on its background task, in the
   snapshot and activity events: `limit` (automatic chain limit), `stopped`
@@ -728,14 +747,25 @@ without an owner.
   turns, compaction and a stopping Node call none. The call is an ordinary
   `call_plugin` request dispatched for the turn's caller with the session
   and worktree as context, so the callback runtime's allocation budget,
-  deadline and cancellation apply. Its input is `turn`, `status`,
-  `automatic` (the turn was itself a continuation) and the package's tool
-  `names`. A package that was disabled, removed or changed since the turn
-  has no callback; any other failure is logged
-  (`area=plugins operation=after_turn`) and never changes the ended turn.
-  A handler that issues `continue_turn` admits a continuation turn, whose
-  input is captured at admission because a plugin transaction stores only
-  a digest of its request.
+  deadline and cancellation apply. Its input states the turn's facts: `turn`
+  and its `sequence` in the session's order, `status` (`cancelled` is the
+  user's Stop, `interrupted` a turn the Node lost, `failed` with `error`),
+  `mode`, `automatic` (a notice turn or a continuation), `notice`, the
+  package's own `continuation` marker, the package's tool `names`,
+  `tool_calls` and per-name `tools`, `expired` approvals and questions,
+  `usage` of the turn and `session_usage` (both with delegated children),
+  `background.running` and `background.pending`, and the automatic `chain`
+  (`node.TestPluginTurnFacts`). `turn.initialize` receives `automatic`,
+  `notice` and `continuation` as well. Callbacks of consecutive turns can
+  overlap, because a queued turn starts as soon as its predecessor ends;
+  `sequence` lets a package ignore the older one. A package that was
+  disabled, removed or changed since the turn has no callback; any other
+  failure is logged (`area=plugins operation=after_turn`) and never changes
+  the ended turn. A handler that issues `continue_turn` or submits a turn
+  inside a transaction admits a turn whose input is captured on the run at
+  admission, because a plugin transaction stores only a digest of its
+  request (`store.TestPluginTransactionSubmit`). [Goal](goal.md) is the
+  bundled loop built on these.
 - **Cancelled foreground children.** A child that ends `cancelled` or
   `interrupted` after its owning turn recorded the cancellation note has its
   background task marked consumed, as the reference collects it; the model
@@ -789,7 +819,7 @@ and bumps the item or queue revision that its command checks.
 | Node restart | guiding to queued once, queue paused when it holds user input; queued notice turns cancelled | `store.TestQueueSettlement/guidance after restart waits for resume`, `restart cancels a queued notice turn without pausing` |
 | `compact_context` while running | compaction item waits its turn; not editable, not guidance | `store.TestGuidanceQueue/queue commands` |
 | Background result | notice turn admitted only into an empty running queue; cancelled at claim when user input is queued | `store.TestBackgroundDelivery`, `store.TestBackgroundSchedulingAndContinuationFence` |
-| Package `after_turn` issues `continue_turn` | continuation turn queued and started like any ready item; `automatic` on its own callback | `node.TestPluginAfterTurn` |
+| Package `after_turn` issues `continue_turn` | continuation turn queued and started like any ready item; `automatic` on its own callback; refused with a reason when the session is not free or the chain is at its limit | `node.TestPluginAfterTurn`, `node.TestGoalLoop`, `store.TestAutomaticChain` |
 | `remove_session` with waiting input | refused `busy` until the items are removed | `store.TestGuidanceQueue/queue commands` |
 | `set_session_archived` | queue unchanged | `store.TestGuidanceQueue/queue commands` |
 
@@ -801,7 +831,8 @@ and bumps the item or queue revision that its command checks.
 | Guidance compatibility does not compare the provider snapshot or the compaction capture | The joined input runs under the recipient's frozen provider either way; a provider edit is not a per-message choice |
 | A joined guidance run ends `completed` with `joined` set; the reference uses `continued` | Existing Go behaviour that the desktop projection reads |
 | A paused queue cannot hold guiding items, so a boundary needs no pause check; the reference checks at the boundary | Pausing already returns guidance to the queue in both |
-| Notice turns are bounded per session by a flat count of eight; the plan described a chain depth of four | A flat count needs no lineage between results and also bounds independent results arriving apart; eight leaves room for a fan-out, and each notice turn carries up to 16 results |
+| Automatic turns are bounded per session by a flat count of eight, which a continuing package may raise to at most 100 for its own chain; the plan described a chain depth of four | A flat count needs no lineage between results and also bounds independent results arriving apart; eight leaves room for a fan-out, and each notice turn carries up to 16 results. A package loop states its own limit so the user sees one counter |
+| A package continuation shows as a marker row in the window's language; the reference's desktop did the same and the Go projection had rendered the package's prompt as a user message | The prompt is input for the model, not something the user wrote |
 | Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |
 | Guidance pending at a user Stop waits in the paused queue; the reference starts it as a successor turn at once | Stop means stop: nothing runs until the user sends or resumes, and the message stays visible and editable |
 | The ordinary claim skips guidance while its recipient runs, and every exit of the recipient releases it; the reference claims without looking at the recipient and repairs the tag on each exit path | One release point in `FinishTurn` and one in `RecoverRuns` cover Stop, failure, completion and restart |
@@ -873,6 +904,8 @@ model fails it until a demo conversation shows it.
 | `chat/staging` | A connection recovering with a diagnostic, an unsynced run awaiting a response, a question that cannot be answered meanwhile, export disabled, an older page that did not load |
 | `chat/release-notes` | A run stopping while the model thinks |
 | `chat/translate` | An offline host |
+| `lumen-web/pursuit` | A goal in pursuit: the user's turn that set it, a finished continuation and a running one, each under the package's marker row in place of a user message; the badge Goal, Running and the time, its details (objective, turns, time, tokens) and panel (Pause, Edit, Clear) |
+| `lumen-web/pursuit-limit` | A goal paused at the turn limit: its wrap-up continuation, the badge Goal, Paused and the reason, and the panel (Resume, Edit, Clear) |
 
 The first page loading (`Session.Loading`), an older page loading
 (`LoadingOlder`, which the preview plays on a timer), an answer on its way
