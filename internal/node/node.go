@@ -88,6 +88,7 @@ type Node struct {
 	closed            chan struct{}
 	stopDone          chan struct{}
 	stopErr           error
+	abandoned         atomic.Bool   // shutdown released the profile at its deadline: no collection starts
 	grace             time.Duration // replaces shutdownGrace in tests
 	agent             *engine.Runtime
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
@@ -327,17 +328,6 @@ func (node *Node) shutdown(grace time.Duration) {
 	deadline, release := context.WithTimeout(context.Background(), grace)
 	defer release()
 	quiet := func(run func()) func() error { return func() error { run(); return nil } }
-	// A collection deletes the files no row names. Once the deadline released
-	// the profile its next owner writes files and rows this process does not
-	// read together, so a collection that has not started then never starts.
-	var abandoned atomic.Bool
-	collection := func(run func(context.Context)) func() error {
-		return quiet(func() {
-			if !abandoned.Load() {
-				run(context.Background())
-			}
-		})
-	}
 	// Each stage waits for the work it names. The order is the dependency
 	// order: commands, then turns, then what they use, then storage.
 	stages := []stopStage{
@@ -365,7 +355,7 @@ func (node *Node) shutdown(grace time.Duration) {
 		{"plugins and MCP servers", node.closePlugins},
 		{"requests in flight", quiet(node.work.Wait)},
 		// No request holds a package version or a settings revision any more.
-		{"plugin collection", collection(node.collectPlugins)},
+		{"plugin collection", quiet(func() { node.collectPlugins(context.Background()) })},
 		{"telemetry", quiet(func() {
 			node.detachLogging()
 			node.telemetry.Close()
@@ -373,7 +363,7 @@ func (node *Node) shutdown(grace time.Duration) {
 		})},
 		{"commands, transfers and watchers", node.closeWorkspace},
 		// Every transfer worker has ended and storage is still open.
-		{"attachment collection", collection(node.collectAttachments)},
+		{"attachment collection", quiet(func() { node.collectAttachments(context.Background()) })},
 		{"storage", node.profile.Close},
 	}
 	var reached atomic.Int32
@@ -400,7 +390,9 @@ func (node *Node) shutdown(grace time.Duration) {
 		// collections. Releasing the profile here lets the next launch start;
 		// what they leave behind is what a crash leaves, and startup recovery
 		// clears it.
-		abandoned.Store(true)
+		// A collection deletes the files no row names, and the profile's next
+		// owner writes files and rows this process does not read together.
+		node.abandoned.Store(true)
 		err = errors.Join(fmt.Errorf("%w: %s did not stop", core.ErrShutdownTimeout, stages[index].name), node.profile.Abandon())
 	}
 	node.mu.Lock()

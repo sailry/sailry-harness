@@ -136,6 +136,9 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 // last work has ended, so no installation or capture can race it. Maintenance
 // never blocks startup or shutdown.
 func (node *Node) collectPlugins(ctx context.Context) {
+	if node.abandoned.Load() {
+		return
+	}
 	var retained map[string]struct{}
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
