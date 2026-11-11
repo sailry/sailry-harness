@@ -102,6 +102,18 @@ Attention has its own revision. Batches apply as one command transaction. Remova
 retains immutable history and refuses active tasks. Project-scoped ordering is
 stored in the committed event log and remains separate from controller pins.
 
+Removal reclaims what only removed sessions can reach, in the removing
+transaction: artifacts with no revision still published in a remaining
+conversation, and the checkpoint text and attachment bindings of turns that a
+removed session owns and no remaining session lists. A fork shares its source's
+turns, so they keep their checkpoints and attachments until the last fork that
+lists them is removed. An attachment row goes with its last binding; an upload
+that no turn bound stays with its composer. After the commit the Node deletes
+the artifact directories of removed sessions that keep no artifact and collects
+the attachment files left without a row. Archiving and rewinding reclaim nothing:
+a rewound turn stays restorable until its session is removed. Canonical records
+and their blobs are kept.
+
 `move_conversation` and `fork_conversation_at` share one target rule: the
 conversation is a root conversation at the expected revision, it belongs to a
 project, the worktree belongs to that project and is not removed, no turn is
@@ -156,9 +168,19 @@ the last two). The transfer then runs on its own goroutine, outside both command
 lanes, for at most 30 seconds. An unpaired target answers `not_found` "target
 Node is not paired". Once dispatch begins, a failed dispatch, a lost completion,
 the limit or Node shutdown records `outcome_unknown` "remote session creation
-could not be confirmed; automatic replay is disabled". Replay returns the
-recorded outcome and never sends again; the controller inspects the target with
-the same request ID.
+could not be confirmed; send the same request again to resolve it".
+
+Replay of any other recorded outcome returns it and never sends again. Replay of
+an unknown outcome, recorded or left by an interrupted Node, packages the import
+again and sends it under the same request ID. The target admits by that ID, so
+it answers an import it already holds from its own ledger and creates the
+session only if the earlier one never arrived; the controller receives that
+answer. The outcome stays unknown while the forward is still in flight, when the
+provider, its secret or the roles changed so the import cannot be rebuilt or the
+target answers `conflict` for different content, and when the target cannot be
+reached. The source ledger keeps the unknown outcome it recorded; the answer is
+read from the target on each replay. The Desktop keeps the request of an unknown
+creation with its draft and sends it again with the next Send.
 
 `import_session` is accepted only from the paired caller named as its source,
 never from the local controller. The bundle must be consistent: the
@@ -189,7 +211,9 @@ tool.
 | Deviation from Rust | Reason |
 |---|---|
 | `create_session_at` whose target is this Node still creates the session locally | The Desktop creates every session through it; Rust refuses a local target |
+| A replayed forward with an unknown outcome sends the identical import again | Rust records the unknown outcome as final and its replay never sends, so a draft could not create its session after one lost answer; the target deduplicates on the request ID, which makes the resend safe |
 | Private providers are deleted with their session | Rust retains them; a removed session should not leave a forwarded secret behind |
+| Removal deletes the checkpoint text and bound attachments that only removed sessions reach | Rust prunes artifacts only and never reclaims checkpoints or attachments; a deleted conversation should not keep file contents and uploads of up to 64 MiB each |
 | `save_backup_settings`, `save_search_settings`, `restore_backup`, `restore_backup_file`, `dispatch` and `plugin_transaction` are kept by digest | Rust stores them raw although they can carry a secret; the other digested commands match Rust |
 | File and command bodies are stored raw | Rust also keeps `file-v1:` and `command-v1:` digests for file writes and command executions; they hold no credential field |
 

@@ -87,6 +87,7 @@ type Node struct {
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
 	forward           func(context.Context, protocol.Request) (link.Admission, error) // sends an import to its paired target
 	forwards          atomic.Int32
+	forwarding        sync.Map      // request IDs whose forward is in flight
 	mediaPoll         time.Duration // interval between video job reads
 	feed              *feed.Hub
 	providerDirectory providers.Directory
@@ -172,6 +173,8 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		_ = profile.Close()
 		return nil, err
 	}
+	// No command is admitted yet, so no upload is between its file and its row.
+	value.collectAttachments(ctx)
 	if err := value.initPlugins(ctx, options.MCP); err != nil {
 		cancel()
 		_ = value.tasks.Close(context.Background())
@@ -296,6 +299,8 @@ func (node *Node) Stop(ctx context.Context) error {
 			node.telemetry.Close()
 			node.power.Close()
 			workspaceErr := node.closeWorkspace()
+			// Every transfer worker has ended and storage is still open.
+			node.collectAttachments(context.Background())
 			err := errors.Join(networkErr, terminalErr, portErr, taskErr, pluginErr, workspaceErr, node.profile.Close())
 			node.mu.Lock()
 			node.stopErr = err

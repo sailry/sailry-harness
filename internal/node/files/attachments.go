@@ -93,7 +93,10 @@ func (t *Transfers) AttachmentBytes(ctx context.Context, attachment protocol.Att
 	return data, nil
 }
 
-// CollectAttachments is called only before admission or after transfer workers drain.
+// CollectAttachments removes every stored attachment file whose identifier is
+// not retained. A finished upload publishes its file before its row commits,
+// so the caller must exclude that window: it runs before admission, after the
+// transfer workers drain, or under the lock that covers a finishing upload.
 func (t *Transfers) CollectAttachments(retained map[protocol.AttachmentID]bool) error {
 	fs, err := t.attachmentDirectory(false)
 	if errors.Is(err, os.ErrNotExist) {

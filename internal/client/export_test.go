@@ -88,7 +88,8 @@ func TestConversationExport(t *testing.T) {
 		}
 	})
 	t.Run("referenced images", func(t *testing.T) {
-		p := page(text("Show result"))
+		const typed = "Show sailry-image:call%2F%C3%A9/2"
+		p := page(text(typed))
 		e := p.Entries[0]
 		e.Sequence = 2
 		e.ID = "answer"
@@ -103,6 +104,10 @@ func TestConversationExport(t *testing.T) {
 		}
 		if len(d.Images) != 1 || !strings.Contains(d.Content, "assets/"+ExportAttachmentName(image.Attachment)) || !strings.Contains(d.Content, "sailry-image:other/0") {
 			t.Fatal(d)
+		}
+		// The reference the user typed is not rewritten to an asset path.
+		if !strings.Contains(d.Content, typed) || strings.Count(d.Content, "assets/") != 1 {
+			t.Fatalf("user text was rewritten: %s", d.Content)
 		}
 	})
 	t.Run("notice user input", func(t *testing.T) {

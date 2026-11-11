@@ -349,7 +349,13 @@ func composeExport(page protocol.ConversationPage, referenced map[exportImageKey
 					return result, e
 				}
 				cursor := 0
-				for _, span := range exportImageSpans(text) {
+				// Only assistant Markdown names conversation images; what the
+				// user typed stays as typed.
+				var spans []exportImageSpan
+				if !user {
+					spans = exportImageSpans(text)
+				}
+				for _, span := range spans {
 					image, ok := referenced[span.key]
 					if !ok {
 						continue

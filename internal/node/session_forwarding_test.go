@@ -310,20 +310,48 @@ func TestSessionForwarding(t *testing.T) {
 		}
 	})
 
-	t.Run("lost outcome is unknown and never resent", func(t *testing.T) {
-		calls := 0
-		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
+	t.Run("a replay resolves a lost outcome", func(t *testing.T) {
+		const unknown = "remote session creation could not be confirmed; send the same request again to resolve it"
+		before, calls := sessions(b), 0
+		// The target admits the import and its answer never arrives.
+		a.forward = func(ctx context.Context, request protocol.Request) (link.Admission, error) {
 			calls++
+			accepted, err := b.Dispatch(ctx, a.ID(), request)
+			if err != nil {
+				return link.Admission{}, err
+			}
+			<-accepted.Completion
 			lost := make(chan link.Response)
 			close(lost)
 			return link.Admission{Completion: lost}, nil
 		}
 		uncertain := forward(provider.Revision, config)
 		for range 2 {
-			fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, "remote session creation could not be confirmed; automatic replay is disabled")
+			fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, unknown)
 		}
-		if calls != 1 {
-			t.Fatalf("an uncertain forward was sent %d times", calls)
+		if calls != 2 || sessions(b) != before+1 {
+			t.Fatalf("unknown forward: %d sends, %d sessions", calls, sessions(b)-before)
+		}
+		// A target that holds other content under the identifier settles nothing.
+		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
+			refused := make(chan link.Response, 1)
+			refused <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "request identifier was already used for different content"}}
+			close(refused)
+			return link.Admission{Completion: refused}, nil
+		}
+		fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, unknown)
+		a.forward = nil
+		fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, unknown)
+		a.forward = paired
+		resolved := dispatchFixture(t, a, a.ID(), uncertain)
+		// The target answers from its ledger, which decodes to a pointer.
+		recorded, valid := resolved.Output.Data.(*protocol.Session)
+		if resolved.Fault != nil || !valid {
+			t.Fatalf("resolved = %#v, %v", resolved.Output, resolved.Fault)
+		}
+		stored := commandFixture(t, b, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: recorded.ID}}).Data.(protocol.Session)
+		if stored.Profile == nil || stored.Profile.Source != a.ID() || sessions(b) != before+1 {
+			t.Fatalf("resolved session = %#v, %d created", stored, sessions(b)-before)
 		}
 		a.forward = nil
 		fails(t, dispatchFixture(t, a, a.ID(), forward(provider.Revision, config)), protocol.ErrorCodeBusy, "Node operation queue is unavailable")
