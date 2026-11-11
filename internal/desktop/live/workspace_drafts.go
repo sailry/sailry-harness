@@ -35,6 +35,25 @@ func (p *workspaceProject) clearChanged(relative string) {
 	p.panel.SetFileChanged(relative, false)
 }
 
+// settleChanged shows what a changed file holds on disk once its draft is
+// gone: the user reloaded, undid the edits or discarded them, so nothing is
+// left to keep.
+func (p *workspaceProject) settleChanged(relative string) {
+	disk, changed := p.changedFiles[relative]
+	if !changed {
+		return
+	}
+	if _, dirty := p.panel.FileDraft(relative); dirty {
+		return
+	}
+	if disk.missing {
+		p.clearChanged(relative)
+		p.fileUnavailable(relative)
+		return
+	}
+	p.fileLoaded(relative, disk.content)
+}
+
 // checkDraft reads the file under a draft again, for a refresh or for a save
 // the Node refused, and records what it holds. A read that fails for another
 // reason than the file being gone leaves the record as it is; done, when
@@ -112,12 +131,7 @@ func (p *workspaceProject) saveConflict(relative string) {
 		}
 		p.panel.FileConflict(relative, overwrite, func(*ui.Context) {
 			p.panel.DropFileDraft(relative)
-			if disk.missing {
-				p.clearChanged(relative)
-				p.fileUnavailable(relative)
-				return
-			}
-			p.fileLoaded(relative, disk.content)
+			p.settleChanged(relative)
 		})
 	})
 }

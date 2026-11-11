@@ -106,6 +106,14 @@ func TestPanelProjection(t *testing.T) {
 		if _, changed := p.changedFiles["a.go"]; changed {
 			t.Fatal("a file back at the draft's source stayed marked as changed")
 		}
+		// Edits undone by hand leave nothing to keep: the shown file follows the disk.
+		p.draftSource("a.go", changedFile{content: protocol.FileContent{Path: "a.go", Text: "theirs\n", Revision: &second}})
+		p.panel.FileChanged("a.go", "one")
+		p.readFile("a.go")
+		if draft, dirty := p.panel.FileDraft("a.go"); draft != "theirs\n" || dirty || len(p.changedFiles) != 0 || *p.files["a.go"].Revision != second {
+			t.Fatalf("an undone draft kept stale content: %q %v", draft, dirty)
+		}
+		p.panel.FileChanged("a.go", "mine")
 		p.draftSource("a.go", changedFile{missing: true})
 		p.fileUnavailable("a.go")
 		if _, loaded := p.files["a.go"]; !loaded || !p.changedFiles["a.go"].missing {

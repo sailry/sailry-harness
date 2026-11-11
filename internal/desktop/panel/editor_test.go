@@ -218,7 +218,7 @@ func TestEditorContracts(t *testing.T) {
 				t.Fatalf("%s: overwrote %d, reloaded %d, dirty %v, open %v", step.choice, overwrote, reloaded, dirty, pr.conflict != nil)
 			}
 		}
-		if draft, _ := pr.FileDraft("note.txt"); draft != "base\n" || tester.HasText(en("files_changed_on_disk")) {
+		if draft, _ := pr.FileDraft("note.txt"); draft != "base\n" || pr.Files.item("note.txt").documentState().changed {
 			t.Fatalf("reload left the draft %q or the mark", draft)
 		}
 		// A file whose content is not known offers no overwrite.

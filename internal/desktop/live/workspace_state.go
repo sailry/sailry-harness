@@ -432,6 +432,7 @@ func (p *workspaceProject) readFile(relative string) {
 		return
 	}
 	if _, loaded := p.files[relative]; loaded {
+		p.settleChanged(relative)
 		return
 	}
 	p.loadFile(relative)

@@ -508,7 +508,8 @@ the draft's source. A save the Node refuses because the file changed
 `panel/editor_conflict.go` asks with the path and three choices. Overwrite
 saves the draft over the content just read (creating a file that is gone) and
 is disabled when that content is not completely known; Reload drops the draft
-and shows the file; Keep editing closes the question. A file that changes
+and shows the file; Keep editing closes the question. A draft the user undoes
+by hand while the mark shows is settled the same way as Reload. A file that changes
 again before Overwrite arrives is asked about again. A close that was waiting
 for the refused save is withdrawn.
 
