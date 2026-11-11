@@ -16,6 +16,18 @@ failures are retained without replacing its result, and contribute to the final
 turn status. Turn End uses ordinal zero. Script metadata contains only the
 source `SAILRY_HOOK_*` identity, phase, tool and status fields.
 
+`SAILRY_HOOK_EVENT` is `before_tool`, `after_tool` or `turn_end`.
+`SAILRY_HOOK_STATUS` is absent before a tool, `succeeded` or `failed` after
+one, and `completed` or `failed` at Turn End; the binding owns these words, so
+the engine's own name for a finished turn never reaches a script. An After Tool
+failure makes the Turn End status `failed`.
+
+No script runs once the turn is stopped: the binding holds the turn's context,
+which a user Stop and Node shutdown both cancel, and a claim is refused unless
+the run is still `running`. A child under a read-only role is created in Plan
+mode and its conversation cannot be reconfigured, so the Plan rule also covers
+it; no separate role test is needed.
+
 The existing writer stores a claim before effects and a terminal receipt after
 effects. An existing uncertain claim cannot be launched again. Completion
 recording survives cancellation of the effect. A panic or unknown outcome is
@@ -34,5 +46,6 @@ panel. Consent identifies the actual Node, root and worktree, retains the known
 branch label, and selects its scope text from the Node's reported capability.
 The Node identity is used as its label until host labels are available.
 
-Fixture tests cover admission capture and uncertain claims. No extra approval
+Fixture tests cover admission capture, uncertain claims, the status words and
+the stopped turn. No extra approval
 system, retry policy or hook execution engine is introduced.

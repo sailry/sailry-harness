@@ -78,13 +78,26 @@ func (b *Binding) After(ctx context.Context, tool string, success bool) {
 		b.remember(err)
 	}
 }
+
+// Turn End scripts read one of these two words in SAILRY_HOOK_STATUS.
+const (
+	StatusCompleted = "completed"
+	StatusFailed    = "failed"
+)
+
+// Complete runs the Turn End scripts. Anything but StatusFailed is a completed
+// turn, and an earlier After Tool failure makes the turn failed. A stopped
+// turn (the captured Stop is done) runs no script.
 func (b *Binding) Complete(ctx context.Context, status string) error {
 	if b == nil {
 		return nil
 	}
+	if status != StatusFailed {
+		status = StatusCompleted
+	}
 	b.mu.Lock()
 	if b.failure != nil {
-		status = "failed"
+		status = StatusFailed
 	}
 	b.mu.Unlock()
 	if err := b.execute(ctx, protocol.HooksPhaseTurnEnd, 0, "", status); err != nil {
