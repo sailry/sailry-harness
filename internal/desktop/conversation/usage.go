@@ -108,7 +108,7 @@ func UsageBar(c *ui.Context, lead []Metric, groups [][]Metric, compact bool, ope
 
 // usageFigure is one figure and its hover card over its end.
 func usageFigure(c *ui.Context, m Metric) {
-	item := ui.Row(c.Key("figure")).Gap(4).AlignItems(ui.Center).Shrink(0)
+	item := ui.Row(c).Gap(4).AlignItems(ui.Center).Shrink(0)
 	item.Children(func() {
 		if m.Icon != nil {
 			ui.Icon(c, m.Icon).FontSize(14)

@@ -639,12 +639,13 @@ func TestUsageCompact(t *testing.T) {
 	// figures stay on the bar beside the compact button, whose popover
 	// lists every group.
 	t.Run("rows", func(t *testing.T) {
+		// Figures no other text of the composer contains: HasText matches inside a text.
 		lead := []conversation.Metric{{ID: "status:usage", Label: "Plan usage", Icon: icons.Gauge, Value: "64%", Rows: []conversation.Row{
 			{Label: "Five hours", Value: "64% left", Meter: true, Progress: 64}, {Label: "Resets", Value: "18:00"}}}}
 		groups := [][]conversation.Metric{{
 			{ID: "statistics:tokens", Label: "Tokens", Icon: icons.ChartPie, Value: "48.2k", Rows: []conversation.Row{
 				{Label: "This session", Value: "41.0k"}, {Label: "Subagents", Value: "7.2k"}}},
-			{ID: "statistics:turns", Label: "Turns", Icon: icons.MessagesSquare, Value: "17", Rows: []conversation.Row{{Label: "Responses", Value: "35"}}},
+			{ID: "statistics:turns", Label: "Turns", Icon: icons.MessagesSquare, Value: "77", Rows: []conversation.Row{{Label: "Responses", Value: "35"}}},
 		}, {
 			{ID: "other:score", Label: "Score", Value: "9.5", Rows: []conversation.Row{{Label: "Best", Value: "12.5"}}},
 		}}
@@ -652,7 +653,7 @@ func TestUsageCompact(t *testing.T) {
 			s.Metrics = func(c *ui.Context, compact bool, open *bool) { conversation.UsageBar(c, lead, groups, compact, open) }
 		}
 		tt, _, _ := composerAlone(t, "en", 960, figures)
-		for _, value := range []string{"64%", "48.2k", "17", "9.5"} {
+		for _, value := range []string{"64%", "48.2k", "77", "9.5"} {
 			if !tt.HasText(value) {
 				t.Fatalf("the bar lacks the figure %s: %q", value, tt.Texts())
 			}
@@ -681,21 +682,21 @@ func TestUsageCompact(t *testing.T) {
 			tt.Frame()
 		}
 		hover("48.2k", "Tokens", "This session", "41.0k", "Subagents", "7.2k")
-		hover("17", "Turns", "Responses", "35")
+		hover("77", "Turns", "Responses", "35")
 		hover("9.5", "Score", "Best", "12.5")
 		// The meter is named by its row; the row without one comes first.
 		hover("64%", "Plan usage", "Five hours", "64% left", "Resets", "18:00")
 
 		tt, _, _ = composerAlone(t, "en", 600, figures)
 		stats, ok := tt.Access(i18n.In("en", "composer_statistics"))
-		if !ok || !tt.HasText("64%") || !tt.HasText("48.2k") || tt.HasText("17") {
+		if !ok || !tt.HasText("64%") || !tt.HasText("48.2k") || tt.HasText("77") {
 			t.Fatalf("the compact bar: button %v, texts %q", ok, tt.Texts())
 		}
 		tt.ClickAt(stats.Bounds.X+stats.Bounds.W/2, stats.Bounds.Y+stats.Bounds.H/2)
 		tt.Frame()
 		tt.Advance(time.Second)
 		tt.Frame()
-		for _, row := range []string{"Tokens", "This session", "41.0k", "Turns", "17", "Responses", "35", "Score", "Best", "12.5"} {
+		for _, row := range []string{"Tokens", "This session", "41.0k", "Turns", "77", "Responses", "35", "Score", "Best", "12.5"} {
 			if !tt.HasText(row) {
 				t.Errorf("the compact popover lacks %q: %q", row, tt.Texts())
 			}
