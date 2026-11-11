@@ -398,7 +398,7 @@ func (r *Runtime) selectDraftWorktree(comp *composer.State, relative string) {
 		return
 	}
 	comp.Worktree = p.owner.Path
-	p.mutate(protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *p.owner.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {
+	p.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *p.owner.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {
 		if tree, ok := detail[protocol.Worktree](out.Data); ok {
 			r.workspace.admitted[tree.ID] = tree
 			r.workspaceFor(tree)
@@ -455,7 +455,7 @@ func (r *Runtime) openProjectWorktree(project *viewmodel.Project, relative strin
 		workspace := r.workspaceFor(worktree)
 		page, selected := r.App.Page, r.App.Sidebar.Selected
 		node, projectID, overview := r.App.ProjectOwner()
-		workspace.mutate(protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{
+		workspace.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{
 			Project: *worktree.Project, Path: relative,
 		}}, func(c *ui.Context, out protocol.Output) {
 			if registered, ok := detail[protocol.Worktree](out.Data); ok {

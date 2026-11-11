@@ -103,7 +103,7 @@ func (s *Service) CreateBranch(ctx context.Context, root, name, commit string) (
 	}
 	ref := plumbing.NewBranchReferenceName(name)
 	if _, err := r.Reference(ref, false); err == nil {
-		return protocol.GitBranch{}, fault(protocol.ErrorCodeConflict, "branch already exists")
+		return protocol.GitBranch{}, fault(protocol.ErrorCodeConflict, BranchExists)
 	}
 	if err := checkContext(ctx); err != nil {
 		return protocol.GitBranch{}, err
@@ -139,7 +139,7 @@ func (s *Service) RenameBranch(ctx context.Context, root, name, newName, commit 
 		return result, nil
 	}
 	if _, err := r.Reference(plumbing.NewBranchReferenceName(newName), false); err == nil {
-		return result, fault(protocol.ErrorCodeConflict, "branch already exists")
+		return result, fault(protocol.ErrorCodeConflict, BranchExists)
 	}
 	if err := s.branchAvailable(ctx, root, name, true); err != nil {
 		return result, err
@@ -196,7 +196,7 @@ func (s *Service) branchAvailable(ctx context.Context, root, name string, allowC
 	}
 	for _, entry := range worktrees.Entries {
 		if entry.Branch != nil && *entry.Branch == name && (!allowCurrent || entry.Path != root) {
-			return fault(protocol.ErrorCodeConflict, "branch belongs to another worktree")
+			return fault(protocol.ErrorCodeConflict, BranchInWorktree)
 		}
 	}
 	return nil

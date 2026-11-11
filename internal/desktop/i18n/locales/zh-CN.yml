@@ -268,6 +268,73 @@ workspace_records: 会话记录
 worktree_manage: 管理 worktree
 worktree_create: 创建 worktree
 worktree_remove: 删除 worktree
+workspace_open_worktree: 打开 worktree
+worktree_actions: 工作树操作
+worktree_main: 主 worktree
+worktree_locked: 已锁定
+worktree_unavailable: 目录不可用
+worktree_prune_on_select: 不可用 · 点击清理记录
+worktree_listing_partial: 仅显示部分 worktree
+worktree_base: 起点引用
+worktree_path: 目标路径
+worktree_load_failed: 无法读取 worktree
+worktree_missing_project: 项目已不可用，请关闭表单后重新选择
+worktree_no_repository: 当前目录不是 Git 仓库
+worktree_revision_failed: 无法解析起点，请检查引用和连接
+worktree_context_changed: 项目已切换，请重新打开
+worktree_open_busy: 此会话当前无法切换 worktree
+worktree_created: 已创建 worktree
+worktree_removed: 已删除 worktree
+worktree_remove_confirm: 删除此 worktree 目录，保留 Git 分支
+worktree_prune: 清理失效 worktree
+worktree_prune_confirm: 移除此失效记录，不删除任何文件
+worktree_pruned: 已清理失效工作树记录
+worktree_prune_failed: 未清理：目录仍存在、被锁定或无法确认状态
+worktree_prune_exists: 目录仍存在，无需清理
+worktree_outcome_unknown: 结果未确认，请先查看 worktree
+worktree_conflict: 分支、目录或项目归属冲突
+worktree_invalid: 请检查分支名和绝对路径
+worktree_not_found: 找不到项目、目录或起点提交
+worktree_request_failed: 操作失败，请检查权限和连接
+worktree_path_exists: 路径已存在
+worktree_remove_locked: worktree 已锁定，请先在主机解锁
+worktree_remove_busy: worktree 正在使用，请稍后重新打开
+worktree_remove_dirty: worktree 包含未提交改动，不能移除
+worktree_remove_conflict: worktree 有改动、会话占用或引用已变化，请检查后重新打开
+worktree_remove_missing: worktree 或所属项目已不存在，请重新打开管理列表
+git_branch_exists: 分支已存在，换个名称
+git_branch_checked_out: 分支已在其他 worktree 中检出
+git_index_failed: 暂存区更新失败，请重试
+git_index_changed: Git 状态已变化，请重新选择
+git_index_busy: Git 正忙或操作超时，稍后重试
+git_index_denied: 无法访问文件或暂存区，请检查权限
+git_index_missing: 文件或仓库已不存在，请重新选择
+git_index_unknown: 暂存结果未确认，请刷新后检查
+git_index_conflict: 分支、HEAD 或暂存区已被其他操作更新，请核对当前状态后重新操作
+git_branch_revision: Git 状态已变化，请核对后重新选择分支
+git_identity_missing: 请先在执行主机配置 Git user.name 和 user.email，提交说明已保留
+git_commit_unavailable: 提交未完成，请查看 Git 输出；提交说明已保留
+git_commit_failed: 提交失败，请检查冲突、暂存内容与 Git 锁；提交说明已保留
+git_commit_unknown: 提交结果未确认，可能已经完成。请核对提交历史后再操作，不会自动重试。
+git_branch_busy: Git 正忙，稍后重试
+git_branch_conflict: 无法切换，工作区有冲突或分支被占用
+git_branch_failed: 分支切换失败，请检查当前状态
+git_branch_unknown: 切换结果未确认，请先核对分支和文件
+git_merge_conflict: 无法合并，请检查冲突和未提交改动
+git_merge_failed: 合并失败，请查看状态
+git_merge_unknown: 合并结果未确认，请查看 worktree 和历史
+git_branch_delete_conflict: 分支尚未合并或正在使用
+git_branch_delete_failed: 删除失败，请检查分支和连接
+git_branch_delete_unknown: 删除结果未确认，请先检查分支及跟踪配置
+git_branch_rename_conflict: 分支名已存在或 Git 操作尚未结束
+git_branch_rename_failed: 重命名失败，请检查仓库、权限和连接
+git_branch_rename_unknown: 重命名结果未确认，请先检查分支及跟踪配置
+git_branch_create_failed: 创建失败，请检查仓库和连接
+git_branch_create_unknown: 创建结果未确认，请先检查分支列表
+git_action_conflict: 操作存在冲突，请刷新并解决冲突后继续
+git_action_failed: Git 操作失败，请检查仓库状态和远程配置
+git_action_unknown: Git 操作结果未确认，请刷新检查后再继续
+git_auth_failed: 远程认证失败，请检查执行主机的 Git 凭据
 cli_launch: 启动 AI CLI
 workspace_memory_only: 仅修改示例
 workspace_confirm: 确认

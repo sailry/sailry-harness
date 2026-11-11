@@ -268,6 +268,73 @@ workspace_records: 세션 기록
 worktree_manage: 작업 트리 관리
 worktree_create: 새 작업 트리
 worktree_remove: 작업 트리 삭제
+workspace_open_worktree: 작업 트리 열기
+worktree_actions: 작업 트리 동작
+worktree_main: Main
+worktree_locked: 잠김
+worktree_unavailable: 디렉터리를 사용할 수 없음
+worktree_prune_on_select: 정리하려면 클릭하세요
+worktree_listing_partial: 부분 작업 트리 목록
+worktree_base: 시작 지점
+worktree_path: 경로
+worktree_load_failed: 작업 트리를 불러올 수 없음
+worktree_missing_project: 프로젝트 선택
+worktree_no_repository: 이 디렉토리는 Git 저장소가 아닙니다
+worktree_revision_failed: 시작 지점을 해결할 수 없음
+worktree_context_changed: 프로젝트가 변경되었습니다. 이 보기를 다시 엽니다
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+worktree_remove_confirm: 이 작업 트리 디렉터리를 삭제하고 Git 브랜치를 유지
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_pruned: 오래된 작업 트리 등록 제거됨
+worktree_prune_failed: '정리되지 않음: 디렉터리가 존재하거나 잠겨 있거나 확인할 수 없음'
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_outcome_unknown: 결과가 확인되지 않았습니다. 작업 트리를 확인하십시오
+worktree_conflict: 브랜치, 디렉토리 또는 프로젝트 소유권 충돌
+worktree_invalid: 브랜치와 절대 경로 확인
+worktree_not_found: 프로젝트, 디렉터리 또는 시작 커밋을 찾을 수 없음
+worktree_request_failed: 작업 실패, 권한 및 연결 확인
+worktree_path_exists: Path already exists
+worktree_remove_locked: 작업 트리가 잠겨 있습니다
+worktree_remove_busy: 작업 트리가 사용 중입니다
+worktree_remove_dirty: Worktree에 커밋되지 않은 변경 사항이 있으므로 제거할 수 없습니다
+worktree_remove_conflict: 워크트리 변경, 제거하기 전에 새로 고침
+worktree_remove_missing: 찾을 수 없음
+git_branch_exists: 브랜치가 이미 존재함
+git_branch_checked_out: Branch is checked out in another worktree
+git_index_failed: 스테이징을 업데이트할 수 없습니다. 다시 시도하십시오
+git_index_changed: Git 상태 변경, 다시 선택
+git_index_busy: Git 바쁘거나 작업 시간이 초과되었습니다. 곧 다시 시도하십시오
+git_index_denied: 파일이나 인덱스에 액세스할 수 없습니다. 권한을 확인하십시오
+git_index_missing: 파일 또는 저장소가 더 이상 존재하지 않습니다. 다시 선택하십시오
+git_index_unknown: 스테이징 결과가 확인되지 않았습니다. 새로 고침 및 검토
+git_index_conflict: Git 상태 변경, 새로 고침
+git_branch_revision: 저장소 변경, 새로 고침
+git_identity_missing: Git 이름과 이메일 구성
+git_commit_unavailable: 불완전한 커밋, 출력 Git 확인; 메시지 보존됨
+git_commit_failed: 커밋 실패, 충돌 확인, 변경 및 잠금; 메시지 보존
+git_commit_unknown: 커밋 결과가 확인되지 않았습니다. 완료되었을 수 있습니다. 계속하기 전에 기록을 확인하십시오. 자동으로 다시 시도하지 않음
+git_branch_busy: 저장소가 바쁘습니다
+git_branch_conflict: 브랜치 또는 파일 변경됨
+git_branch_failed: 브랜치를 전환할 수 없음
+git_branch_unknown: 스위치 결과 확인되지 않음, 브랜치와 파일 확인
+git_merge_conflict: 브랜치가 변경되었거나 충돌이 있음
+git_merge_failed: 병합 실패, 충돌 및 연결 확인
+git_merge_unknown: 병합 결과가 확인되지 않았습니다. 작업 트리와 기록을 확인하십시오
+git_branch_delete_conflict: 브랜치가 변경되었거나 사용 중입니다
+git_branch_delete_failed: 브랜치를 삭제할 수 없음
+git_branch_delete_unknown: 삭제 결과 확인되지 않음, 브랜치 및 추적 확인
+git_branch_rename_conflict: 브랜치 변경, 이름 바꾸기 전에 새로 고침
+git_branch_rename_failed: 브랜치 이름을 바꿀 수 없음
+git_branch_rename_unknown: 결과 이름 변경 불확인, 브랜치 및 추적 확인
+git_branch_create_failed: 브랜치를 만들 수 없음
+git_branch_create_unknown: 생성 결과 확인되지 않음, 브랜치 목록 확인
+git_action_conflict: Git 상태 변경, 새로 고침
+git_action_failed: Git 작업 실패
+git_action_unknown: Git 결과가 확인되지 않았습니다. 계속하기 전에 새로 고침하십시오
+git_auth_failed: Git 인증 실패
 cli_launch: AI CLI 실행
 workspace_memory_only: 변경 사항 미리 보기만
 workspace_confirm: 확인

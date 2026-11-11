@@ -268,6 +268,73 @@ workspace_records: 會話記錄
 worktree_manage: 管理 worktree
 worktree_create: 建立 worktree
 worktree_remove: 刪除 worktree
+workspace_open_worktree: 開啟 worktree
+worktree_actions: 工作樹操作
+worktree_main: Main
+worktree_locked: 已鎖定
+worktree_unavailable: 目錄不可用
+worktree_prune_on_select: 不可用 · 點選清理記錄
+worktree_listing_partial: 僅顯示部分 worktree
+worktree_base: 起點引用
+worktree_path: 目標路徑
+worktree_load_failed: 無法讀取 worktree
+worktree_missing_project: 專案已不可用，請關閉表單後重新選擇
+worktree_no_repository: 當前目錄不是 Git 倉庫
+worktree_revision_failed: 無法解析起點，請檢查引用和連線
+worktree_context_changed: 專案已切換，請重新開啟
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+worktree_remove_confirm: 刪除此 worktree 目錄，保留 Git 分支
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_pruned: 已清理失效工作樹記錄
+worktree_prune_failed: 未清理：目錄仍存在、被鎖定或無法確認狀態
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_outcome_unknown: 結果未確認，請先檢視 worktree
+worktree_conflict: 分支、目錄或專案歸屬衝突
+worktree_invalid: 請檢查分支名和絕對路徑
+worktree_not_found: 找不到專案、目錄或起點提交
+worktree_request_failed: 操作失敗，請檢查許可權和連線
+worktree_path_exists: Path already exists
+worktree_remove_locked: worktree 已鎖定，請先在主機解鎖
+worktree_remove_busy: worktree 正在使用，請稍後重新開啟
+worktree_remove_dirty: worktree 包含未提交改動，不能移除
+worktree_remove_conflict: worktree 有改動、會話佔用或引用已變化，請檢查後重新開啟
+worktree_remove_missing: worktree 或所屬專案已不存在，請重新開啟管理列表
+git_branch_exists: 分支已存在，換個名稱
+git_branch_checked_out: Branch is checked out in another worktree
+git_index_failed: 暫存區更新失敗，請重試
+git_index_changed: Git 狀態已變化，請重新選擇
+git_index_busy: Git 正忙或操作超時，稍後重試
+git_index_denied: 無法訪問檔案或暫存區，請檢查許可權
+git_index_missing: 檔案或倉庫已不存在，請重新選擇
+git_index_unknown: 暫存結果未確認，請重新整理後檢查
+git_index_conflict: 分支、HEAD 或暫存區已被其他操作更新，請核對當前狀態後重新操作
+git_branch_revision: Git 狀態已變化，請核對後重新選擇分支
+git_identity_missing: 請先在執行主機配置 Git user.name 和 user.email，提交說明已保留
+git_commit_unavailable: 提交未完成，請檢視 Git 輸出；提交說明已保留
+git_commit_failed: 提交失敗，請檢查衝突、暫存內容與 Git 鎖；提交說明已保留
+git_commit_unknown: 提交結果未確認，可能已經完成。請核對提交歷史後再操作，不會自動重試。
+git_branch_busy: Git 正忙，稍後重試
+git_branch_conflict: 無法切換，工作區有衝突或分支被佔用
+git_branch_failed: 分支切換失敗，請檢查當前狀態
+git_branch_unknown: 切換結果未確認，請先核對分支和檔案
+git_merge_conflict: 無法合併，請檢查衝突和未提交改動
+git_merge_failed: 合併失敗，請檢視狀態
+git_merge_unknown: 合併結果未確認，請檢視 worktree 和歷史
+git_branch_delete_conflict: 分支尚未合併或正在使用
+git_branch_delete_failed: 刪除失敗，請檢查分支和連線
+git_branch_delete_unknown: 刪除結果未確認，請先檢查分支及跟蹤配置
+git_branch_rename_conflict: 分支名已存在或 Git 操作尚未結束
+git_branch_rename_failed: 重新命名失敗，請檢查倉庫、許可權和連線
+git_branch_rename_unknown: 重新命名結果未確認，請先檢查分支及跟蹤配置
+git_branch_create_failed: 建立失敗，請檢查倉庫和連線
+git_branch_create_unknown: 建立結果未確認，請先檢查分支列表
+git_action_conflict: 操作存在衝突，請重新整理並解決衝突後繼續
+git_action_failed: Git 操作失敗，請檢查倉庫狀態和遠端配置
+git_action_unknown: Git 操作結果未確認，請重新整理檢查後再繼續
+git_auth_failed: 遠端認證失敗，請檢查執行主機的 Git 憑據
 cli_launch: 啟動 AI CLI
 workspace_memory_only: 僅修改示例
 workspace_confirm: 確認

@@ -430,6 +430,15 @@ worktree_unavailable: 目录不可用
 worktree_prune_on_select: 不可用 · 点击清理记录
 worktree_pruned: 已清理失效工作树记录
 worktree_prune_failed: 未清理：目录仍存在、被锁定或无法确认状态
+worktree_main: 主 worktree
+worktree_path_exists: 路径已存在
+worktree_prune: 清理失效 worktree
+worktree_prune_confirm: 移除此失效记录，不删除任何文件
+worktree_prune_exists: 目录仍存在，无需清理
+worktree_open_busy: 此会话当前无法切换 worktree
+worktree_created: 已创建 worktree
+worktree_removed: 已删除 worktree
+git_branch_checked_out: 分支已在其他 worktree 中检出
 worktree_listing_partial: 仅显示部分 worktree
 worktree_retry: 重试
 worktree_no_repository: 当前目录不是 Git 仓库

@@ -63,6 +63,31 @@ func requireFault(t *testing.T, err error, code protocol.ErrorCode) {
 }
 
 func TestGitReadMapping(t *testing.T) {
+	t.Run("worktree_listing_marks_main_locked_and_stale", func(t *testing.T) {
+		main, linked := t.TempDir(), t.TempDir()
+		stale := filepath.Join(t.TempDir(), "removed")
+		head := strings.Repeat("a", 40)
+		listing := "worktree " + main + "\x00HEAD " + head + "\x00branch refs/heads/main\x00\x00" +
+			"worktree " + stale + "\x00HEAD " + head + "\x00branch refs/heads/stale\x00prunable gitdir file points to non-existent location\x00\x00" +
+			"worktree " + linked + "\x00HEAD " + head + "\x00detached\x00locked in use\x00\x00"
+		result, err := ParseWorktrees([]byte(listing), protocol.RepositoryKindReady, false)
+		if err != nil || len(result.Entries) != 3 || result.Truncated {
+			t.Fatal(result, err)
+		}
+		entries := map[string]protocol.GitWorktree{}
+		for _, entry := range result.Entries {
+			entries[entry.Path] = entry
+		}
+		if entry := result.Entries[0]; entry.Path != main || !entry.Main || !entry.Available || entry.Locked || entry.Branch == nil || *entry.Branch != "main" {
+			t.Fatalf("main worktree: %+v", entry)
+		}
+		if entry := entries[stale]; entry.Main || entry.Available || entry.Locked || entry.Branch == nil || *entry.Branch != "stale" {
+			t.Fatalf("stale worktree: %+v", entry)
+		}
+		if entry := entries[linked]; entry.Main || !entry.Available || !entry.Locked || entry.Branch != nil || entry.Head == nil || *entry.Head != head {
+			t.Fatalf("locked worktree: %+v", entry)
+		}
+	})
 	ctx := context.Background()
 	t.Run("status_native_fields_and_bound", func(t *testing.T) {
 		body := "# branch.oid abcdef\x00# branch.head main\x001 .M N... 100644 100644 100644 abc def file with space.txt\x00? new.txt\x00u UU N... 100644 100644 100644 100644 a b c conflict.txt\x00"

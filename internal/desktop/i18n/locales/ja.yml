@@ -268,6 +268,73 @@ workspace_records: セッションレコード
 worktree_manage: ワークトリーの管理
 worktree_create: 新しいワークトリー
 worktree_remove: ワークトリーを削除
+workspace_open_worktree: オープンワークトリー
+worktree_actions: ワークトリーアクション
+worktree_main: Main
+worktree_locked: ロック中
+worktree_unavailable: ディレクトリが利用できません
+worktree_prune_on_select: 利用できません。クリアするにはクリックしてください
+worktree_listing_partial: 部分ワークトリーリスト
+worktree_base: 出発点
+worktree_path: パス
+worktree_load_failed: ワークトリーを読み込めませんでした
+worktree_missing_project: プロジェクトを選択
+worktree_no_repository: このディレクトリは Git リポジトリではありません
+worktree_revision_failed: 開始点を解決できませんでした
+worktree_context_changed: プロジェクトが変更されました。このビューを再開してください
+worktree_open_busy: This session cannot switch worktrees now
+worktree_created: Worktree created
+worktree_removed: Worktree removed
+worktree_remove_confirm: このワークトリーディレクトリを削除します。Git のブランチを保持します
+worktree_prune: Clean up stale worktree
+worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_pruned: 古いワークトリー登録を削除
+worktree_prune_failed: 'クリーンアップされていません: ディレクトリは存在します、ロックされています、または検証できませんでした'
+worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_outcome_unknown: 結果は確認されていません。ワークトリーをチェックしてください
+worktree_conflict: ブランチ、ディレクトリ、プロジェクトの所有権の衝突
+worktree_invalid: ブランチと絶対パスをチェック
+worktree_not_found: プロジェクト、ディレクトリまたは開始コミットが見つかりません
+worktree_request_failed: 操作に失敗しました。権限と接続を確認してください
+worktree_path_exists: Path already exists
+worktree_remove_locked: ワークトリーがロックされています
+worktree_remove_busy: ワークトリーが使用中
+worktree_remove_dirty: ワークトリーには未コミットの変更があり、削除できません
+worktree_remove_conflict: ワークトリーが変更されました。削除する前に更新してください
+worktree_remove_missing: ワークトリーが見つかりません
+git_branch_exists: ブランチは既に存在します
+git_branch_checked_out: Branch is checked out in another worktree
+git_index_failed: ステージを更新できませんでした。もう一度試してください
+git_index_changed: Git 状態が変わりました もう一度選択してください
+git_index_busy: Git がビジーか、操作のタイムアウトです。すぐにやり直します
+git_index_denied: ファイルまたはインデックスにアクセスできません。権限を確認してください
+git_index_missing: ファイルまたはリポジトリはもはや存在しません。もう一度選択してください
+git_index_unknown: ステージング結果は確認されていません。更新して再検討してください
+git_index_conflict: Git 状態が変更されました、更新します
+git_branch_revision: リポジトリが変更されました、更新
+git_identity_missing: Git 名前とメールアドレスを設定
+git_commit_unavailable: コミットが不完全です。出力 Git をチェックします。メッセージは保持されます
+git_commit_failed: コミットに失敗しました。衝突、ステージド変更、ロックをチェックします。メッセージは保持されます
+git_commit_unknown: コミットの結果が確認されていません。完了したかもしれません。続行する前に履歴を確認してください。自動的に再試行しません
+git_branch_busy: リポジトリが忙しい
+git_branch_conflict: ブランチまたはファイルが変更されました
+git_branch_failed: ブランチを変更できませんでした
+git_branch_unknown: スイッチの結果が確認されていません。ブランチとファイルをチェックしてください
+git_merge_conflict: ブランチが変更されましたか、または衝突がありますか
+git_merge_failed: マージに失敗しました。コンフリクトと接続を確認してください
+git_merge_unknown: マージ結果が確認されていません。ワークトリーと履歴をチェックしてください
+git_branch_delete_conflict: ブランチが変更または使用中
+git_branch_delete_failed: ブランチを削除できませんでした
+git_branch_delete_unknown: 削除結果が確認されていません。ブランチとトラッキングをチェックしてください
+git_branch_rename_conflict: ブランチャーが変更されました。名前を変更する前に更新してください
+git_branch_rename_failed: ブランチの名前を変更できませんでした
+git_branch_rename_unknown: 結果の名前変更は未確認、ブランチとトラッキングをチェック
+git_branch_create_failed: ブランチを作成できませんでした
+git_branch_create_unknown: 作成結果が確認されていません。ブランチリストを確認してください
+git_action_conflict: Git 状態が変更されました、更新します
+git_action_failed: Git 操作に失敗しました
+git_action_unknown: Git 結果は確認されていません。続行する前に更新してください
+git_auth_failed: Git 認証に失敗しました
 cli_launch: AI CLI を起動
 workspace_memory_only: プレビューのみを変更
 workspace_confirm: 確認

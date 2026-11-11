@@ -16,6 +16,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Messages of the branch and worktree faults that share a code with other
+// causes. A controller compares a fault's message with these to name the
+// cause; any other message keeps the copy of its code.
+const (
+	BranchExists       = "branch already exists"
+	BranchInWorktree   = "branch belongs to another worktree"
+	DestinationExists  = "destination already exists"
+	WorktreeLocked     = "worktree is locked"
+	WorktreeDirty      = "worktree has uncommitted changes"
+	WorktreePathExists = "worktree path still exists"
+)
+
 func (s *Service) ListWorktrees(ctx context.Context, root string) (protocol.GitWorktrees, error) {
 	head, err := s.Head(ctx, root)
 	result := protocol.GitWorktrees{Kind: head.Kind, Entries: []protocol.GitWorktree{}}
@@ -96,7 +108,7 @@ func newDestination(value string) (string, error) {
 	value = filepath.Join(parent, filepath.Base(value))
 	if _, err := os.Lstat(value); !errors.Is(err, os.ErrNotExist) {
 		if err == nil {
-			return "", fault(protocol.ErrorCodeConflict, "destination already exists")
+			return "", fault(protocol.ErrorCodeConflict, DestinationExists)
 		}
 		return "", mapError(err)
 	}
@@ -161,7 +173,7 @@ func (s *Service) CreateWorktree(ctx context.Context, root, destination, branch,
 		return "", mapError(err)
 	}
 	if _, err := r.Reference(plumbing.NewBranchReferenceName(branch), true); err == nil {
-		return "", fault(protocol.ErrorCodeConflict, "branch already exists")
+		return "", fault(protocol.ErrorCodeConflict, BranchExists)
 	}
 	target, err := newDestination(destination)
 	if err != nil {
@@ -314,7 +326,7 @@ func (s *Service) RemoveWorktree(ctx context.Context, root, expectedHead, expect
 		if entry.Path == root {
 			found = true
 			if entry.Locked {
-				return fault(protocol.ErrorCodeBusy, "worktree is locked")
+				return fault(protocol.ErrorCodeBusy, WorktreeLocked)
 			}
 			if entry.Main {
 				return fault(protocol.ErrorCodeConflict, "cannot remove the main worktree")
@@ -342,7 +354,7 @@ func (s *Service) RemoveWorktree(ctx context.Context, root, expectedHead, expect
 		return err
 	}
 	if len(status.Entries) > 0 || status.Truncated || status.OmittedPaths > 0 {
-		return fault(protocol.ErrorCodeConflict, "worktree has uncommitted changes")
+		return fault(protocol.ErrorCodeConflict, WorktreeDirty)
 	}
 	for _, lock := range []string{"index.lock", "HEAD.lock"} {
 		if _, e := os.Lstat(filepath.Join(dir, lock)); e == nil {
@@ -371,11 +383,11 @@ func (s *Service) PruneWorktree(ctx context.Context, root, path string) error {
 			continue
 		}
 		if entry.Locked {
-			return fault(protocol.ErrorCodeBusy, "worktree is locked")
+			return fault(protocol.ErrorCodeBusy, WorktreeLocked)
 		}
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			if err == nil {
-				return fault(protocol.ErrorCodeConflict, "worktree path still exists")
+				return fault(protocol.ErrorCodeConflict, WorktreePathExists)
 			}
 			return mapError(err)
 		}

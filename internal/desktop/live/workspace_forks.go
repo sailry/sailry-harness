@@ -137,7 +137,8 @@ func (p *workspaceProject) managedWorktree(status protocol.GitStatus, session *p
 		p.runtime.executeScoped("managed-worktree/"+p.owner.ID.String(), protocol.Command{Kind: "create_managed_worktree", Data: input}, func(c *ui.Context, out protocol.Output, err error) {
 			if err != nil {
 				p.panel.LockPrompt(faultCode(err) == protocol.ErrorCodeOutcomeUnknown)
-				p.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+				outcome, key := workspaceFailure(worktreeCreate, err)
+				kit.Toast(c, outcome, i18n.T(c, key))
 				done(false)
 				return
 			}
@@ -252,7 +253,7 @@ func (r *Runtime) selectConversationWorktree(cv *viewmodel.Conversation, comp *c
 			return
 		}
 	}
-	p.mutate(protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *session.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {
+	p.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *session.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {
 		if tree, ok := detail[protocol.Worktree](out.Data); ok {
 			r.workspace.admitted[tree.ID] = tree
 			r.workspaceFor(tree)

@@ -74,7 +74,7 @@ func (p *workspaceProject) gitCommand(status protocol.GitStatus, action protocol
 }
 func (p *workspaceProject) runBranchSwitch(command protocol.Command, branch panel.GitAction, local string, finish func(bool)) {
 	p.panel.SetGitSwitchPending(nil)
-	p.mutate(command, func(c *ui.Context, out protocol.Output) {
+	p.mutateNamed(gitSwitch, command, func(c *ui.Context, out protocol.Output) {
 		if finish != nil {
 			finish(out.Kind != "")
 		}

@@ -24,9 +24,9 @@ func workspaceString(value *string) string {
 }
 func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 	status := p.status
-	run := func(action protocol.GitAction, finish func(bool)) {
+	runAs := func(kind string, action protocol.GitAction, finish func(bool)) {
 		command := protocol.Command{Kind: "run_git_action", Data: protocol.CommandRunGitActionPayload{Worktree: p.owner.ID, Action: action, ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head, ExpectedBranch: status.Branch}}
-		p.mutate(command, func(c *ui.Context, out protocol.Output) {
+		p.mutateNamed(kind, command, func(c *ui.Context, out protocol.Output) {
 			if finish != nil {
 				finish(out.Kind != "")
 			}
@@ -36,6 +36,7 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 			}
 		})
 	}
+	run := func(action protocol.GitAction, finish func(bool)) { runAs(gitOperation, action, finish) }
 	switch a.Kind {
 	case "git_stage", "git_unstage", "git_stage_all", "git_unstage_all":
 		operation := protocol.GitIndexChangeStage
@@ -66,7 +67,7 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 		if len(paths) == 0 {
 			return
 		}
-		p.mutate(protocol.Command{Kind: "update_git_index", Data: protocol.CommandUpdateGitIndexPayload{Worktree: p.owner.ID, Paths: paths, Operation: operation, ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head}}, nil)
+		p.mutateNamed(gitIndex, protocol.Command{Kind: "update_git_index", Data: protocol.CommandUpdateGitIndexPayload{Worktree: p.owner.ID, Paths: paths, Operation: operation, ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head}}, nil)
 	case "git_commit":
 		for _, entry := range status.Entries {
 			if entry.Conflicted {
@@ -118,7 +119,7 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 		}
 		tracked, all := workspaceCommitScope(status, a.Scope)
 		command := protocol.Command{Kind: "create_git_commit", Data: protocol.CommandCreateGitCommitPayload{Worktree: p.owner.ID, Message: a.Message, Amend: a.Amend, ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head, ExpectedBranch: status.Branch, Options: protocol.GitCommitOptions{Signoff: a.Signoff, SkipHooks: a.SkipHooks, Tracked: tracked, All: all, After: after, PushRemote: pushRemote}}}
-		p.mutate(command, func(c *ui.Context, out protocol.Output) {
+		p.mutateNamed(gitCommit, command, func(c *ui.Context, out protocol.Output) {
 			if out.Kind == "" {
 				return
 			}
@@ -171,19 +172,21 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 		}
 		p.panel.Prompt(map[bool]string{true: "git_rename_branch", false: "git_new_branch"}[a.Kind == "branch_rename"], []string{"settings_name"}, []string{initial}, func(v []string, done func(bool)) {
 			var command protocol.Command
+			kind := gitCreate
 			commit := a.Secondary
 			if commit == "" {
 				commit = workspaceString(status.Head)
 			}
 			if a.Kind == "branch_rename" {
+				kind = gitRename
 				command = protocol.Command{Kind: "rename_git_branch", Data: protocol.CommandRenameGitBranchPayload{Worktree: p.owner.ID, Name: a.Target, NewName: v[0], Commit: commit}}
 			} else if commit == "" {
-				run(protocol.GitAction{Kind: "start_branch", Data: protocol.GitActionStartBranchPayload{Name: v[0]}}, done)
+				runAs(gitCreate, protocol.GitAction{Kind: "start_branch", Data: protocol.GitActionStartBranchPayload{Name: v[0]}}, done)
 				return
 			} else {
 				command = protocol.Command{Kind: "create_git_branch", Data: protocol.CommandCreateGitBranchPayload{Worktree: p.owner.ID, Name: v[0], Commit: commit}}
 			}
-			p.mutate(command, func(c *ui.Context, out protocol.Output) {
+			p.mutateNamed(kind, command, func(c *ui.Context, out protocol.Output) {
 				done(out.Kind != "")
 				if out.Kind != "" {
 					kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
@@ -193,15 +196,15 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 	case "branch_switch":
 		p.switchBranch(a, status)
 	case "branch_delete":
-		p.mutate(protocol.Command{Kind: "delete_git_branch", Data: protocol.CommandDeleteGitBranchPayload{Worktree: p.owner.ID, Name: a.Target, Commit: a.Secondary, ExpectedHead: workspaceString(status.Head), ExpectedBranch: status.Branch}}, nil)
+		p.mutateNamed(gitDelete, protocol.Command{Kind: "delete_git_branch", Data: protocol.CommandDeleteGitBranchPayload{Worktree: p.owner.ID, Name: a.Target, Commit: a.Secondary, ExpectedHead: workspaceString(status.Head), ExpectedBranch: status.Branch}}, nil)
 	case "branch_merge":
 		for _, branch := range p.branches.Entries {
 			if branch.Name == a.Target && branch.Remote {
-				run(protocol.GitAction{Kind: "merge", Data: protocol.GitActionMergePayload{Commit: a.Secondary}}, nil)
+				runAs(gitMerge, protocol.GitAction{Kind: "merge", Data: protocol.GitActionMergePayload{Commit: a.Secondary}}, nil)
 				return
 			}
 		}
-		p.mutate(protocol.Command{Kind: "merge_git_branch", Data: protocol.CommandMergeGitBranchPayload{Worktree: p.owner.ID, Name: a.Target, Commit: a.Secondary, ExpectedHead: workspaceString(status.Head), ExpectedBranch: workspaceString(status.Branch), ExpectedIndex: workspaceIndex(status)}}, nil)
+		p.mutateNamed(gitMerge, protocol.Command{Kind: "merge_git_branch", Data: protocol.CommandMergeGitBranchPayload{Worktree: p.owner.ID, Name: a.Target, Commit: a.Secondary, ExpectedHead: workspaceString(status.Head), ExpectedBranch: workspaceString(status.Branch), ExpectedIndex: workspaceIndex(status)}}, nil)
 	case "branch_rebase":
 		p.panel.Confirm("git_rebase", a.Target, func(done func(bool)) {
 			run(protocol.GitAction{Kind: "rebase", Data: protocol.GitActionRebasePayload{Commit: a.Secondary}}, done)
@@ -296,84 +299,5 @@ func (p *workspaceProject) readRemoteTags(remote string, done func(*ui.Context, 
 		if value, ok := detail[[]protocol.GitTag](out.Data); ok {
 			done(c, value)
 		}
-	})
-}
-func (p *workspaceProject) createWorktree(c *ui.Context, a panel.GitAction, status protocol.GitStatus, created ...func(protocol.Worktree)) {
-	if p.owner.Project == nil {
-		p.workspaceError(c, protocol.ErrorCodeInvalidRequest, "worktree requires a project")
-		return
-	}
-	project := *p.owner.Project
-	commit := a.Secondary
-	if commit == "" {
-		commit = workspaceString(status.Head)
-	}
-	p.panel.Prompt("worktree_create", []string{"project_path", "git_new_branch"}, []string{"", ""}, func(v []string, done func(bool)) {
-		p.mutate(protocol.Command{Kind: "create_worktree", Data: protocol.CommandCreateWorktreePayload{Project: project, Path: v[0], Branch: v[1], Commit: commit}}, func(c *ui.Context, out protocol.Output) {
-			done(out.Kind != "")
-			if out.Kind != "" {
-				if tree, ok := detail[protocol.Worktree](out.Data); ok {
-					p.runtime.workspace.admitted[tree.ID] = tree
-					p.runtime.workspaceFor(tree)
-					for _, callback := range created {
-						callback(tree)
-					}
-				}
-				kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
-			}
-		})
-	})
-}
-func (p *workspaceProject) manageWorktrees() {
-	p.read("worktrees", protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
-		trees, ok := detail[protocol.GitWorktrees](out.Data)
-		if !ok {
-			return
-		}
-		choices := []panel.Choice{}
-		for _, tree := range trees.Entries {
-			tree := tree
-			if tree.Main || tree.Locked {
-				continue
-			}
-			choices = append(choices, panel.Choice{Label: tree.Path, Detail: workspaceString(tree.Branch), Run: func(c *ui.Context) {
-				var registered *protocol.Worktree
-				for _, candidate := range p.runtime.snapshot().Worktrees {
-					if candidate.Path == tree.Path {
-						copy := candidate
-						registered = &copy
-						break
-					}
-				}
-				p.panel.Confirm("worktree_remove", tree.Path, func(done func(bool)) {
-					finish := func(c *ui.Context, out protocol.Output) {
-						done(out.Kind != "")
-						if out.Kind != "" {
-							kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
-						}
-					}
-					remove := func(id protocol.WorktreeID) {
-						p.mutate(protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: id, ExpectedHead: workspaceString(tree.Head), ExpectedBranch: workspaceString(tree.Branch)}}, finish)
-					}
-					if registered != nil {
-						remove(registered.ID)
-						return
-					}
-					if tree.Available && p.owner.Project != nil {
-						p.mutate(protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *p.owner.Project, Path: tree.Path}}, func(c *ui.Context, out protocol.Output) {
-							if value, ok := detail[protocol.Worktree](out.Data); ok {
-								registered = &value
-								remove(value.ID)
-							} else {
-								done(false)
-							}
-						})
-						return
-					}
-					p.mutate(protocol.Command{Kind: "run_git_action", Data: protocol.CommandRunGitActionPayload{Worktree: p.owner.ID, ExpectedIndex: workspaceIndex(p.status), ExpectedHead: p.status.Head, ExpectedBranch: p.status.Branch, Action: protocol.GitAction{Kind: "prune_worktree", Data: protocol.GitActionPruneWorktreePayload{Path: tree.Path}}}}, finish)
-				}, "workspace_worktree_remove_confirm")
-			}})
-		}
-		p.panel.Choose(i18n.T(c, "worktree_manage"), choices)
 	})
 }

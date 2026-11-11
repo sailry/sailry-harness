@@ -316,7 +316,7 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 		}
 		v := data[protocol.GitActionStartBranchPayload](action.Data)
 		if _, e := r.Reference(plumbing.NewBranchReferenceName(v.Name), true); e == nil || branch == v.Name {
-			return fault(protocol.ErrorCodeConflict, "branch already exists")
+			return fault(protocol.ErrorCodeConflict, BranchExists)
 		}
 	case "apply_stash":
 		v := data[protocol.GitActionApplyStashPayload](action.Data)
