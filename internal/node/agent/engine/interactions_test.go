@@ -72,42 +72,59 @@ func (f *engineFixture) waitingQuestion() protocol.ConversationQuestion {
 	}
 }
 func TestApprovalDeadline(t *testing.T) {
-	var executions atomic.Int32
-	tool := objectTool("write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
-		executions.Add(1)
-		return ToolResult{Value: map[string]bool{"ok": true}}
-	})
-	tool.Approval = true
-	m := &scriptedModel{scripts: []script{response(call("write", "write", `{}`), finish()), response(text("Denied"), finish())}}
-	f := newFixture(t, m, tool)
-	f.start()
-	turn := f.submit("Task")
-	approval := f.waitingApproval()
-	timer := f.r.clock.(*manualClock)
-	select {
-	case wait := <-timer.waits:
-		if wait.duration != 300*time.Second {
-			t.Fatalf("deadline=%s", wait.duration)
-		}
-		close(wait.advance)
-	case <-f.ctx.Done():
-		t.Fatal("no owner deadline")
-	}
-	f.waitRun(turn, protocol.ConversationStatusCompleted)
-	if executions.Load() != 0 {
-		t.Fatal("timeout authorized execution")
-	}
-	var after protocol.ConversationApproval
-	err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
-		var err error
-		after, err = store.ReadApproval(f.ctx, db, approval.ID)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.State != protocol.ConversationApprovalStateCancelled {
-		t.Fatalf("deadline state=%s", after.State)
+	// A tool asks for every call, or a read-only tool asks for the one call
+	// that also writes; the plain call beside it runs without asking.
+	for _, test := range []struct {
+		name      string
+		configure func(*Tool)
+		calls     script
+		ran       int32
+	}{
+		{"approval tool", func(tool *Tool) { tool.Approval = true }, response(call("write", "write", `{}`), finish()), 0},
+		{"confirmed call of a read-only tool", func(tool *Tool) {
+			tool.ReadOnly, tool.Concurrent = true, true
+			tool.Confirm = func(call canonical.ToolRequest) bool { return string(call.Arguments) == `{"save":true}` }
+		}, response(call("plain", "write", `{}`), call("write", "write", `{"save":true}`), finish()), 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var executions atomic.Int32
+			tool := objectTool("write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+				executions.Add(1)
+				return ToolResult{Value: map[string]bool{"ok": true}}
+			})
+			test.configure(&tool)
+			m := &scriptedModel{scripts: []script{test.calls, response(text("Denied"), finish())}}
+			f := newFixture(t, m, tool)
+			f.start()
+			turn := f.submit("Task")
+			approval := f.waitingApproval()
+			timer := f.r.clock.(*manualClock)
+			select {
+			case wait := <-timer.waits:
+				if wait.duration != 300*time.Second {
+					t.Fatalf("deadline=%s", wait.duration)
+				}
+				close(wait.advance)
+			case <-f.ctx.Done():
+				t.Fatal("no owner deadline")
+			}
+			f.waitRun(turn, protocol.ConversationStatusCompleted)
+			if executions.Load() != test.ran {
+				t.Fatalf("%d calls ran, want %d", executions.Load(), test.ran)
+			}
+			var after protocol.ConversationApproval
+			err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+				var err error
+				after, err = store.ReadApproval(f.ctx, db, approval.ID)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.State != protocol.ConversationApprovalStateCancelled {
+				t.Fatalf("deadline state=%s", after.State)
+			}
+		})
 	}
 }
 func TestApprovalSettlesBeforeCall(t *testing.T) {

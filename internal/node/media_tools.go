@@ -438,6 +438,34 @@ func (node *Node) recordMediaUsage(ctx context.Context, inv *store.AgentInvocati
 	return nodeFault(node.agent.RecordMediaUsage(ctx, inv.Session.ID, inv.Run.Turn, binding.Provider, binding.Config.Model, kind, usage))
 }
 
+// publishGenerated writes a generated file below the worktree through the
+// confined file service, without replacing a file, and tells its watchers.
+func (node *Node) publishGenerated(ctx context.Context, root, target string, data []byte, limit uint64) error {
+	confined, err := core.OpenFiles(root, core.RestrictedFiles)
+	if err != nil {
+		return err
+	}
+	defer confined.Close()
+	parents := strings.Split(path.Dir(target), "/")
+	for index := range parents {
+		if directory := strings.Join(parents[:index+1], "/"); directory != "." {
+			if err := confined.CreateDirectory(directory); err != nil {
+				return err
+			}
+		}
+	}
+	file, err := confined.PrepareFileTarget(context.WithoutCancel(ctx), target, nil, limit)
+	if err != nil {
+		return err
+	}
+	sum := blake3.Sum256(data)
+	if _, err := file.Write(bytes.NewReader(data), uint64(len(data)), hex.EncodeToString(sum[:])); err != nil {
+		return err
+	}
+	node.watches.changed(root, nil)
+	return nil
+}
+
 // generateMedia runs the provider call, writes the asset through the confined
 // file service without replacing a file, and records the result and usage.
 func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation, binding model.Binding, route mediaRoute, kind protocol.MediaKind, prompt, target string) (engine.ToolResult, error) {
@@ -462,29 +490,9 @@ func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation,
 	if err := node.recordMediaUsage(ctx, inv, binding, kind, output.Usage); err != nil {
 		return engine.ToolResult{}, err
 	}
-	confined, err := core.OpenFiles(inv.Worktree.Path, core.RestrictedFiles)
-	if err != nil {
+	if err := node.publishGenerated(ctx, inv.Worktree.Path, target, output.Data, limit); err != nil {
 		return engine.ToolResult{}, err
 	}
-	defer confined.Close()
-	parents := strings.Split(path.Dir(target), "/")
-	for index := range parents {
-		if directory := strings.Join(parents[:index+1], "/"); directory != "." {
-			if err := confined.CreateDirectory(directory); err != nil {
-				return engine.ToolResult{}, err
-			}
-		}
-	}
-	file, err := confined.PrepareFileTarget(context.WithoutCancel(ctx), target, nil, limit)
-	if err != nil {
-		return engine.ToolResult{}, err
-	}
-	sum := blake3.Sum256(output.Data)
-	revision := hex.EncodeToString(sum[:])
-	if _, err := file.Write(bytes.NewReader(output.Data), uint64(len(output.Data)), revision); err != nil {
-		return engine.ToolResult{}, err
-	}
-	node.watches.changed(inv.Worktree.Path, nil)
 	data := map[string]any{"path": target, "media_type": output.MediaType, "size": len(output.Data), "provider": binding.Provider.Name, "model": binding.Config.Model}
 	if output.Job != "" {
 		data["job"] = output.Job

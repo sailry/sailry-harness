@@ -13,7 +13,7 @@ import (
 func (owner *pluginScriptTurn) bindNative(tool, bound engine.Tool, declaration protocol.ToolDeclaration, handler protocol.ToolHandler) engine.Tool {
 	tool.ReadOnly, tool.Concurrent, tool.Approval, tool.Binding = bound.ReadOnly, bound.Concurrent, bound.Approval, bound.Binding
 	tool.Delegation = bound.Delegation
-	tool.ConfigureApproval, tool.Approved, tool.Close = bound.ConfigureApproval, bound.Approved, bound.Close
+	tool.Confirm, tool.ConfigureApproval, tool.Approved, tool.Close = bound.Confirm, bound.ConfigureApproval, bound.Approved, bound.Close
 	var mu sync.Mutex
 	calls := map[string]canonical.ToolRequest{}
 	tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {

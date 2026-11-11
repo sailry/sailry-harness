@@ -27,13 +27,16 @@ import (
 // Tool is one captured declaration and executor. Concurrency and authority are
 // properties of the captured registration, never arguments supplied by a model.
 type Tool struct {
-	Definition        fantasy.FunctionTool
-	SchemaJSON        json.RawMessage
-	ReadOnly          bool
-	Concurrent        bool
-	Deferred          bool
-	Delegation        bool
-	Approval          bool
+	Definition fantasy.FunctionTool
+	SchemaJSON json.RawMessage
+	ReadOnly   bool
+	Concurrent bool
+	Deferred   bool
+	Delegation bool
+	Approval   bool
+	// Confirm reports whether one prepared call of a tool without Approval
+	// asks first: a read-only tool with an optional project write.
+	Confirm           func(canonical.ToolRequest) bool
 	Binding           *store.ApprovalBinding
 	Execute           func(context.Context, canonical.ToolRequest) ToolResult
 	Prepare           func(context.Context, canonical.ToolRequest) error
@@ -281,6 +284,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	r.exposure(x, state)
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
+	asks := make([]bool, len(calls))
 	var marks []canonical.Record
 	// Mark every allowed call before requesting the first approval.
 	for i, call := range calls {
@@ -316,7 +320,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				continue
 			}
 		}
-		if !tool.Approval {
+		if asks[i] = tool.Approval || tool.Confirm != nil && tool.Confirm(call); !asks[i] {
 			executable[i] = true
 			marks = append(marks, r.executableRecord(x, call, true))
 		}
@@ -326,7 +330,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	for i, call := range calls {
 		tool := findTool(x.tools, call.Name)
-		if tool == nil || !tool.Approval || results[i].Value != nil || results[i].Failure != nil {
+		if !asks[i] || results[i].Value != nil || results[i].Failure != nil {
 			continue
 		}
 		approved, err := r.approval(x, call, tool)
@@ -343,7 +347,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	concurrent := func(i int) bool {
 		tool := findTool(x.tools, calls[i].Name)
-		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !x.hooks.WrapsTools()
+		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !asks[i] && !x.hooks.WrapsTools()
 	}
 	for start := 0; start < len(calls); {
 		if x.ctx.Err() != nil {

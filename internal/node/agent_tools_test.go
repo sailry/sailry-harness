@@ -1,11 +1,16 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -15,6 +20,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -524,6 +530,107 @@ func TestAgentManagementTools(t *testing.T) {
 			if last := approvals[2]; last.Source != protocol.ConversationApprovalSourceSandbox || last.Access == nil || *last.Access != protocol.ProcessAccessWorkspace {
 				t.Fatalf("command ignored the sandbox turned on during its turn: %+v", last)
 			}
+		}
+	})
+
+	// A capture is a read. Saving it asks first, is refused while planning
+	// and publishes the checked pixels below assets/generated once.
+	t.Run("browser capture saving", func(t *testing.T) {
+		var picture bytes.Buffer
+		if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+			t.Fatal(err)
+		}
+		controller := protocol.NodeID{7}
+		stream, err := node.browsers.subscribe(controller)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		go func() {
+			for {
+				update, err := stream.Next(t.Context())
+				if err != nil {
+					return
+				}
+				reply, _ := json.Marshal(map[string]any{"url": "https://example.com/", "path": "/etc/passwd", "base64_image": base64.StdEncoding.EncodeToString(picture.Bytes())})
+				raw := json.RawMessage(reply)
+				_ = node.browsers.complete(controller, update.Data.(protocol.BrowserCall).ID, protocol.BrowserResult{Ok: &raw})
+			}
+		}()
+		inv := &store.AgentInvocation{Caller: controller}
+		inv.Session.ID = protocol.NewSessionID()
+		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			var id string
+			if err := db.QueryRowContext(t.Context(), "SELECT id FROM worktrees WHERE project=?1", project.ID.String()).Scan(&id); err != nil {
+				return err
+			}
+			var err error
+			inv.Run.Worktree, err = protocol.ParseWorktreeID(id)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var schema map[string]any
+		if err := json.Unmarshal(browserToolSchema, &schema); err != nil {
+			t.Fatal(err)
+		}
+		capture := func(id string, save bool) canonical.ToolRequest {
+			arguments, _ := json.Marshal(map[string]any{"action": "screenshot", "arguments": map[string]any{"tab": 1, "format": "png", "save": save}})
+			return canonical.ToolRequest{ID: id, Name: "capture", Arguments: arguments}
+		}
+		tool := node.browserTool(inv, protocol.PluginReference{}, "capture", browserReadOperation, schema)
+		if tool.Approval || !tool.ReadOnly {
+			t.Fatalf("capture tool is not a read: %+v", tool)
+		}
+		for _, save := range []bool{false, true} {
+			call := capture("capture", save)
+			if err := tool.Prepare(t.Context(), call); err != nil {
+				t.Fatal(err)
+			}
+			if tool.Confirm(call) != save {
+				t.Fatalf("save=%v confirms %v", save, !save)
+			}
+			result := tool.Execute(t.Context(), call)
+			if result.Failure != nil {
+				t.Fatalf("save=%v: %+v", save, result.Failure)
+			}
+			var facts map[string]any
+			if err := json.Unmarshal(result.Value.(map[string]any)["data"].(json.RawMessage), &facts); err != nil {
+				t.Fatal(err)
+			}
+			if facts["mime_type"] != "image/png" || facts["inline_data"] == nil || facts["base64_image"] != nil {
+				t.Fatalf("save=%v capture = %v", save, facts)
+			}
+			saved, _ := facts["path"].(string)
+			if !save {
+				if saved != "" {
+					t.Fatalf("unsaved capture names a path: %q", saved)
+				}
+				continue
+			}
+			if matched, _ := path.Match("assets/generated/browser-*.png", saved); !matched {
+				t.Fatalf("saved capture path = %q", saved)
+			}
+			if written, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(saved))); err != nil || !bytes.Equal(written, picture.Bytes()) {
+				t.Fatalf("saved capture differs from its pixels: %v", err)
+			}
+		}
+		// A published capture is never replaced.
+		id := protocol.NewRequestID()
+		input := protocol.CommandUseBrowserPayload{Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: protocol.BrowserAction{Kind: "screenshot", Data: &protocol.BrowserActionScreenshotPayload{Tab: 1, Scale: protocol.BrowserScaleCss, Format: protocol.BrowserFormatPng, Save: true}}}
+		if _, err := node.useBrowser(t.Context(), controller, id, input); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := node.useBrowser(t.Context(), controller, id, input); err == nil {
+			t.Fatal("a second capture replaced the saved file")
+		}
+		inv.Turn.Config.Mode = protocol.WorkModePlan
+		var refused *protocol.Fault
+		if err := tool.Prepare(t.Context(), capture("planned", true)); !errors.As(err, &refused) || refused.Message != "planning turns cannot save browser captures" {
+			t.Fatalf("planning turn prepared a saved capture: %v", err)
+		}
+		if err := tool.Prepare(t.Context(), capture("planned", false)); err != nil {
+			t.Fatalf("planning turn refused a plain capture: %v", err)
 		}
 	})
 
