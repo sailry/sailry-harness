@@ -440,6 +440,17 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 			}
 		}
 	}
+	// The statistics package's control is the window's to open: a press
+	// shows its panel and leaves the button enabled, a second one closes it.
+	click(button(statistics))
+	if opened := button(statistics); !opened.Expanded || opened.Disabled {
+		t.Errorf("a press on %q left it expanded %v, disabled %v", statistics, opened.Expanded, opened.Disabled)
+	}
+	shots("first-run-context-panel")
+	click(button(statistics))
+	if closed := button(statistics); closed.Expanded || closed.Disabled {
+		t.Errorf("a second press on %q left it expanded %v, disabled %v", statistics, closed.Expanded, closed.Disabled)
+	}
 	shots("first-run-draft")
 
 	// New session over the draft stays enabled and puts the caret back.
