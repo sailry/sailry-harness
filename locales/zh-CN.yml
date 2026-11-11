@@ -1487,7 +1487,7 @@ file_design: "# 桌面布局\n\n左栏保留主机与项目树；中间展示资
 diff_intro: "```diff\n- workspace: nested cards\n+ workspace: three flat panels\n\n- toolbar: global resource actions\n+ toolbar: current resource header\n```"
 diff_design: "```diff\n- search: permanent search row\n+ search: command palette\n\n- theme: page-specific colors\n+ theme: GPUI Kit semantic theme\n```"
 branch: main · 示例变更
-unavailable: 此页面将在下一轮 UI 预览中补齐
+unavailable: 不可用
 unavailable_description: 当前先确认三栏 Shell。此入口保留原有功能位置。
 settings_back: 返回工作区
 settings_general: 通用
@@ -2787,3 +2787,7 @@ host_check_status: 检查状态
 files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
 files_unsaved_discard: 放弃修改
 files_save_all: 全部保存
+settings_experimental: 实验
+settings_experimental_description: 开发与调试设置
+settings_demo_mode: 演示模式
+settings_demo_mode_description: 显示示例会话，用于验收与截图

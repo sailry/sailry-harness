@@ -122,6 +122,9 @@ type Data struct {
 	UpdateChannel     *string                   `json:"update_channel"`
 	WelcomeSeen       *bool                     `json:"welcome_seen"`
 	SidebarMetrics    bool                      `json:"sidebar_metrics"`
+	// DemoMode is a Go desktop extension: unset, the file stays what the
+	// reference writes.
+	DemoMode bool `json:"demo_mode,omitempty"`
 }
 
 func Default() Data {

@@ -147,7 +147,9 @@ func (s *State) filePicker(c *ui.Context, ctx *Context, actions Actions) {
 	}
 	kit.Dialog(c.Key("file-picker"), &f.open, func() {
 		ui.Text(c, i18n.T(c, "composer_attachment")).FontSize(16).FontWeight(600)
-		ui.Text(c, i18n.T(c, "directory_preview")).FontSize(14).TextColor(p.MutedForeground)
+		if !kit.Demo(c) {
+			ui.Text(c, i18n.T(c, "directory_preview")).FontSize(14).TextColor(p.MutedForeground)
+		}
 		s.fileToolbar(c, ctx)
 		ui.Row(c.Key("body")).Width(width).Height(height).Radius(p.RadiusLg).Border(1, p.Border).Clip().
 			AlignItems(ui.Stretch).Children(func() {

@@ -14,6 +14,8 @@ type simulationState struct {
 	older  []conversation.Turn
 	paging time.Time
 	queued int
+	// script is the reply a send plays, nil for the preview's (stream.go).
+	script *script
 }
 
 var simulationMu sync.Mutex

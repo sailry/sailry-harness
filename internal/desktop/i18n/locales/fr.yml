@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · Hôte'
 chat_config_desktop: Configuration du bureau
 usage_read_failed: Impossible de charger l'utilisation, réessayez
 queue_draft_changed: Changement de file d &apos; attente; brouillon conservé
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

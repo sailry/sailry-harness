@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · Host'
 chat_config_desktop: Desktop-Konfiguration
 usage_read_failed: Konnte die Nutzung nicht laden, versuchen Sie es erneut
 queue_draft_changed: Warteschlange geändert; Entwurf beibehalten
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

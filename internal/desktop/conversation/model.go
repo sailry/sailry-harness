@@ -573,6 +573,9 @@ type Usage struct {
 	Cached  int
 	Turns   int
 	Context float64
+	// Window is the model's context window in tokens, which the context
+	// ring's tooltip measures Context against; 0 where none is known.
+	Window int
 }
 
 // Active reports a child that is still executing.

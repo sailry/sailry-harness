@@ -123,14 +123,19 @@ func usageButton(c *ui.Context, u *Usage, open *bool) {
 
 // ContextRing is the composer's context indicator, left of the model chip:
 // Kit's ring with 4 on each side, the track and the part used, muted, with
-// the compaction hint as its tooltip. Preview data has no indicator panel to
-// open, so it takes no clicks.
+// its tooltip the tokens used of the model's window where the usage knows the
+// window, as a measured indicator's reads, and the preview's compaction hint
+// where it does not. Sample data has no indicator panel to open, so it takes
+// no clicks.
 func ContextRing(c *ui.Context, u *Usage) {
 	if u == nil {
 		return
 	}
 	percent := math.Max(0, math.Min(1, u.Context)) * 100
 	hint := i18n.T(c, "composer_compression_hint")
+	if u.Window > 0 {
+		hint = Count(int(percent/100*float64(u.Window)+0.5)) + " / " + Count(u.Window)
+	}
 	box := ui.Row(c.Key("context")).Shrink(0).PaddingX(4).AlignItems(ui.Center)
 	kit.Tooltip(c, box, hint)
 	box.Children(func() {

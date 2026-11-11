@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · Хозяин'
 chat_config_desktop: Конфигурация рабочего стола
 usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
 queue_draft_changed: Очередность изменена; проект сохранен
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

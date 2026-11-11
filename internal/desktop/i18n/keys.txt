@@ -2200,3 +2200,8 @@ chat_provider_node
 chat_config_desktop
 usage_read_failed
 queue_draft_changed
+settings_experimental
+settings_experimental_description
+settings_demo_mode
+settings_demo_mode_description
+provider_deepseek

@@ -127,8 +127,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 
 ## Product boundaries
 
-- Preview data is clearly identified and never triggers models, tools, pairing,
-  terminals or user-data changes. All B0 surfaces remain preview-only.
+- Preview and demo data never trigger models, tools, pairing, terminals or
+  user-data changes. All B0 surfaces remain preview-only.
 - Mobile is a Flutter controller with Client, Link and a thin Dart FFI adapter.
   A desktop-only Go test is not Mobile acceptance; desktop tasks do not expand
   into Mobile work.

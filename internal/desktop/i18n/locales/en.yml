@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · Host'
 chat_config_desktop: Desktop configuration
 usage_read_failed: Could not load usage, try again
 queue_draft_changed: Queue changed; draft kept
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

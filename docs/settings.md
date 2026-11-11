@@ -35,7 +35,9 @@ The settings navigation and its pages, in the groups of the reference implementa
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
 Conversation, Shortcuts, Dictation), AI (Providers, Connectors, Teams,
 Plugins, Skills, Knowledge, Media models, Decision), Tools (Terminal, Connections, Hooks,
-Runtime, OCR) and System (Permissions, Backup, About). Phase 5a built the
+Runtime, OCR) and System (Permissions, Backup, Experimental, About). About
+is the navigation's last entry; Experimental, the one before it, is this
+desktop's own section (see Deviations). Phase 5a built the
 App, Tools and System pages; phase 5b the AI group, the Market, MCP, the
 model library and the extension details page.
 
@@ -47,7 +49,8 @@ model library and the extension details page.
 |---|---|
 | `settings.go` | `Section`, `Groups` (order and icons of `Section::GROUPS`/`Section::icon`), `State`, `Nav`, `Open`, `Page` routing |
 | `model.go` | **The view model**: `Model`, `Stored[T]`, `Messages`, the Node settings' types, `Languages`, `ToastSeconds` |
-| `general.go` | General: language, power, sidebar metrics, notifications, toast duration, diagnostics; the `choose`/`pick` select helpers |
+| `general.go` | General: language, power, notifications, toast duration, diagnostics; the `choose`/`pick` select helpers |
+| `experimental.go` | Experimental: the sidebar's performance indicator and Demo mode |
 | `appearance.go` | Appearance: mode, effects, transparency sliders, theme gallery with update check and import; a card's system right-click menu (Apply, Details, Homepage, Export, Uninstall) and the details dialog (previews light and dark, description, author, version, identifier, license) |
 | `conversation.go` | Conversation: command sandbox, session order (Created, Updated, Name: the sidebar's sort menu edits the same choice, docs/sidebar.md), message display, text size |
 | `shortcuts.go` | `Chord`, `Shortcut`, `Registry`, `Fixed`, `Keys` (overrides, recording, validation) and the Shortcuts page with its recorder |
@@ -104,7 +107,7 @@ disabled while no card is selected.
 the reference:
 
 - **App preferences** (preferences.rs `Data`): plain fields that apply as
-  they change: `Language`, `SidebarMetrics`, `Notify`, `Toast`,
+  they change: `Language`, `SidebarMetrics`, `DemoMode`, `Notify`, `Toast`,
   `SessionOrder`, `MessageDisplay`, `TextSize`, `Keys`, `Microphone`,
   `SpeechLanguage`, `SpeechModel`, `PasteProtection`, `FontSize`, `Font`,
   `Channel`, and `theme.Surfaces` on the App. `Updater` is the app updater's state (updater/service.rs State, Failure).
@@ -163,6 +166,7 @@ placeholder in an empty masked input.
 | General | language, switches, toast duration | in memory; language toasts settings_language_restart |
 | General | prevent sleep, telemetry switches | `Stored.Commit`, outcome toast (power_settings_*, telemetry_*) |
 | General | reset identity, send diagnostics | preview_notice |
+| Experimental | performance indicator, Demo mode | in memory; live: the controller's preferences. Demo mode swaps the window's conversations (docs/shell.md, Demo mode) |
 | Appearance | mode, effects, theme, transparency | live on the window |
 | Appearance | check updates, import, Export, Uninstall | preview_notice |
 | Appearance | Details, Homepage (card menu) | the details dialog; the system's browser |
@@ -282,6 +286,11 @@ hover style.
 
 ## Deviations
 
+- Experimental is a section the reference does not have: the sidebar's
+  performance indicator, moved from General, and Demo mode (user decision
+  2026-11-11). It sorts after every page of the System group but About,
+  plugin pages included, so About ends the navigation.
+
 - The extension details have no title row and no close button; the title is
   in the header band and the details toggle closes them (user decision
   2026-11-11; docs/shell.md).
@@ -377,7 +386,7 @@ and report only a toast.
 
 The shared Store synchronizes controller choices across windows and serializes
 versioned immutable writes. Language, notification categories, toast duration,
-sidebar metrics, appearance/effects/materials, session ordering, message display,
+sidebar metrics, Demo mode (`demo_mode`, omitted while off), appearance/effects/materials, session ordering, message display,
 text size, shortcut overrides and welcome state persist. The application callback
 applies locale, native menu accelerators/global shortcuts and toast duration.
 Shortcut values retain portable secondary/ctrl/alt/shift notation; empty values

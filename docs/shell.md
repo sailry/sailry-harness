@@ -55,6 +55,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `selection.go` | `SystemShortcuts`, the selected text dialog |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
+| `demo.go` | Demo mode: the window's two stages, `Demo`, `Prefs` |
 
 ## Entry point
 
@@ -397,6 +398,50 @@ not yet connected, another profile) are held as saved and return to their
 place when the session does (`panes.Workspace.Follow`); changing the layout
 meanwhile makes the changed one the layout to keep.
 
+## Demo mode
+
+Settings, Experimental, Demo mode (`settings.Model.DemoMode`, the controller
+preference `demo_mode`) shows the demo conversations in place of the
+window's own, without a restart, through the same sidebar, transcript,
+composer and right panel. `preview.Demo(locale, host)` builds them
+(`internal/desktop/preview/demo*.go`, prose in `preview/demo/<locale>.yml`).
+
+The window has two stages (`shell.stage`): the dataset, the sidebar's,
+transcript's and panel's state, the drafts, the opened subagent sessions, the
+panes and the panels per conversation. `App.syncDemo` follows the setting at
+the start of a frame: it parks the window's own stage and puts a new demo on
+the App's fields, or puts the parked one back as it was, drafts and selection
+included. While the demo shows, `App.underneath` puts the window's own stage
+back for the controller's frame hooks (`BeforeFrame`, `AfterFrame`) and for
+`App.Prefs`, so the controller projects, prunes and saves what it always
+does and the demo's panels and order are never saved. The Node keeps running.
+
+| While the demo shows | |
+|---|---|
+| Conversation, composer, sidebar and panel actions | The preview's: they change the demo's memory. `Hooks.Conversation`, `RenderChild`, `WorkspaceProject`, `PluginHeader` on the conversation page, `Overview`, `OpenKnowledge` and the sidebar's `Actions` are not called, so no command reaches a Node |
+| A sent message | Plays the demo's reply (`preview.DemoReplies`) |
+| Models | One provider, DeepSeek: DeepSeek V4.1 Pro (selected), DeepSeek V4.1 and DeepSeek V4.1 Flash (`preview.DemoModels`, `DemoFamilies`). They exist in the composer's context only; Settings lists the profile's own providers |
+| Identification | None, by the user's decision of 2026-11-11: no header tag, toast, badge or title suffix. `kit.SetDemo` marks the frame and `kit.PreviewNotice` and the preview-only hints stay silent; an action the demo cannot play does nothing |
+| Context ring | Reads the tokens used of the model's window, as a measured indicator does (`conversation.Usage.Window`, 200k for the demo's models): `48k / 200k 24%`, the same as its tooltip. The preview, whose usage has no window, keeps its compaction hint |
+| Archive prompt | Names the conversation and offers Archive, as the application's does; it archives in the demo's memory |
+| Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live |
+| Activity centre | Empty |
+| Terminal and Browser tabs | Not offered (`panel.State.Demo`): they would start a shell or load a page. The per-conversation panels keep the demo's tabs in the demo's stage |
+| Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): nothing is read or written, and the worktree manager, which a live project's actions open, is not offered |
+| Project editor and appearance | Saved to the demo's memory. The host directory picker and Open folder are not offered: the demo has no host whose directories it could list |
+| Session overview (header) | `preview.Overview` over the demo conversation, not `Hooks.Overview`. An output or a source opens the demo's file in the panel (`preview.Asset`); a cited page opens nothing |
+| Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values, an authorization link (no page opens) and a denial's reason, which shows on the call's row (`preview.Reason`). A request read again or sent again changes the demo's rows |
+| Editing a sent message | Save replaces the message in memory. New chat from a selection opens a demo chat with the quote as its draft |
+| Links standing alone in a reply | The demo's own resolver (`preview.Embed` on the demo's `conversation.State`): its files as cards, its pictures and a tool's pictures as thumbnails. The controller's resolver is not called |
+| Composer host control, plugin modes, pasted files | The hosts are the window's own and choosing one changes only the demo draft; no plugin mode is offered; a pasted or dropped file plays a transfer and is not read |
+| Queue | Edited, reordered and sent in memory. A subagent's session (`Session.ReadOnly`) has its read-only tray and no composer |
+| Shortcuts `conversation.stop`, `composer.focus`, `composer.models` | Act on the demo's composer; the model controls list the demo's models |
+| Close and quit prompt | Considers the window's own documents only: `live.Runtime.UnsavedDocuments` reads the controller's projects, never the demo's stage, and Save all saves those |
+| In-app notice toasts | A real notice still shows as a toast, without Details: its conversation waits behind the demo, so nothing is opened or switched (`live.Runtime.PresentNotice`) |
+
+The demo is written again when the window's language changes between en and
+zh-CN; another language reads the English one.
+
 ## Backend ownership
 
 The live adapter and controller preferences are specified in
@@ -453,6 +498,12 @@ project. `internal/desktop/live/rail_pages_test.go` drives both pages
 against a real Node.
 `internal/desktop/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
 Phase 1–2 screens.
+`internal/desktop/live/demo_mode_test.go` (`TestDemoMode`): Demo mode over a
+real Node: the settings' order, the switch, the swap and the way back, no
+command sent by the demo's actions, no notice text, the model shown and the
+preference saved. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
+demo shows every value of the view model's enumerations and sets every
+field, both catalogs have the same keys, and the models' names.
 
 ## Deviations
 
@@ -471,6 +522,7 @@ Phase 1–2 screens.
 | ⌘/ opens Settings | No Shortcuts section before phase 5 |
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
 | System shortcuts register at launch only | Keys changed in Settings take effect at the next launch |
+| Demo mode shows no plugin controls in the conversation's header or composer | They mount over a Node's session, which a demo conversation is not |
 | The selected text is the preview's sample | Reading another app's selection needs the platform's accessibility APIs and a Node |
 | About opens Settings, which has no About section | Settings sections beyond Appearance, Providers and Plugins are later phases |
 | Save (⌘S) and Logs are disabled | The preview has no file editor or log folder (the reference disables Logs without one) |

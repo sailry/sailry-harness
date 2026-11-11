@@ -96,8 +96,8 @@ func (a *App) unavailable(c *ui.Context) {
 }
 
 func (a *App) notice(c *ui.Context) {
-	if a.Preview {
-		kit.Message(c, i18n.T(c, "preview_notice"))
+	if a.sampled() {
+		kit.PreviewNotice(c)
 		return
 	}
 	kit.Notify(c, "", i18n.T(c, "unavailable"))

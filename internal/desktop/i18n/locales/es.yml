@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name}'
 chat_config_desktop: Configuración de escritorio
 usage_read_failed: No se pudo cargar el uso, inténtelo de nuevo
 queue_draft_changed: La cola cambió; el borrador se mantuvo
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

@@ -2,7 +2,6 @@ package shell
 
 import (
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -196,7 +195,7 @@ func (a *App) run(c *ui.Context, id string) {
 		if a.Hooks.Refresh != nil {
 			a.Hooks.Refresh()
 		} else {
-			kit.Message(c, i18n.T(c, "preview_notice"))
+			kit.PreviewNotice(c)
 		}
 	case "app.search":
 		if a.search.open {

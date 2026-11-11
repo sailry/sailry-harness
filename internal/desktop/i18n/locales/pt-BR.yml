@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · Anfitrião'
 chat_config_desktop: Configuração do desktop
 usage_read_failed: Não foi possível carregar o uso, tente novamente
 queue_draft_changed: Fila alterada; rascunho mantido
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

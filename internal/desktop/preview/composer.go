@@ -174,7 +174,7 @@ func references(d *Data, c *Conversation) []composer.Reference {
 func fileRefs(n *FileNode) []composer.Reference {
 	var out []composer.Reference
 	for _, k := range n.Children {
-		rel := strings.TrimPrefix(k.Path, "sailry-go/")
+		rel := k.Path[strings.IndexByte(k.Path, '/')+1:] // without the root folder
 		if k.Children != nil {
 			out = append(out, composer.Reference{ID: "dir:" + rel, Kind: composer.Folder, Label: rel, Icon: icons.Folder,
 				Children: fileRefs(k)})

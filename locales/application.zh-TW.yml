@@ -1567,7 +1567,7 @@ file_design: "# 桌面佈局\n\n左欄保留主機與專案樹；中間展示資
 diff_intro: "```diff\n- workspace: nested cards\n+ workspace: three flat panels\n\n- toolbar: global resource actions\n+ toolbar: current resource header\n```"
 diff_design: "```diff\n- search: permanent search row\n+ search: command palette\n\n- theme: page-specific colors\n+ theme: GPUI Kit semantic theme\n```"
 branch: "main · 示例變更"
-unavailable: "此頁面將在下一輪 UI 預覽中補齊"
+unavailable: "無法使用"
 unavailable_description: "當前先確認三欄 Shell。此入口保留原有功能位置。"
 settings_back: "返回工作區"
 settings_general: "通用"

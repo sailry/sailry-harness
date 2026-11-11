@@ -30,7 +30,7 @@ func (section Section) navigationOrder() uint16 {
 		return 160
 	case Skills:
 		return 170
-	case About, Knowledge, Media, Appearance, Connections:
+	case Knowledge, Media, Appearance, Connections:
 		return 200
 	case Backup, Decision, Conversation:
 		return 300
@@ -42,6 +42,11 @@ func (section Section) navigationOrder() uint16 {
 		return 600
 	case OCR:
 		return 700
+	case Experimental:
+		// After every page of its group but About, which ends the navigation.
+		return 65000
+	case About:
+		return 65535
 	default:
 		return 10000
 	}

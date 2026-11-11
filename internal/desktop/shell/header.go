@@ -61,12 +61,13 @@ func (a *App) header(c *ui.Context, f frame) {
 			if a.Page == ConversationPage {
 				a.pageActions(c)
 			}
-			if a.Hooks.PluginHeader != nil {
+			// A demo conversation is no session a plugin could mount over.
+			if a.Hooks.PluginHeader != nil && !(a.Demo() && a.Page == ConversationPage) {
 				a.Hooks.PluginHeader(c)
 			}
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
-			if a.Preview {
+			if a.Preview && !a.Demo() {
 				preview := ui.Row(c.Key("preview")).Radius(999).Shrink(0).Background(p.Background)
 				kit.Tooltip(c, preview, i18n.T(c, "preview_notice"))
 				preview.Children(func() {
@@ -96,9 +97,10 @@ func (a *App) pageActions(c *ui.Context) {
 }
 
 // sessionOverview is cv's overview: the live controller's, or the preview's
-// made from its transcript, whose rows only say they are a preview.
+// made from its transcript, whose rows only say they are a preview (the
+// demo's say nothing).
 func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer.Overview {
-	if !a.Preview {
+	if !a.sampled() {
 		if a.Hooks.Overview != nil {
 			return a.Hooks.Overview(c, cv)
 		}
@@ -107,7 +109,14 @@ func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer
 	o := preview.Overview(cv)
 	act := &actions{a: a, c: c, cv: cv, comp: a.Composer(cv.ID)}
 	o.OpenChild = act.OpenChild
-	o.OpenAsset = func(string) { act.notice() }
+	o.OpenAsset = func(id string) {
+		// The demo's files open in the panel, as their cards do.
+		if f, ok := preview.Asset(cv, id); ok && a.Demo() {
+			act.OpenFile(f)
+			return
+		}
+		act.notice()
+	}
 	o.OpenSource = func(string) { act.notice() }
 	return o
 }

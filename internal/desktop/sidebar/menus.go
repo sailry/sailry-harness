@@ -13,7 +13,7 @@ import (
 
 // notice tells that an action would leave the preview: it would write
 // files, run git, a terminal or a model.
-func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
+func notice(c *ui.Context) { kit.PreviewNotice(c) }
 
 func (s *State) notice(c *ui.Context) {
 	if s.Actions != nil {
@@ -201,8 +201,13 @@ func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
 		s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "session_archive_named", "name", Title(c, cv)), action: i18n.T(c, "workspace_archive"), run: func() { s.Actions.Archive(cv) }}
 		return
 	}
-	s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "workspace_memory_only"),
-		action: i18n.T(c, "workspace_confirm"), run: func() {
+	// The demo asks as the application does.
+	message, action := i18n.T(c, "workspace_memory_only"), i18n.T(c, "workspace_confirm")
+	if kit.Demo(c) {
+		message, action = i18n.T(c, "session_archive_named", "name", Title(c, cv)), i18n.T(c, "workspace_archive")
+	}
+	s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: message,
+		action: action, run: func() {
 			cv.Archived = true
 			if s.Selected == cv.ID {
 				if ids := s.Order(); len(ids) > 0 {
@@ -243,9 +248,12 @@ func (s *State) AskRemove(c *ui.Context, pr *preview.Project) {
 			kit.Toast(c, kit.Failed, i18n.T(c, "project_remove_sessions"))
 			return
 		}
-		message = i18n.T(c, "project_remove_sample", "name", pr.Path)
+		// The demo asks as a live window does.
+		if !kit.Demo(c) {
+			message = i18n.T(c, "project_remove_sample", "name", pr.Path)
+		}
 	}
-	s.confirm = confirm{open: true, title: i18n.T(c, "project_remove"), message: message, action: i18n.T(c, s.removeLabel()),
+	s.confirm = confirm{open: true, title: i18n.T(c, "project_remove"), message: message, action: i18n.T(c, s.removeLabel(c)),
 		run: func() { s.remove(pr) }}
 }
 
@@ -257,9 +265,12 @@ func (s *State) trust(c *ui.Context, pr *preview.Project) {
 		title, detail, action = "project_revoke_title", "project_revoke_description", "project_revoke"
 	}
 	trusted, path := pr.Trusted, pr.Path
-	s.confirm = confirm{open: true, title: i18n.T(c, title),
-		message: pr.Name + "\n" + pr.Path + "\n" + i18n.T(c, detail) + "\n" + i18n.T(c, "project_trust_preview"),
-		action:  i18n.T(c, action), run: func() {
+	message := pr.Name + "\n" + pr.Path + "\n" + i18n.T(c, detail)
+	if !kit.Demo(c) {
+		message += "\n" + i18n.T(c, "project_trust_preview")
+	}
+	s.confirm = confirm{open: true, title: i18n.T(c, title), message: message,
+		action: i18n.T(c, action), run: func() {
 			if pr.Path == path && pr.Trusted == trusted {
 				pr.Trusted = !trusted
 			}

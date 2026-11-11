@@ -17,7 +17,7 @@ import (
 func (r *Runtime) applyPreferences() {
 	d := r.Preferences.Data
 	a, m := r.App, r.App.Settings.Model
-	m.Notify, m.SidebarMetrics = d.Notifications, d.SidebarMetrics
+	m.Notify, m.SidebarMetrics, m.DemoMode = d.Notifications, d.SidebarMetrics, d.DemoMode
 	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, int(sidebar.SortUpdated), 0
 	m.TextSize = 14
 	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
@@ -95,7 +95,7 @@ func setChoice[T comparable](field **T, value, fallback T) {
 func (r *Runtime) savePreferences() {
 	a, m := r.App, r.App.Settings.Model
 	d := &r.Preferences.Data
-	d.Notifications, d.SidebarMetrics = m.Notify, m.SidebarMetrics
+	d.Notifications, d.SidebarMetrics, d.DemoMode = m.Notify, m.SidebarMetrics, m.DemoMode
 	if m.Toast >= 0 && m.Toast < len(settings.ToastSeconds) {
 		d.ToastSeconds = uint64(settings.ToastSeconds[m.Toast])
 	}

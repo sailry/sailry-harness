@@ -188,7 +188,7 @@ func (s *State) editorDialog(c *ui.Context) {
 	kit.Dialog(c.Key("editor"), &e.Open, func() {
 		ui.Column(c.Key("head")).Gap(6).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
-			if s.Actions == nil {
+			if s.Actions == nil && !kit.Demo(c) {
 				ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
 			}
 		})
@@ -232,8 +232,11 @@ func (s *State) editorDialog(c *ui.Context) {
 			kit.Field(c, "path", label, hint, func() {
 				ui.Row(c).Gap(6).Children(func() {
 					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1).Disabled(e.Pending)
-					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
-						Border(1, p.Input).Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
+					// The demo has no host whose directories it could list.
+					if !kit.Demo(c) {
+						kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
+							Border(1, p.Input).Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
+					}
 				})
 			})
 		})
@@ -243,7 +246,7 @@ func (s *State) editorDialog(c *ui.Context) {
 			switch {
 			case e.cloning():
 				saveKey = "project_clone"
-			case s.Actions != nil:
+			case s.Actions != nil || kit.Demo(c):
 				saveKey = "settings_save"
 			}
 			save := i18n.T(c, saveKey)
@@ -342,6 +345,9 @@ func (s *State) browse(c *ui.Context, register bool) {
 // OpenFolder chooses a directory of host and opens it as a project: the one
 // already registered there, or a new one named after the directory.
 func (s *State) OpenFolder(c *ui.Context, host string) {
+	if kit.Demo(c) {
+		return // the demo has no host whose directories it could list
+	}
 	s.editorGeneration++
 	s.editor = Editor{Icon: "folder", Color: "none", host: host, folder: true}
 	if host == "" && len(s.Data.Hosts) > 0 {

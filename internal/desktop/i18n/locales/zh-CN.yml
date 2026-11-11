@@ -546,7 +546,7 @@ browser_annotation_unavailable: 无法截取所选元素
 content_document: 文档
 content_source: 源码
 resource_project_empty: 选择项目
-unavailable: 此页面将在下一轮 UI 预览中补齐
+unavailable: 不可用
 menu_about: 关于 Sailry
 menu_settings: 设置
 menu_services: 服务
@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · 主机'
 chat_config_desktop: 桌面配置
 usage_read_failed: 无法读取用量，请重试
 queue_draft_changed: 队列已改变，编辑草稿已保留
+settings_experimental: 实验
+settings_experimental_description: 开发与调试设置
+settings_demo_mode: 演示模式
+settings_demo_mode_description: 显示示例会话，用于验收与截图
+provider_deepseek: DeepSeek

@@ -122,7 +122,7 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 		for _, h := range a.Data.Hosts {
 			list = append(list, Choice{ID: h.ID, Label: a.hostName(c, h.Name), Icon: icons.Cpu, Selected: h.ID == a.Host, run: func() {
 				if a.Preview {
-					kit.Message(c, t("preview_notice"))
+					kit.PreviewNotice(c)
 				} else {
 					a.openHost(h.ID, false)
 				}

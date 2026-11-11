@@ -354,3 +354,8 @@ host_check_status: Check status
 files_unsaved_description: Closing without saving discards the changes to these documents
 files_unsaved_discard: Discard changes
 files_save_all: Save all
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

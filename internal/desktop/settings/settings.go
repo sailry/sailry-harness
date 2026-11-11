@@ -38,6 +38,8 @@ const (
 	Permissions  Section = "settings_permissions"
 	Backup       Section = "settings_backup"
 	About        Section = "settings_about"
+	// Experimental holds the development and debugging settings.
+	Experimental Section = "settings_experimental"
 )
 
 // Item is a section in the navigation with its icon (Section::icon).
@@ -64,7 +66,7 @@ var Groups = []struct {
 		{Runtime, icons.Cpu}, {OCR, icons.ALargeSmall},
 	}},
 	{"settings_group_system", []Item{
-		{Permissions, icons.Settings2}, {Backup, icons.Upload}, {About, icons.Info},
+		{Permissions, icons.Settings2}, {Backup, icons.Upload}, {Experimental, icons.Code}, {About, icons.Info},
 	}},
 }
 
@@ -187,6 +189,8 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			backup(c, s.Model)
 		case About:
 			about(c, s.Model)
+		case Experimental:
+			experimental(c, s.Model)
 		default:
 			// The AI pages still to come (phase 5b).
 			kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})

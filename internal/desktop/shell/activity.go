@@ -78,7 +78,7 @@ func (a *App) bell(c *ui.Context) {
 				ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(p.MutedForeground)
 			}).OnClick(func() {
 				if a.Preview {
-					kit.Message(c, i18n.T(c, "preview_notice"))
+					kit.PreviewNotice(c)
 				} else {
 					a.activity = false
 					a.Navigate(NotificationsPage)

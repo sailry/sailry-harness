@@ -163,7 +163,10 @@ func (r *Runtime) countFrame() {
 			if !known {
 				feature = protocol.FeatureUseSettingsPluginPage
 			}
-			features = append(features, feature)
+			// Experimental is a core page the feature list does not name.
+			if section != settings.Experimental {
+				features = append(features, feature)
+			}
 		}
 		if current.Search && !last.shell.Search {
 			features = append(features, protocol.FeatureUseSearchPalette)

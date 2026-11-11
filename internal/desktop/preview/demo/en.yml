@@ -1,0 +1,487 @@
+# The demo's prose (Demo mode), source language. Every key is also in
+# zh-CN.yml. The projects, people and services are made up.
+
+provider.description: "DeepSeek chat and reasoning models"
+plugin.git: "Branches, diffs and commits in conversations"
+plugin.knowledge: "Local documents searched by meaning"
+plugin.goals: "A goal the agent keeps working toward"
+
+tool.read: "Read file"
+tool.search: "Search"
+tool.command: "Command"
+tool.write: "Write file"
+tool.edit: "Edit file"
+tool.fetch: "Fetch page"
+tool.query: "Query database"
+tool.delegate: "Delegate"
+tool.plan: "Plan review"
+
+reply.file: |-
+  # Project notes
+
+  The service is built with `make build` and tested with `make test`.
+  Changes go through a pull request with one approving review.
+reply.answer: |-
+  I read the project notes and I am ready to continue from here.
+
+  - The build and test commands are `make build` and `make test`.
+  - Changes land through a pull request with one approving review.
+
+  Tell me which part to take first and I will start with a short plan.
+
+goal.label: "Goal"
+goal.running: "Running"
+goal.text: "Ship per-client rate limiting for bookings with p99 latency under 40 ms"
+goal.empty: "No goal"
+goal.stop: "Stop"
+goal.clear: "Clear"
+
+limit.title: "Add rate limiting to the booking API"
+limit.0.user: "Add per-client rate limiting to `POST /bookings`. Anonymous clients hammer it during flash sales."
+limit.0.think: "The endpoint is registered in the bookings router. Before adding a limiter I should check whether the middleware package already has one, and how a client is identified."
+limit.0.answer: |-
+  There is no usable limiter yet: `throttle.go` is a global cap and `burst.go` is unused. Clients are already identified by the `X-Client-ID` header.
+
+  I suggest a **token bucket per client**:
+
+  1. Add `middleware.RateLimit`, keyed by client ID, with the plan's budget.
+  2. Wire it into `POST /bookings` only; reads stay unlimited.
+  3. Read the budgets from the configuration, so plans can change without a deploy.
+  4. Cover it with integration tests and a load test.
+limit.1.user: "Go ahead. Keep the limits configurable per plan."
+limit.1.think: "The configuration already has a section per plan, so the budgets fit there. I will write the limiter first and run the middleware tests while the load test is prepared in parallel."
+limit.child.load: "Load-test the limiter"
+limit.child.audit: "Audit the existing middleware"
+limit.child.docs: "Document the new headers"
+limit.step.bucket: "Add the token bucket"
+limit.step.router: "Wire it into the bookings router"
+limit.step.config: "Read the budgets from the configuration"
+limit.step.tests: "Add integration tests"
+limit.ask.prompt: "Which limit should anonymous clients get?"
+limit.ask.ten: "10 requests per minute"
+limit.ask.thirty: "30 requests per minute"
+limit.ask.block: "Block anonymous bookings"
+limit.approval.notice: "Changes the staging database schema"
+limit.queue.header: "Also add a Retry-After header to 429 responses"
+limit.queue.redis: "Keep the counters in Redis, not in memory"
+limit.queue.sheet: "Match the budgets in this spreadsheet"
+
+flaky.title: "Fix the flaky reservation test"
+flaky.0.user: "`TestReserveSeat` fails about one CI run in five. The failure chart and the last log are attached."
+flaky.0.think: "A test that fails one run in five is usually a race. The log says a seat was reserved twice, so I should read the test and the reservation code, then reproduce it with many runs."
+flaky.fetch.error: "The page did not answer in 30 s"
+flaky.fetch.failure: "Request timed out after 30 s"
+flaky.0.answer: |-
+  I reproduced it: 3 of 50 runs fail with `seat 14C reserved 2 times`.
+
+  `Reserve` checks whether the seat is taken and then inserts the reservation in **two separate statements**. Two requests that arrive together both see the seat as free. The test is right; the code has a race.
+flaky.1.user: "Fix it and run the whole suite."
+flaky.table.notice: "3 of 12 rows shown"
+flaky.1.answer: |-
+  Fixed. The check and the insert now share one serializable transaction, so the second request fails with `ErrSeatTaken`.
+
+  | Check | Result |
+  |---|---|
+  | `TestReserveSeat` × 1000 | 0 failures |
+  | Full suite with `-race` × 20 | pass |
+  | Held seats in staging | 312, as before |
+
+  The new regression test reserves one seat from 64 goroutines:
+
+  ```go
+  if n := store.Count(ctx, "14C"); n != 1 {
+      t.Fatalf("seat 14C reserved %d times", n)
+  }
+  ```
+
+invoice.title: "Migrate invoices to the new schema"
+invoice.0.user: "Plan the invoice schema migration and start on it."
+invoice.denied: "Denied by the user"
+invoice.step.inventory: "Inventory the invoice tables"
+invoice.step.archive: "Migrate the archived 2019 partitions"
+invoice.step.backfill: "Backfill currency codes"
+invoice.step.signoff: "Wait for the finance sign-off"
+invoice.step.dual: "Write to both schemas"
+invoice.step.reads: "Switch reads to the new schema"
+invoice.step.drop: "Drop the old columns"
+invoice.0.answer: "The inventory is done and the 2019 partitions are skipped, as they are read-only. The backfill stopped at batch 9; I did not drop anything."
+invoice.notice.verify: "Verify the backfill on staging"
+invoice.notice.totals: "Compare totals with the finance export"
+invoice.notice.rollback: "Draft the rollback plan"
+invoice.2.user: "Why did the backfill fail?"
+invoice.2.partial: "Checking the backfill job's log…"
+invoice.error.label: "Model service overloaded"
+invoice.error.text: "The provider stayed overloaded after 5 attempts."
+invoice.3.user: "Try again."
+invoice.3.answer: "Batch 9 holds invoices from before 2021, which have no currency. The new column is `NOT NULL`, so the whole batch rolled back. I am checking how many rows are affected."
+invoice.4.user: "Continue."
+invoice.4.answer: |-
+  **4 212 invoices** have no currency, all from the EU entity before 2021.
+
+  - They were all billed in euros, so the backfill can default them to `EUR`.
+  - With that default the remaining batches should pass unchanged.
+invoice.5.user: "Run the backfill for 2024 only first."
+invoice.5.answer: "Stopped at your request after 3 of 12 batches. The 15 000 rows written so far are valid and stay in place."
+
+review.title: "Review the checkout redesign with the team"
+review.0.user: "Review the checkout redesign with the review team before it ships."
+review.child.visual: "Compare against the design file"
+review.child.a11y: "Accessibility pass"
+review.child.copy: "Proofread the checkout copy"
+review.child.legacy: "Check the legacy checkout"
+review.child.payments: "Trace the payment flow"
+review.child.perf: "Measure checkout performance"
+review.child.summary: "Summarize the findings"
+review.0.answer: |-
+  Three passes reported back:
+
+  - **Design**: matches the file, apart from 4 px too little padding in the order summary.
+  - **Payments**: the flow is correct; the trace continues into the refund path.
+  - **Accessibility**: the pass failed on a missing test account and needs another run.
+review.1.user: "Run the accessibility pass again and measure performance too."
+review.delegate: "3 reviewers · checkout redesign"
+
+onboard.title: "Design the onboarding checklist"
+onboard.0.user: "Design the onboarding checklist for new workspaces. Ask me when it is a product decision."
+onboard.q.first: "Which step should come first?"
+onboard.q.first.options: |-
+  Invite teammates
+  Connect a data source
+  Create the first dashboard
+onboard.q.first.answer: "Connect a data source"
+onboard.q.roles: "Which roles see the checklist?"
+onboard.q.roles.options: |-
+  Owners
+  Admins
+  Members
+  Guests
+onboard.q.roles.answer: |-
+  Owners
+  Admins
+onboard.q.usage: "May the checklist share anonymous usage data to tune its order?"
+onboard.q.accent: "Which accent should the progress ring use?"
+onboard.q.accent.options: |-
+  Brand blue
+  Success green
+onboard.plan.detail: "Onboarding checklist · 5 steps"
+onboard.plan.text: |-
+  1. Connect a data source
+  2. Create the first dashboard
+  3. Invite teammates
+  4. Set up a weekly digest
+  5. Install the browser extension
+onboard.0.answer: "The plan is approved: five steps, a data source first, shown to owners and admins. The progress ring keeps the brand color."
+onboard.1.user: "Create the tracking issues and connect the analytics workspace."
+onboard.form.detail: "Create issue · Onboarding checklist"
+onboard.form.text: |-
+  Team: Growth
+  Priority: High
+  Labels: onboarding, activation
+onboard.q.team: "Which team owns the issues?"
+onboard.q.code: "Enter the code shown in the browser"
+onboard.q.workspace: "Which workspace should receive the events?"
+onboard.q.digest: "Turn on the weekly digest for new workspaces?"
+onboard.q.digest.options: |-
+  Yes
+  No
+onboard.q.digest.answer: "Yes"
+onboard.1.answer: "Five issues are created in Trackboard under Growth. The analytics authorization expired before a workspace was chosen, so events are not connected yet."
+onboard.2.user: "Now go through the checklist copy with me."
+onboard.2.think: "The copy should match the product's voice. Before rewriting five steps I should ask which tone to use."
+onboard.ask.prompt: "Which tone fits the checklist copy?"
+onboard.ask.options: |-
+  Friendly and short
+  Precise and neutral
+  Playful
+
+metrics.title: "Weekly product metrics report"
+metrics.draft: "Add the signup funnel and last week's cohorts to the report"
+metrics.0.user: "Put together this week's product metrics report."
+metrics.source.benchmark: "Activation benchmarks for B2B products"
+metrics.source.guide: "How retention is measured"
+metrics.0.answer: |-
+  Week 45 was the strongest of the quarter: **2 015 weekly active teams**, up 9.5% on last week, with activation above the benchmark for B2B products.
+
+  ## Highlights
+
+  - **Signups**: 2 278, up 6%
+  - **Activation**: 67% of new teams built a dashboard within a day
+  - **Week-4 retention**: 58%, two points up
+
+  ## To watch
+
+  1. Trial-to-paid conversion fell to 11%.
+  2. Median dashboard load time rose to 1.4 s after the release on Tuesday.
+
+  The report, its query and the data are attached.
+metrics.report: |-
+  # Product metrics, week 45
+
+  **2 015** weekly active teams, up 9.5%.
+
+  | Metric | Week 44 | Week 45 |
+  |---|---|---|
+  | Signups | 2 149 | 2 278 |
+  | Activation | 64% | 67% |
+  | Week-4 retention | 56% | 58% |
+  | Trial to paid | 13% | 11% |
+
+  - Activation is above the B2B benchmark
+  - Conversion needs a look before the pricing test
+metrics.chart.title: "Weekly active teams"
+metrics.1.user: "Explain the retention formula you used."
+metrics.1.think: "They want the definition, not the numbers. I should give the formula, say what each term counts, and show where the data comes from."
+metrics.1.answer: |-
+  Week-4 retention is the share of a cohort that is still active four weeks after it signed up:
+
+  $$
+  R_4(c) = \frac{|\{t \in c : \text{active}(t, w_c + 4)\}|}{|c|}
+  $$
+
+  Here $c$ is the set of teams that signed up in week $w_c$, and a team is active when it opened a dashboard that week.
+
+  ```mermaid
+  flowchart LR
+      A[Signup events] --> B[Cohort by week]
+      B --> C{Active in week 4?}
+      C -- yes --> D[Retained]
+      C -- no --> E[Churned]
+  ```
+
+  > A cohort is only counted once its fourth week has ended, so the latest three weeks are not in the chart.
+
+  The definition follows the [retention guide](https://lumen.example/docs/metrics/retention).
+
+hash.title: "Explain consistent hashing"
+hash.0.user: "Explain consistent hashing and when I should use it."
+hash.0.think: "A short definition first, then why plain modulo hashing breaks when nodes change, then the ring and virtual nodes. A table makes the trade-off clear."
+hash.0.answer: |-
+  # Consistent hashing
+
+  Consistent hashing spreads keys over nodes so that **adding or removing a node moves only a small share of the keys**.
+
+  ## The problem
+
+  With `node = hash(key) % n`, changing `n` remaps almost every key. A cache that grows from 4 to 5 nodes loses about 80% of its entries at once.
+
+  ## The ring
+
+  1. Hash every node onto a ring of $2^{32}$ positions.
+  2. Hash each key onto the same ring.
+  3. A key belongs to the first node clockwise from it.
+
+  When a node leaves, only its keys move, to the next node. On average that is
+
+  $$
+  \frac{K}{n}
+  $$
+
+  keys for $K$ keys on $n$ nodes.
+
+  ## Virtual nodes
+
+  A few nodes on a ring are spread unevenly. Giving each node many positions evens out the load:
+
+  | Virtual nodes | Load spread | Memory |
+  |---|---|---|
+  | 1 | ±50% | lowest |
+  | 100 | ±10% | low |
+  | 1000 | ±3% | moderate |
+
+  ## When to use it
+
+  - Caches and sharded stores whose nodes come and go
+  - Load balancers that keep a client on one backend
+  - *Not* for a fixed set of nodes, where modulo is simpler
+
+  > Rendezvous hashing gives the same guarantee without a ring and is often easier to write.
+
+  See [Consistent Hashing and Random Trees](https://dl.acm.org/doi/10.1145/258533.258660) for the original paper.
+hash.1.user: "Show me the lookup in Go."
+hash.1.answer: |-
+  The ring is a sorted slice of positions; a lookup is a binary search:
+
+  ```go
+  // Node returns the node that owns key.
+  func (r *Ring) Node(key string) string {
+      h := hash(key)
+      i := sort.Search(len(r.points), func(i int) bool { return r.points[i] >= h })
+      if i == len(r.points) {
+          i = 0 // wrap around the ring
+      }
+      return r.owner[r.points[i]]
+  }
+  ```
+
+  To finish the type:
+
+  - [x] `Add` inserts a node's virtual positions and sorts the slice
+  - [x] `Node` finds a key's owner in `O(log n)`
+  - [ ] `Remove` deletes a node's positions
+
+handbook.title: "Summarize the engineering handbook"
+handbook.0.user: "Summarize the engineering handbook chapter by chapter."
+handbook.file: |-
+  # Principles
+
+  We ship small changes behind flags, review every change, and write down decisions where the next person will look for them.
+handbook.0.answer: |-
+  **Chapter 1, Principles.** Small changes behind flags, a review for every change, and decisions written where they will be found.
+
+  **Chapter 2, Code review.** One approving review; the author merges. Reviews answer within a working day.
+handbook.handoff: "The user wants the engineering handbook summarized chapter by chapter. Chapters 1 to 4 are done: principles, code review, testing and releases. Next is chapter 5, incidents."
+handbook.0.more: |-
+  **Chapter 5, Incidents.** The first responder leads until someone takes over by name. Every incident ends with a written review within five days.
+handbook.summary: "The engineering handbook is being summarized chapter by chapter. Done: chapters 1 to 8, from principles to on-call. Decisions so far: one paragraph a chapter, the handbook's own terms. Next: chapter 9, security."
+handbook.2.user: "Which chapter covers on-call?"
+handbook.2.answer: "Chapter 8. Rotations last a week, hand over on Mondays, and the secondary is paged after ten minutes without an acknowledgement."
+handbook.cause: "context_window_exceeded: the summary did not fit in the remaining context"
+handbook.6.user: "Continue with chapter 9."
+handbook.6.partial: "**Chapter 9, Security.** Secrets live in the vault and never in the repository. Access is"
+
+staging.title: "Check the staging deploy"
+staging.0.user: "Is the staging deploy healthy?"
+staging.0.answer: "Yes. Version `2.4.0-rc.2` is running, and the database and the queue both report `ok`."
+staging.1.user: "Tail the API logs for errors from the last ten minutes."
+staging.diagnostic: "Host connection lost"
+
+release.title: "Draft the 2.4 release notes"
+release.0.user: "Draft release notes for 2.4 from the merged pull requests."
+release.0.answer: |-
+  ## Harbor 2.4
+
+  - **Rate limits per plan** on booking requests, with a `Retry-After` header
+  - **No more double bookings**: seats are reserved in one transaction
+  - Invoices carry a currency code
+
+  Upgrading needs one migration, `0041_invoices_v2`.
+release.1.user: "Shorter, three lines at most."
+release.1.think: "Three lines: one for each user-facing change, and the migration folded into the last one."
+
+translate.title: "Translate the error messages"
+translate.0.user: "Translate \"Seat already taken\" and \"Rate limit exceeded\" into German and French."
+translate.0.answer: |-
+  | English | German | French |
+  |---|---|---|
+  | Seat already taken | Platz bereits vergeben | Place déjà prise |
+  | Rate limit exceeded | Anfragelimit überschritten | Limite de requêtes dépassée |
+
+panel.file.booking: |-
+  # Booking
+
+  A booking holds a seat for fifteen minutes and confirms it once paid.
+
+  - `POST /bookings` reserves a seat
+  - `GET /bookings/{id}` returns its state
+panel.file.readme: |-
+  # harbor-api
+
+  The booking service behind Harbor.
+
+  ## Development
+
+  - `make build` builds the service
+  - `make test` runs the tests with the race detector
+panel.plan.title: "Rate limiting plan"
+panel.plan.text: |-
+  # Rate limiting
+
+  - A token bucket per client, keyed by `X-Client-ID`
+  - Budgets per plan in the configuration
+  - `429` with `Retry-After` when the bucket is empty
+  - A load test at 200 virtual users before release
+panel.report.title: "Load test report"
+panel.report.text: |-
+  # Load test
+
+  At 200 virtual users the limiter adds 0.3 ms at p99. Bookings stay under 40 ms.
+panel.source.title: "Rate limits"
+panel.source.page1: |-
+  Every public endpoint that writes has a budget per client.
+  Budgets are set per plan and read from the configuration at start.
+panel.source.page2: |-
+  A request over budget gets 429 with a Retry-After header.
+  Limits are measured at the edge and again in the service.
+
+tool.ssh: "Connect over SSH"
+tool.screenshot: "Capture page"
+
+deploy.title: "Release 2.4.0-rc.3 to staging"
+deploy.0.user: "Ship release candidate 2.4.0-rc.3 to staging and run the migration job."
+deploy.0.think: "The image is built. Staging is reached through the bastion, and this workspace has not trusted either host key yet, so both come first. Then the values file, the secrets, the scale-up, the tag and the migration job."
+deploy.approval.replaced: "The key on record for this host was added on 12 October"
+deploy.ask.prompt: "When should the rollout start?"
+deploy.ask.options: |-
+  Now
+  After the migration job
+  Tonight at 22:00
+
+hooks.title: "Webhook retries"
+hooks.0.user: "Plan retries with backoff for outgoing webhooks. No code until I have seen the plan."
+hooks.0.think: "Deliver makes one attempt and hands the error to its caller, and two of the callers ignore it. A retry needs somewhere to keep the event, so the plan has to choose between a queue in the process and the outbox table."
+hooks.0.answer: "Today a webhook is sent once: booking logs a failed delivery and payment drops it. The plan keeps every event in the outbox table and retries it from a worker."
+hooks.plan.detail: "Webhook retries with backoff"
+hooks.plan.text: |-
+  # Webhook retries
+
+  1. Store each event in `webhook_outbox` in the transaction that produces it
+  2. Deliver from a worker: 5 attempts, backing off from 30 s to 2 h with jitter
+  3. Retry on timeouts, `429` and `5xx`; give up on any other `4xx`
+  4. Sign every attempt and send its number in `X-Harbor-Attempt`
+  5. List failed deliveries at `GET /webhooks/deliveries`
+
+  **Not included**: replaying a delivery from the dashboard.
+
+tracker.title: "File the onboarding issues"
+tracker.0.user: "Create Trackboard issues for the fixes from the onboarding review."
+tracker.file: |-
+  # Onboarding review
+
+  - The checklist hides behind the hero on small screens
+  - Skip has no accessible name
+  - The second step asks for the team name twice
+tracker.0.answer: "The review lists three fixes. Trackboard asks for a few details before it creates the issues."
+tracker.form.detail: "Create issues · Onboarding review"
+tracker.form.prompt: "Details for the three Trackboard issues"
+tracker.field.project: "Project key"
+tracker.field.project.help: "Two to ten letters, such as LUM"
+tracker.field.priority: "Priority"
+tracker.field.priority.options: |-
+  Low
+  Medium
+  High
+  Urgent
+tracker.field.estimate: "Estimate"
+tracker.field.estimate.help: "Story points for each issue, 1 to 13"
+tracker.field.notify: "Post to the team channel"
+tracker.field.labels: "Labels"
+tracker.field.labels.help: "One to three"
+tracker.field.labels.options: |-
+  onboarding
+  accessibility
+  design
+  growth
+tracker.field.context: "Context"
+tracker.field.context.help: "Added to every issue, up to 500 characters"
+
+audit.title: "Accessibility pass: onboarding"
+audit.0.user: "Audit the onboarding page against WCAG 2.2 AA. Report each issue with its element, the rule it breaks and a fix. Do not change any file."
+audit.0.think: "Start with what a tool can find, then check by hand what it cannot: the focus order, the names of the controls and the contrast of the muted text."
+audit.0.partial: "The automated pass found five issues on the page. I am checking the muted text color in both themes before writing them up."
+audit.queue.focus: "Check the focus order of the checklist too"
+audit.queue.report: "Group the findings by severity"
+
+pulse.title: "Signups from Pulse Analytics"
+pulse.0.user: "Pull last week's signup numbers from Pulse Analytics."
+pulse.0.answer: "Pulse Analytics is connected but not signed in. It needs your approval in the browser before it shares any data."
+pulse.link.prompt: "Sign in to Pulse Analytics to continue"
+
+staging.ask.prompt: "The errors all come from one pod. Restart it?"
+staging.ask.options: |-
+  Restart the pod
+  Leave it running
+
+metrics.suggest.activation: "b2b activation rate benchmark"
+metrics.suggest.retention: "week 4 retention saas"
+metrics.2.user: "Capture the weekly dashboard and attach it with the chart and the report."
+metrics.2.answer: "Here is the dashboard as it looks now, with the retention chart and the report. The mobile capture is gone: the page was rebuilt before it could be kept."

@@ -298,7 +298,8 @@ Copy (answer, user message, selection, diagnostic) and the image viewer,
 search and selection are the view's own. The preview toasts
 `preview_notice` for every action that would run a model or tool, change
 a session or write a file; `OpenFile`, `OpenChild`, `LoadOlder` and `Quote`
-work on preview data.
+work on preview data. Demo mode (docs/shell.md) uses the same actions over
+the demo's conversations and shows no toast for them.
 
 ### Keys
 
@@ -508,6 +509,38 @@ paged" (8 turns shown, 56 more 8 at a time after 0.6 s), "Connection
 recovering" (banner and diagnostic) and "History loading".
 `stream.go` plays a canned reply after a send on the frame clock: thinking,
 a running read, its output, then the answer growing a character at a time.
+
+`demo*.go` is the dataset of Demo mode (docs/shell.md), written as a
+product's own work in en and zh-CN (`demo/<locale>.yml`). Its conversations
+between them show every value of the view model's enumerations and set every
+field; `TestDemo` reads both from the types, so a kind added to the view
+model fails it until a demo conversation shows it.
+
+| Conversation | Shows |
+|---|---|
+| `harbor-api/rate-limit` (opens) | A running reply: reasoning, grouped read and search calls, a running and two pending calls, subagents, a task's progress, a pending question; approvals (a change set of every kind, a command with a prefix and a notice, unrestricted access, a subagent's), a question with Other, the queue (plain, guided, attachment, compaction, notice), background commands, a plugin's badge with its panel |
+| `harbor-api/deploy` | Approvals in every state: an SSH host key to trust and one replacing a known key, details being read, a failed read with Retry, a decision on its way, one sent again and a receipt; a question whose answer is sent again; a rewind in flight |
+| `harbor-api/webhooks` | A plan awaiting review: Continue and Execute |
+| `harbor-api/flaky-test` | A message with a picture and a file; a failed call, a tool's own failure, a diff, a long command output, a partial table with a notice; the changes card with a file undone |
+| `harbor-api/invoices` | A step in every state; denied, interrupted and unexecuted calls; background results in every outcome; retries, one stopped by the provider and one exhausted, and the turn's error; interrupted, failed, continued and cancelled runs |
+| `lumen-web/review` | Subagents in every status, a standalone call, a run waiting for two of them |
+| `lumen-web/onboarding` | Questions in every state, single and multiple choice; a plan review, a connector's form and its link; a declinable question with several choices waiting |
+| `lumen-web/audit` | A subagent's own session: read-only messages, no composer, the queue's read-only tray |
+| `lumen-web/tracker` | A connector's form: text with length bounds, multiline text, an integer with a range, yes or no, one choice and several, required and optional; declinable |
+| `lumen-web/metrics` | Search sources, citations and the search's suggestions; files of every kind and preview state, a published document and a published page; generated pictures; a tool's pictures, one of them gone; a reply's links as a file card and as pictures; a chart; math, a diagram and links; a draft with attachments in every status. The report is its last turn, so the session overview lists its cited pages and outputs |
+| `growth-notes/sign-in` | A project that is a plain folder; a connector's authorization link, declinable |
+| `chat/hashing` (pinned) | Markdown: headings, lists, a table, code, a quote, math, a task list, links; its last message open in its editor |
+| `chat/handbook` | A built-in tool's label, a handoff summary, compaction turns in every state with their duration, a reply compacting with its elapsed time, a queued run |
+| `chat/staging` | A connection recovering with a diagnostic, an unsynced run awaiting a response, a question that cannot be answered meanwhile, export disabled, an older page that did not load |
+| `chat/release-notes` | A run stopping while the model thinks |
+| `chat/translate` | An offline host |
+
+The first page loading (`Session.Loading`), an older page loading
+(`LoadingOlder`, which the preview plays on a timer), an answer on its way
+(`Ask.Busy`), an edit being saved (`Editing.Pending`) and a plugin's tool
+card are not in the demo: the first four are moments rather than content,
+and a card is drawn by a mounted plugin. The demo's projects carry an
+appearance (icon and color).
 
 ## Tests
 

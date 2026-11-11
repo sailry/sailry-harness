@@ -1,0 +1,486 @@
+# The demo's prose (Demo mode) in Simplified Chinese, under en.yml's keys.
+
+provider.description: "DeepSeek 对话与推理模型"
+plugin.git: "在会话中查看分支、差异与提交"
+plugin.knowledge: "按语义检索本地文档"
+plugin.goals: "让智能体持续推进的目标"
+
+tool.read: "读取文件"
+tool.search: "搜索"
+tool.command: "命令"
+tool.write: "写入文件"
+tool.edit: "编辑文件"
+tool.fetch: "抓取网页"
+tool.query: "查询数据库"
+tool.delegate: "委派"
+tool.plan: "计划评审"
+
+reply.file: |-
+  # 项目说明
+
+  服务使用 `make build` 构建，使用 `make test` 测试。
+  所有改动通过合并请求提交，需要一位评审人批准。
+reply.answer: |-
+  我已读完项目说明，可以从这里继续。
+
+  - 构建和测试命令分别是 `make build` 与 `make test`。
+  - 改动通过合并请求提交，需要一位评审人批准。
+
+  告诉我先处理哪一部分，我会先给出一份简短的计划。
+
+goal.label: "目标"
+goal.running: "执行中"
+goal.text: "上线预订接口的按客户端限流，p99 延迟保持在 40 毫秒以内"
+goal.empty: "暂无目标"
+goal.stop: "停止"
+goal.clear: "清理"
+
+limit.title: "为预订接口添加限流"
+limit.0.user: "给 `POST /bookings` 加上按客户端的限流。秒杀活动期间，匿名客户端把它打得很厉害。"
+limit.0.think: "这个接口注册在预订路由里。添加限流器之前，我应该先确认中间件包里是否已经有现成的实现，以及客户端是如何识别的。"
+limit.0.answer: |-
+  目前没有可用的限流器：`throttle.go` 只是全局上限，`burst.go` 没有被使用。客户端已经通过 `X-Client-ID` 请求头识别。
+
+  我建议使用**按客户端的令牌桶**：
+
+  1. 新增 `middleware.RateLimit`，以客户端 ID 为键，额度取自所属套餐。
+  2. 只接入 `POST /bookings`，读取接口不限流。
+  3. 额度从配置读取，调整套餐无需重新部署。
+  4. 补充集成测试和一次压测。
+limit.1.user: "开始吧。限额要能按套餐配置。"
+limit.1.think: "配置里已经按套餐分了小节，额度放在那里正合适。我先写限流器并运行中间件测试，同时并行准备压测。"
+limit.child.load: "对限流器做压测"
+limit.child.audit: "审查现有中间件"
+limit.child.docs: "编写新响应头的文档"
+limit.step.bucket: "实现令牌桶"
+limit.step.router: "接入预订路由"
+limit.step.config: "从配置读取额度"
+limit.step.tests: "补充集成测试"
+limit.ask.prompt: "匿名客户端应使用哪个限额？"
+limit.ask.ten: "每分钟 10 次请求"
+limit.ask.thirty: "每分钟 30 次请求"
+limit.ask.block: "禁止匿名预订"
+limit.approval.notice: "会修改预发布环境的数据库结构"
+limit.queue.header: "顺便给 429 响应加上 Retry-After 响应头"
+limit.queue.redis: "计数器放在 Redis 里，不要放在内存中"
+limit.queue.sheet: "额度按这张表格来"
+
+flaky.title: "修复不稳定的订座测试"
+flaky.0.user: "`TestReserveSeat` 在 CI 上大约每五次失败一次。失败趋势图和最近一次的日志都在附件里。"
+flaky.0.think: "五次里失败一次的测试通常是竞态。日志显示同一个座位被预订了两次，所以我应该先读测试和订座代码，再多次运行来复现。"
+flaky.fetch.error: "页面 30 秒内没有响应"
+flaky.fetch.failure: "请求在 30 秒后超时"
+flaky.0.answer: |-
+  已复现：50 次运行中有 3 次失败，报错为 `seat 14C reserved 2 times`。
+
+  `Reserve` 先检查座位是否被占用，再插入预订记录，这是**两条独立的语句**。两个同时到达的请求都会看到座位空闲。测试没有问题，是代码存在竞态。
+flaky.1.user: "修掉它，然后跑一遍完整的测试。"
+flaky.table.notice: "显示 12 行中的 3 行"
+flaky.1.answer: |-
+  已修复。检查和插入现在处于同一个可串行化事务中，第二个请求会以 `ErrSeatTaken` 失败。
+
+  | 检查项 | 结果 |
+  |---|---|
+  | `TestReserveSeat` × 1000 | 0 次失败 |
+  | 完整测试加 `-race` × 20 | 通过 |
+  | 预发布环境的保留座位 | 312，与之前一致 |
+
+  新增的回归测试用 64 个协程预订同一个座位：
+
+  ```go
+  if n := store.Count(ctx, "14C"); n != 1 {
+      t.Fatalf("seat 14C reserved %d times", n)
+  }
+  ```
+
+invoice.title: "将发票迁移到新结构"
+invoice.0.user: "规划发票表结构的迁移，并开始执行。"
+invoice.denied: "用户已拒绝"
+invoice.step.inventory: "盘点发票相关的表"
+invoice.step.archive: "迁移已归档的 2019 年分区"
+invoice.step.backfill: "回填货币代码"
+invoice.step.signoff: "等待财务确认"
+invoice.step.dual: "同时写入新旧结构"
+invoice.step.reads: "将读取切换到新结构"
+invoice.step.drop: "删除旧字段"
+invoice.0.answer: "盘点已完成；2019 年的分区是只读的，已跳过。回填停在第 9 批，我没有删除任何内容。"
+invoice.notice.verify: "在预发布环境验证回填"
+invoice.notice.totals: "与财务导出的合计核对"
+invoice.notice.rollback: "起草回滚方案"
+invoice.2.user: "回填为什么失败了？"
+invoice.2.partial: "正在查看回填任务的日志…"
+invoice.error.label: "模型服务过载"
+invoice.error.text: "重试 5 次后，服务提供方仍然过载。"
+invoice.3.user: "再试一次。"
+invoice.3.answer: "第 9 批是 2021 年之前的发票，它们没有货币字段。新字段是 `NOT NULL`，所以整批都回滚了。我正在统计受影响的行数。"
+invoice.4.user: "继续。"
+invoice.4.answer: |-
+  共有 **4 212 张发票**没有货币，全部来自 2021 年之前的欧盟主体。
+
+  - 它们都以欧元结算，回填时可以默认设为 `EUR`。
+  - 加上这个默认值后，剩余批次应当可以原样通过。
+invoice.5.user: "先只回填 2024 年的。"
+invoice.5.answer: "已按你的要求停止，完成了 12 批中的 3 批。已写入的 15 000 行数据有效，予以保留。"
+
+review.title: "和团队一起评审结账页改版"
+review.0.user: "结账页改版上线前，和评审团队一起过一遍。"
+review.child.visual: "对照设计稿"
+review.child.a11y: "无障碍检查"
+review.child.copy: "校对结账页文案"
+review.child.legacy: "检查旧版结账页"
+review.child.payments: "梳理支付流程"
+review.child.perf: "测量结账页性能"
+review.child.summary: "汇总评审结论"
+review.0.answer: |-
+  三项检查已有结果：
+
+  - **设计**：与设计稿一致，只有订单摘要的内边距少了 4 像素。
+  - **支付**：流程正确，梳理工作延续到了退款路径。
+  - **无障碍**：因缺少测试账号而失败，需要重新运行。
+review.1.user: "重新做一次无障碍检查，同时测一下性能。"
+review.delegate: "3 位评审成员 · 结账页改版"
+
+onboard.title: "设计新手引导清单"
+onboard.0.user: "为新工作区设计新手引导清单。涉及产品决策时先问我。"
+onboard.q.first: "哪一步应该放在最前面？"
+onboard.q.first.options: |-
+  邀请团队成员
+  连接数据源
+  创建第一个仪表盘
+onboard.q.first.answer: "连接数据源"
+onboard.q.roles: "哪些角色可以看到清单？"
+onboard.q.roles.options: |-
+  所有者
+  管理员
+  成员
+  访客
+onboard.q.roles.answer: |-
+  所有者
+  管理员
+onboard.q.usage: "是否允许清单上报匿名使用数据，用于优化步骤顺序？"
+onboard.q.accent: "进度环使用哪种强调色？"
+onboard.q.accent.options: |-
+  品牌蓝
+  成功绿
+onboard.plan.detail: "新手引导清单 · 5 个步骤"
+onboard.plan.text: |-
+  1. 连接数据源
+  2. 创建第一个仪表盘
+  3. 邀请团队成员
+  4. 设置每周摘要
+  5. 安装浏览器扩展
+onboard.0.answer: "计划已通过：共五步，先连接数据源，仅对所有者和管理员显示。进度环沿用品牌色。"
+onboard.1.user: "创建跟踪任务，并连接分析工作区。"
+onboard.form.detail: "创建任务 · 新手引导清单"
+onboard.form.text: |-
+  团队：Growth
+  优先级：高
+  标签：onboarding、activation
+onboard.q.team: "这些任务归哪个团队负责？"
+onboard.q.code: "请输入浏览器中显示的验证码"
+onboard.q.workspace: "事件应发送到哪个工作区？"
+onboard.q.digest: "是否为新工作区开启每周摘要？"
+onboard.q.digest.options: |-
+  是
+  否
+onboard.q.digest.answer: "是"
+onboard.1.answer: "已在 Trackboard 的 Growth 团队下创建五个任务。分析服务的授权在选定工作区之前就过期了，所以事件尚未接通。"
+onboard.2.user: "现在和我一起过一遍清单的文案。"
+onboard.2.think: "文案应该符合产品的语气。在重写五个步骤之前，我应该先确认采用哪种风格。"
+onboard.ask.prompt: "清单文案适合哪种语气？"
+onboard.ask.options: |-
+  亲切简短
+  准确中性
+  活泼俏皮
+
+metrics.title: "每周产品指标报告"
+metrics.draft: "把注册漏斗和上周的同期群加进报告"
+metrics.0.user: "整理一份本周的产品指标报告。"
+metrics.source.benchmark: "B2B 产品激活率基准"
+metrics.source.guide: "留存率的计算方式"
+metrics.0.answer: |-
+  第 45 周是本季度表现最好的一周：**周活跃团队 2 015 个**，环比增长 9.5%，激活率高于 B2B 产品的基准水平。
+
+  ## 亮点
+
+  - **注册**：2 278，增长 6%
+  - **激活**：67% 的新团队在一天内创建了仪表盘
+  - **第 4 周留存**：58%，提高两个百分点
+
+  ## 需要关注
+
+  1. 试用转付费的转化率降至 11%。
+  2. 周二发版后，仪表盘加载时间的中位数升至 1.4 秒。
+
+  报告、查询语句和数据见附件。
+metrics.report: |-
+  # 产品指标，第 45 周
+
+  周活跃团队 **2 015** 个，增长 9.5%。
+
+  | 指标 | 第 44 周 | 第 45 周 |
+  |---|---|---|
+  | 注册 | 2 149 | 2 278 |
+  | 激活 | 64% | 67% |
+  | 第 4 周留存 | 56% | 58% |
+  | 试用转付费 | 13% | 11% |
+
+  - 激活率高于 B2B 基准
+  - 定价测试之前需要先排查转化率
+metrics.chart.title: "周活跃团队"
+metrics.1.user: "解释一下你用的留存率公式。"
+metrics.1.think: "对方要的是定义，不是数字。我应该给出公式，说明每一项统计的是什么，并指出数据的来源。"
+metrics.1.answer: |-
+  第 4 周留存率，是指一个同期群在注册四周后仍然活跃的比例：
+
+  $$
+  R_4(c) = \frac{|\{t \in c : \text{active}(t, w_c + 4)\}|}{|c|}
+  $$
+
+  其中 $c$ 是在第 $w_c$ 周注册的团队集合；团队在某一周打开过仪表盘，即视为该周活跃。
+
+  ```mermaid
+  flowchart LR
+      A[注册事件] --> B[按周划分同期群]
+      B --> C{第 4 周是否活跃}
+      C -- 是 --> D[留存]
+      C -- 否 --> E[流失]
+  ```
+
+  > 同期群要等第四周结束后才计入，所以最近三周不在图表中。
+
+  该定义遵循[留存率指南](https://lumen.example/docs/metrics/retention)。
+
+hash.title: "讲解一致性哈希"
+hash.0.user: "讲讲一致性哈希，以及什么时候该用它。"
+hash.0.think: "先给一个简短的定义，再说明节点变化时普通取模哈希为什么会失效，然后讲哈希环和虚拟节点。用表格把取舍讲清楚。"
+hash.0.answer: |-
+  # 一致性哈希
+
+  一致性哈希把键分布到各个节点上，使得**增删节点时只有一小部分键需要迁移**。
+
+  ## 问题
+
+  使用 `node = hash(key) % n` 时，只要 `n` 变化，几乎所有的键都会被重新映射。缓存从 4 个节点扩到 5 个，会一次性丢失约 80% 的条目。
+
+  ## 哈希环
+
+  1. 把每个节点哈希到一个有 $2^{32}$ 个位置的环上。
+  2. 把每个键哈希到同一个环上。
+  3. 键归属于顺时针方向遇到的第一个节点。
+
+  节点下线时，只有它的键需要迁移到下一个节点。平均迁移量为
+
+  $$
+  \frac{K}{n}
+  $$
+
+  其中 $K$ 是键的数量，$n$ 是节点的数量。
+
+  ## 虚拟节点
+
+  环上的节点太少时分布并不均匀。让每个节点占据多个位置，可以使负载更均衡：
+
+  | 虚拟节点数 | 负载偏差 | 内存占用 |
+  |---|---|---|
+  | 1 | ±50% | 最低 |
+  | 100 | ±10% | 低 |
+  | 1000 | ±3% | 中等 |
+
+  ## 适用场景
+
+  - 节点会增减的缓存和分片存储
+  - 需要让客户端固定到同一后端的负载均衡
+  - *不适用于*节点固定的场景，那时取模更简单
+
+  > 集合点哈希无需哈希环就能提供同样的保证，通常也更容易实现。
+
+  原始论文见 [Consistent Hashing and Random Trees](https://dl.acm.org/doi/10.1145/258533.258660)。
+hash.1.user: "用 Go 写一下查找过程。"
+hash.1.answer: |-
+  哈希环是一个有序的位置切片，查找就是一次二分搜索：
+
+  ```go
+  // Node returns the node that owns key.
+  func (r *Ring) Node(key string) string {
+      h := hash(key)
+      i := sort.Search(len(r.points), func(i int) bool { return r.points[i] >= h })
+      if i == len(r.points) {
+          i = 0 // wrap around the ring
+      }
+      return r.owner[r.points[i]]
+  }
+  ```
+
+  这个类型还需要：
+
+  - [x] `Add` 插入节点的虚拟位置并排序
+  - [x] `Node` 以 `O(log n)` 找到键的归属节点
+  - [ ] `Remove` 删除节点的全部位置
+
+handbook.title: "总结工程手册"
+handbook.0.user: "逐章总结工程手册。"
+handbook.file: |-
+  # 原则
+
+  我们在功能开关后面小步发布，每个改动都要评审，并把决策写在后来者会去找的地方。
+handbook.0.answer: |-
+  **第 1 章 原则。**在功能开关后面小步发布，每个改动都要评审，决策要写在能被找到的地方。
+
+  **第 2 章 代码评审。**一位评审人批准即可，由作者合并。评审需在一个工作日内回复。
+handbook.handoff: "用户希望逐章总结工程手册。第 1 至 4 章已完成：原则、代码评审、测试和发布。接下来是第 5 章：故障处理。"
+handbook.0.more: |-
+  **第 5 章 故障处理。**第一响应人负责指挥，直到有人明确接手。每次故障都要在五天内完成书面复盘。
+handbook.summary: "正在逐章总结工程手册。已完成第 1 至 8 章，从原则到值班。已确定的做法：每章一段，沿用手册自己的术语。接下来是第 9 章：安全。"
+handbook.2.user: "值班是在哪一章讲的？"
+handbook.2.answer: "第 8 章。值班以一周为一轮，周一交接；十分钟内无人确认时会呼叫备岗。"
+handbook.cause: "context_window_exceeded: the summary did not fit in the remaining context"
+handbook.6.user: "继续第 9 章。"
+handbook.6.partial: "**第 9 章 安全。**密钥保存在保险库中，绝不进入代码仓库。访问权限"
+
+staging.title: "检查预发布环境的部署"
+staging.0.user: "预发布环境的部署正常吗？"
+staging.0.answer: "正常。当前运行的版本是 `2.4.0-rc.2`，数据库和队列都报告 `ok`。"
+staging.1.user: "看一下 API 最近十分钟日志里的错误。"
+staging.diagnostic: "主机连接已断开"
+
+release.title: "起草 2.4 版本的发布说明"
+release.0.user: "根据已合并的合并请求，起草 2.4 版本的发布说明。"
+release.0.answer: |-
+  ## Harbor 2.4
+
+  - 预订请求支持**按套餐限流**，并返回 `Retry-After` 响应头
+  - **不再出现重复预订**：订座在同一个事务内完成
+  - 发票新增货币代码
+
+  升级需要执行一个迁移：`0041_invoices_v2`。
+release.1.user: "再短一点，最多三行。"
+release.1.think: "三行：每个用户可见的变化各占一行，迁移说明并入最后一行。"
+
+translate.title: "翻译错误提示"
+translate.0.user: "把“Seat already taken”和“Rate limit exceeded”翻译成德语和法语。"
+translate.0.answer: |-
+  | 英语 | 德语 | 法语 |
+  |---|---|---|
+  | Seat already taken | Platz bereits vergeben | Place déjà prise |
+  | Rate limit exceeded | Anfragelimit überschritten | Limite de requêtes dépassée |
+
+panel.file.booking: |-
+  # 预订
+
+  一次预订会为座位保留十五分钟，支付完成后确认。
+
+  - `POST /bookings` 预订座位
+  - `GET /bookings/{id}` 返回预订状态
+panel.file.readme: |-
+  # harbor-api
+
+  Harbor 背后的预订服务。
+
+  ## 开发
+
+  - `make build` 构建服务
+  - `make test` 运行测试并开启竞态检测
+panel.plan.title: "限流方案"
+panel.plan.text: |-
+  # 限流
+
+  - 每个客户端一个令牌桶，以 `X-Client-ID` 为键
+  - 额度按套餐写在配置中
+  - 令牌桶耗尽时返回 `429` 并带上 `Retry-After`
+  - 发布前以 200 个虚拟用户进行压测
+panel.report.title: "压测报告"
+panel.report.text: |-
+  # 压测
+
+  在 200 个虚拟用户下，限流器使 p99 增加 0.3 毫秒，预订请求仍低于 40 毫秒。
+panel.source.title: "限流规范"
+panel.source.page1: |-
+  每个对外的写入接口都有按客户端计算的额度。
+  额度按套餐设定，在启动时从配置读取。
+panel.source.page2: |-
+  超出额度的请求会收到 429 和 Retry-After 响应头。
+  限流在入口网关和服务内部各做一次。
+
+tool.ssh: "SSH 连接"
+tool.screenshot: "页面截图"
+
+deploy.title: "将 2.4.0-rc.3 发布到预发布环境"
+deploy.0.user: "把候选版本 2.4.0-rc.3 发布到预发布环境，并运行迁移任务。"
+deploy.0.think: "镜像已经构建好。预发布环境要经过堡垒机访问，而这个工作区还没有信任过这两台主机的密钥，所以先处理它们。然后是 values 文件、密钥文件、扩容、打标签和迁移任务。"
+deploy.approval.replaced: "此主机已记录的密钥添加于 10 月 12 日"
+deploy.ask.prompt: "什么时候开始发布？"
+deploy.ask.options: |-
+  现在
+  迁移任务完成后
+  今晚 22:00
+
+hooks.title: "Webhook 重试"
+hooks.0.user: "为对外发送的 webhook 规划带退避的重试。在我看过计划之前不要写代码。"
+hooks.0.think: "Deliver 只尝试一次，然后把错误交给调用方，而其中两个调用方直接忽略了它。重试需要有地方保存事件，所以计划必须在进程内队列和 outbox 表之间做出选择。"
+hooks.0.answer: "目前 webhook 只发送一次：booking 会记录失败的投递，payment 则直接丢弃。这份计划把每个事件保存到 outbox 表，并由一个 worker 负责重试。"
+hooks.plan.detail: "带退避的 webhook 重试"
+hooks.plan.text: |-
+  # Webhook 重试
+
+  1. 在产生事件的事务中，把事件写入 `webhook_outbox`
+  2. 由 worker 投递：最多 5 次，退避时间从 30 秒到 2 小时，并加入抖动
+  3. 遇到超时、`429` 和 `5xx` 时重试；其他 `4xx` 直接放弃
+  4. 每次尝试都签名，并在 `X-Harbor-Attempt` 中带上次数
+  5. 通过 `GET /webhooks/deliveries` 列出失败的投递
+
+  **不包含**：在仪表盘中重放投递。
+
+tracker.title: "提交新手引导的问题"
+tracker.0.user: "把新手引导评审中的修复项创建为 Trackboard 任务。"
+tracker.file: |-
+  # 新手引导评审
+
+  - 在小屏幕上，清单被首屏大图挡住
+  - “跳过”按钮没有无障碍名称
+  - 第二步重复询问团队名称
+tracker.0.answer: "评审列出了三项修复。Trackboard 在创建任务前需要补充一些信息。"
+tracker.form.detail: "创建任务 · 新手引导评审"
+tracker.form.prompt: "三个 Trackboard 任务的详细信息"
+tracker.field.project: "项目代号"
+tracker.field.project.help: "2 到 10 个字母，例如 LUM"
+tracker.field.priority: "优先级"
+tracker.field.priority.options: |-
+  低
+  中
+  高
+  紧急
+tracker.field.estimate: "估算"
+tracker.field.estimate.help: "每个任务的故事点，1 到 13"
+tracker.field.notify: "发送到团队频道"
+tracker.field.labels: "标签"
+tracker.field.labels.help: "选择 1 到 3 个"
+tracker.field.labels.options: |-
+  新手引导
+  无障碍
+  设计
+  增长
+tracker.field.context: "背景"
+tracker.field.context.help: "会添加到每个任务中，最多 500 个字符"
+
+audit.title: "无障碍检查：新手引导"
+audit.0.user: "按 WCAG 2.2 AA 审查新手引导页面。逐条报告问题，写明元素、违反的规则和修复方法。不要修改任何文件。"
+audit.0.think: "先看工具能发现的问题，再手动检查工具发现不了的：焦点顺序、控件名称，以及次要文字的对比度。"
+audit.0.partial: "自动检查在页面上发现了五个问题。我正在两种主题下核对次要文字的颜色，然后再整理成报告。"
+audit.queue.focus: "顺便检查清单的焦点顺序"
+audit.queue.report: "按严重程度对发现的问题分组"
+
+pulse.title: "来自 Pulse Analytics 的注册数据"
+pulse.0.user: "从 Pulse Analytics 拉取上周的注册数据。"
+pulse.0.answer: "Pulse Analytics 已连接，但尚未登录。需要你先在浏览器中授权，它才会提供数据。"
+pulse.link.prompt: "登录 Pulse Analytics 以继续"
+
+staging.ask.prompt: "这些错误都来自同一个 pod。要重启它吗？"
+staging.ask.options: |-
+  重启这个 pod
+  保持运行
+
+metrics.suggest.activation: "B2B 激活率 基准"
+metrics.suggest.retention: "SaaS 第 4 周留存"
+metrics.2.user: "截取每周仪表盘，并和图表、报告一起附上。"
+metrics.2.answer: "这是仪表盘现在的样子，还有留存图表和报告。移动端的截图已经不在了：页面在保存之前就被重新构建了。"

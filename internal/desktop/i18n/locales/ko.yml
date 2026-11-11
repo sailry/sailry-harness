@@ -2188,3 +2188,8 @@ chat_provider_node: '%{name} · 호스트'
 chat_config_desktop: 데스크톱 설정
 usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
 queue_draft_changed: 대기열 변경; 초안 유지
+settings_experimental: Experimental
+settings_experimental_description: Development and debugging settings
+settings_demo_mode: Demo mode
+settings_demo_mode_description: Show sample conversations for review and screenshots
+provider_deepseek: DeepSeek

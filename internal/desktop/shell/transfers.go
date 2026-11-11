@@ -45,7 +45,7 @@ func (a *App) downloadDialog(c *ui.Context) {
 		if d.Error == "files_download_cancelled" {
 			kit.Notify(c, "", i18n.T(c, d.Error))
 		} else {
-			kit.Message(c, i18n.T(c, "preview_notice"))
+			kit.PreviewNotice(c)
 		}
 	}
 	transfers.DownloadDialog(c, d, func() {})

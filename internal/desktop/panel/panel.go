@@ -29,7 +29,7 @@ const (
 
 // notice tells that an action would leave the preview: write files, run
 // git, a terminal or load a page.
-func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
+func notice(c *ui.Context) { kit.PreviewNotice(c) }
 
 // Shortcut is a shortcut's text as menus and the launcher show it.
 type Shortcut func(mods ui.Modifiers, key ui.Key) string
