@@ -884,6 +884,9 @@ sandbox_settings_saved
 sandbox_settings_unknown
 session_order_created
 session_order_updated
+session_order_recent
+session_order_name
+sidebar_sort
 settings_about_description
 settings_backup_description
 settings_build

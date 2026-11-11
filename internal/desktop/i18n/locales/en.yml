@@ -865,6 +865,9 @@ sandbox_settings_saved: Saved
 sandbox_settings_unknown: Saving command sandbox settings could not be confirmed; reload to check
 session_order_created: Created
 session_order_updated: Updated
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: App version and build information
 settings_backup_description: Manage data and backups
 settings_build: Build type

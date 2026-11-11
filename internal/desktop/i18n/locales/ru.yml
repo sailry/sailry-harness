@@ -865,6 +865,9 @@ sandbox_settings_saved: Сохранено
 sandbox_settings_unknown: Не удалось подтвердить сохранение; перезагрузите для проверки
 session_order_created: Создание
 session_order_updated: Обновление
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: Версия приложения и сведения о сборке
 settings_backup_description: Управление данными и резервными копиями
 settings_build: Тип постройки

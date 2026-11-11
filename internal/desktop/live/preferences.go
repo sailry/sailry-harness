@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -17,7 +18,7 @@ func (r *Runtime) applyPreferences() {
 	d := r.Preferences.Data
 	a, m := r.App, r.App.Settings.Model
 	m.Notify, m.SidebarMetrics = d.Notifications, d.SidebarMetrics
-	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, 0, 0
+	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, int(sidebar.SortUpdated), 0
 	m.TextSize = 14
 	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
 	if d.Language != nil {
@@ -31,8 +32,8 @@ func (r *Runtime) applyPreferences() {
 	if d.MessageDisplay != nil && *d.MessageDisplay == "compact" {
 		m.MessageDisplay = 1
 	}
-	if d.SessionOrder != nil && *d.SessionOrder == "updated" {
-		m.SessionOrder = 1
+	if d.SessionOrder != nil {
+		m.SessionOrder = int(sidebar.SortOf(*d.SessionOrder))
 	}
 	if d.MessageTextSize != nil {
 		m.TextSize = float64(*d.MessageTextSize)
@@ -102,14 +103,9 @@ func (r *Runtime) savePreferences() {
 		setChoice(&d.Language, preferences.Languages[m.Language], "system")
 	}
 	setChoice(&d.MessageDisplay, []string{"detailed", "compact"}[min(max(m.MessageDisplay, 0), 1)], "detailed")
-	oldOrder := "created"
-	if d.SessionOrder != nil {
-		oldOrder = *d.SessionOrder
-	}
-	setChoice(&d.SessionOrder, []string{"created", "updated"}[min(max(m.SessionOrder, 0), 1)], "created")
-	if oldOrder != []string{"created", "updated"}[min(max(m.SessionOrder, 0), 1)] {
-		r.project()
-	}
+	// The sidebar orders its rows by the choice; a profile that never chose
+	// keeps none, which is updated.
+	setChoice(&d.SessionOrder, sidebar.Sort(m.SessionOrder).Preference(), sidebar.SortUpdated.Preference())
 	setChoice(&d.MessageTextSize, uint8(m.TextSize), uint8(14))
 	if language := preferences.DictationLanguages[min(max(m.SpeechLanguage, 0), 2)]; language != d.DictationLanguage() {
 		if d.Dictation == nil {

@@ -49,7 +49,7 @@ model library and the extension details page.
 | `model.go` | **The view model**: `Model`, `Stored[T]`, `Messages`, the Node settings' types, `Languages`, `ToastSeconds` |
 | `general.go` | General: language, power, sidebar metrics, notifications, toast duration, diagnostics; the `choose`/`pick` select helpers |
 | `appearance.go` | Appearance: mode, effects, transparency sliders, theme gallery with update check and import; a card's system right-click menu (Apply, Details, Homepage, Export, Uninstall) and the details dialog (previews light and dark, description, author, version, identifier, license) |
-| `conversation.go` | Conversation: command sandbox, session order, message display, text size |
+| `conversation.go` | Conversation: command sandbox, session order (Created, Updated, Name: the sidebar's sort menu edits the same choice, docs/sidebar.md), message display, text size |
 | `shortcuts.go` | `Chord`, `Shortcut`, `Registry`, `Fixed`, `Keys` (overrides, recording, validation) and the Shortcuts page with its recorder |
 | `models.go` | Dictation, the OCR local-model page, managed model rows and their details dialog |
 | `terminal.go` | Terminal: environment variables, shell, paste protection, font size and family |

@@ -1,8 +1,8 @@
 # Sidebar
 
 The navigation column beside the rail: the new-conversation button, then
-the pinned conversations, the chats without a project, the projects with
-their conversations as a tree, and the recent conversations
+the pinned conversations, the chats without a project, and the projects
+with their conversations as a tree
 (the reference implementation `sidebar.rs`, `sidebar/*.rs`, `workspace/menus.rs`,
 `workspace/project_editor*.rs`, `workspace/project_removal.rs`,
 `ui/session_preview.rs`). The column's width, collapse and motion belong
@@ -15,7 +15,7 @@ to the frame (`docs/shell.md`).
 | File | Holds |
 |---|---|
 | `sidebar.go` | `State`, `View`, groups, project rows, session rows, the pinned reorder, the hover card, `Age`, `Title` |
-| `order.go` | **The rules** as pure functions: `Window`, `OrderPins`, `NextPinOrder`, `MovePin`, `RecentOrder`, `Adjacent`, `ValidTitle` |
+| `order.go` | **The rules** as pure functions: `Window`, `OrderPins`, `NextPinOrder`, `MovePin`, `Sort`, `Sorted`, `SortOf`, `Adjacent`, `ValidTitle` |
 | `menus.go` | The right-click menus, archive and removal confirmations, the rename input |
 | `editor.go` | The project editor: `Editor`, `SuggestName`, `CheckProject`, `CheckClone`, `Destination` |
 | `metrics.go` | The optional live CPU and memory footer |
@@ -29,7 +29,8 @@ s.NewChat()                 // ⌘N, the button and the chats' "+"
 s.Showing = onConversation  // set by the shell each frame
 s.TakeShown()               // the sidebar opened a conversation: go to it
 s.OpenEditor(nil)           // ⌘⌥N and the projects' "+"; a project to edit it
-s.Order()                   // the order of ⌘⇧[ and ⌘⇧]
+s.Order()                   // the order of ⌘⇧[ and ⌘⇧]: the rows', top to bottom
+s.Sort                      // *int, a Sort: the shell points it at the session order setting
 s.Collapsed(), s.SetCollapsed(ids) // the projects closed, kept by the shell
 ```
 
@@ -42,7 +43,8 @@ The sidebar reads `preview.Data` (the boundary for a backend):
 | `Conversation{ID, Title, Status, Updated}` | A row: its title (`conversation` while empty), status in the elbow slot, age from `Updated` |
 | `Conversation.Pinned`, `PinOrder` | In the pinned group; `PinOrder` nil for a pin from before pins had an order (`preferences/pins.rs`) |
 | `Conversation.Archived` | Hidden from every group |
-| `Conversation.Created` | Creation order, newest highest: the recent group's order |
+| `Conversation.Created` | Creation order, newest highest: a tie between pins without an order |
+| `Conversation.Updated` | The last run, zero for one that never ran: the age, and the Recently updated order |
 | `Conversation.Worktree` | The branch of its worktree when not the main one: a `Network` icon on the row |
 | `Project{ID, Name, Path, Branch, Host, Worktrees, Trusted}` | A project row; the hover card's branch and path; the worktree submenu |
 | `Data.Hosts` | The editor's host select |
@@ -52,12 +54,42 @@ The sidebar reads `preview.Data` (the boundary for a backend):
 | Group | Contents | Limit | Open at start |
 |---|---|---|---|
 | `sidebar_pinned` | `OrderPins` of pinned, not archived; hidden when empty | `Window` (5, Show more) | yes |
-| `sessions_unassigned` | Chats without a project; "+" `workspace_new_session` | `Window` | yes |
-| `projects` | Each project, a collapsible row with its conversations on the tree guide; "+" `project_add` | `Window` per project | yes, per project |
-| `recent_sessions` | `RecentOrder` of all conversations, no status | none | no |
+| `sessions_unassigned` | Chats without a project; New chat (`Plus`, `workspace_new_session`) | `Window` | yes |
+| `projects` | Each project, a collapsible row with its conversations on the tree guide; Sort (`ListFilter`, `sidebar_sort`) and Add project (`FolderPlus`, `project_add`) | `Window` per project | yes, per project |
+
+There is no Recent group: every session is already listed in its own group.
+An empty group, or a project without sessions, is its header alone, with no
+placeholder line.
 
 Groups and projects grow open and closed through MyGo's collapsible (its
-motion; at once with Reduce Motion). The chevron and "+" show on hover.
+motion; at once with Reduce Motion). The chevron shows on hover. The header
+actions always show, at the header's right: `kit.IconButton` 20 square, 8
+apart and 8 from the edge, as a row's Pin and Archive, with the same hover.
+
+### Sort
+
+The projects' Sort button opens a Kit menu (`kit.MenuButton`) of three
+orders with a check on the current one. The choice is the `session_order`
+preference, shared with Settings › Conversation › Session order, and orders
+the projects, the chats, and the sessions inside each project (`Sorted`).
+
+| Menu item | `session_order` | Sessions | Projects |
+|---|---|---|---|
+| `session_order_recent` (default) | `updated`, or none | Never run first, then by last run (finished, else started), newest first | By the latest run among their sessions, newest first; a project none of whose sessions ran comes first |
+| `session_order_created` | `created` | The Node's order: newest created first | Newest added first |
+| `session_order_name` | `name` | By title without case; untitled first | By name without case |
+
+Every sort is stable over the Created order, which breaks ties. Names
+compare by lowercased code point, without locale collation.
+
+Pinned sessions stay first: the pinned group is above the others and is
+never sorted by the choice. It keeps `OrderPins`, which is the only manual
+order: dragging reorders pinned rows only. A pinned session's own row inside
+its project or the chats follows the chosen order as any other row. The
+Node's durable manual order (`set_session_order`, which this desktop never
+sends) is part of the Node's order, so only Created shows one that another
+controller saved; the other two orders use it for ties only, as the
+reference disables the drag under `updated`.
 
 ### Rows
 
@@ -133,19 +165,27 @@ their owning Client actions and projections without changing the accepted UI.
 
 | UI state (`State`) | Backend data |
 |---|---|
-| `Selected`, group and project open flags (projects kept by the shell), Show more, the rename draft, the editor draft, the open confirmation | Conversations, projects, hosts, pins and their order, titles, archive |
+| `Selected`, group and project open flags (projects kept by the shell), Show more, the rename draft, the editor draft, the open confirmation | Conversations, projects, hosts, pins and their order, titles, archive; the sort order is a controller preference |
 
 ## Tests
 
 `internal/desktop/sidebar/order_test.go`: legacy pins first, appended pin order,
-`MovePin`, `Window`, `RecentOrder`, `Adjacent` wrapping, `ValidTitle`.
+`MovePin`, `Window`, `Sorted` in the three orders and the preference's values,
+`Adjacent` wrapping, `ValidTitle`.
 `internal/desktop/sidebar/editor_test.go`: name suggestion, duplicate paths per
 host, clone names and destinations. `internal/desktop/shell/sidebar_test.go`:
 the native menu pins and renames, an empty rename stays out and Escape
 gives up, pins reorder, the editor validates and adds, removal names the
 project and removes it; New session opens one unsent chat, is disabled over
 it, enabled elsewhere and leads back from a host page, in the preview and
-with the live draft action (`testSidebarNewSession`).
+with the live draft action (`testSidebarNewSession`); empty groups are their
+headers alone, there is no Recent group, the header actions show without the
+pointer at one size, the sort menu's three orders give the expected projects
+and sessions with the pinned one first, the preview keeps the order across a
+relaunch and an older `ui-state.json` loads (`testSidebarGroups`).
+`internal/desktop/live/projection_test.go`: the projection keeps the Node's
+order under every preference, the sidebar orders it, and the choice survives
+a restart of the runtime through `preferences.json`.
 `internal/desktop/shell/shell_test.go`: Show more.
 
 ## Deviations
@@ -155,6 +195,9 @@ with the live draft action (`testSidebarNewSession`).
 | Rename is in place | The plan asks for inline rename; the reference renames in a dialog |
 | New session is disabled over the unsent chat | The reference keeps it enabled and focuses the draft's composer again; the composer has no exported focus request, so the button would do nothing visible. With one, it can stay enabled as the reference's |
 | Pinned rows reorder by dragging | The plan asks for it; the reference orders pins by when they were pinned |
+| No Recent group; empty groups show no placeholder | The user's decision: Recent repeats sessions listed in their groups, and an empty group is its header |
+| Header actions always show; the projects' header has a Sort menu | The user's decision, after Cursor's repository header; the reference shows "+" on hover and sorts only from Settings |
+| `session_order` gains `name`, defaults to `updated`, and also orders projects | The user's decision. The reference has `created` (its default) and `updated`, for sessions only. A profile without a value now reads as `updated`; a stored `created` is kept |
 | Project sessions do not reorder by dragging; no split folders | Not in this phase |
 | The pinned group does not append the host's running sessions | The preview has one host's pins only |
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
@@ -171,10 +214,12 @@ when editing started; project edits retain the complete expected Project.
 Pending saves disable controls, keep their drafts on failure/conflict/unknown,
 and ignore a completion after the editor has opened a different draft.
 
-`live.Sidebar` projects visible projects, worktrees and sessions. Default ordering
-preserves the Node's creation/manual authority order. Updated ordering is stable,
-puts never-run sessions first, then uses finished/started time descending. Recent
-keeps creation order. Shared Client activity lanes supply running, waiting and
+`live.Sidebar` projects visible projects, worktrees and sessions in the Node's
+creation/manual authority order, whatever the preference; the sidebar orders
+them when it draws ([Sort](#sort)). The sort menu and the Conversation setting
+edit the same `settings.Model.SessionOrder`, which the runtime stores as
+`session_order` in `desktop/preferences.json`; the preview keeps it as
+`sessionOrder` in `ui-state.json`. Shared Client activity lanes supply running, waiting and
 finished-unread status. SessionsRemoved replaces presentation data and prunes
 panes; project removal hides its sessions without changing project files/history.
 

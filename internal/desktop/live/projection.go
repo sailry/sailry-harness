@@ -1,7 +1,6 @@
 package live
 
 import (
-	"cmp"
 	"encoding/hex"
 	"encoding/json"
 	"runtime"
@@ -41,23 +40,9 @@ func Sidebar(snapshot protocol.Snapshot, prefs preferences.Data) *viewmodel.Data
 		projects[p.ID] = pr
 		d.Projects = append(d.Projects, pr)
 	}
-	sessions := slices.Clone(snapshot.Sessions)
-	if prefs.SessionOrder != nil && *prefs.SessionOrder == "updated" {
-		slices.SortStableFunc(sessions, func(a, b protocol.Session) int {
-			x, y := lastRun(a), lastRun(b)
-			if x == nil && y != nil {
-				return -1
-			}
-			if x != nil && y == nil {
-				return 1
-			}
-			if x == nil {
-				return 0
-			}
-			return cmp.Compare(*y, *x)
-		})
-	}
-	for _, s := range sessions {
+	// Projects and sessions keep the Node's order; the sidebar sorts them by
+	// the session order preference (sidebar.Sorted).
+	for _, s := range snapshot.Sessions {
 		if s.Delegation != nil {
 			continue
 		}

@@ -865,6 +865,9 @@ sandbox_settings_saved: Enregistré
 sandbox_settings_unknown: L’enregistrement n’a pas pu être confirmé ; rechargez pour vérifier
 session_order_created: Création
 session_order_updated: Mise à jour
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: Informations sur la version et la compilation de l'application
 settings_backup_description: Gérer les données et les sauvegardes
 settings_build: Type de construction

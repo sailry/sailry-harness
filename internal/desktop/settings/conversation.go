@@ -28,7 +28,7 @@ func conversation(c *ui.Context, m *Model) {
 	kit.Group(c, "sessions", i18n.T(c, "settings_sessions"), "", nil, func() {
 		kit.Card(c, func() {
 			kit.SegmentedRow(c, "order", i18n.T(c, "settings_session_order"), "", &m.SessionOrder,
-				i18n.T(c, "session_order_created"), i18n.T(c, "session_order_updated"))
+				i18n.T(c, "session_order_created"), i18n.T(c, "session_order_updated"), i18n.T(c, "session_order_name"))
 		})
 	})
 	kit.Group(c, "messages", i18n.T(c, "settings_messages"), "", nil, func() {

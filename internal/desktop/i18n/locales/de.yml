@@ -865,6 +865,9 @@ sandbox_settings_saved: Gespeichert
 sandbox_settings_unknown: Das Speichern der Einstellungen konnte nicht bestätigt werden; zur Prüfung neu laden
 session_order_created: Erstellt
 session_order_updated: Aktualisiert
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: App-Version und Build-Informationen
 settings_backup_description: Daten und Sicherungen verwalten
 settings_build: Bauart

@@ -865,6 +865,9 @@ sandbox_settings_saved: 저장됨
 sandbox_settings_unknown: 명령 샌드박스 설정의 저장 여부를 확인할 수 없습니다. 새로고침하세요
 session_order_created: 생성 시간
 session_order_updated: 업데이트 시간
+session_order_recent: Recently updated
+session_order_name: Name
+sidebar_sort: Sort
 settings_about_description: 앱 버전 및 빌드 정보
 settings_backup_description: 데이터 및 백업 관리
 settings_build: 빌드 유형
