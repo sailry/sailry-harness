@@ -49,6 +49,7 @@ type State struct {
 	finds         map[string]*search // the search bar of each conversation
 	wantOlder     bool               // the start came into view this frame
 	nav           navigation         // the message navigation rail
+	navigated     bool               // the transcript built last has one, not built yet
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split            bool
@@ -85,6 +86,18 @@ func (s *State) List(id string) *ui.ListState {
 	l := &ui.ListState{FollowEnd: true}
 	s.lists[id] = l
 	return l
+}
+
+// Navigation builds the message navigation of the transcript View built
+// last, over the element it is called in: the pane that holds the transcript
+// and what is under it, the composer, so the ticks centre in the pane's
+// height rather than in the list's. It builds nothing for a transcript
+// without one.
+func Navigation(c *ui.Context, s *State) {
+	if s.navigated {
+		s.navigated = false
+		s.nav.view(c, s.nav.list, s.nav.turns)
+	}
 }
 
 // View builds the transcript of conversation id: its turns in a list that
@@ -133,9 +146,10 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 			s.turn(c, id, i, &turns[i], n, sess, actions)
 		}).Fill().Role(ui.RoleLog)
 		// A delegated session's transcript, the child panel's (no session), is
-		// read-only and has no navigation.
-		if sess != nil && n > 0 && !s.Split {
-			s.nav.view(c, l, turns)
+		// read-only and has no navigation. The pane builds it (Navigation).
+		s.navigated = sess != nil && n > 0 && !s.Split
+		if s.navigated {
+			s.nav.list, s.nav.turns = l, turns
 		}
 		jump(c, l, n, !s.built[id])
 		s.built[id] = true
