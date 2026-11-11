@@ -221,6 +221,44 @@ complete" when the stop reason was another; the reference's one message is
 input at all is a call without arguments (`{}`) unless the output limit ended
 the reply. A stream that ends without its completion event stays terminal.
 
+A provider that lists models offers only those: `model.Capture` refuses a model
+missing from a non-empty list as `not_configured` ("model is not in the
+provider's model list"), for turns, media, search and plugin generation alike,
+so a model removed from its provider stops at its next turn. A provider with
+an empty list runs any name. Such a model declares no capabilities, and its
+context window (`model.ContextLimit`) is derived, in order, from:
+
+1. the size its server reports. `model.New` asks an OpenAI-compatible endpoint
+   (Responses, Chat Completions, DeepSeek, OpenCode) once for
+   `GET <base>/models` and reads `data[].meta.n_ctx` of the model's entry, or
+   of the only entry. The request carries the provider's headers, follows no
+   redirect and ends after 5 seconds or when the turn stops. An answer,
+   including "no size", is kept for 15 minutes and a failure for 60 seconds, in
+   at most 128 entries;
+2. the bundled catalog (`model/data/model-catalog.json`): the model under its
+   API's own vendor, by full name or by the name after the last `/`, with or
+   without a dated suffix; then the same name under any vendor, where the
+   smallest window wins;
+3. 128,000 tokens.
+
+Automatic compaction, `/compact`, overflow recovery, the recorded observation
+and the composer's context ring all use that window. Differences from the
+reference, all deliberate:
+
+- The reference keys the reported size by session and credential fingerprint;
+  Go keys it by API, endpoint and model, since the size is a fact of the
+  server.
+- The reference resolves names through Goose's canonical-name builder and its
+  `limits.json`. Go has one bundled catalog and a plain lookup; a name known
+  only under another vendor takes the smallest window listed for it, so a wrong
+  guess compacts early instead of overflowing.
+- For Azure AI Foundry the reference sizes the model a deployment serves; Go
+  does the same when the deployment lookup that `model.New` already performs
+  names another model, without a second request.
+- The ring of a session that is not running reads the window through
+  `store.agentStatisticsBudget`, which performs no request and therefore shows
+  the catalog value until a turn has asked the server.
+
 Main transport attempts have at most five additional transient retries, 60 seconds
 apart, before any output event escapes. Summary output stays buffered and has one
 additional transient retry after five seconds. Authentication, quota, invalid

@@ -701,6 +701,19 @@ func TestCompactionAtThreshold(t *testing.T) {
 			}
 		})
 	}
+	t.Run("unlisted model on an empty list", func(t *testing.T) {
+		binding := model.Binding{Config: protocol.SessionConfig{Model: "fixture/unknown"}, Provider: protocol.ConversationProvider{Api: protocol.ConversationModelApiAnthropic}}
+		if selected := capturedModel(binding); selected.Context != 128000 || selected.Tools {
+			t.Fatalf("selected = %+v", selected)
+		}
+		for tokens, want := range map[uint64]bool{102400: false, 102401: true} {
+			usage := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.User), manualNow())
+			usage.Message().Usage = &canonical.Usage{Total: &tokens}
+			if got := shouldCompact(binding, store.AgentState{Records: []canonical.Record{usage}}, 80); got != want {
+				t.Fatalf("threshold at %d = %v, want %v", tokens, got, want)
+			}
+		}
+	})
 }
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
 func TestReactiveCompactionAtMostTwo(t *testing.T) {

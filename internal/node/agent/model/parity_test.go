@@ -457,6 +457,7 @@ func TestRequestParity(t *testing.T) {
 	t.Run("stalled_response", stallFixture)
 	t.Run("output_limit", limitFixture)
 	t.Run("inline_thinking", thinkingFixture)
+	t.Run("context_limit", contextFixture)
 	t.Run("one_request_on_rejection", rejectionFixture)
 	t.Run("usage_presence", usagePresenceFixture)
 	t.Run("additional_source_contracts", additionalParityFixtures)

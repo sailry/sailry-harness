@@ -187,6 +187,12 @@ func agentStatisticsBudget(ctx context.Context, db *sql.Conn, session protocol.S
 		if i := slices.IndexFunc(selected.Models, func(m protocol.ConversationModel) bool { return m.ID == session.Config.Model }); i >= 0 {
 			return AgentCompactionBudget(selected.Models[i], percent), nil
 		}
+		if len(selected.Models) == 0 && session.Config.Model != "" {
+			// A provider without a model list runs any name on a derived window.
+			unlisted := protocol.DefaultConversationModel()
+			unlisted.ID, unlisted.Context = session.Config.Model, model.ContextLimit(model.Binding{Provider: *selected, Config: session.Config})
+			return AgentCompactionBudget(unlisted, percent), nil
+		}
 	}
 	return nil, nil
 }

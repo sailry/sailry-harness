@@ -24,7 +24,10 @@ func capturedModel(binding model.Binding) protocol.ConversationModel {
 			return candidate
 		}
 	}
-	return protocol.DefaultConversationModel()
+	// An unlisted model declares no capabilities; only its window is known.
+	selected := protocol.DefaultConversationModel()
+	selected.ID, selected.Context = binding.Config.Model, model.ContextLimit(binding)
+	return selected
 }
 func contextTokens(records []canonical.Record) uint64 {
 	start := 0
