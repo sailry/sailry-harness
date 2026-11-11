@@ -53,8 +53,32 @@ func testApprovalProjection(t *testing.T) {
 		t.Fatal("locale-free projection lost source fallback", english)
 	}
 	approval.Changes = nil
-	if got := projectApproval(approval, &call, "en"); got.Description != "generic change prompt" || !got.Code {
+	if got := projectApproval(approval, &call, "en"); got.Description != "generic change prompt" || !got.Code || len(got.Notices) != 2 {
 		t.Fatal("ordinary command approval content lost", got)
+	}
+	// A call without content is described by its first approval notice, then
+	// its target, then its summary, so no approval shows a title alone.
+	resolved := call.Summary.Resolved
+	resolved.Input.Content = nil
+	resolved.Input.Target = &protocol.ToolDetailText{Text: "build.example"}
+	resolved.Input.Summary = &protocol.ToolDetailText{Text: "Captured notice", Code: true}
+	if got := projectApproval(approval, &call, "zh-CN"); got.Description != "已捕获提示" || got.Code || len(got.Notices) != 1 || got.Notices[0] != "Fallback notice" {
+		t.Fatal("first approval notice does not describe the call", got)
+	}
+	if got := projectApproval(approval, &call, "en"); got.Description != "Captured notice" || !got.Code {
+		t.Fatal("a notice that repeats a code summary is not shown as code", got)
+	}
+	resolved.Approval = nil
+	if got := projectApproval(approval, &call, "en"); got.Description != "build.example" || got.Code || len(got.Notices) != 0 {
+		t.Fatal("target does not describe the call", got)
+	}
+	resolved.Input.Target = nil
+	if got := projectApproval(approval, &call, "en"); got.Description != "Captured notice" || !got.Code {
+		t.Fatal("summary does not describe the call", got)
+	}
+	resolved.Input.Summary = nil
+	if got := projectApproval(approval, &call, "en"); got.Description != "" || got.Title != "Apply changes" {
+		t.Fatal("a call without display fields gained a description", got)
 	}
 }
 
