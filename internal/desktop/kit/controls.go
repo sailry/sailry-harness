@@ -168,24 +168,29 @@ func SecondaryLook(c *ui.Context, b ui.Element) ui.Element {
 
 // Danger is Kit's danger button, for what removes something.
 func Danger(c *ui.Context, label string) ui.Element {
+	return dangerLook(c, label).Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+}
+
+// DangerBusy is Danger, and while the removal it started runs the spinner
+// before its label and no press.
+func DangerBusy(c *ui.Context, label string, busy bool) ui.Element {
+	return dangerLook(c, label).Disabled(busy).Busy(busy).Children(func() {
+		if busy {
+			ui.Spinner(c).Size(14, 14)
+		}
+		ui.Text(c, label).FontSize(14).SingleLine()
+	})
+}
+
+// dangerLook is the destructive button without its content.
+func dangerLook(c *ui.Context, label string) ui.Element {
 	p := theme.Of(c)
 	b := ui.ButtonBase(c).Label(label).Radius(p.Radius).Center().Gap(6).PaddingX(12).Height(32).
 		Background(p.Danger).TextColor(p.DangerForeground).Cursor(ui.CursorPointer)
 	if b.Hovered() || b.Pressed() {
 		b.Background(p.Danger.Mix(p.Foreground, 0.12))
 	}
-	return b.Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
-}
-
-// DangerBusy is Danger, and while the removal it started runs the spinner
-// before its label and no press.
-func DangerBusy(c *ui.Context, label string, busy bool) ui.Element {
-	return Danger(c, label).Disabled(busy).Busy(busy).Children(func() {
-		if busy {
-			ui.Spinner(c).Size(14, 14)
-		}
-		ui.Text(c, label).FontSize(14).SingleLine()
-	})
+	return b
 }
 
 // Tone colors a badge or a status dot.

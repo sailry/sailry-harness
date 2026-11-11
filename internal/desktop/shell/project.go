@@ -134,7 +134,7 @@ func (a *App) projectView(c *ui.Context) {
 				for _, key := range []string{"workspace_new_terminal", "cli_launch"} {
 					label := i18n.T(c, key)
 					available := key == "cli_launch" && state.actions.CLI != nil || key == "workspace_new_terminal" && state.actions.NewTerminal != nil
-					button := kit.Secondary(c.Key(key), label).Disabled(!available).Children(func() {
+					button := kit.SecondaryLook(c, ui.ButtonBase(c.Key(key)).Label(label)).Disabled(!available).Children(func() {
 						ui.Icon(c, icons.Terminal).FontSize(16)
 						ui.Text(c, label).FontSize(14)
 					})

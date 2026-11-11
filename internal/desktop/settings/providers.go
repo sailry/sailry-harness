@@ -978,7 +978,16 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			b.Children(func() { ui.Text(c, t("provider_get_key")).FontSize(12).TextColor(p.Link) })
 		}
 		if e.method.OAuthFields {
-			kit.Secondary(c.Key("advanced"), t("provider_oauth_advanced")).AlignSelf(ui.Start).OnClick(func() { e.advanced = !e.advanced })
+			// A disclosure: the chevron turns down while the settings show.
+			label, chevron := t("provider_oauth_advanced"), icons.ChevronRight
+			if e.advanced {
+				chevron = icons.ChevronDown
+			}
+			kit.GhostLook(c, ui.ButtonBase(c.Key("advanced")).Label(label).Expanded(e.advanced), false).Height(28).PaddingX(4).Gap(4).AlignSelf(ui.Start).
+				Children(func() {
+					ui.Icon(c, chevron).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+					ui.Text(c, label).FontSize(14).SingleLine()
+				}).OnClick(func() { e.advanced = !e.advanced })
 			if e.advanced {
 				for i, k := range []string{"provider_oauth_catalog_version", "provider_oauth_user_agent", "provider_oauth_editor_version", "provider_oauth_editor_plugin_version"} {
 					input(k, t(k), "", &e.oauth[i], false)

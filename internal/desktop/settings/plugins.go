@@ -108,8 +108,8 @@ var tints = []string{"blue", "violet", "teal", "amber", "gray"}
 var ownIcons sync.Map
 
 // emblem is a record's mark from the icon it declares. An icon with a Kubai
-// emblem (icons.Emblem) is drawn by that library, size DIPs square in the
-// accent of the tint, and plays its motion while hovered. Any other is a
+// emblem (icons.Emblem) is drawn by that library in the accent of the tint,
+// on a size DIPs square tile of that tint, and plays its motion while hovered. Any other is a
 // glyph on kit.Tile: the declared outline or the record's own SVG, or
 // fallback for none and for a name nothing draws.
 func emblem(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float32, hovered bool) {
@@ -118,7 +118,10 @@ func emblem(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float
 		if i := slices.Index(tints, tint); i >= 0 {
 			accent = theme.Tints[i]
 		}
-		mark.View(c, kubai.Options{Size: size, Color: accent[1], Hovered: hovered, Still: true})
+		// The emblem sits on a tile of its own tint, like kit.Tile's glyph.
+		ui.Row(c).Size(size, size).Radius(size * 11 / 36).Center().Background(accent[1].Alpha(0.16)).Children(func() {
+			mark.View(c, kubai.Options{Size: size * 0.64, Color: accent[1], Hovered: hovered, Still: true})
+		})
 		return
 	}
 	glyph := fallback
