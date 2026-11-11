@@ -21,12 +21,11 @@ import (
 // settlementRetry spaces repeated attempts to make a turn's end durable.
 const settlementRetry = time.Second
 
-// stoppedStatus names the end of a turn whose context was cancelled: a
-// deliberate stop is cancelled, a Node that is shutting down interrupts. A
-// child whose owner cancelled it without a stop command stays interrupted;
-// FinishTurn still records a stop command on the child itself as cancelled.
-func (r *Runtime) stoppedStatus(x *execution) protocol.ConversationStatus {
-	if r.ctx.Err() != nil || x.inv.Session.Delegation != nil {
+// stoppedStatus names the end of a turn whose context was cancelled. Only a
+// Node that is shutting down interrupts; every deliberate stop, of the turn
+// itself or of a child through its parent, is cancelled.
+func (r *Runtime) stoppedStatus() protocol.ConversationStatus {
+	if r.ctx.Err() != nil {
 		return protocol.ConversationStatusInterrupted
 	}
 	return protocol.ConversationStatusCancelled
@@ -54,7 +53,7 @@ func (r *Runtime) execute(x *execution) {
 	status := protocol.ConversationStatusCompleted
 	var failure *protocol.Fault
 	if x.ctx.Err() != nil {
-		status = r.stoppedStatus(x)
+		status = r.stoppedStatus()
 	} else if err != nil {
 		status = protocol.ConversationStatusFailed
 		failure = model.Fault(err)
@@ -104,7 +103,7 @@ func (r *Runtime) execute(x *execution) {
 			var changes []protocol.Event
 			var err error
 			if status == protocol.ConversationStatusCompleted && x.ctx.Err() != nil {
-				status = r.stoppedStatus(x)
+				status = r.stoppedStatus()
 			}
 			run, changes, err = store.FinishTurn(ctx, db, x.inv.Run.Turn, status, failure, r.clock.Now())
 			if err != nil {

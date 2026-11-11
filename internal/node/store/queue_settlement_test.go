@@ -343,8 +343,22 @@ func TestQueueSettlement(t *testing.T) {
 					if err != nil {
 						return err
 					}
+					if call, err = delegationFixtureCall(ctx, db, turn, "spawn_agent", map[string]any{"task": "Stopped child"}, now); err != nil {
+						return err
+					}
+					stopped, _, err := DelegateAgent(ctx, db, node, turn, call, nil, true, now)
+					if err != nil {
+						return err
+					}
+					if _, err = stopAgentTurn(ctx, db, stopped.Run.Turn, now); err != nil {
+						return err
+					}
 					if _, err = RecoverRuns(ctx, db, now); err != nil {
 						return err
+					}
+					// A child the user stopped before the restart was not lost work.
+					if run, err := ReadAgentRun(ctx, db, stopped.Run.Turn); err != nil || run.Status != protocol.ConversationStatusCancelled || run.FinishedMs == nil || run.Error != nil {
+						return fmt.Errorf("stopped queued child recovered as %s: %v", run.Status, err)
 					}
 					run, err := ReadAgentRun(ctx, db, orphan.Run.Turn)
 					if err != nil {
@@ -450,6 +464,7 @@ func TestBackgroundDelivery(t *testing.T) {
 					}
 				case "cancelled foreground child is consumed":
 					states := map[bool]protocol.ConversationBackgroundState{}
+					var unreported protocol.TurnID
 					for _, reported := range []bool{true, false} {
 						call, err := delegationFixtureCall(ctx, db, turn, "spawn_agent", map[string]any{"task": "Foreground child"}, now)
 						if err != nil {
@@ -481,9 +496,24 @@ func TestBackgroundDelivery(t *testing.T) {
 							return errors.New("cancelled child left no cancelled record")
 						}
 						states[reported] = task.Task.State
+						if !reported {
+							unreported = child.Run.Turn
+						}
 					}
 					if states[true] != protocol.ConversationBackgroundStateConsumed || states[false] != protocol.ConversationBackgroundStatePending {
 						return fmt.Errorf("reported child is %s, unreported child is %s", states[true], states[false])
+					}
+					// The other order: the child's end is stored before its owner
+					// records the cancellation, and the owner's settlement consumes it.
+					if _, err := ConsumeStoppedChildren(ctx, db, turn, []protocol.TurnID{unreported}); err != nil {
+						return err
+					}
+					task, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "agent:"+unreported.String())
+					if err != nil {
+						return err
+					}
+					if task == nil || task.Task.State != protocol.ConversationBackgroundStateConsumed {
+						return errors.New("child that ended before the cancellation note stayed pending")
 					}
 				default:
 					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {

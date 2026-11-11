@@ -545,14 +545,19 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	return run, events, err
 }
 func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
-	// A delegated run that never started is claimed only through its in-memory
-	// owner, which a restart loses; left queued it would block every later
-	// child of its conversation.
-	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status') IN ('queued','cancelled') AND json_extract(a.body,'$.finished_ms') IS NULL AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))")
+	// A queued child the user stopped before the restart was a deliberate
+	// stop: it ends cancelled, not as lost work.
+	events, err := SettleStoppedChildren(ctx, db, now)
 	if err != nil {
 		return nil, err
 	}
-	events := []protocol.Event{}
+	// A delegated run that never started is claimed only through its in-memory
+	// owner, which a restart loses; left queued it would block every later
+	// child of its conversation.
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status')='queued' AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))")
+	if err != nil {
+		return nil, err
+	}
 	for _, run := range runs {
 		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "execution was interrupted; model and tool calls were not replayed"}
 		_, changed, e := FinishTurn(ctx, db, run.Turn, protocol.ConversationStatusInterrupted, failure, now)

@@ -576,7 +576,8 @@ without an owner.
   its outcome is uncertain, and its pending approvals and questions close as
   `cancelled`. `interrupted` is kept for a turn that lost its owner: Node
   shutdown and restart recovery, which also close interactions as
-  `interrupted`. Any other ended turn closes its leftover interactions as
+  `interrupted`. A child stopped through its parent turn is a deliberate stop
+  too and ends `cancelled`. Any other ended turn closes its leftover interactions as
   `cancelled`. Completion hooks run only for turns that ran to their end: the
   hook binding is bound to the turn's stop and runs nothing once it is
   stopped or the Node is stopping.
@@ -590,7 +591,8 @@ without an owner.
   tools, hooks and cleanup have ended.
 - **Restart.** Running and stopping turns end `interrupted` with an uncertain
   outcome and nothing is replayed. Queued delegated runs that never started
-  end the same way. Queued notice turns and plugin continuations are
+  end the same way, except one the user had already stopped, which ends
+  `cancelled`. Queued notice turns and plugin continuations are
   cancelled without pausing the queue or raising attention; a queue that
   still holds the user's input is paused.
 
@@ -629,7 +631,10 @@ without an owner.
 - **Cancelled foreground children.** A child that ends `cancelled` or
   `interrupted` after its owning turn recorded the cancellation note has its
   background task marked consumed, as the reference collects it; the model
-  was already told. A child cancelled any other way stays a pending task.
+  was already told. When the child's end is stored first, the owning turn's
+  settlement consumes it after the child has settled
+  (`store.ConsumeStoppedChildren`, see [delegation](delegation.md)). A child
+  cancelled any other way stays a pending task.
 - **Plan review source.** The review offered after a completed Plan turn
   points at the turn's last assistant message that is visible to the user
   and has text, as in the reference, so a hidden runtime note recorded after
@@ -682,7 +687,6 @@ and bumps the item or queue revision that its command checks.
 
 | Difference | Reason |
 |---|---|
-| A child whose owner cancelled it without a stop command (its parent turn ended) ends `interrupted`; the reference ends it `cancelled` | The label is delegation's; neither outcome is delivered automatically |
 | Outlived guidance batches only the inputs sent to the same recipient; the reference also folds every following ready compatible queued message into that turn | An ordinary queued message keeps the turn it was queued for; the reference combines it only when it happens to follow released guidance |
 | Guidance compatibility does not compare the provider snapshot or the compaction capture | The joined input runs under the recipient's frozen provider either way; a provider edit is not a per-message choice |
 | A joined guidance run ends `completed` with `joined` set; the reference uses `continued` | Existing Go behaviour that the desktop projection reads |
