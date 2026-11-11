@@ -95,7 +95,7 @@ func ParseSkill(data []byte, name string) (protocol.PluginSkill, error) {
 	for key, target := range map[string]**string{"license": &skill.License, "compatibility": &skill.Compatibility} {
 		if raw, exists := fields[key]; exists {
 			value, ok := raw.(string)
-			if !ok || strings.ContainsRune(value, 0) || key == "compatibility" && utf8.RuneCountInString(value) > 500 {
+			if !ok || strings.ContainsRune(value, 0) || key == "compatibility" && (value == "" || utf8.RuneCountInString(value) > 500) {
 				return skill, packageFault("invalid skill metadata")
 			}
 			*target = &value
@@ -109,7 +109,7 @@ func ParseSkill(data []byte, name string) (protocol.PluginSkill, error) {
 			}
 		case []any:
 			for _, item := range value {
-				if text, ok := item.(string); !ok || strings.TrimSpace(text) == "" || strings.ContainsRune(text, 0) {
+				if text, ok := item.(string); !ok || strings.ContainsRune(text, 0) {
 					return skill, packageFault("invalid skill allowed tools")
 				}
 			}
@@ -127,12 +127,18 @@ func ParseSkill(data []byte, name string) (protocol.PluginSkill, error) {
 			if !ok {
 				return skill, packageFault("skill metadata must contain string values")
 			}
-			if key == "display-name" && strings.TrimSpace(text) != "" {
-				skill.DisplayName = &text
+			if display := strings.TrimSpace(text); key == "display-name" && display != "" && len(display) <= 256 {
+				skill.DisplayName = &display
 			}
-			if strings.HasPrefix(key, "display-name.") {
-				locale := strings.TrimPrefix(key, "display-name.")
-				if locale == "" || strings.TrimSpace(text) == "" || strings.ContainsRune(text, 0) {
+			if locale, localized := strings.CutPrefix(key, "display-name."); localized {
+				// A locale is ASCII subtags joined by hyphens, as every reader of
+				// these names expects.
+				tagged := !slices.ContainsFunc(strings.Split(locale, "-"), func(part string) bool {
+					return part == "" || strings.ContainsFunc(part, func(r rune) bool {
+						return r > unicode.MaxASCII || !unicode.IsLetter(r) && !unicode.IsDigit(r)
+					})
+				})
+				if !tagged || strings.TrimSpace(text) == "" || strings.ContainsFunc(text, unicode.IsControl) {
 					return skill, packageFault("invalid localized skill display name")
 				}
 				skill.DisplayLocales[locale] = text

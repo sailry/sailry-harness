@@ -361,7 +361,7 @@ func TestPackageSchemasAndSkills(t *testing.T) {
 			t.Fatalf("unsupported storage schema was accepted: %s", raw)
 		}
 	}
-	document := "\ufeff\n---\nname: review\ndescription: Review changes\nmetadata:\n  display-name: Code review\n  display-name.zh-CN: 代码审阅\nallowed-tools: [read, search]\n---\nRead all changes"
+	document := "\ufeff\n---\nname: review\ndescription: Review changes\nmetadata:\n  display-name: ' Code review '\n  display-name.zh-CN: 代码审阅\nallowed-tools: [read, search]\n---\nRead all changes"
 	skill, err := ParseSkill([]byte(document), "review")
 	if err != nil || skill.DisplayName == nil || *skill.DisplayName != "Code review" || skill.DisplayLocales["zh-CN"] != "代码审阅" {
 		t.Fatalf("skill metadata did not survive: %#v %v", skill, err)
@@ -370,6 +370,12 @@ func TestPackageSchemasAndSkills(t *testing.T) {
 		"---\nname: review\nname: duplicate\ndescription: Invalid\n---\nBody",
 		"---\nname: Uppercase\ndescription: Invalid\n---\nBody",
 		"---\nname: review\ndescription: ''\n---\nBody",
+		// The bundled catalog reads the same documents; both refuse these.
+		"---\nname: review\ndescription: Invalid\ncompatibility: ''\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.zh_CN: 审阅\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.zh-: 审阅\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.中文: 审阅\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.en: \"Re\\tview\"\n---\nBody",
 	} {
 		if _, err := ParseSkill([]byte(document), ""); err == nil {
 			t.Fatal("invalid skill frontmatter was accepted")

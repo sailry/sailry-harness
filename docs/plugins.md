@@ -466,6 +466,14 @@ empty so the text remains aligned.
   where this validator allowed 128. Not ported to install time: the field
   rules inside one model sign-in, model resource, model adapter, provider
   preset, connector, conversation mode, artifact view and tool `display`.
+- Bundled packages are read from the embedded tree by
+  `agent/operations` (its own manifest tool decoding, digest and skill
+  reader) and installed packages by `plugins`; the source has one path. The
+  two skill readers accept the same documents: an empty `compatibility`, a
+  locale tag that is not ASCII subtags joined by hyphens and a control
+  character in a localized name are refused by both, and a display name is
+  trimmed and ignored above 256 bytes. The two readers are not yet one
+  function.
 - A request on the `permissions` surface is confined as in the source: it
   carries no worktree, session or turn, reads only a contribution's `check`,
   calls only its `request`, and inside those callbacks runs only commands
