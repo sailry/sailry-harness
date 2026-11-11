@@ -82,16 +82,34 @@ come from the engine's core tool presentation.
 `inspect_image` takes `prompt` and exactly one of `path` or `attachment`.
 Generation takes `prompt` and an optional plain `file_name`; the result is
 saved as `assets/generated/<file_name>`, named by a new identifier when the
-name is absent.
+name is absent. `generate_video` also takes an optional `job`.
 
-Generation checks the output path before the provider call: it is
-worktree-relative, ends in `.png` or `.mp4` and names no existing file. The
-confined file service writes the result without replacing a file. The tool
-result carries `path`, `media_type`, `size`, `provider`, `model` and a video
-`job`. A generated image is also stored as a tool-result attachment, so the
-conversation shows it; it is never sent back to the model. A video job that the
-provider accepted but whose result was not saved answers `outcome_unknown` and
-names the job.
+Generation checks the output path when the call is prepared and takes the
+target again as it starts, before the provider is asked: it is
+worktree-relative, ends in `.png` or `.mp4` and names no existing file, so the
+second of two calls for one file is `conflict` without a provider request. The
+confined file service writes the result without replacing a file, and the file
+is written before usage is recorded. The tool result carries `path`,
+`media_type`, `size`, `provider`, `model` and a video `job`. A generated image
+is also stored as a tool-result attachment, so the conversation shows it; it is
+never sent back to the model.
+
+A video is one provider job: submit, read until it ends, download, all inside
+540 seconds. A job the provider accepted and that left no file answers one of:
+
+| Case | Answer |
+| --- | --- |
+| The provider reports `failed` or `cancelled` | `unavailable`, naming the job and the provider's reason |
+| An unknown status, a body that is not MP4, a refused read (4xx) | The provider error, naming the job |
+| Stop, the deadline, a network failure, a 5xx or rate-limited read | `outcome_unknown`, naming the job and how to fetch it |
+| The video arrived but the file could not be saved | The save error, naming the job and how to fetch it |
+
+The last two leave the job with the provider. Calling `generate_video` with
+that `job` reads and downloads it with a new 540 seconds and never submits the
+prompt, so a video is not paid for twice; the job is recorded in the failed
+tool result, so a later turn can fetch it too. `job` is a plain identifier of
+at most 128 letters, digits, `.`, `-` and `_`. Usage is recorded by the call
+that saves the video. Nothing asks the provider to cancel a job.
 
 ### Retired media package
 
@@ -196,8 +214,10 @@ and played into MyGo's null device where the machine has no output.
 fakes. `TestMediaTools` covers a profile with the retired package starting
 without it, routing, a real turn in which the model is offered and calls the
 built-in tools with no media package installed, no tool for a model without
-the capability, output confinement, the remembered session approval, plan mode
-and speech. The store fixture
+the capability, output confinement, two calls for one output file reaching the
+provider once, a video job that the provider ends, one that is lost after it
+was accepted and fetched by a later call without a second submission, the
+remembered session approval, plan mode and speech. The store fixture
 `provider_capability_tags_and_media_assignments` covers tags surviving a catalog
 refresh and assignment validation. No real provider is called.
 
@@ -214,3 +234,6 @@ refresh and assignment validation. No real provider is called.
 | A hosted image tool unticked and saved comes back as `image` when ticked later | The editor only knows the hosted tool from the tags it opened with |
 | Media models and the read-aloud voice are the local Node's | The page's other Node settings are too; read aloud is a controller effect |
 | MP3 playback through real audio hardware is not covered by tests | Tests replace the player; the decoder and output are MyGo's |
+| `generate_video` accepts a `job` and fetches it; Rust could not return to an accepted job | A stop or the deadline otherwise leaves a paid video that nothing can fetch |
+| A job the provider ended is a tool error naming the job; Rust answered a result holding `job` and an `unavailable` error | One failure shape for every tool; the model is told the same thing |
+| Video usage is recorded by the call that saves the file | A fetch after a failed save would otherwise count the job twice |

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -173,6 +174,7 @@ func TestMediaTools(t *testing.T) {
 	if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
+	movie := append([]byte{0, 0, 0, 24}, []byte("ftypmp42 fixture video")...)
 	var mu sync.Mutex
 	requests := map[string][]map[string]any{}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -182,11 +184,30 @@ func TestMediaTools(t *testing.T) {
 		mu.Lock()
 		requests[request.URL.Path] = append(requests[request.URL.Path], input)
 		mu.Unlock()
-		if request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer media-key" {
+		video := strings.HasPrefix(request.URL.Path, "/v1/videos")
+		if request.Method != http.MethodPost && !video || request.Header.Get("Authorization") != "Bearer media-key" {
 			http.Error(writer, "unexpected request", http.StatusBadRequest)
 			return
 		}
+		// Each video submission starts a job. The provider ends the first
+		// without a video; the second is lost to one failed read and is
+		// complete on every later one.
+		mu.Lock()
+		submitted, reads := len(requests["/v1/videos"]), len(requests[request.URL.Path])
+		mu.Unlock()
 		switch request.URL.Path {
+		case "/v1/videos":
+			_, _ = fmt.Fprintf(writer, `{"id":"video_%d","status":"queued"}`, submitted)
+		case "/v1/videos/video_1":
+			_, _ = writer.Write([]byte(`{"id":"video_1","status":"failed","error":{"message":"content policy"}}`))
+		case "/v1/videos/video_2":
+			if reads == 1 {
+				http.Error(writer, "try later", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = writer.Write([]byte(`{"id":"video_2","status":"completed","usage":{"input_tokens":4,"output_tokens":0}}`))
+		case "/v1/videos/video_2/content":
+			_, _ = writer.Write(movie)
 		case "/v1/images/generations":
 			writer.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []any{map[string]any{"b64_json": base64.StdEncoding.EncodeToString(picture.Bytes())}}, "usage": map[string]any{"input_tokens": 7, "output_tokens": 5, "total_tokens": 12}})
@@ -221,6 +242,19 @@ func TestMediaTools(t *testing.T) {
 		{{"first", tool("generate_image"), `{"prompt":"A green triangle","file_name":"first.png"}`}},
 		{{"second", tool("generate_image"), `{"prompt":"A green triangle","file_name":"second.png"}`}},
 	}}
+	// filmer generates video itself: the provider ends its first job, loses
+	// sight of the second, and the third call names that job.
+	filmer := &mediaScript{results: map[string]string{}, steps: [][][3]string{
+		{discover},
+		{{"ended", tool("generate_video"), `{"prompt":"A wave","file_name":"wave.mp4"}`}},
+		{{"lost", tool("generate_video"), `{"prompt":"A wave","file_name":"wave.mp4"}`}},
+		{{"fetched", tool("generate_video"), `{"prompt":"A wave","file_name":"wave.mp4","job":"video_2"}`}},
+	}}
+	// twin asks for the same output file twice in one step.
+	twin := &mediaScript{results: map[string]string{}, steps: [][][3]string{
+		{discover},
+		{{"one", tool("generate_image"), `{"prompt":"A twin","file_name":"twin.png"}`}, {"two", tool("generate_image"), `{"prompt":"A twin","file_name":"twin.png"}`}},
+	}}
 	eyes := &mediaEyes{}
 	var bound []string
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
@@ -239,6 +273,10 @@ func TestMediaTools(t *testing.T) {
 				return bare, nil
 			case "asker":
 				return asker, nil
+			case "filmer":
+				return filmer, nil
+			case "twin":
+				return twin, nil
 			case "eyes":
 				return eyes, nil
 			}
@@ -326,7 +364,7 @@ func TestMediaTools(t *testing.T) {
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Media fixture", true
 	provider.Api, provider.Authentication, provider.Endpoint, provider.DefaultModel = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, server.URL+"/v1", "plain"
-	for _, id := range []string{"plain", "planner", "bare", "asker", "eyes", "painter", "voice"} {
+	for _, id := range []string{"plain", "planner", "bare", "asker", "filmer", "twin", "eyes", "painter", "voice"} {
 		entry := protocol.DefaultConversationModel()
 		entry.ID, entry.Context, entry.Output, entry.Tools, entry.CustomCapabilities = id, 32000, 8000, true, true
 		switch id {
@@ -334,6 +372,8 @@ func TestMediaTools(t *testing.T) {
 			entry.Vision = true
 		case "painter":
 			entry.Generates = []protocol.MediaGeneration{protocol.MediaGenerationImage}
+		case "filmer":
+			entry.Generates = []protocol.MediaGeneration{protocol.MediaGenerationVideo}
 		case "voice":
 			entry.Generates = []protocol.MediaGeneration{protocol.MediaGenerationSpeech}
 		}
@@ -566,6 +606,83 @@ func TestMediaTools(t *testing.T) {
 		}
 		if prompts != 1 || len(seen("/v1/images/generations")) != before+2 {
 			t.Fatalf("two generations asked %d times and reached the provider %d times", prompts, len(seen("/v1/images/generations"))-before)
+		}
+	})
+
+	t.Run("the output file is taken before the provider is paid", func(t *testing.T) {
+		before := len(seen("/v1/images/generations"))
+		run(t, "twin", protocol.WorkModeCode)
+		twin.mu.Lock()
+		results := twin.results
+		twin.mu.Unlock()
+		if _, err := os.Stat(filepath.Join(root, "assets", "generated", "twin.png")); err != nil || !strings.Contains(results["one"], "assets/generated/twin.png") {
+			t.Fatalf("the first of two calls for one file did not save it: %v (%v)", err, results)
+		}
+		if paid := len(seen("/v1/images/generations")) - before; paid != 1 || !strings.Contains(results["two"], "a file already exists at the media output path") {
+			t.Fatalf("two calls for one file reached the provider %d times: %q", paid, results["two"])
+		}
+	})
+
+	t.Run("a video job is ended, lost and fetched without paying twice", func(t *testing.T) {
+		node.mediaPoll = time.Millisecond
+		session, _ := run(t, "filmer", protocol.WorkModeCode)
+		filmer.mu.Lock()
+		results := filmer.results
+		filmer.mu.Unlock()
+		// A job the provider ended is a definite error: nothing is left to fetch.
+		if !strings.Contains(results["ended"], "video job video_1 produced no video") || !strings.Contains(results["ended"], "content policy") || strings.Contains(results["ended"], `"job"`) {
+			t.Fatalf("a job the provider ended answered %q", results["ended"])
+		}
+		// A job that was accepted and then lost names itself for a later call.
+		if !strings.Contains(results["lost"], `call generate_video again with "job": "video_2"`) {
+			t.Fatalf("a job lost after it was accepted answered %q", results["lost"])
+		}
+		saved, err := os.ReadFile(filepath.Join(root, "assets", "generated", "wave.mp4"))
+		if err != nil || !bytes.Equal(saved, movie) || !strings.Contains(results["fetched"], "assets/generated/wave.mp4") || !strings.Contains(results["fetched"], "video_2") {
+			t.Fatalf("the named job was not fetched: %d bytes, %v, %q", len(saved), err, results["fetched"])
+		}
+		if submitted := seen("/v1/videos"); len(submitted) != 2 || submitted[1]["prompt"] != "A wave" {
+			t.Fatalf("three calls submitted %d video jobs: %v", len(submitted), submitted)
+		}
+		// Only the call that saved the video counts its usage.
+		query := protocol.DefaultUsageQuery()
+		query.StartMs, query.EndMs, query.Dimension = time.Now().Add(-time.Hour).UnixMilli(), time.Now().Add(time.Hour).UnixMilli(), protocol.UsageDimensionModel
+		counted := 0
+		for _, item := range commandFixture(t, node, protocol.Command{Kind: "read_usage", Data: query}).Data.(protocol.UsageReport).Requests.Items {
+			if item.Session == session.ID && item.Model == "filmer" && item.Tokens.Input == 4 {
+				counted++
+			}
+		}
+		if counted != 1 {
+			t.Fatalf("the fetched video was counted %d times", counted)
+		}
+		inv := &store.AgentInvocation{Session: session}
+		inv.Worktree.Path = root
+		specs, err := operations.MediaSpecs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, spec := range specs {
+			kind, _ := mediaOperationKind(spec.Operation)
+			if kind == protocol.MediaKindVision {
+				continue
+			}
+			generate, err := node.mediaTool(inv, spec, kind, mediaRoute{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			jobs := []string{"video_9"}
+			if kind == protocol.MediaKindVideo {
+				jobs = []string{"", "..", "a/b", "a?b", strings.Repeat("a", 129)}
+			}
+			for _, job := range jobs {
+				arguments, _ := json.Marshal(map[string]string{"prompt": "A wave", "job": job})
+				err := generate.Prepare(t.Context(), canonical.ToolRequest{ID: "job", Arguments: arguments})
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest {
+					t.Fatalf("%s accepted the job %q: %v", spec.Name, job, err)
+				}
+			}
 		}
 	})
 
