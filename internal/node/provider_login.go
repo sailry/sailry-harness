@@ -31,7 +31,10 @@ func (node *Node) prepareAuthCommand(ctx context.Context, caller protocol.NodeID
 	default:
 		return protocol.Output{}, false, nil
 	}
-	if request.Plugin != nil {
+	// Provider accounts belong to the controller. Connector commands under a
+	// package scope were confined to that package by the plugin authority at
+	// admission (store.CheckPluginRequest, store.CheckPluginCardRequest).
+	if request.Plugin != nil && strings.HasSuffix(request.Command.Kind, "_provider_login") {
 		return protocol.Output{}, true, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "account authorization requires a controller"}
 	}
 	switch input := request.Command.Data.(type) {

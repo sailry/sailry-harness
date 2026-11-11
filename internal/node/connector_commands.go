@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -53,6 +54,8 @@ func (node *Node) prepareConnectorCommand(ctx context.Context, caller protocol.N
 		}
 		return protocol.Output{}, true, err
 	}
+	// A package sees only its own connector types and connections.
+	owned := func(name string) bool { return request.Plugin == nil || request.Plugin.Package.Name == name }
 	switch request.Command.Kind {
 	case "list_connector_types":
 		var values []protocol.PluginConnectorType
@@ -61,9 +64,11 @@ func (node *Node) prepareConnectorCommand(ctx context.Context, caller protocol.N
 			values, err = store.ConnectorTypes(ctx, db)
 			return err
 		})
+		values = slices.DeleteFunc(values, func(value protocol.PluginConnectorType) bool { return !owned(value.Package.Name) })
 		return protocol.Output{Kind: "connector_types", Data: values}, true, err
 	case "list_connections":
 		values, err := node.connectorConnections(ctx)
+		values = slices.DeleteFunc(values, func(value protocol.PluginConnectorConnection) bool { return !owned(value.Package.Name) })
 		return protocol.Output{Kind: "connections", Data: values}, true, err
 	}
 	return protocol.Output{}, false, nil

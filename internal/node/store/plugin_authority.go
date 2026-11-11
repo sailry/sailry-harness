@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -72,6 +73,14 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	}
 	if info.Summary.Compatibility.Kind != "compatible" || info.Extension == nil {
 		return fault(protocol.ErrorCodeNotConfigured, "plugin is incompatible")
+	}
+	if intrinsic, err := checkPluginConnectorRequest(ctx, db, request); err != nil {
+		return err
+	} else if intrinsic {
+		if !info.Summary.Enabled || plugins.PackageReference(info) != scope.Package {
+			return fault(protocol.ErrorCodePermissionDenied, "connector package is unavailable or changed")
+		}
+		return nil
 	}
 	action, allowed, err := PluginConnectionAction(ctx, db, request)
 	if err != nil {
@@ -332,4 +341,48 @@ func pluginSettingsAccess(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// checkPluginConnectorRequest reports whether the command is a connector
+// command every package may use without a declared action: its own public
+// connection state and its own browser login. The lists are filtered to the
+// calling package where they are answered; connection management stays with
+// the controller.
+func checkPluginConnectorRequest(ctx context.Context, db *sql.Conn, request protocol.Request) (bool, error) {
+	scope := request.Plugin
+	denied := func() error {
+		return fault(protocol.ErrorCodePermissionDenied, "connector belongs to another package or surface")
+	}
+	switch request.Command.Kind {
+	case "list_connector_types", "list_connections":
+		return true, nil
+	// The login owner binds input and cancellation to its original caller.
+	case "submit_connector_input", "cancel_connector_login":
+		return true, nil
+	case "start_connector_login":
+		input, err := providerPayload[protocol.CommandStartConnectorLoginPayload](request.Command)
+		if err != nil {
+			return false, err
+		}
+		if input.Package != scope.Package || scope.Turn != nil || scope.Invocation != nil || input.Input.Registration || len(input.Input.Secrets) != 0 ||
+			input.Method != protocol.PluginConnectorKindOauth2 && input.Method != protocol.PluginConnectorKindMcpOauth {
+			return false, denied()
+		}
+		if _, _, err := ConnectorDeclaration(ctx, db, input.Package, input.Connector); err != nil {
+			return false, err
+		}
+		if input.Connection != nil {
+			record, err := ReadConnectorRecord(ctx, db, *input.Connection)
+			if err != nil {
+				return false, err
+			}
+			if record.Plugin != input.Package.Name || record.Connector != input.Connector {
+				return false, denied()
+			}
+		}
+		return true, nil
+	case "inspect_connector_cli", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection":
+		return false, denied()
+	}
+	return false, nil
 }
