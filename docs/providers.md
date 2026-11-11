@@ -152,6 +152,20 @@ Unknown token counts remain unknown; an explicitly reported zero remains known.
 Summary requests retain provider/model/auth and use at most 8,000 output tokens or
 the smaller advertised limit, with the lowest declared reasoning choice.
 
+## Desktop channel editor
+
+The Desktop groups the preset directory by brand and treats each offered
+preset as one connection method whose routes are switched inside the
+configuration form; the model, the Add provider flow and what an edited
+channel keeps are in [settings.md](settings.md#brands-methods-and-routes).
+`save_provider` carries the chosen route as the preset reference's route key
+with the route's wire protocol as `api`, and a hosted route's product as the
+`hosted` connection option for the Chat Completions, Anthropic and DeepSeek
+protocols. `TestMediaSettings` drives the flow over the bundled catalog: the
+two groups and their members, a mark for every preset and brand, distinct
+method rows, the family filter's options, the protocol switch and the command
+a save sends.
+
 ## Validation and current boundaries
 
 The model tests cover semantic provider requests, stable prompt fields,

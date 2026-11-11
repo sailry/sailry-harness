@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -61,6 +62,19 @@ func Tile(c *ui.Context, name string, glyph *ui.SVG) {
 		// A name not given yet has no initial: the tile shows its tint alone.
 		if r := []rune(name); len(r) > 0 {
 			ui.Text(c, string(r[:1])).FontSize(TileSize * 5 / 9).FontWeight(600)
+		}
+	})
+}
+
+// Logo is a brand's mark (icons.BrandColor) in its own colors at size, a
+// mark without them in the text color, or the label's initial for a brand
+// the collection does not have.
+func Logo(c *ui.Context, brand, label string, size float32) {
+	ui.Row(c).Size(size, size).Shrink(0).Center().Children(func() {
+		if mark := icons.BrandColor(brand); mark != nil {
+			ui.Image(c, mark).Size(size, size)
+		} else if r := []rune(label); len(r) > 0 {
+			ui.Text(c, string(r[:1])).FontSize(size * 3 / 4).FontWeight(600)
 		}
 	})
 }

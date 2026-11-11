@@ -29,6 +29,7 @@ type Channel = viewmodel.Channel
 // Method is a way a brand is reached (directory entry route): its label,
 // how it is accessed, its API and endpoint.
 type Method = viewmodel.Method
+type Route = viewmodel.Route
 
 // Brand is a provider family in the directory.
 type Brand = viewmodel.Brand
@@ -79,7 +80,7 @@ func ProvidersData() *Providers {
 		},
 		Brands: []Brand{
 			{ID: "anthropic", Name: "Anthropic", Methods: []Method{
-				{ID: "claude-login", Name: "Claude", Access: "provider_access_login", API: "Anthropic Messages", Login: "provider_login_claude", OAuthFields: true},
+				{ID: "claude-login", Name: "Claude", Access: "provider_access_login", API: "Anthropic Messages", Login: "provider_login_claude", OAuthFields: true, Icon: "claude"},
 				{ID: "anthropic-key", Name: "Anthropic API", Access: "provider_access_key", API: "Anthropic Messages", KeyURL: "https://console.anthropic.com/settings/keys"},
 				{ID: "bedrock", Name: "Amazon Bedrock", Access: "provider_access_cloud", API: "Anthropic Messages"},
 			}},
@@ -101,7 +102,10 @@ func ProvidersData() *Providers {
 				{ID: "ollama-local", Name: "Ollama", Access: "provider_access_endpoint", API: "OpenAI Chat", Endpoint: "http://localhost:11434/v1", Custom: true},
 			}},
 			{ID: "custom", Name: "Custom", Methods: []Method{
-				{ID: "openai-compatible", Name: "OpenAI compatible", Access: "provider_access_endpoint", API: "OpenAI Chat", Custom: true},
+				{ID: "openai-compatible", Name: "OpenAI compatible", Access: "provider_access_endpoint", Routes: []Route{
+					{ID: "openai-compatible", API: "responses", Custom: true},
+					{ID: "openai-compatible-chat", API: "chat_completions", Custom: true},
+				}},
 				{ID: "anthropic-compatible", Name: "Anthropic compatible", Access: "provider_access_endpoint", API: "Anthropic Messages", Custom: true},
 			}},
 		},

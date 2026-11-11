@@ -125,7 +125,7 @@ MyGo bases.
 | `ui.Table`, `ui.List`, `ui.Divider`, `ui.Link` | Tabular file lists, the transcript's virtual list, separators, links | — | composer, conversation |
 | `ui.CollapsibleBase` | Collapsing sections | — | sidebar, settings |
 | `ui.Icon` | Monochrome glyphs from `internal/desktop/icons`, in the text color | Not for brand marks | everywhere |
-| `ui.Image` | Brand marks in their own colors (provider marks from Lobe Icons, `internal/desktop/icons/svg/PROVIDERS-SOURCE.md`) | — | settings |
+| `ui.Image` | Brand marks in their own colors (`icons.BrandColor`, from the AI Logo module; `kit.Logo` and a menu item's `Image`) | — | settings, plugins |
 | `ui.Themed` | A subtree with a changed MyGo theme | — | composer |
 
 ## Conventions
@@ -199,7 +199,14 @@ MyGo bases.
   with nothing to list says so in one muted line of its own row height, as
   `kit.Command` does.
 - Brand marks keep their own colors via `ui.Image`, never `ui.Icon`, which
-  tints. Provider marks come from Lobe Icons.
+  tints. Every brand mark comes from the AI Logo module through
+  `internal/desktop/icons`: `icons.BrandColor(id)` for `ui.Image`,
+  `icons.Brand(id)` (one color) where the surface tints its glyph, as a
+  `kit.Tile` and the model picker's rail. `icons.BrandSlug` is the one mapping
+  from the preset catalog's identifiers to the collection's slugs. `kit.Logo`
+  is a mark at a size with the label's initial for a brand the collection
+  lacks; `Item.Image` and `SelectOption.Image` put one before a menu item or
+  a `SelectField` option.
 
 ### Feedback
 

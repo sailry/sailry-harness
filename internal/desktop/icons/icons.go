@@ -1,8 +1,9 @@
 // Package icons holds Lucide icons (svg/LICENSE-LUCIDE), Reicon glyphs
-// (svg/LICENSE-REICON), Remix Icon status glyphs (svg/LICENSE-REMIX),
-// Simple Icons platform logos (svg/LICENSE-OS) and provider logos
-// (svg/PROVIDERS-SOURCE.md). Plugin asset provenance and upstream attributions
-// are retained in svg/PLUGINS-SOURCE.md. ui.Icon draws them in the text color.
+// (svg/LICENSE-REICON), Remix Icon status glyphs (svg/LICENSE-REMIX)
+// and Simple Icons platform logos (svg/LICENSE-OS). Plugin asset provenance
+// and upstream attributions are retained in svg/PLUGINS-SOURCE.md. ui.Icon
+// draws them in the text color. Brand marks come from the AI Logo collection
+// (brand.go).
 package icons
 
 import (
@@ -163,13 +164,6 @@ var (
 	SailryMark     = load("sailry-mark")
 	// A model that generates video (the media settings and capability marks).
 	Video = load("reicon-video-play")
-
-	Providers = map[string]*ui.SVG{
-		"anthropic": load("provider-anthropic"),
-		"openai":    load("provider-openai"),
-		"google":    load("provider-gemini"),
-		"deepseek":  load("provider-deepseek"),
-	}
 )
 
 // Capabilities are the marks of what a model understands and generates, by

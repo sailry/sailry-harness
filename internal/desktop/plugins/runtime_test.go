@@ -392,6 +392,8 @@ func TestElementMapping(t *testing.T) {
 		{"accordion", `new Accordion("accordion").child(new AccordionItem("item").child("Contents"))`},
 		{"icon", `new Icon("settings").size("small")`},
 		{"icon path", `new Icon("icons/chevron-left.svg").size("small")`},
+		{"brand icon", `new Icon("ailogo:claude-color")`},
+		{"brand icon in the text color", `new Icon("ailogo:openai")`},
 		{"tabs", `new TabBar("tabs").selected_index(1).menu(false).children([new Tab().label("One"),new Tab().label("Two")])`},
 		{"pagination", `new Pagination("pages").current_page(2).total_pages(5).visible_pages(3)`},
 		{"shimmer", `new ShimmerText("Pending").id("pending")`},
@@ -413,6 +415,22 @@ export default class Example extends View {render(){return `+current.expression+
 			tester.Frame()
 			if renderErr != nil {
 				t.Fatal(renderErr)
+			}
+			if strings.HasPrefix(current.name, "brand icon") {
+				// The mark draws: in its own color, or the text's.
+				frame, colored, inked := tester.Image(), 0, 0
+				for i := 0; i < len(frame.Pix); i += 4 {
+					red, green, blue := int(frame.Pix[i]), int(frame.Pix[i+1]), int(frame.Pix[i+2])
+					if red > 180 && red-blue > 80 && red-green > 60 {
+						colored++
+					}
+					if red < 120 && green < 120 && blue < 120 {
+						inked++
+					}
+				}
+				if own := current.name == "brand icon"; own && colored < 20 || !own && (inked < 20 || colored != 0) {
+					t.Fatalf("the brand mark drew %d pixels in its color and %d in the text's", colored, inked)
+				}
 			}
 			if current.name == "shimmer" && !tester.HasText("Pending") {
 				t.Fatal("the text constructor lost its content")
@@ -441,6 +459,8 @@ export default class Example extends View {render(){return `+current.expression+
 			"icons/remix/progress-4-line.svg", "icons/remix/progress-2-line.svg",
 			"icons/remix/progress-6-line.svg", "icons/remix/close-circle-line.svg",
 			"icons/remix/checkbox-blank-circle-line.svg", "calendar", "database", "play", "sliders-horizontal",
+			"ailogo:openai", "ailogo:claude", "ailogo:claude-color", "ailogo:gemini-color", "ailogo:deepseek-text",
+			"ailogo:alibaba-text-cn", "ailogo:alibaba-brand-color", "ailogo:ollama",
 		} {
 			icon, err := icons.Plugin(name)
 			if err != nil || icon == nil {
@@ -450,8 +470,13 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Fatalf("core and host resolve icon %q differently", name)
 			}
 		}
-		if _, err := icons.Plugin("reicon:missing/icon"); err == nil {
-			t.Fatal("unknown plugin icon was accepted")
+		for _, unknown := range []string{"reicon:missing/icon", "ailogo:missing-brand", "ailogo:openai-color", "ailogo:"} {
+			if _, err := icons.Plugin(unknown); err == nil {
+				t.Fatalf("unknown plugin icon %q was accepted", unknown)
+			}
+		}
+		if !icons.Colored("ailogo:claude-color") || icons.Colored("ailogo:claude") || icons.Colored("ailogo:openai-color") || icons.Colored("settings") {
+			t.Fatal("the names of marks in their own colors are told apart wrongly")
 		}
 	})
 	t.Run("scope rejects foreign package", func(t *testing.T) {

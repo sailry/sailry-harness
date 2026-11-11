@@ -287,6 +287,8 @@ func TestMediaSettings(t *testing.T) {
 		})
 	})
 
+	t.Run("the bundled presets' brands, filter and Add provider flow", testProviderFlow)
+
 	t.Run("a change during a read is read for, and an older answer is dropped", func(t *testing.T) {
 		await("the reads to rest", func() bool { return !r.media.reading })
 		var before int

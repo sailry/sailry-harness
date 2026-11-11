@@ -68,9 +68,15 @@ type MediaOption struct {
 	Kinds      []string
 }
 type Quota struct{ FiveHour, SevenDay float64 }
+
+// Channel is a configured provider. Brand is its family (Brand.ID) and
+// BrandName that family's name where no offered Brand has it. Icon is the
+// catalogue identifier of its mark (icons.Brand), Brand's when empty.
+// Method is the Route.ID it was saved with.
 type Channel struct {
 	Revision                  uint64
 	ID, Name, Brand           string
+	BrandName, Icon           string
 	Method                    string
 	API, Endpoint             string
 	Auth                      Auth
@@ -81,12 +87,40 @@ type Channel struct {
 	Quota                     *Quota
 	OAuth                     [4]string
 }
+
+// Route is one way a Method connects: its wire protocol, and the product
+// and region of a hosted service. A Method's routes differ in these only,
+// which the configuration form switches between.
+type Route struct {
+	// ID is what a channel saves as its Method; API its wire protocol
+	// (Channel.API).
+	ID, API string
+	// Endpoint is the route's address; Custom leaves it to the user.
+	Endpoint string
+	Custom   bool
+	// Product ("metered", "coding") and Region ("china", "global") are ""
+	// where the route has none; ProductName is the product's declared name.
+	Product, ProductName, Region string
+	// Models are the model IDs a new channel starts with.
+	Models []string
+}
+
+// Method is one way to add a channel of a Brand: an API connection or an
+// account sign-in (Login, the i18n key of the account's name). Access is the
+// i18n key of how it connects; Keyed asks for an API key whatever Access
+// says. Icon is the catalogue identifier of its mark. Routes are its
+// variants; without any the method is its only route (API, Endpoint,
+// Custom).
 type Method struct {
 	ID, Name, Access, API, Endpoint string
-	Custom                          bool
+	Custom, Keyed                   bool
 	Login, KeyURL                   string
 	OAuthFields                     bool
+	Icon                            string
+	Routes                          []Route
 }
+
+// Brand is a family of channels and the methods that add one.
 type Brand struct {
 	ID, Name string
 	Methods  []Method

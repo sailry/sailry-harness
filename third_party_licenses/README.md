@@ -12,7 +12,7 @@ single owning package, and this index lists every location.
 | ADK-Rust sandbox policy, adapted in `internal/node/process` | Apache-2.0 | [adk-support.md](adk-support.md), [adk-LICENSE](adk-LICENSE) |
 | OpenAI Codex patch format, adapted in `internal/node/files` | Apache-2.0 | [codex.md](codex.md), [codex-LICENSE](codex-LICENSE), [codex-NOTICE](codex-NOTICE) |
 | Agent Plugins schema in `schemas/agent-plugins` | Apache-2.0 | [agent-plugins.md](agent-plugins.md), [agent-plugins-Apache-2.0.txt](agent-plugins-Apache-2.0.txt) |
-| Lobe Icons provider marks in `internal/desktop/icons/svg` | MIT | [lobe-icons.txt](lobe-icons.txt) |
+| AI Logo brand marks, linked from `github.com/yldm-tech/ai-logo/mygo` and drawn through `internal/desktop/icons` | MIT, with per-brand terms | [ai-logo.md](ai-logo.md) |
 | libghostty-vt terminal engine, shipped by the MyGo terminal plugin | MIT | [ghostty-terminal.md](ghostty-terminal.md), [ghostty-MIT.txt](ghostty-MIT.txt) |
 | llama.cpp and ggml runtime | MIT | [llama.md](llama.md) |
 | LLVM OpenMP runtime in the Windows llama.cpp packages | Apache-2.0 with LLVM exceptions, MIT | [llvm-OpenMP-LICENSE](llvm-OpenMP-LICENSE) |
@@ -32,7 +32,7 @@ single owning package, and this index lists every location.
 | oh-my-pi Claude wire behavior in model and provider code | `internal/node/agent/model/LICENSE.omp`, `internal/node/providers/LICENSE.omp` |
 | GPUI Kit color names | `internal/desktop/theme/LICENSE.gpui-kit` |
 | GPUI shell plugin prelude | `internal/desktop/plugins/js/LICENSE.gpui-shell`, `internal/desktop/plugins/js/SOURCE` |
-| Reicon, Remix Icon, Lucide and Simple Icons platform logos | `internal/desktop/icons/svg/LICENSE-*`, `PLUGINS-SOURCE.md` and `PROVIDERS-SOURCE.md` in the same directory |
+| Reicon, Remix Icon, Lucide and Simple Icons platform logos | `internal/desktop/icons/svg/LICENSE-*` and `PLUGINS-SOURCE.md` in the same directory |
 | Latin Modern Math font | `internal/desktop/conversation/LICENSE-LATIN-MODERN-MATH` |
 | html2canvas, ECharts, MathJax and Mermaid export assets | `internal/desktop/exporter/assets/*-LICENSE`, `echarts-NOTICE` and `provenance.json` in the same directory |
 | llama.cpp, ONNX Runtime and agent-desktop runtimes | `native/llama-LICENSE`, `native/onnxruntime-LICENSE`, `native/agent-desktop-LICENSE` and the lock files beside them |

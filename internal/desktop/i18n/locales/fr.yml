@@ -1040,6 +1040,14 @@ provider_save_login: Enregistrer et se connecter
 provider_access_login: Connexion au compte
 provider_name_hint: Entrez le nom du fournisseur
 provider_api: API protocole
+provider_api_responses: Responses
+provider_api_chat_completions: Chat Completions
+provider_product: Produit
+provider_metered: Paiement à l’usage
+provider_coding: Forfait de programmation
+provider_region: Région
+provider_region_china: Chine
+provider_region_global: Mondial
 provider_endpoint: Point de terminaison API
 provider_endpoint_hint: https://api.example.com/v1
 provider_key_hint: Entrez la clé API

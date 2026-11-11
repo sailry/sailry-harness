@@ -515,6 +515,20 @@ Set `fill: true` for equal-width choices across a modal form; it defaults to
 false so page and toolbar tabs retain their content widths. Selection events
 retain the same `{id, value}` payload.
 
+Icon names in view components and menu items also accept `ailogo:<slug>`, a
+brand mark of the [AI Logo](https://ailogo.yldm.ai/) collection the Desktop
+links: `ailogo:openai`, `ailogo:claude`. The slug is the collection's own, in
+lower case. A suffix chooses a variant where the brand has it: `-color` (the
+mark in its own colors), `-text` (the wordmark), `-text-color`, `-text-cn`,
+`-brand` (mark and wordmark) and `-brand-color`; without a suffix the mark is
+one color. The `Icon` component draws a `-color` variant in the brand's colors
+and every other variant in the text color; menu items, table lines and other
+tinted places draw any variant as a one-color shape. A name the collection
+lacks behaves as any unknown icon name does. Existing names are unchanged, and
+a manifest's navigation icon still takes a `reicon:` name or its own SVG. Brand
+names and logos are trademarks of their owners: use a mark only to identify
+that owner's product or service, unmodified, and not to suggest endorsement.
+
 `confirmAction({title, detail, action})` from `sailry/ui` shows the application's OS-native warning dialog with Cancel and the given action label. It resolves `true` only when the action is chosen; a closed view, missing window or another open prompt resolves `false`. Use it for actions that affect state outside the package, such as switching a shared checkout.
 
 `Loading.new(id)` from `sailry/ui` is a nonvisual pending marker. Reads load

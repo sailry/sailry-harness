@@ -1040,6 +1040,14 @@ provider_save_login: Сохранить и войти
 provider_access_login: Вход через учетную запись
 provider_name_hint: Введите имя поставщика
 provider_api: API протокол
+provider_api_responses: Responses
+provider_api_chat_completions: Chat Completions
+provider_product: Продукт
+provider_metered: Оплата по использованию
+provider_coding: Тариф для программирования
+provider_region: Регион
+provider_region_china: Китай
+provider_region_global: Глобальный
 provider_endpoint: Конечная точка API
 provider_endpoint_hint: https://api.example.com/v1
 provider_key_hint: Введите ключ API

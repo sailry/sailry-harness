@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -313,6 +314,25 @@ func TestModelPickerAndEffort(t *testing.T) {
 	}
 	if !tt.HasText(i18n.In("en", "composer_effort_unavailable")) {
 		t.Errorf("no default effort for a model without reasoning: %q", tt.Texts())
+	}
+	// The list's rail names each family by its brand's mark.
+	clickButton(t, tt, "Claude Haiku 5.5")
+	for _, family := range []string{"provider_anthropic", "provider_openai", "provider_gemini"} {
+		if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", family)); !ok {
+			t.Errorf("the rail lacks %q", family)
+		}
+	}
+	for _, id := range []string{"anthropic", "openai", "gemini"} {
+		if icons.Brand(id) == nil {
+			t.Errorf("family %q has no mark", id)
+		}
+	}
+	tt.SetLocale("zh-CN")
+	for _, dark := range []bool{false, true} {
+		tt.SetDark(dark)
+		tt.Advance(time.Second)
+		tt.Frame()
+		snapshot(t, tt, "model-picker-families-"+map[bool]string{false: "light", true: "dark"}[dark])
 	}
 }
 

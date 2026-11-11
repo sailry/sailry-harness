@@ -1059,6 +1059,14 @@ provider_save_login
 provider_access_login
 provider_name_hint
 provider_api
+provider_api_responses
+provider_api_chat_completions
+provider_product
+provider_metered
+provider_coding
+provider_region
+provider_region_china
+provider_region_global
 provider_endpoint
 provider_endpoint_hint
 provider_key_hint

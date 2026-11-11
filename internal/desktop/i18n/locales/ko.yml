@@ -1040,6 +1040,14 @@ provider_save_login: 저장 후 로그인
 provider_access_login: 계정 로그인
 provider_name_hint: 공급자 이름 입력
 provider_api: API 프로토콜
+provider_api_responses: Responses
+provider_api_chat_completions: Chat Completions
+provider_product: 상품
+provider_metered: 사용량 기반
+provider_coding: 코딩 플랜
+provider_region: 지역
+provider_region_china: 중국
+provider_region_global: 글로벌
 provider_endpoint: API 엔드포인트
 provider_endpoint_hint: https://api.example.com/v1
 provider_key_hint: API 키 입력

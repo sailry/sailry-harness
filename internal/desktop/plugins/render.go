@@ -350,7 +350,12 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 		if err != nil {
 			return ui.Element{}, err
 		}
-		result = ui.Icon(context, icon)
+		if icons.Colored(name) {
+			// A brand mark in its own colors, at an icon's default size.
+			result = ui.Image(context, icon).Size(16, 16)
+		} else {
+			result = ui.Icon(context, icon)
+		}
 	case "Tag", "Badge":
 		result = kit.Tag(context, label)
 	case "Editor", "Input", "Textarea", "NumberInput", "OtpInput":
