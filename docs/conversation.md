@@ -587,7 +587,11 @@ without an owner.
   too and ends `cancelled`. Any other ended turn closes its leftover interactions as
   `cancelled`. Completion hooks run only for turns that ran to their end: the
   hook binding is bound to the turn's stop and runs nothing once it is
-  stopped or the Node is stopping.
+  stopped or the Node is stopping. The Turn End hook receives
+  `SAILRY_HOOK_STATUS` `completed` or `failed`, as in the reference; After
+  Tool hooks receive `succeeded` or `failed`. Hooks run only for task turns
+  outside Plan mode, which also excludes read-only sub-agents because their
+  session runs in Plan mode (`engine.TestTurnEndHookStatus`).
 - **Attention.** The session becomes unread when a main task turn ends
   `completed`, `failed` or `interrupted`. Stopped turns, compaction runs and
   child runs do not raise it.

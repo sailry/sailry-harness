@@ -71,7 +71,9 @@ func (r *Runtime) execute(x *execution) {
 	// Completion hooks belong to turns that ran to their end. A stopped turn
 	// and a stopping Node run none.
 	if x.ctx.Err() == nil {
-		hookStatus := "succeeded"
+		// The Turn End status is the turn's: completed or failed. After Tool
+		// hooks report a call as succeeded or failed.
+		hookStatus := "completed"
 		if status != protocol.ConversationStatusCompleted {
 			hookStatus = "failed"
 		}

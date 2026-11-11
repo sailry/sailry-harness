@@ -17,6 +17,7 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -842,6 +843,67 @@ func TestTurnSettlement(t *testing.T) {
 			t.Fatal("repeated settlement replayed the model")
 		}
 	})
+}
+
+func TestTurnEndHookStatus(t *testing.T) {
+	for _, row := range []struct {
+		name    string
+		scripts []script
+		status  protocol.ConversationStatus
+		want    []string
+	}{
+		{"completed turn", []script{response(text("Done"), finish())}, protocol.ConversationStatusCompleted, []string{"completed"}},
+		{"failed turn", []script{response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})}, protocol.ConversationStatusFailed, []string{"failed"}},
+		{"stopped turn", nil, protocol.ConversationStatusCancelled, nil},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			started := make(chan struct{}, 1)
+			scripts := row.scripts
+			if scripts == nil {
+				scripts = []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+					started <- struct{}{}
+					<-ctx.Done()
+				}}
+			}
+			f := newFixture(t, &scriptedModel{scripts: scripts})
+			var mu sync.Mutex
+			var statuses []string
+			f.r.hooksForTurn = func(ctx context.Context, inv *store.AgentInvocation) *hooks.Binding {
+				return hooks.New(hooks.Capture{
+					Admitted: true,
+					Turn:     inv.Run.Turn,
+					Stop:     ctx,
+					Settings: protocol.HooksSettings{Enabled: true, TurnEnd: &protocol.HooksScript{Enabled: true, Command: "fixture", TimeoutMs: 1000}},
+					Claim:    func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64) error { return nil },
+					Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
+						return nil
+					},
+					Launch: func(_ context.Context, _ string, _ uint64, environment map[string]string) (protocol.ProcessCompletion, error) {
+						mu.Lock()
+						statuses = append(statuses, environment["SAILRY_HOOK_STATUS"])
+						mu.Unlock()
+						return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+					},
+				})
+			}
+			f.start()
+			turn := f.submit("Initial")
+			if row.scripts == nil {
+				select {
+				case <-started:
+				case <-f.ctx.Done():
+					t.Fatal("model step did not start")
+				}
+				f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+			}
+			f.waitRun(turn, row.status)
+			mu.Lock()
+			defer mu.Unlock()
+			if !reflect.DeepEqual(statuses, row.want) {
+				t.Fatalf("turn end hook statuses %v, want %v", statuses, row.want)
+			}
+		})
+	}
 }
 
 func TestGuidanceBatch(t *testing.T) {
