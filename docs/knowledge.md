@@ -67,6 +67,22 @@ and scope, scans the source and replaces what changed.
   the reason, the others continue, and it is retried on the same timer three
   times.
 
+- Owners: every pass first deletes the collections whose owner was removed
+  (`store.RemoveOrphanedKnowledge`) and announces
+  `knowledge_collections_changed`; the same pass drops their derived index.
+  A worktree source goes with its worktree, with the project that owns the
+  worktree, or, for a conversation's scratch worktree, with the last
+  conversation using it. A conversation storage source goes with its
+  conversation. A collection owned by a package goes when the package is
+  removed; a disabled package keeps its collections. `remove_worktree`,
+  `remove_project`, `remove_session`, `remove_sessions` and `remove_plugin`
+  request a pass, and a pass at Node start covers a removal that was
+  interrupted. Directory and file sources have no owner inside Sailry and
+  stay until they are deleted. Adding the project or installing the package
+  again does not bring a removed collection back, except an automatic
+  collection, which registers again. `create_knowledge_collection` removes
+  orphans before it refuses for capacity.
+
 Reactions (`reactKnowledge`): a changed embedding choice or installed
 embedding set invalidates the pass, and saving the choice advances the
 generation of collections without their own model so their vectors are
@@ -122,9 +138,9 @@ without creating one (`store/knowledge_semantic.go`).
 - Each storage write of the package advances the generation of its automatic
   collections, which reports them pending until the next pass. A newer
   installed package version replaces the captured one.
-- Never removed automatically. They do not count toward the limit of 128
-  collections. A controller may delete one; the next registration creates it
-  again.
+- Removed only with their package ([owners](#indexing)). They do not count
+  toward the limit of 128 collections. A controller may delete one; the next
+  registration creates it again.
 
 ### Refresh triggers
 
@@ -215,7 +231,9 @@ turns in which the bundled memory package's `save_memory`, `search_memory`
 and `forget_memory` feed, search and empty its automatic collection, then
 covers explicit node and conversation storage collections: rejections,
 scoping between packages and conversations, citations, embedding only changed
-values, removal and a restart. It replaces
+values, removal and a restart, and that a collection and its derived index
+leave with its conversation, project or package while a disabled package
+keeps its own. It replaces
 the embedding capabilities through the unexported `Options.knowledge` seam.
 `TestScriptSDK` covers the storage draft of `prepareKnowledgeCollection`.
 
@@ -229,6 +247,7 @@ the embedding capabilities through the unexported `Options.knowledge` seam.
 | Globs use the package's translator; chunk keys and scope hashes hash Go's JSON encoding | No byte compatibility with a reference index is required; indexes are derived data |
 | Directory entries are scanned in sorted order | Deterministic passes and tests |
 | A source that cannot be read is recorded in `progress.failed` and `progress.failures`, the pass continues and the source is retried a bounded number of times; an unreadable directory no longer fails the pass as incomplete, and a failed collection carries its reason | The reference ends the pass at the first fault other than `InvalidRequest`, so every later file stays unindexed, reports the collection paused with the reason only in its log and never retries |
+| A collection is deleted with its worktree, project, conversation or package; the reference never removes one | An orphan failed every pass, kept its vectors and used one of the 128 places. Ownership is reconciled by the pass instead of in each removal transaction, so no removal path can miss it |
 | Watches go through `internal/node/fswatch` ([files.md](files.md#file-watches)): on macOS one FSEvents stream per source root, filtered to the scanned directories; elsewhere one fsnotify watch per scanned directory | The reference watches each scanned directory; fsnotify on macOS would hold a descriptor per file. A failed backend falls back to the five-minute poll |
 | The OCR extractor signature is the hash of the selected OCR resource | It changes exactly when recognized text may change |
 | Durable knowledge mutations complete inside `Dispatch` | They are single short transactions |

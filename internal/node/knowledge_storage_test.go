@@ -323,6 +323,8 @@ func TestKnowledgeStorage(t *testing.T) {
 		return script.results[id]
 	}
 	memory := func(name string) string { return operations.Alias("memory", name) }
+	// talk is the conversation whose values "Conversation notes" indexes.
+	var talk protocol.Session
 	const preference = "Use the vector editor theme"
 
 	t.Run("memory tools feed an automatic collection", func(t *testing.T) {
@@ -479,7 +481,7 @@ func TestKnowledgeStorage(t *testing.T) {
 		config := protocol.DefaultSessionConfig()
 		config.Provider, config.Model, config.Mode, config.Permission = provider.ID, "fixture", protocol.WorkModeCode, protocol.PermissionFull
 		session, _ := dispatchPayload[protocol.Session](must("", "create_session", protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}).Data)
-		conversation = &session
+		conversation, talk = &session, session
 		must(notes, "create_knowledge_collection", storage(protocol.PluginStorageScopeConversation, "Conversation notes", "talk/"))
 		must(notes, "write_plugin_conversation_value", &protocol.CommandWritePluginConversationValuePayload{Key: "talk/a", Value: json.RawMessage(`"epsilon remark"`)})
 		ready("Conversation notes", 1)
@@ -544,6 +546,90 @@ func TestKnowledgeStorage(t *testing.T) {
 		}
 		if found := values("memory", "Friday"); len(found.Entries) != 1 {
 			t.Fatalf("memory values after restart = %+v", found)
+		}
+	})
+
+	t.Run("collections leave with their owner", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(root, "guide.md"), []byte("# Guide\n\nzeta handbook\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		must("", "create_knowledge_collection", &protocol.CommandCreateKnowledgeCollectionPayload{Definition: protocol.KnowledgeDefinition{
+			Name: "Project files", Globs: []string{"*.md"}, Tags: []string{}, SharedWith: []string{},
+			Source: protocol.KnowledgeSource{Kind: "worktree", Data: &protocol.KnowledgeSourceWorktreePayload{Worktree: talk.Worktree, Path: ""}},
+		}})
+		ready("Project files", 1)
+		ready("Conversation notes", 1)
+		indexed := func() (ids []string) {
+			t.Helper()
+			if err := node.profile.Store.Knowledge.Read(t.Context(), func(db *sql.Conn) error {
+				rows, err := db.QueryContext(t.Context(), "SELECT id FROM collections ORDER BY id")
+				if err != nil {
+					return err
+				}
+				defer rows.Close()
+				for rows.Next() {
+					var id string
+					if err := rows.Scan(&id); err != nil {
+						return err
+					}
+					ids = append(ids, id)
+				}
+				return rows.Err()
+			}); err != nil {
+				t.Fatal(err)
+			}
+			return ids
+		}
+		// gone waits until the collection and its derived index are removed.
+		gone := func(names ...string) {
+			t.Helper()
+			var ids []string
+			for _, name := range names {
+				current := collection(name)
+				if current == nil {
+					t.Fatalf("%s does not exist before its owner is removed", name)
+				}
+				ids = append(ids, current.ID.String())
+			}
+			eventually(strings.Join(names, ", ")+" removal", func() bool {
+				for _, name := range names {
+					if collection(name) != nil {
+						return false
+					}
+				}
+				left := indexed()
+				return !slices.ContainsFunc(ids, func(id string) bool { return slices.Contains(left, id) })
+			})
+		}
+
+		revision := func() uint64 {
+			t.Helper()
+			var installed *protocol.PluginInfo
+			if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) (err error) {
+				installed, err = store.ReadPlugin(t.Context(), db, notes)
+				return err
+			}); err != nil || installed == nil {
+				t.Fatalf("notes package = %+v, %v", installed, err)
+			}
+			return installed.Summary.Revision
+		}
+
+		// A disabled package still owns its collections: the pass that
+		// removes the conversation's collection keeps the others.
+		must("", "set_plugin_enabled", &protocol.CommandSetPluginEnabledPayload{Name: notes, Enabled: false, ExpectedRevision: revision()})
+		must("", "remove_session", &protocol.CommandRemoveSessionPayload{Session: talk.ID, ExpectedRevision: talk.Revision})
+		gone("Conversation notes")
+		if collection("Notes") == nil || collection("Other notes") == nil || collection("Project files") == nil {
+			t.Fatal("removing a conversation removed a collection it does not own")
+		}
+
+		must("", "remove_project", &protocol.CommandRemoveProjectPayload{Expected: project})
+		gone("Project files")
+
+		must("", "remove_plugin", &protocol.CommandRemovePluginPayload{Name: notes, ExpectedRevision: revision()})
+		gone("Notes", "Other notes")
+		if collection("memory storage") == nil {
+			t.Fatal("removing a package removed another package's collection")
 		}
 	})
 }
