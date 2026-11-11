@@ -6,6 +6,10 @@ gocron. Desktop and Host share this calendar authority.
 
 Weekly schedules use IANA zones and local weekdays/wall time. Missing times are
 skipped; ambiguous times select the earlier occurrence and consume it once.
+A wall time inside a daylight-saving gap, or on a day the zone never had, has
+no occurrence that day and is not moved to another time: a daily 02:30 does not
+run on the night the clocks go forward. Rust does the same (`calendar.rs`,
+`earliest()`).
 A late observation coalesces missed ticks to the latest due occurrence, retaining
 exact `scheduled_ms`. Durable cursor consumption leaves the user revision intact.
 
@@ -42,6 +46,30 @@ Deviation from Rust: Rust arms one `tokio::time::sleep` for the whole delay
 and has no recheck. The delay there is hidden by a wake of the runner on every
 admitted request and by a keep-awake that holds whenever its setting is on;
 neither holds for an idle Go Node, so the recheck replaces both.
+
+## Restart, edits and removal
+
+A tick consumes a due occurrence and claims its job in one write, so a restart
+cannot fall between the two. A callback that was claimed but whose outcome was
+not recorded when the Node stopped is not replayed: its job becomes `unknown`,
+with one error notice, and the schedule goes on with its next occurrence. A
+turn the callback had already admitted is resumed and observed to its end. An
+occurrence therefore runs at most once; "exactly once" is not promised for a
+callback interrupted by a stop, as in Rust.
+
+A job carries the event, payload and callback it was fired with. Editing a
+schedule's payload or switch keeps its cursor and does not touch a run in
+flight; a new timing starts the cursor over (`dispatch.First`), and if that is
+due at once while the previous run is unfinished the occurrence is skipped
+under the overlap rule rather than started beside it. Removing a schedule
+stops later occurrences only: its run in flight finishes and is recorded.
+
+A one-time schedule fires once, late if its time was missed, and then has no
+next time; saving it again with the same time does not fire it again, a new
+time does. The reminders package builds on exactly this: one `once` schedule
+and one handler per reminder, completion disables the schedule, a changed due
+time is a new timing, and its callback ignores a fire whose reminder changed
+meanwhile. It has no snooze, here or in Rust.
 
 ## Overlap
 

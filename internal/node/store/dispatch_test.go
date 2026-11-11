@@ -352,6 +352,200 @@ func TestDispatchContracts(test *testing.T) {
 			return err
 		})
 	})
+	test.Run("restart_in_the_middle_of_a_fire_does_not_run_it_again", func(test *testing.T) {
+		fixture := newDispatchFixture(test, "every")
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			item := protocol.DispatchSchedule{ID: protocol.NewScheduleID(), Enabled: true, Topic: "every", Payload: json.RawMessage("null"),
+				Timing: protocol.DispatchTiming{Kind: "every", Data: protocol.DispatchTimingEveryPayload{AnchorMs: 1000, IntervalMs: 1000}}}
+			if _, err := saveDispatchSchedule(ctx, db, fixture.reference.Name, item, 0); err != nil {
+				return err
+			}
+			// One tick consumes the occurrence and claims its job in one write,
+			// so no restart can fall between the two.
+			batch, _, err := DispatchTick(ctx, db, fixture.node, 1500, false)
+			if err != nil {
+				return err
+			}
+			if len(batch.Work) != 1 {
+				return fmt.Errorf("the due occurrence was not claimed: %+v", batch)
+			}
+			fired := batch.Work[0].Job
+			// The Node stops before the callback's outcome is recorded. The
+			// next start neither replays it nor fires the occurrence again,
+			// and says so once.
+			notices := 0
+			for range 2 {
+				batch, events, err := DispatchTick(ctx, db, fixture.node, 1600, true)
+				if err != nil {
+					return err
+				}
+				if len(batch.Work) != 0 {
+					return fmt.Errorf("a restart ran the interrupted occurrence again: %+v", batch.Work)
+				}
+				for _, event := range events {
+					if event.Kind == "notification_changed" {
+						notices++
+					}
+				}
+			}
+			page, err := listDispatchJobs(ctx, db, fixture.reference.Name, nil, 100)
+			if err != nil {
+				return err
+			}
+			if len(page.Jobs) != 1 || page.Jobs[0].ID != fired || page.Jobs[0].Status != protocol.DispatchStatusUnknown || notices != 1 {
+				return fmt.Errorf("interrupted occurrence: %+v, %d notices", page.Jobs, notices)
+			}
+			// The schedule itself goes on with its next occurrence.
+			batch, _, err = DispatchTick(ctx, db, fixture.node, 2500, true)
+			if err != nil {
+				return err
+			}
+			page, err = listDispatchJobs(ctx, db, fixture.reference.Name, nil, 100)
+			if err == nil && (len(batch.Work) != 1 || len(page.Jobs) != 2 || page.Jobs[0].Event.ScheduledMs == nil || *page.Jobs[0].Event.ScheduledMs != 2000) {
+				return fmt.Errorf("the occurrence after the restart did not run once: %+v", page.Jobs)
+			}
+			return err
+		})
+	})
+	test.Run("schedule_edit_and_removal_leave_the_run_in_flight", func(test *testing.T) {
+		fixture := newDispatchFixture(test, "every")
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			item := protocol.DispatchSchedule{ID: protocol.NewScheduleID(), Enabled: true, Topic: "every", Payload: json.RawMessage(`"first"`),
+				Timing: protocol.DispatchTiming{Kind: "every", Data: protocol.DispatchTimingEveryPayload{AnchorMs: 1000, IntervalMs: 1000}}}
+			item, err := saveDispatchSchedule(ctx, db, fixture.reference.Name, item, 0)
+			if err != nil {
+				return err
+			}
+			batch, _, err := DispatchTick(ctx, db, fixture.node, 1500, false)
+			if err != nil {
+				return err
+			}
+			if len(batch.Work) != 1 {
+				return fmt.Errorf("the due occurrence was not claimed: %+v", batch)
+			}
+			running := batch.Work[0].Job
+			status := func() (protocol.DispatchJob, error) {
+				return dispatchRequired[protocol.DispatchJob](ctx, db, "dispatch_jobs", fixture.reference.Name, "id", running.String())
+			}
+			// A new timing starts over at its anchor, which is already due:
+			// the edit must not start a second run beside the one in flight.
+			item.Payload = json.RawMessage(`"second"`)
+			item.Timing.Data = protocol.DispatchTimingEveryPayload{AnchorMs: 1000, IntervalMs: 500}
+			if item, err = saveDispatchSchedule(ctx, db, fixture.reference.Name, item, 1600); err != nil {
+				return err
+			}
+			if batch, _, err = DispatchTick(ctx, db, fixture.node, 1700, false); err != nil {
+				return err
+			}
+			page, err := listDispatchJobs(ctx, db, fixture.reference.Name, nil, 100)
+			if err != nil {
+				return err
+			}
+			if len(batch.Work) != 0 || len(page.Jobs) != 2 || page.Jobs[0].Status != protocol.DispatchStatusCancelled ||
+				page.Jobs[0].Error == nil || page.Jobs[0].Error.Code != protocol.ErrorCodeBusy {
+				return fmt.Errorf("an edit started a second run: %+v", page.Jobs)
+			}
+			// The run in flight keeps the payload it was fired with.
+			job, err := status()
+			if err != nil {
+				return err
+			}
+			if job.Status != protocol.DispatchStatusRunning || string(job.Event.Payload) != `"first"` {
+				return fmt.Errorf("the edit changed the run in flight: %+v", job)
+			}
+			// Removing the schedule stops later occurrences, not this run.
+			if _, _, err := ExecuteDispatchAdmitted(ctx, db, fixture.node, fixture.reference, protocol.DispatchCommand{Kind: "remove_schedule",
+				Data: protocol.DispatchCommandRemoveSchedulePayload{ID: item.ID, ExpectedRevision: item.Revision}}, 1800); err != nil {
+				return err
+			}
+			if job, err = status(); err != nil {
+				return err
+			}
+			if job.Status != protocol.DispatchStatusRunning {
+				return fmt.Errorf("removing the schedule ended its run: %+v", job)
+			}
+			if _, err := FinishDispatch(ctx, db, running, nil, 1900); err != nil {
+				return err
+			}
+			if batch, _, err = DispatchTick(ctx, db, fixture.node, 9000, false); err != nil {
+				return err
+			}
+			page, err = listDispatchJobs(ctx, db, fixture.reference.Name, nil, 100)
+			if err == nil && (len(batch.Work) != 0 || batch.NextMs != nil || len(page.Jobs) != 2 || page.Jobs[1].Status != protocol.DispatchStatusCompleted) {
+				return fmt.Errorf("a removed schedule fired or its run was lost: %+v", page.Jobs)
+			}
+			return err
+		})
+	})
+	// A reminder is a one-time schedule with its own handler: completing it
+	// disables the schedule and a new due time is a new timing.
+	test.Run("one_time_schedule_fires_once_and_again_only_for_a_new_time", func(test *testing.T) {
+		fixture := newDispatchFixture(test, "once")
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			at := func(due int64) protocol.DispatchTiming {
+				return protocol.DispatchTiming{Kind: "once", Data: protocol.DispatchTimingOncePayload{AtMs: due}}
+			}
+			item, err := saveDispatchSchedule(ctx, db, fixture.reference.Name, protocol.DispatchSchedule{
+				ID: protocol.NewScheduleID(), Enabled: true, Topic: "once", Payload: json.RawMessage("null"), Timing: at(5000)}, 0)
+			if err != nil {
+				return err
+			}
+			// tick reports the jobs started and finishes them.
+			tick := func(timestamp int64) ([]int64, *int64, error) {
+				batch, _, err := DispatchTick(ctx, db, fixture.node, timestamp, false)
+				if err != nil {
+					return nil, nil, err
+				}
+				scheduled := []int64{}
+				for _, work := range batch.Work {
+					job, err := dispatchRequired[protocol.DispatchJob](ctx, db, "dispatch_jobs", fixture.reference.Name, "id", work.Job.String())
+					if err != nil {
+						return nil, nil, err
+					}
+					scheduled = append(scheduled, *job.Event.ScheduledMs)
+					if _, err := FinishDispatch(ctx, db, work.Job, nil, timestamp); err != nil {
+						return nil, nil, err
+					}
+				}
+				return scheduled, batch.NextMs, nil
+			}
+			save := func(change func(*protocol.DispatchSchedule), timestamp int64) error {
+				change(&item)
+				var err error
+				item, err = saveDispatchSchedule(ctx, db, fixture.reference.Name, item, timestamp)
+				return err
+			}
+			for _, step := range []struct {
+				name      string
+				change    func(*protocol.DispatchSchedule)
+				timestamp int64
+				fired     []int64
+				next      int64
+			}{
+				{"waits for its time", nil, 4000, []int64{}, 5000},
+				{"completed before its time stays silent", func(item *protocol.DispatchSchedule) { item.Enabled = false }, 6000, []int64{}, 0},
+				{"reopened after its time fires once, late", func(item *protocol.DispatchSchedule) { item.Enabled = true }, 6500, []int64{5000}, 0},
+				{"never fires twice", nil, 7000, []int64{}, 0},
+				{"an edit of its text does not fire it again", func(item *protocol.DispatchSchedule) { item.Payload = json.RawMessage(`"text"`) }, 7500, []int64{}, 0},
+				{"a new time arms it again", func(item *protocol.DispatchSchedule) { item.Timing = at(9000) }, 8000, []int64{}, 9000},
+				{"and fires at the new time", nil, 9500, []int64{9000}, 0},
+			} {
+				if step.change != nil {
+					if err := save(step.change, step.timestamp); err != nil {
+						return fmt.Errorf("%s: %w", step.name, err)
+					}
+				}
+				fired, next, err := tick(step.timestamp)
+				if err != nil {
+					return fmt.Errorf("%s: %w", step.name, err)
+				}
+				if !reflect.DeepEqual(fired, step.fired) || (next == nil) != (step.next == 0) || next != nil && *next != step.next {
+					return fmt.Errorf("%s: fired %v, next %v", step.name, fired, next)
+				}
+			}
+			return nil
+		})
+	})
 	test.Run("retained_version_requires_claimed_request", func(test *testing.T) {
 		fixture := newDispatchFixture(test, "retained")
 		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
