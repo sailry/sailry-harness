@@ -329,6 +329,22 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 	_, err = startQueued(ctx, db, turn)
 	return err
 }
+
+// releaseGuidance returns guidance its finished recipient never joined to the
+// ordinary queue. It keeps its place and readiness, so it starts by the queue
+// rules: at once after a turn that left the queue running, or on Send now or
+// Resume after a stop.
+func releaseGuidance(ctx context.Context, db *sql.Conn, recipient protocol.ConversationRun) error {
+	result, err := db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient=?1", recipient.Turn.String())
+	if err != nil {
+		return err
+	}
+	released, err := result.RowsAffected()
+	if err != nil || released == 0 {
+		return err
+	}
+	return bumpQueue(ctx, db, recipient.Session)
+}
 func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) ([]AgentGuidance, []protocol.Event, error) {
 	target, err := ReadAgentRun(ctx, db, recipient)
 	if err != nil {

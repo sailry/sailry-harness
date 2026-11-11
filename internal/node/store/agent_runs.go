@@ -424,7 +424,14 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err != nil {
 		return run, nil, err
 	}
-	if run.Status == protocol.ConversationStatusStopping && status == protocol.ConversationStatusCompleted {
+	origin, err := readDelegation(ctx, db, turn)
+	if err != nil {
+		return run, nil, err
+	}
+	// stop_turn already paused the queue; whatever resumed it since then, such
+	// as Send now, is the user's later decision and is not undone here.
+	stopped := run.Status == protocol.ConversationStatusStopping
+	if stopped && status == protocol.ConversationStatusCompleted {
 		status = protocol.ConversationStatusInterrupted
 	}
 	run.Status = status
@@ -440,7 +447,25 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err = closeInteractions(ctx, db, turn, "interrupted"); err != nil {
 		return run, nil, err
 	}
-	if failure != nil || status == protocol.ConversationStatusFailed || status == protocol.ConversationStatusInterrupted || status == protocol.ConversationStatusCancelled {
+	pause := false
+	if origin != nil {
+		pause = failure != nil || status != protocol.ConversationStatusCompleted
+	} else {
+		// Guidance its recipient never joined becomes ordinary queued input.
+		if err = releaseGuidance(ctx, db, run); err != nil {
+			return run, nil, err
+		}
+		if !stopped {
+			// A failed turn keeps the queue and automatic delivery running.
+			// Only a lost owner or input that never reached history holds them.
+			retained, e := retainedTurn(ctx, db, turn)
+			if e != nil {
+				return run, nil, e
+			}
+			pause = status == protocol.ConversationStatusInterrupted || retained
+		}
+	}
+	if pause {
 		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
 			return run, nil, err
 		}
@@ -449,10 +474,6 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		return run, nil, err
 	}
 	events, err := activityEvent(ctx, db, run.Session)
-	if err != nil {
-		return run, nil, err
-	}
-	origin, err := readDelegation(ctx, db, turn)
 	if err != nil {
 		return run, nil, err
 	}
@@ -524,6 +545,13 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 			return nil, e
 		}
 		events = append(events, changed...)
+	}
+	// No turn survives a restart, so no guidance has a recipient left to join.
+	if _, err = db.ExecContext(ctx, "UPDATE agent_queues SET revision=revision+1 WHERE session IN (SELECT t.session FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient IS NOT NULL)"); err != nil {
+		return nil, err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient IS NOT NULL"); err != nil {
+		return nil, err
 	}
 	_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)")
 	return events, err
