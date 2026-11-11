@@ -377,6 +377,16 @@ and writes the record, so each client words the notice in its own language. The
 reference's check that pauses the queue for a turn holding a failure that did
 not continue is not ported: the queue treats that turn as any other failed run.
 
+An answer the model's output limit cut short says so once. The engine records
+`metadata.runtime.output_limit_reached` on the reply; the page carries the
+resource `{"type":"output_limit"}` after that reply's parts when it requested no
+tool, which is the reply that ends its turn (a cut reply that requested tools
+goes on to their results and shows nothing). The transcript shows it as
+`LimitBlock`, one plain warning row `chat_output_limit` below the cut text, and
+keeps it with the answer rather than the work region; exports and the mobile
+transcript likewise keep the text before it as the answer and show no row. The
+reference stores the flag and shows nothing.
+
 Sent context/session mentions retain their canonical target bindings in private
 transcript state through `SetReferences`; inline MyGo text opens the bound target.
 A sent message is edited in its bubble. `Edit` captures the turn, the head

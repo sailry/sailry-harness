@@ -362,3 +362,4 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+chat_output_limit: Reply cut at the output limit

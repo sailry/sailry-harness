@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -167,6 +168,14 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 				continue
 			}
 			value.Parts = append(value.Parts, part)
+		}
+		// The output limit ended this reply. One that requested tools goes on
+		// to their results, so only an answer cut short says so.
+		if runtime := record.Metadata.Runtime; runtime != nil && runtime.OutputLimitReached && !slices.ContainsFunc(message.Content, func(block canonical.Block) bool {
+			_, call := block.Data.(*canonical.ToolRequest)
+			return call
+		}) {
+			value.Parts = append(value.Parts, resourcePart(map[string]any{"type": "output_limit"}))
 		}
 		if message.Usage != nil {
 			u := message.Usage

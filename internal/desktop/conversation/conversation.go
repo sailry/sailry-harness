@@ -412,6 +412,8 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				visual(c, "visual", b.Visual)
 			case CompactionBlock:
 				s.compaction(c, &Turn{ID: turn + "-" + b.Label, Compaction: &Compaction{State: Compacted, Summary: b.Text}})
+			case LimitBlock:
+				plain(c, "limit-"+key, Call{Label: i18n.T(c, "chat_output_limit"), Icon: "triangle-alert", Warning: true})
 			case ErrorBlock:
 				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
 				s.disclosure(c, "error-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {

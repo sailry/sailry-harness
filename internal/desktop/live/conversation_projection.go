@@ -1011,6 +1011,8 @@ func projectResource(reply *conversation.Reply, data any) {
 		if json.Unmarshal(raw, &started) == nil && started.Started > 0 {
 			reply.PhaseElapsed = max(0, time.Since(time.UnixMilli(started.Started)))
 		}
+	case "output_limit":
+		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.LimitBlock})
 	case "compaction_failure":
 		var v struct {
 			Failure protocol.ConversationCompactionFailure `json:"failure"`
