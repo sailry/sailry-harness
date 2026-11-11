@@ -49,6 +49,25 @@ from the reference: it does not stop background commands, and it sets
 `terminals_may_be_closed` on every late failure, whether or not the project had
 a terminal.
 
+Durable workspace effects are ordered per worktree root. Effects on one root
+run one at a time, as before; effects on different roots run together, and an
+effect across two roots takes both in a fixed order. Commands without a root
+share one order among themselves. A registration (a project created,
+registered, updated or removed, a worktree created, registered or removed)
+excludes every effect, because path protection reads which roots exist; a
+project command holds that exclusion only while its result is recorded, not
+during its clone or its checks. An effect that waited through a registration
+resolves its roots again and reports a conflict when they changed. The
+reference orders all of this with one Node-wide lock, which the clone and every
+transfer with a remote held too, so one push delayed every agent file write.
+
+Transfers with a remote hold no root: fetch, push and the pushes that delete a
+remote tag or branch need none, and a pull (also the pull of a sync and of a
+commit's sync) first fetches without it and then runs `git pull` under it. That
+second step finds the objects present, so the root is held for a short
+negotiation and the merge or rebase. The cost is a second contact with the
+remote, which a credential that asks for each connection answers twice.
+
 Core Files and Repository subscriptions share one root watcher. The desktop's
 branch/worktree projections and native badge consume these Node-owned services;
 plugins do not own native panel state. Native lifecycle behavior is covered by

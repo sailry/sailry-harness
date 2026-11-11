@@ -549,11 +549,11 @@ func TestReceiptAfterDurableAdmission(t *testing.T) {
 	}
 	// A busy project worker delays neither the admission of later commands,
 	// nor reads, nor the commands of the other lane.
-	node.effects.Lock()
+	release := node.locks.registration()
 	held := true
 	defer func() {
 		if held {
-			node.effects.Unlock()
+			release()
 		}
 	}()
 	var pending []link.Admission
@@ -570,7 +570,7 @@ func TestReceiptAfterDurableAdmission(t *testing.T) {
 	}
 	sessionFixture(t, node)
 	held = false
-	node.effects.Unlock()
+	release()
 	for _, accepted := range pending {
 		if result := <-accepted.Completion; result.Fault != nil {
 			t.Fatal(result.Fault)

@@ -67,6 +67,10 @@ with `--progress` and are stopped after two minutes without output, which is
 then an unknown outcome. The capture keeps what a terminal would show of the
 progress, so Git's final reason is not pushed out of the bounded output. A hook
 that stays silent for two minutes during a push is stopped the same way.
+A pull is two native commands, `git fetch` and then `git pull`, so that the
+transfer does not hold the worktree's effect order
+([Projects](projects.md)); the reference runs `git pull` alone under its
+Node-wide lock.
 Deleting a remote branch validates its remote name and requires a configured
 remote like every other remote action. A failed native command is reported busy
 only for Git's own lock failure (`Unable to create '….lock': File exists`), so a

@@ -46,6 +46,10 @@ type Options struct {
 	Run         Runner
 	Now         func() time.Time
 	Environment []string
+	// Lock orders run_git_action and create_git_commit with the owner's other
+	// effects on a root. The service takes it around their local work and
+	// leaves transfers with a remote outside it.
+	Lock func(root string) (unlock func())
 }
 type statusSlot struct {
 	done      chan struct{}
@@ -65,6 +69,7 @@ type Service struct {
 	changes  []*changeCapture
 	idle     time.Duration // silence limit of a network operation
 	stats    time.Duration // line statistics share of a status
+	lock     func(root string) func()
 }
 
 func New(options Options) *Service {
@@ -74,6 +79,9 @@ func New(options Options) *Service {
 	}
 	if s.run == nil {
 		s.run = nativeRunner(options.Environment)
+	}
+	if s.lock = options.Lock; s.lock == nil {
+		s.lock = func(string) func() { return func() {} }
 	}
 	return s
 }

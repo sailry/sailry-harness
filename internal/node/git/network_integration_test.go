@@ -33,7 +33,13 @@ func TestNetworkGitIntegration(t *testing.T) {
 		}
 		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 		s := New(Options{Environment: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "REAL_GIT=" + real}})
-		s.idle = 400 * time.Millisecond
+		// Generous for a busy machine; the scripts that must stall lower it.
+		s.idle = 1500 * time.Millisecond
+		return s
+	}
+	stalling := func(t *testing.T, body string) *Service {
+		s := script(t, body)
+		s.idle = 300 * time.Millisecond
 		return s
 	}
 	destination := func(t *testing.T) string {
@@ -50,8 +56,8 @@ func TestNetworkGitIntegration(t *testing.T) {
 		}
 	}
 	t.Run("clone_outlives_the_idle_limit_while_reporting_progress", func(t *testing.T) {
-		// Four times the silence limit in total, never silent for all of it.
-		s := script(t, `for step in 1 2 3 4 5 6 7 8; do printf 'Receiving objects: %s0%%\r' "$step" >&2; sleep 0.2; done
+		// Longer than the silence limit in total, never silent for all of it.
+		s := script(t, `for step in 1 2 3 4 5 6 7 8; do printf 'Receiving objects: %s0%%\r' "$step" >&2; sleep 0.3; done
 exec "$REAL_GIT" init -q "$target"`)
 		target := destination(t)
 		path, err := s.Clone(ctx, "https://example.invalid/repository.git", target, nil)
@@ -67,7 +73,7 @@ exec "$REAL_GIT" init -q "$target"`)
 		}
 	})
 	t.Run("silent_clone_is_stopped_and_its_directory_removed", func(t *testing.T) {
-		s := script(t, `echo partial > "$target/partial.pack"; sleep 30`)
+		s := stalling(t, `echo partial > "$target/partial.pack"; sleep 30`)
 		target := destination(t)
 		started := time.Now()
 		_, err := s.Clone(ctx, "https://example.invalid/repository.git", target, nil)
@@ -131,10 +137,10 @@ exec "$REAL_GIT" init -q "$target"`)
 			}
 			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "fetch", Data: protocol.GitActionFetchPayload{All: true}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
 		}
-		if err := action(script(t, `for step in 1 2 3 4 5 6 7 8; do echo "remote: $step" >&2; sleep 0.2; done`)); err != nil {
+		if err := action(script(t, `for step in 1 2 3 4 5 6 7 8; do echo "remote: $step" >&2; sleep 0.3; done`)); err != nil {
 			t.Fatal(err)
 		}
-		requireFault(t, action(script(t, `sleep 30`)), protocol.ErrorCodeOutcomeUnknown)
+		requireFault(t, action(stalling(t, `sleep 30`)), protocol.ErrorCodeOutcomeUnknown)
 		requireFault(t, action(script(t, `echo "fatal: Authentication failed" >&2; exit 128`)), protocol.ErrorCodePermissionDenied)
 	})
 }

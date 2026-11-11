@@ -539,6 +539,62 @@ func TestGitMutationMapping(t *testing.T) {
 		_, err = s.EditIndex(ctx, root, "file.txt", result.Revision, &commit, fmtHash(sum[:]), func(text string) (string, error) { t.Fatal("stale source ran transform"); return text, nil })
 		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
 	})
+	t.Run("transfers_with_a_remote_run_outside_the_root_lock", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		var log []string
+		s := New(Options{
+			Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+				log = append(log, strings.Join(args, " "))
+				return CommandResult{}, nil
+			},
+			Lock: func(string) func() {
+				log = append(log, "lock")
+				return func() { log = append(log, "unlock") }
+			},
+		})
+		index, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		action := func(kind string, data any) error {
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: kind, Data: data}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		for _, probe := range []struct {
+			name string
+			run  func() error
+			want []string
+		}{
+			{"push", func() error { return action("push", protocol.GitActionPushPayload{}) }, []string{"push --progress"}},
+			{"fetch", func() error { return action("fetch", protocol.GitActionFetchPayload{All: true}) }, []string{"fetch --progress --all"}},
+			// The transfer of a pull is a fetch without the lock; git pull then integrates under it.
+			{"pull", func() error { return action("pull", protocol.GitActionPullPayload{Rebase: true}) }, []string{"fetch --progress", "lock", "pull --progress --rebase --no-edit", "unlock"}},
+			{"sync", func() error { return action("sync", protocol.GitActionSyncPayload{}) }, []string{"fetch --progress", "lock", "pull --progress --no-rebase --no-edit", "unlock", "push --progress"}},
+			{"local action", func() error {
+				return action("add_remote", protocol.GitActionAddRemotePayload{Name: "origin", Url: "https://example.invalid/repository.git"})
+			}, []string{"lock", "remote add -- origin https://example.invalid/repository.git", "unlock"}},
+			{"commit and sync", func() error {
+				input := protocol.CommandCreateGitCommitPayload{Message: "Change", ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")}
+				input.Options.After = protocol.GitAfterCommitSync
+				_, err := s.CreateCommit(ctx, root, input)
+				return err
+			}, []string{"lock", "commit --message Change", "unlock", "fetch --progress", "lock", "pull --progress --no-rebase --no-edit", "unlock", "push --progress"}},
+		} {
+			log = nil
+			if err := probe.run(); err != nil || !reflect.DeepEqual(log, probe.want) {
+				t.Fatalf("%s = %q %v, want %q", probe.name, log, err, probe.want)
+			}
+		}
+		// A pull whose transfer fails does not reach the worktree.
+		failing := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			log = append(log, args[0])
+			return CommandResult{ExitCode: 128, Stderr: []byte("fatal: Authentication failed")}, nil
+		}})
+		log = nil
+		requireFault(t, failing.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "pull", Data: protocol.GitActionPullPayload{}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")}), protocol.ErrorCodePermissionDenied)
+		if !reflect.DeepEqual(log, []string{"fetch"}) {
+			t.Fatalf("failed pull ran %q", log)
+		}
+	})
 	t.Run("discard_refuses_paths_head_does_not_hold", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		for name, body := range map[string]string{"staged.txt": "only copy\n", "untracked.txt": "draft\n", "file.txt": "edited\n"} {

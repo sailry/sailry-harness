@@ -253,8 +253,37 @@ func pathsValid(paths []string) error {
 	}
 	return nil
 }
+
+// remoteAction reports whether an action transfers with a remote.
+func remoteAction(action protocol.GitAction) bool {
+	switch action.Kind {
+	case "fetch", "pull", "push", "sync", "push_tags", "delete_remote_branch":
+		return true
+	case "delete_tag":
+		return data[protocol.GitActionDeleteTagPayload](action.Data).Remote != nil
+	}
+	return false
+}
+
+// pull fetches outside the root lock and lets git pull integrate under it. Its
+// own fetch then finds the objects present, so the lock covers a short
+// negotiation and the merge or rebase, not the transfer.
+func (s *Service) pull(ctx context.Context, root, flag string, target ...string) error {
+	if _, err := s.network(ctx, root, append([]string{"fetch"}, target...)); err != nil {
+		return err
+	}
+	defer s.lock(root)()
+	_, err := s.network(ctx, root, append([]string{"pull", flag, "--no-edit"}, target...))
+	return err
+}
+
 func (s *Service) Action(ctx context.Context, root string, input protocol.CommandRunGitActionPayload) error {
 	action := input.Action
+	// A transfer with a remote must not hold the root lock that file effects
+	// wait for; every other action holds it throughout.
+	if !remoteAction(action) {
+		defer s.lock(root)()
+	}
 	if action.Kind == "initialize" {
 		if input.ExpectedIndex != "" || input.ExpectedHead != nil || input.ExpectedBranch != nil {
 			return conflict()
@@ -331,7 +360,7 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 		if v.Rebase {
 			flag = "--rebase"
 		}
-		if err := transfer([]string{"pull", flag, "--no-edit"}); err != nil {
+		if err := s.pull(ctx, root, flag); err != nil {
 			return err
 		}
 		return transfer([]string{"push"})
@@ -438,7 +467,10 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	}
 	// fetch, pull and push talk to a remote; so do the pushes that delete a
 	// remote tag or branch.
-	if args[0] == "fetch" || args[0] == "pull" || args[0] == "push" {
+	if args[0] == "pull" {
+		return s.pull(ctx, root, args[1], args[3:]...)
+	}
+	if args[0] == "fetch" || args[0] == "push" {
 		return transfer(args)
 	}
 	return run(args)
