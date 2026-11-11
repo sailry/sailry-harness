@@ -204,6 +204,33 @@ invitation still receives that frame. A claimant whose trust could not be
 stored releases the invitation for another device. Pairing is bidirectional as
 in Rust: either paired side may command the other.
 
+Removing a pairing is one-sided. It deletes this device's record of the peer
+and closes the connections between them; the peer keeps its record of this
+device and is refused when it connects. It does not stop work the Host is
+already running: sessions and queued turns, commands, terminals and anything
+else this controller started there continue, and stay reachable from the
+Host's other controllers. Stop that work before removing the pairing.
+
+A paired controller may send every command except the few the Node keeps for
+the controller on its own device:
+
+| Command | Refusal for a paired controller | Check |
+|---|---|---|
+| `create_session_at` for another Node (session forwarding) | `permission_denied`, "only the local controller can forward configuration to another Node" | `store.PrepareSessionForward` |
+| `import_session` | accepted only from the paired Node named as its source, never from the Node's own controller | `store.importSession` |
+| A dispatch job's callback | a controller that repeats the job's request identifier gets none of the job's package authority | `store.DispatchPackage` |
+| A plugin request scoped to a turn or to a running invocation | `permission_denied`, "plugin turn belongs to the execution Node" or "plugin invocation does not own this action" | `store.PluginRequestPackage`, `validatePluginRequestDB`, `pluginCallback`, `plugin_connection.go` |
+| `request_computer_permission` | `permission_denied`, "system permissions must be granted on the execution device"; `read_computer_permissions` answers with `local: false` | `computer.Probe.Request` |
+| `count_feature` | `permission_denied`, "feature counters require the local controller" | `dispatchFeature` |
+
+A plugin scope reaches no network command (`read_network_settings`,
+`save_network_settings`, `list_network_presets`, `probe_network`), port
+command, WSL command, backup command, `inspect_host`, `read_host_metrics` or
+`stop_host_process`. A package that declares `manage_ssh` may save, trust and
+remove an SSH connection within its scope and install or update a Host
+through it, as in Rust (`store/plugins/connections.rs`); a Host installed
+that way is paired like any other.
+
 Only the sharing side decides whether a ticket is still valid: it holds the
 60-second deadline and its token. The joining side does not compare the
 ticket's expiry with its own clock, and neither does it for a ticket the
