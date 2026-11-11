@@ -79,12 +79,12 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 			flush(n)
 			switch dest := images[n].Dest; {
 			case e.Missing:
-				ui.Text(c.Key(n), i18n.T(c, "chat_image_missing")).FontSize(14).TextColor(p.MutedForeground)
+				ui.Text(c.Key(n), i18n.T(c, "chat_image_missing")).FontSize(textSize(c)).TextColor(p.MutedForeground)
 			case e.File != nil:
 				fileCard(c, "embed-file-"+e.File.ID, *e.File, actions)
 			default:
 				ui.ButtonBase(c.Key(n)).AlignSelf(ui.Start).MaxWidthPercent(100).Cursor(ui.CursorPointer).Children(func() {
-					ui.Text(c, dest).FontSize(14).SingleLine().TextColor(p.Primary)
+					ui.Text(c, dest).FontSize(textSize(c)).SingleLine().TextColor(p.Primary)
 				}).OnClick(func() {
 					if s.md.OnLink != nil {
 						s.md.OnLink(dest)

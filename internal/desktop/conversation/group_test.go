@@ -2,11 +2,14 @@ package conversation
 
 import (
 	"fmt"
+	"image"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -28,6 +31,156 @@ func TestGrouping(t *testing.T) {
 	t.Run("LastLines", testLastLines)
 	t.Run("Elapsed", testElapsed)
 	t.Run("Disclosures", testDisclosures)
+	t.Run("TextSize", testTextSize)
+}
+
+// ink measures what is drawn in r of img, a frame at scale, in DIPs: the
+// height of the middle of its ink by weight, the capitals' of a text of
+// capitals, and the heights of its first and last rows with ink, an icon's
+// outline. Ink is how far a pixel is from the color 3 DIPs before r.
+func ink(t *testing.T, img *image.RGBA, scale float32, r ui.Rect) (centre, top, bottom float64) {
+	t.Helper()
+	bg := img.RGBAAt(int((r.X-3)*scale), int((r.Y+r.H/2)*scale))
+	x0, x1 := int(r.X*scale), int(math.Ceil(float64((r.X+r.W)*scale)))
+	y0, y1 := int(math.Ceil(float64(r.Y*scale))), int((r.Y+r.H)*scale)
+	var rows []float64
+	var sum, weighted, peak float64
+	for y := y0; y < y1; y++ {
+		v := 0.0
+		for x := x0; x < x1; x++ {
+			p := img.RGBAAt(x, y)
+			v += math.Abs(float64(p.R)-float64(bg.R)) + math.Abs(float64(p.G)-float64(bg.G)) + math.Abs(float64(p.B)-float64(bg.B))
+		}
+		rows = append(rows, v)
+		sum, weighted, peak = sum+v, weighted+v*(float64(y)+0.5), max(peak, v)
+	}
+	if peak == 0 {
+		t.Fatalf("nothing is drawn in %v", r)
+	}
+	first, last := -1, -1
+	for i, v := range rows {
+		if v > peak/20 {
+			if first < 0 {
+				first = i
+			}
+			last = i
+		}
+	}
+	return weighted / sum / float64(scale), float64(y0+first) / float64(scale), float64(y0+last+1) / float64(scale)
+}
+
+// The transcript's rows follow the message text size (textSize). At 12, 14
+// and 18 a call's label is the size of the user message's text; its row is
+// 10 DIPs higher than the text and its icon 2 larger, the reference's 24
+// and 16 at 14, with the icon's middle within a DIP of the label's
+// capitals' and of the row's; the status header is as high and the phase's
+// mark as large; and no row reaches the next.
+func testTextSize(t *testing.T) {
+	const user, first, second, between = "CHECK IT", "RUN CHECKS", "READ FILES", "Between"
+	const scale = 2
+	working := i18n.In("en", "chat_running")
+	outline := map[float32]float64{} // the first row's icon, top to bottom
+	for _, size := range []float32{12, 14, 18} {
+		s := New()
+		turns := []Turn{{ID: "turn", User: user, Reply: Reply{Status: Running, Blocks: []Block{
+			{Kind: ToolsBlock, Calls: []Call{{ID: "a", Name: "shell", Label: first, Icon: "circle-check", Detail: "MAKE TEST", Code: true, Output: &Output{Text: "ok"}}}},
+			{Kind: TextBlock, Text: between},
+			{Kind: ToolsBlock, Calls: []Call{{ID: "b", Name: "read", Label: second, Icon: "file-text", Output: &Output{Text: "ok"}}}},
+		}}}}
+		var userWidth, labelWidth float32
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			kit.SetPreferences(c, kit.Preferences{MessageTextSize: uint8(size)})
+			userWidth, _ = c.MeasureText(0, ui.Span{Text: user, Size: size})
+			labelWidth, _ = c.MeasureText(0, ui.Span{Text: first, Size: size})
+			ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { View(c, s, "session", turns, nil, still{}) })
+		}, 900, 600)
+		tt.SetLocale("en")
+		tt.SetScale(scale)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true}) // no band over the running row
+		tt.Frame()
+
+		bubble, ok := tt.Find(user)
+		label, ok2 := tt.Find(first)
+		other, ok3 := tt.Find(second)
+		text, ok4 := tt.Find(between)
+		header, ok5 := tt.AccessByRole(ui.RoleButton, working)
+		if !ok || !ok2 || !ok3 || !ok4 || !ok5 {
+			t.Fatalf("size %v: the turn shows %q", size, tt.Texts())
+		}
+		// A call's row is the smallest button around its label; the phase's
+		// mark is the progress indicator below the rows.
+		var rows [2]ui.Rect
+		var mark ui.Rect
+		for _, a := range tt.AccessAll() {
+			b := a.Bounds
+			for i, l := range []ui.Rect{label, other} {
+				middle := l.Y + l.H/2
+				if a.Role == ui.RoleButton && b.X <= l.X && b.X+b.W >= l.X+l.W && b.Y <= middle && b.Y+b.H >= middle && (rows[i].H == 0 || b.H < rows[i].H) {
+					rows[i] = b
+				}
+			}
+			if a.Role == ui.RoleProgress && b.Y > other.Y {
+				mark = b
+			}
+		}
+		if rows[0].H == 0 || rows[1].H == 0 {
+			t.Fatalf("size %v: no button around %q at %v or %q at %v", size, first, label, second, other)
+		}
+
+		// The label is the body's size: as wide as its text measures at it, as
+		// the user's bubble is around its padding of 14, their capitals as high.
+		if d := float64(label.W - labelWidth); math.Abs(d) > 1 {
+			t.Errorf("size %v: the label is %v wide, its text %v at that size", size, label.W, labelWidth)
+		}
+		if d := float64(bubble.W - 28 - userWidth); math.Abs(d) > 1 {
+			t.Errorf("size %v: the user message is %v wide, its text %v at that size and 28 of padding", size, bubble.W, userWidth)
+		}
+		img := tt.Image()
+		_, bodyTop, bodyBottom := ink(t, img, scale, ui.Rect{X: bubble.X + 14, Y: bubble.Y, W: bubble.W - 28, H: bubble.H})
+		_, capTop, capBottom := ink(t, img, scale, ui.Rect{X: label.X, Y: rows[0].Y, W: label.W, H: rows[0].H})
+		if body, caps := bodyBottom-bodyTop, capBottom-capTop; math.Abs(body-caps) > 1 {
+			t.Errorf("size %v: the label's capitals are %.2f high, the user message's %.2f", size, caps, body)
+		}
+
+		// The rows' metrics, and the header's and the mark's.
+		height, icon := size+10, size+2
+		if rows[0].H != height || rows[1].H != height || header.Bounds.H != height {
+			t.Errorf("size %v: the rows are %v and %v high and the header %v, want %v", size, rows[0].H, rows[1].H, header.Bounds.H, height)
+		}
+		if mark.H != icon {
+			t.Errorf("size %v: the phase's mark is %v high, want %v", size, mark.H, icon)
+		}
+		for i, l := range []ui.Rect{label, other} {
+			row := rows[i]
+			// The icon is the size+2 DIPs before the label's 8 DIP gap.
+			_, top, bottom := ink(t, img, scale, ui.Rect{X: l.X - 8 - icon, Y: row.Y, W: icon, H: row.H})
+			caps, _, _ := ink(t, img, scale, ui.Rect{X: l.X, Y: row.Y, W: l.W, H: row.H})
+			middle, centre := (top+bottom)/2, float64(row.Y+row.H/2)
+			if i == 0 {
+				outline[size] = bottom - top
+			}
+			t.Logf("size %v, row %d: centre %.2f, icon %+.2f, label %+.2f", size, i, centre, middle-centre, caps-centre)
+			if math.Abs(caps-middle) > 1 || math.Abs(middle-centre) > 1 {
+				t.Errorf("size %v, row %d: the icon's middle is at %.2f, the label's capitals' at %.2f and the row's at %.2f", size, i, middle, caps, centre)
+			}
+		}
+
+		// Top to bottom, none reaches the next.
+		order := []ui.Rect{header.Bounds, rows[0], text, rows[1], mark}
+		for i := 1; i < len(order); i++ {
+			if above, below := order[i-1], order[i]; above.Y+above.H > below.Y+0.01 {
+				t.Errorf("size %v: row %d ends at %v, past the next one's top at %v", size, i-1, above.Y+above.H, below.Y)
+			}
+		}
+	}
+	// The icon is drawn 2 DIPs larger than the text: its outline scales
+	// with it from the one at 14.
+	for _, size := range []float32{12, 18} {
+		if want := outline[14] * float64(size+2) / 16; outline[14] == 0 || math.Abs(outline[size]-want) > 1 {
+			t.Errorf("size %v: the icon is %.2f high, want %.2f as %.2f at 14", size, outline[size], want, outline[14])
+		}
+	}
 }
 
 // still is the transcript's actions for a test that asks none: it answers

@@ -221,7 +221,7 @@ func userMessage(c *ui.Context, text string, marks []ui.Span, references []Refer
 		} else {
 			b = ui.Text(c, text)
 		}
-		bubble(c, b.FontSize(kit.MessageTextSize(c)).LineHeight(1.6).Padding(9, 14).MaxWidth(bubbleMax))
+		bubble(c, b.FontSize(textSize(c)).LineHeight(1.6).Padding(9, 14).MaxWidth(bubbleMax))
 	})
 }
 
@@ -252,7 +252,7 @@ func bubble(c *ui.Context, b ui.Element) ui.Element {
 // messageTheme scales the caller-owned Markdown theme without changing Kit's
 // shared theme. MyGo invalidates retained text geometry when this value changes.
 func (s *State) messageTheme(c *ui.Context) {
-	base, size := kit.MarkdownTheme(c, kit.Chat), kit.MessageTextSize(c)
+	base, size := kit.MarkdownTheme(c, kit.Chat), textSize(c)
 	if s.mdBase == base && s.mdSize == size {
 		return
 	}
@@ -303,6 +303,7 @@ func Elapsed(d time.Duration) string {
 // the run ends.
 func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 	p := theme.Of(c)
+	size := textSize(c)
 	r := &t.Reply
 	blocks := Compact(cited(r.Blocks, r.Citations))
 	from := AnswerFrom(blocks)
@@ -322,16 +323,16 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 					row.TextColor(p.Danger)
 				}
 				row.Children(func() {
-					ui.Text(c, label).FontSize(14).SingleLine()
+					ui.Text(c, label).FontSize(size).SingleLine()
 					if r.Elapsed > 0 {
-						ui.Text(c, Elapsed(r.Elapsed)).FontSize(14).SingleLine()
+						ui.Text(c, Elapsed(r.Elapsed)).FontSize(size).SingleLine()
 					}
 				})
 			}
 			if from == 0 {
-				ui.Row(c).Height(rowHeight).TextColor(p.MutedForeground).Children(status)
+				ui.Row(c).Height(rowHeight(size)).TextColor(p.MutedForeground).Children(status)
 			} else {
-				b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight).FillWidth().Gap(8).
+				b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight(size)).FillWidth().Gap(8).
 					Justify(ui.Start).Expanded(workOpen).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
 				hovered := b.Hovered() || b.FocusVisible()
 				b.Children(func() {
@@ -340,7 +341,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 					if workOpen {
 						chevron = icons.ChevronDown
 					}
-					ch := ui.Icon(c, chevron).FontSize(16).Shrink(0)
+					ch := ui.Icon(c, chevron).FontSize(rowIcon(size)).Shrink(0)
 					if !hovered {
 						ch.Opacity(0)
 					}
@@ -378,6 +379,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 // running while the turn goes on.
 func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, actions Actions) {
 	p := theme.Of(c)
+	size := textSize(c)
 	for i, b := range blocks {
 		key := fmt.Sprintf("%s-%d", turn, i)
 		last := i == len(blocks)-1
@@ -389,7 +391,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
 				s.disclosure(c, "reasoning-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
-						ui.Text(c, b.Text).FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
+						ui.Text(c, b.Text).FontSize(size).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
 					})
 				})
 			case ToolsBlock:
@@ -416,7 +418,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
 				s.disclosure(c, "error-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
-						ui.Text(c, b.Text).FontSize(14).TextColor(p.Danger)
+						ui.Text(c, b.Text).FontSize(size).TextColor(p.Danger)
 					})
 				})
 			}
@@ -471,11 +473,13 @@ func phaseRow(c *ui.Context, r *Reply) {
 	}
 	// One band across the row, past the indicator.
 	sw := &kit.Sweep{}
-	row := ui.Row(c.Key("phase")).Gap(8).Height(rowHeight)
+	size := textSize(c)
+	row := ui.Row(c.Key("phase")).Gap(8).Height(rowHeight(size))
 	row.Children(func() {
-		kit.Indicator(c, Indicator(r.Phase), 16)
-		sw.Text(c, level(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(p.MutedForeground), false),
-			ui.Span{Text: label, Size: 14, Color: p.MutedForeground})
+		kit.Indicator(c, Indicator(r.Phase), rowIcon(size))
+		// Laid out as the sweep draws it (kit.Sweep.Text): a RichText.
+		span := ui.Span{Text: label, Size: size, Color: p.MutedForeground}
+		sw.Text(c, levelSpan(c, ui.RichText(c, span).SingleLine(), span, size, false), span)
 	})
 	sw.Frame(row)
 }

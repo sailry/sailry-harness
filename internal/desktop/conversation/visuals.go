@@ -130,7 +130,7 @@ func showVisual(c *ui.Context, box ui.Element, src, title string) bool {
 // caption is the one small muted line above a visual.
 func caption(c *ui.Context, text string) {
 	if text != "" {
-		ui.Text(c.Key("caption"), text).FontSize(12).TextColor(theme.Of(c).MutedForeground)
+		ui.Text(c.Key("caption"), text).FontSize(textSize(c) - 2).TextColor(theme.Of(c).MutedForeground)
 	}
 }
 
