@@ -271,6 +271,19 @@ hash.0.answer: |-
   2. Hash each key onto the same ring.
   3. A key belongs to the first node clockwise from it.
 
+  A read asks the ring first, then the node that owns the key:
+
+  ```mermaid
+  sequenceDiagram
+      participant C as Client
+      participant R as Ring
+      participant N as Node B
+      C->>R: hash("user:42")
+      R-->>C: first node clockwise is Node B
+      C->>N: GET user:42
+      N-->>C: value
+  ```
+
   When a node leaves, only its keys move, to the next node. On average that is
 
   $$
