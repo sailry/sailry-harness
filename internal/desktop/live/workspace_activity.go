@@ -351,8 +351,9 @@ func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relativ
 		done(false)
 		return
 	}
-	// A restored file no longer has the revision its checkpoint expects, so a
-	// later Undo of the same files continues where this one stopped.
+	// The Node answers a file that is already restored as restored, so an Undo
+	// repeated after a failure, a session switch or a restart continues where
+	// the earlier one stopped and then marks the card.
 	encoded, err := json.Marshal(commands)
 	if err != nil {
 		done(false)

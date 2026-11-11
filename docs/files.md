@@ -114,7 +114,12 @@ filesystem inference. Turn diffs join adjacent confirmed versions only when thei
 content matches, preserving gaps caused by external edits. Hunk reject uses exact
 whole-line context and a current revision; hunk stage uses the Git owner's one
 index writer with captured working, index and HEAD revisions. Restore refuses
-active turns and absent outcomes, and verifies the written after revision.
+active turns and absent outcomes, and verifies the written after revision. A
+file that already holds what it had before the change, or before an earlier
+change of the same turn, is answered as restored and left untouched; any other
+content is a conflict. Rust refuses the repeated restore as a conflict; the
+changes card remembers an Undo only while its conversation stays open, so a
+repeated Undo has to succeed rather than report a conflict that does not exist.
 
 Checkpoint text and attachment bindings live as long as a remaining session
 lists their turn; removing the last such session deletes them, the attachment

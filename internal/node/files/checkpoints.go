@@ -3,6 +3,7 @@ package files
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -59,7 +60,13 @@ func CheckpointReceipt(file protocol.ConversationCheckpointFile) protocol.Conver
 	}
 	return protocol.ConversationCheckpointReceiptAbsent
 }
-func RestoreCheckpoint(ctx context.Context, root string, content protocol.ConversationCheckpointContent) (protocol.ConversationCheckpointRestored, error) {
+
+// RestoreCheckpoint puts back the content a file had before the checkpoint's
+// change. settled lists the versions the file had before this change or an
+// earlier change of the same turn (nil is an absent file): a file that already
+// holds one of them is restored and is left as it is, so repeating an Undo
+// succeeds. Any other content is another change and is not overwritten.
+func RestoreCheckpoint(ctx context.Context, root string, content protocol.ConversationCheckpointContent, settled []*protocol.ConversationCheckpointVersion) (protocol.ConversationCheckpointRestored, error) {
 	out := protocol.ConversationCheckpointRestored{Session: content.Session, Checkpoint: content.File.ID, Path: content.File.Path}
 	fs, err := core.OpenFiles(root, core.RestrictedFiles)
 	if err != nil {
@@ -67,17 +74,32 @@ func RestoreCheckpoint(ctx context.Context, root string, content protocol.Conver
 	}
 	defer fs.Close()
 	if content.Before != nil {
-		written, err := fs.RestoreText(ctx, content.File.Path, *content.Before, content.File.After.Revision)
-		if err != nil {
-			return out, err
+		var written protocol.FileWritten
+		if written, err = fs.RestoreText(ctx, content.File.Path, *content.Before, content.File.After.Revision); err == nil {
+			out.Revision = &written.Revision
+			return out, nil
 		}
-		out.Revision = &written.Revision
+	} else if err = fs.DeleteFile(ctx, content.File.Path, content.File.After.Revision); err == nil {
 		return out, nil
 	}
-	if err = fs.DeleteFile(ctx, content.File.Path, content.File.After.Revision); err != nil {
+	var current *protocol.ConversationCheckpointVersion
+	text, readErr := fs.CompleteText(ctx, content.File.Path)
+	var missing *protocol.Fault
+	if readErr == nil {
+		current = &protocol.ConversationCheckpointVersion{Revision: revision([]byte(text)), Size: uint64(len(text))}
+	} else if !errors.As(readErr, &missing) || missing.Code != protocol.ErrorCodeNotFound {
 		return out, err
 	}
-	return out, nil
+	for _, version := range settled {
+		if current == nil && version == nil {
+			return out, nil
+		}
+		if current != nil && version != nil && *current == *version {
+			out.Revision = &current.Revision
+			return out, nil
+		}
+	}
+	return out, err
 }
 
 type HunkChange struct {

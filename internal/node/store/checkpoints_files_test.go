@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,6 +92,7 @@ func TestFileCheckpointAndAttachmentOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	var content protocol.ConversationCheckpointContent
+	var settled []*protocol.ConversationCheckpointVersion
 	err = storage.Node.Read(ctx, func(db *sql.Conn) error {
 		page, err := ListFileCheckpoints(ctx, db, session.ID, turn, nil, 100)
 		if err != nil {
@@ -99,9 +101,12 @@ func TestFileCheckpointAndAttachmentOwnership(t *testing.T) {
 		if len(page.Files) != 1 || files.CheckpointReceipt(page.Files[0]) != protocol.ConversationCheckpointReceiptWritten {
 			return fmt.Errorf("checkpoint receipt is not a confirmed write: %+v", page)
 		}
-		content, err = PrepareCheckpointRestore(ctx, db, session.ID, page.Files[0].ID, session.Worktree, root)
+		content, settled, err = PrepareCheckpointRestore(ctx, db, session.ID, page.Files[0].ID, session.Worktree, root)
 		if err != nil {
 			return err
+		}
+		if len(settled) != 1 || settled[0] == nil || *settled[0] != *page.Files[0].Before {
+			return fmt.Errorf("restored versions: %+v", settled)
 		}
 		diff, err := ReadTurnDiff(ctx, db, session.ID, turn)
 		if err != nil {
@@ -136,15 +141,68 @@ func TestFileCheckpointAndAttachmentOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = files.RestoreCheckpoint(ctx, root, content); err != nil {
+	if _, err = files.RestoreCheckpoint(ctx, root, content, settled); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := os.ReadFile(filepath.Join(root, "note.txt"))
 	if err != nil || string(restored) != "before\n" {
 		t.Fatalf("restored %q %v", restored, err)
 	}
-	if _, err = files.RestoreCheckpoint(ctx, root, content); err == nil {
+	// An Undo repeated after a restart finds the file restored and leaves it.
+	stamp, err := os.Stat(filepath.Join(root, "note.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := files.RestoreCheckpoint(ctx, root, content, settled)
+	if err != nil || again.Revision == nil || *again.Revision != content.File.Before.Revision {
+		t.Fatalf("repeated restore: %+v, %v", again, err)
+	}
+	if after, err := os.Stat(filepath.Join(root, "note.txt")); err != nil || !after.ModTime().Equal(stamp.ModTime()) {
+		t.Fatalf("repeated restore rewrote the file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("independent\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = files.RestoreCheckpoint(ctx, root, content, settled); err == nil {
 		t.Fatal("restore overwrote an independently changed revision")
+	}
+	if kept, err := os.ReadFile(filepath.Join(root, "note.txt")); err != nil || string(kept) != "independent\n" {
+		t.Fatalf("independent content: %q %v", kept, err)
+	}
+	// Other changes of the turn to the same file, one captured earlier and one
+	// later: a file that holds what it had before the earlier one is restored
+	// too. The fixture rows are rolled back.
+	earlier, later := checkpointVersion("earlier\n"), checkpointVersion("after\n")
+	rolledBack := errors.New("fixture rows")
+	err = storage.Node.Write(ctx, func(db *sql.Conn) error {
+		for row, before := range map[int]protocol.ConversationCheckpointVersion{0: earlier, 2: later} {
+			other := approval
+			other.ID = protocol.NewApprovalID()
+			body, err := encode(other)
+			if err != nil {
+				return err
+			}
+			if _, err = db.ExecContext(ctx, "INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,?3,?4,?5,?6,1)", other.ID.String(), turn.String(), fmt.Sprint("other-", row), body, []byte("null"), protocol.NewRequestID().String()); err != nil {
+				return err
+			}
+			if body, err = encode(checkpointRecord{Worktree: session.Worktree, Path: "note.txt", Before: &before, After: checkpointVersion("other\n")}); err != nil {
+				return err
+			}
+			if _, err = db.ExecContext(ctx, "INSERT INTO file_checkpoints(rowid,id,turn,approval,body,before_text,after_text) VALUES(?1,?2,?3,?4,?5,'','other\n')", row, protocol.NewCheckpointID().String(), turn.String(), other.ID.String(), body); err != nil {
+				return err
+			}
+		}
+		_, chain, err := PrepareCheckpointRestore(ctx, db, session.ID, content.File.ID, session.Worktree, root)
+		if err != nil {
+			return err
+		}
+		if len(chain) != 2 || *chain[0] != earlier || *chain[1] != *content.File.Before {
+			return fmt.Errorf("restored versions of a repeated change: %+v", chain)
+		}
+		return rolledBack
+	})
+	if !errors.Is(err, rolledBack) {
+		t.Fatal(err)
 	}
 	attachment := protocol.Attachment{ID: protocol.NewAttachmentID(), Spec: protocol.AttachmentSpec{Worktree: session.Worktree, Name: "input.txt", MediaType: "text/plain", Size: 5, Revision: fmt.Sprintf("%x", blake3.Sum256([]byte("input")))}}
 	err = storage.Node.Write(ctx, func(db *sql.Conn) error {
