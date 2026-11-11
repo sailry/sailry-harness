@@ -55,7 +55,8 @@ func (b *demo) handbook() *Conversation {
 	}
 	ask := b.user(id+"/2", "handbook.2.user")
 	ask.Reply = done(cv.Completed, 14)
-	ask.Reply.Blocks = []cv.Block{text(b.t("handbook.2.answer"))}
+	// A long chapter's answer ended at the model's output limit.
+	ask.Reply.Blocks = []cv.Block{text(b.t("handbook.2.answer")), {Kind: cv.LimitBlock}}
 	next := b.user(id+"/6", "handbook.6.user")
 	next.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(47), Phase: cv.Compacting, PhaseElapsed: secs(12)}
 	next.Reply.Blocks = []cv.Block{text(b.t("handbook.6.partial"))}
