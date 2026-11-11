@@ -23,6 +23,7 @@ import (
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
 	"github.com/cespare/xxhash/v2"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -454,6 +455,7 @@ func TestRequestParity(t *testing.T) {
 	t.Run("early_iterator_release", func(t *testing.T) { cancellationFixture(t, true) })
 	t.Run("incomplete_tools_and_eof", incompleteFixture)
 	t.Run("stalled_response", stallFixture)
+	t.Run("output_limit", limitFixture)
 	t.Run("one_request_on_rejection", rejectionFixture)
 	t.Run("usage_presence", usagePresenceFixture)
 	t.Run("additional_source_contracts", additionalParityFixtures)
@@ -729,6 +731,118 @@ func cancellationFixture(t *testing.T, early bool) {
 		t.Error("explicit cancellation was not surfaced as failure")
 	}
 	<-closed
+}
+
+// limitFixture ends a reply at the output limit inside a tool call: the
+// partial answer and the complete calls stay, and the cut call is dropped or
+// reaches the engine with the error the model reads, by wire.
+func limitFixture(t *testing.T) {
+	events := func(values ...string) string {
+		var stream strings.Builder
+		for _, value := range values {
+			// Messages names each event; the other wires ignore the line.
+			var event struct{ Type string }
+			json.Unmarshal([]byte(value), &event)
+			if event.Type != "" {
+				stream.WriteString("event: " + event.Type + "\n")
+			}
+			stream.WriteString("data: " + value + "\n\n")
+		}
+		return stream.String()
+	}
+	type call struct {
+		id, input string
+		failed    bool
+	}
+	for _, row := range []struct {
+		name, kind, stream string
+		calls              []call
+		finish             fantasy.FinishReason
+	}{
+		{"responses", "responses", events(
+			`{"type":"response.output_text.delta","item_id":"message","delta":"Partial"}`,
+			`{"type":"response.output_item.added","output_index":1,"item":{"id":"item-1","type":"function_call","call_id":"whole","name":"read","arguments":""}}`,
+			`{"type":"response.output_item.done","output_index":1,"item":{"id":"item-1","type":"function_call","call_id":"whole","name":"read","arguments":"{\"path\":\"a\"}","status":"completed"}}`,
+			`{"type":"response.output_item.added","output_index":2,"item":{"id":"item-2","type":"function_call","call_id":"cut","name":"read","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","item_id":"item-2","delta":"{\"path\":"}`,
+			`{"type":"response.incomplete","response":{"id":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":7,"output_tokens":5,"total_tokens":12},"output":[{"id":"message","type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial"}]},{"id":"item-1","type":"function_call","call_id":"whole","name":"read","arguments":"{\"path\":\"a\"}","status":"completed"},{"id":"item-2","type":"function_call","call_id":"cut","name":"read","arguments":"{\"path\":","status":"incomplete"}]}}`,
+		), []call{{"whole", `{"path":"a"}`, false}}, fantasy.FinishReasonLength},
+		{"responses_other_reason", "responses", events(
+			`{"type":"response.output_text.delta","item_id":"message","delta":"Partial"}`,
+			`{"type":"response.incomplete","response":{"id":"response","status":"incomplete","incomplete_details":{"reason":"paused"},"output":[]}}`,
+		), nil, fantasy.FinishReasonOther},
+		{"anthropic", "anthropic", events(
+			`{"type":"message_start","message":{"id":"message","type":"message","role":"assistant","model":"claude-opus-4-8","content":[],"usage":{"input_tokens":7,"output_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Partial"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"whole","name":"read","input":{}}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a\"}"}}`,
+			`{"type":"content_block_stop","index":1}`,
+			`{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"cut","name":"read","input":{}}}`,
+			`{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}`,
+			`{"type":"content_block_stop","index":2}`,
+			`{"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":5}}`,
+			`{"type":"message_stop"}`,
+		), []call{{"whole", `{"path":"a"}`, false}, {"cut", `{}`, true}}, fantasy.FinishReasonLength},
+		{"anthropic_without_input", "anthropic", events(
+			`{"type":"message_start","message":{"id":"message","type":"message","role":"assistant","model":"claude-opus-4-8","content":[],"usage":{"input_tokens":7,"output_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"plain","name":"read","input":{}}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}`,
+			`{"type":"message_stop"}`,
+		), []call{{"plain", `{}`, false}}, fantasy.FinishReasonToolCalls},
+		{"chat", "chat", events(
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Partial"},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"whole","type":"function","function":{"name":"read","arguments":"{\"path\":\"a\"}"}}]},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"cut","type":"function","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`,
+		) + "data: [DONE]\n\n", []call{{"whole", `{"path":"a"}`, false}}, fantasy.FinishReasonLength},
+		{"chat_without_input", "chat", events(
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"plain","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}`,
+			`{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		) + "data: [DONE]\n\n", []call{{"plain", `{}`, false}}, fantasy.FinishReasonToolCalls},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			server := serverFixture(t, row.stream)
+			name := "fixture"
+			if row.kind == "anthropic" {
+				name = "claude-opus-4-8"
+			}
+			language, err := newSDK(t.Context(), transportConfig{Kind: row.kind, Model: name, Endpoint: server.URL, Key: "captured-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls []call
+			var text string
+			var finish fantasy.FinishReason
+			for _, part := range collect(t, language, requestCall(t, row.kind)) {
+				switch part.Type {
+				case fantasy.StreamPartTypeTextDelta:
+					text += part.Delta
+				case fantasy.StreamPartTypeToolCall:
+					block := canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: part.ID, Name: part.ToolCallName, Arguments: json.RawMessage(part.ToolCallInput)}}
+					if err := ApplyStreamMetadata(&block, part); err != nil {
+						t.Fatal(err)
+					}
+					failure := block.Data.(*canonical.ToolRequest).Error
+					if failure != nil && (failure.Code != -32602 || !strings.Contains(failure.Message, "output limit")) {
+						t.Errorf("cut call error = %+v", failure)
+					}
+					calls = append(calls, call{part.ID, part.ToolCallInput, failure != nil})
+				case fantasy.StreamPartTypeFinish:
+					finish = part.FinishReason
+				}
+			}
+			if !reflect.DeepEqual(calls, row.calls) || finish != row.finish {
+				t.Errorf("calls = %+v, finish = %q", calls, finish)
+			}
+			if partial := !strings.HasSuffix(row.name, "without_input"); partial && text != "Partial" {
+				t.Errorf("partial answer = %q", text)
+			}
+		})
+	}
 }
 
 // stallFixture leaves a provider silent before its response and inside its

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"charm.land/fantasy"
@@ -40,6 +41,9 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	stream := client.Messages.NewStreaming(ctx, anthropicsdk.MessageNewParams{}, option.WithRequestBody("application/json", raw))
 	defer stream.Close()
 	blocks := map[int64]*anthropicBlock{}
+	// cut holds the tool calls whose input did not parse when their block
+	// ended, until the stop reason says why.
+	cut := map[int64]*anthropicBlock{}
 	terminal, reason := false, ""
 	for stream.Next() {
 		value, err := decodeSDK(stream.Current().RawJSON())
@@ -141,10 +145,8 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 				}
 			case "tool_use":
 				if !json.Valid([]byte(block.input)) {
-					emitter.fail(fmt.Errorf("model tool input is incomplete"))
-					return
-				}
-				if !emitter.emitIndexed(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: block.id, ToolCallName: block.name, ToolCallInput: block.input}, index) {
+					cut[index] = block
+				} else if !emitter.emitIndexed(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: block.id, ToolCallName: block.name, ToolCallInput: block.input}, index) {
 					return
 				}
 			}
@@ -159,9 +161,32 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 		emitter.fail(err)
 		return
 	}
-	if !terminal || len(blocks) > 0 {
+	if !terminal {
 		emitter.fail(io.ErrUnexpectedEOF)
 		return
+	}
+	// A completed message keeps its complete calls. A call the reply ended
+	// inside reaches the engine with an error, so the model reads why it did
+	// not run; one that only sent no input was called without arguments.
+	for index, block := range blocks {
+		if block.kind == "tool_use" {
+			cut[index] = block
+		}
+	}
+	indices := make([]int64, 0, len(cut))
+	for index := range cut {
+		indices = append(indices, index)
+	}
+	slices.Sort(indices)
+	for _, index := range indices {
+		block := cut[index]
+		part := fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: block.id, ToolCallName: block.name, ToolCallInput: "{}"}
+		if reason == "max_tokens" || strings.TrimSpace(block.input) != "" {
+			part.ProviderMetadata = fantasy.ProviderMetadata{pluginMetadataKey: &pluginOutputMetadata{ToolError: cutToolError(reason == "max_tokens")}}
+		}
+		if !emitter.emitIndexed(part, index) {
+			return
+		}
 	}
 	finish := fantasy.FinishReasonStop
 	switch reason {

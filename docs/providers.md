@@ -195,6 +195,20 @@ or between two reads of its stream, is cancelled and fails as a network error
 and the plugin transport do. A step that has shown nothing then takes the
 retry path below; stopping the turn still cancels the request at once.
 
+A reply that ends at the output limit is an answer, not a failure. Responses
+`response.incomplete` is a terminal that keeps its text, reasoning, complete
+calls and usage: `max_output_tokens` finishes as length, `content_filter` as
+content filter and any other reason as other. A tool call the reply ended
+inside never runs. Chat Completions (on `length`) and Responses drop it and
+keep the complete calls, as the reference does. Messages keeps it with an
+error, so the engine answers it with a failed result the model reads: "tool
+call was not run: the reply reached the output limit before its arguments
+ended; send less in one call", or "tool call ended before its arguments were
+complete" when the stop reason was another; the reference's one message is
+"tool call ended before its content block was complete". A call that sent no
+input at all is a call without arguments (`{}`) unless the output limit ended
+the reply. A stream that ends without its completion event stays terminal.
+
 Main transport attempts have at most five additional transient retries, 60 seconds
 apart, before any output event escapes. Summary output stays buffered and has one
 additional transient retry after five seconds. Authentication, quota, invalid
