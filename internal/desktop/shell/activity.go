@@ -196,11 +196,35 @@ func (l lane) look(p *theme.Palette) (tone kit.Tone, glyph *ui.SVG, color ui.Col
 	return kit.Info, icons.ProgressRunning, p.Primary
 }
 
-// strip is the header's activity strip: the sessions waiting, running and
-// finished unread, in that order, as groups 12 DIPs apart of 28 DIP buttons 4
-// apart. A group shows up to three (two under 480 DIPs), or one fewer and +N
-// opening the rest. The pointer resting on one shows its title and project.
-func (a *App) strip(c *ui.Context) {
+// The strip's metrics: 28 DIP buttons 4 apart in groups 12 apart.
+const (
+	stripButton = 28
+	stripGap    = 4
+	laneGap     = 12
+)
+
+// stripWidth is the strip's width with groups of the given sizes showing up
+// to slots buttons each, a +N among them.
+func stripWidth(sizes []int, slots int) float32 {
+	w := float32(0)
+	for i, n := range sizes {
+		n = min(n, slots)
+		w += float32(n*stripButton + (n-1)*stripGap)
+		if i > 0 {
+			w += laneGap
+		}
+	}
+	return w
+}
+
+// strip is the header's activity strip, the session status at the end of the
+// main region's title room: the sessions waiting, running and finished
+// unread, in that order, as groups 12 DIPs apart of 28 DIP buttons 4 apart.
+// A group shows up to three (two under 480 DIPs), or one fewer and +N
+// opening the rest. room is the width it shares with the title, which keeps
+// titleRoom of it: in less, the groups show fewer, down to a group's +N
+// alone. The pointer resting on one shows its title and project.
+func (a *App) strip(c *ui.Context, room float32) {
 	groups := map[lane][]*preview.Conversation{}
 	add := func(list []*preview.Conversation) {
 		for _, cv := range list {
@@ -231,13 +255,33 @@ func (a *App) strip(c *ui.Context) {
 		// the buttons on either side of it twice as far apart.
 		return
 	}
-	ui.Row(c.Key("strip")).Gap(12).Shrink(0).Children(func() {
-		for _, l := range []lane{laneWaiting, laneRunning, laneCompleted} {
+	var lanes []lane
+	var sizes []int
+	for _, l := range []lane{laneWaiting, laneRunning, laneCompleted} {
+		if n := len(groups[l]); n > 0 {
+			lanes, sizes = append(lanes, l), append(sizes, n)
+		}
+	}
+	// The room is the title's, a spacer's and the strip's, one gap between
+	// them. The title shortens first; then the groups fold, the strip never
+	// reaching into the title's room.
+	free := room - 2*ButtonGap
+	for slots > 1 && stripWidth(sizes, slots) > free-titleRoom {
+		slots--
+	}
+	// Without the room for every group's one button beside a title
+	// shortened to nothing, the last groups leave rather than cover the
+	// page's actions: the sessions needing attention stay longest.
+	for len(sizes) > 0 && stripWidth(sizes, slots) > free {
+		lanes, sizes = lanes[:len(lanes)-1], sizes[:len(sizes)-1]
+	}
+	if len(lanes) == 0 {
+		return
+	}
+	ui.Row(c.Key("strip")).Gap(laneGap).Shrink(0).Children(func() {
+		for _, l := range lanes {
 			list := groups[l]
-			if len(list) == 0 {
-				continue
-			}
-			ui.Row(c.Key(int(l))).Gap(4).Shrink(0).Children(func() {
+			ui.Row(c.Key(int(l))).Gap(stripGap).Shrink(0).Children(func() {
 				shown := list
 				if len(list) > slots {
 					shown = list[:slots-1]

@@ -110,13 +110,15 @@ type App struct {
 	Sidebar  *sidebar.State
 	Settings *settings.State
 	Messages *conversation.State
-	// assets is the header's session overview popover, of the
-	// conversation assetsOf; keyed is a conversation key of this frame
+	// overviews are the session overview popovers by conversation, each
+	// opened by its conversation's own button (conversationActions); band
+	// is the header's main region as the activity strip fits into it
+	// (header.go); keyed is a conversation key of this frame
 	// (conversation.stop, composer.focus, composer.models) for its page.
-	assets   composer.OverviewState
-	assetsOf string
-	keyed    string
-	Panel    *panel.State
+	overviews map[string]*overviewPopover
+	band      band
+	keyed     string
+	Panel     *panel.State
 	// Projects keeps each project's Files and Git state, shared by their
 	// pages and the panel's tabs.
 	Projects *panel.Projects
@@ -264,6 +266,7 @@ func (a *App) View(c *ui.Context) {
 	a.MountPanel()
 	a.followSelection()
 	a.followPanes()
+	a.sweepOverviews()
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color.
 	band, panel := p.TitleBar, p.Background
@@ -580,7 +583,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	}
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
-	comp.Searching = a.Messages.SearchOpen() && cv.ID == a.Sidebar.Selected
+	comp.Searching = a.Messages.SearchOpenIn(cv.ID)
 	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
 		conversation.UsageBar(c, cv.Session.Usage, compact, open)
 	}

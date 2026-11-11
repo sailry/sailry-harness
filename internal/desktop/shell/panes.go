@@ -118,6 +118,20 @@ func (a *App) focusPane(t panes.Target) {
 	}
 }
 
+// findTarget is the conversation Find in conversation searches: the selected
+// one alone, the focused pane's in a split, and none while that pane is a
+// terminal.
+func (a *App) findTarget() string {
+	w := &a.panes
+	if w.Displayed() == nil {
+		return a.Sidebar.Selected
+	}
+	if w.Active.Kind != panes.Session {
+		return ""
+	}
+	return w.Active.ID
+}
+
 // dropPane puts t on dest at p and gives it the focus.
 func (a *App) dropPane(c *ui.Context, dest, t panes.Target, p panes.Placement) {
 	if !a.panes.Drop(dest, t, p) {
@@ -255,14 +269,20 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 	}
 }
 
-// paneHeader is a pane's header in a split: the title, then the handle that
-// drags the pane to another place and the close button, on the header band's
-// height.
+// paneHeader is a pane's header in a split: the title, a conversation's own
+// Find and overview, then the handle that drags the pane to another place and
+// the close button, on the header band's height.
 func (a *App) paneHeader(c *ui.Context, t panes.Target) {
 	p := theme.Of(c)
 	title := a.paneTitle(c, t)
 	ui.Row(c.Key("pane-header")).Height(HeaderHeight).Shrink(0).PaddingX(12).Gap(4).Children(func() {
 		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.Foreground)
+		// The band has no Find or overview over a split, where they would
+		// name no pane: each conversation's are here, acting on it alone. A
+		// terminal has none.
+		if t.Kind == panes.Session {
+			a.conversationActions(c, a.Data.Find(t.ID), 28)
+		}
 		drag := kit.IconButton(c.Key("pane-drag"), icons.Move, i18n.T(c, "pane_drag"), 28, false).Cursor(ui.CursorGrab)
 		drag.Drag(panes.Drag{Target: t, Title: title})
 		kit.DragChip(c, drag, title)

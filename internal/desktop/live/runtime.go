@@ -453,8 +453,12 @@ func (r *Runtime) afterFrame() {
 	r.countFrame()
 	r.pluginViewsAfterFrame()
 	r.pruneDrafts()
-	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.seenConversation(session) {
-		r.App.Messages.CloseSearch()
+	// Each conversation has its own search bar: one whose conversation is no
+	// longer shown closes alone.
+	for _, id := range r.App.Messages.SearchSessions() {
+		if session, err := protocol.ParseSessionID(id); err == nil && !r.seenConversation(session) {
+			r.App.Messages.CloseSearchIn(id)
+		}
 	}
 	r.savePreferences()
 }

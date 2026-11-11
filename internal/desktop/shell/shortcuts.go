@@ -173,9 +173,12 @@ func (a *App) run(c *ui.Context, id string) {
 			return
 		}
 		// Find in the conversation: from the conversation, its input or the search
-		// bar, not from the panel.
+		// bar, not from the panel. In a split it is the focused pane's
+		// conversation, which has its own bar; a terminal pane has none.
 		if a.Page == ConversationPage && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {
-			a.Messages.OpenSearch(a.Sidebar.Selected)
+			if target := a.findTarget(); target != "" {
+				a.Messages.OpenSearch(target)
+			}
 		}
 	case "conversation.stop", "composer.focus", "composer.models":
 		// The conversation's own keys: its page carries them out with its
