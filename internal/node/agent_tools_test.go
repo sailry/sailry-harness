@@ -113,8 +113,8 @@ func TestAgentManagementTools(t *testing.T) {
 	}
 	flows := t.TempDir()
 	for name, body := range map[string]string{
-		"plugin.json":                 `{"$schema":"` + plugins.ManifestSchema + `","name":"flow-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["files.write"],"host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["step"]},"tools":[{"name":"rewrite","description":"Rewrite a file in steps","handler":{"name":"step","flow":{"operations":["files.read","files.write"]},"parameters":{"type":"object"}}}]}}}`,
-		"dev.sailry.platform/main.js": `export function step(input){return input.step===0?{call:{operation:"files.write",arguments:{path:"note.txt",text:"flow",expected_revision:null}}}:{result:{done:true}};}`,
+		"plugin.json":                 `{"$schema":"` + plugins.ManifestSchema + `","name":"flow-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["files.read","files.write"],"host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["step"]},"tools":[{"name":"rewrite","description":"Rewrite a file in steps","handler":{"name":"step","flow":{"operations":["files.read"]},"parameters":{"type":"object"}}}]}}}`,
+		"dev.sailry.platform/main.js": `export function step(input){return input.step===0?{call:{operation:"files.write",arguments:{path:"flow.txt",text:"flow",expected_revision:null}}}:{result:{done:true}};}`,
 	} {
 		filename := filepath.Join(flows, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
@@ -128,6 +128,12 @@ func TestAgentManagementTools(t *testing.T) {
 		info, err := node.plugins.manager.Install(t.Context(), source, "", name)
 		if err != nil || len(info.Issues) != 0 || info.Extension == nil {
 			t.Fatalf("%s is invalid: %+v, %v", name, info.Issues, err)
+		}
+		if name == "flow-fixture" {
+			// Installation refuses a flow that declares a workspace change.
+			// This record is one stored before that rule: it still does.
+			flow := info.Extension.Tools[0].Handler.Flow
+			flow.Operations = append(flow.Operations, protocol.ToolOperationWriteFile)
 		}
 		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
 			_, err := store.InstallPlugin(t.Context(), db, info, 0, true)
@@ -550,9 +556,14 @@ func TestAgentManagementTools(t *testing.T) {
 		}
 	})
 
-	// A flow step has no approval of its own: a flow that declares a workspace
-	// change is refused before the user is asked.
+	// A flow step has no approval of its own: a stored flow that declares a
+	// workspace change is refused before the user is asked, and the file it
+	// would have rewritten keeps its content.
 	t.Run("flow with a workspace change", func(t *testing.T) {
+		kept := filepath.Join(root, "flow.txt")
+		if err := os.WriteFile(kept, []byte("kept"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		rewrite := operations.Alias("flow-fixture", "rewrite")
 		var results map[string]string
 		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
@@ -571,8 +582,8 @@ func TestAgentManagementTools(t *testing.T) {
 		if len(approvals) != 0 || !strings.Contains(results["rewrite"], "plugin flows cannot run files.write") {
 			t.Fatalf("flow result = %q, approvals %+v", results["rewrite"], approvals)
 		}
-		if _, err := os.Stat(filepath.Join(root, "note.txt")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("flow changed the workspace: %v", err)
+		if content, err := os.ReadFile(kept); err != nil || string(content) != "kept" {
+			t.Fatalf("flow changed the workspace: %q %v", content, err)
 		}
 	})
 

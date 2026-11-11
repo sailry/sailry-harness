@@ -36,10 +36,13 @@ func testToolDeclarations(t *testing.T) {
 		{"flow operation without its action", func(extension *protocol.PluginExtension) {
 			extension.Tools[1].Handler.Flow.Operations = []protocol.ToolOperation{protocol.ToolOperationHttp}
 		}, false},
-		{"flow that writes a file", func(extension *protocol.PluginExtension) {
-			extension.Actions = append(extension.Actions, protocol.PluginActionWriteFiles)
-			extension.Tools[1].Handler.Flow.Operations = []protocol.ToolOperation{protocol.ToolOperationWriteFile}
-		}, false},
+		{"flow that reads, sends a request and writes its own values", func(extension *protocol.PluginExtension) {
+			extension.Actions = append(extension.Actions, protocol.PluginActionHttp, protocol.PluginActionReadCommands)
+			extension.Tools[1].Handler.Flow.Operations = []protocol.ToolOperation{
+				protocol.ToolOperationReadFile, protocol.ToolOperationReadCommand, protocol.ToolOperationHttp,
+				protocol.ToolOperationGetValue, protocol.ToolOperationSetValue, protocol.ToolOperationStorageTransaction,
+			}
+		}, true},
 		{"flow without operations", func(extension *protocol.PluginExtension) { extension.Tools[1].Handler.Flow.Operations = nil }, false},
 		{"flow repeating an operation", func(extension *protocol.PluginExtension) {
 			extension.Tools[1].Handler.Flow.Operations = slices.Repeat([]protocol.ToolOperation{protocol.ToolOperationStorageTransaction}, 2)
@@ -175,4 +178,53 @@ func testToolDeclarations(t *testing.T) {
 			}
 		})
 	}
+
+	// A flow step has no approval of its own. A flow that declares a change
+	// outside its package's values, or an operation that is the model's own,
+	// is refused at install by name, whatever actions the package declares.
+	t.Run("flow operations a step cannot run", func(t *testing.T) {
+		for operation, action := range map[protocol.ToolOperation]protocol.PluginAction{
+			protocol.ToolOperationWriteFile:       protocol.PluginActionWriteFiles,
+			protocol.ToolOperationEditFile:        protocol.PluginActionWriteFiles,
+			protocol.ToolOperationDeleteFile:      protocol.PluginActionWriteFiles,
+			protocol.ToolOperationMoveFile:        protocol.PluginActionWriteFiles,
+			protocol.ToolOperationCreateDirectory: protocol.PluginActionWriteFiles,
+			protocol.ToolOperationApplyChanges:    protocol.PluginActionWriteFiles,
+			protocol.ToolOperationEditNotebook:    protocol.PluginActionWriteFiles,
+			protocol.ToolOperationWriteArtifact:   protocol.PluginActionWriteArtifacts,
+			protocol.ToolOperationRunCommand:      protocol.PluginActionControlCommands,
+			protocol.ToolOperationWriteCommand:    protocol.PluginActionControlCommands,
+			protocol.ToolOperationExecuteDatabase: protocol.PluginActionControlDatabases,
+			protocol.ToolOperationRunSsh:          protocol.PluginActionControlSsh,
+			protocol.ToolOperationRemoveWorktree:  protocol.PluginActionWriteWorktrees,
+			protocol.ToolOperationSaveRole:        protocol.PluginActionWriteRoles,
+			protocol.ToolOperationKnowledgeCreate: protocol.PluginActionWriteKnowledge,
+			protocol.ToolOperationReadBrowser:     protocol.PluginActionReadBrowser,
+			protocol.ToolOperationControlComputer: protocol.PluginActionControlComputer,
+			protocol.ToolOperationGenerateImage:   protocol.PluginActionGenerateImage,
+			protocol.ToolOperationDelegateAgent:   protocol.PluginActionDelegateAgents,
+			protocol.ToolOperationWaitAgent:       protocol.PluginActionDelegateAgents,
+			protocol.ToolOperationProgress:        "",
+			protocol.ToolOperationReadSettings:    "",
+		} {
+			var extension protocol.PluginExtension
+			if err := json.Unmarshal([]byte(`{
+				"api_version":"v1","scope":"host","actions":["files.read"],
+				"host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["step"]},
+				"tools":[{"name":"steps","description":"Steps","handler":{"name":"step","parameters":{"type":"object"},"flow":{"operations":["files.read"]}}}]
+			}`), &extension); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateExtension(extension); err != nil {
+				t.Fatalf("reading flow: %v", err)
+			}
+			if action != "" {
+				extension.Actions = append(extension.Actions, action)
+			}
+			extension.Tools[0].Handler.Flow.Operations = append(extension.Tools[0].Handler.Flow.Operations, operation)
+			if err := validateExtension(extension); err == nil || !strings.Contains(err.Error(), "plugin flows cannot run "+string(operation)) {
+				t.Errorf("flow declaring %s: %v", operation, err)
+			}
+		}
+	})
 }
