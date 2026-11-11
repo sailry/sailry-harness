@@ -83,22 +83,18 @@ func TestTurnEndHooks(t *testing.T) {
 		return binding, &launches
 	}
 	t.Run("a finished turn reports completed", func(t *testing.T) {
-		// The engine names a successful turn "succeeded"; scripts read the
-		// source's word.
-		for _, status := range []string{"succeeded", StatusCompleted} {
-			binding, launches := bind(context.Background(), "")
-			binding.After(context.Background(), "write_file", true)
-			if err := binding.Complete(context.Background(), status); err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(*launches, []launch{{"after", "after_tool", "succeeded", "write_file"}, {"end", "turn_end", "completed", ""}}) {
-				t.Fatalf("%s: %v", status, *launches)
-			}
+		binding, launches := bind(context.Background(), "")
+		binding.After(context.Background(), "write_file", true)
+		if err := binding.Complete(context.Background(), "completed"); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(*launches, []launch{{"after", "after_tool", "succeeded", "write_file"}, {"end", "turn_end", "completed", ""}}) {
+			t.Fatal(*launches)
 		}
 	})
 	t.Run("a failed turn reports failed", func(t *testing.T) {
 		binding, launches := bind(context.Background(), "")
-		if err := binding.Complete(context.Background(), StatusFailed); err != nil {
+		if err := binding.Complete(context.Background(), "failed"); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(*launches, []launch{{"end", "turn_end", "failed", ""}}) {
@@ -109,7 +105,7 @@ func TestTurnEndHooks(t *testing.T) {
 		binding, launches := bind(context.Background(), "after")
 		binding.After(context.Background(), "write_file", false)
 		var fault *protocol.Fault
-		if err := binding.Complete(context.Background(), StatusCompleted); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
+		if err := binding.Complete(context.Background(), "completed"); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(*launches, []launch{{"after", "after_tool", "failed", "write_file"}, {"end", "turn_end", "failed", ""}}) {
@@ -121,7 +117,7 @@ func TestTurnEndHooks(t *testing.T) {
 		binding, launches := bind(stop, "")
 		cancel()
 		// The engine completes with a context detached from the stopped turn.
-		if err := binding.Complete(context.WithoutCancel(stop), StatusFailed); err != nil {
+		if err := binding.Complete(context.WithoutCancel(stop), "failed"); err != nil {
 			t.Fatal(err)
 		}
 		binding.After(context.WithoutCancel(stop), "write_file", true)
@@ -134,7 +130,7 @@ func TestTurnEndHooks(t *testing.T) {
 			t.Fatal("hooks bound a turn that was not admitted")
 		}
 		var binding *Binding
-		if binding.WrapsTools() || binding.Before(context.Background(), "write_file") != nil || binding.Complete(context.Background(), StatusCompleted) != nil {
+		if binding.WrapsTools() || binding.Before(context.Background(), "write_file") != nil || binding.Complete(context.Background(), "completed") != nil {
 			t.Fatal("an absent binding ran")
 		}
 	})

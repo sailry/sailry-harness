@@ -18,9 +18,9 @@ source `SAILRY_HOOK_*` identity, phase, tool and status fields.
 
 `SAILRY_HOOK_EVENT` is `before_tool`, `after_tool` or `turn_end`.
 `SAILRY_HOOK_STATUS` is absent before a tool, `succeeded` or `failed` after
-one, and `completed` or `failed` at Turn End; the binding owns these words, so
-the engine's own name for a finished turn never reaches a script. An After Tool
-failure makes the Turn End status `failed`.
+one, and `completed` or `failed` at Turn End, which the engine passes for a
+completed turn and for any other end. An After Tool failure makes the Turn End
+status `failed`.
 
 No script runs once the turn is stopped: the binding holds the turn's context,
 which a user Stop and Node shutdown both cancel, and a claim is refused unless
