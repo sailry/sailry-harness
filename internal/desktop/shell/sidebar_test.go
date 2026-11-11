@@ -630,7 +630,19 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	if tt.HasText(".cache") || !tt.HasText(en("directory_count_hidden", "count", 1)) {
 		t.Fatalf("a hidden entry shows before the toggle: %q", tt.Texts())
 	}
-	pick(en("directory_hidden"))
+	// The hidden-files toggle is an item of the header's More menu.
+	more := tt.AccessAll()
+	slices.Reverse(more)
+	i := slices.IndexFunc(more, func(e ui.AccessInfo) bool {
+		return (e.Role == ui.RoleMenuButton || e.Role == ui.RoleButton) && e.Name == en("more")
+	})
+	if i < 0 {
+		t.Fatalf("the picker has no More menu: %q", tt.Texts())
+	}
+	tt.ClickAt(more[i].Bounds.X+more[i].Bounds.W/2, more[i].Bounds.Y+more[i].Bounds.H/2)
+	settle(tt)
+	clickItem(t, tt, en("directory_hidden"))
+	settle(tt)
 	if !tt.HasText(".cache") || !a.Sidebar.Picker.Hidden {
 		t.Fatalf("the hidden toggle did not show the entry: %q", tt.Texts())
 	}

@@ -184,6 +184,13 @@ MyGo bases.
   directly calls `kit.NoteModal(c)` while it shows. The window holds the
   native menu's commands behind a noted dialog (`kit.TakeModal`), which
   MyGo's own modal does not do.
+- `kit.Dialog` takes `kit.DialogOptions{Bleed: true}` for content that draws
+  to the panel's edges (the file picker): no padding or gap, the content
+  clipped to the panel's radius, the panel centered and 24 DIP clear of the
+  window instead of a tenth down. The panel stays `Floating`; the content
+  sets its own size, fills what must not read through the frost with a
+  palette color, and keeps clear of the close button (28 DIP square, 12 from
+  the top and the right). It is an option, not a second dialog.
 - `kit.MenuButton` keeps a menu's state by its id on the window: an id is
   unique among everything shown at once (two panes of one view each need
   their own), and `kit.SweepMenus` drops the states no frame asked for.
