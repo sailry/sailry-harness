@@ -279,6 +279,26 @@ func TestTeamsProjection(t *testing.T) {
 			})
 		}
 	})
+	t.Run("the parent decides every pending child approval", func(t *testing.T) {
+		child := protocol.SessionID{2}
+		pending := protocol.ConversationApproval{ID: protocol.NewApprovalID(), Session: child, State: protocol.ConversationApprovalStatePending}
+		trust := pending
+		trust.Ssh = &protocol.SshTrust{Host: "build.example", Port: 22, Key: protocol.SshHostKey{Algorithm: "ssh-ed25519", Fingerprint: "SHA256:fixture"}}
+		denied, foreign := pending, pending
+		denied.State, foreign.Session = protocol.ConversationApprovalStateDenied, protocol.SessionID{3}
+		for name, row := range map[string]struct {
+			approval protocol.ConversationApproval
+			want     bool
+		}{"ordinary": {pending, true}, "host key trust": {trust, true}, "decided": {denied, false}, "another session": {foreign, false}} {
+			if childApproval(row.approval, child) != row.want {
+				t.Errorf("%s approval: shown in the parent = %v", name, !row.want)
+			}
+		}
+		// The card of a child's host key names the key and the child.
+		if view := projectApproval(trust, nil, "en"); view.Trust == nil || view.Trust.Host != "build.example" || view.Remember {
+			t.Errorf("host key card lost its key: %+v", view)
+		}
+	})
 	t.Run("capsule watches only children waiting on approval", func(t *testing.T) {
 		type row struct {
 			status  protocol.ConversationStatus

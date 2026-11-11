@@ -104,6 +104,8 @@ type execution struct {
 	wake              chan struct{}
 	guidance          chan struct{}
 	tools             []Tool
+	names             *exposure
+	deferredContext   *string
 	toolCleanup       []func() error
 	inputMu           sync.Mutex
 	inputWake         chan struct{}

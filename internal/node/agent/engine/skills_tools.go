@@ -166,10 +166,7 @@ func roleAllowsTool(role *protocol.RoleProfile, tool Tool) bool {
 	if tool.Hosted {
 		return tool.ReadOnly
 	}
-	declared := tool.Flow
-	if tool.Binding.Operation != nil {
-		declared = append([]protocol.ToolOperation{*tool.Binding.Operation}, declared...)
-	}
+	declared := declaredOperations(tool)
 	return len(declared) != 0 && !slices.ContainsFunc(declared, func(operation protocol.ToolOperation) bool { return !standardOperation(operation) })
 }
 

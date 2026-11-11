@@ -1,12 +1,18 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +20,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -31,6 +38,15 @@ type agentToolScript struct {
 	prompts []string
 	results map[string]string
 	plan    func(step int, results map[string]string) [][3]string
+}
+
+// declaredToolName is the name a model reads for a package tool's alias when
+// no other captured tool declares the same name.
+func declaredToolName(alias string) string {
+	if rest, found := strings.CutPrefix(alias, "plugin_"); found && len(rest) > 17 && rest[16] == '_' {
+		return rest[17:]
+	}
+	return alias
 }
 
 func (script *agentToolScript) reset(plan func(int, map[string]string) [][3]string) {
@@ -95,7 +111,20 @@ func TestAgentManagementTools(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"roles-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["roles.read","roles.write"],"tools":[{"name":"roster","operation":"roles.list"},{"name":"keep","operation":"roles.save"},{"name":"drop","operation":"roles.remove"},{"name":"assign","operation":"roles.apply"}]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for name, source := range map[string]string{"roles-fixture": fixture} {
+	flows := t.TempDir()
+	for name, body := range map[string]string{
+		"plugin.json":                 `{"$schema":"` + plugins.ManifestSchema + `","name":"flow-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["files.write"],"host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["step"]},"tools":[{"name":"rewrite","description":"Rewrite a file in steps","handler":{"name":"step","flow":{"operations":["files.read","files.write"]},"parameters":{"type":"object"}}}]}}}`,
+		"dev.sailry.platform/main.js": `export function step(input){return input.step===0?{call:{operation:"files.write",arguments:{path:"note.txt",text:"flow",expected_revision:null}}}:{result:{done:true}};}`,
+	} {
+		filename := filepath.Join(flows, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, source := range map[string]string{"roles-fixture": fixture, "flow-fixture": flows} {
 		info, err := node.plugins.manager.Install(t.Context(), source, "", name)
 		if err != nil || len(info.Issues) != 0 || info.Extension == nil {
 			t.Fatalf("%s is invalid: %+v, %v", name, info.Issues, err)
@@ -283,6 +312,8 @@ func TestAgentManagementTools(t *testing.T) {
 		offered, prompts := script.offered, script.prompts
 		script.mu.Unlock()
 		for _, name := range slices.Concat(managers, catalog, scoped[1:]) {
+			// The model reads a package tool under its declared name.
+			name = declaredToolName(name)
 			if slices.Contains(offered[0], name) {
 				t.Fatalf("%s must be deferred until discovery: %v", name, offered[0])
 			}
@@ -413,6 +444,232 @@ func TestAgentManagementTools(t *testing.T) {
 		teams := commandFixture(t, node, protocol.Command{Kind: "list_teams"}).Data.([]protocol.TeamProfile)
 		if len(teams) != 0 {
 			t.Fatalf("a denied team was created: %+v", teams)
+		}
+	})
+
+	// An artifact belongs to its conversation and a package's values to the
+	// package: neither asks the user at any permission level. A plain script
+	// handler asks for nothing either. Only the artifact survives Plan mode.
+	for _, level := range []struct {
+		name       string
+		mode       protocol.WorkMode
+		permission protocol.Permission
+	}{{"ask", protocol.WorkModeCode, protocol.PermissionAsk}, {"project", protocol.WorkModeCode, protocol.PermissionProject}, {"plan", protocol.WorkModePlan, protocol.PermissionAsk}} {
+		t.Run("own storage under "+level.name, func(t *testing.T) {
+			var results map[string]string
+			_, approvals, _ := turn(t, level.mode, level.permission, func(approval protocol.ConversationApproval) string {
+				t.Errorf("a write to own storage asked the user: %+v", approval)
+				return "deny"
+			}, func(step int, current map[string]string) [][3]string {
+				results = current
+				switch step {
+				case 1:
+					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief,create_goal,save_memory"}`}}
+				case 2:
+					calls := [][3]string{
+						{"brief", "write_brief", `{"title":"Notes","html":"<p>Outline</p>"}`},
+						{"memory", "save_memory", `{"kind":"user","title":"Editor theme","body":"Prefers a dark theme"}`},
+					}
+					// The goals package offers no tool to a planning turn.
+					if level.mode != protocol.WorkModePlan {
+						calls = append(calls, [3]string{"goal", "create_goal", `{"description":"Ship the release"}`})
+					}
+					return calls
+				}
+				return nil
+			})
+			planning := level.mode == protocol.WorkModePlan
+			if !strings.Contains(results["brief"], `"title":"Notes"`) || strings.Contains(results["brief"], "permission_denied") {
+				t.Errorf("artifact was not written: %.300q", results["brief"])
+			}
+			if refused := strings.Contains(results["memory"], "planning mode permits read-only tools"); refused != planning {
+				t.Errorf("memory under %s returned %.300q", level.name, results["memory"])
+			}
+			if !planning && (strings.Contains(results["memory"], "permission_denied") || !strings.Contains(results["goal"], "Ship the release")) {
+				t.Errorf("own storage was not written: %.300q, %.300q", results["memory"], results["goal"])
+			}
+			// The artifact and, outside Plan, the memory transaction record
+			// their storage authority; the plain goal handler records none.
+			expected := 2
+			if planning {
+				expected = 1
+			}
+			if len(approvals) != expected {
+				t.Errorf("recorded %d approvals: %+v", len(approvals), approvals)
+			}
+			for _, approval := range approvals {
+				if approval.Source != protocol.ConversationApprovalSourceStorage || approval.State != protocol.ConversationApprovalStateApproved || approval.CanRemember {
+					t.Errorf("storage write was not authorized by its scope: %+v", approval)
+				}
+			}
+		})
+	}
+
+	// With the sandbox setting off a command is an ordinary approval the
+	// session can remember, and each command reads the setting as it is now.
+	// The fixture launches nothing: the calls fail after their approval.
+	t.Run("commands follow the sandbox setting", func(t *testing.T) {
+		sandbox := func(enabled bool) {
+			current := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings)
+			current.Enabled = enabled
+			commandFixture(t, node, protocol.Command{Kind: "save_sandbox_settings", Data: &current})
+		}
+		sandbox(false)
+		defer sandbox(true)
+		asked := 0
+		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+			asked++
+			if !approval.CanRemember || approval.Prefix == nil || *approval.Prefix != "git status" || approval.Access == nil || *approval.Access != protocol.ProcessAccessUnrestricted {
+				t.Errorf("command without a sandbox is not an ordinary approval: %+v", approval)
+			}
+			return "approve_session"
+		}, func(step int, _ map[string]string) [][3]string {
+			switch step {
+			case 1:
+				return [][3]string{{"first", "run_command", `{"command":"git status --short"}`}}
+			case 2:
+				return [][3]string{{"second", "run_command", `{"command":"git log"}`}}
+			case 3:
+				// The user turns the sandbox back on while the turn runs.
+				sandbox(true)
+				return [][3]string{{"third", "run_command", `{"command":"git diff"}`}}
+			}
+			return nil
+		})
+		if asked != 1 || len(approvals) != 3 || approvals[1].Source != protocol.ConversationApprovalSourceSessionRule || approvals[1].State != protocol.ConversationApprovalStateApproved {
+			t.Fatalf("session rule did not answer the second command: asked %d, %+v", asked, approvals)
+		}
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			if last := approvals[2]; last.Source != protocol.ConversationApprovalSourceSandbox || last.Access == nil || *last.Access != protocol.ProcessAccessWorkspace {
+				t.Fatalf("command ignored the sandbox turned on during its turn: %+v", last)
+			}
+		}
+	})
+
+	// A flow step has no approval of its own: a flow that declares a workspace
+	// change is refused before the user is asked.
+	t.Run("flow with a workspace change", func(t *testing.T) {
+		rewrite := operations.Alias("flow-fixture", "rewrite")
+		var results map[string]string
+		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+			t.Errorf("flow asked for an approval it cannot use: %+v", approval)
+			return "deny"
+		}, func(step int, got map[string]string) [][3]string {
+			results = got
+			switch step {
+			case 1:
+				return [][3]string{{"discover", "tool_search", `{"query":"select:` + rewrite + `"}`}}
+			case 2:
+				return [][3]string{{"rewrite", declaredToolName(rewrite), `{}`}}
+			}
+			return nil
+		})
+		if len(approvals) != 0 || !strings.Contains(results["rewrite"], "plugin flows cannot run files.write") {
+			t.Fatalf("flow result = %q, approvals %+v", results["rewrite"], approvals)
+		}
+		if _, err := os.Stat(filepath.Join(root, "note.txt")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("flow changed the workspace: %v", err)
+		}
+	})
+
+	// A capture is a read. Saving it asks first, is refused while planning
+	// and publishes the checked pixels below assets/generated once.
+	t.Run("browser capture saving", func(t *testing.T) {
+		var picture bytes.Buffer
+		if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+			t.Fatal(err)
+		}
+		controller := protocol.NodeID{7}
+		stream, err := node.browsers.subscribe(controller)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		go func() {
+			for {
+				update, err := stream.Next(t.Context())
+				if err != nil {
+					return
+				}
+				reply, _ := json.Marshal(map[string]any{"url": "https://example.com/", "path": "/etc/passwd", "base64_image": base64.StdEncoding.EncodeToString(picture.Bytes())})
+				raw := json.RawMessage(reply)
+				_ = node.browsers.complete(controller, update.Data.(protocol.BrowserCall).ID, protocol.BrowserResult{Ok: &raw})
+			}
+		}()
+		inv := &store.AgentInvocation{Caller: controller}
+		inv.Session.ID = protocol.NewSessionID()
+		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			var id string
+			if err := db.QueryRowContext(t.Context(), "SELECT id FROM worktrees WHERE project=?1", project.ID.String()).Scan(&id); err != nil {
+				return err
+			}
+			var err error
+			inv.Run.Worktree, err = protocol.ParseWorktreeID(id)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var schema map[string]any
+		if err := json.Unmarshal(browserToolSchema, &schema); err != nil {
+			t.Fatal(err)
+		}
+		capture := func(id string, save bool) canonical.ToolRequest {
+			arguments, _ := json.Marshal(map[string]any{"action": "screenshot", "arguments": map[string]any{"tab": 1, "format": "png", "save": save}})
+			return canonical.ToolRequest{ID: id, Name: "capture", Arguments: arguments}
+		}
+		tool := node.browserTool(inv, protocol.PluginReference{}, "capture", browserReadOperation, schema)
+		if tool.Approval || !tool.ReadOnly {
+			t.Fatalf("capture tool is not a read: %+v", tool)
+		}
+		for _, save := range []bool{false, true} {
+			call := capture("capture", save)
+			if err := tool.Prepare(t.Context(), call); err != nil {
+				t.Fatal(err)
+			}
+			if tool.Confirm(call) != save {
+				t.Fatalf("save=%v confirms %v", save, !save)
+			}
+			result := tool.Execute(t.Context(), call)
+			if result.Failure != nil {
+				t.Fatalf("save=%v: %+v", save, result.Failure)
+			}
+			var facts map[string]any
+			if err := json.Unmarshal(result.Value.(map[string]any)["data"].(json.RawMessage), &facts); err != nil {
+				t.Fatal(err)
+			}
+			if facts["mime_type"] != "image/png" || facts["inline_data"] == nil || facts["base64_image"] != nil {
+				t.Fatalf("save=%v capture = %v", save, facts)
+			}
+			saved, _ := facts["path"].(string)
+			if !save {
+				if saved != "" {
+					t.Fatalf("unsaved capture names a path: %q", saved)
+				}
+				continue
+			}
+			if matched, _ := path.Match("assets/generated/browser-*.png", saved); !matched {
+				t.Fatalf("saved capture path = %q", saved)
+			}
+			if written, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(saved))); err != nil || !bytes.Equal(written, picture.Bytes()) {
+				t.Fatalf("saved capture differs from its pixels: %v", err)
+			}
+		}
+		// A published capture is never replaced.
+		id := protocol.NewRequestID()
+		input := protocol.CommandUseBrowserPayload{Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: protocol.BrowserAction{Kind: "screenshot", Data: &protocol.BrowserActionScreenshotPayload{Tab: 1, Scale: protocol.BrowserScaleCss, Format: protocol.BrowserFormatPng, Save: true}}}
+		if _, err := node.useBrowser(t.Context(), controller, id, input); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := node.useBrowser(t.Context(), controller, id, input); err == nil {
+			t.Fatal("a second capture replaced the saved file")
+		}
+		inv.Turn.Config.Mode = protocol.WorkModePlan
+		var refused *protocol.Fault
+		if err := tool.Prepare(t.Context(), capture("planned", true)); !errors.As(err, &refused) || refused.Message != "planning turns cannot save browser captures" {
+			t.Fatalf("planning turn prepared a saved capture: %v", err)
+		}
+		if err := tool.Prepare(t.Context(), capture("planned", false)); err != nil {
+			t.Fatalf("planning turn refused a plain capture: %v", err)
 		}
 	})
 

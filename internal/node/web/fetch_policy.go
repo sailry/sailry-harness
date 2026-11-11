@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -36,6 +37,14 @@ func publicURL(value string) (*url.URL, error) {
 		if !publicAddress(ip) {
 			return nil, addressDenied()
 		}
+	} else if ip, numeric, valid := numericHost(host); numeric {
+		if !valid {
+			return nil, webInvalid("invalid web URL")
+		}
+		if !publicAddress(ip) {
+			return nil, addressDenied()
+		}
+		host = ip.String()
 	} else {
 		host, err = idna.Lookup.ToASCII(host)
 		if err != nil {
@@ -59,6 +68,48 @@ func publicURL(value string) (*url.URL, error) {
 		parsed.Path = "/"
 	}
 	return parsed, nil
+}
+
+// numericHost reads the IPv4 spellings a URL host may use beside dotted
+// decimal: fewer than four parts, hexadecimal and octal, as in http://127.1/
+// and http://0x7f000001/. Resolvers and proxies read them as addresses, so
+// they are checked as addresses, as a WHATWG URL parser does. numeric is false
+// for a host that is a name.
+func numericHost(host string) (address netip.Addr, numeric, valid bool) {
+	part := func(text string) (uint64, bool) {
+		base := 10
+		if strings.HasPrefix(text, "0x") {
+			text, base = text[2:], 16
+			if text == "" {
+				return 0, true
+			}
+		} else if len(text) > 1 && text[0] == '0' {
+			text, base = text[1:], 8
+		}
+		value, err := strconv.ParseUint(text, base, 64)
+		return value, err == nil
+	}
+	parts := strings.Split(strings.TrimSuffix(host, "."), ".")
+	last := parts[len(parts)-1]
+	if _, number := part(last); last == "" || !number && strings.Trim(last, "0123456789") != "" {
+		return netip.Addr{}, false, false
+	}
+	if len(parts) > 4 {
+		return netip.Addr{}, true, false
+	}
+	var packed uint64
+	for index, text := range parts {
+		value, number := part(text)
+		limit, shift := uint64(255), 8*(3-index)
+		if index == len(parts)-1 {
+			limit, shift = 1<<(8*(5-len(parts)))-1, 0
+		}
+		if text == "" || !number || value > limit {
+			return netip.Addr{}, true, false
+		}
+		packed |= value << shift
+	}
+	return netip.AddrFrom4([4]byte{byte(packed >> 24), byte(packed >> 16), byte(packed >> 8), byte(packed)}), true, true
 }
 
 func publicAddress(ip netip.Addr) bool {

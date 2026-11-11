@@ -86,8 +86,8 @@ rebuilt each frame from backend data.
 | `Approval.ID` | The call's ID (the transcript shows the same call pending) |
 | `Approval.Child` | The subagent session asking; `""` for this conversation |
 | `Approval.Title`, `Context` | Tool label, and where it acts |
-| `Approval.Description`, `Code` | What it does; `Code` shows a mono block up to 128 high |
-| `Approval.Notices` | Lines of up to three rows |
+| `Approval.Description`, `Code` | What it does: the call's `content`, else its first approval notice, else its `target`, else its `summary`; `Code` shows a mono block up to 128 high |
+| `Approval.Notices` | Lines of up to three rows: the approval notices the description does not already show |
 | `Approval.Changes` | A change set: `file_changes_approval(_one)`, per file the kind (`file_changes_added/modified/renamed/deleted`), path (`a → b` for renames), `+N −M`, `file_changes_shortened` |
 | `Approval.Remember`, `Prefix` | Offer `approval_allow_session`, and `approval_allow_prefix` |
 | `Approval.Unrestricted` | Allow's tooltip says `approval_unrestricted` |
@@ -517,8 +517,10 @@ read-only, with Read (the message in a read-only editor with Copy, Close and
 Remove), Withdraw and Remove, which act while the session's Host is connected.
 Parent composers
 project active registered children into the existing activity capsule and show
-their ordinary pending approvals with the child's name. Approval decisions target
-the child session; opening a row observes its real transcript.
+every pending approval of a child with the child's name, an SSH host key to
+trust included: the child's own tab is read-only, so the parent is the only
+place to decide it. Approval decisions target the child session; opening a row
+observes its real transcript.
 
 ### B7 projects and services
 

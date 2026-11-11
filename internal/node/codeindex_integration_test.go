@@ -917,7 +917,8 @@ func TestCodeAgentTools(t *testing.T) {
 	}
 	t.Logf("discovery answered: %s", results["discover"].Result.Value)
 	for _, tool := range tools {
-		if !slices.Contains(requests[1], tool) {
+		// The model reads a package tool under its declared name.
+		if !slices.Contains(requests[1], declaredToolName(tool)) {
 			t.Errorf("%s was not offered after discovery; offered %v", tool, requests[1])
 		}
 	}
