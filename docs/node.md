@@ -303,5 +303,10 @@ family. There is no profile importer or direct cross-engine opening: the
 database files of a Rust release (`node.turso`, `knowledge.turso`, the older
 `node.db` and `node.sqlite3`, and their side files) are moved, unopened and
 unchanged, into `storage/rust-archive/` at the first start, and the data in them
-does not appear. A name the archive already holds is never replaced: the Node
-refuses to start and names the archive. Platform compilation and runtime acceptance are distinct.
+does not appear. The set found at one start stays together: every target is
+checked before the first file moves. When the archive already holds one of the
+names, because a Rust build ran in the profile again and created a new
+`node.turso`, the whole set goes to the next numbered sibling that holds none
+(`storage/rust-archive-2/`, `-3`, ...). Nothing is replaced or deleted and the
+Node never refuses to start over an archive. Platform compilation and runtime
+acceptance are distinct.
