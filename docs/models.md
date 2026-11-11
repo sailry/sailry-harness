@@ -271,6 +271,16 @@ model and no download from these packages.
   operation that needs the model (OCR, embedding, decisions) wait for the hash
   within the caller's cancellation instead of reporting it as not installed.
   The reference hashes them before startup completes.
+- **Deleted registrations.** `delete_local_model` removes the model's files
+  and then its `local_models` row (`store.ForgetLocalModel`), so a deleted
+  model leaves the catalog and the limit of 128 registrations per kind. The
+  row stays while the settings select the model or a knowledge collection
+  names it, so that the choice keeps its name and the collection its model;
+  deleting it again once nothing names it removes it. A registration whose
+  files are already missing is removed the same way. Pinned models have no
+  row and stay listed as not installed. The reference never deletes a
+  registration, so every model ever tried counted against the limit for
+  good. `TestLocalModelRuntime` covers the four cases.
 - **Availability check.** Catalog availability checks that the runtime files
   exist; size and digest are verified when the first model loads.
 - **Image decoding.** Images are decoded by Go's `image` packages and

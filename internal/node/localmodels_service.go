@@ -368,5 +368,40 @@ func (node *Node) changeLocalModel(ctx context.Context, caller protocol.NodeID, 
 			return err
 		}
 	}
-	return registry.Remove(id)
+	if err := registry.Remove(id); err != nil {
+		return err
+	}
+	return node.forgetLocalModel(id)
+}
+
+// forgetLocalModel drops the registration of a model whose files were
+// removed, so that the list and the per-kind limit hold only models that
+// are installed, can be installed again from the pinned catalog, or are
+// still named by the settings or a knowledge collection. Deleting such a
+// kept model again after it is no longer named removes it.
+func (node *Node) forgetLocalModel(id string) error {
+	controls := node.localModels
+	controls.configuring.Lock()
+	defer controls.configuring.Unlock()
+	var prepared *localmodels.Prepared
+	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
+		forgotten, err := store.ForgetLocalModel(node.ctx, db, id)
+		if err != nil || !forgotten {
+			return err
+		}
+		catalog, err := store.ReadLocalModelCatalog(node.ctx, db)
+		if err != nil {
+			return err
+		}
+		prepared, err = controls.registry.Prepare(catalog.Settings, catalog.Definitions)
+		return err
+	})
+	if err != nil {
+		return nodeFault(err)
+	}
+	if prepared != nil {
+		// followLocalModels records and announces the shorter list.
+		controls.registry.Apply(prepared)
+	}
+	return nil
 }

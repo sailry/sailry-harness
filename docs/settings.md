@@ -667,7 +667,9 @@ repeat, so an older answer never replaces the event's registry.
   the dialog closes. Install is `resolve_model` → `register_local_model` →
   `install_local_model`, Details is `read_model_versions` → `resolve_model`,
   Cancel is `cancel_local_model` (`knowledge_cancel_requested`), Delete is
-  `delete_local_model` after the confirmation (`knowledge_deleted`). An
+  `delete_local_model` after the confirmation (`knowledge_deleted`); the
+  Node then forgets the registration too, unless the model is still selected
+  or named by a collection ([details](models.md#deviations-1)). An
   install's request is retained for the installation queue's Retry and reused
   after an unknown outcome; a canceled install shows no toast.
 - **Preview.** Unchanged: `ModelActions` is nil, pages change in memory and
