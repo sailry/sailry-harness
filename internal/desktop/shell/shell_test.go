@@ -300,10 +300,12 @@ func TestModelPickerAndEffort(t *testing.T) {
 	if !ok {
 		t.Fatalf("no model row GPT-5.2: %q", tt.Texts())
 	}
-	tt.Move(row.Bounds.X+24, row.Bounds.Y+row.Bounds.H/2)
-	tt.Frame()
+	// One move onto the row gives it the column. No time has passed since
+	// the list opened: the popover has the picker's size all the same,
+	// with every row in it.
 	tt.Move(row.Bounds.X+20, row.Bounds.Y+row.Bounds.H/2)
 	tt.Frame()
+	pickerContained(t, tt, "as the picker opens", "Reasoning effort", ui.Rect{W: 1280, H: 820}, "GPT-5.2")
 	if _, ok := tt.AccessByRole(ui.RoleMenuItem, ""); ok {
 		t.Errorf("a menu opens over the model list: %q", tt.Texts())
 	}
@@ -315,6 +317,9 @@ func TestModelPickerAndEffort(t *testing.T) {
 	tt.Frame()
 	if comp.Model != "gpt-5.2" {
 		t.Fatalf("model %q", comp.Model)
+	}
+	if panels, _ := popups(tt); len(panels) != 1 {
+		t.Fatalf("%d popovers after choosing an effort, want the one open", len(panels))
 	}
 	if got := composer.Efforts[int(comp.Effort)]; got != "high" {
 		t.Errorf("effort %q after choosing high", got)
@@ -349,6 +354,7 @@ func TestModelPickerAndEffort(t *testing.T) {
 		tt.Frame()
 		snapshot(t, tt, "model-picker-families-"+map[bool]string{false: "light", true: "dark"}[dark])
 	}
+	t.Run("in the window", pickerInShell)
 }
 
 func TestWorktreeMenu(t *testing.T) {

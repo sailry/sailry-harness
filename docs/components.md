@@ -82,6 +82,7 @@ MyGo bases.
 | `Dialog`, `BareDialog` | Lobe `pkg/feedback/modal.go`, `dialog.go` (DialogBase) | Modal forms and confirmations; `BareDialog` draws its own close (the welcome guide) | Outcomes (toast) | composer, conversation, host, settings, shell, sidebar, transfers, onboarding |
 | `Details` | Own (on `Dialog`) | A long error or report as selectable Markdown | Short failures (toast) | settings |
 | `Popover` | Lobe `pkg/overlay/popover.go` (PopoverBase) | Non-modal panels under an anchor (questions, pickers with content) | Plain menus (`MenuButton`) | composer, conversation, shell, transfers |
+| `Snapped` | Own (`Popover`) | A popover page that needs its room in the frame it shows: the panel takes its place and size at once and leaves as before | Pages the panel can ease between | composer |
 | `Tooltip`, `TooltipProps`, `Placement`, `TipMotion`, `Attach` | Lobe `pkg/overlay/tooltip.go`, `placement.go` (TooltipBase) | Every tooltip; never `Element.Tooltip` | Hover cards with content | composer, conversation, host, panel, settings, shell, transfers |
 | `SessionCard` | Own (TooltipBase) | A session's hover card | — | shell, sidebar |
 | `Anchored`, `TipsHidden`, `TipLayer`, `PopoverLayer`, `CardLayer` | Own | Keying a hand-built overlay by anchor and layer; hiding its tip while a popover or menu is open | — | composer, conversation |

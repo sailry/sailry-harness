@@ -525,13 +525,15 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 		}
 	})
 	if panel != (ui.Element{}) {
-		// As wide as the controls, which the model picker widens; clipped
-		// while it eases to their width.
-		width := float32(panelWidth)
+		// As wide as the controls, which the model picker widens.
+		width := float32(panelWidth + 16)
 		if s.page == settingsMain && len(ctx.Models) > 0 {
-			width = s.controlsWidth(c)
+			width = s.popoverWidth(c, 8)
 		}
-		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(width + 16).Gap(4).Clip()
+		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(width).Gap(4)
+		if s.page == settingsMain {
+			s.sizePopover(panel)
+		}
 	}
 }
 

@@ -31,17 +31,20 @@ const (
 )
 
 // The model picker's columns: the rail, the list and the efforts, a hairline
-// in a gap of 8 on each side between them.
+// in a gap of 8 on each side between them. The list is what the page has
+// beside the others: listWidth where the window has room for it.
 const (
 	railWidth   = 48
 	listWidth   = 236
 	effortWidth = 132
 	columnGap   = 8
 	pickerWidth = railWidth + listWidth + effortWidth + 2*(2*columnGap+1)
-	// popoverChrome is what a popover and the window's sides take of the
-	// window's width beside the controls: the popover's padding and edge
-	// (12 and 1) and 8 from each side of the window.
-	popoverChrome = 2 * (12 + 1 + 8)
+	// pickerReserve is what the picker's page leaves of the window's height:
+	// the composer under the popover, the popover's own edges and the rows
+	// the compact settings popover has under the page.
+	pickerReserve = 320
+	// windowInset is how far a popover stays from the window's sides.
+	windowInset = 8
 )
 
 // effortState is the model picker's effort column: the model whose efforts
@@ -53,13 +56,16 @@ type effortState struct {
 	// focused is the model row that had the keyboard focus last frame, so
 	// the focus takes the column once, as it comes to a row.
 	focused string
-	// anchor is where the pointer was on the shown model's row last, or
-	// where it was first seen on another; pointed tells that it is known.
-	// A pointer at rest takes nothing from the keys.
-	anchor  [2]int
-	pointed bool
-	// direct tells that the pointer has stayed on model rows since it left
-	// the shown model's: on its way to the column it keeps that model.
+	// pointer is where the pointer was in the window in the last frame, and
+	// seen tells that it is known: a row takes the column from a pointer
+	// that moved since, so one at rest takes nothing from the keys, nor
+	// does a row the list brings under it.
+	pointer [2]int
+	seen    bool
+	// from is where the pointer last was on the column's model's row, or
+	// since then when its way was read, and direct tells that it has stayed
+	// on model rows since: on its way to the column it keeps that model.
+	from   [2]int
 	direct bool
 	// enter gives the chosen model's row the focus as the picker opens, and
 	// back gives the shown model's row the focus the column had.
@@ -201,22 +207,34 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 	}).OnClick(func() { s.picker, s.layer = !s.picker, layerMain })
 	panel := kit.Popover(c, chip, &s.picker, func() { s.controls(c, ctx, actions) })
 	if panel != (ui.Element{}) {
-		// Clipped: the panel eases to the picker's width, which its page has
-		// at once.
-		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(12).Width(s.controlsWidth(c) + 24).Clip()
+		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(12).Width(s.popoverWidth(c, 12))
+		s.sizePopover(panel)
 	}
 }
 
-// controlsWidth is the width of the controls' page: the panel's, and the
-// model picker's three columns as far as the window has room for them in a
-// popover. Short of that the rail and the efforts keep their widths and the
+// sizePopover gives a popover of the controls the model picker's size in
+// the frame the picker shows: a popover easing to it, as it eases between
+// its other pages and back from this one, would have the picker's columns
+// and rows past its edge on the way, where a press closes the popover.
+func (s *State) sizePopover(panel ui.Element) {
+	if s.layer == layerModels {
+		kit.Snapped(panel)
+	}
+}
+
+// popoverWidth is how wide a popover of the controls is, pad inside its
+// edge: the controls' page and the padding, and for the model picker its
+// three columns, the padding and the edge, as far as the window has room.
+// The picker's page fills the popover (controls). In a window too narrow
+// for the three columns the rail and the efforts keep their widths and the
 // list between them gives up its own.
-func (s *State) controlsWidth(c *ui.Context) float32 {
+func (s *State) popoverWidth(c *ui.Context, pad float32) float32 {
+	width := panelWidth + 2*pad
 	if s.layer != layerModels {
-		return panelWidth
+		return width
 	}
 	w, _ := c.Size()
-	return max(panelWidth, min(pickerWidth, w-popoverChrome))
+	return max(width, min(pickerWidth+2*(pad+1), w-2*windowInset))
 }
 
 // featureBadge is a chosen feature on the chip: Fast's bolt, an option's
@@ -247,22 +265,33 @@ func (s *State) chosenFeatures(c *ui.Context, m Model) (fast, other []featureBad
 	return fast, other
 }
 
-// controls is the popover's body: its height animates between the pages: the
-// main page's, the team list's own (up to the picker's), and the picker's.
+// controls is the popover's body: its height animates between the main
+// page's and the team list's own (up to the picker's); the picker's page
+// has its own at once.
 func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 	// The main page has the team row's divider (1, and a gap of 8); the
 	// team list is as tall as its rows, the model picker the full height.
 	h := float32(108 + teamRow + 9)
 	switch s.layer {
 	case layerModels:
-		h = panelHeight
+		// As tall as the efforts' heading and nine rows, less in a window
+		// too short for it, where the models and the efforts scroll.
+		_, wh := c.Size()
+		h = max(panelHeight/2, min(panelHeight, wh-pickerReserve))
 	case layerTeams:
 		// Back 28, the rows 32 each, the divider 1 + 8, Manage 32, 4 apart.
 		rows := 1 + len(ctx.Teams)
 		h = min(float32(28+32*rows+9+32+4*(rows+2)), panelHeight)
 	}
-	body := ui.Column(c.Key("model-controls")).Width(s.controlsWidth(c)).Height(h).Clip().AlignItems(ui.Center).Gap(8).
-		Transition(ui.ElementTransition{Height: true, Duration: 200e6}).Disabled(ctx.Readonly || s.TeamLocked)
+	body := ui.Column(c.Key("model-controls")).Height(h).Clip().AlignItems(ui.Center).Gap(8).
+		Disabled(ctx.Readonly || s.TeamLocked)
+	if s.layer == layerModels {
+		// The picker's page fills its popover and has its height at once,
+		// as the popover does (sizePopover).
+		body.FillWidth().MinWidth(0)
+	} else {
+		body.Width(panelWidth).Transition(ui.ElementTransition{Height: true, Duration: 200e6})
+	}
 	body.Children(func() {
 		switch s.layer {
 		case layerModels:
@@ -595,11 +624,16 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 			column = m
 		}
 	}
-	e.model = column.ID
+	if e.model != column.ID {
+		// The column is the chosen model's again: where the pointer was
+		// headed from another's row tells nothing now.
+		e.model, e.direct = column.ID, false
+	}
 	line := func(key string) {
 		ui.Box(c.Key(key)).Width(1).Shrink(0).Background(p.Border)
 	}
-	ui.Row(c.Key("model-picker")).FillWidth().Grow(1).MinHeight(0).Gap(columnGap).AlignItems(ui.Stretch).Children(func() {
+	picker := ui.Row(c.Key("model-picker")).FillWidth().Grow(1).MinHeight(0).Gap(columnGap).AlignItems(ui.Stretch)
+	picker.Children(func() {
 		ui.Scroll(c.Key("families")).Width(railWidth).Shrink(0).Padding(4).Gap(4).Radius(p.Radius2xl()).Background(p.Secondary).
 			Children(func() {
 				kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "composer_model_settings"), 40, false).Radius(20).
@@ -675,29 +709,32 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 		}
 		e.enter = false
 		// The focus takes the column as it comes to a row, the pointer as it
-		// moves on one.
+		// moves onto one or on it. The picker reads the pointer wherever it
+		// is, so the first move onto a row is known for one.
+		x, y, _ := picker.PointerPosition()
+		box := picker.Bounds()
+		at := [2]int{int(math.Round(float64(box.X + x))), int(math.Round(float64(box.Y + y)))}
+		moved := e.seen && at != e.pointer
+		e.pointer, e.seen = at, true
 		focused, hovered := "", false
-		for _, m := range models {
-			row, ok := rows[m.ID]
-			if !ok {
-				continue
-			}
+		for id, row := range rows {
 			if row.Focused() {
-				if focused = m.ID; e.focused != m.ID {
-					e.model = m.ID
-				}
-			}
-			if row.Hovered() {
-				hovered = true
-				x, y, _ := row.PointerPosition()
-				box := row.Bounds()
-				if e.aim(m.ID, [2]int{int(math.Round(float64(box.X + x))), int(math.Round(float64(box.Y + y)))}) {
-					e.model = m.ID
+				if focused = id; e.focused != id {
+					e.model, e.direct = id, false
 				}
 			}
 		}
-		if e.focused = focused; !hovered {
-			e.pointed, e.direct = false, false
+		e.focused = focused
+		for id, row := range rows {
+			if row.Hovered() {
+				hovered = true
+				if e.aim(id, at, moved) {
+					e.model = id
+				}
+			}
+		}
+		if !hovered {
+			e.direct = false
 		}
 		for _, m := range models {
 			if m.ID == e.model {
@@ -736,32 +773,28 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 const aimStep = 6
 
 // aim follows the pointer to at, in the window, on the row of the model id,
-// and reports whether the row takes the effort column. A pointer that has
-// not moved takes nothing, so the keys keep the column under a pointer at
-// rest. From the column's own row, a pointer headed for the column, more to
-// the right than up or down, crosses the rows between without giving them
-// the column.
-func (e *effortState) aim(id string, at [2]int) bool {
+// and reports whether the row takes the effort column: it does once the
+// pointer moved. From the column's own row, a pointer headed for the
+// column, more to the right than up or down, crosses the rows between
+// without giving them the column.
+func (e *effortState) aim(id string, at [2]int, moved bool) bool {
 	switch {
-	case !e.pointed:
-		e.anchor, e.pointed, e.direct = at, true, id == e.model
-		return false
-	case at == e.anchor:
-		return false
 	case id == e.model:
-		e.anchor, e.direct = at, true
+		e.from, e.direct = at, true
+		return false
+	case !moved:
 		return false
 	}
-	if dx, dy := at[0]-e.anchor[0], at[1]-e.anchor[1]; e.direct {
+	if dx, dy := at[0]-e.from[0], at[1]-e.from[1]; e.direct {
 		if dx*dx+dy*dy < aimStep*aimStep {
 			return false
 		}
 		if dx > max(dy, -dy) {
-			e.anchor = at
+			e.from = at
 			return false
 		}
 	}
-	e.anchor, e.direct = at, true
+	e.from, e.direct = at, true
 	return true
 }
 

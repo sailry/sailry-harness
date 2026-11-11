@@ -210,8 +210,11 @@ The context bar has one project control and at most one branch control:
   - The column lists the chosen model's efforts until the pointer moves on
     another model's row or the focus comes to it; that row is then filled
     with `Hover` and stays so while the pointer or the focus is in the
-    column. A pointer at rest takes nothing from the keys. From the column's
-    own row a pointer headed for the column, more rightwards than up or down
+    column. One move onto a row is enough, the first after the list opens
+    too: the picker reads the pointer's place each frame, so a move is known
+    from where it rested. A pointer at rest takes nothing: not from the
+    keys, and not for a row the list opens under it. From the column's own
+    row a pointer headed for the column, more rightwards than up or down
     (read every 6 DIPs), crosses the rows between without giving them the
     column. Changing the family, the filter or a group gives the column back
     to the chosen model.
@@ -220,13 +223,22 @@ The context bar has one project control and at most one branch control:
     middle). An effort's row chooses the column's model at that effort.
     Either goes back to the controls with the popover open, as the efforts'
     menu did; no menu opens over the panel.
-  - The controls are 296 wide and the picker 450; the popover takes the
-    page's width at once and clips while its own width eases. In a window
-    too narrow for 450 and the popover's edges (42) the rail and the efforts
-    keep their widths and the models between them narrow, their names
-    truncating, never under the controls' 296. The production window is at
-    least 760 wide, where the three columns always fit; the compact settings
-    popover hosts the same page by the same rule.
+  - The controls are 296 wide and the picker 450. The popover is the page,
+    its padding and, for the picker, its edge (`popoverWidth`): 320 and 476
+    from the chip, 312 and 468 as the compact settings popover. The picker's
+    page fills the popover, and the popover has the picker's size in the
+    frame the page shows (`kit.Snapped`), not eased: a popover still on its
+    way would have the columns and the last rows past its edge, where a
+    press closes it. Back eases to the controls' size as before.
+  - The picker's page is 320 high, the efforts' heading and nine rows, and
+    the window's height less 320 where that is less, never under 160: 320 in
+    a window 820 or 720 high, 240 at the smallest (560), where the models
+    and the efforts scroll in that height.
+  - The popover stays 8 from the window's sides. In a window too narrow for
+    the three columns the rail and the efforts keep their widths and the
+    models between them narrow, their names truncating, never under the
+    controls' width. The production window is at least 760 wide, where the
+    three columns always fit.
 - Send is Kit's primary button with the arrow; Stop, the square, replaces it
   while a reply runs; while dictating without a running reply neither shows.
   Send is disabled (light: `secondary_active` fill; dark: the primary fill at
@@ -680,8 +692,16 @@ focus without sending. Native callbacks are composed by `cmd/sailry-desktop`.
 ## Tests
 
 `internal/desktop/shell/shell_test.go`: send, Enter and stop; the model picker
-(effort track, family rail, the effort column under a moving pointer,
-non-reasoning model); the
+(effort track, family rail, the effort column after one pointer move with
+every row inside the popover in the frame the list opens, an effort's row
+choosing a model the pointer is on with the one popover left open,
+non-reasoning model; `pickerInShell`, its step in `composer_models_test.go`,
+has the app's window at 1280×820, 1280×720, 760×820 and 760×560, at one and
+two pixels a DIP: the popover in the window and every model and effort row
+whole inside it as the list opens and at rest, the list 236 wide, the same
+choice by an effort's row, and the controls' size again after Back;
+`SAILRY_SNAPSHOTS` set saves
+`.runtime/ui-shots/composer-model-picker-zh-CN-{dark,light}.png`); the
 worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
 `internal/desktop/shell/composer_parity_test.go`, run as steps of
@@ -714,15 +734,18 @@ description in the warning color; a package mode's tile tinted, the same in
 two windows; the settings popover's permission page with the same rows.
 `SAILRY_SNAPSHOTS` set saves `.runtime/ui-shots/composer-menus-zh-CN-{dark,light}.png`.
 `composerModels` (`composer_models_test.go`, a step of the composer parity):
-the effort column inside the one panel, right of the models, in dark and
-light, with a hairline between them by pixel; no menu or second popover
-over a model with efforts; the column under a moving pointer and under the
-focus, with the effort a model's row keeps or falls back to; the line and
-the unchanged panel for a model without efforts; an effort's row choosing
-its model and leaving the popover open on its controls; the scores by
-effort; Right, Tab, Left, Shift+Tab, Up, Down, Enter and Escape; the narrow
-window; and no frame asked for at rest. `SAILRY_SNAPSHOTS` set saves
-`.runtime/ui-shots/composer-model-picker-zh-CN-{dark,light}.png`.
+every model and effort row whole inside the one popover in the frame the
+list opens and at rest, from the chip (960 wide) and from the compact
+settings popover (440), at one and two pixels a DIP, with an effort's row
+choosing the model the pointer moved onto; the effort column right of the
+models, in dark and light, with a hairline between them by pixel; no menu
+or second popover over a model with efforts; the column after one pointer
+move and under the focus, with the effort a model's row keeps or falls back
+to; a pointer at rest under the keys and under a row the list opens, and
+its way to the column; the line and the unchanged panel for a model without
+efforts; an effort's row choosing its model and leaving the popover open on
+its controls; the scores by effort; Right, Tab, Left, Shift+Tab, Up, Down,
+Enter and Escape; the narrow window; and no frame asked for at rest.
 The Kit menu's test (`kit/menu_test.go`, `choice rows`) checks the row alone
 and that an open menu at rest asks for no frame.
 The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
@@ -750,6 +773,7 @@ and every failure, over a fake microphone and recognizer.
 | The model score ring is a tooltip with axis bars | No ring component; the data is the same |
 | A model's efforts are a column of the picker's panel, not a menu beside its row (user decision 2026-11-11) | The menu floated over the list and left the panel's side empty; the column is the one place to choose an effort |
 | A model's row chooses it at once, at the effort chosen now or its default | With the menu gone a row no longer opens anything; the column shows that effort checked before the click |
+| The popover takes the picker's size at once (`kit.Snapped`) instead of easing to it | A popover easing to the picker's size (150 ms, and none of it on a clock that stands still) had the effort column and the last rows past its edge, where a press closed the popover without choosing |
 | The picker's rows are `ButtonBase` rows, the efforts with the option role in a listbox | A MyGo list or menu row has no place for the capability marks and the score with its tooltip, and the two columns share one row |
 | `kit.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. The composer, `conversation.ContextRing` and the plugin controls share the one drawing |
 | A ring's value changes at once | Kit's `ProgressCircle` eases a changed value over its normal duration |
