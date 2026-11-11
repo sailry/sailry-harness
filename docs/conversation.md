@@ -619,6 +619,16 @@ An unavailable server contributes a bounded safe startup instruction and leaves
 the remaining tools available; cancellation and uncertain cleanup remain terminal.
 A reusable connection whose server ended is closed and replaced on its next use.
 
+Turn execution has no Node-wide worker pool or task cap. The Rust runtime ran
+main turns on 8 workers and refused work beyond 64 supervised tasks; both were
+removed by decision and are not to return. The governing limit for delegated
+work is the Team setting `ChildConcurrency` (default 8): at most that many
+children of one parent conversation run at once, counted across all of the
+parent's turns, and the rest stay queued and start in admission order (FIFO).
+A child cannot delegate, so there is no nested level for the limit to miss.
+Different conversations do not share a budget, so the total across the Node is
+unbounded. See [delegation.md](delegation.md).
+
 A stopped, failed or panicked turn settles every unanswered tool call with an
 interrupted response before its foreground cancellation notes. A call left
 unanswered by a process crash stays in history without a result row; the model

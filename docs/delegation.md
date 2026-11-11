@@ -132,3 +132,7 @@ described in [Teams and roles](teams.md#agent-catalog-tools).
   totals are the same once the child settles.
 - Rust leaves a child's background commands running until the parent session
   is deleted. Go stops them when the child's run ends.
+- Rust bounds the Node at 8 main-turn workers and 64 supervised tasks. Go has
+  neither, by decision. Children are bounded per parent conversation by the
+  Team `ChildConcurrency` setting (default 8, FIFO), enforced in `ClaimChild`;
+  children cannot delegate, so no deeper level exists.
