@@ -118,6 +118,19 @@ ring. The worktree actions the location menu already has (`create_worktree`,
 `fork_worktree`) are left out. A package's context-slot control is the context
 bar's own button (`ContextButton`).
 
+The context bar has one project control and at most one branch control:
+
+- The project is the native `projectButton`, on every conversation; a chat
+  without a project reads `composer_no_project`. The bundled worktrees
+  package publishes the same choice as its `location` context control, which
+  `live/plugin_controls.go` does not draw.
+- The branch shows only for a project that is a Git repository
+  (`Repository.Kind == Git`): a chat, a plain folder and a repository still
+  being inspected have none. While the bundled Git package shows its
+  `branch` context control, which lists branches and other checkouts, that is
+  the one (`Context.PackageBranch`); otherwise it is the native
+  `worktreeMenu`, with New worktree.
+
 - Attach, the settings button, dictation and send are round, 32 across, with a
   16 icon. Mode, permission and the model chip are `subtle`: Kit's default
   button, 32 high, 10 at each end, the icon 8 before the label, round, accent
@@ -150,7 +163,8 @@ bar's own button (`ContextButton`).
   muted, its children 4 apart: the location, then the usage at its end
   (12 apart, one button when compact). The project and the worktree are Kit's
   small round ghost buttons: 24 high, 8 at each end, a 14 icon, the label and
-  the caret 4 apart, at most 192 wide. Wide, the bar wraps; compact, it is
+  the caret 4 apart, at most 192 wide, side by side on one line at normal
+  widths. Wide, the bar wraps; compact, it is
   one line; under 440 the location is in the settings popover.
 
 ### Context ring
@@ -176,7 +190,9 @@ composer slot, end-aligned, order 90, no handler) is `Context.Indicators`.
   Statistics sends `composer_context_usage` (`%{used} / %{limit}`, compact
   counts as `50.0k / 200.0k`), `composer_context_estimate`
   (`Estimated context %{used} / %{limit}`) for an estimate, `chat_compacting`
-  while a compaction runs and `0` while the usage is unknown. These keys are
+  while a compaction runs and `0` while the usage is unknown, which is not
+  shown: an indicator without a measure that is not loading has no hint
+  (`indicatorHint`), so no tooltip. These keys are
   the package's own, in its ten locales; there is no percentage, cost or
   compaction hint in it.
 - Not a control: without a `Panel` the ring takes no clicks and has no
@@ -185,7 +201,8 @@ composer slot, end-aligned, order 90, no handler) is `Context.Indicators`.
   `Toggle` reports the request and `Open` is the package's answer.
 - Hidden: a draft without a session has no indicators (the reference filters
   them out until `session.is_some()`), and the toolbar keeps no place for
-  them. A session whose usage is unknown shows the empty ring with `0`.
+  them. A session whose usage is unknown shows the empty ring, without a
+  tooltip.
 
 The preview's ring is `State.Indicator` (`conversation.ContextRing`, the
 reference's `usage/preview.rs`), with `composer_compression_hint`. The shell
@@ -503,6 +520,10 @@ the folds under 680 and 440 with the places the packages' controls are asked
 for, and Send without a model, blocked and with one, by the button and by
 Enter, which leaves a draft its owner keeps.
 `SAILRY_UI_SHOTS=<directory>` saves those steps' frames for review.
+The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
+`internal/desktop/live/first_run_test.go` (`firstRunLocation`), with the
+bundled packages mounted: one location control on a chat and on a plain
+folder, the project and its branch on one line in a Git project.
 `TestUsageCompact`: the small location buttons before the usage button between
 the two widths, and no location on the bar below 440.
 `internal/desktop/conversation/bench_test.go` Scroll builds from scenes without
@@ -515,6 +536,8 @@ and every failure, over a fake microphone and recognizer.
 
 | Deviation | Reason |
 |---|---|
+| The worktrees package's `location` control is not drawn, and the native worktree menu gives way to the Git package's `branch` control (user decision 2026-11-11) | The reference draws the packages' controls only; here the project is native, so both showed the location twice |
+| An unknown indicator has no tooltip | The statistics package sends `0` as its hint, which read as a bare `0` |
 | A refused microphone is the `dictation_permission` toast | The reference's permission card is not part of the accepted composer |
 | The recording meter is the capture level the live owner computes | The reference's Kit speech state supplies it; MyGo has none |
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |

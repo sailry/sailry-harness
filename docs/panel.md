@@ -79,7 +79,8 @@ Deviations:
 | Local terminals are core; a package's `terminal` renderer, creation contribution and shortcut are not mounted (user decision 2026-11-10) | The reference lets a package own terminals. Here local terminals are core, like Files and Git; SSH terminals remain package-owned through the Terminal component of the package's own page |
 
 The column right of the conversation: one flat strip of tabs, each an
-open item, over the active one, or the launcher when none is open (the reference implementation
+open item, in the header band's segment over the column (docs/shell.md),
+and under it the active one, or the launcher when none is open (the reference implementation
 `resources/*.rs`, `navigation_tabs.rs`, `resources/launcher.rs`,
 `preview_files.rs`, `preview_git.rs`, `hunks/render.rs`). The frame owns
 its width, motion, toggle and ⌘W (`docs/shell.md`).
@@ -103,7 +104,8 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 s := panel.New(data.Workspace)
 ps := panel.NewProjects(data.Workspace)
 pr := ps.Of(project.ID)               // nil: no project, the hosts ask for one
-panel.View(c, s, pr, shell.KeyText)   // the tab host; KeyText writes the launcher's shortcuts
+panel.Strip(c, s, pr, shell.KeyText)  // the tabs, the chevron and "+", into the header's row
+panel.View(c, s, pr, shell.KeyText)   // the column's body; KeyText writes the launcher's shortcuts
 panel.Page(c, panel.Files, pr, files) // the page host, in the main column; files goes to the Files page
 s.Open(panel.Files)                   // the launcher, "+" and the frame's ⌘P, ⌘T, ⌃`, ⌃⇧G
 s.Show(panel.Tab{Kind: panel.Documents, ID: id}) // open or focus one item's tab
@@ -158,7 +160,10 @@ terminal, subagent and file-preview tabs are single-pane.
 
 ### Layout
 
-- Strip: one flat row, no tabs inside tabs. 40 DIPs, tabs 28 high up to
+- Strip: one flat row, no tabs inside tabs, built by `Strip` into the
+  header band's segment: the tabs scroll and shrink, a spacer, then the
+  chevron and "+" at the segment's end. `View` draws no strip. Without a
+  tab the segment is empty. Tabs 28 high up to
   180 wide with the item's type icon and title (a file's or diff's name, a document's title); the active tab in
   `tab_active`; the close button shows on hover or on the active tab. It
   scrolls sideways; past `Overflow` (4) tabs a chevron (`navigation_tabs`)
@@ -236,7 +241,7 @@ terminal, subagent and file-preview tabs are single-pane.
 
 | Action | Effect in the preview |
 |---|---|
-| Open, choose and close tabs | `State`. A tab's close button and ⌘W both close it; the focus stays in the panel. MyGo runs `OnClick` after the build, so the close acts in its callback |
+| Open, choose and close tabs | `State`. A tab's close button, in the header band, and ⌘W both close it; the focus goes to the panel (`State.Focus`), where ⌘W closes the next tab. MyGo runs `OnClick` after the build, so the close acts in its callback |
 | Choose a file or a change | Opens or focuses its tab, in the panel and the page alike |
 | New tab, New terminal | Another browser or terminal tab |
 | Back, Forward | The tab's history |
@@ -481,6 +486,7 @@ at its width.
 |---|---|
 | PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
 | Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |
+| The column's strip is in the header band (user decision 2026-11-11) | The reference draws it as the column's first row; docs/shell.md |
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | History and Documents are not offered on an unsent draft | They show a session's turns and documents; a draft has neither |

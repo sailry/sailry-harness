@@ -4,6 +4,7 @@ import (
 	"context"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -423,4 +424,82 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	tester.SetSize(1280, 1100)
 	shots("settings-providers-empty")
 	tester.SetSize(1280, 820)
+	firstRunLocation(t, r, tester, settle, shots)
+}
+
+// firstRunLocation shows the context bar's location with the bundled
+// packages mounted: one project control on a chat and on a plain folder's
+// draft, and the project with its branch on one line in a Git project. The
+// worktrees package's own project control is not drawn beside the native
+// one. It is a step of firstRun.
+func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), shots func(string)) {
+	zh := func(key string) string { return i18n.In("zh-CN", key) }
+	// controls are the context bar's controls: its small menu buttons.
+	controls := func() (bar []ui.AccessInfo) {
+		for _, info := range tester.AccessAll() {
+			if b := info.Bounds; info.Role == ui.RoleMenuButton && b.H == 24 && b.W > 0 && b.Y > shell.HeaderHeight {
+				bar = append(bar, info)
+			}
+		}
+		return
+	}
+	names := func() (all []string) {
+		for _, info := range controls() {
+			all = append(all, info.Name)
+		}
+		return
+	}
+	choose := func(project string) {
+		t.Helper()
+		bar := controls()
+		if len(bar) == 0 {
+			t.Fatalf("no location control: %q", tester.Texts())
+		}
+		tester.ClickAt(bar[0].Bounds.X+bar[0].Bounds.W/2, bar[0].Bounds.Y+bar[0].Bounds.H/2)
+		settle()
+		for _, role := range []ui.Role{ui.RoleMenuItem, ui.RoleMenuItemCheckBox, ui.RoleMenuItemRadio} {
+			if item, ok := tester.AccessByRole(role, project); ok {
+				tester.ClickAt(item.Bounds.X+item.Bounds.W/2, item.Bounds.Y+item.Bounds.H/2)
+				settle()
+				settle()
+				return
+			}
+		}
+		t.Fatalf("the location menu does not offer %q: %q", project, tester.Texts())
+	}
+	plain, repository := t.TempDir(), t.TempDir()
+	if output, err := exec.Command("git", "-C", repository, "init", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	for name, path := range map[string]string{"Plain folder": plain, "Git folder": repository} {
+		if _, err := r.controller.Do(r.ctx, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
+			Name: name, Path: path, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.App.Navigate(shell.ConversationPage)
+	r.App.Sidebar.NewChat()
+	settle()
+	settle()
+	// A chat without a project: the one control, and no branch.
+	if got := names(); !slices.Equal(got, []string{zh("composer_no_project")}) {
+		t.Fatalf("a chat's context bar shows the controls %q, want the one location", got)
+	}
+	shots("context-new-chat")
+	// A project that is not a Git repository has no branch to choose.
+	choose("Plain folder")
+	if got := names(); !slices.Equal(got, []string{"Plain folder"}) {
+		t.Errorf("a plain folder's context bar shows the controls %q, want the project alone", got)
+	}
+	// A Git project: the project, then its branch, on one line.
+	choose("Git folder")
+	bar := controls()
+	if len(bar) != 2 || bar[0].Name != "Git folder" || bar[1].Name != "main" {
+		t.Fatalf("a Git project's context bar shows the controls %q, want the project and its branch", names())
+	}
+	if bar[0].Bounds.Y != bar[1].Bounds.Y || bar[1].Bounds.X < bar[0].Bounds.X+bar[0].Bounds.W {
+		t.Errorf("the project %v and the branch %v are not side by side on one line", bar[0].Bounds, bar[1].Bounds)
+	}
+	shots("context-git-project")
 }

@@ -418,19 +418,25 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				host.MetricsPanel(c, st, h)
 				return
 			}
-			a.Panel.Paged = a.paged()
-			a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
-			a.Panel.Cwd = ""
-			if pr := a.Data.ProjectOf(a.Sidebar.Selected); pr != nil {
-				a.Panel.Cwd = pr.Path
-			}
-			if cv := a.Data.Find(a.Sidebar.Selected); cv != nil && cv.WorktreePath != "" {
-				a.Panel.Cwd = cv.WorktreePath
-			}
-			a.Panel.Focus = func(c *ui.Context) { a.panelPane.Focus(c) }
+			a.syncPanel()
 			panel.View(c, a.Panel, a.project(), kit.KeyText)
 		})
 	})
+}
+
+// syncPanel gives the panel what the page shows beside it, before its tabs
+// in the header and its content in the column are built.
+func (a *App) syncPanel() {
+	a.Panel.Paged = a.paged()
+	a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
+	a.Panel.Cwd = ""
+	if pr := a.Data.ProjectOf(a.Sidebar.Selected); pr != nil {
+		a.Panel.Cwd = pr.Path
+	}
+	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil && cv.WorktreePath != "" {
+		a.Panel.Cwd = cv.WorktreePath
+	}
+	a.Panel.Focus = func(c *ui.Context) { a.panelPane.Focus(c) }
 }
 
 // resize is a column's drag handle: a 6 DIP strip over the edge with the
@@ -454,8 +460,14 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 }
 
 // togglePanel opens or closes the right panel (⌘⌥B, the header button);
-// opened without a tab it shows the launcher.
+// opened without a tab it shows the launcher. It is the right column's only
+// close control.
 func (a *App) togglePanel() {
+	if a.extensionDetails() {
+		// The details show for a selected item: folding them deselects it.
+		a.Settings.CloseDetails()
+		return
+	}
 	if a.Page == HostPage {
 		a.Metrics = !a.Metrics
 		return

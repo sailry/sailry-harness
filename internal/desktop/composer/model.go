@@ -44,6 +44,10 @@ type Context struct {
 	Readonly bool
 	// LocationLocked keeps an admitted session on its captured project.
 	LocationLocked bool
+	// PackageBranch says a package's context control chooses the branch and
+	// worktree of the conversation's Git project: the bar shows that one
+	// and not the native worktree menu, so there is one such control.
+	PackageBranch bool
 	// Indicators are the toolbar's progress rings in their order: a
 	// session's context usage. A draft without a session has none.
 	Indicators []Indicator

@@ -32,7 +32,7 @@ The rail's host menu (`shell.App.hostPicker`): choosing a host sets
 opens the page with its update dialog; the right-click menu's Host opens
 the current host's page. Add host opens Settings › Connections with the
 Add host dialog (`settings.State.AddHost`). The header shows the host's
-name; the details button and ⌥⌘B toggle the metrics (`App.Metrics`, the
+name and, over the metrics column, `metrics_title`; the details button and ⌥⌘B toggle the metrics (`App.Metrics`, the
 reference's per-page panel), ⌘W in the column closes them, ⌘W in the page
 closes the page.
 
@@ -55,7 +55,8 @@ empty card with Add project), the runtime's five facts with
 user, title, project / branch, model, status; a click opens the session).
 The preview's tunnels section is not ported: the live host has none.
 
-The metrics column: a 40 DIP header with the chart icon, the preview note,
+The metrics column (its title is in the header band, docs/shell.md, without
+the chart icon): the preview note,
 the host, CPU and memory with its bar, network rates, disks and the
 busiest processes, an empty card where there are none, an indeterminate
 bar and the processes' skeleton (five table rows, `kit.Skeleton`) until

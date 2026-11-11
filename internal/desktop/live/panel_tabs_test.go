@@ -100,7 +100,7 @@ func panelTabs(t *testing.T) {
 		}
 	}
 	// left is the panel's left edge; body is the middle of the active tab's
-	// body, under the strip and any toolbar.
+	// body, under the header and any toolbar.
 	left := func() float32 { return width - app.PanelWidth }
 	inPanel := func(info ui.AccessInfo) bool { return info.Bounds.X >= left() }
 	// row is a launcher row, a button of the panel 40 DIPs high.
@@ -112,11 +112,11 @@ func panelTabs(t *testing.T) {
 		}
 		return ui.AccessInfo{}, false
 	}
-	// strip is a tab of the strip, a button of the panel 28 DIPs high in
-	// the bar under the header.
+	// strip is a tab of the strip, a button 28 DIPs high in the header's
+	// segment over the panel.
 	strip := func(title string) (ui.AccessInfo, bool) {
 		for _, info := range tester.AccessAll() {
-			if info.Role == ui.RoleButton && info.Name == title && inPanel(info) && info.Bounds.H == 28 && info.Bounds.Y < shell.HeaderHeight+40 {
+			if info.Role == ui.RoleButton && info.Name == title && inPanel(info) && info.Bounds.H == 28 && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
 				return info, true
 			}
 		}
@@ -138,7 +138,7 @@ func panelTabs(t *testing.T) {
 	// shown reports whether the panel's body shows want.
 	shown := func(want string) bool {
 		for _, info := range tester.AccessAll() {
-			if inPanel(info) && info.Bounds.Y > shell.HeaderHeight+40 && strings.Contains(info.Name, want) {
+			if inPanel(info) && info.Bounds.Y > shell.HeaderHeight && strings.Contains(info.Name, want) {
 				return true
 			}
 		}
@@ -237,7 +237,8 @@ func panelTabs(t *testing.T) {
 		settle()
 		add, found := ui.AccessInfo{}, false
 		for _, info := range tester.AccessAll() {
-			if info.Name == text("details") && inPanel(info) && info.Bounds.Y > shell.HeaderHeight && info.Bounds.Y < shell.HeaderHeight+40 {
+			// The header's details toggle has the same name and is a plain button.
+			if info.Role == ui.RoleMenuButton && info.Name == text("details") && inPanel(info) && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
 				add, found = info, true
 			}
 		}

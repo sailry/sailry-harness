@@ -18,7 +18,8 @@ type Indicator struct {
 	// Tone colors the ring: Caution and Negative are the warning and danger
 	// colors, any other tone the muted text color.
 	Tone kit.Tone
-	// Hint is the tooltip and the accessible name, in the package's words.
+	// Hint is the tooltip and the accessible name, in the package's words;
+	// "" while the value is unknown, which shows no tooltip.
 	Hint string
 	// Start puts it among the toolbar's leading controls (align start), not
 	// before the model chip.

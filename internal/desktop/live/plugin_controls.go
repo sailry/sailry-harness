@@ -60,6 +60,25 @@ func composerPluginScope(r *Runtime, cv *viewmodel.Conversation, comp *composer.
 	return scope
 }
 
+// The bundled worktrees package publishes the conversation's project as a
+// context control and the bundled Git package its branch. The composer has
+// both natively (projectButton, worktreeMenu), so the bar would show each
+// twice. The project stays the native control and the package's is not
+// drawn; the branch is the package's while it shows one, which lists
+// branches and other checkouts, and the native worktree menu otherwise.
+const (
+	pluginWorktreesPackage = "worktrees"
+	pluginLocationControl  = "location"
+	pluginGitPackage       = "git"
+	pluginBranchControl    = "branch"
+)
+
+// pluginContextControl reports whether a context-slot entry is the named
+// bundled package's control.
+func pluginContextControl(entry plugins.ContributionEntry, name, id string) bool {
+	return entry.Declaration.Slot == protocol.PluginUiSlotContext && entry.Key.Package.Name == name && entry.Key.ID == id
+}
+
 func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversation, comp *composer.State, context *composer.Context) {
 	scope := composerPluginScope(r, cv, comp)
 	registry := r.pluginRegistry(scope, cv.ID)
@@ -68,6 +87,11 @@ func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversa
 			r.renderPluginControls(view, registry, protocol.PluginUiSlot(slot), place)
 		}
 	})
+	if registry != nil {
+		for _, entry := range registry.Entries(protocol.PluginUiSlotContext) {
+			context.PackageBranch = context.PackageBranch || pluginContextControl(entry, pluginGitPackage, pluginBranchControl)
+		}
+	}
 	// Indicators report a running conversation: a draft has no usage yet.
 	if registry != nil && scope.Session != nil {
 		context.Indicators = append(context.Indicators, r.pluginIndicators(registry)...)
@@ -170,10 +194,12 @@ func (r *Runtime) pluginIndicators(registry *plugins.Registry) []composer.Indica
 		if entry.Declaration.Kind != "indicator" {
 			continue
 		}
-		ring := composer.Indicator{ID: entry.Key.Package.Name + ":" + entry.Key.ID, Hint: "0", Start: entry.Declaration.Align == protocol.PluginUiAlignStart}
+		// An unknown indicator's ring is the track alone, with no tooltip
+		// (indicatorHint).
+		ring := composer.Indicator{ID: entry.Key.Package.Name + ":" + entry.Key.ID, Start: entry.Declaration.Align == protocol.PluginUiAlignStart}
 		var indicator protocol.PluginUiIndicator
 		if json.Unmarshal(entry.State.Value, &indicator) == nil && string(entry.State.Value) != "null" {
-			ring.Loading, ring.Hint = indicator.Loading, indicator.Hint
+			ring.Loading, ring.Hint = indicator.Loading, indicatorHint(indicator)
 			if indicator.Percent != nil {
 				ring.Percent = *indicator.Percent
 			}
@@ -219,6 +245,11 @@ func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Regis
 			if kind == "indicator" || kind == "metric" {
 				continue
 			}
+		case protocol.PluginUiSlotContext:
+			// The native project control is the bar's one location.
+			if pluginContextControl(entry, pluginWorktreesPackage, pluginLocationControl) {
+				continue
+			}
 		}
 		r.renderPluginControl(view.Key(pluginControlIdentity(entry.Key)), registry, entry, place == composer.ControlMenu)
 	}
@@ -258,7 +289,11 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 	if entry.Declaration.Kind == "indicator" {
 		_ = json.Unmarshal(entry.State.Value, &indicator)
 		selected = indicator.Open
-		label = indicator.Hint
+		// A header button keeps the package's label as its name while the
+		// value is unknown; a ring elsewhere has no tooltip then.
+		if hint := indicatorHint(indicator); hint != "" || !header {
+			label = hint
+		}
 	}
 	look := func(button ui.Element) {
 		button.Disabled(!entry.State.Enabled)
@@ -281,7 +316,7 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 				if entry.State.Loading {
 					ui.Spinner(view).Size(16, 16)
 				} else if entry.Declaration.Kind == "indicator" {
-					kit.Ring(view, indicatorPercent(indicator), indicator.Loading, indicatorTone(indicator), indicator.Hint)
+					kit.Ring(view, indicatorPercent(indicator), indicator.Loading, indicatorTone(indicator), label)
 				} else {
 					ui.Icon(view, icon).FontSize(16)
 				}
@@ -430,6 +465,16 @@ func (r *Runtime) pluginChoicePicker(view *ui.Context, registry *plugins.Registr
 		state.previous = state.query
 		r.invokePluginControl(registry, entry.Key, "search", state.query)
 	}
+}
+
+// indicatorHint is a published indicator's tooltip. One without a measure
+// while nothing loads is unknown and has none, whatever placeholder the
+// package sends for it (the statistics package sends "0").
+func indicatorHint(indicator protocol.PluginUiIndicator) string {
+	if indicator.Percent == nil && !indicator.Loading {
+		return ""
+	}
+	return indicator.Hint
 }
 
 // indicatorPercent and indicatorTone are a published indicator as Kit's ring

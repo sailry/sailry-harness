@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -327,6 +328,46 @@ func ringTooltip(t *testing.T) {
 		if e, _ := tt.Access(hint); e.Description != hint && e.Name != hint {
 			t.Errorf("%s: the ring is named %q, described %q", locale, e.Name, e.Description)
 		}
+	}
+	// A ring whose value is unknown stays, the track alone, with no tooltip.
+	// It has no name, so a named one in its place says where it is, and the
+	// toolbar without a ring what it draws.
+	alone := func(rings ...composer.Indicator) *ui.Tester {
+		tt, _, _ := composerAlone(t, "zh-CN", 960, func(s *composer.State, ctx *composer.Context) {
+			s.Indicator = nil
+			ctx.Indicators = rings
+		})
+		return tt
+	}
+	named, found := alone(composer.Indicator{ID: "context", Hint: "known"}).Access("known")
+	if !found {
+		t.Fatal("no named ring")
+	}
+	at := named.Bounds
+	drawn := func(tt *ui.Tester) string {
+		img := tt.Image()
+		scale := float32(img.Bounds().Dx()) / 960
+		var b strings.Builder
+		for y := int(at.Y * scale); y < int((at.Y+at.H)*scale); y++ {
+			for x := int(at.X * scale); x < int((at.X+at.W)*scale); x++ {
+				fmt.Fprint(&b, img.At(x, y))
+			}
+		}
+		return b.String()
+	}
+	tt := alone(composer.Indicator{ID: "context"})
+	if drawn(tt) == drawn(alone()) {
+		t.Error("the unknown ring is not drawn")
+	}
+	rest := slices.Clone(tt.Texts())
+	tt.Move(at.X+at.W/2, at.Y+at.H/2)
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	tt.Frame()
+	shot(t, tt, "ring-unknown-zh-CN")
+	if under := tt.Texts(); !slices.Equal(under, rest) || slices.Contains(under, "0") {
+		t.Errorf("the unknown ring shows a tooltip: %q at rest, %q under the pointer", rest, under)
 	}
 	for _, locale := range []string{"en", "zh-CN"} {
 		a, tt := newTester(t)
