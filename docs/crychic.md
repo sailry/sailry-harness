@@ -309,6 +309,55 @@ What to use instead, with the surface Kit's:
 - `Blame` highlights with MyGo's editor language named by `Lang`; an unknown
   name leaves the text plain.
 
+### Charts
+
+The `chart` package is a fixed look over MyGo's own `ui/chart`. The
+components that could draw a reply's Mermaid `xychart-beta` or `pie` were
+read in source for the conversation's rules *(read; none was built, as none
+passes)*. None is used and no adapter exists: the conversation draws both
+with its own painter on `ui/chart` directly, MyGo being first in the order
+of preference ([conversation.md](conversation.md#b10-visuals)). The rest of
+the package (stacked, area, radar, sankey, treemap and the other shapes) was
+not assessed.
+
+| Component | Signature | Panics on | Copy | Status |
+|---|---|---|---|---|
+| `chart.Bars` | `(c, label string, labels []string, vs []float64, at *int, o BarsOptions) ui.Element` | empty label, no value, an empty or repeated label, lengths that differ, NaN or Inf, an `at` outside -1 to n-1 | none | **not used** |
+| `chart.HBars` | `(c, label string, labels []string, vs []float64, at *int, o HBarsOptions) ui.Element` | as `Bars` | none | **not used** |
+| `chart.GroupedBars` | `(c, label string, labels []string, series []Series, at *int, o GroupedBarsOptions) ui.Element` | as `Bars`, and no series, an unnamed or repeated series name | none | **not used** |
+| `chart.Line`, `chart.Crosshair` | `(c, label string, labels []string, series []Series, at *int, o …Options) ui.Element` | as `GroupedBars` | none | **not usable** (their tip) |
+| `chart.Combo` | `(c, label string, labels []string, bars, line Series, at *int, o ComboOptions) ui.Element` | as `GroupedBars` | none | **not used** |
+| `chart.Pie`, `chart.Donut` | `(c, label string, names []string, vs []float64, at *int, o …Options) ui.Element` | empty label, no value, an empty or repeated name, lengths that differ, NaN or Inf, a negative value, a sum of zero, an `at` out of range | `Donut`'s `Total` | **not used** |
+| `chart.ChartCard` | `(c, title, value string, delta float64, o ChartCardOptions, content func()) ui.Element` | not read further | `Delta` | **not used** (a card with a title) |
+
+What each rule of a chart in a conversation finds:
+
+- **Hover values.** `Bars`, `HBars`, `GroupedBars`, `Combo`, `Pie` and
+  `Donut` show a value only through MyGo's `Element.Tooltip`: after the
+  pointer rests 600 ms, in the theme's opaque inverse colors, not Kit's
+  frost. `Line` and `Crosshair` draw their own opaque bordered tip, anchored
+  above the plot's top edge, outside the chart and over the text before it.
+  A component that draws its own floating surface is not used.
+- **Colors.** Series take the accent and the status tones (success, warning,
+  danger) in turn, with no option; only substituting the whole theme changes
+  them, and a chart of status colors reads as a verdict.
+- **Mermaid's model does not map.** `Combo` is exactly one bar and one line
+  series on two separate axes, while Mermaid mixes any number on one. No
+  component takes a y range (the domain always includes zero), horizontal
+  grouped bars or lines, or a missing value (NaN panics). Series need
+  distinct names, which Mermaid's usually lack, and a legend is always shown
+  by `GroupedBars`, `Combo`, `Pie` and `Donut`. Every category label is drawn
+  whole in a zero-width box: nothing is left out or cut short.
+- **Picking.** A click picks a mark through the caller's `at` (the others dim,
+  a slice lifts) with no pointer way to clear it.
+- **Motion.** A 700 ms arrival plays whenever the element enters the tree,
+  which the virtual transcript does on every scroll back.
+- **Hostile data** would need an adapter for every panic above (repeated
+  labels, NaN, lengths, negative shares), after which the gaps above remain.
+
+Using a component for the few sources it could draw, and the painter for the
+rest, would give near-identical charts two looks and two hover behaviors.
+
 ### `code.CommitGraph`
 
 It draws what it is given and computes nothing. Per commit, newest first:
@@ -399,7 +448,8 @@ The audit's decisions stand where ours does more; none was overturned here.
   when those features are added.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
-  rows and editors, the composer and conversation components.
+  rows and editors, the composer and conversation components, and the
+  conversation's chart painter ([Charts](#charts)).
 
 ## Size
 

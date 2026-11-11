@@ -36,9 +36,12 @@ const (
 	maxSlices = 12
 	// axisFont is the size of axis labels, axis titles and the legend.
 	axisFont = 11
-	// tickRunes and labelRunes are the most characters of a label on an
-	// axis and in a tip or a legend.
+	// barWidth is the widest a bar is, however few there are.
+	barWidth = 40
+	// tickRunes, tipRunes and labelRunes are the most characters of a
+	// label on an axis, in a tip, and in a legend or read out.
 	tickRunes  = 14
+	tipRunes   = 20
 	labelRunes = 60
 )
 
@@ -211,21 +214,27 @@ func number(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-// axisNumber writes a tick: thousands as k, millions as M and billions as
-// B from ten thousand up, as Count does.
-func axisNumber(v float64) string {
-	short := func(v float64, unit string) string { return strconv.FormatFloat(v, 'g', 4, 64) + unit }
-	switch a := math.Abs(v); {
-	case a >= 1e15:
-		return short(v, "")
-	case a >= 1e9:
-		return short(v/1e9, "B")
-	case a >= 1e6:
-		return short(v/1e6, "M")
-	case a >= 1e4:
-		return short(v/1e3, "k")
+// axisNumbers writes the ticks of an axis from lo to hi, all in one unit:
+// thousands as k, millions as M and billions as B where the axis reaches
+// ten thousand, as Count does.
+func axisNumbers(lo, hi float64) func(float64) string {
+	per, unit := 1.0, ""
+	switch reach := max(math.Abs(lo), math.Abs(hi)); {
+	case reach >= 1e15:
+		return number
+	case reach >= 1e9:
+		per, unit = 1e9, "B"
+	case reach >= 1e6:
+		per, unit = 1e6, "M"
+	case reach >= 1e4:
+		per, unit = 1e3, "k"
 	}
-	return number(v)
+	return func(v float64) string {
+		if v == 0 {
+			return "0"
+		}
+		return number(v/per) + unit
+	}
 }
 
 // share is a slice's part of its pie, in percent.
@@ -344,20 +353,20 @@ func choose(c *ui.Context, e ui.Element, n int, under func(x, y float32) int, de
 // the plot: the pointer goes through it.
 func tip(c *ui.Context, margin [4]float32, build func()) {
 	p := theme.Of(c)
-	box := ui.Column(c.Key("tip")).Shrink(0).MaxWidth(280).Margin(margin[:]...).Padding(4, 8).Gap(2).IgnoreInput(true)
+	box := ui.Column(c.Key("tip")).Shrink(0).Margin(margin[:]...).Padding(4, 8).Gap(2).IgnoreInput(true)
 	kit.Floating(c, box).Radius(p.Radius).Children(build)
 }
 
 // tipLine is a line of a tip: a swatch for one of several series, the
-// muted name and the value.
+// muted name, cut short, and the value. A tip is as wide as its lines.
 func tipLine(c *ui.Context, swatch *ui.Color, name, value string) {
 	p := theme.Of(c)
-	ui.Row(c).Gap(6).MinWidth(0).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Gap(6).Shrink(0).AlignItems(ui.Center).Children(func() {
 		if swatch != nil {
 			ui.Box(c).Size(8, 8).Shrink(0).Radius(2).Background(*swatch)
 		}
-		if name != "" {
-			ui.Text(c, name).FontSize(12).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+		if name = clip(name, tipRunes); name != "" {
+			ui.Text(c, name).FontSize(12).NoWrap().Shrink(0).TextColor(p.MutedForeground)
 		}
 		if value != "" {
 			ui.Text(c, value).FontSize(12).NoWrap().Shrink(0).FontWeight(500)
@@ -416,7 +425,7 @@ func (d *dataChart) buildXY(c *ui.Context, name string, width float32) {
 	if !d.fixed {
 		scale = scale.Nice(4)
 	}
-	scale.Format = axisNumber
+	scale.Format = axisNumbers(scale.Lo, scale.Hi)
 	values := scale.Ticks(4)
 	every := max(1, int(math.Ceil(float64(room/step))))
 	var categories []mc.Tick
@@ -494,6 +503,16 @@ func (d *dataChart) paint(pt *ui.Painter, r ui.Rect, p *theme.Palette, band mc.B
 		return ui.Rect{X: min(x0, x1), Y: min(y0, y1), W: abs32(x1 - x0), H: abs32(y1 - y0)}
 	}
 	unit := func(f float32) float32 { return min(max(f, 0), 1) }
+	// wide is a bar along the categories: its share of the band, at most
+	// barWidth, the bars of a category together in the middle of the band.
+	extent := r.W
+	if d.horizontal {
+		extent = r.H
+	}
+	wide := float32(0)
+	if bars > 0 {
+		wide = min(band.Width()/float32(bars), barWidth/max(extent, 1))
+	}
 	for _, t := range ticks {
 		x0, y0 := at(0, t.At)
 		x1, y1 := at(1, t.At)
@@ -501,8 +520,9 @@ func (d *dataChart) paint(pt *ui.Painter, r ui.Rect, p *theme.Palette, band mc.B
 	}
 	if hot >= 0 {
 		if b := band.Band(hot); bars > 0 {
-			gap := band.Width() * band.Inner / (2 * (1 - band.Inner)) // half the room between bands
-			pt.Fill(span(b.Lo-gap, 0, b.Hi+gap, 1), p.Hover, 4)
+			// Around the bars: half the room between bands, at most 10 DIPs.
+			half := wide*float32(bars)/2 + min(band.Width()*band.Inner/(2*(1-band.Inner)), 10/max(extent, 1))
+			pt.Fill(span(b.Mid()-half, 0, b.Mid()+half, 1), p.Hover, 4)
 		} else {
 			x0, y0 := at(b.Mid(), 0)
 			x1, y1 := at(b.Mid(), 1)
@@ -523,9 +543,8 @@ func (d *dataChart) paint(pt *ui.Painter, r ui.Rect, p *theme.Palette, band mc.B
 				if math.IsNaN(v) {
 					continue
 				}
-				b := band.Band(i)
-				w := (b.Hi - b.Lo) / float32(bars)
-				box := span(b.Lo+w*float32(k), base, b.Lo+w*float32(k+1), unit(scale.At(v)))
+				lo := band.Band(i).Mid() - wide*float32(bars)/2
+				box := span(lo+wide*float32(k), base, lo+wide*float32(k+1), unit(scale.At(v)))
 				col := ink
 				if hot >= 0 && hot != i {
 					col = ink.Alpha(0.45)
@@ -584,8 +603,9 @@ func (d *dataChart) paint(pt *ui.Painter, r ui.Rect, p *theme.Palette, band mc.B
 	})
 }
 
-// tipXY shows the picked category's values by its highest mark, kept
-// inside the plot.
+// tipXY shows the picked category's values inside the plot: over the mark
+// of a single series, after the end of a horizontal bar, and beside the
+// category, clear of its marks, for several series.
 func (d *dataChart) tipXY(c *ui.Context, area ui.Element, band mc.Band, scale mc.Linear, i int) {
 	p := theme.Of(c)
 	top, rows := float32(0), 0
@@ -615,19 +635,36 @@ func (d *dataChart) tipXY(c *ui.Context, area ui.Element, band mc.Band, scale mc
 	}
 	k := band.At(i)
 	if d.horizontal {
-		// After the bar's end, or before it where the plot ends.
-		if top > 0.6 {
-			mc.Anchor(c, top, 1-k, ui.End, ui.Center, func() { tip(c, [4]float32{0, 8, 0, 0}, content) })
-		} else {
-			mc.Anchor(c, top, 1-k, ui.Start, ui.Center, func() { tip(c, [4]float32{0, 0, 0, 8}, content) })
+		// After the longest bar's end, within the plot's height; where
+		// the bar leaves no room, under its row or over it.
+		row := band.Band(i)
+		after := func(y float32, v ui.Align) {
+			mc.Anchor(c, top, 1-y, ui.Start, v, func() { tip(c, [4]float32{0, 0, 0, 8}, content) })
+		}
+		switch {
+		case top > 0.6 && k < 0.5:
+			mc.Anchor(c, 1, 1-row.Hi, ui.End, ui.Start, func() { tip(c, [4]float32{6, 0, 0, 0}, content) })
+		case top > 0.6:
+			mc.Anchor(c, 1, 1-row.Lo, ui.End, ui.End, func() { tip(c, [4]float32{0, 0, 6, 0}, content) })
+		case k < 0.3:
+			after(row.Lo, ui.Start)
+		case k > 0.7:
+			after(row.Hi, ui.End)
+		default:
+			after(k, ui.Center)
 		}
 		return
 	}
 	if len(d.series) > 1 {
-		rows++
+		if k < 0.5 {
+			mc.Anchor(c, k, 1, ui.Start, ui.Start, func() { tip(c, [4]float32{0, 0, 0, 12}, content) })
+		} else {
+			mc.Anchor(c, k, 1, ui.End, ui.Start, func() { tip(c, [4]float32{0, 12, 0, 0}, content) })
+		}
+		return
 	}
 	if h := area.Bounds().H; h > 0 {
-		top = min(top, 1-(float32(rows)*18+16)/h)
+		top = min(top, 1-34/h) // the room a tip of one line takes
 	}
 	side := ui.Center
 	switch {

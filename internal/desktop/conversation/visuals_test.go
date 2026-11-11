@@ -222,14 +222,15 @@ func checkCharts(t *testing.T) {
 				t.Errorf("the plot is %v, want within 560 by 200", b)
 			}
 			// One title: the block's, as a caption in line with the text.
-			if st.count(title) != 1 || tt.HasText("Weekly active teams") {
+			// The other is the name the plot has for assistive technology.
+			if st.count(title) != 2 || tt.HasText("Weekly active teams") {
 				t.Errorf("titles: %q", tt.Texts())
 			}
 			caption, _ := tt.Find(title)
 			if intro, _ := tt.Find(chartIntro); caption.X != intro.X {
 				t.Errorf("the caption starts at %v, the text at %v", caption.X, intro.X)
 			}
-			for _, want := range []string{"W40", "W45", "teams", "2400"} {
+			for _, want := range []string{"W40", "W45", "teams", "2000"} {
 				if !tt.HasText(want) {
 					t.Errorf("no %q on the axes: %q", want, tt.Texts())
 				}
@@ -294,7 +295,7 @@ func checkCharts(t *testing.T) {
 			if !ok || !plot.Focusable || plot.Bounds.H > 200 || plot.Bounds.W > 560 {
 				t.Fatalf("no native line chart: %v %+v", ok, plot)
 			}
-			if st.count("Week-4 retention") != 1 || !tt.HasText("Pro") || !tt.HasText("Free") || !tt.HasText("%") {
+			if st.count("Week-4 retention") != 2 || !tt.HasText("Pro") || !tt.HasText("Free") || !tt.HasText("%") {
 				t.Errorf("title, legend and axis title: %q", tt.Texts())
 			}
 			st.bare(t, plot.Bounds)
@@ -320,7 +321,7 @@ func checkCharts(t *testing.T) {
 			if !ok || !wheel.Focusable || wheel.Bounds.W != 180 || wheel.Bounds.H != 180 {
 				t.Fatalf("no native pie: %v %+v", ok, wheel)
 			}
-			if st.count("流量来源") != 1 || !tt.HasText("直接访问") || !tt.HasText("42%") || tt.HasText("4200 · 42%") {
+			if st.count("流量来源") != 2 || !tt.HasText("直接访问") || !tt.HasText("42%") || tt.HasText("4200 · 42%") {
 				t.Errorf("title and legend: %q", tt.Texts())
 			}
 			if st.moves(2 * time.Second) {
@@ -364,12 +365,43 @@ func checkCharts(t *testing.T) {
 			src += "    N" + strconv.Itoa(i) + "[Step " + strconv.Itoa(i) + "] --> N" + strconv.Itoa(i+1) + "\n"
 		}
 		st := stageCharts(false, conversation.Block{Kind: conversation.TextBlock, Text: fence(src)})
-		if d, ok := st.tt.AccessByRole(ui.RoleImage, "flowchart"); !ok || d.Bounds.H > 420 {
-			t.Errorf("a tall diagram takes %v", d.Bounds)
+		st.tt.SetSize(chartStageWidth, 760)
+		st.tt.Frame()
+		st.tt.Frame()
+		if _, ok := st.tt.AccessByRole(ui.RoleImage, "flowchart"); !ok {
+			t.Fatal("no diagram")
 		}
-		if !st.tt.HasText(chartOutro) {
-			t.Error("the text after a tall diagram is out of the window")
+		above, _ := st.tt.Find(chartIntro)
+		below, ok := st.tt.Find(chartOutro)
+		if room := below.Y - above.Y - above.H; !ok || room < 300 || room > 420+40 {
+			t.Errorf("a tall diagram takes %v between %v and %v", room, above, below)
 		}
+		st.shot(t, "tall", false)
+	})
+	t.Run("mixed", func(t *testing.T) {
+		// Bars and a line share one value axis; a horizontal chart runs
+		// its categories down.
+		const sales = "xychart-beta\n    title \"Sales revenue\"\n    x-axis [jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec]\n    y-axis \"Revenue (in $)\" 4000 --> 11000\n    bar [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]\n    line [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]\n"
+		const plans = "xychart-beta horizontal\n    x-axis [Free, Starter, Pro, Enterprise]\n    y-axis \"teams\"\n    bar \"W44\" [820, 540, 360, 120]\n    bar \"W45\" [870, 610, 395, 140]\n"
+		st := stageCharts(false, conversation.Block{Kind: conversation.TextBlock, Text: fence(sales) + "\n\n" + fence(plans)})
+		st.tt.SetSize(chartStageWidth, 760)
+		st.tt.Frame()
+		st.tt.Frame()
+		mixed, ok := st.tt.AccessByRole(ui.RoleImage, "Sales revenue")
+		if !ok || !mixed.Focusable || mixed.Bounds.H > 200 {
+			t.Fatalf("no native chart of bars and a line: %v %+v", ok, mixed)
+		}
+		rows, ok := st.tt.AccessByRole(ui.RoleImage, "xychart")
+		if !ok || !rows.Focusable || rows.Bounds.H > 260 || !st.tt.HasText("W44") || !st.tt.HasText("Enterprise") {
+			t.Fatalf("no native horizontal chart named by its kind: %v %+v %q", ok, rows, st.tt.Texts())
+		}
+		b := rows.Bounds
+		st.tt.Move(b.X+b.W*0.3, b.Y+b.H*0.12)
+		st.tt.Frame()
+		if hot, _ := st.tt.AccessByRole(ui.RoleImage, "xychart"); hot.Value != "Free: W44 820, W45 870" {
+			t.Errorf("the first row reads %q", hot.Value)
+		}
+		st.shot(t, "mixed", false)
 	})
 	t.Run("hostile", checkHostileCharts)
 }
@@ -413,7 +445,7 @@ func checkHostileCharts(t *testing.T) {
 		{"all zero", xy + "    bar [0, 0, 0]\n", true},
 		{"one point", xy + "    line [7]\n", true},
 		{"366 points", xy + "    line [" + list(366, strconv.Itoa) + "]\n    bar [" + list(366, strconv.Itoa) + "]\n", true},
-		{"horizontal", xy + "    horizontal\n    x-axis [" + list(40, func(i int) string { return "row" + strconv.Itoa(i) }) + "]\n    bar [" + list(40, strconv.Itoa) + "]\n", true},
+		{"horizontal", "xychart-beta horizontal\n    x-axis [" + list(40, func(i int) string { return "row" + strconv.Itoa(i) }) + "]\n    bar [" + list(40, strconv.Itoa) + "]\n", true},
 		{"pie below zero", "pie\n    \"a\" : -1\n    \"b\" : 2\n", false},
 		{"pie of nothing", "pie\n    \"a\" : 0\n    \"b\" : 0\n", false},
 		{"pie of 13", slicesOf(13), false},
