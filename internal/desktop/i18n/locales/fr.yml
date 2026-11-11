@@ -174,6 +174,24 @@ question_other: Autre
 question_decline: Refuser
 interaction_submit: Envoyer
 interaction_cancel: Annuler
+approval_deny_reason: Refuser avec un motif
+approval_reason: Motif
+approval_reason_cancel: Annuler
+approval_receipt: Réception de l'approbation
+approval_busy: Approbation en attente
+approval_ssh_trust: Faire confiance à %{host}:%{port} — %{algorithm} %{fingerprint}
+approval_ssh_replace: Remplacer la clé de %{host}:%{port} — %{algorithm} %{fingerprint}
+question_open_url: Ouvrir la page
+question_yes: Oui
+question_no: Non
+question_optional: '%{field}'
+question_invalid_answer: Vérifiez votre réponse
+plan_execute_confirm: Exécuter ce plan
+plan_config_changed: Configuration modifiée; confirmer à nouveau
+plan_coding_message: Commencez à coder avec le plan confirmé
+interaction_continue: Continuer
+interaction_start: Exécuter
+live_read_busy: En attente de l’hôte
 tool_load_skill: Capacité de chargement
 tool_list_sessions: Rechercher des conversations
 tool_read_session: Lire la conversation

@@ -174,6 +174,24 @@ question_other: 기타
 question_decline: 거절
 interaction_submit: 제출
 interaction_cancel: 취소
+approval_deny_reason: 이유를 적어 거부
+approval_reason: 이유
+approval_reason_cancel: 취소
+approval_receipt: 승인 영수증
+approval_busy: 승인 대기 중
+approval_ssh_trust: '%{host}:%{port} 신뢰 — %{algorithm} %{fingerprint}'
+approval_ssh_replace: '%{host}:%{port} 키 교체 — %{algorithm} %{fingerprint}'
+question_open_url: 페이지 열기
+question_yes: 예
+question_no: 아니요
+question_optional: '%{field} (선택 사항)'
+question_invalid_answer: 답변 확인
+plan_execute_confirm: 이 계획 실행
+plan_config_changed: 설정 변경됨; 다시 확인하기
+plan_coding_message: 확인된 계획으로 코딩 시작
+interaction_continue: 계속
+interaction_start: 실행
+live_read_busy: 호스트 응답 대기 중
 tool_load_skill: 기술 로드
 tool_list_sessions: 세션 찾기
 tool_read_session: 세션 읽기

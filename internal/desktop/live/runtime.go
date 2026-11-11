@@ -111,6 +111,7 @@ type Runtime struct {
 	exportConversation       func(string, string, conversation.ExportFormat)
 	conversationEdits        map[string]conversationEdit
 	turnRetries              map[string]turnRetry
+	interactionFlows         map[string]*interactionFlow
 	conversationCreations    map[string]conversationCreation
 	conversationCreating     map[string]bool
 	providerPresets          map[string]protocol.ConversationPresetsEntry

@@ -133,7 +133,9 @@ Queued, Running, Stopping or Unsynced.
   `question_accepted`, Unconsumed `question_unconsumed`, Declined
   `question_declined`, Interrupted `question_interrupted`, TimedOut
   `chat_response_timeout`; Answered and Cancelled show none. The prompt
-  wraps. Answers make it a disclosure.
+  wraps. Answers make it a disclosure. A plan review's `Prompt` is
+  `composer_mode_plan` and its answer the plan text; a form's answers are
+  `Title: value` lines with option titles and `question_yes`/`question_no`.
 - `Child{ID, Title, Model, Effort, Status}`. One child is a row: a 16 DIP
   identicon (coloured and turning while running), title (`chat_child` when
   empty), `Model Effort` muted at 0.65. Two or more: a disclosure of the
@@ -486,7 +488,8 @@ a running read, its output, then the answer growing a character at a time.
 | Embedded card authorization opens an isolated MyGo page window on macOS | Pinned MyGo supplies a native page window; the source places it in a resource pane |
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
-| MCP forms and authorization links use the existing question controls | The Node binds each request to its exact active parent call and persists its answer without adding a second transcript row |
+| MCP forms and authorization links are answered in the composer's question popover | The Node binds each request to its exact active parent call and persists its answer without adding a second transcript row |
+| A plan review's history row shows its answers as plain lines, closed | The reference renders the plan as Markdown, open by default |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |
 
 Workspace tool details replace successful single-file edit fragments with their

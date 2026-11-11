@@ -362,6 +362,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	r.projectCommands(cv.ID, comp, &ctx.Activity)
 	r.projectTeamComposer(cv, comp, ctx, c.Locale())
 	r.projectChildComposer(cv, comp, ctx, c.Locale())
+	r.projectInteractionStates(cv, ctx, c.Locale())
 	r.projectPluginComposer(c, cv, comp, ctx)
 	r.bindSkillReferences(cv, comp)
 	actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}

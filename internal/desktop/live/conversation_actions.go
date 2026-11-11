@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -103,52 +106,118 @@ func (x *conversationActions) Compact() {
 		x.turn(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: s.ID, ExpectedRevision: s.Revision}}, nil)
 	}
 }
+
+// Decide sends the decision on a waiting approval of the conversation or of
+// one of its subagents. One decision travels at a time; the request whose
+// outcome is unknown stays for Retry.
 func (x *conversationActions) Decide(id string, decision composer.Decision, reason string) {
-	if x.readonly() {
+	if !x.interactive() {
 		return
 	}
-	if x.r.resolveChildApproval(x, id, decision, reason) {
+	f := x.r.interactionFlow(x.cv.ID)
+	if f.approval != nil {
+		kit.Toast(x.c, kit.Failed, i18n.T(x.c, "approval_busy"))
 		return
 	}
-	s, ok := x.r.session(x.cv.ID)
-	if !ok {
-		return
-	}
-	approval, err := protocol.ParseApprovalID(id)
-	if err != nil {
+	approval, _, ok := x.r.waitingApproval(x.cv.ID, id)
+	if !ok || f.settled[id] {
+		kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "approval_closed"))
 		return
 	}
 	d := protocol.ConversationDecision{Kind: []string{"approve", "approve_session", "approve_prefix", "deny"}[min(max(int(decision), 0), 3)]}
-	if decision == composer.AllowPrefix {
-		for _, a := range x.cv.Waiting.Approvals {
-			if a.ID == id {
-				d.Data = a.Prefix
-			}
+	switch {
+	case decision == composer.AllowSession && !approval.CanRemember:
+		return
+	case decision == composer.AllowPrefix:
+		if !approval.CanRemember || approval.Prefix == nil {
+			return
 		}
-	}
-	if decision == composer.Deny && reason != "" {
+		d.Data = *approval.Prefix
+	case decision == composer.Deny && strings.TrimSpace(reason) != "":
 		d.Kind, d.Data = "deny_with_reason", reason
 	}
-	x.r.command(protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: s.ID, Approval: approval, Decision: d}}, "approval_closed", nil)
+	attempt := &interactionAttempt{id: id, request: x.r.controller.Prepare(protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: approval.Session, Approval: approval.ID, Decision: d}})}
+	for _, view := range x.cv.Waiting.Approvals {
+		if view.ID == id {
+			attempt.receipt = view
+		}
+	}
+	f.approval = attempt
+	x.r.sendInteraction(f, attempt)
 }
-func (x *conversationActions) question(id string, response protocol.ConversationQuestionResponse) {
-	if x.readonly() {
+
+// question sends the response to a waiting question. An answer whose outcome
+// is unknown is sent again as the same request; Cancel and Decline replace
+// it.
+func (x *conversationActions) question(id string, response protocol.ConversationQuestionResponse, done func(protocol.Output)) {
+	if !x.interactive() {
 		return
 	}
-	s, ok := x.r.session(x.cv.ID)
-	if !ok {
+	f := x.r.interactionFlow(x.cv.ID)
+	if a := f.question; a != nil {
+		if a.busy {
+			return
+		}
+		if a.id == id && (response.Kind == "answer" || response.Kind == "start_coding") {
+			x.r.sendInteraction(f, a)
+			return
+		}
+	}
+	q, _, ok := x.r.waitingQuestion(x.cv.ID, id)
+	if !ok || f.settled[id] {
+		kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "question_closed"))
 		return
 	}
-	question, err := protocol.ParseQuestionID(id)
-	if err != nil {
-		return
-	}
-	x.r.command(protocol.Command{Kind: "resolve_question", Data: protocol.CommandResolveQuestionPayload{Session: s.ID, Question: question, Response: response}}, "question_closed", nil)
+	f.question = &interactionAttempt{id: id, question: true, done: done, request: x.r.controller.Prepare(protocol.Command{Kind: "resolve_question", Data: protocol.CommandResolveQuestionPayload{Session: q.Session, Question: q.ID, Response: response}})}
+	x.r.sendInteraction(f, f.question)
 }
+
+// Answer answers the waiting question in the shape its kind takes: a plan
+// review starts coding or continues planning, a form sends its fields'
+// values, a link opens its page and says so, a choice its options and a free
+// answer its text.
 func (x *conversationActions) Answer(id string, a composer.Answer) {
+	_, spec, ok := x.r.waitingQuestion(x.cv.ID, id)
+	if !ok {
+		x.question(id, protocol.ConversationQuestionResponse{Kind: "answer"}, nil)
+		return
+	}
 	answer := protocol.ConversationQuestionAnswer{Kind: "text", Data: a.Text}
-	if q := x.cv.Waiting.Question; q != nil && len(q.Options) > 0 {
-		choices := protocol.ConversationQuestionAnswerChoicesPayload{}
+	switch spec.Input.Kind {
+	case "plan":
+		if a.Start {
+			s, ok := x.r.session(x.cv.ID)
+			if !ok {
+				return
+			}
+			message := protocol.DefaultConversationInput()
+			message.Text = i18n.T(x.c, "plan_coding_message")
+			conversation := x.cv.ID
+			x.question(id, protocol.ConversationQuestionResponse{Kind: "start_coding", Data: protocol.ConversationQuestionResponseStartCodingPayload{ExpectedRevision: s.Revision, Message: message}}, func(out protocol.Output) {
+				if accepted, ok := detail[protocol.ConversationQuestionAcceptedPlan](out.Data); ok {
+					if current, known := x.r.session(conversation); !known || accepted.Session.Revision > current.Revision {
+						if x.r.admittedSessions == nil {
+							x.r.admittedSessions = map[string]protocol.Session{}
+						}
+						x.r.admittedSessions[conversation] = accepted.Session
+					}
+				}
+			})
+			return
+		}
+		answer.Data = ""
+	case "form":
+		form, _ := detail[protocol.ConversationQuestionInputFormPayload](spec.Input.Data)
+		answer = protocol.ConversationQuestionAnswer{Kind: "form", Data: formAnswer(form, a.Values)}
+	case "url":
+		if f := x.r.interactionFlow(x.cv.ID); f.question == nil && x.r.controller.Connected() {
+			if link, ok := detail[protocol.ConversationQuestionInputUrlPayload](spec.Input.Data); ok {
+				x.c.OpenURL(link.Url)
+			}
+		}
+		answer = protocol.ConversationQuestionAnswer{Kind: "opened"}
+	case "choice":
+		choices := protocol.ConversationQuestionAnswerChoicesPayload{Selected: []uint64{}}
 		for _, i := range a.Choices {
 			choices.Selected = append(choices.Selected, uint64(i))
 		}
@@ -158,13 +227,47 @@ func (x *conversationActions) Answer(id string, a composer.Answer) {
 		}
 		answer = protocol.ConversationQuestionAnswer{Kind: "choices", Data: choices}
 	}
-	x.question(id, protocol.ConversationQuestionResponse{Kind: "answer", Data: answer})
+	x.question(id, protocol.ConversationQuestionResponse{Kind: "answer", Data: answer}, nil)
+}
+
+// formAnswer encodes the form's values by field name: an option answers its
+// value, several their values.
+func formAnswer(form protocol.ConversationQuestionInputFormPayload, values map[string]any) map[string]json.RawMessage {
+	out := map[string]json.RawMessage{}
+	for _, field := range form.Fields {
+		value, ok := values[field.Name]
+		if !ok {
+			continue
+		}
+		if choice, ok := detail[protocol.ConversationQuestionFormInputChoicePayload](field.Input.Data); ok && field.Input.Kind == "choice" {
+			option := func(i int) string {
+				if i < 0 || i >= len(choice.Options) {
+					return ""
+				}
+				return choice.Options[i].Value
+			}
+			switch chosen := value.(type) {
+			case int:
+				value = option(chosen)
+			case []int:
+				names := make([]string, 0, len(chosen))
+				for _, i := range chosen {
+					names = append(names, option(i))
+				}
+				value = names
+			}
+		}
+		if encoded, err := json.Marshal(value); err == nil {
+			out[field.Name] = encoded
+		}
+	}
+	return out
 }
 func (x *conversationActions) CancelQuestion(id string) {
-	x.question(id, protocol.ConversationQuestionResponse{Kind: "cancel"})
+	x.question(id, protocol.ConversationQuestionResponse{Kind: "cancel"}, nil)
 }
 func (x *conversationActions) DeclineQuestion(id string) {
-	x.question(id, protocol.ConversationQuestionResponse{Kind: "decline"})
+	x.question(id, protocol.ConversationQuestionResponse{Kind: "decline"}, nil)
 }
 func (x *conversationActions) Fork(turn string) {
 	if !x.owned() {

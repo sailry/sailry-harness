@@ -1,7 +1,6 @@
 package live
 
 import (
-	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -131,42 +130,4 @@ func enrichChildModels(cv *viewmodel.Conversation, page protocol.ConversationPag
 			}
 		}
 	}
-}
-
-func (r *Runtime) resolveChildApproval(x *conversationActions, id string, decision composer.Decision, reason string) bool {
-	parent, ok := r.session(x.cv.ID)
-	if !ok || delegated(parent) {
-		return false
-	}
-	state, ok := r.controller.Conversation(parent.ID)
-	if !ok {
-		return false
-	}
-	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
-		session, valid := client.ConversationChildSession(r.snapshot(), parent.ID, child)
-		if !valid {
-			continue
-		}
-		details, ready := r.controller.Conversation(session.ID)
-		if !ready {
-			continue
-		}
-		for _, approval := range details.Snapshot.Page.Approvals {
-			if approval.ID.String() == id {
-				if approval.State != "pending" || approval.Startup != nil || approval.Ssh != nil || approval.Session != session.ID {
-					return true
-				}
-				value := protocol.ConversationDecision{Kind: []string{"approve", "approve_session", "approve_prefix", "deny"}[min(max(int(decision), 0), 3)]}
-				if decision == composer.AllowPrefix && approval.Prefix != nil {
-					value.Data = *approval.Prefix
-				}
-				if decision == composer.Deny && reason != "" {
-					value.Kind, value.Data = "deny_with_reason", reason
-				}
-				r.executeScoped("child-approval/"+id, protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: session.ID, Approval: approval.ID, Decision: value}}, func(c *ui.Context, _ protocol.Output, err error) { r.report(c, err, "approval_closed") })
-				return true
-			}
-		}
-	}
-	return false
 }

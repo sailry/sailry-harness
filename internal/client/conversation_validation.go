@@ -154,7 +154,12 @@ func validateConversationAnswer(spec protocol.ConversationQuestionSpec, a protoc
 			}
 		}
 	case "plan":
+		// Continuing to plan answers text, which may be empty; starting to
+		// code answers the plan.
 		valid = a.Kind == "plan"
+		if text, err := payload[string](a.Data); a.Kind == "text" && err == nil {
+			valid = len(text) <= 64*1024
+		}
 	case "url":
 		valid = a.Kind == "opened"
 	case "form":

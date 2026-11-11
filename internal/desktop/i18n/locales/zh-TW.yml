@@ -174,6 +174,24 @@ question_other: 其他
 question_decline: 拒絕回答
 interaction_submit: 提交
 interaction_cancel: 取消
+approval_deny_reason: 附理由拒絕
+approval_reason: 理由
+approval_reason_cancel: 取消
+approval_receipt: 審批迴執
+approval_busy: 審批處理中
+approval_ssh_trust: 信任 %{host}:%{port} — %{algorithm} %{fingerprint}
+approval_ssh_replace: 替換 %{host}:%{port} 的金鑰 — %{algorithm} %{fingerprint}
+question_open_url: 開啟頁面
+question_yes: 是
+question_no: 否
+question_optional: '%{field}（可選）'
+question_invalid_answer: 請檢查回答內容
+plan_execute_confirm: 按此計畫執行
+plan_config_changed: 配置已變化，請重新確認
+plan_coding_message: 按確認的計劃開始編碼
+interaction_continue: 繼續
+interaction_start: 執行
+live_read_busy: 等待主機回應
 tool_load_skill: 載入技能
 tool_list_sessions: 尋找會話
 tool_read_session: 讀取會話

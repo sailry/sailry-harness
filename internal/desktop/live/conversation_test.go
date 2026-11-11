@@ -518,6 +518,7 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 
 func TestComposerSendRouting(t *testing.T) {
 	t.Run("first run without a provider", firstRun)
+	t.Run("questions and approvals in the window", interactionKinds)
 	t.Run("revoked remote actions never target same-ID local resources", func(t *testing.T) {
 		localNode, remoteNode := protocol.NodeID{1}, protocol.NodeID{2}
 		project, worktree, session := protocol.ProjectID{3}, protocol.WorktreeID{4}, protocol.SessionID{5}

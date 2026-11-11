@@ -335,8 +335,14 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 	}
 	value.Delegation = raw.delegation()
 	if raw.Name == "ask_user" || raw.Name == "mcp_elicitation" || raw.Name == "plan_review" {
+		// An MCP request asks with a form or a link, which the model's own
+		// questions may not.
+		validate := validateQuestionSpec
+		if raw.Name == "mcp_elicitation" {
+			validate = validateMCPSpec
+		}
 		var spec protocol.ConversationQuestionSpec
-		if json.Unmarshal(raw.Arguments, &spec) == nil && validateQuestionSpec(spec) == nil {
+		if json.Unmarshal(raw.Arguments, &spec) == nil && validate(spec) == nil {
 			p := &spec
 			value.Question = &p
 		}

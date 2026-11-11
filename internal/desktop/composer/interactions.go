@@ -1,7 +1,10 @@
 package composer
 
 import (
+	"math"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -40,6 +43,29 @@ type Approval struct {
 	// Unrestricted marks a call with full file and network access: Allow
 	// says so in its tooltip.
 	Unrestricted bool
+	// Trust is the SSH host key the call asks to trust, nil for other calls.
+	Trust *Trust
+	// Loading marks details still being read and Failed a read that failed;
+	// Reload reads them again. Allow waits for the details, Deny does not.
+	Loading, Failed bool
+	Reload          func()
+	// Disabled marks a request that cannot be decided now: the host is not
+	// connected, its turn is not running, or a decision is on its way. Busy
+	// marks the request whose decision is on its way.
+	Disabled, Busy bool
+	// Again resends a decision whose outcome is unknown, nil without one.
+	// Receipt marks such a request the run no longer lists.
+	Again   func()
+	Receipt bool
+}
+
+// Trust is an SSH host key awaiting trust; Changed marks a key that replaces
+// the one known for the host.
+type Trust struct {
+	Host                   string
+	Port                   int
+	Algorithm, Fingerprint string
+	Changed                bool
 }
 
 // ChangeKind is what a change does to its file.
@@ -60,14 +86,62 @@ type Change struct {
 	Truncated         bool
 }
 
-// Ask is a question the model asked: a choice of Options (Multi for
-// several), Other for a free answer, or a free answer alone without them.
+// AskKind is what a question asks for.
+type AskKind int
+
+const (
+	// AskChoice is a choice of Options (Multi for several), Other for a free
+	// answer, or a free answer alone without them.
+	AskChoice AskKind = iota
+	// AskPlan reviews a plan: continue planning or start coding.
+	AskPlan
+	// AskForm fills Fields.
+	AskForm
+	// AskLink opens URL in the system browser.
+	AskLink
+)
+
+// Ask is a question the model, a plan review or a connector asked.
 type Ask struct {
 	ID, Prompt string
+	Kind       AskKind
 	Options    []string
 	Multi      bool
 	Other      bool
+	Fields     []Field
+	URL        string
 	Declinable bool // a form or a link: Decline shows
+	// Disabled marks a question that cannot be answered while the host is
+	// not connected. Busy marks an answer on its way; Retry an answer whose
+	// outcome is unknown, which Submit sends again.
+	Disabled, Busy, Retry bool
+}
+
+// FieldKind is the input of a form field.
+type FieldKind int
+
+const (
+	FieldText FieldKind = iota
+	FieldNumber
+	FieldBoolean
+	FieldChoice
+)
+
+// Field is one input of a form. The bounds that are nil do not apply.
+type Field struct {
+	Name, Title, Description string
+	Required                 bool
+	Kind                     FieldKind
+	// Text: Multiline for free text, a single line for a format.
+	Multiline            bool
+	MinLength, MaxLength *uint64
+	// Number.
+	Integer          bool
+	Minimum, Maximum *float64
+	// Choice: the titles of the options, Multi for several.
+	Options            []string
+	Multi              bool
+	MinItems, MaxItems *uint64
 }
 
 // Decision is the user's answer to an approval.
@@ -81,10 +155,16 @@ const (
 )
 
 // Answer is the user's answer to a question: the options chosen, by index,
-// and the text typed.
+// and the text typed. A plan review answers Start to start coding and an
+// empty Answer to continue planning; a link answers Opened; a form answers
+// Values by field name: a string, a float64, a bool, an option's index or a
+// []int of them.
 type Answer struct {
 	Choices []int
 	Text    string
+	Start   bool
+	Opened  bool
+	Values  map[string]any
 }
 
 // Actions is what the composer asks of the backend. Outcomes show as
@@ -139,11 +219,23 @@ type Actions interface {
 type interaction struct {
 	approvals, question bool   // the popovers are open
 	at                  int    // the approval shown
+	denying             string // the approval whose reason is being typed
+	reason              string
 	asked               string // the question the draft is for
 	chosen              int
 	choices             map[int]*bool
 	other               bool
 	text                string
+	fields              []fieldDraft
+}
+
+// fieldDraft is what the user entered in a form field. An optional field
+// answers only while it is included.
+type fieldDraft struct {
+	include bool
+	text    string
+	chosen  int
+	choices map[int]*bool
 }
 
 // capsule is an interaction's capsule: the person icon and its label.
@@ -175,10 +267,20 @@ func place(c *ui.Context, panel, anchor ui.Element, gap float32) {
 }
 
 // approvals shows one pending request at a time; with several, a "1/2"
-// position and previous and next buttons page through them.
+// position and previous and next buttons page through them. With only
+// receipts left the capsule says so.
 func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	p := theme.Of(c)
-	label := i18n.T(c, "approval_live_count", "count", len(list))
+	pending := 0
+	for _, a := range list {
+		if !a.Receipt {
+			pending++
+		}
+	}
+	label := i18n.T(c, "approval_receipt")
+	if pending > 0 {
+		label = i18n.T(c, "approval_live_count", "count", pending)
+	}
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
 	s.in.at = min(max(s.in.at, 0), len(list)-1)
 	place(c, kit.Popover(c, trigger, &s.in.approvals, func() {
@@ -198,63 +300,143 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 }
 
 // approval is one request: its title (who asks, the tool, where, on one
-// line), the request in a card (the command, the text or the change set),
-// the notices, and Deny and Allow, Allow with a menu of the wider grants.
+// line), the request in a card (the host key, the command, the text or the
+// change set), the notices, and Deny and Allow: Deny with a menu for a
+// reason, Allow with a menu of the wider grants. Details still being read
+// show a spinner, a failed read Retry.
 func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 	p := theme.Of(c)
+	in := &s.in
 	ui.Row(c.Key("title")).Gap(8).AlignItems(ui.Center).Children(func() {
 		title := a.Title
 		if a.Child != "" {
 			title = a.Child + " · " + title
 		}
-		ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine().Shrink(0)
+		// The title keeps its width beside a context and gives way alone.
+		shown := ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine().Shrink(0)
+		if a.Context == "" {
+			shown.Shrink(1).MinWidth(0)
+		}
 		if a.Context != "" {
 			ui.Text(c, a.Context).FontSize(13).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
 		}
 	})
-	if len(a.Changes) > 0 || a.Description != "" {
+	description := a.Description
+	if t := a.Trust; t != nil {
+		key := "approval_ssh_trust"
+		if t.Changed {
+			key = "approval_ssh_replace"
+		}
+		description = i18n.T(c, key, "host", t.Host, "port", t.Port, "algorithm", t.Algorithm, "fingerprint", t.Fingerprint)
+	}
+	if len(a.Changes) > 0 || description != "" {
 		ui.Scroll(c.Key("card")).MaxHeight(160).Shrink(0).Radius(p.Radius).Background(p.Foreground.Alpha(0.05)).Padding(12).
 			Children(func() {
 				switch {
 				case len(a.Changes) > 0:
 					changes(c, a.Changes)
-				case a.Code:
-					ui.Text(c, a.Description).Font("monospace").FontSize(13).Selectable()
+				case a.Code && a.Trust == nil:
+					ui.Text(c, description).Font("monospace").FontSize(13).Selectable()
 				default:
-					ui.Text(c, a.Description).FontSize(14).Selectable()
+					ui.Text(c, description).FontSize(14).Selectable()
 				}
 			})
 	}
 	for _, n := range a.Notices {
 		ui.Text(c, n).FontSize(13).MaxLines(3).TextColor(p.MutedForeground)
 	}
-	ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).Children(func() {
-		deny := i18n.T(c, "approval_reject")
-		kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).
-			Children(func() { ui.Text(c, deny).FontSize(14) }).
-			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		allow := i18n.T(c, "approval_allow_once")
-		b := kit.Primary(c.Key("allow"), allow, false).Height(28)
-		if !a.Remember {
-			b.Radius(14)
+	retry := i18n.T(c, "chat_retry")
+	switch {
+	case a.Failed:
+		ui.Row(c.Key("details")).Children(func() {
+			outlined(c.Key("reload"), retry).Disabled(a.Reload == nil).OnClick(func() { a.Reload() })
+		})
+	case a.Loading:
+		ui.Row(c.Key("details")).Height(28).AlignItems(ui.Center).Children(func() { ui.Spinner(c).Size(14, 14) })
+	}
+	if a.Receipt || a.Again != nil {
+		ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+			kit.Primary(c.Key("again"), retry, a.Again == nil || a.Busy).Height(28).Radius(14).MinWidth(48).
+				Children(func() { busyLabel(c, retry, a.Busy) }).
+				OnClick(func() { a.Again() })
+		})
+		return
+	}
+	locked := a.Disabled || a.Busy
+	if in.denying == a.ID {
+		reason := strings.TrimSpace(in.reason)
+		ui.TextAreaBase(c.Key("reason"), &in.reason).Label(i18n.T(c, "approval_reason")).
+			Placeholder(i18n.T(c, "approval_reason")).PlaceholderColor(p.MutedForeground).
+			Lines(1, 3).FontSize(14).Padding(8).Radius(p.Radius).Border(1, p.Border).Disabled(locked)
+		ui.Row(c.Key("reasoned")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+			cancel := i18n.T(c, "approval_reason_cancel")
+			kit.Ghost(c.Key("cancel"), cancel, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Disabled(a.Busy).
+				Children(func() { ui.Text(c, cancel).FontSize(14) }).
+				OnClick(func() { in.denying, in.reason = "", "" })
+			deny := i18n.T(c, "approval_reject")
+			kit.Primary(c.Key("deny"), deny, locked || reason == "").Height(28).Radius(14).MinWidth(48).
+				Children(func() { busyLabel(c, deny, a.Busy) }).
+				OnClick(func() { actions.Decide(a.ID, Deny, reason) })
+		})
+		return
+	}
+	ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+		if a.Busy {
+			ui.Spinner(c).Size(14, 14)
 		}
-		if a.Unrestricted {
-			kit.Tooltip(c, b, i18n.T(c, "approval_unrestricted"))
-		}
-		b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
-		if a.Remember {
-			kit.MenuButton(c.Key("allow-options"), "allow-"+a.ID, func(b ui.Element) {
-				kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_allow_session"), "", 28, false)
+		ui.Row(c.Key("deny-group")).Children(func() {
+			deny := i18n.T(c, "approval_reject")
+			kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Disabled(locked).
+				Children(func() { ui.Text(c, deny).FontSize(14) }).
+				OnClick(func() { actions.Decide(a.ID, Deny, "") })
+			kit.MenuButton(c.Key("deny-options"), "deny-"+a.ID, func(b ui.Element) {
+				kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_deny_reason"), "", 28, false).Disabled(locked)
 			}, func(m *kit.Menu) {
-				if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
-					actions.Decide(a.ID, AllowSession, "")
-				}
-				if a.Prefix != "" && m.Item(i18n.T(c, "approval_allow_prefix", "prefix", a.Prefix)).Chosen() {
-					actions.Decide(a.ID, AllowPrefix, "")
+				if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
+					in.denying, in.reason = a.ID, ""
 				}
 			})
-		}
+		})
+		ui.Row(c.Key("allow-group")).Children(func() {
+			allow := i18n.T(c, "approval_allow_once")
+			b := kit.Primary(c.Key("allow"), allow, locked || a.Loading || a.Failed).Height(28)
+			if !a.Remember {
+				b.Radius(14)
+			}
+			if a.Unrestricted {
+				kit.Tooltip(c, b, i18n.T(c, "approval_unrestricted"))
+			}
+			b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
+			if a.Remember {
+				kit.MenuButton(c.Key("allow-options"), "allow-"+a.ID, func(b ui.Element) {
+					kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_allow_session"), "", 28, false).
+						Disabled(locked || a.Loading || a.Failed)
+				}, func(m *kit.Menu) {
+					if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
+						actions.Decide(a.ID, AllowSession, "")
+					}
+					if a.Prefix != "" && m.Item(i18n.T(c, "approval_allow_prefix", "prefix", a.Prefix)).Chosen() {
+						actions.Decide(a.ID, AllowPrefix, "")
+					}
+				})
+			}
+		})
 	})
+}
+
+// outlined is a popover's secondary button.
+func outlined(c *ui.Context, label string) ui.Element {
+	p := theme.Of(c)
+	return kit.Ghost(c, label, false).Height(28).PaddingX(12).Border(1, p.Border).
+		Children(func() { ui.Text(c, label).FontSize(14) })
+}
+
+// busyLabel is a button's label, behind a spinner while its action runs.
+func busyLabel(c *ui.Context, label string, busy bool) {
+	if busy {
+		ui.Spinner(c).Size(14, 14)
+	}
+	ui.Text(c, label).FontSize(14)
 }
 
 // changes is a change set's files: what each does, its path, +N −M.
@@ -289,71 +471,110 @@ func changes(c *ui.Context, list []Change) {
 }
 
 // ask is the pending question's capsule and its popover: the prompt, the
-// choices, a free answer, and Decline, Cancel and Submit.
+// inputs of its kind, and Decline, Cancel and Submit. A plan review offers
+// Continue and Start; a link opens its page. An answer on its way locks the
+// inputs and shows a spinner; one whose outcome is unknown is sent again by
+// Retry, the draft kept.
 func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	p := theme.Of(c)
 	in := &s.in
 	if in.asked != q.ID { // a new question: a new draft
 		in.asked, in.chosen, in.choices, in.other, in.text = q.ID, -1, map[int]*bool{}, false, ""
+		in.fields = make([]fieldDraft, len(q.Fields))
+		for i, f := range q.Fields {
+			in.fields[i] = fieldDraft{include: f.Required, chosen: -1, choices: map[int]*bool{}}
+		}
 	}
+	locked := q.Disabled || q.Busy || q.Retry
 	label := i18n.T(c, "question_reply")
 	trigger := capsule(c.Key("question"), label, in.question).OnClick(func() { in.question = !in.question })
 	place(c, kit.Popover(c, trigger, &in.question, func() {
-		ui.Scroll(c).Gap(16).Children(func() {
-			ui.Text(c, q.Prompt).FontSize(14).FontWeight(500)
-			other := len(q.Options) // the index of Other
+		_, height := c.Size()
+		ui.Scroll(c).Gap(16).MaxHeight(max(min(height/2, 420), 160)).Shrink(1).Children(func() {
+			prompt := q.Prompt
+			if q.Kind == AskPlan {
+				prompt = i18n.T(c, "plan_execute_confirm")
+			}
+			ui.Text(c, prompt).FontSize(14).FontWeight(500)
 			// MyGo fills an unchecked box or radio with the theme's
 			// Background, the window's darkest color; on the panel they
 			// take the panel's surface instead.
 			t := *c.Theme()
 			t.Background = ui.Transparent
-			ui.Themed(c, &t).Background(ui.Transparent).Children(func() {
-				if q.Multi {
-					ui.Column(c).Gap(12).Children(func() {
-						for i, o := range q.Options {
-							b, ok := in.choices[i]
-							if !ok {
-								b = new(bool)
-								in.choices[i] = b
-							}
-							ui.Checkbox(c.Key(i), b, o)
-						}
-						if q.Other {
-							ui.Checkbox(c.Key("other"), &in.other, i18n.T(c, "question_other"))
+			switch q.Kind {
+			case AskPlan:
+			case AskLink:
+				ui.Text(c, q.URL).FontSize(13).MaxLines(2).TextColor(p.MutedForeground).Selectable()
+			case AskForm:
+				ui.Themed(c, &t).Background(ui.Transparent).Children(func() {
+					ui.Column(c.Key("fields")).Gap(16).Children(func() {
+						for i := range q.Fields {
+							ui.Column(c.Key(i)).Gap(8).Children(func() { field(c, q.Fields[i], &in.fields[i], locked) })
 						}
 					})
-				} else if len(q.Options) > 0 {
-					ui.RadioGroup(c, func() {
-						for i, o := range q.Options {
-							ui.Radio(c.Key(i), &in.chosen, i, o)
-						}
-						if q.Other {
-							ui.Radio(c.Key("other"), &in.chosen, other, i18n.T(c, "question_other"))
-						}
-					}).Gap(12).Label(q.Prompt)
-					in.other = in.chosen == other
+				})
+			default:
+				other := len(q.Options) // the index of Other
+				ui.Themed(c, &t).Background(ui.Transparent).Children(func() {
+					if q.Multi {
+						ui.Column(c).Gap(12).Children(func() {
+							for i, o := range q.Options {
+								b, ok := in.choices[i]
+								if !ok {
+									b = new(bool)
+									in.choices[i] = b
+								}
+								ui.Checkbox(c.Key(i), b, o).Disabled(locked)
+							}
+							if q.Other {
+								ui.Checkbox(c.Key("other"), &in.other, i18n.T(c, "question_other")).Disabled(locked)
+							}
+						})
+					} else if len(q.Options) > 0 {
+						ui.RadioGroup(c, func() {
+							for i, o := range q.Options {
+								ui.Radio(c.Key(i), &in.chosen, i, o).Disabled(locked)
+							}
+							if q.Other {
+								ui.Radio(c.Key("other"), &in.chosen, other, i18n.T(c, "question_other")).Disabled(locked)
+							}
+						}).Gap(12).Label(q.Prompt)
+						in.other = in.chosen == other
+					}
+				})
+				if q.Other || len(q.Options) == 0 {
+					ui.TextAreaBase(c.Key("answer"), &in.text).Label(i18n.T(c, "interaction_input")).
+						Placeholder(i18n.T(c, "interaction_input")).PlaceholderColor(p.MutedForeground).
+						Lines(1, 4).FontSize(14).Padding(8).Radius(p.Radius).Border(1, p.Border).
+						Disabled(locked || len(q.Options) > 0 && !in.other)
 				}
-			})
-			if q.Other || len(q.Options) == 0 {
-				ui.TextAreaBase(c.Key("answer"), &in.text).Label(i18n.T(c, "interaction_input")).
-					Placeholder(i18n.T(c, "interaction_input")).PlaceholderColor(p.MutedForeground).
-					Lines(1, 4).FontSize(14).Padding(8).Radius(p.Radius).Border(1, p.Border).
-					Disabled(len(q.Options) > 0 && !in.other)
 			}
 		})
 		answer := s.answer(q)
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			button := func(key, label string) ui.Element {
-				return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(12).Border(1, p.Border).
-					Children(func() { ui.Text(c, label).FontSize(14) })
-			}
+			held := q.Disabled || q.Busy
 			if q.Declinable {
-				button("decline", i18n.T(c, "question_decline")).OnClick(func() { actions.DeclineQuestion(q.ID) })
+				outlined(c.Key("decline"), i18n.T(c, "question_decline")).Disabled(held).
+					OnClick(func() { actions.DeclineQuestion(q.ID) })
 			}
-			button("cancel", i18n.T(c, "interaction_cancel")).OnClick(func() { actions.CancelQuestion(q.ID) })
+			if q.Kind == AskPlan {
+				outlined(c.Key("continue"), i18n.T(c, "interaction_continue")).Disabled(held).
+					OnClick(func() { actions.Answer(q.ID, Answer{}) })
+			} else {
+				outlined(c.Key("cancel"), i18n.T(c, "interaction_cancel")).Disabled(held).
+					OnClick(func() { actions.CancelQuestion(q.ID) })
+			}
 			submit := i18n.T(c, "interaction_submit")
-			kit.Primary(c.Key("submit"), submit, answer == nil).Height(28).
-				Children(func() { ui.Text(c, submit).FontSize(14) }).
+			switch {
+			case q.Retry:
+				submit = i18n.T(c, "chat_retry")
+			case q.Kind == AskPlan:
+				submit = i18n.T(c, "interaction_start")
+			case q.Kind == AskLink:
+				submit = i18n.T(c, "question_open_url")
+			}
+			kit.Primary(c.Key("submit"), submit, held || answer == nil).Height(28).
+				Children(func() { busyLabel(c, submit, q.Busy) }).
 				OnClick(func() {
 					if a := s.answer(q); a != nil {
 						actions.Answer(q.ID, *a)
@@ -363,10 +584,113 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	}), trigger, 16)
 }
 
-// answer is the draft's answer, nil while it answers nothing.
+// field is one form field: its title, marked when required and a checkbox
+// that includes it when optional, its description, and the input of its
+// kind.
+func field(c *ui.Context, f Field, d *fieldDraft, locked bool) {
+	p := theme.Of(c)
+	if f.Required {
+		ui.Text(c, f.Title+" *").FontSize(14).FontWeight(500)
+	} else {
+		ui.Checkbox(c.Key("include"), &d.include, i18n.T(c, "question_optional", "field", f.Title)).Disabled(locked)
+	}
+	if f.Description != "" {
+		ui.Text(c, f.Description).FontSize(13).TextColor(p.MutedForeground)
+	}
+	off := locked || !d.include
+	switch f.Kind {
+	case FieldText, FieldNumber:
+		if f.Kind == FieldText && f.Multiline {
+			ui.TextAreaBase(c.Key("input"), &d.text).Label(f.Title).Lines(1, 4).FontSize(14).Padding(8).
+				Radius(p.Radius).Border(1, p.Border).Disabled(off)
+		} else {
+			ui.TextInput(c.Key("input"), &d.text).Label(f.Title).FillWidth().Disabled(off)
+		}
+	case FieldBoolean:
+		ui.RadioGroup(c, func() {
+			ui.Radio(c.Key(0), &d.chosen, 0, i18n.T(c, "question_yes")).Disabled(off)
+			ui.Radio(c.Key(1), &d.chosen, 1, i18n.T(c, "question_no")).Disabled(off)
+		}).Gap(12).Label(f.Title)
+	case FieldChoice:
+		if f.Multi {
+			ui.Column(c).Gap(12).Children(func() {
+				for i, o := range f.Options {
+					b, ok := d.choices[i]
+					if !ok {
+						b = new(bool)
+						d.choices[i] = b
+					}
+					ui.Checkbox(c.Key(i), b, o).Disabled(off)
+				}
+			})
+		} else {
+			ui.RadioGroup(c, func() {
+				for i, o := range f.Options {
+					ui.Radio(c.Key(i), &d.chosen, i, o).Disabled(off)
+				}
+			}).Gap(12).Label(f.Title)
+		}
+	}
+}
+
+// value is the field's answer, false while what was entered does not fit
+// the field.
+func (f Field) value(d *fieldDraft) (any, bool) {
+	within := func(n int, low, high *uint64) bool {
+		return (low == nil || uint64(n) >= *low) && (high == nil || uint64(n) <= *high)
+	}
+	switch f.Kind {
+	case FieldText:
+		return d.text, within(utf8.RuneCountInString(d.text), f.MinLength, f.MaxLength)
+	case FieldNumber:
+		n, err := strconv.ParseFloat(strings.TrimSpace(d.text), 64)
+		ok := err == nil && !math.IsInf(n, 0) && !math.IsNaN(n) && (!f.Integer || n == math.Trunc(n)) &&
+			(f.Minimum == nil || n >= *f.Minimum) && (f.Maximum == nil || n <= *f.Maximum)
+		return n, ok
+	case FieldBoolean:
+		return d.chosen == 0, d.chosen == 0 || d.chosen == 1
+	}
+	if !f.Multi {
+		return d.chosen, d.chosen >= 0 && d.chosen < len(f.Options)
+	}
+	chosen := []int{}
+	for i := range f.Options {
+		if b := d.choices[i]; b != nil && *b {
+			chosen = append(chosen, i)
+		}
+	}
+	return chosen, within(len(chosen), f.MinItems, f.MaxItems)
+}
+
+// answer is the draft's answer, nil while it answers nothing or a form
+// field does not fit.
 func (s *State) answer(q *Ask) *Answer {
 	in := &s.in
 	a := &Answer{}
+	switch q.Kind {
+	case AskPlan:
+		a.Start = true
+		return a
+	case AskLink:
+		a.Opened = true
+		return a
+	case AskForm:
+		a.Values = map[string]any{}
+		for i, f := range q.Fields {
+			if i >= len(in.fields) {
+				return nil
+			}
+			if !in.fields[i].include {
+				continue
+			}
+			v, ok := f.value(&in.fields[i])
+			if !ok {
+				return nil
+			}
+			a.Values[f.Name] = v
+		}
+		return a
+	}
 	if q.Multi {
 		for i := range q.Options {
 			if b := in.choices[i]; b != nil && *b {
