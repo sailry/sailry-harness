@@ -58,6 +58,7 @@ func (r *Runtime) pluginMetric(view *ui.Context, entry plugins.ContributionEntry
 	locale := view.Locale()
 	metric := conversation.Metric{
 		ID:    entry.Key.Package.Name + ":" + entry.Key.ID,
+		Order: int(entry.Declaration.Order),
 		Label: pluginLabel(entry.Declaration.Label, locale),
 		Value: i18n.T(view, "composer_metric_unknown"),
 	}

@@ -1,8 +1,10 @@
 package conversation
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -15,10 +17,12 @@ import (
 // and what its hover card lists under them (conversation/usage.rs Metric,
 // usage/external.rs). Rows without a meter come first, the meters after a
 // divider. Panel, a package's own details, takes the rows' place; Width is
-// the card's, 0 for usageWidth.
+// the card's, 0 for usageWidth. Order places the figure among those drawn
+// side by side, whatever its group.
 type Metric struct {
 	// ID keys the figure among those of the bar.
 	ID    string
+	Order int
 	Label string
 	Icon  *ui.SVG
 	Value string
@@ -42,11 +46,11 @@ func Metrics(c *ui.Context, u *Usage) []Metric {
 		return nil
 	}
 	return []Metric{
-		{ID: "composer_tokens", Label: i18n.T(c, "composer_tokens"), Icon: icons.ChartPie, Value: Count(u.Tokens)},
-		{ID: "composer_speed", Label: i18n.T(c, "composer_speed"), Icon: icons.Gauge, Value: fmt.Sprintf("%.0f/s", u.Speed)},
-		{ID: "composer_cost", Label: i18n.T(c, "composer_cost"), Icon: icons.DollarSign, Value: fmt.Sprintf("%.2f", u.Cost)},
-		{ID: "composer_cache", Label: i18n.T(c, "composer_cache"), Icon: icons.MemoryStick, Value: Count(u.Cached)},
-		{ID: "composer_turns", Label: i18n.T(c, "composer_turns"), Icon: icons.MessagesSquare, Value: fmt.Sprint(u.Turns)},
+		{ID: "composer_tokens", Order: 0, Label: i18n.T(c, "composer_tokens"), Icon: icons.ChartPie, Value: Count(u.Tokens)},
+		{ID: "composer_speed", Order: 10, Label: i18n.T(c, "composer_speed"), Icon: icons.Gauge, Value: fmt.Sprintf("%.0f/s", u.Speed)},
+		{ID: "composer_cost", Order: 20, Label: i18n.T(c, "composer_cost"), Icon: icons.DollarSign, Value: fmt.Sprintf("%.2f", u.Cost)},
+		{ID: "composer_cache", Order: 30, Label: i18n.T(c, "composer_cache"), Icon: icons.MemoryStick, Value: Count(u.Cached)},
+		{ID: "composer_turns", Order: 40, Label: i18n.T(c, "composer_turns"), Icon: icons.MessagesSquare, Value: fmt.Sprint(u.Turns)},
 	}
 }
 
@@ -73,7 +77,8 @@ func trim(s string) string {
 // muted 14, with a hover card of its label, value and rows. lead, the
 // providers' figures, stay side by side at any width; groups, one owner's
 // figures each, are one button below the composer's compact width, whose
-// popover is open while *open is true and lists the groups divided.
+// popover is open while *open is true and lists the groups divided. Figures
+// side by side follow their Order, the groups' mixed as the reference's.
 func UsageBar(c *ui.Context, lead []Metric, groups [][]Metric, compact bool, open *bool) {
 	total := len(lead)
 	for _, group := range groups {
@@ -83,18 +88,20 @@ func UsageBar(c *ui.Context, lead []Metric, groups [][]Metric, compact bool, ope
 		return
 	}
 	p := theme.Of(c)
+	ordered := func(figures []Metric) []Metric {
+		slices.SortStableFunc(figures, func(a, b Metric) int { return cmp.Compare(a.Order, b.Order) })
+		return figures
+	}
 	ui.Row(c.Key("usage")).Gap(12).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
-		for _, m := range lead {
+		for _, m := range ordered(slices.Clone(lead)) {
 			usageFigure(c.Key("lead/"+m.ID), m)
 		}
 		if compact {
 			usageButton(c, groups, open)
 			return
 		}
-		for _, group := range groups {
-			for _, m := range group {
-				usageFigure(c.Key(m.ID), m)
-			}
+		for _, m := range ordered(slices.Concat(groups...)) {
+			usageFigure(c.Key(m.ID), m)
 		}
 	})
 }
@@ -203,8 +210,9 @@ func usageButton(c *ui.Context, groups [][]Metric, open *bool) {
 		ui.Icon(c, icons.ChartPie).FontSize(14)
 		ui.Text(c, first.Value).FontSize(14).SingleLine()
 	})
+	_, window := c.Size()
 	figures := func() {
-		ui.Scroll(c.Key("figures")).FillWidth().MaxHeight(usagePanelHeight).Gap(12).Children(func() {
+		ui.Scroll(c.Key("figures")).FillWidth().MaxHeight(min(usagePanelHeight, max(window-usagePanelRoom, usagePanelLeast))).Gap(12).Children(func() {
 			shown := 0
 			for _, group := range groups {
 				if len(group) == 0 {
@@ -233,8 +241,14 @@ func usageButton(c *ui.Context, groups [][]Metric, open *bool) {
 		Padding(12, usageInset).Width(width)
 }
 
-// usagePanelHeight bounds the compact button's panel, which scrolls past it.
-const usagePanelHeight = 560
+// usagePanelHeight bounds the compact button's panel, which scrolls past it:
+// the window's height less usagePanelRoom where that is less, and never
+// under usagePanelLeast (summary.rs: the viewport less 80, at most 560).
+const (
+	usagePanelHeight = 560
+	usagePanelRoom   = 80
+	usagePanelLeast  = 100
+)
 
 // ContextRing is the composer's context indicator, left of the model chip:
 // Kit's ring with 4 on each side, the track and the part used, muted, with
