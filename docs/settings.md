@@ -163,7 +163,7 @@ placeholder in an empty masked input.
 
 | Page | Action | Preview |
 |---|---|---|
-| General | language, switches, toast duration | in memory; language toasts settings_language_restart |
+| General | language, switches, toast duration | in memory. Live, a language applies in the frame that saves it (pages, menu and window title), without a toast; the reference applies it at restart and says so |
 | General | prevent sleep, telemetry switches | `Stored.Commit`, outcome toast (power_settings_*, telemetry_*) |
 | General | reset identity, send diagnostics | preview_notice |
 | Experimental | performance indicator, Demo mode | in memory; live: the controller's preferences. Demo mode swaps the window's conversations (docs/shell.md, Demo mode) |

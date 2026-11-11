@@ -1011,7 +1011,6 @@ settings_language_german
 settings_language_japanese
 settings_language_korean
 settings_language_portuguese_brazil
-settings_language_restart
 settings_language_russian
 settings_language_spanish
 settings_language_system

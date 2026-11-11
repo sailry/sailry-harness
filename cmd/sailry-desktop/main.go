@@ -132,6 +132,12 @@ func run() error {
 		if backend.Preferences != nil {
 			mygo.App.SetLocale(preferenceLocale(backend.Preferences.Data.Language))
 		}
+		// A language chosen in Settings applies at once: the menu and
+		// every window's title follow it, as the pages do.
+		title := i18n.In(i18n.Match(mygo.App.Locale()), "app")
+		for _, entry := range windows {
+			entry.window.SetTitle(title)
+		}
 		refreshCommands()
 	}
 	var openWindow func(string) error
