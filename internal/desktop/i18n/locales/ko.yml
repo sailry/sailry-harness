@@ -747,6 +747,7 @@ directory_home: 홈
 directory_desktop: 데스크톱
 directory_documents: 문서화
 directory_downloads: 다운로드
+directory_applications: Applications
 directory_locations: 위치
 directory_count_directories: 폴더 %{count}개
 directory_count_files: 파일 %{count}개

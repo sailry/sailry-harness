@@ -74,7 +74,7 @@ func TestModel(t *testing.T) {
 	}{
 		{Listing{Separator: "/", Path: "/"}, []Crumb{{"/", "/"}}},
 		{Listing{Separator: "/", Path: "/home/me"}, []Crumb{{"/", "/"}, {"home", "/home"}, {"me", "/home/me"}}},
-		{Listing{Separator: "/", Path: "/Volumes/Data/src", Locations: []Location{{"root", "", "/"}, {"volume", "Data", "/Volumes/Data"}}},
+		{Listing{Separator: "/", Path: "/Volumes/Data/src", Locations: []Location{{Kind: "root", Path: "/"}, {Kind: "volume", Name: "Data", Path: "/Volumes/Data"}}},
 			[]Crumb{{"Data", "/Volumes/Data"}, {"src", "/Volumes/Data/src"}}},
 		{Listing{Separator: `\`, Path: `D:\source\目录`}, []Crumb{{"D:", `D:\`}, {"source", `D:\source`}, {"目录", `D:\source\目录`}}},
 		{Listing{Separator: `\`, Path: `\\node\share\folder`}, []Crumb{{`\\node\share`, `\\node\share`}, {"folder", `\\node\share\folder`}}},
@@ -113,28 +113,28 @@ func TestModel(t *testing.T) {
 	var home Listing
 	var problem string
 	catalog.Source().Browse("", func(l Listing, p string) { home, problem = l, p })
-	if problem != "" || home.Path != "/preview" || len(home.Entries) < 4 {
+	if problem != "" || home.Path != "/Users/alex" || len(home.Entries) < 4 {
 		t.Fatalf("the preview's home is %+v: %s", home, problem)
 	}
-	if _, problem := catalog.List("/preview/restricted"); problem != "directory_denied" {
+	if _, problem := catalog.List("/Users/alex/restricted"); problem != "directory_denied" {
 		t.Errorf("a restricted directory answers %q", problem)
 	}
-	if _, problem := catalog.List("/preview/nowhere"); problem != "directory_missing" {
+	if _, problem := catalog.List("/Users/alex/nowhere"); problem != "directory_missing" {
 		t.Errorf("a missing directory answers %q", problem)
 	}
-	if problem := catalog.Apply(Action{Kind: "create", Path: "/preview/empty/new"}); problem != "" {
+	if problem := catalog.Apply(Action{Kind: "create", Path: "/Users/alex/empty/new"}); problem != "" {
 		t.Fatal("creating a folder failed:", problem)
 	}
-	if problem := catalog.Apply(Action{Kind: "rename", Path: "/preview/empty/new", To: "/preview/empty/renamed"}); problem != "" {
+	if problem := catalog.Apply(Action{Kind: "rename", Path: "/Users/alex/empty/new", To: "/Users/alex/empty/renamed"}); problem != "" {
 		t.Fatal("renaming a folder failed:", problem)
 	}
-	if empty, _ := catalog.List("/preview/empty"); len(empty.Entries) != 1 || empty.Entries[0].Name != "renamed" {
+	if empty, _ := catalog.List("/Users/alex/empty"); len(empty.Entries) != 1 || empty.Entries[0].Name != "renamed" {
 		t.Errorf("after creating and renaming: %+v", empty.Entries)
 	}
-	if problem := catalog.Apply(Action{Kind: "trash", Paths: []string{"/preview/empty/renamed"}}); problem != "" {
+	if problem := catalog.Apply(Action{Kind: "trash", Paths: []string{"/Users/alex/empty/renamed"}}); problem != "" {
 		t.Fatal("trashing a folder failed:", problem)
 	}
-	if empty, _ := catalog.List("/preview/empty"); len(empty.Entries) != 0 {
+	if empty, _ := catalog.List("/Users/alex/empty"); len(empty.Entries) != 0 {
 		t.Errorf("after trashing: %+v", empty.Entries)
 	}
 

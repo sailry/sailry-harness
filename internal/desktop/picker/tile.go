@@ -45,10 +45,10 @@ func Class(e Entry) string {
 // tile is the tinted square holding an entry's glyph, as the rows of
 // CrychicUI's file list show it: side wide, the glyph half of that (more in
 // the 20 DIP tile of a list row, which keeps it readable), in the status
-// color of the entry's class over a wash of the same color. on marks a
-// chosen row or cell, which the accent fills: its tile takes the text color
-// on the accent.
-func tile(c *ui.Context, e Entry, side float32, on bool) ui.Element {
+// color of the entry's class over a wash of the same color. A chosen row or
+// cell is filled with the neutral selected color, over which the tile keeps
+// its own.
+func tile(c *ui.Context, e Entry, side float32) ui.Element {
 	p := theme.Of(c)
 	icon, ink := icons.File, p.MutedForeground
 	switch Class(e) {
@@ -72,9 +72,6 @@ func tile(c *ui.Context, e Entry, side float32, on bool) ui.Element {
 		icon, ink = icons.Volume, p.Danger
 	case "video":
 		icon, ink = icons.Video, p.Danger
-	}
-	if on {
-		ink = p.PrimaryForeground
 	}
 	glyph, radius := side/2, p.Radius
 	if side < 28 {

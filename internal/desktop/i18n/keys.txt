@@ -765,6 +765,7 @@ directory_home
 directory_desktop
 directory_documents
 directory_downloads
+directory_applications
 directory_locations
 directory_count_directories
 directory_count_files

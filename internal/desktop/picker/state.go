@@ -19,9 +19,12 @@ type Options struct {
 	// Initial is the directory first shown, the host's home for "".
 	Initial string
 	Source  Source
-	// Host names the execution host beside the title and in the outcome
-	// toasts of file actions, "" for none.
-	Host string
+	// Host names the execution host in the outcome toasts of file actions,
+	// "" for none. Remote marks a host other than this device: the picker
+	// then shows the name, after the heading of the sidebar's first group
+	// or, without the sidebar, after the title.
+	Host   string
+	Remote bool
 	// Projects are the directories of the projects registered on the host,
 	// the most recently used first: a group of the sidebar between the
 	// host's places and its devices, left out when empty. Only Name and Path
@@ -83,6 +86,7 @@ type State struct {
 	filter  string
 	address string
 	editing bool
+	typing  bool // the address field has held the keyboard focus
 	refocus bool // the entries take the keyboard focus in the next frame
 	crumbs  ui.ScrollState
 	current string // the selected entry's name, "" for none

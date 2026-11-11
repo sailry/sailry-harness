@@ -747,6 +747,7 @@ directory_home: Startseite
 directory_desktop: Desktop
 directory_documents: Dokumentation
 directory_downloads: Downloads
+directory_applications: Applications
 directory_locations: Orte
 directory_count_directories: '%{count} Ordner'
 directory_count_files: '%{count} Dateien'

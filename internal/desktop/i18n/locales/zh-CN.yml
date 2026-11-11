@@ -747,6 +747,7 @@ directory_home: 主文件夹
 directory_desktop: 桌面
 directory_documents: 文档
 directory_downloads: 下载
+directory_applications: 应用程序
 directory_locations: 位置
 directory_count_directories: '%{count} 个文件夹'
 directory_count_files: '%{count} 个文件'
