@@ -1541,6 +1541,31 @@ metrics_worker: 미리 보기 작업자
 metrics_indexer: 인덱서 미리보기
 metrics_loading: 메트릭을 기다리는 중(미리보기)
 metrics_error: 메트릭을 사용할 수 없음 (미리보기)
+host_node_uptime: Sailry 실행 시간
+host_sampling: 샘플을 기다리는 중
+host_sampling_failed: 호스트 데이터가 업데이트되지 않음
+host_metric_unavailable: 데이터 없음
+host_cores: '%{count}코어'
+host_load: 부하
+host_core: 코어 %{index} · %{value}
+host_memory_total: 총 %{value}
+host_memory_used: 사용 중
+host_memory_cached: 캐시
+host_memory_swap: 스왑
+host_utilization: 사용률
+host_network_total: 부팅 후 누적
+host_disk_write: 쓰기
+host_disk_read: 읽기
+host_storage: 저장소
+host_partition_count: 파티션 %{count}개
+host_read_short: R
+host_write_short: W
+host_process_search: 검색 프로세스
+host_process_limited: 사용량별 상위 2048 프로세스 표시
+host_process_name: 프로세스
+host_pid: PID
+host_process_empty: 프로세스 없음
+host_process_no_matches: 일치하는 프로세스 없음
 port_title: 포트 전달
 port_mappings: 포트 매핑
 port_add: 새 전달

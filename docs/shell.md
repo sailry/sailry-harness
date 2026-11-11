@@ -142,7 +142,8 @@ a submenu of the chosen host's forwards, each opening its address, over
 with the name of every host that has an update, opening its page with the
 update dialog, since the approved picker rows carry no trailing Update; and,
 for a paired host, `live_revoke`, which opens the page's confirmation). The host page has the right
-column too: its metrics, toggled by the details button and ⌥⌘B.
+column too: its metrics summary, closed until the details button or ⌥⌘B
+opens it.
 
 A host's name shows as it is (`App.hostName`): only the preview's hosts and
 the local host before its Node names it (`local_host_name`) are i18n keys, so

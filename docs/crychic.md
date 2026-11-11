@@ -222,6 +222,12 @@ What to use instead, with the surface Kit's:
 - `SaveStatus` shows a draft's autosave state, never the outcome of a save the
   user asked for.
 - `RetryIn`'s result is the button: read `Clicked` on it.
+- `ConnectionStatus` is the host page's status beside the host's name
+  (`host/page.go`, [host.md](host.md)): `Host.Connection` gives one of the
+  three states, never another, and the three texts are `live_connected`,
+  `connection_connecting` and `connections_offline`. Kit has tags and badges
+  but no status dot that pulses while a connection is coming up. It sits on
+  the page, not in a floating surface, and needs no adapter.
 
 ### Destructive confirmation
 
@@ -393,9 +399,12 @@ components that could draw a reply's Mermaid `xychart-beta` or `pie` were
 read in source for the conversation's rules *(read; none was built, as none
 passes)*. None is used and no adapter exists: the conversation draws both
 with its own painter on `ui/chart` directly, MyGo being first in the order
-of preference ([conversation.md](conversation.md#b10-visuals)). The rest of
-the package (stacked, area, radar, sankey, treemap and the other shapes) was
-not assessed.
+of preference ([conversation.md](conversation.md#b10-visuals)). The host
+monitor's area charts, sparklines and rings are drawn the same way
+(`host/charts.go`, [host.md](host.md)): they are live series with gaps for
+missing samples and no hover tip, which the components below do not take
+(NaN panics). The rest of the package (stacked, area, radar, sankey, treemap
+and the other shapes) was not assessed.
 
 | Component | Signature | Panics on | Copy | Status |
 |---|---|---|---|---|
@@ -531,10 +540,14 @@ The audit's decisions stand where ours does more; none was overturned here.
   ([conversation.md](conversation.md#b10-visuals)). What limu did and the
   component does not: lay a diagram out for the reply's width, keep one
   layout across remounts, and repaint without a layout on a theme switch.
+  cells; `feedback.ConnectionStatus` for the host page's status;
+  `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView` when
+  those features are added.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
-  rows and editors, the composer and conversation components, and the
-  conversation's chart painter ([Charts](#charts)).
+  rows and editors, the composer and conversation components, the
+  conversation's chart painter ([Charts](#charts)) and the host monitor's
+  (`host/charts.go`), both on MyGo's `ui/chart`.
 
 ## Size
 

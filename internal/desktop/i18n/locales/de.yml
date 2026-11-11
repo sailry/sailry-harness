@@ -1541,6 +1541,31 @@ metrics_worker: Vorschau-Agent
 metrics_indexer: Vorschau-Indizierer
 metrics_loading: Warten auf Metriken (Vorschau)
 metrics_error: Metriken nicht verfügbar (Vorschau)
+host_node_uptime: Sailry-Laufzeit
+host_sampling: Warten auf Probe
+host_sampling_failed: Hostdaten nicht aktualisiert
+host_metric_unavailable: Keine Daten verfügbar
+host_cores: '%{count} Kerne'
+host_load: Last
+host_core: Kern %{index} · %{value}
+host_memory_total: '%{value} gesamt'
+host_memory_used: Belegt
+host_memory_cached: Cache
+host_memory_swap: Swap
+host_utilization: Auslastung
+host_network_total: Seit Systemstart
+host_disk_write: Schreiben
+host_disk_read: Lesen
+host_storage: Speicher
+host_partition_count: '%{count} Partitionen'
+host_read_short: R
+host_write_short: W
+host_process_search: Suche nach Prozessen
+host_process_limited: Zeige die Top 2048 Prozesse nach Nutzung
+host_process_name: Prozesse
+host_pid: PID
+host_process_empty: Keine Prozesse
+host_process_no_matches: Keine passenden Prozesse
 port_title: Portweiterleitung
 port_mappings: Port-Mappings
 port_add: Neuer Stürmer

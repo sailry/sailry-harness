@@ -91,13 +91,13 @@ func TestSettingsSkeletons(t *testing.T) {
 	}
 }
 
-// The host's metrics show the loading bar and the processes' skeleton
+// The host's monitor shows its loading cards and the processes' skeleton
 // until the first sample.
 func TestProcessSkeleton(t *testing.T) {
 	a, tt := newTester(t)
 	a.openHost("local", false)
 	tt.Frame()
-	tt.Advance(400 * time.Millisecond) // the right column opens
+	tt.Advance(400 * time.Millisecond)
 	tt.Frame()
 	if h, _ := a.hostPage(); h.Metrics != nil || !busy(tt) || !tt.HasText(i18n.In("en", "metrics_processes")) {
 		t.Fatalf("no processes skeleton: %q", tt.Texts())

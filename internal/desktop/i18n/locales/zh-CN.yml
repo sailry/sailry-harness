@@ -1541,6 +1541,31 @@ metrics_worker: 示例工作进程
 metrics_indexer: 示例索引进程
 metrics_loading: 等待指标（示例）
 metrics_error: 指标暂不可用（示例）
+host_node_uptime: Sailry 运行
+host_sampling: 等待采样
+host_sampling_failed: 主机数据未更新
+host_metric_unavailable: 暂无数据
+host_cores: '%{count} 核'
+host_load: 负载
+host_core: 核心 %{index} · %{value}
+host_memory_total: 共 %{value}
+host_memory_used: 已用
+host_memory_cached: 缓存
+host_memory_swap: 交换
+host_utilization: 利用率
+host_network_total: 累计自开机
+host_disk_write: 写入
+host_disk_read: 读取
+host_storage: 存储
+host_partition_count: '%{count} 个分区'
+host_read_short: R
+host_write_short: W
+host_process_search: 搜索进程
+host_process_limited: 仅显示占用最高的 2048 个进程
+host_process_name: 进程
+host_pid: PID
+host_process_empty: 暂无进程
+host_process_no_matches: 无匹配进程
 port_title: 端口转发
 port_mappings: 端口映射
 port_add: 新建转发
