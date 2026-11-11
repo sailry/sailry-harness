@@ -308,6 +308,14 @@ it; the core tab is the fallback. The WebView is created before the next frame
 builds and is destroyed with its tab. Where the system has no WebView the tab
 shows the `unavailable` result.
 
+Browser tabs share one website data store (`live/browser_settings.go`). On
+macOS with `browser_persistent` on, the default, it is the MyGo session named
+after the profile directory, kept on disk from macOS 14; otherwise, and on
+every other system, it is one in-memory session of the process. When the
+preference changes, open tabs drop their pages and load their addresses again
+in the other store. The Browser settings page's Chrome import sets cookies in
+this store ([settings](settings.md#browser-page-wiring)).
+
 The agent's browser tool uses the same tabs. `internal/node/browser.go` routes
 `use_browser` to the controller that issued it as a `browser_call` update on
 the `browser` topic and settles it with `complete_browser`: one subscription
@@ -462,6 +470,7 @@ at its width.
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
 | Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |
 | The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |
+| The in-memory browser store empties when its last tab closes | MyGo's ephemeral session ends with its last page; the reference keeps it until the app quits |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
 | Controller-native folder opening is unavailable for remote workspaces | A remote path grants no controller filesystem authority and there is no supported remote folder-open effect |
 

@@ -1,7 +1,11 @@
 package settings
 
 import (
+	"image/png"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +158,77 @@ func TestDraftChecks(t *testing.T) {
 		tt.Frame()
 		if m.NetworkEditor != nil {
 			t.Error("Escape kept an idle network editor")
+		}
+	})
+	t.Run("connection rows", func(t *testing.T) {
+		local, remote, mobile := strings.Repeat("325e9373", 8), strings.Repeat("c48e0d55", 8), strings.Repeat("5e6f7a8b", 8)
+		m := NewModel(preview.SettingsData())
+		m.Devices = []viewmodel.Device{
+			{ID: local, Name: "MacBook Pro", Platform: "macos", Execution: true, Online: true, Local: true, OS: "27.2", Version: "0.1.6"},
+			{ID: remote, Name: "build-server", Platform: "linux", Execution: true, Online: true, Route: "p2p", RTT: 18, OS: "24.04", Version: "0.1.6"},
+			{ID: strings.Repeat("a1b2c3d4", 8), Name: "Studio PC", Platform: "windows", Execution: true},
+			{ID: mobile, Name: "iPhone", Platform: "ios", Online: true, Route: "relay", RTT: 64, Version: "0.1.6"},
+		}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			ui.Scroll(c).Fill().Children(func() { ui.Column(c).Padding(24, 24).Children(func() { connections(c, m) }) })
+		}, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("zh-CN")
+		tt.Frame()
+		for _, line := range []string{"macOS 27.2 · Sailry 0.1.6 ·", "Linux 24.04 · Sailry 0.1.6 ·", "Windows ·", "iOS · Sailry 0.1.6 ·", "325e9373", "c48e0d55", "5e6f7a8b"} {
+			if !tt.HasText(line) {
+				t.Fatalf("no %q: %q", line, tt.Texts())
+			}
+		}
+		if tt.HasText(local) || tt.HasText(remote) || tt.HasText(mobile) {
+			t.Fatalf("a row shows a whole Node ID: %q", tt.Texts())
+		}
+		shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
+		if err := os.MkdirAll(shots, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		file, err := os.Create(filepath.Join(shots, "connections-rows-zh-CN.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		if err := png.Encode(file, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		// The short ID's tooltip is the whole ID.
+		short, _ := tt.Find("325e9373")
+		tt.Move(short.X+short.W/2, short.Y+short.H/2)
+		tt.Advance(2 * time.Second)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !tt.HasText(local) {
+			t.Fatalf("hovering the short ID does not show the whole ID: %q", tt.Texts())
+		}
+		tip, err := os.Create(filepath.Join(shots, "connections-rows-tooltip-zh-CN.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tip.Close()
+		if err := png.Encode(tip, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		// Every row's native menu copies the whole ID; a Host's keeps Edit.
+		for name, want := range map[string]struct {
+			id   string
+			menu []string
+		}{
+			"MacBook Pro": {local, []string{i18n.In("zh-CN", "connection_action_edit"), "复制 ID"}},
+			"iPhone":      {mobile, []string{"复制 ID"}},
+		} {
+			if err := tt.RightClick(name); err != nil {
+				t.Fatal(err)
+			}
+			if menu := tt.Menu(); !slices.Equal(menu, want.menu) {
+				t.Fatalf("%s menu: %q", name, menu)
+			}
+			if err := tt.ChooseMenuItem("复制 ID"); err != nil || tt.Clipboard() != want.id {
+				t.Fatalf("%s copied %q: %v", name, tt.Clipboard(), err)
+			}
 		}
 	})
 }

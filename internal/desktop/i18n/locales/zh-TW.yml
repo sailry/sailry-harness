@@ -1930,3 +1930,4 @@ media_video: Video
 media_speech: Speech
 media_follow: Follow conversation model
 media_load_failed: Could not read media models
+connections_copy_id: Copy ID

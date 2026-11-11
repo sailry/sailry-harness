@@ -268,7 +268,15 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 	if r.connections != nil {
 		name = r.connections.localName
 	}
-	devices := []viewmodel.Device{{ID: localID.String(), Name: name, Platform: platform, Execution: true, Local: true, Online: r.controller.Connected()}}
+	// A Host's system version is what it answered inspect_host with.
+	system := func(id string) string {
+		if state := r.localRuntime().hosts[id]; state != nil && state.info != nil {
+			return strings.TrimSpace(stringValue(state.info.OsVersion))
+		}
+		return ""
+	}
+	devices := []viewmodel.Device{{ID: localID.String(), Name: name, Platform: platform, Execution: true, Local: true, Online: r.controller.Connected(),
+		OS: system(localID.String()), Version: link.ProductVersion}}
 	known := map[string]preferences.Device{}
 	if r.Preferences.Data.Devices != nil {
 		known = *r.Preferences.Data.Devices
@@ -292,6 +300,7 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 				if peer.info.Name != nil {
 					device.Name = *peer.info.Name
 				}
+				device.OS, device.Version = system(id), stringValue(peer.info.SoftwareVersion)
 			}
 			if device.Online && peer.connection.Route != nil {
 				device.Route = string(*peer.connection.Route)

@@ -25,6 +25,8 @@ type browserState struct {
 	serving   map[*Runtime]context.CancelFunc
 	documents map[string]*documentView
 	sources   map[string]protocol.ArtifactContent
+	// persistent is whether the open pages keep their website data.
+	persistent bool
 }
 
 // browserTab is a panel browser tab's page. node and conversation name the
@@ -48,6 +50,7 @@ func (r *Runtime) SetWebViewWindow(window *mygo.Window) {
 	}
 	r.browser = &browserState{window: window, available: mygo.WebViewAvailable(), tabs: map[string]*browserTab{},
 		serving: map[*Runtime]context.CancelFunc{}, documents: map[string]*documentView{}, sources: map[string]protocol.ArtifactContent{}}
+	r.browser.persistent = r.browserPersistent()
 	r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
 		Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) }}
 	r.App.Panel.SetDocumentView(r.sessionDocumentView)
@@ -67,8 +70,9 @@ func browserAddress(address string) bool {
 }
 
 // browserFrame runs before every frame: it serves the browser calls of the
-// local Node and of every bound one, and closes the pages of closed tabs and
-// of documents no longer shown.
+// local Node and of every bound one, closes the pages of closed tabs and of
+// documents no longer shown, and reopens the pages in the other website data
+// store when the browser's persistence preference changed.
 func (r *Runtime) browserFrame() {
 	state := r.browser
 	if state == nil {
@@ -105,6 +109,19 @@ func (r *Runtime) browserFrame() {
 				tab.view.Destroy()
 			}
 			delete(state.tabs, id)
+		}
+	}
+	if persistent := r.browserPersistent(); persistent != state.persistent {
+		state.persistent = persistent
+		for _, tab := range state.tabs {
+			if tab.view == nil {
+				continue
+			}
+			tab.view.Destroy()
+			tab.view, tab.back, tab.forward = nil, false, false
+			if err := r.browserLoad(tab, tab.url); err != nil {
+				r.Report(err)
+			}
 		}
 	}
 	for id, document := range state.documents {
@@ -159,7 +176,7 @@ func (r *Runtime) browserLoad(tab *browserTab, address string) error {
 	if tab.view != nil && !tab.view.IsDestroyed() {
 		return tab.view.Page().LoadURL(address)
 	}
-	view, err := r.browser.window.NewWebView(mygo.WebViewOptions{URL: address, Page: mygo.PageOptions{Untrusted: true}})
+	view, err := r.browser.window.NewWebView(mygo.WebViewOptions{URL: address, Page: mygo.PageOptions{Untrusted: true, Session: r.browserSession()}})
 	if err != nil {
 		tab.failed = true
 		return err

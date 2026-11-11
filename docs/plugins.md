@@ -254,8 +254,10 @@ for that concept, at the same sizes and tokens:
   a container reaches its text children, which MyGo's `SingleLine` does not.
 - `SelectField` is not searchable and `ModelPopup` opens a menu; the source
   searches the select and opens the model picker popover.
-- `readBrowserSettings` reports an unsupported browser: the host keeps no
-  browser profile, so the Browser page shows the package's unavailable notice.
+- The browser package's settings calls (`readBrowserSettings`,
+  `setBrowserPersistent`, `listBrowserProfiles`, `importBrowserProfile`) answer
+  as the source host does, without its permission dialog: the system's
+  Keychain prompt is the consent ([settings](settings.md#browser-page-wiring)).
 
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.

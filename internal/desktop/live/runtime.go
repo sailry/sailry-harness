@@ -33,6 +33,7 @@ type Runtime struct {
 	pluginCards              *pluginCardState
 	terminals                *terminalState
 	browser                  *browserState
+	browserSources           *browserSources // a test's Chrome profile, key and cookie store
 	authorizations           *authorizationState
 	packages                 *packageState
 	parent                   *Runtime

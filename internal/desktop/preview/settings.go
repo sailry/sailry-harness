@@ -74,10 +74,10 @@ func SettingsData() *Settings {
 		Env:    []EnvVar{{Key: "EDITOR", Value: "nvim"}, {Key: "LANG", Value: "en_US.UTF-8"}},
 		Shells: []Shell{{}, {Path: "/bin/zsh"}, {Path: "/bin/bash"}, {Path: "/opt/homebrew/bin/fish"}},
 		Devices: []Device{
-			{ID: "7f3a9c21", Name: "MacBook Pro", Platform: "macos", Execution: true, Online: true, Local: true},
-			{ID: "c48e0d55", Name: "build-server", Platform: "linux", Execution: true, Online: true, Route: "p2p", RTT: 18},
+			{ID: "7f3a9c21", Name: "MacBook Pro", Platform: "macos", Execution: true, Online: true, Local: true, OS: "15.5", Version: "0.1.0"},
+			{ID: "c48e0d55", Name: "build-server", Platform: "linux", Execution: true, Online: true, Route: "p2p", RTT: 18, OS: "24.04", Version: "0.1.0"},
 			{ID: "a1b2c3d4", Name: "Studio PC", Platform: "windows", Execution: true, Route: ""},
-			{ID: "5e6f7a8b", Name: "iPhone", Platform: "ios", Online: true, Route: "relay", RTT: 64},
+			{ID: "5e6f7a8b", Name: "iPhone", Platform: "ios", Online: true, Route: "relay", RTT: 64, Version: "0.1.0"},
 		},
 		Relays: []string{"Sailry Asia", "Sailry Europe"},
 		Hooks: []Hook{
