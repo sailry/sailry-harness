@@ -193,7 +193,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 		}
 		selected = &copy
 	}
-	return r.admitChild(x, call, args.Background, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+	return r.admitChild(x, arguments, args.Background, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 		inv, events, err := store.DelegatePrepared(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, selected, args.Background, r.clock.Now())
 		return &inv, events, err
 	})
@@ -203,7 +203,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 // execute: the call's own, or those a package tool prepared from them.
 func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
 	var state store.ChildState
-	result := r.admitChild(x, call, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+	result := r.admitChild(x, arguments, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 		var inv *store.AgentInvocation
 		var events []protocol.Event
 		var err error

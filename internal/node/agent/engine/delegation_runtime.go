@@ -44,7 +44,8 @@ func (r *Runtime) activitySignal() <-chan struct{} {
 
 // admitChild keeps the Node's existing operation lease until durable admission
 // and handoff finish, even if the calling tool stops waiting for the receipt.
-func (r *Runtime) admitChild(x *execution, call canonical.ToolRequest, background bool, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
+// arguments are the ones that execute and name the child's workspace.
+func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, background bool, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
 	parent, release, ok := r.BeginOperation(x.inv.Run.Turn)
 	if !ok {
 		return invalidTool("parent execution has ended")
@@ -55,7 +56,7 @@ func (r *Runtime) admitChild(x *execution, call canonical.ToolRequest, backgroun
 		defer r.workers.Done()
 		defer release()
 		ctx := r.ctx
-		if err := r.preflightChildWorkspace(parent, x, call); err != nil {
+		if err := r.preflightChildWorkspace(parent, x, arguments); err != nil {
 			returned <- toolFault(err)
 			return
 		}
@@ -192,12 +193,15 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 	return nil, events, nil
 }
 
-func (r *Runtime) preflightChildWorkspace(ctx context.Context, x *execution, call canonical.ToolRequest) error {
+// preflightChildWorkspace checks the worktree the child will run in before it
+// is admitted. arguments are the prepared ones: a package tool bound to
+// agents.delegate or agents.guide chooses the child there, not in its own call.
+func (r *Runtime) preflightChildWorkspace(ctx context.Context, x *execution, arguments json.RawMessage) error {
 	var args struct {
 		Worktree *protocol.WorktreeID `json:"worktree"`
 		Session  *protocol.SessionID  `json:"session"`
 	}
-	if json.Unmarshal(call.Arguments, &args) != nil {
+	if json.Unmarshal(arguments, &args) != nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid child workspace arguments"}
 	}
 	id := x.inv.Run.Worktree

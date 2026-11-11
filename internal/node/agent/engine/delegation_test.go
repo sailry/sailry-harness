@@ -322,7 +322,7 @@ func TestDelegationHandoff(t *testing.T) {
 		t.Cleanup(unblock)
 		returned := make(chan ToolResult, 1)
 		go func() {
-			returned <- f.r.admitChild(x, call, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+			returned <- f.r.admitChild(x, call.Arguments, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 				inv, events, err := store.DelegateAgent(ctx, db, f.node, x.inv.Run.Turn, toolIdentity(call), nil, false, f.r.clock.Now())
 				if err != nil {
 					return nil, nil, err
@@ -620,6 +620,79 @@ func TestStopSingleChild(t *testing.T) {
 		}
 		if language.count() != 3 {
 			t.Fatalf("model requests=%d", language.count())
+		}
+	})
+}
+
+func TestChildWorkspacePreflight(t *testing.T) {
+	// A package tool bound to agents.delegate or agents.guide sends its own
+	// arguments; its host script prepares the ones that describe the child.
+	record := func(f *engineFixture) *[]protocol.WorktreeID {
+		var checked []protocol.WorktreeID
+		f.r.validateWorktree = func(_ context.Context, id protocol.WorktreeID) error {
+			checked = append(checked, id)
+			return nil
+		}
+		return &checked
+	}
+	packaged := func(t *testing.T, f *engineFixture, x *execution, id string, arguments string) canonical.ToolRequest {
+		t.Helper()
+		call := canonical.ToolRequest{ID: id, Name: "spawn_agent", Arguments: json.RawMessage(arguments)}
+		entry := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &call}), f.r.clock.Now())
+		entry.Provenance.Author = "assistant"
+		if err := f.r.save(x.ctx, x.inv.Session.ID, entry); err != nil {
+			t.Fatal(err)
+		}
+		return call
+	}
+	t.Run("the model's own fields do not refuse the child", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		checked := record(f)
+		call := packaged(t, f, x, "own schema", `{"session":"release branch","worktree":{"path":"src"}}`)
+		prepared, _ := json.Marshal(map[string]any{"task": "Review the release branch"})
+		result := f.r.spawnChild(x, call, prepared)
+		if result.Failure != nil {
+			t.Fatalf("prepared child was refused: %+v", result.Failure)
+		}
+		if len(*checked) != 1 || (*checked)[0] != x.inv.Run.Worktree {
+			t.Fatalf("checked worktrees=%v", *checked)
+		}
+	})
+	t.Run("the prepared worktree is the one checked", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		checked := record(f)
+		other := protocol.NewWorktreeID()
+		call := packaged(t, f, x, "prepared worktree", `{"scope":"release"}`)
+		prepared, _ := json.Marshal(map[string]any{"task": "Review the release branch", "worktree": other})
+		// Admission then refuses the unregistered worktree; the preflight
+		// must already have looked at it rather than at the parent's.
+		f.r.spawnChild(x, call, prepared)
+		if len(*checked) != 1 || (*checked)[0] != other {
+			t.Fatalf("checked worktrees=%v, prepared %s", *checked, other)
+		}
+	})
+	t.Run("a prepared session resolves to the child's worktree", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		spawn := saveDelegationCall(t, f, x, "existing", true)
+		if result := f.r.spawnChild(x, spawn, spawn.Arguments); result.Failure != nil {
+			t.Fatal(result.Failure)
+		}
+		f.r.workers.Wait()
+		var child *delegatedChild
+		for _, value := range f.r.children {
+			child = value
+		}
+		checked := record(f)
+		call := canonical.ToolRequest{ID: "guide", Name: "guide_agent", Arguments: json.RawMessage(`{"session":"the reviewer","note":"continue"}`)}
+		prepared, _ := json.Marshal(map[string]any{"session": child.session, "message": "Continue the review"})
+		if err := f.r.preflightChildWorkspace(x.ctx, x, prepared); err != nil {
+			t.Fatal(err)
+		}
+		if len(*checked) != 1 || (*checked)[0] != x.inv.Run.Worktree {
+			t.Fatalf("checked worktrees=%v", *checked)
+		}
+		if err := f.r.preflightChildWorkspace(x.ctx, x, call.Arguments); err == nil {
+			t.Fatal("the model's own guidance fields passed the workspace preflight")
 		}
 	})
 }
