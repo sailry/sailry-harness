@@ -44,7 +44,14 @@ and scope, scans the source and replaces what changed.
   choice, is bound when the registry knows its dimension. Vectors are written
   only while that model is installed, in batches of four on the background
   lane; otherwise the collection is keyword only and its progress has no
-  model. Nothing is downloaded and no other model is substituted.
+  model. Nothing is downloaded and no other model is substituted. The index
+  records the model with the content identity of its definition
+  (`localmodels.ID`), and a query vector is compared only with vectors
+  recorded under the same model, identity and dimension. A binding with
+  another model or identity clears the collection's vectors and embeds its
+  sources again; until then its searches are keyword only. A pinned model
+  keeps its name when its revision moves, so the name alone would compare
+  vectors of two different models.
 - Scheduling: a pass runs on start, after a mutation, a plugin storage
   trigger, a watch event (250 ms quiet, 1 s at most) and every five minutes
   while a watch backend failed or a failure is still being retried. Progress
@@ -281,6 +288,7 @@ the embedding capabilities through the unexported `Options.knowledge` seam.
 | Storage source revisions hash Go's encoding of the entry and index data | Revisions are compared only with the same Node's index |
 | Keyword scores come from SQLite FTS5 `bm25` | The Go store is SQLite; the reference scores with its own engine's FTS |
 | Globs use the package's translator; chunk keys and scope hashes hash Go's JSON encoding | No byte compatibility with a reference index is required; indexes are derived data |
+| Vectors are bound to the model's definition identity as well as its name | The reference binds the name; a pinned model repinned to another revision would have its old vectors scored against the new model's query vector |
 | Directory entries are scanned in sorted order | Deterministic passes and tests |
 | A source that cannot be read is recorded in `progress.failed` and `progress.failures`, the pass continues and the source is retried a bounded number of times; an unreadable directory no longer fails the pass as incomplete, and a failed collection carries its reason | The reference ends the pass at the first fault other than `InvalidRequest`, so every later file stays unindexed, reports the collection paused with the reason only in its log and never retries |
 | A collection is deleted with its worktree, project, conversation or package; the reference never removes one | An orphan failed every pass, kept its vectors and used one of the 128 places. Ownership is reconciled by the pass instead of in each removal transaction, so no removal path can miss it |

@@ -86,7 +86,7 @@ func TestKnowledgeStorage(t *testing.T) {
 			knowledge: func(options *knowledgeservice.Options) {
 				selected := localmodels.DefaultEmbedding
 				options.Choice = func() protocol.ModelsLocalChoice { return protocol.ModelsLocalChoice{Enabled: true, Model: &selected} }
-				options.Dimension = func(model string) (int, bool) { return 2, model == selected }
+				options.Dimension = func(model string) (int, string, bool) { return 2, "fixture", model == selected }
 				options.Installed = func() (map[string]bool, error) { return map[string]bool{selected: true}, nil }
 				options.Offsets = func(context.Context, string, protocol.ModelsLocalChoice, string) ([][2]int, error) { return nil, nil }
 				options.Encode = func(_ context.Context, _ string, _ protocol.ModelsLocalChoice, texts []string, query bool) ([][]float32, error) {

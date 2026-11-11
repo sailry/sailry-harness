@@ -32,8 +32,9 @@ type Options struct {
 	Root func(ctx context.Context, worktree protocol.WorktreeID) (string, error)
 	// Choice is the saved embedding selection.
 	Choice func() protocol.ModelsLocalChoice
-	// Dimension is the vector size of a registered embedding model.
-	Dimension func(model string) (int, bool)
+	// Dimension is the vector size of a registered embedding model and the
+	// content identity of its definition.
+	Dimension func(model string) (dimension int, identity string, found bool)
 	// Installed lists the embedding models that can run.
 	Installed func() (map[string]bool, error)
 	// Encode embeds at most four texts. Query texts run ahead of background
@@ -153,8 +154,8 @@ func (service *Service) binding(stored store.KnowledgeStored, choice protocol.Mo
 		model = *choice.Model
 	}
 	if model != "" {
-		if dimension, found := service.options.Dimension(model); found {
-			binding.Model, binding.Dimension = model, dimension
+		if dimension, identity, found := service.options.Dimension(model); found {
+			binding.Model, binding.Identity, binding.Dimension = model, identity, dimension
 		}
 	}
 	return binding
@@ -183,6 +184,7 @@ func (service *Service) prepare(ctx context.Context, request protocol.Request, q
 	}
 	choice := service.options.Choice()
 	var models []string
+	identities := map[string]string{}
 	for _, stored := range allowed {
 		if len(query.Collections) != 0 && !slices.Contains(query.Collections, stored.Collection.ID) {
 			continue
@@ -193,6 +195,7 @@ func (service *Service) prepare(ctx context.Context, request protocol.Request, q
 		result.indexing = result.indexing || status == protocol.KnowledgeStatusPending || status == protocol.KnowledgeStatusIndexing
 		if !stored.Collection.Paused && binding.Model != "" && !slices.Contains(models, binding.Model) {
 			models = append(models, binding.Model)
+			identities[binding.Model] = binding.Identity
 		}
 	}
 	slices.Sort(models)
@@ -211,7 +214,7 @@ func (service *Service) prepare(ctx context.Context, request protocol.Request, q
 			return result, newFault(protocol.ErrorCodeInternal, "embedding query count differs")
 		}
 		if nonzero(vectors[0]) {
-			result.embeddings = append(result.embeddings, Embedding{Model: model, Values: vectors[0]})
+			result.embeddings = append(result.embeddings, Embedding{Model: model, Identity: identities[model], Values: vectors[0]})
 		}
 	}
 	return result, nil

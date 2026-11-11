@@ -120,13 +120,15 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 			settings := registry.Settings()
 			return localmodels.Choice(&settings, protocol.ModelsKindEmbedding)
 		},
-		Dimension: func(model string) (int, bool) {
+		Dimension: func(model string) (int, string, bool) {
 			definition, err := registry.Definition(model)
 			if err != nil {
-				return 0, false
+				return 0, "", false
 			}
+			// A pinned model keeps its name when its revision moves; the
+			// definition's identity tells its vectors apart.
 			dimension, found := localmodels.Dimension(definition.Format)
-			return int(dimension), found
+			return int(dimension), localmodels.ID(definition), found
 		},
 		Installed: func() (map[string]bool, error) {
 			models, err := registry.List(protocol.ModelsKindEmbedding)
