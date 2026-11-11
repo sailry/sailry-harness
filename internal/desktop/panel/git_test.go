@@ -177,11 +177,12 @@ func TestGitPage(t *testing.T) {
 		}
 		// Undo in the whole diff discards as Discard all does, for any change.
 		clickRole(t, tt, ui.RoleButton, en("git_diff"), 0)
-		undo, ok := tt.AccessByRole(ui.RoleButton, en("turn_changes_undo"))
+		// Undo sits inside the heading button, which is one accessible element.
+		undo, ok := tt.Find(en("turn_changes_undo"))
 		if !ok {
 			t.Fatalf("no Undo: %q", tt.Texts())
 		}
-		tt.ClickAt(undo.Bounds.X+undo.Bounds.W/2, undo.Bounds.Y+undo.Bounds.H/2)
+		tt.ClickAt(undo.X+undo.W/2, undo.Y+undo.H/2)
 		tt.Frame()
 		if cf := pr.Git.confirm; !cf.open || cf.message != en("git_discard_all_confirm") {
 			t.Fatalf("Undo's confirmation %+v", cf)

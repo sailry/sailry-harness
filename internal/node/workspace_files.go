@@ -138,6 +138,7 @@ func (node *Node) writeWorkspaceArtifact(ctx context.Context, request protocol.R
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	node.stored.publish(effect)
 	digest, err := files.WriteArtifactHTML(ctx, node.profile.Ownership.Path, capture.Artifact, capture.HTML)
 	if err != nil {
 		return protocol.Output{}, err
