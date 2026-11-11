@@ -187,6 +187,8 @@ type registry struct {
 	packages []*Package
 	looks    map[key]look
 	byWidget map[*ui.Theme]*Palette
+	// neutral is, by a look's widget theme, the one Neutral returns for it.
+	neutral map[*ui.Theme]*ui.Theme
 }
 
 var (
@@ -207,7 +209,7 @@ func Packages() []*Package { return current.Load().packages }
 func SetInstalled(installed []*Package) {
 	changing.Lock()
 	defer changing.Unlock()
-	next := &registry{packages: append([]*Package(nil), embeddedPackages...), looks: map[key]look{}, byWidget: map[*ui.Theme]*Palette{}}
+	next := &registry{packages: append([]*Package(nil), embeddedPackages...), looks: map[key]look{}, byWidget: map[*ui.Theme]*Palette{}, neutral: map[*ui.Theme]*ui.Theme{}}
 	for _, pkg := range installed {
 		replaced := false
 		for index, embedded := range next.packages {
@@ -226,6 +228,9 @@ func SetInstalled(installed []*Package) {
 		for widget, value := range previous.byWidget {
 			next.byWidget[widget] = value
 		}
+		for widget, value := range previous.neutral {
+			next.neutral[widget] = value
+		}
 	}
 	for _, pkg := range next.packages {
 		for _, dark := range []bool{false, true} {
@@ -238,6 +243,11 @@ func SetInstalled(installed []*Package) {
 			widget := build(value)
 			next.looks[id] = look{value, widget}
 			next.byWidget[widget] = value
+			neutral := *widget
+			neutral.Accent, neutral.AccentHover, neutral.AccentPressed = value.Selected(), value.Selected(), value.Selected()
+			neutral.InactiveAccent, neutral.AccentText = value.Selected(), value.Foreground
+			next.neutral[widget] = &neutral
+			next.byWidget[&neutral] = value
 		}
 	}
 	current.Store(next)
@@ -251,6 +261,18 @@ func Of(c *ui.Context) *Palette {
 		return p
 	}
 	return themes.looks[key{BuiltinID, c.Theme().Dark}].palette
+}
+
+// Neutral returns the frame's theme with MyGo's accent replaced by the
+// neutral Selected fill under the normal foreground, for ui.Themed around a
+// list, table or grid whose chosen rows are marked as the app's other
+// neutral selections are, not in the emphasis color. Of gives the same
+// palette inside it; the focus ring is unchanged.
+func Neutral(c *ui.Context) *ui.Theme {
+	if neutral := current.Load().neutral[c.Theme()]; neutral != nil {
+		return neutral
+	}
+	return c.Theme()
 }
 
 // Look returns the palette of a package in a mode, as previews show it.

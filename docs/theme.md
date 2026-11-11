@@ -55,6 +55,10 @@ kit.SetEffects(app.Effects)
 // Everywhere after: the frame's palette (or a ui.Themed subtree's).
 p := theme.Of(c)
 
+// Around a MyGo list, table or grid whose chosen rows take the neutral
+// Selected fill under the normal foreground instead of the accent.
+ui.Themed(c, theme.Neutral(c)).Background(ui.Transparent).Children(func() { /* the list */ })
+
 settings.Page(c, s, data, settings.Look{Theme: &app.Theme, Mode: &app.Mode, Effects: &app.Effects})
 conversation.Welcome(c, messages, composerView, func(prompt string) { draft.Draft = prompt })
 ```
