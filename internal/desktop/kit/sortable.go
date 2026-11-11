@@ -26,7 +26,8 @@
 //
 // Changes: the borderless variant only (rows bring their own look), the
 // handle a Sailry icon button labelled by the caller, the ease inlined,
-// and OnMove telling the caller of a drop that moved a row.
+// and OnMove telling the caller of a drop that moved a row; Divided rows
+// for a settings card and Disabled handles.
 
 package kit
 
@@ -36,12 +37,19 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // SortableListProps are a SortableList's options.
 type SortableListProps struct {
 	// Gap is the space between rows: 8 DIPs when zero.
 	Gap float32
+	// Divided lays the rows against each other with a divider between
+	// them, as the rows of a settings Card; Gap is not used.
+	Divided bool
+	// Disabled dims the handles and takes no drag or key: the order is
+	// fixed for now, and the rows keep their places.
+	Disabled bool
 	// Handle names the drag handle for assistive technology.
 	Handle string
 	// OnMove runs after a drop moved the row at from to to, with *items
@@ -60,6 +68,10 @@ type sortState struct {
 	dropTop      float32
 }
 
+// sortLift is how far a divided row's lifted panel reaches past its place
+// on each side.
+const sortLift = 8
+
 var (
 	sortShift  = ui.Animation{Duration: 250 * time.Millisecond, Ease: EaseOut}
 	sortSettle = ui.Animation{Duration: 250 * time.Millisecond, Ease: EaseOut}
@@ -77,9 +89,18 @@ func SortableList[T any](c *ui.Context, items *[]T, key func(T) string, o Sortab
 	if gap <= 0 {
 		gap = 8
 	}
+	if o.Divided {
+		gap = 0
+	}
 	list := ui.Column(c).Gap(gap).AlignSelf(ui.Stretch)
+	if o.Divided {
+		list.Dividers(1, theme.Of(c).Border)
+	}
 	st := ui.Local(list, "sortable", func() sortState { return sortState{active: -1} })
 	n := len(*items)
+	if o.Disabled {
+		st.active, st.keyboard, st.dy = -1, false, 0
+	}
 	if st.active >= 0 {
 		// The caller may have changed the list under the lifted row: it is
 		// followed by its key with its target as far from it as before, or
@@ -115,7 +136,7 @@ func SortableList[T any](c *ui.Context, items *[]T, key func(T) string, o Sortab
 			bounds[i] = r.LayoutBounds()
 			r.Children(func() {
 				row(it, func() {
-					if sortHandle(c, st, i, n, k, o.Handle) {
+					if sortHandle(c, st, i, n, k, o.Handle, o.Disabled) {
 						released = true
 					}
 				})
@@ -123,7 +144,7 @@ func SortableList[T any](c *ui.Context, items *[]T, key func(T) string, o Sortab
 		}
 	})
 	st.bounds = bounds
-	sortOverlay(c, list, st, items, key, row)
+	sortOverlay(c, list, st, items, key, row, o.Divided)
 	if released {
 		sortDrop(c, st, items, key, o.OnMove)
 	}
@@ -173,8 +194,13 @@ func sortShiftOf(st *sortState, i int, gap float32) float32 {
 }
 
 // sortHandle is a row's handle; it reports a drop.
-func sortHandle(c *ui.Context, st *sortState, i, n int, key, label string) bool {
-	h := IconButton(c.Key("sort-handle"), icons.EllipsisVertical, label, 24, false).Radius(12).Cursor(ui.CursorGrab)
+func sortHandle(c *ui.Context, st *sortState, i, n int, key, label string, disabled bool) bool {
+	h := IconButton(c.Key("sort-handle"), icons.EllipsisVertical, label, 24, false).Radius(12)
+	if disabled {
+		h.Disabled(true)
+		return false
+	}
+	h.Cursor(ui.CursorGrab)
 	_, dy, held := h.Dragged()
 	switch {
 	case held && st.active != i:
@@ -211,7 +237,7 @@ func sortHandle(c *ui.Context, st *sortState, i, n int, key, label string) bool 
 }
 
 // sortOverlay is the row following the pointer, and settling on a drop.
-func sortOverlay[T any](c *ui.Context, list ui.Element, st *sortState, items *[]T, key func(T) string, row func(item T, handle func())) {
+func sortOverlay[T any](c *ui.Context, list ui.Element, st *sortState, items *[]T, key func(T) string, row func(item T, handle func()), divided bool) {
 	idx := st.active
 	if idx < 0 && st.dropping != "" {
 		for i, it := range *items {
@@ -240,7 +266,13 @@ func sortOverlay[T any](c *ui.Context, list ui.Element, st *sortState, items *[]
 	}
 	it := (*items)[idx]
 	ui.Overlay(c, func() {
-		ui.Row(c.Key("sortable-overlay")).Absolute().Left(b.X).Top(top).Width(b.W).IgnoreInput(true).AlignItems(ui.Center).
+		lifted := ui.Row(c.Key("sortable-overlay")).Absolute().Left(b.X).Top(top).Width(b.W).IgnoreInput(true).AlignItems(ui.Center)
+		if divided {
+			// A divided row has no look of its own: lifted, it is a
+			// floating panel a little wider than its place.
+			Floating(c, lifted.Left(b.X-sortLift).Width(b.W+2*sortLift).PaddingX(sortLift))
+		}
+		lifted.
 			Children(func() {
 				row(it, func() {
 					IconButton(c.Key("sort-handle"), icons.EllipsisVertical, "", 24, false).Radius(12)

@@ -103,6 +103,42 @@ packages retain their drafts, validation and save behavior. In the pinned Kit
 hierarchy. The shared row bridge supports standalone plugin settings pages
 without another settings sidebar or a package-specific renderer.
 
+`SettingsRow` also takes `description`, `icon` and `wide`. The description is a
+muted second line under the label at the application's row metrics. `icon`
+names a leading icon in a 24 px slot before the text: a bundled icon, or a
+brand mark as `ailogo:<slug>` once the application carries that collection. A
+name the application does not know draws no icon and is not an error. When one
+row of a `SettingsGroup` has an icon, the group's other rows keep the empty
+slot so their text stays aligned; a group without icons has no slot.
+`wide: true` gives a select, input or slider a 256 px control that wraps under
+the label on a narrow page, and takes no icon.
+
+`SettingsGroup.new(id, {sortable: true, sort_label})` lets the user reorder the
+group's rows. Each child gets a drag handle named by the localized `sort_label`
+(required) for its tooltip and assistive technology. Dragging the handle moves
+the row; with the handle focused, Space or Enter lifts and drops it, the arrow
+keys move it and Escape puts it back. A drop that moved a row arrives through
+`nextControlEvent()` as `{id: <group id>, value: {from, to, order}}`: the old and
+new index, and the children's identifiers in their new order. The host keeps no
+order: persist it and return the children in that order, as with any other
+control. Children need stable identifiers. `sort_disabled: true` keeps the
+handles in place, dimmed, while the order cannot change, such as during a save.
+
+```js
+import { SettingsGroup, SettingsRow, Menu } from "sailry/ui";
+const group = SettingsGroup.new("services", {
+  title: text.services, sortable: true, sort_label: text.reorder, sort_disabled: saving,
+}).children(services.map(service =>
+  SettingsRow.new(`service-${service.id}`, {
+    label: service.name, description: service.detail, icon: `ailogo:${service.slug}`,
+  }).child(Menu.new(`service-more-${service.id}`, {label: text.more, icon: "ellipsis", items}))));
+// {id: "services", value: {from: 0, to: 2, order: ["service-b", "service-c", "service-a"]}}
+```
+
+A `Menu` with an `icon` and no `caret` is an icon button: its `label` is the
+tooltip and accessible name and is not drawn. Pass `show_label: true` to draw
+the label beside the icon.
+
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.

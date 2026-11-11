@@ -28,24 +28,27 @@ type NativeBinding struct {
 }
 
 type nativeState struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.Mutex
-	sequence        uint64
-	text            map[string]*textDraft
-	dates           map[string]*dateDraft
-	sliders         map[string]*sliderDraft
-	secrets         map[string]*secretDraft
-	queues          map[string]*nativeQueue
-	tables          map[string]*tableDraft
-	trees           map[string]*treeDraft
-	modals          map[string]*modalDraft
-	pickers         map[string]*pickerDraft
-	measure         map[string]uint32
-	loadMore        map[string]bool
-	droppedFiles    map[string][]string
-	hoverGroups     map[string]bool
-	focus           string
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	sequence     uint64
+	text         map[string]*textDraft
+	dates        map[string]*dateDraft
+	sliders      map[string]*sliderDraft
+	secrets      map[string]*secretDraft
+	queues       map[string]*nativeQueue
+	tables       map[string]*tableDraft
+	trees        map[string]*treeDraft
+	modals       map[string]*modalDraft
+	pickers      map[string]*pickerDraft
+	measure      map[string]uint32
+	loadMore     map[string]bool
+	droppedFiles map[string][]string
+	hoverGroups  map[string]bool
+	focus        string
+	// rowLead is set while a group whose rows have icons draws its rows;
+	// only the frame's own goroutine touches it.
+	rowLead         bool
 	shortcut        string
 	shortcuts       []nativeShortcut
 	shortcutVersion uint64

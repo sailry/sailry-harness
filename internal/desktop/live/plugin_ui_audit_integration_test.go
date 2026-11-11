@@ -175,6 +175,20 @@ func auditPluginPages(t *testing.T, runtime *Runtime, do func(context.Context, p
 			tester.Frame()
 		}
 	}
+	// The Search settings page is exercised last, in Chinese and dark: its
+	// drags and saves come after every page was drawn at rest.
+	tester.SetLocale("zh-CN")
+	tester.SetDark(true)
+	runtime.App.Mode = theme.Dark
+	settle("package locale zh-CN", func() bool { return runtime.packageLocale() == "zh-CN" })
+	for section, entry := range runtime.pluginViews.settings {
+		if entry.info.Summary.Name == "web-search" {
+			runtime.App.Settings.Open(section)
+			runtime.App.Navigate(shell.SettingsPage)
+			rest()
+			auditSearchSettings(t, ctx, runtime, tester, do, settle, rest, func(step string) { save("web-search-" + step + "-zh-CN-dark") })
+		}
+	}
 	for _, mounted := range runtime.pluginViews.mounts {
 		if mounted.failure != nil {
 			t.Errorf("package %s failed: %v", mounted.scope.Package.Name, mounted.failure)
@@ -234,6 +248,135 @@ func auditScheduledTasks(t *testing.T, tester *ui.Tester, locale string, rest fu
 	save("dialog")
 	tester.Key(0, ui.KeyEscape)
 	rest()
+}
+
+// auditSearchSettings asserts the web-search package's Settings page in
+// Chinese: its rows keep the application's row metrics, the overflow menu is
+// an icon button, the services reorder by dragging a handle and from the
+// keyboard with the order saved on the Node, no arrow buttons remain and the
+// brand icons no icon set knows yet leave the rows without one. It is a step
+// of TestPluginUIIntegration.
+func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, tester *ui.Tester, do func(context.Context, protocol.Command) protocol.Output,
+	settle func(string, func() bool), rest func(), save func(string)) {
+	t.Helper()
+	find := func(text string) ui.Rect {
+		t.Helper()
+		box, exists := tester.Find(text)
+		if !exists {
+			t.Fatalf("search settings: %q is not shown; visible text: %q", text, tester.Texts())
+		}
+		return box
+	}
+	named := func(name string) (found []ui.AccessInfo) {
+		for _, info := range tester.AccessAll() {
+			if info.Name == name {
+				found = append(found, info)
+			}
+		}
+		return
+	}
+	order := func() []protocol.SearchDriver {
+		t.Helper()
+		saved, valid := detail[protocol.SearchSettings](do(ctx, protocol.Command{Kind: "read_search_settings"}).Data)
+		if !valid {
+			t.Fatal("search settings were not returned")
+		}
+		return saved.Order
+	}
+	services := order()
+	if len(services) < 3 || services[0] != "exa" || services[1] != "tinyfish" || services[2] != "tavily" {
+		t.Fatalf("search settings: unexpected default order %v", services)
+	}
+	// The application's rows: a title alone is the minimum row height, and
+	// a described row is its padding, title, gap and description. The
+	// core row over the page (enable the package) starts at the same edge.
+	enable, service, fallback := find("启用插件"), find("默认服务"), find("使用备用服务")
+	// The Kit select of the first row is a fraction over its 32 control.
+	if pitch := fallback.Y - service.Y; pitch < kit.RowMinHeight || pitch >= kit.RowMinHeight+1 || enable.X != service.X || enable.H != service.H {
+		t.Errorf("search settings: rows %v and %v are not %v apart, or off the core row %v", service, fallback, float32(kit.RowMinHeight), enable)
+	}
+	// Each described row is as high as its own two lines: a detail mixing
+	// scripts is a fraction higher than one in a single script.
+	exa, quota, tinyfish, key, tavily := find("Exa"), find("匿名额度"), find("TinyFish"), find("需要 API 密钥 · 免费额度"), find("Tavily")
+	near := func(got, want float32) bool { return got > want-0.01 && got < want+0.01 }
+	if !near(quota.Y-exa.Y-exa.H, kit.TitleGap) || !near(tinyfish.Y-exa.Y, 2*kit.RowPad+exa.H+kit.TitleGap+quota.H) ||
+		!near(key.Y-tinyfish.Y-tinyfish.H, kit.TitleGap) || !near(tavily.Y-tinyfish.Y, 2*kit.RowPad+tinyfish.H+kit.TitleGap+key.H) || exa.H != service.H {
+		t.Errorf("search settings: service rows Exa %v, its detail %v, TinyFish %v, its detail %v, Tavily %v are off the row metrics", exa, quota, tinyfish, key, tavily)
+	}
+	// Until the brand icon set is merged every "ailogo:" name is unknown:
+	// the page draws without an icon and the texts stay aligned.
+	if exa.X != tinyfish.X || exa.X != tavily.X {
+		t.Errorf("search settings: service titles are not aligned: %v %v %v", exa, tinyfish, tavily)
+	}
+	// One handle and one overflow icon button a service; no arrows, and
+	// the word of the menu only as its name.
+	handles, more := named("拖动排序"), named("更多")
+	shown := 0
+	for _, text := range tester.Texts() {
+		if text == "更多" {
+			shown++
+		}
+	}
+	if len(handles) != len(services) || len(more) != len(services) || shown != len(services) || len(named("上移"))+len(named("下移")) != 0 {
+		t.Fatalf("search settings: %d handles, %d overflow menus, %d overflow texts, arrows %d for %d services",
+			len(handles), len(more), shown, len(named("上移"))+len(named("下移")), len(services))
+	}
+	if more[0].Role != ui.RoleMenuButton || more[0].Bounds.W != 28 || more[0].Bounds.H != 28 {
+		t.Errorf("search settings: the overflow menu is %v with role %v, want a 28 icon button", more[0].Bounds, more[0].Role)
+	}
+	// Drag Exa by its handle below Tavily.
+	grip := handles[0].Bounds
+	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	target := y + 2*(tavily.Y-tinyfish.Y)
+	tester.Press(x, y)
+	for step := 1; step <= 8; step++ {
+		tester.Move(x, y+(target-y)*float32(step)/8)
+		tester.Advance(16 * time.Millisecond)
+		tester.Frame()
+		if step == 5 {
+			// The other rows have made room for the lifted one.
+			tester.Advance(300 * time.Millisecond)
+			tester.Frame()
+			save("drag")
+		}
+	}
+	tester.Release(x, target)
+	settle("search services reordered by drag", func() bool {
+		first, second, third := find("TinyFish"), find("Tavily"), find("Exa")
+		return first.Y < second.Y && second.Y < third.Y && len(named("拖动排序")) == len(services) && !named("拖动排序")[0].Disabled
+	})
+	rest()
+	if saved := order(); saved[0] != "tinyfish" || saved[1] != "tavily" || saved[2] != "exa" || !slices.Equal(saved[3:], services[3:]) {
+		t.Fatalf("search settings: the Node saved %v after dragging Exa below Tavily from %v", saved, services)
+	}
+	save("reordered")
+	// The keyboard moves it back: Space lifts the row of the focused
+	// handle, Up moves it, Space drops it.
+	lifted := named("拖动排序")[2].Bounds
+	tester.ClickAt(lifted.X+lifted.W/2, lifted.Y+lifted.H/2)
+	for _, key := range []ui.Key{ui.KeySpace, ui.KeyUp, ui.KeyUp, ui.KeySpace} {
+		tester.Key(0, key)
+		tester.Advance(16 * time.Millisecond)
+		tester.Frame()
+	}
+	settle("search services reordered from the keyboard", func() bool {
+		first, second, third := find("Exa"), find("TinyFish"), find("Tavily")
+		return first.Y < second.Y && second.Y < third.Y && !named("拖动排序")[0].Disabled
+	})
+	rest()
+	if saved := order(); !slices.Equal(saved, services) {
+		t.Fatalf("search settings: the Node saved %v after the keyboard moved Exa back, want %v", saved, services)
+	}
+	save("restored")
+	// A core page beside it, for the same rows.
+	runtime.App.Settings.Open(settings.General)
+	rest()
+	save("core-general")
+	for _, mounted := range runtime.pluginViews.mounts {
+		if mounted.scope.Package.Name == "web-search" && mounted.failure != nil {
+			t.Fatalf("search settings: %v", mounted.failure)
+		}
+	}
 }
 
 // kitPageColumn is the content width of kit.Page: its 800 column less its

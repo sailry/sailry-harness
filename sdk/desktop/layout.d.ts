@@ -5,10 +5,10 @@ export const EmptyState: { new(id: string, props: { icon: string; label: string;
 export const StatusList: { new(id: string, props: { items: {id:string;text:string;state:"pending"|"in_progress"|"completed"|"skipped"|"paused"|"blocked"|"failed";details?:boolean;animated?:boolean}[]; body?: string; empty: string }): import("gpui-kit").Element };
 export const Loading: { new(id: string): import("gpui-kit").Element };
 export const InputSurface: { new(id: string): import("gpui-kit").Element };
-/** With header_action, the first child is the trailing header control. */
-export const SettingsGroup: { new(id: string, props: { title?: string; heading?: boolean; header_action?: boolean; variant?: "fill" | "outline" }): import("gpui-kit").Element };
-/** Native application settings row; label is already localized and children form its trailing control. */
-export const SettingsRow: { new(id: string, props: { label: string }): import("gpui-kit").Element };
+/** With header_action, the first child is the trailing header control. With sortable, each child gets a drag handle named by the required sort_label; a drop that moved a row emits the control event `{id, value: {from, to, order}}`, order being the children's identifiers in their new order. sort_disabled keeps the handles, dimmed, and takes no move. */
+export const SettingsGroup: { new(id: string, props: { title?: string; heading?: boolean; header_action?: boolean; variant?: "fill" | "outline"; sortable?: boolean; sort_label?: string; sort_disabled?: boolean }): import("gpui-kit").Element };
+/** Native application settings row; label and description are already localized and children form its trailing control. icon names a leading icon (a bundled icon or `ailogo:<slug>`); an unknown name draws none. wide gives the control 256px and takes no icon. */
+export const SettingsRow: { new(id: string, props: { label: string; description?: string; icon?: string; wide?: boolean }): import("gpui-kit").Element };
 /** The shared centered 800px page, with a scrolling body and arbitrary children. */
 export const SettingsPage: { new(id: string, props: { title: string; description?: string }): import("gpui-kit").Element };
 /** Children are rows. Loading opts into a first-read card; existing rows survive refresh. */
