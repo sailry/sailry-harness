@@ -1941,3 +1941,27 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+queue_read: 表示
+chat_assets_title: アクティビティ
+chat_assets_activity: アクティビティ
+chat_assets_progress: 進捗
+chat_assets_output: 出力
+chat_assets_sources: ソース
+chat_assets_no_activity: サブエージェントなし
+chat_assets_no_progress: タスクなし
+chat_assets_no_output: 出力なし
+chat_assets_no_sources: ソースなし
+chat_assets_failed: リソースとアーティファクトを読み込めませんでした
+chat_assets_more: 以前のものを表示
+queue_guidance_separate: 設定が異なるため、元の設定で個別に実行待ち
+reference_stale: 参照の所有者または設定が変更されました。削除して再選択してください
+chat_clipboard_image: 画像 %{count}
+chat_connection_history: セッションの履歴
+chat_connection_history_empty: セッション履歴なし
+chat_sidebar_empty: セッションを開始
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: セッション %{name}
+chat_provider_node: ホスト %{name}
+chat_config_desktop: デスクトップの設定
+usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
+queue_draft_changed: キューが変更され、草稿は保持されます

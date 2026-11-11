@@ -68,61 +68,66 @@ type Runtime struct {
 	admittedSessions         map[string]protocol.Session
 	composerRevisions        map[string]uint64
 	composerSaving           map[string]bool
-	composerWaiters          map[string][]func(bool)
-	composerBases            map[*composer.State]protocol.SessionConfig
-	sessionBases             map[*composer.State]*sessionBaseStart
-	App                      *shell.App
-	Preferences              *preferences.Store
-	controller               *client.Client
-	ctx                      context.Context
-	cancel                   context.CancelFunc
-	unsubscribe              func()
-	unsubscribePrefs         func()
-	mu                       sync.Mutex
-	dirty                    bool
-	closed                   bool
-	queue                    []func(*ui.Context)
-	invalidate               func()
-	update                   func(func())
-	workers                  sync.WaitGroup
-	observers                sync.WaitGroup
-	openWindow               func(string)
-	pickDirectory            func(func(string))
-	preferencesChanged       func()
-	busy                     map[string]bool
-	uncertain                map[string]protocol.Request
-	drafts                   uint64
-	openDrafts               map[string]bool // drafts New session opened, on the local Runtime
-	draftsShown              map[string]bool // those a pane showed this frame
-	lastPreferences          string
-	lastMaterials            [3]float32
-	lastFeatures             string
-	lastKeys                 string
-	powerObservedRevision    uint64
-	updates                  *Updates
-	updatesFocused           func() bool
-	prefsRevision            uint64
-	conversationWatches      map[protocol.SessionID]func()
-	conversationSeen         map[protocol.SessionID]bool
-	composerInitialized      map[string]bool
-	composerObserved         map[string]string
-	readAloud                func(string, string, string)
-	exportConversation       func(string, string, conversation.ExportFormat)
-	conversationEdits        map[string]conversationEdit
-	turnRetries              map[string]turnRetry
-	conversationCreations    map[string]conversationCreation
-	conversationCreating     map[string]bool
-	providerPresets          map[string]protocol.ConversationPresetsEntry
-	providerModels           map[string]map[string]protocol.ConversationModel
-	providerDraftBases       map[string]protocol.ConversationProvider
-	modelScores              map[string][]protocol.ConversationCatalogScoresEffortScore
-	modelScoreKey            string
-	snapshotMu               sync.Mutex
-	snapshotCopy             protocol.Snapshot
-	snapshotRevision         uint64
-	snapshotRead             bool
-	conversationCopies       map[protocol.SessionID]conversationCopy
-	conversationsStale       atomic.Bool
+	// composerOutgoing is a queued or guiding message on its way to the
+	// Host, by conversation: the queue tray's placeholder row.
+	composerOutgoing map[string]composer.Queued
+	// overviews are the asset inventories the overview popover read.
+	overviews             map[protocol.SessionID]*overviewRead
+	composerWaiters       map[string][]func(bool)
+	composerBases         map[*composer.State]protocol.SessionConfig
+	sessionBases          map[*composer.State]*sessionBaseStart
+	App                   *shell.App
+	Preferences           *preferences.Store
+	controller            *client.Client
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	unsubscribe           func()
+	unsubscribePrefs      func()
+	mu                    sync.Mutex
+	dirty                 bool
+	closed                bool
+	queue                 []func(*ui.Context)
+	invalidate            func()
+	update                func(func())
+	workers               sync.WaitGroup
+	observers             sync.WaitGroup
+	openWindow            func(string)
+	pickDirectory         func(func(string))
+	preferencesChanged    func()
+	busy                  map[string]bool
+	uncertain             map[string]protocol.Request
+	drafts                uint64
+	openDrafts            map[string]bool // drafts New session opened, on the local Runtime
+	draftsShown           map[string]bool // those a pane showed this frame
+	lastPreferences       string
+	lastMaterials         [3]float32
+	lastFeatures          string
+	lastKeys              string
+	powerObservedRevision uint64
+	updates               *Updates
+	updatesFocused        func() bool
+	prefsRevision         uint64
+	conversationWatches   map[protocol.SessionID]func()
+	conversationSeen      map[protocol.SessionID]bool
+	composerInitialized   map[string]bool
+	composerObserved      map[string]string
+	readAloud             func(string, string, string)
+	exportConversation    func(string, string, conversation.ExportFormat)
+	conversationEdits     map[string]conversationEdit
+	turnRetries           map[string]turnRetry
+	conversationCreations map[string]conversationCreation
+	conversationCreating  map[string]bool
+	providerPresets       map[string]protocol.ConversationPresetsEntry
+	providerModels        map[string]map[string]protocol.ConversationModel
+	providerDraftBases    map[string]protocol.ConversationProvider
+	modelScores           map[string][]protocol.ConversationCatalogScoresEffortScore
+	modelScoreKey         string
+	snapshotMu            sync.Mutex
+	snapshotCopy          protocol.Snapshot
+	snapshotRevision      uint64
+	snapshotRead          bool
+	conversationCopies    map[protocol.SessionID]conversationCopy
+	conversationsStale    atomic.Bool
 }
 
 type conversationCopy struct {
@@ -216,6 +221,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
 	r.App.Hooks.Conversation = r.conversation
 	r.App.Hooks.RenderChild = r.renderLiveChild
+	r.App.Hooks.Overview = r.sessionOverview
 	r.conversationWatches = map[protocol.SessionID]func(){}
 	r.conversationSeen = map[protocol.SessionID]bool{}
 	r.composerInitialized = map[string]bool{}

@@ -132,17 +132,7 @@ func (state *pluginNativeState) configureComposer(comp *composer.State, config p
 }
 
 func (state *pluginNativeState) composerModes() []client.ConversationMode {
-	modes := []client.ConversationMode{}
-	for _, info := range state.runtime.localRuntime().pluginViewCatalog(state.runtime) {
-		if info.Extension == nil || info.Extension.Scope != protocol.PluginScopeHost {
-			continue
-		}
-		for _, declaration := range info.Extension.ConversationModes {
-			modes = append(modes, client.ConversationMode{
-				Package: packageReference(info.Summary), Declaration: declaration, Enabled: pluginNativePackageAvailable(info),
-			})
-		}
-	}
+	modes, _ := state.runtime.conversationModes()
 	return modes
 }
 

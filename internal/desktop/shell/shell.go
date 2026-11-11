@@ -110,6 +110,12 @@ type App struct {
 	Sidebar  *sidebar.State
 	Settings *settings.State
 	Messages *conversation.State
+	// assets is the header's session overview popover, of the
+	// conversation assetsOf; keyed is a conversation key of this frame
+	// (conversation.stop, composer.focus, composer.models) for its page.
+	assets   composer.OverviewState
+	assetsOf string
+	keyed    string
 	Panel    *panel.State
 	// Projects keeps each project's Files and Git state, shared by their
 	// pages and the panel's tabs.
@@ -583,6 +589,19 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		ctx = preview.Composer(a.Data, cv, comp.Worktree)
 	} else if a.Hooks.Conversation != nil {
 		ctx, act = a.Hooks.Conversation(c, cv, comp)
+	}
+	if a.keyed != "" && cv.ID == a.Sidebar.Selected {
+		switch a.keyed {
+		case "conversation.stop":
+			if comp.Running {
+				act.Stop()
+			}
+		case "composer.focus":
+			comp.Focus()
+		case "composer.models":
+			comp.OpenModels(ctx)
+		}
+		a.keyed = ""
 	}
 	// Escape in the conversation after the picker and the search bar: the
 	// queue's editor, then Stop.

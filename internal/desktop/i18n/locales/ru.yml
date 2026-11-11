@@ -1941,3 +1941,27 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+queue_read: Читать
+chat_assets_title: Активность
+chat_assets_activity: Активность
+chat_assets_progress: Прогресс
+chat_assets_output: Результаты
+chat_assets_sources: Источники
+chat_assets_no_activity: Нет субагентов
+chat_assets_no_progress: Нет задач
+chat_assets_no_output: Нет результатов
+chat_assets_no_sources: Нет источников
+chat_assets_failed: Не удалось загрузить ресурсы и артефакты
+chat_assets_more: Показать раньше
+queue_guidance_separate: Другие настройки; добавлено в очередь отдельно
+reference_stale: Изменение владельца или конфигурации ссылки; удалить и снова выбрать
+chat_clipboard_image: Изображение %{count}
+chat_connection_history: История сеансов
+chat_connection_history_empty: Нет истории сеансов
+chat_sidebar_empty: Начать сеанс
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · Сессия'
+chat_provider_node: '%{name} · Хозяин'
+chat_config_desktop: Конфигурация рабочего стола
+usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
+queue_draft_changed: Очередность изменена; проект сохранен

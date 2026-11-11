@@ -3,6 +3,7 @@ package composer
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/transfer"
@@ -21,14 +22,15 @@ import (
 // seq numbers the attachments the composer makes.
 var seq int
 
-// add makes the draft's attachments of files, keeping to the limit, and
-// hands each to the backend.
+// add makes the draft's attachments of files and hands each to the backend.
+// A batch that would pass the limit is refused whole, with the limit's toast
+// (attach_drafts).
 func (s *State) add(c *ui.Context, list []*Attachment, actions Actions) {
+	if len(list) > MaxAttachments-len(s.Attachments) {
+		kit.Toast(c, kit.Failed, i18n.T(c, "chat_attachment_limit"))
+		return
+	}
 	for _, a := range list {
-		if len(s.Attachments) >= MaxAttachments {
-			kit.Toast(c, kit.Failed, i18n.T(c, "chat_attachment_limit"))
-			return
-		}
 		seq++
 		a.ID = fmt.Sprintf("attachment-%d", seq)
 		s.Attachments = append(s.Attachments, a)
@@ -36,8 +38,8 @@ func (s *State) add(c *ui.Context, list []*Attachment, actions Actions) {
 	}
 }
 
-// attachPaths attaches files dropped on the surface. Their names and kinds
-// come from the paths; the backend reads them.
+// attachPaths attaches files and folders dropped on the surface or pasted.
+// Their names and kinds come from the paths; the backend reads them.
 func (s *State) attachPaths(c *ui.Context, paths []string, actions Actions) {
 	var list []*Attachment
 	for _, path := range paths {
@@ -46,27 +48,61 @@ func (s *State) attachPaths(c *ui.Context, paths []string, actions Actions) {
 	s.add(c, list, actions)
 }
 
-// paste attaches a picture pasted into the draft (paste_attachments): the
-// clipboard's PNG, its thumbnail decoded from it. It reports whether it
-// took the paste.
-func (s *State) paste(c *ui.Context, actions Actions) bool {
+// pastedImages are the picture formats a paste attaches besides the PNG the
+// system's own picture format is read as, with their file extensions.
+var pastedImages = []struct {
+	format    transfer.Format
+	extension string
+}{
+	{transfer.PNG, "png"}, {"image/jpeg", "jpg"}, {"image/gif", "gif"}, {"image/webp", "webp"},
+}
+
+// paste attaches what was copied into the draft (paste_attachments): the
+// copied files and folders by their paths, and a copied picture, named
+// Image N by its place among the draft's files, its thumbnail decoded from
+// it. Copied files come with their names as text, so they attach whatever
+// text the clipboard has; a picture attaches only when the clipboard has no
+// text, which is the draft's otherwise. It reports whether it took the paste.
+func (s *State) paste(c *ui.Context, text string, actions Actions) bool {
 	sv := c.Services()
-	has := false
-	for _, f := range sv.ClipboardFormats() {
-		has = has || f == transfer.PNG
+	offered := sv.ClipboardFormats()
+	var list []*Attachment
+	if slices.Contains(offered, transfer.FileList) {
+		if paths, err := sv.ReadClipboardData(transfer.FileList).Files(); err == nil {
+			for _, path := range paths {
+				list = append(list, &Attachment{Name: filepath.Base(path), Path: path, Mime: mimeOf(path)})
+			}
+		}
 	}
-	if !has {
+	if len(list) == 0 && text == "" {
+		for _, image := range pastedImages {
+			if !slices.Contains(offered, image.format) {
+				continue
+			}
+			data, err := sv.ReadClipboardData(image.format).Read(image.format)
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			// Named in the frame, which knows the language.
+			a := &Attachment{Name: "." + image.extension, Mime: string(image.format), Size: int64(len(data)), Data: data}
+			if b, err := ui.DecodeBitmap(data); err == nil {
+				a.Image = b
+			}
+			list = append(list, a)
+			break
+		}
+	}
+	if len(list) == 0 {
 		return false
 	}
-	data, err := sv.ReadClipboardData(transfer.PNG).Read(transfer.PNG)
-	if err != nil || len(data) == 0 {
-		return false
-	}
-	a := &Attachment{Name: "image.png", Mime: "image/png", Size: int64(len(data)), Data: data}
-	if b, err := ui.DecodeBitmap(data); err == nil {
-		a.Image = b
-	}
-	s.add(c, []*Attachment{a}, actions)
+	s.inFrame(c, func(c *ui.Context) {
+		for _, a := range list {
+			if a.Data != nil {
+				a.Name = i18n.T(c, "chat_clipboard_image", "count", len(s.Attachments)+1) + a.Name
+			}
+		}
+		s.add(c, list, actions)
+	})
 	return true
 }
 

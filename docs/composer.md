@@ -12,6 +12,7 @@ inline reference chips, the `@` and `/` pickers, the toolbar (attach, mode,
 permission, model controls, dictation, send/stop) and the context bar
 (project, worktree, metrics), plus the file picker
 (the reference implementation `conversation/live/composer.rs`, `live/queue*`,
+`live/assets*`, `live/mode.rs`, `live/context.rs`, `live/sessions.rs`,
 `live/attachments.rs`, `live/references*`, `live/commands`, `live/mode.rs`,
 `live/permission.rs`, `live/location.rs`, `model_controls/*`,
 `file_picker*`, `dictation*`, `live/approvals*.rs`, `live/questions`).
@@ -24,10 +25,11 @@ permission, model controls, dictation, send/stop) and the context bar
 |---|---|
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
-| `options.go` | Mode and permission menus, project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
+| `options.go` | Mode and permission menus (with the packages' modes), host, project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
-| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw |
+| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray |
+| `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
 | `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
 | `files.go` | File picker dialog |
@@ -54,8 +56,13 @@ rebuilt each frame from backend data.
 | `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features, Capabilities}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` feeds the tooltip; `Features` are the feature buttons; `Capabilities` (`Capability{ID, Label, Icon}`) are the row's marks and the rail's capability filter ([media.md](media.md#desktop)) |
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
-| `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided}` | The queue strip, oldest first; `Guided` is guidance pending for the running turn |
-| `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker |
+| `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
+| `Context.Outgoing` | A queued or guiding message still on its way to the Host: the tray's last row, its actions disabled |
+| `Context.Child` | A subagent's session: no composer, a read-only queue tray |
+| `Context.Hosts`, `Host{ID, Name, Key, Local}` | The Hosts a draft can run on; with two or more the context bar shows the host control. `Key` marks `Name` as an i18n key |
+| `Context.PluginModes`, `PluginMode{Key, Label, Description, Icon, Disabled, Selected}`, `Context.SelectMode` | The packages' conversation modes after the built-in ones; `SelectMode` takes a package mode's key or `code`, `plan`, `flagship` |
+| `Context.Compact(focus)` | `/compact` with the text after it; nil falls back to `Actions.Compact` |
+| `Context.Stale(reference)` | Whether a chosen command or skill is offered no more |
 | `Context.Projects`, `Project{ID, Name, Host, Worktrees}`, `Worktree{Branch, Main}` | Project and worktree menus; `Host` is the execution Node identity |
 | `Context.Repository{Kind, Branch}` | `Inspecting`, `Git`, `Directory`, `Unavailable`: branch label and New worktree |
 | `Context.References`, `Commands`, `Reference{ID, Kind, Label, Key, Description, Icon, Alias, Insert, Children}` | The `@` and `/` catalogs; `Page`/`Folder` have `Children`; `Key` marks i18n labels; `Insert` is the prompt key, mode, model ID or effort |
@@ -282,9 +289,13 @@ type Actions interface {
 ## Keys and Escape
 
 - Draft: Enter sends (guides while running; in an empty draft sends the
-  first queued message), Shift+Enter breaks the line, Tab queues, Shift+Tab
-  cycles the mode, Up recalls `Last` in an empty draft, Backspace after a
-  chip deletes it whole.
+  first queued message; a draft that is `/compact` and a focus compacts with
+  it), Shift+Enter breaks the line, Tab queues, Shift+Tab cycles the mode
+  through the built-in ones and the packages' enabled ones, Up recalls
+  `Last` in an empty draft, Backspace after a chip deletes it whole.
+- A key's and a paste's callbacks run between frames, where a MyGo context
+  shows no toast and has no locale: what they need of a frame waits for the
+  next one (`State.inFrame`).
 - Picker open: Up/Down move round, Enter/Tab choose, Backspace on an empty
   query goes back a page, Escape closes it until the trigger changes. A row
   under a resting pointer does not take the selection from the keys: the
@@ -395,7 +406,10 @@ Existing sessions retain their captured role references in `@ Agents`; unsent
 drafts use the current catalog. Skills come from enabled installed packages read
 at their exact digest and settings revision, and chips retain `package:skill`.
 
-Child sessions disable input, configuration and work actions. Parent composers
+Child sessions have no composer (`Context.Child`): only the queue tray shows,
+read-only, with Read (the message in a read-only editor with Copy, Close and
+Remove), Withdraw and Remove, which act while the session's Host is connected.
+Parent composers
 project active registered children into the existing activity capsule and show
 their ordinary pending approvals with the child's name. Approval decisions target
 the child session; opening a row observes its real transcript.
@@ -406,8 +420,68 @@ The project menu contains local and paired execution Nodes' registered projects.
 Choosing a project before first send captures its Node, resets the worktree to
 that project's first entry and reads that Node's available models and teams.
 Display names are labels, not routing identities. Existing admitted sessions
-keep their captured Node and location; no Host selector or location dialog is
-added to the composer.
+keep their captured Node and location.
+
+The host control (`options.go` `hostMenu`, the reference's `host_control`)
+is the first control of the context bar and a row of the compact settings
+popover. It shows only when the draft can run on more than one Host:
+this computer and the paired Hosts whose connection is bound
+(`live/composer_context.go` `composerHosts`). Choosing a Host clears the
+project, worktree, model and team, so the draft goes to that Host's chats with
+its default model; the project menu then lists that Host's projects. A
+session's control names its Host and is disabled. A draft on another Host is
+offered that Host's providers and this desktop's, which the session is
+forwarded with (below); the model list names each provider's source
+(`chat_provider_source`: the Host's name, or `chat_config_desktop`), and a
+forwarded session's names its private provider `chat_provider_session` beside
+the Host's `chat_provider_node`.
+
+### Modes of packages
+
+`live/composer_context.go` (`projectComposerModes`) lists the conversation
+modes Host packages declare (`PluginExtension.ConversationModes`) after Code,
+Plan and Flagship, in the mode menu, the compact settings popover's mode page
+and the Shift+Tab cycle; a disabled package's mode shows disabled only while
+the session has it. A package mode is its package's option in the session
+configuration over a built-in base mode (`client.SelectMode`: Code when the
+mode may write, Plan otherwise); choosing any mode rewrites the composer's
+base configuration, which is saved as every other change of it. The row's
+description is the package's.
+
+### Queue outcomes
+
+A queue command that fails with a conflict toasts `session_changed`; any other
+failure is a toast with Retry, which sends the same command again
+(`queueCommand`). Send now on a queued row while a turn runs asks the turn to
+take it as guidance; when the Host leaves it queued because its settings
+differ from the turn's, the `queue_guidance_separate` toast says so. A message
+being queued or sent as guidance is the tray's last row until the Host
+answers (`Context.Outgoing`).
+
+### Assistant panel sessions
+
+A conversation a package mounts for one of its assistants
+(`live/plugin_native_conversation.go`) has New and the session history beside
+its heading (the reference's `session_controls`). The history is a searchable
+list of the assistant's sessions for the same resource, project and worktree,
+neither archived nor delegated, the shown one checked; choosing one moves the
+mount to it. New moves it to a draft that keeps the composer's model, effort
+and mode and asks before acting. Both are disabled while a turn runs or the
+Host is away. A session without a message shows `chat_sidebar_empty`.
+
+### Session overview
+
+`live/session_overview.go` fills `composer.Overview` for the header's button
+(`shell.Hooks.Overview`): the running subagents, the current turn's task
+progress and cited pages from the transcript, and the session's outputs and
+sources, read with `list_conversation_assets` twenty groups at a time when
+the popover opens and what it holds is behind the history. Rows show the
+newest occurrence of each target. A row opens the subagent's session, the
+file preview, the workspace's Files tab for a source file, or the link.
+`chat_assets_more` reads the next page; a failed read toasts
+`chat_assets_failed` and leaves Retry in the popover. A draft's button is
+disabled. The preview builds its overview from the scene
+(`preview.Overview`); its file rows toast `preview_notice`.
 
 `live/commands.go` projects the captured session's running command services.
 The strip shows one Globe capsule per distinct port, disables it while the
@@ -493,6 +567,15 @@ details dialog.
 
 ## Live attachments
 
+A paste attaches the copied files and folders by their paths, or, when the
+clipboard has no text, a copied picture (PNG, which the system's own picture
+formats are read as, JPEG, GIF or WebP) named `chat_clipboard_image` by its
+place among the draft's files. A batch that would pass eight attachments is
+refused whole with `chat_attachment_limit`, as a drop or a pick is. Uploads go
+to the Host that owns the draft or session. A dropped or pasted folder is
+attached by its path and refused by the upload (`files_upload_source`), as the
+reference has no folder upload either.
+
 `live/attachments_*.go` owns draft transfer state and optional native picker,
 remove and image callbacks through `composer.AttachmentCallbacks`. Existing
 `Actions` and card layout stay unchanged. The first attachment captures a real
@@ -513,6 +596,22 @@ focus without sending. Native callbacks are composed by `cmd/sailry-desktop`.
 (effort track, family rail, efforts submenu, non-reasoning model); the
 worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
+`internal/desktop/shell/composer_parity_test.go`, run as steps of
+`TestComposerGuidesRunningTurn` and `TestCloseShortcut`: the packages' modes
+in the menu, the cycle and the compact popover; the host control; the queue
+row states and the outgoing row; a child session's tray; pasted files,
+pictures and text, dropped files and folders and the limit; `/compact` with a
+focus; the stale toast; the header's Search and overview buttons and the
+conversation's keys. `internal/desktop/live/composer_parity_test.go`, run as a
+step of `TestComposerSendRouting` over a fixture Node, checks the commands
+they send (`compact_context` with its focus, `set_session_config` with the
+package's option, `guide_queued_turn`, the retried `remove_queued_turn`,
+`list_conversation_assets` and its paging, `stop_turn`, a child's
+`read_queued_turn` and `remove_queued_turn`); `testSessionForwarding` the
+host control and the provider source names; `testNativeAssistantSessions`
+(`plugin_native_test.go`) an assistant panel's New and history.
+`auditSessionOverview` (`composer_parity_integration_test.go`, a step of
+`TestPluginUIIntegration`) opens the overview on a session of the real Node.
 `internal/desktop/shell/footer_test.go` (`TestContextRingBesideModel`): the
 session ring's size, place before the chip and the microphone, that it is no
 control, its arc and tones by pixel, its tooltip, the rule without a session,
@@ -560,6 +659,10 @@ and every failure, over a fake microphone and recognizer.
 | Live service labels use additive activity callbacks | Forwarder state stays with the captured Client while the accepted command DTO and capsule layout remain unchanged |
 | Subagent elapsed uses an additive activity callback | Captured run timestamps remain outside the accepted `conversation.Child` fields |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
+| A live Status badge's panel has no buttons | The package draws its own panel (`Render`), so `PanelButton` rows exist only in preview data; `Badge(id, button)` has nothing to run for one |
+| The overview's rows have file-kind icons, not picture thumbnails | The reference loads each output picture for its row; here a row opens the preview, which loads it |
+| The overview does not reopen after a picture's viewer closes | The reference reopens it; the panel's preview stays open here instead |
+| The assistant panel's history is `kit.Command` | The reference uses its searchable list dialog; the same search, check and Enter |
 | Approval details' loading and retry, SSH trust prompts and child identicons are not shown | Not in the view model of this UI-only prototype |
 
 Live file references resolve the captured worktree through the existing shared

@@ -2,10 +2,12 @@ package shell
 
 import (
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -56,6 +58,9 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 			a.trail(c)
 			ui.Spacer(c)
+			if a.Page == ConversationPage {
+				a.pageActions(c)
+			}
 			if a.Hooks.PluginHeader != nil {
 				a.Hooks.PluginHeader(c)
 			}
@@ -71,6 +76,39 @@ func (a *App) header(c *ui.Context, f frame) {
 		})
 		a.headerSide(c, f, HeaderInsets(bar))
 	})
+}
+
+// pageActions are the conversation page's own header actions, at the end of
+// the main region: Find in the conversation, then the session overview.
+func (a *App) pageActions(c *ui.Context) {
+	cv := a.Data.Find(a.Sidebar.Selected)
+	if cv == nil {
+		return
+	}
+	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), HeaderButton, a.Messages.SearchOpen()).
+		OnClick(func() { a.Messages.OpenSearch(cv.ID) })
+	if a.assetsOf != cv.ID {
+		// The popover is one conversation's: another starts closed.
+		a.assets, a.assetsOf = composer.OverviewState{}, cv.ID
+	}
+	composer.OverviewButton(c, &a.assets, a.sessionOverview(c, cv), HeaderButton)
+}
+
+// sessionOverview is cv's overview: the live controller's, or the preview's
+// made from its transcript, whose rows only say they are a preview.
+func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer.Overview {
+	if !a.Preview {
+		if a.Hooks.Overview != nil {
+			return a.Hooks.Overview(c, cv)
+		}
+		return &composer.Overview{}
+	}
+	o := preview.Overview(cv)
+	act := &actions{a: a, c: c, cv: cv, comp: a.Composer(cv.ID)}
+	o.OpenChild = act.OpenChild
+	o.OpenAsset = func(string) { act.notice() }
+	o.OpenSource = func(string) { act.notice() }
+	return o
 }
 
 // HeaderInsets is the room the header keeps clear at the window's right

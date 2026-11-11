@@ -1941,3 +1941,27 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+queue_read: Lesen
+chat_assets_title: Aktivität
+chat_assets_activity: Aktivität
+chat_assets_progress: Fortschritt
+chat_assets_output: Ausgabe
+chat_assets_sources: Quellen
+chat_assets_no_activity: Keine Unteragenten
+chat_assets_no_progress: Keine Aufgaben
+chat_assets_no_output: Keine Ausgabe
+chat_assets_no_sources: Keine Quellen
+chat_assets_failed: Ressourcen und Artefakte konnten nicht geladen werden
+chat_assets_more: Zeige früher
+queue_guidance_separate: Andere Einstellungen; separat eingereiht
+reference_stale: Referenzbesitz oder Konfiguration geändert; entfernen und erneut auswählen
+chat_clipboard_image: Bild %{count}
+chat_connection_history: Sitzungsverlauf
+chat_connection_history_empty: Kein Sitzungsverlauf
+chat_sidebar_empty: Eine Sitzung starten
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · Sitzung'
+chat_provider_node: '%{name} · Host'
+chat_config_desktop: Desktop-Konfiguration
+usage_read_failed: Konnte die Nutzung nicht laden, versuchen Sie es erneut
+queue_draft_changed: Warteschlange geändert; Entwurf beibehalten

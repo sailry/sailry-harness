@@ -1941,3 +1941,27 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+queue_read: Lire
+chat_assets_title: Activité
+chat_assets_activity: Activité
+chat_assets_progress: Progression
+chat_assets_output: Résultats
+chat_assets_sources: Sources
+chat_assets_no_activity: Aucun sous-agent
+chat_assets_no_progress: Aucune tâche
+chat_assets_no_output: Aucun résultat
+chat_assets_no_sources: Aucune source
+chat_assets_failed: Impossible de charger les ressources et les artefacts
+chat_assets_more: Afficher plus tôt
+queue_guidance_separate: Paramètres différents ; mise en file séparée
+reference_stale: La propriété ou la configuration de la référence a changé; supprimez et sélectionnez à nouveau
+chat_clipboard_image: Image %{count}
+chat_connection_history: Historique de la session
+chat_connection_history_empty: Pas d'historique de session
+chat_sidebar_empty: Démarrer une session
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · Date de session'
+chat_provider_node: '%{name} · Hôte'
+chat_config_desktop: Configuration du bureau
+usage_read_failed: Impossible de charger l'utilisation, réessayez
+queue_draft_changed: Changement de file d &apos; attente; brouillon conservé

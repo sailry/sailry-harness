@@ -217,6 +217,13 @@ func (s *State) replace(with string) {
 // choose carries out a row.
 func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference) {
 	st := &s.ref
+	if ctx.Stale != nil && ctx.Stale(r) {
+		// The command or skill has gone since the picker listed it: say so
+		// and show the picker's root again (reference_stale).
+		s.inFrame(c, func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "reference_stale")) })
+		st.path, st.sel = nil, 0
+		return
+	}
 	if s.pluginCommand != nil {
 		if replacement, handled := s.pluginCommand(r); handled {
 			s.replace(replacement)
@@ -237,7 +244,13 @@ func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference
 		st.sel = 0
 		return
 	case Prompt:
-		s.replace(i18n.T(c, r.Insert))
+		// Enter chooses between frames: the prompt is put in the next one,
+		// in its language.
+		at := s.ref.at
+		s.inFrame(c, func(c *ui.Context) {
+			s.ref.at = at
+			s.replace(i18n.T(c, r.Insert))
+		})
 	case ModeCommand:
 		for i, m := range Modes {
 			if m.label == r.Insert {
@@ -254,8 +267,15 @@ func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference
 		}
 		s.replace("")
 	case Compact:
-		s.replace("")
-		actions.Compact()
+		// The focus is what the draft already says after /compact.
+		focus, typed := compactFocus(s.Draft)
+		if typed {
+			s.clear()
+			s.caret, s.focus = 0, true
+		} else {
+			s.replace("")
+		}
+		s.compact(ctx, actions, focus)
 	case AttachFiles:
 		s.replace("")
 		s.openFiles(ctx)
@@ -269,12 +289,41 @@ func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference
 	st.path = nil
 }
 
+// compactFocus reads a draft that starts with the whole /compact command:
+// the text after it is what the compaction keeps in focus, "" for none
+// (compaction::focus). typed reports that the draft is such a command.
+func compactFocus(draft string) (focus string, typed bool) {
+	text := strings.TrimLeftFunc(draft, unicode.IsSpace)
+	end := strings.IndexFunc(text, unicode.IsSpace)
+	if end < 0 {
+		end = len(text)
+	}
+	if text[:end] != "/compact" {
+		return "", false
+	}
+	return strings.TrimSpace(text[end:]), true
+}
+
+// compacts reports whether the conversation offers /compact.
+func compacts(ctx *Context) bool {
+	return slices.ContainsFunc(ctx.Commands, func(r Reference) bool { return r.Kind == Compact })
+}
+
+// compact compacts the conversation, with the focus where the owner takes it.
+func (s *State) compact(ctx *Context, actions Actions, focus string) {
+	if ctx.Compact != nil {
+		ctx.Compact(focus)
+		return
+	}
+	actions.Compact()
+}
+
 // chip puts a reference in the draft as "@label ", one subagent a message.
 func (s *State) chip(c *ui.Context, r Reference) {
 	if r.Kind == Agent {
 		for _, x := range s.active() {
 			if x.Kind == Agent && x.ID != r.ID {
-				kit.Toast(c, kit.Failed, i18n.T(c, "reference_one_agent"))
+				s.inFrame(c, func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "reference_one_agent")) })
 				return
 			}
 		}

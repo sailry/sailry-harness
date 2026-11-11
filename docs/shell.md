@@ -142,8 +142,10 @@ conversation in a project, breadcrumbs (`ui.Breadcrumbs`) of the project
 and the conversation, the project revealing its rows in the sidebar; on
 Files and Git, the project and the page, the project going back to the
 conversation with its rows revealed; on Activity and Market, its
-name. The page's own actions end that main region: the plugins' header
-contributions (`Hooks.PluginHeader`) and the preview tag. A plugin's header
+name. The page's own actions end that main region: on the conversation
+page Search (`chat_search`, the find bar ⌘F opens) and the session overview
+(`composer.OverviewButton`, `Hooks.Overview`; see `docs/composer.md`), then
+the plugins' header contributions (`Hooks.PluginHeader`) and the preview tag. A plugin's header
 contribution is the same `kit.IconLook` at `HeaderButton` as the shell's own
 buttons, `ButtonGap` apart, its popover under its end; an `indicator` or
 `metric` is not drawn in the header. Tooltips show the shortcut.
@@ -243,6 +245,7 @@ and a key one scope takes never reaches the next:
 | ⇧⌘[ / ⇧⌘] | window | Previous / next conversation (`sidebar.Adjacent` over `Order`) |
 | ⌘/ , ⌘, | window | Settings |
 | ⌘T, ⌃`, ⌘P, ⌃⇧G | window, conversation page | Browser, Terminal, Files, Git in the panel |
+| ⌘. , ⌘L, ⇧⌘M | window, conversation page, focus outside the panel | Stop the running turn, focus the composer, open the model controls (the settings popover when compact). Fixed, as the reference binds them to the conversation: not in the Shortcuts settings or the menu, and no shortcut may be recorded on them (`settings.Fixed`) |
 | ⇧⌘W | app | Close Window |
 | ⌘Q | app | Quit |
 | ⌘H, ⌥⌘H, ⌘M, ⌃⌘F | app | Hide, Hide Others, Minimize, Full Screen |

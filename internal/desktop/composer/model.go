@@ -59,6 +59,36 @@ type Context struct {
 	// SelectModel opens the Node's model settings from the chip that reads
 	// Select model while Models is empty; nil leaves that chip disabled.
 	SelectModel func()
+	// PluginModes are the enabled packages' conversation modes, after the
+	// built-in ones in the mode menu, the compact settings and the Shift+Tab
+	// cycle.
+	PluginModes []PluginMode
+	// SelectMode chooses a mode by its key: "code", "plan", "flagship" or a
+	// PluginMode's Key. nil leaves the built-in modes to State.Mode.
+	SelectMode func(key string)
+	// Child is a delegated session: the composer is not shown, and its queue
+	// tray is read-only (Read, Copy, Close, Remove, Withdraw).
+	Child bool
+	// Compact compacts the conversation with the focus /compact was given,
+	// "" for none; nil leaves it to Actions.Compact.
+	Compact func(focus string)
+	// Stale reports that a command or skill chosen from the picker has gone
+	// since the picker listed it; nil for never.
+	Stale func(Reference) bool
+	// Outgoing is the message being sent to the queue, shown as a disabled
+	// row until the Node lists it; nil for none.
+	Outgoing *Queued
+}
+
+// PluginMode is a package's conversation mode (live/mode.rs PluginMode).
+type PluginMode struct {
+	Key, Label, Description string
+	Icon                    *ui.SVG
+	// Disabled is a mode that cannot be chosen now: its package is not
+	// available, or the draft has no configured model.
+	Disabled bool
+	// Selected is the mode the conversation runs in.
+	Selected bool
 }
 
 // Model is a model the picker offers, as the backend lists it.
@@ -148,12 +178,18 @@ type Queued struct {
 	// Guided is guidance pending (Pending.guidance): the running turn
 	// takes it at its next model boundary unless it is withdrawn.
 	Guided bool
+	// Joining is guidance aimed at the turn that takes guidance now: Send
+	// now stays enabled on it, as on a row not guiding. Guidance aimed at
+	// another turn has it disabled.
+	Joining bool
 }
 
 // Host is a computer the conversation can run on.
 type Host struct {
-	ID    string
-	Name  string // i18n key
+	ID   string
+	Name string
+	// Key says Name is an i18n key: the local host's and the preview's.
+	Key   bool
 	Local bool
 }
 

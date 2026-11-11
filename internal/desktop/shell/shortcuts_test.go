@@ -25,6 +25,7 @@ func TestCloseShortcut(t *testing.T) {
 	t.Run("CloseTabInFocusedPanel", testCloseTabInFocusedPanel)
 	t.Run("CloseFocusedPage", testCloseFocusedPage)
 	t.Run("CloseWithNothingClosableFocused", testCloseWithNothingClosableFocused)
+	t.Run("ConversationHeaderAndKeys", headerParity)
 }
 
 // ⌘W in the focused panel closes its active tab, then the panel with its

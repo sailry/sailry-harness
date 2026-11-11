@@ -1941,3 +1941,27 @@ media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
+queue_read: 查看
+chat_assets_title: 活动
+chat_assets_activity: 活动
+chat_assets_progress: 进度
+chat_assets_output: 输出
+chat_assets_sources: 来源
+chat_assets_no_activity: 无子智能体
+chat_assets_no_progress: 无任务
+chat_assets_no_output: 无输出
+chat_assets_no_sources: 无来源
+chat_assets_failed: 资源与产物加载失败
+chat_assets_more: 查看更早
+queue_guidance_separate: 设置不同，已按原设置排队执行
+reference_stale: 引用的归属或配置已改变，请移除后重新选择
+chat_clipboard_image: 图片 %{count}
+chat_connection_history: 历史会话
+chat_connection_history_empty: 暂无历史会话
+chat_sidebar_empty: 开始会话
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · 会话'
+chat_provider_node: '%{name} · 主机'
+chat_config_desktop: 桌面配置
+usage_read_failed: 无法读取用量，请重试
+queue_draft_changed: 队列已改变，编辑草稿已保留

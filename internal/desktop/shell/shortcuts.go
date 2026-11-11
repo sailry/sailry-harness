@@ -14,12 +14,17 @@ type Shortcut = settings.Shortcut
 
 // Shortcuts are the reference's window keys, ⌘ standing for Ctrl off
 // macOS: the Shortcuts settings' registry, which the user may rebind
-// (App.binding), then Settings and Find, which are fixed. The system's
-// shortcuts are not the window's. The panel's resource keys follow
-// (panel.Resources).
+// (App.binding), then Settings, Find and the conversation's own keys, which
+// are fixed: Stop, Focus the composer and the model controls act on the
+// conversation page only, and the reference lists them in neither the
+// Shortcuts settings nor the menu. The system's shortcuts are not the
+// window's. The panel's resource keys follow (panel.Resources).
 var Shortcuts = append(window(settings.Registry),
 	Shortcut{ID: "app.settings", Label: "settings", Mods: ui.Cmd, Key: ui.KeyComma},
 	Shortcut{ID: "conversation.find", Label: "chat_search", Mods: ui.Cmd, Key: ui.KeyF},
+	Shortcut{ID: "conversation.stop", Label: "chat_stop", Mods: ui.Cmd, Key: ui.KeyPeriod},
+	Shortcut{ID: "composer.focus", Label: "chat_message_placeholder", Mods: ui.Cmd, Key: ui.KeyL},
+	Shortcut{ID: "composer.models", Label: "composer_model_settings", Mods: ui.Cmd | ui.Shift, Key: ui.KeyM},
 )
 
 func window(all []Shortcut) []Shortcut {
@@ -74,6 +79,7 @@ func (a *App) hint(id string) string {
 func (a *App) shortcuts(c *ui.Context) {
 	sent := a.sent
 	a.sent = nil
+	a.keyed = ""
 	a.modal = kit.TakeModal(c)
 	kit.SweepMenus(c)
 	a.syncMenuKeys()
@@ -171,6 +177,13 @@ func (a *App) run(c *ui.Context, id string) {
 		// bar, not from the panel.
 		if a.Page == ConversationPage && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {
 			a.Messages.OpenSearch(a.Sidebar.Selected)
+		}
+	case "conversation.stop", "composer.focus", "composer.models":
+		// The conversation's own keys: its page carries them out with its
+		// composer this frame (App.conversation), from anywhere in the
+		// page but the panel.
+		if a.Page == ConversationPage && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {
+			a.keyed = id
 		}
 	case "conversation.new":
 		a.Page = ConversationPage
