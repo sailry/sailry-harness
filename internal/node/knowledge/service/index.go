@@ -38,11 +38,14 @@ type Part struct {
 }
 
 // Binding captures what the chunks of a collection are valid for. An empty
-// Model is keyword only.
+// Model is keyword only. Identity is the content identity of the model's
+// definition: vectors are kept and compared only under the same model and
+// identity, so a model whose files changed under its name starts over.
 type Binding struct {
 	ID         protocol.KnowledgeID
 	Generation uint64
 	Model      string
+	Identity   string
 	Dimension  int
 	Scope      [32]byte
 	Rebuild    uint64
@@ -93,11 +96,14 @@ func tagsJSON(tags []string) string {
 	return encoded(tags)
 }
 
+// vectorKey names what stored vectors were built with.
+func vectorKey(model, identity string) string { return model + "@" + identity }
+
 func (binding Binding) model() (any, any) {
 	if binding.Model == "" {
 		return nil, nil
 	}
-	return binding.Model, int64(binding.Dimension)
+	return vectorKey(binding.Model, binding.Identity), int64(binding.Dimension)
 }
 
 func changedCollection() error {
@@ -166,7 +172,7 @@ func (index Index) Bind(ctx context.Context, binding Binding) error {
 		case !exists:
 		case string(previousScope) != string(binding.Scope[:]) || previousRebuild != rebuild:
 			_, err = db.ExecContext(ctx, "DELETE FROM sources WHERE collection=?1", id)
-		case previousModel.String != binding.Model || previousModel.Valid != (binding.Model != "") ||
+		case previousModel.Valid != (binding.Model != "") || previousModel.Valid && previousModel.String != vectorKey(binding.Model, binding.Identity) ||
 			previousDimension.Valid != (binding.Model != "") || previousDimension.Valid && previousDimension.Int64 != int64(binding.Dimension):
 			if _, err = db.ExecContext(ctx, "UPDATE chunks SET vector=NULL WHERE source IN (SELECT id FROM sources WHERE collection=?1)", id); err == nil {
 				_, err = db.ExecContext(ctx, "UPDATE sources SET embedded=0 WHERE collection=?1", id)
@@ -248,8 +254,9 @@ func (index Index) Replace(ctx context.Context, binding Binding, document Docume
 	})
 }
 
-// Prune drops the sources a completed scan no longer found.
-func (index Index) Prune(ctx context.Context, binding Binding, locators []string) error {
+// Prune drops the sources a scan no longer found. Sources below a kept
+// prefix stay: the scan could not enter their directory.
+func (index Index) Prune(ctx context.Context, binding Binding, locators, kept []string) error {
 	return index.write(ctx, func(db *sql.Conn) error {
 		found, err := current(ctx, db, binding)
 		if err != nil {
@@ -258,7 +265,8 @@ func (index Index) Prune(ctx context.Context, binding Binding, locators []string
 		if !found {
 			return changedCollection()
 		}
-		_, err = db.ExecContext(ctx, "DELETE FROM sources WHERE collection=?1 AND locator NOT IN (SELECT value FROM json_each(?2))", binding.ID.String(), tagsJSON(locators))
+		_, err = db.ExecContext(ctx, "DELETE FROM sources WHERE collection=?1 AND locator NOT IN (SELECT value FROM json_each(?2)) AND NOT EXISTS (SELECT 1 FROM json_each(?3) kept WHERE substr(sources.locator,1,length(kept.value))=kept.value)",
+			binding.ID.String(), tagsJSON(locators), tagsJSON(kept))
 		return err
 	})
 }

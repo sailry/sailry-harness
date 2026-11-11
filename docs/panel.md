@@ -379,7 +379,14 @@ A live Browser tab is a pinned MyGo `WebView` under the accepted chrome
 page's history, Reload and ⌘R reload it and stay disabled before a first
 address, and ⌘T and the strip's "+" open another tab, whose address field
 takes the keyboard. The page is untrusted: it has no host function, opens no
-window and stays on HTTP(S) addresses without embedded credentials. A
+window and stays on HTTP(S) addresses without embedded credentials. A window
+the page asks for, by a link with a target or by `window.open`, becomes a tab
+of the same conversation's panel under the same address rules
+(`Runtime.browserPopup`): in front when its source tab is, behind when the
+agent keeps the source in the background, and in the hidden panel for a page
+of a conversation that is not on screen. A request without a user's gesture,
+which the agent's click is as well, adds no tab once the conversation has 8
+browser tabs. The new page has no `window.opener`. A
 workspace plugin that declares a browser resource still creates it; the core
 tab is the fallback. The WebView is created before the next frame builds and
 is destroyed with its tab. Where the system has no WebView the tab shows
@@ -446,16 +453,33 @@ preference changes, open tabs drop their pages and load their addresses again
 in the other store. The Browser settings page's Chrome import sets cookies in
 this store ([settings](settings.md#browser-page-wiring)).
 
+The store is one for every conversation, as in Rust, so a site the user is
+signed in to, by hand or through the import, is signed in for every
+conversation's tabs. Page content is model input: opening or navigating a tab
+is a control action and asks for approval, while reading or capturing a tab
+that is already open does not. Separate stores per conversation would undo the
+import and the user's own sign-ins, so the store stays shared.
+
 The agent's browser tool uses the same tabs. `internal/node/browser.go` routes
 `use_browser` to the controller that issued it as a `browser_call` update on
 the `browser` topic and settles it with `complete_browser`: one subscription
 per controller, a 30-second deadline, a retryable fault for unanswered reads
-and an unknown outcome for unanswered actions. The deadline is each call's
+and an unknown outcome for unanswered actions. A `use_browser` command is
+admitted only for a conversation of this Node together with that
+conversation's worktree (`Node.browserScope`, shared with
+`use_external_browser`): an unknown conversation is `not_found` and another
+worktree `permission_denied`. The deadline is each call's
 `expires_at_ms` and bounds every action: a `wait` may ask for a longer
 `timeout_ms`, but it ends with the call as an unanswered read, and the timed-out
 call leaves no pending entry for a late completion. `browser.read` and
 `browser.control` plugin tools reach it through the turn's native tools; control
-actions ask for workspace approval. `client.ServeBrowser` delivers each call
+actions ask for workspace approval. The tools are bound only for a turn whose
+controller is subscribed when the turn starts (`browserRegistry.available`):
+a turn started by Mobile, a Host or a schedule is offered none, and a
+package's declaration that is not bound becomes no script tool either. Each
+call first checks that its package is still enabled (`Node.pluginEnabled`,
+`not_configured` "plugin is disabled"), so a package disabled during a turn
+stops driving the browser. `client.ServeBrowser` delivers each call
 under a context that ends at the call's `expires_at_ms`, so a wait or a queued
 action that outlives the call is abandoned (the Node has settled it by then)
 and the next call is served; an action still queued for the UI thread when
@@ -468,6 +492,12 @@ yet, as one that came back with its conversation after a relaunch, belongs to
 the conversation whose panel has it, never to the selected one for being
 selected. Captures are measured, cropped and encoded within 1 MiB and
 1568 pixels by `live/browser_capture.go`, and the Node checks them again.
+With `save=true` the Node also publishes the checked capture as
+`assets/generated/browser-<request>.<jpg|png>` in the worktree, through the
+same confined, never-replacing write as generated media (`node.publishGenerated`),
+and returns its `path`. A capture is a read; a saving call asks first, as the
+reference does, and a planning turn refuses it with
+`planning turns cannot save browser captures`.
 
 A session document renders its own HTML (`live/document_view.go`,
 `panel/document_live.go`) in a WebView with an ephemeral session, no preload,
@@ -495,7 +525,23 @@ original file ending and stay local until the existing revision-checked Save
 action succeeds. Tabs mark unsaved drafts; either host's Close offers Save,
 Discard and Cancel. Saving holds the close continuation until the exact draft
 is confirmed. A failed or uncertain save leaves the draft and tab intact. Failed
-file refreshes hide stale clean content and preserve dirty content as read-only.
+file refreshes hide stale clean content.
+
+A draft keeps the revision it began from. A refresh reads the file under a
+draft again without replacing the draft: when the file holds other content or
+is gone, the editor's footer shows "Changed on disk" (`files_changed_on_disk`)
+until the file is back at the draft's source or the draft is settled. A read
+that arrives after a draft began is treated the same way, so it never becomes
+the draft's source. A save the Node refuses because the file changed
+(`RevisionConflict`, or `NotFound` for a file that is gone) shows no toast:
+`live/workspace_drafts.go` reads the file once more and
+`panel/editor_conflict.go` asks with the path and three choices. Overwrite
+saves the draft over the content just read (creating a file that is gone) and
+is disabled when that content is not completely known; Reload drops the draft
+and shows the file; Keep editing closes the question. A draft the user undoes
+by hand while the mark shows is settled the same way as Reload. A file that changes
+again before Overwrite arrives is asked about again. A close that was waiting
+for the refused save is withdrawn.
 
 The accepted toolbar uses native undo/redo, Find and Replace, soft wrap, Markdown
 block and inline formatting, lists, links and insert menus. Controls collapse in
@@ -594,13 +640,22 @@ takes `browser-empty`, `browser-loading`, `browser-loaded`, `browser-menu` and
 `TestLiveBrowserTabIntegration` drives the same chrome states and the menu in
 English beside the Node's browser calls.
 
+`internal/node/browser_tools_test.go`, `TestBrowserToolBinding`, real turns
+against a scripted model: a turn whose controller has no browser subscription
+is offered no browser tool, a subscribed controller's turn is and its call
+reaches the controller, and the next call of the same turn is refused once the
+package is disabled. A `use_browser` command for an unknown conversation or
+another worktree is refused and the conversation's own is admitted.
+
 `internal/desktop/panel/model_test.go`: the live launcher's kinds per state, the
 Documents tab without a document, the first change opening no diff, each empty
 state and the loading spinner; tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file
 and diff its own tab shared with the project (closing on either side,
 another project swapping them), a browser tab's history (going drops the
-forward part).
+forward part). `panel_tabs_test.go` also covers a page's window request: the
+refused addresses, the tab in front, behind and in a hidden conversation's
+panel, the bound without a gesture and a closed tab's request.
 `internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
 confirmation, Commit's menu and amending, the history, All changes; the
@@ -629,6 +684,7 @@ at its width.
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | History and Documents are not offered on an unsent draft | They show a session's turns and documents; a draft has neither |
+| A save refused because the file changed offers Overwrite, Reload and Keep editing, and a draft's footer shows "Changed on disk" | The reference only keeps the draft and reports the conflict (`files_save_conflict`), which leaves discarding the draft as the only way to save again |
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
@@ -636,9 +692,10 @@ at its width.
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
 | Browser tabs belong to the conversation they were opened in and show in its panel only | The strip is the conversation's ([Tabs per conversation](#tabs-per-conversation)); the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
-| Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
-| Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |
+| Windows a page asks for without a user's gesture stop at 8 browser tabs per conversation, and the new tab has no `window.opener` | The reference opens every request as a tab. An untrusted page must not fill the panel with pages; the request is refused and its address loaded in a tab's own WebView |
+| A page cannot take its own tab to `about:blank` or `about:srcdoc` | The reference allows both in every frame. Pinned MyGo asks only for navigations of the main frame, so frames are not restricted; a blank main frame has no address for the tab to show |
+| A controller that subscribes to browser calls after its turn started gets no browser tools in that turn | As in the reference, the turn's tools are fixed when it starts. The Desktop subscribes from its first frame, so only a reconnect within that second is affected |
 | The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |
 | The in-memory browser store empties when its last tab closes | MyGo's ephemeral session ends with its last page; the reference keeps it until the app quits |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
@@ -659,7 +716,11 @@ Final turn diffs populate conversation changes cards. Review captures that turn'
 patches and hunk identities in the existing Git surface; Undo confirms the target
 and restores matching checkpoints in source order. A partially confirmed restore
 resumes after its successful entries, whose files no longer match their
-checkpoints, and retains uncertain request identity.
+checkpoints, and retains uncertain request identity. The card remembers which
+files it restored only while its conversation is shown
+(`workspaceProject.turnUndone`); after another conversation was shown it offers
+Undo for them again, and that second restore ends in the conflict toast because
+the files no longer hold the checkpoint's content.
 
 Project-backed unsent drafts resolve existing worktrees without creating a
 session or invoking a model. Composer location fields keep paths as identities;

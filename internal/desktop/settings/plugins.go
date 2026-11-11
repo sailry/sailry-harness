@@ -425,7 +425,25 @@ func pluginInstallDialog(c *ui.Context, m *Model) {
 				value       *string
 			}{{"plugins_package", "form_package_hint", &e.pkg}, {"plugins_directory", "form_directory_hint", &e.directory}} {
 				kit.Field(c, field.label, i18n.T(c, field.label), "", func() {
-					ui.TextInput(c.Key("input"), field.value).Label(i18n.T(c, field.label)).Placeholder(i18n.T(c, field.hint)).FillWidth().Disabled(e.pending)
+					input := func() ui.Element {
+						return ui.TextInput(c.Key("input"), field.value).Label(i18n.T(c, field.label)).Placeholder(i18n.T(c, field.hint)).Disabled(e.pending)
+					}
+					if field.value != &e.pkg || m.PackageActions.Browse == nil {
+						input().FillWidth()
+						return
+					}
+					// The package is read on this machine before its upload,
+					// so its picker browses this machine whichever host is
+					// shown.
+					ui.Row(c.Key("row")).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+						input().Grow(1).MinWidth(0)
+						generation := e.generation
+						kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "files_open"), 32, false).Disabled(e.pending).OnClick(func() {
+							m.PackageActions.Browse(i18n.T(c, "local_host_name"), strings.TrimSpace(e.directory),
+								func() bool { return e.open && !e.pending && e.generation == generation },
+								func(path string) { e.pkg = path })
+						})
+					})
 				})
 			}
 			footer(c, title, func() { e.open = false }, func() {

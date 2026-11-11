@@ -161,10 +161,14 @@ func TestCompactionHandoff(t *testing.T) {
 		}
 	})
 	t.Run("failed summaries retain usage", func(t *testing.T) {
-		for _, row := range []struct{ name, document, stop string }{
-			{"malformed", `{"user_intent":["unfinished`, "stop"},
-			{"empty", `{}`, "stop"},
-			{"truncated", `{"user_intent":["Valid but limited"]}`, "MAX_OUTPUT_TOKENS"},
+		for _, row := range []struct {
+			name, document, stop string
+			reason               protocol.ConversationCompactionReason
+		}{
+			{"malformed", `{"user_intent":["unfinished`, "stop", protocol.ConversationCompactionReasonUnexpectedOutput},
+			{"empty", `{}`, "stop", protocol.ConversationCompactionReasonUnexpectedOutput},
+			{"blank", ` `, "stop", protocol.ConversationCompactionReasonEmptySummary},
+			{"truncated", `{"user_intent":["Valid but limited"]}`, "MAX_OUTPUT_TOKENS", protocol.ConversationCompactionReasonTruncatedSummary},
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				part := finish()
@@ -176,12 +180,75 @@ func TestCompactionHandoff(t *testing.T) {
 					t.Fatal("invalid summary replaced context")
 				}
 				after := f.state()
-				if len(after.Records) != len(before.Records)+1 {
-					t.Fatal("failed summary usage observation was lost")
+				if len(after.Records) != len(before.Records)+2 {
+					t.Fatal("failed summary usage observation or failure record was lost")
 				}
 				observation := after.Records[len(before.Records)]
 				if observation.Kind != "message" || !compactionUsage(observation) || observation.Metadata.Runtime.AgentVisible || observation.Message().Usage.Total == nil || *observation.Message().Usage.Total != 77 {
 					t.Fatal("failed summary usage was not preserved independently")
+				}
+				failure := compactionFailed(t, f, after.Records[len(before.Records)+1])
+				if failure.Source != protocol.ConversationCompactionSourceManual || failure.Stage != protocol.ConversationCompactionStageSummary || failure.Reason != row.reason || failure.Continued || failure.Cause == nil || *failure.Cause == "" {
+					t.Fatalf("failure = %+v", failure)
+				}
+			})
+		}
+	})
+	t.Run("failures are recorded", func(t *testing.T) {
+		status := func(code int) script {
+			return func(_ context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: code, ResponseBody: []byte(`{"error":{"message":"Summary refused"}}`)}})
+			}
+		}
+		for _, row := range []struct {
+			name    string
+			scripts []script
+			context uint32
+			stopped bool
+			records int
+			stage   protocol.ConversationCompactionStage
+			reason  protocol.ConversationCompactionReason
+			status  uint16
+			cause   string
+		}{
+			{"budget", nil, 100, false, 1, protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, 0, "summary prompt and output exceed the context limit"},
+			{"unauthorized", []script{status(401)}, 0, false, 2, protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonAuthorizationFailed, 401, "Summary refused (HTTP 401)"},
+			{"rejected", []script{status(400)}, 0, false, 2, protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonServiceRejected, 400, "Summary refused (HTTP 400)"},
+			{"stopped", []script{status(400)}, 0, true, 1, "", "", 0, ""},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: row.scripts})
+				if row.context > 0 {
+					binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = row.context, row.context
+				}
+				if row.stopped {
+					stopped, cancel := context.WithCancel(f.ctx)
+					x.ctx = stopped
+					scripted := row.scripts[0]
+					f.r.model = func(context.Context, model.Binding) (fantasy.LanguageModel, error) {
+						return &scriptedModel{scripts: []script{func(ctx context.Context, call fantasy.Call, yield func(fantasy.StreamPart) bool) {
+							cancel()
+							scripted(ctx, call, yield)
+						}}}, nil
+					}
+				}
+				if err := f.r.compact(x, binding, before, false); err == nil {
+					t.Fatal("failed compaction returned no error")
+				}
+				added := f.state().Records[len(before.Records):]
+				if len(added) != row.records {
+					t.Fatalf("added %d records, want %d", len(added), row.records)
+				}
+				last := added[len(added)-1]
+				if row.stopped {
+					if last.Metadata.Compaction != nil {
+						t.Fatal("a stopped compaction was recorded as a failure")
+					}
+					return
+				}
+				failure := compactionFailed(t, f, last)
+				if failure.Source != protocol.ConversationCompactionSourceAutomatic || failure.Stage != row.stage || failure.Reason != row.reason || failure.Continued || failure.Cause == nil || *failure.Cause != row.cause || (row.status == 0) != (failure.Status == nil) || failure.Status != nil && *failure.Status != row.status {
+					t.Fatalf("failure = %+v", failure)
 				}
 			})
 		}
@@ -245,6 +312,50 @@ func TestCompactionHandoff(t *testing.T) {
 			t.Fatalf("retained tools=%v", got)
 		}
 	})
+}
+
+// compactionFailed checks the stored failure record and returns the failure the
+// conversation page and the statistics report for it.
+func compactionFailed(t *testing.T, f *engineFixture, record canonical.Record) protocol.ConversationCompactionFailure {
+	t.Helper()
+	if record.Kind != "message" || record.Provenance.Author != "system" || record.Metadata.Compaction == nil || record.Metadata.Compaction.Failure == nil || record.Metadata.Runtime.AgentVisible || !record.Metadata.Runtime.UserVisible || len(record.Message().Content) != 0 {
+		t.Fatalf("failure record = %+v", record)
+	}
+	var history protocol.ConversationHistory
+	var statistics protocol.ConversationStatistics
+	if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		var err error
+		if history, err = store.ReadConversation(f.ctx, db, f.session.ID, nil, 20); err != nil {
+			return err
+		}
+		statistics, err = store.ReadAgentStatistics(f.ctx, db, f.session.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var shown *protocol.ConversationCompactionFailure
+	for _, entry := range history.Page.Entries {
+		for _, part := range entry.Parts {
+			var resource struct {
+				Type    string                                  `json:"type"`
+				Failure *protocol.ConversationCompactionFailure `json:"failure"`
+			}
+			if raw, ok := part.Data.(json.RawMessage); ok && part.Kind == "resource" && json.Unmarshal(raw, &resource) == nil && resource.Type == "compaction_failure" {
+				if entry.ID != record.ID || shown != nil {
+					t.Fatalf("failure part on entry %s", entry.ID)
+				}
+				shown = resource.Failure
+			}
+		}
+	}
+	if shown == nil || !reflect.DeepEqual(*shown, *record.Metadata.Compaction.Failure) {
+		t.Fatalf("shown failure = %+v", shown)
+	}
+	last := statistics.LastCompaction
+	if last == nil || last.ID != record.ID || last.Turn != record.Turn || last.Outcome.Kind != "failed" {
+		t.Fatalf("last compaction = %+v", last)
+	}
+	return *shown
 }
 
 func compactionFixture(t *testing.T, m *scriptedModel) (*engineFixture, *execution, model.Binding, store.AgentState) {

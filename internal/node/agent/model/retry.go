@@ -23,14 +23,16 @@ const (
 )
 
 type Attempt struct {
-	RequestID         string
-	RequestStarted    time.Time
-	Index             uint64
-	Started           time.Time
-	Finished          time.Time
-	FirstToken        *time.Time
-	Usage             canonical.Usage
-	Failure           *Failure
+	RequestID      string
+	RequestStarted time.Time
+	Index          uint64
+	Started        time.Time
+	Finished       time.Time
+	FirstToken     *time.Time
+	Usage          canonical.Usage
+	Failure        *Failure
+	// RetryDelay is the wait before the next attempt; nil on the last attempt.
+	RetryDelay        *time.Duration
 	Status            *uint16
 	ResponseUs        *uint64
 	Categories        []protocol.ConversationObservationCategory
@@ -74,13 +76,24 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 	}
 	return previous
 }
+
+// A transient failure waits 5 seconds, then twice as long each time up to
+// retryCeiling, each wait spread by a fifth so that sessions that failed
+// together do not return together. A provider's Retry-After replaces the wait,
+// up to the same ceiling.
+const (
+	retryInitial = 5 * time.Second
+	retryCeiling = 60 * time.Second
+	retrySpread  = 0.2
+)
+
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool) error {
-	retries, delay := uint64(5), 60*time.Second
+	retries := uint64(5)
 	buffered := purpose == SummaryPurpose
 	if buffered {
-		retries, delay = 1, 5*time.Second
+		retries = 1
 	}
-	schedule := backoff.NewConstantBackOff(delay)
+	schedule := &backoff.ExponentialBackOff{InitialInterval: retryInitial, RandomizationFactor: retrySpread, Multiplier: 2, MaxInterval: retryCeiling}
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	var secrets []protocol.Secret
 	if sdk, ok := languageModel.(*sdkModel); ok {
@@ -153,6 +166,13 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			if attempt.Failure.status != nil {
 				attempt.Status = attempt.Failure.status
 			}
+			if !released && !escaped && index < retries && attempt.Failure.Retryable() && !errors.Is(ctx.Err(), context.Canceled) {
+				delay := schedule.NextBackOff()
+				if after := attempt.Failure.RetryAfter; after != nil && *after > 0 {
+					delay = min(*after, retryCeiling)
+				}
+				attempt.RetryDelay = &delay
+			}
 		}
 		if observe != nil {
 			if observationErr := observe(attempt); observationErr != nil {
@@ -169,10 +189,10 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			}
 			return nil
 		}
-		if released || escaped || index >= retries || !attempt.Failure.Retryable() || errors.Is(ctx.Err(), context.Canceled) {
+		if attempt.RetryDelay == nil {
 			return attempt.Failure
 		}
-		if err := timer.Sleep(ctx, schedule.NextBackOff()); err != nil {
+		if err := timer.Sleep(ctx, *attempt.RetryDelay); err != nil {
 			return Classify(err)
 		}
 	}

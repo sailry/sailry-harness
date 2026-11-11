@@ -2081,6 +2081,88 @@ func TestExtensions(t *testing.T) {
 		if b := findButton(t, tt, now); b.Busy || b.Disabled {
 			t.Errorf("the finished backup stayed busy %v, disabled %v", b.Busy, b.Disabled)
 		}
+		// The last backup's outcome is on the page: when it ended, what it
+		// left out, and the problem of a failed one.
+		shows := func(want ...string) {
+			t.Helper()
+			texts := strings.Join(tt.Texts(), "\n")
+			for _, text := range want {
+				if !strings.Contains(texts, text) {
+					t.Errorf("the page does not show %q: %q", text, tt.Texts())
+				}
+			}
+		}
+		if strings.Contains(strings.Join(tt.Texts(), "\n"), i18n.In("en", "backup_last")) {
+			t.Error("a Node that never backed up shows a last backup")
+		}
+		m.Backup.Saved.Last = BackupLast{At: time.Date(2026, 3, 7, 12, 0, 0, 0, time.Local), Skipped: 2}
+		tt.Frame()
+		shows(i18n.In("en", "backup_last"), "2026-03-07 12:00", i18n.In("en", "backup_last_skipped", "count", 2), i18n.In("en", "backup_last_done"))
+		m.Backup.Saved.Last = BackupLast{At: time.Date(2026, 3, 8, 12, 0, 0, 0, time.Local), Problem: "backup_denied", Reason: "backup folder is not writable"}
+		tt.Frame()
+		shows("2026-03-08 12:00", i18n.In("en", "backup_denied"))
+		// Keeping fewer backups deletes stored ones: it is confirmed once,
+		// naming the consequence. Keeping all is saved at once.
+		var kept []int
+		m.BackupActions.Keep = func(keep int) { kept = append(kept, keep); m.Backup.Saved.Keep = keep }
+		choose := func(label string) {
+			t.Helper()
+			for _, x := range tt.AccessAll() {
+				if x.Role == ui.RoleMenuButton && x.Name == i18n.In("en", "backup_keep") {
+					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(time.Second)
+				}
+			}
+			for _, x := range tt.AccessAll() {
+				if (x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox) && x.Name == label {
+					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(time.Second)
+					return
+				}
+			}
+			t.Fatalf("no retention %q: %q", label, tt.Texts())
+		}
+		choose(i18n.In("en", "backup_keep_last", "count", 7))
+		if len(kept) != 0 {
+			t.Fatalf("a retention that deletes backups was saved unconfirmed: %v", kept)
+		}
+		shows(i18n.In("en", "backup_keep_confirm", "count", 7), i18n.In("en", "backup_keep_consequence"))
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
+		if len(kept) != 0 {
+			t.Fatalf("a cancelled retention was saved: %v", kept)
+		}
+		choose(i18n.In("en", "backup_keep_last", "count", 7))
+		clickButton(t, tt, i18n.In("en", "settings_save"))
+		if !slices.Equal(kept, []int{7}) {
+			t.Fatalf("the confirmed retention saved %v", kept)
+		}
+		choose(i18n.In("en", "backup_keep_all"))
+		if !slices.Equal(kept, []int{7, 0}) {
+			t.Fatalf("keeping every backup saved %v", kept)
+		}
+		// A count the Node holds that the page does not offer is listed.
+		m.Backup.Saved.Keep = 5
+		tt.Frame()
+		shows(i18n.In("en", "backup_keep_last", "count", 5))
+		// A restored profile is offered in place of the one in use; the
+		// restart happens only when it is confirmed.
+		var restarted []string
+		m.BackupActions.Restart = func(target string) { restarted = append(restarted, target) }
+		m.backups.restart, m.backups.restarting = "/profiles/restored", true
+		tt.Frame()
+		shows(i18n.In("en", "backup_restart_restored")+"?", i18n.In("en", "backup_restart_consequence"))
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
+		if len(restarted) != 0 || m.backups.restarting {
+			t.Fatalf("a declined restart ran: %v", restarted)
+		}
+		m.backups.restarting = true
+		tt.Frame()
+		clickButton(t, tt, i18n.In("en", "updates_restart"))
+		if !slices.Equal(restarted, []string{"/profiles/restored"}) || m.backups.restarting {
+			t.Fatalf("the confirmed restart ran %v", restarted)
+		}
 	})
 	// A list row with no action is not a button and takes no hover style;
 	// one with an action is, and does.

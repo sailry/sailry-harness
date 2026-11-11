@@ -90,7 +90,7 @@ type sourceResponseItem struct {
 	CallID           string               `json:"call_id,omitempty"`
 	Name             string               `json:"name,omitempty"`
 	Arguments        string               `json:"arguments,omitempty"`
-	Output           *string              `json:"output,omitempty"`
+	Output           any                  `json:"output,omitempty"`
 	EncryptedContent *string              `json:"encrypted_content,omitempty"`
 	Summary          json.RawMessage      `json:"summary,omitempty"`
 }

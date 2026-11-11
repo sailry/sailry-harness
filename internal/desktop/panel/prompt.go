@@ -66,6 +66,7 @@ func (pr *Project) submitPrompt() {
 }
 func (pr *Project) promptDialog(c *ui.Context) {
 	pr.editorCloseDialog(c)
+	pr.editorConflictDialog(c)
 	form := &pr.prompt
 	if !form.open {
 		return

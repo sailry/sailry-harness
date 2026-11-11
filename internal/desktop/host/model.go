@@ -1,6 +1,8 @@
-// Package host is a host's page: the host's overview with its projects,
-// runtime and running sessions, the update dialog, the port forwards, and the
-// metrics in the right column. See docs/host.md.
+// Package host is a host's page: the header with the host's status and
+// uptimes, the monitor (processor, memory, utilization, network, disks,
+// storage and processes), the running sessions, the projects and the
+// runtime, with the update dialog, the port forwards and the metrics summary
+// in the right column. See docs/host.md.
 package host
 
 import (
@@ -21,6 +23,9 @@ type Host struct {
 	// generic one.
 	OS     string
 	Detail string // the platform line, an i18n key in the preview
+	// Offline is whether a live host's Node is not connected: its page keeps
+	// what is known and samples nothing.
+	Offline bool
 	// Projects are the host's projects; the counts are its worktrees,
 	// sessions and terminals.
 	Projects                       []Project
@@ -55,12 +60,16 @@ type Activity struct {
 
 // Runtime is what the host's Node tells of itself: empty fields are unknown.
 type Runtime struct {
-	Live                      bool
+	Live bool
+	// System is the preview's system version. A live host's platform is its
+	// header's line (Host.Detail) and is not repeated here.
 	Version, System, Timezone string
-	Uptime                    time.Duration // < 0 unknown
-	ProtocolMin, ProtocolMax  int           // 0 unknown
-	Loading                   bool
-	Error                     string
+	// Uptime is the computer's, since it started; NodeUptime is Sailry's on
+	// it, since its Node started. Each is < 0 when unknown.
+	Uptime, NodeUptime       time.Duration
+	ProtocolMin, ProtocolMax int // 0 unknown
+	Loading                  bool
+	Error                    string
 	// Known is whether a snapshot came at all (host_runtime_preview), or
 	// the workspace only knows of the host (workspace_runtime_preview).
 	Known bool
@@ -70,16 +79,18 @@ type Runtime struct {
 // unknown.
 type Fact struct{ Label, Value string }
 
-// Facts are the runtime's rows (Snapshot::facts); the uptime and the
-// protocol are formatted by Uptime and Protocol.
+// Facts are the runtime's rows (Snapshot::facts): the version, the time zone
+// and the protocol, and for the preview its system version. The uptimes are
+// the header's, and a live host's platform is the header's line: neither
+// shows twice.
 func (r Runtime) Facts() []Fact {
-	return []Fact{
-		{"host_version", strings.TrimSpace(r.Version)},
-		{"host_system_version", strings.TrimSpace(r.System)},
-		{"host_timezone", strings.TrimSpace(r.Timezone)},
-		{"host_uptime", ""},
-		{"host_protocol", Protocol(r.ProtocolMin, r.ProtocolMax)},
+	facts := []Fact{{"host_version", strings.TrimSpace(r.Version)}}
+	if !r.Live {
+		facts = append(facts, Fact{"host_system_version", strings.TrimSpace(r.System)})
 	}
+	return append(facts,
+		Fact{"host_timezone", strings.TrimSpace(r.Timezone)},
+		Fact{"host_protocol", Protocol(r.ProtocolMin, r.ProtocolMax)})
 }
 
 // UptimeParts are the uptime's two largest nonzero units, days, hours and
@@ -209,14 +220,38 @@ func (u *Update) Advance(expected Update) {
 	}
 }
 
-// Metrics is a sample of the host's load.
+// Metrics is a sample of the host's load, with the history of the samples
+// before it (Follow).
 type Metrics struct {
-	CPU                   float64 // percent
-	MemoryUsed, Memory    uint64  // bytes; Memory 0 unknown
-	Received, Transmitted uint64  // bytes over Interval
-	Interval              time.Duration
-	Disks                 []Disk
-	Processes             []Process
+	// At is when the Node took the sample.
+	At  time.Time
+	CPU float64 // percent, NaN unknown
+	// Cores are the logical processors' loads in percent, empty when the
+	// sample has none.
+	Cores []float64
+	// Load is the 1, 5 and 15 minute load averages, nil where the platform
+	// has none.
+	Load *[3]float64
+	// MemoryUsed is what is not available of Memory, and MemoryCached what
+	// is available but not free; Memory 0 is unknown.
+	MemoryUsed, MemoryCached, Memory uint64
+	// SwapUsed of Swap; Swap 0 is none or unknown.
+	SwapUsed, Swap uint64
+	// Received and Transmitted are bytes over Interval; the totals are
+	// since the computer started, when Totals is set.
+	Received, Transmitted           uint64
+	ReceivedTotal, TransmittedTotal uint64
+	Totals                          bool
+	Interval                        time.Duration
+	// Disks are every mount the sample lists; Volumes are the real ones.
+	Disks     []Disk
+	Processes []Process
+	// ProcessCount is how many processes run, < 0 unknown: Processes are
+	// the busiest of them.
+	ProcessCount int
+	// History are the last samples' points, oldest first, this sample's
+	// last.
+	History []Point
 }
 
 // Disk is a mounted volume.
@@ -228,9 +263,14 @@ type Disk struct {
 
 // Process is a busy process.
 type Process struct {
-	Name   string
-	CPU    float64
-	Memory uint64
+	Name string
+	// PID is 0 and Started 0 for the preview's examples.
+	PID     uint32
+	Started uint64
+	CPU     float64 // percent, NaN unknown
+	Memory  uint64
+	// History are the process's loads over the last samples, oldest first.
+	History []float64
 }
 
 // Bytes writes a size in binary units: 512 B, 1.0 KiB; "" for a value that is

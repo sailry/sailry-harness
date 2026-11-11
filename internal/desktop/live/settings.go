@@ -86,7 +86,7 @@ func (r *Runtime) savePower() {
 	}
 	m.Pending = true
 	request := protocol.PowerSettings{Revision: m.Revision, PreventSleep: m.Draft}
-	r.saveSetting(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, func(output protocol.Output, ok bool) {
+	r.saveSettingChecked(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, r.readPower, func(output protocol.Output, ok bool) {
 		if !r.showsSettings() {
 			return
 		}
@@ -107,7 +107,7 @@ func (r *Runtime) saveTelemetry() {
 	}
 	m.Pending = true
 	request := protocol.TelemetryUpdate{Revision: m.Revision, Errors: m.Draft.Errors, Metrics: m.Draft.Metrics}
-	r.saveSetting(protocol.Command{Kind: "save_telemetry_settings", Data: request}, settings.TelemetryMessages, func(output protocol.Output, ok bool) {
+	r.saveSettingChecked(protocol.Command{Kind: "save_telemetry_settings", Data: request}, settings.TelemetryMessages, r.readTelemetry, func(output protocol.Output, ok bool) {
 		m.Pending = false
 		if !ok {
 			return
@@ -118,8 +118,23 @@ func (r *Runtime) saveTelemetry() {
 	})
 }
 
+// saveSetting sends one settings save. The Client confirms an unobserved
+// result with the Node, so a save that was applied reports success with its
+// stored output and new revision, and one that failed reports its fault.
+// While the outcome is still open the toast is Uncertain and the same save,
+// sent again unchanged, carries the same request and resolves it.
 func (r *Runtime) saveSetting(command protocol.Command, messages settings.Messages, done func(protocol.Output, bool)) {
+	r.saveSettingChecked(command, messages, nil, done)
+}
+
+// saveSettingChecked also reads the section again, through reread, when the
+// Node can never tell whether the save was applied: the page would otherwise
+// keep a revision that the next save may be refused for.
+func (r *Runtime) saveSettingChecked(command protocol.Command, messages settings.Messages, reread func(), done func(protocol.Output, bool)) {
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
+		if reread != nil && client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			defer reread()
+		}
 		outcome := kit.Done
 		if err != nil {
 			outcome = kit.Failed

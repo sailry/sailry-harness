@@ -60,17 +60,32 @@ func Field(c *ui.Context, key any, label, hint string, control func()) {
 // Changes: our placement, padding and gap, the panel through Floating,
 // the backdrop in the palette's Backdrop, no title or footer of its own
 // (the callers build theirs), the eases inlined.
-func Dialog(c *ui.Context, open *bool, fn func()) ui.Element {
-	return dialog(c, open, true, fn)
+func Dialog(c *ui.Context, open *bool, fn func(), options ...DialogOptions) ui.Element {
+	o := DialogOptions{}
+	if len(options) > 0 {
+		o = options[0]
+	}
+	return dialog(c, open, true, o, fn)
+}
+
+// DialogOptions change how Dialog frames its content.
+type DialogOptions struct {
+	// Bleed is a dialog whose content draws to the panel's edges, as a file
+	// manager's window: no padding or gap, the content clipped to the
+	// panel's radius, and the panel centered in the window, 24 DIP clear of
+	// its edges, rather than a tenth down. The content gives the panel its
+	// size and keeps clear of the close button, 28 DIP square, 12 from the
+	// top and the right.
+	Bleed bool
 }
 
 // BareDialog is Dialog without its close button, for content that draws
 // its own (the welcome guide's banner).
 func BareDialog(c *ui.Context, open *bool, fn func()) ui.Element {
-	return dialog(c, open, false, fn)
+	return dialog(c, open, false, DialogOptions{}, fn)
 }
 
-func dialog(c *ui.Context, open *bool, closer bool, fn func()) ui.Element {
+func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) ui.Element {
 	p := theme.Of(c)
 	w, h := c.Size()
 	st := ui.Local(ui.Box(c).Absolute().Size(0, 0), "dialog", func() dialogState { return dialogState{} })
@@ -105,8 +120,15 @@ func dialog(c *ui.Context, open *bool, closer bool, fn func()) ui.Element {
 			from = 0.98
 		}
 		scale := from + (1-from)*shown
-		back.Justify(ui.Start).Padding(h/10, 0, 0, 0).Background(p.Backdrop().Alpha(0.4 * dim))
-		Floating(c, panel.Padding(20).Gap(12).MaxWidth(w-40).MaxHeight(h*0.9-20)).Scale(scale, scale).Opacity(shown)
+		back.Background(p.Backdrop().Alpha(0.4 * dim))
+		if o.Bleed {
+			back.Justify(ui.Center)
+			panel.Padding(0).Gap(0).MaxWidth(w - 48).MaxHeight(h - 48).Clip()
+		} else {
+			back.Justify(ui.Start).Padding(h/10, 0, 0, 0)
+			panel.Padding(20).Gap(12).MaxWidth(w - 40).MaxHeight(h*0.9 - 20)
+		}
+		Floating(c, panel).Scale(scale, scale).Opacity(shown)
 		fn()
 		if !closer {
 			return

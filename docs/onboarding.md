@@ -32,9 +32,9 @@ high at most, no padding, a 1 DIP border and `radius_lg`, not closed by a
 click outside: the banner (34 above, 28 below, 36 aside) with the 56 DIP
 white mark, the title (24 semibold) 14 under it and the description 6
 under that, in white over the gradient, and a white 32 DIP close at 12 from
-the top right; the providers' picker (20 above, 26 below, 28 aside); the
-diagnostics note (`telemetry_welcome`, muted) and a small ghost Settings 8
-under it, centered (36 aside, 24 below).
+the top right; the providers' picker (20 above, 26 below, 28 aside), which
+ends the guide. It has no diagnostics note and no Settings button
+([removed-ui.md](removed-ui.md)).
 
 ## Actions
 
@@ -42,7 +42,6 @@ under it, centered (36 aside, 24 below).
 |---|---|
 | A provider or login | the guide closes as seen; Settings › Providers opens with the add editor on that choice (`settings.ProviderPicker`) |
 | The editor's Back on its first step | the editor closes and the guide comes back (`ReturnTo`, flow.rs `Origin::Welcome`) |
-| Settings | Settings › General, where diagnostics are |
 | Close, Escape | closed, seen |
 
 ## Wiring a backend

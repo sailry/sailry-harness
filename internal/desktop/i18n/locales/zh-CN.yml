@@ -167,9 +167,6 @@ question_other: 其他
 question_decline: 拒绝回答
 interaction_submit: 提交
 interaction_cancel: 取消
-approval_deny_reason: 附理由拒绝
-approval_reason: 理由
-approval_reason_cancel: 取消
 approval_receipt: 审批回执
 approval_busy: 审批处理中
 approval_ssh_trust: 信任 %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -307,6 +304,7 @@ worktree_remove_busy: worktree 正在使用，请稍后重新打开
 worktree_remove_dirty: worktree 包含未提交改动，不能移除
 worktree_remove_conflict: worktree 有改动、会话占用或引用已变化，请检查后重新打开
 worktree_remove_missing: worktree 或所属项目已不存在，请重新打开管理列表
+worktree_unused: 无会话
 git_branch_exists: 分支已存在，换个名称
 git_branch_checked_out: 分支已在其他 worktree 中检出
 git_index_failed: 暂存区更新失败，请重试
@@ -358,7 +356,7 @@ project_name_placeholder: 输入名称
 project_path_placeholder: 选择目录
 project_repository_placeholder: https://github.com/org/repository.git
 project_branch_placeholder: 默认分支
-directory_title: 选择目录
+directory_title: 选择文件夹
 project_required: 请填写项目名称和路径
 project_duplicate_path: 此主机已添加相同路径的项目
 project_clone_required: 请填写名称、仓库和保存位置
@@ -721,15 +719,15 @@ dictation_preparing: 正在准备本地语音模型
 dictation_transcribing: 正在识别
 directory_back: 后退
 directory_forward: 前进
-directory_up: 上级目录
+directory_up: 上级文件夹
 directory_filter: 筛选
-directory_home: 主目录
+directory_home: 主文件夹
 directory_desktop: 桌面
 directory_documents: 文档
 directory_downloads: 下载
 directory_locations: 位置
-directory_count_directories: '%{count} 目录'
-directory_count_files: '%{count} 文件'
+directory_count_directories: '%{count} 个文件夹'
+directory_count_files: '%{count} 个文件'
 directory_name: 名称
 directory_size: 大小
 directory_kind: 种类
@@ -880,7 +878,6 @@ message_display_compact: 简洁
 message_display_detailed: 详细
 message_text_extra_large: 特大
 message_text_large: 稍大
-message_text_size_value: '%{size}px'
 message_text_small: 小
 message_text_standard: 标准
 model_library_manage: 管理模型
@@ -1033,7 +1030,6 @@ telemetry_send_action: 发送诊断信息
 telemetry_support: 支持
 telemetry_title: 诊断与隐私
 telemetry_unknown: 结果未知，请重新加载确认
-telemetry_welcome: 匿名诊断默认开启，可在设置中更改
 terminal_environment: 全局环境变量
 terminal_environment_add: 添加环境变量
 terminal_input: 输入
@@ -1156,6 +1152,16 @@ search_driver_auto: 自动
 knowledge_settings: 默认设置
 knowledge_default_model: 向量模型
 knowledge_keyword_only: 仅关键词
+knowledge_collections: 集合
+knowledge_collection_pending: 等待索引
+knowledge_collection_indexing: 索引中 · %{count} 项
+knowledge_collection_ready: 已是最新 · %{count} 项
+knowledge_collection_paused: 已暂停
+knowledge_collection_failed: 失败 · %{reason}
+knowledge_collection_failures: '%{count} 项未索引 · %{reason}'
+knowledge_pause: 暂停
+knowledge_resume: 继续
+knowledge_update: 更新
 runtime_decision: 决策
 runtime_decision_model: 模型
 runtime_decision_enable: 启用决策
@@ -1520,6 +1526,31 @@ metrics_worker: 示例工作进程
 metrics_indexer: 示例索引进程
 metrics_loading: 等待指标（示例）
 metrics_error: 指标暂不可用（示例）
+host_node_uptime: Sailry 运行
+host_sampling: 等待采样
+host_sampling_failed: 主机数据未更新
+host_metric_unavailable: 暂无数据
+host_cores: '%{count} 核'
+host_load: 负载
+host_core: 核心 %{index} · %{value}
+host_memory_total: 共 %{value}
+host_memory_used: 已用
+host_memory_cached: 缓存
+host_memory_swap: 交换
+host_utilization: 利用率
+host_network_total: 累计自开机
+host_disk_write: 写入
+host_disk_read: 读取
+host_storage: 存储
+host_partition_count: '%{count} 个分区'
+host_read_short: R
+host_write_short: W
+host_process_search: 搜索进程
+host_process_limited: 仅显示占用最高的 2048 个进程
+host_process_name: 进程
+host_pid: PID
+host_process_empty: 暂无进程
+host_process_no_matches: 无匹配进程
 port_title: 端口转发
 port_mappings: 端口映射
 port_add: 新建转发
@@ -1662,6 +1693,11 @@ workspace_action_failed: 工作区操作失败
 workspace_changed: 工作区已变更，请刷新后重试
 workspace_action_unknown: 结果尚不确定，请检查后再重试
 workspace_saved: 已保存
+files_changed_on_disk: 磁盘上已更改
+files_conflict_description: 覆盖会用草稿替换磁盘上的文件，重新加载会丢弃草稿
+files_keep_editing: 继续编辑
+files_reload: 重新加载
+files_overwrite: 覆盖
 workspace_completed: 已完成
 workspace_restore_confirm: 恢复此轮操作前的文件版本
 artifact_edit_prompt: 修改要求：
@@ -1962,6 +1998,7 @@ knowledge_saved: 已保存
 knowledge_cancel_requested: 已请求取消
 model_library_failed: 无法加载模型
 model_library_partial: 部分结果不可用
+model_library_speech_unsupported: 模型库不支持添加语音模型
 local_models_unavailable: 不可用
 dictation_unavailable: 本地语音输入不可用
 dictation_model_missing: 请先下载语音模型
@@ -2051,21 +2088,21 @@ updates_save_first: 请先保存打开的文档
 notification_details: 详情
 directory_action_failed: 操作失败，请检查路径和权限
 directory_address: 输入路径
-directory_count_hidden: '%{count} 隐藏'
+directory_count_hidden: '%{count} 个隐藏项'
 directory_create: 新建文件夹
-directory_denied: 此目录为无访问权限示例，可选择其他目录
+directory_denied: 没有权限访问此文件夹
 directory_devices: 设备
 directory_extension_kind: '%{extension} 文件'
 directory_go_to: 前往文件夹
 directory_grid: 网格
-directory_hidden: 隐藏项
+directory_hidden: 显示隐藏项
 directory_image_kind: 图像
 directory_invalid_name: 请输入有效名称
 directory_json_kind: JSON 文件
 directory_keep_both: 保留两者
 directory_list: 列表
 directory_markdown_kind: Markdown 文档
-directory_missing: 此路径不在该主机的示例目录中，可返回示例位置
+directory_missing: 文件夹不存在
 directory_refresh: 刷新
 directory_root: 根目录
 directory_stale: 原表单路径已变更，请关闭后重新选择
@@ -2080,7 +2117,7 @@ files_trash_confirm: 确认删除“%{name}”
 live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识
 plugins_loading: 正在读取
 project_appearance: 项目外观
-project_clone_failed: 克隆未完成，请检查目标目录
+project_clone_failed: 克隆失败，请检查地址、分支和网络
 project_grant: 信任并继续
 project_grant_description: 信任后，项目指令和工具可能执行代码，适用于所有 worktree
 project_grant_title: 信任此项目
@@ -2165,3 +2202,38 @@ code_index_settings_saved: 已保存
 code_index_settings_failed: 无法读取或保存代码索引设置
 code_index_settings_conflict: 代码索引设置已更改，请重试
 code_index_settings_unknown: 无法确认是否已保存代码索引设置
+directory_modified: 修改时间
+directory_modified_today: 今天 %{time}
+directory_modified_yesterday: 昨天 %{time}
+directory_counts: '%{directories} 个文件夹，%{files} 个文件'
+directory_counts_hidden: '%{directories} 个文件夹，%{files} 个文件，%{hidden} 个隐藏项'
+directory_selected_files: 已选择 %{count} 个文件
+directory_nothing_selected: 未选择文件
+directory_failed: 无法读取文件夹
+directory_host_unavailable: 主机不可用
+directory_fallback: 无法打开 %{path}，已显示主文件夹
+directory_trash: 移到废纸篓
+directory_trash_confirm: 将“%{name}”移到废纸篓
+queue_guidance_outlived: 回复已结束，已排队为新消息
+queue_wait_held: 暂缓
+queue_wait_paused: 已暂停
+queue_wait_stopped: 停止后暂停
+queue_wait_interrupted: 中断后暂停
+queue_wait_unsent: 未发送
+queue_wait_limit: 已达自动续接上限
+queue_wait_failed: 失败后暂缓
+chat_output_limit: 回复已达输出上限
+start_failed: Sailry 无法启动
+start_profile_in_use: Sailry 已在使用此数据目录运行
+backup_keep: 保留的备份
+backup_keep_all: 全部
+backup_keep_last: 最近 %{count} 个
+backup_keep_confirm: 仅保留最近 %{count} 个备份？
+backup_keep_consequence: 每次备份后，将从存储中删除此节点更早的备份，且无法恢复
+backup_last: 上次备份
+backup_last_done: 已完成
+backup_last_skipped: 已跳过 %{count} 项
+backup_restart_restored: 使用恢复的数据重启
+backup_restart_consequence: Sailry 将使用恢复的数据重启，当前数据目录会以带日期的名称保留在其旁边
+backup_restart_invalid: 恢复的数据无法使用，未做任何更改
+backup_restart_failed: Sailry 无法切换到恢复的数据

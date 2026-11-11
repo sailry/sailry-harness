@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -40,14 +42,17 @@ type stage struct {
 	overview   *projectOverview
 }
 
-// demoMode is the demo while it shows: the stage that waits, and the
-// language the demo was written in.
+// demoMode is the demo while it shows: the stage that waits, the language
+// the demo was written in, and the usage the demo counts.
 type demoMode struct {
 	parked stage
 	locale string
+	usage  *preview.Usage
 	// under is set while the window's own stage is back on the fields
 	// (underneath).
 	under bool
+	// data is the demo's dataset, which DemoConversation reads.
+	data *viewmodel.Data
 }
 
 func (a *App) onStage() stage {
@@ -65,6 +70,27 @@ func (a *App) setStage(s stage) {
 // Demo reports whether the window shows the demo conversations.
 func (a *App) Demo() bool { return a.demo != nil && !a.demo.under }
 
+// DemoConversation is the demo's conversation of that ID, nil without the
+// demo. Unlike Demo it also answers while the window's own stage is back on
+// the fields: the controller's frame hooks keep what it mounted over a demo
+// conversation (Hooks.DemoConversation) for as long as the demo has it.
+func (a *App) DemoConversation(id string) *viewmodel.Conversation {
+	if a.demo == nil || a.demo.data == nil {
+		return nil
+	}
+	return a.demo.data.Find(id)
+}
+
+// DemoUsage is the usage the demo counts, which the Usage page reads while
+// the demo shows; nil without the demo. Unlike Demo it also answers while
+// the window's own stage is back on the fields.
+func (a *App) DemoUsage() *preview.Usage {
+	if a.demo == nil {
+		return nil
+	}
+	return a.demo.usage
+}
+
 // sampled reports whether the conversations shown are sample data, whose
 // actions stay in memory: the preview's, or the demo's.
 func (a *App) sampled() bool { return a.Preview || a.Demo() }
@@ -74,14 +100,19 @@ func (a *App) sampled() bool { return a.Preview || a.Demo() }
 // window's language when that changed.
 func (a *App) syncDemo(c *ui.Context) {
 	on, locale := a.Settings.Model.DemoMode, i18n.Match(c.Locale())
+	changed := false
 	if a.demo != nil && (!on || a.demo.locale != locale) {
 		a.setStage(a.demo.parked)
-		a.demo = nil
+		a.demo, changed = nil, true
 	}
 	if on && a.demo == nil {
 		a.enterDemo(locale)
+		changed = true
 	}
 	kit.SetDemo(c, a.demo != nil)
+	if changed && a.Hooks.DemoChanged != nil {
+		a.underneath(a.Hooks.DemoChanged)
+	}
 	if a.demo == nil {
 		return
 	}
@@ -106,11 +137,12 @@ func (a *App) enterDemo(locale string) {
 		}
 	}
 	d := preview.Demo(locale, host)
-	a.demo = &demoMode{parked: own, locale: locale}
+	a.demo = &demoMode{parked: own, locale: locale, usage: preview.DemoUsage(d, locale, time.Now)}
 	side := sidebar.New(d, preview.DemoStart)
 	side.Sort = own.sidebar.Sort
 	shown := panel.New(d.Workspace)
 	shown.Demo = true
+	a.demo.data = d
 	// A reply's links to the demo's files and pictures show as their cards.
 	messages := conversation.New()
 	messages.Embed = func(session, dest, _ string, image bool) (conversation.Embed, bool) {

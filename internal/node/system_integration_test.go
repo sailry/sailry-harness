@@ -427,7 +427,8 @@ func TestSystemComputerIntegration(t *testing.T) {
 		}
 	}
 	offered, _ := script.offered.Load().([]string)
-	for _, name := range []string{script.read, script.control} {
+	// The model reads an MCP tool as mcp__{server}__{tool}.
+	for _, name := range []string{"mcp__desktop__desktop_snapshot", "mcp__desktop__desktop_click"} {
 		if count := len(slices.DeleteFunc(slices.Clone(offered), func(candidate string) bool { return candidate != name })); count != 1 {
 			t.Fatalf("the helper tool %s was offered %d times: %v", name, count, offered)
 		}

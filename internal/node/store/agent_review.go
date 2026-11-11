@@ -127,7 +127,16 @@ func PublishPlanReview(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 			return nil, nil, nil, nil
 		}
 		if message := records[i].Message(); message != nil {
-			source = &records[i]
+			// The reviewed answer is the last assistant text the user can see;
+			// hidden runtime notes and empty messages after it do not hide it.
+			if runtime := records[i].Metadata.Runtime; message.Role == canonical.Assistant && (runtime == nil || runtime.UserVisible) {
+				for _, block := range message.Content {
+					if text, ok := block.Data.(*canonical.TextContent); ok && text.Text != "" {
+						source = &records[i]
+						break
+					}
+				}
+			}
 			for _, block := range message.Content {
 				if request, ok := block.Data.(*canonical.ToolRequest); ok && request.Name == "ask_user" && request.Error == nil {
 					var spec protocol.ConversationQuestionSpec

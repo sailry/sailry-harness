@@ -70,19 +70,7 @@ func notificationCommand(ctx context.Context, db *sql.Conn, command protocol.Com
 				return protocol.Output{}, nil, invalid("notification details must be bounded text")
 			}
 		}
-		sequence, err := NextCounter(ctx, db, CounterNotifications)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		value := protocol.NotificationNotice{ID: protocol.NewNotificationID(), Sequence: sequence, Package: input.Package.Name, Content: content, TimestampMs: time.Now().UnixMilli()}
-		body, err := encode(value)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO notifications(sequence,id,body) VALUES(?1,?2,?3)", sequence, value.ID.String(), body); err != nil {
-			return protocol.Output{}, nil, err
-		}
-		_, err = db.ExecContext(ctx, "DELETE FROM notifications WHERE sequence NOT IN (SELECT sequence FROM notifications ORDER BY sequence DESC LIMIT 200)")
+		value, err := insertNotice(ctx, db, input.Package.Name, content, time.Now().UnixMilli())
 		return protocol.Output{Kind: "notification", Data: value}, []protocol.Event{{Kind: "notification_changed", Data: value}}, err
 	case *protocol.CommandMarkNotificationReadPayload:
 		value, err := readBody[protocol.NotificationNotice](ctx, db, "SELECT body FROM notifications WHERE id=?1", input.ID.String())

@@ -137,7 +137,10 @@ func SaveBackupSettings(ctx context.Context, db *sql.Conn, input protocol.Backup
 			*change.current = nil
 		}
 	}
+	// The last outcome is the Node's record, not a setting.
+	last := stored.Settings.Last
 	stored.Settings = input.Settings
+	stored.Settings.Last = last
 	if stored.Settings.Revision >= math.MaxInt64 {
 		return protocol.BackupSettings{}, nil, invalid("backup settings revision is exhausted")
 	}
@@ -158,6 +161,22 @@ func SaveBackupSettings(ctx context.Context, db *sql.Conn, input protocol.Backup
 		return protocol.BackupSettings{}, nil, err
 	}
 	return stored.Settings, []protocol.Event{{Kind: "backup_settings_changed", Data: protocol.EventBackupSettingsChangedPayload{Revision: stored.Settings.Revision}}}, nil
+}
+
+// RecordBackupOutcome keeps how the most recent backup ended, for the Backup
+// page. It is not a settings change: the revision stays.
+func RecordBackupOutcome(ctx context.Context, db *sql.Conn, outcome protocol.BackupOutcome) error {
+	stored, err := readBackup(ctx, db)
+	if err != nil {
+		return err
+	}
+	stored.Settings.Last = &outcome
+	body, err := encode(stored)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO backup_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
+	return err
 }
 
 // configureBackupDispatch registers the one controller-only scheduled command.
@@ -232,6 +251,7 @@ func BackupPlan(ctx context.Context, db *sql.Conn, expected *uint64) (backup.Pla
 	}
 	return backup.Plan{
 		Destination: stored.Settings.Destination, Local: stored.Settings.Local, OnlineEnabled: stored.Settings.OnlineEnabled,
+		Keep: stored.Settings.Keep,
 		Auth: backup.Auth{
 			Identity: stored.Auth.Identity, Secret: stored.Auth.Secret,
 			SessionToken: stored.Auth.SessionToken, Passphrase: stored.Auth.Passphrase,
@@ -279,7 +299,8 @@ func PrepareBackup(ctx context.Context, db *sql.Conn, profile string, command pr
 }
 
 // BackupSource reads the plan and the profile-relative content roots of one
-// snapshot. The caller holds the exclusive lease of the Node database.
+// snapshot, on the connection that pins the state the database copy is made
+// from.
 func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, revision uint64) (backup.Plan, []string, error) {
 	var identity []byte
 	if err := db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {
@@ -315,8 +336,10 @@ func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 			if err != nil || !filepath.IsLocal(relative) {
 				continue
 			}
+			// A folder the user registered inside the profile is theirs,
+			// as one outside it: only Sailry's own workspaces are archived.
 			if !core.ManagedWorkspace(value, profile) {
-				return backup.Plan{}, nil, invalid("worktree is outside a managed profile workspace")
+				continue
 			}
 			roots = append(roots, filepath.ToSlash(relative))
 		}
@@ -346,7 +369,7 @@ func backupStrings(ctx context.Context, db *sql.Conn, query string) ([]string, e
 func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
 	handle := exclusive.handle
 	var busy, log, checkpointed int
-	if err := exclusive.connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
+	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
 		return nil, err
 	}
 	if busy != 0 {

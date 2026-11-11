@@ -120,16 +120,15 @@ type target struct {
 
 // Scan walks one source depth first.
 type Scan struct {
-	ctx        context.Context
-	ocr        *OCR
-	frames     []*frame
-	inherited  []layer
-	pending    *target
-	omitted    *Entry
-	base       string
-	finished   bool
-	incomplete bool
-	watches    []Watch
+	ctx       context.Context
+	ocr       *OCR
+	frames    []*frame
+	inherited []layer
+	pending   *target
+	omitted   *Entry
+	base      string
+	finished  bool
+	watches   []Watch
 }
 
 func newFrame(ctx context.Context, directory *os.Root, relative string) (*frame, error) {
@@ -280,9 +279,6 @@ func (scan *Scan) TakeWatches() []Watch {
 	return watches
 }
 
-// Complete reports a scan that visited every directory.
-func (scan *Scan) Complete() bool { return scan.finished && !scan.incomplete }
-
 // Next returns the next entry, or nil at the end. reuse reports a file whose
 // stamp the index still holds; watch receives directories as they are found,
 // before their files are read.
@@ -302,10 +298,9 @@ func (scan *Scan) extract(file *target, reuse func(string, Stat) (bool, error)) 
 	defer file.directory.Close()
 	path := scan.locator(file.relative)
 	entry, err := read(scan.ctx, file, path, reuse, scan.ocr)
-	if err != nil && code(err) == protocol.ErrorCodeInvalidRequest {
-		var fault *protocol.Fault
-		errors.As(err, &fault)
-		return skipped(path, fault.Message), nil
+	if err != nil && code(err) != protocol.ErrorCodeCancelled {
+		// One unreadable file never ends the scan.
+		return unread(path, err, false), nil
 	}
 	return entry, err
 }
@@ -347,8 +342,12 @@ func (scan *Scan) advance(reuse func(string, Stat) (bool, error), watch func([]W
 			return skipped(path, "unsupported source entry name"), nil
 		}
 		metadata, err := current.directory.Lstat(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			// Removed since the directory was listed.
+			continue
+		}
 		if err != nil {
-			return nil, ioFault(err)
+			return unread(path, ioFault(err), false), nil
 		}
 		if metadata.Mode()&os.ModeSymlink != 0 || !metadata.IsDir() && !metadata.Mode().IsRegular() {
 			return skipped(path, "source is not a regular file or directory"), nil
@@ -358,29 +357,27 @@ func (scan *Scan) advance(reuse func(string, Stat) (bool, error), watch func([]W
 		}
 		directory, err := current.directory.OpenRoot(".")
 		if err != nil {
-			return nil, ioFault(err)
+			return unread(path, ioFault(err), metadata.IsDir()), nil
 		}
 		if !metadata.IsDir() {
 			return scan.extract(&target{directory, name, relative}, reuse)
 		}
 		if len(scan.frames) >= 64 {
 			directory.Close()
-			return nil, invalid("directory nesting exceeds 64 levels")
+			return skipped(path, "directory nesting exceeds 64 levels"), nil
 		}
 		var child *frame
 		if directory, err = descend(directory, name); err == nil {
 			child, err = newFrame(scan.ctx, directory, relative)
 		}
 		if err != nil {
-			if code(err) != protocol.ErrorCodeInvalidRequest {
+			if code(err) == protocol.ErrorCodeCancelled {
 				return nil, err
 			}
-			var fault *protocol.Fault
-			errors.As(err, &fault)
-			scan.incomplete = true
+			// The rest of the scan continues without this directory.
 			scan.watchFrame(relative)
 			watch(scan.TakeWatches())
-			return skipped(path, fault.Message), nil
+			return unread(path, err, true), nil
 		}
 		scan.frames = append(scan.frames, child)
 		scan.watchFrame("")

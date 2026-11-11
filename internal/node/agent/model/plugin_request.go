@@ -219,6 +219,12 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 					_ = json.Unmarshal(raw, &value)
 					raw, _ = json.Marshal(map[string]any{"content": []any{map[string]any{"type": "text", "text": result}}, "structuredContent": value, "isError": content.Status == canonical.ToolErrorStatus})
 				}
+				if content.Format != canonical.MCPError && (**binding.Provider.Binding).Adapter.Capabilities.Vision {
+					// The adapter reads tool images as content of the result.
+					if raw, err = toolMediaParts(binding, raw, *content, request.Assets); err != nil {
+						return input, err
+					}
+				}
 				name := content.Name
 				if captured := calls[content.ID]; captured != "" {
 					name = captured

@@ -55,6 +55,19 @@ func (handle *Handle) Close() error {
 	if err := handle.leases.Acquire(context.Background(), allLeases); err != nil {
 		return err
 	}
+	return handle.closeOwned()
+}
+
+// closeIdle closes the handle unless a lease is held.
+func (handle *Handle) closeIdle() error {
+	if !handle.leases.TryAcquire(allLeases) {
+		return nil
+	}
+	return handle.closeOwned()
+}
+
+// closeOwned closes the connections under every lease and returns the leases.
+func (handle *Handle) closeOwned() error {
 	defer handle.leases.Release(allLeases)
 	handle.mu.Lock()
 	defer handle.mu.Unlock()
@@ -145,7 +158,7 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	}
 	state := &connections{
 		writeDB: writeDB, readDB: readDB,
-		writer: &writer{connection: connection, jobs: make(chan *writeJob), stop: make(chan struct{}), done: make(chan struct{})},
+		writer: &writer{database: writeDB, connection: connection, jobs: make(chan *writeJob), stop: make(chan struct{}), done: make(chan struct{})},
 	}
 	go state.writer.run()
 	return state, nil

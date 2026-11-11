@@ -7,11 +7,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// TestEffects groups the effect simulation; each case keeps its own fixture.
+// TestEffects groups the effect simulation and the loading marks, which
+// follow the same motion rules; each case keeps its own fixture.
 func TestEffects(t *testing.T) {
 	t.Run("EffectsFollowMotion", testEffectsFollowMotion)
 	t.Run("EffectsAreDeterministic", testEffectsAreDeterministic)
 	t.Run("EffectSimulation", testEffectSimulation)
+	t.Run("LoadingMarks", testLoadingMarks)
+	t.Run("LoadingSheet", loadingSheet)
 }
 
 // Theme effects ask for frames while they show, and none with Reduce

@@ -409,4 +409,57 @@ func TestScheduleNextRun(t *testing.T) {
 	if due := next(); due == nil || time.UnixMilli(*due).UTC().Format(time.RFC3339) != "2026-03-08T12:30:00Z" {
 		t.Fatalf("next run after the scheduled export = %v", due)
 	}
+
+	// The outcome of a backup nobody watched is kept for the Backup page.
+	read := func() protocol.BackupSettings {
+		t.Helper()
+		return commandFixture(t, node, protocol.Command{Kind: "read_backup_settings"}).Data.(protocol.BackupSettings)
+	}
+	last := func() protocol.BackupOutcome {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			if settings := read(); settings.Last != nil {
+				return *settings.Last
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the scheduled backup recorded no outcome")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if outcome := last(); outcome.Error != nil || outcome.Reason != "" || outcome.FinishedMs < uint64(start.UnixMilli()) {
+		t.Fatalf("outcome of the scheduled backup = %#v", outcome)
+	}
+	// Retention is a setting; saving one keeps the recorded outcome.
+	kept := backupFixtureSave(t, node, func(update *protocol.BackupUpdate) {
+		update.Settings.Keep, update.Settings.Last = 1, nil
+	})
+	if kept.Fault != nil || kept.Output.Data.(protocol.BackupSettings).Keep != 1 || kept.Output.Data.(protocol.BackupSettings).Last == nil {
+		t.Fatalf("retention save = %#v", kept)
+	}
+	export := func() link.Response {
+		t.Helper()
+		return backupFixtureDispatch(t, node, protocol.Command{Kind: "export_backup", Data: protocol.CommandExportBackupPayload{ExpectedRevision: read().Revision}})
+	}
+	manual := export()
+	if manual.Fault != nil {
+		t.Fatal(manual.Fault)
+	}
+	if page := commandFixture(t, node, protocol.Command{Kind: "list_backups"}).Data.(protocol.BackupPage); len(page.Records) != 1 || page.Records[0].ID != manual.Output.Data.(protocol.BackupRecord).ID {
+		t.Fatalf("backups kept with a limit of one = %#v", page)
+	}
+	// A failed backup says so, with its reason.
+	if err := os.RemoveAll(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(directory, []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failed := export(); failed.Fault == nil {
+		t.Fatalf("export into a file = %#v", failed)
+	}
+	if outcome := *read().Last; outcome.Error == nil || outcome.Reason == "" {
+		t.Fatalf("outcome of the failed backup = %#v", outcome)
+	}
 }

@@ -167,9 +167,6 @@ question_other: Autre
 question_decline: Refuser
 interaction_submit: Envoyer
 interaction_cancel: Annuler
-approval_deny_reason: Refuser avec un motif
-approval_reason: Motif
-approval_reason_cancel: Annuler
 approval_receipt: Réception de l'approbation
 approval_busy: Approbation en attente
 approval_ssh_trust: Faire confiance à %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -307,6 +304,7 @@ worktree_remove_busy: Worktree est en cours d'utilisation
 worktree_remove_dirty: Worktree a des modifications non validées; ne peut pas supprimer
 worktree_remove_conflict: Arbre de travail modifié, actualiser avant de supprimer
 worktree_remove_missing: Page non trouvée
+worktree_unused: No session
 git_branch_exists: Branche existe déjà
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: Impossible de mettre à jour le staging, réessayez
@@ -880,7 +878,6 @@ message_display_compact: Compact
 message_display_detailed: Détaillé
 message_text_extra_large: Très grand
 message_text_large: Grand
-message_text_size_value: '%{size}px'
 message_text_small: Petit
 message_text_standard: Standard
 model_library_manage: Gérer les modèles
@@ -1033,7 +1030,6 @@ telemetry_send_action: Envoyer un diagnostic
 telemetry_support: Assistance
 telemetry_title: Diagnostic et confidentialité
 telemetry_unknown: Résultat inconnu. Rechargez pour vérifier
-telemetry_welcome: Les diagnostics anonymes sont activés par défaut. Modifiez ce choix dans les paramètres
 terminal_environment: Variables environnementales mondiales
 terminal_environment_add: Ajouter une variable d'environnement
 terminal_input: Entrée
@@ -1156,6 +1152,16 @@ search_driver_auto: Automatique
 knowledge_settings: Valeurs par défaut
 knowledge_default_model: Modèle vectoriel
 knowledge_keyword_only: Mots-clés uniquement
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: Décisions
 runtime_decision_model: Modèle
 runtime_decision_enable: Activer les décisions
@@ -1520,6 +1526,31 @@ metrics_worker: Aperçu du travailleur
 metrics_indexer: Indexeur de l’aperçu
 metrics_loading: Attente des métriques (aperçu)
 metrics_error: Metrics indisponible (aperçu)
+host_node_uptime: Durée Sailry
+host_sampling: En attente pour l'échantillon
+host_sampling_failed: Données d'hôte non mises à jour
+host_metric_unavailable: Aucune donnée
+host_cores: '%{count} cœurs'
+host_load: Charge
+host_core: Cœur %{index} · %{value}
+host_memory_total: '%{value} au total'
+host_memory_used: Utilisée
+host_memory_cached: Cache
+host_memory_swap: Swap
+host_utilization: Utilisation
+host_network_total: Depuis le démarrage
+host_disk_write: Écriture
+host_disk_read: Lecture
+host_storage: Stockage
+host_partition_count: '%{count} partitions'
+host_read_short: R
+host_write_short: W
+host_process_search: Processus de recherche
+host_process_limited: Affichage du top 2048 processus par utilisation
+host_process_name: Processus
+host_pid: PID
+host_process_empty: Pas de processus
+host_process_no_matches: Pas de processus de correspondance
 port_title: Redirection de port
 port_mappings: Mappings de ports
 port_add: Nouveau tunnel
@@ -1662,6 +1693,11 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 'Changements demandés :'
@@ -1962,6 +1998,7 @@ knowledge_saved: Enregistré
 knowledge_cancel_requested: Annulation demandée
 model_library_failed: Impossible de charger les modèles
 model_library_partial: Certains résultats sont indisponibles
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: Indisponible
 dictation_unavailable: Entrée vocale locale non disponible
 dictation_model_missing: Télécharger un modèle de discours en premier
@@ -2053,7 +2090,7 @@ directory_action_failed: Opération échouée; vérifiez le chemin et les autori
 directory_address: Entrez le chemin
 directory_count_hidden: '%{count} masqués'
 directory_create: Nouveau dossier
-directory_denied: Aperçu refusé; choisissez un autre répertoire
+directory_denied: Aucune autorisation d'ouvrir ce dossier
 directory_devices: Appareils
 directory_extension_kind: Fichier %{extension}
 directory_go_to: Aller au dossier
@@ -2065,7 +2102,7 @@ directory_json_kind: Fichier JSON
 directory_keep_both: Gardez les deux
 directory_list: Liste
 directory_markdown_kind: Document Markdown
-directory_missing: Chemin non dans l'aperçu de cet hôte; retourner à un emplacement d'aperçu
+directory_missing: Dossier introuvable
 directory_refresh: Actualiser
 directory_root: Racine
 directory_stale: Changement du chemin du formulaire; rouvrir le sélecteur
@@ -2165,3 +2202,38 @@ code_index_settings_saved: Saved
 code_index_settings_failed: Could not load or save code index settings
 code_index_settings_conflict: Code index settings changed; try again
 code_index_settings_unknown: Saving code index settings could not be confirmed
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: Last %{count}
+backup_keep_confirm: Keep only the last %{count} backups?
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

@@ -101,7 +101,7 @@ func (state *pluginNativeState) composerSource() (*viewmodel.Conversation, *comp
 
 func (state *pluginNativeState) refreshComposer() {
 	owner := state.composer
-	if owner == nil {
+	if owner == nil || state.refreshDemoComposer() {
 		return
 	}
 	info, available := state.packageInfo()

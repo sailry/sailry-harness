@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -19,10 +20,16 @@ var backupMessages = Messages{"backup_saved", "backup_failed", "backup_conflict"
 type backupDialogs struct {
 	editing, archives, deleting bool
 	draft                       BackupTarget
-	records, restoring          bool
-	restore                     BackupRestore
-	removing                    bool
-	removed, removedTitle       string
+	// keeping is the retention awaiting its confirmation.
+	keeping               bool
+	keep                  int
+	records, restoring    bool
+	restore               BackupRestore
+	removing              bool
+	removed, removedTitle string
+	// restarting offers the restart on the profile just restored at restart.
+	restarting bool
+	restart    string
 }
 
 // Check validates the storage draft: the i18n key of the problem, or "".
@@ -39,6 +46,50 @@ func (b *BackupTarget) Check() string {
 		return "backup_passphrase_mismatch"
 	}
 	return ""
+}
+
+// BackupKeeps are the retentions offered: every backup, or the last few.
+var BackupKeeps = []int{0, 3, 7, 14, 30}
+
+// backupKeepOptions are the retention's choices and their labels; a count
+// the Node holds that the page does not offer is listed with them.
+func backupKeepOptions(c *ui.Context, saved int) (counts []int, labels []string) {
+	counts = BackupKeeps
+	if !slices.Contains(counts, saved) {
+		counts = append(slices.Clone(counts), saved)
+		slices.Sort(counts)
+	}
+	for _, n := range counts {
+		label := i18n.T(c, "backup_keep_all")
+		if n > 0 {
+			label = i18n.T(c, "backup_keep_last", "count", n)
+		}
+		labels = append(labels, label)
+	}
+	return counts, labels
+}
+
+// backupLast is the last backup's row: when it ended, what it left out,
+// and its outcome; the Node's reason for a failure is the outcome's tooltip.
+func backupLast(c *ui.Context, last BackupLast) {
+	if last.At.IsZero() {
+		return
+	}
+	p := theme.Of(c)
+	detail := last.At.Local().Format("2006-01-02 15:04")
+	if last.Skipped > 0 {
+		detail += " · " + i18n.T(c, "backup_last_skipped", "count", last.Skipped)
+	}
+	kit.Row(c, "last", i18n.T(c, "backup_last"), detail, func() {
+		if last.Problem == "" {
+			ui.Text(c, i18n.T(c, "backup_last_done")).FontSize(kit.RowFont).TextColor(p.MutedForeground)
+			return
+		}
+		outcome := ui.Text(c, i18n.T(c, last.Problem)).FontSize(kit.RowFont).TextColor(p.Danger)
+		if last.Reason != "" {
+			kit.Tooltip(c, outcome, last.Reason)
+		}
+	})
 }
 
 // backup is the storage and the schedule, exporting, backing up and
@@ -76,6 +127,20 @@ func backup(c *ui.Context, m *Model) {
 					ui.TextInput(c.Key("input"), &b.Draft.Timezone).Label(t("backup_timezone")).Width(192)
 				})
 			}
+			counts, labels := backupKeepOptions(c, b.Saved.Keep)
+			chosen := slices.Index(counts, b.Saved.Keep)
+			kit.Row(c, "keep", t("backup_keep"), "", func() {
+				if !pick(c, "keep", t("backup_keep"), &chosen, labels, b.Pending).Width(160).Changed() {
+					return
+				}
+				// Keeping fewer deletes stored backups: confirmed first.
+				// Keeping all deletes nothing and is saved at once.
+				if d.keep = counts[chosen]; d.keep > 0 {
+					d.keeping = true
+					return
+				}
+				m.keepBackups(c, 0)
+			})
 			export := t("backup_configure")
 			if b.Saved.PassphraseSet {
 				export = t("backup_export")
@@ -106,6 +171,7 @@ func backup(c *ui.Context, m *Model) {
 				}
 				a.Now()
 			})
+			backupLast(c, b.Saved.Last)
 			entry("import", t("backup_import"), t("backup_restore"), func() {
 				if a == nil {
 					notice(c)
@@ -151,8 +217,16 @@ func backup(c *ui.Context, m *Model) {
 			}
 		}
 	}
+	// Destructive: the backups are named and their deletion said once.
+	if confirm(c, "keep", &d.keeping, i18n.T(c, "backup_keep_confirm", "count", d.keep), t("backup_keep_consequence"), t("settings_save")) {
+		m.keepBackups(c, d.keep)
+	}
 	recordsDialog(c, m)
 	restoreDialog(c, m)
+	// The consequence for the profile in use is said once.
+	if confirm(c, "restart-restored", &d.restarting, t("backup_restart_restored")+"?", t("backup_restart_consequence"), t("updates_restart")) && a != nil {
+		a.Restart(d.restart)
+	}
 	if d.removing && a != nil {
 		// Destructive: the session is named and its consequence said once.
 		if kit.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", t("backup_delete_session_consequence"),
@@ -160,6 +234,17 @@ func backup(c *ui.Context, m *Model) {
 			a.Delete(d.removed)
 		}
 	}
+}
+
+// keepBackups saves the retention. The live page's Node saves it and its
+// outcome is a toast; the preview keeps it in memory.
+func (m *Model) keepBackups(c *ui.Context, keep int) {
+	if a := m.BackupActions; a != nil {
+		a.Keep(keep)
+		return
+	}
+	m.Backup.Saved.Keep, m.Backup.Draft.Keep = keep, keep
+	report(c, m.Backup.Commit(), backupMessages)
 }
 
 // storageDialog is WebDAV, S3 or a local folder, their fields, and the

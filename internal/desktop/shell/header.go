@@ -35,7 +35,11 @@ func (a *App) header(c *ui.Context, f frame) {
 		if bar.Left > 0 {
 			lights = max(bar.Left, trafficLights)
 		}
-		ui.Row(c.Key("brand")).Width(left).Height(HeaderHeight).PaddingStart(max(lights, 12)).PaddingEnd(12).ClipX().Children(func() {
+		// Its padding stays inside that width: padding wider than the column
+		// would widen it, and the lights' room would be counted again in the
+		// page's header.
+		lead := min(max(lights, 12), max(left-12, 0))
+		ui.Row(c.Key("brand")).Width(left).Height(HeaderHeight).PaddingStart(lead).PaddingEnd(12).ClipX().Children(func() {
 			if f.nav > 0.001 {
 				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground).Opacity(f.nav)
 				// A short divider over the sidebar's edge, apart from the
@@ -93,8 +97,10 @@ func (a *App) header(c *ui.Context, f frame) {
 				})
 				a.conversationActions(c, cv, HeaderButton)
 			}
-			// A demo conversation is no session a plugin could mount over.
-			if a.Hooks.PluginHeader != nil && !(a.Demo() && a.Page == ConversationPage) {
+			// Over a demo conversation the controller shows the statistics
+			// package's context panel alone, read from the conversation's
+			// own usage (live renderPluginHeader).
+			if a.Hooks.PluginHeader != nil {
 				a.Hooks.PluginHeader(c)
 			}
 			// Preview data is identified wherever it shows.

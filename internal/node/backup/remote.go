@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,6 +143,11 @@ func list(ctx context.Context, plan Plan, location protocol.BackupLocation) (pro
 	}
 	for _, id := range ids {
 		manifest, err := readManifest(ctx, target, id)
+		if unreadable(err) {
+			// One damaged record must not hide the backups beside it.
+			page.Partial = true
+			continue
+		}
 		if err != nil {
 			return protocol.BackupPage{}, err
 		}
@@ -149,6 +155,68 @@ func list(ctx context.Context, plan Plan, location protocol.BackupLocation) (pro
 	}
 	sortRecords(page.Records)
 	return page, nil
+}
+
+// unreadable reports a record that is missing or does not read back as one,
+// as opposed to a location that does not answer.
+func unreadable(err error) bool {
+	return code(err) == protocol.ErrorCodeInvalidRequest || code(err) == protocol.ErrorCodeNotFound
+}
+
+func prune(ctx context.Context, plan Plan, location protocol.BackupLocation, node protocol.NodeID) (int, error) {
+	target, err := plan.open(ctx, location)
+	if err != nil {
+		return 0, err
+	}
+	defer target.close()
+	var ids []string
+	err = step(ctx, target.list(func(name string, file bool) bool {
+		if id, ok := strings.CutSuffix(name, ".json"); ok && file && ValidIdentifier(id) {
+			ids = append(ids, id)
+		}
+		return len(ids) < maxRecords
+	}))
+	if err != nil {
+		return 0, err
+	}
+	var own []remoteManifest
+	for _, id := range ids {
+		manifest, err := readManifest(ctx, target, id)
+		if unreadable(err) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if manifest.Record.Node == node {
+			own = append(own, manifest)
+		}
+	}
+	sort.Slice(own, func(left, right int) bool {
+		if own[left].Record.CreatedMs != own[right].Record.CreatedMs {
+			return own[left].Record.CreatedMs > own[right].Record.CreatedMs
+		}
+		return own[left].Record.ID < own[right].Record.ID
+	})
+	removed := 0
+	for index := int(min(uint64(plan.Keep), uint64(len(own)))); index < len(own); index++ {
+		id := own[index].Record.ID
+		if err := step(ctx, target.remove(id+".json")); err != nil {
+			return removed, err
+		}
+		removed++
+		// Segments without their marker are unreachable; what a failure
+		// leaves here is storage, not a listed backup.
+		for part := range own[index].Parts {
+			if err := step(ctx, target.remove(partPath(id, part))); err != nil && code(err) != protocol.ErrorCodeNotFound {
+				return removed, err
+			}
+		}
+		if err := step(ctx, target.removeDirectory(id)); err != nil && code(err) != protocol.ErrorCodeNotFound {
+			return removed, err
+		}
+	}
+	return removed, nil
 }
 
 // Fetch downloads and verifies one sealed archive into a new file in temporary.

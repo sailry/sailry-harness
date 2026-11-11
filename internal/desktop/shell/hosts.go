@@ -19,7 +19,7 @@ func (a *App) hostPage() (*host.Host, *host.State) {
 			a.hosts = map[string]*host.Host{}
 		}
 		if a.hosts[a.Host] == nil {
-			a.hosts[a.Host] = &host.Host{ID: a.Host, Name: "local_host_name", Local: true, Runtime: host.Runtime{Uptime: -1}}
+			a.hosts[a.Host] = &host.Host{ID: a.Host, Name: "local_host_name", Local: true, Runtime: host.Runtime{Uptime: -1, NodeUptime: -1}}
 		}
 	}
 	if a.Preview && a.hosts == nil {
@@ -39,7 +39,7 @@ func (a *App) hostPage() (*host.Host, *host.State) {
 }
 
 // sample is a host's first metrics sample, which the preview delivers
-// after a load (Monitor's first sample): the metrics' loading state and
+// after a load (Monitor's first sample): the monitor's loading cards and
 // the processes' skeleton show until then.
 type sample struct {
 	fetch   preview.Fetch
@@ -79,9 +79,11 @@ func (a *App) addHost() {
 }
 
 // hostView is the host page in the main column: a project opens its
-// first conversation, a session itself.
+// first conversation, a session itself. The page is the host's monitor, so
+// the preview's first sample plays while it shows.
 func (a *App) hostView(c *ui.Context) {
 	h, st := a.hostPage()
+	a.sample(c, h)
 	host.Page(c, st, h, a.hostActions())
 }
 

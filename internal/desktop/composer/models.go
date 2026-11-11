@@ -31,17 +31,24 @@ const (
 )
 
 // The model picker's columns: the rail, the list and the efforts, a hairline
-// in a gap of 8 on each side between them.
+// in a gap of 8 on each side between them. The list is what the page has
+// beside the others: listWidth where the window has room for it. The rail
+// is its tiles, Back's and a family's alike, and railPad on each side.
 const (
-	railWidth   = 48
+	railTile    = 32
+	railIcon    = 18
+	railPad     = 6
+	railWidth   = railTile + 2*railPad
 	listWidth   = 236
 	effortWidth = 132
 	columnGap   = 8
 	pickerWidth = railWidth + listWidth + effortWidth + 2*(2*columnGap+1)
-	// popoverChrome is what a popover and the window's sides take of the
-	// window's width beside the controls: the popover's padding and edge
-	// (12 and 1) and 8 from each side of the window.
-	popoverChrome = 2 * (12 + 1 + 8)
+	// pickerReserve is what the picker's page leaves of the window's height:
+	// the composer under the popover, the popover's own edges and the rows
+	// the compact settings popover has under the page.
+	pickerReserve = 320
+	// windowInset is how far a popover stays from the window's sides.
+	windowInset = 8
 )
 
 // effortState is the model picker's effort column: the model whose efforts
@@ -53,13 +60,16 @@ type effortState struct {
 	// focused is the model row that had the keyboard focus last frame, so
 	// the focus takes the column once, as it comes to a row.
 	focused string
-	// anchor is where the pointer was on the shown model's row last, or
-	// where it was first seen on another; pointed tells that it is known.
-	// A pointer at rest takes nothing from the keys.
-	anchor  [2]int
-	pointed bool
-	// direct tells that the pointer has stayed on model rows since it left
-	// the shown model's: on its way to the column it keeps that model.
+	// pointer is where the pointer was in the window in the last frame, and
+	// seen tells that it is known: a row takes the column from a pointer
+	// that moved since, so one at rest takes nothing from the keys, nor
+	// does a row the list brings under it.
+	pointer [2]int
+	seen    bool
+	// from is where the pointer last was on the column's model's row, or
+	// since then when its way was read, and direct tells that it has stayed
+	// on model rows since: on its way to the column it keeps that model.
+	from   [2]int
 	direct bool
 	// enter gives the chosen model's row the focus as the picker opens, and
 	// back gives the shown model's row the focus the column had.
@@ -201,22 +211,34 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 	}).OnClick(func() { s.picker, s.layer = !s.picker, layerMain })
 	panel := kit.Popover(c, chip, &s.picker, func() { s.controls(c, ctx, actions) })
 	if panel != (ui.Element{}) {
-		// Clipped: the panel eases to the picker's width, which its page has
-		// at once.
-		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(12).Width(s.controlsWidth(c) + 24).Clip()
+		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(12).Width(s.popoverWidth(c, 12))
+		s.sizePopover(panel)
 	}
 }
 
-// controlsWidth is the width of the controls' page: the panel's, and the
-// model picker's three columns as far as the window has room for them in a
-// popover. Short of that the rail and the efforts keep their widths and the
+// sizePopover gives a popover of the controls the model picker's size in
+// the frame the picker shows: a popover easing to it, as it eases between
+// its other pages and back from this one, would have the picker's columns
+// and rows past its edge on the way, where a press closes the popover.
+func (s *State) sizePopover(panel ui.Element) {
+	if s.layer == layerModels {
+		kit.Snapped(panel)
+	}
+}
+
+// popoverWidth is how wide a popover of the controls is, pad inside its
+// edge: the controls' page and the padding, and for the model picker its
+// three columns, the padding and the edge, as far as the window has room.
+// The picker's page fills the popover (controls). In a window too narrow
+// for the three columns the rail and the efforts keep their widths and the
 // list between them gives up its own.
-func (s *State) controlsWidth(c *ui.Context) float32 {
+func (s *State) popoverWidth(c *ui.Context, pad float32) float32 {
+	width := panelWidth + 2*pad
 	if s.layer != layerModels {
-		return panelWidth
+		return width
 	}
 	w, _ := c.Size()
-	return max(panelWidth, min(pickerWidth, w-popoverChrome))
+	return max(width, min(pickerWidth+2*(pad+1), w-2*windowInset))
 }
 
 // featureBadge is a chosen feature on the chip: Fast's bolt, an option's
@@ -247,22 +269,33 @@ func (s *State) chosenFeatures(c *ui.Context, m Model) (fast, other []featureBad
 	return fast, other
 }
 
-// controls is the popover's body: its height animates between the pages: the
-// main page's, the team list's own (up to the picker's), and the picker's.
+// controls is the popover's body: its height animates between the main
+// page's and the team list's own (up to the picker's); the picker's page
+// has its own at once.
 func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 	// The main page has the team row's divider (1, and a gap of 8); the
 	// team list is as tall as its rows, the model picker the full height.
 	h := float32(108 + teamRow + 9)
 	switch s.layer {
 	case layerModels:
-		h = panelHeight
+		// As tall as the efforts' heading and nine rows, less in a window
+		// too short for it, where the models and the efforts scroll.
+		_, wh := c.Size()
+		h = max(panelHeight/2, min(panelHeight, wh-pickerReserve))
 	case layerTeams:
 		// Back 28, the rows 32 each, the divider 1 + 8, Manage 32, 4 apart.
 		rows := 1 + len(ctx.Teams)
 		h = min(float32(28+32*rows+9+32+4*(rows+2)), panelHeight)
 	}
-	body := ui.Column(c.Key("model-controls")).Width(s.controlsWidth(c)).Height(h).Clip().AlignItems(ui.Center).Gap(8).
-		Transition(ui.ElementTransition{Height: true, Duration: 200e6}).Disabled(ctx.Readonly || s.TeamLocked)
+	body := ui.Column(c.Key("model-controls")).Height(h).Clip().AlignItems(ui.Center).Gap(8).
+		Disabled(ctx.Readonly || s.TeamLocked)
+	if s.layer == layerModels {
+		// The picker's page fills its popover and has its height at once,
+		// as the popover does (sizePopover).
+		body.FillWidth().MinWidth(0)
+	} else {
+		body.Width(panelWidth).Transition(ui.ElementTransition{Height: true, Duration: 200e6})
+	}
 	body.Children(func() {
 		switch s.layer {
 		case layerModels:
@@ -312,7 +345,9 @@ func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 			ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
 			ui.Icon(c, icons.ChevronRight).FontSize(12).TextColor(p.MutedForeground)
 		}).OnClick(func() {
-			s.layer, s.family, s.capability = layerModels, m.Family, ""
+			s.layer, s.family = layerModels, m.Family
+			// The picker opens on the chosen model's group, whatever was
+			// folded the time before.
 			s.open = map[string]bool{m.Provider: true}
 			s.efforts = effortState{enter: true}
 		})
@@ -547,13 +582,15 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 	})
 }
 
-// modelPicker is three columns, a hairline between them: the families' rail,
-// with Back to the controls and, under the families, a filter by a capability
-// the models have; the providers' groups, each opening to its models; and
-// the efforts of the model the pointer or the keys are on, of the chosen one
-// until then. A model's row chooses it at the effort its column checks, an
-// effort's row at that effort. Up and Down move in a column, Right or Tab
-// from the models to the efforts, Left or Shift+Tab back.
+// modelPicker is three columns, a hairline between them: the families' rail
+// under Back to the controls, a tile for each; the providers' groups of the
+// rail's family, each folding its models under its name; and the efforts of
+// the model the pointer or the keys are on, of the chosen one until then. A
+// model's row chooses it at the effort its column checks, an effort's row at
+// that effort. Up and Down move in a column, Right or Tab from the models to
+// the efforts, Left or Shift+Tab back. The fill alone marks what is chosen
+// (Palette.Selected); the rail filters by family only and a score opens
+// nothing (docs/removed-ui.md).
 func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 	p := theme.Of(c)
 	e := &s.efforts
@@ -561,29 +598,28 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 		s.open = map[string]bool{}
 	}
 	models := s.controlModels(ctx)
-	// The capabilities the models have, in the order they first appear.
-	var capabilities []Capability
-	for _, m := range models {
-		for _, capability := range m.Capabilities {
-			if !slices.ContainsFunc(capabilities, func(known Capability) bool { return known.ID == capability.ID }) {
-				capabilities = append(capabilities, capability)
-			}
-		}
-	}
-	shown := func(m Model) bool {
-		return (s.family == "" || m.Family == s.family) &&
-			(s.capability == "" || slices.ContainsFunc(m.Capabilities, func(capability Capability) bool { return capability.ID == s.capability }))
-	}
+	shown := func(m Model) bool { return s.family == "" || m.Family == s.family }
 	var providers []string
 	seen := map[string]bool{}
+	// scored tells that a listed model has a score: every row then keeps
+	// the score's place, so the capability marks line up (modelRow).
+	scored := false
 	for _, m := range models {
-		if shown(m) && !seen[m.Provider] {
+		if !shown(m) {
+			continue
+		}
+		scored = scored || m.Score != nil
+		if !seen[m.Provider] {
 			seen[m.Provider] = true
 			providers = append(providers, m.Provider)
 		}
 	}
-	// open_first: with none of the groups shown open, the first opens.
-	if len(providers) > 0 && !slices.ContainsFunc(providers, func(pr string) bool { return s.open[pr] }) {
+	// open_first: a list whose groups were neither opened nor folded shows
+	// its first one open. A group the user folded has its entry, false, so
+	// it stays folded, here and when the rail comes back to its family; the
+	// reference opens the first group as the list is revealed and as the
+	// family changes, never under a fold.
+	if len(providers) > 0 && !slices.ContainsFunc(providers, func(pr string) bool { _, set := s.open[pr]; return set }) {
 		s.open[providers[0]] = true
 	}
 	// The column's model: the one a row gave it, while that row is in the
@@ -595,44 +631,38 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 			column = m
 		}
 	}
-	e.model = column.ID
+	if e.model != column.ID {
+		// The column is the chosen model's again: where the pointer was
+		// headed from another's row tells nothing now.
+		e.model, e.direct = column.ID, false
+	}
 	line := func(key string) {
 		ui.Box(c.Key(key)).Width(1).Shrink(0).Background(p.Border)
 	}
-	ui.Row(c.Key("model-picker")).FillWidth().Grow(1).MinHeight(0).Gap(columnGap).AlignItems(ui.Stretch).Children(func() {
-		ui.Scroll(c.Key("families")).Width(railWidth).Shrink(0).Padding(4).Gap(4).Radius(p.Radius2xl()).Background(p.Secondary).
+	picker := ui.Row(c.Key("model-picker")).FillWidth().Grow(1).MinHeight(0).Gap(columnGap).AlignItems(ui.Stretch)
+	picker.Children(func() {
+		ui.Scroll(c.Key("families")).Width(railWidth).Shrink(0).Padding(railPad).Gap(4).Radius(p.Radius2xl()).Background(p.Secondary).
 			Children(func() {
-				kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "composer_model_settings"), 40, false).Radius(20).
+				kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "composer_model_settings"), railTile, false).Radius(p.RadiusLg).
 					OnClick(func() { s.layer = layerMain })
 				for _, f := range ctx.Families {
-					selected := s.family == f.ID
-					b := kit.IconButton(c.Key("family-"+f.ID), f.Icon, i18n.T(c, f.Label), 40, false).Radius(20).
-						AccessSelected(selected).TextColor(p.MutedForeground)
-					if selected {
-						b.Background(p.Floating()).TextColor(p.Foreground)
+					// A family's tile: its mark in a rounded square the
+					// size of Back, filled as a chosen row while it is the
+					// rail's family.
+					selected, label := s.family == f.ID, i18n.T(c, f.Label)
+					b := ui.ButtonBase(c.Key("family-"+f.ID)).Label(label).Size(railTile, railTile).Radius(p.RadiusLg).Center().
+						Cursor(ui.CursorPointer).AccessSelected(selected).TextColor(p.MutedForeground)
+					kit.Tooltip(c, b, label)
+					switch {
+					case selected || b.Pressed():
+						b.Background(p.Selected()).TextColor(p.Foreground)
+					case b.Hovered():
+						b.Background(p.Hover)
 					}
-					b.OnClick(func() {
-						s.family, e.model = f.ID, ""
-						s.open = map[string]bool{}
-					})
-				}
-				if len(capabilities) > 0 {
-					ui.Box(c.Key("capability-divider")).FillWidth().Height(1).Shrink(0).Background(p.Border)
-				}
-				for _, capability := range capabilities {
-					selected := s.capability == capability.ID
-					b := kit.IconButton(c.Key("capability-"+capability.ID), capability.Icon, i18n.T(c, capability.Label), 40, false).Radius(20).
-						AccessSelected(selected).TextColor(p.MutedForeground)
-					if selected {
-						b.Background(p.Floating()).TextColor(p.Foreground)
-					}
-					b.OnClick(func() {
-						if s.capability = capability.ID; selected {
-							s.capability = ""
-						}
-						e.model = ""
-						s.open = map[string]bool{}
-					})
+					// The folds stay as the family changes: a group folded
+					// in one is folded when the rail comes back to it.
+					b.Children(func() { ui.Icon(c, f.Icon).FontSize(railIcon) }).
+						OnClick(func() { s.family, e.model = f.ID, "" })
 				}
 			})
 		line("rail-line")
@@ -646,8 +676,12 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 			}
 			for i, pr := range providers {
 				open := s.open[pr]
-				group := ui.ButtonBase(c.Key("group-"+pr)).Label(pr).FillWidth().Padding(6, 14, 6, 8).Gap(4).Justify(ui.SpaceBetween).
-					Expanded(open).Cursor(ui.CursorPointer).TextColor(p.MutedForeground).Children(func() {
+				// A group's name folds and unfolds its models, by a click,
+				// Enter or Space: a disclosure, expanded while they show,
+				// its chevron down then and to the right while folded. The
+				// fold is kept in s.open, false for a folded group.
+				group := ui.ButtonBase(c.Key("group-"+pr)).Role(ui.RoleDisclosure).Label(pr).FillWidth().Padding(6, 14, 6, 8).Gap(4).
+					Justify(ui.SpaceBetween).Expanded(open).Cursor(ui.CursorPointer).TextColor(p.MutedForeground).Children(func() {
 					ui.Text(c, pr).FontSize(14).SingleLine()
 					chevron := icons.ChevronRight
 					if open {
@@ -663,7 +697,7 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 				}
 				for _, m := range models {
 					if m.Provider == pr && shown(m) {
-						rows[m.ID] = s.modelRow(c, m, chosen)
+						rows[m.ID] = s.modelRow(c, m, chosen, scored)
 					}
 				}
 			}
@@ -675,29 +709,32 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 		}
 		e.enter = false
 		// The focus takes the column as it comes to a row, the pointer as it
-		// moves on one.
+		// moves onto one or on it. The picker reads the pointer wherever it
+		// is, so the first move onto a row is known for one.
+		x, y, _ := picker.PointerPosition()
+		box := picker.Bounds()
+		at := [2]int{int(math.Round(float64(box.X + x))), int(math.Round(float64(box.Y + y)))}
+		moved := e.seen && at != e.pointer
+		e.pointer, e.seen = at, true
 		focused, hovered := "", false
-		for _, m := range models {
-			row, ok := rows[m.ID]
-			if !ok {
-				continue
-			}
+		for id, row := range rows {
 			if row.Focused() {
-				if focused = m.ID; e.focused != m.ID {
-					e.model = m.ID
-				}
-			}
-			if row.Hovered() {
-				hovered = true
-				x, y, _ := row.PointerPosition()
-				box := row.Bounds()
-				if e.aim(m.ID, [2]int{int(math.Round(float64(box.X + x))), int(math.Round(float64(box.Y + y)))}) {
-					e.model = m.ID
+				if focused = id; e.focused != id {
+					e.model, e.direct = id, false
 				}
 			}
 		}
-		if e.focused = focused; !hovered {
-			e.pointed, e.direct = false, false
+		e.focused = focused
+		for id, row := range rows {
+			if row.Hovered() {
+				hovered = true
+				if e.aim(id, at, moved) {
+					e.model = id
+				}
+			}
+		}
+		if !hovered {
+			e.direct = false
 		}
 		for _, m := range models {
 			if m.ID == e.model {
@@ -736,50 +773,67 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 const aimStep = 6
 
 // aim follows the pointer to at, in the window, on the row of the model id,
-// and reports whether the row takes the effort column. A pointer that has
-// not moved takes nothing, so the keys keep the column under a pointer at
-// rest. From the column's own row, a pointer headed for the column, more to
-// the right than up or down, crosses the rows between without giving them
-// the column.
-func (e *effortState) aim(id string, at [2]int) bool {
+// and reports whether the row takes the effort column: it does once the
+// pointer moved. From the column's own row, a pointer headed for the
+// column, more to the right than up or down, crosses the rows between
+// without giving them the column.
+func (e *effortState) aim(id string, at [2]int, moved bool) bool {
 	switch {
-	case !e.pointed:
-		e.anchor, e.pointed, e.direct = at, true, id == e.model
-		return false
-	case at == e.anchor:
-		return false
 	case id == e.model:
-		e.anchor, e.direct = at, true
+		e.from, e.direct = at, true
+		return false
+	case !moved:
 		return false
 	}
-	if dx, dy := at[0]-e.anchor[0], at[1]-e.anchor[1]; e.direct {
+	if dx, dy := at[0]-e.from[0], at[1]-e.from[1]; e.direct {
 		if dx*dx+dy*dy < aimStep*aimStep {
 			return false
 		}
 		if dx > max(dy, -dy) {
-			e.anchor = at
+			e.from = at
 			return false
 		}
 	}
-	e.anchor, e.direct = at, true
+	e.from, e.direct = at, true
 	return true
 }
 
+// rowPad is a picker row's padding at each end: its score ends there.
+const rowPad = 8
+
+// scoreWidth is the place a model's row keeps for its score, a digit, the
+// point and a decimal at 14 in the monospace font, ending at the row's
+// padding: a row without a score keeps it empty, so its capability marks
+// stand where the other rows' do.
+const scoreWidth = 28
+
 // rowLook is a row of the picker, a model's or an effort's: 32 high, its
-// content from 8, selected in the emphasis color at 12%.
+// content from rowPad. The chosen one is told by its fill alone, the
+// neutral Palette.Selected, with no check; assistive technology has it as
+// selected.
 func rowLook(c *ui.Context, b ui.Element, selected bool) ui.Element {
 	p := theme.Of(c)
-	b.FillWidth().MinWidth(0).Height(32).Shrink(0).PaddingX(8).Gap(8).Radius(p.RadiusLg).Justify(ui.Start).
+	b.FillWidth().MinWidth(0).Height(32).Shrink(0).PaddingX(rowPad).Gap(8).Radius(p.RadiusLg).Justify(ui.Start).
 		Cursor(ui.CursorPointer).AccessSelected(selected).TextColor(p.PopoverForeground)
 	if b.Pressed() || selected {
-		b.Background(p.Primary.Alpha(0.12))
+		b.Background(p.Selected())
 	}
 	return b
 }
 
-// modelRow is a model of a group: its name, its capabilities and its score.
-// It chooses the model at the effort its column checks.
-func (s *State) modelRow(c *ui.Context, m, chosen Model) ui.Element {
+// score is a row's last child: the score in the monospace font, muted, its
+// digits ending at the row's padding. It is text alone: nothing opens
+// over it (docs/removed-ui.md).
+func score(c *ui.Context, sc *Score) ui.Element {
+	return ui.Text(c, fmt.Sprintf("%.1f", sc.Overall)).Font("monospace").FontSize(14).SingleLine().Shrink(0).
+		TextColor(theme.Of(c).MutedForeground)
+}
+
+// modelRow is a model of a group: its name, then at the row's end its
+// capabilities and, last, its score. scored tells that a model of the list
+// has a score: a row without one then keeps the score's place under its
+// capabilities. It chooses the model at the effort its column checks.
+func (s *State) modelRow(c *ui.Context, m, chosen Model, scored bool) ui.Element {
 	p := theme.Of(c)
 	b := rowLook(c, ui.ButtonBase(c.Key(m.ID)).Label(m.Name), m.ID == chosen.ID)
 	b.Children(func() {
@@ -788,10 +842,11 @@ func (s *State) modelRow(c *ui.Context, m, chosen Model) ui.Element {
 			label := i18n.T(c, capability.Label)
 			kit.Tooltip(c, ui.Icon(c.Key(capability.ID), capability.Icon).FontSize(12).Shrink(0).TextColor(p.MutedForeground).Label(label), label)
 		}
-		if m.Score != nil {
-			t := ui.Text(c, fmt.Sprintf("%.1f", m.Score.Overall)).Font("monospace").FontSize(14).Shrink(0).
-				TextColor(p.MutedForeground)
-			scoreTip(c, t, m.Score)
+		switch {
+		case m.Score != nil:
+			score(c, m.Score).MinWidth(scoreWidth).TextAlign(ui.End)
+		case scored && len(m.Capabilities) > 0:
+			ui.Box(c.Key("no-score")).Width(scoreWidth).Shrink(0)
 		}
 	}).OnClick(func() { s.pick(m, s.carried(m, chosen)) })
 	return b
@@ -814,10 +869,10 @@ func (s *State) carried(m, chosen Model) int {
 }
 
 // effortColumn is the efforts of a model under their heading, rows as the
-// models' are: the level, the score measured at it, and a check on the one
-// the model's row chooses. A model without efforts has a muted line for
-// them, so the column keeps its place. focus gives the checked row the
-// keyboard focus.
+// models' are: the level and, at the row's end, the score measured at it.
+// The one the model's row chooses is filled and selected. A model without
+// efforts has a muted line for them, so the column keeps its place. focus
+// gives the selected row the keyboard focus.
 func (s *State) effortColumn(c *ui.Context, m, chosen Model, focus bool) {
 	p := theme.Of(c)
 	name := i18n.T(c, "composer_effort")
@@ -848,20 +903,13 @@ func (s *State) effortColumn(c *ui.Context, m, chosen Model, focus bool) {
 			}
 			b.Children(func() {
 				ui.Text(c, level).FontSize(14).LineHeight(20.0 / 14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-				score := m.Score
-				if measured, ok := m.Scores[level]; ok {
-					score = measured
+				measured := m.Score
+				if at, ok := m.Scores[level]; ok {
+					measured = at
 				}
-				if score != nil && score.Tested == level {
-					t := ui.Text(c, fmt.Sprintf("%.1f", score.Overall)).Font("monospace").FontSize(14).Shrink(0).
-						TextColor(p.MutedForeground)
-					scoreTip(c, t, score)
+				if measured != nil && measured.Tested == level {
+					score(c, measured)
 				}
-				ui.Box(c).Size(16, 16).Shrink(0).Children(func() {
-					if selected {
-						ui.Icon(c, icons.Check).FontSize(16)
-					}
-				})
 			}).OnClick(func() { s.pick(m, i) })
 		}
 	})
@@ -892,7 +940,8 @@ func (s *State) pick(m Model, effort int) {
 }
 
 // scoreTip is the overall score, the five axes and the effort they were
-// measured at.
+// measured at, over the controls' effort. The picker's scores have none
+// (docs/removed-ui.md).
 func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 	p := theme.Of(c)
 	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",

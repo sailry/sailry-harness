@@ -27,12 +27,11 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					value, _ := fantasy.AsMessagePart[fantasy.TextPart](part)
 					block = map[string]any{"type": "text", "text": value.Text}
 				case fantasy.ContentTypeFile:
-					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
-					kind := "image"
-					if !strings.HasPrefix(value.MediaType, "image/") {
-						kind = "document"
+					if message.Role == fantasy.MessageRoleTool {
+						continue
 					}
-					block = map[string]any{"type": kind, "source": map[string]any{"type": "base64", "media_type": value.MediaType, "data": base64.StdEncoding.EncodeToString(value.Data)}}
+					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
+					block = anthropicFile(value)
 				case fantasy.ContentTypeReasoning:
 					value, _ := fantasy.AsMessagePart[fantasy.ReasoningPart](part)
 					if metadata, ok := part.Options()[anthropic.Name].(*anthropic.ReasoningOptionMetadata); ok {
@@ -51,11 +50,23 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					block = map[string]any{"type": "tool_use", "id": value.ToolCallID, "name": value.ToolName, "input": json.RawMessage(value.Input)}
 				case fantasy.ContentTypeToolResult:
 					value, _ := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
-					block = map[string]any{"type": "tool_result", "tool_use_id": value.ToolCallID, "content": toolText(value.Output)}
+					var content any = toolText(value.Output)
+					if files := toolFiles(message); len(files) > 0 {
+						// Messages takes images and documents inside the result.
+						blocks := []any{}
+						if content != "" {
+							blocks = append(blocks, map[string]any{"type": "text", "text": content})
+						}
+						for _, file := range files {
+							blocks = append(blocks, anthropicFile(file))
+						}
+						content = blocks
+					}
+					block = map[string]any{"type": "tool_result", "tool_use_id": value.ToolCallID, "content": content}
 				}
 				if block != nil {
 					cache := anthropic.GetCacheControl(part.Options())
-					if cache == nil && index == len(message.Content)-1 {
+					if cache == nil && (index == len(message.Content)-1 || message.Role == fantasy.MessageRoleTool) {
 						cache = anthropic.GetCacheControl(message.ProviderOptions)
 					}
 					if cache != nil {
@@ -119,8 +130,11 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					}
 					input = append(input, map[string]any{"type": "message", "role": string(message.Role), "content": []any{map[string]any{"type": kind, "text": value.Text}}})
 				case fantasy.ContentTypeFile:
+					if message.Role == fantasy.MessageRoleTool {
+						continue
+					}
 					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
-					content := map[string]any{"type": "input_image", "detail": "auto", "image_url": "data:" + value.MediaType + ";base64," + base64.StdEncoding.EncodeToString(value.Data)}
+					content := map[string]any{"type": "input_image", "detail": "auto", "image_url": dataURL(value)}
 					if !strings.HasPrefix(value.MediaType, "image/") {
 						content = map[string]any{"type": "input_file", "filename": value.Filename, "file_data": "data:" + value.MediaType + ";base64," + base64.StdEncoding.EncodeToString(value.Data)}
 					}
@@ -138,7 +152,19 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					input = append(input, map[string]any{"type": "function_call", "call_id": value.ToolCallID, "name": value.ToolName, "arguments": value.Input})
 				case fantasy.ContentTypeToolResult:
 					value, _ := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
-					input = append(input, map[string]any{"type": "function_call_output", "call_id": value.ToolCallID, "output": toolText(value.Output)})
+					var output any = toolText(value.Output)
+					if files := toolFiles(message); len(files) > 0 {
+						// Responses takes images in a function output's content list.
+						parts := []any{}
+						if output != "" {
+							parts = append(parts, map[string]any{"type": "input_text", "text": output})
+						}
+						for _, file := range files {
+							parts = append(parts, map[string]any{"type": "input_image", "detail": "auto", "image_url": dataURL(file)})
+						}
+						output = parts
+					}
+					input = append(input, map[string]any{"type": "function_call_output", "call_id": value.ToolCallID, "output": output})
 				}
 			}
 		}
@@ -182,8 +208,11 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 						pending = nil
 					}
 				case fantasy.ContentTypeFile:
+					if message.Role == fantasy.MessageRoleTool {
+						continue
+					}
 					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
-					block = map[string]any{"inlineData": map[string]any{"mimeType": value.MediaType, "data": base64.StdEncoding.EncodeToString(value.Data)}}
+					block = googleFile(value)
 				case fantasy.ContentTypeReasoning:
 					value, _ := fantasy.AsMessagePart[fantasy.ReasoningPart](part)
 					pending, _ = part.Options()[google.Name].(*google.ReasoningMetadata)
@@ -210,7 +239,21 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					}
 				case fantasy.ContentTypeToolResult:
 					value, _ := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
-					block = map[string]any{"functionResponse": map[string]any{"id": value.ToolCallID, "name": toolName(call.Prompt, value.ToolCallID), "response": map[string]any{"content": map[string]any{"text": toolText(value.Output)}}}}
+					response := map[string]any{"id": value.ToolCallID, "name": toolName(call.Prompt, value.ToolCallID), "response": map[string]any{"content": map[string]any{"text": toolText(value.Output)}}}
+					if files := toolFiles(message); len(files) > 0 {
+						// Gemini 3 takes media inside the function response;
+						// earlier models read it as parts beside the response.
+						inline := []any{}
+						for _, file := range files {
+							inline = append(inline, googleFile(file))
+						}
+						if strings.HasPrefix(strings.ToLower(config.Model), "gemini-3") {
+							response["parts"] = inline
+						} else {
+							parts = append(parts, inline...)
+						}
+					}
+					block = map[string]any{"functionResponse": response}
 				}
 				if block != nil {
 					parts = append(parts, block)
@@ -264,7 +307,19 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 		}
 	default:
 		messages := []any{}
+		// Chat has no image tool results: the images follow the tool
+		// messages of their assistant turn in one user message.
+		var images []any
+		attach := func() {
+			if len(images) > 0 {
+				messages = append(messages, map[string]any{"role": "user", "content": images})
+				images = nil
+			}
+		}
 		for _, message := range call.Prompt {
+			if message.Role != fantasy.MessageRoleTool {
+				attach()
+			}
 			wire := map[string]any{"role": string(message.Role)}
 			content := []any{}
 			tools := []any{}
@@ -277,14 +332,25 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					value, _ := fantasy.AsMessagePart[fantasy.ReasoningPart](part)
 					wire["reasoning_content"] = value.Text
 				case fantasy.ContentTypeFile:
+					if message.Role == fantasy.MessageRoleTool {
+						continue
+					}
 					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
-					content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:" + value.MediaType + ";base64," + base64.StdEncoding.EncodeToString(value.Data)}})
+					content = append(content, chatImage(value))
 				case fantasy.ContentTypeToolCall:
 					value, _ := fantasy.AsMessagePart[fantasy.ToolCallPart](part)
 					tools = append(tools, map[string]any{"type": "function", "id": value.ToolCallID, "function": map[string]any{"name": value.ToolName, "arguments": value.Input}})
 				case fantasy.ContentTypeToolResult:
 					value, _ := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
-					messages = append(messages, map[string]any{"role": "tool", "tool_call_id": value.ToolCallID, "content": toolText(value.Output)})
+					texts := []string{}
+					if text := toolText(value.Output); text != "" {
+						texts = append(texts, text)
+					}
+					for _, file := range toolFiles(message) {
+						texts = append(texts, toolImageNext)
+						images = append(images, chatImage(file))
+					}
+					messages = append(messages, map[string]any{"role": "tool", "tool_call_id": value.ToolCallID, "content": strings.Join(texts, " ")})
 				}
 			}
 			if len(content) == 1 && wireObject(content[0])["type"] == "text" {
@@ -299,6 +365,7 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 				messages = append(messages, wire)
 			}
 		}
+		attach()
 		body["messages"] = messages
 		if call.MaxOutputTokens != nil {
 			body["max_tokens"] = *call.MaxOutputTokens
@@ -367,6 +434,22 @@ func genericTools(call fantasy.Call, responses bool) []any {
 		}
 	}
 	return tools
+}
+
+func anthropicFile(file fantasy.FilePart) map[string]any {
+	kind := "image"
+	if !strings.HasPrefix(file.MediaType, "image/") {
+		kind = "document"
+	}
+	return map[string]any{"type": kind, "source": map[string]any{"type": "base64", "media_type": file.MediaType, "data": base64.StdEncoding.EncodeToString(file.Data)}}
+}
+
+func googleFile(file fantasy.FilePart) map[string]any {
+	return map[string]any{"inlineData": map[string]any{"mimeType": file.MediaType, "data": base64.StdEncoding.EncodeToString(file.Data)}}
+}
+
+func chatImage(file fantasy.FilePart) map[string]any {
+	return map[string]any{"type": "image_url", "image_url": map[string]any{"url": dataURL(file)}}
 }
 
 func toolText(output fantasy.ToolResultOutputContent) string {

@@ -25,8 +25,8 @@ permission, model controls, dictation, send/stop) and the context bar
 |---|---|
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
-| `options.go` | Mode and permission menus (with the packages' modes), host, project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
-| `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, score tooltip |
+| `options.go` | Mode and permission menus (with the packages' modes), project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
+| `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, the controls' score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray |
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
@@ -53,13 +53,15 @@ rebuilt each frame from backend data.
 | Type / field | Meaning |
 |---|---|
 | `Context.Models`, `Families` | Models offered and the picker's family rail |
-| `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features, Capabilities}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` feeds the tooltip; `Features` are the feature buttons; `Capabilities` (`Capability{ID, Label, Icon}`) are the row's marks and the rail's capability filter ([media.md](media.md#desktop)) |
+| `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features, Capabilities}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` is the picker's score and feeds the controls' tooltip; `Features` are the feature buttons; `Capabilities` (`Capability{ID, Label, Icon}`) are the row's marks ([media.md](media.md#desktop)) |
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
+| `Queued.Wait` | Why the row is not starting, in muted text after its label: held until started, paused (by the user, after Stop, after a turn lost its owner), or not sent when its own turn ended before its input was recorded; `live.queueWait` reads it from the item, its run and `Queue.pause_reason` |
+| `Context.Held`, `HeldResult{ID, Title, Wait}` | Finished background results the Node keeps back from automatic delivery (`ConversationBackgroundTask.hold`): rows without actions after the messages, saying why (automatic limit, after Stop, after interruption, after failure, or held). The user's next turn takes them. Demo mode carries them on `viewmodel.Conversation.Held`; its in-memory actions follow the Node: Stop pauses the rows that waited in order, a send or Send now resumes a paused queue and takes the held results, withdrawn guidance is held |
 | `Context.Outgoing` | A queued or guiding message still on its way to the Host: the tray's last row, its actions disabled |
 | `Context.Child` | A subagent's session: no composer, a read-only queue tray |
-| `Context.Hosts`, `Host{ID, Name, Key, Local}` | The Hosts a draft can run on; with two or more the context bar shows the host control. `Key` marks `Name` as an i18n key |
+| `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker ([removed-ui.md](removed-ui.md)). The live window leaves it empty |
 | `Context.PluginModes`, `PluginMode{Key, Label, Description, Icon, Disabled, Selected}`, `Context.SelectMode` | The packages' conversation modes after the built-in ones; `SelectMode` takes a package mode's key or `code`, `plan`, `flagship` |
 | `Context.Compact(focus)` | `/compact` with the text after it; nil falls back to `Actions.Compact` |
 | `Context.Stale(reference)` | Whether a chosen command or skill is offered no more |
@@ -74,7 +76,7 @@ rebuilt each frame from backend data.
 | `Context.MemberModels` | The models a team member may take; nil for `Models`. On another Node only that Node's own: a member's model is resolved there, and the local Node's providers reach it only as the lead of a forwarded session |
 | `Context.SelectModel` | Opens the Node's model settings from the Select model chip while `Models` is empty; nil disables that chip |
 | `Context.Interactions` | Approvals and the question (below) |
-| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame; `Indicator` builds the preview's ring, a live session's are `Context.Indicators` |
+| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame; `Metrics` builds the context bar's figures (Metrics, below), `Indicator` the preview's ring, a live session's are `Context.Indicators` |
 | `State.Draft`, `Model`, `Effort`, `Mode`, `Permission`, `Features`, `Team`, `Host`, `Project`, `Worktree`, `References` | Choices, read through `Message` on send |
 | `State.Attachments`, `Attachment{ID, Name, Mime, Size, Image, Path, Data, Status, Progress, Error}` | Draft files; the backend moves `Status` (`Preparing`, `Sending`, `Publishing`, `Ready`, `Failed`, `Uncertain`, `Removing`) and `Progress`; send waits for all `Ready`; at most `MaxAttachments` (8) |
 | `State.Dictation{Phase, Levels}` | `Idle`, `PreparingSpeech`, `Recording` (levels 0…1), `Transcribing` |
@@ -84,8 +86,8 @@ rebuilt each frame from backend data.
 | `Approval.ID` | The call's ID (the transcript shows the same call pending) |
 | `Approval.Child` | The subagent session asking; `""` for this conversation |
 | `Approval.Title`, `Context` | Tool label, and where it acts |
-| `Approval.Description`, `Code` | What it does; `Code` shows a mono block up to 128 high |
-| `Approval.Notices` | Lines of up to three rows |
+| `Approval.Description`, `Code` | What it does: the call's `content`, else its first approval notice, else its `target`, else its `summary`; `Code` shows a mono block up to 128 high |
+| `Approval.Notices` | Lines of up to three rows: the approval notices the description does not already show |
 | `Approval.Changes` | A change set: `file_changes_approval(_one)`, per file the kind (`file_changes_added/modified/renamed/deleted`), path (`a → b` for renames), `+N −M`, `file_changes_shortened` |
 | `Approval.Remember`, `Prefix` | Offer `approval_allow_session`, and `approval_allow_prefix` |
 | `Approval.Unrestricted` | Allow's tooltip says `approval_unrestricted` |
@@ -107,10 +109,9 @@ rebuilt each frame from backend data.
 - Each opens a popover 320 wide anchored at its bottom right, 8 above:
   the floating fill, shadowed in light, outlined in dark.
 - Approvals show one request at a time, with previous/next controls for several.
-  **Deny** resolves without a reason; its menu's `approval_deny_reason` opens
-  a reason field (`approval_reason`) with `approval_reason_cancel` and Deny,
-  disabled until there is text. **Allow** has the session and prefix choices
-  permitted by the captured request, the only remembered scopes. An SSH host
+  **Deny** resolves without a reason: it has no menu and no reason form
+  ([removed-ui.md](removed-ui.md)). **Allow** has the session and prefix
+  choices permitted by the captured request, the only remembered scopes. An SSH host
   key shows its trust prompt. Details being read show a spinner and a failed
   read `chat_retry`; Allow waits for them.
 - A request is disabled while the host is away, its turn is not running or a
@@ -197,36 +198,68 @@ The context bar has one project control and at most one branch control:
 - The model picker is a page of that popover (the controls' model opens it,
   Back returns): three columns the panel's height, 8 and a 1 DIP hairline
   (`Border`) and 8 between them.
-  - The rail, 48 wide: Back, the families, then the capability filter.
-  - The providers' groups and their models, 236 wide, scrolling. A row is 32
-    high, 8 inside, `RadiusLg`: the name, the capability marks, the score.
-    The chosen model's is filled with the primary color at 12%.
+  - The rail, 44 wide: Back and a tile for each family, nothing else
+    ([removed-ui.md](removed-ui.md)). Each is 32 square with `RadiusLg`, 6
+    from the rail's sides and 4 apart; a family's mark is 18. The tile of
+    the rail's family is filled as a chosen row and selected for assistive
+    technology; a tile's tooltip is the family's name. A tile shows its
+    family's groups; the rail has no "all" state, as in the reference, and
+    opens on the chosen model's family.
+  - The providers' groups and their models, 236 wide, scrolling. A group's
+    name is a disclosure: a click, Enter or Space folds and unfolds its
+    models, its chevron down while they show and to the right while folded,
+    and it reports expanded or collapsed. The folds are `State.open`, kept
+    while the page shows, across families too, and reset as the page opens,
+    on the chosen model's group; a family whose groups were neither opened
+    nor folded shows its first one open.
+  - A row is 32 high, 8 inside, `RadiusLg`: the name, then at the row's end
+    the capability marks and, last, the score, ending at the row's padding.
+    The score's place is 28 wide; where a listed model has a score, a row
+    with marks and no score keeps that place empty, so the marks are one
+    column. A score is text alone: nothing opens over it.
+  - What is chosen is told by its fill alone, with no check mark: the
+    neutral `Palette.Selected` ([theme](theme.md)) on the chosen model's
+    row, the effort's row and the family's tile, stronger than `Hover`. Each
+    is selected for assistive technology.
   - The efforts, 132 wide, a listbox named `composer_effort` under that
     heading (12, muted): the levels of one model as rows of the same shape,
     by their IDs, each with the score measured at it (`Model.Scores`, else
-    `Model.Score` at its `Tested` level) and a check on the one the model's
-    row would choose. A model without efforts shows `composer_effort_unavailable`
-    in the rows' place, so the panel keeps its width.
+    `Model.Score` at its `Tested` level) at the row's end; the one the
+    model's row would choose is filled. A model without efforts shows
+    `composer_effort_unavailable` in the rows' place, so the panel keeps its
+    width.
   - The column lists the chosen model's efforts until the pointer moves on
     another model's row or the focus comes to it; that row is then filled
     with `Hover` and stays so while the pointer or the focus is in the
-    column. A pointer at rest takes nothing from the keys. From the column's
-    own row a pointer headed for the column, more rightwards than up or down
+    column. One move onto a row is enough, the first after the list opens
+    too: the picker reads the pointer's place each frame, so a move is known
+    from where it rested. A pointer at rest takes nothing: not from the
+    keys, and not for a row the list opens under it. From the column's own
+    row a pointer headed for the column, more rightwards than up or down
     (read every 6 DIPs), crosses the rows between without giving them the
-    column. Changing the family, the filter or a group gives the column back
-    to the chosen model.
+    column. Changing the family or folding a group gives the column back to
+    the chosen model.
   - A model's row chooses it at the effort chosen now where the model has a
     level of that name, else at its default (`DefaultEffort`, medium, the
     middle). An effort's row chooses the column's model at that effort.
     Either goes back to the controls with the popover open, as the efforts'
     menu did; no menu opens over the panel.
-  - The controls are 296 wide and the picker 450; the popover takes the
-    page's width at once and clips while its own width eases. In a window
-    too narrow for 450 and the popover's edges (42) the rail and the efforts
-    keep their widths and the models between them narrow, their names
-    truncating, never under the controls' 296. The production window is at
-    least 760 wide, where the three columns always fit; the compact settings
-    popover hosts the same page by the same rule.
+  - The controls are 296 wide and the picker 446. The popover is the page,
+    its padding and, for the picker, its edge (`popoverWidth`): 320 and 472
+    from the chip, 312 and 464 as the compact settings popover. The picker's
+    page fills the popover, and the popover has the picker's size in the
+    frame the page shows (`kit.Snapped`), not eased: a popover still on its
+    way would have the columns and the last rows past its edge, where a
+    press closes it. Back eases to the controls' size as before.
+  - The picker's page is 320 high, the efforts' heading and nine rows, and
+    the window's height less 320 where that is less, never under 160: 320 in
+    a window 820 or 720 high, 240 at the smallest (560), where the models
+    and the efforts scroll in that height.
+  - The popover stays 8 from the window's sides. In a window too narrow for
+    the three columns the rail and the efforts keep their widths and the
+    models between them narrow, their names truncating, never under the
+    controls' width. The production window is at least 760 wide, where the
+    three columns always fit.
 - Send is Kit's primary button with the arrow; Stop, the square, replaces it
   while a reply runs; while dictating without a running reply neither shows.
   Send is disabled (light: `secondary_active` fill; dark: the primary fill at
@@ -250,6 +283,38 @@ The context bar has one project control and at most one branch control:
   the caret 4 apart, at most 192 wide, side by side on one line at normal
   widths. Wide, the bar wraps; compact, it is
   one line; under 440 the location is in the settings popover.
+
+### Metrics
+
+The usage at the bar's end is `State.Metrics`, drawn by
+`conversation.UsageBar` (the reference's `conversation/usage.rs`,
+`usage/external.rs`, `usage/summary.rs` and `live/context.rs` `context_bar`):
+figures 12 apart, each a 14 icon and its value in muted 14, in their declared
+order.
+
+- A live session's figures are the packages' (`live/plugin_metrics.go`): the
+  footer slot's first, a provider's account status (`provider-status`
+  `usage`, `workbuddy` `credits`), then the statistics slot's, one group a
+  package (`statistics`: tokens, session average, cost, cache, turns). A
+  footer figure shows while its package publishes it visible and enabled. A
+  draft without a session has none.
+- A figure's hover card is Kit's floating surface over the figure's end, 300
+  wide or the declared `width`, 12 by 14 inside. It lists the label and the
+  value, then the published `details`: rows 26 high of a muted label and a
+  value, and after a divider those with a `progress` as meters (label, small
+  value, a 4 high `ui.Progress` named by the label). A statistics figure that
+  declares a handler shows its package's view in the card instead.
+- Compact, the statistics groups are one small round button, the chart icon
+  and the first figure, named `composer_statistics`. Hover shows every
+  group's cards in one, a click holds them in a popover; the groups are
+  divided and the list scrolls past 560 or the window's height less 80. The
+  footer's figures stay beside it.
+- The core draws the figures and their cards from what a package publishes;
+  the package decides what to publish and when. Neither slot draws controls
+  of its own.
+- The preview's figures are `conversation.Metrics` of the scene's usage, with
+  the label and the value in their cards. Demo mode shows the statistics
+  package's (`docs/shell.md`, Demo mode).
 
 ### Context ring
 
@@ -303,9 +368,10 @@ high, 16 in, 8 apart, wrapping when it is full. Left to right:
 | Git `+N −M` (native: Git is core), details as tooltip | `Changes{Added, Removed, Files}`, nil outside a repository | `OpenChanges` |
 | Plugin Status badges: icon, toned `Segment`s or the label, `Details` tooltip | `Badges []StatusBadge` (`Panel` nil for a button) | a button: `Badge(id, "")`; a panel: popover 320 with its body and buttons (`Badge(id, button)`) |
 | `reicon:ui/tasks` `composer_todo_count`, while steps remain | `Progress []conversation.Step` | popover 320 of `conversation.Steps` |
-| `background_one`/`background_count`, a spinner while `Connected` | `Commands []Command` (running and stopping) | popover 400: rows with the command (opens its `Output`), elapsed, Stop (`StopCommand`) |
+| `background_one`/`background_count`, the loader (`kit.Loader`, 14, the capsule icons' size and muted color) while `Connected` | `Commands []Command` (running and stopping) | popover 400: rows with the command (opens its `Output`), elapsed, Stop (`StopCommand`) |
 | A Globe capsule per service port | `Command.Ports` | `OpenService(port)` |
 | `composer_subagent_one`/`_count`, a spinner while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild`, and a 24 DIP `kit.IconButton` Stop (`subagent_stop`) bound by `ActivityCallbacks.StopChild`, disabled while `ChildBusy` or the child is stopping, absent without the callback |
+| `composer_subagent_one`/`_count`, the loader while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild` |
 
 Then a spacer and the approvals and question. An empty strip keeps its
 row, so the composer does not move. Preview: Git totals are the Git
@@ -437,6 +503,15 @@ nearest measured effort. The `@` catalog exposes real context and same-project
 sessions; `/` exposes available models, reasoning, compaction, modes and prompts.
 Later catalogs contribute neither fixture rows nor empty headings.
 
+Guidance sent from the composer is followed until its fate is known
+(`live/composer_context.go`, `guidanceOutcome`): one neutral toast says that it
+is queued as its own turn, either because its settings differ from the running
+turn's (`queue_guidance_separate`, also the answer to `guide_queued_turn`) or
+because the reply ended before it could join (`queue_guidance_outlived`).
+Guidance the user edited, paused or withdrew is not reported. The Rust desktop
+shows neither the row reasons, the held results nor the second toast; they
+exist because the Go Node reports `pause_reason` and `hold`.
+
 Queue rows use optional `Load`/`Save` callbacks to read complete input and keep
 editor drafts until revision-checked saves succeed. Existing `Actions` remain the
 preview fallback. Captured queue revisions protect edits and reordering.
@@ -494,8 +569,10 @@ read-only, with Read (the message in a read-only editor with Copy, Close and
 Remove), Withdraw and Remove, which act while the session's Host is connected.
 Parent composers
 project active registered children into the existing activity capsule and show
-their ordinary pending approvals with the child's name. Approval decisions target
-the child session; opening a row observes its real transcript.
+every pending approval of a child with the child's name, an SSH host key to
+trust included: the child's own tab is read-only, so the parent is the only
+place to decide it. Approval decisions target the child session; opening a row
+observes its real transcript.
 
 ### B7 projects and services
 
@@ -505,19 +582,14 @@ that project's first entry and reads that Node's available models and teams.
 Display names are labels, not routing identities. Existing admitted sessions
 keep their captured Node and location.
 
-The host control (`options.go` `hostMenu`, the reference's `host_control`)
-is the first control of the context bar and a row of the compact settings
-popover. It shows only when the draft can run on more than one Host:
-this computer and the paired Hosts whose connection is bound
-(`live/composer_context.go` `composerHosts`). Choosing a Host clears the
-project, worktree, model and team, so the draft goes to that Host's chats with
-its default model; the project menu then lists that Host's projects. A
-session's control names its Host and is disabled. A draft on another Host is
-offered that Host's providers and this desktop's, which the session is
-forwarded with (below); the model list names each provider's source
-(`chat_provider_source`: the Host's name, or `chat_config_desktop`), and a
-forwarded session's names its private provider `chat_provider_session` beside
-the Host's `chat_provider_node`.
+The composer has no Host selector and no location dialog
+([removed-ui.md](removed-ui.md)): a draft runs on its project's Node, and a
+chat without a project on the Host the shell opened it for (`App.Host`). A
+draft on another Host is offered that Host's providers and this desktop's,
+which the session is forwarded with (below); the model list names each
+provider's source (`chat_provider_source`: the Host's name, or
+`chat_config_desktop`), and a forwarded session's names its private provider
+`chat_provider_session` beside the Host's `chat_provider_node`.
 
 ### Modes of packages
 
@@ -585,10 +657,13 @@ move the draft to a different Node or stop admitted work.
 
 ### Plugin contributions
 
-`live/plugin_controls.go` projects metadata-declared composer, model, context,
-statistics, footer and header contributions into their existing slots. Registry
-keys retain the Node, worktree, session and each unsent draft's presentation
-identity. Generations fence old callbacks and simultaneous drafts. Shared
+`live/plugin_controls.go` projects metadata-declared composer, model, context
+and header contributions into their existing slots. The statistics and footer
+slots' are the context bar's figures (`live/plugin_metrics.go`; Metrics,
+above); a header popover is opened by the window (`docs/shell.md`, Header).
+Registry keys retain the Node, worktree, session and each unsent draft's
+presentation identity; a demo conversation's is `demo/<id>`
+(`live/plugin_demo.go`). Generations fence old callbacks and simultaneous drafts. Shared
 assistant contributions follow the package's `ui_shared` and `ui_overlay`
 declarations.
 
@@ -649,7 +724,7 @@ details dialog.
 |---|---|
 | Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs, files |
 | Pickers, popovers, dialogs, queue editor | Queue, `Running`, attachment status and progress, dictation phase |
-| Reason drafts, question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
+| Question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
 | Selected project before admission and window-owned port actions | Project-to-Node identity, command services and Forwarder state from the captured Client |
 
 ## Live attachments
@@ -680,13 +755,21 @@ focus without sending. Native callbacks are composed by `cmd/sailry-desktop`.
 ## Tests
 
 `internal/desktop/shell/shell_test.go`: send, Enter and stop; the model picker
-(effort track, family rail, the effort column under a moving pointer,
-non-reasoning model); the
+(effort track, family rail, the effort column after one pointer move with
+every row inside the popover in the frame the list opens, an effort's row
+choosing a model the pointer is on with the one popover left open,
+non-reasoning model; `pickerInShell`, its step in `composer_models_test.go`,
+has the app's window at 1280×820, 1280×720, 760×820 and 760×560, at one and
+two pixels a DIP: the popover in the window and every model and effort row
+whole inside it as the list opens and at rest, the list 236 wide, the same
+choice by an effort's row, and the controls' size again after Back;
+`SAILRY_SNAPSHOTS` set saves
+`.runtime/ui-shots/composer-model-picker-zh-CN-{dark,light}.png`); the
 worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
 `internal/desktop/shell/composer_parity_test.go`, run as steps of
 `TestComposerGuidesRunningTurn` and `TestCloseShortcut`: the packages' modes
-in the menu, the cycle and the compact popover; the host control; the queue
+in the menu, the cycle and the compact popover; the absent host choice; the queue
 row states and the outgoing row; a child session's tray; pasted files,
 pictures and text, dropped files and folders and the limit; `/compact` with a
 focus; the stale toast; the header's Search and overview buttons and the
@@ -696,7 +779,7 @@ they send (`compact_context` with its focus, `set_session_config` with the
 package's option, `guide_queued_turn`, the retried `remove_queued_turn`,
 `list_conversation_assets` and its paging, `stop_turn`, a child's
 `read_queued_turn` and `remove_queued_turn`); `testSessionForwarding` the
-host control and the provider source names; `testNativeAssistantSessions`
+provider source names and the absent host choice; `testNativeAssistantSessions`
 (`plugin_native_test.go`) an assistant panel's New and history.
 `auditSessionOverview` (`composer_parity_integration_test.go`, a step of
 `TestPluginUIIntegration`) opens the overview on a session of the real Node.
@@ -714,15 +797,26 @@ description in the warning color; a package mode's tile tinted, the same in
 two windows; the settings popover's permission page with the same rows.
 `SAILRY_SNAPSHOTS` set saves `.runtime/ui-shots/composer-menus-zh-CN-{dark,light}.png`.
 `composerModels` (`composer_models_test.go`, a step of the composer parity):
-the effort column inside the one panel, right of the models, in dark and
-light, with a hairline between them by pixel; no menu or second popover
-over a model with efforts; the column under a moving pointer and under the
-focus, with the effort a model's row keeps or falls back to; the line and
-the unchanged panel for a model without efforts; an effort's row choosing
-its model and leaving the popover open on its controls; the scores by
-effort; Right, Tab, Left, Shift+Tab, Up, Down, Enter and Escape; the narrow
-window; and no frame asked for at rest. `SAILRY_SNAPSHOTS` set saves
-`.runtime/ui-shots/composer-model-picker-zh-CN-{dark,light}.png`.
+every model and effort row whole inside the one popover in the frame the
+list opens and at rest, from the chip (960 wide) and from the compact
+settings popover (440), at one and two pixels a DIP, with an effort's row
+choosing the model the pointer moved onto; the effort column right of the
+models, in dark and light, with a hairline between them by pixel; no menu
+or second popover over a model with efforts; the column after one pointer
+move and under the focus, with the effort a model's row keeps or falls back
+to; a pointer at rest under the keys and under a row the list opens, and
+its way to the column; the line and the unchanged panel for a model without
+efforts; an effort's row choosing its model and leaving the popover open on
+its controls; the scores by effort; Right, Tab, Left, Shift+Tab, Up, Down,
+Enter and Escape; the narrow window; no frame asked for at rest; a group's
+name folding and unfolding its models by Space, Enter and a click, with one
+provider, and reporting expanded; the rail's two 32 DIP buttons, their
+places, no capability filter and no line under the families; a family's
+tile narrowing the list and a fold kept across families; the chosen model's
+row, effort's row and family's tile selected and filled one neutral gray,
+stronger than the row under the pointer, with no check, in dark and light by
+pixel; the scores ending at their rows' padding in one column and the
+capability marks in one; and no tooltip over a score at rest.
 The Kit menu's test (`kit/menu_test.go`, `choice rows`) checks the row alone
 and that an open menu at rest asks for no frame.
 The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
@@ -730,7 +824,14 @@ The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
 bundled packages mounted: one location control on a chat and on a plain
 folder, the project and its branch on one line in a Git project.
 `TestUsageCompact`: the small location buttons before the usage button between
-the two widths, and no location on the bar below 440.
+the two widths, and no location on the bar below 440; its `rows` step, the
+figures' cards with their rows and meters, wide and in the compact popover.
+`internal/desktop/live/plugin_views_test.go` (`declared slots draw their
+figures, ring and header popover`, in `TestAuthorizationProjectionAndCallbacks`):
+a manifest's statistics, footer, composer and header entries as figures with
+their cards, a ring and a header button.
+`internal/desktop/live/interactions_test.go` (in `TestComposerSendRouting`): a
+session with a turn publishes the statistics package's turns figure.
 `internal/desktop/conversation/bench_test.go` Scroll builds from scenes without
 pictures (`preview.PlainTurns`).
 `internal/desktop/live/dictation_test.go` (in `TestWorkspaceHookSettings`):
@@ -743,6 +844,8 @@ and every failure, over a fake microphone and recognizer.
 |---|---|
 | The worktrees package's `location` control is not drawn, and the native worktree menu gives way to the Git package's `branch` control (user decision 2026-11-11) | The reference draws the packages' controls only; here the project is native, so both showed the location twice |
 | An unknown indicator has no tooltip | The statistics package sends `0` as its hint, which read as a bare `0` |
+| A footer figure is not checked against its package's model context | The reference hides a footer figure whose package has no provider in the session's model context (`registered_footer`); here what the package publishes decides alone, and the official packages show theirs for their own provider only |
+| The preview's figures list their label and value on hover | The reference's preview cards read "UI preview"; the label says what the figure is |
 | A refused microphone is the `dictation_permission` toast | The reference's permission card is not part of the accepted composer |
 | The recording meter is the capture level the live owner computes | The reference's Kit speech state supplies it; MyGo has none |
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |
@@ -750,7 +853,9 @@ and every failure, over a fake microphone and recognizer.
 | The model score ring is a tooltip with axis bars | No ring component; the data is the same |
 | A model's efforts are a column of the picker's panel, not a menu beside its row (user decision 2026-11-11) | The menu floated over the list and left the panel's side empty; the column is the one place to choose an effort |
 | A model's row chooses it at once, at the effort chosen now or its default | With the menu gone a row no longer opens anything; the column shows that effort checked before the click |
-| The picker's rows are `ButtonBase` rows, the efforts with the option role in a listbox | A MyGo list or menu row has no place for the capability marks and the score with its tooltip, and the two columns share one row |
+| The popover takes the picker's size at once (`kit.Snapped`) instead of easing to it | A popover easing to the picker's size (150 ms, and none of it on a clock that stands still) had the effort column and the last rows past its edge, where a press closed the popover without choosing |
+| The picker's rows are `ButtonBase` rows, the efforts with the option role in a listbox | A MyGo list or menu row has no place for the capability marks and the score, and the two columns share one row |
+| The picker's chosen rows and family tile are filled with `Palette.Selected`, `Active` laid over `Hover`, not `Active` alone | The fill is the only mark of the choice and must be stronger than the row under the pointer; the built-in light theme's `Active` is fainter than its `Hover` |
 | `kit.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. The composer, `conversation.ContextRing` and the plugin controls share the one drawing |
 | A ring's value changes at once | Kit's `ProgressCircle` eases a changed value over its normal duration |
 | The preview's ring shows the scene's usage | The reference's preview ring is always empty; ours is the same `kit.Ring`, 15 across |

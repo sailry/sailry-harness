@@ -41,13 +41,18 @@ type Document struct {
 
 // Entry is one scanned file: an extracted Document, a file whose stamp the
 // index still holds (Cached), or a skipped path with its Reason. Excluded
-// skips are protected or ignored paths and are not counted.
+// skips are protected or ignored paths and are not counted. Failed marks a
+// path that could not be read now and may be readable later, unlike a skip,
+// which its content decides; Directory tells that everything below it was
+// not visited.
 type Entry struct {
-	Document *Document
-	Path     string
-	Cached   bool
-	Reason   string
-	Excluded bool
+	Document  *Document
+	Path      string
+	Cached    bool
+	Reason    string
+	Excluded  bool
+	Failed    bool
+	Directory bool
 }
 
 // OCR reads images and scanned PDF pages. Signature identifies the selected
@@ -88,7 +93,18 @@ func cancelled(ctx context.Context) error {
 	return nil
 }
 
-func skipped(path, reason string) *Entry  { return &Entry{Path: path, Reason: reason} }
+func skipped(path, reason string) *Entry { return &Entry{Path: path, Reason: reason} }
+
+// unread reports why one entry could not be scanned: an invalid one is
+// skipped, any other fault failed and may pass on a later scan.
+func unread(path string, err error, directory bool) *Entry {
+	reason := err.Error()
+	var fault *protocol.Fault
+	if errors.As(err, &fault) {
+		reason = fault.Message
+	}
+	return &Entry{Path: path, Reason: reason, Failed: code(err) != protocol.ErrorCodeInvalidRequest, Directory: directory}
+}
 func excluded(path, reason string) *Entry { return &Entry{Path: path, Reason: reason, Excluded: true} }
 
 func join(parent, name string) string {

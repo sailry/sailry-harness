@@ -24,6 +24,8 @@ type documentEditor struct {
 	notebookDraft               string
 	focus                       [2]ui.Handle
 	unavailable                 bool
+	// changed is the file changing on disk while its draft is open.
+	changed bool
 }
 type editorCloseRequest struct {
 	path      string

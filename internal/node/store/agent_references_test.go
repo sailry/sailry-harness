@@ -89,6 +89,7 @@ func TestAgentHistoryAndReview(t *testing.T) {
 	t.Parallel()
 	t.Run("canonical card authority", testPluginCardAuthority)
 	t.Run("native task admission", testTaskAdmission)
+	t.Run("command approval rules", testCommandApprovalRules)
 	t.Run("retained command stream keeps invocation and canonical revision", func(t *testing.T) {
 		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 		ctx := context.Background()
@@ -169,6 +170,42 @@ func TestAgentHistoryAndReview(t *testing.T) {
 		}
 		if len(entry.Citations) != 4 || entry.Citations[0].End == nil || *entry.Citations[0].End != 3 || entry.Citations[1].End != nil || entry.Citations[2].Start != nil || entry.Citations[3].Uri != "https://grounded.example/source" || entry.SearchSuggestions == nil {
 			t.Fatal(entry)
+		}
+	})
+	t.Run("an answer cut at the output limit says so", func(t *testing.T) {
+		for _, test := range []struct {
+			name    string
+			limited bool
+			blocks  []canonical.Block
+			want    bool
+		}{
+			{"cut answer", true, []canonical.Block{canonical.Text(0, "Half an ans")}, true},
+			{"cut without text", true, nil, true},
+			{"complete answer", false, []canonical.Block{canonical.Text(0, "Answer")}, false},
+			{"cut reply that requested a tool", true, []canonical.Block{canonical.Text(0, "Reading"), {Index: 1, Kind: "tool_request", Data: &canonical.ToolRequest{ID: "call", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}, false},
+		} {
+			message := canonical.NewMessage(canonical.Assistant, test.blocks...)
+			record := canonical.NewRecord(protocol.NewTurnID(), "message", &message, time.Unix(1, 0))
+			record.Provenance.Author = "assistant"
+			runtime := canonical.DefaultRuntime()
+			runtime.OutputLimitReached = test.limited
+			record.Metadata.Runtime = &runtime
+			entry, err := CanonicalEntry(record, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			notices := 0
+			for index, part := range entry.Parts {
+				if raw, resource := part.Data.(json.RawMessage); resource && part.Kind == "resource" && string(raw) == `{"type":"output_limit"}` {
+					notices++
+					if index != len(entry.Parts)-1 {
+						t.Errorf("%s: notice is part %d of %d", test.name, index, len(entry.Parts))
+					}
+				}
+			}
+			if notices != map[bool]int{true: 1}[test.want] {
+				t.Errorf("%s: %d notices in %#v", test.name, notices, entry.Parts)
+			}
 		}
 	})
 
@@ -312,6 +349,57 @@ func TestAgentHistoryAndReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	for _, name := range []string{"hidden note after the answer keeps the review", "empty answer has no review"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModePlan)
+			ctx := context.Background()
+			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				text := "Completed plan"
+				if name == "empty answer has no review" {
+					text = ""
+				}
+				answer := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, text))), now)
+				answer.Provenance.Author = "assistant"
+				if _, _, err := AppendCanonical(ctx, db, session.ID, answer); err != nil {
+					return err
+				}
+				note := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Text(0, "Subagent was cancelled before it finished."))), now)
+				note.Provenance.Author = "user"
+				note.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
+				if _, _, err := AppendCanonical(ctx, db, session.ID, note); err != nil {
+					return err
+				}
+				if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+					return err
+				}
+				entry, question, _, err := PublishPlanReview(ctx, db, turn, now)
+				if err != nil {
+					return err
+				}
+				if name == "empty answer has no review" {
+					if entry != nil || question != nil {
+						return errors.New("empty answer published a review")
+					}
+					return nil
+				}
+				if entry == nil || question == nil {
+					return errors.New("hidden note suppressed the review")
+				}
+				saved, err := readBody[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 AND id=?2", turn.String(), question.Entry)
+				if err != nil {
+					return err
+				}
+				if saved == nil || planReviewSpec(*saved) == nil || saved.Data.(*canonical.Notice).Data.(*canonical.PlanReview).Source != answer.ID {
+					return errors.New("review does not point at the visible answer")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 	for _, kind := range []string{"submit_turn", "queue_turn", "submit_task"} {
 		t.Run("new "+kind+" input supersedes completed review", func(t *testing.T) {
 			t.Parallel()

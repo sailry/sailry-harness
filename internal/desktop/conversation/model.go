@@ -126,6 +126,7 @@ const (
 	RetryBlock                       // Retry: the model request retried
 	VisualBlock                      // Visual: a chart or diagram the model drew
 	CompactionBlock                  // Text: an automatic handoff's disclosed summary
+	LimitBlock                       // the answer ended at the model's output limit
 )
 
 // Block is one part of a reply.
@@ -237,7 +238,8 @@ type Retry struct {
 }
 
 // Visual is a diagram or chart the model drew, as Mermaid source, shown
-// in place (visuals): a data chart natively, any other diagram by limu.
+// in place (visuals): a data chart natively, any other diagram by
+// CrychicUI's diagram.Mermaid.
 type Visual struct {
 	Title   string
 	Mermaid string

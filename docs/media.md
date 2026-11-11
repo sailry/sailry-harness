@@ -82,16 +82,34 @@ come from the engine's core tool presentation.
 `inspect_image` takes `prompt` and exactly one of `path` or `attachment`.
 Generation takes `prompt` and an optional plain `file_name`; the result is
 saved as `assets/generated/<file_name>`, named by a new identifier when the
-name is absent.
+name is absent. `generate_video` also takes an optional `job`.
 
-Generation checks the output path before the provider call: it is
-worktree-relative, ends in `.png` or `.mp4` and names no existing file. The
-confined file service writes the result without replacing a file. The tool
-result carries `path`, `media_type`, `size`, `provider`, `model` and a video
-`job`. A generated image is also stored as a tool-result attachment, so the
-conversation shows it; it is never sent back to the model. A video job that the
-provider accepted but whose result was not saved answers `outcome_unknown` and
-names the job.
+Generation checks the output path when the call is prepared and takes the
+target again as it starts, before the provider is asked: it is
+worktree-relative, ends in `.png` or `.mp4` and names no existing file, so the
+second of two calls for one file is `conflict` without a provider request. The
+confined file service writes the result without replacing a file, and the file
+is written before usage is recorded. The tool result carries `path`,
+`media_type`, `size`, `provider`, `model` and a video `job`. A generated image
+is also stored as a tool-result attachment, so the conversation shows it; it is
+never sent back to the model.
+
+A video is one provider job: submit, read until it ends, download, all inside
+540 seconds. A job the provider accepted and that left no file answers one of:
+
+| Case | Answer |
+| --- | --- |
+| The provider reports `failed` or `cancelled` | `unavailable`, naming the job and the provider's reason |
+| An unknown status, a body that is not MP4, a refused read (4xx) | The provider error, naming the job |
+| Stop, the deadline, a network failure, a 5xx or rate-limited read | `outcome_unknown`, naming the job and how to fetch it |
+| The video arrived but the file could not be saved | The save error, naming the job and how to fetch it |
+
+The last two leave the job with the provider. Calling `generate_video` with
+that `job` reads and downloads it with a new 540 seconds and never submits the
+prompt, so a video is not paid for twice; the job is recorded in the failed
+tool result, so a later turn can fetch it too. `job` is a plain identifier of
+at most 128 letters, digits, `.`, `-` and `_`. Usage is recorded by the call
+that saves the video. Nothing asks the provider to cancel a job.
 
 ### Retired media package
 
@@ -127,7 +145,6 @@ contracts and all routing.
 | --- | --- | --- |
 | Capability boxes | Settings › Providers › provider editor › model form, above Reasoning levels | `settings/providers.go` `capabilityForm` |
 | Capability marks | Provider rows' model chips; composer model picker rows | `settings/providers.go` `capabilityMarks`, `composer/models.go` `modelRow` |
-| Capability filter | Composer model picker's rail, under the families | `composer/models.go` `modelPicker` |
 | Media models | Settings › Media models, in the AI group after Knowledge | `settings/media.go` `mediaModels`, `live/settings_media.go` |
 | Read aloud | The turn's existing Read aloud / Stop reading action | `reader`, bound in `cmd/sailry-desktop` |
 
@@ -145,9 +162,9 @@ those were the catalog's. A model that was already the user's keeps its
 boxes until the save returns the catalog's tags.
 
 Marks are the existing `Eye` (vision), `Image`, `Volume` (speech) icons and
-`reicon-video-play` (video), each with a tooltip. The picker's rail shows a
-filter toggle for each capability at least one offered model has; choosing
-one again clears it.
+`reicon-video-play` (video), each with a tooltip. The picker's rail has no
+capability filter ([removed-ui.md](removed-ui.md)): the marks on the rows
+tell what a model takes and makes.
 
 `Runtime.followMedia` reads `read_media_settings` and `list_media_models`
 on the Node Settings edits (the selected host's, see
@@ -198,8 +215,10 @@ and played into MyGo's null device where the machine has no output.
 fakes. `TestMediaTools` covers a profile with the retired package starting
 without it, routing, a real turn in which the model is offered and calls the
 built-in tools with no media package installed, no tool for a model without
-the capability, output confinement, the remembered session approval, plan mode
-and speech. The store fixture
+the capability, output confinement, two calls for one output file reaching the
+provider once, a video job that the provider ends, one that is lost after it
+was accepted and fetched by a later call without a second submission, the
+remembered session approval, plan mode and speech. The store fixture
 `provider_capability_tags_and_media_assignments` covers tags surviving a catalog
 refresh and assignment validation. No real provider is called.
 
@@ -210,9 +229,11 @@ refresh and assignment validation. No real provider is called.
 | Speech synthesis records no session usage | The command has no session or turn to attribute it to |
 | `use_media` is not a routed controller command | It only identifies the approval; the engine tool runs the operation |
 | Account sign-in variants of the hosted image tool are untested | Tests use API-key fakes only |
-| The capability filter is in the composer picker's rail, not on the Providers page | The picker already filters by family there; the Providers page keeps its search and provider-type filter unchanged |
 | The retired package's `imagegen` skill has no core counterpart | Core has no built-in skills; the tool description carries the rule |
 | Protocol keeps the `media.inspect`, `media.image` and `media.video` action and operation values | Stored plugin records, approvals and captures decode strictly |
 | A hosted image tool unticked and saved comes back as `image` when ticked later | The editor only knows the hosted tool from the tags it opened with |
 | Read aloud speaks with the local Node's speech model, whichever host a session runs on or Settings shows | Read aloud is a controller effect: the desktop synthesizes and plays it. The Media models page itself follows the selected host; it was local only while the page's other Node settings were |
 | MP3 playback through real audio hardware is not covered by tests | Tests replace the player; the decoder and output are MyGo's |
+| `generate_video` accepts a `job` and fetches it; Rust could not return to an accepted job | A stop or the deadline otherwise leaves a paid video that nothing can fetch |
+| A job the provider ended is a tool error naming the job; Rust answered a result holding `job` and an `unavailable` error | One failure shape for every tool; the model is told the same thing |
+| Video usage is recorded by the call that saves the file | A fetch after a failed save would otherwise count the job twice |

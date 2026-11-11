@@ -146,8 +146,31 @@ func (s *Service) Clone(ctx context.Context, repositoryURL, destination string, 
 		args = append(args, "--branch", *branch)
 	}
 	args = append(args, "--", repositoryURL, target)
-	if _, err := s.command(ctx, filepath.Dir(target), args, nil, false); err != nil {
-		return "", fault(protocol.ErrorCodeOutcomeUnknown, "clone did not finish; inspect the retained destination directory")
+	// The Node creates the destination itself, as the reference does, so
+	// whatever a failed or interrupted clone leaves there is its own to remove
+	// and a retry finds the path free.
+	if err := os.Mkdir(target, 0o777); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", fault(protocol.ErrorCodeConflict, DestinationExists)
+		}
+		return "", mapError(err)
+	}
+	if _, err := s.network(ctx, filepath.Dir(target), args); err != nil {
+		if os.RemoveAll(target) != nil {
+			return "", fault(protocol.ErrorCodeOutcomeUnknown, "clone did not finish and its partial directory could not be removed; inspect the destination")
+		}
+		var value *protocol.Fault
+		errors.As(err, &value)
+		switch {
+		// Only a stopped process leaves the outcome open: the stall limit or Node shutdown.
+		case value == nil || value.Code == protocol.ErrorCodeOutcomeUnknown || value.Code == protocol.ErrorCodeCancelled:
+			return "", fault(protocol.ErrorCodeOutcomeUnknown, "clone was stopped before it finished; its partial directory was removed")
+		case value.Code == protocol.ErrorCodePermissionDenied:
+			return "", fault(protocol.ErrorCodePermissionDenied, "clone failed: the remote refused access")
+		}
+		// Git answered: a wrong URL, an unreachable host or a missing branch. Its
+		// words stay in the ephemeral output; receipts carry no remote URL.
+		return "", invalid("clone failed: Git could not read the repository")
 	}
 	canonical, err := filepath.EvalSymlinks(target)
 	if err != nil {

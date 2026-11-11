@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -195,6 +196,45 @@ func testSSHHostInstall(t *testing.T) {
 				t.Fatalf("lost %v: installation kept = %v", lost, local.install != nil)
 			}
 		}
+
+		// An update whose result the Node can never confirm is answered by the
+		// Host itself: the operation leaves recovery, its request is given
+		// up, and Check and Apply are free again. No network is bound here,
+		// so the Host cannot be asked and the card offers Check.
+		command, err := sshSaveCommand(draft, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		updated := protocol.NodeID{7}
+		for name, lost := range map[string]protocol.RequestOutcome{
+			"recorded as unconfirmed":  {Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Host update was started but reconnection could not be confirmed"}}},
+			"interrupted by a restart": {Kind: "unknown"},
+		} {
+			request := root.controller.Prepare(command)
+			local.view.Update = &host.Update{Phase: host.Staged, Retry: host.Apply}
+			if local.update == nil {
+				local.update = &hostUpdate{}
+			}
+			local.update.form = true
+			update := &sshInstallation{state: local, expected: &updated, request: &request, retry: command, uncertain: true, active: true}
+			local.install, receipt = update, lost
+			inspections := count("inspect_request")
+			root.recoverSSH(update)
+			settle()
+			if update.partial || update.uncertain || update.active || update.request != nil || update.retry.Kind != "" || local.update.form {
+				t.Fatalf("%s: the update stayed in recovery: %+v", name, update)
+			}
+			if view := local.view.Update; view.Phase != host.UpdateFailed || view.Retry != host.Check {
+				t.Fatalf("%s: the Host was not asked: %+v", name, view)
+			}
+			// Check asks the Host again instead of the request that was given up.
+			root.advanceHostUpdate(local.view.ID, *local.view.Update)
+			settle()
+			if count("inspect_request") != inspections+1 || update.partial || update.uncertain {
+				t.Fatalf("%s: Check went back to the request: %d inspections", name, count("inspect_request")-inspections)
+			}
+		}
+		local.install = nil
 
 		// A receipt the Node never admitted sends the same request again.
 		draft.Host, local.install, revision = "fourth.example", nil, 0

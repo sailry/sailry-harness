@@ -21,13 +21,21 @@ const (
 	// readers bounds the read and parse workers shared by all worktrees.
 	readers   = 4
 	maxIssues = 5
+	// maxChanged bounds the remembered changed paths of one worktree. They
+	// only order the next reconcile, so further ones are not remembered.
+	maxChanged = 4096
+	// idleRelease is how long an unused worktree keeps its open index and
+	// its file watch.
+	idleRelease = 10 * time.Minute
 )
 
 // Fingerprint identifies this engine's extraction rules in files.fingerprint.
 // Records written under any other rules are parsed again.
 var Fingerprint = Hash("code-index-v1:gotreesitter:v0.57.0:embedded-1:data-1:references-1")
 
-// Watch subscribes to the changes of one worktree root.
+// Watch subscribes to the changes of one worktree root. The subscription
+// reports that something changed; the owner also passes the changed paths to
+// Service.Observed.
 type Watch func(ctx context.Context, root string, worktree protocol.WorktreeID) (link.Subscription, error)
 
 // Service owns the code indexes of a profile, one per worktree.
@@ -55,6 +63,8 @@ type worktree struct {
 	stopped context.Context
 	stop    context.CancelFunc
 	observe sync.Once
+	// used is the start of the latest query, guarded by the service.
+	used time.Time
 
 	opening sync.Mutex
 	index   *index
@@ -72,7 +82,10 @@ func (d *dirty) change(path *string) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	d.revision++
-	if path != nil {
+	if path == nil {
+		return
+	}
+	if _, known := d.paths[*path]; known || len(d.paths) < maxChanged {
 		d.paths[*path] = d.revision
 	}
 }
@@ -109,7 +122,38 @@ func (d *dirty) finish(generation uint64) bool {
 // New returns the enabled index service of a profile directory.
 func New(profile string, watch Watch) *Service {
 	closed, cancel := context.WithCancel(context.Background())
-	return &Service{profile: profile, watch: watch, parser: &Parser{}, parsing: make(chan struct{}, readers), closed: closed, close: cancel, enabled: true, worktrees: map[protocol.WorktreeID]*worktree{}}
+	service := &Service{profile: profile, watch: watch, parser: &Parser{}, parsing: make(chan struct{}, readers), closed: closed, close: cancel, enabled: true, worktrees: map[protocol.WorktreeID]*worktree{}}
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-closed.Done():
+				return
+			case now := <-ticker.C:
+				service.releaseIdle(now)
+			}
+		}
+	}()
+	return service
+}
+
+// releaseIdle closes the index and ends the file watch of every worktree no
+// query used for idleRelease, so a watch lasts only while its worktree is
+// queried. The next query opens both again and reconciles by revision.
+func (s *Service) releaseIdle(now time.Time) {
+	s.mutex.Lock()
+	var released []*worktree
+	for id, worktree := range s.worktrees {
+		if now.Sub(worktree.used) >= idleRelease {
+			released = append(released, worktree)
+			delete(s.worktrees, id)
+		}
+	}
+	s.mutex.Unlock()
+	for _, worktree := range released {
+		_ = worktree.release()
+	}
 }
 
 func (s *Service) directory(id protocol.WorktreeID) string {
@@ -129,9 +173,10 @@ func (s *Service) worktree(id protocol.WorktreeID, root string) (*worktree, erro
 		if known.root != root {
 			return nil, fault(protocol.ErrorCodeRevisionConflict, "worktree root changed")
 		}
+		known.used = time.Now()
 		return known, nil
 	}
-	created := &worktree{root: root, database: filepath.Join(s.directory(id), "index.sqlite"), sync: make(chan *progress, 1), dirty: dirty{paths: map[string]uint64{}}}
+	created := &worktree{root: root, database: filepath.Join(s.directory(id), "index.sqlite"), sync: make(chan *progress, 1), dirty: dirty{paths: map[string]uint64{}}, used: time.Now()}
 	created.sync <- &progress{}
 	created.stopped, created.stop = context.WithCancel(s.closed)
 	s.worktrees[id] = created
@@ -184,6 +229,30 @@ func (s *Service) Changed(id protocol.WorktreeID, path *string) {
 	}
 }
 
+// Observed records the absolute paths of one watch batch. Indexable files
+// below the worktree move to the front of its next reconcile; everything
+// else is covered by the watch's own invalidation.
+func (s *Service) Observed(id protocol.WorktreeID, paths []string) {
+	s.mutex.Lock()
+	worktree := s.worktrees[id]
+	s.mutex.Unlock()
+	if worktree == nil {
+		return
+	}
+	for _, path := range paths {
+		relative, err := filepath.Rel(worktree.root, path)
+		if err != nil || relative == "." || !filepath.IsLocal(relative) {
+			continue
+		}
+		relative = filepath.ToSlash(relative)
+		// Git's own files are never indexed and change in bursts.
+		if relative == ".git" || strings.HasPrefix(relative, ".git/") || strings.Contains(relative, "/.git/") || !Candidate(relative) {
+			continue
+		}
+		worktree.dirty.change(&relative)
+	}
+}
+
 // Remove deletes the derived cache of a removed worktree.
 func (s *Service) Remove(id protocol.WorktreeID) error {
 	s.mutex.Lock()
@@ -223,8 +292,8 @@ func (w *worktree) begin(ctx context.Context) (context.Context, func(), error) {
 	return ctx, end, nil
 }
 
-// observed subscribes once to the worktree's file changes. Watch events carry
-// no paths, so each one invalidates the whole worktree.
+// observed subscribes once to the worktree's file changes. Each update
+// invalidates the whole worktree; Observed adds the paths that changed.
 func (w *worktree) observed(s *Service, id protocol.WorktreeID) {
 	w.observe.Do(func() {
 		events, err := s.watch(w.stopped, w.root, id)
@@ -402,8 +471,8 @@ func (s *Service) Search(ctx context.Context, id protocol.WorktreeID, root strin
 	if err != nil {
 		return page, err
 	}
-	// Watch events carry no paths, so a bounded scan can still return files
-	// changed outside the agent. Matched files are re-read before their
+	// A bounded scan can still return files whose change has not reached
+	// the front of its cursor. Matched files are re-read before their
 	// revisions reach revision-checked line reads.
 	if progress != nil {
 		page, err = s.validated(ctx, worktree, index, progress, &query)

@@ -307,13 +307,13 @@ func statusView(c *ui.Context, st ConnStatus, updated string, busy bool) {
 	row.Children(func() {
 		muted := func(s string) { ui.Text(c, s).FontSize(14).TextColor(p.MutedForeground).SingleLine() }
 		if busy && !st.Connecting {
-			ui.Spinner(c).Size(14, 14)
+			kit.Busy(c)
 		}
 		switch {
 		case st.Problem != "":
 			muted(i18n.T(c, st.Problem))
 		case st.Connecting:
-			ui.Spinner(c).Size(14, 14)
+			kit.Busy(c)
 			muted(i18n.T(c, "connector_mcp_connecting"))
 		case st.Failed:
 			kit.StatusDot(c, kit.Negative, i18n.T(c, "connector_mcp_failed")).Size(6, 6)
@@ -800,7 +800,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 func pendingButton(c *ui.Context, key any, label string, disabled, pending bool) ui.Element {
 	return kit.Primary(c.Key(key), label, disabled || pending).Busy(pending).Children(func() {
 		if pending {
-			ui.Spinner(c).Size(14, 14)
+			kit.Busy(c)
 		}
 		ui.Text(c, label).FontSize(14)
 	})
@@ -938,7 +938,7 @@ func mcpDialog(c *ui.Context, m *Model) {
 		ui.Row(c.Key("title")).Gap(8).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
 			if e.loading {
-				ui.Spinner(c).Size(14, 14)
+				kit.Busy(c)
 			}
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Busy(e.loading).Children(func() {

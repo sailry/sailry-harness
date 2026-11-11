@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -549,11 +550,11 @@ func TestReceiptAfterDurableAdmission(t *testing.T) {
 	}
 	// A busy project worker delays neither the admission of later commands,
 	// nor reads, nor the commands of the other lane.
-	node.effects.Lock()
+	release := node.locks.registration()
 	held := true
 	defer func() {
 		if held {
-			node.effects.Unlock()
+			release()
 		}
 	}()
 	var pending []link.Admission
@@ -570,7 +571,7 @@ func TestReceiptAfterDurableAdmission(t *testing.T) {
 	}
 	sessionFixture(t, node)
 	held = false
-	node.effects.Unlock()
+	release()
 	for _, accepted := range pending {
 		if result := <-accepted.Completion; result.Fault != nil {
 			t.Fatal(result.Fault)
@@ -721,6 +722,57 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 			t.Fatalf("invalid digest accepted: %#v", value)
 		}
 	}
+	t.Run("failed result write", func(t *testing.T) {
+		// The writer's connection refuses to store a result until the gate opens.
+		gate := func(statement string) {
+			t.Helper()
+			if err := restarted.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+				_, err := db.ExecContext(ctx, statement)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gate("CREATE TEMP TABLE result_gate AS SELECT 1 AS closed")
+		gate("CREATE TEMP TRIGGER result_refused BEFORE UPDATE OF status ON requests WHEN (SELECT closed FROM result_gate)=1 BEGIN SELECT RAISE(ABORT,'result write refused'); END")
+		registration := protocol.NewRequest(id, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Unrecorded", Path: t.TempDir()}})
+		inspect := func() protocol.RequestOutcome {
+			t.Helper()
+			query := protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: registration.ID, Digest: admission.Digest(encode(registration))}}
+			return commandFixture(t, restarted, query).Data.(protocol.OutputRequestOutcomePayload).Outcome
+		}
+		accepted, err := restarted.Dispatch(ctx, id, registration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case early := <-accepted.Completion:
+			t.Fatalf("answered before the result was stored: %#v", early)
+		case <-time.After(200 * time.Millisecond):
+		}
+		if outcome := inspect(); outcome.Kind != "admitted" {
+			t.Fatalf("while the result is unrecorded = %#v", outcome)
+		}
+		gate("UPDATE result_gate SET closed=0")
+		// The transaction that registered the project failed, so nothing was
+		// applied and that failure is the stored, replayable result.
+		result := <-accepted.Completion
+		if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeInternal {
+			t.Fatalf("result = %#v", result)
+		}
+		outcome := inspect()
+		stored, ok := outcome.Data.(protocol.Result[protocol.Output, protocol.Fault])
+		if outcome.Kind != "completed" || !ok || stored.Err == nil || *stored.Err != *result.Fault {
+			t.Fatalf("stored outcome = %#v", outcome)
+		}
+		if replay := dispatchFixture(t, restarted, id, registration); replay.Fault == nil || *replay.Fault != *result.Fault {
+			t.Fatalf("replay = %#v", replay)
+		}
+		if projects := snapshotFixture(t, restarted).Projects; len(projects) != 0 {
+			t.Fatalf("a failed registration was applied: %#v", projects)
+		}
+		gate("DROP TRIGGER result_refused")
+	})
 	// Neither the database, its log, nor the backup that preceded the update
 	// keeps the secret, and a later start has nothing left to replace.
 	stopped = true

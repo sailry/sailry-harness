@@ -72,7 +72,7 @@
   {
     "name": "generate_video",
     "operation": "media.video",
-    "description": "Generate a video with the model assigned to Video in Media models; without an assignment the conversation model generates it. Save under assets/generated without replacing existing files. file_name is an optional plain name ending in .mp4. Stopping local work does not cancel a job already accepted by the provider. Do not replay an uncertain generation.",
+    "description": "Generate a video with the model assigned to Video in Media models; without an assignment the conversation model generates it. Save under assets/generated without replacing existing files. file_name is an optional plain name ending in .mp4. Stopping local work does not cancel a job already accepted by the provider. When a result names a job that was accepted but not saved, call again with that job and the same prompt to fetch it; never submit the prompt again without it.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -81,6 +81,10 @@
         },
         "file_name": {
           "type": "string"
+        },
+        "job": {
+          "type": "string",
+          "description": "Job named by an earlier result; fetches that video instead of generating a new one"
         }
       },
       "required": [

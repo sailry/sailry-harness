@@ -154,7 +154,13 @@ func activityEvent(ctx context.Context, db *sql.Conn, session protocol.SessionID
 	if err != nil {
 		return nil, err
 	}
-	return []protocol.Event{{Kind: "conversation_changed", Data: protocol.EventConversationChangedPayload{Session: session, Activity: &summary}}}, nil
+	// The notice precedes the activity it explains, so a controller that
+	// applies events one at a time sees it before the waiting transition.
+	notices, err := waitingNotice(ctx, db, session, summary)
+	if err != nil {
+		return nil, err
+	}
+	return append(notices, protocol.Event{Kind: "conversation_changed", Data: protocol.EventConversationChangedPayload{Session: session, Activity: &summary}}), nil
 }
 
 // AppendCanonical preserves immutable record identity and updates only derived
@@ -165,6 +171,9 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 	}
 	if err := record.Validate(); err != nil {
 		return protocol.ConversationEntry{}, nil, invalid(err.Error())
+	}
+	if err := captureCanonicalRecord(ctx, db, &record); err != nil {
+		return protocol.ConversationEntry{}, nil, err
 	}
 	if err := validateCanonicalAssets(ctx, db, record); err != nil {
 		return protocol.ConversationEntry{}, nil, err
@@ -252,7 +261,11 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 		return entry, nil, err
 	}
 	settled, err := toolsCompleted(ctx, db, session, record, sequence)
-	return entry, append(append(events, delivery...), settled...), err
+	if err != nil {
+		return entry, nil, err
+	}
+	notice, err := compactionNotice(ctx, db, session, record, sequence)
+	return entry, append(append(append(events, delivery...), settled...), notice...), err
 }
 
 func applyCanonicalState(ctx context.Context, db *sql.Conn, session protocol.SessionID, record canonical.Record) error {

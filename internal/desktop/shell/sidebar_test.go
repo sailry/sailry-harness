@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -620,7 +621,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	if err := tt.RightClick("new-project"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tt.Menu(); !slices.Contains(got, en("directory_open")) || !slices.Contains(got, en("files_rename")) || !slices.Contains(got, en("files_trash")) {
+	if got := tt.Menu(); !slices.Contains(got, en("directory_open")) || !slices.Contains(got, en("files_rename")) || !slices.Contains(got, en("directory_trash")) {
 		t.Fatalf("the entry menu is %q", got)
 	}
 	tt.CloseMenu()
@@ -630,7 +631,19 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	if tt.HasText(".cache") || !tt.HasText(en("directory_count_hidden", "count", 1)) {
 		t.Fatalf("a hidden entry shows before the toggle: %q", tt.Texts())
 	}
-	pick(en("directory_hidden"))
+	// The hidden-files toggle is an item of the header's More menu.
+	more := tt.AccessAll()
+	slices.Reverse(more)
+	i := slices.IndexFunc(more, func(e ui.AccessInfo) bool {
+		return (e.Role == ui.RoleMenuButton || e.Role == ui.RoleButton) && e.Name == en("more")
+	})
+	if i < 0 {
+		t.Fatalf("the picker has no More menu: %q", tt.Texts())
+	}
+	tt.ClickAt(more[i].Bounds.X+more[i].Bounds.W/2, more[i].Bounds.Y+more[i].Bounds.H/2)
+	settle(tt)
+	clickItem(t, tt, en("directory_hidden"))
+	settle(tt)
 	if !tt.HasText(".cache") || !a.Sidebar.Picker.Hidden {
 		t.Fatalf("the hidden toggle did not show the entry: %q", tt.Texts())
 	}
@@ -790,6 +803,55 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	if len(a.Data.Projects) != n+2 {
 		t.Error("the project was not removed")
 	}
+
+	// The picker's frames for review, under SAILRY_SNAPSHOTS: over the
+	// editor that opened it, in Chinese with the dialog's own frost, dark and
+	// light, and a host that did not answer.
+	t.Run("picker frames", func(t *testing.T) {
+		if os.Getenv("SAILRY_SNAPSHOTS") == "" {
+			t.Skip("SAILRY_SNAPSHOTS is not set")
+		}
+		zh := func(key string, args ...any) string { return i18n.In("zh-CN", key, args...) }
+		open := func(dark bool) (*App, *ui.Tester) {
+			a := New(preview.Load())
+			tt := ui.NewTesterWith(a.View, 1280, 820, ui.TesterOptions{Dark: dark})
+			tt.SetScale(2)
+			tt.SetLocale("zh-CN")
+			tt.Frame()
+			// Two of the sample projects live in the sample tree, the
+			// first used last.
+			for i, path := range []string{"/preview/sailry", "/preview/scratch"} {
+				a.Data.Projects[i].Host, a.Data.Projects[i].Path = a.Data.Hosts[0].ID, path
+			}
+			a.Sidebar.OpenEditor(nil)
+			settle(tt)
+			return a, tt
+		}
+		for _, dark := range []bool{true, false} {
+			a, tt := open(dark)
+			clickButton(t, tt, zh("directory_title"))
+			settle(tt)
+			click(t, tt, "scratch")
+			tt.Move(4, 4)
+			settle(tt)
+			if !a.Sidebar.Picker.Showing() || !tt.HasText(zh("projects")) || !tt.HasText(zh("directory_modified")) {
+				t.Fatalf("the picker's frame is incomplete: %q", tt.Texts())
+			}
+			snapshot(t, tt, "picker-zh-CN-"+map[bool]string{true: "dark", false: "light"}[dark])
+		}
+		a, tt := open(true)
+		a.Sidebar.Picker.Open(picker.Options{Mode: picker.Directory, Title: "directory_title", Confirm: "directory_title", Initial: "/srv/builds",
+			Host: "build-box", Projects: []picker.Location{{Name: "harbor-api", Path: "/srv/harbor-api"}, {Name: "lumen-web", Path: "/srv/lumen-web"}},
+			Source: picker.Source{Browse: func(_ string, done func(picker.Listing, string)) {
+				done(picker.Listing{}, "directory_host_unavailable")
+			}}})
+		settle(tt)
+		settle(tt)
+		if !tt.HasText(zh("directory_host_unavailable")) || !tt.HasText(zh("settings_retry")) {
+			t.Fatalf("the failed picker's frame is incomplete: %q", tt.Texts())
+		}
+		snapshot(t, tt, "picker-error-zh-CN-dark")
+	})
 }
 
 // clickField clicks the text field assistive technology names so.

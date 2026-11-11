@@ -43,7 +43,7 @@ func (s *State) recordsDialog(c *ui.Context) {
 						ui.Icon(c, icon).FontSize(16).TextColor(palette.MutedForeground)
 						ui.Text(c, Title(c, cv)).FontSize(14).Grow(1).Shrink(1).SingleLine()
 						if records.pending && records.opening == cv.ID {
-							ui.Spinner(c).Size(14, 14)
+							kit.Busy(c)
 						} else {
 							ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(palette.MutedForeground)
 						}

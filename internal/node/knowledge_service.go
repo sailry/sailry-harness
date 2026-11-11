@@ -80,12 +80,14 @@ func (node *Node) followKnowledgeStorage(ctx context.Context, db *sql.Conn, requ
 }
 
 // refreshKnowledgeStorage asks for an indexing pass after a committed
-// command that may change what storage collections index, or that
-// registered one. The pass runs on the knowledge worker and never delays the
+// command that may change what storage collections index, that registered
+// one, or that removed an owner of collections. The pass runs on the knowledge worker and never delays the
 // command.
 func (node *Node) refreshKnowledgeStorage(command protocol.Command, changes []protocol.Event) {
 	switch command.Kind {
 	case "install_plugin", "install_plugin_source", "install_plugin_upload", "set_plugin_enabled", "save_plugin_settings":
+	case "remove_plugin", "remove_project", "remove_session", "remove_sessions":
+		// The pass removes the collections these owned.
 	default:
 		if !store.KnowledgeStorageCommand(command) && !slices.ContainsFunc(changes, func(change protocol.Event) bool { return change.Kind == "knowledge_collections_changed" }) {
 			return
@@ -101,13 +103,7 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 	return knowledgeservice.Options{
 		Working: node.power.Hold,
 		Index:   node.profile.Store.Knowledge,
-		Catalog: func(ctx context.Context) (catalog []store.KnowledgeStored, err error) {
-			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-				catalog, err = store.ReadKnowledgeCatalog(ctx, db)
-				return err
-			})
-			return catalog, nodeFault(err)
-		},
+		Catalog: node.knowledgeCatalog,
 		Allowed: func(ctx context.Context, request protocol.Request) (allowed []store.KnowledgeStored, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 				allowed, err = store.AllowedKnowledge(ctx, db, request)
@@ -124,13 +120,15 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 			settings := registry.Settings()
 			return localmodels.Choice(&settings, protocol.ModelsKindEmbedding)
 		},
-		Dimension: func(model string) (int, bool) {
+		Dimension: func(model string) (int, string, bool) {
 			definition, err := registry.Definition(model)
 			if err != nil {
-				return 0, false
+				return 0, "", false
 			}
+			// A pinned model keeps its name when its revision moves; the
+			// definition's identity tells its vectors apart.
 			dimension, found := localmodels.Dimension(definition.Format)
-			return int(dimension), found
+			return int(dimension), localmodels.ID(definition), found
 		},
 		Installed: func() (map[string]bool, error) {
 			models, err := registry.List(protocol.ModelsKindEmbedding)
@@ -230,6 +228,38 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		Clock: clockwork.NewRealClock(),
 	}
+}
+
+// knowledgeCatalog reads the collections for an indexing pass after removing
+// those whose worktree, project, conversation or package was removed. Every
+// pass reconciles ownership, so a removal needs no hook of its own beyond
+// requesting a pass.
+func (node *Node) knowledgeCatalog(ctx context.Context) ([]store.KnowledgeStored, error) {
+	var catalog []store.KnowledgeStored
+	orphaned := false
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		if catalog, err = store.ReadKnowledgeCatalog(ctx, db); err == nil {
+			orphaned, err = store.OrphanedKnowledge(ctx, db, catalog)
+		}
+		return err
+	})
+	if err != nil || !orphaned {
+		return catalog, nodeFault(err)
+	}
+	removed := false
+	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		if catalog, removed, err = store.RemoveOrphanedKnowledge(ctx, db); err != nil || !removed {
+			return err
+		}
+		_, err = store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "knowledge_collections_changed"}})
+		return err
+	})
+	if err == nil && removed {
+		node.publish()
+	}
+	return catalog, nodeFault(err)
 }
 
 func embeddingFailure(err error) error {
@@ -342,7 +372,7 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
-		completion <- response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "knowledge collection result could not be recorded; list the collections before retrying"})
+		completion <- node.unapplied(caller, request.ID, err)
 		return accepted, nil
 	}
 	if operationErr == nil {

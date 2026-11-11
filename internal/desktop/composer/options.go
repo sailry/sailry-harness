@@ -11,7 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// The draft's options: the mode and permission menus, the host, project and
+// The draft's options: the mode and permission menus, the project and
 // worktree of the context bar, and the settings popover a narrow composer
 // folds them into.
 
@@ -251,7 +251,7 @@ func ContextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, sele
 	return kit.GhostLook(c, b, selected).Label(label).Height(24).PaddingX(8).Gap(4).Radius(12).MaxWidth(192).MinWidth(0).Shrink(1).
 		TextColor(theme.Of(c).MutedForeground).Children(func() {
 		ui.Icon(c, icon).FontSize(14).Shrink(0)
-		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		kit.Level(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0), 14)
 		if caret {
 			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0)
 		}
@@ -267,50 +267,13 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 	return ContextButton(c, b, icon, label, false, true)
 }
 
-// hostLabel is a host's name: its key's text for the local and the preview
-// hosts.
-func hostLabel(c *ui.Context, h Host) string {
-	if h.Key {
-		return i18n.T(c, h.Name)
-	}
-	return h.Name
-}
-
-// hostMenu chooses the host a new conversation runs on (live/context.rs
-// host_control): the host's name, a menu of the hosts with a check on the
-// current one. It shows only where there is another host to choose, before
-// the project; a session stays on its host, so there it names the host and
-// is disabled. A draft whose host went away is read-only and may still move
-// to another. Another host has its own projects and models: the draft goes
-// to that host's chats and takes its default model.
-func (s *State) hostMenu(c *ui.Context, ctx *Context, form controlForm) {
-	if len(ctx.Hosts) < 2 {
-		return
-	}
-	current := ctx.Hosts[0]
-	for _, h := range ctx.Hosts {
-		if h.ID == s.Host || s.Host == "" && h.Local {
-			current = h
-		}
-	}
-	label := hostLabel(c, current)
-	kit.MenuButton(c.Key("host"), s.menuID("host"), func(b ui.Element) {
-		contextButton(c, b.Disabled(ctx.LocationLocked), icons.Cpu, label, form)
-	}, func(m *kit.Menu) {
-		for _, h := range ctx.Hosts {
-			if m.Item(hostLabel(c, h)).Checked(h.ID == current.ID).Chosen() && h.ID != current.ID {
-				s.Host, s.Project, s.Worktree = h.ID, "", ""
-				s.Model, s.Team, s.MemberModels = "", "", nil
-			}
-		}
-	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
-}
-
 // projectButton is the location, the one project control of the bar: a
 // package's control of the same choice is not drawn beside it (live
 // plugin_controls.go). It reads the project's name, or Chats for none,
-// and a menu of Chats, the host's projects with a check on the current one,
-// then Add project.
+// and a menu of Chats, every host's projects with a check on the current
+// one, then Add project. The composer has no host choice
+// (docs/removed-ui.md): the draft runs on its project's host, which choosing
+// a project sets.
 func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	icon, label := icons.Inbox, i18n.T(c, "composer_no_project")
 	if pr := s.project(ctx); pr != nil {
@@ -341,10 +304,6 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form
 			choose("")
 		}
 		for _, pr := range ctx.Projects {
-			// With a host control the list is the chosen host's.
-			if len(ctx.Hosts) > 1 && pr.Host != "" && s.Host != "" && pr.Host != s.Host {
-				continue
-			}
 			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project).Chosen() {
 				choose(pr.ID)
 			}
@@ -518,20 +477,21 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			row("permission-page", pm.icon, i18n.T(c, pm.label), permissionColor(p, s.Permission), settingsPermission)
 			s.renderPluginControls(c, "composer", ControlMenu)
 			if narrow {
-				s.hostMenu(c, ctx, menuForm)
 				s.projectButton(c, ctx, actions, menuForm)
 				s.worktreeMenu(c, ctx, actions, menuForm)
 			}
 		}
 	})
 	if panel != (ui.Element{}) {
-		// As wide as the controls, which the model picker widens; clipped
-		// while it eases to their width.
-		width := float32(panelWidth)
+		// As wide as the controls, which the model picker widens.
+		width := float32(panelWidth + 16)
 		if s.page == settingsMain && len(ctx.Models) > 0 {
-			width = s.controlsWidth(c)
+			width = s.popoverWidth(c, 8)
 		}
-		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(width + 16).Gap(4).Clip()
+		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(width).Gap(4)
+		if s.page == settingsMain {
+			s.sizePopover(panel)
+		}
 	}
 }
 
@@ -541,7 +501,7 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 func MenuRow(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Color, chevron *ui.SVG) ui.Element {
 	return b.FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Justify(ui.Start).TextColor(color).Children(func() {
 		ui.Icon(c, icon).FontSize(16).Shrink(0)
-		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0)
+		kit.Level(c, ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0), 14)
 		slot := ui.Box(c).Size(16, 16).Shrink(0)
 		if chevron != nil {
 			slot.Children(func() { ui.Icon(c, chevron).FontSize(16) })

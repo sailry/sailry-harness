@@ -279,7 +279,7 @@ func section(c *ui.Context, s *State, key, title string, plus *add, body func())
 				if icon := groupIcons[key]; kit.HasArtIcon(c, icon) {
 					kit.ArtIcon(c, icon, nil, 16, ui.Color{}).Margin(0, 4, 0, 0)
 				}
-				ui.Text(c, title).FontSize(14).SingleLine()
+				kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine(), 14)
 				chevron := ui.Icon(c, icons.ChevronDown).FontSize(12).Rotate(-90 * (1 - parts.Progress()))
 				if !hovered {
 					chevron.Opacity(0)
@@ -349,7 +349,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 		parts.Trigger.Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).TextColor(p.SidebarForeground).
 			Cursor(ui.CursorPointer).ContextMenu(func(m *ui.Menu) { s.projectMenu(c, m, pr) }).Children(func() {
 			kit.ProjectGlyph(c, pr.Icon, pr.Color, 14).Label(i18n.T(c, "project_icon_"+appearanceIcon(pr.Icon)))
-			ui.Text(c, pr.Name).FontSize(14).SingleLine().Grow(1).Shrink(1)
+			kit.Level(c, ui.Text(c, pr.Name).FontSize(14).SingleLine().Grow(1).Shrink(1), 14)
 			label := i18n.T(c, "workspace_collapse")
 			if !*s.opened("project/" + pr.ID) {
 				label = i18n.T(c, "workspace_expand")
@@ -416,8 +416,8 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		return
 	}
 	b.TextColor(text).Children(func() {
-		status(c, cv.Status)
-		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1)
+		status(c, cv.Status, text)
+		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14)
 		if s.nonMainWorktree(cv) {
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)
 		}
@@ -553,12 +553,14 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 }
 
 // status puts the conversation's state in the 12x12 slot on the elbow: the
-// loader while it runs, otherwise the status dot in its tone.
-func status(c *ui.Context, st preview.Status) {
+// loader, in the color of the row's text and named as running, while it
+// runs, otherwise the status dot in its tone. A row that does not run has
+// no loader and asks for no frame.
+func status(c *ui.Context, st preview.Status, color ui.Color) {
 	slot := ui.Box(c).Absolute().Left(guideX-6).Top(rowHeight/2-6).Size(12, 12).Center().PassThrough()
 	switch st {
 	case preview.Running:
-		slot.Label(i18n.T(c, "activity_running")).Children(func() { kit.Loader(c, 12) })
+		slot.Children(func() { kit.LoaderIn(c, 12, color) })
 	case preview.Waiting:
 		slot.Children(func() { kit.StatusDot(c, kit.Caution, i18n.T(c, "activity_waiting")) })
 	case preview.Unread:

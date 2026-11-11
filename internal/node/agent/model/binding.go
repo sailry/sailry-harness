@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"charm.land/fantasy"
@@ -50,6 +51,10 @@ func Capture(provider protocol.ConversationProvider, config protocol.SessionConf
 	}
 	if provider.ID != config.Provider || strings.TrimSpace(config.Model) == "" {
 		return Binding{}, &Failure{Kind: NotConfigured, Message: "model selection is not configured"}
+	}
+	// A provider that lists models offers only those; an empty list offers any name.
+	if len(provider.Models) > 0 && !slices.ContainsFunc(provider.Models, func(listed protocol.ConversationModel) bool { return listed.ID == config.Model }) {
+		return Binding{}, &Failure{Kind: NotConfigured, Message: "model is not in the provider's model list"}
 	}
 	var result Binding
 	// Protocol JSON is the capture boundary; nested maps and pointers cannot follow later saves.
@@ -97,6 +102,7 @@ func New(ctx context.Context, binding Binding) (fantasy.LanguageModel, error) {
 			return nil, err
 		}
 	}
+	discoverContext(ctx, binding, config)
 	return newSDK(ctx, config)
 }
 func Scope(binding Binding) canonical.ModelSource {

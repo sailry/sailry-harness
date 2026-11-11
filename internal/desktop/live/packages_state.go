@@ -125,6 +125,9 @@ func (r *Runtime) initB8Packages() {
 				done(false)
 			}
 		},
+		Browse: func(name, initial string, valid func() bool, selected func(string)) {
+			r.localRuntime().chooseFile(name, "plugins_package", initial, valid, selected)
+		},
 		Download: func(repository, revision, path string, done func(bool)) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.installGitPlugin(repository, revision, path, done)

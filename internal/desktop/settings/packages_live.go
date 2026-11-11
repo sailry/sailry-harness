@@ -19,6 +19,7 @@ type PackageActions struct {
 	SaveSettings   func(string, []viewmodel.Setting, map[string]int, func(bool))
 	Uninstall      func(string, func(bool))
 	Install        func(string, string, func(bool))
+	Browse         func(string, string, func() bool, func(string)) // a package file of this machine, where Install reads it: the local host's name, the directory first shown, whether the form still wants it, the chosen path
 	Download       func(string, string, string, func(bool))
 	CancelDownload func()
 	LoadDetails    func(DetailKind, string, func())

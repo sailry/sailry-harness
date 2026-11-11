@@ -58,7 +58,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 			r.watchChild(childSession.ID)
 			if details, ready := r.conversationState(childSession.ID); ready {
 				for _, approval := range details.Snapshot.Page.Approvals {
-					if approval.State != "pending" || approval.Startup != nil || approval.Ssh != nil || approval.Session != childSession.ID {
+					if !childApproval(approval, childSession.ID) {
 						continue
 					}
 					view := projectApproval(approval, callAt(details.Snapshot.Page, approval.Entry, approval.Index), language)
@@ -88,6 +88,13 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		}
 	}
 	enrichChildModels(cv, state.Snapshot.Page, r.snapshot(), language)
+}
+
+// childApproval reports whether the parent's conversation decides a child's
+// approval: every pending one the child owns, a host key to trust included.
+// The child's own tab is read-only, so nothing else could answer it.
+func childApproval(approval protocol.ConversationApproval, child protocol.SessionID) bool {
+	return approval.State == protocol.ConversationApprovalStatePending && approval.Session == child
 }
 
 // stopChild stops one child run through stop_turn. Its parent and siblings

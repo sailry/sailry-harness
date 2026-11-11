@@ -32,6 +32,12 @@ opaque previews retain authored source. Physical publication and SQL receipts ar
 separate, preserve immutable referenced revisions and can replace only an
 unreferenced orphan. Package view resources retain their owning package reference.
 
+Removing a session deletes its artifacts in the same transaction unless a
+remaining conversation still shows a published revision, as a fork does. The
+artifact directory of a removed session that keeps no artifact is deleted after
+the commit; a directory that was not removed then goes with the next removal
+([node.md](node.md#current-commands)).
+
 The native Documents presentation follows the accepted panel contract in
 [panel.md](panel.md); live document HTML renders in the bridge-free sandboxed
 WebView described there. Because that view has no bridge, a document's form

@@ -439,6 +439,9 @@ func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, exp
 	if err := removePrivateProviders(ctx, db, private); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if err := pruneRemovedSessions(ctx, db); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	return protocol.Output{Kind: "sessions_removed", Data: ids}, []protocol.Event{{Kind: "sessions_removed", Data: ids}}, nil
 }
 

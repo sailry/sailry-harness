@@ -121,7 +121,7 @@ func Notices(list []client.Notice) []*viewmodel.Notice {
 			}
 		}
 		v := &viewmodel.Notice{Node: n.ID.Node.String(), ID: id, Kind: kind, Title: n.Title, Message: n.Message, Host: "local_host_name", Read: n.Read}
-		v.TitleKey = headingKey(n)
+		v.TitleKey, v.Presentation = headingKey(n), n.Presentation
 		if n.TimestampMs != nil {
 			v.Time = time.UnixMilli(*n.TimestampMs)
 		}

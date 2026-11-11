@@ -1,8 +1,8 @@
 // Package composer is the message composer under the transcript: the queue
 // strip, the attachment chips, the draft with its inline reference chips and
 // the @ and / pickers, the toolbar (attach, mode, permission, the model chip
-// and its controls, dictation, send and stop), and the context bar (host,
-// project and worktree, usage).
+// and its controls, dictation, send and stop), and the context bar (project
+// and worktree, usage).
 //
 // Custom drawing, each for a verified MyGo gap: the model controls' effort
 // track (track.go: MyGo's StepSlider has no gradient fill or step dots),
@@ -54,9 +54,10 @@ type State struct {
 	// Searching is set by the page while its search bar shows: Escape
 	// closes the bar before it reaches the composer.
 	Searching bool
-	// Metrics builds the context bar's usage at its end (conversation
-	// UsageBar), nil for none: compact below compactWidth, its popover
-	// open while *open is true.
+	// Metrics builds the context bar's figures at its end (conversation
+	// UsageBar), nil for none: a sample conversation's own usage, a live
+	// session's statistics and footer slots. Compact below compactWidth,
+	// its popover open while *open is true.
 	Metrics func(c *ui.Context, compact bool, open *bool)
 	// Indicator builds the preview's context ring left of the model chip
 	// (conversation ContextRing), nil for none. A live session's rings are
@@ -85,14 +86,16 @@ type State struct {
 	layer  layer
 	member string // the team member whose model the controls set
 	family string // the picker's rail choice, "" for all
-	// capability is the rail's capability filter (Capability.ID), "" for none.
-	capability string
-	open       map[string]bool
-	efforts    effortState // the model picker's effort column
-	settings   bool        // the compact settings popover
-	stats      bool        // the compact usage popover
-	page       settingsPage
-	width      float32 // the toolbar's width last frame
+	// open is the picker's groups by provider: true for one that shows its
+	// models, false for one the user folded, no entry for one not yet
+	// touched. It is kept while the picker's page shows, across the rail's
+	// families, and starts anew as the page opens.
+	open     map[string]bool
+	efforts  effortState // the model picker's effort column
+	settings bool        // the compact settings popover
+	stats    bool        // the compact usage popover
+	page     settingsPage
+	width    float32 // the toolbar's width last frame
 
 	menus         map[string]string // this composer's menu IDs (menuID)
 	projectPicker bool
@@ -270,7 +273,6 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.referencePicker(c, ctx, actions, surface)
 			s.contextBar(c, ctx, actions)
 		})
-		s.renderPluginControls(c, "footer", ControlStart)
 	})
 	s.filePicker(c, ctx, actions)
 }
@@ -480,8 +482,7 @@ func action(b ui.Element, a *theme.Action, disabled bool) {
 	}
 }
 
-// contextBar is under the surface: the host where there is another to
-// choose, the project and the worktree, then the
+// contextBar is under the surface: the project and the worktree, then the
 // usage at its end. Wide, both wrap; compact, they stay on one line and the
 // usage is one button; below the icon width the location is in the settings
 // popover and the bar keeps the usage alone.
@@ -501,13 +502,11 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 		}
 		location.Children(func() {
 			if !narrow {
-				s.hostMenu(c, ctx, toolbarForm)
 				s.projectButton(c, ctx, actions, toolbarForm)
 				s.worktreeMenu(c, ctx, actions, toolbarForm)
 			}
 			s.renderPluginControls(c, "context", ControlStart)
 		})
-		s.renderPluginControls(c, "statistics", ControlStart)
 		if s.Metrics != nil {
 			s.Metrics(c, compact, &s.stats)
 		}

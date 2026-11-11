@@ -25,11 +25,22 @@ type HostBinding struct {
 	Actions       []protocol.PluginAction
 	UsageSources  func() []UsageSource
 	UsageChanges  <-chan struct{}
+	// UsageSample is the sample the usage calls answer from at first;
+	// SetUsageSample changes it.
+	UsageSample *UsageSample
 }
 
 type UsageSource struct {
 	Client *client.Client
 	Label  string
+}
+
+// UsageSample answers the usage calls from memory in place of the Nodes'
+// ledgers, as the one source this device is. Nothing it answers is read from
+// or written to a Node.
+type UsageSample struct {
+	Report    func(protocol.NodeID, protocol.UsageQuery) (protocol.UsageReport, error)
+	Inventory func() ([]protocol.Project, []protocol.ConversationProvider)
 }
 
 type Host struct {
@@ -50,6 +61,11 @@ type Host struct {
 	fileSearchCancel    context.CancelFunc
 	usageChanged        chan struct{}
 	usageSourcesClosed  bool
+	usageSample         *UsageSample
+	// usageWatch is the page's last watchUsage call, which a change of the
+	// sample runs again. usageWatching orders the watches.
+	usageWatch    []json.RawMessage
+	usageWatching sync.Mutex
 }
 
 func NewHost(binding HostBinding) *Host {
@@ -77,6 +93,7 @@ func NewHost(binding HostBinding) *Host {
 		topics:              map[string]link.Subscription{},
 		installationPending: make(chan struct{}, 1),
 		usageChanged:        make(chan struct{}),
+		usageSample:         binding.UsageSample,
 	}
 	owner.settings.current = binding.Scope.Package
 	owner.native.PreparedRequest = owner.prepared

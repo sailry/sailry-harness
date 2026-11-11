@@ -4,16 +4,32 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// settlementRetry spaces repeated attempts to make a turn's end durable.
+const settlementRetry = time.Second
+
+// stoppedStatus names the end of a turn whose context was cancelled. Only a
+// Node that is shutting down interrupts; every deliberate stop, of the turn
+// itself or of a child through its parent, is cancelled.
+func (r *Runtime) stoppedStatus() protocol.ConversationStatus {
+	if r.ctx.Err() != nil {
+		return protocol.ConversationStatusInterrupted
+	}
+	return protocol.ConversationStatusCancelled
+}
 
 func (r *Runtime) execute(x *execution) {
 	if r.working != nil {
@@ -37,7 +53,7 @@ func (r *Runtime) execute(x *execution) {
 	status := protocol.ConversationStatusCompleted
 	var failure *protocol.Fault
 	if x.ctx.Err() != nil {
-		status = protocol.ConversationStatusInterrupted
+		status = r.stoppedStatus()
 	} else if err != nil {
 		status = protocol.ConversationStatusFailed
 		failure = model.Fault(err)
@@ -46,78 +62,114 @@ func (r *Runtime) execute(x *execution) {
 		status = protocol.ConversationStatusFailed
 		failure = model.Fault(cleanupErr)
 	}
-	if status == protocol.ConversationStatusInterrupted {
+	if status == protocol.ConversationStatusCancelled || status == protocol.ConversationStatusInterrupted {
 		r.feed.Seal(x.inv.Session.ID, x.inv.Run.Turn)
 		if settleErr != nil {
 			failure = model.Fault(settleErr)
 		}
 	}
-	hookStatus := "succeeded"
-	if status != protocol.ConversationStatusCompleted {
-		hookStatus = "failed"
+	// Completion hooks belong to turns that ran to their end. A stopped turn
+	// and a stopping Node run none.
+	if x.ctx.Err() == nil {
+		// The Turn End status is the turn's: completed or failed. After Tool
+		// hooks report a call as succeeded or failed.
+		hookStatus := "completed"
+		if status != protocol.ConversationStatusCompleted {
+			hookStatus = "failed"
+		}
+		if hookErr := x.hooks.Complete(ctx, hookStatus); hookErr != nil {
+			status = protocol.ConversationStatusFailed
+			failure = model.Fault(hookErr)
+		}
 	}
-	if hookErr := x.hooks.Complete(ctx, hookStatus); hookErr != nil && status != protocol.ConversationStatusInterrupted {
-		status = protocol.ConversationStatusFailed
-		failure = model.Fault(hookErr)
-	}
+	r.mu.Lock()
+	child := r.children[x.inv.Run.Turn]
+	r.mu.Unlock()
 	var run protocol.ConversationRun
 	var successor *protocol.ConversationRun
 	var reviewEntry *protocol.ConversationEntry
 	var reviewQuestion *protocol.ConversationQuestion
-	unlock := r.LockPublication()
-	defer unlock()
-	r.mu.Lock()
-	child := r.children[x.inv.Run.Turn]
-	r.mu.Unlock()
-	err = r.db.Write(ctx, func(db *sql.Conn) error {
-		var changes []protocol.Event
-		var err error
-		if status == protocol.ConversationStatusCompleted && x.ctx.Err() != nil {
-			status = protocol.ConversationStatusInterrupted
+	// The turn keeps its owner until its end is durable. Only this write is
+	// repeated: the model, tools, hooks and cleanup have already ended.
+	reported := false
+	var unlock func()
+	defer func() {
+		if unlock != nil {
+			unlock()
 		}
-		run, changes, err = store.FinishTurn(ctx, db, x.inv.Run.Turn, status, failure, r.clock.Now())
-		if err != nil {
-			return err
-		}
-		if child != nil && run.Status == protocol.ConversationStatusCompleted {
-			var guidanceEvents []protocol.Event
-			successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
+	}()
+	for {
+		unlock = r.LockPublication()
+		err = r.db.Write(ctx, func(db *sql.Conn) error {
+			successor, reviewEntry, reviewQuestion = nil, nil, nil
+			var changes []protocol.Event
+			var err error
+			if status == protocol.ConversationStatusCompleted && x.ctx.Err() != nil {
+				status = r.stoppedStatus()
+			}
+			run, changes, err = store.FinishTurn(ctx, db, x.inv.Run.Turn, status, failure, r.clock.Now())
 			if err != nil {
 				return err
 			}
-			changes = append(changes, guidanceEvents...)
-		}
-		var reviewEvents []protocol.Event
-		reviewEntry, reviewQuestion, reviewEvents, err = store.PublishPlanReview(ctx, db, x.inv.Run.Turn, r.clock.Now())
-		if err != nil {
+			if child != nil && run.Status == protocol.ConversationStatusCompleted {
+				var guidanceEvents []protocol.Event
+				successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
+				if err != nil {
+					return err
+				}
+				changes = append(changes, guidanceEvents...)
+			}
+			var reviewEvents []protocol.Event
+			reviewEntry, reviewQuestion, reviewEvents, err = store.PublishPlanReview(ctx, db, x.inv.Run.Turn, r.clock.Now())
+			if err != nil {
+				return err
+			}
+			changes = append(changes, reviewEvents...)
+			_, err = store.RecordEvents(ctx, db, r.node, changes)
 			return err
+		})
+		if err == nil {
+			break
 		}
-		changes = append(changes, reviewEvents...)
-		_, err = store.RecordEvents(ctx, db, r.node, changes)
-		return err
-	})
-	if err == nil {
-		r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
-		if successor != nil {
-			next := &delegatedChild{parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true}
-			r.mu.Lock()
-			child.successor = next
-			delete(r.children, child.turn)
-			r.children[next.turn] = next
-			r.mu.Unlock()
+		unlock()
+		unlock = nil
+		if !reported {
+			reported = true
+			logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed), slog.String("operation", "finish"),
+				slog.String("session", x.inv.Session.ID.String()), slog.String("turn", x.inv.Run.Turn.String()), slog.String("exception", err.Error()))
 		}
-		r.publish()
-		if reviewEntry != nil {
-			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "entry", Data: *reviewEntry})
+		// A stopping Node leaves the run to restart recovery.
+		if r.clock.Sleep(r.ctx, settlementRetry) != nil {
+			return
 		}
-		if reviewQuestion != nil {
-			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "question", Data: *reviewQuestion})
-		}
-		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
-		r.RefreshCommitted(run.Session)
-		if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-			r.RefreshCommitted((*x.inv.Session.Delegation).Session)
-		}
+	}
+	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
+	if successor != nil {
+		next := &delegatedChild{parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true}
+		r.mu.Lock()
+		child.successor = next
+		delete(r.children, child.turn)
+		r.children[next.turn] = next
+		r.mu.Unlock()
+	}
+	r.publish()
+	if reviewEntry != nil {
+		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "entry", Data: *reviewEntry})
+	}
+	if reviewQuestion != nil {
+		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "question", Data: *reviewQuestion})
+	}
+	r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
+	r.RefreshCommitted(run.Session)
+	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+	}
+	// Packages observe every ended main task turn, whatever its status, once
+	// its end is stored and published. A stopping Node calls none.
+	unlock()
+	unlock = nil
+	if r.afterTurn != nil && r.ctx.Err() == nil && child == nil && x.inv.Session.Delegation == nil && x.inv.Run.Kind == protocol.ConversationRunKindTask {
+		r.afterTurn(r.ctx, x.inv, run.Status)
 	}
 }
 
@@ -257,13 +309,18 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			continue
 		}
-		joined, err := r.guidance(x)
-		if err != nil {
-			return err
-		}
-		if joined {
-			x.foregroundSteered = true
-			continue
+		// Every input waiting for this turn joins here as one batch: after tool
+		// results or a finished reply, before the next model step. A failed step
+		// takes none; the turn ends and its guidance returns to the queue.
+		if failed := lastMessage(state.Records); failed == nil || failed.Error == nil {
+			joined, err := r.guidance(x)
+			if err != nil {
+				return err
+			}
+			if joined {
+				x.foregroundSteered = true
+				continue
+			}
 		}
 		selected, err := r.selectedAgent(x, state)
 		if err != nil {
@@ -350,11 +407,9 @@ func (r *Runtime) reload(ctx context.Context, session protocol.SessionID, previo
 			if message := state.Records[i].MutableMessage(); message != nil {
 				for _, block := range message.Content {
 					if result, ok := block.Data.(*canonical.ToolResponse); ok {
-						value, err := store.HydrateCanonicalPayload(ctx, db, result.Result)
-						if err != nil {
+						if err := hydrateToolResult(ctx, db, result); err != nil {
 							return err
 						}
-						result.Result = canonical.Payload{Value: value}
 					}
 				}
 			}

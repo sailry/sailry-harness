@@ -1,6 +1,8 @@
 package live
 
 import (
+	"slices"
+
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -24,11 +26,23 @@ func projectApproval(approval protocol.ConversationApproval, call *protocol.Conv
 			if resolved.Input.Context != nil {
 				view.Context = resolved.Input.Context.Text
 			}
-			if resolved.Input.Content != nil {
-				view.Description, view.Code = resolved.Input.Content.Text, resolved.Input.Content.Code
-			}
 			for _, notice := range resolved.Approval {
 				view.Notices = append(view.Notices, approvalLocalText(notice, locale))
+			}
+			// The card says what is being approved: the call's content, else
+			// its first approval notice, else its target, else its summary.
+			input := resolved.Input
+			switch {
+			case input.Content != nil:
+				view.Description, view.Code = input.Content.Text, input.Content.Code
+			case len(view.Notices) > 0:
+				view.Description = view.Notices[0]
+				view.Notices = slices.DeleteFunc(view.Notices, func(notice string) bool { return notice == view.Description })
+				view.Code = input.Summary != nil && input.Summary.Code && input.Summary.Text == view.Description
+			case input.Target != nil:
+				view.Description = input.Target.Text
+			case input.Summary != nil:
+				view.Description, view.Code = input.Summary.Text, input.Summary.Code
 			}
 		}
 	}

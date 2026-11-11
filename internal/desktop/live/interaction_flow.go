@@ -149,7 +149,7 @@ func (r *Runtime) waitingApproval(conversation, id string) (protocol.Conversatio
 			continue
 		}
 		for _, approval := range details.Snapshot.Page.Approvals {
-			if approval.ID.String() == id && approval.State == "pending" && approval.Startup == nil && approval.Ssh == nil && approval.Session == session.ID {
+			if approval.ID.String() == id && childApproval(approval, session.ID) {
 				return approval, details.Snapshot.Page, true
 			}
 		}

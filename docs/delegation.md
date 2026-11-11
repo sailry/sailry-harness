@@ -118,9 +118,9 @@ in flight or the child is stopping, and reports failure, conflict and
 uncertain outcomes as toasts (`subagent_stop_failed`, `session_changed`,
 `subagent_stop_unknown`). A child's own tab stays read-only.
 
-The status of a stopped child that had started is named by the engine's
-finishing code shared by every turn, not by delegation; a child that never
-started is always `cancelled`, or `interrupted` at Node shutdown. Delegation
+A stopped child ends `cancelled` whether it was stopped itself or through its
+parent turn, started or not. `interrupted` is kept for a child that lost its
+owner: Node shutdown and restart recovery. Delegation
 treats `cancelled` and `interrupted` alike: neither starts an automatic notice
 turn, the parent receives the cancellation note, and the parent waits for the
 child to settle in both cases.

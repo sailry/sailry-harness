@@ -167,9 +167,6 @@ question_other: 其他
 question_decline: 拒絕回答
 interaction_submit: 提交
 interaction_cancel: 取消
-approval_deny_reason: 附理由拒絕
-approval_reason: 理由
-approval_reason_cancel: 取消
 approval_receipt: 審批迴執
 approval_busy: 審批處理中
 approval_ssh_trust: 信任 %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -307,6 +304,7 @@ worktree_remove_busy: worktree 正在使用，請稍後重新開啟
 worktree_remove_dirty: worktree 包含未提交改動，不能移除
 worktree_remove_conflict: worktree 有改動、會話佔用或引用已變化，請檢查後重新開啟
 worktree_remove_missing: worktree 或所屬專案已不存在，請重新開啟管理列表
+worktree_unused: No session
 git_branch_exists: 分支已存在，換個名稱
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: 暫存區更新失敗，請重試
@@ -880,7 +878,6 @@ message_display_compact: 簡潔
 message_display_detailed: 詳細
 message_text_extra_large: 特大
 message_text_large: 稍大
-message_text_size_value: '%{size}px'
 message_text_small: 小
 message_text_standard: 標準
 model_library_manage: 管理模型
@@ -1033,7 +1030,6 @@ telemetry_send_action: 傳送診斷資訊
 telemetry_support: 支援
 telemetry_title: 診斷與隱私
 telemetry_unknown: 結果未知，請重新載入確認
-telemetry_welcome: 匿名診斷預設開啟，可在設定中變更
 terminal_environment: 全域性環境變數
 terminal_environment_add: 新增環境變數
 terminal_input: 輸入
@@ -1156,6 +1152,16 @@ search_driver_auto: 自動
 knowledge_settings: 預設設定
 knowledge_default_model: 向量模型
 knowledge_keyword_only: 僅關鍵字
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: 決策
 runtime_decision_model: 模型
 runtime_decision_enable: 啟用決策
@@ -1520,6 +1526,31 @@ metrics_worker: 示例工作程序
 metrics_indexer: 示例索引程序
 metrics_loading: 等待指標（示例）
 metrics_error: 指標暫不可用（示例）
+host_node_uptime: Sailry 執行
+host_sampling: 等待取樣
+host_sampling_failed: 主機資料未更新
+host_metric_unavailable: 暫無資料
+host_cores: '%{count} 核'
+host_load: 負載
+host_core: 核心 %{index} · %{value}
+host_memory_total: 共 %{value}
+host_memory_used: 已用
+host_memory_cached: 快取
+host_memory_swap: 交換
+host_utilization: 利用率
+host_network_total: 開機以來累計
+host_disk_write: 寫入
+host_disk_read: 讀取
+host_storage: 儲存
+host_partition_count: '%{count} 個分割區'
+host_read_short: R
+host_write_short: W
+host_process_search: 搜尋程序
+host_process_limited: 僅顯示佔用最高的 2048 個程序
+host_process_name: 程序
+host_pid: PID
+host_process_empty: 暫無程序
+host_process_no_matches: 無匹配程序
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發
@@ -1662,6 +1693,11 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 修改要求：
@@ -1962,6 +1998,7 @@ knowledge_saved: 已儲存
 knowledge_cancel_requested: 已要求取消
 model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
@@ -2053,7 +2090,7 @@ directory_action_failed: 操作失敗，請檢查路徑和許可權
 directory_address: 輸入路徑
 directory_count_hidden: '%{count} 隱藏'
 directory_create: 新建資料夾
-directory_denied: 此目錄為無訪問許可權示例，可選擇其他目錄
+directory_denied: 沒有權限存取此資料夾
 directory_devices: 裝置
 directory_extension_kind: '%{extension} 檔案'
 directory_go_to: 前往資料夾
@@ -2065,7 +2102,7 @@ directory_json_kind: JSON 檔案
 directory_keep_both: 保留兩者
 directory_list: 列表
 directory_markdown_kind: Markdown 文件
-directory_missing: 此路徑不在該主機的示例目錄中，可返回示例位置
+directory_missing: 資料夾不存在
 directory_refresh: 重新整理
 directory_root: 根目錄
 directory_stale: 原表單路徑已變更，請關閉後重新選擇
@@ -2165,3 +2202,38 @@ code_index_settings_saved: Saved
 code_index_settings_failed: Could not load or save code index settings
 code_index_settings_conflict: Code index settings changed; try again
 code_index_settings_unknown: Saving code index settings could not be confirmed
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: Last %{count}
+backup_keep_confirm: Keep only the last %{count} backups?
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

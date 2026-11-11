@@ -23,6 +23,11 @@ type checkpointRecord struct {
 	Set      bool                                    `json:"set,omitempty"`
 }
 
+// turnCheckpoints lists the files of turn ?1 in the order their changes were
+// captured: the approval's row, then its later files.
+const turnCheckpoints = `SELECT c.id,c.body,c.rowid AS owner,0 AS position FROM file_checkpoints c WHERE c.turn=?1
+UNION ALL SELECT e.id,e.body,c.rowid AS owner,e.position FROM file_checkpoint_entries e JOIN file_checkpoints c ON c.id=e.checkpoint WHERE c.turn=?1`
+
 func checkpointVersion(text string) protocol.ConversationCheckpointVersion {
 	return protocol.ConversationCheckpointVersion{Revision: fmt.Sprintf("%x", blake3.Sum256([]byte(text))), Size: uint64(len(text))}
 }
@@ -185,7 +190,7 @@ func ListFileCheckpoints(ctx context.Context, db *sql.Conn, session protocol.Ses
 	if limit < 1 || limit > 100 {
 		return out, invalid("file checkpoint page limit must be between 1 and 100")
 	}
-	query := `SELECT id,owner,position FROM (SELECT c.id,c.rowid AS owner,0 AS position FROM file_checkpoints c WHERE c.turn=?1 UNION ALL SELECT e.id,c.rowid AS owner,e.position FROM file_checkpoint_entries e JOIN file_checkpoints c ON c.id=e.checkpoint WHERE c.turn=?1)`
+	query := `SELECT id,owner,position FROM (` + turnCheckpoints + `)`
 	boundaryOwner, boundaryPosition := int64(1<<63-1), int64(1<<63-1)
 	if before != nil {
 		err := db.QueryRowContext(ctx, query+" WHERE id=?2", turn.String(), before.String()).Scan(new(string), &boundaryOwner, &boundaryPosition)
@@ -270,31 +275,46 @@ func ReadFileCheckpoint(ctx context.Context, db *sql.Conn, session protocol.Sess
 	}
 	return checkpointContent(ctx, db, session, file)
 }
-func PrepareCheckpointRestore(ctx context.Context, db *sql.Conn, session protocol.SessionID, id protocol.CheckpointID, worktree protocol.WorktreeID, root string) (protocol.ConversationCheckpointContent, error) {
+
+// PrepareCheckpointRestore captures a checkpoint's content for a restore and
+// the versions that already count as restored: what the file held before this
+// change or before an earlier change of the same turn to the same file.
+func PrepareCheckpointRestore(ctx context.Context, db *sql.Conn, session protocol.SessionID, id protocol.CheckpointID, worktree protocol.WorktreeID, root string) (protocol.ConversationCheckpointContent, []*protocol.ConversationCheckpointVersion, error) {
 	content, err := CheckpointContent(ctx, db, session, id)
 	if err != nil {
-		return content, err
+		return content, nil, err
 	}
 	captured, err := ReadWorkspaceRoot(ctx, db, worktree, false)
 	if err != nil {
-		return content, err
+		return content, nil, err
 	}
 	if content.File.Worktree != worktree || captured != root {
-		return content, fault(protocol.ErrorCodeWrongTarget, "file checkpoint worktree changed")
+		return content, nil, fault(protocol.ErrorCodeWrongTarget, "file checkpoint worktree changed")
 	}
 	run, err := ReadAgentRun(ctx, db, content.File.Turn)
 	if err != nil {
-		return content, err
+		return content, nil, err
 	}
 	if run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping {
-		return content, fault(protocol.ErrorCodeBusy, "file checkpoint turn is still active")
+		return content, nil, fault(protocol.ErrorCodeBusy, "file checkpoint turn is still active")
 	}
 	receipt := files.CheckpointReceipt(content.File)
 	if receipt == protocol.ConversationCheckpointReceiptPending {
-		return content, fault(protocol.ErrorCodeBusy, "checkpoint write is still pending")
+		return content, nil, fault(protocol.ErrorCodeBusy, "checkpoint write is still pending")
 	}
 	if receipt == protocol.ConversationCheckpointReceiptAbsent {
-		return content, fault(protocol.ErrorCodeConflict, "checkpoint write did not complete")
+		return content, nil, fault(protocol.ErrorCodeConflict, "checkpoint write did not complete")
 	}
-	return content, nil
+	records, err := readBodies[checkpointRecord](ctx, db, `SELECT body FROM (`+turnCheckpoints+`) WHERE owner<(SELECT owner FROM (`+turnCheckpoints+`) WHERE id=?2)
+OR owner=(SELECT owner FROM (`+turnCheckpoints+`) WHERE id=?2) AND position<=(SELECT position FROM (`+turnCheckpoints+`) WHERE id=?2) ORDER BY owner,position`, content.File.Turn.String(), id.String())
+	if err != nil {
+		return content, nil, err
+	}
+	var settled []*protocol.ConversationCheckpointVersion
+	for _, record := range records {
+		if record.Worktree == content.File.Worktree && record.Path == content.File.Path {
+			settled = append(settled, record.Before)
+		}
+	}
+	return content, settled, nil
 }

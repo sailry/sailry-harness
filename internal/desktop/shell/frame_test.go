@@ -691,6 +691,7 @@ func TestShellRules(t *testing.T) {
 			t.Errorf("Conversation moved: %v", got)
 		}
 	})
+	t.Run("LoadingMarks", testLoadingMarks)
 }
 
 func testSearchRules(t *testing.T) {
@@ -784,6 +785,10 @@ func TestHeaderClearsTrafficLights(t *testing.T) {
 	b, ok := tt.Access(i18n.In("en", "sidebar_toggle"))
 	if !ok || b.Bounds.X < trafficLights {
 		t.Fatalf("the sidebar toggle starts at %v under the lights", b.Bounds)
+	}
+	// The lights' room is kept once: the header starts one padding past it.
+	if b.Bounds.X != trafficLights+12 {
+		t.Errorf("the sidebar toggle starts at %v, want %v", b.Bounds.X, trafficLights+12)
 	}
 	tt.SetTitleBar(ui.TitleBar{})
 	tt.Frame()
@@ -1068,8 +1073,14 @@ func testHeaderSplit(t *testing.T) {
 	}
 	shot(t, tt, "en-conversation-panel-closed")
 
-	// The host page: the metrics' title in the band, none in the column.
+	// The host page: its summary column is closed until the toggle opens
+	// it, then the metrics' title shows in the band, none in the column.
 	a.openHost("remote", false)
+	still(tt)
+	if _, shown := tt.Find(en("metrics_title")); shown || a.Metrics {
+		t.Error("the host page opened with its summary column")
+	}
+	clickButton(t, tt, en("details"))
 	still(tt)
 	title, ok := tt.Find(en("metrics_title"))
 	if !ok || title.Y+title.H > HeaderHeight || title.X != split+12 {
@@ -1210,6 +1221,7 @@ func headerFrames(t *testing.T) {
 	still(tt)
 	shot(t, tt, "settings-media")
 	a.openHost("remote", false)
+	a.Metrics = true
 	still(tt)
 	shot(t, tt, "host-metrics")
 	a.Navigate(ConversationPage)

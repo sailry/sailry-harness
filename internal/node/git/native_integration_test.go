@@ -9,10 +9,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 // These probes execute only inside isolated temporary repositories. Run on each
@@ -77,6 +83,555 @@ func TestNativeGitIntegration(t *testing.T) {
 		}
 		if !reflect.DeepEqual(normalizedHunks(actual.Text), normalizedHunks(string(capture.Stdout))) {
 			t.Fatalf("go-git patch:\n%s\nnative patch:\n%s", actual.Text, capture.Stdout)
+		}
+	})
+	t.Run("discard_keeps_staged_new_file", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		s := service(t)
+		for name, body := range map[string]string{"staged.txt": "only copy\n", "file.txt": "edited\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.command(ctx, root, []string{"add", "--", "staged.txt"}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		discard := func(paths ...string) error {
+			r, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			index, err := indexRevision(root, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "discard", Data: protocol.GitActionDiscardPayload{Paths: paths}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		requireFault(t, discard("file.txt", "staged.txt"), protocol.ErrorCodeInvalidRequest)
+		for name, want := range map[string]string{"staged.txt": "only copy\n", "file.txt": "edited\n"} {
+			if body, err := os.ReadFile(filepath.Join(root, name)); err != nil || string(body) != want {
+				t.Fatalf("%s after a refused discard = %q %v", name, body, err)
+			}
+		}
+		if err := discard("file.txt"); err != nil {
+			t.Fatal(err)
+		}
+		if body, err := os.ReadFile(filepath.Join(root, "file.txt")); err != nil || string(body) != "one\ntwo\nthree\n" {
+			t.Fatalf("file.txt after discard = %q %v", body, err)
+		}
+		status, err := s.Status(ctx, root)
+		if err != nil || len(status.Entries) != 1 || status.Entries[0].Path != "staged.txt" || status.Entries[0].Staged == nil {
+			t.Fatal(status, err)
+		}
+	})
+	t.Run("index_publish_preserves_unrelated_and_rejects_stale", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		s := service(t)
+		before, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "new.txt"), []byte("new\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"new.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: before, ExpectedHead: &commit})
+		if err != nil || got.Revision == before {
+			t.Fatal(got, err)
+		}
+		fresh, err := open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		idx, err := fresh.Storer.Index()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := idx.Entry("file.txt"); err != nil {
+			t.Fatal("unrelated index entry lost", err)
+		}
+		if _, err := idx.Entry("new.txt"); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt"}, Operation: protocol.GitIndexChangeUnstage, ExpectedIndex: before, ExpectedHead: &commit})
+		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
+		if _, err := os.Lstat(filepath.Join(root, ".git", "index.lock")); !os.IsNotExist(err) {
+			t.Fatal("owned lock leaked", err)
+		}
+	})
+	t.Run("index_update_replaces_conflicting_entries_and_filters_once", func(t *testing.T) {
+		root, r, _ := fixture(t)
+		s := service(t)
+		update := func(operation protocol.GitIndexChange, paths ...string) error {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := indexRevision(root, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := head(fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: paths, Operation: operation, ExpectedIndex: revision, ExpectedHead: current.Head})
+			return err
+		}
+		write := func(name, body string) {
+			t.Helper()
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		requireIndex := func(want ...string) {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, err := fresh.Storer.Index()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := []string{}
+			for _, entry := range idx.Entries {
+				got = append(got, entry.Mode.String()+" "+entry.Name)
+			}
+			sort.Strings(got)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("index = %q, want %q", got, want)
+			}
+		}
+		// Several untracked paths share one ignore filter; an ignored one rejects the update.
+		write(".gitignore", "*.log\n")
+		write("dir/a.txt", "a\n")
+		write("dir/b.txt", "b\n")
+		write("dir/c.log", "c\n")
+		requireFault(t, update(protocol.GitIndexChangeStage, "dir/a.txt", "dir/c.log"), protocol.ErrorCodeInvalidRequest)
+		requireIndex("0100644 file.txt")
+		if err := update(protocol.GitIndexChangeStage, "dir/a.txt", "dir/b.txt"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 dir/a.txt", "0100644 dir/b.txt", "0100644 file.txt")
+		// HEAD has no such directory yet: the staged file still diffs and unstages.
+		if diff, err := s.Diff(ctx, root, "dir/b.txt", protocol.GitDiffScopeStaged); err != nil || diff.Additions != 1 {
+			t.Fatal(diff, err)
+		}
+		if err := update(protocol.GitIndexChangeUnstage, "dir/b.txt"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Commit("Add directory", &gogit.CommitOptions{Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(200, 0)}}); err != nil {
+			t.Fatal(err)
+		}
+		// A file staged over a directory displaces the entries below it.
+		if err := os.RemoveAll(filepath.Join(root, "dir")); err != nil {
+			t.Fatal(err)
+		}
+		write("dir", "file\n")
+		if err := update(protocol.GitIndexChangeStage, "dir"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 dir", "0100644 file.txt")
+		// HEAD holds a directory there, so unstaging the file only removes it.
+		if err := update(protocol.GitIndexChangeUnstage, "dir"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 file.txt")
+		if err := update(protocol.GitIndexChangeStage, "dir"); err != nil {
+			t.Fatal(err)
+		}
+		// Restoring a file below it displaces the staged file.
+		if err := update(protocol.GitIndexChangeUnstage, "dir/a.txt"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
+		// A file staged below a tracked file displaces that file, and unstaging the file restores it.
+		if err := os.Remove(filepath.Join(root, "file.txt")); err != nil {
+			t.Fatal(err)
+		}
+		write("file.txt/inner.txt", "inner\n")
+		if err := update(protocol.GitIndexChangeStage, "file.txt/inner.txt"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 dir/a.txt", "0100644 file.txt/inner.txt")
+		if err := update(protocol.GitIndexChangeUnstage, "file.txt"); err != nil {
+			t.Fatal(err)
+		}
+		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
+	})
+	t.Run("staging_applies_filters_and_conversion", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		config, err := r.Config()
+		if err != nil {
+			t.Fatal(err)
+		}
+		config.Raw.Section("filter").Subsection("upper").SetOption("clean", "tr a-z A-Z")
+		if err := r.SetConfig(config); err != nil {
+			t.Fatal(err)
+		}
+		write := func(name, body string) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write(".gitattributes", "*.dat filter=upper\n*.txt text\n")
+		write("stored.dat", "abc\n")
+		write("file.txt", "one\r\ntwo\r\nthree\r\n")
+		s := service(t)
+		staged := func(path string) string {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, err := indexContent(fresh, path, maxFile)
+			if err != nil || !value.exists {
+				t.Fatal(path, value.exists, err)
+			}
+			return string(value.data)
+		}
+		revision := func() string {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, err := indexRevision(root, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return value
+		}
+		got, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{".gitattributes", "stored.dat", "file.txt", "absent.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: revision(), ExpectedHead: &commit})
+		if err != nil || got.Revision != revision() {
+			t.Fatal(got, err)
+		}
+		// The index holds what the clean filter and the line-ending conversion produce, as after git add.
+		if text := staged("stored.dat"); text != "ABC\n" {
+			t.Fatalf("filtered blob = %q", text)
+		}
+		if text := staged("file.txt"); text != "one\ntwo\nthree\n" {
+			t.Fatalf("converted blob = %q", text)
+		}
+		// A staged hunk is converted the same way.
+		working := "one\r\nchanged\r\nthree\r\n"
+		write("file.txt", working)
+		sum := blake3.Sum256([]byte(working))
+		if _, err := s.EditIndex(ctx, root, "file.txt", revision(), &commit, fmtHash(sum[:]), func(text string) (string, error) {
+			return strings.Replace(text, "two\n", "changed\r\n", 1), nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if text := staged("file.txt"); text != "one\nchanged\nthree\n" {
+			t.Fatalf("converted hunk blob = %q", text)
+		}
+		// A path stored through a filter driver has no hunks to stage or reject.
+		write("stored.dat", "abc\ndef\n")
+		sum = blake3.Sum256([]byte("abc\ndef\n"))
+		before := revision()
+		_, err = s.EditIndex(ctx, root, "stored.dat", before, &commit, fmtHash(sum[:]), func(text string) (string, error) {
+			t.Fatal("a filtered path ran the transform")
+			return text, nil
+		})
+		requireFault(t, err, protocol.ErrorCodeInvalidRequest)
+		if revision() != before {
+			t.Fatal("a refused hunk changed the index")
+		}
+	})
+	t.Run("staging_resolves_a_conflicted_path", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		git := func(args ...string) {
+			t.Helper()
+			if _, err := s.command(ctx, root, append([]string{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.test"}, args...), nil, false); err != nil && args[0] != "merge" {
+				t.Fatal(args, err)
+			}
+		}
+		write := func(body string) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		git("checkout", "-b", "other")
+		write("one\ntheirs\nthree\n")
+		git("commit", "--all", "--message", "Theirs")
+		git("checkout", "main")
+		write("one\nours\nthree\n")
+		git("commit", "--all", "--message", "Ours")
+		git("merge", "other")
+		conflicted := func() bool {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, err := fresh.Storer.Index()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range idx.Entries {
+				if entry.Stage != 0 {
+					return true
+				}
+			}
+			return false
+		}
+		if !conflicted() {
+			t.Fatal("fixture merge did not conflict")
+		}
+		write("one\nboth\nthree\n")
+		fresh, err := open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision, err := indexRevision(root, fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := head(fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: revision, ExpectedHead: current.Head}); err != nil {
+			t.Fatal(err)
+		}
+		if conflicted() {
+			t.Fatal("staging the resolved file left the conflict")
+		}
+	})
+	t.Run("staging_records_a_submodule_commit", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		inner := filepath.Join(root, "sub")
+		if err := os.Mkdir(inner, 0755); err != nil {
+			t.Fatal(err)
+		}
+		git := func(dir string, args ...string) string {
+			t.Helper()
+			result, err := s.command(ctx, dir, append([]string{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "advice.addEmbeddedRepo=false"}, args...), nil, false)
+			if err != nil {
+				t.Fatal(args, err)
+			}
+			return strings.TrimSpace(string(result.Stdout))
+		}
+		commit := func(body string) string {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(inner, "inner.txt"), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			git(inner, "add", "inner.txt")
+			git(inner, "commit", "--message", body)
+			return git(inner, "rev-parse", "HEAD")
+		}
+		git(inner, "init", "--initial-branch=main")
+		commit("first")
+		git(root, "add", "sub")
+		git(root, "commit", "--message", "Add submodule")
+		moved := commit("second")
+		status, err := s.Status(ctx, root)
+		if err != nil || len(status.Entries) != 1 || status.Entries[0].Path != "sub" {
+			t.Fatalf("status of a moved submodule = %#v %v", status.Entries, err)
+		}
+		fresh, err := open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision, err := indexRevision(root, fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := head(fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"sub"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: revision, ExpectedHead: current.Head}); err != nil {
+			t.Fatal(err)
+		}
+		if staged := git(root, "rev-parse", ":sub"); staged != moved {
+			t.Fatalf("staged submodule commit = %s, want %s", staged, moved)
+		}
+		// A directory that is no submodule is still no path to stage.
+		if err := os.Mkdir(filepath.Join(root, "plain"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if revision, err = indexRevision(root, fresh); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"plain"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: revision, ExpectedHead: current.Head})
+		requireFault(t, err, protocol.ErrorCodeInvalidRequest)
+	})
+	t.Run("a_stopped_command_leaves_no_index_lock", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("a Windows job is terminated without notice")
+		}
+		root, r, _ := fixture(t)
+		config, err := r.Config()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// git add holds index.lock while this clean filter waits. The filter
+		// tells when it runs: Git has then installed the handlers that remove
+		// its lock, which it does just after creating the file.
+		started := filepath.Join(t.TempDir(), "started")
+		config.Raw.Section("filter").Subsection("slow").SetOption("clean", "touch '"+started+"'; sleep 30; cat")
+		if err := r.SetConfig(config); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range map[string]string{".gitattributes": "*.dat filter=slow\n", "slow.dat": "data\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s := service(t)
+		stopping, stop := context.WithCancel(ctx)
+		defer stop()
+		ended := make(chan error, 1)
+		go func() {
+			_, err := s.run(stopping, root, []string{"add", "--", "slow.dat"}, nil)
+			ended <- err
+		}()
+		lock := filepath.Join(root, ".git", "index.lock")
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Lstat(started); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("git add did not run its filter")
+			}
+		}
+		if _, err := os.Lstat(lock); err != nil {
+			t.Fatalf("git add holds no index lock while its filter runs: %v", err)
+		}
+		stop()
+		if err := <-ended; !errors.Is(err, context.Canceled) {
+			t.Fatalf("stopped command = %v", err)
+		}
+		if _, err := os.Lstat(lock); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a stopped git add left its index lock: %v", err)
+		}
+	})
+	t.Run("a_conflicted_revert_is_an_operation_with_an_exit", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		git := func(args ...string) {
+			t.Helper()
+			if _, err := s.command(ctx, root, append([]string{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.test"}, args...), nil, false); err != nil && args[0] != "revert" {
+				t.Fatal(args, err)
+			}
+		}
+		for _, body := range []string{"one\nsecond\nthree\n", "one\nthird\nthree\n"} {
+			if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			git("commit", "--all", "--message", body[4:9])
+		}
+		git("revert", "HEAD~1")
+		state := func() (*string, protocol.CommandRunGitActionPayload) {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := indexRevision(root, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := head(fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return operation(root, fresh), protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "abort"}, ExpectedIndex: revision, ExpectedHead: current.Head, ExpectedBranch: current.Branch}
+		}
+		running, abort := state()
+		if running == nil || *running != "revert" {
+			t.Fatalf("operation = %v, want revert", running)
+		}
+		if err := s.Action(ctx, root, abort); err != nil {
+			t.Fatal(err)
+		}
+		if running, _ := state(); running != nil {
+			t.Fatalf("operation after abort = %q", *running)
+		}
+		if data, err := os.ReadFile(filepath.Join(root, "file.txt")); err != nil || string(data) != "one\nthird\nthree\n" {
+			t.Fatalf("abort left %q %v", data, err)
+		}
+	})
+	t.Run("a_path_below_a_file_of_head_is_not_held", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		// HEAD holds file.txt as a file; the worktree replaces it by a directory.
+		if err := os.Remove(filepath.Join(root, "file.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(root, "file.txt"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "file.txt", "inner"), []byte("new\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		update := func(operation protocol.GitIndexChange) {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := indexRevision(root, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := head(fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt/inner"}, Operation: operation, ExpectedIndex: revision, ExpectedHead: current.Head}); err != nil {
+				t.Fatal(operation, err)
+			}
+		}
+		staged := func() bool {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, err := fresh.Storer.Index()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = idx.Entry("file.txt/inner")
+			return err == nil
+		}
+		update(protocol.GitIndexChangeStage)
+		if !staged() {
+			t.Fatal("fixture did not stage the file below the replaced path")
+		}
+		fresh, err := open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, err := headTree(fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if held, err := heldByHead(tree, "file.txt/inner"); held || err != nil {
+			t.Fatalf("held = %v %v", held, err)
+		}
+		if before, err := treeContent(fresh, tree, "file.txt/inner", 1024); before.exists || err != nil {
+			t.Fatalf("HEAD content = %v %v", before.exists, err)
+		}
+		update(protocol.GitIndexChangeUnstage)
+		if staged() {
+			t.Fatal("unstaging left the entry")
 		}
 	})
 	t.Run("managed_snapshot_and_targeted_removal", func(t *testing.T) {

@@ -2,8 +2,10 @@ package files
 
 import (
 	"context"
+	"errors"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
@@ -24,7 +26,14 @@ func Browse(ctx context.Context, directory *string, after *protocol.DirectoryCur
 		return out, invalid("an absolute UTF-8 path is required")
 	}
 	path, e = filepath.EvalSymlinks(path)
-	if e != nil {
+	// A directory that is not there, or that the Node may not reach, is told
+	// from a Node that cannot answer.
+	switch {
+	case errors.Is(e, fs.ErrNotExist):
+		return out, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: e.Error()}
+	case errors.Is(e, fs.ErrPermission):
+		return out, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: e.Error()}
+	case e != nil:
 		return out, e
 	}
 	files, e := core.OpenFiles(path, core.ManualFiles)

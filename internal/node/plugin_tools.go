@@ -186,7 +186,8 @@ func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.
 	readOnly := descriptor.Annotations != nil && descriptor.Annotations.ReadOnlyHint
 	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: mcp.Alias(reference.Name, server, descriptor.Name), Description: descriptor.Description, InputSchema: schema},
 		SchemaJSON: body, ReadOnly: readOnly, Concurrent: readOnly, Deferred: declaration == nil || !declaration.Initial,
-		Approval: !readOnly, Binding: &store.ApprovalBinding{Owner: reference, Tool: mcp.Alias(reference.Name, server, descriptor.Name)}}
+		Approval: !readOnly, Binding: &store.ApprovalBinding{Owner: reference, Tool: mcp.Alias(reference.Name, server, descriptor.Name)},
+		Exposed: engine.MCPToolName(server, descriptor.Name)}
 	if declaration != nil && declaration.Description != nil {
 		tool.Definition.Description = *declaration.Description
 	}
@@ -205,6 +206,7 @@ func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.
 		if err != nil {
 			return workspaceToolFault(err)
 		}
+		boundToolImages(result)
 		if keepImages != nil {
 			remaining := *keepImages
 			result.Content = slices.DeleteFunc(result.Content, func(content sdk.Content) bool {

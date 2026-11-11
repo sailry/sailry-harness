@@ -196,7 +196,7 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 			children()
 		}), nil
 	case "Loading":
-		return ui.Box(view).Fill().Center().Children(func() { ui.Spinner(view) }), nil
+		return ui.Box(view).Fill().Center().Children(func() { kit.Loader(view, 20) }), nil
 	case "InputSurface":
 		return ui.Column(view).FillWidth().Gap(8).Radius(palette.RadiusLg).Background(palette.Muted).Children(children), nil
 	case "StatusList":
@@ -321,7 +321,7 @@ func (binding *NativeBinding) renderStatusList(view *ui.Context, props map[strin
 				ui.Row(view.Key(nativeProp(row, "id", ""))).Gap(8).Children(func() {
 					state := nativeProp(row, "state", "")
 					if state == "in_progress" {
-						ui.Spinner(view).Size(14, 14)
+						kit.Busy(view)
 					} else {
 						icon := icons.CircleCheck
 						if state == "completed" {

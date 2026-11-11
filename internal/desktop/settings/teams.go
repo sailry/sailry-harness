@@ -118,7 +118,7 @@ func teams(c *ui.Context, m *Model) {
 					}
 				}
 				if m.Live && m.Concurrency.Pending {
-					ui.Spinner(c).Size(14, 14) // the limit is being saved
+					kit.Busy(c) // the limit is being saved
 				}
 				ui.Textf(c, "%.0f", m.Concurrency.Draft).FontSize(14).Width(24).TextAlign(ui.End)
 			})

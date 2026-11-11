@@ -167,9 +167,6 @@ question_other: Другое
 question_decline: Отклонить
 interaction_submit: Отправить
 interaction_cancel: Отмена
-approval_deny_reason: Отклонить с причиной
-approval_reason: Причина
-approval_reason_cancel: Отмена
 approval_receipt: Получение утверждения
 approval_busy: Ожидание подтверждения
 approval_ssh_trust: Доверять %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -307,6 +304,7 @@ worktree_remove_busy: Рабочее дерево используется
 worktree_remove_dirty: Рабочее дерево содержит нефиксированные изменения; удалить нельзя
 worktree_remove_conflict: Рабочее дерево изменено, обновить перед удалением
 worktree_remove_missing: Работа не найдена
+worktree_unused: No session
 git_branch_exists: Отделение уже существует
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: Не удалось обновить тестирование, попробуйте снова
@@ -880,7 +878,6 @@ message_display_compact: Компактно
 message_display_detailed: Подробная информация
 message_text_extra_large: Очень большой
 message_text_large: Большой
-message_text_size_value: '%{size}px'
 message_text_small: Малый
 message_text_standard: Стандартный
 model_library_manage: Управление моделями
@@ -1033,7 +1030,6 @@ telemetry_send_action: Отправить диагностику
 telemetry_support: Поддержка
 telemetry_title: Диагностика и конфиденциальность
 telemetry_unknown: Результат неизвестен. Обновите для проверки
-telemetry_welcome: Анонимная диагностика включена по умолчанию. Это можно изменить в настройках
 terminal_environment: Глобальные экологические переменные
 terminal_environment_add: Добавить переменную среды
 terminal_input: Ввод
@@ -1156,6 +1152,16 @@ search_driver_auto: Автоматически
 knowledge_settings: Настройки по умолчанию
 knowledge_default_model: Векторная модель
 knowledge_keyword_only: Только ключевые слова
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: Решения
 runtime_decision_model: Модель
 runtime_decision_enable: Включить решения
@@ -1520,6 +1526,31 @@ metrics_worker: Предварительный просмотр
 metrics_indexer: Индексатор предварительного просмотра
 metrics_loading: Ожидание показателей (предварительный просмотр)
 metrics_error: Метрики недоступны (предварительный просмотр)
+host_node_uptime: Работа Sailry
+host_sampling: Ожидание образца
+host_sampling_failed: Данные хоста не обновлены
+host_metric_unavailable: Данные отсутствуют
+host_cores: 'Ядер: %{count}'
+host_load: Нагрузка
+host_core: Ядро %{index} · %{value}
+host_memory_total: Всего %{value}
+host_memory_used: Занято
+host_memory_cached: Кэш
+host_memory_swap: Подкачка
+host_utilization: Загрузка
+host_network_total: С момента запуска
+host_disk_write: Запись
+host_disk_read: Чтение
+host_storage: Хранилище
+host_partition_count: 'Разделов: %{count}'
+host_read_short: R
+host_write_short: W
+host_process_search: Процессы поиска
+host_process_limited: Отображение топ 2048 процессов по использованию
+host_process_name: Процессы
+host_pid: PID
+host_process_empty: Отсутствие процессов
+host_process_no_matches: Отсутствие процессов сопоставления
 port_title: Перенаправление портов
 port_mappings: Сопоставления портов
 port_add: Новый форвард
@@ -1662,6 +1693,11 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 'Испрашиваемые изменения:'
@@ -1962,6 +1998,7 @@ knowledge_saved: Сохранено
 knowledge_cancel_requested: Запрошена отмена
 model_library_failed: Не удалось загрузить модели
 model_library_partial: Некоторые результаты недоступны
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: Недоступно
 dictation_unavailable: Локальный голосовой ввод недоступен
 dictation_model_missing: Сначала загрузите модель речи
@@ -2053,7 +2090,7 @@ directory_action_failed: Операция не удалась; проверьт�
 directory_address: Введите путь
 directory_count_hidden: '%{count} скрыто'
 directory_create: Новая папка
-directory_denied: Предварительный просмотр с отказом доступа; выберите другой каталог
+directory_denied: Нет прав для открытия этой папки
 directory_devices: Устройства
 directory_extension_kind: Файл %{extension}
 directory_go_to: Перейти к папке
@@ -2065,7 +2102,7 @@ directory_json_kind: Файл JSON
 directory_keep_both: Держите оба
 directory_list: Список
 directory_markdown_kind: Документ Markdown
-directory_missing: Путь отсутствует в предварительном просмотре этого узла; вернитесь в расположение предварительного просмотра
+directory_missing: Папка не найдена
 directory_refresh: Обновить
 directory_root: Корень
 directory_stale: Путь формы изменен; переоткройте выборщик
@@ -2165,3 +2202,38 @@ code_index_settings_saved: Saved
 code_index_settings_failed: Could not load or save code index settings
 code_index_settings_conflict: Code index settings changed; try again
 code_index_settings_unknown: Saving code index settings could not be confirmed
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash
+queue_guidance_outlived: Reply ended first; queued as a new message
+queue_wait_held: Held
+queue_wait_paused: Paused
+queue_wait_stopped: Paused after stop
+queue_wait_interrupted: Paused after interruption
+queue_wait_unsent: Not sent
+queue_wait_limit: Held at automatic limit
+queue_wait_failed: Held after failure
+chat_output_limit: Reply cut at the output limit
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: Last %{count}
+backup_keep_confirm: Keep only the last %{count} backups?
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

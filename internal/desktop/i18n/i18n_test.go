@@ -41,6 +41,24 @@ func TestCatalogKeys(t *testing.T) {
 			}
 		}
 	})
+	// The copy of controls removed from the accepted UI stays out
+	// (docs/removed-ui.md): the root catalogs still carry it for the Rust
+	// application, and listing it here is the first step of bringing such a
+	// control back.
+	t.Run("RemovedControls", func(t *testing.T) {
+		for _, key := range []string{
+			"composer_host_hint", "location_project", // the composer's host choice and location dialog
+			"reference_preview",                                                 // the @ and / picker's hint
+			"approval_deny_reason", "approval_reason", "approval_reason_cancel", // Deny with reason
+			"question_pending", "question_accepted", "question_unconsumed", "question_declined", "question_interrupted", // question row state text
+			"telemetry_welcome",       // the welcome guide's diagnostics note
+			"provider_editor_preview", // the provider editor's preview note
+		} {
+			if _, listed := catalogs["en"][key]; listed {
+				t.Errorf("%s is the copy of a removed control: see docs/removed-ui.md", key)
+			}
+		}
+	})
 	// Every literal key the source passes to i18n.T or i18n.In is in the
 	// English catalog, so no view shows a raw key.
 	t.Run("SourceKeys", func(t *testing.T) {

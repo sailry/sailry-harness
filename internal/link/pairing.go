@@ -184,15 +184,17 @@ func (link *Link) Invite(ctx context.Context) (*Invitation, error) {
 	return &Invitation{ticket: string(encoded), expiresAtMS: expires, deadline: deadline, offer: offer, link: link}, nil
 }
 
-func decodePairingTicket(encoded string, local protocol.NodeID, now time.Time) (pairingTicket, error) {
+// decodePairingTicket checks what the claimant can check without a clock. The
+// sharer alone decides whether a ticket is still valid: it holds the deadline
+// and accepts the token once. The claimant does not compare the expiry with
+// its own clock, because the two machines' clocks differ and a correct ticket
+// would be refused (a Host a few seconds ahead was enough).
+func decodePairingTicket(encoded string, local protocol.NodeID) (pairingTicket, error) {
 	var ticket pairingTicket
-	if len(encoded) > 8192 || now.UnixMilli() < 0 || json.Unmarshal([]byte(encoded), &ticket) != nil {
+	if len(encoded) > 8192 || json.Unmarshal([]byte(encoded), &ticket) != nil {
 		return pairingTicket{}, pairingRejected()
 	}
-	milliseconds := uint64(now.UnixMilli())
-	if ticket.Version != 1 || ticket.ExpiresAtMS <= milliseconds ||
-		ticket.ExpiresAtMS-milliseconds > uint64(invitationLifetime.Milliseconds()) ||
-		ticket.Address.ID == local || len(ticket.Address.Addrs) > 16 {
+	if ticket.Version != 1 || ticket.ExpiresAtMS == 0 || ticket.Address.ID == local || len(ticket.Address.Addrs) > 16 {
 		return pairingTicket{}, pairingRejected()
 	}
 	return ticket, nil
@@ -207,7 +209,7 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	if err != nil {
 		return EndpointAddress{}, err
 	}
-	ticket, err := decodePairingTicket(encoded, address.ID, link.now())
+	ticket, err := decodePairingTicket(encoded, address.ID)
 	if err != nil {
 		return EndpointAddress{}, err
 	}

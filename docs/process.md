@@ -122,7 +122,34 @@ command of the session, waits for them and drops the entries.
 With `sandbox_commands` off, `run_command` runs unrestricted whatever `access`
 the model passed, as the reference does: the setting is the user's, and a
 model argument does not turn the sandbox back on. With it on, a missing
-`access` is `workspace` and an explicit one is kept.
+`access` is `workspace` and an explicit one is kept. Each command reads the
+setting when it is prepared and again when its approval is recorded, so a
+change applies to the next command of a running turn.
+
+Approval of `run_command` on macOS and Linux
+(`store.ConfigureWorkspaceApproval`):
+
+| Setting | Access | Ask and Project | Full |
+| --- | --- | --- | --- |
+| on | `workspace` | approved by the sandbox, no prompt | same |
+| on | `unrestricted` | the user decides each command; nothing is remembered | approved |
+| off | `unrestricted` | an ordinary approval: Allow, Allow for the session, or Allow a prefix | approved |
+
+On Windows there is no sandbox and every command is an ordinary approval.
+
+The last row differs from the reference, which asks for every command once
+the sandbox is off and offers nothing to remember. Turning the sandbox off is
+the user's decision that commands are not confined; asking again for each one
+adds no protection and only leaves Full permission as the way to work. A
+session or prefix rule recorded while the sandbox is off never lets a command
+out of a sandbox turned on later: with the setting on, an unrestricted command
+is always the user's own decision.
+
+A prefix rule answers for the command that runs. The rule is offered and
+matched on the model's arguments, and a handler script may prepare the command
+from them, so the prepared command is matched again before it is admitted
+(`store.ApprovedWorkspaceRequest`): one outside the prefix is refused with
+`prepared command is outside the approved prefix`, as in the reference.
 
 ## Crash recovery
 

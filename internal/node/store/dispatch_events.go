@@ -83,16 +83,35 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 }
 
 func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.PluginReference, handler protocol.DispatchHandler, event protocol.DispatchEvent, timestamp int64) (protocol.DispatchJob, error) {
-	var pending int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM dispatch_jobs WHERE status='queued'").Scan(&pending); err != nil {
-		return protocol.DispatchJob{}, err
-	}
-	if pending >= dispatchMaxPending {
-		return protocol.DispatchJob{}, fault(protocol.ErrorCodeBusy, "pending dispatch capacity exhausted")
+	owner := dispatchNativeOwner
+	if reference != nil {
+		owner = reference.Name
 	}
 	job := protocol.DispatchJob{
 		ID: protocol.NewJobID(), Event: event, Handler: handler.Name, Queue: handler.Queue,
 		Request: protocol.NewRequestID(), Status: protocol.DispatchStatusQueued, CreatedMs: timestamp,
+	}
+	// A scheduled occurrence never overlaps its own handler's previous run: it
+	// is recorded as skipped instead of started. An explicit enqueue or a
+	// published event is not a schedule and always runs.
+	if event.Schedule != nil {
+		var busy bool
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status IN ('queued','running') AND package=?1 AND json_extract(body,'$.handler')=?2)", owner, handler.Name).Scan(&busy); err != nil {
+			return protocol.DispatchJob{}, err
+		}
+		if busy {
+			job.Status, job.FinishedMs = protocol.DispatchStatusCancelled, &timestamp
+			job.Error = &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "scheduled occurrence was skipped: the previous run has not finished"}
+		}
+	}
+	if job.Status == protocol.DispatchStatusQueued {
+		var pending int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM dispatch_jobs WHERE status='queued'").Scan(&pending); err != nil {
+			return protocol.DispatchJob{}, err
+		}
+		if pending >= dispatchMaxPending {
+			return protocol.DispatchJob{}, fault(protocol.ErrorCodeBusy, "pending dispatch capacity exhausted")
+		}
 	}
 	body, err := encode(job)
 	if err != nil {
@@ -110,11 +129,12 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	if err != nil {
 		return protocol.DispatchJob{}, err
 	}
-	owner := dispatchNativeOwner
-	if reference != nil {
-		owner = reference.Name
+	if _, err = db.ExecContext(ctx, "INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference,sequence) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+		job.ID.String(), owner, job.Queue, string(job.Status), body, callback, capture, sequence); err != nil {
+		return protocol.DispatchJob{}, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference,sequence) VALUES(?1,?2,?3,'queued',?4,?5,?6,?7)",
-		job.ID.String(), owner, job.Queue, body, callback, capture, sequence)
+	if job.Status != protocol.DispatchStatusQueued {
+		err = pruneDispatchJobs(ctx, db)
+	}
 	return job, err
 }

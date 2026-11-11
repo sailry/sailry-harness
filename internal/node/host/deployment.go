@@ -371,33 +371,79 @@ func deploymentScript(stage, native, digest, nativeDigest string, paths Deployme
 	return script.String(), nil
 }
 
+// pairingAttempts is how many times an installation tries to pair with the
+// Host it installed.
+const pairingAttempts = 5
+
 func pairInstalled(ctx context.Context, connection *cryptossh.Client, endpoint *link.Link, profile string) (link.EndpointAddress, error) {
 	ticketPath, _ := shellQuote(profile + "/bootstrap.ticket")
-	for attempt := 0; attempt < 90; attempt++ {
+	read := func() (string, error) {
 		result, err := runSSH(ctx, connection, "cat "+ticketPath+" 2>/dev/null", nil)
+		if err != nil {
+			return "", err
+		}
+		if result.ExitCode != 0 || result.Truncated {
+			return "", nil
+		}
+		return strings.TrimSpace(result.Stdout), nil
+	}
+	pair := func(ticket string) (link.EndpointAddress, error) {
+		address, err := endpoint.Pair(ctx, ticket)
+		if err != nil {
+			return address, err
+		}
+		info, err := endpoint.Inspect(ctx, address)
+		if err != nil || !info.Execution {
+			return address, unknown("installed endpoint does not provide a Node")
+		}
+		return address, nil
+	}
+	return pairBootstrap(ctx, read, pair, waitProbe)
+}
+
+// pairBootstrap pairs with a new Host through the ticket its service
+// publishes. The service has only just started, so one refused or unreachable
+// attempt does not end the installation: the ticket is read again, because the
+// Host replaces one that expired, and pairing is tried up to pairingAttempts
+// times within the 90 one-second probes. A result that may have changed trust
+// is not retried.
+func pairBootstrap(ctx context.Context, read func() (string, error), pair func(string) (link.EndpointAddress, error), wait func(context.Context) error) (link.EndpointAddress, error) {
+	failures := 0
+	for attempt := 0; attempt < 90; attempt++ {
+		ticket, err := read()
 		if err != nil {
 			return link.EndpointAddress{}, unknown("Host installed but its bootstrap ticket could not be read")
 		}
-		if result.ExitCode == 0 && !result.Truncated && strings.TrimSpace(result.Stdout) != "" {
-			address, err := endpoint.Pair(ctx, strings.TrimSpace(result.Stdout))
-			if err != nil {
-				return address, unknown("Host installed but pairing could not be confirmed")
+		if ticket != "" {
+			address, err := pair(ticket)
+			if err == nil {
+				return address, nil
 			}
-			info, err := endpoint.Inspect(ctx, address)
-			if err != nil || !info.Execution {
-				return address, unknown("installed endpoint does not provide a Node")
+			var settled *protocol.Fault
+			if errors.As(err, &settled) && settled.Code == protocol.ErrorCodeOutcomeUnknown {
+				return address, err
 			}
-			return address, nil
+			if failures++; failures == pairingAttempts {
+				break
+			}
 		}
-		if err := waitProbe(ctx); err != nil {
+		if err := wait(ctx); err != nil {
 			return link.EndpointAddress{}, err
 		}
+	}
+	if failures > 0 {
+		return link.EndpointAddress{}, unknown("Host installed but pairing could not be confirmed")
 	}
 	return link.EndpointAddress{}, unknown("Host service started but pairing is unavailable; inspect the host service")
 }
 
+// confirmUpdate waits for the updated Host to answer with this release. The
+// update replaced the Host process, so the connection cached before it is
+// dropped first, and again after every probe that did not confirm: a probe
+// that reached the old process must not leave its connection for the next.
 func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.NodeID) error {
 	for attempt := 0; attempt < 90; attempt++ {
+		endpoint.Disconnect(expected)
 		peers, err := endpoint.Peers(ctx)
 		if err != nil {
 			return err

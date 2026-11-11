@@ -90,6 +90,7 @@ opaque. Every package and mode is built once, at start-up.
 | `ButtonPrimary`, `ButtonPrimaryHi`, `ButtonPrimaryActive`, `OnPrimary` | Primary buttons, new session, send and stop |
 | `ButtonSecondary*` | Outline buttons |
 | `Hover`, `Active`, `Foreground` | Ghost and icon buttons, tabs, the theme cards |
+| `Selected()` (`Active` laid over `Hover`, so stronger than `Hover` in every theme) | The model picker's chosen rows and family tile, marked by the fill alone |
 | `Primary*` → MyGo `Accent*`, `Switch`, `Selection`, `Ring` → `Focus`, `Input` → `Border`, `ScrollbarThumbHover` | MyGo's switches, segmented controls, inputs, selects, sliders, focus rings, scroll bars |
 | `Surface`, `SurfaceForeground`, `SurfaceTitle` | Settings groups, resource cards, empty lists |
 | `Popover`, `PopoverForeground` | Dialogs, the model picker, interaction popovers |

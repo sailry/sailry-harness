@@ -38,7 +38,8 @@ func (script *pluginConversationScript) Stream(_ context.Context, call fantasy.C
 		return nil, errors.New("unexpected extra plugin acceptance model request")
 	}
 	if step >= 2 {
-		for _, name := range []string{script.mcp, script.native} {
+		// The model reads the declared names; the aliases stay internal.
+		for _, name := range []string{"mcp__server__echo", declaredToolName(script.native)} {
 			count := 0
 			for _, tool := range call.Tools {
 				if tool.GetName() == name {

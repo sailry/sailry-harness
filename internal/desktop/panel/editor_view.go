@@ -164,6 +164,8 @@ func (pr *Project) editorFooter(c *ui.Context, path string, markdown bool) {
 		})
 		if state.saving {
 			ui.Text(c, i18n.T(c, "files_saving")).FontSize(12).SingleLine()
+		} else if state.changed {
+			ui.Text(c, i18n.T(c, "files_changed_on_disk")).FontSize(12).SingleLine()
 		} else if state.partial {
 			ui.Text(c, i18n.T(c, "files_content_partial")).FontSize(12).SingleLine()
 		}

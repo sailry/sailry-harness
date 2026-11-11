@@ -157,7 +157,9 @@ type App struct {
 	// Host is the host chosen in the rail, whose page HostPage shows;
 	// hosts are the host pages' data, made from the dataset as first
 	// shown, and their UI state. Metrics is whether the host page's right
-	// column shows the metrics (layout.panel_open of Page::Host).
+	// column shows the metrics summary (layout.panel_open of Page::Host):
+	// closed until the user opens it, as the reference's, since the page
+	// itself is the monitor.
 	Host    string
 	hosts   map[string]*host.Host
 	hostUI  map[string]*host.State
@@ -211,7 +213,7 @@ func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 		Sidebar: sidebar.New(d, selected), Settings: st, Messages: conversation.New(),
 		Panel: panel.New(d.Workspace), Projects: panel.NewProjects(d.Workspace),
 		drafts: map[string]*composer.State{}, unpinned: map[string]bool{}, Host: "local",
-		Welcome: onboarding.Guide{Seen: true}, Metrics: true,
+		Welcome: onboarding.Guide{Seen: true},
 	}
 	for _, f := range Features {
 		a.features = append(a.features, f.ID)
@@ -584,8 +586,16 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
 	comp.Searching = a.Messages.SearchOpenIn(cv.ID)
-	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
-		conversation.UsageBar(c, cv.Session.Usage, compact, open)
+	// A sample conversation's figures are its own usage. A live session's
+	// are its packages' (the statistics and footer slots), which the
+	// controller's hook builds: both would show each figure twice. The
+	// demo's are the statistics package's too where a controller mounts it
+	// (Hooks.DemoConversation), read from the conversation's own usage.
+	comp.Metrics = nil
+	if a.sampled() {
+		comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
+			conversation.UsageBar(c, nil, [][]conversation.Metric{conversation.Metrics(c, cv.Session.Usage)}, compact, open)
+		}
 	}
 	// The preview draws its own ring. A live session's is a package's
 	// indicator, which its context carries: both would be two rings.
@@ -607,6 +617,9 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
 	if a.sampled() {
 		ctx = a.sampleComposer(cv, comp)
+		if a.Demo() && a.Hooks.DemoConversation != nil {
+			a.Hooks.DemoConversation(c, cv, comp)
+		}
 	} else if a.Hooks.Conversation != nil {
 		ctx, act = a.Hooks.Conversation(c, cv, comp)
 	}
@@ -647,6 +660,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	}
 	conversation.View(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act)
 	composer.View(c, comp, ctx, act)
+	conversation.Navigation(c, a.Messages)
 }
 
 // actions carries out the page's actions on the preview data. Preview
@@ -780,9 +794,6 @@ func (x *actions) Decide(id string, d composer.Decision, reason string) {
 		return
 	}
 	preview.Decide(x.cv, id, d)
-	if d == composer.Deny && reason != "" && x.a.Demo() {
-		preview.Reason(x.cv, id, reason)
-	}
 	if !x.a.Demo() {
 		kit.Message(x.c, i18n.T(x.c, "approval_preview_result"))
 	}

@@ -5,12 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"charm.land/fantasy"
 	"github.com/jonboulle/clockwork"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node/admission"
@@ -73,7 +77,7 @@ type Node struct {
 	computerOverlay   computer.Overlay
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
-	effects           sync.Mutex
+	locks             workspaceLocks
 	profile           *Profile
 	ctx               context.Context
 	mu                sync.Mutex
@@ -83,10 +87,12 @@ type Node struct {
 	closed            chan struct{}
 	stopDone          chan struct{}
 	stopErr           error
+	grace             time.Duration // replaces shutdownGrace in tests
 	agent             *engine.Runtime
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
 	forward           func(context.Context, protocol.Request) (link.Admission, error) // sends an import to its paired target
 	forwards          atomic.Int32
+	forwarding        sync.Map      // request IDs whose forward is in flight
 	mediaPoll         time.Duration // interval between video job reads
 	feed              *feed.Hub
 	providerDirectory providers.Directory
@@ -151,7 +157,13 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	if err != nil {
 		return nil, err
 	}
-	if err := profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return admission.Recover(ctx, db) }); err != nil {
+	if err := profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if err := admission.Recover(ctx, db); err != nil {
+			return err
+		}
+		_, err := admission.Prune(ctx, db, time.Now())
+		return err
+	}); err != nil {
 		_ = profile.Close()
 		return nil, err
 	}
@@ -172,6 +184,8 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		_ = profile.Close()
 		return nil, err
 	}
+	// No command is admitted yet, so no upload is between its file and its row.
+	value.collectAttachments(ctx)
 	if err := value.initPlugins(ctx, options.MCP); err != nil {
 		cancel()
 		_ = value.tasks.Close(context.Background())
@@ -207,6 +221,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.feed = feed.New(value.ID())
 	value.ports = ports.New(nodeContext, ports.Options{})
 	value.externalBrowser = externalbrowser.New(externalbrowser.Options{Profile: profile.Ownership.Path, Node: value.ID(), Changed: func(root string) { value.watches.changed(root, nil) }})
+	value.removeExternalBrowserProfiles(ctx)
 	value.networkDirectory = &networkDirectory{listing: protocol.DefaultNetworkListing()}
 	value.networkProbes = &networkProbes{permits: make(chan struct{}, 4), now: time.Now}
 	value.initHost()
@@ -216,7 +231,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.modelFactory = options.Model
 	value.mediaPoll = model.MediaVideoPoll
 	value.telemetry = newTelemetry(options.Telemetry)
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
 		value.closeAuth()
@@ -251,8 +266,10 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	for index := range value.lanes {
 		go value.run(&value.lanes[index])
 	}
+	go value.pruneLedger()
 	value.initDispatch(options.DispatchClock)
 	value.initPluginStatus()
+	value.sweepSessionWorkspaces()
 	if options.Network != nil {
 		if err := value.bindNetwork(ctx, *options.Network); err != nil {
 			_ = value.Stop(context.Background())
@@ -264,6 +281,13 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 
 func (node *Node) ID() protocol.NodeID { return node.profile.Identity.ID() }
 
+// shutdownGrace is the deadline the Rust Node gives its tasks to stop.
+const shutdownGrace = 5 * time.Second
+
+// Stop cancels every worker and waits for the Node to close. Work that
+// ignores cancellation is abandoned at the shutdown deadline: Stop then
+// returns core.ErrShutdownTimeout naming it, with the profile released, and
+// the caller exits. Go cannot abort a goroutine, so the exit is what ends it.
 func (node *Node) Stop(ctx context.Context) error {
 	node.mu.Lock()
 	if !node.stopped {
@@ -273,35 +297,11 @@ func (node *Node) Stop(ctx context.Context) error {
 			node.signal(&node.lanes[index])
 		}
 		node.cancel()
-		go func() {
-			for index := range node.lanes {
-				<-node.lanes[index].done
-			}
-			node.closePluginStatus()
-			node.agent.Stop()
-			node.closeAuth()
-			terminalErr := node.terminals.Close()
-			var networkErr error
-			if node.network != nil {
-				networkErr = node.network.Close()
-			}
-			portErr := node.ports.Close()
-			taskErr := node.tasks.Close(context.Background())
-			node.knowledge.Close()
-			node.closeLocalModels()
-			node.externalBrowser.Shutdown()
-			pluginErr := node.closePlugins()
-			node.work.Wait()
-			node.detachLogging()
-			node.telemetry.Close()
-			node.power.Close()
-			workspaceErr := node.closeWorkspace()
-			err := errors.Join(networkErr, terminalErr, portErr, taskErr, pluginErr, workspaceErr, node.profile.Close())
-			node.mu.Lock()
-			node.stopErr = err
-			close(node.stopDone)
-			node.mu.Unlock()
-		}()
+		grace := node.grace
+		if grace == 0 {
+			grace = shutdownGrace
+		}
+		go node.shutdown(grace)
 	}
 	done := node.stopDone
 	node.mu.Unlock()
@@ -314,6 +314,82 @@ func (node *Node) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+type stopStage struct {
+	name string
+	run  func() error
+}
+
+func (node *Node) shutdown(grace time.Duration) {
+	deadline, release := context.WithTimeout(context.Background(), grace)
+	defer release()
+	quiet := func(run func()) func() error { return func() error { run(); return nil } }
+	// Each stage waits for the work it names. The order is the dependency
+	// order: commands, then turns, then what they use, then storage.
+	stages := []stopStage{
+		{"command lanes", quiet(func() {
+			for index := range node.lanes {
+				<-node.lanes[index].done
+			}
+		})},
+		{"plugin status", quiet(node.closePluginStatus)},
+		{"agent turns", quiet(node.agent.Stop)},
+		{"logins", quiet(node.closeAuth)},
+		{"terminals", node.terminals.Close},
+		{"network", func() error {
+			if node.network == nil {
+				return nil
+			}
+			return node.network.Close()
+		}},
+		{"port forwards", node.ports.Close},
+		// Supervised tasks may finish until the deadline and are then cancelled.
+		{"supervised tasks", func() error { return node.tasks.Close(deadline) }},
+		{"knowledge index", quiet(node.knowledge.Close)},
+		{"local models", quiet(node.closeLocalModels)},
+		{"external browsers", quiet(node.externalBrowser.Shutdown)},
+		{"plugins and MCP servers", node.closePlugins},
+		{"requests in flight", quiet(node.work.Wait)},
+		{"telemetry", quiet(func() {
+			node.detachLogging()
+			node.telemetry.Close()
+			node.power.Close()
+		})},
+		{"commands, transfers and watchers", node.closeWorkspace},
+		// Every transfer worker has ended and storage is still open.
+		{"attachment collection", quiet(func() { node.collectAttachments(context.Background()) })},
+		{"storage", node.profile.Close},
+	}
+	var reached atomic.Int32
+	finished := make(chan error, 1)
+	go func() {
+		var failures []error
+		for index, stage := range stages {
+			reached.Store(int32(index))
+			failures = append(failures, stage.run())
+		}
+		finished <- errors.Join(failures...)
+	}()
+	var err error
+	select {
+	case err = <-finished:
+	case <-deadline.Done():
+		index := int(reached.Load())
+		skipped := make([]string, 0, len(stages))
+		for _, stage := range stages[index+1:] {
+			skipped = append(skipped, stage.name)
+		}
+		slog.Error("Node shutdown deadline elapsed", "waiting", stages[index].name, "skipped", strings.Join(skipped, ", "))
+		// The stages above keep running until the process exits. Releasing
+		// the profile here lets the next launch start; what they leave behind
+		// is what a crash leaves, and startup recovery clears it.
+		err = errors.Join(fmt.Errorf("%w: %s did not stop", core.ErrShutdownTimeout, stages[index].name), node.profile.Abandon())
+	}
+	node.mu.Lock()
+	node.stopErr = err
+	close(node.stopDone)
+	node.mu.Unlock()
 }
 
 func (node *Node) begin() error {
@@ -660,29 +736,32 @@ func (node *Node) run(lane *commandLane) {
 	defer close(lane.done)
 	for job, ok := node.next(lane); ok; job, ok = node.next(lane) {
 		projectEffect := projectEffect(job.request.Command.Kind)
-		if projectEffect {
-			node.effects.Lock()
-		}
-
 		prepared, prepareErr := node.prepare(job.request.Command)
+		if prepareErr == nil && job.request.Command.Kind == "remove_project" {
+			prepared.TerminalsClosed, prepareErr = node.closeProjectResources(job.request.Command)
+		}
 		if prepareErr == nil {
 			prepareErr = node.renewCommandProvider(node.ctx, job.request)
 		}
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
 		}
+		// A clone and the checks above run unlocked. Only recording which
+		// roots exist excludes workspace effects.
+		registered := func() {}
+		if projectEffect {
+			registered = node.locks.registration()
+		}
 		result, err := node.execute(job, prepared, prepareErr)
+		registered()
 		if err != nil {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"})
+			result = node.unapplied(job.caller, job.request.ID, err)
 		} else {
 			node.publish()
 			node.agent.Committed()
 			if job.request.Command.Kind == "remove_project" && result.Fault == nil {
 				node.removeProjectCodeIndexes(job.request.Command)
 			}
-		}
-		if projectEffect {
-			node.effects.Unlock()
 		}
 		job.completion <- result
 		close(job.completion)
@@ -765,6 +844,54 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 	}
 	return response(output, operationErr), err
+}
+
+// settle stores the result of an admitted request whose own transaction did
+// not store it, and answers with that result. The write is repeated until the
+// Node stops; only then, or when the store cannot confirm a commit, is the
+// answer OutcomeUnknown, and the next start marks the request unknown.
+func (node *Node) settle(caller protocol.NodeID, id protocol.RequestID, result link.Response) link.Response {
+	if err := admission.Settle(node.ctx, node.profile.Store.Node.Write, caller, id, result); err != nil {
+		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the request before retrying"})
+	}
+	return result
+}
+
+// unapplied settles an admitted request whose whole effect was in the
+// transaction that failed with cause. The store reports an error only for a
+// transaction it did not commit, so the request changed nothing and its
+// failure is its result. The exception is a commit that could not be
+// confirmed: that request stays admitted until the next start.
+func (node *Node) unapplied(caller protocol.NodeID, id protocol.RequestID, cause error) link.Response {
+	failure := nodeFault(cause).(*protocol.Fault)
+	if failure.Code == protocol.ErrorCodeOutcomeUnknown {
+		return link.Response{Fault: failure}
+	}
+	return node.settle(caller, id, link.Response{Fault: failure})
+}
+
+// pruneLedger removes expired requests once a day while the Node runs.
+func (node *Node) pruneLedger() {
+	ticker := time.NewTicker(admission.PruneInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-node.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if node.begin() != nil {
+			return
+		}
+		err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
+			_, err := admission.Prune(node.ctx, db, time.Now())
+			return err
+		})
+		node.work.Done()
+		if err != nil && node.ctx.Err() == nil {
+			slog.Warn("request ledger could not be pruned", "code", nodeFault(err).(*protocol.Fault).Code)
+		}
+	}
 }
 
 func (node *Node) publish() {

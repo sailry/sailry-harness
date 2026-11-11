@@ -216,7 +216,7 @@ func (d Data) Validate() error {
 	if d.Terminal.FontSize < 8 || d.Terminal.FontSize > 32 || strings.ContainsFunc(d.Terminal.FontFamily, unicode.IsControl) {
 		return errors.New("invalid terminal display preferences")
 	}
-	if d.MessageTextSize != nil && !slices.Contains([]uint8{12, 14, 16, 18}, *d.MessageTextSize) {
+	if d.MessageTextSize != nil && (*d.MessageTextSize < 12 || *d.MessageTextSize > 18) {
 		return errors.New("invalid conversation text size")
 	}
 	if d.Surfaces != nil {

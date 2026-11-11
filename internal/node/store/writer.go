@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"modernc.org/sqlite"
 )
 
 type writeJob struct {
@@ -31,11 +33,14 @@ func (job *writeJob) run(connection *sql.Conn) (err error) {
 }
 
 type writer struct {
+	database   *sql.DB
 	connection *sql.Conn
 	jobs       chan *writeJob
 	stop       chan struct{}
 	done       chan struct{}
-	failed     error
+	// failed is set while the connection could not be replaced after its
+	// transaction state became unknown; the next batch tries again.
+	failed error
 }
 
 // Write submits related SQL without external effects or transaction controls.
@@ -71,16 +76,24 @@ func (writer *writer) run() {
 
 // batch commits the queued jobs together. Its jobs end in one of three ways:
 // committed; known to be uncommitted, with the job's own error or a retryable
-// busy fault for work another job's failure rolled back; or, only when COMMIT
-// itself failed and could not be undone, an unknown outcome that stops the writer.
+// busy fault for work another job's failure or a refused COMMIT rolled back;
+// or, only when COMMIT failed and the connection can no longer say whether a
+// transaction is open, an unknown outcome. The writer then replaces its
+// connection, so later batches are not affected.
 func (writer *writer) batch(first *writeJob) {
-	if writer.failed != nil {
-		first.done <- writer.failed
-		return
-	}
 	ctx := context.WithoutCancel(first.context)
+	if writer.failed != nil {
+		if writer.failed = writer.reopen(ctx); writer.failed != nil {
+			first.done <- errors.Join(&protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "storage connection could not be reopened; restart Sailry if this persists"}, writer.failed)
+			return
+		}
+	}
 	if _, err := writer.connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		first.done <- err
+		// Nothing ran. A connection that cannot begin is replaced.
+		if writer.settle(ctx) != nil {
+			writer.failed = writer.reopen(ctx)
+		}
+		first.done <- uncommitted(err)
 		return
 	}
 	var completed []*writeJob
@@ -96,6 +109,7 @@ func (writer *writer) batch(first *writeJob) {
 					job.result = job.context.Err()
 				}
 				if job.result != nil {
+					job.result = storageFull(job.result)
 					_, failure = writer.connection.ExecContext(ctx, "ROLLBACK TO sailry_job")
 				}
 				if failure == nil {
@@ -119,18 +133,22 @@ func (writer *writer) batch(first *writeJob) {
 		_, failure = writer.connection.ExecContext(ctx, "COMMIT")
 	}
 	if failure != nil {
-		_, cleanup := writer.connection.ExecContext(ctx, "ROLLBACK")
+		// Callbacks are not replayed, so the jobs that had succeeded are asked
+		// to retry whenever the batch is known to be uncommitted.
+		state := writer.settle(ctx)
 		switch {
-		case !committing:
-			// No commit was attempted, so none of this batch is durable. An
-			// interrupted or failed write statement makes SQLite roll back the
-			// whole transaction; its savepoint is then gone and this ROLLBACK
-			// only reports that no transaction is active. Callbacks are not
-			// replayed, so the jobs that had succeeded are asked to retry.
-			failure = errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage transaction was rolled back; retry the operation"}, failure)
-		case cleanup != nil:
-			writer.failed = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "storage commit could not be confirmed"}
-			failure = errors.Join(writer.failed, failure, cleanup)
+		case state == nil:
+			failure = uncommitted(failure)
+		case committing:
+			failure = errors.Join(&protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "storage commit could not be confirmed; inspect the target before retrying"}, failure, state)
+		default:
+			// No commit was attempted, and closing the connection discards
+			// the transaction it may still hold.
+			failure = uncommitted(errors.Join(failure, state))
+		}
+		if state != nil {
+			slog.Error("storage connection state is unknown; reopening it", "error", state.Error())
+			writer.failed = writer.reopen(ctx)
 		}
 	}
 	for _, job := range completed {
@@ -140,3 +158,64 @@ func (writer *writer) batch(first *writeJob) {
 		job.done <- job.result
 	}
 }
+
+// settle leaves the connection outside any transaction, or reports that it
+// cannot tell. ROLLBACK ends a transaction that is still open. SQLite ends the
+// transaction itself when a write statement or a COMMIT cannot complete, and
+// ROLLBACK then fails only because none is active; an empty transaction that
+// begins and ends proves that state instead of reading it from the error.
+func (writer *writer) settle(ctx context.Context) error {
+	_, rollback := writer.connection.ExecContext(ctx, "ROLLBACK")
+	if rollback == nil {
+		return nil
+	}
+	if _, err := writer.connection.ExecContext(ctx, "BEGIN"); err != nil {
+		return errors.Join(rollback, err)
+	}
+	_, err := writer.connection.ExecContext(ctx, "ROLLBACK")
+	return err
+}
+
+// reopen replaces the connection. Closing the old one discards a transaction
+// it still holds; the new one must be able to take the write lock.
+func (writer *writer) reopen(ctx context.Context) error {
+	discard := func(connection *sql.Conn) {
+		_ = connection.Raw(func(any) error { return driver.ErrBadConn })
+		_ = connection.Close()
+	}
+	discard(writer.connection)
+	connection, err := writer.database.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err = connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err == nil {
+		_, err = connection.ExecContext(ctx, "ROLLBACK")
+	}
+	if err != nil {
+		discard(connection)
+		return err
+	}
+	writer.connection = connection
+	return nil
+}
+
+// uncommitted is the result of work that is known not to be stored.
+func uncommitted(cause error) error {
+	if full := storageFull(cause); full != cause {
+		return full
+	}
+	return errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage transaction was rolled back; retry the operation"}, cause)
+}
+
+// storageFull names the disk when SQLite could not store a change for lack of
+// space. SQLite has rolled the transaction back by then, so retrying is safe.
+func storageFull(cause error) error {
+	var failure *sqlite.Error
+	if !errors.As(cause, &failure) || failure.Code()&0xff != sqliteFull {
+		return cause
+	}
+	return errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage is full; free disk space and retry the operation"}, cause)
+}
+
+// sqliteFull is SQLITE_FULL, the primary result code of a full disk or database.
+const sqliteFull = 13

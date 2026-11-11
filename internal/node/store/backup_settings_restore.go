@@ -56,6 +56,10 @@ func PrepareRestored(ctx context.Context, staging string, node protocol.NodeID, 
 }
 
 func prepareRestored(ctx context.Context, handle *Handle, node protocol.NodeID, original, target string) error {
+	// The archive's checksum proves the copy, not that its source was sound.
+	if err := checkIntegrity(ctx, handle, "restored Node database is corrupt"); err != nil {
+		return err
+	}
 	definition, err := prepareSchema(ctx, handle, node)
 	if err != nil {
 		return err
@@ -78,7 +82,26 @@ func prepareRestored(ctx context.Context, handle *Handle, node protocol.NodeID, 
 		if err := definition.initialize(ctx, connection, node); err != nil {
 			return err
 		}
+		if definition.state == schemaCurrent {
+			if err := auditReferences(ctx, connection); err != nil {
+				return err
+			}
+		}
 		return relocateRestored(ctx, connection, original, target)
+	})
+}
+
+// checkIntegrity refuses a database whose pages or indexes are damaged.
+func checkIntegrity(ctx context.Context, handle *Handle, damaged string) error {
+	return handle.Read(ctx, func(connection *sql.Conn) error {
+		var integrity string
+		if err := connection.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+			return invalid(damaged)
+		}
+		if integrity != "ok" {
+			return invalid(damaged)
+		}
+		return nil
 	})
 }
 
@@ -92,16 +115,7 @@ func checkRestoredKnowledge(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	err = handle.Read(ctx, func(connection *sql.Conn) error {
-		var integrity string
-		if err := connection.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
-			return err
-		}
-		if integrity != "ok" {
-			return invalid("restored knowledge database is corrupt")
-		}
-		return nil
-	})
+	err = checkIntegrity(ctx, handle, "restored knowledge database is corrupt")
 	if err == nil {
 		var closed *Closed
 		if closed, err = handle.Pause(ctx); err == nil {
@@ -109,6 +123,12 @@ func checkRestoredKnowledge(ctx context.Context, path string) error {
 		}
 	}
 	return errors.Join(err, handle.Close())
+}
+
+// RelocateProfile rewrites the stored paths that point into the profile at
+// original so they point into target, for a profile that is about to move.
+func RelocateProfile(ctx context.Context, db *sql.Conn, original, target string) error {
+	return relocateRestored(ctx, db, original, target)
 }
 
 func relocateRestored(ctx context.Context, db *sql.Conn, original, target string) error {

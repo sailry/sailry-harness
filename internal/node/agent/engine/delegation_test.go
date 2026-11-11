@@ -238,7 +238,7 @@ func TestDelegationHandoff(t *testing.T) {
 					t.Fatal(f.ctx.Err())
 				}
 				parent.cancel()
-				f.waitRun(successor, protocol.ConversationStatusInterrupted)
+				f.waitRun(successor, protocol.ConversationStatusCancelled)
 			}
 			select {
 			case err := <-collected:
@@ -486,9 +486,8 @@ func TestParentEndSettlesChildren(t *testing.T) {
 				if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err }); err != nil {
 					t.Fatal(err)
 				}
-				// The engine's finishing code names a cancelled owner's status; both
-				// stopped statuses are the cancelled outcome here, never a result.
-				if run.Status != protocol.ConversationStatusCancelled && run.Status != protocol.ConversationStatusInterrupted {
+				// A child stopped through its parent is cancelled, never a result.
+				if run.Status != protocol.ConversationStatusCancelled {
 					t.Fatalf("child %d outlived its parent or reported a result: %+v", index, run)
 				}
 				if run.FinishedMs == nil || ended.FinishedMs == nil || *run.FinishedMs > *ended.FinishedMs {
@@ -606,9 +605,7 @@ func TestStopSingleChild(t *testing.T) {
 	})
 	t.Run("a running child stops alone and the parent continues", func(t *testing.T) {
 		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: children[0]})
-		// The engine's finishing code names a stopped turn's status; either
-		// stopped status is the cancelled outcome for the parent.
-		if run := f.settled(children[0]); run.Status != protocol.ConversationStatusCancelled && run.Status != protocol.ConversationStatusInterrupted {
+		if run := f.settled(children[0]); run.Status != protocol.ConversationStatusCancelled {
 			t.Fatalf("stopped running child: %+v", run)
 		}
 		f.waitRun(parent, protocol.ConversationStatusCompleted)

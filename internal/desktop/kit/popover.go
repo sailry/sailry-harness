@@ -52,3 +52,14 @@ func Popover(c *ui.Context, anchor ui.Element, open *bool, content func()) ui.El
 		layer(c, open, content)
 	})
 }
+
+// Snapped makes a Popover's panel take the place and the size the layout
+// gives it at once, a change on its way too, and leave as it does: for a
+// page of it that needs its room in the frame it shows, where a panel
+// still easing to the page's size would have part of the page past its
+// edge, and a press there closes it.
+func Snapped(panel ui.Element) ui.Element {
+	at := popup
+	at.Duration = -1
+	return panel.Transition(at)
+}

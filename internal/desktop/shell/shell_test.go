@@ -208,8 +208,29 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	if len(cv.Waiting.Approvals) != 2 {
 		t.Fatalf("%d approvals", len(cv.Waiting.Approvals))
 	}
+	fields := func() (n int) {
+		for _, e := range tt.AccessAll() {
+			if e.Role == ui.RoleTextField {
+				n++
+			}
+		}
+		return n
+	}
+	closed := fields()
 	clickButton(t, tt, i18n.In("en", "approval_live_count", "count", 2))
 	snapshot(t, tt, "approvals")
+	// Deny takes no reason (docs/removed-ui.md): the popover has no reason
+	// field and Deny no menu.
+	t.Run("no deny reason", func(t *testing.T) {
+		if open := fields(); open != closed {
+			t.Errorf("the approval popover adds a field: %d text fields, %d without it", open, closed)
+		}
+		for _, e := range tt.AccessAll() {
+			if e.Role != ui.RoleText && (e.Name == "Deny with reason" || e.Name == "Reason") {
+				t.Errorf("the approval popover has a %q control", e.Name)
+			}
+		}
+	})
 	// One request at a time, paged by its position.
 	if !tt.HasText("1/2") || !tt.HasText("internal/kit/loader.go") {
 		t.Fatalf("the approvals do not show the first request: %q", tt.Texts())
@@ -300,10 +321,12 @@ func TestModelPickerAndEffort(t *testing.T) {
 	if !ok {
 		t.Fatalf("no model row GPT-5.2: %q", tt.Texts())
 	}
-	tt.Move(row.Bounds.X+24, row.Bounds.Y+row.Bounds.H/2)
-	tt.Frame()
+	// One move onto the row gives it the column. No time has passed since
+	// the list opened: the popover has the picker's size all the same,
+	// with every row in it.
 	tt.Move(row.Bounds.X+20, row.Bounds.Y+row.Bounds.H/2)
 	tt.Frame()
+	pickerContained(t, tt, "as the picker opens", "Reasoning effort", ui.Rect{W: 1280, H: 820}, "GPT-5.2")
 	if _, ok := tt.AccessByRole(ui.RoleMenuItem, ""); ok {
 		t.Errorf("a menu opens over the model list: %q", tt.Texts())
 	}
@@ -315,6 +338,9 @@ func TestModelPickerAndEffort(t *testing.T) {
 	tt.Frame()
 	if comp.Model != "gpt-5.2" {
 		t.Fatalf("model %q", comp.Model)
+	}
+	if panels, _ := popups(tt); len(panels) != 1 {
+		t.Fatalf("%d popovers after choosing an effort, want the one open", len(panels))
 	}
 	if got := composer.Efforts[int(comp.Effort)]; got != "high" {
 		t.Errorf("effort %q after choosing high", got)
@@ -349,6 +375,7 @@ func TestModelPickerAndEffort(t *testing.T) {
 		tt.Frame()
 		snapshot(t, tt, "model-picker-families-"+map[bool]string{false: "light", true: "dark"}[dark])
 	}
+	t.Run("in the window", pickerInShell)
 }
 
 func TestWorktreeMenu(t *testing.T) {

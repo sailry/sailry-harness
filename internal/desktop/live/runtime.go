@@ -60,6 +60,7 @@ type Runtime struct {
 	terminalSettings         terminalSettingsState
 	backupSettings           backupSettingsState
 	localModels              localModelState
+	knowledge                knowledgeState
 	media                    mediaState
 	dictation                dictationState
 	usage                    featureUsage
@@ -134,6 +135,10 @@ type Runtime struct {
 	// composerOutgoing is a queued or guiding message on its way to the
 	// Host, by conversation: the queue tray's placeholder row.
 	composerOutgoing map[string]composer.Queued
+	// guidanceSent is the guidance this desktop sent from the composer and
+	// has not seen settled, by conversation and turn: a message that did not
+	// join its recipient is reported once.
+	guidanceSent map[string]map[protocol.TurnID]sentGuidance
 	// overviews are the asset inventories the overview popover read.
 	overviews map[protocol.SessionID]*overviewRead
 }
@@ -230,6 +235,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
 	r.App.Hooks.Conversation = r.conversation
+	r.App.Hooks.DemoConversation = r.demoConversation
 	r.App.Hooks.RenderChild = r.renderLiveChild
 	r.App.Hooks.Overview = r.sessionOverview
 	r.conversationWatches = map[protocol.SessionID]func(){}
@@ -644,8 +650,12 @@ func (r *Runtime) Refresh() {
 	})
 }
 
-// execute captures immutable input and retains its request ID after an unknown
-// completion. All outcome delivery and draft changes run on the UI thread.
+// execute captures immutable input and retains its request ID while its
+// outcome is open: the Node still runs it or could not be asked. The same
+// command, sent again, then carries the same ID and resolves it. Once the
+// Client reports the request applied, failed or released (client.Released),
+// the ID is dropped and the next attempt is a new request. All outcome
+// delivery and draft changes run on the UI thread.
 func (r *Runtime) execute(command protocol.Command, finished func(*ui.Context, protocol.Output, error)) {
 	r.executeScoped("", command, finished)
 }
@@ -666,11 +676,11 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		request = r.controller.Prepare(command)
 	}
 	r.async(func() {
-		output, err := r.controller.Execute(r.ctx, request)
+		output, err := r.controller.Settle(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, key)
 			code := faultCode(err)
-			if code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
+			if client.Retained(err) || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
 				r.uncertain[key] = request
 			} else {
 				delete(r.uncertain, key)
@@ -911,6 +921,8 @@ func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
 				outcome, key = kit.Conflict, "project_changed"
 			case code == protocol.ErrorCodeBusy:
 				key = "project_path_in_use"
+			case clone && code == protocol.ErrorCodePermissionDenied:
+				key = "git_auth_failed"
 			case clone:
 				key = "project_clone_failed"
 			}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -73,7 +74,7 @@ func (r *Runtime) documentView(c *ui.Context, artifact protocol.ArtifactSummary,
 			state.documents[id] = &documentView{view: view, source: source, shown: true}
 		})
 		if document == nil {
-			ui.Row(c.Key("document")).Grow(1).Center().Children(func() { ui.Spinner(c) })
+			ui.Row(c.Key("document")).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
 			return true
 		}
 	}
