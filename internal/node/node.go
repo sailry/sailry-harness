@@ -327,6 +327,17 @@ func (node *Node) shutdown(grace time.Duration) {
 	deadline, release := context.WithTimeout(context.Background(), grace)
 	defer release()
 	quiet := func(run func()) func() error { return func() error { run(); return nil } }
+	// A collection deletes the files no row names. Once the deadline released
+	// the profile its next owner writes files and rows this process does not
+	// read together, so a collection that has not started then never starts.
+	var abandoned atomic.Bool
+	collection := func(run func(context.Context)) func() error {
+		return quiet(func() {
+			if !abandoned.Load() {
+				run(context.Background())
+			}
+		})
+	}
 	// Each stage waits for the work it names. The order is the dependency
 	// order: commands, then turns, then what they use, then storage.
 	stages := []stopStage{
@@ -354,7 +365,7 @@ func (node *Node) shutdown(grace time.Duration) {
 		{"plugins and MCP servers", node.closePlugins},
 		{"requests in flight", quiet(node.work.Wait)},
 		// No request holds a package version or a settings revision any more.
-		{"plugin collection", quiet(func() { node.collectPlugins(context.Background()) })},
+		{"plugin collection", collection(node.collectPlugins)},
 		{"telemetry", quiet(func() {
 			node.detachLogging()
 			node.telemetry.Close()
@@ -362,7 +373,7 @@ func (node *Node) shutdown(grace time.Duration) {
 		})},
 		{"commands, transfers and watchers", node.closeWorkspace},
 		// Every transfer worker has ended and storage is still open.
-		{"attachment collection", quiet(func() { node.collectAttachments(context.Background()) })},
+		{"attachment collection", collection(node.collectAttachments)},
 		{"storage", node.profile.Close},
 	}
 	var reached atomic.Int32
@@ -385,9 +396,11 @@ func (node *Node) shutdown(grace time.Duration) {
 			skipped = append(skipped, stage.name)
 		}
 		slog.Error("Node shutdown deadline elapsed", "waiting", stages[index].name, "skipped", strings.Join(skipped, ", "))
-		// The stages above keep running until the process exits. Releasing
-		// the profile here lets the next launch start; what they leave behind
-		// is what a crash leaves, and startup recovery clears it.
+		// The stages above keep running until the process exits, except the
+		// collections. Releasing the profile here lets the next launch start;
+		// what they leave behind is what a crash leaves, and startup recovery
+		// clears it.
+		abandoned.Store(true)
 		err = errors.Join(fmt.Errorf("%w: %s did not stop", core.ErrShutdownTimeout, stages[index].name), node.profile.Abandon())
 	}
 	node.mu.Lock()

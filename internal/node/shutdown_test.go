@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestStopDeadline(t *testing.T) {
@@ -82,11 +83,35 @@ func TestStopDeadline(t *testing.T) {
 		if err := value.Stop(ctx); !errors.Is(err, core.ErrShutdownTimeout) {
 			t.Fatalf("shutdown past its deadline: %v", err)
 		}
+		// A file the profile's next owner wrote: its row is not this
+		// process's to judge, so no collection of the abandoned sequence
+		// may delete it. The database stayed open, so one could.
+		attachments := filepath.Join(value.profile.Ownership.Path, "attachments")
+		if err := os.MkdirAll(attachments, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		unbound := filepath.Join(attachments, protocol.NewAttachmentID().String())
+		if err := os.WriteFile(unbound, []byte("written after the release"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		close(release)
 		if err := <-read; err != nil {
 			t.Fatalf("a read in progress lost its connection: %v", err)
 		}
 		value.work.Done()
+		// The sequence ends by closing the database it kept open.
+		for started := time.Now(); ; time.Sleep(10 * time.Millisecond) {
+			err := value.profile.Store.Node.Read(ctx, func(*sql.Conn) error { return nil })
+			if err != nil {
+				break
+			}
+			if time.Since(started) > 10*time.Second {
+				t.Fatal("the abandoned sequence did not end")
+			}
+		}
+		if _, err := os.Stat(unbound); err != nil {
+			t.Fatalf("a collection ran after the profile was released: %v", err)
+		}
 	})
 }
 
