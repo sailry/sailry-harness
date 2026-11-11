@@ -20,13 +20,13 @@ Icons by 480 Design, licensed under CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/), and Zappicon
 (https://zappicon.com/). These upstream attributions are retained here.
 
-## Kubai Icons
+## Phosphor Icons
 
-`kubai:<id>` declarations and package emblems are not embedded here. They are
-drawn by `github.com/yldm-tech/mygo-kubai-icons` at the version pinned in
-`go.mod`; see `third_party_licenses/kubai-icons.md`. Kubai icons are colored
-emblems with no monochrome form, so the Reicon outlines above remain the
-glyphs of every text-colored slot.
+`phosphor:<name>` declarations are not embedded here. The complete fill set is
+the archive `../phosphor/fill.zip`; see `../phosphor/SOURCE` and
+`third_party_licenses/phosphor-icons.md`. A package's own icon is a Phosphor
+glyph or a brand mark, so only the Reicon glyphs that the application, a
+bundled package or an SDK example still names are kept above.
 
 ## Remix Icon
 

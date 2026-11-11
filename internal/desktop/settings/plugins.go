@@ -13,7 +13,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
-	"github.com/yldm-tech/mygo-kubai-icons/kubai"
 )
 
 // The Plugins page (settings/plugins*, plugins/*): the inventory's
@@ -92,35 +91,30 @@ func compatibility(c *ui.Context, p *preview.Package) string {
 	return i18n.T(c, "plugins_requires_sailry", "version", p.Requires)
 }
 
-// pluginTile is the package's emblem in a box size square: its declared icon
-// in its declared tint, the puzzle piece when it declares none.
-func pluginTile(c *ui.Context, p *preview.Package, size float32, hovered bool) {
-	box := ui.Row(c).Size(size, size).Center()
-	hovered = hovered || box.Hovered()
-	box.Children(func() { emblem(c, p.Name, p.Icon, p.Tint, icons.Puzzle, min(size, 48), hovered) })
-}
-
-// tints are the declared emblem colors in theme.Tints' order.
+// tints are the declared tile colors in theme.Tints' order.
 var tints = []string{"blue", "violet", "teal", "amber", "gray"}
 
 // ownIcons are the icons declared as SVG markup, parsed once; nil for
 // markup in error.
 var ownIcons sync.Map
 
-// emblem is a record's mark from the icon it declares. An icon with a Kubai
-// emblem (icons.Emblem) is drawn by that library in the accent of the tint,
-// on a size DIPs square tile of that tint, and plays its motion while hovered. Any other is a
-// glyph on kit.Tile: the declared outline or the record's own SVG, or
-// fallback for none and for a name nothing draws.
-func emblem(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float32, hovered bool) {
-	if mark := icons.Emblem(icon); mark != nil {
-		accent := kit.Tint(name)
-		if i := slices.Index(tints, tint); i >= 0 {
-			accent = theme.Tints[i]
-		}
-		// The emblem sits on a tile of its own tint, like kit.Tile's glyph.
-		ui.Row(c).Size(size, size).Radius(size * 11 / 36).Center().Background(accent[1].Alpha(0.16)).Children(func() {
-			mark.View(c, kubai.Options{Size: size * 0.64, Color: accent[1], Hovered: hovered, Still: true})
+// iconTile is a record's icon on a size DIPs square tile, radius 11 at 36.
+// A glyph (a Phosphor or Reicon name, or the record's own SVG) is white,
+// 5/9 of the tile, on the gradient of the declared tint, or of the tint the
+// name hashes to. A brand mark ("ailogo:<slug>") is drawn on a neutral
+// tile, in the brand's colors where the collection has them and in the
+// foreground color otherwise. fallback is the glyph of a record declaring
+// no icon and of a name nothing draws.
+func iconTile(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float32) {
+	tile := ui.Row(c).Size(size, size).Shrink(0).Radius(size * 11 / 36).Center()
+	if mark, colored := icons.PluginBrand(icon); mark != nil {
+		pal := theme.Of(c)
+		tile.Background(pal.Hover).Border(1, pal.Border).TextColor(pal.Foreground).Children(func() {
+			if colored {
+				ui.Image(c, mark).Size(size*11/18, size*11/18)
+			} else {
+				ui.Icon(c, mark).FontSize(size * 11 / 18)
+			}
 		})
 		return
 	}
@@ -137,7 +131,13 @@ func emblem(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float
 	} else if svg, err := icons.Plugin(icon); err == nil {
 		glyph = svg
 	}
-	kit.Tile(c, name, glyph)
+	accent := kit.Tint(name)
+	if i := slices.Index(tints, tint); i >= 0 {
+		accent = theme.Tints[i]
+	}
+	tile.Gradient(accent[0], accent[1], 180).TextColor(theme.OnTint).Children(func() {
+		ui.Icon(c, glyph).FontSize(size * 5 / 9)
+	})
 }
 
 func plugins(c *ui.Context, s *State) {
@@ -249,7 +249,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 		desc = msg
 	}
 	busy := m.Busy[BusyPackage+p.ID]
-	kit.ResourceCard(c, p.ID, p.Name, desc, func(hovered bool) { pluginTile(c, p, kit.TileSize, hovered) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
+	kit.ResourceCard(c, p.ID, p.Name, desc, func() { iconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, kit.TileSize) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
 		if busy {
 			// Its update, switch or removal runs: the spinner, and no press.
 			kit.BusyAction(c.Key("busy"), p.Name)
@@ -564,7 +564,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 						if ui.Checkbox(c.Key("check"), &on, "").Label(p.Name).Disabled(p.Requires != "").Changed() {
 							e.chosen[p.ID] = on
 						}
-						pluginTile(c, p, 28, false)
+						iconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, 28)
 						ui.Column(c).Grow(1).Gap(2).Children(func() {
 							ui.Text(c, p.Name).FontSize(14).FontWeight(500)
 							ui.Text(c, t("plugins_update_version", "version", p.Latest)).FontSize(12).TextColor(pal.MutedForeground)

@@ -1,0 +1,15 @@
+Phosphor Icons, fill weight
+Package: @phosphor-icons/core 2.1.1
+https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz
+SHA-256 of the tarball: 313332be6190b724da24107addd781799b48bf76b13963f24501112ffe1baadd
+Upstream: https://github.com/phosphor-icons/core
+License: MIT, Copyright (c) 2023 Phosphor Icons, copied to
+third_party_licenses/phosphor-icons-MIT.txt
+
+fill.zip holds the 1512 files of the tarball's package/assets/fill directory,
+unchanged, each renamed from <name>-fill.svg to <name>.svg, in byte order of
+their names, deflated, with the timestamp 1980-01-01 00:00:00.
+SHA-256 of fill.zip: c26df89fee8d8938ea03eaf3710d3aa8c3184fb5f359a6e87b6b71ee4efd78fc
+
+internal/protocol/phosphor_icon_names.txt lists the same 1512 names, one a
+line, in the same order. No other weight of the package is copied.

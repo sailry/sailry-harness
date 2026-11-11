@@ -105,6 +105,24 @@ func pluginLogo(name string) (mark *ui.SVG, colored bool) {
 	return logo(name, ailogo.Mono), false
 }
 
+// PluginBrand is the brand mark an "ailogo:" icon name shows on a package's
+// tile: the variant it names, or for one without the brand's own colors
+// the mark in them where the collection has it. colored reports a mark
+// ui.Image draws in its colors; ui.Icon draws any other in the text color.
+// It is nil for another kind of name and for a brand the collection lacks.
+func PluginBrand(name string) (mark *ui.SVG, colored bool) {
+	name, found := strings.CutPrefix(name, "ailogo:")
+	if !found {
+		return nil, false
+	}
+	if mark, colored = pluginLogo(name); mark != nil && !colored {
+		if own := logo(strings.ToLower(name), ailogo.Color); own != nil {
+			return own, true
+		}
+	}
+	return mark, colored
+}
+
 // Colored reports whether a plugin icon name is a brand mark in its own
 // colors, which ui.Image draws; ui.Icon would draw its silhouette.
 func Colored(name string) bool {

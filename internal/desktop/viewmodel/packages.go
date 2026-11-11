@@ -32,8 +32,9 @@ type Package struct {
 	Settings              []Setting
 	Versions              []string
 	// Icon is the icon the package declares for itself: an icon name
-	// ("reicon:<group>/<name>", "kubai:<id>") or its own SVG markup. Tint is
-	// its declared emblem color ("blue", "violet", "teal", "amber", "gray").
+	// ("phosphor:<name>", "ailogo:<slug>", "reicon:<group>/<name>") or its
+	// own SVG markup. Tint is its declared tile color ("blue", "violet",
+	// "teal", "amber", "gray").
 	Icon, Tint string
 }
 

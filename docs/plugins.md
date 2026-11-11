@@ -142,15 +142,37 @@ A package's declared `display.icon` and `tint` reach every surface that shows
 the package. Live projection carries them on `viewmodel.Package` (`Icon` is the
 declared name or the package's own SVG markup) and on connector types and
 services. Market cards, Settings > Plugins cards, the details header, the
-updates dialog and connector service tiles draw the package emblem:
-`icons.Emblem` maps `kubai:<id>` directly and `reicon:<group>/<name>` through
-its alias table or leaf name to a Kubai icon, drawn in the declared tint (the
-name's hashed tint when none is declared) and animated while its card is
-hovered. A package's own SVG, or a name with no emblem, draws as a glyph on a
-tinted tile; an unknown name is the puzzle piece. Text-colored slots (rail
+updates dialog and connector service tiles draw it with one function
+(`iconTile` in `internal/desktop/settings/plugins.go`) on a rounded tile,
+radius 11 at 36 DIPs:
+
+- A glyph (`phosphor:<name>`, `reicon:<group>/<name>` or the package's own SVG)
+  is white, 5/9 of the tile, on the gradient of the declared tint, or of the
+  tint the name hashes to when none is declared.
+- A brand mark (`ailogo:<slug>`) is drawn on a neutral tile of the theme's
+  hover fill and border: in the brand's own colors where AI Logo has a color
+  variant, otherwise the one-color mark in the foreground color.
+- No declaration, or a name nothing draws, is the puzzle piece on the gradient
+  tile (the plug for a connector service). It is not an error.
+
+The tile is still: nothing in it follows the pointer. Text-colored slots (rail
 feature buttons, settings sidebar entries, tool rows, menus and script `Icon`
-components) draw the monochrome glyph from `icons.Plugin`; `icons.ByName`
-falls back to it for tool rows.
+components) draw the same declared icon as a one-color glyph from
+`icons.Plugin`: a Phosphor fill icon follows the text color and a bare
+`ailogo:<slug>` is its mono variant. `icons.ByName` falls back to
+`icons.Plugin` for tool rows.
+
+`icons.Plugin` resolves four kinds of name: `phosphor:<name>` from the embedded
+Phosphor fill archive (`internal/desktop/icons/phosphor`, the complete set of
+`@phosphor-icons/core` 2.1.1, read on first lookup and cached), `ailogo:<slug>`
+from the AI Logo module, `reicon:<group>/<name>` from the Reicon glyphs kept in
+`internal/desktop/icons/svg`, and the application's own icon file names. The v1
+validation in `internal/protocol/navigation.go` accepts a `phosphor:` name
+listed in `phosphor_icon_names.txt` and a `reicon:` name listed in
+`icon_names.txt` for navigation, panel and contribution icons; `ailogo:` names
+are for package, tool and connector `display` icons and view components, which
+that validation does not cover. Bundled packages declare a Phosphor icon; a
+package for one brand declares that brand's mark where AI Logo has it.
 
 Native bridges expose scoped terminal, conversation, artifact, configuration and
 file owners. They preserve the captured workspace and action requirements.
@@ -324,14 +346,11 @@ empty so the text remains aligned.
   as the source host does, without its permission dialog: the system's
   Keychain prompt is the consent ([settings](settings.md#browser-page-wiring)).
 
-- Package emblems are Kubai Icons drawn by the pinned
-  `github.com/yldm-tech/mygo-kubai-icons` module; the source shows the Reicon
-  glyph on a tinted tile. Kubai has no monochrome form, so text-colored slots
-  keep the embedded Reicon outlines and none of them is removed. `kubai:<id>`
-  is an additional icon namespace of the v1 icon contract; in a text-colored
-  slot it draws as its static colored form.
-- The emblem's hover motion is the library's painter animation: it requests
-  frames only while moving and stays still under reduced motion.
+- Package icons are Phosphor fill glyphs on tinted tiles, or AI Logo brand
+  marks on neutral tiles; the source shows a Reicon glyph on a tinted tile.
+  `phosphor:<name>` is an additional icon namespace of the v1 icon contract.
+  Reicon glyphs that no bundled package, SDK example or application icon names
+  are no longer embedded; such a name still validates and draws the placeholder.
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.
 - Cards with an embedded authorization browser use an isolated native MyGo page

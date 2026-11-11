@@ -163,7 +163,6 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/xuri/excelize/v2` | v2.11.1 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/xuri/nfp` | v0.0.2-0.20250530014748-2ddeb826f9a9 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/yldm-tech/ai-logo/mygo` | v1.20.0 | MIT | `LICENSE`, `THIRD_PARTY_NOTICES.md` | D |
-| `github.com/yldm-tech/mygo-kubai-icons` | v0.5.0 | MIT (port and Kubai Icons), BSD-3-Clause (Go fonts glyph outlines) | `LICENSE`, `licenses/kubai-icons.txt`, `licenses/go-fonts.txt` | D |
 | `github.com/yosida95/uritemplate/v3` | v3.0.2 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/yuin/goldmark` | v1.8.7 | MIT | `LICENSE` | D H M |
 | `github.com/yusufpapurcu/wmi` | v1.2.4 | MIT | `LICENSE` | D H |

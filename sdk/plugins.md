@@ -298,23 +298,39 @@ to its local execution Node; a remote requirement identifies the affected Node.
 A `display.icon` (package, navigation, tool, connection, UI entry) is either
 `{"kind": "Name", "data": "<name>"}` or
 `{"kind": "Svg", "data": {"svg": "<svg ...>"}}` with the package's own markup.
-Names come from two catalogs:
+Names come from three namespaces:
 
+- `phosphor:<name>` is an icon of [Phosphor Icons](https://phosphoricons.com),
+  for example `phosphor:database` or `phosphor:calendar-check`. Browse the set
+  on that site and use the icon's name as shown there; the fill weight is
+  implied and no weight suffix is written. Every icon of the set is available.
+  It is one color and follows the text color, so the same name suits the
+  package's own `display.icon`, navigation, tools, menus and script `Icon`
+  components. The accepted names are listed in
+  `internal/protocol/phosphor_icon_names.txt`. A package that names one sets
+  `min_sailry_version` to `0.1.6`.
+- `ailogo:<slug>` is a brand mark of the [AI Logo](https://ailogo.yldm.ai/)
+  collection, for example `ailogo:github`. Use it for the `display.icon` of a
+  package, tool or connector that represents that one brand, and in view
+  components. Navigation, panel and contribution icons do not accept it. Name
+  only the brand the package is for; when the collection lacks it, use a
+  Phosphor icon or the package's own SVG rather than another company's mark.
 - `reicon:<group>/<name>` is a monochrome outline glyph from
-  [Reicon](https://github.com/dqev/reicon), for example `reicon:time/calendar`. It follows
-  the text color and is the right choice for navigation, tools, menus and
-  script `Icon` components. The accepted names are listed in
-  `internal/protocol/icon_names.txt`.
-- `kubai:<id>` is a colored emblem from Kubai Icons, for example
-  `kubai:folder-plus`. Browse the set at <https://kubai.yldm.ai/>; the accepted
-  ids are listed in `internal/protocol/kubai_icon_names.txt`. Use it for the
-  package's own `display.icon`. In a text-colored slot it draws as a static
-  colored icon and does not follow the text color.
+  [Reicon](https://github.com/dqev/reicon), for example `reicon:time/calendar`.
+  The accepted names are listed in `internal/protocol/icon_names.txt`. It
+  remains valid for existing packages, but the application embeds only the
+  glyphs it and its bundled packages use; prefer `phosphor:` for new icons.
 
-Marketplace and plugin cards show the package icon as an emblem in the package
-`tint`. A `reicon:` package icon is shown as the Kubai emblem of the same
-subject where one exists, otherwise as its glyph on a tinted tile; an own SVG
-is always a glyph on a tinted tile. An unknown name is not a valid icon.
+Marketplace cards, plugin cards, plugin details, the updates dialog and
+connector tiles show the package icon on a rounded tile. A Phosphor or Reicon
+glyph, or the package's own SVG, is drawn in white on a gradient of the package
+`tint` (a tint chosen from the package name when none is declared). An
+`ailogo:` brand mark is drawn on a neutral tile instead, in the brand's colors
+where the collection has a color variant and in the foreground color
+otherwise. In text-colored places (the rail, settings sidebar, tool rows and
+menus) the same declared icon is drawn in the text color; a brand mark uses
+its one-color variant. A name that nothing draws shows a puzzle piece. An
+unknown `phosphor:` or `reicon:` name is not a valid navigation icon.
 
 ## Marketplace metadata
 
@@ -584,7 +600,8 @@ one color. The `Icon` component draws a `-color` variant in the brand's colors
 and every other variant in the text color; menu items, table lines and other
 tinted places draw any variant as a one-color shape. A name the collection
 lacks behaves as any unknown icon name does. Existing names are unchanged, and
-a manifest's navigation icon still takes a `reicon:` name or its own SVG. Brand
+a manifest's navigation icon still takes a `phosphor:` or `reicon:` name or its
+own SVG. Brand
 names and logos are trademarks of their owners: use a mark only to identify
 that owner's product or service, unmodified, and not to suggest endorsement.
 

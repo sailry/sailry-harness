@@ -16,13 +16,13 @@ var iconNames string
 
 var navigationIcons = strings.Split(strings.TrimSpace(iconNames), "\n")
 
-// kubaiIconNames are the ids of Kubai Icons 0.4.1, which the desktop draws
-// through github.com/yldm-tech/mygo-kubai-icons: one id a line, sorted.
+// phosphorIconNames are the names of the Phosphor fill icons the desktop
+// embeds (internal/desktop/icons/phosphor): one name a line, sorted.
 //
-//go:embed kubai_icon_names.txt
-var kubaiIconNames string
+//go:embed phosphor_icon_names.txt
+var phosphorIconNames string
 
-var emblemIcons = strings.Split(strings.TrimSpace(kubaiIconNames), "\n")
+var phosphorIcons = strings.Split(strings.TrimSpace(phosphorIconNames), "\n")
 
 func (navigation PluginDesktopNavigation) Valid() bool {
 	label := func(value string) bool {
@@ -51,8 +51,8 @@ func (icon PluginDesktopIcon) Valid() bool {
 				value = *name
 			}
 		}
-		if name, found := strings.CutPrefix(value, "kubai:"); found {
-			_, exists := slices.BinarySearch(emblemIcons, name)
+		if name, found := strings.CutPrefix(value, "phosphor:"); found {
+			_, exists := slices.BinarySearch(phosphorIcons, name)
 			return exists
 		}
 		name, found := strings.CutPrefix(value, "reicon:")

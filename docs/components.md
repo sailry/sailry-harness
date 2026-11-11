@@ -70,8 +70,8 @@ MyGo bases.
 | `SwitchRow`, `SegmentedRow` | Own | An on/off or few-labels setting | settings |
 | `SelectRow`, `TextRow`, `SecretRow`, `NumberRow`, `SliderRow`, `ButtonRow` | Own | The other one-control settings; prefer them over a hand-built `Row` | defined, not yet used |
 | `Entry`, `Record`, `Action`, `TextAction` | Own | A record in a group's card, its text and small ghost actions | settings, host, panel |
-| `MediaRow`, `Tile`, `TileSize`, `Tint` | Own | A record with a 36 DIP emblem; `Tint` is the pair of theme tints a name hashes to | settings |
-| `Grid`, `ResourceCard` | Own | Plugin, skill, market and team cards. The card tells its tile and actions whether it is hovered, so a package emblem animates with its card | settings |
+| `MediaRow`, `Tile`, `TileSize`, `Tint` | Own | A record with a 36 DIP emblem; `Tint` is the pair of theme tints a name hashes to, which a package icon's tile also uses | settings |
+| `Grid`, `ResourceCard` | Own | Plugin, skill, market and team cards | settings |
 | `Toolbar`, `List` | Own | A page's title, count, search and actions over its list | settings (`Toolbar`); `List` unused |
 | `Field` | Own | A labeled control in a dialog | host, settings, sidebar |
 

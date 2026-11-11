@@ -135,17 +135,16 @@ func marketMatch(q, text string) bool {
 }
 
 // marketCard is a 76 DIP bordered card of the item's summary and its action.
-func marketCard(c *ui.Context, key, title, desc string, tile func(hovered bool), action string, busy bool, open, act func()) {
+func marketCard(c *ui.Context, key, title, desc string, tile func(), action string, busy bool, open, act func()) {
 	p := theme.Of(c)
 	card := kit.Frost(c, ui.Row(c.Key(key)).Height(76).MinWidth(0).PaddingX(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint)
-	hovered := card.Hovered()
-	if hovered {
+	if card.Hovered() {
 		card.Background(p.Hover)
 	}
 	card.Children(func() {
 		b := ui.ButtonBase(c.Key("open")).Label(title).Grow(1).Shrink(1).MinWidth(0).Gap(12).Justify(ui.Start).Cursor(ui.CursorPointer).OnClick(open)
 		b.Children(func() {
-			ui.Row(c).Shrink(0).Children(func() { tile(hovered) })
+			ui.Row(c).Shrink(0).Children(tile)
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine()
 				ui.Text(c, desc).FontSize(14).SingleLine().TextColor(p.MutedForeground)
@@ -212,7 +211,7 @@ func marketPlugins(c *ui.Context, s *State) {
 					notice(c)
 				}
 			}
-			marketCard(c, x.ID, x.Name, desc, func(hovered bool) { pluginTile(c, x, kit.TileSize, hovered) }, action, m.Busy[BusyPackage+x.ID],
+			marketCard(c, x.ID, x.Name, desc, func() { iconTile(c, x.Name, x.Icon, x.Tint, icons.Puzzle, kit.TileSize) }, action, m.Busy[BusyPackage+x.ID],
 				func() { s.ShowDetails(DetailPlugin, x.ID) }, install)
 		}
 	})
@@ -236,7 +235,7 @@ func marketSkills(c *ui.Context, s *State) {
 			for _, y := range m.SkillList {
 				installed = installed || y.ID == x.ID
 			}
-			marketCard(c, x.ID, x.Name, x.Origin+" · "+x.Description, func(bool) { kit.Tile(c, x.Name, icons.Bot) },
+			marketCard(c, x.ID, x.Name, x.Origin+" · "+x.Description, func() { kit.Tile(c, x.Name, icons.Bot) },
 				MarketAction(installed, x.Update), m.Busy[BusyPackage+x.ID], func() { s.ShowDetails(DetailSkill, x.ID) }, func() {
 					if m.PackageActions != nil && m.PackageActions.MarketSkill != nil {
 						m.PackageActions.MarketSkill(x.ID)
@@ -300,7 +299,7 @@ func marketThemes(c *ui.Context, s *State) {
 			if x.Builtin {
 				desc = i18n.T(c, "market_theme_builtin") + " · " + desc
 			}
-			marketCard(c, x.ID, x.Name, desc, func(bool) { kit.Tile(c, x.Name, icons.Palette) }, action, m.Busy[BusyPackage+x.ID],
+			marketCard(c, x.ID, x.Name, desc, func() { kit.Tile(c, x.Name, icons.Palette) }, action, m.Busy[BusyPackage+x.ID],
 				func() { s.ShowDetails(DetailTheme, x.ID) }, func() {
 					if m.PackageActions != nil && m.PackageActions.Theme != nil {
 						m.PackageActions.Theme(x.ID)

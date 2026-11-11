@@ -251,7 +251,7 @@ func connectors(c *ui.Context, m *Model) {
 			}
 		}
 		authorization(c, "connector-login", &actions.Authorization, func() {
-			serviceTile(c, actions.Authorization.Title, "", false)
+			serviceTile(c, actions.Authorization.Title, "")
 		}, actions.Retry, func() {
 			if actions.Submit != nil {
 				actions.Submit(actions.Authorization.Pasted)
@@ -283,8 +283,10 @@ func (m *Model) service(id string) *preview.Service {
 	return nil
 }
 
-func serviceTile(c *ui.Context, name, icon string, hovered bool) {
-	emblem(c, name, icon, "", icons.Plug, kit.TileSize, hovered)
+// serviceTile is a service's icon: the one its connector or package
+// declares, the plug for none.
+func serviceTile(c *ui.Context, name, icon string) {
+	iconTile(c, name, icon, "", icons.Plug, kit.TileSize)
 }
 
 // statusView is a problem as muted text, a spinner while connecting, a dot
@@ -336,7 +338,7 @@ func serviceRow(c *ui.Context, m *Model, s *preview.Service) {
 	busy := m.Live && m.ConnectorActions != nil && m.ConnectorActions.Busy != nil && m.ConnectorActions.Busy(s.ID)
 	items := m.serviceItems(s)
 	kit.Entry(c, s.ID, func() {
-		kit.MediaRow(c, s.Name, desc, func() { serviceTile(c, s.Name, s.Icon, false) }, nil)
+		kit.MediaRow(c, s.Name, desc, func() { serviceTile(c, s.Name, s.Icon) }, nil)
 	}, func() {
 		ui.Row(c).Gap(12).Children(func() {
 			// Connect is in the menu (serviceItems), not a button here.
@@ -613,7 +615,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 							meta = t("connector_added")
 						}
 						listRow{subtitle: k.Description, meta: meta, chevron: true, disabled: !k.Enabled && !added,
-							leading: func() { ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name, k.Icon, false) }) },
+							leading: func() { ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name, k.Icon) }) },
 							onClick: func() {
 								if s := m.service(k.ID); s != nil {
 									m.editService(s)
@@ -631,7 +633,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 			if e.service == "" && !e.direct {
 				kit.Action(c.Key("back"), icons.ArrowLeft, t("provider_step_back"), e.pending).OnClick(func() { e.kind = nil })
 			}
-			ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name, k.Icon, false) })
+			ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name, k.Icon) })
 			ui.Text(c, k.Name).FontSize(18).FontWeight(600)
 		})
 		if len(k.Methods) > 1 && e.service == "" {
@@ -849,7 +851,7 @@ func serviceDetails(c *ui.Context, m *Model) {
 		if st.Reason != "" {
 			summary += " · " + st.Reason
 		}
-		kit.MediaRow(c, s.Name, summary, func() { serviceTile(c, s.Name, s.Icon, false) }, nil)
+		kit.MediaRow(c, s.Name, summary, func() { serviceTile(c, s.Name, s.Icon) }, nil)
 		fact := func(key, label string, value func()) {
 			ui.Row(c.Key(key)).Gap(12).Padding(8, 12).Children(func() {
 				ui.Text(c, label).FontSize(14).Width(96).Shrink(0).TextColor(p.MutedForeground)

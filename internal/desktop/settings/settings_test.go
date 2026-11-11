@@ -1598,9 +1598,10 @@ func TestExtensions(t *testing.T) {
 		}
 	})
 	// A card, a row and the details header draw the icon their package
-	// declares: its Kubai emblem in its tint, which moves only while the
-	// pointer is over it, or its own SVG on a tile. Only a package that
-	// declares none, or a name nothing draws, has the puzzle piece.
+	// declares: a white glyph on the gradient of its tint, or a brand's mark
+	// on a neutral tile, still whether or not the pointer is over it. Only a
+	// package that declares none, or a name nothing draws, has the puzzle
+	// piece.
 	t.Run("declared icons", func(t *testing.T) {
 		manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
 		if err != nil || len(manifests) < 40 {
@@ -1703,7 +1704,7 @@ func TestExtensions(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		// where is the box of the emblem: the leading 44 DIPs of the card's
+		// where is the box of the icon tile: the leading 44 DIPs of the card's
 		// summary button, or the 64 before the details' title.
 		where := func(title string) ui.Rect {
 			t.Helper()
@@ -1720,19 +1721,35 @@ func TestExtensions(t *testing.T) {
 			}
 			return ui.Rect{X: card.Bounds.X - 4, Y: card.Bounds.Y, W: 44, H: card.Bounds.H}
 		}
-		// mark is the pixels of the emblem.
+		// area is a box of the window in the last frame's pixels.
+		area := func(at ui.Rect) (*image.RGBA, image.Rectangle) {
+			img := tt.Image()
+			scale := float32(img.Bounds().Dx()) / 900
+			return img, image.Rect(int(at.X*scale), int(at.Y*scale), int((at.X+at.W)*scale), int((at.Y+at.H)*scale))
+		}
+		// mark is the pixels of the icon tile.
 		mark := func(title string) string {
 			t.Helper()
 			settle()
-			at := where(title)
-			img := tt.Image()
-			scale := float32(img.Bounds().Dx()) / 900
-			area := image.Rect(int(at.X*scale), int(at.Y*scale), int((at.X+at.W)*scale), int((at.Y+at.H)*scale))
+			img, box := area(where(title))
 			var pixels []byte
-			for y := area.Min.Y; y < area.Max.Y; y++ {
-				pixels = append(pixels, img.Pix[img.PixOffset(area.Min.X, y):img.PixOffset(area.Max.X, y)]...)
+			for y := box.Min.Y; y < box.Max.Y; y++ {
+				pixels = append(pixels, img.Pix[img.PixOffset(box.Min.X, y):img.PixOffset(box.Max.X, y)]...)
 			}
 			return string(pixels)
+		}
+		// vivid counts the pixels of a box that have a hue.
+		vivid := func(at ui.Rect) int {
+			img, box := area(at)
+			count := 0
+			for y := box.Min.Y; y < box.Max.Y; y++ {
+				for x := box.Min.X; x < box.Max.X; x++ {
+					if pixel := img.RGBAAt(x, y); max(pixel.R, pixel.G, pixel.B)-min(pixel.R, pixel.G, pixel.B) > 80 {
+						count++
+					}
+				}
+			}
+			return count
 		}
 		subject := &m.MarketPlugins[0]
 		for i := range m.MarketPlugins {
@@ -1741,8 +1758,18 @@ func TestExtensions(t *testing.T) {
 			}
 		}
 		installed := m.installedPackage(subject.ID)
-		if subject.Icon != "reicon:folders/folder" || installed == nil {
+		if subject.Icon != "phosphor:folder" || installed == nil {
 			t.Fatalf("the Files package declares %q, installed %v", subject.Icon, installed != nil)
+		}
+		// brand is a package whose icon is a brand's mark in its own colors.
+		var brand *preview.Package
+		for i := range m.MarketPlugins {
+			if m.MarketPlugins[i].ID == "figma" {
+				brand = &m.MarketPlugins[i]
+			}
+		}
+		if brand == nil || brand.Icon != "ailogo:figma" {
+			t.Fatalf("the Figma package declares %+v", brand)
 		}
 		for index, step := range []struct {
 			name string
@@ -1768,51 +1795,94 @@ func TestExtensions(t *testing.T) {
 			mode = theme.Dark
 			tt.SetDark(true)
 			if again := mark(step.of.Name); again != drawn {
-				t.Errorf("%s: the emblem at rest changed between frames", step.name)
+				t.Errorf("%s: the icon at rest changed between frames", step.name)
 			}
 			step.of.Icon = ""
 			placeholder := mark(step.of.Name)
 			if placeholder == drawn {
 				t.Errorf("%s: the declared icon draws as the placeholder", step.name)
 			}
-			step.of.Icon = "reicon:missing/icon"
-			if mark(step.of.Name) != placeholder {
-				t.Errorf("%s: an unknown icon name does not fall back to the placeholder", step.name)
+			for _, unknown := range []string{"reicon:missing/icon", "phosphor:missing", "ailogo:missing-brand", "kanban"} {
+				step.of.Icon = unknown
+				if mark(step.of.Name) != placeholder {
+					t.Errorf("%s: the unknown icon %q does not fall back to the placeholder", step.name, unknown)
+				}
 			}
-			step.of.Icon = "kubai:rocket"
-			if other := mark(step.of.Name); other == placeholder || other == drawn {
-				t.Errorf("%s: a library icon named by its id is not drawn", step.name)
+			step.of.Icon = "phosphor:rocket"
+			glyph := mark(step.of.Name)
+			if glyph == placeholder || glyph == drawn {
+				t.Errorf("%s: a Phosphor icon named by its id is not drawn", step.name)
+			}
+			step.of.Icon = "reicon:ui/puzzle-piece"
+			if mark(step.of.Name) != placeholder {
+				t.Errorf("%s: a Reicon glyph is not white on the tint's gradient", step.name)
+			}
+			step.of.Icon = `<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/></svg>`
+			if own := mark(step.of.Name); own == placeholder || own == glyph {
+				t.Errorf("%s: a package's own SVG is not drawn", step.name)
+			}
+			// A brand's mark is drawn, in the brand's colors where the
+			// collection has them.
+			step.of.Icon = "ailogo:figma"
+			logo := mark(step.of.Name)
+			step.of.Icon = "ailogo:github"
+			mono := mark(step.of.Name)
+			if logo == placeholder || mono == placeholder || logo == mono {
+				t.Errorf("%s: a brand's mark is not drawn", step.name)
 			}
 			step.of.Icon = declared
 			if index > 0 {
 				continue
 			}
-			// The pointer over the card plays the motion, which asks for
-			// frames only until it ends; with less motion it asks for none.
-			at := where(subject.Name)
-			at.X += 120
-			tt.Move(at.X, at.Y+at.H/2)
-			tt.Frame()
-			if !tt.FramePending() {
-				t.Error("the hovered emblem does not move")
+			// A market card's tile is the 36 DIPs square at the start of its
+			// summary button: inner is the 20 DIPs at its middle, where the
+			// icon is, and edge the strip under its top, clear of the icon.
+			tile := func(title string) (inner, edge ui.Rect) {
+				at := where(title)
+				middle := at.Y + at.H/2
+				return ui.Rect{X: at.X + 12, Y: middle - 10, W: 20, H: 20}, ui.Rect{X: at.X + 16, Y: middle - 16, W: 12, H: 3}
 			}
-			if hovered := mark(subject.Name); hovered == drawn {
-				t.Error("the emblem's hover pose is its rest pose")
+			// The glyph is on its tint's gradient, in no color of its own.
+			inner, edge := tile(subject.Name)
+			if vivid(edge) == 0 {
+				t.Error("a glyph's tile has no tint")
 			}
-			save("market-icons-hover-zh-CN-dark")
+			// The pointer over the card moves nothing in its icon: the page
+			// comes to rest (settle) and the tile keeps its pixels.
+			pose := func() string {
+				img, box := area(inner)
+				var pixels []byte
+				for y := box.Min.Y; y < box.Max.Y; y++ {
+					pixels = append(pixels, img.Pix[img.PixOffset(box.Min.X, y):img.PixOffset(box.Max.X, y)]...)
+				}
+				return string(pixels)
+			}
+			rest := pose()
+			tt.Move(inner.X+140, inner.Y+10)
+			settle()
+			if pose() != rest {
+				t.Error("the icon of a hovered card is not its icon at rest")
+			}
 			tt.Move(2, 2)
 			if mark(subject.Name) != drawn {
-				t.Error("the emblem did not return to rest")
+				t.Error("the icon changed after the pointer left its card")
 			}
-			tt.SetPreferences(ui.Preferences{ReduceTransparency: true, ReduceMotion: true})
-			tt.Frame()
-			tt.Move(at.X, at.Y+at.H/2)
-			tt.Frame()
-			if tt.FramePending() {
-				t.Error("the emblem moves while the desktop asks for less motion")
+			// A brand's package has its mark on a neutral tile: in the
+			// brand's colors, or in the foreground color for a mark without.
+			for _, sample := range []struct {
+				icon  string
+				vivid bool
+			}{{"ailogo:figma", true}, {"ailogo:github", false}, {"ailogo:missing-brand", false}} {
+				brand.Icon = sample.icon
+				settle()
+				inner, edge := tile(brand.Name)
+				if unknown := sample.icon == "ailogo:missing-brand"; (vivid(edge) != 0) != unknown {
+					t.Errorf("%s: the tile's tint is %d pixels", sample.icon, vivid(edge))
+				} else if !unknown && (vivid(inner) >= 20) != sample.vivid {
+					t.Errorf("%s: the mark has %d pixels in a color of its own", sample.icon, vivid(inner))
+				}
 			}
-			tt.Move(2, 2)
-			tt.SetPreferences(ui.Preferences{ReduceTransparency: true})
+			brand.Icon = "ailogo:figma"
 		}
 	})
 	// A details dialog's Close, pressed with the pointer, closes it.
