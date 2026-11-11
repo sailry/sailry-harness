@@ -38,6 +38,17 @@ removed checkout; re-registering the same project path restores those retained
 associations. The native action and database publication remain separate, and a
 failed finalization never authorizes replaying external removal.
 
+Removing a project keeps its files, sessions and worktree rows, and closes what
+ran in it, as its confirmation says. The Node validates the removal first (a
+changed project or one with a queued or running turn is refused and nothing is
+closed), then closes the project's running terminals and stops the background
+commands of its sessions, then records the removal. Terminal records left by an
+earlier process are closed in the recording transaction. A removal that fails
+after a terminal was closed carries `terminals_may_be_closed`. Two differences
+from the reference: it does not stop background commands, and it sets
+`terminals_may_be_closed` on every late failure, whether or not the project had
+a terminal.
+
 Core Files and Repository subscriptions share one root watcher. The desktop's
 branch/worktree projections and native badge consume these Node-owned services;
 plugins do not own native panel state. Native lifecycle behavior is covered by

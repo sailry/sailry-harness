@@ -665,6 +665,9 @@ func (node *Node) run(lane *commandLane) {
 		}
 
 		prepared, prepareErr := node.prepare(job.request.Command)
+		if prepareErr == nil && job.request.Command.Kind == "remove_project" {
+			prepared.TerminalsClosed, prepareErr = node.closeProjectResources(job.request.Command)
+		}
 		if prepareErr == nil {
 			prepareErr = node.renewCommandProvider(node.ctx, job.request)
 		}
