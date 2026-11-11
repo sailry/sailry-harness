@@ -2,8 +2,11 @@ package live
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,18 +18,22 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Demo mode over a real Node on a new profile: the settings' order, the
 // switch, the demo in place of the window's own conversations and the way
 // back to them, with no command sent by anything done in the demo and
-// nothing on screen that names it one.
+// nothing on screen that names it one. The Usage page's calls answer from
+// the demo's ledger meanwhile and from the Node again after the way back,
+// the page's watch moving over with the switch.
 func TestDemoMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
@@ -280,6 +287,53 @@ func TestDemoMode(t *testing.T) {
 			step()
 		}
 	}
+	// The Usage page: the host a page of the statistics package is mounted
+	// with, as far as usage goes, and what the page asks it. The switch
+	// tells the plugin pages each time it is flipped.
+	var page *desktopplugins.Host
+	defer func() {
+		if page != nil {
+			_ = page.Close()
+		}
+	}()
+	sdk := map[string]desktopplugins.HostOperation{}
+	ask := func(name string, arguments ...string) (any, error) {
+		operation := sdk[name]
+		if operation == nil {
+			return nil, fmt.Errorf("the SDK has no %s", name)
+		}
+		raw := make([]json.RawMessage, len(arguments))
+		for i, argument := range arguments {
+			raw[i] = json.RawMessage(argument)
+		}
+		body, err := operation(ctx, raw)
+		if err != nil {
+			return nil, err
+		}
+		var value any
+		return value, json.Unmarshal(body, &value)
+	}
+	at := func(value any, path ...string) any {
+		for _, key := range path {
+			object, _ := value.(map[string]any)
+			value = object[key]
+		}
+		return value
+	}
+	quote := func(text string) string { return strconv.Quote(text) }
+	type usageAnswer struct {
+		value any
+		err   error
+	}
+	waiting := make(chan usageAnswer, 1)
+	day := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour).UnixMilli()
+	month := fmt.Sprintf(`{"start_ms":"%d","end_ms":"%d","utc_offset_minutes":0,"dimension":"model","projects":[],"worktrees":[],"providers":[],"models":[],"before":null}`, day-30*86400000, day)
+	changes := 0
+	if changed := r.App.Hooks.DemoChanged; changed == nil {
+		t.Fatal("the plugin pages do not follow the Demo mode switch")
+	} else {
+		r.App.Hooks.DemoChanged = func() { changes++; changed() }
+	}
 	settle()
 	if tester.HasText(text("close")) {
 		click(text("close"))
@@ -434,6 +488,81 @@ func TestDemoMode(t *testing.T) {
 		if acted := sent()[before:]; len(acted) != 0 {
 			t.Errorf("the tour sent commands to the Node: %q", acted)
 		}
+
+		// The Usage page reads the demo's ledger: one source, this device,
+		// with figures over the demo's projects and models, and nothing
+		// asked of the Node.
+		t.Run("usage", func(t *testing.T) {
+			if changes != 1 || r.pluginUsageSample() == nil {
+				t.Fatalf("the switch told the plugin pages %d times; a sample %v", changes, r.pluginUsageSample() != nil)
+			}
+			reference := protocol.PluginReference{Name: "statistics"}
+			for _, summary := range controller.Snapshot().Plugins {
+				if summary.Name == reference.Name {
+					reference = packageReference(summary)
+				}
+			}
+			scope := protocol.DefaultPluginContext()
+			scope.Package, scope.Surface.Kind = reference, "workspace"
+			page = desktopplugins.NewHost(desktopplugins.HostBinding{Context: ctx, Client: controller, Scope: scope,
+				UsageSources: r.pluginUsageSources, UsageChanges: r.pluginUsageChanges(ctx), UsageSample: r.pluginUsageSample()})
+			modules, err := page.Modules()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, module := range modules {
+				if module.Name != "sailry/sdk" {
+					continue
+				}
+				for _, export := range module.Exports {
+					if sdk[export.Name] = export.Sync; export.Sync == nil {
+						sdk[export.Name] = export.Async
+					}
+				}
+			}
+			settle()
+			asked := len(sent())
+			node := controller.Target().String()
+
+			sources, err := ask("usageSources")
+			if list, _ := sources.([]any); err != nil || len(list) != 1 || at(list[0], "node") != node {
+				t.Fatalf("the demo's usage sources are %v, %v", sources, err)
+			}
+			report, err := ask("readUsageChoices", month, quote(node))
+			if err != nil {
+				t.Fatal(err)
+			}
+			responses, _ := strconv.ParseUint(fmt.Sprint(at(report, "totals", "responses")), 10, 64)
+			groups, _ := at(report, "groups").([]any)
+			days, _ := at(report, "days").([]any)
+			records, _ := at(report, "requests", "items").([]any)
+			if responses == 0 || len(groups) != 3 || at(groups[0], "name") != preview.DemoProvider || len(days) != 30 || len(records) != 20 ||
+				at(records[0], "provider_name") != preview.DemoProvider || at(report, "node") != node {
+				t.Fatalf("the demo's usage holds %d responses in %d groups, %d days and %d records on %v", responses, len(groups), len(days), len(records), at(report, "node"))
+			}
+			inventory, err := ask("readUsageInventory", quote(node))
+			providers, _ := at(inventory, "providers").([]any)
+			projects, _ := at(inventory, "projects").([]any)
+			if err != nil || len(providers) != 1 || at(providers[0], "name") != preview.DemoProvider || len(projects) != 3 || at(projects[0], "name") != "harbor-api" || at(inventory, "node") != node {
+				t.Fatalf("the demo's usage chooses between %v, %v", inventory, err)
+			}
+			if _, err := ask("watchUsage", month, "false"); err != nil {
+				t.Fatal(err)
+			}
+			event, err := ask("nextUsageChange", `""`)
+			if observed := fmt.Sprint(at(event, "view", "report", "totals", "responses")); err != nil || at(event, "cursor") != "0" || observed == "0" || observed == "<nil>" || at(event, "view", "connected") != true {
+				t.Fatalf("the Usage page's watch observes %v, %v", event, err)
+			}
+			// The page waits here while the switch is flipped back.
+			go func() {
+				value, err := ask("nextUsageChange", `"0"`)
+				waiting <- usageAnswer{value, err}
+			}()
+			settle()
+			if acted := sent()[asked:]; len(acted) != 0 {
+				t.Errorf("the Usage page asked the Node in the demo: %q", acted)
+			}
+		})
 	})
 
 	t.Run("back", func(t *testing.T) {
@@ -460,6 +589,55 @@ func TestDemoMode(t *testing.T) {
 		if _, ok := tester.AccessByRole(ui.RoleButton, text("composer_select_model")); !ok {
 			t.Errorf("the profile without a provider offers a model: %q", tester.Texts())
 		}
+
+		// The flip moves the Usage page's watch to the Node's own ledger,
+		// which a new profile has nothing in: the call that waited goes on
+		// with it and the Node is asked again.
+		t.Run("usage", func(t *testing.T) {
+			if changes != 2 || r.pluginUsageSample() != nil || page == nil {
+				t.Fatalf("the switch told the plugin pages %d times; a sample %v", changes, r.pluginUsageSample() != nil)
+			}
+			asked := len(sent())
+			read := func() bool {
+				return slices.ContainsFunc(sent()[asked:], func(kind string) bool { return strings.HasSuffix(kind, "read_usage") })
+			}
+			// The page is mounted for as long as the switch tells it; no
+			// frame is drawn meanwhile.
+			key := pluginMountKey{role: "navigation", name: "usage-fixture"}
+			r.pluginViews.mounts[key] = &pluginMountedView{key: key, host: page}
+			r.demoChanged()
+			delete(r.pluginViews.mounts, key)
+			var got usageAnswer
+			select {
+			case got = <-waiting:
+			case <-ctx.Done():
+				t.Fatal("the switch did not wake the Usage page's wait")
+			}
+			// The Node's watch settles on a report, or on the Node's refusal.
+			for got.err == nil && at(got.value, "view", "report") == nil && !(read() && at(got.value, "view", "error") != nil) {
+				value, err := ask("nextUsageChange", quote(fmt.Sprint(at(got.value, "cursor"))))
+				got = usageAnswer{value, err}
+			}
+			if got.err != nil {
+				t.Fatalf("the Usage page's watch ended with the switch: %v", got.err)
+			}
+			if cursor, _ := strconv.ParseUint(fmt.Sprint(at(got.value, "cursor")), 10, 64); cursor == 0 {
+				t.Errorf("the watch moved under cursor %v", at(got.value, "cursor"))
+			}
+			if report := at(got.value, "view", "report"); report != nil {
+				if groups, _ := at(report, "groups").([]any); at(report, "totals", "responses") != "0" || len(groups) != 0 {
+					t.Errorf("the profile's own usage is %v", report)
+				}
+			}
+			if !read() {
+				t.Errorf("the Usage page did not ask the Node after the switch: %q", sent()[asked:])
+			}
+			if err := page.Close(); err != nil {
+				t.Error(err)
+			}
+			page = nil
+			settle()
+		})
 		// The demo starts over the next time.
 		flip()
 		if again := r.App.Data.Find(preview.DemoStart); again == nil || len(again.Waiting.Approvals) != 4 {

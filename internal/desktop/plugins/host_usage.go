@@ -19,8 +19,42 @@ func (owner *Host) checkUsage() error {
 	return nil
 }
 
+// sampledUsage is the sample the usage calls answer from, nil while the
+// Nodes answer.
+func (owner *Host) sampledUsage() *UsageSample {
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	return owner.usageSample
+}
+
+// SetUsageSample has the usage calls answer from sample, or from the Nodes
+// again when it is nil. It wakes the calls that wait for the sources and
+// moves the page's watch over, so an open page draws the other figures.
+func (owner *Host) SetUsageSample(sample *UsageSample) {
+	owner.mu.Lock()
+	owner.usageSample = sample
+	watched := owner.usageWatch != nil
+	close(owner.usageChanged)
+	owner.usageChanged = make(chan struct{})
+	owner.mu.Unlock()
+	if !watched {
+		return
+	}
+	// A Node's watch opens off the caller's frame.
+	go func() {
+		owner.mu.Lock()
+		arguments := owner.usageWatch
+		owner.mu.Unlock()
+		_ = owner.watchUsage(arguments, true)
+	}()
+}
+
 func (owner *Host) usageSources() []map[string]string {
 	values := []map[string]string{}
+	if owner.sampledUsage() != nil {
+		target := owner.target()
+		return append(values, map[string]string{"node": hex.EncodeToString(target[:]), "label": target.String()})
+	}
 	if owner.binding.UsageSources == nil {
 		return values
 	}
@@ -52,21 +86,41 @@ func (owner *Host) observeUsageSources() {
 	}
 }
 
-func (owner *Host) selectUsageClient(ctx context.Context, arguments []json.RawMessage, index int) (*client.Client, context.Context, error) {
-	if err := owner.checkUsage(); err != nil {
-		return nil, ctx, err
-	}
+// usageNode is the Node a usage call names at index, this device's by
+// default.
+func (owner *Host) usageNode(arguments []json.RawMessage, index int) (protocol.NodeID, error) {
 	selected := owner.target()
+	if err := owner.checkUsage(); err != nil {
+		return selected, err
+	}
 	if index < len(arguments) && string(arguments[index]) != "null" {
 		text, err := hostValue[string](arguments, index)
 		if err != nil {
-			return nil, ctx, err
+			return selected, err
 		}
 		bytes, err := hex.DecodeString(text)
 		if err != nil || len(bytes) != len(selected) {
-			return nil, ctx, hostInvalid("invalid Node ID")
+			return selected, hostInvalid("invalid Node ID")
 		}
 		copy(selected[:], bytes)
+	}
+	return selected, nil
+}
+
+// sampleNode is the Node a usage call names while a sample answers: this
+// device, its only source.
+func (owner *Host) sampleNode(arguments []json.RawMessage, index int) (protocol.NodeID, error) {
+	selected, err := owner.usageNode(arguments, index)
+	if err == nil && selected != owner.target() {
+		err = hostUnavailable("usage source is unavailable")
+	}
+	return selected, err
+}
+
+func (owner *Host) selectUsageClient(ctx context.Context, arguments []json.RawMessage, index int) (*client.Client, context.Context, error) {
+	selected, err := owner.usageNode(arguments, index)
+	if err != nil {
+		return nil, ctx, err
 	}
 	if selected == owner.target() {
 		if owner.binding.Client == nil {
@@ -82,6 +136,173 @@ func (owner *Host) selectUsageClient(ctx context.Context, arguments []json.RawMe
 		}
 	}
 	return nil, ctx, hostUnavailable("usage source is unavailable")
+}
+
+// exactUsage is a usage value as the plugin reads it: its integers exact.
+func exactUsage(value any) (json.RawMessage, error) {
+	body, err := hostJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := decodeHostJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	return hostJSON(exactHostUsage(decoded))
+}
+
+// usageInventory is what a usage page's filters choose between on node.
+func usageInventory(node protocol.NodeID, listed []protocol.Project, offered []protocol.ConversationProvider) map[string]any {
+	projects := []map[string]any{}
+	for _, project := range listed {
+		projects = append(projects, map[string]any{"id": project.ID, "name": project.Name})
+	}
+	providers := []map[string]any{}
+	for _, provider := range offered {
+		models := []string{}
+		for _, model := range provider.Models {
+			models = append(models, model.ID)
+		}
+		providers = append(providers, map[string]any{"id": provider.ID, "name": provider.Name, "icon": nil, "models": models})
+	}
+	return map[string]any{"node": hex.EncodeToString(node[:]), "projects": projects, "providers": providers}
+}
+
+// sampleUsage is what a watch of the sample observes: the overview a Node's
+// watch yields, of the one source, read once.
+func sampleUsage(sample *UsageSample, node protocol.NodeID, query protocol.UsageQuery) json.RawMessage {
+	view := map[string]any{"report": nil, "connected": true, "refreshing": false, "error": nil}
+	overview := map[string]any{"sources": []any{map[string]any{"node": node, "view": view}}, "summary": nil, "complete": true, "error": nil}
+	if report, err := sample.Report(node, query); err != nil {
+		fault := hostFault(err)
+		view["error"], overview["error"], overview["complete"] = fault, fault, false
+	} else {
+		groups := []any{}
+		for _, group := range report.Groups {
+			groups = append(groups, map[string]any{"node": node, "group": group})
+		}
+		view["report"] = report
+		overview["summary"] = map[string]any{"totals": report.Totals, "days": report.Days, "recent": report.Recent, "groups": groups, "requests": report.Requests}
+	}
+	body, _ := hostJSON(overview)
+	return body
+}
+
+// watchUsage opens the page's usage watch: on the sample while one answers,
+// else on the Nodes. moved runs the page's last watch again after the sample
+// changed or was read anew: the new feed takes the place of the one before
+// under a later revision, so a call that waits goes on with it and never
+// sees the old one end.
+func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
+	owner.usageWatching.Lock()
+	defer owner.usageWatching.Unlock()
+	if err := owner.checkUsage(); err != nil {
+		return err
+	}
+	query, err := hostUsageQuery(arguments)
+	if err != nil {
+		return err
+	}
+	all, err := hostOptional(arguments, 1, false)
+	if err != nil {
+		return err
+	}
+	if all && (len(query.Projects) != 0 || len(query.Worktrees) != 0 || len(query.Providers) != 0 || len(query.Models) != 0) {
+		return hostInvalid("cross-Node usage requires an unfiltered resource scope")
+	}
+	sample := owner.sampledUsage()
+	var selected *client.Client
+	var node protocol.NodeID
+	scope := owner.ctx
+	if sample != nil {
+		node, err = owner.sampleNode(arguments, 2)
+	} else {
+		selected, scope, err = owner.selectUsageClient(owner.ctx, arguments, 2)
+	}
+	if err != nil && !moved {
+		return err
+	}
+	if !moved {
+		kept := make([]json.RawMessage, len(arguments))
+		for index, argument := range arguments {
+			kept[index] = append(json.RawMessage{}, argument...)
+		}
+		owner.mu.Lock()
+		previous := owner.observers["usage"]
+		delete(owner.observers, "usage")
+		delete(owner.feeds, "usage")
+		owner.usageWatch = kept
+		owner.mu.Unlock()
+		if previous != nil {
+			_ = previous.Close()
+		}
+	}
+	feed := &hostFeed{changed: make(chan struct{}), query: &query, all: all}
+	switch {
+	case err != nil:
+	case sample != nil:
+		feed.latest = sampleUsage(sample, node, query)
+	default:
+		body, _ := hostJSON(query)
+		clients := []*client.Client{selected}
+		if all {
+			clients = []*client.Client{owner.binding.Client}
+			scope = client.WithUsageScope(owner.ctx, owner.target(), owner.scope())
+			if owner.binding.UsageSources != nil {
+				for _, source := range owner.binding.UsageSources() {
+					if source.Client != nil && source.Client.Target() != owner.target() {
+						clients = append(clients, source.Client)
+						scope = client.WithMatchingUsageScope(scope, source.Client.Target(), owner.scope())
+					}
+				}
+			}
+		}
+		feed.observer, err = client.WatchOverview(scope, clients, body)
+	}
+	if err != nil {
+		if !moved {
+			return err
+		}
+		// The page waits for the other figures: it learns why none come.
+		feed.err = err
+	}
+	observer := feed.observer
+	owner.mu.Lock()
+	replaced, previous := owner.feeds["usage"], owner.observers["usage"]
+	if replaced != nil {
+		replaced.mu.Lock()
+		feed.revision = replaced.revision + 1
+		replaced.replaced = true
+		close(replaced.changed)
+		replaced.changed = make(chan struct{})
+		replaced.mu.Unlock()
+	}
+	owner.feeds["usage"] = feed
+	delete(owner.observers, "usage")
+	if observer != nil {
+		owner.observers["usage"] = observer
+	}
+	owner.mu.Unlock()
+	if previous != nil {
+		_ = previous.Close()
+	}
+	if observer != nil {
+		go func() {
+			for {
+				value, err := observer.Next(owner.ctx)
+				feed.mu.Lock()
+				feed.latest, feed.err = value, err
+				feed.revision++
+				close(feed.changed)
+				feed.changed = make(chan struct{})
+				feed.mu.Unlock()
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+	return nil
 }
 
 func (owner *Host) addUsageSDK(add hostSDKAdd) {
@@ -121,6 +342,21 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 		}
 	})
 	add("readUsageChoices", true, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+		if sample := owner.sampledUsage(); sample != nil {
+			node, err := owner.sampleNode(arguments, 1)
+			if err != nil {
+				return nil, err
+			}
+			query, err := hostUsageQuery(arguments)
+			if err != nil {
+				return nil, err
+			}
+			report, err := sample.Report(node, query)
+			if err != nil {
+				return nil, err
+			}
+			return exactUsage(report)
+		}
 		selected, scoped, err := owner.selectUsageClient(ctx, arguments, 1)
 		if err != nil {
 			return nil, err
@@ -133,17 +369,17 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 		if err != nil {
 			return nil, err
 		}
-		value, err := hostJSON(report)
-		if err != nil {
-			return nil, err
-		}
-		decoded, err := decodeHostJSON(value)
-		if err != nil {
-			return nil, err
-		}
-		return hostJSON(exactHostUsage(decoded))
+		return exactUsage(report)
 	})
 	add("readUsageInventory", true, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+		if sample := owner.sampledUsage(); sample != nil {
+			node, err := owner.sampleNode(arguments, 0)
+			if err != nil {
+				return nil, err
+			}
+			projects, providers := sample.Inventory()
+			return hostJSON(usageInventory(node, projects, providers))
+		}
 		selected, scoped, err := owner.selectUsageClient(ctx, arguments, 0)
 		if err != nil {
 			return nil, err
@@ -164,81 +400,12 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 		if json.Unmarshal(body, &snapshot) != nil {
 			return nil, hostInvalid("Node snapshot expected")
 		}
-		projects := []map[string]any{}
-		for _, project := range snapshot.Projects {
-			projects = append(projects, map[string]any{"id": project.ID, "name": project.Name})
-		}
-		providers := []map[string]any{}
-		for _, provider := range snapshot.Providers {
-			models := []string{}
-			for _, model := range provider.Models {
-				models = append(models, model.ID)
-			}
-			providers = append(providers, map[string]any{"id": provider.ID, "name": provider.Name, "icon": nil, "models": models})
-		}
-		target := snapshot.Node
-		return hostJSON(map[string]any{"node": hex.EncodeToString(target[:]), "projects": projects, "providers": providers})
+		return hostJSON(usageInventory(snapshot.Node, snapshot.Projects, snapshot.Providers))
 	})
-	add("watchUsage", false, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
-		selected, scope, err := owner.selectUsageClient(owner.ctx, arguments, 2)
-		if err != nil {
+	add("watchUsage", false, func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+		if err := owner.watchUsage(arguments, false); err != nil {
 			return nil, err
 		}
-		query, err := hostUsageQuery(arguments)
-		if err != nil {
-			return nil, err
-		}
-		all, err := hostOptional(arguments, 1, false)
-		if err != nil {
-			return nil, err
-		}
-		if all && (len(query.Projects) != 0 || len(query.Worktrees) != 0 || len(query.Providers) != 0 || len(query.Models) != 0) {
-			return nil, hostInvalid("cross-Node usage requires an unfiltered resource scope")
-		}
-		body, _ := hostJSON(query)
-		owner.mu.Lock()
-		previous := owner.observers["usage"]
-		delete(owner.observers, "usage")
-		delete(owner.feeds, "usage")
-		owner.mu.Unlock()
-		if previous != nil {
-			_ = previous.Close()
-		}
-		clients := []*client.Client{selected}
-		if all {
-			clients = []*client.Client{owner.binding.Client}
-			scope = client.WithUsageScope(owner.ctx, owner.target(), owner.scope())
-			if owner.binding.UsageSources != nil {
-				for _, source := range owner.binding.UsageSources() {
-					if source.Client != nil && source.Client.Target() != owner.target() {
-						clients = append(clients, source.Client)
-						scope = client.WithMatchingUsageScope(scope, source.Client.Target(), owner.scope())
-					}
-				}
-			}
-		}
-		observer, err := client.WatchOverview(scope, clients, body)
-		if err != nil {
-			return nil, err
-		}
-		feed := &hostFeed{changed: make(chan struct{}), observer: observer, query: &query, all: all}
-		owner.mu.Lock()
-		owner.feeds["usage"], owner.observers["usage"] = feed, observer
-		owner.mu.Unlock()
-		go func() {
-			for {
-				value, err := observer.Next(owner.ctx)
-				feed.mu.Lock()
-				feed.latest, feed.err = value, err
-				feed.revision++
-				close(feed.changed)
-				feed.changed = make(chan struct{})
-				feed.mu.Unlock()
-				if err != nil {
-					return
-				}
-			}
-		}()
 		return json.RawMessage("null"), nil
 	})
 	add("nextUsageChange", true, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
@@ -252,13 +419,20 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 		owner.mu.Lock()
 		feed := owner.feeds["usage"]
 		owner.mu.Unlock()
-		if feed == nil {
-			return nil, hostUnavailable("usage observer is unavailable")
-		}
 		for {
+			if feed == nil {
+				return nil, hostUnavailable("usage observer is unavailable")
+			}
 			feed.mu.Lock()
-			body, failure, changed, revision, all := append(json.RawMessage{}, feed.latest...), feed.err, feed.changed, feed.revision, feed.all
+			body, failure, changed, revision, all, replaced := append(json.RawMessage{}, feed.latest...), feed.err, feed.changed, feed.revision, feed.all, feed.replaced
 			feed.mu.Unlock()
+			if replaced {
+				// Its successor took its place when it was marked.
+				owner.mu.Lock()
+				feed = owner.feeds["usage"]
+				owner.mu.Unlock()
+				continue
+			}
 			if failure != nil {
 				return nil, failure
 			}
@@ -295,8 +469,15 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 			return nil, err
 		}
 		owner.mu.Lock()
-		observer := owner.observers["usage"]
+		observer, sample, arguments := owner.observers["usage"], owner.usageSample, owner.usageWatch
 		owner.mu.Unlock()
+		if sample != nil {
+			// The sample is read anew, which shows what its clock has reached.
+			if arguments != nil {
+				return json.RawMessage("null"), owner.watchUsage(arguments, true)
+			}
+			return json.RawMessage("null"), nil
+		}
 		if observer != nil {
 			if err := observer.Control(ctx, "refresh", json.RawMessage("null")); err != nil {
 				return nil, err

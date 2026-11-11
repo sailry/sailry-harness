@@ -55,7 +55,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `selection.go` | `SystemShortcuts`, the selected text dialog |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
 | `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
-| `demo.go` | Demo mode: the window's two stages, `Demo`, `Prefs` |
+| `demo.go` | Demo mode: the window's two stages, `Demo`, `DemoUsage`, `Prefs` |
 
 ## Entry point
 
@@ -457,7 +457,8 @@ does and the demo's panels and order are never saved. The Node keeps running.
 | Identification | None, by the user's decision of 2026-11-11: no header tag, toast, badge or title suffix. `kit.SetDemo` marks the frame and `kit.PreviewNotice` and the preview-only hints stay silent; an action the demo cannot play does nothing |
 | Context ring | Reads the tokens used of the model's window, as a measured indicator does (`conversation.Usage.Window`, 200k for the demo's models): `48k / 200k 24%`, the same as its tooltip. The preview, whose usage has no window, keeps its compaction hint |
 | Archive prompt | Names the conversation and offers Archive, as the application's does; it archives in the demo's memory |
-| Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live |
+| Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live, but for the usage a plugin page reads (next row) |
+| Usage page (the statistics package) | The demo's usage ledger (`preview.DemoUsage`, held by the demo and read through `App.DemoUsage`): a year of model responses over the demo's projects, provider and models, generated from a fixed seed around today, with the demo conversations' own usage counted exactly. Plugin pages are mounted with it as their host's `UsageSample` (`live.Runtime.pluginUsageSample`), which answers `usageSources` (one source, this device), `readUsageChoices`, `readUsageInventory`, `watchUsage` and `refreshUsage` in the Node's shapes and asks no Node. `Hooks.DemoChanged` tells the mounted pages when the switch is flipped or the demo is written in another language (`plugins.Host.SetUsageSample`): the calls waiting in `nextUsageSources` and `nextUsageChange` wake, the page's watch moves to the other ledger under a later cursor, and an open page redraws |
 | Activity centre | Empty |
 | Terminal and Browser tabs | Not offered (`panel.State.Demo`): they would start a shell or load a page. The per-conversation panels keep the demo's tabs in the demo's stage |
 | Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): nothing is read or written, and the worktree manager, which a live project's actions open, is not offered |
@@ -546,9 +547,15 @@ Phase 1–2 screens.
 `internal/desktop/live/demo_mode_test.go` (`TestDemoMode`): Demo mode over a
 real Node: the settings' order, the switch, the swap and the way back, no
 command sent by the demo's actions, no notice text, the model shown and the
-preference saved. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
+preference saved; the Usage page's calls answer from the demo's ledger
+without a command and from the Node again after the way back, the waiting
+call moving over. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
 demo shows every value of the view model's enumerations and sets every
-field, both catalogs have the same keys, and the models' names.
+field, both catalogs have the same keys, and the models' names; its `usage`
+step reads the ledger over every range, filter, grouping and page of
+records. `internal/desktop/plugins/host_usage_test.go` (a step of
+`TestHostSDKCalls`): the usage calls with a sample, with another and with
+none.
 
 ## Deviations
 
@@ -571,6 +578,7 @@ field, both catalogs have the same keys, and the models' names.
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
 | System shortcuts register at launch only | Keys changed in Settings take effect at the next launch |
 | Demo mode shows no plugin controls in the conversation's header or composer | They mount over a Node's session, which a demo conversation is not |
+| A Usage page filter chosen before the Demo mode switch is flipped stays chosen | The page keeps its own query; the host answers it from the other ledger, which has no such project, provider or model, until the filter is cleared |
 | The selected text is the preview's sample | Reading another app's selection needs the platform's accessibility APIs and a Node |
 | About opens Settings, which has no About section | Settings sections beyond Appearance, Providers and Plugins are later phases |
 | Save (⌘S) and Logs are disabled | The preview has no file editor or log folder (the reference disables Logs without one) |
