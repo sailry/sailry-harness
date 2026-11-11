@@ -57,6 +57,7 @@ rebuilt each frame from backend data.
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
+| `Queued.Marker` | A continuation a package queued ([goal](goal.md)): an automatic row as a notice is, its text the package's marker in the window's language (`turn_continued` when the package declared none); `live.Conversation` sets it from the run's `continuation` |
 | `Context.Outgoing` | A queued or guiding message still on its way to the Host: the tray's last row, its actions disabled |
 | `Context.Child` | A subagent's session: no composer, a read-only queue tray |
 | `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker ([removed-ui.md](removed-ui.md)). The live window leaves it empty |
@@ -377,7 +378,11 @@ Then a spacer and the approvals and question. An empty strip keeps its
 row, so the composer does not move. Preview: Git totals are the Git
 page's changes; the stress conversation has the goals plugin's badge, two
 commands (one on port 5173) and its live turn's progress and subagent.
-`Badge`, `StopCommand` and `OpenService` toast `preview_notice`.
+`Badge`, `StopCommand` and `OpenService` toast `preview_notice`. Demo mode
+adds two goals of the goals plugin (`preview/demo_goal.go`): one in pursuit
+(Goal, Running, the time; Pause, Edit, Clear) and one paused at the turn
+limit (Goal, Paused, the reason; Resume, Edit, Clear), each with its turns,
+time and tokens as the badge's details.
 
 ## Actions
 

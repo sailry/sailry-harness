@@ -243,7 +243,7 @@ func Demo(locale, host string) *Data {
 			Conversations: []*Conversation{b.rateLimit(), b.deploy(), b.webhooks(), b.flakyTest(), b.invoices()}},
 		{ID: "lumen-web", Name: "lumen-web", Path: "~/Web/lumen-web", Branch: "main", Host: host, Trusted: true,
 			Worktrees:     []Worktree{{Branch: "main", Path: "~/Web/lumen-web", Main: true}},
-			Conversations: []*Conversation{b.review(), b.audit(), b.onboarding(), b.tracker(), b.metrics()}},
+			Conversations: []*Conversation{b.review(), b.audit(), b.onboarding(), b.tracker(), b.metrics(), b.pursuit(), b.pursuitLimit()}},
 		// A plain folder, which has no repository and no worktrees.
 		{ID: "notes", Name: "growth-notes", Path: "~/Documents/growth-notes", Branch: "main", Host: host, Trusted: true,
 			Worktrees:     []Worktree{{Branch: "main", Path: "~/Documents/growth-notes", Main: true}},

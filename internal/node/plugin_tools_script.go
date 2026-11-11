@@ -180,8 +180,9 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		if tool.Hosted {
 			// A plain handler acts only through its package's own grants, each
 			// checked when the script dispatches, so the call itself asks for
-			// nothing. A planning turn still refuses one that is not read-only.
-			tool.Approval = false
+			// nothing unless the package declares that it needs the user's
+			// consent. A planning turn still refuses one that is not read-only.
+			tool.Approval = handler.Approval && !readOnly
 		} else if pluginStorageHandler(handler) {
 			// Writes confined to the package's own values are authorized by
 			// the storage scope.
@@ -263,7 +264,8 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 
 func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo, names []string) map[string]any {
 	input := map[string]any{"tools": names, "project": invocation.Worktree.Project, "resources": invocation.Turn.Config.Assistant == nil,
-		"roles": []any{}, "options": invocation.Turn.Config.Options[info.Summary.Name], "session_revision": nil, "automatic": false,
+		"roles": []any{}, "options": invocation.Turn.Config.Options[info.Summary.Name], "session_revision": nil,
+		"automatic": invocation.Run.Notice || invocation.Run.Continuation != nil, "notice": invocation.Run.Notice,
 		"mode": invocation.Turn.Config.Mode, "config": nil, "execution": nil, "team": nil, "models": nil, "message": nil,
 		"connections": map[string]any{"bound": invocation.Turn.Config.Resource, "databases": []any{}, "ssh": []any{}}}
 	aliases := []string{}
@@ -271,10 +273,14 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 		aliases = append(aliases, plugins.ToolAlias(info.Summary.Name, name))
 	}
 	input["names"] = aliases
+	// A package sees only its own continuation and the marker it chose.
+	if continuation := invocation.Run.Continuation; continuation != nil && continuation.Package.Name == info.Summary.Name {
+		input["continuation"] = map[string]any{"marker": continuation.Kind}
+	}
 	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) {
 		input["config"], input["execution"], input["models"] = invocation.Turn.Config, invocation.Turn.Roles.Execution, invocation.Turn.Roles.Models
 	}
-	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && invocation.Session.Delegation == nil {
+	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && invocation.Session.Delegation == nil && invocation.Run.Continuation == nil {
 		message := invocation.Message.Text
 		if len(message) > 4096 {
 			for len(message) > 4096 {

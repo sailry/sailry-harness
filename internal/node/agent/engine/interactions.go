@@ -89,6 +89,9 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 			})
 			expired = nil
 			if err == nil {
+				x.observedMu.Lock()
+				x.observed.Expired++
+				x.observedMu.Unlock()
 				r.publish()
 				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
 				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
@@ -190,6 +193,9 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 			})
 			expired = nil
 			if err == nil {
+				x.observedMu.Lock()
+				x.observed.Expired++
+				x.observedMu.Unlock()
 				r.publish()
 				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
 				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {

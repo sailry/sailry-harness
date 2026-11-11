@@ -184,6 +184,10 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 			s.compaction(c, t)
 			return
 		}
+		// Guidance the user sent into a continued turn still shows below.
+		if t.Marker != nil {
+			marker(c, t.Marker)
+		}
 		if t.User != "" || len(t.Images) > 0 || len(t.Files) > 0 {
 			ui.Column(c.Key("user")).Gap(8).Children(func() {
 				if t.Editing != nil {

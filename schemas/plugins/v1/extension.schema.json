@@ -1969,6 +1969,11 @@
     "Handler": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "default": false,
+          "description": "A plain-script call asks for the ordinary tool approval; ignored for read-only handlers.",
+          "type": "boolean"
+        },
         "flow": {
           "anyOf": [
             {
@@ -3919,6 +3924,18 @@
         }
       ],
       "description": "Localized controller marker for this package's automatic continuations."
+    },
+    "continuation_markers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Navigation"
+      },
+      "description": "Up to eight further named markers a continuation can select instead of the default.",
+      "maxProperties": 8,
+      "propertyNames": {
+        "maxLength": 64,
+        "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+      },
+      "type": "object"
     },
     "conversation_modes": {
       "description": "Package-owned work modes bound to declared conversation options.",

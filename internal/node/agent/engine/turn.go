@@ -169,7 +169,10 @@ func (r *Runtime) execute(x *execution) {
 	unlock()
 	unlock = nil
 	if r.afterTurn != nil && r.ctx.Err() == nil && child == nil && x.inv.Session.Delegation == nil && x.inv.Run.Kind == protocol.ConversationRunKindTask {
-		r.afterTurn(r.ctx, x.inv, run.Status)
+		x.observedMu.Lock()
+		observed := x.observed
+		x.observedMu.Unlock()
+		r.afterTurn(r.ctx, x.inv, run, observed)
 	}
 }
 

@@ -190,6 +190,20 @@ Package behavior stays in the pinned plugin repository's tooling, which can use
 the production moejs test host. Core tests cover host boundaries and admission;
 tooling results do not substitute interactive account or platform acceptance.
 
+## Package loops
+
+A package that keeps a session working declares `host.turn.after_turn` and
+continues with the `continue` transaction operation. The Node states each
+ended turn's facts to the callback, bounds automatic turns with one count
+that the package's declared `limit` owns for its chain, names the reason of a
+refused continuation, hands a continuation the session's waiting background
+results, and shows the continuation under the package's marker
+(`continuation_marker`, or one of `continuation_markers` selected by
+`marker`) instead of its prompt. A plain tool handler may declare
+`approval: true` to ask for the ordinary tool approval. The contracts are in
+[conversation](conversation.md#turn-settlement-and-queue) and
+`sdk/plugins.md`; the bundled goals package is described in [goal](goal.md).
+
 ## Desktop wiring
 
 Each mount captures its Node, package digest, settings revision, surface,
