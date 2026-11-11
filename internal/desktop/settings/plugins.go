@@ -53,6 +53,7 @@ type pluginDownload struct {
 	open                  bool
 	repository, rev, path string
 	pending               bool
+	generation            uint64
 	started               time.Time
 }
 
@@ -60,6 +61,7 @@ type pluginDownload struct {
 type pluginInstall struct {
 	open           bool
 	pending        bool
+	generation     uint64
 	pkg, directory string
 }
 
@@ -142,9 +144,11 @@ func plugins(c *ui.Context, s *State) {
 				m.updates = pluginUpdates{open: true, chosen: map[string]bool{}}
 			})
 		}
-		kit.Secondary(c.Key("download"), t("plugins_download")).OnClick(func() { m.download = pluginDownload{open: true} })
+		kit.Secondary(c.Key("download"), t("plugins_download")).OnClick(func() {
+			m.download = pluginDownload{open: true, generation: m.download.generation + 1}
+		})
 		kit.Primary(c.Key("install"), t("plugins_install"), false).Children(func() { ui.Text(c, t("plugins_install")).FontSize(14) }).
-			OnClick(func() { m.install = pluginInstall{open: true} })
+			OnClick(func() { m.install = pluginInstall{open: true, generation: m.install.generation + 1} })
 	}, func() {
 		if len(shown) == 0 {
 			kit.Result(c, kit.ResultProps{Icon: icons.Puzzle, Title: t("plugins_empty"), Card: true})
@@ -379,7 +383,12 @@ func pluginInstallDialog(c *ui.Context, m *Model) {
 					return
 				}
 				e.pending = true
+				generation := e.generation
 				m.PackageActions.Install(e.pkg, e.directory, func(ok bool) {
+					// The dialog opened since is another install's.
+					if e.generation != generation {
+						return
+					}
 					e.pending = false
 					if ok {
 						e.open = false
@@ -461,7 +470,11 @@ func pluginDownloadDialog(c *ui.Context, m *Model) {
 				}
 				e.pending, e.started = true, c.Now()
 				if m.PackageActions != nil && m.PackageActions.Download != nil {
+					generation := e.generation
 					m.PackageActions.Download(e.repository, e.rev, e.path, func(ok bool) {
+						if e.generation != generation {
+							return
+						}
 						e.pending = false
 						if ok {
 							e.open = false

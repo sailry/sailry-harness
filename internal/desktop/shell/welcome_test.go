@@ -94,13 +94,16 @@ func TestSelection(t *testing.T) {
 	if a.selected.open || !strings.Contains(a.Composer(a.Sidebar.Selected).Draft, "Preview selection") {
 		t.Error("Quote did not reach the draft")
 	}
-	// Every line of a selection is quoted, after the draft.
-	a.Composer(a.Sidebar.Selected).Draft = "Before"
-	a.selected = selection{open: true, text: "one\ntwo\n", chat: a.Sidebar.Selected}
-	tt.Frame()
-	clickButton(t, tt, i18n.In("en", "message_quote"))
-	tt.Frame()
-	if got, want := a.Composer(a.Sidebar.Selected).Draft, "Before\n\n> one\n> two\n\n"; got != want {
-		t.Errorf("quoted draft %q, want %q", got, want)
+	// Every line of a selection is quoted, a blank line after the draft and
+	// none after the quote, so a second quote follows the first the same way.
+	a.Composer(a.Sidebar.Selected).Draft = ""
+	for i, want := range []string{"> one\n> two", "> one\n> two\n\n> one\n> two"} {
+		a.selected = selection{open: true, text: "one\ntwo\n", chat: a.Sidebar.Selected}
+		tt.Frame()
+		clickButton(t, tt, i18n.In("en", "message_quote"))
+		tt.Frame()
+		if got := a.Composer(a.Sidebar.Selected).Draft; got != want {
+			t.Errorf("quote %d: draft %q, want %q", i+1, got, want)
+		}
 	}
 }

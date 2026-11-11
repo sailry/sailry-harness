@@ -43,6 +43,14 @@ func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.
 			}
 		}
 		provider.Models[i] = providers.CompleteModel(provider.Models[i], reference, provider.Api)
+		// OpenAI's own Responses channel hosts image generation as a tool of
+		// its multimodal chat models. The default applies only there and only
+		// until the user chooses the model's tags.
+		model := &provider.Models[i]
+		official := provider.Authentication == protocol.AuthenticationChatGptOAuth || provider.Authentication == protocol.AuthenticationApiKey && catalogProvider != nil && *catalogProvider == "openai"
+		if !model.CustomCapabilities && official && provider.Api == protocol.ConversationModelApiResponses && model.Tools && model.Vision && len(model.Generates) == 0 {
+			model.Generates = []protocol.MediaGeneration{protocol.MediaGenerationImageTool}
+		}
 	}
 	return nil
 }

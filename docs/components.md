@@ -170,6 +170,15 @@ MyGo bases.
   (`Floating`, `Frost`, `Pane`) paints its opaque base instead of the backdrop
   blur, as MyGo asks of materials. Headless shell tests use that preference,
   which keeps the software shader interpreter out of each frame.
+- A modal dialog goes through Kit (`Dialog`, `BareDialog`, `AlertDialog`,
+  `ImageViewer`), which notes it on the window; one built on `Element.Modal`
+  directly calls `kit.NoteModal(c)` while it shows. The window holds the
+  native menu's commands behind a noted dialog (`kit.TakeModal`), which
+  MyGo's own modal does not do.
+- `kit.MenuButton` keeps a menu's state by its id on the window: an id is
+  unique among everything shown at once (two panes of one view each need
+  their own), and `kit.SweepMenus` drops the states no frame asked for.
+- `kit.SortableList` cancels a lift when the list changes under it.
 - Key a hand-built overlay panel with `kit.Anchored(panel, anchor, layer)`
   before building its children. Tooltips and hover cards are suppressed
   while a popover or menu is open (`kit.TipsHidden`); kit's own tooltips do

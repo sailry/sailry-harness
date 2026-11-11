@@ -13,8 +13,9 @@ var connectionResourceVariants = variantFactories{"database": func() any { retur
 func (value ConnectionResource) MarshalJSON() ([]byte, error) {
 	return MarshalUnion("kind", "id", value.Kind, value.Data, connectionResourceVariants)
 }
-func (value *ConnectionResource) UnmarshalJSON(data []byte) error {
-	kind, decoded, err := UnmarshalUnion(data, "kind", "id", connectionResourceVariants, false)
+func (value *ConnectionResource) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConnectionResource) DecodeJSON(decoder *Decoder) error {
+	kind, decoded, err := decoder.Union("kind", "id", connectionResourceVariants, false)
 	if err != nil {
 		return err
 	}

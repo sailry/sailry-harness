@@ -59,6 +59,36 @@ func TestPackageBoundaries(t *testing.T) {
 	if err != nil || len(parsed.Issues) != 1 || parsed.Issues[0].Kind != protocol.PluginIssueKindIgnoredManifestField {
 		t.Fatalf("portable metadata issue: %#v %v", parsed.Issues, err)
 	}
+	t.Run("connector command line", func(t *testing.T) {
+		for _, entry := range []struct {
+			name, command, env, argv, timeout string
+			valid                             bool
+		}{
+			{"declared", "gh", `{"GH_PROMPT_DISABLED":"1"}`, `["auth","token","--user","{account}"]`, "5000", true},
+			{"search path", "gh", `{"PATH":"/package/bin"}`, `["auth","token"]`, "5000", false},
+			{"home", "gh", `{"HOME":"/package"}`, `["auth","token"]`, "5000", false},
+			{"roaming profile", "gh", `{"APPDATA":"C:\\package"}`, `["auth","token"]`, "5000", false},
+			{"lower-case name", "gh", `{"path":"/package/bin"}`, `["auth","token"]`, "5000", false},
+			{"value with NUL", "gh", `{"GH_HOST":"a\u0000b"}`, `["auth","token"]`, "5000", false},
+			{"oversized value", "gh", `{"GH_HOST":"` + strings.Repeat("a", 2049) + `"}`, `["auth","token"]`, "5000", false},
+			{"nine variables", "gh", `{"A":"","B":"","C":"","D":"","E":"","F":"","G":"","H":"","I":""}`, `["auth","token"]`, "5000", false},
+			{"command path", "../gh", `{}`, `["auth","token"]`, "5000", false},
+			{"command case", "GH", `{}`, `["auth","token"]`, "5000", false},
+			{"command prefix", "-gh", `{}`, `["auth","token"]`, "5000", false},
+			{"command length", strings.Repeat("g", 65), `{}`, `["auth","token"]`, "5000", false},
+			{"unknown placeholder", "gh", `{}`, `["auth","{home}"]`, "5000", false},
+			{"no arguments", "gh", `{}`, `[]`, "5000", false},
+			{"unbounded run", "gh", `{}`, `["auth","token"]`, "30001", false},
+		} {
+			parsed, err := ValidateManifest([]byte(`{"$schema":"` + ManifestSchema + `","name":"fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":[],"connectors":[` +
+				`{"id":"account","display":{"label":"Fixture account"},"accounts":"single","origins":["https://fixture.test"],"fields":[],"inject":[],"auth":[{"kind":"local_cli","command":"` + entry.command +
+				`","env":` + entry.env + `,"status":{"argv":["auth","status"],"account":"/login","condition":{"pointer":"/active","values":[true,"yes",1]}},"token":{"argv":` + entry.argv +
+				`,"parse":{"json":"/token"}},"timeout_ms":` + entry.timeout + `,"max_output":4096}]}]}}}`))
+			if err != nil || (parsed.Extension != nil) != entry.valid {
+				t.Errorf("%s: extension admitted=%v issues=%v error=%v", entry.name, parsed.Extension != nil, parsed.Issues, err)
+			}
+		}
+	})
 	source, profile := t.TempDir(), t.TempDir()
 	packageFixture(t, source, "plugin.json", manifest)
 	packageFixture(t, source, "resource.txt", "captured")

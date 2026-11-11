@@ -126,7 +126,12 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 					pr.fileMenu(c, m, visible, n.Path)
 				})
 				row.Drag(fileDrag{n.Path})
-				dir := pr.directory(n.Path)
+				// Where a drop on the row goes (directory, of the node at hand:
+				// looking each row up by its path would walk the tree a row).
+				dir := parentDir(n.Path)
+				if n.Children != nil {
+					dir = n.Path
+				}
 				movable := func(d fileDrag) bool { return parentDir(d.path) != dir && !within(dir, d.path) }
 				if d, ok := ui.Drop[fileDrag](row); ok && movable(d) {
 					pr.fileAction(c, FileAction{Kind: "files_move", Paths: []string{d.path}, Directory: dir})

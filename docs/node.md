@@ -28,6 +28,12 @@ before its tag and escapes `<`, `>` and `&`, so a digest or replay identity
 computed by the Rust engine for the same request does not match and is answered
 with Conflict. Decoding accepts either order.
 
+Protocol and stored JSON is decoded in one pass by `protocol.Decoder`
+(`encoding/json/jsontext` tokens, per-type member tables built once). The wire
+and storage format and the accepted inputs are unchanged. A raw JSON value kept
+from inside a decoded object is still stored compact with `<`, `>`, `&`, U+2028
+and U+2029 escaped, so digests computed over retained values do not change.
+
 Each database mutation uses a command savepoint. Business failure rolls back its
 partial SQL while the completed fault remains durable. Successful business SQL,
 outcome and event records commit together. Filesystem preparation occurs outside
@@ -46,12 +52,14 @@ one source filled it, is not kept. The supervisor only waits for them at Stop.
 ## Current commands
 
 The Node provides snapshots and request inspection; local project creation,
-update and removal; existing Git worktree registration; defaults; explicit
-session creation, reading, rename, archive, attention, removal and manual order;
-notification publish/read/dismiss; and power and telemetry settings storage.
+registration, update and removal; existing Git worktree registration; defaults;
+explicit session creation, reading, rename, archive, attention, removal, manual
+order and change of worktree; notification publish/read/dismiss and controller
+diagnostics; and power, telemetry and media role settings storage.
 
-Project creation registers its main worktree in the same transaction. Duplicate
-paths conflict. Registering a removed project restores its identity. Project
+Project creation registers its main worktree in the same transaction.
+`register_project` is the same creation from a name and a path, with the default
+appearance. Duplicate paths conflict. Registering a removed project restores its identity. Project
 updates compare the complete expected Project. Removal hides the project while
 retaining its directory and session history. Worktree registration verifies that
 the canonical directory belongs to the project's Git repository.
@@ -63,11 +71,36 @@ Attention has its own revision. Batches apply as one command transaction. Remova
 retains immutable history and refuses active tasks. Project-scoped ordering is
 stored in the committed event log and remains separate from controller pins.
 
+`move_conversation` and `fork_conversation_at` share one target rule: the
+conversation is a root conversation at the expected revision, it belongs to a
+project, the worktree belongs to that project and is not removed, no turn is
+queued, running or stopping, and the worktree directory still exists. A move to
+the current worktree answers with the unchanged session and no event; any other
+move creates a new session revision.
+
 Notifications retain typed details and the newest 200 sequence entries. Plugin
 publication requires an installed, enabled, compatible package and an exact
 package reference. Telemetry saves preserve installation identity and require a
 controller. These settings commands perform storage only; they start no native
 wake assertion or telemetry sender.
+
+`report_diagnostic` stores a controller's system report as a notification.
+Plugin callers are refused, a cancellation stores nothing, and a repeated
+incident answers with its first notice without another event.
+
+`read_media_settings`, `list_media_models` and `save_media_settings` store which
+configured provider model serves the vision, image and video roles. A model is
+offered for a role only when its provider is enabled and its API and
+authentication support that role; a save is refused for a stale revision, an
+unlisted provider, an absent model or an unsupported role. The settings appear
+in the snapshot. Nothing consumes them yet: the Go Node has no media generation,
+and a new session's media snapshot stays empty.
+
+Three protocol commands have no route and answer `not_configured` "command is
+unavailable". `import_session` is the receiving half of forwarding a session to
+another Node, which this Node does not send. `use_media` and
+`use_external_browser` are agent resource effects whose subsystems do not exist
+here.
 
 ## Observation
 
@@ -80,7 +113,9 @@ ResetRequired; Client owns fresh-snapshot recovery and never replays commands.
 
 A snapshot reply is a header followed by pages of at most 1 MiB. Each frame
 is written under its own Link deadline, and a receiver rejects a header that
-declares more than 256 MiB (sixteen maximum frames) before allocating. The
+declares more than 256 MiB (sixteen maximum frames) before allocating. A
+frame's buffer grows with the bytes that arrive, in 64 KiB steps, so a declared
+length alone reserves no more than one step. The
 Client has one observation owner, which reconnects after a transient loss with a
 250 ms to 5 s backoff and ends only on a permanent fault. `Refresh` keeps the
 existing observation when the new subscription cannot be opened; when the new

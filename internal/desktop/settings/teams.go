@@ -147,9 +147,17 @@ func teams(c *ui.Context, m *Model) {
 		open := true
 		if confirm(c, "delete-team", &open, t("team_delete")+" "+tm.Name, t("team_delete_prompt", "name", tm.Name), t("settings_delete")) {
 			if m.Live && m.TeamActions != nil {
+				// The editor it was deleted from closes; one opened since for
+				// another team keeps its draft.
+				id := tm.ID
 				m.TeamActions.RemoveTeam(*tm, func(outcome kit.Outcome) {
-					if outcome == kit.Done {
+					if outcome != kit.Done {
+						return
+					}
+					if m.teamEdit.team.ID == id {
 						m.teamEdit.open = false
+					}
+					if m.teamRemoving == id {
 						m.teamRemoving = ""
 					}
 				})
@@ -167,8 +175,9 @@ func teams(c *ui.Context, m *Model) {
 		open := true
 		if confirm(c, "delete-role", &open, t("settings_delete")+" "+r.Name, t("teams_role_delete_prompt", "name", r.Name), t("settings_delete")) {
 			if m.Live && m.TeamActions != nil {
+				id := r.ID
 				m.TeamActions.RemoveRole(*r, func(outcome kit.Outcome) {
-					if outcome == kit.Done {
+					if outcome == kit.Done && m.roleRemoving == id {
 						m.roleRemoving = ""
 					}
 				})

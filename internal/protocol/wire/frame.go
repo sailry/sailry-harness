@@ -8,6 +8,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+const payloadStep = 64 << 10
+
 type Reader struct {
 	prefix      [4]byte
 	prefixRead  int
@@ -68,16 +70,24 @@ func (reader *Reader) read(stream io.Reader, value any, maximum int) error {
 	if err != nil || size > maximum {
 		return invalid()
 	}
-	if len(reader.payload) != size {
-		reader.payload = make([]byte, size)
-	}
-	if reader.payloadRead < size {
+	// The buffer follows the bytes that arrived, so a declared length alone
+	// reserves no more than one step.
+	for reader.payloadRead < size {
+		end := min(size, reader.payloadRead+payloadStep)
+		if cap(reader.payload) < end {
+			grown := make([]byte, reader.payloadRead, min(size, max(end, 2*cap(reader.payload))))
+			copy(grown, reader.payload[:reader.payloadRead])
+			clear(reader.payload[:cap(reader.payload)])
+			reader.payload = grown
+		}
+		reader.payload = reader.payload[:end]
 		count, err := io.ReadFull(stream, reader.payload[reader.payloadRead:])
 		reader.payloadRead += count
 		if err != nil {
 			return network()
 		}
 	}
+	reader.payload = reader.payload[:size]
 	data, err := decode(prefix, reader.payload, reader.compressed, maximum)
 	if err != nil {
 		return err

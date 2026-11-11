@@ -139,6 +139,9 @@ changed source resource. The two variants share each unique image.
 The live controller persists theme, mode, effects and Main/Sidebar/Blur in
 `desktop/preferences.json`; UI fractions are converted to stored percentages.
 Installed theme packages join the embedded set through the B8 market service.
+`Profile.Installed` returns the themes that read together with an error naming
+each directory left out, so one invalid package does not hide the others; a
+nil list means the profile itself could not be read.
 
 ```go
 pkg, err := theme.Parse(data, os.DirFS(dir)) // theme.json and its assets

@@ -160,20 +160,13 @@ func teamCatalogChanged(id string, snapshot protocol.Snapshot, roles protocol.Ro
 	return false
 }
 
-func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context, locales ...string) {
+func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context, language string) {
 	if r.teams == nil {
 		return
 	}
 	snapshot := r.snapshot()
 	session, exists := r.session(cv.ID)
 	ctx.Teams = teamCatalog(snapshot, session.Roles)
-	language := "en"
-	if r.Preferences != nil && r.Preferences.Data.Language != nil && *r.Preferences.Data.Language == "chinese" {
-		language = "zh-CN"
-	}
-	if len(locales) > 0 {
-		language = locales[0]
-	}
 	r.teams.locale = language
 	ctx.Teams[0].Name = i18n.In(language, "team_default")
 	state := r.teams.composers[cv.ID]

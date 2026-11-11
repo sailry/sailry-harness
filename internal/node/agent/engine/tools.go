@@ -219,37 +219,42 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				end++
 			}
 		}
-		for batch := start; batch < end; batch += 8 {
-			var workers sync.WaitGroup
-			for i := batch; i < min(batch+8, end); i++ {
-				if !executable[i] {
-					continue
-				}
-				workers.Add(1)
-				go func(i int) {
-					defer workers.Done()
-					metric, started := r.telemetry.Capture(), time.Now()
-					defer func() { observeTool(metric, x.ctx, calls[i].Name, results[i], started) }()
-					// A panicking tool fails its own call; the turn and the Node continue.
-					defer func() {
-						if value := recover(); value != nil {
-							logPanic(x, "tool", calls[i].ID, value)
-							results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call failed unexpectedly"}}
-						}
-					}()
-					if err := x.hooks.Before(x.ctx, calls[i].Name); err != nil {
-						results[i] = toolFault(err)
-						return
-					}
-					results[i] = findTool(x.tools, calls[i].Name).Execute(x.ctx, calls[i])
-					x.hooks.After(x.ctx, calls[i].Name, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
-				}(i)
+		// At most eight calls of a run execute at once; a finished call frees
+		// its slot for the next one.
+		slots := make(chan struct{}, 8)
+		var workers sync.WaitGroup
+		for i := start; i < end; i++ {
+			if !executable[i] {
+				continue
 			}
-			workers.Wait()
-			if x.ctx.Err() != nil {
+			slots <- struct{}{}
+			// The first eight calls of a run always start; a stopped turn starts none after them.
+			if i >= start+8 && x.ctx.Err() != nil {
+				<-slots
 				break
 			}
+			workers.Add(1)
+			go func(i int) {
+				defer workers.Done()
+				defer func() { <-slots }()
+				metric, started := r.telemetry.Capture(), time.Now()
+				defer func() { observeTool(metric, x.ctx, calls[i].Name, results[i], started) }()
+				// A panicking tool fails its own call; the turn and the Node continue.
+				defer func() {
+					if value := recover(); value != nil {
+						logPanic(x, "tool", calls[i].ID, value)
+						results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call failed unexpectedly"}}
+					}
+				}()
+				if err := x.hooks.Before(x.ctx, calls[i].Name); err != nil {
+					results[i] = toolFault(err)
+					return
+				}
+				results[i] = findTool(x.tools, calls[i].Name).Execute(x.ctx, calls[i])
+				x.hooks.After(x.ctx, calls[i].Name, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
+			}(i)
 		}
+		workers.Wait()
 		start = end
 	}
 	blocks := make([]canonical.Block, 0, len(calls))

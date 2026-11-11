@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"reflect"
-	"strings"
 )
 
 type variantFactories map[string]func() any
@@ -61,151 +59,8 @@ func MarshalUnion(tag, content, kind string, value any, variants map[string]func
 	return json.Marshal(fields)
 }
 
-func UnmarshalUnion(data []byte, tag, content string, variants map[string]func() any, denyUnknown bool) (string, any, error) {
-	var fields map[string]json.RawMessage
-	var kind string
-	var payload json.RawMessage
-	if tag == "" && len(bytes.TrimSpace(data)) > 0 && bytes.TrimSpace(data)[0] == '"' {
-		if err := json.Unmarshal(data, &kind); err != nil {
-			return "", nil, err
-		}
-	} else {
-		entries, decoded, err := readObject(data)
-		if err != nil {
-			return "", nil, err
-		}
-		fields = decoded
-		if tag == "" {
-			if len(entries) != 1 {
-				return "", nil, fmt.Errorf("expected one external variant")
-			}
-			for name, value := range fields {
-				kind, payload = name, value
-			}
-		} else {
-			if err := rejectDuplicateFields(entries, map[string]bool{tag: true, content: content != ""}); err != nil {
-				return "", nil, err
-			}
-			encoded, present := fields[tag]
-			if !present {
-				return "", nil, fmt.Errorf("missing field %q", tag)
-			}
-			if err := json.Unmarshal(encoded, &kind); err != nil {
-				return "", nil, err
-			}
-			delete(fields, tag)
-			if content != "" {
-				payload = fields[content]
-				delete(fields, content)
-				if denyUnknown && len(fields) > 0 {
-					return "", nil, fmt.Errorf("unknown enum field")
-				}
-			} else {
-				payload = []byte{'{'}
-				for _, entry := range entries {
-					if entry.name == tag {
-						continue
-					}
-					if len(payload) > 1 {
-						payload = append(payload, ',')
-					}
-					name, _ := json.Marshal(entry.name)
-					payload = append(payload, name...)
-					payload = append(payload, ':')
-					payload = append(payload, entry.value...)
-				}
-				payload = append(payload, '}')
-			}
-		}
-	}
-	factory, exists := variants[kind]
-	if !exists {
-		return "", nil, fmt.Errorf("unknown variant %q", kind)
-	}
-	if factory == nil {
-		if tag != "" && content == "" && denyUnknown && len(fields) > 0 {
-			return "", nil, fmt.Errorf("unknown unit variant field")
-		}
-		if (tag == "" || content != "") && len(payload) > 0 && !bytes.Equal(bytes.TrimSpace(payload), []byte("null")) {
-			return "", nil, fmt.Errorf("expected unit variant")
-		}
-		return kind, nil, nil
-	}
-	if len(payload) == 0 {
-		return "", nil, fmt.Errorf("missing variant content")
-	}
-	value := factory()
-	if err := checkJSONNulls(payload, reflect.TypeOf(value).Elem()); err != nil {
-		return "", nil, err
-	}
-	if err := json.Unmarshal(payload, value); err != nil {
-		return "", nil, err
-	}
-	return kind, value, nil
-}
-
-func DecodeObject(data []byte, target any, required []string, denyUnknown bool) error {
-	entries, fields, err := readObject(data)
-	if err != nil {
-		return err
-	}
-	for _, name := range required {
-		_, present := fields[name]
-		if !present {
-			return fmt.Errorf("missing field %q", name)
-		}
-	}
-	targetType := reflect.TypeOf(target).Elem()
-	known := make(map[string]bool, targetType.NumField())
-	for index := 0; index < targetType.NumField(); index++ {
-		field := targetType.Field(index)
-		name := strings.Split(field.Tag.Get("json"), ",")[0]
-		if name == "-" || field.PkgPath != "" {
-			continue
-		}
-		if name == "" {
-			name = field.Name
-		}
-		known[name] = true
-		value, present := fields[name]
-		if !present {
-			continue
-		}
-		if err := checkJSONNulls(value, field.Type); err != nil {
-			return fmt.Errorf("field %q: %w", name, err)
-		}
-		if field.Type.Kind() == reflect.Pointer && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			for _, key := range required {
-				if key != name {
-					continue
-				}
-				return fmt.Errorf("field %q must not be null", name)
-			}
-		}
-	}
-	if err := rejectDuplicateFields(entries, known); err != nil {
-		return err
-	}
-	for name := range fields {
-		if !known[name] {
-			if denyUnknown {
-				return fmt.Errorf("unknown field %q", name)
-			}
-			delete(fields, name)
-		}
-	}
-	filtered, err := json.Marshal(fields)
-	if err != nil {
-		return err
-	}
-	if denyUnknown {
-		decoder := json.NewDecoder(bytes.NewReader(filtered))
-		decoder.DisallowUnknownFields()
-		return decoder.Decode(target)
-	}
-	return json.Unmarshal(filtered, target)
-}
-
+// checkJSONNulls applies the null, numeric token and fixed-length rules to a
+// value that encoding/json decodes, descending by the Go kind of target.
 func checkJSONNulls(data []byte, target reflect.Type) error {
 	if target == reflect.TypeFor[json.RawMessage]() || target == reflect.TypeFor[Unit]() || target.Kind() == reflect.Interface {
 		return nil
@@ -214,11 +69,11 @@ func checkJSONNulls(data []byte, target reflect.Type) error {
 		if target.Kind() == reflect.Pointer {
 			return nil
 		}
-		return fmt.Errorf("value must not be null")
+		return errNull
 	}
 	if target == reflect.TypeFor[json.Number]() {
 		if bytes.TrimSpace(data)[0] == '"' {
-			return fmt.Errorf("expected numeric token")
+			return checkError("expected numeric token")
 		}
 	}
 	switch target.Kind() {
@@ -233,7 +88,7 @@ func checkJSONNulls(data []byte, target reflect.Type) error {
 			return err
 		}
 		if target.Kind() == reflect.Array && len(items) != target.Len() {
-			return fmt.Errorf("expected array of %d elements", target.Len())
+			return checkError(fmt.Sprintf("expected array of %d elements", target.Len()))
 		}
 		for _, item := range items {
 			if err := checkJSONNulls(item, target.Elem()); err != nil {
@@ -250,61 +105,6 @@ func checkJSONNulls(data []byte, target reflect.Type) error {
 				return err
 			}
 		}
-	}
-	return nil
-}
-
-type objectField struct {
-	name  string
-	value json.RawMessage
-}
-
-func readObject(data []byte) ([]objectField, map[string]json.RawMessage, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	start, err := decoder.Token()
-	if err != nil {
-		return nil, nil, err
-	}
-	if start != json.Delim('{') {
-		return nil, nil, fmt.Errorf("expected object")
-	}
-	var entries []objectField
-	fields := make(map[string]json.RawMessage)
-	for decoder.More() {
-		token, err := decoder.Token()
-		if err != nil {
-			return nil, nil, err
-		}
-		name, ok := token.(string)
-		if !ok {
-			return nil, nil, fmt.Errorf("expected field name")
-		}
-		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil {
-			return nil, nil, err
-		}
-		entries = append(entries, objectField{name, value})
-		fields[name] = value
-	}
-	if _, err := decoder.Token(); err != nil {
-		return nil, nil, err
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, nil, fmt.Errorf("unexpected data after object")
-	}
-	return entries, fields, nil
-}
-
-func rejectDuplicateFields(entries []objectField, known map[string]bool) error {
-	seen := make(map[string]bool)
-	for _, entry := range entries {
-		if !known[entry.name] {
-			continue
-		}
-		if seen[entry.name] {
-			return fmt.Errorf("duplicate field %q", entry.name)
-		}
-		seen[entry.name] = true
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -142,6 +143,69 @@ func ValidateManifest(data []byte) (Manifest, error) {
 	return result, nil
 }
 
+// validConnectorCLI bounds a connector's command line. The search path and
+// home variables stay the Node's own, so a package cannot redirect the lookup.
+func validConnectorCLI(cli protocol.PluginConnectorAuthLocalCliPayload) bool {
+	command := cli.Command
+	if command == "" || len(command) > 64 || strings.Trim(command, "abcdefghijklmnopqrstuvwxyz0123456789._-") != "" ||
+		strings.ContainsRune("._-", rune(command[0])) || len(cli.Env) > 8 {
+		return false
+	}
+	for name, value := range cli.Env {
+		if name == "" || len(name) > 64 || name[0] < 'A' || name[0] > 'Z' || strings.Trim(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" ||
+			slices.Contains([]string{"PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"}, name) ||
+			len(value) > 2048 || strings.ContainsRune(value, 0) {
+			return false
+		}
+	}
+	arguments := func(values []string, account bool) bool {
+		if len(values) == 0 || len(values) > 16 {
+			return false
+		}
+		for _, value := range values {
+			if account {
+				value = strings.ReplaceAll(value, "{account}", "account")
+			}
+			if len(value) > 256 || strings.ContainsAny(value, "\x00{}") {
+				return false
+			}
+		}
+		return true
+	}
+	text := func(value string) bool { return len(value) <= 256 && !strings.ContainsFunc(value, unicode.IsControl) }
+	pointer := func(value string) bool { return strings.HasPrefix(value, "/") && text(value) }
+	if !arguments(cli.Status.Argv, false) || !arguments(cli.Token.Argv, true) || !pointer(cli.Status.Account) ||
+		cli.TimeoutMs < 1 || cli.TimeoutMs > 30_000 || cli.MaxOutput < 1 || cli.MaxOutput > 65_536 {
+		return false
+	}
+	if path, ok := cli.Token.Parse.Data.(*string); ok && !pointer(*path) {
+		return false
+	}
+	if condition := cli.Status.Condition; condition != nil {
+		if !pointer(condition.Pointer) || len(condition.Values) == 0 || len(condition.Values) > 8 {
+			return false
+		}
+		for _, raw := range condition.Values {
+			var value any
+			if json.Unmarshal(raw, &value) != nil {
+				return false
+			}
+			switch value := value.(type) {
+			case bool:
+			case string:
+				if !text(value) {
+					return false
+				}
+			default:
+				if _, err := strconv.ParseInt(string(raw), 10, 64); err != nil {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 func validateExtension(extension protocol.PluginExtension) error {
 	if len(extension.Actions) > 32 || len(extension.Connectors) > 8 || len(extension.Tools) > 256 {
 		return packageFault("plugin extension exceeds declaration limits")
@@ -167,6 +231,11 @@ func validateExtension(extension protocol.PluginExtension) error {
 			return packageFault("invalid plugin connector identity")
 		}
 		connectors[connector.ID] = true
+		for _, auth := range connector.Auth {
+			if cli, ok := auth.Data.(*protocol.PluginConnectorAuthLocalCliPayload); ok && !validConnectorCLI(*cli) {
+				return packageFault("invalid plugin connector command")
+			}
+		}
 	}
 	if extension.SettingsSchema != nil && !namespacePath(*extension.SettingsSchema) {
 		return packageFault("plugin settings must belong to the platform namespace")

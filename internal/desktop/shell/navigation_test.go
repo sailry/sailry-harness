@@ -65,4 +65,26 @@ func TestNavigationTicksLoadedPages(t *testing.T) {
 	if v := nav().Value; len(cv.Turns) != 40 || v[len(v)-3:] != "/40" {
 		t.Errorf("after a page the rail reads %q over %d turns", v, len(cv.Turns))
 	}
+	// A page that loads while a reply plays leaves the reply on the turn
+	// sent, which the page moved down the list.
+	t.Run("page during a reply", func(t *testing.T) {
+		now := tt.Now()
+		preview.Send(cv, "Stream something", now)
+		preview.LoadOlder(cv)
+		preview.Advance(cv, now)
+		// The page puts the turn now at 20 where the sent one was.
+		before := cv.Turns[20].Reply
+		preview.Advance(cv, now.Add(2*time.Second))
+		if len(cv.Turns) != 61 {
+			t.Fatalf("%d turns after the send and a page", len(cv.Turns))
+		}
+		sent, moved := cv.Turns[60], cv.Turns[40]
+		if sent.User != "Stream something" || len(sent.Reply.Blocks) != 2 {
+			t.Errorf("the sent turn %q has %d blocks of its reply", sent.User, len(sent.Reply.Blocks))
+		}
+		if moved.Reply.Status != before.Status || len(moved.Reply.Blocks) != len(before.Blocks) {
+			t.Errorf("the reply played over an earlier turn: %v, %d blocks", moved.Reply.Status, len(moved.Reply.Blocks))
+		}
+		preview.Stop(cv)
+	})
 }

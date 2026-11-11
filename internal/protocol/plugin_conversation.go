@@ -169,8 +169,9 @@ var pluginConversationToolVariants = variantFactories{"builtin": func() any { re
 func (value PluginConversationTool) MarshalJSON() ([]byte, error) {
 	return MarshalUnion("kind", "", value.Kind, value.Data, pluginConversationToolVariants)
 }
-func (value *PluginConversationTool) UnmarshalJSON(data []byte) error {
-	kind, decoded, err := UnmarshalUnion(data, "kind", "", pluginConversationToolVariants, true)
+func (value *PluginConversationTool) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *PluginConversationTool) DecodeJSON(decoder *Decoder) error {
+	kind, decoded, err := decoder.Union("kind", "", pluginConversationToolVariants, true)
 	if err != nil {
 		return err
 	}
@@ -189,10 +190,11 @@ func DefaultPluginConversationBinding() PluginConversationBinding {
 		ID:      "",
 	}
 }
-func (value *PluginConversationBinding) UnmarshalJSON(data []byte) error {
+func (value *PluginConversationBinding) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *PluginConversationBinding) DecodeJSON(decoder *Decoder) error {
 	type plain PluginConversationBinding
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"package", "id"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"package", "id"}, true); err != nil {
 		return err
 	}
 	*value = PluginConversationBinding(decoded)

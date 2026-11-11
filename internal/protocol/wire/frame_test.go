@@ -372,6 +372,29 @@ func TestFrameOversizeBeforeAlloc(t *testing.T) {
 	if !validLength(protocol.MAX_FRAME_BYTES) || validLength(protocol.MAX_FRAME_BYTES+1) || validLength(0) {
 		t.Fatal("frame length boundary changed")
 	}
+	t.Run("declared length reserves one step", func(t *testing.T) {
+		var declared [5]byte
+		binary.BigEndian.PutUint32(declared[:4], protocol.MAX_FRAME_BYTES)
+		reader := NewReader(false)
+		var value any
+		assertFault(t, reader.Read(bytes.NewReader(declared[:]), &value), "unavailable")
+		if cap(reader.payload) > payloadStep || reader.payloadRead != 1 {
+			t.Fatalf("one received byte reserved %d bytes at offset %d", cap(reader.payload), reader.payloadRead)
+		}
+		want := strings.Repeat("payload", 5*payloadStep/7)
+		var frame bytes.Buffer
+		if err := Write(&frame, want, false); err != nil {
+			t.Fatal(err)
+		}
+		data, got := frame.Bytes(), ""
+		reader = NewReader(false)
+		for _, part := range [][]byte{data[:payloadStep+9], data[payloadStep+9 : 3*payloadStep]} {
+			assertFault(t, reader.Read(bytes.NewReader(part), &got), "unavailable")
+		}
+		if err := reader.Read(bytes.NewReader(data[3*payloadStep:]), &got); err != nil || got != want {
+			t.Fatalf("a frame resumed across growth steps changed: %v", err)
+		}
+	})
 	var output bytes.Buffer
 	assertFault(t, Write(&output, strings.Repeat("x", protocol.MAX_FRAME_BYTES), true), "invalid_request")
 	if output.Len() != 0 {

@@ -270,7 +270,7 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 	case "worktree_manage":
 		p.manageWorktrees()
 	case "git_output":
-		p.gitOutput(c)
+		p.openGitOutput()
 	case "git_clone":
 		p.runtime.App.Sidebar.OpenCloneEditor()
 	default:

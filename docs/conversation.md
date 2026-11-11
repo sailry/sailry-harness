@@ -60,7 +60,7 @@ order, oldest first. The view never changes `turns`.
 
 | Field | Meaning |
 |---|---|
-| `Turn.ID` | Stable, unique across conversations; keys the list row and the disclosures' open state |
+| `Turn.ID` | Stable, unique across conversations; keys the list row and the disclosures' open state, which `State` keeps so a disclosure stays as it was left when its row scrolls out of the list and back |
 | `Turn.User` | The user's message (plain text, the right-hand bubble); `""` shows no bubble |
 | `Reply.Status` | `RunStatus`: the header label and whether the run is active |
 | `Reply.Elapsed` | Run time, shown after the status as `9s`, `1m05s`, `1h02m05s`; 0 hides it |
@@ -266,7 +266,7 @@ type Actions interface {
 | `Rewind` | Fork menu → Rewind, then the dialog's Rewind | Keep the turn, drop later messages; files unchanged |
 | `Export` | More menu: Markdown, HTML, Image | Save the turn |
 | `Read` | Read aloud / Stop reading | Start or stop the reader |
-| `Edit` | User footer Edit | Edit the message in place |
+| `Edit` | User footer Edit | Edit the message in place; live moves it into the empty composer and the next Send replaces the turn |
 | `OpenFile` | Card Open, More → Preview, document picture | Preview tab in the right panel; an `OtherFile` (PDF, office) opens in the system's app instead |
 | `FileAction` | More → Open, Save as, Request edit | As named; the shell's one `openSystem` opens files in the system's app |
 | `ImageAction` | Image viewer Copy, Save as, Open | Copy the picture, save it, open it in the system's app (the preview toasts `preview_notice`) |
@@ -302,7 +302,10 @@ reads wait for their source sequence and retain newer live metadata. Only the
 authoritative Node session list confirms removal.
 
 `internal/desktop/live` maps this state through `Conversation`, then supplies the
-unchanged transcript `Actions` on each visible main or split pane. Joined guidance
+unchanged transcript `Actions` on each visible main or split pane. A frame reads
+the Node snapshot once per `Client.Revision` and each visible conversation once,
+and shares both copies read-only. A change in a watched conversation redraws its
+panes without projecting the Node snapshot again. Joined guidance
 uses its parent row while canonical ordering remains intact. Reasoning stays in
 canonical history and has no live row. Tool row identity is canonical entry/index;
 ambiguous provider call IDs cannot attach results to another call. Runtime
@@ -332,7 +335,16 @@ usage is absent.
 
 Sent context/session mentions retain their canonical target bindings in private
 transcript state through `SetReferences`; inline MyGo text opens the bound target.
-Editing restores the same references before `ReplaceTurn`. Session and host
+Editing restores the same references before `ReplaceTurn`. Edit captures the
+turn, the head turn and the history revision, as the reference does, and keeps
+the sent attachments and the references the composer has no chip for. It is
+refused with the unavailable toast while the composer holds a draft, references
+or attachments, while a turn runs or is queued, on a read-only conversation and
+for a message without text or restorable references. The edit ends when its
+composer is emptied, its conversation leaves the screen, the text is guided or
+queued instead, or the Node answers: a rejected replacement keeps the text as an
+ordinary draft, and only an uncertain outcome keeps the edit for its retry.
+Session and host
 mentions navigate existing views. Project and worktree mentions use the shared
 read-only details dialog for the turn's captured location; dedicated workspace
 resource navigation remains with B5. No `Turn` field or `Actions` signature changes
@@ -452,12 +464,14 @@ a running read, its output, then the answer growing a character at a time.
 
 | Deviation | Reason |
 |---|---|
+| A sent message is edited in the composer, which must be empty, and nothing marks or cancels the edit except emptying the composer or leaving the conversation | Rust edits in the bubble and cancels on blur or Escape; the accepted bubble has no editor, indicator or cancel control |
 | Reasoning is shown as a disclosure; live mode drops it | Kept for the preview to show the block; drop it in `project` to match |
 | The jump fade runs at the display's rate | MyGo element transitions have no frame-rate parameter; only drawings take `AnimationFrameRate` |
 | The in-progress step's `loader-circle` does not spin | A spinning icon would be an `Element.Loop` at the display's rate; the shimmer on its text marks it instead |
 | PDF and other files without a native preview open no tab: Open hands them to the system's app (a missing file toasts `files_open_failed`) | MyGo v0.8.3 has no PDF or office view; a WebView preview comes later (docs/panel.md) |
 | The image viewer zooms with its buttons and + − 0, not the wheel or pinch | MyGo elements report no wheel or pinch deltas; drag pans |
 | Search is MyGo's find bar over the transcript ("1 of N", previous, next, Done) | The accepted layout; live reads Node history and loads pages through an exact match, while preview searches its loaded fixtures |
+| Search marks prose only: code spans, fenced code and a link's destination keep their text, so a match inside them is counted by the find bar but not highlighted | `<mark>` inside code would show as text and inside a destination would break the link |
 | Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |
 | The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |

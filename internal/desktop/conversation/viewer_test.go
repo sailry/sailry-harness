@@ -35,6 +35,9 @@ func TestViewerModel(t *testing.T) {
 	// Zoom stays within the reference app's 0.25 and 8 by its steps of 1.25
 	// and 0.8; back at the fitted size it centers again.
 	t.Run("ZoomLimits", func(t *testing.T) {
+		if conversation.MinZoom != 0.25 || conversation.MaxZoom != 8 || kit.ZoomIn != 1.25 || kit.ZoomOut != 0.8 {
+			t.Fatalf("limits %v..%v, steps %v %v", conversation.MinZoom, conversation.MaxZoom, kit.ZoomIn, kit.ZoomOut)
+		}
 		v := conversation.Viewer{Images: make([]conversation.Image, 1), Zoom: 1}
 		v.ZoomBy(kit.ZoomIn)
 		if v.Zoom != 1.25 {
@@ -48,18 +51,18 @@ func TestViewerModel(t *testing.T) {
 		for range 20 {
 			v.ZoomBy(kit.ZoomIn)
 		}
-		if v.Zoom != 8 {
+		if v.Zoom != conversation.MaxZoom {
 			t.Errorf("zoom %v past the limit", v.Zoom)
 		}
 		for range 40 {
 			v.ZoomBy(kit.ZoomOut)
 		}
-		if v.Zoom != 0.25 {
+		if v.Zoom != conversation.MinZoom {
 			t.Errorf("zoom %v under the limit", v.Zoom)
 		}
 		v.ZoomBy(0)
 		v.ZoomBy(-1)
-		if v.Zoom != 0.25 {
+		if v.Zoom != conversation.MinZoom {
 			t.Errorf("a bad factor zoomed: %v", v.Zoom)
 		}
 		v.Zoom = 4

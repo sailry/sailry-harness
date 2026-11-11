@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"unicode"
@@ -27,6 +28,11 @@ type refState struct {
 	dismissed trigger
 	path      []Reference // the pages entered, innermost last
 	sel       int
+	// pointer is where the pointer was last seen over a row, in window
+	// DIPs, once pointed: a row takes the selection as the pointer moves,
+	// not while it rests where the picker opened or the rows scroll under it.
+	pointer [2]int
+	pointed bool
 }
 
 // trigger is the @ or / being typed: where its marker is in the draft (in
@@ -329,6 +335,9 @@ func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, su
 	visible := st.shown && !ctx.Readonly
 	opened := visible && !s.referenceVisible
 	s.referenceVisible = visible
+	if opened {
+		st.pointed = false
+	}
 	if opened && s.referencePickerOpen != nil {
 		s.referencePickerOpen()
 	}
@@ -390,7 +399,13 @@ func (s *State) referenceRow(c *ui.Context, ctx *Context, actions Actions, r Ref
 	b := ui.ButtonBase(c.Key(r.ID)).Label(name).FillWidth().Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
 		AlignItems(ui.Center).Role(ui.RoleOption).AccessSelected(selected).TabStop(false)
 	if b.Hovered() {
-		st.sel = i
+		x, y, _ := b.PointerPosition()
+		box := b.Bounds()
+		at := [2]int{int(math.Round(float64(box.X + x))), int(math.Round(float64(box.Y + y)))}
+		if st.pointed && at != st.pointer {
+			st.sel = i
+		}
+		st.pointer, st.pointed = at, true
 	}
 	if selected {
 		b.Background(p.Hover).TextColor(p.HoverForeground).ScrollIntoView()

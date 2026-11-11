@@ -293,10 +293,11 @@ func DefaultDatabaseProfile() DatabaseProfile {
 		ReadOnly:   false,
 	}
 }
-func (value *DatabaseProfile) UnmarshalJSON(data []byte) error {
+func (value *DatabaseProfile) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *DatabaseProfile) DecodeJSON(decoder *Decoder) error {
 	type plain DatabaseProfile
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "revision", "name", "connection", "read_only"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "revision", "name", "connection", "read_only"}, false); err != nil {
 		return err
 	}
 	*value = DatabaseProfile(decoded)

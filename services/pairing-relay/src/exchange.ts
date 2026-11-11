@@ -28,10 +28,14 @@ export class Exchange {
       if (time + TTL_MS <= now) return failure(kind === "publish" ? 410 : 404, "code_unavailable");
     }
     const prefix = generation(now);
+    const origin = `${prefix}rate/${kind}/${await digest(source)}/`;
+    const allowance = kind === "publish" ? this.budget.publish : this.budget.redeem;
+    // Slots fill in order, so an occupied last slot means the source is spent.
+    // Refusing it on this read keeps one source from draining the global budget.
+    if (await this.store.get(`${origin}${allowance - 1}`)) return failure(429, "rate_limited");
     // Admit globally before creating source records, bounding unique-source growth.
     if (!await this.slot(`${prefix}rate/${kind}/global/`, this.budget.global, now)
-      || !await this.slot(`${prefix}rate/${kind}/${await digest(source)}/`,
-        kind === "publish" ? this.budget.publish : this.budget.redeem, now))
+      || !await this.slot(origin, allowance, now))
       return failure(429, "rate_limited");
     if (kind === "publish") return this.publish(body as Publication, current);
     if (kind === "redeem") return this.redeem(body as Redemption, current);

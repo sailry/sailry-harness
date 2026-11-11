@@ -33,7 +33,7 @@ type State struct {
 	toolCards     map[string]map[string]func(*ui.Context)
 	renderSession string
 	lists         map[string]*ui.ListState
-	open          map[string]*bool
+	open          map[string]bool  // the disclosures open
 	work          map[string]bool  // work regions the user opened or closed
 	built         map[string]bool  // lists built once, so laid out
 	md            markdown.Options // the replies' (kit.Markdown fills the rest)
@@ -63,7 +63,7 @@ type State struct {
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, built: map[string]bool{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}}
 }
 
 // List returns the list state of a conversation.

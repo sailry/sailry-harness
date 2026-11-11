@@ -200,7 +200,8 @@ terminal, subagent and file-preview tabs are single-pane.
   (`kit.Diff`), unified as Rust's content diff view: highlighted, old and
   new numbers, word changes, and on the change under the pointer Revert
   and Keep (`editor.DefaultHunkActions`) and Stage. Status bar: path, `+N −M`.
-- History: a card per checkpoint: the turn, its age, the files, `+N −M`
+- History: a card per checkpoint: the turn, its age (against the frame
+  clock when live, the fixture's clock in the preview), the files, `+N −M`
   and `turn_changes_undo_all`.
 - Documents: a tab per document, rendered.
 - Artifact: a file's preview; a picture is `kit.Image` (a Skeleton while it
@@ -255,8 +256,9 @@ and Find use the existing MyGo editor state exposed by Kit callbacks.
 
 The existing file menu sends `CreateDirectory`, `RenameEntry`, `TrashEntry`,
 `CopyEntryTo` and `MoveEntryTo`. Clipboard provenance captures the source
-worktree. Sequential batches stop on the first failure and retain their confirmed
-position for retry. Native open, reveal, download and reference insertion use
+worktree. Sequential batches stop on the first failure. A Trash confirmation
+retains its confirmed position for a retry from that confirmation; the same
+entries confirmed again start from the first one. Native open, reveal, download and reference insertion use
 `WorkspaceNative`; execution-host paths never become controller-local paths.
 The window's transfer owner verifies downloaded content and owns native effects.
 
@@ -275,7 +277,9 @@ the protocol's lack of a separate persistence operation for Keep.
 History reads final runs, including older conversation pages, and every
 `ListFileCheckpoints` page. Counts come from `ReadTurnDiff`. Undo confirms the
 selected turn, then restores checkpoint files in the source's newest-first order
-and stops at the first failure. Session documents read `ListArtifacts` and
+and stops at the first failure. Each finished run's checkpoints are read once
+and again only when its status changes, and the older pages once per session
+load or Refresh. Session documents read `ListArtifacts` and
 `ReadArtifact`, converting stored HTML to Markdown outside the UI thread. A
 revision cache avoids repeated reads on each presentation frame. Outcomes appear
 only in distinct failure, conflict, uncertain or success toasts.
@@ -464,7 +468,8 @@ and the existing ten-file limit. Its action opens the actual worktree diff.
 Final turn diffs populate conversation changes cards. Review captures that turn's
 patches and hunk identities in the existing Git surface; Undo confirms the target
 and restores matching checkpoints in source order. A partially confirmed restore
-resumes after its successful entries and retains uncertain request identity.
+resumes after its successful entries, whose files no longer match their
+checkpoints, and retains uncertain request identity.
 
 Project-backed unsent drafts resolve existing worktrees without creating a
 session or invoking a model. Composer location fields keep paths as identities;

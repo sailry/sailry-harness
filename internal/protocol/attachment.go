@@ -49,10 +49,11 @@ func DefaultAttachment() Attachment {
 		Spec: DefaultAttachmentSpec(),
 	}
 }
-func (value *Attachment) UnmarshalJSON(data []byte) error {
+func (value *Attachment) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *Attachment) DecodeJSON(decoder *Decoder) error {
 	type plain Attachment
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "spec"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "spec"}, false); err != nil {
 		return err
 	}
 	*value = Attachment(decoded)

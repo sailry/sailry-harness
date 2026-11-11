@@ -114,6 +114,14 @@ service removes the staged file and leaves the directory's files to their own
 paths. Unstaging a path below a file that HEAD holds is still reported as a
 missing resource; unstaging that file restores it and displaces the path.
 
+The page's chord is a key sequence, as the reference's: the key pressed after
+Ctrl+G completes it (Ctrl+G fetches, Down pulls, Shift+Down pulls with rebase)
+or drops it, so a later Down does not pull. Down is asked for only while the
+chord waits, which leaves it to the lists otherwise; while the change list or
+the commit field has the focus they take Down first and the chord drops.
+Deleting a stash names it by its message in the confirmation and drops it by
+its ID.
+
 Default tests use temporary go-git repositories, injected native responses and
 static argv. Integration-tagged probes execute native Git only in disposable
 repositories; `TestLargeRepositoryIntegration` covers status, change inventory

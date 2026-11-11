@@ -192,6 +192,126 @@ func TestAdmissionSameRequestID(t *testing.T) {
 			t.Fatalf("reopened project = %#v", value)
 		}
 	})
+	t.Run("registered projects, conversation location, media roles and diagnostics", func(t *testing.T) {
+		node := nodeFixture(t)
+		refused := func(command protocol.Command, want protocol.ErrorCode) {
+			t.Helper()
+			response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), command))
+			if response.Fault == nil || response.Fault.Code != want {
+				t.Fatalf("%s = %#v, want %s", command.Kind, response, want)
+			}
+		}
+		root, linked := t.TempDir(), t.TempDir()
+		if _, err := git.PlainInit(root, false); err != nil {
+			t.Fatal(err)
+		}
+		// The layout `git worktree add` leaves for a linked worktree.
+		private := filepath.Join(root, ".git", "worktrees", "linked")
+		if err := os.MkdirAll(private, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for path, body := range map[string]string{
+			filepath.Join(private, "commondir"): "../..\n",
+			filepath.Join(private, "HEAD"):      "ref: refs/heads/linked\n",
+			filepath.Join(private, "gitdir"):    filepath.Join(linked, ".git") + "\n",
+			filepath.Join(linked, ".git"):       "gitdir: " + private + "\n",
+		} {
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		registration := protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Registered", Path: root}}
+		project := commandFixture(t, node, registration).Data.(protocol.Project)
+		if project.Name != "Registered" || project.Appearance != protocol.DefaultProjectsAppearance() {
+			t.Fatalf("registered project = %#v", project)
+		}
+		refused(registration, protocol.ErrorCodeConflict)
+		refused(protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Relative", Path: "relative"}}, protocol.ErrorCodeInvalidRequest)
+		foreign := commandFixture(t, node, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Foreign", Path: t.TempDir()}}).Data.(protocol.Project)
+		tree := commandFixture(t, node, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: project.ID, Path: linked}}).Data.(protocol.Worktree)
+		var outside protocol.WorktreeID
+		for _, worktree := range snapshotFixture(t, node).Worktrees {
+			if worktree.Project != nil && *worktree.Project == foreign.ID {
+				outside = worktree.ID
+			}
+		}
+		config := sessionFixture(t, node).Config
+		session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
+		move := func(worktree protocol.WorktreeID, revision uint64) protocol.Command {
+			return protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{Session: session.ID, Worktree: worktree, ExpectedRevision: revision}}
+		}
+		if same := commandFixture(t, node, move(session.Worktree, session.Revision)).Data.(protocol.Session); same.Revision != session.Revision {
+			t.Fatalf("moving to the current worktree revised the conversation: %#v", same)
+		}
+		refused(move(outside, session.Revision), protocol.ErrorCodeNotFound)
+		refused(move(tree.ID, session.Revision+1), protocol.ErrorCodeRevisionConflict)
+		refused(protocol.Command{Kind: "fork_conversation_at", Data: protocol.CommandForkConversationAtPayload{Session: session.ID, Worktree: outside, ExpectedRevision: session.Revision}}, protocol.ErrorCodeNotFound)
+		moved := commandFixture(t, node, move(tree.ID, session.Revision)).Data.(protocol.Session)
+		if moved.Worktree != tree.ID || moved.Revision != session.Revision+1 || moved.Project == nil || *moved.Project != project.ID {
+			t.Fatalf("moved conversation = %#v", moved)
+		}
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+		// The conversation started in the main worktree, whose directory is gone.
+		refused(move(session.Worktree, moved.Revision), protocol.ErrorCodeNotFound)
+		refused(protocol.Command{Kind: "fork_conversation_at", Data: protocol.CommandForkConversationAtPayload{Session: session.ID, Worktree: session.Worktree, ExpectedRevision: moved.Revision}}, protocol.ErrorCodeNotFound)
+
+		secret := protocol.NewSecret("media-key")
+		provider := protocol.DefaultConversationProvider()
+		provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Media fixture", true
+		provider.Api, provider.Authentication, provider.Endpoint = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, "https://media.test/v1"
+		seeing, blind := protocol.DefaultConversationModel(), protocol.DefaultConversationModel()
+		seeing.ID, seeing.Vision, seeing.Context, seeing.Output = "seeing", true, 128000, 4096
+		blind.ID, blind.Context, blind.Output = "blind", 128000, 4096
+		sightless, capabilities := false, protocol.DefaultConversationDiscoveryCapabilities()
+		capabilities.Vision, blind.Capabilities = &sightless, &capabilities
+		provider.Models, provider.DefaultModel = []protocol.ConversationModel{seeing, blind}, "seeing"
+		commandFixture(t, node, protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
+		if initial := commandFixture(t, node, protocol.Command{Kind: "read_media_settings"}).Data.(protocol.MediaSettings); initial.Revision != 0 || len(initial.Bindings) != 0 {
+			t.Fatalf("initial media settings = %#v", initial)
+		}
+		candidates := commandFixture(t, node, protocol.Command{Kind: "list_media_models"}).Data.([]protocol.MediaCandidate)
+		want := []protocol.MediaCandidate{
+			{Provider: provider.ID, ProviderName: provider.Name, Model: "seeing", Kinds: []protocol.MediaKind{protocol.MediaKindVision, protocol.MediaKindImage, protocol.MediaKindVideo}},
+			{Provider: provider.ID, ProviderName: provider.Name, Model: "blind", Kinds: []protocol.MediaKind{protocol.MediaKindImage, protocol.MediaKindVideo}},
+		}
+		if !reflect.DeepEqual(candidates, want) {
+			t.Fatalf("media candidates = %#v", candidates)
+		}
+		bind := func(revision uint64, model string) protocol.Command {
+			return protocol.Command{Kind: "save_media_settings", Data: protocol.MediaSettings{Revision: revision, Bindings: map[protocol.MediaKind]*protocol.MediaBinding{
+				protocol.MediaKindVision: {Provider: provider.ID, Model: model},
+			}}}
+		}
+		refused(bind(0, "blind"), protocol.ErrorCodeInvalidRequest)
+		refused(bind(0, "absent"), protocol.ErrorCodeNotConfigured)
+		refused(bind(7, "seeing"), protocol.ErrorCodeRevisionConflict)
+		saved := commandFixture(t, node, bind(0, "seeing")).Data.(protocol.MediaSettings)
+		if saved.Revision != 1 || !reflect.DeepEqual(snapshotFixture(t, node).MediaSettings, saved) {
+			t.Fatalf("saved media settings = %#v", saved)
+		}
+		if read := commandFixture(t, node, protocol.Command{Kind: "read_media_settings"}).Data.(protocol.MediaSettings); !reflect.DeepEqual(read, saved) {
+			t.Fatalf("read media settings = %#v", read)
+		}
+
+		report := protocol.DefaultNotificationSystemSystemDiagnostic()
+		report.Incident, report.Source, report.Phase = protocol.NewRequestID(), protocol.NotificationSystemSystemSourceGitInspection, protocol.NotificationSystemDiagnosticPhaseInspection
+		report.Reason, report.Code, report.Version, report.Platform = protocol.NotificationSystemDiagnosticReasonTimeout, protocol.ErrorCodeUnavailable, "1.0.0", "darwin-arm64"
+		diagnostic := protocol.Command{Kind: "report_diagnostic", Data: report}
+		notice := commandFixture(t, node, diagnostic).Data.(protocol.NotificationNotice)
+		repeated := commandFixture(t, node, diagnostic).Data.(protocol.NotificationNotice)
+		notices := snapshotFixture(t, node).Notifications
+		if repeated.ID != notice.ID || len(notices) != 1 || notices[0].ID != notice.ID || notice.Content.Kind != protocol.NotificationKindError {
+			t.Fatalf("diagnostic notices = %#v", notices)
+		}
+		report.Incident, report.Reason, report.Code = protocol.NewRequestID(), protocol.NotificationSystemDiagnosticReasonCancelled, protocol.ErrorCodeCancelled
+		if output := commandFixture(t, node, protocol.Command{Kind: "report_diagnostic", Data: report}); output.Kind != "notifications_updated" || len(snapshotFixture(t, node).Notifications) != 1 {
+			t.Fatalf("cancelled diagnostic = %#v", output)
+		}
+		report.Incident, report.Platform = protocol.NewRequestID(), "not a token"
+		refused(protocol.Command{Kind: "report_diagnostic", Data: report}, protocol.ErrorCodeInvalidRequest)
+	})
 	t.Run("project and captured worktree catalogs", func(t *testing.T) {
 		node := nodeFixture(t)
 		var projects []protocol.Project

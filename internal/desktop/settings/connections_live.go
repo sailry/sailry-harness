@@ -100,7 +100,8 @@ func connectionDialogs(c *ui.Context, m *Model) {
 				})
 			})
 		}).Width(min(420, width(c)-48)).Gap(16).Label(title)
-		if !open {
+		// A save under way keeps its editor, as its Cancel says.
+		if !open && !editor.Pending {
 			m.NetworkEditor = nil
 		}
 	}
@@ -111,11 +112,12 @@ func connectionDialogs(c *ui.Context, m *Model) {
 			title = i18n.T(c, "ssh_key_changed")
 		}
 		body := trust.Host + "\n" + trust.Algorithm + "\n" + trust.Fingerprint
+		// Trusting closes the prompt and the connection goes on, still
+		// pending; any other way out of the prompt ends it.
 		if kit.AlertDialog(c.Key("host-key"), &open, title, body, i18n.T(c, "settings_cancel"), i18n.T(c, "ssh_trust")) == 1 {
 			m.HostTrust = nil
 			trust.Confirm()
-		}
-		if !open {
+		} else if !open {
 			m.HostTrust = nil
 			m.ConnectionPending = false
 		}

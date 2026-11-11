@@ -62,10 +62,11 @@ func DefaultActivitySummary() ActivitySummary {
 		Queued:    0,
 	}
 }
-func (value *ActivitySummary) UnmarshalJSON(data []byte) error {
+func (value *ActivitySummary) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ActivitySummary) DecodeJSON(decoder *Decoder) error {
 	type plain ActivitySummary
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"title", "attention", "queued"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"title", "attention", "queued"}, false); err != nil {
 		return err
 	}
 	*value = ActivitySummary(decoded)
@@ -120,9 +121,10 @@ func (value ActivityWaiting) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ActivityWaiting %q", value)
 	}
 }
-func (value *ActivityWaiting) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ActivityWaiting) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ActivityWaiting) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ActivityWaiting(decoded) {
@@ -158,10 +160,11 @@ func DefaultActivityAttention() ActivityAttention {
 		Unread:   false,
 	}
 }
-func (value *ActivityAttention) UnmarshalJSON(data []byte) error {
+func (value *ActivityAttention) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ActivityAttention) DecodeJSON(decoder *Decoder) error {
 	type plain ActivityAttention
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"revision", "unread"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"revision", "unread"}, false); err != nil {
 		return err
 	}
 	*value = ActivityAttention(decoded)

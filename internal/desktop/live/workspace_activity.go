@@ -2,6 +2,7 @@ package live
 
 import (
 	"cmp"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -121,12 +122,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		if p.status.Kind == protocol.RepositoryKindDirectory {
 			kind = composer.Directory
 		}
-		branch := workspaceString(p.status.Branch)
-		if branch == "" {
-			head := workspaceString(p.status.Head)
-			branch = head[:min(7, len(head))]
-		}
-		ctx.Repository = composer.Repository{Kind: kind, Branch: branch}
+		ctx.Repository = composer.Repository{Kind: kind, Branch: branchLabel(p.status.Branch, p.status.Head)}
 		ctx.Activity.Changes = workspaceChanges(p.status)
 	}
 	comp.ActivityCallbacks = &composer.ActivityCallbacks{WorktreeEnabled: func() bool { return r.canMoveWorkspace(cv, comp) }, Worktree: func(relative string) {
@@ -157,6 +153,15 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		}
 		turn.Reply.Changes = projected
 	}
+}
+
+// branchLabel is the branch, or the short head of a detached checkout.
+func branchLabel(branch, head *string) string {
+	if label := workspaceString(branch); label != "" {
+		return label
+	}
+	value := workspaceString(head)
+	return value[:min(7, len(value))]
 }
 func (r *Runtime) projectWorkspaceLocations() {
 	snapshot := r.snapshot()
@@ -191,11 +196,7 @@ func (r *Runtime) projectWorkspaceLocations() {
 		if len(main.worktrees.Entries) > 0 {
 			project.Worktrees = nil
 			for _, tree := range main.worktrees.Entries {
-				label := workspaceString(tree.Branch)
-				if label == "" {
-					head := workspaceString(tree.Head)
-					label = head[:min(7, len(head))]
-				}
+				label := branchLabel(tree.Branch, tree.Head)
 				if label == "" {
 					label = tree.Path
 				}
@@ -214,11 +215,7 @@ func (r *Runtime) projectWorkspaceLocations() {
 		}
 		for _, cached := range r.workspace.projects {
 			if cached.owner.Project != nil && cached.owner.Project.String() == project.ID && cached.statusKnown {
-				label := workspaceString(cached.status.Branch)
-				if label == "" {
-					head := workspaceString(cached.status.Head)
-					label = head[:min(7, len(head))]
-				}
+				label := branchLabel(cached.status.Branch, cached.status.Head)
 				for i := range project.Worktrees {
 					if project.Worktrees[i].Path == cached.owner.Path {
 						project.Worktrees[i].Branch = label
@@ -351,7 +348,24 @@ func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relativ
 		done(false)
 		return
 	}
-	p.fileCommandsFinish(commands, done, func() {
+	// A restored file no longer has the revision its checkpoint expects, so a
+	// later Undo of the same files continues where this one stopped.
+	encoded, err := json.Marshal(commands)
+	if err != nil {
+		done(false)
+		return
+	}
+	key := string(encoded)
+	batch := p.restoreBatches[key]
+	if batch == nil {
+		batch = &fileBatch{}
+		if p.restoreBatches == nil {
+			p.restoreBatches = map[string]*fileBatch{}
+		}
+		p.restoreBatches[key] = batch
+	}
+	p.fileCommandsFinish(batch, commands, done, func() {
+		delete(p.restoreBatches, key)
 		if p.turnUndone[turn] == nil {
 			p.turnUndone[turn] = map[string]bool{}
 		}

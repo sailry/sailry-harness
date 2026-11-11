@@ -64,6 +64,9 @@ func discoverAccount(ctx context.Context, provider protocol.ConversationProvider
 		}
 		models, found, err := discoverPages(owner, client, provider.Api, *endpoint, auth, &remaining)
 		if err != nil {
+			if ctx.Err() != nil {
+				return catalog, cancelled("model discovery cancelled")
+			}
 			return catalog, err
 		}
 		if !found {

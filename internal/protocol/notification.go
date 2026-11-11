@@ -137,10 +137,11 @@ func DefaultNotificationNotice() NotificationNotice {
 		Read:        false,
 	}
 }
-func (value *NotificationNotice) UnmarshalJSON(data []byte) error {
+func (value *NotificationNotice) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *NotificationNotice) DecodeJSON(decoder *Decoder) error {
 	type plain NotificationNotice
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "sequence", "package", "content", "timestamp_ms", "read"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "sequence", "package", "content", "timestamp_ms", "read"}, true); err != nil {
 		return err
 	}
 	*value = NotificationNotice(decoded)

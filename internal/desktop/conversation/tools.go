@@ -24,14 +24,18 @@ const (
 	railPad    = 15.5 // 8 + 8 - 0.5: the body starts where the label does
 )
 
-// opened returns the open flag of a disclosure, closed at first.
-func (s *State) opened(key string) *bool {
-	if b, ok := s.open[key]; ok {
-		return b
+// opened reports whether a disclosure is open. They start closed, and the
+// state keeps the open ones alone, so the rows a long transcript scrolls
+// through leave nothing behind.
+func (s *State) opened(key string) bool { return s.open[key] }
+
+// toggle opens a closed disclosure and closes an open one.
+func (s *State) toggle(key string) {
+	if s.open[key] {
+		delete(s.open, key)
+	} else {
+		s.open[key] = true
 	}
-	b := new(bool)
-	s.open[key] = b
-	return b
 }
 
 // rowColor is the color of a row's icon and label, first match winning.
@@ -177,12 +181,12 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 	open := s.opened(key)
 	ui.Column(c.Key(key)).Children(func() {
 		t := rowSize(ui.ButtonBase(c), wrap).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
-			Justify(ui.Start).Expanded(*open).Cursor(ui.CursorPointer)
+			Justify(ui.Start).Expanded(open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
-		t.Children(func() { head(hovered, *open, sw) }).OnClick(func() { *open = !*open })
+		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
 		sw.Frame(t)
-		if *open {
+		if open {
 			Rail(c).Padding(top, 0, bottom, railPad).Children(body)
 		}
 	})
@@ -259,7 +263,7 @@ func (s *State) row(c *ui.Context, call Call) {
 		if s.requestedDetails == nil {
 			s.requestedDetails = map[string]bool{}
 		}
-		if *s.opened("tools-" + call.ID) {
+		if s.opened("tools-" + call.ID) {
 			if !s.requestedDetails[call.ID] {
 				s.requestedDetails[call.ID] = true
 				call.Load()

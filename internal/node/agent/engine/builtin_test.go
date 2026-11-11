@@ -85,6 +85,28 @@ func TestTitleTool(t *testing.T) {
 		}
 		t.Fatal("unregistered call has no response")
 	})
+	t.Run("two discoveries in one response load a tool once", func(t *testing.T) {
+		t.Parallel()
+		deferred := objectTool("files_write", false, false, func(context.Context, canonical.ToolRequest) ToolResult { return ToolResult{} })
+		deferred.Deferred = true
+		model := &scriptedModel{scripts: []script{
+			response(call("one", "tool_search", `{"query":"select:files_write"}`), call("two", "tool_search", `{"query":"select:files_write"}`), finish()),
+			response(text("Final answer"), finish()),
+		}}
+		fixture := newFixture(t, model, deferred)
+		fixture.start()
+		fixture.waitRun(fixture.submit("Find the tool"), protocol.ConversationStatusCompleted)
+		for _, record := range fixture.state().Records {
+			if delta := record.Metadata.Context; delta != nil && delta.LoadedTools != nil {
+				// The saved requests loaded the discovery tool itself.
+				if !slices.Equal(*delta.LoadedTools, []string{"tool_search", "files_write"}) {
+					t.Fatalf("recorded loaded tools=%v", *delta.LoadedTools)
+				}
+				return
+			}
+		}
+		t.Fatal("discovery recorded no loaded tools")
+	})
 	t.Run("discovery matches frozen catalog", func(t *testing.T) {
 		tools := []Tool{jsonTool("files_read", "Read workspace files", `{"type":"object"}`, true, true, nil), jsonTool("files_search", "Search files", `{"type":"object"}`, true, true, nil), jsonTool("hidden_native", "Read files", `{"type":"object"}`, true, true, nil)}
 		tools[0].Deferred = true

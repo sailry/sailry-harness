@@ -3,6 +3,7 @@ package panel
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -587,12 +588,17 @@ func diffHunkIndex(change preview.FileChange, native editor.DiffHunk) int {
 // and Undo changes, which would restore the files.
 func (s *State) history(c *ui.Context) {
 	p := theme.Of(c)
+	// The fixture's checkpoints are as old as its own clock says.
+	now := preview.Now
+	if s.Live {
+		now = c.Now()
+	}
 	ui.Scroll(c.Key("checkpoints")).Grow(1).Padding(12).Gap(8).Children(func() {
 		for _, cp := range s.Data.Checkpoints {
 			kit.Frost(c, ui.Column(c.Key(cp.ID)).Padding(12).Gap(8).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint).Children(func() {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Text(c, cp.Turn).FontSize(14).FontWeight(500).SingleLine().Grow(1).Shrink(1)
-					ui.Text(c, ago(c, cp.Time)).FontSize(12).TextColor(p.MutedForeground)
+					ui.Text(c, ago(c, cp.Time, now)).FontSize(12).TextColor(p.MutedForeground)
 				})
 				ui.Column(c).Gap(2).Children(func() {
 					for _, f := range cp.Files {
@@ -627,8 +633,8 @@ func (s *State) history(c *ui.Context) {
 }
 
 // ago is the activity centre's age: just now, minutes, hours, days.
-func ago(c *ui.Context, t interface{ Unix() int64 }) string {
-	d := preview.Now.Unix() - t.Unix()
+func ago(c *ui.Context, t, now time.Time) string {
+	d := now.Unix() - t.Unix()
 	switch {
 	case d < 60:
 		return i18n.T(c, "notifications_time_now")

@@ -19,7 +19,7 @@ func (r *Runtime) watchChild(id protocol.SessionID) {
 	}
 }
 
-func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context, locales ...string) {
+func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context, language string) {
 	ctx.Activity.Children = nil
 	if comp.ActivityCallbacks != nil {
 		comp.ActivityCallbacks.ChildElapsed = nil
@@ -37,13 +37,6 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 	state, ok := r.conversationState(session.ID)
 	if !ok {
 		return
-	}
-	language := "en"
-	if r.Preferences != nil && r.Preferences.Data.Language != nil && *r.Preferences.Data.Language == "chinese" {
-		language = "zh-CN"
-	}
-	if len(locales) > 0 {
-		language = locales[0]
 	}
 	runs := map[string]protocol.ConversationRun{}
 	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {

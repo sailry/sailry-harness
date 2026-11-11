@@ -365,10 +365,11 @@ func DefaultTerminalInfo() TerminalInfo {
 		Revision:  0,
 	}
 }
-func (value *TerminalInfo) UnmarshalJSON(data []byte) error {
+func (value *TerminalInfo) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *TerminalInfo) DecodeJSON(decoder *Decoder) error {
 	type plain TerminalInfo
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "status", "revision"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "status", "revision"}, false); err != nil {
 		return err
 	}
 	*value = TerminalInfo(decoded)

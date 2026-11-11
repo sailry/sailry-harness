@@ -138,7 +138,12 @@ func fitEditorControls(groups [][]editorControl, room float32) ([][]editorContro
 func (pr *Project) editorToolbar(c *ui.Context, path string, markdown, notebook bool) {
 	item := pr.Files.item(path)
 	state := item.documentState()
-	format := currentEditorFormat(item)
+	// Only a Markdown file's controls show the format at the caret; reading it
+	// from a source editor copies the whole buffer.
+	format := editorFormat{block: "paragraph"}
+	if markdown {
+		format = currentEditorFormat(item)
+	}
 	preview := notebook && item.source == 0
 	control := func(action, label string, icon *ui.SVG, selected bool) editorControl {
 		return editorControl{action: action, label: label, icon: icon, selected: selected, disabled: !item.writable}

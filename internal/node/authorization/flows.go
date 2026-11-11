@@ -21,14 +21,7 @@ func (input *Input) standard(ctx context.Context) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		switch classify(status, document) {
-		case "success":
-			return document, nil
-		case "rejected":
-			return nil, denied()
-		default:
-			return nil, unavailable()
-		}
+		return document, Granted(status, document)
 	}
 	switch declaration.Flow.Kind {
 	case "token_exchange":
@@ -230,6 +223,20 @@ func form(endpoint protocol.PluginModelAuthEndpoint, defaults, fields map[string
 	}
 	endpoint.Body = &protocol.PluginModelAuthBody{Kind: "form", Data: protocol.PluginModelAuthBodyFormPayload{Fields: values}}
 	return endpoint
+}
+
+// Granted reads a token endpoint's answer: nil for an issued token, a
+// permission fault when the provider definitely refused the grant, and an
+// unavailable fault for every answer that leaves the grant's fate open.
+func Granted(status int, document any) error {
+	switch classify(status, document) {
+	case "success":
+		return nil
+	case "rejected":
+		return denied()
+	default:
+		return unavailable()
+	}
 }
 
 func classify(status int, document any) string {

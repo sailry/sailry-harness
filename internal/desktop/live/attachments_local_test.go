@@ -3,6 +3,7 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"image"
 	"image/png"
@@ -59,7 +60,7 @@ func TestAttachmentLocalIO(t *testing.T) {
 		got, err := io.ReadAll(source.reader)
 		_ = source.reader.Close()
 		sum := blake3.Sum256(data)
-		if err != nil || !bytes.Equal(got, data) || source.size != uint64(len(data)) || source.revision != fmtAttachmentDigest(sum[:]) || source.mime != "text/plain" {
+		if err != nil || !bytes.Equal(got, data) || source.size != uint64(len(data)) || source.revision != hex.EncodeToString(sum[:]) || source.mime != "text/plain" {
 			t.Fatalf("source lost content evidence: %+v, %q, %v", source, got, err)
 		}
 		if _, err = localSource(t.Context(), "relative.txt", nil, ""); faultCode(err) != protocol.ErrorCodeInvalidRequest {

@@ -78,6 +78,7 @@ type GitView struct {
 	skip          bool   // skip hooks
 	after         string // what the commit does after: none, push, sync
 	chord         bool   // Ctrl+G pressed, its second key to come
+	second        bool   // the key after Ctrl+G came, for this frame to take
 	picker        picker
 	confirm       confirm
 	stashIDs      []string

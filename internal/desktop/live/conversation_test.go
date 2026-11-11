@@ -673,6 +673,9 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			if row.session == "existing" {
 				snapshot.Sessions = []protocol.Session{{ID: session, Revision: 6, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()}}
+				if row.running {
+					snapshot.Sessions[0].Activity.Run = &protocol.ConversationRun{Session: session, Turn: protocol.TurnID{6}, Sequence: 1, Revision: 1, Kind: "task", Status: "running"}
+				}
 			}
 			transport := &conversationTestTransport{snapshot: snapshot, failure: row.failure}
 			if row.name == "uncertain_team_before_admission" {
@@ -1017,6 +1020,22 @@ func TestComposerSendRouting(t *testing.T) {
 			if slices.ContainsFunc(r.App.Data.Models, func(m composer.Model) bool { return m.Name == "" }) {
 				t.Fatal("live model projection contains an empty sample")
 			}
+			// Readers share one copy of the Node snapshot until the Client reports a change.
+			if first, again := r.snapshot(), r.snapshot(); len(first.Providers) == 0 || &first.Providers[0] != &again.Providers[0] {
+				t.Fatal("the Node snapshot was copied again without a Client change")
+			}
+			if row.running {
+				// The Host lists the running session and finds its lanes once per Node snapshot.
+				listed := r.hosts[node.String()]
+				if listed == nil || len(listed.view.Activity) != 1 || listed.view.Activity[0].Session != id || listed.view.Activity[0].Waiting {
+					t.Fatalf("Host activity = %#v", listed)
+				}
+				found := &listed.active[0]
+				tester.Frame()
+				if len(listed.view.Activity) != 1 || &listed.active[0] != found {
+					t.Fatal("an unchanged Node snapshot had its Host lanes found again")
+				}
+			}
 			// An identical package command in flight is not sent again, and its second caller is told so.
 			remove := protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: "fixture"}}
 			r.busy["packages/"+packageCommandKey(remove)] = true
@@ -1051,7 +1070,9 @@ func TestComposerSendRouting(t *testing.T) {
 		snapshot.Node = protocol.NodeID{1}
 		source := protocol.ConversationPresetsSource{Kind: "builtin"}
 		snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Preset: &protocol.ConversationPresetsPresetRef{Source: source, ID: "fixture"}, Models: []protocol.ConversationModel{{ID: "reasoning", Reasoning: true, Efforts: []protocol.Effort{{Kind: "low"}, {Kind: "high"}}, DefaultEffort: protocol.Effort{Kind: "medium"}}}}}
-		controller := client.New(&conversationTestTransport{snapshot: snapshot})
+		snapshot.Plugins = []protocol.PluginSummary{{Name: "first"}, {Name: "second"}}
+		transport := &conversationTestTransport{snapshot: snapshot}
+		controller := client.New(transport)
 		if err := controller.Start(t.Context()); err != nil {
 			t.Fatal(err)
 		}
@@ -1066,6 +1087,37 @@ func TestComposerSendRouting(t *testing.T) {
 		r.defaultComposer(comp)
 		if comp.Model != modelKey(provider, "reasoning") || comp.EffortName(nil, comp.Chosen(r.App.Data.Models)) != "medium" || comp.Mode != composer.Plan || comp.Permission != composer.FullAccess {
 			t.Fatalf("projected model default = %#v", comp)
+		}
+		// Connector packages are read one pass at a time: calls during a pass ask for one more.
+		settle := ui.NewTester(func(c *ui.Context) {
+			r.mu.Lock()
+			queue := r.queue
+			r.queue = nil
+			r.mu.Unlock()
+			for _, complete := range queue {
+				complete(c)
+			}
+		}, 640, 400)
+		reads := func() (count int) {
+			for range 4 {
+				r.workers.Wait()
+				settle.Frame()
+			}
+			transport.mu.Lock()
+			defer transport.mu.Unlock()
+			for _, request := range transport.requests {
+				if request.Command.Kind == "read_plugin" {
+					count++
+				}
+			}
+			return count
+		}
+		before := reads()
+		for range 3 {
+			r.readConnectorPackages()
+		}
+		if passes := (reads() - before) / len(snapshot.Plugins); passes != 2 || r.authorizations.packagesReading || r.authorizations.packagesStale {
+			t.Fatal("connector package reads were not coalesced", passes)
 		}
 		// A provider saved without a route shows the first route of its preset in every projection.
 		entry := protocol.ConversationPresetsEntry{Source: source, Preset: protocol.ConversationPresetsPreset{ID: "fixture", Routes: make([]protocol.ConversationPresetsRoute, 4)}}

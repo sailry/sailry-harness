@@ -3,6 +3,7 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"mime"
@@ -58,7 +59,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 		out.reader = io.NopCloser(bytes.NewReader(data))
 		out.size = uint64(len(data))
 		sum := blake3.Sum256(data)
-		out.revision = fmtAttachmentDigest(sum[:])
+		out.revision = hex.EncodeToString(sum[:])
 		if out.mime == "" {
 			out.mime = "application/octet-stream"
 		}
@@ -119,7 +120,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return out, err
 	}
-	out.reader, out.size, out.revision = file, uint64(total), fmtAttachmentDigest(hash.Sum(nil))
+	out.reader, out.size, out.revision = file, uint64(total), hex.EncodeToString(hash.Sum(nil))
 	if detected := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); detected != "" {
 		if media, _, err := mime.ParseMediaType(detected); err == nil {
 			out.mime = media
@@ -131,16 +132,6 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 	success = true
 	return out, nil
 }
-func fmtAttachmentDigest(data []byte) string {
-	const digits = "0123456789abcdef"
-	out := make([]byte, len(data)*2)
-	for i, b := range data {
-		out[2*i] = digits[b>>4]
-		out[2*i+1] = digits[b&15]
-	}
-	return string(out)
-}
-func sameAttachmentSpec(a, b protocol.AttachmentSpec) bool { return a == b }
 func (r *Runtime) retryAttachmentRequest(ctx context.Context, request protocol.Request) (protocol.Output, error) {
 	outcome, err := r.controller.Outcome(ctx, request)
 	if err != nil {

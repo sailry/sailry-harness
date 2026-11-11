@@ -93,6 +93,27 @@ func TestShortcutRecorder(t *testing.T) {
 	if a.Settings.Keys.Recording() {
 		t.Fatalf("Escape did not cancel")
 	}
+	// SNAV-002: opening another section ends the recording, from the
+	// navigation or by a caller that sets the section itself.
+	for _, leave := range []struct {
+		name string
+		do   func()
+	}{
+		{"navigation", func() { clickButton(t, tt, i18n.In("en", string(settings.General))) }},
+		{"assignment", func() { a.Settings.Section = settings.General }},
+	} {
+		click(t, tt, kit.KeyText(ui.Cmd|ui.Shift, ui.KeyN))
+		if !a.Settings.Keys.Recording() {
+			t.Fatalf("%s: not recording", leave.name)
+		}
+		leave.do()
+		tt.Frame()
+		if a.Settings.Section != settings.General || a.Settings.Keys.Recording() {
+			t.Fatalf("%s: section %q, recording %v", leave.name, a.Settings.Section, a.Settings.Keys.Recording())
+		}
+		a.Settings.Open(settings.Shortcuts)
+		tt.Frame()
+	}
 	// SNAV-002: leaving the page by the rail ends the recording, so the
 	// window's keys and the menu's commands work again and the key is kept.
 	click(t, tt, kit.KeyText(ui.Cmd|ui.Shift, ui.KeyN))
@@ -120,6 +141,9 @@ func TestSettingsSaveToasts(t *testing.T) {
 	sw, ok := tt.AccessByRole(ui.RoleSwitch, i18n.In("en", "power_prevent_sleep"))
 	if !ok {
 		t.Fatalf("no power switch: %q", tt.Texts())
+	}
+	if power := a.Settings.Power; power.Saved || power.Draft || power.Revision != 1 {
+		t.Fatalf("the setting starts as %+v", power)
 	}
 	tt.ClickAt(sw.Bounds.X+sw.Bounds.W/2, sw.Bounds.Y+sw.Bounds.H/2)
 	// The preview's save commits the draft as the next revision and is Done.

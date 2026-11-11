@@ -2,8 +2,11 @@ package panel
 
 import (
 	"testing"
+	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -28,6 +31,22 @@ func TestLiveFileDrafts(t *testing.T) {
 		completed(true)
 		if !pr.prompt.open || pr.prompt.title != "second" {
 			t.Fatal("old request completion closed replacement form")
+		}
+	})
+	// A live checkpoint is as old as the clock says, not the fixture's.
+	t.Run("checkpoint age", func(t *testing.T) {
+		s := New(&viewmodel.Workspace{Checkpoints: []viewmodel.Checkpoint{{ID: "turn", Turn: "Turn"}}})
+		s.Live = true
+		s.Show(Tab{Kind: History})
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			s.Data.Checkpoints[0].Time = c.Now().Add(-5 * time.Minute)
+			ui.Column(c).Fill().Children(func() { View(c, s, nil, nil) })
+		}, 480, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		if want := en("notifications_time_minutes", "count", 5); !tt.HasText(want) {
+			t.Fatalf("no %q: %q", want, tt.Texts())
 		}
 	})
 	data := &viewmodel.Workspace{Files: &viewmodel.FileNode{Children: []*viewmodel.FileNode{{Name: "a.md", Path: "a.md"}}}}

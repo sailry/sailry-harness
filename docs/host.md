@@ -88,7 +88,7 @@ the host list; nonexecution controllers do not receive Node reads.
 
 Projects, worktrees, sessions and open terminals come from that Node's own Client
 snapshot. Running and waiting rows use Client's aggregate activity lanes,
-excluding delegated and archived sessions. Their navigation retains the original
+found once per `Client.Revision`, excluding delegated and archived sessions. Their navigation retains the original
 Node identity. A shared Network owns one remote Client per execution peer, while
 each window retains its own presentation and selection.
 
@@ -102,6 +102,11 @@ a healthy new read is pending. The last sample remains private for ordering,
 but failed sampling or a disconnected owner hides its values in both the panel
 and sidebar. Detailed metrics map the Node's disks and busy processes
 into the accepted column without introducing additional monitor controls.
+
+The execution Node routes `stop_host_process` for its own machine, although the
+accepted page has no control that sends it. It refuses plugin callers, PID 0,
+PID 1 and the Node's own process, signals only a process whose start time still
+equals the listed one, and offers only the forced stop on Windows.
 
 `Actions.Update` captures the displayed Update and rejects stale clicks.
 Check reads the remote handshake and compares its version with the local Host
@@ -129,10 +134,21 @@ installation recovery checks the old address, then the selected network hints,
 verifies the returned Node identity and effective selection, and remembers only
 the confirmed address.
 
+The sharing side serves pairing connections only while an invitation is open
+and gives one invitation at most four concurrent claimants; any other pairing
+connection is closed at once, so the joiner sees a network fault instead of the
+`permission_denied` result frame. A wrong or stale code against an open
+invitation still receives that frame. A claimant whose trust could not be
+stored releases the invitation for another device. Pairing is bidirectional as
+in Rust: either paired side may command the other.
+
 Port actions are additive callbacks over the accepted picker. Each window owns
 its Client Forwarders, binds only a loopback listener, and releases its forwards
 on window close. Open uses the confirmed local address through the native
-opener; Create reports backend failure while retaining the entered ports.
+opener; Create reports backend failure while retaining the entered ports. A
+port stream that fails to open is released on the Node with `cancel_port` even
+when the caller's cancellation caused the failure; that cleanup waits at most
+two seconds.
 
 ## Host task automation
 

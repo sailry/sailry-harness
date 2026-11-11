@@ -154,6 +154,3 @@ func (x *conversationActions) stopWorkspaceCommand(text string) {
 		x.r.reportKeys(c, err, "background_stop_failed", "workspace_changed", "background_stop_unknown")
 	})
 }
-func (x *conversationActions) openCommandService(port int) {
-	x.forwardCommandService(port)
-}

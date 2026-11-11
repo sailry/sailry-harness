@@ -29,6 +29,11 @@ func PreparePaths(command protocol.Command) (PreparedPaths, error) {
 			return PreparedPaths{}, err
 		}
 		path = value.Path
+	case *protocol.CommandRegisterProjectPayload:
+		if err := validateProject(value.Name, value.Path, protocol.DefaultProjectsAppearance()); err != nil {
+			return PreparedPaths{}, err
+		}
+		path = value.Path
 	case *protocol.CommandUpdateProjectPayload:
 		if err := validateProject(value.Name, value.Path, value.Appearance); err != nil {
 			return PreparedPaths{}, err

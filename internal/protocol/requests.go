@@ -136,6 +136,7 @@ func (command Command) Durable() bool {
 		"read_plugin_secret",
 		"list_media_models",
 		"read_media_settings",
+		"synthesize_speech",
 		"search_models",
 		"read_model_versions",
 		"resolve_model",

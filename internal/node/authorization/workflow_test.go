@@ -88,6 +88,30 @@ func TestConnectorOAuthPKCE(t *testing.T) {
 			t.Fatalf("callback=%q manual=%v error=%v", entry.value, entry.manual, err)
 		}
 	}
+	t.Run("token answers separate a refusal from an open outcome", func(t *testing.T) {
+		for _, entry := range []struct {
+			status   int
+			document any
+			want     protocol.ErrorCode
+		}{
+			{200, map[string]any{"access_token": "issued"}, ""},
+			{401, nil, protocol.ErrorCodePermissionDenied},
+			{400, map[string]any{"error": "invalid_grant"}, protocol.ErrorCodePermissionDenied},
+			{200, map[string]any{"error": "access_denied"}, protocol.ErrorCodePermissionDenied},
+			{400, map[string]any{"error": "temporarily_unavailable"}, protocol.ErrorCodeUnavailable},
+			{400, map[string]any{"error": "unrecognised"}, protocol.ErrorCodeUnavailable},
+			{403, map[string]any{}, protocol.ErrorCodeUnavailable},
+			{502, nil, protocol.ErrorCodeUnavailable},
+		} {
+			var code protocol.ErrorCode
+			if err := Granted(entry.status, entry.document); err != nil {
+				code = err.(*protocol.Fault).Code
+			}
+			if code != entry.want {
+				t.Errorf("status=%d document=%v code=%q, want %q", entry.status, entry.document, code, entry.want)
+			}
+		}
+	})
 }
 
 func TestAuthorizationIdentity(t *testing.T) {

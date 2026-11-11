@@ -46,8 +46,10 @@ func (call Call) MarshalJSON() ([]byte, error) {
 	return protocol.MarshalUnion("kind", "data", string(call.Kind), payload, callVariants)
 }
 
-func (call *Call) UnmarshalJSON(data []byte) error {
-	kind, payload, err := protocol.UnmarshalUnion(data, "kind", "data", callVariants, false)
+func (call *Call) UnmarshalJSON(data []byte) error { return protocol.Decode(data, call) }
+
+func (call *Call) DecodeJSON(decoder *protocol.Decoder) error {
+	kind, payload, err := decoder.Union("kind", "data", callVariants, false)
 	if err != nil {
 		return err
 	}

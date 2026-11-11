@@ -86,6 +86,9 @@ type connectorEditor struct {
 	fields   map[string]string
 	account  int
 	pending  bool
+	// request is the save under way. The editor that replaced this one has
+	// another or none, so a late completion does not close it.
+	request *int
 	// accounts is the host's look at its local CLI accounts: the account
 	// row's skeleton shows while it runs.
 	accounts   preview.Fetch
@@ -105,6 +108,10 @@ type mcpEditor struct {
 	slots     []preview.EnvVar
 	saved     []bool // the slot has a saved value
 	revision  uint64
+	// request is the save under way: Save waits for it, and the editor that
+	// replaced this one has another or none, so a late completion does not
+	// close it.
+	request *int
 	// removed counts the rows taken out of args and slots. It is part of a
 	// row's identity: a row that moves into a removed one's place does not
 	// take its text state (undo history, selection) with the place.
@@ -506,13 +513,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 			if method == "connector_application" {
 				kit.Secondary(c.Key("register"), t("connector_register")).Height(28).AlignSelf(ui.Start).OnClick(func() {
 					if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Save != nil {
-						e.pending = true
-						m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields), Registration: true}, func(ok bool) {
-							e.pending = false
-							if ok {
-								e.open = false
-							}
-						})
+						m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields), Registration: true}, e.saving())
 					} else {
 						notice(c)
 					}
@@ -539,13 +540,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 					}
 				}
 				if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Save != nil {
-					e.pending = true
-					m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields)}, func(ok bool) {
-						e.pending = false
-						if ok {
-							e.open = false
-						}
-					})
+					m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields)}, e.saving())
 					return
 				}
 				if s := m.service(e.service); s == nil {
@@ -565,6 +560,22 @@ func connectorDialog(c *ui.Context, m *Model) {
 			})
 		})
 	}).Width(min(520, width(c)-48)).Label(t("connector_add"))
+}
+
+// saving marks a save under way and returns its completion, which closes
+// the editor that asked when the save went through.
+func (e *connectorEditor) saving() func(bool) {
+	request := new(int)
+	e.request, e.pending = request, true
+	return func(ok bool) {
+		if e.request != request {
+			return
+		}
+		e.request, e.pending = nil, false
+		if ok {
+			e.open = false
+		}
+	}
 }
 
 // serviceDetails is the service with its summary over each server's facts,
@@ -715,9 +726,18 @@ func mcpDialog(c *ui.Context, m *Model) {
 				return
 			}
 			if m.Live && m.ConnectorActions != nil && m.ConnectorActions.SaveMCP != nil {
+				if e.request != nil {
+					return
+				}
+				request := new(int)
+				e.request = request
 				draft := MCPDraft{Service: e.original, Name: strings.TrimSpace(e.name), Revision: e.revision,
 					Server: preview.Server{Name: strings.TrimSpace(e.name), Transport: e.transport, Command: e.command, Args: slices.Clone(e.args), URL: e.url, Env: slices.Clone(e.slots)}}
 				m.ConnectorActions.SaveMCP(draft, func(ok bool) {
+					if e.request != request {
+						return
+					}
+					e.request = nil
 					if ok {
 						e.open = false
 					}

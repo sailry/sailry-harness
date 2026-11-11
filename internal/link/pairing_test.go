@@ -171,6 +171,32 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 			t.Fatal("closed invitation admitted a pairing connection")
 		}
 	})
+	t.Run("claimant_without_trust_frees_the_invitation", func(t *testing.T) {
+		link := newFixtureLink(t)
+		store := link.store.(*fixturePeerStore)
+		offer := &pairingOffer{
+			token: pairingToken{7}, deadline: link.now().Add(invitationLifetime),
+			stop: make(chan struct{}), paired: make(chan struct{}),
+		}
+		link.offer = offer
+		failed, uncertain, other := protocol.NodeID{3}, protocol.NodeID{4}, protocol.NodeID{5}
+		store.trustOutcome = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture directory is unavailable"}
+		if err := link.acceptPairing(t.Context(), offer.token, failed, EndpointAddress{ID: failed}); err == nil || offer.peer != nil || channelClosed(offer.paired) || link.isTrusted(failed) {
+			t.Fatalf("a claimant that gained no trust kept the invitation: %v", err)
+		}
+		// A commit of unknown outcome is reconciled to trust, so its claim stays.
+		store.trustOutcome = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "fixture directory sync is uncertain"}
+		if err := link.acceptPairing(t.Context(), offer.token, uncertain, EndpointAddress{ID: uncertain}); err == nil || offer.peer == nil || *offer.peer != uncertain || !link.isTrusted(uncertain) {
+			t.Fatalf("a trusted claimant lost its invitation: %v", err)
+		}
+		store.trustOutcome = nil
+		if err := link.acceptPairing(t.Context(), offer.token, other, EndpointAddress{ID: other}); err == nil || link.isTrusted(other) {
+			t.Fatal("a second device claimed an invitation that already trusted one")
+		}
+		if err := link.acceptPairing(t.Context(), offer.token, uncertain, EndpointAddress{ID: uncertain}); err != nil || !channelClosed(offer.paired) {
+			t.Fatalf("the trusted claimant could not finish its pairing: %v", err)
+		}
+	})
 	t.Run("uncertain_persistence_reconciles_live_peer", func(t *testing.T) {
 		link := newFixtureLink(t)
 		store := link.store.(*fixturePeerStore)

@@ -51,10 +51,11 @@ func DefaultConversationQuotaSnapshot() ConversationQuotaSnapshot {
 		SevenDay:   nil,
 	}
 }
-func (value *ConversationQuotaSnapshot) UnmarshalJSON(data []byte) error {
+func (value *ConversationQuotaSnapshot) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationQuotaSnapshot) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationQuotaSnapshot
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"provider", "credential", "revision", "observed_ms"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"provider", "credential", "revision", "observed_ms"}, false); err != nil {
 		return err
 	}
 	*value = ConversationQuotaSnapshot(decoded)

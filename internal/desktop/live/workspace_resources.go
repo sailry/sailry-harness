@@ -93,7 +93,6 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		p.projectDiff(relative, p.diffContents[key])
 		p.readFile(relative)
 		p.readTurnHunks(relative)
-		_ = c
 	})
 }
 func (p *workspaceProject) projectDiff(relative string, hunks []viewmodel.Hunk) {
@@ -102,9 +101,6 @@ func (p *workspaceProject) projectDiff(relative string, hunks []viewmodel.Hunk) 
 			p.data.Changes[i].Hunks = hunks
 		}
 	}
-}
-func (p *workspaceProject) readCommit(id string) {
-	p.openGitCommit(id)
 }
 func (p *workspaceProject) showDocument(id, title, documentPath, text string) {
 	for i := range p.data.Documents {
@@ -250,7 +246,6 @@ func (p *workspaceProject) readArtifacts(session protocol.SessionID, after *prot
 			documents = append(documents, document)
 		}
 		p.data.Documents = documents
-		_ = c
 	})
 }
 func (p *workspaceProject) readDocument(id string) {
@@ -287,7 +282,6 @@ func (p *workspaceProject) readDocument(id string) {
 				}
 			})
 		})
-		_ = c
 	})
 }
 func (p *workspaceProject) readCheckpointPage(session protocol.SessionID, turn protocol.TurnID, title string, started time.Time, before *protocol.CheckpointID, accumulated []protocol.ConversationCheckpointFile) {
@@ -333,7 +327,6 @@ func (p *workspaceProject) readCheckpointPage(session protocol.SessionID, turn p
 		if relative := p.panel.Git.Change(); relative != "" && relative != ":changes" {
 			p.readTurnHunks(relative)
 		}
-		_ = c
 	})
 }
 func (p *workspaceProject) restore(_ *ui.Context, id string) {
@@ -368,7 +361,6 @@ func (p *workspaceProject) readTurnHunks(relative string) {
 		if value, ok := detail[protocol.ConversationCheckpointHunkReview](out.Data); ok && p.session == session && value.Session == session && value.Worktree == p.owner.ID {
 			p.hunks[relative] = value
 		}
-		_ = c
 	})
 }
 func (p *workspaceProject) hunk(c *ui.Context, relative string, index int, action string) {
@@ -415,10 +407,6 @@ func (p *workspaceProject) hunk(c *ui.Context, relative string, index int, actio
 		p.refresh()
 		kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 	})
-}
-func (p *workspaceProject) gitOutput(c *ui.Context) {
-	p.openGitOutput()
-	_ = c
 }
 
 func workspaceHunkFingerprint(hunk viewmodel.Hunk) string {

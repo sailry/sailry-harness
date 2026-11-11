@@ -162,6 +162,15 @@ describe.each(["SQLite", "Blob contract"])("shared exchange: %s", backend => {
     expect((await new Exchange(store, limits, undefined, () => 0).execute("redeem", body, "client", NOW)).status).toBe(429);
   });
 
+  it("a spent source does not drain the global budget", async () => {
+    const { exchange } = setup({ ...limits, global: 7 });
+    const body = { request_id: requestId(NOW), code: "999999" };
+    for (let index = 0; index < 5; index++) expect((await exchange.execute("redeem", body, "noisy", NOW)).status).toBe(404);
+    for (let index = 0; index < 20; index++) expect((await exchange.execute("redeem", body, "noisy", NOW)).status).toBe(429);
+    for (let index = 0; index < 2; index++) expect((await exchange.execute("redeem", body, "other", NOW)).status).toBe(404);
+    expect((await exchange.execute("redeem", body, "third", NOW)).status).toBe(429);
+  });
+
   it("cleanup preserves reused codes", async () => {
     const { exchange, store } = setup(limits, () => "123456");
     const first = await publish(exchange);

@@ -74,7 +74,7 @@ func (r *Runtime) uploadAttachment(x *conversationActions, a *composer.Attachmen
 				return
 			}
 			upload, ok := detail[protocol.AttachmentUpload](output.Data)
-			if output.Kind != "attachment_upload" || !ok || !sameAttachmentSpec(upload.Spec, spec) {
+			if output.Kind != "attachment_upload" || !ok || upload.Spec != spec {
 				if ok {
 					r.cancelAttachmentStream(upload.Stream)
 				}

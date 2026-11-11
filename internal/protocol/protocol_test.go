@@ -100,8 +100,8 @@ func TestCommandKinds(t *testing.T) {
 		t.Fatalf("Rust command inventory contains %d entries, want 362", len(want))
 	}
 	got := CommandKinds()
-	if len(got) != len(want)+1 || !reflect.DeepEqual(got[:len(want)], want) || got[len(want)] != "apply_git_hunk" {
-		t.Fatalf("command kinds differ from the Rust inventory plus the documented native Git extension\nwant: %v + apply_git_hunk\n got: %v", want, got)
+	if extensions := []string{"apply_git_hunk", "synthesize_speech"}; len(got) != len(want)+len(extensions) || !reflect.DeepEqual(got[:len(want)], want) || !reflect.DeepEqual(got[len(want):], extensions) {
+		t.Fatalf("command kinds differ from the Rust inventory plus the documented native extensions\nwant: %v + %v\n got: %v", want, extensions, got)
 	}
 	t.Run("native Git hunk extension validates captured revisions", func(t *testing.T) {
 		input := CommandApplyGitHunkPayload{Worktree: NewWorktreeID(), Path: "source.go", Scope: GitDiffScopeUnstaged, Operation: GitHunkStage, Hunk: 0, DiffRevision: strings.Repeat("a", 64), ExpectedRevision: strings.Repeat("b", 64), ExpectedIndex: strings.Repeat("c", 64)}

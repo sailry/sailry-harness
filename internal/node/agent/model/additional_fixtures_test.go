@@ -14,9 +14,7 @@ import (
 	"charm.land/fantasy/providers/google"
 )
 
-// additionalParityFixtures is intended for the sole TestRequestParity entry point.
-// It is separate so the coordinator can continue integrating the main fixture
-// table while this child owns independent additional scenarios.
+// additionalParityFixtures runs under TestRequestParity.
 func additionalParityFixtures(t *testing.T) {
 	for _, kind := range []string{"anthropic", "responses", "chat", "google"} {
 		for _, early := range []bool{false, true} {

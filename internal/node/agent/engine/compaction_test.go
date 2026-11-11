@@ -118,9 +118,20 @@ func TestCompactionHandoff(t *testing.T) {
 			captured = value
 			return m, nil
 		}
+		// An account credential is resolved again for the summary request.
+		renewed := `{"kind":"copilot","access":"renewed","endpoint":"https://api.githubcopilot.com","renewal_pending":false}`
+		binding.Provider.Authentication, binding.Provider.Endpoint = protocol.AuthenticationCopilot, "https://api.githubcopilot.com"
+		f.r.authorizeProvider = func(_ context.Context, inv *store.AgentInvocation) error {
+			secret := protocol.NewSecret(renewed)
+			inv.Secret = &secret
+			return nil
+		}
 		before, _ := json.Marshal(state.Records)
 		if err := f.r.compact(x, binding, state, true); err != nil {
 			t.Fatal(err)
+		}
+		if captured.Secret == nil || captured.Secret.Expose() != renewed {
+			t.Fatal("summary request kept the credential captured at turn start")
 		}
 		if captured.Provider.ID != binding.Provider.ID || captured.Provider.Endpoint != binding.Provider.Endpoint || captured.Config.Model != binding.Config.Model || captured.Config.Effort.Kind != "none" || binding.Config.Effort.Kind != "high" {
 			t.Fatal("summary did not retain the captured provider/model with independent lowest effort")

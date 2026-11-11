@@ -17,7 +17,9 @@ Loopback/manual callbacks retain declared state and PKCE ownership.
 OIDC checks issuer, signature, audience, subject, timestamps, nonce and authorized
 party. JWKS stay on the declared issuer origin. Grants are validated against
 their declared authentication kind. Renewal fences prevent silently repeating
-uncertain exchanges.
+uncertain exchanges. An OAuth connection with no refresh declaration or no
+refresh token sends nothing: it answers `expired` "connector authorization
+cannot be refreshed" and keeps no uncertain marker.
 
 Public connection projections contain metadata, status and consent requirements.
 Credentials stay in Node configuration storage and are absent from public events,
@@ -36,7 +38,11 @@ projects the differences and verifies the capture again when the controller
 accepts. HTTP and MCP reject credentials for an undeclared or changed target.
 
 Local CLI declarations run fixed arguments with bounded output and minimal
-environment. Token reads verify the selected account before and after execution.
+environment. Manifest validation refuses a command that is not a bare lower-case
+name, more than eight variables, the names `PATH`, `HOME`, `USERPROFILE`,
+`APPDATA` and `LOCALAPPDATA`, placeholders other than `{account}` and bounds
+outside 30 seconds or 64 KiB; the search path and home variables are always the
+Node's own. Token reads verify the selected account before and after execution.
 Their token cache is private to the Node and uses the declaration's bound.
 The cache also retains the exact CLI authentication declaration and account
 identity, so a changed source cannot reuse an earlier credential.
@@ -52,7 +58,9 @@ server permission cannot use an existing lease. Credential acquisition and refre
 remain outside SQL.
 
 Desktop projects live connector declarations, account state and MCP facts through
-Client subscriptions. Its editor retains its opening revision and masked secret
+Client subscriptions. Installed package declarations are read in one pass at a
+time; an update during a pass asks for one more pass, a failed read keeps the
+package's shown declaration and each pass reports its first failure once. Its editor retains its opening revision and masked secret
 slots. Plugin MCP credentials use an existing declared settings form when present;
 other plugin MCP configuration uses `ReadPluginMcp` and `SavePluginMcp`. Standalone
 MCP definitions use `InstallMcp` for captured definition and secret-slot updates.

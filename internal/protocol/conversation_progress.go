@@ -18,10 +18,11 @@ func DefaultConversationProgress() ConversationProgress {
 		Steps: []ConversationProgressStep{},
 	}
 }
-func (value *ConversationProgress) UnmarshalJSON(data []byte) error {
+func (value *ConversationProgress) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationProgress) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationProgress
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"steps"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"steps"}, true); err != nil {
 		return err
 	}
 	*value = ConversationProgress(decoded)

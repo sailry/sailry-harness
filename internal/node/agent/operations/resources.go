@@ -47,7 +47,7 @@ type Resources struct {
 type SkillText struct{ Content, Directory string }
 
 // CaptureResources resolves only the exact package versions admitted by a turn.
-func CaptureResources(profile string, references []protocol.PluginReference, assistant *protocol.PluginConversationBinding) (*Resources, error) {
+func CaptureResources(ctx context.Context, profile string, references []protocol.PluginReference, assistant *protocol.PluginConversationBinding) (*Resources, error) {
 	catalog, err := Bundled()
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func CaptureResources(profile string, references []protocol.PluginReference, ass
 		})
 		if index < 0 {
 			manager := plugins.NewManager(profile)
-			info, err := manager.CapturedInfo(context.Background(), reference)
+			info, err := manager.CapturedInfo(ctx, reference)
 			if err != nil {
 				return nil, err
 			}

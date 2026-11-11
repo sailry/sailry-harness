@@ -5,9 +5,11 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -155,48 +157,64 @@ func TestMCPCleanupUnknown(t *testing.T) {
 			t.Fatalf("acquisition discarded a resource owner: lease=%v error=%v", lease, err)
 		}
 	})
-	t.Run("dead reusable server is replaced", func(t *testing.T) {
-		var servers []*sdk.ServerSession
-		pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
-			server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
-			sdk.AddTool(server, &sdk.Tool{Name: "echo"}, func(ctx context.Context, request *sdk.CallToolRequest, input struct{}) (*sdk.CallToolResult, any, error) {
-				return &sdk.CallToolResult{}, nil, nil
+	// The source checks the connection when it is acquired. A closed session
+	// is replaced before its next use; a transport that only fails its
+	// requests is retired by the failed listing.
+	for _, row := range []struct {
+		name     string
+		attempts int
+	}{{"dead reusable server is replaced", 1}, {"failed reusable transport is replaced", 2}} {
+		t.Run(row.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var servers []*sdk.ServerSession
+				var wires []*atomic.Bool
+				pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+					server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+					sdk.AddTool(server, &sdk.Tool{Name: "echo"}, func(ctx context.Context, request *sdk.CallToolRequest, input struct{}) (*sdk.CallToolResult, any, error) {
+						return &sdk.CallToolResult{}, nil, nil
+					})
+					clientWire, serverWire := sdk.NewInMemoryTransports()
+					session, err := server.Connect(t.Context(), serverWire, nil)
+					if err != nil {
+						return nil, err
+					}
+					servers = append(servers, session)
+					wires = append(wires, &atomic.Bool{})
+					return sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, &sdk.ClientOptions{ElicitationHandler: elicit}).Connect(ctx, brokenTransport{clientWire, wires[len(wires)-1]}, nil)
+				}})
+				defer pool.Close()
+				options := protocol.DefaultPluginMcpOptions()
+				options.Reuse = true
+				config := Configuration{Package: protocol.PluginReference{Name: "dead", Digest: "capture"}, Server: "echo", Options: options, Authorization: 1}
+				list := func() error {
+					lease, err := pool.Acquire(t.Context(), config)
+					if err != nil {
+						return err
+					}
+					_, err = lease.List(t.Context())
+					return errors.Join(err, lease.Close())
+				}
+				if err := list(); err != nil {
+					t.Fatal(err)
+				}
+				if row.attempts == 1 {
+					_ = servers[0].Close()
+					synctest.Wait()
+				} else {
+					wires[0].Store(true)
+					if err := list(); err == nil {
+						t.Fatal("listing passed a failed transport")
+					}
+				}
+				if err := list(); err != nil {
+					t.Fatalf("dead connection stayed in the pool: %v", err)
+				}
+				if len(servers) != 2 {
+					t.Fatalf("connections opened=%d", len(servers))
+				}
 			})
-			clientWire, serverWire := sdk.NewInMemoryTransports()
-			session, err := server.Connect(t.Context(), serverWire, nil)
-			if err != nil {
-				return nil, err
-			}
-			servers = append(servers, session)
-			return sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, &sdk.ClientOptions{ElicitationHandler: elicit}).Connect(ctx, clientWire, nil)
-		}})
-		defer pool.Close()
-		options := protocol.DefaultPluginMcpOptions()
-		options.Reuse = true
-		config := Configuration{Package: protocol.PluginReference{Name: "dead", Digest: "capture"}, Server: "echo", Options: options, Authorization: 1}
-		list := func() error {
-			lease, err := pool.Acquire(t.Context(), config)
-			if err != nil {
-				return err
-			}
-			_, err = lease.List(t.Context())
-			return errors.Join(err, lease.Close())
-		}
-		if err := list(); err != nil {
-			t.Fatal(err)
-		}
-		_ = servers[0].Close()
-		_ = servers[0].Wait()
-		// The closed transport is noticed either before or by the first use.
-		if err := list(); err != nil {
-			if err = list(); err != nil {
-				t.Fatalf("dead connection stayed in the pool: %v", err)
-			}
-		}
-		if len(servers) != 2 {
-			t.Fatalf("connections opened=%d", len(servers))
-		}
-	})
+		})
+	}
 	for _, fail := range []bool{false, true} {
 		t.Run(map[bool]string{false: "confirmed", true: "unconfirmed"}[fail], func(t *testing.T) {
 			pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
@@ -262,4 +280,28 @@ type failingConnection struct{ sdk.Connection }
 func (connection failingConnection) Close() error {
 	_ = connection.Connection.Close()
 	return errors.New("fixture transport cleanup was not acknowledged")
+}
+
+// brokenTransport fails every write once its flag is set while the session
+// itself stays open, as a remote endpoint that stopped answering does.
+type brokenTransport struct {
+	sdk.Transport
+	broken *atomic.Bool
+}
+
+func (transport brokenTransport) Connect(ctx context.Context) (sdk.Connection, error) {
+	connection, err := transport.Transport.Connect(ctx)
+	return brokenConnection{connection, transport.broken}, err
+}
+
+type brokenConnection struct {
+	sdk.Connection
+	broken *atomic.Bool
+}
+
+func (connection brokenConnection) Write(ctx context.Context, message jsonrpc.Message) error {
+	if connection.broken.Load() {
+		return errors.New("fixture transport failure")
+	}
+	return connection.Connection.Write(ctx, message)
 }

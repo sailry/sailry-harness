@@ -268,6 +268,26 @@ func TestModelPickerAndEffort(t *testing.T) {
 	if got := composer.Efforts[int(comp.Effort)]; got != "high" {
 		t.Errorf("effort %q after Right from medium (slider %+v)", got, slider)
 	}
+	// At the highest level a sheen crosses the fill: it is light over the
+	// gradient, so a point of the fill only ever gets brighter than it rests.
+	tt.Key(0, ui.KeyEnd)
+	tt.Frame()
+	x, y := int(slider.Bounds.X+slider.Bounds.W*0.4), int(slider.Bounds.Y+7+5)
+	seen := map[int]int{}
+	lo, hi, rest := 1<<30, 0, 0
+	for range 32 {
+		tt.Advance(50 * time.Millisecond)
+		px := tt.Image().RGBAAt(x, y)
+		v := int(px.R) + int(px.G) + int(px.B)
+		seen[v]++
+		lo, hi = min(lo, v), max(hi, v)
+		if seen[v] > seen[rest] {
+			rest = v
+		}
+	}
+	if hi < rest+10 || lo < rest-2 {
+		t.Errorf("the sheen over the highest effort's fill: rest %d, darkest %d, lightest %d", rest, lo, hi)
+	}
 	// The model list chooses another model; a reasoning model takes its
 	// effort from a submenu.
 	clickButton(t, tt, "Claude Opus 5.5") // the panel's model, which opens the list
@@ -626,6 +646,42 @@ func TestComposerQueueReferencesEscape(t *testing.T) {
 	if !tt.HasText(i18n.In("en", "reference_title")) {
 		t.Fatalf("@ opens no picker: %q", tt.Texts())
 	}
+	// The keys move the selection past a pointer at rest over a row; the
+	// pointer takes it by moving.
+	options := func() (rows []ui.AccessInfo, selected int) {
+		selected = -1
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleOption {
+				if x.Selected {
+					selected = len(rows)
+				}
+				rows = append(rows, x)
+			}
+		}
+		return rows, selected
+	}
+	rows, _ := options()
+	if len(rows) < 4 {
+		t.Fatalf("%d rows in the picker", len(rows))
+	}
+	third := rows[2].Bounds
+	tt.Move(third.X+third.W/2, third.Y+third.H/2)
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	tt.Frame()
+	if _, selected := options(); selected != 1 {
+		t.Errorf("Down with the pointer at rest over the third row selects row %d", selected)
+	}
+	tt.Move(third.X+third.W/2+4, third.Y+third.H/2)
+	tt.Frame()
+	if _, selected := options(); selected != 2 {
+		t.Errorf("the pointer moving over the third row selects row %d", selected)
+	}
+	tt.Move(1, 1)
+	tt.Key(0, ui.KeyUp)
+	tt.Key(0, ui.KeyUp)
+	tt.Frame()
 	tt.Key(0, ui.KeyDown) // Agents
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()

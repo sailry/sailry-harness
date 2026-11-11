@@ -25,9 +25,10 @@ func (value ToolPresentation) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ToolPresentation %q", value)
 	}
 }
-func (value *ToolPresentation) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ToolPresentation) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ToolPresentation) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ToolPresentation(decoded) {
@@ -67,9 +68,10 @@ func (value ToolGrouping) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ToolGrouping %q", value)
 	}
 }
-func (value *ToolGrouping) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ToolGrouping) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ToolGrouping) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ToolGrouping(decoded) {

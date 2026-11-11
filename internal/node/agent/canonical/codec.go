@@ -1,7 +1,6 @@
 package canonical
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -63,13 +62,14 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	}
 	return joinObjects(b, v)
 }
-func (r *Record) UnmarshalJSON(data []byte) error {
+func (r *Record) UnmarshalJSON(data []byte) error { return protocol.Decode(data, r) }
+
+// DecodeJSON reads the record fields and the variant its kind names from the
+// members of one object.
+func (r *Record) DecodeJSON(decoder *protocol.Decoder) error {
 	type plain Record
 	var value plain
-	if err := protocol.DecodeObject(data, &value, []string{"id", "created", "turn"}, false); err != nil {
-		return err
-	}
-	kind, payload, err := protocol.UnmarshalUnion(data, "kind", "", recordVariants, false)
+	kind, payload, err := decoder.Tagged(&value, []string{"id", "created", "turn"}, "kind", recordVariants)
 	if err != nil {
 		return err
 	}
@@ -90,14 +90,12 @@ func (b Block) MarshalJSON() ([]byte, error) {
 	}
 	return joinObjects(head, body)
 }
-func (b *Block) UnmarshalJSON(data []byte) error {
+func (b *Block) UnmarshalJSON(data []byte) error { return protocol.Decode(data, b) }
+func (b *Block) DecodeJSON(decoder *protocol.Decoder) error {
 	var value struct {
 		Index uint64 `json:"index"`
 	}
-	if err := protocol.DecodeObject(data, &value, []string{"index"}, false); err != nil {
-		return err
-	}
-	kind, payload, err := protocol.UnmarshalUnion(data, "type", "", blockVariants, false)
+	kind, payload, err := decoder.Tagged(&value, []string{"index"}, "type", blockVariants)
 	if err != nil {
 		return err
 	}
@@ -107,8 +105,9 @@ func (b *Block) UnmarshalJSON(data []byte) error {
 func (v Notice) MarshalJSON() ([]byte, error) {
 	return tagged("notice", v.Kind, v.Data, noticeVariants)
 }
-func (v *Notice) UnmarshalJSON(data []byte) error {
-	kind, payload, err := protocol.UnmarshalUnion(data, "notice", "", noticeVariants, false)
+func (v *Notice) UnmarshalJSON(data []byte) error { return protocol.Decode(data, v) }
+func (v *Notice) DecodeJSON(decoder *protocol.Decoder) error {
+	kind, payload, err := decoder.Union("notice", "", noticeVariants, false)
 	if err != nil {
 		return err
 	}
@@ -118,8 +117,9 @@ func (v *Notice) UnmarshalJSON(data []byte) error {
 func (v Operation) MarshalJSON() ([]byte, error) {
 	return tagged("operation", v.Kind, v.Data, operationVariants)
 }
-func (v *Operation) UnmarshalJSON(data []byte) error {
-	kind, payload, err := protocol.UnmarshalUnion(data, "operation", "", operationVariants, false)
+func (v *Operation) UnmarshalJSON(data []byte) error { return protocol.Decode(data, v) }
+func (v *Operation) DecodeJSON(decoder *protocol.Decoder) error {
+	kind, payload, err := decoder.Union("operation", "", operationVariants, false)
 	if err != nil {
 		return err
 	}
@@ -129,8 +129,9 @@ func (v *Operation) UnmarshalJSON(data []byte) error {
 func (v OperationNote) MarshalJSON() ([]byte, error) {
 	return tagged("note", v.Kind, v.Data, noteVariants)
 }
-func (v *OperationNote) UnmarshalJSON(data []byte) error {
-	kind, payload, err := protocol.UnmarshalUnion(data, "note", "", noteVariants, false)
+func (v *OperationNote) UnmarshalJSON(data []byte) error { return protocol.Decode(data, v) }
+func (v *OperationNote) DecodeJSON(decoder *protocol.Decoder) error {
+	kind, payload, err := decoder.Union("note", "", noteVariants, false)
 	if err != nil {
 		return err
 	}
@@ -143,12 +144,13 @@ func (v Attachment) MarshalJSON() ([]byte, error) {
 		Asset AssetRef `json:"asset"`
 	}{"inline", v.Asset})
 }
-func (v *Attachment) UnmarshalJSON(data []byte) error {
+func (v *Attachment) UnmarshalJSON(data []byte) error { return protocol.Decode(data, v) }
+func (v *Attachment) DecodeJSON(decoder *protocol.Decoder) error {
 	var decoded struct {
 		Type  string   `json:"type"`
 		Asset AssetRef `json:"asset"`
 	}
-	if err := protocol.DecodeObject(data, &decoded, []string{"type", "asset"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"type", "asset"}, false); err != nil {
 		return err
 	}
 	if decoded.Type != "inline" {
@@ -157,9 +159,9 @@ func (v *Attachment) UnmarshalJSON(data []byte) error {
 	v.Asset = decoded.Asset
 	return nil
 }
-func stringEnum(data []byte, choices ...string) (string, error) {
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
+func stringEnum(decoder *protocol.Decoder, choices ...string) (string, error) {
+	value, err := decoder.String()
+	if err != nil {
 		return "", err
 	}
 	for _, choice := range choices {
@@ -169,23 +171,27 @@ func stringEnum(data []byte, choices ...string) (string, error) {
 	}
 	return "", fmt.Errorf("unknown conversation value %q", value)
 }
-func (v *Role) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "user", "assistant")
+func (v *Role) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *Role) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "user", "assistant")
 	*v = Role(s)
 	return e
 }
-func (v *Finish) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "completed", "interrupted", "failed")
+func (v *Finish) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *Finish) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "completed", "interrupted", "failed")
 	*v = Finish(s)
 	return e
 }
-func (v *ToolStatus) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "success", "error")
+func (v *ToolStatus) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *ToolStatus) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "success", "error")
 	*v = ToolStatus(s)
 	return e
 }
-func (v *ToolFormat) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "json", "mcp", "mcp_error")
+func (v *ToolFormat) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *ToolFormat) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "json", "mcp", "mcp_error")
 	if s == "json" {
 		s = ""
 	}
@@ -199,24 +205,21 @@ func (v ToolFormat) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(s)
 }
-func (v *BinaryEncoding) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "bytes", "base64")
+func (v *BinaryEncoding) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *BinaryEncoding) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "bytes", "base64")
 	*v = BinaryEncoding(s)
 	return e
 }
-func (v *InputSource) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "user", "parent", "plugin", "notice")
+func (v *InputSource) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *InputSource) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "user", "parent", "plugin", "notice")
 	*v = InputSource(s)
 	return e
 }
-func (v *Purpose) UnmarshalJSON(b []byte) error {
-	s, e := stringEnum(b, "main", "compaction", "search")
+func (v *Purpose) UnmarshalJSON(data []byte) error { return protocol.DecodeValue(data, v) }
+func (v *Purpose) DecodeJSON(decoder *protocol.Decoder) error {
+	s, e := stringEnum(decoder, "main", "compaction", "search")
 	*v = Purpose(s)
 	return e
-}
-
-// DecodeObject rejects explicit null for nonoptional scalar fields while the
-// generated typed decoders below preserve default and optional fields.
-func required(data []byte, target any, names []string) error {
-	return protocol.DecodeObject(bytes.TrimSpace(data), target, names, false)
 }

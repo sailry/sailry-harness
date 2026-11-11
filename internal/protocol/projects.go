@@ -45,10 +45,11 @@ func DefaultProjectsAppearance() ProjectsAppearance {
 		Color: "none",
 	}
 }
-func (value *ProjectsAppearance) UnmarshalJSON(data []byte) error {
+func (value *ProjectsAppearance) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ProjectsAppearance) DecodeJSON(decoder *Decoder) error {
 	type plain ProjectsAppearance
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"icon", "color"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"icon", "color"}, false); err != nil {
 		return err
 	}
 	*value = ProjectsAppearance(decoded)

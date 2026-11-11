@@ -108,6 +108,10 @@ is the system's (`workspace_host` opens the chosen host's page,
 `connection_action_edit`, `project_add`). The host page has the right
 column too: its metrics, toggled by the details button and ⌥⌘B.
 
+A host's name shows as it is (`App.hostName`): only the preview's hosts and
+the local host before its Node names it (`local_host_name`) are i18n keys, so
+a device named like a catalog key is not translated.
+
 ## Header
 
 The sidebar toggle (`PanelLeftClose`/`Open`), then the title: on a
@@ -162,8 +166,10 @@ registers with MyGo's `GlobalShortcut` at launch (system_shortcuts.rs
 install); each brings the window forward and runs its command through
 `Do`. The selection shortcut's dialog (system_shortcuts.rs show) shows
 the captured text, selectable, Read aloud (preview_notice) and Quote, which
-adds it to the draft of the conversation shown as it was captured. The
-preview reads no other app: it shows `preview.Selection`.
+adds it to the draft of the conversation shown as it was captured, every
+line of it quoted (`conversation.Quote`) after a blank line when the draft has
+text, and nothing after the quote. The preview reads no other app: it
+shows `preview.Selection`.
 
 ⌘ is Ctrl off macOS (`ui.Cmd`); the app menu's Close Window, Hide, Hide
 Others, Minimize and Full Screen are on Command (`ui.Super`) as
@@ -187,9 +193,17 @@ The menu takes its items' keys before the window on every platform, so a
 command from the menu runs in the next frame scoped as its key would be:
 Close Tab closes what ⌘W closes where the focus is (`closeFocused`, by
 `Context.FocusWithin` of the panes' handles), and the window's commands
-wait while the search, the knowledge viewer or the project editor shows,
-as a modal dialog holds the window's shortcuts. This is the only scoping
+wait while the search, the knowledge viewer, the project editor or any
+modal dialog shows, as a modal dialog holds the window's shortcuts: Kit's
+dialogs note themselves on the window (`kit.NoteModal`) and `App.shortcuts`
+reads the note once a frame (`kit.TakeModal`). This is the only scoping
 added over MyGo's own.
+
+An item's key is the one bound in Settings (`syncMenuKeys`): a rebound key
+reaches the menu in the next frame and a cleared one leaves its item without
+a key. Recording a shortcut holds the window's shortcuts and the menu's
+commands only while the Shortcuts section shows; leaving it, however the
+page was left, cancels the recording.
 
 ## Search
 
@@ -199,7 +213,8 @@ items with a check on the current one. `Filter` keeps rows whose label or
 keyword holds the query, case folded, in order, dropping empty groups;
 `Next` moves round. Enter opens a folder or runs a row, Escape clears the
 query then closes, Backspace on an empty query goes back, `reference_back`
-too. Empty: `connection_search_empty`.
+too. Empty: `connection_search_empty`. Every way of opening it
+(`openSearch`) starts at the root with an empty query.
 
 ## Activity centre
 
@@ -258,6 +273,14 @@ openness, tabs and active tab, the projects closed in the sidebar, and
 the rail's order and unpinned features, in `ui-state.json` in MyGo's user
 data folder (beside `window-state.json`, which `StateKey` keeps the
 bounds in). `LoadPrefs` falls back to the defaults and clamps widths.
+The file is one for the preview and every profile, so the rail's order and
+pins in it are the preview's: a live window keeps its own in the profile
+(`FeaturePreferences`), neither reads nor changes the file's, and writes
+back the ones it loaded. Artifact and subagent tabs are not saved: their
+content does not outlive the run. Split panes whose session is away (a host
+not yet connected, another profile) are held as saved and return to their
+place when the session does (`panes.Workspace.Follow`); changing the layout
+meanwhile makes the changed one the layout to keep.
 
 ## Backend ownership
 
@@ -279,7 +302,8 @@ Client actions and projections without changing the accepted UI.
 `internal/desktop/shell/shortcuts_test.go`: ⌘W in a focused panel tab, a focused
 Files or Git page and with nothing closable focused; Escape closing only
 the popover; a text input keeping ⌘A and ⌘Z; the menu's items, keys and
-translations; menu commands scoped as their keys.
+translations and rebound keys; menu commands scoped as their keys, behind
+the sidebar's dialogs too.
 `internal/desktop/shell/frame_test.go`: ⌘⌥B, ⌘P, ⌃⇧G and ⌘W on the panel;
 ⌘B and preferences round-tripping; ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer

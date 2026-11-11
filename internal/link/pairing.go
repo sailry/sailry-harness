@@ -363,6 +363,12 @@ func (link *Link) acceptPairing(ctx context.Context, token pairingToken, peer pr
 	offer.peer = &claimed
 	link.offerMu.Unlock()
 	if err := link.SetTrust(ctx, peer, true); err != nil {
+		// A claimant that gained no trust leaves the invitation to the others.
+		link.offerMu.Lock()
+		if offer.peer == &claimed && !link.isTrusted(peer) {
+			offer.peer = nil
+		}
+		link.offerMu.Unlock()
 		return err
 	}
 	if err := link.remember(ctx, address); err != nil {

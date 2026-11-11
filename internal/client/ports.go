@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -158,7 +159,12 @@ func (client *Client) portStream(ctx context.Context, port uint16) (link.Stream,
 	}
 	stream, err := client.transport.Open(ctx, opened.Stream)
 	if err != nil {
-		_, _ = client.Do(ctx, protocol.Command{Kind: "cancel_port", Data: protocol.CommandCancelPortPayload{Stream: opened.Stream}})
+		// The caller's cancellation may be what failed the open; the Node still
+		// has to release the stream it reserved.
+		cleanup, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		defer cancel()
+		defer time.AfterFunc(2*time.Second, cancel).Stop()
+		_, _ = client.Do(cleanup, protocol.Command{Kind: "cancel_port", Data: protocol.CommandCancelPortPayload{Stream: opened.Stream}})
 	}
 	return stream, err
 }

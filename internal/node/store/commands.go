@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -11,6 +12,9 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, pro
 	switch request.Command.Kind {
 	case "create_project":
 		return createProject(ctx, db, *request.Command.Data.(*protocol.ProjectsDraft), prepared)
+	case "register_project":
+		input := request.Command.Data.(*protocol.CommandRegisterProjectPayload)
+		return createProject(ctx, db, protocol.ProjectsDraft{Name: input.Name, Path: input.Path, Appearance: protocol.DefaultProjectsAppearance()}, prepared)
 	case "update_project":
 		return updateProject(ctx, db, *request.Command.Data.(*protocol.CommandUpdateProjectPayload), prepared)
 	case "remove_project":
@@ -42,6 +46,10 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, pro
 		return reorderSessions(ctx, db, *request.Command.Data.(*protocol.CommandSetSessionOrderPayload))
 	case "publish_notification", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications":
 		return notificationCommand(ctx, db, request.Command)
+	case "report_diagnostic":
+		return reportDiagnostic(ctx, db, request, time.Now().UnixMilli())
+	case "save_media_settings":
+		return saveMediaSettings(ctx, db, *request.Command.Data.(*protocol.MediaSettings))
 	case "save_power_settings":
 		return savePower(ctx, db, *request.Command.Data.(*protocol.PowerSettings))
 	case "save_telemetry_settings":

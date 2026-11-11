@@ -9,7 +9,9 @@ public settings reads contain configured/keepable field names only.
 Configuration reads retain their Node/package revision and declared scalar
 types. Enum fields keep an unset selection rather than choosing the first
 option; model fields read the Node's plugin model catalog. Pending saves lock
-fields and an older completion cannot close a newly opened draft.
+fields and an older completion cannot close a newly opened draft. An identical
+package command already in flight is not sent again; its second caller is told
+it was not sent, so a reopened draft does not stay pending.
 
 Catalog selections capture immutable source commits before installation.
 Standalone skills support Git, skills.sh, Skillhub and controller-local
@@ -214,6 +216,21 @@ drafts (`env`, `pairing`, `hook`, `consent`, `backups`, `info`),
 `OCR.Tab`, `OCR.Query`. Backend data: every `Stored`, the lists above and
 the app preferences.
 
+An editor's request outlives the dialog that sent it, so its completion acts
+only on the editor that asked: the connector and MCP editors and the team and
+role editors by a request token, plugin configuration, install, download and
+skill install by a generation counted at each opening, Add host by its
+generation and draft. A completion for an editor closed or replaced since
+changes nothing, and the dialog opened since keeps its draft. The MCP editor
+sends one save at a time. A team's deletion closes the editor it was deleted
+from only. Rows of an editor's list (MCP arguments, environment and header
+slots, a provider's models) are keyed by their index and the editor's count of
+removals, so a row that moves into a removed row's place does not take its
+undo history; removing a reasoning effort keeps the default effort. Trusting
+an SSH host key leaves `ConnectionPending` set, as the installation goes on;
+any other way out of the prompt clears it. The network editor stays while its
+save is pending, as its Cancel is disabled then.
+
 ## Tests
 
 - `internal/desktop/settings/settings_test.go`: shortcut capture (invalid,
@@ -226,7 +243,8 @@ the app preferences.
 - `internal/desktop/shell/settings_test.go`: every section opens with its title in
   en and zh-CN, light and dark (snapshots with `SAILRY_SNAPSHOTS`); ⌘/
   opens Shortcuts, recording holds the window's keys, a conflicting key
-  toasts, the new key works and the old one does not, Escape cancels;
+  toasts, the new key works and the old one does not, Escape cancels and so
+  does leaving the section by any way;
   a Node save toasts its outcome; the variable dialog refuses a bad name
   and keeps its draft; a plugin card opens its details in the right
   column and Close shuts it.
@@ -340,6 +358,7 @@ invalidates retained text geometry when typography changes.
 and compaction settings to the existing Providers page. Neutral provider DTOs
 live in `viewmodel`; preview aliases keep their fixture constructors isolated.
 API-key choices come from offered Node presets and their captured route keys.
+A provider saved without a route shows its preset's first route.
 OAuth package workflows remain in B8.
 
 Editor identity and its captured provider base are stable across failed or

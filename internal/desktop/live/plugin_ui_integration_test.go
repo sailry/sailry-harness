@@ -190,9 +190,22 @@ func TestPluginUIIntegration(t *testing.T) {
 	t.Log("gomoku: real retained callbacks, human move and one Node-owned model response completed")
 	runtime.App.Navigate(shell.ConversationPage)
 	runtime.OpenSession(session.ID.String())
-	wait("goal badge", func() bool { return tester.HasText("Goal") })
+	// Coming back to the conversation, the badge is drawn disabled until its
+	// status watch reconnects, and its tooltip repeats the goal: the click waits
+	// for the watch and the popover is recognized by its own action.
+	wait("goal badge", func() bool {
+		for _, feed := range runtime.pluginStatus {
+			if feed.scope.Session != nil && *feed.scope.Session == session.ID {
+				return tester.HasText("Goal") && feed.view.Connected
+			}
+		}
+		return false
+	})
+	tester.Frame()
 	click("Goal")
-	wait("goal popover", func() bool { return tester.HasText("Exercise the real plugin status lifecycle") })
+	wait("goal popover", func() bool {
+		return tester.HasText("Exercise the real plugin status lifecycle") && tester.HasText("Stop")
+	})
 	click("Stop")
 	wait("goal pause", func() bool { return tester.HasText("Stopped") && tester.HasText("Resume") })
 	t.Log("goals: Node-owned badge opened the mounted popover and persisted pause through the SDK")

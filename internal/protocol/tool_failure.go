@@ -60,12 +60,13 @@ func DefaultToolFailure() ToolFailure {
 		Origin: ToolFailureOriginRuntime,
 	}
 }
-func (value *ToolFailure) UnmarshalJSON(data []byte) error {
+func (value *ToolFailure) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ToolFailure) DecodeJSON(decoder *Decoder) error {
 	type plain ToolFailure
 	decoded := plain{}
 	decoded.Code = nil
 	decoded.Origin = ToolFailureOriginRuntime
-	if err := DecodeObject(data, &decoded, []string{}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{}, true); err != nil {
 		return err
 	}
 	*value = ToolFailure(decoded)

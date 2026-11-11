@@ -43,10 +43,11 @@ func DefaultTeamReference() TeamReference {
 		Revision: 0,
 	}
 }
-func (value *TeamReference) UnmarshalJSON(data []byte) error {
+func (value *TeamReference) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *TeamReference) DecodeJSON(decoder *Decoder) error {
 	type plain TeamReference
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "revision"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "revision"}, false); err != nil {
 		return err
 	}
 	*value = TeamReference(decoded)
@@ -110,10 +111,11 @@ func DefaultTeamProfile() TeamProfile {
 		Members:      []RoleID{},
 	}
 }
-func (value *TeamProfile) UnmarshalJSON(data []byte) error {
+func (value *TeamProfile) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *TeamProfile) DecodeJSON(decoder *Decoder) error {
 	type plain TeamProfile
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "revision", "key", "name", "description", "instructions", "members"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "revision", "key", "name", "description", "instructions", "members"}, false); err != nil {
 		return err
 	}
 	*value = TeamProfile(decoded)

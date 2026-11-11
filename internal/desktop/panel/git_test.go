@@ -45,7 +45,7 @@ func shot(t *testing.T, tt *ui.Tester, name string) {
 	}
 }
 
-func en(key string) string { return i18n.In("en", key) }
+func en(key string, args ...any) string { return i18n.In("en", key, args...) }
 
 // clickRole clicks the element of role named name.
 func clickRole(t *testing.T, tt *ui.Tester, r ui.Role, name string, mods ui.Modifiers) {
@@ -198,6 +198,63 @@ func TestGitPage(t *testing.T) {
 			}
 		}
 		shot(t, tt, "git-history")
+	})
+	// Ctrl+G then Down pulls, which the preview only tells. The key after
+	// Ctrl+G completes the chord or drops it: a Down the list took, or one
+	// pressed after another key, does not pull later.
+	t.Run("Chord", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		press := func(mods ui.Modifiers, key ui.Key) {
+			tt.Key(mods, key)
+			tt.Frame()
+		}
+		pulled := func() bool { return tt.HasText(en("preview_notice")) }
+		clickRole(t, tt, ui.RoleTreeItem, "docs", 0)
+		press(ui.Ctrl, ui.KeyG)
+		if !pr.Git.chord {
+			t.Fatal("Ctrl+G does not start the chord")
+		}
+		press(0, ui.KeyDown) // the list's own
+		clickRole(t, tt, ui.RoleButton, en("git_expand_commit"), 0)
+		press(0, ui.KeyDown)
+		if pr.Git.chord || pulled() {
+			t.Fatalf("chord %v after the list took its key, pulled %v", pr.Git.chord, pulled())
+		}
+		press(ui.Ctrl, ui.KeyG)
+		press(0, ui.KeyUp)
+		press(0, ui.KeyDown)
+		if pr.Git.chord || pulled() {
+			t.Fatalf("chord %v after another key, pulled %v", pr.Git.chord, pulled())
+		}
+		press(ui.Ctrl, ui.KeyG)
+		press(0, ui.KeyDown)
+		if pr.Git.chord || !pulled() {
+			t.Fatalf("chord %v, Ctrl+G Down does not pull: %q", pr.Git.chord, tt.Texts())
+		}
+	})
+	// Dropping a stash names it by its message and drops it by its ID.
+	t.Run("StashDrop", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		var dropped GitAction
+		pr.Actions = &Actions{Git: func(_ *ui.Context, a GitAction) { dropped = a }}
+		pr.SetGitState(GitState{Known: true, Kind: "repository", Head: true})
+		pr.SetGitTargets([]string{"c0ffee"}, nil)
+		tt.Frame()
+		clickRole(t, tt, ui.RoleMenuButton, en("git_actions"), 0)
+		clickMenu(t, tt, en("git_stash_menu"))
+		clickMenu(t, tt, en("git_stash_drop"))
+		message := pr.Data.Repo.Stashes[0]
+		if err := tt.Click(message); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if !pr.Git.confirm.open || pr.Git.confirm.target != message {
+			t.Fatalf("the confirmation names %q, not the stash %q: %q", pr.Git.confirm.target, message, tt.Texts())
+		}
+		clickRole(t, tt, ui.RoleButton, en("git_stash_drop"), 0)
+		if dropped.Kind != "git_stash_drop" || dropped.Target != "c0ffee" {
+			t.Fatalf("dropped %+v", dropped)
+		}
 	})
 	// Diff opens every change's diff in one item.
 	t.Run("AllChanges", func(t *testing.T) {

@@ -191,7 +191,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 	for _, count := range []int{2, 9} {
 		t.Run(string(rune('0'+count)), func(t *testing.T) {
 			started := make(chan string, 16)
-			release := make(chan struct{})
+			release := map[string]chan struct{}{}
 			var running, maxRunning atomic.Int32
 			tool := objectTool("read", true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
 				current := running.Add(1)
@@ -199,7 +199,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 				}
 				started <- call.ID
 				select {
-				case <-release:
+				case <-release[call.ID]:
 				case <-ctx.Done():
 				}
 				running.Add(-1)
@@ -208,6 +208,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			parts := []fantasy.StreamPart{}
 			for i := 0; i < count; i++ {
 				parts = append(parts, call(string(rune('a'+i)), "read", `{}`))
+				release[string(rune('a'+i))] = make(chan struct{})
 			}
 			parts = append(parts, finish())
 			m := &scriptedModel{scripts: []script{response(parts...), response(text("Done"), finish())}}
@@ -221,7 +222,24 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 					t.Fatal("readonly batch did not run concurrently")
 				}
 			}
-			close(release)
+			if count > 8 {
+				// One finished call frees its slot: the ninth starts while the
+				// other seven, the first included, are still running.
+				close(release["b"])
+				select {
+				case id := <-started:
+					if id != "i" || running.Load() != 8 {
+						t.Fatalf("freed slot started %q with %d running", id, running.Load())
+					}
+				case <-f.ctx.Done():
+					t.Fatal("a slow call delayed the start of the ninth")
+				}
+			}
+			for id, done := range release {
+				if count <= 8 || id != "b" {
+					close(done)
+				}
+			}
 			f.waitRun(turn, protocol.ConversationStatusCompleted)
 			if maxRunning.Load() != int32(min(count, 8)) {
 				t.Fatalf("concurrency=%d", maxRunning.Load())
@@ -245,6 +263,66 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			}
 		})
 	}
+	t.Run("stopped turn starts no call beyond the window", func(t *testing.T) {
+		var starts atomic.Int32
+		started, stopped, hold := make(chan struct{}, 16), make(chan struct{}, 16), make(chan struct{})
+		tool := objectTool("read", true, true, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
+			starts.Add(1)
+			started <- struct{}{}
+			<-ctx.Done()
+			stopped <- struct{}{}
+			<-hold
+			return ToolResult{}
+		})
+		parts := []fantasy.StreamPart{}
+		for i := range 9 {
+			parts = append(parts, call(string(rune('a'+i)), "read", `{}`))
+		}
+		f := newFixture(t, &scriptedModel{scripts: []script{response(append(parts, finish())...)}}, tool)
+		f.start()
+		turn := f.submit("Read")
+		for range 8 {
+			select {
+			case <-started:
+			case <-f.ctx.Done():
+				t.Fatal("window did not fill")
+			}
+		}
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+		for range 8 {
+			select {
+			case <-stopped:
+			case <-f.ctx.Done():
+				t.Fatal("running calls were not cancelled")
+			}
+		}
+		close(hold)
+		f.waitRun(turn, protocol.ConversationStatusInterrupted)
+		if starts.Load() != 8 {
+			t.Fatalf("stopped turn started %d calls", starts.Load())
+		}
+	})
+	t.Run("tied stream slots keep arrival order", func(t *testing.T) {
+		// A provider index can equal the position of a part without one.
+		for range 32 {
+			out := streamOutput{slots: map[string]int{}, indices: map[string]uint64{}}
+			var want []string
+			for i := range 8 {
+				id := string(rune('a' + i))
+				out.slot(id, "text").Data = &canonical.TextContent{Text: id}
+				out.indices[id+"\x00text"] = 0
+				want = append(want, id)
+			}
+			out.order()
+			var got []string
+			for _, block := range out.blocks {
+				got = append(got, block.Data.(*canonical.TextContent).Text)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("slot order=%v", got)
+			}
+		}
+	})
 	t.Run("mutating barriers", func(t *testing.T) {
 		var mu sync.Mutex
 		var order []string

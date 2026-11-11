@@ -33,6 +33,14 @@ func (value *Effort) UnmarshalJSON(data []byte) error {
 	value.Kind, value.Data = kind, decoded
 	return nil
 }
+func (value *Effort) DecodeJSON(decoder *Decoder) error {
+	kind, decoded, err := decoder.Union("", "", effortVariants, false)
+	if err != nil {
+		return err
+	}
+	value.Kind, value.Data = kind, decoded
+	return nil
+}
 
 type Permission string
 
@@ -50,9 +58,10 @@ func (value Permission) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown Permission %q", value)
 	}
 }
-func (value *Permission) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *Permission) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *Permission) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch Permission(decoded) {
@@ -93,9 +102,10 @@ func (value WorkMode) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown WorkMode %q", value)
 	}
 }
-func (value *WorkMode) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *WorkMode) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *WorkMode) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch WorkMode(decoded) {
@@ -131,10 +141,11 @@ func DefaultCredentialRef() CredentialRef {
 		ID:   CredentialID{},
 	}
 }
-func (value *CredentialRef) UnmarshalJSON(data []byte) error {
+func (value *CredentialRef) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *CredentialRef) DecodeJSON(decoder *Decoder) error {
 	type plain CredentialRef
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"node", "id"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"node", "id"}, false); err != nil {
 		return err
 	}
 	*value = CredentialRef(decoded)
@@ -173,13 +184,14 @@ func DefaultSessionConfig() SessionConfig {
 		Credential: nil,
 	}
 }
-func (value *SessionConfig) UnmarshalJSON(data []byte) error {
+func (value *SessionConfig) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *SessionConfig) DecodeJSON(decoder *Decoder) error {
 	type plain SessionConfig
 	decoded := plain{}
 	decoded.Effort = Effort{Kind: "default"}
 	decoded.Features = map[string]string{}
 	decoded.Options = map[string]map[string]json.RawMessage{}
-	if err := DecodeObject(data, &decoded, []string{"provider", "model", "mode", "permission"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"provider", "model", "mode", "permission"}, false); err != nil {
 		return err
 	}
 	*value = SessionConfig(decoded)
@@ -204,10 +216,11 @@ func DefaultDefaults() Defaults {
 		Config:   nil,
 	}
 }
-func (value *Defaults) UnmarshalJSON(data []byte) error {
+func (value *Defaults) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *Defaults) DecodeJSON(decoder *Decoder) error {
 	type plain Defaults
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"revision"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"revision"}, false); err != nil {
 		return err
 	}
 	*value = Defaults(decoded)
@@ -252,12 +265,13 @@ func DefaultSession() Session {
 		Delegation:    nil,
 	}
 }
-func (value *Session) UnmarshalJSON(data []byte) error {
+func (value *Session) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *Session) DecodeJSON(decoder *Decoder) error {
 	type plain Session
 	decoded := plain{}
 	decoded.Association = nil
 	decoded.CreationOrder = 0
-	if err := DecodeObject(data, &decoded, []string{"id", "archived", "activity", "worktree", "revision", "config", "roles"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "archived", "activity", "worktree", "revision", "config", "roles"}, false); err != nil {
 		return err
 	}
 	*value = Session(decoded)
@@ -312,10 +326,11 @@ func DefaultDelegation() Delegation {
 		Role:    nil,
 	}
 }
-func (value *Delegation) UnmarshalJSON(data []byte) error {
+func (value *Delegation) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *Delegation) DecodeJSON(decoder *Decoder) error {
 	type plain Delegation
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"session", "turn", "entry", "index"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"session", "turn", "entry", "index"}, false); err != nil {
 		return err
 	}
 	*value = Delegation(decoded)
@@ -338,10 +353,11 @@ func DefaultSessionProfile() SessionProfile {
 		Provider: DefaultConversationProvider(),
 	}
 }
-func (value *SessionProfile) UnmarshalJSON(data []byte) error {
+func (value *SessionProfile) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *SessionProfile) DecodeJSON(decoder *Decoder) error {
 	type plain SessionProfile
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"source", "provider"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"source", "provider"}, false); err != nil {
 		return err
 	}
 	*value = SessionProfile(decoded)
@@ -407,10 +423,11 @@ func DefaultTurnSummary() TurnSummary {
 		Request: RequestID{},
 	}
 }
-func (value *TurnSummary) UnmarshalJSON(data []byte) error {
+func (value *TurnSummary) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *TurnSummary) DecodeJSON(decoder *Decoder) error {
 	type plain TurnSummary
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "session", "request"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "session", "request"}, false); err != nil {
 		return err
 	}
 	*value = TurnSummary(decoded)

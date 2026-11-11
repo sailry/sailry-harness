@@ -23,7 +23,7 @@ permission, model controls, dictation, send/stop) and the context bar
 |---|---|
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
-| `options.go` | Mode and permission menus, project and worktree, compact settings popover |
+| `options.go` | Mode and permission menus, project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw |
@@ -168,7 +168,9 @@ type Actions interface {
   cycles the mode, Up recalls `Last` in an empty draft, Backspace after a
   chip deletes it whole.
 - Picker open: Up/Down move round, Enter/Tab choose, Backspace on an empty
-  query goes back a page, Escape closes it until the trigger changes.
+  query goes back a page, Escape closes it until the trigger changes. A row
+  under a resting pointer does not take the selection from the keys: the
+  pointer selects once it moves.
 - Escape order: references picker (in the draft) → transcript search (its
   overlay shortcut) → queue edit → stop. The window shortcut is only
   claimed (`State.Escapes`) when the picker is closed, search is closed and
@@ -208,7 +210,13 @@ Existing sessions submit, guide or queue with their captured configuration
 revision. Configuration and team saves serialize with admission and retain provider model
 options. Successful command outputs bridge the short interval before the Node
 feed arrives. Failures, conflicts and uncertain outcomes retain input; an explicit
-identical retry retains the uncertain request ID.
+identical retry retains the uncertain request ID. A conversation retains one
+uncertain turn request, as the reference does. It serves a retry only while the
+composer and the observed runs and queue are what they were when it was sent; a
+changed draft, a moved history or queue, another turn command or a definite
+answer drops it, so the same text sent later is a new request. A turn or queue
+item carrying the retained request ID completes the send that lost its result
+and clears its draft.
 
 Node defaults and controller remembered choices initialize new drafts. Existing
 sessions reconcile effective remote configuration. Enabled Node providers supply

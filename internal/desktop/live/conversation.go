@@ -761,7 +761,7 @@ func (x *conversationActions) Reconnect() {
 	}
 	x.r.Refresh()
 	if id, err := protocol.ParseSessionID(x.cv.ID); err == nil {
-		x.r.async(func() { _ = x.r.controller.RefreshConversation(x.r.ctx, id) })
+		_ = x.r.controller.RefreshConversation(x.r.ctx, id)
 	}
 }
 func (x *conversationActions) Quote(text string) {
@@ -853,7 +853,7 @@ func (x *conversationActions) StopCommand(id string) {
 }
 func (x *conversationActions) OpenService(port int) {
 	if x.owned() {
-		x.openCommandService(port)
+		x.forwardCommandService(port)
 	}
 }
 func (x *conversationActions) Upload(a *composer.Attachment) {

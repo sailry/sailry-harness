@@ -56,7 +56,8 @@ func searchable(blocks []Block) string {
 }
 
 // Mark wraps each occurrence of query in Markdown src with <mark>, outside
-// code spans and fenced code, keeping the text's own case.
+// code spans, fenced code and link destinations, keeping the text's own
+// case.
 func Mark(src, query string) string {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -85,10 +86,52 @@ func Mark(src, query string) string {
 				b.WriteString(part)
 				continue
 			}
-			b.WriteString(markPlain(part, q, "<mark>", "</mark>"))
+			markProse(&b, part, q)
 		}
 	}
 	return b.String()
+}
+
+// markProse marks q in s but for the destinations of its links, "](" to the
+// ")" closing it, which stay the addresses they are: a citation's, as Cite
+// writes it, or the author's.
+func markProse(b *strings.Builder, s, q string) {
+	for {
+		i := strings.Index(s, "](")
+		if i < 0 {
+			break
+		}
+		end := max(destinationEnd(s[i+2:]), 0) // not a link: text after all
+		b.WriteString(markPlain(s[:i], q, "<mark>", "</mark>"))
+		b.WriteString(s[i : i+2+end])
+		s = s[i+2+end:]
+	}
+	b.WriteString(markPlain(s, q, "<mark>", "</mark>"))
+}
+
+// destinationEnd is the length of a link's destination and the ")" closing
+// it at the start of s, -1 when the line ends before it closes: the pointed
+// form ends at ">)", the plain one where its parentheses balance.
+func destinationEnd(s string) int {
+	if strings.HasPrefix(s, "<") {
+		if i := strings.Index(s, ">)"); i >= 0 {
+			return i + 2
+		}
+		return -1
+	}
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return i + 1
+			}
+			depth--
+		}
+	}
+	return -1
 }
 
 // markPlain wraps the occurrences of q in s, ignoring case.

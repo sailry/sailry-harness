@@ -392,6 +392,15 @@ func (pr *Project) commit(c *ui.Context, scope string, amend, signoff bool, afte
 // Ctrl+G Shift+Down pulls with rebase and Cmd+Shift+K pushes.
 func (pr *Project) gitKeys(c *ui.Context, e ui.Element) {
 	v := &pr.Git
+	// Asking for a key applies the frame's input, the observer below with
+	// it, so the chord's second key is read after one. Down is asked for
+	// only while the chord waits for it: otherwise it is whoever's it was.
+	armed := v.chord
+	prefix := e.Shortcut(ui.Ctrl, ui.KeyG)
+	second := v.second
+	v.second = false
+	pull := (armed || second) && e.Shortcut(0, ui.KeyDown)
+	rebase := (armed || second) && e.Shortcut(ui.Shift, ui.KeyDown)
 	switch {
 	case e.Shortcut(ui.Cmd, ui.KeyEnter):
 		pr.commit(c, "auto", v.amend, v.signoff, v.after)
@@ -399,18 +408,26 @@ func (pr *Project) gitKeys(c *ui.Context, e ui.Element) {
 		pr.toggleAmend()
 	case e.Shortcut(ui.Cmd|ui.Shift, ui.KeyK):
 		pr.gitAction(c, GitAction{Kind: "git_push"})
-	case v.chord && (e.Shortcut(ui.Ctrl, ui.KeyG) || e.Shortcut(0, ui.KeyDown) || e.Shortcut(ui.Shift, ui.KeyDown)):
-		v.chord = false
+	case second && (prefix || pull || rebase):
 		kind := "git_fetch_all_prune"
-		if e.Shortcut(0, ui.KeyDown) {
+		if pull {
 			kind = "git_pull"
-		} else if e.Shortcut(ui.Shift, ui.KeyDown) {
+		} else if rebase {
 			kind = "git_pull_rebase"
 		}
 		pr.gitAction(c, GitAction{Kind: kind})
-	case e.Shortcut(ui.Ctrl, ui.KeyG):
+	case prefix:
 		v.chord = true
 	}
+	// The key after Ctrl+G completes the chord or drops it, as the
+	// reference's key sequence: a Down pressed later, or one a list or a
+	// field took, does not pull.
+	e.ObserveInput(func(ev ui.InputEvent) {
+		// A modifier on its way to the second key is no key yet.
+		if v.chord && ev.Kind == ui.InputKeyDown && ev.Key != ui.KeyUnknown && !ev.Repeat {
+			v.chord, v.second = false, true
+		}
+	})
 }
 
 // history is the commits, newest first (view.js history): a track with

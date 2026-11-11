@@ -2,12 +2,13 @@ package providers
 
 import (
 	"reflect"
+	"slices"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // CompleteModel resolves automatic metadata without replacing configured limits,
-// explicit effort choices or a compaction override.
+// explicit effort choices, user-chosen capability tags or a compaction override.
 func CompleteModel(model protocol.ConversationModel, reference *protocol.ConversationCatalogModel, api protocol.ConversationModelApi) protocol.ConversationModel {
 	completed := model
 	native := model.Capabilities
@@ -48,14 +49,26 @@ func CompleteModel(model protocol.ConversationModel, reference *protocol.Convers
 	}
 	completed.Generates = []protocol.MediaGeneration{}
 	if reference != nil {
+		text := slices.Contains(reference.Outputs, "text")
 		for _, output := range reference.Outputs {
 			switch output {
 			case "image":
 				completed.Generates = append(completed.Generates, protocol.MediaGenerationImage)
 			case "video":
 				completed.Generates = append(completed.Generates, protocol.MediaGenerationVideo)
+			case "audio":
+				// A model that also answers in text is a chat model with audio
+				// output, not a speech synthesis model.
+				if !text {
+					completed.Generates = append(completed.Generates, protocol.MediaGenerationSpeech)
+				}
 			}
 		}
+	}
+	if model.CustomCapabilities {
+		// The user's tags are authoritative across catalog refresh and discovery.
+		completed.Vision, completed.Tools, completed.Reasoning = model.Vision, model.Tools, model.Reasoning
+		completed.Generates = slices.Compact(slices.Sorted(slices.Values(model.Generates)))
 	}
 	refresh := !model.CustomEfforts
 	for _, effort := range model.Efforts {

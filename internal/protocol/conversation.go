@@ -22,9 +22,10 @@ func (value ConversationExecution) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ConversationExecution %q", value)
 	}
 }
-func (value *ConversationExecution) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ConversationExecution) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ConversationExecution) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ConversationExecution(decoded) {
@@ -227,7 +228,8 @@ func DefaultConversationProvider() ConversationProvider {
 		Credential:        nil,
 	}
 }
-func (value *ConversationProvider) UnmarshalJSON(data []byte) error {
+func (value *ConversationProvider) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationProvider) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationProvider
 	decoded := plain{}
 	decoded.Preset = nil
@@ -238,7 +240,7 @@ func (value *ConversationProvider) UnmarshalJSON(data []byte) error {
 	decoded.Models = []ConversationModel{}
 	decoded.RequestMaxRetries = nil
 	decoded.StreamMaxRetries = nil
-	if err := DecodeObject(data, &decoded, []string{"id", "revision", "name", "api", "authentication", "endpoint", "enabled", "default_model"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "revision", "name", "api", "authentication", "endpoint", "enabled", "default_model"}, false); err != nil {
 		return err
 	}
 	*value = ConversationProvider(decoded)
@@ -262,9 +264,12 @@ type ConversationModel struct {
 	Tools            bool                               `json:"tools"`
 	Reasoning        bool                               `json:"reasoning"`
 	Generates        []MediaGeneration                  `json:"generates"`
-	Efforts          []Effort                           `json:"efforts"`
-	CustomEfforts    bool                               `json:"custom_efforts"`
-	DefaultEffort    Effort                             `json:"default_effort"`
+	// CustomCapabilities marks vision, tools, reasoning and generates as chosen
+	// by the user, so catalog completion and discovery keep them.
+	CustomCapabilities bool     `json:"custom_capabilities,omitempty"`
+	Efforts            []Effort `json:"efforts"`
+	CustomEfforts      bool     `json:"custom_efforts"`
+	DefaultEffort      Effort   `json:"default_effort"`
 }
 
 func DefaultConversationModel() ConversationModel {
@@ -332,9 +337,10 @@ func (value ConversationStatus) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ConversationStatus %q", value)
 	}
 }
-func (value *ConversationStatus) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ConversationStatus) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ConversationStatus) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ConversationStatus(decoded) {
@@ -374,9 +380,10 @@ func (value ConversationRunKind) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ConversationRunKind %q", value)
 	}
 }
-func (value *ConversationRunKind) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ConversationRunKind) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ConversationRunKind) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ConversationRunKind(decoded) {
@@ -442,7 +449,8 @@ func DefaultConversationRun() ConversationRun {
 		Input:        nil,
 	}
 }
-func (value *ConversationRun) UnmarshalJSON(data []byte) error {
+func (value *ConversationRun) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationRun) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationRun
 	decoded := plain{}
 	decoded.Continuation = nil
@@ -451,7 +459,7 @@ func (value *ConversationRun) UnmarshalJSON(data []byte) error {
 	decoded.Notice = false
 	decoded.Notices = []ConversationBackgroundNotice{}
 	decoded.Input = nil
-	if err := DecodeObject(data, &decoded, []string{"worktree", "turn", "kind", "session", "sequence", "revision", "status"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"worktree", "turn", "kind", "session", "sequence", "revision", "status"}, false); err != nil {
 		return err
 	}
 	*value = ConversationRun(decoded)
@@ -475,10 +483,11 @@ func DefaultConversationSentInput() ConversationSentInput {
 		Attachments: []Attachment{},
 	}
 }
-func (value *ConversationSentInput) UnmarshalJSON(data []byte) error {
+func (value *ConversationSentInput) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationSentInput) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationSentInput
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"message", "attachments"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"message", "attachments"}, false); err != nil {
 		return err
 	}
 	*value = ConversationSentInput(decoded)
@@ -502,10 +511,11 @@ func DefaultConversationContinuation() ConversationContinuation {
 		Marker:  nil,
 	}
 }
-func (value *ConversationContinuation) UnmarshalJSON(data []byte) error {
+func (value *ConversationContinuation) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationContinuation) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationContinuation
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"package"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"package"}, false); err != nil {
 		return err
 	}
 	*value = ConversationContinuation(decoded)
@@ -530,10 +540,11 @@ func DefaultConversationChild() ConversationChild {
 		Name:   nil,
 	}
 }
-func (value *ConversationChild) UnmarshalJSON(data []byte) error {
+func (value *ConversationChild) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationChild) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationChild
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"run", "origin"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"run", "origin"}, false); err != nil {
 		return err
 	}
 	*value = ConversationChild(decoded)
@@ -556,10 +567,11 @@ func DefaultConversationFork() ConversationFork {
 		Through: TurnID{},
 	}
 }
-func (value *ConversationFork) UnmarshalJSON(data []byte) error {
+func (value *ConversationFork) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationFork) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationFork
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"session", "through"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"session", "through"}, false); err != nil {
 		return err
 	}
 	*value = ConversationFork(decoded)
@@ -615,10 +627,11 @@ func DefaultConversationQueue() ConversationQueue {
 		Items:    []ConversationPending{},
 	}
 }
-func (value *ConversationQueue) UnmarshalJSON(data []byte) error {
+func (value *ConversationQueue) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationQueue) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationQueue
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"revision", "paused", "items"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"revision", "paused", "items"}, false); err != nil {
 		return err
 	}
 	*value = ConversationQueue(decoded)
@@ -909,12 +922,13 @@ func DefaultConversationApproval() ConversationApproval {
 		Changes:     nil,
 	}
 }
-func (value *ConversationApproval) UnmarshalJSON(data []byte) error {
+func (value *ConversationApproval) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationApproval) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationApproval
 	decoded := plain{}
 	decoded.Ssh = nil
 	decoded.Changes = nil
-	if err := DecodeObject(data, &decoded, []string{"id", "session", "turn", "entry", "index", "state", "source", "can_remember"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "session", "turn", "entry", "index", "state", "source", "can_remember"}, false); err != nil {
 		return err
 	}
 	*value = ConversationApproval(decoded)
@@ -941,10 +955,11 @@ func DefaultConversationImage() ConversationImage {
 		Attachment: DefaultAttachment(),
 	}
 }
-func (value *ConversationImage) UnmarshalJSON(data []byte) error {
+func (value *ConversationImage) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationImage) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationImage
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"entry", "part", "index", "attachment"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"entry", "part", "index", "attachment"}, false); err != nil {
 		return err
 	}
 	*value = ConversationImage(decoded)
@@ -978,11 +993,14 @@ func DefaultConversationPartToolCallPayload() ConversationPartToolCallPayload {
 	}
 }
 func (value *ConversationPartToolCallPayload) UnmarshalJSON(data []byte) error {
+	return Decode(data, value)
+}
+func (value *ConversationPartToolCallPayload) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationPartToolCallPayload
 	decoded := plain{}
 	decoded.Presentation = ToolPresentationSummary
 	decoded.Grouping = ToolGroupingSequence
-	if err := DecodeObject(data, &decoded, []string{"name", "summary"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"name", "summary"}, false); err != nil {
 		return err
 	}
 	*value = ConversationPartToolCallPayload(decoded)
@@ -1010,9 +1028,12 @@ func DefaultConversationPartToolResultPayload() ConversationPartToolResultPayloa
 	}
 }
 func (value *ConversationPartToolResultPayload) UnmarshalJSON(data []byte) error {
+	return Decode(data, value)
+}
+func (value *ConversationPartToolResultPayload) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationPartToolResultPayload
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"name", "summary", "images"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"name", "summary", "images"}, false); err != nil {
 		return err
 	}
 	*value = ConversationPartToolResultPayload(decoded)
@@ -1038,8 +1059,9 @@ var conversationPartVariants = variantFactories{"text": func() any { return new(
 func (value ConversationPart) MarshalJSON() ([]byte, error) {
 	return MarshalUnion("kind", "data", value.Kind, value.Data, conversationPartVariants)
 }
-func (value *ConversationPart) UnmarshalJSON(data []byte) error {
-	kind, decoded, err := UnmarshalUnion(data, "kind", "data", conversationPartVariants, false)
+func (value *ConversationPart) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationPart) DecodeJSON(decoder *Decoder) error {
+	kind, decoded, err := decoder.Union("kind", "data", conversationPartVariants, false)
 	if err != nil {
 		return err
 	}
@@ -1062,10 +1084,11 @@ func DefaultConversationUsage() ConversationUsage {
 		Reasoning:   0,
 	}
 }
-func (value *ConversationUsage) UnmarshalJSON(data []byte) error {
+func (value *ConversationUsage) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationUsage) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationUsage
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"input", "output", "cached_input", "reasoning"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"input", "output", "cached_input", "reasoning"}, false); err != nil {
 		return err
 	}
 	*value = ConversationUsage(decoded)
@@ -1153,10 +1176,11 @@ func DefaultConversationCitation() ConversationCitation {
 		End:   nil,
 	}
 }
-func (value *ConversationCitation) UnmarshalJSON(data []byte) error {
+func (value *ConversationCitation) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationCitation) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationCitation
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"uri"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"uri"}, false); err != nil {
 		return err
 	}
 	*value = ConversationCitation(decoded)
@@ -1195,10 +1219,11 @@ func DefaultConversationEntry() ConversationEntry {
 		Usage:             nil,
 	}
 }
-func (value *ConversationEntry) UnmarshalJSON(data []byte) error {
+func (value *ConversationEntry) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationEntry) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationEntry
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"sequence", "id", "turn", "author", "branch", "timestamp_ms", "parts", "citations"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"sequence", "id", "turn", "author", "branch", "timestamp_ms", "parts", "citations"}, false); err != nil {
 		return err
 	}
 	*value = ConversationEntry(decoded)
@@ -1239,11 +1264,12 @@ func DefaultConversationPage() ConversationPage {
 		NextBefore: nil,
 	}
 }
-func (value *ConversationPage) UnmarshalJSON(data []byte) error {
+func (value *ConversationPage) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationPage) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationPage
 	decoded := plain{}
 	decoded.Background = []ConversationBackgroundTask{}
-	if err := DecodeObject(data, &decoded, []string{"session", "revision", "entries", "runs", "queue", "approvals", "questions", "children"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"session", "revision", "entries", "runs", "queue", "approvals", "questions", "children"}, false); err != nil {
 		return err
 	}
 	*value = ConversationPage(decoded)
@@ -1274,10 +1300,11 @@ func DefaultConversationHistory() ConversationHistory {
 		Missing:  []TurnID{},
 	}
 }
-func (value *ConversationHistory) UnmarshalJSON(data []byte) error {
+func (value *ConversationHistory) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationHistory) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationHistory
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"sequence", "page", "missing"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"sequence", "page", "missing"}, false); err != nil {
 		return err
 	}
 	*value = ConversationHistory(decoded)

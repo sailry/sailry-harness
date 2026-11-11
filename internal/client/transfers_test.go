@@ -18,6 +18,16 @@ type transferBuffer struct{ bytes.Buffer }
 
 func (*transferBuffer) Close() error { return nil }
 
+// liveTransport refuses a cancelled caller as a connected route does.
+type liveTransport struct{ *clientTransport }
+
+func (transport liveTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
+	if err := ctx.Err(); err != nil {
+		return link.Admission{}, err
+	}
+	return transport.clientTransport.Dispatch(ctx, request)
+}
+
 func TestTransferStream(t *testing.T) {
 	t.Parallel()
 	payload := []byte("verified transfer bytes")
@@ -128,6 +138,29 @@ func TestTransferStream(t *testing.T) {
 				t.Fatalf("stalled download = %v after %s", err, time.Since(started))
 			}
 		})
+	})
+	t.Run("port_open_cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		id := protocol.NewStreamID()
+		transport := &clientTransport{open: func(context.Context, protocol.StreamID) (link.Stream, error) {
+			cancel()
+			return nil, context.Canceled
+		}}
+		transport.dispatch = func(actual protocol.Request) (link.Admission, error) {
+			completion := make(chan link.Response, 1)
+			completion <- link.Response{Output: protocol.Output{Kind: "port_stream", Data: protocol.OutputPortStreamPayload{Stream: id}}}
+			return link.Admission{Receipt: protocol.Receipt{ID: actual.ID}, Completion: completion}, nil
+		}
+		if _, err := New(liveTransport{transport}).portStream(ctx, 8080); err == nil {
+			t.Fatal("a failed open returned a port stream")
+		}
+		transport.mu.Lock()
+		requests := append([]protocol.Request(nil), transport.requests...)
+		transport.mu.Unlock()
+		released, ok := requests[len(requests)-1].Command.Data.(protocol.CommandCancelPortPayload)
+		if len(requests) != 2 || requests[1].Command.Kind != "cancel_port" || !ok || released.Stream != id {
+			t.Fatalf("cancelled open left its reserved stream: %v", requests)
+		}
 	})
 	t.Run("cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())

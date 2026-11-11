@@ -54,9 +54,10 @@ func (value ToolResultExpected) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("unknown ToolResultExpected %q", value)
 	}
 }
-func (value *ToolResultExpected) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
+func (value *ToolResultExpected) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
+func (value *ToolResultExpected) DecodeJSON(decoder *Decoder) error {
+	decoded, err := decoder.String()
+	if err != nil {
 		return err
 	}
 	switch ToolResultExpected(decoded) {

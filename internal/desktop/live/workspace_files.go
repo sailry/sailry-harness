@@ -147,12 +147,14 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 		})
 	case "files_trash":
 		selected := append([]string(nil), a.Paths...)
+		// Every selected entry exists when its confirmation opens, so each confirmation has its own place.
+		batch := &fileBatch{}
 		p.panel.Confirm("files_trash", strings.Join(selected, "\n"), func(finish func(bool)) {
 			commands := []protocol.Command{}
 			for _, relative := range selected {
 				commands = append(commands, protocol.Command{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: p.owner.ID, Path: relative}})
 			}
-			p.fileCommandsFinish(commands, finish, nil)
+			p.fileCommandsFinish(batch, commands, finish, nil)
 		})
 	case "files_insert_conversation":
 		if native.Insert == nil {
@@ -188,25 +190,16 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 		p.workspaceError(c, protocol.ErrorCodeInvalidRequest, "unknown file action")
 	}
 }
-func (p *workspaceProject) fileCommands(commands []protocol.Command, done func()) {
-	p.fileCommandsFinish(commands, nil, done)
-}
-func (p *workspaceProject) fileCommandsFinish(commands []protocol.Command, finish func(bool), done func()) {
-	encoded, err := json.Marshal(commands)
-	if err != nil {
-		if finish != nil {
-			finish(false)
-		}
-		return
-	}
-	key := string(encoded)
-	if p.fileBatches == nil {
-		p.fileBatches = map[string]int{}
-	}
+
+// fileBatch is how far a sequential batch got. Its entries cannot be applied
+// twice, so a retry continues after the confirmed ones.
+type fileBatch struct{ confirmed int }
+
+func (p *workspaceProject) fileCommandsFinish(batch *fileBatch, commands []protocol.Command, finish func(bool), done func()) {
 	var next func(int, *ui.Context)
 	next = func(index int, c *ui.Context) {
 		if index == len(commands) {
-			delete(p.fileBatches, key)
+			batch.confirmed = 0
 			if finish != nil {
 				finish(true)
 			}
@@ -220,19 +213,14 @@ func (p *workspaceProject) fileCommandsFinish(commands []protocol.Command, finis
 		}
 		p.mutate(commands[index], func(c *ui.Context, out protocol.Output) {
 			if out.Kind == "" {
-				// Only an uncertain entry keeps the batch's place for its retry.
-				stopped, _ := json.Marshal(commands[index])
-				if _, uncertain := p.uncertainOperations[string(stopped)]; !uncertain {
-					delete(p.fileBatches, key)
-				}
 				if finish != nil {
 					finish(false)
 				}
 				return
 			}
-			p.fileBatches[key] = index + 1
+			batch.confirmed = index + 1
 			next(index+1, c)
 		})
 	}
-	next(p.fileBatches[key], nil)
+	next(batch.confirmed, nil)
 }

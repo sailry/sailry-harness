@@ -259,10 +259,11 @@ func DefaultSshProfile() SshProfile {
 		HostKey:        nil,
 	}
 }
-func (value *SshProfile) UnmarshalJSON(data []byte) error {
+func (value *SshProfile) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *SshProfile) DecodeJSON(decoder *Decoder) error {
 	type plain SshProfile
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "revision", "name", "host", "port", "username", "authentication"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "revision", "name", "host", "port", "username", "authentication"}, false); err != nil {
 		return err
 	}
 	*value = SshProfile(decoded)

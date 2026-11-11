@@ -403,8 +403,8 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		}
 		status, document, operationErr := authorization.Response(ctx, &client, target.Declaration.Refresh.Request, fields, false)
 		err = operationErr
-		if err == nil && (status < 200 || status >= 300) {
-			err = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider authorization renewal was rejected"}
+		if err == nil {
+			err = authorization.Granted(status, document)
 		}
 		if err == nil {
 			if target.Declaration.Exchange != nil {
@@ -424,13 +424,20 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 	var failure error
 	if err != nil {
 		var fault *protocol.Fault
-		if renewal.Grant.Kind != protocol.AuthenticationPlugin || transport.sent.Load() ||
-			!errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
+		plugin := renewal.Grant.Kind == protocol.AuthenticationPlugin && errors.As(err, &fault)
+		switch {
+		case plugin && fault.Code == protocol.ErrorCodeUnavailable && !transport.sent.Load():
+			// No request left this Node, so the grant was not consumed. It returns
+			// without its uncertain marker and a later use renews it again.
+			grant, failure = renewal.Grant, err
+		case plugin && fault.Code == protocol.ErrorCodePermissionDenied && transport.sent.Load():
+			// The provider refused the grant. It stays stored and marked, so later
+			// uses ask for a new sign-in instead of renewing again.
+			grant, failure = renewal.Grant, err
+			grant.RenewalRejected = true
+		default:
 			return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider authorization renewal did not complete; sign in again"}
 		}
-		// No request left this Node, so the grant was not consumed. It returns
-		// without its uncertain marker and a later use renews it again.
-		grant, failure = renewal.Grant, err
 	}
 	var changes []protocol.Event
 	recording := context.WithoutCancel(node.ctx)

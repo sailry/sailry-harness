@@ -1,7 +1,9 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -61,6 +63,15 @@ func TestAccountCatalogAndAuthorization(t *testing.T) {
 		}
 		if _, _, err := AccountResourceHeaders(provider, secret(), "https://other.example.test/status"); err == nil {
 			t.Fatal("account resource escaped its declared origin")
+		}
+		// A cancelled paged discovery reports cancellation; no request leaves the process.
+		grant.Kind, grant.Scopes = protocol.AuthenticationClaudeOAuth, []string{"user:inference"}
+		provider.Authentication, provider.Api, provider.Endpoint, provider.Oauth = grant.Kind, protocol.ConversationModelApiAnthropic, "https://api.anthropic.com", nil
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		var fault *protocol.Fault
+		if _, err := Discover(ctx, provider, secret()); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeCancelled {
+			t.Fatalf("cancelled account discovery=%v", err)
 		}
 	})
 	t.Run("native catalogs retain reported metadata", func(t *testing.T) {

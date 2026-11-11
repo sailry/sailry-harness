@@ -54,7 +54,13 @@ credential reference, including an account that expired while queued, rather tha
 the provider's later selected account. SQL claims perform no HTTP. A stopped turn
 drops its observer while the Node task retains ownership of the credential write.
 A rotating exchange writes `renewal_pending` before HTTP; cancellation
-or restart cannot silently replay an uncertain exchange. A changed client, scope,
+or restart cannot silently replay an uncertain exchange. A plugin grant leaves
+that state in two definite cases. When no request got past connection setup the
+previous grant returns unmarked and a later use renews it again. When the
+provider refused the grant (401, or an OAuth error such as `invalid_grant`) the
+previous grant returns marked `renewal_rejected` and every later use answers
+`permission_denied` until the user signs in again. Any other failure keeps the
+uncertain marker. A changed client, scope,
 flow, issuer or destination requires sign-in again, while an implementation-only
 package update retains the same account owner. OAuth header and catalog overrides
 are saved with the provider and explicit discovery captures.

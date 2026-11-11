@@ -17,10 +17,11 @@ func DefaultConversationQuestionSpec() ConversationQuestionSpec {
 		Input:  ConversationQuestionInput{},
 	}
 }
-func (value *ConversationQuestionSpec) UnmarshalJSON(data []byte) error {
+func (value *ConversationQuestionSpec) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationQuestionSpec) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationQuestionSpec
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"prompt", "input"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"prompt", "input"}, true); err != nil {
 		return err
 	}
 	*value = ConversationQuestionSpec(decoded)
@@ -326,10 +327,11 @@ func DefaultConversationQuestion() ConversationQuestion {
 		State:   ConversationQuestionState{},
 	}
 }
-func (value *ConversationQuestion) UnmarshalJSON(data []byte) error {
+func (value *ConversationQuestion) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationQuestion) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationQuestion
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "session", "turn", "entry", "index", "state"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "session", "turn", "entry", "index", "state"}, false); err != nil {
 		return err
 	}
 	*value = ConversationQuestion(decoded)

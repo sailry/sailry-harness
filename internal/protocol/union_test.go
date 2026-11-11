@@ -67,4 +67,5 @@ func TestUnionUnknownKind(t *testing.T) {
 			t.Fatal("encoded unknown variant")
 		}
 	}
+	t.Run("reflective helpers agree", legacyEquivalence)
 }

@@ -69,7 +69,6 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 						return
 					}
 					u.Advance(expected)
-					s.expected = *u
 				})
 			}
 		})
@@ -86,6 +85,6 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 // here.
 func (s *State) OpenUpdate(h *Host) {
 	if h != nil && h.Update != nil {
-		s.updating, s.expected = true, *h.Update
+		s.updating = true
 	}
 }

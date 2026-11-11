@@ -101,6 +101,5 @@ func (p *workspaceProject) runBranchSwitch(command protocol.Command, branch pane
 				})
 			}}})
 		}
-		_ = c
 	})
 }

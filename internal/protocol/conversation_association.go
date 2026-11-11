@@ -19,10 +19,11 @@ func DefaultConversationAssociation() ConversationAssociation {
 		ID:        "",
 	}
 }
-func (value *ConversationAssociation) UnmarshalJSON(data []byte) error {
+func (value *ConversationAssociation) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationAssociation) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationAssociation
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"namespace", "kind", "id"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"namespace", "kind", "id"}, true); err != nil {
 		return err
 	}
 	*value = ConversationAssociation(decoded)

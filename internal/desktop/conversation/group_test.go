@@ -5,6 +5,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 func named(name string, n int) []Call {
@@ -23,6 +27,45 @@ func TestGrouping(t *testing.T) {
 	t.Run("AnswerFrom", testAnswerFrom)
 	t.Run("LastLines", testLastLines)
 	t.Run("Elapsed", testElapsed)
+	t.Run("Disclosures", testDisclosures)
+}
+
+// still is the transcript's actions for a test that asks none: it answers
+// the one a frame binds before any is asked, the image viewer's.
+type still struct{ Actions }
+
+func (still) ImageAction(kit.ImageAction, Image) {}
+
+// A call's row opens to its output and closes again; the state keeps the
+// open rows alone, none for the rows a transcript only shows.
+func testDisclosures(t *testing.T) {
+	s := New()
+	turns := []Turn{{ID: "turn", User: "Check", Reply: Reply{Status: Running, Blocks: []Block{
+		{Kind: ToolsBlock, Calls: []Call{{ID: "call", Name: "shell", Label: "Run the checks", Output: &Output{Text: "all passed"}}}},
+		{Kind: ReasoningBlock, Text: "Next"},
+	}}}}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		View(c, s, "session", turns, nil, still{})
+	}, 900, 600)
+	tt.Frame()
+	if !tt.HasText("Run the checks") || tt.HasText("all passed") || len(s.open) != 0 {
+		t.Fatalf("closed rows: %q, %d kept", tt.Texts(), len(s.open))
+	}
+	if err := tt.Click("Run the checks"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("all passed") || len(s.open) != 1 {
+		t.Fatalf("the open row: %q, %d kept", tt.Texts(), len(s.open))
+	}
+	if err := tt.Click("Run the checks"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("all passed") || len(s.open) != 0 {
+		t.Errorf("the row closed again: %q, %d kept", tt.Texts(), len(s.open))
+	}
 }
 
 // Adjacent tool blocks join, text splits them and blank text does not;

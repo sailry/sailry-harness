@@ -51,14 +51,15 @@ func DefaultRoleSnapshot() RoleSnapshot {
 		Models:       map[RoleID]RoleModel{},
 	}
 }
-func (value *RoleSnapshot) UnmarshalJSON(data []byte) error {
+func (value *RoleSnapshot) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *RoleSnapshot) DecodeJSON(decoder *Decoder) error {
 	type plain RoleSnapshot
 	decoded := plain{}
 	decoded.Execution = ConversationExecutionTeam
 	decoded.Team = nil
 	decoded.Instructions = ""
 	decoded.Models = map[RoleID]RoleModel{}
-	if err := DecodeObject(data, &decoded, []string{"profiles", "providers"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"profiles", "providers"}, false); err != nil {
 		return err
 	}
 	*value = RoleSnapshot(decoded)
@@ -116,11 +117,12 @@ func DefaultRoleModel() RoleModel {
 		Features: nil,
 	}
 }
-func (value *RoleModel) UnmarshalJSON(data []byte) error {
+func (value *RoleModel) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *RoleModel) DecodeJSON(decoder *Decoder) error {
 	type plain RoleModel
 	decoded := plain{}
 	decoded.Features = nil
-	if err := DecodeObject(data, &decoded, []string{"provider", "model"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"provider", "model"}, false); err != nil {
 		return err
 	}
 	*value = RoleModel(decoded)
@@ -164,11 +166,12 @@ func DefaultRoleProfile() RoleProfile {
 		Instructions: "",
 	}
 }
-func (value *RoleProfile) UnmarshalJSON(data []byte) error {
+func (value *RoleProfile) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *RoleProfile) DecodeJSON(decoder *Decoder) error {
 	type plain RoleProfile
 	decoded := plain{}
 	decoded.Tools = nil
-	if err := DecodeObject(data, &decoded, []string{"id", "revision", "key", "name", "description", "read_only", "skills", "instructions"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "revision", "key", "name", "description", "read_only", "skills", "instructions"}, false); err != nil {
 		return err
 	}
 	*value = RoleProfile(decoded)

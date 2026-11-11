@@ -413,11 +413,16 @@ func (g gitMenus) stashes() []action {
 				return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: o[1], Target: id}) }
 			}), o[1]))
 	}
-	drop := choices(func(msg string) func(*ui.Context) {
-		return func(*ui.Context) {
-			g.v.confirm = confirm{open: true, title: g.t("git_stash_drop"), message: g.t("git_delete_confirm"), target: msg, run: func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_stash_drop", Target: msg}) }}
-		}
-	})
+	// The confirmation names the stash by its message, as the list does,
+	// and drops it by its ID.
+	var drop []action
+	for _, choice := range choices(func(id string) func(*ui.Context) {
+		return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_stash_drop", Target: id}) }
+	}) {
+		drop = append(drop, action{label: choice.label, run: func(*ui.Context) {
+			g.v.confirm = confirm{open: true, title: g.t("git_stash_drop"), message: g.t("git_delete_confirm"), target: choice.label, run: choice.run}
+		}})
+	}
 	return append(out, separatorItem, g.choose("git_stash_drop", drop, "git_stash_drop"),
 		g.confirm("git_stash_drop_all", "git_delete_confirm", strings.Join(stashes, "\n"), len(stashes) > 0, "git_stash_drop_all_open"),
 		separatorItem, g.choose("git_stash_view", choices(func(id string) func(*ui.Context) {

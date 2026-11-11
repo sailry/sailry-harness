@@ -27,7 +27,6 @@ type Actions struct {
 // State is the page's UI state: its dialogs and their drafts.
 type State struct {
 	updating bool       // the update dialog
-	expected Update     // the update the dialog's button acts on
 	ports    portPicker // the port picker and the new forward dialog
 	// The failures toasted already, so a redraw does not repeat them.
 	failed, metricsFailed, runtimeFailed string
@@ -105,9 +104,7 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 		ui.Row(c.Key("actions")).Gap(8).Wrap().Justify(ui.End).Children(func() {
 			portsHeader(c, s, h, act)
 			if h.Update != nil {
-				small(c, "update", icons.ArrowUp, i18n.T(c, "host_update"), false, true).OnClick(func() {
-					s.updating, s.expected = true, *h.Update
-				})
+				small(c, "update", icons.ArrowUp, i18n.T(c, "host_update"), false, true).OnClick(func() { s.updating = true })
 			}
 		})
 	})

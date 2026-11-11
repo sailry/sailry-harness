@@ -78,13 +78,14 @@ func DefaultPluginContext() PluginContext {
 		Session:    nil,
 	}
 }
-func (value *PluginContext) UnmarshalJSON(data []byte) error {
+func (value *PluginContext) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *PluginContext) DecodeJSON(decoder *Decoder) error {
 	type plain PluginContext
 	decoded := plain{}
 	decoded.Invocation = nil
 	decoded.Turn = nil
 	decoded.Surface = PluginDesktopSurface{Kind: "workspace"}
-	if err := DecodeObject(data, &decoded, []string{"package"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"package"}, false); err != nil {
 		return err
 	}
 	*value = PluginContext(decoded)
@@ -506,12 +507,13 @@ func DefaultPluginSummary() PluginSummary {
 		Description:      nil,
 	}
 }
-func (value *PluginSummary) UnmarshalJSON(data []byte) error {
+func (value *PluginSummary) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *PluginSummary) DecodeJSON(decoder *Decoder) error {
 	type plain PluginSummary
 	decoded := plain{}
 	decoded.Compatibility = PluginCompatibility{Kind: "compatible"}
 	decoded.Enabled = false
-	if err := DecodeObject(data, &decoded, []string{"name", "revision", "digest", "settings_revision"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"name", "revision", "digest", "settings_revision"}, false); err != nil {
 		return err
 	}
 	*value = PluginSummary(decoded)

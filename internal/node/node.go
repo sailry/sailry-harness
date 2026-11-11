@@ -102,7 +102,7 @@ const (
 )
 
 func projectEffect(kind string) bool {
-	return kind == "create_project" || kind == "update_project" || kind == "register_worktree" || kind == "remove_project"
+	return kind == "create_project" || kind == "register_project" || kind == "update_project" || kind == "register_worktree" || kind == "remove_project"
 }
 
 type commandJob struct {
@@ -479,7 +479,7 @@ func externalCommand(command protocol.Command) bool {
 	switch command.Kind {
 	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
 		return true
-	case "create_project", "update_project", "remove_project", "register_worktree":
+	case "create_project", "register_project", "update_project", "remove_project", "register_worktree":
 		return true
 	case "create_session":
 		input := command.Data.(*protocol.CommandCreateSessionPayload)
@@ -494,7 +494,10 @@ func supportedCommand(kind string) bool {
 		return true
 	}
 	switch kind {
-	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings", "read_plugin_version", "read_activity_catalog", "read_activity":
+	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings", "read_plugin_version", "read_activity_catalog", "read_activity",
+		"read_media_settings", "list_media_models":
+		return true
+	case "register_project", "report_diagnostic", "save_media_settings":
 		return true
 	case "deliver_background", "continue_turn":
 		return true
@@ -569,6 +572,14 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "read_telemetry_settings":
 			value, err := store.ReadTelemetry(ctx, db)
 			output = protocol.Output{Kind: "telemetry_settings", Data: value}
+			return err
+		case "read_media_settings":
+			value, err := store.ReadMediaSettings(ctx, db)
+			output = protocol.Output{Kind: "media_settings", Data: value}
+			return err
+		case "list_media_models":
+			value, err := store.MediaModels(ctx, db)
+			output = protocol.Output{Kind: "media_models", Data: value}
 			return err
 		case "read_plugin_version":
 			value, err := store.ReadPluginVersion(ctx, db, request.Command.Data.(*protocol.CommandReadPluginVersionPayload).Package)

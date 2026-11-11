@@ -3,6 +3,7 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -137,7 +138,7 @@ func (f *connectionFixtureTransport) Dispatch(ctx context.Context, request proto
 		stream := protocol.NewStreamID()
 		f.downloads[stream] = body
 		digest := blake3.Sum256(body)
-		response.Output = sshOutcome("download", protocol.SshDownload{Stream: stream, Path: input.Path, Size: uint64(len(body)), Revision: fmtAttachmentDigest(digest[:])})
+		response.Output = sshOutcome("download", protocol.SshDownload{Stream: stream, Path: input.Path, Size: uint64(len(body)), Revision: hex.EncodeToString(digest[:])})
 	case "inspect_request":
 		input, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
 		outcome := protocol.RequestOutcome{Kind: "not_admitted"}

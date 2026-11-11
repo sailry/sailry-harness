@@ -190,6 +190,7 @@ func paged(c *Conversation) {
 // LoadAll loads every older page at once, for a benchmark of the whole
 // history.
 func LoadAll(c *Conversation) {
+	shift(c, len(simulation(c).older))
 	c.Turns = append(simulation(c).older, c.Turns...)
 	simulation(c).older, c.Session.Older, c.Session.LoadingOlder = nil, 0, false
 }
@@ -220,10 +221,19 @@ func page(c *Conversation, now time.Time) bool {
 		return true
 	}
 	n := min(pageSize, len(simulation(c).older))
+	shift(c, n)
 	c.Turns = append(append([]cv.Turn(nil), simulation(c).older[len(simulation(c).older)-n:]...), c.Turns...)
 	simulation(c).older = simulation(c).older[:len(simulation(c).older)-n]
 	c.Session.Older, c.Session.LoadingOlder = len(simulation(c).older), false
 	return false
+}
+
+// shift keeps the playing reply on its turn as n older turns go in before
+// it.
+func shift(c *Conversation, n int) {
+	if s := simulation(c).stream; s != nil {
+		s.turn += n
+	}
 }
 
 // childTurns are a subagent's session for its tab: a short preview run.

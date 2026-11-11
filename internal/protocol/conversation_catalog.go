@@ -27,12 +27,13 @@ func DefaultConversationCatalogStatus() ConversationCatalogStatus {
 		Scores:      DefaultConversationCatalogScoresScoreStatus(),
 	}
 }
-func (value *ConversationCatalogStatus) UnmarshalJSON(data []byte) error {
+func (value *ConversationCatalogStatus) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationCatalogStatus) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationCatalogStatus
 	decoded := plain{}
 	decoded.Fault = nil
 	decoded.Scores = DefaultConversationCatalogScoresScoreStatus()
-	if err := DecodeObject(data, &decoded, []string{"revision", "providers", "models", "bytes"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"revision", "providers", "models", "bytes"}, false); err != nil {
 		return err
 	}
 	*value = ConversationCatalogStatus(decoded)

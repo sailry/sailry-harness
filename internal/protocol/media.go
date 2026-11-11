@@ -13,11 +13,12 @@ const (
 	MediaKindVision MediaKind = "vision"
 	MediaKindImage  MediaKind = "image"
 	MediaKindVideo  MediaKind = "video"
+	MediaKindSpeech MediaKind = "speech"
 )
 
 func (value MediaKind) MarshalJSON() ([]byte, error) {
 	switch value {
-	case MediaKindVision, MediaKindImage, MediaKindVideo:
+	case MediaKindVision, MediaKindImage, MediaKindVideo, MediaKindSpeech:
 		return json.Marshal(string(value))
 	default:
 		return nil, fmt.Errorf("unknown MediaKind %q", value)
@@ -29,7 +30,7 @@ func (value *MediaKind) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch MediaKind(decoded) {
-	case MediaKindVision, MediaKindImage, MediaKindVideo:
+	case MediaKindVision, MediaKindImage, MediaKindVideo, MediaKindSpeech:
 		*value = MediaKind(decoded)
 		return nil
 	default:
@@ -56,11 +57,12 @@ const (
 	MediaGenerationImage     MediaGeneration = "image"
 	MediaGenerationImageTool MediaGeneration = "image_tool"
 	MediaGenerationVideo     MediaGeneration = "video"
+	MediaGenerationSpeech    MediaGeneration = "speech"
 )
 
 func (value MediaGeneration) MarshalJSON() ([]byte, error) {
 	switch value {
-	case MediaGenerationImage, MediaGenerationImageTool, MediaGenerationVideo:
+	case MediaGenerationImage, MediaGenerationImageTool, MediaGenerationVideo, MediaGenerationSpeech:
 		return json.Marshal(string(value))
 	default:
 		return nil, fmt.Errorf("unknown MediaGeneration %q", value)
@@ -72,7 +74,7 @@ func (value *MediaGeneration) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch MediaGeneration(decoded) {
-	case MediaGenerationImage, MediaGenerationImageTool, MediaGenerationVideo:
+	case MediaGenerationImage, MediaGenerationImageTool, MediaGenerationVideo, MediaGenerationSpeech:
 		*value = MediaGeneration(decoded)
 		return nil
 	default:
@@ -122,6 +124,9 @@ func (value MediaBinding) MarshalJSON() ([]byte, error) {
 type MediaSettings struct {
 	Revision uint64                      `json:"revision"`
 	Bindings map[MediaKind]*MediaBinding `json:"bindings"`
+	// Unavailable names the bound kinds whose model cannot run now. The Node
+	// computes it on every read and ignores it on save.
+	Unavailable []MediaKind `json:"unavailable,omitempty"`
 }
 
 func DefaultMediaSettings() MediaSettings {
@@ -130,10 +135,11 @@ func DefaultMediaSettings() MediaSettings {
 		Bindings: map[MediaKind]*MediaBinding{},
 	}
 }
-func (value *MediaSettings) UnmarshalJSON(data []byte) error {
+func (value *MediaSettings) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *MediaSettings) DecodeJSON(decoder *Decoder) error {
 	type plain MediaSettings
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"revision", "bindings"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"revision", "bindings"}, false); err != nil {
 		return err
 	}
 	*value = MediaSettings(decoded)

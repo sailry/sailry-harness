@@ -93,18 +93,7 @@ func (x *conversationActions) SaveQueued(id, text string) {
 	if !ok {
 		return
 	}
-	x.r.execute(protocol.Command{Kind: "read_queued_turn", Data: protocol.CommandReadQueuedTurnPayload{Turn: item.Turn}}, func(c *ui.Context, out protocol.Output, err error) {
-		if err != nil {
-			x.r.report(c, err, "session_changed")
-			return
-		}
-		value, ok := detail[protocol.ConversationQueuedMessage](out.Data)
-		if !ok {
-			return
-		}
-		value.Message.Text = text
-		x.r.command(protocol.Command{Kind: "edit_queued_turn", Data: protocol.CommandEditQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision, Message: value.Message}}, "session_changed", nil)
-	})
+	x.r.saveQueued(item, text, nil)
 }
 func (x *conversationActions) Compact() {
 	if x.readonly() {

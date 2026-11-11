@@ -44,7 +44,6 @@ func (p *workspaceProject) readGitLog(cursor *protocol.GitLogCursor, reset bool)
 			}
 		}
 		p.projectGitHistory(false)
-		_ = c
 	})
 }
 func (p *workspaceProject) projectGitHistory(loading bool) {

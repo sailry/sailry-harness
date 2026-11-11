@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -216,27 +217,55 @@ func replaceConversationTurn(ctx context.Context, db *sql.Conn, node, caller pro
 	current, err = ReadSession(ctx, db, input.Session)
 	return protocol.Output{Kind: "turn_replaced", Data: protocol.OutputTurnReplacedPayload{Turn: turn, History: &history}}, []protocol.Event{{Kind: "session_rewound", Data: protocol.EventSessionRewoundPayload{Session: &current, Backup: sessionPointer(history.Backup)}}}, err
 }
-func forkConversationAt(ctx context.Context, db *sql.Conn, input protocol.CommandForkConversationAtPayload) (protocol.Output, []protocol.Event, error) {
-	current, err := checkedSession(ctx, db, input.Session, input.ExpectedRevision)
+
+// locationTarget admits a conversation's change of execution location: an idle
+// conversation of the worktree's own project, at its expected revision, and a
+// worktree whose directory still exists.
+func locationTarget(ctx context.Context, db *sql.Conn, session protocol.SessionID, worktree protocol.WorktreeID, expected uint64) (protocol.Session, error) {
+	current, err := checkedSession(ctx, db, session, expected)
 	if err != nil {
-		return protocol.Output{}, nil, err
+		return current, err
 	}
 	if current.Project == nil {
-		return protocol.Output{}, nil, invalid("connection conversations cannot move to a project")
+		return current, invalid("connection conversations cannot move to a project")
 	}
-	var target bool
-	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1 AND project=?2 AND id NOT IN(SELECT worktree FROM removed_worktrees))", input.Worktree.String(), current.Project.String()).Scan(&target); err != nil {
-		return protocol.Output{}, nil, err
+	var path string
+	err = db.QueryRowContext(ctx, "SELECT path FROM worktrees WHERE id=?1 AND project=?2 AND id NOT IN(SELECT worktree FROM removed_worktrees)", worktree.String(), current.Project.String()).Scan(&path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return current, fault(protocol.ErrorCodeNotFound, "worktree does not belong to the selected project")
 	}
-	if !target {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeNotFound, "worktree does not belong to the selected project")
+	if err != nil {
+		return current, err
 	}
-	busy, err := conversationBusy(ctx, db, input.Session)
+	busy, err := conversationBusy(ctx, db, session)
+	if err != nil {
+		return current, err
+	}
+	if busy {
+		return current, fault(protocol.ErrorCodeBusy, "conversation has active or queued turns")
+	}
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return current, fault(protocol.ErrorCodeNotFound, "worktree directory is unavailable")
+	}
+	return current, nil
+}
+
+func moveConversation(ctx context.Context, db *sql.Conn, input protocol.CommandMoveConversationPayload) (protocol.Output, []protocol.Event, error) {
+	current, err := locationTarget(ctx, db, input.Session, input.Worktree, input.ExpectedRevision)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if busy {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "conversation has active or queued turns")
+	if current.Worktree == input.Worktree {
+		return protocol.Output{Kind: "session", Data: current}, nil, nil
+	}
+	current.Worktree = input.Worktree
+	return reviseSession(ctx, db, current)
+}
+
+func forkConversationAt(ctx context.Context, db *sql.Conn, input protocol.CommandForkConversationAtPayload) (protocol.Output, []protocol.Event, error) {
+	current, err := locationTarget(ctx, db, input.Session, input.Worktree, input.ExpectedRevision)
+	if err != nil {
+		return protocol.Output{}, nil, err
 	}
 	head, err := conversationHead(ctx, db, input.Session)
 	if err != nil {

@@ -15,7 +15,7 @@ import (
 
 func (r *Runtime) captureResources(x *execution) error {
 	var err error
-	x.resources, err = operations.CaptureResources(r.profile, x.inv.Turn.Plugins, x.inv.Turn.Config.Assistant)
+	x.resources, err = operations.CaptureResources(x.ctx, r.profile, x.inv.Turn.Plugins, x.inv.Turn.Config.Assistant)
 	if err != nil {
 		return err
 	}

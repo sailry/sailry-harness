@@ -35,6 +35,14 @@ func TestTextRules(t *testing.T) {
 		if got != want {
 			t.Errorf("Mark =\n%q\nwant\n%q", got, want)
 		}
+		// A link keeps its destination, a citation's as Cite writes it too:
+		// its text is marked, and the text around it.
+		src = "The Go [go.dev (go)](https://go.dev/doc(go)) site [1](<https://go.dev/a>) is go](."
+		got = conversation.Mark(conversation.Cite(src, nil), "go")
+		want = "The <mark>Go</mark> [<mark>go</mark>.dev (<mark>go</mark>)](https://go.dev/doc(go)) site [1](<https://go.dev/a>) is <mark>go</mark>](."
+		if got != want {
+			t.Errorf("Mark =\n%q\nwant\n%q", got, want)
+		}
 	})
 	t.Run("Find", func(t *testing.T) {
 		turns := []conversation.Turn{

@@ -100,10 +100,11 @@ func DefaultConversationReference() ConversationReference {
 		Label:  "",
 	}
 }
-func (value *ConversationReference) UnmarshalJSON(data []byte) error {
+func (value *ConversationReference) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationReference) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationReference
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"target", "label"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"target", "label"}, false); err != nil {
 		return err
 	}
 	*value = ConversationReference(decoded)

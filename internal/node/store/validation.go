@@ -97,6 +97,7 @@ func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) e
 	}{
 		{"telemetry_settings", "body", func() any { return new(protocol.TelemetrySettings) }},
 		{"power_settings", "body", func() any { return new(protocol.PowerSettings) }},
+		{"media_settings", "body", func() any { return new(protocol.MediaSettings) }},
 		{"compaction_settings", "body", func() any { return new(protocol.ConversationCompactionSettings) }},
 		{"network_settings", "body", func() any { return new(networkStored) }},
 		{"search_settings", "body", func() any { return new(searchStored) }},

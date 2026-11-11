@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -89,6 +90,12 @@ func (f *workspaceUploadTransport) Dispatch(ctx context.Context, request protoco
 		response.Output = protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: input.ID, Outcome: protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &output}}}}
 	case "cancel_file_transfer":
 		response.Output = protocol.Output{Kind: "file_transfer_cancelled"}
+	case "restore_file_checkpoint":
+		if input, _ := detail[protocol.CommandRestoreFileCheckpointPayload](request.Command.Data); f.conflict && input.Checkpoint == (protocol.CheckpointID{2}) {
+			response.Fault = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "file changed after the turn"}
+		} else {
+			response.Output = protocol.Output{Kind: "file_restored", Data: protocol.ConversationCheckpointRestored{Session: input.Session, Checkpoint: input.Checkpoint}}
+		}
 	case "trash_entry":
 		if input, _ := detail[protocol.CommandTrashEntryPayload](request.Command.Data); input.Path == "denied" {
 			response.Fault = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "entry is protected"}
@@ -250,12 +257,12 @@ func testWorkspaceUploads(t *testing.T) {
 			transport.mu.Unlock()
 		})
 	}
-	t.Run("file batch restarts after a failed entry", func(t *testing.T) {
-		transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
+	t.Run("a file batch continues only where its entries stay applied", func(t *testing.T) {
+		transport := &workspaceUploadTransport{node: protocol.NodeID{1}, conflict: true}
 		r := &Runtime{ctx: t.Context(), controller: client.New(transport), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
-		worktree := protocol.NewWorktreeID()
-		p := &workspaceProject{runtime: r, owner: protocol.Worktree{ID: worktree}}
-		p.panel = panel.NewLiveProject("fixture", &viewmodel.Workspace{Files: &viewmodel.FileNode{}}, &panel.Actions{})
+		worktree, session := protocol.NewWorktreeID(), protocol.SessionID{5}
+		r.workspace = &workspaceState{projects: map[protocol.WorktreeID]*workspaceProject{}}
+		p := r.workspaceFor(protocol.Worktree{ID: worktree, Path: "/fixture"})
 		tester := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			r.mu.Lock()
@@ -266,30 +273,115 @@ func testWorkspaceUploads(t *testing.T) {
 				complete(c)
 			}
 		}, 600, 400)
-		commands := []protocol.Command{
-			{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: worktree, Path: "first"}},
-			{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: worktree, Path: "denied"}},
-		}
-		var results []bool
-		for attempt := range 2 {
-			p.fileCommandsFinish(commands, func(ok bool) { results = append(results, ok) }, nil)
+		// run starts a batch and returns its result with the entries it sent.
+		run := func(start func(func(bool))) (bool, string) {
+			transport.mu.Lock()
+			sent := len(transport.requests)
+			transport.mu.Unlock()
+			var results []bool
+			start(func(ok bool) { results = append(results, ok) })
 			for range 4 {
 				r.workers.Wait()
 				tester.Frame()
 			}
-			if len(results) != attempt+1 || results[attempt] {
-				t.Fatal("failed batch did not report its failure", results)
+			transport.mu.Lock()
+			defer transport.mu.Unlock()
+			var entries []string
+			for _, request := range transport.requests[sent:] {
+				switch input := request.Command.Data.(type) {
+				case protocol.CommandTrashEntryPayload:
+					entries = append(entries, input.Path)
+				case protocol.CommandRestoreFileCheckpointPayload:
+					entries = append(entries, input.Checkpoint.String())
+				}
 			}
+			if len(results) != 1 {
+				t.Fatal("batch reported", results)
+			}
+			return results[0], strings.Join(entries, ",")
+		}
+		commands := []protocol.Command{
+			{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: worktree, Path: "first"}},
+			{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: worktree, Path: "denied"}},
+		}
+		// A trashed entry cannot be trashed again: the same confirmation retries the entry that failed.
+		batch := &fileBatch{}
+		trash := func(finish func(bool)) { p.fileCommandsFinish(batch, commands, finish, nil) }
+		if ok, sent := run(trash); ok || sent != "first,denied" {
+			t.Fatal("failed batch =", ok, sent)
+		}
+		if ok, sent := run(trash); ok || sent != "denied" {
+			t.Fatal("retried batch =", ok, sent)
+		}
+		// The same entries confirmed again exist again, so none is skipped.
+		batch = &fileBatch{}
+		if ok, sent := run(trash); ok || sent != "first,denied" {
+			t.Fatal("batch confirmed again =", ok, sent)
+		}
+		// A restored file no longer matches its checkpoint, so a later Undo continues after it.
+		restored, changed := protocol.CheckpointID{1}, protocol.CheckpointID{2}
+		p.checkpointOrder = map[string][]protocol.ConversationCheckpointFile{"turn": {{ID: restored, Worktree: worktree, Path: "restored"}, {ID: changed, Worktree: worktree, Path: "changed"}}}
+		undo := func(finish func(bool)) { p.restoreTurn(session, "turn", "", finish) }
+		if ok, sent := run(undo); ok || sent != restored.String()+","+changed.String() {
+			t.Fatal("failed Undo =", ok, sent)
 		}
 		transport.mu.Lock()
-		defer transport.mu.Unlock()
-		var paths []string
-		for _, request := range transport.requests {
-			input, _ := detail[protocol.CommandTrashEntryPayload](request.Command.Data)
-			paths = append(paths, input.Path)
+		transport.conflict = false
+		transport.mu.Unlock()
+		if ok, sent := run(undo); !ok || sent != changed.String() || !p.turnUndone["turn"][""] || len(p.restoreBatches) != 0 {
+			t.Fatal("Undo after its failure =", ok, sent)
 		}
-		if strings.Join(paths, ",") != "first,denied,first,denied" {
-			t.Fatal("repeated batch skipped the entries before its earlier failure", paths)
+	})
+	t.Run("session resources are read once per finished run", func(t *testing.T) {
+		transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
+		r := &Runtime{ctx: t.Context(), controller: client.New(transport), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		worktree, session := protocol.NewWorktreeID(), protocol.SessionID{5}
+		p := &workspaceProject{runtime: r, owner: protocol.Worktree{ID: worktree}, session: session}
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			r.mu.Lock()
+			queue := r.queue
+			r.queue = nil
+			r.mu.Unlock()
+			for _, complete := range queue {
+				complete(c)
+			}
+		}, 600, 400)
+		older := protocol.TurnID{1}
+		page := protocol.ConversationPage{Session: session, NextBefore: &older, Runs: []protocol.ConversationRun{
+			{Session: session, Turn: protocol.TurnID{2}, Worktree: worktree, Status: protocol.ConversationStatusCompleted},
+			{Session: session, Turn: protocol.TurnID{3}, Worktree: worktree, Status: protocol.ConversationStatusRunning},
+		}}
+		// read sends what the page still needs and returns the commands it sent.
+		read := func() string {
+			// The fixture rejects these reads; a rejected read is not what holds the next one back here.
+			p.loading, p.failedReads = map[string]bool{}, nil
+			transport.mu.Lock()
+			sent := len(transport.requests)
+			transport.mu.Unlock()
+			p.readPageResources(page)
+			for range 4 {
+				r.workers.Wait()
+				tester.Frame()
+			}
+			transport.mu.Lock()
+			defer transport.mu.Unlock()
+			var kinds []string
+			for _, request := range transport.requests[sent:] {
+				kinds = append(kinds, request.Command.Kind)
+			}
+			sort.Strings(kinds)
+			return strings.Join(kinds, ",")
+		}
+		if sent := read(); sent != "list_file_checkpoints,read_conversation" {
+			t.Fatal("first read of the page =", sent)
+		}
+		if sent := read(); sent != "" {
+			t.Fatal("an unchanged page was read again:", sent)
+		}
+		page.Runs[1].Status = protocol.ConversationStatusCompleted
+		if sent := read(); sent != "list_file_checkpoints" {
+			t.Fatal("a finished run read more than its own resources:", sent)
 		}
 	})
 }

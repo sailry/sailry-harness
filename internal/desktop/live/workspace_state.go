@@ -67,7 +67,7 @@ type workspaceProject struct {
 	resourceSignature        string
 	resourceRuns             map[protocol.TurnID]protocol.ConversationStatus
 	resourceOlder            bool
-	fileBatches              map[string]int
+	restoreBatches           map[string]*fileBatch
 	uncertainOperations      map[string]protocol.Command
 	uncertainCallbacks       map[string]func(*ui.Context, protocol.Output)
 	searchCancel             context.CancelFunc
@@ -203,7 +203,6 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		project.refresh()
 	}
 	project.sessionResourcesFrame()
-	_ = c
 }
 func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	if project := r.workspace.projects[worktree.ID]; project != nil {
@@ -247,7 +246,7 @@ func (r *Runtime) closeWorkspace() {
 func (p *workspaceProject) actions() *panel.Actions {
 	return &panel.Actions{
 		ReadDirectory: func(path string) { p.readDirectory(path, false) }, NextDirectory: p.nextDirectory, RefreshDirectory: func(path string) { p.readDirectory(path, true) },
-		ReadFile: p.readFile, OpenFile: p.openFileKind, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.readCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
+		ReadFile: p.readFile, OpenFile: p.openFileKind, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
 		Search: p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
 		GitHistory: p.gitHistoryPage,
 		PendingGit: p.pendingGitOperations,
@@ -363,7 +362,6 @@ func (p *workspaceProject) requestDirectory(directory string, after *protocol.Di
 		if after != nil && faultCode(err) == protocol.ErrorCodeRevisionConflict {
 			p.readDirectory(directory, true)
 		}
-		_ = c
 	})
 }
 func (p *workspaceProject) directoryPage(c *ui.Context, directory string, page protocol.Directory, accumulated []protocol.FileEntry) {
@@ -405,8 +403,6 @@ func (p *workspaceProject) directoryPage(c *ui.Context, directory string, page p
 	p.panel.PruneFileSelection()
 	p.directories[directory] = true
 	p.directoryEntries[directory] = entries
-	_ = c
-	_ = page
 }
 func workspaceFileNode(root *viewmodel.FileNode, relative string) *viewmodel.FileNode {
 	if root == nil {
@@ -441,7 +437,6 @@ func (p *workspaceProject) readFile(relative string) {
 		p.panel.SetFileUnavailable(relative, false)
 		p.panel.SetFileWritable(relative, value.Revision != nil && !value.Truncated)
 		p.panel.SetFileStatus(relative, false, value.Truncated)
-		_ = c
 	})
 }
 func (p *workspaceProject) fileUnavailable(relative string) {
@@ -499,7 +494,6 @@ func (p *workspaceProject) readGit() {
 				p.data.Repo = viewmodel.Repository{}
 			}
 		}
-		_ = c
 	})
 }
 func (p *workspaceProject) readGitHistory() {
@@ -508,7 +502,6 @@ func (p *workspaceProject) readGitHistory() {
 			p.branches = value
 			p.projectBranches(value)
 		}
-		_ = c
 	})
 	p.readGitLog(nil, true)
 }

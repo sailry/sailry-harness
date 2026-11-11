@@ -64,7 +64,9 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 		padding = 8
 	}
 	available := max(width-2*padding-12, 0)
-	logo = min(logo, float32(math.Floor(float64(available/(markW/markH+1)))))
+	// The row is the brand, a square, and the wordmark, markW/markH wide for
+	// its height (as a fraction: the constants alone would divide whole).
+	logo = min(logo, float32(math.Floor(float64(available/(float32(markW)/markH+1)))))
 	scroll.Children(func() {
 		// At least the scroll's height (last frame's), so the page centers
 		// vertically; taller content grows from the top instead of being

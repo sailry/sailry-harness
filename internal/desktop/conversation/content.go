@@ -383,7 +383,8 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 	for _, f := range ch.Files {
 		added, removed = added+f.Added, removed+f.Removed
 	}
-	more := s.opened("changes-more-" + turn)
+	moreKey := "changes-more-" + turn
+	more := s.opened(moreKey)
 	all := ch.Undone[""]
 	ui.Column(c.Key("changes")).FillWidth().Radius(p.Radius2xl()).Border(1, p.Border).Background(p.Muted.Alpha(0.2)).Clip().Children(func() {
 		ui.Row(c).FillWidth().MinWidth(0).Padding(12).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -406,7 +407,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 		})
 		n := len(ch.Files)
 		shown := n
-		if !*more {
+		if !more {
 			shown = min(n, previewFiles)
 		}
 		for i, f := range ch.Files[:shown] {
@@ -440,23 +441,23 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 		}
 		if n > previewFiles {
 			label := i18n.T(c, "turn_changes_more", "count", n-previewFiles)
-			if *more {
+			if more {
 				label = i18n.T(c, "turn_changes_less")
 			}
-			t := ui.ButtonBase(c.Key("more")).Label(label).Expanded(*more).FillWidth().Height(40).PaddingX(12).Gap(8).
+			t := ui.ButtonBase(c.Key("more")).Label(label).Expanded(more).FillWidth().Height(40).PaddingX(12).Gap(8).
 				BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Background(p.Muted.Alpha(0.2)).Cursor(ui.CursorPointer).Justify(ui.Start)
 			hovered := t.Hovered()
 			t.Children(func() {
 				ui.Text(c, label).FontSize(14).TextColor(p.MutedForeground)
 				chevron := icons.ChevronRight
-				if *more {
+				if more {
 					chevron = icons.ChevronDown
 				}
 				ch := ui.Icon(c, chevron).FontSize(caretSize).TextColor(p.MutedForeground)
 				if !hovered {
 					ch.Opacity(0)
 				}
-			}).OnClick(func() { *more = !*more })
+			}).OnClick(func() { s.toggle(moreKey) })
 		}
 	})
 }

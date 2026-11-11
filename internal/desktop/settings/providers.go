@@ -879,6 +879,11 @@ func modelForm(c *ui.Context, d *modelDraft) {
 						b.OnClick(func() { d.def = j })
 						kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), false).Disabled(d.pending).OnClick(func() {
 							d.efforts = slices.Delete(d.efforts, j, j+1)
+							// The default stays the effort it was, as a
+							// removed model keeps the default model.
+							if d.def > j {
+								d.def--
+							}
 							if d.def >= len(d.efforts) {
 								d.def = 0
 							}

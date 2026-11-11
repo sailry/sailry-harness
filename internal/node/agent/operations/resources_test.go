@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,16 @@ func TestSkillLoad(t *testing.T) {
 	if _, err := resources.Read(t.Context(), "fixture:inspect", "docs/guide.txt"); err == nil {
 		t.Fatal("changed admitted resource was silently reread")
 	}
+	t.Run("stopped turn stops capturing an installed package", func(t *testing.T) {
+		profile := t.TempDir()
+		installed := protocol.PluginReference{Name: "fixture", Digest: strings.Repeat("a", 64)}
+		if err := os.MkdirAll(filepath.Join(profile, "plugins", "packages", installed.Digest), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CaptureResources(ctx, profile, []protocol.PluginReference{installed}, nil); !errors.Is(err, context.Canceled) {
+			t.Fatalf("capture after stop=%v", err)
+		}
+	})
 	t.Run("metadata preserves source scalar types", func(t *testing.T) {
 		for _, header := range []string{"name: inspect\ndescription: 123\n", "name: inspect\ndescription: Description\nmetadata:\n  bad: 123\n", "name: inspect\ndescription: Description\nallowed-tools: null\n", "name: other\ndescription: Description\n"} {
 			if _, err := parseSkill("inspect", "---\n"+header+"---\nBody"); err == nil {
@@ -81,7 +92,7 @@ func TestSkillLoad(t *testing.T) {
 			}
 			if !native {
 				found = true
-				captured, err := CaptureResources(t.TempDir(), []protocol.PluginReference{p.Reference}, nil)
+				captured, err := CaptureResources(t.Context(), t.TempDir(), []protocol.PluginReference{p.Reference}, nil)
 				if err != nil || len(captured.Skills()) != len(p.Skills) {
 					t.Fatal("skill-only package missing from admission", p.Reference, err)
 				}

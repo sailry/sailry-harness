@@ -36,6 +36,10 @@ profile. Symlinks, traversal, conflicting archive paths and oversized captures
 are rejected. Installed packages are independent of their source checkout.
 
 Settings preserve public values and explicit keep/replace/clear secret updates.
+`read_plugin_secret` returns one saved secret slot to a controller and is refused
+to plugin callers. A secret saved under a binding that has since changed stays
+hidden. Where Rust answers `invalid_request` "setting binding changed" for a
+changed binding with nothing saved, the Go Node answers with no value.
 Immutable settings revisions capture declared destinations. Credentials are absent
 from public snapshots and settings history. HTTP and MCP inject them only into
 declared origins, servers and slots, without forwarding across redirects.

@@ -204,10 +204,11 @@ func DefaultConversationBackgroundTask() ConversationBackgroundTask {
 		Suppressed: false,
 	}
 }
-func (value *ConversationBackgroundTask) UnmarshalJSON(data []byte) error {
+func (value *ConversationBackgroundTask) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ConversationBackgroundTask) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationBackgroundTask
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "session", "turn", "kind", "title", "revision", "state", "started_ms", "recovered", "suppressed"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "session", "turn", "kind", "title", "revision", "state", "started_ms", "recovered", "suppressed"}, true); err != nil {
 		return err
 	}
 	*value = ConversationBackgroundTask(decoded)
@@ -237,9 +238,12 @@ func DefaultConversationBackgroundNotice() ConversationBackgroundNotice {
 	}
 }
 func (value *ConversationBackgroundNotice) UnmarshalJSON(data []byte) error {
+	return Decode(data, value)
+}
+func (value *ConversationBackgroundNotice) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationBackgroundNotice
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "kind", "title", "outcome"}, true); err != nil {
+	if err := decoder.Object(&decoded, []string{"id", "kind", "title", "outcome"}, true); err != nil {
 		return err
 	}
 	*value = ConversationBackgroundNotice(decoded)

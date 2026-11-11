@@ -21,6 +21,24 @@ func TestIdentityMatchesReference(t *testing.T) {
 	if len(seen) <= 32 {
 		t.Fatalf("only %d identities", len(seen))
 	}
+	// A tile without a glyph shows its name's initial, and its tint alone
+	// for a name not given yet.
+	t.Run("tile", func(t *testing.T) {
+		name := "Alpha"
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			Tile(c, name, nil)
+		}, 100, 100)
+		tt.Frame()
+		if !tt.HasText("A") {
+			t.Fatalf("no initial: %q", tt.Texts())
+		}
+		name = ""
+		tt.Frame()
+		if tt.HasText("A") || len(tt.Texts()) != 0 {
+			t.Errorf("a tile without a name shows %q", tt.Texts())
+		}
+	})
 }
 
 // A row's sweep animates the texts given to it, at FPS, and none with

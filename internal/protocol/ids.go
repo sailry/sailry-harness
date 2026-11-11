@@ -13,20 +13,18 @@ type NodeID [32]byte
 
 func (identity NodeID) String() string { return hex.EncodeToString(identity[:]) }
 
-func (identity *NodeID) UnmarshalJSON(data []byte) error {
-	var values []json.RawMessage
-	if err := json.Unmarshal(data, &values); err != nil {
+func (identity *NodeID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *NodeID) DecodeJSON(decoder *Decoder) error {
+	var values []*uint8
+	if err := decoder.Value(&values); err != nil {
 		return err
 	}
 	if len(values) != len(identity) {
 		return fmt.Errorf("node identity must contain %d bytes", len(identity))
 	}
 	var decoded NodeID
-	for index, encoded := range values {
-		var value *uint8
-		if err := json.Unmarshal(encoded, &value); err != nil {
-			return err
-		}
+	for index, value := range values {
 		if value == nil {
 			return errors.New("node identity bytes must be integers")
 		}
@@ -55,9 +53,9 @@ func identifierJSON(identity [16]byte) ([]byte, error) {
 	return json.Marshal(uuid.UUID(identity).String())
 }
 
-func identifierFromJSON(data []byte) (uuid.UUID, error) {
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
+func identifierFrom(decoder *Decoder) (uuid.UUID, error) {
+	value, err := decoder.String()
+	if err != nil {
 		return uuid.Nil, err
 	}
 	return parseIdentifier(value)
@@ -76,8 +74,10 @@ func (identity RequestID) String() string { return uuid.UUID(identity).String() 
 
 func (identity RequestID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *RequestID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *RequestID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *RequestID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -109,8 +109,10 @@ func (identity ProjectID) String() string { return uuid.UUID(identity).String() 
 
 func (identity ProjectID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *ProjectID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *ProjectID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *ProjectID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -142,8 +144,10 @@ func (identity WorktreeID) String() string { return uuid.UUID(identity).String()
 
 func (identity WorktreeID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *WorktreeID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *WorktreeID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *WorktreeID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -175,8 +179,10 @@ func (identity SessionID) String() string { return uuid.UUID(identity).String() 
 
 func (identity SessionID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *SessionID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *SessionID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *SessionID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -208,8 +214,10 @@ func (identity TurnID) String() string { return uuid.UUID(identity).String() }
 
 func (identity TurnID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *TurnID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *TurnID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *TurnID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -241,8 +249,10 @@ func (identity ApprovalID) String() string { return uuid.UUID(identity).String()
 
 func (identity ApprovalID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *ApprovalID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *ApprovalID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *ApprovalID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -274,8 +284,10 @@ func (identity CheckpointID) String() string { return uuid.UUID(identity).String
 
 func (identity CheckpointID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *CheckpointID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *CheckpointID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *CheckpointID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -307,8 +319,10 @@ func (identity QuestionID) String() string { return uuid.UUID(identity).String()
 
 func (identity QuestionID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *QuestionID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *QuestionID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *QuestionID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -340,8 +354,10 @@ func (identity TerminalID) String() string { return uuid.UUID(identity).String()
 
 func (identity TerminalID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *TerminalID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *TerminalID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *TerminalID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -373,8 +389,10 @@ func (identity StreamID) String() string { return uuid.UUID(identity).String() }
 
 func (identity StreamID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *StreamID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *StreamID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *StreamID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -406,8 +424,10 @@ func (identity AttachmentID) String() string { return uuid.UUID(identity).String
 
 func (identity AttachmentID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *AttachmentID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *AttachmentID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *AttachmentID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -439,8 +459,10 @@ func (identity ArtifactID) String() string { return uuid.UUID(identity).String()
 
 func (identity ArtifactID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *ArtifactID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *ArtifactID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *ArtifactID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -472,8 +494,10 @@ func (identity CredentialID) String() string { return uuid.UUID(identity).String
 
 func (identity CredentialID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *CredentialID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *CredentialID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *CredentialID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -505,8 +529,10 @@ func (identity RoleID) String() string { return uuid.UUID(identity).String() }
 
 func (identity RoleID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *RoleID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *RoleID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *RoleID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -538,8 +564,10 @@ func (identity TeamID) String() string { return uuid.UUID(identity).String() }
 
 func (identity TeamID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *TeamID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *TeamID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *TeamID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -571,8 +599,10 @@ func (identity SshID) String() string { return uuid.UUID(identity).String() }
 
 func (identity SshID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *SshID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *SshID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *SshID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -604,8 +634,10 @@ func (identity DatabaseID) String() string { return uuid.UUID(identity).String()
 
 func (identity DatabaseID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *DatabaseID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *DatabaseID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *DatabaseID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -637,8 +669,10 @@ func (identity ProviderID) String() string { return uuid.UUID(identity).String()
 
 func (identity ProviderID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *ProviderID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *ProviderID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *ProviderID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -670,8 +704,10 @@ func (identity EventID) String() string { return uuid.UUID(identity).String() }
 
 func (identity EventID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *EventID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *EventID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *EventID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -703,8 +739,10 @@ func (identity JobID) String() string { return uuid.UUID(identity).String() }
 
 func (identity JobID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *JobID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *JobID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *JobID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -736,8 +774,10 @@ func (identity KnowledgeID) String() string { return uuid.UUID(identity).String(
 
 func (identity KnowledgeID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *KnowledgeID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *KnowledgeID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *KnowledgeID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -769,8 +809,10 @@ func (identity ModelID) String() string { return uuid.UUID(identity).String() }
 
 func (identity ModelID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *ModelID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *ModelID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *ModelID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -802,8 +844,10 @@ func (identity NotificationID) String() string { return uuid.UUID(identity).Stri
 
 func (identity NotificationID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *NotificationID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *NotificationID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *NotificationID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}
@@ -837,8 +881,10 @@ func (identity ScheduleID) String() string { return uuid.UUID(identity).String()
 
 func (identity ScheduleID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
 
-func (identity *ScheduleID) UnmarshalJSON(data []byte) error {
-	decoded, err := identifierFromJSON(data)
+func (identity *ScheduleID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *ScheduleID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
 	if err != nil {
 		return err
 	}

@@ -103,13 +103,14 @@ func (a *App) selectionDialog(c *ui.Context) {
 				quote.Disabled(true).Opacity(0.5)
 			}
 			quote.OnClick(func() {
-				// As the conversation's Quote: every line of the selection
-				// is quoted, not its first.
+				// Every line of the selection is quoted, as the
+				// conversation's Quote does, a blank line after the draft
+				// and none after the quote.
 				comp := a.Composer(s.chat)
-				if comp.Draft != "" && !strings.HasSuffix(comp.Draft, "\n\n") {
+				if comp.Draft != "" {
 					comp.Draft += "\n\n"
 				}
-				comp.Draft += conversation.Quote(s.text)
+				comp.Draft += strings.TrimRight(conversation.Quote(s.text), "\n")
 				s.open = false
 			})
 		})

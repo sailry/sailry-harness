@@ -87,7 +87,8 @@ func DefaultToolDetailSummary() ToolDetailSummary {
 		Progress:    nil,
 	}
 }
-func (value *ToolDetailSummary) UnmarshalJSON(data []byte) error {
+func (value *ToolDetailSummary) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ToolDetailSummary) DecodeJSON(decoder *Decoder) error {
 	type plain ToolDetailSummary
 	decoded := plain{}
 	decoded.Icon = nil
@@ -105,7 +106,7 @@ func (value *ToolDetailSummary) UnmarshalJSON(data []byte) error {
 	decoded.Delegation = DefaultToolDetailDelegation()
 	decoded.Question = nil
 	decoded.Progress = nil
-	if err := DecodeObject(data, &decoded, []string{"revision", "has_details", "diagnostics", "raw_result", "images"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"revision", "has_details", "diagnostics", "raw_result", "images"}, false); err != nil {
 		return err
 	}
 	*value = ToolDetailSummary(decoded)
@@ -143,14 +144,15 @@ func DefaultToolDetailDelegation() ToolDetailDelegation {
 		Background: false,
 	}
 }
-func (value *ToolDetailDelegation) UnmarshalJSON(data []byte) error {
+func (value *ToolDetailDelegation) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ToolDetailDelegation) DecodeJSON(decoder *Decoder) error {
 	type plain ToolDetailDelegation
 	decoded := plain{}
 	decoded.Session = nil
 	decoded.Worktree = nil
 	decoded.Invalid = false
 	decoded.Background = false
-	if err := DecodeObject(data, &decoded, []string{}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{}, false); err != nil {
 		return err
 	}
 	*value = ToolDetailDelegation(decoded)
@@ -183,11 +185,12 @@ func DefaultToolDetailResolved() ToolDetailResolved {
 		Diagnostics: []ToolResultDiagnostic{},
 	}
 }
-func (value *ToolDetailResolved) UnmarshalJSON(data []byte) error {
+func (value *ToolDetailResolved) UnmarshalJSON(data []byte) error { return Decode(data, value) }
+func (value *ToolDetailResolved) DecodeJSON(decoder *Decoder) error {
 	type plain ToolDetailResolved
 	decoded := plain{}
 	decoded.Command = nil
-	if err := DecodeObject(data, &decoded, []string{"input", "approval", "diagnostics"}, false); err != nil {
+	if err := decoder.Object(&decoded, []string{"input", "approval", "diagnostics"}, false); err != nil {
 		return err
 	}
 	*value = ToolDetailResolved(decoded)
