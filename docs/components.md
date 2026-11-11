@@ -53,7 +53,7 @@ MyGo bases.
 | Component | Origin | Use | Not for | Used in |
 |---|---|---|---|---|
 | `Segmented` | Lobe `pkg/action/segmented.go` (SegmentedBase) | In-page view switches and a few side-by-side choices; the active segment is inverted. `SegmentedProps.Icons` puts an icon before each label and `Disabled` dims the whole track | Document tab strips, which stay tabs | panel, settings, sidebar |
-| `MenuButton`, `Menu`, `Item`, `Submenu`, `OpenMenu` | Lobe `pkg/overlay/dropdown.go` motion (MenuBase) | Every left-click menu, ⋯ row menus, and pickers with a small, known set of choices (the composer's project, worktree, mode, permission); `Submenu` nests one (MenuBase's SubmenuItem), as the Git actions menu | Right-click menus (`Element.ContextMenu`, the system's); long searchable lists | composer, conversation, panel, settings, shell |
+| `MenuButton`, `Menu`, `Item`, `Submenu`, `OpenMenu` | Lobe `pkg/overlay/dropdown.go` motion (MenuBase) | Every left-click menu, ⋯ row menus, and pickers with a small, known set of choices (the composer's project, worktree, mode, permission); `Submenu` nests one (MenuBase's SubmenuItem), as the Git actions menu. An item with a `Description` is a choice row (`ChoiceRow`, below), with `Item.Tint` and `Item.Warning` | Right-click menus (`Element.ContextMenu`, the system's); long searchable lists | composer, conversation, panel, settings, shell |
 | `SplitButton`, `SplitProps` | Own (ButtonBase, MenuButton) | Kit's DropdownButton: a main action joined to a caret menu of the others (Git's Stage and Commit) | A single action (`Secondary`) | panel |
 | `Select`, `SelectField`, `SelectProps`, `SelectOption`, `SelectTrigger` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide. `SelectField` is the same control over options with a placeholder and disabled choices; `SelectTrigger` is its frame for a select with a popup of its own (the searchable header filter) | Toolbars and composer pickers (`MenuButton`) | settings, sidebar, plugins, live |
 | `InputOTP` | Lobe `pkg/field/otp.go` | One-time codes | Other text | settings |
@@ -215,7 +215,22 @@ with the word beside it. A plugin's `Menu` with an icon is drawn the same way.
 
 ### Visual details
 
-- Menu rows are 30 high (the doc comment in `menu.go` still says 26).
+- Menu rows are 30 high.
+- A menu item with a description is a choice row, `kit.ChoiceRow` with a
+  `kit.Choice`: the icon 16 in a tile 28 across, radius 8, filled with the
+  row's tint at 14% and drawn in it; the label 13 medium over the description
+  12 muted, 1 apart; 6 by 8 inside, the tile 10 before the texts, at most 400
+  wide, where the description wraps. The chosen row has no fill: its check,
+  14, follows the label in the tint, on either side the menu's checks are,
+  and its tile is filled at 30%. The fill (`accent.background`) is only the
+  highlight's, the pointer's or the keys'. The tint is one of `theme.Tints`
+  (the lighter stop in dark mode, the darker in light); a row without one has
+  the gray tile and its check in the text color, and a row without an icon
+  has no tile. `Item.Warning` draws the description in the warning color.
+  The rows are the composer's mode and permission menus, a plugin's choice
+  menu with descriptions and the team editor's Add role menu (no icons: the
+  two lines alone); the composer's settings popover draws its mode and
+  permission pages with `ChoiceRow` on its own buttons, so they match.
 - Toolbar and message action icons are 15 inside a 28 button
   (`kit.IconButton(…, 28, …)`; the `IconButton` comment still says 16).
 - Colors that must be opaque use `kit.Opaque(c)`: `ui.Color.Alpha`

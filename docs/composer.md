@@ -176,8 +176,17 @@ The context bar has one project control and at most one branch control:
   16 icon. Mode, permission and the model chip are `subtle`: Kit's default
   button, 32 high, 10 at each end, the icon 8 before the label, round, accent
   on hover, `secondary_active` pressed. Permission is the warning color for
-  project access and the danger color for full access, and has its label as
-  tooltip; mode has none.
+  project access and for full access (`permissionColor`; the danger color
+  stays for errors and destructive actions), and has its label as tooltip;
+  mode has none.
+- The mode and permission menus are Kit's choice rows
+  ([components](components.md#visual-details)): each choice's icon in a tile
+  of its tint (`choice.tint`: Code and asking neutral, Plan blue, Flagship
+  violet, project access teal, full access amber), its description under the
+  label, a check on the chosen one. Full access has its description in the
+  warning color. A package's mode, which declares no color, has one of the
+  colored `theme.Tints` by its key's FNV hash (`modeTint`), so it keeps its
+  color and does not read as Code.
 - The model chip is at most 260 wide: the provider's initials tag, the Fast
   bolt, the name, the effort in the muted color, the other chosen features,
   8 apart. With a team it is the team's avatar and name, the lead's model and
@@ -197,8 +206,9 @@ The context bar has one project control and at most one branch control:
 - The settings popover opens over the settings button's start, 8 above, 8
   inside, 4 between rows: the model controls (or a full-width Select model
   button without a model), then the mode and the permission as rows (a small
-  ghost button 32 high: 16 icon, label, 16 chevron, 8 apart; full access in
-  the danger color), each opening its page under a Back row of the same shape;
+  ghost button 32 high: 16 icon, label, 16 chevron, 8 apart; the permission
+  in the control's color), each opening its page under a Back row of the same
+  shape, the page's choices the menus' rows (`kit.ChoiceRow`);
   under 440 the project and the worktree follow as rows opening their menus.
 - The context bar is 12 in from the surface, at least 32 high, 8 by 4 inside,
   muted, its children 4 apart: the location, then the usage at its end
@@ -653,6 +663,14 @@ the folds under 680 and 440 with the places the packages' controls are asked
 for, and Send without a model, blocked and with one, by the button and by
 Enter, which leaves a draft its owner keeps.
 `SAILRY_UI_SHOTS=<directory>` saves those steps' frames for review.
+`composerMenus` (`composer_menus_test.go`, a step of the composer parity):
+the permission menu in dark and light, the chosen row checked and unfilled
+and the row under the pointer filled, by pixel; the Full access control and
+description in the warning color; a package mode's tile tinted, the same in
+two windows; the settings popover's permission page with the same rows.
+`SAILRY_SNAPSHOTS` set saves `.runtime/ui-shots/composer-menus-zh-CN-{dark,light}.png`.
+The Kit menu's test (`kit/menu_test.go`, `choice rows`) checks the row alone
+and that an open menu at rest asks for no frame.
 The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
 `internal/desktop/live/first_run_test.go` (`firstRunLocation`), with the
 bundled packages mounted: one location control on a chat and on a plain
