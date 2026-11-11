@@ -353,6 +353,9 @@ func (node *Node) dispatchBrowser(ctx context.Context, caller protocol.NodeID, r
 	if !ok {
 		return link.Admission{}, browserFault(protocol.ErrorCodeInvalidRequest, "invalid browser operation")
 	}
+	if _, err := node.browserScope(ctx, input.Session, input.Worktree, request.Plugin != nil); err != nil {
+		return link.Admission{}, err
+	}
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if node.stopped {

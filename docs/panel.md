@@ -453,11 +453,22 @@ preference changes, open tabs drop their pages and load their addresses again
 in the other store. The Browser settings page's Chrome import sets cookies in
 this store ([settings](settings.md#browser-page-wiring)).
 
+The store is one for every conversation, as in Rust, so a site the user is
+signed in to, by hand or through the import, is signed in for every
+conversation's tabs. Page content is model input: opening or navigating a tab
+is a control action and asks for approval, while reading or capturing a tab
+that is already open does not. Separate stores per conversation would undo the
+import and the user's own sign-ins, so the store stays shared.
+
 The agent's browser tool uses the same tabs. `internal/node/browser.go` routes
 `use_browser` to the controller that issued it as a `browser_call` update on
 the `browser` topic and settles it with `complete_browser`: one subscription
 per controller, a 30-second deadline, a retryable fault for unanswered reads
-and an unknown outcome for unanswered actions. The deadline is each call's
+and an unknown outcome for unanswered actions. A `use_browser` command is
+admitted only for a conversation of this Node together with that
+conversation's worktree (`Node.browserScope`, shared with
+`use_external_browser`): an unknown conversation is `not_found` and another
+worktree `permission_denied`. The deadline is each call's
 `expires_at_ms` and bounds every action: a `wait` may ask for a longer
 `timeout_ms`, but it ends with the call as an unanswered read, and the timed-out
 call leaves no pending entry for a late completion. `browser.read` and
@@ -611,7 +622,8 @@ English beside the Node's browser calls.
 against a scripted model: a turn whose controller has no browser subscription
 is offered no browser tool, a subscribed controller's turn is and its call
 reaches the controller, and the next call of the same turn is refused once the
-package is disabled.
+package is disabled. A `use_browser` command for an unknown conversation or
+another worktree is refused and the conversation's own is admitted.
 
 `internal/desktop/panel/model_test.go`: the live launcher's kinds per state, the
 Documents tab without a document, the first change opening no diff, each empty

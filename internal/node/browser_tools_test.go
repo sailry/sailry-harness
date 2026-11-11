@@ -142,6 +142,32 @@ func TestBrowserToolBinding(t *testing.T) {
 		}
 	})
 
+	t.Run("a browser command names a conversation and its worktree", func(t *testing.T) {
+		session := create("absent")
+		use := func(id protocol.SessionID, worktree protocol.WorktreeID) *protocol.Fault {
+			accepted, err := node.Dispatch(t.Context(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "use_browser", Data: &protocol.CommandUseBrowserPayload{
+				Session: id, Worktree: worktree, Action: protocol.BrowserAction{Kind: "tabs"}}}))
+			var fault *protocol.Fault
+			if errors.As(err, &fault) {
+				return fault
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			return (<-accepted.Completion).Fault
+		}
+		if fault := use(protocol.NewSessionID(), session.Worktree); fault == nil || fault.Code != protocol.ErrorCodeNotFound {
+			t.Fatalf("a browser command for an unknown conversation: %v", fault)
+		}
+		if fault := use(session.ID, protocol.NewWorktreeID()); fault == nil || fault.Code != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("a browser command for another worktree: %v", fault)
+		}
+		// The conversation's own call is admitted and finds no browser.
+		if fault := use(session.ID, session.Worktree); fault == nil || fault.Message != "browser controller is disconnected" {
+			t.Fatalf("a browser command for its conversation: %v", fault)
+		}
+	})
+
 	t.Run("a browser tool follows its package as it is now", func(t *testing.T) {
 		// This controller has a browser from here on.
 		calls, err := node.Subscribe(t.Context(), node.ID(), protocol.Topic{Kind: "browser"})

@@ -19,6 +19,25 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// browserScope checks that a browser command names a conversation of this
+// Node together with that conversation's worktree, and returns the worktree
+// root.
+func (node *Node) browserScope(ctx context.Context, id protocol.SessionID, worktree protocol.WorktreeID, plugin bool) (string, error) {
+	var session protocol.Session
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		session, err = store.ReadSession(ctx, db, id)
+		return err
+	}); err != nil {
+		return "", nodeFault(err)
+	}
+	if session.Worktree != worktree {
+		return "", &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource session belongs to another worktree"}
+	}
+	root, err := node.workspaceRoot(ctx, worktree, plugin)
+	return root, nodeFault(err)
+}
+
 // dispatchExternalBrowser admits a managed browser operation durably and runs
 // it against the session's browser on this Node. A plugin call made for a
 // turn stops with that turn; every other call stops with the Node.
@@ -33,20 +52,9 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 	if _, err := externalbrowser.Validate(input.Action, input.Arguments); err != nil {
 		return link.Admission{}, err
 	}
-	var session protocol.Session
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		session, err = store.ReadSession(ctx, db, input.Session)
-		return err
-	}); err != nil {
-		return link.Admission{}, nodeFault(err)
-	}
-	if session.Worktree != input.Worktree {
-		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource session belongs to another worktree"}
-	}
-	root, err := node.workspaceRoot(ctx, input.Worktree, request.Plugin != nil)
+	root, err := node.browserScope(ctx, input.Session, input.Worktree, request.Plugin != nil)
 	if err != nil {
-		return link.Admission{}, nodeFault(err)
+		return link.Admission{}, err
 	}
 	operation, finish, err := node.beginPluginExecution(node.ctx, request)
 	if err != nil {
