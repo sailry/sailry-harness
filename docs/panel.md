@@ -525,7 +525,23 @@ original file ending and stay local until the existing revision-checked Save
 action succeeds. Tabs mark unsaved drafts; either host's Close offers Save,
 Discard and Cancel. Saving holds the close continuation until the exact draft
 is confirmed. A failed or uncertain save leaves the draft and tab intact. Failed
-file refreshes hide stale clean content and preserve dirty content as read-only.
+file refreshes hide stale clean content.
+
+A draft keeps the revision it began from. A refresh reads the file under a
+draft again without replacing the draft: when the file holds other content or
+is gone, the editor's footer shows "Changed on disk" (`files_changed_on_disk`)
+until the file is back at the draft's source or the draft is settled. A read
+that arrives after a draft began is treated the same way, so it never becomes
+the draft's source. A save the Node refuses because the file changed
+(`RevisionConflict`, or `NotFound` for a file that is gone) shows no toast:
+`live/workspace_drafts.go` reads the file once more and
+`panel/editor_conflict.go` asks with the path and three choices. Overwrite
+saves the draft over the content just read (creating a file that is gone) and
+is disabled when that content is not completely known; Reload drops the draft
+and shows the file; Keep editing closes the question. A draft the user undoes
+by hand while the mark shows is settled the same way as Reload. A file that changes
+again before Overwrite arrives is asked about again. A close that was waiting
+for the refused save is withdrawn.
 
 The accepted toolbar uses native undo/redo, Find and Replace, soft wrap, Markdown
 block and inline formatting, lists, links and insert menus. Controls collapse in
@@ -668,6 +684,7 @@ at its width.
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | History and Documents are not offered on an unsent draft | They show a session's turns and documents; a draft has neither |
+| A save refused because the file changed offers Overwrite, Reload and Keep editing, and a draft's footer shows "Changed on disk" | The reference only keeps the draft and reports the conflict (`files_save_conflict`), which leaves discarding the draft as the only way to save again |
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
@@ -699,7 +716,11 @@ Final turn diffs populate conversation changes cards. Review captures that turn'
 patches and hunk identities in the existing Git surface; Undo confirms the target
 and restores matching checkpoints in source order. A partially confirmed restore
 resumes after its successful entries, whose files no longer match their
-checkpoints, and retains uncertain request identity.
+checkpoints, and retains uncertain request identity. The card remembers which
+files it restored only while its conversation is shown
+(`workspaceProject.turnUndone`); after another conversation was shown it offers
+Undo for them again, and that second restore ends in the conflict toast because
+the files no longer hold the checkpoint's content.
 
 Project-backed unsent drafts resolve existing worktrees without creating a
 session or invoking a model. Composer location fields keep paths as identities;

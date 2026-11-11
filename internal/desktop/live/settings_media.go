@@ -10,10 +10,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Media models: the model the Node uses for vision
-// and for generating images, video and speech. The assignments and the
-// models offered are read again whenever the providers or the assignments
-// change, and a choice saves all four at the revision read.
+// Settings › Media models: the model the Node Settings shows uses for
+// vision and for generating images, video and speech. The assignments and
+// the models offered are read again whenever the providers or the
+// assignments change, and a choice saves all four at the revision read.
 
 // mediaState is what the media rows were read for and the bindings their
 // option keys stand for.
@@ -28,7 +28,7 @@ type mediaState struct {
 // snapshot's providers or assignments are not the ones last read for. A
 // change that arrives during a read is read for once that read ends.
 func (r *Runtime) followMedia(snapshot protocol.Snapshot) {
-	if r.parent != nil {
+	if !r.showsSettings() {
 		return
 	}
 	var seen strings.Builder
@@ -57,6 +57,11 @@ func (r *Runtime) readMedia() {
 		}
 		r.enqueue(func(c *ui.Context) {
 			state.reading = false
+			if !r.showsSettings() {
+				// The page turned to another Node: this one is read again
+				// when the page returns.
+				return
+			}
 			if err != nil {
 				r.reportKeys(c, err, "media_load_failed", "media_load_failed", "media_load_failed")
 			} else if value, valid := detail[protocol.MediaSettings](saved.Data); valid && saved.Kind == "media_settings" && value.Revision >= r.App.Settings.Media.Revision {
@@ -160,6 +165,9 @@ func (r *Runtime) saveMedia() {
 	}
 	field.Pending = true
 	r.saveSetting(protocol.Command{Kind: "save_media_settings", Data: request}, settings.MediaMessages, func(output protocol.Output, ok bool) {
+		if !r.showsSettings() {
+			return
+		}
 		field.Pending = false
 		value, valid := detail[protocol.MediaSettings](output.Data)
 		if !ok || !valid || output.Kind != "media_settings" {

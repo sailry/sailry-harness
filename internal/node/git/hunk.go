@@ -97,6 +97,9 @@ func (s *Service) ApplyHunk(ctx context.Context, root string, input protocol.Com
 		result.Index = &index
 		return result, nil
 	}
+	if err := s.requireUnfiltered(ctx, root, input.Path); err != nil {
+		return result, err
+	}
 	text, err := files.ApplyHunkText(current, selected.After, selected.Before)
 	if err != nil {
 		return result, err

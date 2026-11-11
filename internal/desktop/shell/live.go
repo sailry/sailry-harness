@@ -35,6 +35,11 @@ type Hooks struct {
 	CaptureSelection func()
 	OpenLogs         func()
 	Conversation     func(*ui.Context, *viewmodel.Conversation, *composer.State) (*composer.Context, ConversationActions)
+	// DemoConversation lets the controller show over a demo conversation
+	// what reads nothing but the conversation itself: the statistics
+	// package's figures in the composer's context bar. It runs after the
+	// demo's composer is prepared and sends the Node nothing of the demo.
+	DemoConversation func(*ui.Context, *viewmodel.Conversation, *composer.State)
 	RenderChild      func(*ui.Context, string)
 	ReadSelection    func(string, string)
 	ReaderActive     func(string) bool

@@ -621,7 +621,10 @@ func TestAgentManagementTools(t *testing.T) {
 			arguments, _ := json.Marshal(map[string]any{"action": "screenshot", "arguments": map[string]any{"tab": 1, "format": "png", "save": save}})
 			return canonical.ToolRequest{ID: id, Name: "capture", Arguments: arguments}
 		}
-		tool := node.browserTool(inv, protocol.PluginReference{}, "capture", browserReadOperation, schema)
+		// The tool belongs to the browser package, as every bound browser
+		// tool does: each call checks that its package is still enabled.
+		owner := plugins.PackageReference(commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "browser"}}).Data.(protocol.PluginInfo))
+		tool := node.browserTool(inv, owner, "capture", browserReadOperation, schema)
 		if tool.Approval || !tool.ReadOnly {
 			t.Fatalf("capture tool is not a read: %+v", tool)
 		}

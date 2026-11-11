@@ -104,10 +104,14 @@ func (p *workspaceProject) worktreeRows(c *ui.Context, trees protocol.GitWorktre
 	group := i18n.T(c, "workspace_worktrees")
 	rows := []panel.PickerRow{}
 	var base *protocol.GitWorktree
+	unused := unusedWorktrees(p.runtime.snapshot(), p.owner.Project)
 	for _, entry := range worktreeEntries(trees, p.owner.Path) {
-		details := make([]string, 0, len(entry.marks)+1)
+		details := make([]string, 0, len(entry.marks)+2)
 		for _, mark := range entry.marks {
 			details = append(details, i18n.T(c, mark))
+		}
+		if unused[entry.tree.Path] && entry.tree.Available {
+			details = append(details, i18n.T(c, "worktree_unused"))
 		}
 		details = append(details, worktreeName(entry.tree.Path))
 		row := panel.PickerRow{Label: entry.label, Detail: strings.Join(details, " · "), Group: group, Icon: icons.GitBranch, Checked: entry.current}
@@ -175,6 +179,23 @@ func (p *workspaceProject) openWorktree(c *ui.Context, path string) {
 		return
 	}
 	r.selectConversationWorktree(cv, comp, path)
+}
+
+// unusedWorktrees are the paths of a project's linked worktrees that the
+// Node knows and no session uses: one a removed session left with uncommitted
+// work, or one made in the manager that never had a session.
+func unusedWorktrees(snapshot protocol.Snapshot, project *protocol.ProjectID) map[string]bool {
+	used := map[protocol.WorktreeID]bool{}
+	for _, session := range snapshot.Sessions {
+		used[session.Worktree] = true
+	}
+	unused := map[string]bool{}
+	for _, tree := range snapshot.Worktrees {
+		if !tree.Main && !used[tree.ID] && tree.Project != nil && project != nil && *tree.Project == *project {
+			unused[tree.Path] = true
+		}
+	}
+	return unused
 }
 
 // registeredWorktree is the Node's record of the project's worktree at path.

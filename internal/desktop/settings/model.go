@@ -127,6 +127,19 @@ type BackupTarget struct {
 	Time                             time.Time // the daily time
 	Timezone                         string
 	PassphraseSet, CredentialsSet    bool
+	// Keep is how many of this Node's backups stay in storage; 0 keeps all.
+	Keep int
+	// Last is how the most recent backup ended.
+	Last BackupLast
+}
+
+// BackupLast is the most recent backup's outcome; At is zero before any.
+// Problem is the i18n key of a failure, "" after a success; Reason is the
+// Node's own account of it; Skipped counts the items the backup left out.
+type BackupLast struct {
+	At              time.Time
+	Problem, Reason string
+	Skipped         int
 }
 
 // Model is the settings pages' view model.
@@ -135,6 +148,7 @@ type Model struct {
 	Live              bool
 	SavePower         func()
 	SaveSandbox       func()
+	SaveCodeIndex     func()
 	SaveHooks         func()
 	HooksContext      func() (string, bool)
 	HooksSandboxed    func() bool
@@ -162,7 +176,9 @@ type Model struct {
 	Telemetry Stored[Telemetry]
 
 	// Conversation.
-	Sandbox        Stored[bool]
+	Sandbox Stored[bool]
+	// CodeIndex is whether the Node indexes project code for its code tools.
+	CodeIndex      Stored[bool]
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
 	TextSize       float64 // 12..18, a pixel a step
@@ -297,7 +313,10 @@ type Model struct {
 	Python        Stored[Python]
 	OCR           LocalModels
 	Knowledge     LocalModels // embedding models (knowledge-settings)
-	Decision      LocalModels // decision models
+	// Collections are the selected host's knowledge collections; the
+	// preview has none.
+	Collections []viewmodel.KnowledgeCollection
+	Decision    LocalModels // decision models
 
 	// Permissions.
 	Permissions []preview.Permission
@@ -346,7 +365,7 @@ func NewModel(d *preview.Settings) *Model {
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
-		Sandbox:   stored(d.Sandbox), TextSize: 14, SessionOrder: 1,
+		Sandbox:   stored(d.Sandbox), CodeIndex: stored(true), TextSize: 14, SessionOrder: 1,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
 		Host:   stored(TerminalHost{Env: d.Env}),

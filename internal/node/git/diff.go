@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	gogit "github.com/go-git/go-git/v5"
@@ -26,6 +27,8 @@ type content struct {
 	mode   filemode.FileMode
 	exists bool
 	binary bool
+	// large marks a side over the inspection limit, which is not read.
+	large bool
 }
 
 func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode, limit int) (content, error) {
@@ -38,7 +41,7 @@ func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode
 	}
 	if blob.Size > int64(limit) {
 		if limit == 1024*1024 {
-			return content{hash: hash, mode: mode, exists: true, binary: true}, nil
+			return content{hash: hash, mode: mode, exists: true, binary: true, large: true}, nil
 		}
 		return content{}, invalid("Git file exceeds the operation size limit")
 	}
@@ -54,15 +57,9 @@ func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode
 	return content{data: data, hash: hash, mode: mode, exists: true}, nil
 }
 func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int) (content, error) {
-	if tree == nil {
-		return content{}, nil
-	}
-	entry, err := tree.FindEntry(path)
-	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
-		return content{}, nil
-	}
-	if err != nil {
-		return content{}, mapError(err)
+	entry, err := headEntry(tree, path)
+	if entry == nil || err != nil {
+		return content{}, err
 	}
 	if entry.Mode == filemode.Dir {
 		return content{}, invalid("Git inspection requires a file")
@@ -145,7 +142,7 @@ func workingContent(root, path string, limit int) (content, error) {
 		if info.Mode()&0111 != 0 {
 			mode = filemode.Executable
 		}
-		return content{hash: hash.Sum(), mode: mode, exists: true, binary: true}, nil
+		return content{hash: hash.Sum(), mode: mode, exists: true, binary: true, large: true}, nil
 	}
 	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
 	if err != nil {
@@ -244,9 +241,15 @@ type patchSet []fdiff.FilePatch
 
 func (p patchSet) FilePatches() []fdiff.FilePatch { return p }
 func (p patchSet) Message() string                { return "" }
-func chunks(a, b []byte) []fdiff.Chunk {
+
+// chunks diffs two texts by line within the read deadline its callers run under.
+func chunks(a, b []byte) []fdiff.Chunk { return chunksWithin(a, b, readTimeout) }
+
+// chunksWithin stops refining at the limit: the text not yet compared becomes
+// one bulk delete and insert, which is a coarser but still correct diff.
+func chunksWithin(a, b []byte, limit time.Duration) []fdiff.Chunk {
 	result := []fdiff.Chunk{}
-	for _, d := range udiff.Do(string(a), string(b)) {
+	for _, d := range udiff.DoWithTimeout(string(a), string(b), limit) {
 		op := fdiff.Equal
 		if d.Type == diffmatchpatch.DiffDelete {
 			op = fdiff.Delete

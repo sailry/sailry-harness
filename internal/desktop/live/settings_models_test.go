@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 // the registry's projection onto the pages, the choice a page saves, the
 // request it sends, download progress and the library's rows.
 func checkLocalModelHelpers(t *testing.T) {
+	t.Run("library search follows empty answers a bounded number of times", checkLibraryFollow)
 	// A registry event during a read marks the read's answer stale.
 	watched := localModelState{reading: true}
 	watched.registryChanged([]protocol.ModelsLocalModel{{ID: "during"}})
@@ -193,5 +195,47 @@ func checkLocalModelHelpers(t *testing.T) {
 	}
 	if libraryHub(1) != protocol.ModelsHubModelScope || libraryHub(0) != protocol.ModelsHubHuggingFace || libraryHubKey(protocol.ModelsHubModelScope) != "model_library_modelscope" {
 		t.Fatal("hubs are misread")
+	}
+}
+
+func checkLibraryFollow(t *testing.T) {
+	cursor := func(value string) *string { return &value }
+	// answers are the hub's pages in order; the last one repeats.
+	follow := func(answers ...protocol.ModelsPage) (protocol.ModelsPage, []string) {
+		var asked []string
+		page, err := followLibrary(protocol.ModelsSearch{Query: "julia"}, func(search protocol.ModelsSearch) (protocol.ModelsPage, error) {
+			at := ""
+			if search.Cursor != nil {
+				at = *search.Cursor
+			}
+			asked = append(asked, at)
+			return answers[min(len(asked), len(answers))-1], nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page, asked
+	}
+	found := protocol.ModelsItem{Name: "Julia"}
+
+	// The first answer with results ends the search.
+	page, asked := follow(protocol.ModelsPage{NextCursor: cursor("two")}, protocol.ModelsPage{Items: []protocol.ModelsItem{found}, NextCursor: cursor("three")})
+	if len(page.Items) != 1 || page.Partial || len(asked) != 2 || asked[0] != "" || asked[1] != "two" {
+		t.Fatalf("followed answer: %+v after %q", page, asked)
+	}
+	// A hub without more pages has no results.
+	if page, asked = follow(protocol.ModelsPage{}); len(page.Items) != 0 || page.Partial || len(asked) != 1 {
+		t.Fatalf("last answer: %+v after %q", page, asked)
+	}
+	// A listing of other kinds of model is not read to its end.
+	if page, asked = follow(protocol.ModelsPage{NextCursor: cursor("more")}); len(page.Items) != 0 || !page.Partial || len(asked) != libraryAnswers {
+		t.Fatalf("endless listing: %+v after %q", page, asked)
+	}
+	// A failure keeps what was read.
+	failed := errors.New("hub failed")
+	if _, err := followLibrary(protocol.ModelsSearch{}, func(protocol.ModelsSearch) (protocol.ModelsPage, error) {
+		return protocol.ModelsPage{}, failed
+	}); !errors.Is(err, failed) {
+		t.Fatalf("failure: %v", err)
 	}
 }

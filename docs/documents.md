@@ -40,7 +40,15 @@ the commit; a directory that was not removed then goes with the next removal
 
 The native Documents presentation follows the accepted panel contract in
 [panel.md](panel.md); live document HTML renders in the bridge-free sandboxed
-WebView described there. B5 supplies text inspection and immutable document reads;
+WebView described there. Because that view has no bridge, a document's form
+(the `brief` package's `<form class="brief-form">`, stored and validated as
+above) is shown and cannot be answered: the reference mounts the package's
+`artifact_view`, keeps each form's draft in the `artifact_drafts` preference,
+refuses a submit for a revision that is no longer the latest and sends the
+answers as a user message to the document's session. Wiring it needs
+`read_artifact` to return the package's view, a posting bridge in the document
+view and the draft, stale and submit handling; the preference field and the
+`artifact_form_*` strings of `locales/artifact.*.yml` stay for it. B5 supplies text inspection and immutable document reads;
 B11 separately owns PDF rendering for OCR
 ([models.md](models.md#embedding-and-ocr)). Other-platform runtime acceptance is
 performed on its target operating system rather than inferred from local builds.

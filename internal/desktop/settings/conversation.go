@@ -8,8 +8,12 @@ import (
 
 var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown"}
 
-// conversation is the host's command sandbox, the sessions' order, and how
-// messages show.
+// CodeIndexMessages are the code index switch's outcomes, shared with the
+// live action adapter.
+var CodeIndexMessages = Messages{"code_index_settings_saved", "code_index_settings_failed", "code_index_settings_conflict", "code_index_settings_unknown"}
+
+// conversation is the host's command sandbox and code index, the sessions'
+// order, and how messages show.
 func conversation(c *ui.Context, m *Model) {
 	kit.Group(c, "execution", i18n.T(c, "settings_execution"), "", nil, func() {
 		kit.Card(c, func() {
@@ -18,6 +22,13 @@ func conversation(c *ui.Context, m *Model) {
 					m.SaveSandbox()
 				} else {
 					report(c, m.Sandbox.Commit(), sandboxMessages)
+				}
+			}
+			if settingSwitch(c, "code-index", i18n.T(c, "settings_code_index"), i18n.T(c, "settings_code_index_description"), &m.CodeIndex.Draft, m.Live && m.SaveCodeIndex == nil || m.CodeIndex.Pending) {
+				if m.Live {
+					m.SaveCodeIndex()
+				} else {
+					report(c, m.CodeIndex.Commit(), CodeIndexMessages)
 				}
 			}
 		})

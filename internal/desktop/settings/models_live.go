@@ -38,7 +38,15 @@ type ModelActions struct {
 	LibraryCancel  func(id string)
 	LibraryDelete  func(id string)
 	LibraryDetails func(id string)
+	// The Knowledge page's collections: Pause sets or clears a collection's
+	// pause, Update reads its sources again.
+	CollectionPause  func(id string, paused bool)
+	CollectionUpdate func(id string)
 }
+
+// CollectionMessages are the toasts of a collection's pause and update;
+// the row shows that either went through.
+var CollectionMessages = Messages{Failed: "runtime_failed", Conflict: "runtime_conflict", Uncertain: "runtime_unknown"}
 
 // LocalModelMessages are the toasts of a local-model settings save.
 var LocalModelMessages = Messages{Done: "knowledge_saved", Failed: "runtime_failed", Conflict: "runtime_conflict", Uncertain: "runtime_unknown"}

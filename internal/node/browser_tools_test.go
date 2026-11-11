@@ -42,8 +42,11 @@ func (script *hookedScript) Stream(ctx context.Context, call fantasy.Call) (fant
 // and that both browsers follow their conversation and their package as they
 // are now. No browser is started.
 func TestBrowserToolBinding(t *testing.T) {
-	tabs := operations.Alias("browser", "browser_tabs")
-	discover := [][3]string{{"discover", "tool_search", `{"query":"select:` + tabs + `"}`}}
+	// The package tool is selected by its alias; the model reads and calls
+	// it by the name the package declares.
+	alias := operations.Alias("browser", "browser_tabs")
+	tabs := declaredToolName(alias)
+	discover := [][3]string{{"discover", "tool_search", `{"query":"select:` + alias + `"}`}}
 	absent := &hookedScript{mediaScript: &mediaScript{results: map[string]string{}, steps: [][][3]string{discover}}}
 	present := &hookedScript{mediaScript: &mediaScript{results: map[string]string{}, steps: [][][3]string{
 		discover, {{"first", tabs, `{}`}}, {{"second", tabs, `{}`}},
@@ -130,15 +133,17 @@ func TestBrowserToolBinding(t *testing.T) {
 	offers := func(script *hookedScript) bool {
 		script.mu.Lock()
 		defer script.mu.Unlock()
-		return slices.ContainsFunc(script.offered, func(names []string) bool { return slices.Contains(names, tabs) })
+		return slices.ContainsFunc(script.offered, func(names []string) bool { return slices.Contains(names, tabs) || slices.Contains(names, alias) })
 	}
 
 	t.Run("a turn whose controller has no browser is offered no browser tools", func(t *testing.T) {
 		run(t, "absent")
-		if offers(absent) {
-			absent.mu.Lock()
-			defer absent.mu.Unlock()
-			t.Fatalf("%s was offered without a browser: %q", tabs, absent.results["discover"])
+		absent.mu.Lock()
+		found := absent.results["discover"]
+		absent.mu.Unlock()
+		// Neither a request's tools nor discovery names it.
+		if offers(absent) || found == "" || strings.Contains(found, tabs) {
+			t.Fatalf("%s was offered without a browser: %q", tabs, found)
 		}
 	})
 

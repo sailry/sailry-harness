@@ -271,7 +271,8 @@ func (r *Runtime) startForward(node string, remote, local uint16, source *client
 		}
 		r.enqueue(func(c *ui.Context) {
 			if err != nil {
-				r.report(c, err, "port_invalid")
+				// The port parsed; what failed is the route or the local listener.
+				kit.Toast(c, kit.Failed, i18n.T(c, "port_failed"))
 			} else if open {
 				r.openForward(forward, source)
 			}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -78,6 +79,9 @@ type pluginMountedView struct {
 	reported        bool
 	seen            bool
 	disconnected    bool
+	// bundle is the package's immutable view as mounted, which a demo
+	// conversation's mount of the package takes over (ensurePluginView).
+	bundle *protocol.PluginDesktopBundle
 }
 
 func pluginScopeIdentity(node protocol.NodeID, scope protocol.PluginContext) pluginScopeKey {
@@ -322,6 +326,26 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 		mounted.hooks = hooks
 		_ = registry.SetActivity(scope.Package, false, false)
 	}
+	// A demo conversation's mount takes the bundle another mount of the
+	// package read: the package is immutable, and the demo asks the Node
+	// nothing it has answered.
+	if strings.HasPrefix(key.scope.presentation, pluginDemoPresentation) {
+		for _, other := range root.pluginViews.mounts {
+			if other == mounted || other.bundle == nil || other.owner != owner || other.scope.Package != scope.Package ||
+				other.scope.Surface.Kind != scope.Surface.Kind {
+				continue
+			}
+			bundle := *other.bundle
+			root.enqueue(func(current *ui.Context) {
+				if mounted.ctx.Err() != nil || !root.pluginViewCurrent(mounted) {
+					return
+				}
+				mounted.loading = false
+				root.mountPluginView(current, mounted, bundle)
+			})
+			return mounted
+		}
+	}
 	if !owner.async(func() {
 		output, err := owner.controller.Do(ctx, protocol.Command{Kind: "read_plugin_view", Data: protocol.CommandReadPluginViewPayload{
 			Package: scope.Package, Surface: scope.Surface,
@@ -351,6 +375,7 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 
 func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, bundle protocol.PluginDesktopBundle) {
 	root := r.localRuntime()
+	mounted.bundle = &bundle
 	native := mounted.owner.pluginNativeBinding(mounted.ctx, mounted.scope, mounted.key.scope.presentation)
 	if native == nil {
 		r.failPluginView(view, mounted, errors.New("plugin native services are unavailable"), "plugin_initialization_failed")

@@ -22,16 +22,64 @@ type captureWriter struct {
 	mu        sync.Mutex
 	data      []byte
 	truncated bool
+	// active is told of every write, so that a transfer is bounded by silence.
+	active chan<- struct{}
+	// progress keeps what a terminal would show of Git's progress: a carriage
+	// return that no newline follows rewinds the line. Without it a long
+	// transfer's percentages would fill the capture and push out Git's reason.
+	progress bool
+	cr       bool
+	line     int
 }
 
 func (w *captureWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	n := min(len(p), 64*1024-len(w.data))
-	w.data = append(w.data, p[:n]...)
-	w.truncated = w.truncated || n < len(p)
+	if w.active != nil {
+		select {
+		case w.active <- struct{}{}:
+		default:
+		}
+	}
+	if !w.progress {
+		n := min(len(p), 64*1024-len(w.data))
+		w.data = append(w.data, p[:n]...)
+		w.truncated = w.truncated || n < len(p)
+		return len(p), nil
+	}
+	for _, b := range p {
+		if w.cr {
+			w.cr = false
+			if b != '\n' {
+				w.data = w.data[:w.line]
+			}
+		}
+		if b == '\r' {
+			w.cr = true
+			continue
+		}
+		if len(w.data) == 64*1024 {
+			w.truncated = true
+			continue
+		}
+		w.data = append(w.data, b)
+		if b == '\n' {
+			w.line = len(w.data)
+		}
+	}
 	return len(p), nil
 }
+
+// idleKey carries the silence limit of a network operation to the runner.
+type idleKey struct{}
+
+// stopGrace is how long a stopped Git has to end by itself, and then to be
+// reaped after the kill.
+const stopGrace = 2 * time.Second
+
+// errStalled reports a network operation stopped after its silence limit.
+var errStalled = errors.New("Git produced no output within the limit")
+
 func nativeRunner(environment []string) Runner {
 	if environment == nil {
 		environment = os.Environ()
@@ -63,6 +111,11 @@ func nativeRunner(environment []string) Runner {
 			cmd.Stdin = bytes.NewReader(input)
 		}
 		stdout, stderr := &captureWriter{}, &captureWriter{}
+		idle, _ := ctx.Value(idleKey{}).(time.Duration)
+		activity := make(chan struct{}, 1)
+		if idle > 0 {
+			stdout.active, stderr.active, stderr.progress = activity, activity, true
+		}
 		outRead, outWrite, err := os.Pipe()
 		if err != nil {
 			return CommandResult{}, err
@@ -97,15 +150,44 @@ func nativeRunner(environment []string) Runner {
 		go func() { _, err := io.Copy(stderr, errRead); drained <- err }()
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
-		select {
-		case err = <-done:
-		case <-ctx.Done():
+		// A stopped Git is asked to end first: it removes its lock files
+		// (index.lock, the reference locks) on a termination request and
+		// cannot on a kill, after which every later command finds them.
+		stop := func(reason error) (CommandResult, error) {
+			if terminateNative(cmd) {
+				select {
+				case <-done:
+					killNative(cmd)
+					return CommandResult{}, reason
+				case <-time.After(stopGrace):
+				}
+			}
 			killNative(cmd)
 			select {
 			case <-done:
-			case <-time.After(2 * time.Second):
+			case <-time.After(stopGrace):
 			}
-			return CommandResult{}, ctx.Err()
+			return CommandResult{}, reason
+		}
+		var silent <-chan time.Time
+		var timer *time.Timer
+		if idle > 0 {
+			timer = time.NewTimer(idle)
+			defer timer.Stop()
+			silent = timer.C
+		}
+	wait:
+		for {
+			select {
+			case err = <-done:
+				break wait
+			case <-activity:
+				timer.Reset(idle)
+			case <-silent:
+				return stop(errStalled)
+			case <-ctx.Done():
+				return stop(ctx.Err())
+			}
 		}
 		killNative(cmd)
 		deadline := time.NewTimer(2 * time.Second)
@@ -133,16 +215,36 @@ func nativeRunner(environment []string) Runner {
 		return CommandResult{Stdout: stdout.data, Stderr: stderr.data, ExitCode: code, Truncated: stdout.truncated || stderr.truncated, InvalidUTF8: !utf8.Valid(stdout.data) || !utf8.Valid(stderr.data)}, nil
 	}
 }
+
+// command runs one local Git process. A read has the read deadline; a mutation
+// has the reference's two minutes, after which its outcome is unknown.
 func (s *Service) command(ctx context.Context, root string, args []string, input []byte, read bool) (CommandResult, error) {
-	duration := 120 * time.Second
+	duration := mutationTimeout
 	if read {
 		duration = readTimeout
 	}
 	limited, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 	result, err := s.run(limited, root, args, input)
+	return s.finish(root, args, read, result, err)
+}
+
+// network runs a transfer with a remote: clone, fetch, pull or push. A transfer
+// has no total deadline, because its duration follows the repository and the
+// connection. It is bounded by silence instead: Git reports progress while it
+// works, and a process that writes nothing for the idle limit is stopped. Node
+// shutdown cancels it through ctx.
+func (s *Service) network(ctx context.Context, root string, args []string) (CommandResult, error) {
+	args = append([]string{args[0], "--progress"}, args[1:]...)
+	result, err := s.run(context.WithValue(ctx, idleKey{}, s.idle), root, args, nil)
+	return s.finish(root, args, false, result, err)
+}
+func (s *Service) finish(root string, args []string, read bool, result CommandResult, err error) (CommandResult, error) {
 	s.record(root, args, result)
 	if err != nil {
+		if errors.Is(err, errStalled) {
+			return result, fault(protocol.ErrorCodeOutcomeUnknown, "Git transfer stalled and was stopped; inspect repository before retrying")
+		}
 		if errors.Is(err, context.DeadlineExceeded) && !read {
 			return result, fault(protocol.ErrorCodeOutcomeUnknown, "Git operation timed out; inspect repository before retrying")
 		}

@@ -133,10 +133,11 @@ type Staged struct {
 
 func (staged *Staged) Close() error { return os.RemoveAll(staged.Directory) }
 
-// Stage unpacks a decrypted archive beside it. A nil known record describes an
-// uploaded archive of the given sealed size and checksum.
-func Stage(ctx context.Context, archive *os.File, known *protocol.BackupRecord, id string, size uint64, sum string) (*Staged, error) {
-	directory, err := os.MkdirTemp(filepath.Dir(archive.Name()), "restore-")
+// Stage unpacks a decrypted archive stream into a new directory in temporary.
+// A nil known record describes an uploaded archive of the given sealed size
+// and checksum.
+func Stage(ctx context.Context, archive io.Reader, temporary string, known *protocol.BackupRecord, id string, size uint64, sum string) (*Staged, error) {
+	directory, err := os.MkdirTemp(temporary, "restore-")
 	if err != nil {
 		return nil, ioFault(err)
 	}

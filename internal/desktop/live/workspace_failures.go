@@ -10,7 +10,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// The kinds of Git and worktree mutation whose failures have their own copy.
+// The kinds of Git, worktree and file mutation whose failures have their own
+// copy.
 const (
 	gitIndex       = "index"
 	gitCommit      = "commit"
@@ -24,6 +25,7 @@ const (
 	worktreeOpen   = "worktree_open"
 	worktreeRemove = "worktree_remove"
 	worktreePrune  = "worktree_prune"
+	fileSave       = "file_save"
 )
 
 // workspaceFailure names the toast of a failed Git or worktree mutation. The
@@ -83,6 +85,17 @@ func workspaceFailure(kind string, err error) (kit.Outcome, string) {
 			return outcome, "git_index_unknown"
 		}
 		return outcome, "git_index_failed"
+	case fileSave:
+		switch {
+		case fileSaveConflict(err):
+			// The editor asks what to do with the draft instead.
+			return outcome, ""
+		case code == protocol.ErrorCodeConflict:
+			return outcome, "workspace_changed"
+		case code == protocol.ErrorCodeOutcomeUnknown:
+			return outcome, "workspace_action_unknown"
+		}
+		return outcome, "workspace_action_failed"
 	}
 	branch := kind == gitSwitch || kind == gitDelete || kind == gitMerge
 	switch {
@@ -178,8 +191,9 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 			delete(p.uncertainCallbacks, key)
 		}
 		if err != nil {
-			outcome, name := workspaceFailure(kind, err)
-			kit.Toast(c, outcome, i18n.T(c, name))
+			if outcome, name := workspaceFailure(kind, err); name != "" {
+				kit.Toast(c, outcome, i18n.T(c, name))
+			}
 			for _, failure := range failed {
 				failure(c, err)
 			}

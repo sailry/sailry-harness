@@ -16,7 +16,6 @@ updates_restart_needed: "需要重启"
 updates_current: "Sailry 已是最新版本"
 updates_completed: "Sailry 已更新"
 updates_source_unready: "更新源尚未配置"
-updates_preview_unavailable: "预览模式不可更新"
 updates_network_failed: "更新下载失败，请重试"
 updates_manifest_invalid: "更新信息无效"
 updates_signature_invalid: "更新签名无效"
@@ -50,7 +49,6 @@ content_warning: 警告
 content_caution: 注意
 content_document: 文档
 content_source: 源码
-turn_work: 处理过程
 turn_work_steps: "处理过程 · %{count} 步"
 ssh_new: 新建连接
 ssh_edit: 编辑
@@ -248,7 +246,7 @@ project_branch: 分支
 project_branch_placeholder: 默认分支
 project_destination: 保存位置
 project_clone_required: 请填写名称、仓库和保存位置
-project_clone_failed: 克隆未完成，请检查目标目录
+project_clone_failed: 克隆失败，请检查地址、分支和网络
 project_outcome_unknown: 结果未确认，请先检查目标目录，重试将查询原请求
 project_appearance: 项目外观
 project_name_placeholder: 输入名称
@@ -311,14 +309,12 @@ workspace_rename_hint: 名称不能为空；仅修改当前预览，不会重命
 workspace_pin: 置顶会话
 workspace_unpin: 取消置顶
 workspace_archive: 归档会话
-session_unarchive: 取消归档
 session_delete: 删除会话
 session_delete_confirm: 删除此会话及其子代理会话，无法恢复
 session_delete_busy: 请先停止会话，再删除
 session_changed: 会话已变化，请重新操作
 workspace_copy_path: 复制路径
 workspace_copy_title: 复制标题
-workspace_open_session: 打开会话
 workspace_open_terminal: 打开终端
 workspace_reset_terminal: 重置终端
 workspace_close_terminal: 关闭终端
@@ -403,8 +399,6 @@ update_restart: 等待主机重启（示例）
 update_failed: 更新失败（示例）
 update_loading: 正在读取更新状态（示例）
 update_unavailable: 当前不可更新（示例）
-update_unavailable_note: 此示例主机暂不支持自动更新
-update_error_preview: 示例请求失败，没有执行真实更新
 update_check: 预览检查
 update_download: 预览下载
 update_apply: 预览应用
@@ -431,6 +425,7 @@ worktree_prune_on_select: 不可用 · 点击清理记录
 worktree_pruned: 已清理失效工作树记录
 worktree_prune_failed: 未清理：目录仍存在、被锁定或无法确认状态
 worktree_main: 主 worktree
+worktree_unused: 无会话
 worktree_path_exists: 路径已存在
 worktree_prune: 清理失效 worktree
 worktree_prune_confirm: 移除此失效记录，不删除任何文件
@@ -467,7 +462,6 @@ workspace_no_running: 预览未启动 Agent 任务
 workspace_no_terminal: 当前 worktree 没有终端
 workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
 cli_launch: 启动 AI CLI
-cli_preview: UI 示例：仅创建终端预览，不检测程序、不执行命令
 cli_empty: 此主机示例没有可用的 CLI
 cli_target_changed: 目标 worktree 已变化，请关闭后重新选择
 cli_unavailable: 此启动项已变化或不可用，请关闭后重新选择
@@ -648,7 +642,6 @@ oauth_pending_description: "请返回 Sailry 查看连接状态"
 oauth_return: 返回 Sailry
 oauth_close_page: 您可以关闭此页面
 question_open_url: 打开页面
-question_url_accepted: 已同意打开
 mcp_oauth_remove: 移除授权
 mcp_oauth_remove_effect: 移除授权后，待执行任务将无法使用此服务
 mcp_servers: MCP 服务
@@ -775,7 +768,6 @@ terminal_shell_default: 跟随主机默认
 terminal_shells_failed: Shell 列表加载失败
 terminal_input: 输入
 terminal_connecting: 连接中
-terminal_exited: 终端已退出
 terminal_other_controller: 由另一设备控制
 terminal_take_control: 接管
 terminal_input_failed: 输入未送达
@@ -1053,7 +1045,6 @@ activity_board_empty: 暂无活动
 activity_all_projects: 全部项目
 activity_no_project: 对话
 sessions_unassigned: 对话
-activity_idle: 空闲
 activity_running: 进行中
 activity_waiting: 待处理
 activity_completed: 已完成
@@ -1155,7 +1146,6 @@ sidebar_toggle: 展开或折叠导航
 details: 上下文详情
 resource_review: 审查
 resource_browser: 浏览器
-resource_terminal_preview: 终端 UI 预览，未启动 Shell 或执行命令
 resource_browser_preview: 浏览器 UI 预览，未加载网页或访问网络
 close: 关闭
 more: 更多操作
@@ -1212,7 +1202,6 @@ chat_compact_timeout: 摘要请求超时
 chat_compact_no_reduction: 摘要未缩短上下文
 chat_compact_too_large: 摘要超出长度限制
 chat_compact_incomplete: 摘要未完整返回
-turn_tools_count: "%{count} 个工具调用"
 turn_copy: 复制回复
 message_copy: 复制
 message_edit: 编辑
@@ -1265,8 +1254,6 @@ composer_mode_code_description: "处理代码、文件和资料，适合大多�
 composer_mode_plan_description: "规划项目与方案，不运行代码或写入文件"
 composer_mode_flagship: "旗舰"
 composer_mode_flagship_description: "多代理协作处理代码和文件，适合重构与整理"
-composer_branch_main: main
-composer_branch_preview: preview/ui
 composer_context: 上下文 —
 composer_no_project: 对话
 composer_branch_none: 无 worktree
@@ -1281,7 +1268,6 @@ composer_permission_full: 完全权限
 composer_permission_ask_description: 修改文件和执行命令前询问
 composer_permission_project_description: 自动修改项目文件，执行命令前询问
 composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
-composer_permission_preview: 仅预览，不授予权限
 composer_metric_unknown: —
 composer_tokens: Token
 composer_token_usage: Token
@@ -1434,11 +1420,9 @@ checkpoint_busy: 暂时无法恢复，请稍后重试
 checkpoint_missing: 检查点或文件已不可用
 checkpoint_unknown: 恢复结果未确认，请检查文件或回收站
 checkpoint_failed: 未能恢复文件
-chat_search_query: 搜索内容
 chat_search_assistant: 助手
 chat_search_failed: 搜索失败
 chat_search_limit: 搜索内容过长
-files_directory_changed: 目录已变化，请重新加载
 files_directory_refreshed: 目录已更新
 files_directory_failed: 无法加载目录，请重试
 files_paste_conflict: 目标已存在或路径不可用，请检查后重试
@@ -1609,7 +1593,6 @@ interaction_pending: 等待确认
 interaction_answered: 已回答 · 示例
 interaction_continue_recorded: 已选择继续规划 · 示例
 interaction_start_recorded: 已选择开始编码 · 示例，未执行
-interaction_cancelled: 已取消
 interaction_continue: 继续
 interaction_start: 执行
 question_reply: 等待回答
@@ -1623,7 +1606,6 @@ question_decline: 拒绝回答
 question_declined: 已拒绝回答
 question_invalid_answer: 请检查回答内容
 question_pending: 等待回答
-question_answered: 已回答
 question_accepted: 回答已提交
 question_closed: 问题已结束，草稿已保留
 question_interrupted: 任务已中断
@@ -1668,7 +1650,6 @@ queue_pause: 暂停队列
 queue_resume: 继续发送
 queue_send_now: "发送"
 queue_changed: 队列已改变，请重试
-queue_draft_changed: 队列已改变，编辑草稿已保留
 queue_reload: 重新载入
 queue_reload_draft: 用当前内容替换编辑草稿
 queue_blocked: 项目信任或资源归属已改变，请先核对
@@ -1710,7 +1691,6 @@ reference_worktree: worktree
 reference_empty: 没有匹配的引用
 reference_connections_empty: 当前项目没有可用连接
 reference_back: 返回上一级
-reference_remove: 移除引用
 reference_preview: 仅引用预览 · 输入筛选，↑↓ 选择，Enter 确认
 reference_stale: 引用的归属或配置已改变，请移除后重新选择
 reference_unavailable: 无法打开引用
@@ -2189,7 +2169,6 @@ git_initialize_sample: 确认初始化示例“%{name}”
 port_mappings: 端口映射
 port_add: 新建转发
 
-location_search: 选择工作位置
 location_project: 选择项目
 location_create: 新建工作树并继续
 location_fork: 在独立工作树中派生会话
@@ -2370,8 +2349,6 @@ subagent_stop_unknown: 停止结果未确认，请查看子代理状态
 background_started: 已在后台运行
 background_read: 查看后台命令
 
-terminal_match_previous: 上一个匹配
-terminal_match_next: 下一个匹配
 
 terminal_search_placeholder: 搜索终端
 
@@ -2627,8 +2604,6 @@ session_new_window: 在新窗口中打开
 session_window_failed: 无法打开新窗口
 session_fork_busy: 会话运行中，请稍后分叉
 
-plugins_official: 官方
-plugins_third_party: 三方
 project_records_search: 搜索
 project_records_no_results: 没有匹配的结果
 
@@ -2731,11 +2706,13 @@ workspace_action_failed: "工作区操作失败"
 workspace_changed: "工作区已变更，请刷新后重试"
 workspace_action_unknown: "结果尚不确定，请检查后再重试"
 workspace_saved: "已保存"
+files_changed_on_disk: 磁盘上已更改
+files_conflict_description: 覆盖会用草稿替换磁盘上的文件，重新加载会丢弃草稿
+files_keep_editing: 继续编辑
+files_reload: 重新加载
+files_overwrite: 覆盖
 workspace_completed: "已完成"
-workspace_native_unavailable: "文件操作不可用"
-workspace_invalid: "请检查输入内容"
 workspace_restore_confirm: "恢复此轮操作前的文件版本"
-workspace_worktree_remove_confirm: "移除此工作树及其中的文件"
 files_cancel_remaining: "取消剩余项目"
 content_preview: "预览"
 files_block: "文本"
@@ -2768,7 +2745,6 @@ files_wrap: "自动换行"
 refresh: "刷新"
 git_initialize_nested_confirm: "新仓库会包含以下仓库"
 git_repositories: "包含 %{count} 个 Git 仓库"
-git_repository: "包含 1 个 Git 仓库"
 git_switch_confirm: "切换到 %{branch}"
 git_switch_confirm_action: "切换"
 git_switch_confirm_detail: "使用这个工作树的会话、终端和已打开的文件都会切换到这个分支。"
@@ -2793,6 +2769,12 @@ settings_experimental: 实验
 settings_experimental_description: 开发与调试设置
 settings_demo_mode: 演示模式
 settings_demo_mode_description: 显示示例会话，用于验收与截图
+settings_code_index: 代码索引
+settings_code_index_description: 为代码搜索工具索引项目代码
+code_index_settings_saved: 已保存
+code_index_settings_failed: 无法读取或保存代码索引设置
+code_index_settings_conflict: 代码索引设置已更改，请重试
+code_index_settings_unknown: 无法确认是否已保存代码索引设置
 queue_guidance_outlived: 回复已结束，已排队为新消息
 queue_wait_held: 暂缓
 queue_wait_paused: 已暂停
@@ -2802,3 +2784,28 @@ queue_wait_unsent: 未发送
 queue_wait_limit: 已达自动续接上限
 queue_wait_failed: 失败后暂缓
 chat_output_limit: 回复已达输出上限
+knowledge_collections: 集合
+knowledge_collection_pending: 等待索引
+knowledge_collection_indexing: "索引中 · %{count} 项"
+knowledge_collection_ready: "已是最新 · %{count} 项"
+knowledge_collection_paused: 已暂停
+knowledge_collection_failed: "失败 · %{reason}"
+knowledge_collection_failures: "%{count} 项未索引 · %{reason}"
+knowledge_pause: 暂停
+knowledge_resume: 继续
+knowledge_update: 更新
+model_library_speech_unsupported: 模型库不支持添加语音模型
+start_failed: Sailry 无法启动
+start_profile_in_use: Sailry 已在使用此数据目录运行
+backup_keep: 保留的备份
+backup_keep_all: 全部
+backup_keep_last: "最近 %{count} 个"
+backup_keep_confirm: "仅保留最近 %{count} 个备份？"
+backup_keep_consequence: 每次备份后，将从存储中删除此节点更早的备份，且无法恢复
+backup_last: 上次备份
+backup_last_done: 已完成
+backup_last_skipped: "已跳过 %{count} 项"
+backup_restart_restored: 使用恢复的数据重启
+backup_restart_consequence: Sailry 将使用恢复的数据重启，当前数据目录会以带日期的名称保留在其旁边
+backup_restart_invalid: 恢复的数据无法使用，未做任何更改
+backup_restart_failed: Sailry 无法切换到恢复的数据

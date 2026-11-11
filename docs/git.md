@@ -14,7 +14,16 @@ watcher events invalidate that cache. Other mapped reads retain go-git.
 
 Status includes per-file staged, unstaged and total line counts. One status
 reads the HEAD tree and the index once and loads each side of an entry once for
-its three counts. The optional
+its three counts. An entry changed on one side only is compared once. A side
+over 1 MiB is neither read nor hashed and its counts are marked `truncated`,
+as the reference marks them; binary content counts no lines. Counting takes at
+most one second of the five-second status deadline: entries past it, and a
+comparison cut short, are marked `truncated` and the status still answers. The
+reference has no such share because libgit2's line diff is fast enough; the
+go-git line diff is not, and ran without a usable limit, so several regenerated
+lock files failed every status with a deadline. Its other callers (diff, hunk,
+blame, history, change review) now stop refining at the five-second read
+deadline and return the coarser, still correct diff. The optional
 `GitEntry.modified_ms` field carries an observed modification time for the
 activity badge across local and remote Client projections. Missing or deleted
 paths omit the field. This additive v1 field implements the Go backend plan's
@@ -33,14 +42,37 @@ carry explicit skip reasons instead of incomplete review anchors. A worktree
 inventory accepts a tracked file as unchanged without reading it when its size
 and times (and on Unix its device and inode) still equal the stat data Git
 recorded in an index entry older than the index itself; any other file is hashed. File reads use
-the confined Core kernel. Index edits create a detached candidate, retain an
-exclusive owned `index.lock`, compare source HEAD/index again and atomically
-publish the candidate. One update evaluates ignore rules once for all of its
-untracked paths. An added entry displaces the entries it cannot coexist with,
-as `git add` does: those below its path and those that are one of its parent
+the confined Core kernel.
+
+Staging whole paths runs native `git add --all` on exactly those paths after
+comparing HEAD and the index revision, so the index holds what Git stores: the
+output of the path's clean filter (LFS) and of its line-ending conversion. The
+reference, and this service before, wrote the worktree bytes as the blob, which
+committed an LFS file's content instead of its pointer and CRLF where the
+repository stores LF, while Commit all (`git add --all`) was right. Three rules
+of the earlier operation stay: an ignored untracked path is refused, a
+directory is not a path to stage, and a path that is neither on disk nor in the
+index is skipped. One update evaluates ignore rules once for all of its
+untracked paths. Staging a conflicted path records its resolution, as
+`git add` does anywhere; the reference refuses every index update while a
+conflict exists, which left Abort as the panel's only way out of a conflicted
+merge. A directory the index records as a submodule is staged too: `git add`
+records the commit the submodule has checked out, where the reference refuses
+every directory.
+
+Unstaging and hunk staging create a detached candidate, retain an exclusive
+owned `index.lock`, compare source HEAD/index again and atomically publish the
+candidate. An added entry displaces the entries it cannot coexist with, as
+`git add` does: those below its path and those that are one of its parent
 directories. Unstaging restores the file HEAD records at the path and otherwise
-removes the entry. Hunk staging additionally compares the source content
-revision before applying its transform.
+removes the entry; it involves no filter. Hunk staging additionally compares
+the source content revision before applying its transform, and stores the
+result through `git hash-object -w --path`, which applies the path's
+line-ending conversion. A path with a `filter` attribute (LFS) has no hunk
+actions: its index content is the driver's output, not lines of the file, so
+staging and reverting a hunk are refused with a message that names the driver.
+Diffs still compare worktree bytes with stored content, so a file whose line
+endings are converted shows every line as changed.
 
 Commit, signing, hooks, remotes, transport, merge, rebase, cherry-pick and stash
 operations use the Node's native Git executable and environment. They pass argv
@@ -49,8 +81,53 @@ children retain process-group or Windows Job ownership. Output is bounded,
 credential-redacted and ephemeral; durable receipts do not contain hook output
 or private remote URLs. A commit can succeed while its selected push or sync
 fails; the result preserves the commit ID and separate follow-up failure.
-Deleting a remote branch validates its remote name and requires a configured
-remote like every other remote action. A failed native command is reported busy
+Local native mutations keep the reference's two-minute limit, after which the
+outcome is unknown. Transfers with a remote (clone, fetch, pull, push, sync, the
+pushes that delete a remote tag or branch, and a commit's push or sync) have no
+total deadline, unlike the reference, whose command-line transfers share the
+two minutes: their duration follows the repository and the connection. They run
+with `--progress` and are stopped after two minutes without output, which is
+then an unknown outcome. The capture keeps what a terminal would show of the
+progress, so Git's final reason is not pushed out of the bounded output. A hook
+that stays silent for two minutes during a push is stopped the same way.
+A pull is two native commands, `git fetch` and then `git pull`, so that the
+transfer does not hold the worktree's effect order
+([Projects](projects.md)); the reference runs `git pull` alone under its
+Node-wide lock.
+A native command that is stopped (its deadline, the silence limit, a cancelled
+request or Node shutdown) is first asked to end with a termination signal to
+its process group and killed two seconds later if it has not ended. Git removes
+its lock files (`index.lock`, the reference locks) when asked and cannot when
+killed, which is what the reference's immediate kill does: the stopped command
+then leaves a lock that fails every later one as busy. Windows has no such
+request for a process without a console, so its job is terminated at once and
+can leave the lock. A lock left by a crash of the machine or of the Node, or by
+the user's own Git, is never removed here, because another Git process may own
+it; operations report busy until `.git/index.lock` is deleted by hand.
+
+The agent's own `git` in a command and the panel are ordered against each other
+by Git's lock files only, not by the worktree's effect order: the loser fails
+as busy and nothing is written twice. The detached index writer used for
+unstaging and staged hunks takes the same `index.lock`.
+
+An unfinished revert (`REVERT_HEAD`) is reported as the operation `revert`, and
+Continue and Abort run `git revert --continue` and `--abort`. The reference
+reports it as a rebase and then refuses both, leaving no way out in the panel.
+The panel starts no revert itself; the state comes from a command.
+
+Status never runs a configured filter program (the overrides of the status
+arguments, as in the reference). Git therefore compares the raw worktree bytes
+of a filtered file whenever it has to read the file again (its recorded times
+no longer match, or equal the index's own time), and such a file, an LFS file
+for one, shows as modified with its stored form on the other side of the diff
+although nothing changed. Measured with a `tr` filter in a temporary
+repository; real LFS was not run.
+
+A remote's name may hold a slash, so deleting a remote branch and Pull from
+split `remote/branch` at the longest configured remote that begins the name, as
+the reference does; a name no configured remote begins is refused as not
+configured. A path below what HEAD records as a file or a submodule is a path
+HEAD does not hold, for unstaging, discarding and the HEAD side of a diff. A failed native command is reported busy
 only for Git's own lock failure (`Unable to create '….lock': File exists`), so a
 conflict that names a file such as `Cargo.lock` stays a conflict.
 
@@ -97,9 +174,14 @@ effects retain their original command and completion until Check result settles.
 
 History uses actual Node cursor pages of 100 entries, retained previous pages,
 real offset ranges and partial-content flags. Amending always uses the canonical
-head message, independently of the displayed history page. Conflict paths disable
-their staging controls and commits; active merge/rebase state supplies Continue
-and Abort. Empty-staged commits choose tracked or all changes, and commits with a
+head message, independently of the displayed history page. A conflicted path
+shows as an unstaged change with the letter U and blocks commits. Stage on that
+file's own row records its resolution; Stage all, a folder and a group skip
+conflicted paths, and a conflicted path has no Unstage. Active merge, rebase or
+cherry-pick state supplies Continue, once no conflict remains, and Abort.
+Before, a conflicted path had no staging control at all and, having neither a
+staged nor an unstaged kind, no row in the staged and unstaged groups, so
+Continue could only be reached through a terminal. Empty-staged commits choose tracked or all changes, and commits with a
 push or sync follow-up choose an existing remote when no upstream is set. A
 confirmed commit with failed follow-up reports the follow-up failure separately.
 
@@ -113,6 +195,14 @@ The reference rejects unstaging a path that HEAD holds as a directory; this
 service removes the staged file and leaves the directory's files to their own
 paths. Unstaging a path below a file that HEAD holds is still reported as a
 missing resource; unstaging that file restores it and displaces the path.
+
+`discard` restores paths from HEAD and, as the reference, refuses the whole
+selection when HEAD does not hold one of them: restoring would delete a staged
+new file that exists nowhere else. Unlike the reference's panel, which sends
+`discard` for any selection and lets the Node refuse it, Discard Changes on a
+selection with a new file (untracked or a staged addition) sends `discard_all`
+and shows its confirmation: the new files are unstaged and moved to Trash. Undo
+in the combined diff sends `discard_all`, as the reference.
 
 The page's chord is a key sequence, as the reference's: the key pressed after
 Ctrl+G completes it (Ctrl+G fetches, Down pulls, Shift+Down pulls with rebase)

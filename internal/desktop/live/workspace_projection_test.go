@@ -17,6 +17,7 @@ func TestPanelProjection(t *testing.T) {
 	t.Run("worktree manager lists every worktree with its markers and actions", worktreeManagerEntries)
 	t.Run("Git and worktree failures name their cause", workspaceFailures)
 	t.Run("worktree manager rows act against the Node", worktreeManagerLive)
+	t.Run("worktree manager marks worktrees no session uses", worktreeManagerUnused)
 	t.Run("manual hunk selection retains displayed coordinate identity", func(t *testing.T) {
 		patch := "@@ -1,2 +1,2 @@\n-before\n+after\n tail\n@@ -20,2 +20,2 @@\n-old\n+new\n end\n"
 		hunks := workspaceHunks(patch)
@@ -46,6 +47,13 @@ func TestPanelProjection(t *testing.T) {
 		}
 		if local, collision := workspaceTrackingBranch(branches, "unknown/topic"); local != "" || collision {
 			t.Fatal("unrecognized remote was converted to local branch")
+		}
+		// Pull from names the same remote, not the text before the first slash.
+		if remote, branch, ok := workspaceRemoteBranch(branches.Sync.Remotes, "origin/team/topic"); remote != "origin/team" || branch != "topic" || !ok {
+			t.Fatalf("pull target = %q %q %v", remote, branch, ok)
+		}
+		if _, _, ok := workspaceRemoteBranch(branches.Sync.Remotes, "unknown/topic"); ok {
+			t.Fatal("unrecognized remote was accepted as a pull target")
 		}
 	})
 	t.Run("history projects actual page offset without mutating canonical head", func(t *testing.T) {
@@ -81,6 +89,44 @@ func TestPanelProjection(t *testing.T) {
 		p.fileUnavailable("a.go")
 		if draft, dirty := p.panel.FileDraft("a.go"); draft != "unsaved\n" || !dirty {
 			t.Fatal("failed read erased the dirty draft")
+		}
+	})
+	t.Run("draft keeps its source while the file changes on disk", func(t *testing.T) {
+		data := &viewmodel.Workspace{Files: &viewmodel.FileNode{Children: []*viewmodel.FileNode{{Name: "a.go", Path: "a.go"}}}}
+		p := &workspaceProject{data: data, files: map[string]protocol.FileContent{}}
+		p.panel = panel.NewLiveProject("worktree", data, &panel.Actions{})
+		first, second := "first", "second"
+		p.fileLoaded("a.go", protocol.FileContent{Path: "a.go", Text: "one\n", Revision: &first})
+		p.panel.FileChanged("a.go", "mine")
+		p.fileLoaded("a.go", protocol.FileContent{Path: "a.go", Text: "theirs\n", Revision: &second})
+		if draft, dirty := p.panel.FileDraft("a.go"); draft != "mine\n" || !dirty || *p.files["a.go"].Revision != first || p.changedFiles["a.go"].content.Text != "theirs\n" {
+			t.Fatalf("a read under a draft replaced the draft or its source: %q %v %#v %#v", draft, dirty, p.files["a.go"], p.changedFiles["a.go"])
+		}
+		p.draftSource("a.go", changedFile{content: protocol.FileContent{Path: "a.go", Text: "one\n", Revision: &first}})
+		if _, changed := p.changedFiles["a.go"]; changed {
+			t.Fatal("a file back at the draft's source stayed marked as changed")
+		}
+		// Edits undone by hand leave nothing to keep: the shown file follows the disk.
+		p.draftSource("a.go", changedFile{content: protocol.FileContent{Path: "a.go", Text: "theirs\n", Revision: &second}})
+		p.panel.FileChanged("a.go", "one")
+		p.readFile("a.go")
+		if draft, dirty := p.panel.FileDraft("a.go"); draft != "theirs\n" || dirty || len(p.changedFiles) != 0 || *p.files["a.go"].Revision != second {
+			t.Fatalf("an undone draft kept stale content: %q %v", draft, dirty)
+		}
+		p.panel.FileChanged("a.go", "mine")
+		p.draftSource("a.go", changedFile{missing: true})
+		p.fileUnavailable("a.go")
+		if _, loaded := p.files["a.go"]; !loaded || !p.changedFiles["a.go"].missing {
+			t.Fatal("a file gone under a draft lost the draft's source or its mark")
+		}
+		p.panel.DropFileDraft("a.go")
+		p.fileLoaded("a.go", protocol.FileContent{Path: "a.go", Text: "theirs\n", Revision: &second})
+		if draft, dirty := p.panel.FileDraft("a.go"); draft != "theirs\n" || dirty || len(p.changedFiles) != 0 || *p.files["a.go"].Revision != second {
+			t.Fatalf("reload kept the draft or the old source: %q %v", draft, dirty)
+		}
+		p.fileUnavailable("a.go")
+		if _, loaded := p.files["a.go"]; loaded {
+			t.Fatal("a failed clean read kept its source")
 		}
 	})
 	t.Run("search captures content options and bounded globs", func(t *testing.T) {

@@ -39,7 +39,7 @@ Kit's `MessageScroller`.
 | `embed.go` | File and image cards from a reply's Markdown, the session link icon |
 | `search.go` | ⌘F search (MyGo's `FindBar`), `Find`, `Mark`, match highlights and reveal |
 | `session.go` | Loading, older pages, connection banner, diagnostic, selection pill, `Quote` |
-| `usage.go` | The context bar's metrics and the composer's context ring (`UsageBar`, `ContextRing`, `Metrics`, `Count`) |
+| `usage.go` | The context bar's figures with their hover cards and compact panel, and the composer's context ring (`Metric`, `Row`, `UsageBar`, `Metrics`, `ContextRing`, `Count`) |
 | `group_test.go`, `jump_test.go`, `live_test.go`, `bench_test.go` | Tests and benchmarks |
 
 Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)

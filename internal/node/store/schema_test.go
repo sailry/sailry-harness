@@ -231,10 +231,21 @@ func TestGenerationUnknownFails(t *testing.T) {
 		if err = errors.Join(err, unchecked.Close()); err != nil {
 			t.Fatal(err)
 		}
+		// A current database is not scanned at each start: foreign keys are
+		// enforced on every connection of ours, and one row written behind
+		// them must not lock its user out.
 		opened, err := Open(context.Background(), profile, node)
-		if opened != nil {
-			_ = opened.Close()
+		if err != nil {
+			t.Fatalf("start with an orphaned reference: %v", err)
 		}
+		if err := opened.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if got := readOnlySchemaInteger(t, path, "SELECT count(*) FROM session_attention"); got != 1 {
+			t.Fatalf("the start changed its records: %d", got)
+		}
+		// A restore audits what it publishes.
+		_, err = PrepareRestored(context.Background(), profile, node, profile, filepath.Join(t.TempDir(), "target"))
 		if err == nil || !strings.Contains(err.Error(), "invalid stored reference in session_attention; existing data was not changed") {
 			t.Fatalf("orphaned reference error: %v", err)
 		}
@@ -277,18 +288,41 @@ func TestGenerationUnknownFails(t *testing.T) {
 				t.Fatalf("archived %s changed: %q, %v", name, body, err)
 			}
 		}
-		// A later Rust run leaves a new database; the archived one is kept.
-		if err := os.WriteFile(filepath.Join(storage, "node.turso"), []byte("later"), 0o600); err != nil {
-			t.Fatal(err)
+		// A later Rust run leaves a new set, one name of which the archive
+		// already holds. The whole set goes to the next archive, the Node
+		// starts, and the earlier archive is unchanged.
+		for round := 2; round <= 3; round++ {
+			later := []string{"knowledge.db-log", "node.turso", "node.turso-wal"}
+			for _, name := range later {
+				if err := os.WriteFile(filepath.Join(storage, name), fmt.Appendf(nil, "%s %d", name, round), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			opened, err := Open(context.Background(), profile, protocol.NodeID{})
+			if err != nil {
+				t.Fatalf("a profile a Rust build ran in again did not open: %v", err)
+			}
+			if err := opened.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range later {
+				if _, err := os.Lstat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("%s stayed in storage: %v", name, err)
+				}
+				archived := filepath.Join(storage, fmt.Sprintf("%s-%d", RustArchive, round), name)
+				if body, err := os.ReadFile(archived); err != nil || string(body) != fmt.Sprintf("%s %d", name, round) {
+					t.Fatalf("archived %s changed: %q, %v", archived, body, err)
+				}
+			}
 		}
-		if _, err := Open(context.Background(), profile, protocol.NodeID{}); err == nil || !strings.Contains(err.Error(), RustArchive) {
-			t.Fatalf("a second Rust database replaced the archive: %v", err)
+		for _, name := range names {
+			if body, err := os.ReadFile(filepath.Join(storage, RustArchive, name)); err != nil || string(body) != name {
+				t.Fatalf("first archive changed %s: %q, %v", name, body, err)
+			}
 		}
-		if body, _ := os.ReadFile(filepath.Join(storage, RustArchive, "node.turso")); string(body) != "node.turso" {
-			t.Fatalf("archived database replaced: %q", body)
-		}
-		if body, _ := os.ReadFile(filepath.Join(storage, "node.turso")); string(body) != "later" {
-			t.Fatalf("later database changed: %q", body)
+		// A name the first archive does not hold must not split a set.
+		if _, err := os.Lstat(filepath.Join(storage, RustArchive, "knowledge.db-log")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a later set was split across archives: %v", err)
 		}
 	})
 }

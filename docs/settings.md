@@ -24,12 +24,26 @@ Closing source discovery cancels its captured context and staged upload before
 admission. Selecting discovered skills transfers ownership to the durable
 installation queue. A later dialog close does not stop an admitted install.
 
+A plugin installed from a controller-local directory is one the Node cannot
+check for updates (`manual` in its report). The desktop remembers that
+directory in `plugin_directories` of its preferences, per Node and package,
+with the digest and revision the installation gave. Check updates reads the
+directory again while the Node still holds that digest, uploads it and offers
+a strictly newer version as the update, or reports the Sailry version it
+needs; Update installs that upload and remembers the directory for the new
+digest. A missing directory leaves the package without an update; another
+package found there is a check failure. Any other installation of the package
+and its removal drop the record.
+
 Market cards derive installed identity from the package or skill's recorded
 source, including registry namespace and Git repository/path. Catalog versions
 and release notes merge with the immutable installed manifest; a catalog slug
 does not replace the actual package name. Details show the captured execution
-Host. Enter in the existing search field explicitly refreshes a failed query;
-live fetches never reuse preview timers or add a controller retry loop.
+Host. The Market projection searches whenever the kind, source or query it last
+searched differs from the page's, which is the reference's search on every
+change of the field; the page has no search action of its own. Enter in the
+existing search field explicitly refreshes a failed query; live fetches never
+reuse preview timers or add a controller retry loop.
 
 The settings navigation and its pages, in the groups of the reference implementation
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
@@ -121,7 +135,8 @@ AI group fields: `Channels`, `Brands`, `Catalog`, `Compaction`
 `ConnQuery`, `ConnMethod`; `Teams`, `Roles`, `Concurrency` (Stored),
 `TeamTab`; `Packages`, `MarketPlugins`, `SkillList`, `MarketSkills`,
 `Themes`, `Library`, `SkillQuery`, the `Market*` filters; `Knowledge`
-and `Decision` (`LocalModels`).
+and `Decision` (`LocalModels`), `Collections`
+(`[]viewmodel.KnowledgeCollection`, live only).
 
 Loading states (`preview.Fetch`, played on the frame clock for
 `preview.LoadAfter`; nothing is fetched): `MarketLoad` shows six card
@@ -163,7 +178,7 @@ placeholder in an empty masked input.
 
 | Page | Action | Preview |
 |---|---|---|
-| General | language, switches, toast duration | in memory; language toasts settings_language_restart |
+| General | language, switches, toast duration | in memory. Live, a language applies in the frame that saves it (pages, menu and window title), without a toast; the reference applies it at restart and says so |
 | General | prevent sleep, telemetry switches | `Stored.Commit`, outcome toast (power_settings_*, telemetry_*) |
 | General | reset identity, send diagnostics | preview_notice |
 | Experimental | performance indicator, Demo mode | in memory; live: the controller's preferences. Demo mode swaps the window's conversations (docs/shell.md, Demo mode) |
@@ -213,6 +228,38 @@ The B3 live adapter, controller preferences and remaining phase boundaries are
 specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
 separate constructor and does not own backend facts. Later feature phases supply
 their owning Client actions and projections without changing the accepted UI.
+
+### The Node Settings edits
+
+Every page that configures a Node edits one Node: the host selected in the
+shell (`App.Host`, the local Node by default), as the reference binds its
+pages to `settings_target.unwrap_or(live.selected)`. `live/settings_target.go`
+holds the rule; `Runtime.settingsOwner` is the one lookup.
+
+| Owner | Pages and settings |
+| --- | --- |
+| The selected host's Node | General › Prevent sleep; Providers, the model catalog and the compaction threshold; Media models; Teams, roles and child concurrency; Connectors and MCP; Conversation › Command sandbox and Code index; Hooks; Terminal shell and environment; Backup; Knowledge, Decision and OCR models; Plugins, Skills and Python |
+| This desktop (`preferences.json`) | Language, notifications, toast duration, appearance, session order, message display, shortcuts, dictation, terminal font and paste protection, experimental switches, the update channel |
+| The local Node, whichever host is selected | Telemetry consent, identity reset and Send diagnostics (the reference's stated exception) |
+
+The pages share one view model, so only the Runtime of the Node shown writes
+it. Selecting another host ends a provider or connector sign-in under way on
+the Node left (`Model.CloseNodeDialogs` closes the provider, connector and team
+editors), drops the pages' values and drafts, and reads the new Node; the
+sandbox, the hooks and the terminal keep each Node's draft, as before. An
+answer for a Node the pages left is dropped, and a save sent before the turn
+still ends in its toast. A host without a connection has no Node to edit: its
+controls wait (`Pending`), its lists are empty, the sandbox switch is disabled
+and an action answers the `chat_action_failed` toast. Select model and Manage
+teams in a conversation select that conversation's host first, as the
+reference's `Event::Settings(node)` and `Event::TeamSettings(node)` do.
+
+Hooks are those of the conversation shown when it runs on the selected host;
+a conversation on another host shows `hooks_project_required`, as the
+reference passes a worktree only when the settings Node is the selected one.
+The host edited is named where the layout already names it: the hooks consent
+scope, the plugin details and the backup restore dialog. No page gained a host
+label.
 
 ## UI state vs backend data
 
@@ -286,6 +333,12 @@ hover style.
 
 ## Deviations
 
+- A remembered plugin directory offers only a strictly newer version. The
+  reference also offers changed content whose version is not semantic; the
+  packages list here marks an update by its version, and a same-version change
+  is not an update anywhere else. The reference's package editor, which reads
+  the remembered directory again for Update, has no counterpart: Check updates
+  is the one path.
 - Experimental is a section the reference does not have: the sidebar's
   performance indicator, moved from General, and Demo mode (user decision
   2026-11-11). It sorts after every page of the System group but About,
@@ -294,6 +347,21 @@ hover style.
 - The extension details have no title row and no close button; the title is
   in the header band and the details toggle closes them (user decision
   2026-11-11; docs/shell.md).
+
+- The settings Node is the host selected in the rail; the reference keeps a
+  separate `settings_target` that a conversation's Settings entry sets
+  without moving the rail's selection. Go has one selection (`App.Host`), so
+  those entries select the host.
+- Selecting another host drops the drafts of Prevent sleep, compaction, child
+  concurrency and media models instead of holding one per Node: each is a
+  single control that saves on change.
+- Conversation › Execution has a Code index switch the reference does not
+  have ([code index](codeindex.md)). After a save that did not take it shows
+  the Node's value again; the sandbox and Prevent sleep switches keep the
+  position chosen.
+- A Prevent sleep save the Node can never confirm reads the setting again
+  only while the pages still show that Node; after another host is selected
+  the outcome is a toast alone.
 
 - Preview pages show populated data where the reference shows
   "knowledge_host_required"/"hooks_project_required" without a host
@@ -465,7 +533,11 @@ selected default. Source catalog lookups fill missing metadata in batches of
 discovery capabilities take precedence. Provider saves preserve retained model
 capabilities and the selected default effort. Catalog refresh never inserts sample
 models. Compaction reads and saves use the Node revision; a failed save keeps its
-draft and never invents a new revision.
+draft and never invents a new revision. A `compaction_settings_changed` with a
+revision newer than the one shown, as another controller's save is, reads the
+threshold again once no save is under way and the slider holds no draft. A
+read answered with a revision older than the one shown, as a read that crossed
+a save is, is dropped.
 
 `ChannelModel` carries `Vision`, `Tools`, `Reasoning`, `Generates` and
 `CustomCapabilities`. The model form's capability boxes edit them, and the
@@ -655,12 +727,30 @@ repeat, so an older answer never replaces the event's registry.
   picker's last choice (`Missing`) instead of being cleared silently.
 - **Knowledge.** There is no switch: Keyword only saves `enabled: false`, a
   model saves `enabled: true`.
+- **Collections.** The Knowledge page lists the host's knowledge collections
+  (`Model.Collections`, `settings/collections.go`) below the models, in a
+  group that is absent while the host has none. `live/settings_knowledge.go`
+  reads `list_knowledge_collections` when the page is entered and again
+  after each `knowledge_collections_changed` on the same `node`
+  subscription; the event carries no data, so the client projection keeps
+  no copy. A row is the collection's name over its state:
+  waiting, indexing with the sources read so far, up to date with the
+  sources indexed, paused, the number of sources that could not be indexed
+  with the first one's path and reason, or the reason the whole collection
+  failed. Its actions are Pause or Resume (`pause_knowledge_collection`)
+  and Update (`update_knowledge_collection` with the definition unchanged,
+  which reads the sources again and retries failed ones). Both are sent at
+  the revision read, lock the row while under way and report only failure,
+  conflict and an unknown outcome (`CollectionMessages`); the collections
+  are then read again. The preview has no collections.
 - **Library.** `LibraryRequest` (kind, hub, searched query, search serial)
   drives `search_models`; a search is abandoned when the request changes or
   the dialog closes. Install is `resolve_model` → `register_local_model` →
   `install_local_model`, Details is `read_model_versions` → `resolve_model`,
   Cancel is `cancel_local_model` (`knowledge_cancel_requested`), Delete is
-  `delete_local_model` after the confirmation (`knowledge_deleted`). An
+  `delete_local_model` after the confirmation (`knowledge_deleted`); the
+  Node then forgets the registration too, unless the model is still selected
+  or named by a collection ([details](models.md#deviations-1)). An
   install's request is retained for the installation queue's Retry and reused
   after an unknown outcome; a canceled install shows no toast.
 - **Preview.** Unchanged: `ModelActions` is nil, pages change in memory and
@@ -668,11 +758,17 @@ repeat, so an older answer never replaces the event's registry.
 
 Deviations from the Rust reference:
 
-- The library loads the first hub page only (following empty pages); the
-  accepted dialog has no load-more control.
+- The library loads the first hub page only; the accepted dialog has no
+  load-more control. An answer without a compatible model is followed at
+  most three times (`libraryAnswers`, nine hub pages with the Node's own
+  skipping) and then reported as `model_library_partial`, so a query that
+  matches only other kinds of model does not read the hub's whole listing.
 - `refresh_local_model` is not called: the accepted details dialogs have no
   Update control.
 - Only the save locks the page; a running download does not.
+- The Knowledge page lists the collections with their state and Pause,
+  Resume and Update; the reference shows no collection anywhere, so a paused
+  or failing one was invisible.
 
 ### Dictation (controller-local)
 
@@ -697,7 +793,20 @@ manager, not `ReadLocalModels`.
   (resume, size and SHA-256) over `netproxy.Transport()`, so they follow the
   desktop's proxy settings. A downloaded model counts as installed only after
   the recognizer was constructed over it. A model in use by a dictation is
-  neither removed nor downloaded again.
+  neither removed nor downloaded again. `Capture.Ready` hashes a model's
+  files once and then trusts the receipt the Node registry also uses
+  (`validated` and `.verified` in the model's directory: the sizes,
+  modification times and file identities that were hashed, bound to the
+  definition); the files are hashed again only after one of them changed or
+  the receipt is gone. An installation writes the receipt, so the first
+  dictation after it does not hash either. A directory that cannot be
+  written is hashed every time. `Open` clears what a crash left:
+  index drafts (`models/.speech-*.json`), partial downloads that cannot be
+  resumed or were not written for 7 days (`assets.Sweep`,
+  [details](models.md#deviations-1)), and the holders of interrupted
+  removals (`models/speech/.speech-delete-<id>`). A holder whose model the
+  index still lists is the removal that stopped before the index was saved:
+  its files are put back; any other holder is deleted.
 - `live/settings_models_speech.go` owns the page (`dictationFrame`, called by
   `drain`):
   - SDICT-001: `Model.MicrophoneGranted` is `capture.Status()`, read on every
@@ -720,8 +829,13 @@ manager, not `ReadLocalModels`.
   speech kind reach a Node in the reference, from its model library. The
   accepted Dictation page has no library, so nothing registers a speech model:
   `Manager.Register` and `Manager.Remove` exist and are tested but have no
-  control, and the library dialog still answers a speech result with
-  `dictation_unavailable`.
+  control. The library dialog opens only from the OCR, Knowledge and Decision
+  pages and searches that page's kind, so it lists no speech model; were a
+  result of the speech kind to appear, its Install answers
+  `model_library_speech_unsupported` instead of sending it to a Node, which
+  refuses the kind. Adding, deleting and updating a speech model from a hub
+  (settings audit D4, D7, D8) need a library entry on the Dictation page,
+  which is a layout decision and not part of the wiring.
 
 Deviations from the reference:
 
@@ -731,6 +845,8 @@ Deviations from the reference:
 | Outside macOS the access row always reads Allowed | Only macOS gates the microphone per application; the reference shows an inert Request on Windows |
 | A refused or restricted microphone is the `dictation_permission` toast | The reference's permission card with its system-settings link is not part of the accepted page |
 | A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
+| A dictation starts on the model's receipt instead of hashing the model | The reference hashes every file (about 240 MB for the recommended model) before each recording; a file changed in place is still found, because its size, modification time or change time differs |
+| Leftovers of a crash are cleared when the manager opens, and an interrupted removal is undone or finished | The reference names its holder at random and sweeps nothing, so the files of a model stayed in a holder nothing could find |
 | Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
 | The speech, ONNX Runtime and capture libraries load only from the executable's directory, or `Contents/Resources` of the macOS application bundle | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |
 
@@ -800,7 +916,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
 | About | Version, Build | `link.ProductVersion`; `settings_build_release` when the build carries a revision, otherwise `settings_build_debug` |
-| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning) |
+| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning). A channel never saved is the running build's (`updater.InitialChannel`: a prerelease starts on Experience) and is written once About shows it |
 
 The updater verifies the signed `update-v1` catalog against the release-owned
 ed25519 keys, the archive's zipsign signature and digest, the bundle identifier
@@ -932,7 +1048,10 @@ so an action finishes and toasts after the page has moved on.
 | Back up now | `export_backup` | |
 | Import › Restore | file picker, `upload_backup`, upload stream, `restore_backup_file` | A refused restore releases the staged upload with `cancel_file_transfer` |
 | Restore from storage | `list_backups`, `restore_backup` | Each record offers its local and online copies |
+| Restart with restored profile | none: `node.CheckRestoredProfile`, `node.SwapProfile` in the Desktop process | Offered once after a restore succeeded on this Desktop's own Node (`BackupActions.Restartable`); a remote host's restore stays a directory on that host. See "Restart on a restored profile" below |
 | Unarchive, Delete | `set_session_archived`, `remove_session` | Delete confirms first, naming the session |
+| Backups to keep | `save_backup_settings` | `BackupSettings.keep`: 0 keeps every backup (the default), a number keeps that many of this Node's newest. Choosing a number is confirmed once (`backup_keep_confirm`, `backup_keep_consequence`); All is saved at once. A count the page does not offer is listed as held |
+| Last backup | `read_backup_settings` | `BackupSettings.last`, shown once a backup has ended: its time, the count of skipped items, and Completed or the problem its error code stands for, with the Node's reason as the tooltip. Read with the settings, so a backup that ran while the page was open shows when the page is entered again |
 | Archive all, Delete all | `archive_sessions`, `remove_sessions` | Named at the revisions in the snapshot; delegated sessions follow their parents |
 
 The restore form names the host, shows `backup_restore_consequence` once and
@@ -940,12 +1059,65 @@ asks for the passphrase (blank uses the saved one) and the new profile path.
 The Node refuses a path that exists with content or lies inside the running
 profile, so a restore never writes over a live profile.
 
+### Restart on a restored profile
+
+A restore writes a new directory and never the running profile. After it, the
+page asks once whether to restart on it (`backup_restart_restored`,
+`backup_restart_consequence`). `cmd/sailry-desktop/restore.go` then:
+
+1. checks the restored directory while the Node still runs
+   (`node.CheckRestoredProfile`): it is another directory outside the profile,
+   no process owns it, and this build opens its identity and both databases,
+   which is the version check. The passphrase was proved by the restore that
+   decrypted the archive. A refusal is the toast `backup_restart_invalid` and
+   changes nothing;
+2. asks about unsaved documents and running work as a quit does;
+3. stops the Node (`desktopBackend.Stop`) and calls `node.SwapProfile`, which
+   repeats the checks, confirms that no process owns the profile, points the
+   restored database's stored paths (projects, worktrees, knowledge sources) at
+   the profile's path, and renames: the restored directory next to the profile
+   (`<profile>.restored-<time>`, which proves both are on one volume), the
+   profile to `<profile>.before-restore-<YYYYMMDD-HHMMSS>`, the restored
+   directory to the profile's path. A failure undoes the renames and the
+   paths, so the profile is either what it was or the restored one;
+4. starts the application again with the same arguments
+   (`mygo.App.Relaunch`). A failure in step 3 is first shown in a native
+   message (`backup_restart_failed` with the reason); the application then
+   starts on the profile it had.
+
+The profile that was in use is never deleted: it stays beside the new one
+under its dated name, with everything a backup leaves out (Desktop
+preferences, plugin data, local models, Python environments, logs). Those do
+not move to the restored profile, which starts with default Desktop
+preferences.
+
+Identity: a backup holds `link.key`, so the restored profile is the same Node
+to every paired controller, which is what a replacement machine needs. On one
+machine the swap retires the old copy, so one runs. Across machines nothing
+detects a second running copy: controllers reach whichever answers, and each
+copy accepts work the other never sees. The restore form says so once
+(`backup_restore_consequence`: run only one copy at a time). A restored copy
+is not given a new identity, because that would silently drop every pairing
+and the database is bound to its Node ID.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The Desktop can restart on the restored profile | Rust and the earlier port stop at the directory; using it needs `--data-dir` or moving directories by hand in a terminal |
+
+Not covered: the two renames that exchange the profiles are not one atomic
+step. A crash between them leaves no directory at the profile's path, and the
+next start creates an empty profile there; the kept and the restored
+directories are both beside it. On Windows a rename fails while any process
+holds a file inside the directory; that case is undone and reported, and was
+not run there.
+
 Outcomes are toasts only: `backup_saved`, `backup_exported`,
 `backup_restored`, `backup_archived`, `backup_unarchived`, `backup_deleted`;
 `backup_conflict`, `backup_invalid`, `backup_denied`, `backup_unknown`,
 `backup_failed`; for sessions `backup_sessions_busy`, `session_changed`,
-`backup_sessions_unknown`, `backup_sessions_failed`. A request whose outcome is
-unknown is retained and sent again by the same action.
+`backup_sessions_unknown`, `backup_sessions_failed`; `backup_restart_invalid`.
+A request whose outcome is unknown is retained and sent again by the same
+action.
 
 Backend ownership: `internal/node/backup` (archive, encryption, storage,
 restore staging), `internal/node/backup_service*.go` (commands),
@@ -964,3 +1136,12 @@ Deviations from the reference:
 | A file restore with an unknown outcome is staged again when repeated | The staged stream belongs to the first request |
 | A running action is not cancelled when the page is left | Its toast still reports the outcome |
 | An archived session that never ran shows no date | A session carries no archive time |
+| The databases are copied while the Node runs | The reference checkpoints and closes both databases and copies their files, so every read and write waits for the copy. Here both databases are pinned in read transactions under their exclusive leases (`store.Exclusive.Pin`), the leases end, and SQLite's online backup copies the pinned pages (`store.Pinned.Copy`). The content roots are read on the same pinned connection, so the archive lists exactly what the database copy references |
+| A project folder inside the profile that is not a managed workspace is left out | The reference refuses every backup once such a folder is registered ("worktree is outside a managed profile workspace"). It is the user's folder, as one outside the profile, and only Sailry's own workspaces are archived |
+| Symbolic links are archived as links | The reference refuses a backup that meets one, which fails every workspace that ran `npm install` or holds a Python environment. A link is a tar symlink entry and a `links` record in the manifest; its target is kept as written and never followed. On restore the links are created last, and a manifest in which a file or link lies beneath a link is refused, so nothing is written through one |
+| Content that cannot be archived is left out and recorded | The reference fails the whole backup, database included. Only the databases and `link.key` are required. A special file, an unreadable file, a name that cannot be stored, a root that no longer exists, content beyond the export limit, and a file that still differs after three reads are left out; a linked checkout whose Git metadata changes during three reads keeps its pointer file. The manifest's `skipped` lists the first 1000 with the reason and `skipped_total` counts all |
+| The archive is encrypted as it is written | The reference writes the plain archive, then encrypts it into a second file. `Snapshot.Pack` writes tar, gzip and age in one stream; restore decrypts and unpacks in one stream. What stays plain in the profile's private `tmp` is the snapshot (database copies and staged files, whose checksums the manifest needs before the content) and the unpacked restore staging |
+| The Node records how its last backup ended (`BackupSettings.last`: time, error code, reason, skipped count) | The reference keeps nothing, so a scheduled backup that fails with no client connected leaves no trace. `executeBackup` writes the outcome in the transaction that completes the request; saving settings keeps it and it does not change the revision. The durable notice for a failed scheduled run is the dispatcher's (`store/notifications_system.go`), not a second one from here |
+| Retention (`BackupSettings.keep`) | The reference never removes a backup, so a daily schedule fills its storage. After a published backup, `backup.Prune` removes this Node's oldest backups beyond the count from every enabled location: the record first, then the parts. Backups of another Node, records that cannot be read and everything when `keep` is 0 are left alone. A retention failure is logged and does not fail the backup |
+| One unreadable record does not hide the others | The reference fails the whole listing. A record that is not a readable manifest is passed over, a location that does not answer is left out, and either sets `partial`; the listing fails only when no configured location answers |
+| A wrong passphrase, a damaged archive and a failed write are different errors | The reference and the earlier port report every restore failure as a decryption failure: "backup passphrase is incorrect", "backup file is damaged or is not a Sailry backup", "backup archive is damaged or incomplete", or the storage failure itself |

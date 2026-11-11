@@ -20,20 +20,24 @@ type sample struct {
 }
 
 // Catalog is the preview's file tree, kept in memory: the preview never reads
-// the host's disk, and its changes are forgotten with the picker.
+// the host's disk, and its changes are forgotten with the picker. It is laid
+// out as a machine is, so the demo shows nothing that reads as a sample: a
+// root volume, an account's home with its standard folders, and a second
+// volume.
 type Catalog struct {
-	entries map[string]sample // by path
-	home    string
+	entries   map[string]sample // by path
+	home      string
+	locations []Location
 }
 
-// NewCatalog makes the preview tree of the local host, or of a remote one:
-// its root holds what a downloads folder does (packages, archives, documents
-// and images, with the long names and the sizes real ones have), its home a
-// small project.
+// NewCatalog makes the preview tree of the local host, a Mac, or of a remote
+// one, a Linux machine. The home holds what a downloads folder does
+// (packages, archives, documents and images, with the long names and the
+// sizes real ones have) beside the standard folders and a small project.
 func NewCatalog(remote bool) *Catalog {
-	home, scratch := "/preview/sailry", "/preview/scratch"
+	home, project, scratch := "/Users/alex", "sailry", "scratch"
 	if remote {
-		home, scratch = "/preview/remote-workspace", "/preview/remote-scratch"
+		home, project, scratch = "/home/alex", "remote-workspace", "remote-scratch"
 	}
 	c := &Catalog{entries: map[string]sample{}, home: home}
 	const hour, day = time.Hour, 24 * time.Hour
@@ -43,51 +47,87 @@ func NewCatalog(remote bool) *Catalog {
 	file := func(path string, size uint64, age time.Duration) {
 		c.entries[path] = sample{file: true, size: size, modified: CatalogNow.Add(-age)}
 	}
-	directory("/preview", 2*hour)
-	directory(home, 40*time.Minute)
+	directory("/", 200*day)
+	directory(home[:strings.LastIndex(home, "/")], 200*day)
+	directory(home, 2*hour)
+	c.locations = []Location{{Kind: "home", Path: home}}
+	place := func(kind, path string, age time.Duration) {
+		directory(path, age)
+		c.locations = append(c.locations, Location{Kind: kind, Path: path})
+	}
+	if remote {
+		place("documents", home+"/Documents", 12*day)
+		place("downloads", home+"/Downloads", 2*day)
+		directory("/mnt", 200*day)
+		directory("/mnt/data", 5*day)
+		directory("/mnt/data/datasets", 5*day)
+		c.locations = append(c.locations, Location{Kind: "root", Path: "/", Medium: "internal"}, Location{Kind: "volume", Name: "data", Path: "/mnt/data"})
+	} else {
+		place("desktop", home+"/Desktop", 3*hour)
+		place("documents", home+"/Documents", 12*day)
+		place("downloads", home+"/Downloads", 2*day)
+		place("applications", "/Applications", 20*day)
+		for _, name := range []string{"Calculator.app", "Sailry.app", "Terminal.app", "Utilities"} {
+			directory("/Applications/"+name, 20*day)
+		}
+		directory("/Volumes", 200*day)
+		directory("/Volumes/Backup", 27*hour)
+		directory("/Volumes/Backup/Archive", 27*hour)
+		file("/Volumes/Backup/backup-2026-11-08.zip", 1_200_000_000, 27*hour)
+		file(home+"/Desktop/meeting-notes.md", 3_400, 3*hour)
+		c.locations = append(c.locations, Location{Kind: "root", Name: "Macintosh HD", Path: "/", Medium: "internal"},
+			Location{Kind: "volume", Name: "Backup", Path: "/Volumes/Backup", Medium: "external"})
+	}
+	file(home+"/Documents/budget-2026.xlsx", 48_000, 12*day)
+	file(home+"/Downloads/installer.pkg", 52_000_000, 2*day)
+	project, scratch = home+"/"+project, home+"/"+scratch
+	directory(project, 40*time.Minute)
 	directory(scratch, 3*day)
-	directory("/preview/empty", 21*day)
-	directory("/preview/restricted", 60*day)
-	directory("/preview/many", 9*day)
-	directory(home+"/src", 40*time.Minute)
-	directory(home+"/docs", 26*hour)
+	directory(home+"/empty", 21*day)
+	directory(home+"/restricted", 60*day)
+	directory(home+"/many", 9*day)
+	directory(project+"/src", 40*time.Minute)
+	directory(project+"/docs", 26*hour)
 	directory(scratch+"/new-project", 3*day)
 	for i := range 64 {
-		directory(fmt.Sprintf("/preview/many/directory-%02d-with-a-long-preview-name", i), 9*day)
+		directory(fmt.Sprintf("%s/many/directory-%02d-with-a-long-preview-name", home, i), 9*day)
 	}
-	file("/preview/.DS_Store", 6_148, 2*hour)
-	file("/preview/architecture-review.pdf", 2_300_000, 5*hour)
-	file("/preview/backup-2026-11-08.zip", 1_200_000_000, 27*hour)
-	file("/preview/banner.png", 1_800_000, 4*day)
-	file("/preview/code_1.96.2_amd64.deb", 104_600_000, 12*day)
-	file("/preview/go1.27.3.darwin-arm64.tar.gz", 78_400_000, 18*day)
-	file("/preview/release-notes.md", 6_200, 90*time.Minute)
-	file("/preview/sailry-desktop-0.1.0.dmg", 96_000_000, 30*hour)
-	file("/preview/screenshot-2026-11-08.png", 640_000, 25*hour)
-	file("/preview/WorkBuddy-linux-x64-deb-5.6.2.40046327-c7b525f3.deb", 429_800_000, 47*day)
-	file("/preview/产品需求文档 v3.docx", 284_000, 6*day)
-	file("/preview/季度财务报表.xlsx", 1_100_000, 400*day)
-	file(home+"/.gitignore", 312, 30*day)
-	file(home+"/config.yaml", 824, 8*day)
-	file(home+"/deploy.sh", 1_300, 15*day)
-	file(home+"/go.mod", 1_900, 26*hour)
-	file(home+"/main.go", 4_100, 40*time.Minute)
-	file(home+"/Makefile", 2_000, 15*day)
-	file(home+"/README.md", 6_200, 3*hour)
-	file(home+"/src/app.go", 12_400, 40*time.Minute)
-	file(home+"/src/app_test.go", 8_700, 50*time.Minute)
-	file(home+"/docs/architecture.pdf", 2_300_000, 26*hour)
-	file(home+"/docs/guide.md", 9_600, 5*day)
+	file(home+"/.DS_Store", 6_148, 2*hour)
+	file(home+"/architecture-review.pdf", 2_300_000, 5*hour)
+	file(home+"/backup-2026-11-08.zip", 1_200_000_000, 27*hour)
+	file(home+"/banner.png", 1_800_000, 4*day)
+	file(home+"/code_1.96.2_amd64.deb", 104_600_000, 12*day)
+	file(home+"/go1.27.3.darwin-arm64.tar.gz", 78_400_000, 18*day)
+	file(home+"/release-notes.md", 6_200, 90*time.Minute)
+	file(home+"/sailry-desktop-0.1.0.dmg", 96_000_000, 30*hour)
+	file(home+"/screenshot-2026-11-08.png", 640_000, 25*hour)
+	file(home+"/WorkBuddy-linux-x64-deb-5.6.2.40046327-c7b525f3.deb", 429_800_000, 47*day)
+	file(home+"/产品需求文档 v3.docx", 284_000, 6*day)
+	file(home+"/季度财务报表.xlsx", 1_100_000, 400*day)
+	file(project+"/.gitignore", 312, 30*day)
+	file(project+"/config.yaml", 824, 8*day)
+	file(project+"/deploy.sh", 1_300, 15*day)
+	file(project+"/go.mod", 1_900, 26*hour)
+	file(project+"/main.go", 4_100, 40*time.Minute)
+	file(project+"/Makefile", 2_000, 15*day)
+	file(project+"/README.md", 6_200, 3*hour)
+	file(project+"/src/app.go", 12_400, 40*time.Minute)
+	file(project+"/src/app_test.go", 8_700, 50*time.Minute)
+	file(project+"/docs/architecture.pdf", 2_300_000, 26*hour)
+	file(project+"/docs/guide.md", 9_600, 5*day)
 	file(scratch+"/notes.txt", 2_048, 3*day)
 	return c
 }
+
+// Home is the home directory of the tree's account, where its picker opens.
+func (c *Catalog) Home() string { return c.home }
 
 // Source is the catalog as a picker's host.
 func (c *Catalog) Source() Source {
 	return Source{
 		Browse: func(directory string, done func(Listing, string)) {
 			if directory == "" {
-				directory = "/preview"
+				directory = c.home
 			}
 			done(c.List(directory))
 		},
@@ -101,26 +141,37 @@ func (c *Catalog) directory(path string) bool {
 	return ok && !entry.file
 }
 
+// parent is the directory holding path, "" for the root.
+func parent(path string) string {
+	switch i := strings.LastIndex(path, "/"); {
+	case path == "/" || i < 0:
+		return ""
+	case i == 0:
+		return "/"
+	default:
+		return path[:i]
+	}
+}
+
 // List is a directory of the tree, or the i18n key of why it cannot show.
 func (c *Catalog) List(path string) (Listing, string) {
-	path = strings.TrimRight(strings.TrimSpace(path), "/")
-	if path == "/preview/restricted" {
+	if path = strings.TrimSpace(path); path != "/" {
+		path = strings.TrimRight(path, "/")
+	}
+	if path == c.home+"/restricted" {
 		return Listing{}, "directory_denied"
 	}
 	if !c.directory(path) {
 		return Listing{}, "directory_missing"
 	}
-	l := Listing{Separator: "/", Path: path, Locations: []Location{{Kind: "root", Path: "/preview"}, {Kind: "home", Path: c.home}}}
-	if path != "/preview" {
-		l.Parent = path[:strings.LastIndex(path, "/")]
-	}
+	l := Listing{Separator: "/", Path: path, Parent: parent(path), Locations: slices.Clone(c.locations)}
 	for child, entry := range c.entries {
-		if i := strings.LastIndex(child, "/"); i > 0 && child[:i] == path {
+		if parent(child) == path {
 			kind := "directory"
 			if entry.file {
 				kind = "file"
 			}
-			l.Entries = append(l.Entries, Entry{Name: child[i+1:], Kind: kind, Size: entry.size, Modified: entry.modified})
+			l.Entries = append(l.Entries, Entry{Name: child[strings.LastIndex(child, "/")+1:], Kind: kind, Size: entry.size, Modified: entry.modified})
 		}
 	}
 	slices.SortFunc(l.Entries, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
@@ -156,7 +207,8 @@ func (c *Catalog) Apply(a Action) string {
 				return "directory_missing"
 			}
 			name := path[i+1:]
-			target := a.Destination + "/" + name
+			into := strings.TrimRight(a.Destination, "/")
+			target := into + "/" + name
 			if _, taken := c.entries[target]; taken {
 				switch a.Conflict {
 				case "replace":
@@ -168,7 +220,7 @@ func (c *Catalog) Apply(a Action) string {
 					}
 				case "keep_both":
 					for index := 2; taken; index++ {
-						target = fmt.Sprintf("%s/%s (%d)", a.Destination, name, index)
+						target = fmt.Sprintf("%s/%s (%d)", into, name, index)
 						_, taken = c.entries[target]
 					}
 				default:
@@ -194,7 +246,7 @@ func (c *Catalog) destination(path string) string {
 	if name := path[i+1:]; name == "" || name == "." || name == ".." {
 		return "files_paste_conflict"
 	}
-	_, problem := c.List(path[:i])
+	_, problem := c.List(parent(path))
 	return problem
 }
 
@@ -220,7 +272,7 @@ func (c *Catalog) transfer(from, to string, cut bool) string {
 }
 
 func (c *Catalog) remove(path string) string {
-	if _, ok := c.entries[path]; path == "/preview" || path == "/preview/restricted" || !ok {
+	if _, ok := c.entries[path]; path == "/" || path == c.home || path == c.home+"/restricted" || !ok {
 		return "directory_denied"
 	}
 	for entry := range c.entries {

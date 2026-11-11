@@ -108,9 +108,6 @@ plugins_configure: 設定
 plugins_uninstall: アンインストール
 plugins_install: インストール
 plugins_information: 情報
-plugins_actions: プラグインアクション
-plugins_official: オフィシャル
-plugins_third_party: サードパーティ
 plugins_none: プラグインなし
 composer: 何を達成したいかを説明してください
 composer_attachment: 添付ファイルを追加
@@ -119,11 +116,8 @@ chat_stop: 停止
 composer_select_model: モデルを選択
 composer_effort: 推論努力
 composer_effort_unavailable: デフォルト
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: 音声入力
 turn_reasoning: 推論
-turn_tools_count: '%{count} ツールコール'
 turn_latest: 最近の応答に移動
 chat_navigation: メッセージナビゲーション
 chat_new: 新しい会話
@@ -137,7 +131,6 @@ turn_thinking: 思考
 tool_failed: ツールの実行に失敗しました
 approval_pending: 承認待ち
 content_copied: コピー
-turn_work: 作業
 tool_copy: コピー
 tool_interrupted: 未確認結果
 tool_not_executed: 承認が中断されました。実行されません
@@ -195,9 +188,6 @@ tool_read_session: セッションを読む
 tool_search_session: セッションを検索
 tool_find_tools: ツールを検索
 tool_read_output: ツール出力を読む
-question_answered: 回答済み
-interaction_cancelled: キャンセル済み
-question_url_accepted: オープニング許可
 approval_allow_prefix: プレフィックス「%{prefix}」を許可
 approval_preview_result: プレビュー承認が記録されました。ファイル、コマンド、モデルは使用されませんでした。
 file_changes_shortened: 差分は一部省略されています
@@ -228,7 +218,6 @@ connection_search_empty: マッチしません
 connection_search: 検索
 activity_completed: 完了
 activity_failed: 失敗
-activity_idle: 待機中
 activity_approval: 承認待ち
 activity_input: 応答待ち
 activity_no_project: チャット
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: スライド %{slide}
 recent_sessions: 最近
 workspace_archive: アーカイブ
-session_unarchive: アーカイブを削除
 session_delete: セッションを削除
 session_delete_named: セッション “%{name}” とそのサブエージェントを永久に削除
 workspace_rename: 名前を変更
@@ -275,7 +263,6 @@ session_fork_worktree: 新しいワークトリーでフォーク
 files_open: ファイルを開く
 session_new_window: 新しいウィンドウで開く
 session_window_failed: ウィンドウを開けませんでした
-workspace_open_session: オープンセッション
 project_edit: プロジェクトを編集
 project_remove: プロジェクトを削除
 workspace_new_terminal: ターミナルを作成
@@ -317,6 +304,7 @@ worktree_remove_busy: ワークトリーが使用中
 worktree_remove_dirty: ワークトリーには未コミットの変更があり、削除できません
 worktree_remove_conflict: ワークトリーが変更されました。削除する前に更新してください
 worktree_remove_missing: ワークトリーが見つかりません
+worktree_unused: No session
 git_branch_exists: ブランチは既に存在します
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: ステージを更新できませんでした。もう一度試してください
@@ -378,7 +366,6 @@ connection_no_projects: プロジェクトなし
 workspace_project: プロジェクト概要
 resource_browser: ブラウザー
 terminal: ターミナル
-resource_terminal_preview: ターミナル UI プレビュー; シェルやコマンドが起動されていません
 resource_browser_preview: ブラウザのプレビュー;ページやネットワーク要求はロードされません
 file_tree: プロジェクトファイル
 file_empty: ファイルを開く
@@ -516,11 +503,7 @@ git_untracked: 未追跡
 git_view_changes: 変更
 git_view_diff: 差分を表示
 git_view_options: ビューオプション
-hunks_reject: 拒否
 hunks_stage: ステージ
-hunks_accept: 承認
-hunks_accepted: ブロックを承認しました
-hunks_state_accepted: 承認済み
 navigation_tabs: タブを開く
 market_category_documents: ドキュメント
 turn_changes_undo_all: 変更を無効にする
@@ -623,7 +606,6 @@ chat_rewind: このターンに戻る
 chat_rewind_action: リワンド
 chat_rewind_confirm: このターンを残して後のメッセージを削除しますか？ファイルは変更されません
 chat_search: 会話を検索
-chat_search_query: 検索テキスト
 chat_search_result: 検索結果
 chat_status_unsynced: 状態が同期されていません
 compact_reason_unknown: この失敗の詳細は記録されていません
@@ -662,14 +644,12 @@ composer_permission_full: フルアクセス
 composer_permission_ask_description: ファイルを編集したりコマンドを実行する前に確認する(E)
 composer_permission_project_description: プロジェクトファイルを自動的に編集します。コマンドを実行する前に確認します
 composer_permission_full_description: プロジェクトの外部を含むファイルを編集し、コマンドを自動的に実行します
-composer_permission_preview: プレビューのみ;権限は与えられていません
 composer_host_local: ローカルデバイス
 composer_host_remote: リモート
 composer_no_project: チャット
 composer_branch_none: 分枝なし
 composer_settings: セッションの設定
 composer_back: 戻る
-location_search: 作業場所を選択
 location_create: 新しいワークトリー
 git_no_matches: マッチしません
 composer_model_settings: モデルと努力
@@ -681,7 +661,6 @@ composer_feature_fast: 高速
 composer_feature_fast_unsupported: このモデルは非対応
 composer_execution_model: 単一モデル
 composer_team_lead: リーダー
-composer_team_default: デフォルトチーム
 composer_team_manage: チームを管理
 model_score_overall: 総合スコア
 model_score_tested: 測定時：%{effort}
@@ -721,7 +700,6 @@ reference_context: ワークスペースコンテキスト
 reference_databases: データベース
 reference_ssh: SSHの接続
 reference_empty: マッチする参照はありません
-reference_remove: 参照を削除
 reference_host: ホスト
 reference_project: プロジェクト
 reference_worktree: ワークツリー
@@ -747,6 +725,7 @@ directory_home: ホーム
 directory_desktop: デスクトップ
 directory_documents: ドキュメンテーション
 directory_downloads: ダウンロード
+directory_applications: Applications
 directory_locations: 場所
 directory_count_directories: フォルダー %{count} 件
 directory_count_files: ファイル %{count} 件
@@ -988,7 +967,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: Restart to apply language
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: システムに従う
@@ -1175,6 +1153,16 @@ search_driver_auto: 自動
 knowledge_settings: 既定の設定
 knowledge_default_model: ベクトルモデル
 knowledge_keyword_only: キーワードのみ
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: 判断
 runtime_decision_model: モデル
 runtime_decision_enable: 判断を有効にする
@@ -1518,12 +1506,10 @@ update_download: ダウンロードのプレビュー
 update_apply: プレビューを適用
 update_retry: プレビューを繰り返す
 update_unavailable: 更新が利用できません (プレビュー)
-update_unavailable_note: このプレビューホストは自動更新をサポートしていません
 update_versions: '%{current} → %{target}'
 update_version: 現在のバージョン：%{current}
 update_preview: UI プレビューのみ; ネットワークチェック、ダウンロード、インストール、ホストの再起動はありません
 update_target_changed: ホストが利用できません。エディタを再開します
-update_error_preview: プレビュー要求に失敗しました。実際の更新は行われませんでした
 metrics_title: ホストメトリクス
 metrics_preview: UI プレビュー;実際のホストメトリクスやプロセスは収集されません
 metrics_cpu: CPU
@@ -1541,6 +1527,31 @@ metrics_worker: プレビューワーカー
 metrics_indexer: プレビューインデクサ
 metrics_loading: メトリクスを待っています (プレビュー)
 metrics_error: メトリクスが利用できません (プレビュー)
+host_node_uptime: Sailry 稼働時間
+host_sampling: サンプルを待っています
+host_sampling_failed: ホストデータが更新されていません
+host_metric_unavailable: データなし
+host_cores: '%{count} コア'
+host_load: 負荷
+host_core: コア %{index} · %{value}
+host_memory_total: 合計 %{value}
+host_memory_used: 使用中
+host_memory_cached: キャッシュ
+host_memory_swap: スワップ
+host_utilization: 使用率
+host_network_total: 起動後の累計
+host_disk_write: 書き込み
+host_disk_read: 読み込み
+host_storage: ストレージ
+host_partition_count: '%{count} パーティション'
+host_read_short: R
+host_write_short: W
+host_process_search: 検索プロセス
+host_process_limited: 使用量別のトップ 2048 プロセスを表示
+host_process_name: プロセス
+host_pid: PID
+host_process_empty: プロセスなし
+host_process_no_matches: マッチングプロセスなし
 port_title: ポートフォワード
 port_mappings: ポートマッピング
 port_add: ニュー・フォワード
@@ -1597,20 +1608,15 @@ selection_title: 選択した文字
 selection_unavailable: 選択した文字を取得できません
 selection_empty: 文字が選択されていません
 terminal_search_placeholder: 検索ターミナル
-terminal_match_previous: 前の試合
-terminal_match_next: 次の試合
 workspace_no_terminal: このワークツリーにはターミナルがありません
 workspace_close_terminal: 閉端子
 workspace_terminal_preview: プロジェクトとワークトリーの所有者を含むターミナル UI プレビュー; PTY やシェルは起動しません
 pane_drag: 分割するにはドラッグ
 terminal_connecting: 接続中
-terminal_exited: ターミナルを終了
 terminal_take_control: コントロールを取る
 terminal_other_controller: 他のデバイスで制御
 terminal_unavailable: ターミナルが利用できません。ホストの接続を確認してください
-cli_preview: 'UI プレビュー: ターミナルのプレビューのみを作成します。プログラム検出やコマンドはありません'
 updates_network_failed: 更新をダウンロードできませんでした。やり直します
-updates_preview_unavailable: プレビューでは更新が利用できません
 updates_completed: Sailry が更新されました
 port_exists: ポートは既に追加されています
 port_failed: 転送できませんでした。ポートと接続を確認してください
@@ -1688,13 +1694,15 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: '要求された変更:'
 hooks_project_required: プロジェクトを選択
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 停止に失敗しました。やり直します
 background_stop_unknown: 確認なしに停止;コマンドの状態を確認
 subagent_stop: Stop subagent
@@ -1733,7 +1741,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: この大きなファイルの最初の 128 KiB のみが表示されます
 files_create: 作成
-files_directory_changed: フォルダが変更されました。再読み込み
 files_directory_failed: フォルダを読み込めませんでした。やり直します
 files_discard: ドラフトを削除
 files_discard_description: 未保存の変更を破棄しますか？保存中のコンテンツはまだ書き込み可能です
@@ -1781,7 +1788,6 @@ git_initialize: リポジトリ Git を初期化
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: パブリッシュブランチ
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: スタッシュ・アンド・スイッチ
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -1993,6 +1999,7 @@ knowledge_saved: 保存しました
 knowledge_cancel_requested: キャンセルを要求しました
 model_library_failed: モデルを読み込めません
 model_library_partial: 一部の結果を取得できません
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: 利用不可
 dictation_unavailable: ローカル音声入力が利用できません
 dictation_model_missing: まず音声モデルをダウンロード
@@ -2185,12 +2192,17 @@ chat_provider_session: セッション %{name}
 chat_provider_node: ホスト %{name}
 chat_config_desktop: デスクトップの設定
 usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
-queue_draft_changed: キューが変更され、草稿は保持されます
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}
@@ -2212,3 +2224,17 @@ queue_wait_unsent: Not sent
 queue_wait_limit: Held at automatic limit
 queue_wait_failed: Held after failure
 chat_output_limit: Reply cut at the output limit
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: Last %{count}
+backup_keep_confirm: Keep only the last %{count} backups?
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

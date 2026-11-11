@@ -148,6 +148,70 @@ func TestGitPage(t *testing.T) {
 			t.Fatalf("no confirmation naming the change: %q", tt.Texts())
 		}
 	})
+	// HEAD cannot restore a new file: discarding one discards as Discard all
+	// does and says the file moves to Trash; a change HEAD holds is restored.
+	t.Run("DiscardNewFile", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		var sent GitAction
+		pr.Actions = &Actions{Git: func(_ *ui.Context, a GitAction) { sent = a }}
+		pr.SetGitState(GitState{Known: true, Kind: "repository", Head: true})
+		tt.Frame()
+		for _, o := range []struct{ row, path, kind, message string }{
+			{"floating.go", "internal/kit/floating.go", "git_discard_all", "git_discard_all_confirm"},
+			{"README.md", "README.md", "git_discard_changes", "git_discard_confirm"},
+		} {
+			rightClickRow(t, tt, o.row)
+			if err := tt.ChooseMenuItem(en("git_discard_changes")); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			tt.Advance(300 * time.Millisecond)
+			tt.Frame()
+			if cf := pr.Git.confirm; !cf.open || cf.message != en(o.message) || cf.target != o.path {
+				t.Fatalf("%s: confirmation %+v", o.row, cf)
+			}
+			clickRole(t, tt, ui.RoleButton, en("git_discard_changes"), 0)
+			if sent.Kind != o.kind || !slices.Equal(sent.Paths, []string{o.path}) {
+				t.Fatalf("%s: sent %+v", o.row, sent)
+			}
+		}
+		// Undo in the whole diff discards as Discard all does, for any change.
+		clickRole(t, tt, ui.RoleButton, en("git_diff"), 0)
+		// Undo sits inside the heading button, which is one accessible element.
+		undo, ok := tt.Find(en("turn_changes_undo"))
+		if !ok {
+			t.Fatalf("no Undo: %q", tt.Texts())
+		}
+		tt.ClickAt(undo.X+undo.W/2, undo.Y+undo.H/2)
+		tt.Frame()
+		if cf := pr.Git.confirm; !cf.open || cf.message != en("git_discard_all_confirm") {
+			t.Fatalf("Undo's confirmation %+v", cf)
+		}
+		clickRole(t, tt, ui.RoleButton, en("turn_changes_undo"), 0)
+		if sent.Kind != "git_discard_all" || len(sent.Paths) != 1 {
+			t.Fatalf("Undo sent %+v", sent)
+		}
+	})
+	// Staging a conflicted file from its own row records its resolution;
+	// Stage all, a folder and a group leave the conflict.
+	t.Run("StageResolvesConflict", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		var sent GitAction
+		pr.Actions = &Actions{Git: func(_ *ui.Context, a GitAction) { sent = a }}
+		pr.SetGitState(GitState{Known: true, Kind: "repository", Head: true, Conflicts: map[string]bool{"README.md": true}})
+		tt.Frame()
+		if paths := pr.stagePaths(pr.Data.Changes, false); slices.Contains(paths, "README.md") || len(paths) == 0 {
+			t.Fatalf("Stage all sends %q", paths)
+		}
+		rightClickRow(t, tt, "README.md")
+		if err := tt.ChooseMenuItem(en("git_stage")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if sent.Kind != "git_stage" || !slices.Equal(sent.Paths, []string{"README.md"}) {
+			t.Fatalf("sent %+v", sent)
+		}
+	})
 	// Commit's menu commits, amends or commits and pushes; Amend fills the
 	// message with the last commit's and shows that it amends.
 	t.Run("CommitSplitMenu", func(t *testing.T) {

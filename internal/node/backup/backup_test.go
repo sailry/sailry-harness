@@ -22,8 +22,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+const fixturePassphrase = "correct horse battery"
+
 // fixtureProfile writes the content one snapshot covers. The databases are
-// opaque bytes: this package copies closed file families and never opens them.
+// opaque bytes: the storage owner writes the copies and this package never
+// opens them.
 func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	t.Helper()
 	profile := filepath.Join(t.TempDir(), "profile")
@@ -34,7 +37,6 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	files := map[string][]byte{
 		"link.key":                      bytes.Repeat([]byte{7}, 32),
 		"storage/node.sqlite":           []byte("node database"),
-		"storage/node.sqlite-wal":       {},
 		"storage/knowledge.sqlite":      []byte("knowledge database"),
 		"attachments/one":               large,
 		"plugins/packages/digest/run":   []byte("#!/bin/sh\n"),
@@ -42,6 +44,9 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 		"artifacts/session/item/1.html": []byte("<p>artifact</p>"),
 	}
 	for name, body := range files {
+		if strings.HasPrefix(name, "storage/") {
+			continue
+		}
 		path := filepath.Join(profile, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -61,7 +66,8 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	return profile, files
 }
 
-func fixturePacked(t *testing.T, profile string) *Packed {
+// fixtureSnapshot captures the listed roots after both database copies.
+func fixtureSnapshot(t *testing.T, profile string, files map[string][]byte, roots []string) *Snapshot {
 	t.Helper()
 	snapshot, err := NewSnapshot(profile, protocol.NodeID{1, 2, 3})
 	if err != nil {
@@ -69,29 +75,40 @@ func fixturePacked(t *testing.T, profile string) *Packed {
 	}
 	t.Cleanup(func() { _ = snapshot.Close() })
 	for _, name := range databaseNames {
-		if err := snapshot.Freeze(t.Context(), filepath.Join(profile, "storage", name)); err != nil {
+		write := func(_ context.Context, target string) error {
+			return os.WriteFile(target, files["storage/"+name], 0o600)
+		}
+		if err := snapshot.Freeze(t.Context(), name, write); err != nil {
 			t.Fatal(err)
 		}
 	}
-	roots := []string{"artifacts/session/item", "attachments/one", "link.key", "plugins/packages/digest"}
 	if err := snapshot.Capture(t.Context(), roots); err != nil {
 		t.Fatal(err)
 	}
-	packed, err := snapshot.Pack(t.Context())
+	return snapshot
+}
+
+func fixturePack(t *testing.T, snapshot *Snapshot) *Packed {
+	t.Helper()
+	packed, err := snapshot.Pack(t.Context(), protocol.NewSecret(fixturePassphrase))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return packed
 }
 
+var fixtureRoots = []string{"artifacts/session/item", "attachments/one", "link.key", "plugins/packages/digest"}
+
 // Over 1 s: sealing and opening run scrypt at the production work factor.
 func TestBackupArchiveLayout(t *testing.T) {
 	profile, files := fixtureProfile(t)
-	packed := fixturePacked(t, profile)
-	plain, err := os.ReadFile(packed.Path)
-	if err != nil {
+	snapshot := fixtureSnapshot(t, profile, files, fixtureRoots)
+	var buffer bytes.Buffer
+	if err := snapshot.archive(t.Context(), &buffer); err != nil {
 		t.Fatal(err)
 	}
+	plain := buffer.Bytes()
+	packed := fixturePack(t, snapshot)
 
 	t.Run("container", func(t *testing.T) {
 		compressed, err := gzip.NewReader(bytes.NewReader(plain))
@@ -180,6 +197,26 @@ func TestBackupArchiveLayout(t *testing.T) {
 			}},
 			{"duplicate", func(manifest *Manifest) { manifest.Files = append(manifest.Files, manifest.Files[0]) }},
 			{"digest", func(manifest *Manifest) { manifest.Files[0].SHA256 = "abc" }},
+			{"link in place of the identity", func(manifest *Manifest) {
+				manifest.Files = manifest.Files[1:]
+				manifest.Links = []Link{{Path: "link.key", Target: "/etc/passwd"}}
+			}},
+			{"link in storage", func(manifest *Manifest) { manifest.Links = []Link{{Path: "storage/backups", Target: "/tmp"}} }},
+			{"link with a file of the same name", func(manifest *Manifest) {
+				manifest.Files = append(manifest.Files, File{Path: "attachments/a", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+				manifest.Links = []Link{{Path: "attachments/a", Target: "b"}}
+			}},
+			{"file written through a link", func(manifest *Manifest) {
+				manifest.Files = append(manifest.Files, File{Path: "attachments/a/b", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+				manifest.Links = []Link{{Path: "attachments/a", Target: "/tmp"}}
+			}},
+			{"link created through a link", func(manifest *Manifest) {
+				manifest.Links = []Link{{Path: "attachments/a", Target: "/tmp"}, {Path: "attachments/a/b", Target: "c"}}
+			}},
+			{"empty link target", func(manifest *Manifest) { manifest.Links = []Link{{Path: "attachments/a", Target: ""}} }},
+			{"skip count below the list", func(manifest *Manifest) {
+				manifest.Skipped = []Skipped{{Path: "attachments/a", Reason: skipChanged}}
+			}},
 		} {
 			manifest := valid()
 			if err := manifest.Validate(); err != nil {
@@ -283,6 +320,10 @@ func TestBackupArchiveLayout(t *testing.T) {
 		directory := filepath.Join(t.TempDir(), "backups")
 		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}, Auth: Auth{Passphrase: &passphrase}}
 		id := uuid.NewString()
+		// The archive is sealed as it is written: the snapshot holds no plain archive.
+		if leftovers, err := filepath.Glob(filepath.Join(snapshot.Directory, "archive-*")); err != nil || len(leftovers) != 0 {
+			t.Fatalf("plain archive on disk: %v %v", leftovers, err)
+		}
 		record, err := Export(t.Context(), plan, packed, id)
 		if err != nil {
 			t.Fatal(err)
@@ -348,18 +389,41 @@ func TestBackupArchiveLayout(t *testing.T) {
 			t.Fatalf("fetch = %#v %v", fetched, err)
 		}
 		defer file.Close()
+		// A wrong passphrase, an input that is no archive and a damaged
+		// archive are told apart.
 		wrong := protocol.NewSecret("incorrect horse battery")
-		if _, err := Open(t.Context(), file, t.TempDir(), wrong); code(err) != protocol.ErrorCodeInvalidRequest || strings.Contains(err.Error(), wrong.Expose()) {
+		if _, err := Open(t.Context(), file, wrong); code(err) != protocol.ErrorCodeInvalidRequest ||
+			!strings.Contains(err.Error(), "passphrase is incorrect") || strings.Contains(err.Error(), wrong.Expose()) {
 			t.Fatalf("wrong passphrase: %v", err)
+		}
+		if _, err := Open(t.Context(), strings.NewReader("not an archive"), passphrase); code(err) != protocol.ErrorCodeInvalidRequest ||
+			!strings.Contains(err.Error(), "not a Sailry backup") {
+			t.Fatalf("foreign file: %v", err)
+		}
+		opened, err := Open(t.Context(), bytes.NewReader(sealed[:len(sealed)-1024]), passphrase)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Stage(t.Context(), opened, t.TempDir(), &record, "", 0, ""); code(err) != protocol.ErrorCodeInvalidRequest ||
+			!strings.Contains(err.Error(), "damaged or incomplete") {
+			t.Fatalf("truncated archive: %v", err)
+		}
+		// A destination that cannot be written is not a passphrase problem.
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			t.Fatal(err)
+		}
+		if opened, err = Open(t.Context(), file, passphrase); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Stage(t.Context(), opened, filepath.Join(t.TempDir(), "missing"), &record, "", 0, ""); code(err) != protocol.ErrorCodeUnavailable {
+			t.Fatalf("unwritable staging: %v", err)
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			t.Fatal(err)
 		}
-		opened, err := Open(t.Context(), file, t.TempDir(), passphrase)
-		if err != nil {
+		if opened, err = Open(t.Context(), file, passphrase); err != nil {
 			t.Fatal(err)
 		}
-		defer opened.Close()
 		restored, err := io.ReadAll(opened)
 		if err != nil || !bytes.Equal(restored, plain) {
 			t.Fatalf("decrypted archive differs: %v", err)
@@ -377,6 +441,107 @@ func TestBackupArchiveLayout(t *testing.T) {
 		cancel()
 		if _, err := List(cancelled, plan); code(err) != protocol.ErrorCodeCancelled {
 			t.Fatalf("cancelled list: %v", err)
+		}
+	})
+
+	t.Run("retention and damaged records", func(t *testing.T) {
+		passphrase := protocol.NewSecret(fixturePassphrase)
+		directory := filepath.Join(t.TempDir(), "backups")
+		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}, Auth: Auth{Passphrase: &passphrase}}
+		node := snapshot.Manifest.Node
+		// publish stores one backup as made by owner at the given time.
+		publish := func(owner protocol.NodeID, created uint64) string {
+			t.Helper()
+			id := uuid.NewString()
+			if _, err := Export(t.Context(), plan, packed, id); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, id+".json")
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest remoteManifest
+			if err := json.Unmarshal(body, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest.Record.Node, manifest.Record.CreatedMs = owner, created
+			if body, err = json.Marshal(manifest); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return id
+		}
+		oldest, older, newer, newest := publish(node, 1000), publish(node, 2000), publish(node, 3000), publish(node, 4000)
+		foreign := publish(protocol.NodeID{9}, 500)
+		damaged, truncated := uuid.NewString(), uuid.NewString()
+		if err := os.WriteFile(filepath.Join(directory, damaged+".json"), []byte("not a record"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, truncated+".json"), []byte(`{"version":1,"record":{"id":"`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		listed := func(plan Plan) (ids []string, partial bool) {
+			t.Helper()
+			page, err := List(t.Context(), plan)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			for _, record := range page.Records {
+				ids = append(ids, record.ID)
+			}
+			return ids, page.Partial
+		}
+		// Damaged records are passed over and flagged; the rest is offered.
+		if ids, partial := listed(plan); !slices.Equal(ids, []string{newest, newer, older, oldest, foreign}) || !partial {
+			t.Fatalf("list beside damaged records = %v, partial %v", ids, partial)
+		}
+		// A second location that does not answer does not hide the first.
+		offline := plan
+		offline.Destination = &protocol.BackupDestination{Kind: protocol.BackupKindWebdav, Endpoint: "https://backup.invalid/dav"}
+		if ids, partial := listed(offline); len(ids) != 5 || !partial {
+			t.Fatalf("list with an unreachable location = %v, partial %v", ids, partial)
+		}
+		offline.Local = nil
+		if _, err := List(t.Context(), offline); err == nil {
+			t.Fatal("a list no location answered succeeded")
+		}
+
+		// Keeping all is the default: nothing is ever deleted unasked.
+		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 0 {
+			t.Fatalf("prune without a limit = %d, %v", removed, err)
+		}
+		plan.Keep = 2
+		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 2 {
+			t.Fatalf("prune = %d, %v", removed, err)
+		}
+		// The Node's two newest stay, with another Node's backup and the
+		// records that could not be read.
+		if ids, _ := listed(plan); !slices.Equal(ids, []string{newest, newer, foreign}) {
+			t.Fatalf("after retention = %v", ids)
+		}
+		for _, id := range []string{oldest, older} {
+			for _, name := range []string{id, id + ".json"} {
+				if _, err := os.Lstat(filepath.Join(directory, name)); !os.IsNotExist(err) {
+					t.Fatalf("pruned backup left %s: %v", name, err)
+				}
+			}
+		}
+		for _, name := range []string{damaged + ".json", truncated + ".json", foreign + ".json", filepath.Join(foreign, "000000.bin")} {
+			if _, err := os.Lstat(filepath.Join(directory, name)); err != nil {
+				t.Fatalf("retention touched %s: %v", name, err)
+			}
+		}
+		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 0 {
+			t.Fatalf("second prune = %d, %v", removed, err)
+		}
+		// A kept backup still restores.
+		if _, file, err := Fetch(t.Context(), plan, newer, protocol.BackupLocationLocal, t.TempDir()); err != nil {
+			t.Fatalf("fetch after retention: %v", err)
+		} else {
+			_ = file.Close()
 		}
 	})
 }

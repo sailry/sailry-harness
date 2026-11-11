@@ -115,9 +115,21 @@ type part struct {
 	validator *validator
 }
 
+// partName is the partial download of one pinned file; its checkpoint is the
+// same name with ".json" appended.
+func partName(specification File) string {
+	return fmt.Sprintf(".%s-%d-%s.part", specification.Name, specification.Size, strings.ToLower(specification.SHA256))
+}
+
+// usable reports a checkpoint that can continue a partial file of stored
+// bytes toward size.
+func (value *checkpoint) usable(size, stored uint64) bool {
+	return value != nil && value.Version == 1 && value.Received <= size && value.Received <= stored && value.Validator.valid()
+}
+
 func openPart(ctx context.Context, root *os.Root, download Download) (*part, error) {
 	specification := download.File
-	name := fmt.Sprintf(".%s-%d-%s.part", specification.Name, specification.Size, strings.ToLower(specification.SHA256))
+	name := partName(specification)
 	marker := name + ".json"
 	if err := target(root, name); err != nil {
 		return nil, err
@@ -141,7 +153,9 @@ func openPart(ctx context.Context, root *os.Root, download Download) (*part, err
 		return nil, storageMessage("model asset checkpoint is not a regular file")
 	}
 	saved := readCheckpoint(root, marker)
-	if saved != nil && (saved.Version != 1 || saved.Endpoint != endpoint || saved.Received > specification.Size || saved.Received > uint64(info.Size()) || !saved.Validator.valid()) {
+	// Bytes continue only under the checkpoint that describes them: another
+	// address, such as a changed mirror, starts over.
+	if !saved.usable(specification.Size, uint64(info.Size())) || saved.Endpoint != endpoint {
 		saved = nil
 	}
 	var received uint64

@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
@@ -46,7 +47,7 @@ func composerAlone(t *testing.T, locale string, width int, prepare func(*compose
 	cv := a.Data.Find(a.Sidebar.Selected)
 	comp := a.Composer(cv.ID)
 	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
-		conversation.UsageBar(c, cv.Session.Usage, compact, open)
+		conversation.UsageBar(c, nil, [][]conversation.Metric{conversation.Metrics(c, cv.Session.Usage)}, compact, open)
 	}
 	comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
 	actions := &sent{}
@@ -632,6 +633,78 @@ func TestUsageCompact(t *testing.T) {
 	if !tt.HasText(fmt.Sprint(u.Turns)) {
 		t.Errorf("the popover lacks the turns figure")
 	}
+
+	// A session's figures are its packages': each has a hover card of its
+	// label, its value and its rows, the meters among them; a provider's
+	// figures stay on the bar beside the compact button, whose popover
+	// lists every group.
+	t.Run("rows", func(t *testing.T) {
+		// Figures no other text of the composer contains: HasText matches inside a text.
+		lead := []conversation.Metric{{ID: "status:usage", Label: "Plan usage", Icon: icons.Gauge, Value: "64%", Rows: []conversation.Row{
+			{Label: "Five hours", Value: "64% left", Meter: true, Progress: 64}, {Label: "Resets", Value: "18:00"}}}}
+		groups := [][]conversation.Metric{{
+			{ID: "statistics:tokens", Label: "Tokens", Icon: icons.ChartPie, Value: "48.2k", Rows: []conversation.Row{
+				{Label: "This session", Value: "41.0k"}, {Label: "Subagents", Value: "7.2k"}}},
+			{ID: "statistics:turns", Label: "Turns", Icon: icons.MessagesSquare, Value: "77", Rows: []conversation.Row{{Label: "Responses", Value: "35"}}},
+		}, {
+			{ID: "other:score", Label: "Score", Value: "9.5", Rows: []conversation.Row{{Label: "Best", Value: "12.5"}}},
+		}}
+		figures := func(s *composer.State, _ *composer.Context) {
+			s.Metrics = func(c *ui.Context, compact bool, open *bool) { conversation.UsageBar(c, lead, groups, compact, open) }
+		}
+		tt, _, _ := composerAlone(t, "en", 960, figures)
+		for _, value := range []string{"64%", "48.2k", "77", "9.5"} {
+			if !tt.HasText(value) {
+				t.Fatalf("the bar lacks the figure %s: %q", value, tt.Texts())
+			}
+		}
+		if tt.HasText("This session") || tt.HasText("Five hours") {
+			t.Errorf("a figure's rows show without a hover: %q", tt.Texts())
+		}
+		hover := func(value string, rows ...string) {
+			t.Helper()
+			at, ok := tt.Find(value)
+			if !ok {
+				t.Fatalf("no figure %s", value)
+			}
+			tt.Move(at.X+at.W/2, at.Y+at.H/2)
+			tt.Frame()
+			tt.Advance(time.Second)
+			tt.Frame()
+			for _, row := range rows {
+				if !tt.HasText(row) {
+					t.Errorf("the card of %s lacks %q: %q", value, row, tt.Texts())
+				}
+			}
+			tt.Move(0, 0)
+			tt.Frame()
+			tt.Advance(time.Second)
+			tt.Frame()
+		}
+		hover("48.2k", "Tokens", "This session", "41.0k", "Subagents", "7.2k")
+		hover("77", "Turns", "Responses", "35")
+		hover("9.5", "Score", "Best", "12.5")
+		// The meter is named by its row; the row without one comes first.
+		hover("64%", "Plan usage", "Five hours", "64% left", "Resets", "18:00")
+
+		tt, _, _ = composerAlone(t, "en", 600, figures)
+		stats, ok := tt.Access(i18n.In("en", "composer_statistics"))
+		if !ok || !tt.HasText("64%") || !tt.HasText("48.2k") || tt.HasText("77") {
+			t.Fatalf("the compact bar: button %v, texts %q", ok, tt.Texts())
+		}
+		tt.ClickAt(stats.Bounds.X+stats.Bounds.W/2, stats.Bounds.Y+stats.Bounds.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		for _, row := range []string{"Tokens", "This session", "41.0k", "Turns", "77", "Responses", "35", "Score", "Best", "12.5"} {
+			if !tt.HasText(row) {
+				t.Errorf("the compact popover lacks %q: %q", row, tt.Texts())
+			}
+		}
+		if tt.HasText("Five hours") {
+			t.Errorf("the compact popover lists the provider's rows: %q", tt.Texts())
+		}
+	})
 }
 
 // A pending question's history row shows no state text beside its

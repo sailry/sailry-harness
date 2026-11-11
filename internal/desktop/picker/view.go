@@ -28,6 +28,13 @@ const (
 // under the title, and beside them the header bar, the directory's entries
 // and the footer bar with the selection, the counts, Cancel and Confirm. It
 // must be built after the dialog that opened it.
+//
+// The dialog covers the window's header, so its own top band moves the
+// window as that header does: the title's area and the header bar's empty
+// parts. It stays 24 DIP clear of the window's edges, which keeps the title,
+// centered in a band 44 or 52 high, below macOS's window controls (their
+// room ends 30 DIP down at the app's (12, 16)) and the close button below
+// the window buttons of Linux and Windows.
 func (s *State) View(c *ui.Context) {
 	for _, n := range s.notices {
 		text := i18n.T(c, n.key, "path", n.path)
@@ -65,16 +72,25 @@ func (s *State) View(c *ui.Context) {
 			// entries; the sidebar alone keeps the frost.
 			ui.Column(c.Key("content")).Grow(1).MinWidth(0).Background(kit.Opaque(p.Popover)).Children(func() {
 				if !wide {
-					ui.Row(c.Key("title")).Height(44).Shrink(0).Padding(0, 48, 0, 16).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Row(c.Key("title")).Height(44).Shrink(0).Padding(0, 48, 0, 16).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
 						s.heading(c, title)
+						// Without the sidebar, whose first group names a
+						// remote host, the title's line does.
+						if s.o.Remote && s.o.Host != "" {
+							ui.Text(c.Key("host"), s.o.Host).FontSize(13).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+						}
 					})
 				}
 				s.toolbar(c, valid, wide)
+				// A place or the address may have shown another directory
+				// within the frame, from a host that answers at once.
+				s.arrange(c)
 				notice := ""
 				switch {
 				case !valid:
 					notice = "directory_stale"
-				case s.o.Preview:
+				case s.o.Preview && !kit.Demo(c):
+					// The demo says nowhere that its data is a sample.
 					notice = "directory_preview"
 				}
 				if notice != "" {
@@ -91,7 +107,7 @@ func (s *State) View(c *ui.Context) {
 	}, kit.DialogOptions{Bleed: true}).Label(title)
 	if valid && !s.busy {
 		if panel.Shortcut(ui.Cmd, ui.KeyL) {
-			s.editing = true
+			s.editing, s.address = true, s.target
 		}
 		if panel.Shortcut(0, ui.KeyF5) {
 			s.reload()
@@ -117,12 +133,10 @@ func (s *State) View(c *ui.Context) {
 	}
 }
 
-// heading is the dialog's title and the host it browses, "" for none.
+// heading is the dialog's title alone, on one line in the size of the app's
+// dialog titles: what the picker chooses.
 func (s *State) heading(c *ui.Context, title string) {
-	ui.Text(c, title).FontSize(15).FontWeight(600).SingleLine().Shrink(0)
-	if s.o.Host != "" {
-		ui.Text(c, s.o.Host).FontSize(12).SingleLine().Shrink(1).MinWidth(0).TextColor(theme.Of(c).MutedForeground)
-	}
+	ui.Text(c.Key("heading"), title).FontSize(16).FontWeight(600).SingleLine().Shrink(1).MinWidth(0)
 }
 
 // group is a group of the host's locations: its i18n key, and the locations
@@ -130,6 +144,16 @@ func (s *State) heading(c *ui.Context, title string) {
 type group struct {
 	key   string
 	items []Location
+}
+
+// title is a group's heading: its name, and for the first group of a remote
+// host the host's name after it, so the sidebar says whose files these are
+// without a line of its own. This device is not named.
+func (s *State) title(c *ui.Context, g group, first bool) string {
+	if first && s.o.Remote && s.o.Host != "" {
+		return i18n.T(c, g.key) + " · " + s.o.Host
+	}
+	return i18n.T(c, g.key)
 }
 
 // groups are the locations as the sidebar lists them: the host's places, the
@@ -179,26 +203,28 @@ func placeName(c *ui.Context, loc Location) string {
 	return i18n.T(c, "directory_"+loc.Kind)
 }
 
-// places is the sidebar: the dialog's title and its host over the host's
-// locations, flush with the dialog's left edge.
+// places is the sidebar: the dialog's title, level with the header bar,
+// over the host's locations, flush with the dialog's left edge. The title's
+// area moves the window.
 func (s *State) places(c *ui.Context, valid bool, title string) {
 	p := theme.Of(c)
 	// The wash is the step the window's sidebar takes off its background,
 	// translucent so the dialog's frost shows through it.
 	ui.Column(c.Key("places")).Width(204).Shrink(0).Background(p.Muted).Children(func() {
-		ui.Column(c.Key("title")).Height(52).Shrink(0).PaddingX(16).Justify(ui.Center).Children(func() { s.heading(c, title) })
+		ui.Row(c.Key("title")).Height(52).Shrink(0).PaddingX(16).AlignItems(ui.Center).DragWindow().Children(func() { s.heading(c, title) })
 		ui.Scroll(c.Key("locations")).Grow(1).MinHeight(0).Padding(0, 8, 12, 8).Gap(2).Children(func() {
 			groups, near := s.groups()
-			for _, g := range groups {
-				ui.Text(c.Key(g.key), i18n.T(c, g.key)).FontSize(12).Padding(10, 8, 4, 8).TextColor(p.MutedForeground)
+			for n, g := range groups {
+				ui.Text(c.Key(g.key), s.title(c, g, n == 0)).FontSize(12).SingleLine().Padding(10, 8, 4, 8).TextColor(p.MutedForeground)
 				for i, loc := range g.items {
 					label := placeName(c, loc)
-					place := kit.Ghost(c.Key([2]any{g.key, i}), label, s.loaded && loc.Path == near).FillWidth().Height(30).PaddingX(8).Gap(8)
+					place := kit.Ghost(c.Key([2]any{g.key, i}), label, false).FillWidth().Height(30).PaddingX(8).Gap(8)
 					if s.loaded && loc.Path == near {
-						place.Current(ui.CurrentLocation)
+						// The neutral selected fill, a step over the hover's.
+						place.Current(ui.CurrentLocation).Background(p.Selected())
 					}
 					place.Justify(ui.Start).Disabled(s.busy || !valid).Children(func() {
-						ui.Icon(c, glyphs[loc.Kind]).FontSize(15).Shrink(0)
+						ui.Icon(c, glyph(loc)).FontSize(15).Shrink(0)
 						ui.Text(c, label).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
 					}).OnClick(func() { s.navigate(loc.Path, push, 0) })
 				}
@@ -207,9 +233,30 @@ func (s *State) places(c *ui.Context, valid bool, title string) {
 	})
 }
 
-// glyphs are the icons of the locations, by kind.
-var glyphs = map[string]*ui.SVG{"home": icons.House, "desktop": icons.Monitor, "documents": icons.FileText,
-	"downloads": icons.Download, "project": icons.Folder, "volume": icons.HardDrive, "root": icons.HardDrive}
+// glyph is a location's icon: its kind's, and a device's by its medium.
+func glyph(loc Location) *ui.SVG {
+	switch loc.Kind {
+	case "home":
+		return icons.House
+	case "desktop":
+		return icons.Monitor
+	case "documents":
+		return icons.FileText
+	case "downloads":
+		return icons.Download
+	case "applications":
+		return icons.Dashboard
+	case "volume", "root":
+		switch loc.Medium {
+		case "external":
+			return icons.MemoryStick
+		case "network":
+			return icons.Network
+		}
+		return icons.HardDrive
+	}
+	return icons.Folder
+}
 
 // kind is an entry's kind as the table shows and sorts it.
 func kind(c *ui.Context, e Entry) string {
@@ -248,7 +295,8 @@ func (s *State) arrange(c *ui.Context) {
 // the hidden-files toggle, Refresh, Go to folder and, without the sidebar,
 // the host's locations. It is 52 high over a hairline; beside the sidebar it
 // keeps clear of the dialog's close button. A read in flight disables
-// nothing here: another navigation replaces it.
+// nothing here: another navigation replaces it. Its empty parts move the
+// window; its controls keep their clicks.
 func (s *State) toolbar(c *ui.Context, valid, wide bool) {
 	p := theme.Of(c)
 	off := s.busy || !valid
@@ -257,7 +305,7 @@ func (s *State) toolbar(c *ui.Context, valid, wide bool) {
 		end = 48
 	}
 	ui.Row(c.Key("toolbar")).FillWidth().Height(52).Shrink(0).Padding(0, end, 0, 12).Gap(4).AlignItems(ui.Center).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
+		BorderWidth(0, 0, 1, 0).BorderColor(p.Border).DragWindow().Children(func() {
 		kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "directory_back"), 28, false).
 			Disabled(off || s.cursor == 0).OnClick(func() { s.step(false) })
 		kit.IconButton(c.Key("forward"), icons.ArrowRight, i18n.T(c, "directory_forward"), 28, false).
@@ -279,7 +327,14 @@ func (s *State) toolbar(c *ui.Context, valid, wide bool) {
 			if grid {
 				icon, key = icons.Grid, "directory_grid"
 			}
-			kit.IconButton(c.Key(key), icon, i18n.T(c, key), 28, s.Grid == grid).Selected(s.Grid == grid).OnClick(func() {
+			toggle := kit.IconButton(c.Key(key), icon, i18n.T(c, key), 28, false).Selected(s.Grid == grid)
+			if s.Grid == grid {
+				// MyGo's Selected fills with the accent: the view in use is
+				// marked with the neutral selected fill under the normal
+				// icon color instead.
+				toggle.Background(p.Selected()).TextColor(p.Foreground)
+			}
+			toggle.OnClick(func() {
 				if s.Grid != grid {
 					s.Grid = grid
 					s.changed()
@@ -311,7 +366,7 @@ func (s *State) toolbar(c *ui.Context, valid, wide bool) {
 				m.Separator()
 				m.Submenu(i18n.T(c, g.key), func(m *kit.Menu) {
 					for _, loc := range g.items {
-						if m.Item(placeName(c, loc)).Icon(glyphs[loc.Kind]).Checked(s.loaded && loc.Path == near).Disabled(off).Chosen() {
+						if m.Item(placeName(c, loc)).Icon(glyph(loc)).Checked(s.loaded && loc.Path == near).Disabled(off).Chosen() {
 							s.navigate(loc.Path, push, 0)
 						}
 					}
@@ -329,6 +384,9 @@ func (s *State) changed() {
 
 // addressBar is the directory's path: its crumbs, each opening the
 // directories under it, or, once clicked beside them, a field taking a path.
+// Enter in the field goes there. Escape, and the focus leaving the field (a
+// click anywhere else, Tab), drop what was typed and show the crumbs again;
+// that Escape is the field's, so the dialog stays open.
 func (s *State) addressBar(c *ui.Context, off bool) {
 	p := theme.Of(c)
 	// A path bar: the crumbs sit in a filled field.
@@ -341,12 +399,22 @@ func (s *State) addressBar(c *ui.Context, off bool) {
 			if input.Submitted() && strings.TrimSpace(s.address) != "" {
 				s.navigate(strings.TrimSpace(s.address), push, 0)
 			}
-			if bar.Shortcut(0, ui.KeyEscape) {
-				s.editing, s.address = false, s.target
-			}
 		})
+		switch {
+		case bar.Shortcut(0, ui.KeyEscape):
+			// The entries take the keys back, so the next Escape is the
+			// dialog's.
+			s.editing, s.address, s.refocus = false, s.target, true
+		case bar.FocusWithin():
+			s.typing = true
+		case s.typing:
+			// The field takes the focus a frame after it shows, so only
+			// one that held it ends by losing it.
+			s.editing, s.address = false, s.target
+		}
 		return
 	}
+	s.typing = false
 	// The read in flight shows at the bar's end, over whatever directory
 	// still shows.
 	reading := func() {
@@ -526,20 +594,17 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 		if s.o.Mode == Files {
 			chosen = &s.chosen
 		}
-		// A chosen row is filled with the primary color, so its tile and
-		// details take the row's own foreground.
+		// A chosen row is filled with the neutral selected color (the list
+		// is built under theme.Neutral), so its tile and details keep their
+		// own colors; its name is bold.
 		on := func(i int) bool {
 			if s.o.Mode == Files {
 				return s.chosen.Has(entries[rows[i]].Name)
 			}
 			return i == s.row
 		}
-		detail := func(text string, selected bool) ui.Element {
-			el := ui.Text(c, text).FontSize(13).SingleLine()
-			if !selected {
-				el.TextColor(p.MutedForeground)
-			}
-			return el
+		detail := func(text string) ui.Element {
+			return ui.Text(c, text).FontSize(13).SingleLine().TextColor(p.MutedForeground)
 		}
 		// Hidden entries are dimmed, and so is what the mode cannot choose:
 		// the files of a directory picker.
@@ -551,62 +616,73 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 		// The selection before this frame's keys and clicks: what an entry
 		// the mode cannot choose gives the selection back to.
 		before := s.current
-		if s.Grid {
-			s.grid.Key, s.grid.Label, s.grid.Selected, s.grid.Selection = key, label, &s.row, chosen
-			view = ui.GridView(c.Key("grid/"+s.listing.Path), &s.grid, len(rows), 108, 104, func(i int) {
-				e := entries[rows[i]]
-				cell := ui.Column(c).Fill().Padding(8).Gap(6).AlignItems(ui.Center).ContextMenu(func(m *ui.Menu) { menu(m, i) })
-				dim(e, cell)
-				cell.Children(func() {
-					tile(c, e, 44, on(i))
-					// Two lines keep a long name's start and its end, the
-					// extension; the tip has the rest.
-					kit.Tooltip(c, ui.Text(c, e.Name).FontSize(12).MaxLines(2).TruncateMiddle().TextAlign(ui.Center), e.Name)
-				})
-			}).Grow(1).Padding(8)
-		} else {
-			s.list.Key, s.list.Label, s.list.Selected, s.list.Selection, s.list.Sort = key, label, &s.row, chosen, &s.sort
-			s.list.CellMenu = func(m *ui.Menu, row, _ int) { menu(m, row) }
-			// A file manager's columns over its 32 DIP rows, rounded and a
-			// step in from the edges.
-			cols := []ui.TableColumn{
-				{Title: i18n.T(c, "files_entry_name"), ID: "name", Sortable: true, MinWidth: 200},
-				{Title: i18n.T(c, "directory_size"), ID: "size", Width: 96, Align: ui.End, Sortable: true},
-			}
-			if width >= modifiedFrom {
-				cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_modified"), ID: "modified", Width: 156, Sortable: true})
-			}
-			if width >= kindFrom {
-				cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_kind"), ID: "kind", Width: 140, Sortable: true})
-			}
-			s.list.RoundRows = true
-			view = ui.Table(c.Key("list/"+s.listing.Path), &s.list, cols, len(rows), func(row, col int) {
-				e := entries[rows[row]]
-				switch cols[col].ID {
-				case "name":
-					// The row of CrychicUI's file list: a tinted tile of
-					// the entry's type before its name, bold once chosen.
-					cell := ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center)
+		// MyGo fills a chosen row with its theme's accent, the app's
+		// emphasis color: the entries are built under the neutral theme, so
+		// a chosen one takes the neutral selected fill, a step over the
+		// hover's, as the sidebar's place and the view switch do.
+		ui.Themed(c.Key("neutral"), theme.Neutral(c)).Background(ui.Transparent).Grow(1).MinHeight(0).Children(func() {
+			if s.Grid {
+				s.grid.Key, s.grid.Label, s.grid.Selected, s.grid.Selection = key, label, &s.row, chosen
+				view = ui.GridView(c.Key("grid/"+s.listing.Path), &s.grid, len(rows), 108, 104, func(i int) {
+					e := entries[rows[i]]
+					cell := ui.Column(c).Fill().Padding(8).Gap(6).AlignItems(ui.Center).ContextMenu(func(m *ui.Menu) { menu(m, i) })
+					if on(i) {
+						// The same fill as a chosen row, inside the grid's
+						// own faint one.
+						cell.Background(p.Selected()).Radius(p.Radius)
+					}
 					dim(e, cell)
 					cell.Children(func() {
-						tile(c, e, 20, on(row))
-						name := ui.Text(c, e.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
-						if on(row) {
-							name.FontWeight(600)
-						}
+						tile(c, e, 44)
+						// Two lines keep a long name's start and its end, the
+						// extension; the tip has the rest.
+						kit.Tooltip(c, ui.Text(c, e.Name).FontSize(12).MaxLines(2).TruncateMiddle().TextAlign(ui.Center), e.Name)
 					})
-				case "kind":
-					detail(kind(c, e), on(row))
-				case "size":
-					detail(Bytes(e), on(row))
-				case "modified":
-					short, full := s.modified(c, e)
-					if text := detail(short, on(row)); full != "" {
-						kit.Tooltip(c, text, full)
-					}
+				}).Grow(1).Padding(8)
+			} else {
+				s.list.Key, s.list.Label, s.list.Selected, s.list.Selection, s.list.Sort = key, label, &s.row, chosen, &s.sort
+				s.list.CellMenu = func(m *ui.Menu, row, _ int) { menu(m, row) }
+				// A file manager's columns over its 32 DIP rows, rounded and a
+				// step in from the edges.
+				cols := []ui.TableColumn{
+					{Title: i18n.T(c, "files_entry_name"), ID: "name", Sortable: true, MinWidth: 200},
+					{Title: i18n.T(c, "directory_size"), ID: "size", Width: 96, Align: ui.End, Sortable: true},
 				}
-			}).Grow(1).Padding(0, 6)
-		}
+				if width >= modifiedFrom {
+					cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_modified"), ID: "modified", Width: 156, Sortable: true})
+				}
+				if width >= kindFrom {
+					cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_kind"), ID: "kind", Width: 140, Sortable: true})
+				}
+				s.list.RoundRows = true
+				view = ui.Table(c.Key("list/"+s.listing.Path), &s.list, cols, len(rows), func(row, col int) {
+					e := entries[rows[row]]
+					switch cols[col].ID {
+					case "name":
+						// The row of CrychicUI's file list: a tinted tile of
+						// the entry's type before its name, bold once chosen.
+						cell := ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center)
+						dim(e, cell)
+						cell.Children(func() {
+							tile(c, e, 20)
+							name := ui.Text(c, e.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+							if on(row) {
+								name.FontWeight(600)
+							}
+						})
+					case "kind":
+						detail(kind(c, e))
+					case "size":
+						detail(Bytes(e))
+					case "modified":
+						short, full := s.modified(c, e)
+						if text := detail(short); full != "" {
+							kit.Tooltip(c, text, full)
+						}
+					}
+				}).Grow(1).Padding(0, 6)
+			}
+		})
 		view.Disabled(off).Label(i18n.T(c, "files"))
 		// The directory that arrived takes the keys, as the one before it did.
 		if s.refocus {

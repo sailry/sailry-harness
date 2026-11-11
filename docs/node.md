@@ -353,6 +353,55 @@ with their owning backend phases. Connection and plugin assistant session
 creation is unavailable until those services land. Source-compatible captures
 and projections extend in those owning phases without adding another history.
 
+## Shutdown
+
+`Node.Stop` refuses new work, cancels every worker and closes the Node in
+dependency order: command lanes, plugin status, agent turns, logins, terminals,
+network, port forwards, supervised tasks, the knowledge index, local models,
+external browsers, plugins and MCP servers, requests in flight, telemetry,
+commands with transfers and watchers, then storage and the profile lock.
+
+The whole sequence has the Rust Node's five-second deadline. Supervised tasks
+(logins, plugin commands) may finish until that deadline and are cancelled at
+it. When the deadline passes, `Stop` logs the stage that did not stop and the
+stages it never reached, closes each database that no read or write still
+uses, releases the profile lock and returns `core.ErrShutdownTimeout` naming
+the stage. The caller exits; the Desktop updater continues with the
+installation, because the profile is released.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The deadline covers the whole shutdown, not only supervised tasks | Rust aborts its tasks at the deadline and then closes the rest; a goroutine cannot be aborted, so every wait needs the bound or one worker that ignores cancellation keeps a windowless process holding the profile lock |
+| Stages after the one that did not stop are not run | They would wait for the same worker. What they would have released is what a crash leaves, and the next start clears it: terminals end with their pseudo-terminal, recorded command groups are killed, external browsers are closed, temporary files are removed |
+| A database still in use at the deadline is left open | Closing it would wait for the worker; SQLite recovers its log at the next start |
+
+### Leftovers of an earlier run
+
+`OpenProfile` removes them right after it takes the profile lock and before
+the identity, the databases or any component is opened (`sweepProfile`), so
+nothing it removes is in use by this process and no other process owns the
+profile:
+
+- everything in `tmp`: database copies and staged files of a backup, the
+  unpacked staging of a restore, sealed archives, staged inputs, command
+  scratch and retained output, transfer and browser scratch. The one exception
+  is the `command-group-*` records, which the process service reads at its
+  start to kill the command groups a crashed Node left and then removes
+- `storage/.upgrade-*`, `storage/.schema-reference-*` and
+  `storage/backups/.upgrade-*`, the scratch of a schema check or update. The
+  kept pre-update copies (`storage/backups/node-before-upgrade-*`) stay
+- `plugins/packages/.staging-*` and `python/staging/environment-*`, a plugin
+  package or Python environment whose installation ended before it was
+  published. Published packages and environments stay
+
+A link is removed, never followed; a read-only tree is made writable first. A
+leftover that cannot be removed is logged and does not stop the start.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The scratch space is cleared at every start | Rust removes nothing (`runtime-core/src/profile.rs`), so a backup or restore that was killed leaves plain copies of the database, stored credentials included, until someone deletes them by hand |
+| Not swept: `.sailry-restore-<uuid>` beside a restore target, `desktop/updater/download-*` | The first lies outside the profile at a path the Node no longer knows; the second belongs to the Desktop updater |
+
 ## Store
 
 `internal/node/store` has one writer goroutine that groups waiting jobs into one
@@ -365,13 +414,29 @@ keeps up to eight idle.
   committed: the interrupted job receives its cancellation, every other job of
   the batch fails with the retryable `busy` fault "storage transaction was rolled
   back; retry the operation", and the writer continues with the next batch. Jobs
-  are not replayed, because a callback may have changed state outside SQL. The
-  writer stops with OutcomeUnknown only when `COMMIT` fails and the rollback
-  cannot confirm that nothing was written.
+  are not replayed, because a callback may have changed state outside SQL.
+- A `COMMIT` that fails is decided by whether the connection still holds a
+  transaction, not by the error of the `ROLLBACK` that follows. SQLite rolls
+  the transaction back itself when a commit cannot be written (a full disk, an
+  I/O error) and the `ROLLBACK` then only reports that none is active; a
+  refused commit that leaves the transaction open is rolled back. Both are known
+  to be uncommitted and answer the retryable `busy` fault; a full disk answers
+  `busy` "storage is full; free disk space and retry the operation", also when
+  a write statement meets it. Only when the connection can neither roll back
+  nor begin does the batch answer `outcome_unknown`. The writer then closes
+  that connection, which discards any transaction it held, and opens another
+  that must take the write lock; later batches run on it. While no connection
+  can be opened each batch answers `unavailable` and tries again, so no state
+  needs a restart.
 - Startup accepts an empty database or owned storage at generation 1. Any other
   state is refused with "existing data was not changed" and left untouched; no
-  path removes or resets a database. Every start checks each owned table with
-  `PRAGMA foreign_key_check` and refuses storage with an orphaned row.
+  path removes or resets a database. A database that was just created, updated
+  or restored is checked table by table with `PRAGMA foreign_key_check` and
+  refused with an orphaned row. A start on a current database does not repeat
+  the scan: every connection enforces foreign keys, so the scan could only find
+  a row written behind them, it would lock the user out for it, and it reads
+  every child row (measured: 0.38 s per million rows with the file cached),
+  which grows with history.
 - File checkpoints draw their row number from the `file_checkpoints` counter. A
   profile written before this rule has checkpoints above its counter; startup
   raises the counter through the in-place update (rehearsal, backup, apply).
@@ -403,5 +468,10 @@ family. There is no profile importer or direct cross-engine opening: the
 database files of a Rust release (`node.turso`, `knowledge.turso`, the older
 `node.db` and `node.sqlite3`, and their side files) are moved, unopened and
 unchanged, into `storage/rust-archive/` at the first start, and the data in them
-does not appear. A name the archive already holds is never replaced: the Node
-refuses to start and names the archive. Platform compilation and runtime acceptance are distinct.
+does not appear. The set found at one start stays together: every target is
+checked before the first file moves. When the archive already holds one of the
+names, because a Rust build ran in the profile again and created a new
+`node.turso`, the whole set goes to the next numbered sibling that holds none
+(`storage/rust-archive-2/`, `-3`, ...). Nothing is replaced or deleted and the
+Node never refuses to start over an archive. Platform compilation and runtime
+acceptance are distinct.

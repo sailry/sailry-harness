@@ -10,7 +10,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) readSettings() { r.readPower(); r.readTelemetry(); r.readSandbox() }
+// readSettings reads this Runtime's Node again: prevent sleep while Settings
+// shows the Node, the desktop's telemetry consent on the local Node, and the
+// sandbox.
+func (r *Runtime) readSettings() {
+	if r.showsSettings() {
+		r.readPower()
+	}
+	if r.parent == nil {
+		r.readTelemetry()
+	}
+	r.readSandbox()
+}
 
 func (r *Runtime) readPower() {
 	m := &r.App.Settings.Power
@@ -22,6 +33,9 @@ func (r *Runtime) readPower() {
 	r.async(func() {
 		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_power_settings"})
 		r.enqueue(func(c *ui.Context) {
+			if !r.showsSettings() {
+				return
+			}
 			m.Pending = false
 			value, ok := detail[protocol.PowerSettings](output.Data)
 			if err == nil && (output.Kind != "power_settings" || !ok) {
@@ -72,7 +86,18 @@ func (r *Runtime) savePower() {
 	}
 	m.Pending = true
 	request := protocol.PowerSettings{Revision: m.Revision, PreventSleep: m.Draft}
-	r.saveSettingChecked(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, r.readPower, func(output protocol.Output, ok bool) {
+	// A save in doubt reads the section again only while the pages still
+	// hold this Node: they share one model, and a read for a Node they left
+	// would mark the shown Node's switch pending and never clear it.
+	reread := func() {
+		if r.showsSettings() {
+			r.readPower()
+		}
+	}
+	r.saveSettingChecked(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, func(output protocol.Output, ok bool) {
+		if !r.showsSettings() {
+			return
+		}
 		m.Pending = false
 		if !ok {
 			return

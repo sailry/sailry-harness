@@ -17,6 +17,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("terminal settings projection", checkTerminalSettingsHelpers)
 	t.Run("backup settings projection", checkBackupSettingsHelpers)
 	t.Run("local model projection", checkLocalModelHelpers)
+	t.Run("knowledge collections projection", checkKnowledgeViews)
 	t.Run("dictation", checkDictation)
 	t.Run("system settings projection", checkSystemHelpers)
 	t.Run("feature usage", testFeatureUsage)
@@ -62,7 +63,16 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		local.bindings = map[string]*Runtime{remote.controller.Target().String(): remote}
 		local.bindWorkspaceSettings()
 		localSession, remoteSession := transports[0].snapshot.Sessions[0].ID.String(), transports[1].snapshot.Sessions[0].ID.String()
+		// The sandbox and the hooks are the selected host's: a conversation
+		// on another host does not turn the pages to its Node.
+		localHost, remoteHost := local.controller.Target().String(), remote.controller.Target().String()
+		app.Host = localHost
 		local.OpenSession(remoteSession)
+		local.workspaceSettingsFrame()
+		if _, ok := app.Settings.HooksContext(); ok || app.Settings.Sandbox.Revision != 3 {
+			t.Fatal("a conversation on another host turned the local host's settings to its Node")
+		}
+		app.Host = remoteHost
 		local.workspaceSettingsFrame()
 		if label, ok := app.Settings.HooksContext(); !ok || !strings.Contains(label, remote.controller.Target().String()) || app.Settings.Hooks.Revision != 8 {
 			t.Fatal("remote hooks read and consent did not share an execution owner")
@@ -71,6 +81,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		app.Settings.SaveHooks()
 		app.Settings.Sandbox.Draft = true
 		app.Settings.SaveSandbox()
+		app.Host = localHost
 		local.OpenSession(localSession)
 		local.workspaceSettingsFrame()
 		remote.workers.Wait()
@@ -108,6 +119,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		if controller, ok := local.SessionClient(remoteSession); !ok || controller != remote.controller {
 			t.Fatal("export lost the remote session owner after local navigation")
 		}
+		app.Host = remoteHost
 		local.OpenSession(remoteSession)
 		local.workspaceSettingsFrame()
 		if !app.Settings.Hooks.Draft.Enabled || !app.Settings.Sandbox.Draft || app.Settings.Hooks.Pending || app.Settings.Sandbox.Pending {

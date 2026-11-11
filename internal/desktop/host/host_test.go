@@ -1,11 +1,15 @@
 package host
 
 import (
+	"math"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/ELY-Open-Source/CrychicUI/feedback"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 func TestFormats(t *testing.T) {
@@ -35,6 +39,15 @@ func TestFormats(t *testing.T) {
 	}
 	if v, _ := Usage(20, 10); v != 100 {
 		t.Error("usage clamps")
+	}
+	if number, unit := Scaled(8 << 30); number != "8.0" || unit != "GiB" {
+		t.Errorf("a figure's number and unit: %q %q", number, unit)
+	}
+	if Load(1.254) != "1.25" || Clock(time.Date(2026, 11, 12, 9, 5, 7, 0, time.UTC)) != "09:05:07" {
+		t.Error("load averages and the charts' times")
+	}
+	if used, percent := (Disk{Total: 200, Available: 50}).Used(); used != 150 || percent != 75 {
+		t.Errorf("a volume's use: %d %v", used, percent)
 	}
 	// A live host's names are its own; the preview's are i18n keys.
 	var live, local, preview, process string
@@ -101,4 +114,318 @@ func TestAddPort(t *testing.T) {
 	if x, _ := AddPort(ports, "8080", "9000"); x.Local != 9000 {
 		t.Error("the local port")
 	}
+}
+
+// The runtime's facts name the platform nowhere for a live host, whose
+// header shows it alone; the preview keeps its system row.
+func TestRuntimeFacts(t *testing.T) {
+	keys := func(r Runtime) []string {
+		var out []string
+		for _, f := range r.Facts() {
+			out = append(out, f.Label)
+		}
+		return out
+	}
+	if got := keys(Runtime{Live: true, System: "darwin · 27.2 · arm64"}); !slices.Equal(got, []string{"host_version", "host_timezone", "host_protocol"}) {
+		t.Errorf("a live host's facts: %v", got)
+	}
+	if got := keys(Runtime{}); !slices.Equal(got, []string{"host_version", "host_system_version", "host_timezone", "host_protocol"}) {
+		t.Errorf("the preview's facts: %v", got)
+	}
+}
+
+// The header's status follows the Node's connection and what is known of
+// it.
+func TestConnection(t *testing.T) {
+	for _, x := range []struct {
+		name string
+		host Host
+		want feedback.Connection
+	}{
+		{"connected", Host{Runtime: Runtime{Known: true, Version: "0.1.0"}}, feedback.Online},
+		{"before its facts", Host{}, feedback.Reconnecting},
+		{"offline", Host{Offline: true, Runtime: Runtime{Known: true}}, feedback.Offline},
+		{"a failed read", Host{Runtime: Runtime{Known: true, Error: "closed"}}, feedback.Offline},
+	} {
+		if got := x.host.Connection(); got != x.want {
+			t.Errorf("%s: %v, want %v", x.name, got, x.want)
+		}
+	}
+}
+
+// The history follows the samples: a minute of them at most, started again
+// after a pause, kept as it is by a sample that is not newer, and each
+// process's by its PID and start.
+func TestFollow(t *testing.T) {
+	start := time.Unix(1_800_000_000, 0)
+	sample := func(second int, cpu float64) *Metrics {
+		return &Metrics{
+			At: start.Add(time.Duration(second) * time.Second), CPU: cpu, MemoryUsed: 1, Memory: 4,
+			Received: 2048, Transmitted: 1024, Interval: 2 * time.Second,
+			Disks:     []Disk{{Mount: "/", Total: 10, ReadBytes: 7, Written: 9}},
+			Processes: []Process{{Name: "node", PID: 41, Started: 5, CPU: cpu}, {Name: "node", PID: 41, Started: 6, CPU: 1}},
+		}
+	}
+	first := sample(0, 10)
+	first.Follow(nil)
+	if len(first.History) != 1 {
+		t.Fatalf("the first sample's history: %v", first.History)
+	}
+	if p := first.History[0]; p.CPU != 10 || p.Memory != 25 || p.Received != 1024 || p.Transmitted != 512 || p.Disks["/"] != [2]float64{7, 9} {
+		t.Errorf("the first point: %+v", p)
+	}
+	second := sample(1, 20)
+	second.Follow(first)
+	if len(second.History) != 2 || second.History[0].CPU != 10 || second.History[1].CPU != 20 {
+		t.Errorf("the next sample's history: %+v", second.History)
+	}
+	if got := second.Processes[0].History; !slices.Equal(got, []float64{10, 20}) {
+		t.Errorf("a process's history: %v", got)
+	}
+	if got := second.Processes[1].History; !slices.Equal(got, []float64{1, 1}) {
+		t.Errorf("a reused PID's history: %v", got)
+	}
+	if len(first.History) != 1 {
+		t.Error("following a sample changed its history")
+	}
+	// A sample that is not newer keeps the history.
+	stale := sample(1, 99)
+	stale.Follow(second)
+	if len(stale.History) != 2 || stale.History[1].CPU != 20 || !slices.Equal(stale.Processes[0].History, []float64{10, 20}) {
+		t.Errorf("a repeated sample: %+v %v", stale.History, stale.Processes[0].History)
+	}
+	// A pause starts it again.
+	late := sample(30, 30)
+	late.Follow(second)
+	if len(late.History) != 1 || late.History[0].CPU != 30 || !slices.Equal(late.Processes[0].History, []float64{30}) {
+		t.Errorf("after a pause: %+v %v", late.History, late.Processes[0].History)
+	}
+	// A minute at most.
+	last := first
+	for i := 1; i < HistoryLimit+10; i++ {
+		next := sample(i, float64(i))
+		next.Follow(last)
+		last = next
+	}
+	if len(last.History) != HistoryLimit || last.History[HistoryLimit-1].CPU != float64(HistoryLimit+9) || len(last.Processes[0].History) != HistoryLimit {
+		t.Errorf("the history holds %d points and %d loads", len(last.History), len(last.Processes[0].History))
+	}
+	// A value the sample does not have breaks the line.
+	bare := &Metrics{At: start, CPU: math.NaN()}
+	bare.Follow(nil)
+	if p := bare.History[0]; !math.IsNaN(p.CPU) || !math.IsNaN(p.Memory) || !math.IsNaN(p.Received) || !math.IsNaN(p.Transmitted) {
+		t.Errorf("a sample without values: %+v", p)
+	}
+}
+
+// Only volumes that hold the user's files show: the sampler's device,
+// memory and system mounts do not, nor a volume of no size.
+func TestRealVolumes(t *testing.T) {
+	m := &Metrics{Disks: []Disk{
+		{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
+		{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40},
+		{Mount: "/System/Volumes/Data", FileSystem: "apfs", Total: 1 << 40},
+		{Mount: "/private/var/vm", FileSystem: "apfs", Total: 1 << 40},
+		{Mount: "/Volumes/Web", FileSystem: "apfs", Total: 1 << 40},
+		{Mount: "/", FileSystem: "APFS", Total: 1 << 40},
+		{Mount: "/run/user/1000", FileSystem: "tmpfs", Total: 1 << 30},
+		{Mount: "/run/media/me/usb", FileSystem: "vfat", Total: 1 << 30},
+		{Mount: "/snap/core/1", FileSystem: "squashfs", Total: 1 << 20},
+		{Mount: "/boot", FileSystem: "ext4", Total: 1 << 30},
+		{Mount: "/mnt/empty", FileSystem: "ext4"},
+		{Mount: "", FileSystem: "ext4", Total: 1},
+	}}
+	var mounts []string
+	for _, d := range m.Volumes() {
+		mounts = append(mounts, d.Mount)
+	}
+	if want := []string{"/Volumes/Web", "/", "/run/media/me/usb", "/boot"}; !slices.Equal(mounts, want) {
+		t.Errorf("volumes %v, want %v", mounts, want)
+	}
+	// The disk card follows the chosen volume, else the root, else the first;
+	// a mount that is not a real volume is not one to choose.
+	for chosen, want := range map[string]string{"": "/", "/boot": "/boot", "/dev": "/", "/gone": "/"} {
+		if d, ok := m.Volume(chosen); !ok || d.Mount != want {
+			t.Errorf("chosen %q: %q %v, want %q", chosen, d.Mount, ok, want)
+		}
+	}
+	if d, ok := (&Metrics{Disks: []Disk{{Mount: "/data", Total: 1}, {Mount: "/more", Total: 1}}}).Volume(""); !ok || d.Mount != "/data" {
+		t.Errorf("without a root: %q %v", d.Mount, ok)
+	}
+	if _, ok := (&Metrics{Disks: []Disk{{Mount: "/dev", FileSystem: "devfs", Total: 1}}}).Volume(""); ok {
+		t.Error("a host without a real volume has one")
+	}
+}
+
+// The processes sort by the chosen column and keep the search's matches by
+// name or PID; an unknown load sorts below every known one.
+func TestSortProcesses(t *testing.T) {
+	rows := []Process{
+		{Name: "node", PID: 41, CPU: 3, Memory: 30},
+		{Name: "Zed", PID: 7, CPU: math.NaN(), Memory: 90},
+		{Name: "gopls", PID: 410, CPU: 12, Memory: 60},
+	}
+	names := func(query, column string, descending bool) []string {
+		var out []string
+		for _, x := range SortProcesses(rows, query, column, descending) {
+			out = append(out, x.Name)
+		}
+		return out
+	}
+	for _, x := range []struct {
+		query, column string
+		descending    bool
+		want          []string
+	}{
+		{"", "cpu", true, []string{"gopls", "node", "Zed"}},
+		{"", "cpu", false, []string{"Zed", "node", "gopls"}},
+		{"", "memory", true, []string{"Zed", "gopls", "node"}},
+		{"", "name", false, []string{"gopls", "node", "Zed"}},
+		{"", "pid", false, []string{"Zed", "node", "gopls"}},
+		{" ZE ", "cpu", true, []string{"Zed"}},
+		{"41", "pid", false, []string{"node", "gopls"}},
+		{"none", "cpu", true, nil},
+	} {
+		if got := names(x.query, x.column, x.descending); !slices.Equal(got, x.want) {
+			t.Errorf("%q by %s descending %v: %v, want %v", x.query, x.column, x.descending, got, x.want)
+		}
+	}
+	if rows[0].Name != "node" {
+		t.Error("sorting changed the sample's order")
+	}
+}
+
+// follows reports whether want shows in texts in its order, each after the
+// one before.
+func follows(texts, want []string) (string, bool) {
+	at := 0
+	for _, w := range want {
+		i := slices.Index(texts[at:], w)
+		if i < 0 {
+			return w, false
+		}
+		at += i + 1
+	}
+	return "", true
+}
+
+// A live host's page is the reference's: the header once, with the
+// computer's and Sailry's uptimes apart and the platform on one line; then
+// the processor, the memory, the utilization, the network, the storage and
+// the processes; then the running agents, the projects and the runtime.
+// Only real volumes show, and no preview note. An offline host keeps what
+// is known under a warning.
+func TestPage(t *testing.T) {
+	const platform = "darwin · 27.2 · arm64"
+	m := &Metrics{
+		At: time.Unix(1_800_000_000, 0), CPU: 12.5, Cores: []float64{10, 20}, Load: &[3]float64{1, 0.5, 0.25},
+		MemoryUsed: 8 << 30, MemoryCached: 4 << 30, Memory: 32 << 30,
+		Received: 1024, Transmitted: 512, Interval: time.Second, Totals: true,
+		Disks: []Disk{
+			{Mount: "/", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39},
+			{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
+			{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39},
+		},
+		Processes: []Process{{Name: "sailry-node", PID: 41, Started: 1, CPU: 3, Memory: 1 << 20}}, ProcessCount: 1,
+	}
+	m.Follow(nil)
+	h := &Host{
+		Live: true, ID: "local", Name: "studio", Local: true, OS: "macos", Detail: platform,
+		Projects: []Project{{ID: "p", Name: "sailry-harness"}},
+		Activity: []Activity{{Session: "s", Title: "Rebuild the host page", Location: "sailry-harness / main", Status: "turn_thinking"}},
+		Runtime: Runtime{
+			Live: true, Version: "0.1.0", System: platform, Timezone: "UTC",
+			Uptime: 6*24*time.Hour + 9*time.Hour, NodeUptime: 5 * time.Minute, ProtocolMin: 1, ProtocolMax: 1, Known: true,
+		},
+		Metrics: m,
+	}
+	st := &State{}
+	// Reduce Transparency keeps the shader interpreter out of the headless
+	// frames; the window is tall enough for the whole page.
+	opaque := ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { Page(c, st, h, Actions{}) })
+	}, 1200, 2400, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Frame()
+	en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
+	count := func() map[string]int {
+		out := map[string]int{}
+		for _, text := range tt.Texts() {
+			out[text]++
+		}
+		return out
+	}
+
+	t.Run("sections in order", func(t *testing.T) {
+		order := []string{
+			"studio", en("live_connected"), platform, en("host_uptime"), en("host_node_uptime"),
+			en("metrics_cpu"), en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
+			en("host_storage"), en("host_process_search"), en("host_pid"),
+			en("workspace_running"), "Rebuild the host page", en("projects"), "sailry-harness", en("workspace_runtime"), en("host_version"),
+		}
+		if missing, ok := follows(tt.Texts(), order); !ok {
+			t.Errorf("no %q in its place: %q", missing, tt.Texts())
+		}
+	})
+	t.Run("header once", func(t *testing.T) {
+		shown := count()
+		// The platform is the header's line and no fact of the runtime.
+		if shown[platform] != 1 || shown[en("host_system_version")] != 0 {
+			t.Errorf("the platform shows %d times, its fact %d: %q", shown[platform], shown[en("host_system_version")], tt.Texts())
+		}
+		// The computer's uptime and Sailry's are two facts.
+		days := en("host_uptime_days", "count", 6) + " " + en("host_uptime_hours", "count", 9)
+		if shown[days] != 1 || shown[en("host_uptime_minutes", "count", 5)] != 1 {
+			t.Errorf("uptimes: %q", tt.Texts())
+		}
+		for _, key := range []string{"metrics_preview", "workspace_host_status", "host_activity_hint", "host_runtime_preview", "workspace_runtime_preview"} {
+			if tt.HasText(en(key)) {
+				t.Errorf("a live host shows the preview's %s", key)
+			}
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("live_revoke")); ok {
+			t.Error("the page has a Remove pairing button")
+		}
+	})
+	t.Run("real volumes", func(t *testing.T) {
+		shown := count()
+		if shown["/"] == 0 || shown["/dev"] != 0 || shown["/System/Volumes/VM"] != 0 {
+			t.Errorf("volumes: / %d, /dev %d, /System/Volumes/VM %d", shown["/"], shown["/dev"], shown["/System/Volumes/VM"])
+		}
+		if !tt.HasText(en("host_partition_count", "count", 1)) {
+			t.Errorf("the storage counts every mount: %q", tt.Texts())
+		}
+	})
+	t.Run("summary column", func(t *testing.T) {
+		panel := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Children(func() { MetricsPanel(c, st, h) })
+		}, 560, 1200, opaque)
+		panel.SetLocale("en")
+		panel.Frame()
+		shown := map[string]int{}
+		for _, text := range panel.Texts() {
+			shown[text]++
+		}
+		if shown["/"] == 0 || shown["/dev"] != 0 || shown["/System/Volumes/VM"] != 0 || shown["sailry-node"] == 0 {
+			t.Errorf("the summary's volumes and processes: %q", panel.Texts())
+		}
+	})
+	t.Run("offline", func(t *testing.T) {
+		h.Offline, h.Metrics, h.MetricsError = true, nil, "Host is disconnected"
+		tt.Frame()
+		tt.Frame()
+		if !tt.HasText(en("connections_offline")) || !tt.HasText(en("host_sampling_failed")) {
+			t.Errorf("no offline status or warning: %q", tt.Texts())
+		}
+		if tt.HasText(en("host_utilization")) || tt.HasText("Host is disconnected") {
+			t.Errorf("an offline host shows a sample or the error's text in the page: %q", tt.Texts())
+		}
+		if missing, ok := follows(tt.Texts(), []string{"studio", en("workspace_running"), en("projects"), en("workspace_runtime")}); !ok {
+			t.Errorf("no %q offline: %q", missing, tt.Texts())
+		}
+	})
 }

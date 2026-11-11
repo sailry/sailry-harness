@@ -1,167 +1,127 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io"
+	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 
-	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
-	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
-	"github.com/go-git/go-git/v5/storage/filesystem"
-	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func stageContent(ctx context.Context, root string, idx *idxfmt.Index, path string, ignored func(string, bool) (bool, error)) (content, error) {
-	target, err := safePath(root, path)
+// stage adds whole paths with native git add. Git applies each path's clean
+// filter and line-ending conversion, which a blob written from the worktree
+// bytes bypasses, and it resolves a conflicted path as it does anywhere else.
+func (s *Service) stage(ctx context.Context, root string, input protocol.CommandUpdateGitIndexPayload) (protocol.GitIndex, error) {
+	r, err := open(root)
 	if err != nil {
-		return content{}, err
+		return protocol.GitIndex{}, err
 	}
-	info, err := os.Lstat(target)
-	if errors.Is(err, os.ErrNotExist) {
-		return content{}, nil
-	}
+	revision, err := indexRevision(root, r)
 	if err != nil {
-		return content{}, mapError(err)
+		return protocol.GitIndex{}, err
 	}
-	if _, err := idx.Entry(path); err != nil {
-		skip, e := ignored(path, info.IsDir())
-		if e != nil {
-			return content{}, e
-		}
-		if skip {
-			return content{}, invalid("ignored files cannot be staged by this operation")
-		}
+	current, err := head(r)
+	if err != nil {
+		return protocol.GitIndex{}, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		scope, err := os.OpenRoot(root)
+	if revision != input.ExpectedIndex || !sameString(current.Head, input.ExpectedHead) {
+		return protocol.GitIndex{}, conflict()
+	}
+	idx, err := r.Storer.Index()
+	if err != nil {
+		return protocol.GitIndex{}, mapError(err)
+	}
+	tracked, submodules := map[string]bool{}, map[string]bool{}
+	for _, entry := range idx.Entries {
+		tracked[entry.Name] = true
+		submodules[entry.Name] = entry.Mode == filemode.Submodule
+	}
+	// One ignore filter serves every untracked path of the update.
+	var filter *WatchFilter
+	var paths bytes.Buffer
+	for _, path := range input.Paths {
+		target, err := safePath(root, path)
 		if err != nil {
-			return content{}, mapError(err)
+			return protocol.GitIndex{}, err
 		}
-		defer scope.Close()
-		link, err := scope.Readlink(filepath.FromSlash(path))
-		if err != nil {
-			return content{}, mapError(err)
+		info, err := os.Lstat(target)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			// A path neither on disk nor in the index has nothing to stage.
+			below := false
+			for _, entry := range idx.Entries {
+				if below = strings.HasPrefix(entry.Name, path+"/"); below {
+					break
+				}
+			}
+			if !tracked[path] && !below {
+				continue
+			}
+		case err != nil:
+			return protocol.GitIndex{}, mapError(err)
+		case info.IsDir() && submodules[path]:
+			// git add records the commit the submodule has checked out.
+		case !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0:
+			return protocol.GitIndex{}, invalid("expected a regular Git resource")
+		case !tracked[path]:
+			if filter == nil {
+				if filter, err = NewWatchFilter(root); err != nil {
+					return protocol.GitIndex{}, err
+				}
+			}
+			if filter.matcher != nil && filter.matcher.Match(strings.Split(path, "/"), false) {
+				return protocol.GitIndex{}, invalid("ignored files cannot be staged by this operation")
+			}
 		}
-		bytes := []byte(link)
-		return content{data: bytes, hash: plumbing.ComputeHash(plumbing.BlobObject, bytes), mode: filemode.Symlink, exists: true}, nil
+		paths.WriteString(path)
+		paths.WriteByte(0)
 	}
-	if !info.Mode().IsRegular() {
-		return content{}, invalid("expected a regular Git resource")
+	if paths.Len() == 0 {
+		return protocol.GitIndex{Revision: revision}, nil
 	}
-	if err := checkContext(ctx); err != nil {
-		return content{}, err
+	defer s.Invalidate(root)
+	if _, err := s.command(ctx, root, []string{"--literal-pathspecs", "add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"}, paths.Bytes(), false); err != nil {
+		return protocol.GitIndex{}, err
 	}
-	return workingContent(root, path, maxFile)
+	next, err := indexRevision(root, r)
+	return protocol.GitIndex{Revision: next}, err
 }
 
-// stageIndexContent stages one worktree path. ignored reports whether an
-// untracked path is excluded; the caller builds its filter once per update.
-func stageIndexContent(ctx context.Context, root string, r *gogit.Repository, idx *idxfmt.Index, path string, ignored func(string, bool) (bool, error)) error {
-	target, err := safePath(root, path)
+// requireUnfiltered refuses a path stored through a filter driver such as LFS.
+// Its index content is what the driver produced, so text assembled from that
+// content and worktree lines is not a version of the file.
+func (s *Service) requireUnfiltered(ctx context.Context, root, path string) error {
+	capture, err := s.command(ctx, root, []string{"check-attr", "-z", "filter", "--", path}, nil, true)
 	if err != nil {
 		return err
 	}
-	info, err := os.Lstat(target)
-	if errors.Is(err, os.ErrNotExist) {
-		return setIndexContent(r, idx, path, content{})
+	fields := bytes.Split(capture.Stdout, []byte{0})
+	if len(fields) < 3 {
+		return invalid("Git attributes could not be read")
 	}
+	switch driver := string(fields[2]); driver {
+	case "unspecified", "unset", "set":
+		return nil
+	default:
+		return invalid(fmt.Sprintf("this file is stored through the Git filter %q; stage the whole file", driver))
+	}
+}
+
+// cleanBlob stores text as the blob Git would store for path, applying its
+// line-ending conversion as git add does.
+func (s *Service) cleanBlob(ctx context.Context, root, path string, text []byte) (plumbing.Hash, error) {
+	capture, err := s.command(ctx, root, []string{"hash-object", "-w", "--path=" + path, "--stdin"}, text, true)
 	if err != nil {
-		return mapError(err)
+		return plumbing.ZeroHash, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		value, err := stageContent(ctx, root, idx, path, ignored)
-		if err != nil {
-			return err
-		}
-		return setIndexContent(r, idx, path, value)
+	id := strings.TrimSpace(string(capture.Stdout))
+	if !plumbing.IsHash(id) {
+		return plumbing.ZeroHash, invalid("Git stored no object for the staged text")
 	}
-	if !info.Mode().IsRegular() {
-		return invalid("expected a regular Git resource")
-	}
-	if _, err := idx.Entry(path); err != nil {
-		skip, e := ignored(path, false)
-		if e != nil {
-			return e
-		}
-		if skip {
-			return invalid("ignored files cannot be staged by this operation")
-		}
-	}
-	files, err := core.OpenFiles(root, core.RestrictedFiles)
-	if err != nil {
-		return err
-	}
-	defer files.Close()
-	file, err := files.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	before, err := file.Stat()
-	if err != nil {
-		return mapError(err)
-	}
-	storage, ok := r.Storer.(*filesystem.Storage)
-	if !ok {
-		return invalid("repository has no file-backed object storage")
-	}
-	writer, header, err := storage.LazyWriter()
-	if err != nil {
-		return mapError(err)
-	}
-	if err := header(plumbing.BlobObject, before.Size()); err != nil {
-		writer.Close()
-		return mapError(err)
-	}
-	hash := plumbing.NewHasher(plumbing.BlobObject, before.Size())
-	buffer := make([]byte, 64*1024)
-	var count int64
-	for {
-		if err := checkContext(ctx); err != nil {
-			writer.Close()
-			return err
-		}
-		n, err := file.Read(buffer)
-		if n > 0 {
-			if _, e := writer.Write(buffer[:n]); e != nil {
-				writer.Close()
-				return mapError(e)
-			}
-			hash.Write(buffer[:n])
-			count += int64(n)
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			writer.Close()
-			return mapError(err)
-		}
-	}
-	after, err := file.Stat()
-	if err != nil {
-		writer.Close()
-		return mapError(err)
-	}
-	if count != before.Size() || after.Size() != before.Size() || after.ModTime() != before.ModTime() || !os.SameFile(before, after) {
-		writer.Close()
-		return conflict()
-	}
-	if err := writer.Close(); err != nil {
-		return mapError(err)
-	}
-	mode := filemode.Regular
-	if before.Mode()&0111 != 0 {
-		mode = filemode.Executable
-	}
-	if err := syncBlob(r, hash.Sum()); err != nil {
-		return err
-	}
-	dropIndexEntries(idx, path, true)
-	idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash.Sum(), Mode: mode, Size: uint32(before.Size())})
-	return nil
+	return plumbing.NewHash(id), nil
 }

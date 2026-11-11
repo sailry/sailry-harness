@@ -24,6 +24,7 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 	if gitOptions.Environment == nil {
 		gitOptions.Environment = node.environment.TerminalValues()
 	}
+	gitOptions.Lock = func(root string) func() { return node.locks.roots(root) }
 	node.git = workspacegit.New(gitOptions)
 	node.watches = newWorkspaceWatches(node.git)
 	node.transfers = files.NewTransfers(node.profile.Ownership.Path)

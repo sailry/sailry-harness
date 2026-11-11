@@ -25,6 +25,14 @@ const (
 	maxDiff     = 48 * 1024
 	maxFile     = 32 * 1024 * 1024
 	readTimeout = 5 * time.Second
+	// statLimit is the largest side whose changed lines a status counts.
+	statLimit = 1024 * 1024
+	// statBudget is the share of the status deadline spent counting lines.
+	statBudget = time.Second
+	// mutationTimeout is the total time of a local native mutation.
+	mutationTimeout = 120 * time.Second
+	// networkIdle is how long a transfer with a remote may stay silent.
+	networkIdle = 120 * time.Second
 )
 
 type CommandResult struct {
@@ -38,6 +46,10 @@ type Options struct {
 	Run         Runner
 	Now         func() time.Time
 	Environment []string
+	// Lock orders run_git_action and create_git_commit with the owner's other
+	// effects on a root. The service takes it around their local work and
+	// leaves transfers with a remote outside it.
+	Lock func(root string) (unlock func())
 }
 type statusSlot struct {
 	done      chan struct{}
@@ -55,15 +67,21 @@ type Service struct {
 	journal  map[string]string
 	times    map[string]map[string]int64
 	changes  []*changeCapture
+	idle     time.Duration // silence limit of a network operation
+	stats    time.Duration // line statistics share of a status
+	lock     func(root string) func()
 }
 
 func New(options Options) *Service {
-	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, times: map[string]map[string]int64{}}
+	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, times: map[string]map[string]int64{}, idle: networkIdle, stats: statBudget}
 	if s.now == nil {
 		s.now = time.Now
 	}
 	if s.run == nil {
 		s.run = nativeRunner(options.Environment)
+	}
+	if s.lock = options.Lock; s.lock == nil {
+		s.lock = func(string) func() { return func() {} }
 	}
 	return s
 }

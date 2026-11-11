@@ -108,9 +108,6 @@ plugins_configure: 設定
 plugins_uninstall: 解除安裝
 plugins_install: 安裝
 plugins_information: 資訊
-plugins_actions: 外掛操作
-plugins_official: 官方
-plugins_third_party: 三方
 plugins_none: 暫無外掛
 composer: 描述你想完成的任務…
 composer_attachment: 新增附件
@@ -119,11 +116,8 @@ chat_stop: 停止
 composer_select_model: 選擇模型
 composer_effort: 推理強度
 composer_effort_unavailable: 預設
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: 語音輸入
 turn_reasoning: 思考過程
-turn_tools_count: '%{count} 個工具呼叫'
 turn_latest: 回到最新回覆
 chat_navigation: 訊息導航
 chat_new: 新建會話
@@ -137,7 +131,6 @@ turn_thinking: 正在思考
 tool_failed: 工具執行失敗
 approval_pending: 等待審批
 content_copied: 已複製
-turn_work: 處理過程
 tool_copy: 複製
 tool_interrupted: 結果未確認
 tool_not_executed: 審批已中斷，未執行
@@ -195,9 +188,6 @@ tool_read_session: 讀取會話
 tool_search_session: 搜尋會話
 tool_find_tools: 尋找工具
 tool_read_output: 讀取工具輸出
-question_answered: 已回答
-interaction_cancelled: 已取消
-question_url_accepted: 已同意開啟
 approval_allow_prefix: 允許前綴「%{prefix}」
 approval_preview_result: 已記錄本回合的示例審批選擇。未修改檔案、執行命令或呼叫模型。
 file_changes_shortened: 差異已截斷
@@ -228,7 +218,6 @@ connection_search_empty: 無匹配結果
 connection_search: 搜尋
 activity_completed: 已完成
 activity_failed: 失敗
-activity_idle: 空閒
 activity_approval: 待批准
 activity_input: 待回覆
 activity_no_project: 對話
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 張
 recent_sessions: 最近
 workspace_archive: 歸檔會話
-session_unarchive: 取消歸檔
 session_delete: 刪除會話
 session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
 workspace_rename: 重新命名
@@ -275,7 +263,6 @@ session_fork_worktree: 在新工作樹中建立聊天分支
 files_open: 開啟檔案
 session_new_window: 在新視窗中開啟
 session_window_failed: 無法開啟新視窗
-workspace_open_session: 開啟會話
 project_edit: 編輯專案
 project_remove: 移除專案
 workspace_new_terminal: 建立終端
@@ -317,6 +304,7 @@ worktree_remove_busy: worktree 正在使用，請稍後重新開啟
 worktree_remove_dirty: worktree 包含未提交改動，不能移除
 worktree_remove_conflict: worktree 有改動、會話佔用或引用已變化，請檢查後重新開啟
 worktree_remove_missing: worktree 或所屬專案已不存在，請重新開啟管理列表
+worktree_unused: No session
 git_branch_exists: 分支已存在，換個名稱
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: 暫存區更新失敗，請重試
@@ -378,7 +366,6 @@ connection_no_projects: 暫無專案
 workspace_project: 專案概覽
 resource_browser: 瀏覽器
 terminal: 終端
-resource_terminal_preview: 終端 UI 預覽，未啟動 Shell 或執行命令
 resource_browser_preview: 瀏覽器 UI 預覽，未載入網頁或訪問網路
 file_tree: 專案檔案
 file_empty: 開啟檔案
@@ -516,11 +503,7 @@ git_untracked: 未跟蹤
 git_view_changes: 變更
 git_view_diff: 檢視差異
 git_view_options: 檢視與排序
-hunks_reject: 拒絕
 hunks_stage: 暫存
-hunks_accept: 接受
-hunks_accepted: 已接受此區塊
-hunks_state_accepted: 已接受
 navigation_tabs: 開啟的標籤
 market_category_documents: 文件
 turn_changes_undo_all: 撤銷修改
@@ -623,7 +606,6 @@ chat_rewind: 回退到此回合
 chat_rewind_action: 回退
 chat_rewind_confirm: 保留此回合並移除後續訊息？檔案不變
 chat_search: 搜尋對話
-chat_search_query: 搜尋內容
 chat_search_result: 搜尋結果
 chat_status_unsynced: 狀態未同步
 compact_reason_unknown: 此次失敗未記錄具體原因
@@ -662,14 +644,12 @@ composer_permission_full: 完全許可權
 composer_permission_ask_description: 修改檔案和執行命令前詢問
 composer_permission_project_description: 自動修改專案檔案，執行命令前詢問
 composer_permission_full_description: 自動修改檔案和執行命令，可影響專案外檔案
-composer_permission_preview: 僅預覽，不授予許可權
 composer_host_local: 本機
 composer_host_remote: 遠端
 composer_no_project: 對話
 composer_branch_none: 無 worktree
 composer_settings: 會話設定
 composer_back: 返回
-location_search: 選擇工作位置
 location_create: 新建工作樹並繼續
 git_no_matches: 無匹配項
 composer_model_settings: 模型與強度
@@ -681,7 +661,6 @@ composer_feature_fast: 快速
 composer_feature_fast_unsupported: 目前模型不支援
 composer_execution_model: 單一模型
 composer_team_lead: 組長
-composer_team_default: 預設團隊
 composer_team_manage: 管理團隊
 model_score_overall: 綜合分
 model_score_tested: 實測 %{effort} 檔
@@ -721,7 +700,6 @@ reference_context: 工作區上下文
 reference_databases: 資料庫
 reference_ssh: SSH 連線
 reference_empty: 沒有匹配的引用
-reference_remove: 移除引用
 reference_host: 主機
 reference_project: 專案
 reference_worktree: worktree
@@ -747,6 +725,7 @@ directory_home: 主目錄
 directory_desktop: 桌面
 directory_documents: 文件
 directory_downloads: 下載
+directory_applications: Applications
 directory_locations: 位置
 directory_count_directories: '%{count} 資料夾'
 directory_count_files: '%{count} 檔案'
@@ -988,7 +967,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: 重啟後應用語言
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: 跟隨系統
@@ -1175,6 +1153,16 @@ search_driver_auto: 自動
 knowledge_settings: 預設設定
 knowledge_default_model: 向量模型
 knowledge_keyword_only: 僅關鍵字
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: 決策
 runtime_decision_model: 模型
 runtime_decision_enable: 啟用決策
@@ -1518,12 +1506,10 @@ update_download: 預覽下載
 update_apply: 預覽應用
 update_retry: 重試預覽
 update_unavailable: 當前不可更新（示例）
-update_unavailable_note: 此示例主機暫不支援自動更新
 update_versions: '%{current} → %{target}'
 update_version: 當前版本：%{current}
 update_preview: UI 狀態預覽，按鈕僅切換示例快照；不會檢查網路、下載、安裝或重啟主機
 update_target_changed: 目標主機已不可用，請關閉後重新開啟
-update_error_preview: 示例請求失敗，沒有執行真實更新
 metrics_title: 主機指標
 metrics_preview: UI 示例資料，未採集真實主機指標或程序
 metrics_cpu: CPU
@@ -1541,6 +1527,31 @@ metrics_worker: 示例工作程序
 metrics_indexer: 示例索引程序
 metrics_loading: 等待指標（示例）
 metrics_error: 指標暫不可用（示例）
+host_node_uptime: Sailry 執行
+host_sampling: 等待取樣
+host_sampling_failed: 主機資料未更新
+host_metric_unavailable: 暫無資料
+host_cores: '%{count} 核'
+host_load: 負載
+host_core: 核心 %{index} · %{value}
+host_memory_total: 共 %{value}
+host_memory_used: 已用
+host_memory_cached: 快取
+host_memory_swap: 交換
+host_utilization: 利用率
+host_network_total: 開機以來累計
+host_disk_write: 寫入
+host_disk_read: 讀取
+host_storage: 儲存
+host_partition_count: '%{count} 個分割區'
+host_read_short: R
+host_write_short: W
+host_process_search: 搜尋程序
+host_process_limited: 僅顯示佔用最高的 2048 個程序
+host_process_name: 程序
+host_pid: PID
+host_process_empty: 暫無程序
+host_process_no_matches: 無匹配程序
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發
@@ -1597,20 +1608,15 @@ selection_title: 選取文字
 selection_unavailable: 無法讀取選取文字
 selection_empty: 未選取文字
 terminal_search_placeholder: 搜尋終端
-terminal_match_previous: 上一個匹配
-terminal_match_next: 下一個匹配
 workspace_no_terminal: 當前 worktree 沒有終端
 workspace_close_terminal: 關閉終端
 workspace_terminal_preview: 終端 UI 預覽。已保留專案和 worktree 歸屬，未啟動 PTY 或 shell；真實終端繪製與輸入在終端階段接入。
 pane_drag: 拖動分屏
 terminal_connecting: 連線中
-terminal_exited: 終端已退出
 terminal_take_control: 接管
 terminal_other_controller: 由另一裝置控制
 terminal_unavailable: 終端不可用，請檢查主機連線
-cli_preview: UI 示例：僅建立終端預覽，不檢測程式、不執行命令
 updates_network_failed: 更新下載失敗，請重試
-updates_preview_unavailable: 預覽模式不可更新
 updates_completed: Sailry 已更新
 port_exists: 此埠已新增
 port_failed: 無法轉發，請檢查埠和連線
@@ -1688,13 +1694,15 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 修改要求：
 hooks_project_required: 選擇專案
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 停止失敗，請重試
 background_stop_unknown: 停止結果未確認，請檢視命令狀態
 subagent_stop: Stop subagent
@@ -1733,7 +1741,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: 檔案較大，僅顯示前 128 KiB 的文字內容
 files_create: 新建
-files_directory_changed: 目錄已變化，請重新載入
 files_directory_failed: 無法載入目錄，請重試
 files_discard: 放棄草稿
 files_discard_description: 丟棄未儲存修改？正在儲存的內容仍可能寫入
@@ -1781,7 +1788,6 @@ git_initialize: 初始化 Git
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: 釋出分支
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: 儲藏更改並切換
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -1993,6 +1999,7 @@ knowledge_saved: 已儲存
 knowledge_cancel_requested: 已要求取消
 model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
@@ -2185,12 +2192,17 @@ chat_provider_session: '%{name} · 會話'
 chat_provider_node: '%{name} · 主機'
 chat_config_desktop: 桌面配置
 usage_read_failed: 無法讀取用量，請重試
-queue_draft_changed: 佇列已改變，編輯草稿已保留
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}
@@ -2212,3 +2224,17 @@ queue_wait_unsent: Not sent
 queue_wait_limit: Held at automatic limit
 queue_wait_failed: Held after failure
 chat_output_limit: Reply cut at the output limit
+start_failed: Sailry could not start
+start_profile_in_use: Sailry is already running with this data folder
+backup_keep: Backups to keep
+backup_keep_all: All
+backup_keep_last: Last %{count}
+backup_keep_confirm: Keep only the last %{count} backups?
+backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
+backup_last: Last backup
+backup_last_done: Completed
+backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

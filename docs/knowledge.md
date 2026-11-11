@@ -44,12 +44,51 @@ and scope, scans the source and replaces what changed.
   choice, is bound when the registry knows its dimension. Vectors are written
   only while that model is installed, in batches of four on the background
   lane; otherwise the collection is keyword only and its progress has no
-  model. Nothing is downloaded and no other model is substituted.
+  model. Nothing is downloaded and no other model is substituted. The index
+  records the model with the content identity of its definition
+  (`localmodels.ID`), and a query vector is compared only with vectors
+  recorded under the same model, identity and dimension. A binding with
+  another model or identity clears the collection's vectors and embeds its
+  sources again; until then its searches are keyword only. A pinned model
+  keeps its name when its revision moves, so the name alone would compare
+  vectors of two different models.
 - Scheduling: a pass runs on start, after a mutation, a plugin storage
   trigger, a watch event (250 ms quiet, 1 s at most) and every five minutes
-  while a watch backend failed. A
-  collection whose pass fails is reported paused and logged; the others
-  continue. Progress is published at most every 500 ms and at the end.
+  while a watch backend failed or a failure is still being retried. Progress
+  is published at most every 500 ms and at the end.
+- Failures: a file or directory that cannot be read now (a failed OCR, a
+  permission error, a file that changed while it was read, an embedding
+  fault) does not end the pass. It is recorded in the collection's progress
+  (`failed` counts them, `failures` names the first eight by path with their
+  reason), the scan continues, what was published from it stays, and the next
+  passes read it again: at most three times while its size, modification time
+  and OCR model are unchanged, five minutes apart when nothing else requests
+  a pass. After that it stays reported and is read again when it changes,
+  after a mutation of any collection, a changed model set (`Invalidate`) or a
+  restart. Sources below a directory that could not be entered are not
+  pruned. Content that can never be indexed (binary data, a file above
+  32 MiB, a directory nested deeper than 64 levels) is counted in `skipped`
+  instead.
+- A collection that fails as a whole (its root is gone, the index cannot be
+  written) is reported `paused` with one failure without a path that carries
+  the reason, the others continue, and it is retried on the same timer three
+  times.
+
+- Owners: every pass first deletes the collections whose owner was removed
+  (`store.RemoveOrphanedKnowledge`) and announces
+  `knowledge_collections_changed`; the same pass drops their derived index.
+  A worktree source goes with its worktree, with the project that owns the
+  worktree, or, for a conversation's scratch worktree, with the last
+  conversation using it. A conversation storage source goes with its
+  conversation. A collection owned by a package goes when the package is
+  removed; a disabled package keeps its collections. `remove_worktree`,
+  `remove_project`, `remove_session`, `remove_sessions` and `remove_plugin`
+  request a pass, and a pass at Node start covers a removal that was
+  interrupted. Directory and file sources have no owner inside Sailry and
+  stay until they are deleted. Adding the project or installing the package
+  again does not bring a removed collection back, except an automatic
+  collection, which registers again. `create_knowledge_collection` removes
+  orphans before it refuses for capacity.
 
 Reactions (`reactKnowledge`): a changed embedding choice or installed
 embedding set invalidates the pass, and saving the choice advances the
@@ -106,9 +145,9 @@ without creating one (`store/knowledge_semantic.go`).
 - Each storage write of the package advances the generation of its automatic
   collections, which reports them pending until the next pass. A newer
   installed package version replaces the captured one.
-- Never removed automatically. They do not count toward the limit of 128
-  collections. A controller may delete one; the next registration creates it
-  again.
+- Removed only with their package ([owners](#indexing)). They do not count
+  toward the limit of 128 collections. A controller may delete one; the next
+  registration creates it again.
 
 ### Refresh triggers
 
@@ -148,6 +187,40 @@ semantic and hybrid fall back to keyword when no collection has vectors for
 the model. Limits default to 5 and are bounded at 100; hits are marked
 untrusted, and hits of a collection that is still indexing are marked stale.
 
+### Scale
+
+There is no vector index: a semantic or hybrid query reads, decodes and
+scores every vector of the admitted collections that was built with the
+query's model and dimension (`service/query.go`), and the keyword side ranks
+every chunk that contains the query's words. Both grow with the corpus.
+`BenchmarkSemanticScan` (`service/query_bench_test.go`) measures one query
+against one collection of 384-component vectors, the default model's
+dimension. On an Apple M4 Pro, darwin-arm64, 30 queries each:
+
+| Chunks | Semantic | Hybrid | Hybrid, words in every chunk |
+|---|---|---|---|
+| 10,000 | 19 ms | 20 ms | 52 ms |
+| 25,000 | 46 ms | 52 ms | 135 ms |
+| 50,000 | 110 ms | 100 ms | 269 ms |
+| 100,000 | 190 ms | 206 ms | 547 ms |
+| 200,000 | 367 ms | 379 ms | 1,076 ms |
+
+A query costs about 2 µs per vector and passes 100 ms at about 50,000 chunks
+across the collections it may read; a chunk is at most 256 tokens, so that is
+on the order of ten million tokens of text. Of the 2 µs, reading the rows
+takes about 0.7 µs (the same statement run alone); the rest is decoding,
+scoring and ranking. A query whose words occur in every chunk adds about
+3 µs per chunk for the keyword ranking and passes 100 ms at about 20,000
+chunks. The time excludes encoding the query text. Nothing caps a
+collection's size; beyond these sizes queries slow down, they do not fail.
+
+The limit is recorded, not removed. The standard next step, when corpora of
+that size matter, is an approximate nearest-neighbour index (HNSW) over the
+stored vectors, kept as derived data per collection binding like the vectors
+themselves, with the exact scan retained for small or heavily filtered
+candidate sets. It needs a dependency and a plan decision, so it is not part
+of this change.
+
 ## Citations
 
 `read_knowledge_citation` checks that the request may read the collection,
@@ -173,7 +246,9 @@ package declares its operation.
 ## Desktop
 
 The shell's knowledge viewer and its live wiring are specified in
-[shell.md](shell.md#knowledge).
+[shell.md](shell.md#knowledge). Settings › Knowledge lists the selected
+host's collections with their state and pauses, resumes and updates them
+([settings.md](settings.md#b11-local-model-wiring)).
 
 ## Ownership
 
@@ -199,7 +274,9 @@ turns in which the bundled memory package's `save_memory`, `search_memory`
 and `forget_memory` feed, search and empty its automatic collection, then
 covers explicit node and conversation storage collections: rejections,
 scoping between packages and conversations, citations, embedding only changed
-values, removal and a restart. It replaces
+values, removal and a restart, and that a collection and its derived index
+leave with its conversation, project or package while a disabled package
+keeps its own. It replaces
 the embedding capabilities through the unexported `Options.knowledge` seam.
 `TestScriptSDK` covers the storage draft of `prepareKnowledgeCollection`.
 
@@ -211,8 +288,11 @@ the embedding capabilities through the unexported `Options.knowledge` seam.
 | Storage source revisions hash Go's encoding of the entry and index data | Revisions are compared only with the same Node's index |
 | Keyword scores come from SQLite FTS5 `bm25` | The Go store is SQLite; the reference scores with its own engine's FTS |
 | Globs use the package's translator; chunk keys and scope hashes hash Go's JSON encoding | No byte compatibility with a reference index is required; indexes are derived data |
+| Vectors are bound to the model's definition identity as well as its name | The reference binds the name; a pinned model repinned to another revision would have its old vectors scored against the new model's query vector |
 | Directory entries are scanned in sorted order | Deterministic passes and tests |
-| Watches use fsnotify per directory | The module's existing watcher; a failed backend falls back to the five-minute poll |
+| A source that cannot be read is recorded in `progress.failed` and `progress.failures`, the pass continues and the source is retried a bounded number of times; an unreadable directory no longer fails the pass as incomplete, and a failed collection carries its reason | The reference ends the pass at the first fault other than `InvalidRequest`, so every later file stays unindexed, reports the collection paused with the reason only in its log and never retries |
+| A collection is deleted with its worktree, project, conversation or package; the reference never removes one | An orphan failed every pass, kept its vectors and used one of the 128 places. Ownership is reconciled by the pass instead of in each removal transaction, so no removal path can miss it |
+| Watches go through `internal/node/fswatch` ([files.md](files.md#file-watches)): on macOS one FSEvents stream per source root, filtered to the scanned directories; elsewhere one fsnotify watch per scanned directory | The reference watches each scanned directory; fsnotify on macOS would hold a descriptor per file. A failed backend falls back to the five-minute poll |
 | The OCR extractor signature is the hash of the selected OCR resource | It changes exactly when recognized text may change |
 | Durable knowledge mutations complete inside `Dispatch` | They are single short transactions |
 | Citations open in the Desktop viewer only | See [shell.md](shell.md#deviations) |

@@ -73,6 +73,16 @@ const (
 	pluginBranchControl    = "branch"
 )
 
+// A header popover's panel is the declared width or 480, at most the
+// window's less 32, and scrolls past the window's height less 110; neither
+// bound goes under 100 (plugins/contributions/header.rs).
+const (
+	pluginHeaderPanelWidth  = 480
+	pluginHeaderPanelMargin = 32
+	pluginHeaderPanelRoom   = 110
+	pluginHeaderPanelLeast  = 100
+)
+
 // pluginContextControl reports whether a context-slot entry is the named
 // bundled package's control.
 func pluginContextControl(entry plugins.ContributionEntry, name, id string) bool {
@@ -92,9 +102,12 @@ func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversa
 			context.PackageBranch = context.PackageBranch || pluginContextControl(entry, pluginGitPackage, pluginBranchControl)
 		}
 	}
-	// Indicators report a running conversation: a draft has no usage yet.
+	// Indicators and figures report a running conversation: a draft has no
+	// usage yet.
+	comp.Metrics = nil
 	if registry != nil && scope.Session != nil {
 		context.Indicators = append(context.Indicators, r.pluginIndicators(registry)...)
+		r.projectPluginMetrics(comp, registry)
 	}
 	r.projectPluginStatus(comp, context, scope, registry)
 	if registry == nil {
@@ -226,7 +239,9 @@ func (r *Runtime) pluginIndicators(registry *plugins.Registry) []composer.Indica
 // slot's are split by their alignment between the toolbar's groups, or are
 // all rows of the settings popover; its indicators are the toolbar's rings
 // (pluginIndicators) and the worktree actions the location menu already has
-// are left out. The header shows no indicator or metric.
+// are left out. The header shows no indicator or metric. The statistics and
+// footer slots are not controls: their figures are the context bar's
+// (projectPluginMetrics).
 func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Registry, slot protocol.PluginUiSlot, place composer.ControlPlace) {
 	for _, entry := range registry.Entries(slot) {
 		kind := entry.Declaration.Kind
@@ -245,6 +260,8 @@ func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Regis
 			if kind == "indicator" || kind == "metric" {
 				continue
 			}
+		case protocol.PluginUiSlotStatistics, protocol.PluginUiSlotFooter:
+			continue
 		case protocol.PluginUiSlotContext:
 			// The native project control is the bar's one location.
 			if pluginContextControl(entry, pluginWorktreesPackage, pluginLocationControl) {
@@ -343,6 +360,38 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 		r.pluginChoicePicker(view, registry, entry, state)
 	case "popover", "indicator":
 		button := ui.ButtonBase(view)
+		if header && entry.Declaration.Kind == "popover" {
+			// The header's popover is the window's to open and close
+			// (plugins/contributions/header.rs): the package draws the panel
+			// and hears nothing of it. Asked with a change event, a package
+			// that does not answer one, as the statistics package's context
+			// panel, never opened it, and the pending interaction disabled
+			// the button.
+			if entry.Declaration.Handler == nil {
+				state.open = false
+			}
+			selected = state.open
+			look(button)
+			if entry.Declaration.Handler == nil {
+				return
+			}
+			button.HasPopup(ui.PopupDialog).Expanded(state.open).OnClick(func() { state.open = !state.open })
+			width, height := view.Size()
+			panel := kit.Popover(view, button, &state.open, func() {
+				ui.Scroll(view.Key("panel")).FillWidth().MaxHeight(max(height-pluginHeaderPanelRoom, pluginHeaderPanelLeast)).Children(func() {
+					r.renderPluginContribution(view, entry.Key)
+				})
+			})
+			if panel != (ui.Element{}) {
+				declared := float32(pluginHeaderPanelWidth)
+				if entry.Declaration.Width != nil {
+					declared = float32(*entry.Declaration.Width)
+				}
+				panel.AttachTo(button, ui.AnchorBottomEnd, ui.AnchorTopEnd).Padding(0).
+					Width(max(min(declared, width-pluginHeaderPanelMargin), pluginHeaderPanelLeast))
+			}
+			return
+		}
 		look(button)
 		if entry.Declaration.Handler == nil {
 			return

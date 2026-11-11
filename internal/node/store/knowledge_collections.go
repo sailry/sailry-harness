@@ -155,6 +155,13 @@ func createKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request
 		return protocol.Output{}, nil, err
 	}
 	if knowledgeManual(entries) >= MaxKnowledgeCollections {
+		// Collections of removed owners leave with the next indexing pass;
+		// they never use up the capacity.
+		if entries, _, err = RemoveOrphanedKnowledge(ctx, db); err != nil {
+			return protocol.Output{}, nil, err
+		}
+	}
+	if knowledgeManual(entries) >= MaxKnowledgeCollections {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "knowledge collection capacity exhausted")
 	}
 	owner, capture, err := knowledgeOwnership(ctx, db, request, selected)
@@ -249,4 +256,71 @@ func removeKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request
 	}
 	return protocol.Output{Kind: "knowledge_collection_deleted", Data: protocol.OutputKnowledgeCollectionDeletedPayload{ID: id}},
 		[]protocol.Event{{Kind: "knowledge_collections_changed"}}, nil
+}
+
+// knowledgeOrphaned reports a collection whose owner no longer exists: the
+// worktree it indexes, the conversation whose values it indexes or the
+// package that owns it. A disabled package still owns its collections.
+func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (bool, error) {
+	present := true
+	switch source := ReadKnowledgeSource(stored.Collection.Definition.Source); {
+	case source.Kind == "worktree":
+		// A scratch worktree lives as long as a conversation uses it.
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktrees w WHERE w.id=?1
+			AND NOT EXISTS(SELECT 1 FROM removed_worktrees r WHERE r.worktree=w.id)
+			AND NOT EXISTS(SELECT 1 FROM removed_projects r WHERE r.project=w.project)
+			AND (w.project IS NOT NULL OR EXISTS(SELECT 1 FROM sessions s WHERE s.worktree=w.id AND s.state!='removed')))`, source.Worktree.String()).Scan(&present); err != nil {
+			return false, err
+		}
+	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeConversation:
+		if stored.Capture.Session == nil {
+			return true, nil
+		}
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND state!='removed')", stored.Capture.Session.String()).Scan(&present); err != nil {
+			return false, err
+		}
+	}
+	if present && stored.Collection.Owner.Kind == "plugin" {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1 AND installed=1)", knowledgeOwner(stored.Collection.Owner)).Scan(&present); err != nil {
+			return false, err
+		}
+	}
+	return !present, nil
+}
+
+// OrphanedKnowledge reports whether any collection of a catalog lost its
+// owner.
+func OrphanedKnowledge(ctx context.Context, db *sql.Conn, catalog []KnowledgeStored) (bool, error) {
+	for _, stored := range catalog {
+		if orphaned, err := knowledgeOrphaned(ctx, db, stored); err != nil || orphaned {
+			return orphaned, err
+		}
+	}
+	return false, nil
+}
+
+// RemoveOrphanedKnowledge deletes the collections whose owner was removed
+// and returns the remaining catalog. Their derived index goes with the next
+// indexing pass. Registering the same worktree, project or package again
+// does not bring a collection back.
+func RemoveOrphanedKnowledge(ctx context.Context, db *sql.Conn) ([]KnowledgeStored, bool, error) {
+	entries, err := loadKnowledge(ctx, db)
+	if err != nil {
+		return nil, false, err
+	}
+	kept := entries[:0]
+	for _, stored := range entries {
+		orphaned, err := knowledgeOrphaned(ctx, db, stored)
+		if err != nil {
+			return nil, false, err
+		}
+		if !orphaned {
+			kept = append(kept, stored)
+			continue
+		}
+		if _, err := db.ExecContext(ctx, "DELETE FROM knowledge_collections WHERE id=?1", stored.Collection.ID.String()); err != nil {
+			return nil, false, err
+		}
+	}
+	return kept, len(kept) != len(entries), nil
 }

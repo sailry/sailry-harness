@@ -1,7 +1,7 @@
-//go:build !darwin && !linux && !windows
+//go:build !windows
 
 package files
 
 import "github.com/sailry/sailry-harness/internal/protocol"
 
-func browserVolumes() ([]protocol.FileBrowserLocation, error) { return nil, nil }
+func driveDetail(string) (string, *protocol.FileBrowserMedium) { return "", nil }

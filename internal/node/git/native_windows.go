@@ -58,6 +58,10 @@ func ownNative(cmd *exec.Cmd) error {
 	}
 	return err
 }
+
+// terminateNative reports false: a console process without a console has no
+// termination request to receive, so the job is terminated at once.
+func terminateNative(*exec.Cmd) bool { return false }
 func killNative(cmd *exec.Cmd) {
 	if job, ok := nativeJobs.Load(cmd); ok {
 		_ = windows.TerminateJobObject(job.(windows.Handle), 1)

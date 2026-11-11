@@ -16,13 +16,14 @@ import (
 // item shown last is the one either host shows first (docs/panel.md,
 // Components and hosts).
 type Project struct {
-	ID      string
-	Actions *Actions
-	prompt  prompt
-	closing *editorCloseRequest
-	Data    *preview.Workspace
-	Files   FileView
-	Git     GitView
+	ID       string
+	Actions  *Actions
+	prompt   prompt
+	closing  *editorCloseRequest
+	conflict *editorConflict
+	Data     *preview.Workspace
+	Files    FileView
+	Git      GitView
 	// reveal shows a file of the tree in the host's Files, as the host
 	// showing the project last sets it.
 	reveal func(path string)

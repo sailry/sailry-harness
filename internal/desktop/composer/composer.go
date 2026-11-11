@@ -54,9 +54,10 @@ type State struct {
 	// Searching is set by the page while its search bar shows: Escape
 	// closes the bar before it reaches the composer.
 	Searching bool
-	// Metrics builds the context bar's usage at its end (conversation
-	// UsageBar), nil for none: compact below compactWidth, its popover
-	// open while *open is true.
+	// Metrics builds the context bar's figures at its end (conversation
+	// UsageBar), nil for none: a sample conversation's own usage, a live
+	// session's statistics and footer slots. Compact below compactWidth,
+	// its popover open while *open is true.
 	Metrics func(c *ui.Context, compact bool, open *bool)
 	// Indicator builds the preview's context ring left of the model chip
 	// (conversation ContextRing), nil for none. A live session's rings are
@@ -272,7 +273,6 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.referencePicker(c, ctx, actions, surface)
 			s.contextBar(c, ctx, actions)
 		})
-		s.renderPluginControls(c, "footer", ControlStart)
 	})
 	s.filePicker(c, ctx, actions)
 }
@@ -507,7 +507,6 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 			}
 			s.renderPluginControls(c, "context", ControlStart)
 		})
-		s.renderPluginControls(c, "statistics", ControlStart)
 		if s.Metrics != nil {
 			s.Metrics(c, compact, &s.stats)
 		}

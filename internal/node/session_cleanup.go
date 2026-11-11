@@ -4,21 +4,43 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"sync"
 
 	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// storedFiles orders the files the profile stores under a row: attachments
+// and artifacts. A publication writes its file before its row commits and a
+// collection deletes the files without a row, so a collection excludes every
+// publication from its file to its row. Publications run together. The
+// worktree locks do not take part: stored files belong to no worktree.
+type storedFiles struct {
+	mu sync.RWMutex
+}
+
+// publish joins the publications until the effect closes, which is after its
+// row commits or fails. It is called before the file is written.
+func (stored *storedFiles) publish(effect *workspaceCompletion) {
+	stored.mu.RLock()
+	release := effect.release
+	effect.release = func() {
+		stored.mu.RUnlock()
+		if release != nil {
+			release()
+		}
+	}
+}
+
 // collectAttachments removes the stored attachment files that no row names:
-// uploads whose row never committed and attachments whose row was deleted. A
-// finishing upload holds the effects lock from its publication to its row, so
-// no file is taken between the two. A failure leaves the files for the next
-// collection.
+// uploads whose row never committed and attachments whose row was deleted. It
+// waits for the finishing uploads, so no file is taken between its
+// publication and its row. A failure leaves the files for the next collection.
 func (node *Node) collectAttachments(ctx context.Context) {
-	node.effects.Lock()
-	defer node.effects.Unlock()
-	node.collectAttachmentsHeld(ctx)
+	node.stored.mu.Lock()
+	defer node.stored.mu.Unlock()
+	node.collectAttachmentsLocked(ctx)
 }
 
 // removedSessionFiles deletes the files that a committed session removal left
@@ -32,14 +54,15 @@ func (node *Node) removedSessionFiles(changes []protocol.Event) {
 	if !removed {
 		return
 	}
-	// The command lock may be held here, so the work runs on its own. The
-	// removing command is still counted, and Stop waits for this too.
+	// The caller may be a publication that has not closed, which a collection
+	// waits for, so the work runs on its own. The removing command is still
+	// counted, and Stop waits for this too.
 	node.work.Add(1)
 	go func() {
 		defer node.work.Done()
 		ctx := context.WithoutCancel(node.ctx)
-		node.effects.Lock()
-		defer node.effects.Unlock()
+		node.stored.mu.Lock()
+		defer node.stored.mu.Unlock()
 		var owners []protocol.SessionID
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
@@ -52,13 +75,13 @@ func (node *Node) removedSessionFiles(changes []protocol.Event) {
 		if err != nil {
 			log.Printf("removed session artifact cleanup failed: %v", err)
 		}
-		node.collectAttachmentsHeld(ctx)
+		node.collectAttachmentsLocked(ctx)
 	}()
 }
 
-// collectAttachmentsHeld is collectAttachments for a caller that holds the
-// effects lock.
-func (node *Node) collectAttachmentsHeld(ctx context.Context) {
+// collectAttachmentsLocked is collectAttachments for a caller that excludes
+// the publications already.
+func (node *Node) collectAttachmentsLocked(ctx context.Context) {
 	var retained map[protocol.AttachmentID]bool
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error

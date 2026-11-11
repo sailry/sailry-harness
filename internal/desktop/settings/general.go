@@ -24,9 +24,9 @@ var notifications = []string{"settings_notify_system", "settings_notify_approval
 func general(c *ui.Context, m *Model) {
 	kit.Group(c, "general", "", "", nil, func() {
 		kit.Card(c, func() {
-			if choose(c, "language", i18n.T(c, "settings_language"), "", &m.Language, labels(c, Languages), 192) {
-				kit.Toast(c, kit.Done, i18n.T(c, "settings_language_restart"))
-			}
+			// The window takes the language in the frame that saves it, so
+			// the choice has no toast.
+			choose(c, "language", i18n.T(c, "settings_language"), "", &m.Language, labels(c, Languages), 192)
 			if settingSwitch(c, "power", i18n.T(c, "power_prevent_sleep"), i18n.T(c, "power_prevent_sleep_description"), &m.Power.Draft, m.Power.Pending) {
 				if m.SavePower != nil {
 					m.SavePower()
