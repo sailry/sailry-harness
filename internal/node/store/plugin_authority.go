@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 
@@ -144,6 +146,22 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		if association.Namespace != scope.Package.Name {
 			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
 		}
+	case "start_session":
+		if err := checkPluginSessionStart(ctx, db, request); err != nil {
+			return err
+		}
+	case "set_session_config":
+		input, err := providerPayload[protocol.CommandSetSessionConfigPayload](request.Command)
+		if err != nil {
+			return err
+		}
+		session, err := ReadSession(ctx, db, input.Session)
+		if err != nil {
+			return err
+		}
+		if err := checkPluginSessionOptions(ctx, db, &session.Config, input.Config, scope.Package); err != nil {
+			return err
+		}
 	}
 	if action == protocol.PluginActionReadTerminals || action == protocol.PluginActionControlTerminals {
 		if err := checkPluginTerminalRequest(ctx, db, request); err != nil {
@@ -202,8 +220,22 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return fault(protocol.ErrorCodePermissionDenied, "plugin turn belongs to another session")
 		}
 	}
-	if target.Package != nil && *target.Package != scope.Package || target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) || target.Session != nil && !reflect.DeepEqual(target.Session, scope.Session) {
+	if request.Command.Kind == "start_session" {
+		// The draft's worktree was confined by checkPluginSessionStart: a
+		// Node-wide scope may name any worktree for the session it creates.
+		target.Worktree = nil
+	}
+	if target.Package != nil && *target.Package != scope.Package || target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
+	}
+	if target.Session != nil && !reflect.DeepEqual(target.Session, scope.Session) {
+		owned, err := pluginOwnsSession(ctx, db, *scope, *target.Session)
+		if err != nil {
+			return err
+		}
+		if !owned {
+			return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
+		}
 	}
 	if scope.Session != nil {
 		session, err := ReadSession(ctx, db, *scope.Session)
@@ -385,4 +417,125 @@ func checkPluginConnectorRequest(ctx context.Context, db *sql.Conn, request prot
 		return false, denied()
 	}
 	return false, nil
+}
+
+// checkPluginSessionStart confines a package's start_session: outside a turn
+// and a session, under its own association namespace and conversation
+// options, inside its captured worktree, and never as an assistant or
+// connection conversation, which have their own resource commands.
+func checkPluginSessionStart(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+	scope := request.Plugin
+	if scope.Turn != nil || scope.Session != nil {
+		return fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
+	}
+	draft, err := providerPayload[protocol.ConversationStart](request.Command)
+	if err != nil {
+		return err
+	}
+	if draft.Association != nil {
+		if err := validateSessionAssociation(*draft.Association); err != nil {
+			return err
+		}
+		if draft.Association.Namespace != scope.Package.Name {
+			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
+		}
+	}
+	if draft.Config != nil {
+		if err := checkPluginSessionOptions(ctx, db, nil, *draft.Config, scope.Package); err != nil {
+			return err
+		}
+	}
+	if scope.Worktree != nil && (draft.Worktree == nil || *draft.Worktree != *scope.Worktree) {
+		return fault(protocol.ErrorCodePermissionDenied, "session creation is outside the captured worktree")
+	}
+	if draft.Config != nil && (draft.Config.Assistant != nil || draft.Config.Resource != nil) {
+		return fault(protocol.ErrorCodePermissionDenied, "session creation requires a project or unassigned scope")
+	}
+	return nil
+}
+
+// checkPluginSessionOptions lets a package change only its own conversation
+// options, to values its current declaration accepts.
+func checkPluginSessionOptions(ctx context.Context, db *sql.Conn, previous *protocol.SessionConfig, config protocol.SessionConfig, caller protocol.PluginReference) error {
+	names := map[string]bool{}
+	for name := range config.Options {
+		names[name] = true
+	}
+	if previous != nil {
+		for name := range previous.Options {
+			names[name] = true
+		}
+	}
+	for name := range names {
+		var before map[string]json.RawMessage
+		if previous != nil {
+			before = previous.Options[name]
+		}
+		after := config.Options[name]
+		if pluginOptionsEqual(before, after) {
+			continue
+		}
+		if caller.Name != name {
+			return fault(protocol.ErrorCodePermissionDenied, "conversation options belong to another package")
+		}
+		info, err := ReadPlugin(ctx, db, name)
+		if err != nil {
+			return err
+		}
+		if info == nil {
+			return fault(protocol.ErrorCodeNotConfigured, "conversation option package is unavailable")
+		}
+		if plugins.PackageReference(*info) != caller {
+			return fault(protocol.ErrorCodeRevisionConflict, "conversation option package changed")
+		}
+		if info.Extension == nil || info.Extension.ConversationOptions == nil {
+			return invalid("package has no conversation options")
+		}
+		schema, err := plugins.OptionSchema(*info.Extension.ConversationOptions)
+		if err != nil {
+			return err
+		}
+		for _, values := range []map[string]json.RawMessage{before, after} {
+			for key := range values {
+				if _, declared := schema.Properties[key]; !declared && !bytes.Equal(before[key], after[key]) {
+					return invalid("conversation option was not declared")
+				}
+			}
+		}
+		if _, err := plugins.CapturedOptions(*info, config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pluginOptionsEqual(before, after map[string]json.RawMessage) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	for key, value := range before {
+		other, exists := after[key]
+		if !exists || !bytes.Equal(value, other) {
+			return false
+		}
+	}
+	return true
+}
+
+// pluginOwnsSession reports whether a scope without a turn or session may
+// address the session: only one it associated with itself at creation.
+func pluginOwnsSession(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, id protocol.SessionID) (bool, error) {
+	if scope.Turn != nil || scope.Session != nil {
+		return false, nil
+	}
+	session, err := ReadSession(ctx, db, id)
+	if err != nil {
+		var missing *protocol.Fault
+		if errors.As(err, &missing) && missing.Code == protocol.ErrorCodeNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	return session.Delegation == nil && (scope.Worktree == nil || *scope.Worktree == session.Worktree) &&
+		session.Association != nil && session.Association.Namespace == scope.Package.Name, nil
 }

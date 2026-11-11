@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -183,6 +184,114 @@ func testPluginControllerAuthority(t *testing.T) {
 			var rejected *protocol.Fault
 			if scenario.code == "" && err != nil || scenario.code != "" && (!errors.As(err, &rejected) || rejected.Code != scenario.code || rejected.Message != scenario.message) {
 				return fmt.Errorf("%s %s: unexpected turn authority result: %v", scenario.kind, scenario.name, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testPluginSessionAuthority(t *testing.T) {
+	storage, node, session, turn, _ := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		info := pluginTestInfo("session-fixture", 'a')
+		info.Summary.Enabled = true
+		info.Extension = new(protocol.DefaultPluginExtension())
+		info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionStartSessions, protocol.PluginActionReadConversation, protocol.PluginActionControlConversation}
+		scope := protocol.DefaultPluginContext()
+		scope.Package = plugins.PackageReference(info)
+		associated := func(namespace string) (protocol.Session, error) {
+			out, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &session.Config})
+			if err != nil {
+				return protocol.Session{}, err
+			}
+			created := out.Data.(protocol.Session)
+			if namespace != "" {
+				_, err = db.ExecContext(ctx, "INSERT INTO session_associations(session,namespace,kind,identity) VALUES(?1,?2,'task',?3)", created.ID.String(), namespace, created.ID.String())
+			}
+			return created, err
+		}
+		owned, err := associated("session-fixture")
+		if err != nil {
+			return err
+		}
+		foreign, err := associated("another-package")
+		if err != nil {
+			return err
+		}
+		draft := func(change func(*protocol.ConversationStart)) protocol.Command {
+			value := protocol.DefaultConversationStart()
+			value.Worktree, value.Execution = &session.Worktree, protocol.ConversationExecutionModel
+			value.Title, value.Message.Text = "Task", "Run the task"
+			value.Association = &protocol.ConversationAssociation{Namespace: "session-fixture", Kind: "task", ID: "task-1"}
+			if change != nil {
+				change(&value)
+			}
+			return protocol.Command{Kind: "start_session", Data: &value}
+		}
+		config := func(change func(*protocol.SessionConfig)) *protocol.SessionConfig {
+			value := session.Config
+			change(&value)
+			return &value
+		}
+		other := protocol.NewWorktreeID()
+		for _, scenario := range []struct {
+			name    string
+			command protocol.Command
+			change  func(*protocol.PluginContext)
+			code    protocol.ErrorCode
+			message string
+		}{
+			{"Node-wide start names a worktree", draft(nil), nil, "", ""},
+			{"start without association", draft(func(value *protocol.ConversationStart) { value.Association = nil }), nil, "", ""},
+			{"start inside the captured worktree", draft(nil), func(scope *protocol.PluginContext) { scope.Worktree = &session.Worktree }, "", ""},
+			{"start under another package's namespace", draft(func(value *protocol.ConversationStart) { value.Association.Namespace = "another-package" }), nil,
+				protocol.ErrorCodePermissionDenied, "session association belongs to another package"},
+			{"start with an invalid association", draft(func(value *protocol.ConversationStart) { value.Association.Kind = "" }), nil, protocol.ErrorCodeInvalidRequest, ""},
+			{"start from a turn", draft(nil), func(scope *protocol.PluginContext) {
+				scope.Worktree, scope.Session, scope.Turn = &session.Worktree, &session.ID, &turn
+			}, protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions"},
+			{"start from a session", draft(nil), func(scope *protocol.PluginContext) { scope.Worktree, scope.Session = &session.Worktree, &session.ID },
+				protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions"},
+			{"start outside the captured worktree", draft(nil), func(scope *protocol.PluginContext) { scope.Worktree = &other },
+				protocol.ErrorCodePermissionDenied, "session creation is outside the captured worktree"},
+			{"start an assistant conversation", draft(func(value *protocol.ConversationStart) {
+				value.Config = config(func(value *protocol.SessionConfig) {
+					value.Assistant = &protocol.PluginConversationBinding{Package: scope.Package, ID: "assistant"}
+				})
+			}), nil, protocol.ErrorCodePermissionDenied, "session creation requires a project or unassigned scope"},
+			{"start with another package's options", draft(func(value *protocol.ConversationStart) {
+				value.Config = config(func(value *protocol.SessionConfig) {
+					value.Options = map[string]map[string]json.RawMessage{"another-package": {"depth": json.RawMessage(`"deep"`)}}
+				})
+			}), nil, protocol.ErrorCodePermissionDenied, "conversation options belong to another package"},
+			{"read an owned session", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: owned.ID}}, nil, "", ""},
+			{"queue into an owned session", protocol.Command{Kind: "queue_turn", Data: &protocol.CommandQueueTurnPayload{Session: owned.ID}}, nil, "", ""},
+			{"read an owned session inside its worktree", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: owned.ID}},
+				func(scope *protocol.PluginContext) { scope.Worktree = &owned.Worktree }, "", ""},
+			{"read an owned session from another worktree", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: owned.ID}},
+				func(scope *protocol.PluginContext) { scope.Worktree = &other }, protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
+			{"read another package's session", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: foreign.ID}}, nil,
+				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
+			{"read an unassociated session", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: session.ID}}, nil,
+				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
+			{"read a missing session", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: protocol.NewSessionID()}}, nil,
+				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
+			{"read an owned session from a session scope", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: owned.ID}},
+				func(scope *protocol.PluginContext) { scope.Worktree, scope.Session = &session.Worktree, &session.ID },
+				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
+		} {
+			captured := scope
+			if scenario.change != nil {
+				scenario.change(&captured)
+			}
+			err := CheckPluginRequest(ctx, db, protocol.Request{Plugin: &captured, Command: scenario.command}, info)
+			var rejected *protocol.Fault
+			if scenario.code == "" && err != nil || scenario.code != "" && (!errors.As(err, &rejected) || rejected.Code != scenario.code || scenario.message != "" && rejected.Message != scenario.message) {
+				return fmt.Errorf("%s: unexpected session authority result: %v", scenario.name, err)
 			}
 		}
 		return nil
