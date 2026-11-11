@@ -224,9 +224,13 @@ func (x *conversationActions) Answer(id string, a composer.Answer) {
 		answer = protocol.ConversationQuestionAnswer{Kind: "form", Data: formAnswer(form, a.Values)}
 	case "url":
 		if f := x.r.interactionFlow(x.cv.ID); f.question == nil && x.r.controller.Connected() {
-			if link, ok := detail[protocol.ConversationQuestionInputUrlPayload](spec.Input.Data); ok {
-				x.c.OpenURL(link.Url)
+			link, ok := detail[protocol.ConversationQuestionInputUrlPayload](spec.Input.Data)
+			if !ok || !protocol.QuestionLinkAllowed(link.Url) {
+				// The link came from an MCP server through a Node; one this
+				// Desktop would not open is not answered as opened.
+				return
 			}
+			x.c.OpenURL(link.Url)
 		}
 		answer = protocol.ConversationQuestionAnswer{Kind: "opened"}
 	case "choice":

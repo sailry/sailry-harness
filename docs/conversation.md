@@ -731,7 +731,10 @@ shows the `chat_action_failed` toast.
 | Session of another project | `WrongTarget`: conversation belongs to another project |
 | Attachment that the same input does not carry | `InvalidRequest`: attachment references require an attachment of the same input |
 
-MCP form and URL elicitation uses the canonical question owner. Concurrent
+MCP form and URL elicitation uses the canonical question owner. An
+authorization link is HTTPS, or HTTP to `localhost` or a loopback address, with
+a host and no user information; the Node refuses any other request and the
+Desktop opens no other link. Concurrent
 questions keep distinct parent identities and decision wakes. Only active
 elicitation time pauses tool timing. Closing a turn joins its tool resources
 before settlement; failed cleanup retains `OutcomeUnknown`.
