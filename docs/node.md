@@ -198,6 +198,40 @@ wake assertion or telemetry sender.
 Plugin callers are refused, a cancellation stores nothing, and a repeated
 incident answers with its first notice without another event.
 
+The Node writes its own notices in the transaction of the change they report
+(`internal/node/store/notifications_system.go`), as Rust's
+`store/notifications/system.rs`:
+
+- A finished run of a main session writes one `task` notice: success for
+  `completed`, error for `failed` and `interrupted`, with the session's title,
+  the run's times and its fault code. `FinishTurn` writes it, so restart
+  recovery reports the runs it interrupts. A `cancelled` run is one its user
+  stopped and has no notice; a delegated run reports to its parent and has
+  none. A failure is not reported twice: a compaction failure that stopped the
+  turn, or a `system` diagnostic of the same incident and turn, is its notice.
+- A conversation entry the system writes with a compaction failure writes one
+  `diagnostic` notice naming that entry. The store writes it for any such
+  entry; the Go engine does not record compaction failures as entries yet (a
+  failed compaction fails its run, which the `task` notice reports), so this
+  notice has no producer in the engine today.
+- A turn that a dispatch job started and that begins to wait for an approval
+  or an answer writes one `task` notice whose status is still `running`:
+  warning for an approval, info for input. A scheduled run usually has no
+  connected controller to derive that attention, so the Node keeps it. The
+  notice has no finish time while the wait is open and gets one when the wait
+  ends; each later wait of the turn is a new notice. An answer or a stop marks
+  it read. A request that expired (the engine cancels an approval, and times
+  out a question other than plan acceptance, after 300 seconds) or that an
+  interruption closed stays unread, so its user finds it on return. Turns a
+  controller started have none: the controller derives their attention
+  itself, and it skips that derivation while the Node's notice is open, so a
+  wait is told once. Rust has no such notice.
+- A dispatch job that ends `failed` or `unknown` writes one `system`
+  diagnostic (`plugin_callback`, incident = the job's request, with the
+  package and handler), including a job refused when it is claimed. A job
+  whose callback admitted a turn is reported by that turn's `task` notice
+  instead, and a cancelled or skipped job has none. Rust has no such notice.
+
 `read_media_settings`, `list_media_models` and `save_media_settings` store which
 configured provider model serves the vision, image, video and speech purposes,
 and `synthesize_speech` reads text aloud with the assigned speech model. The

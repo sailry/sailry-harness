@@ -14,9 +14,11 @@ Its own third-party notices are retained unchanged in
 
 - **Lucide icons 1.58.0** (ISC, with the Feather-derived icons under MIT),
   embedded by the module's `icon` package and linked into Desktop.
-- **Mermaid documentation examples** in `diagram/testdata`. Sailry does not
-  import the `diagram` package, so neither these nor
-  `github.com/Broderick-Westrope/pele-go` are linked or shipped.
+- **Mermaid documentation examples** in `diagram/testdata`: test data of the
+  module's `diagram` package, not linked or shipped.
+- **`github.com/Broderick-Westrope/pele-go`**, which the `diagram` package
+  imports and Desktop links for `diagram.Mermaid`: see
+  [pele-go.md](pele-go.md).
 - The module's Go dependencies. Desktop links them at the versions in Sailry's
   own `go.mod`, listed in [go-modules.md](go-modules.md).
 

@@ -206,6 +206,7 @@ func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.
 		if err != nil {
 			return workspaceToolFault(err)
 		}
+		boundToolImages(result)
 		if keepImages != nil {
 			remaining := *keepImages
 			result.Content = slices.DeleteFunc(result.Content, func(content sdk.Content) bool {

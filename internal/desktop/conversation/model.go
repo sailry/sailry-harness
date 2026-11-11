@@ -238,7 +238,8 @@ type Retry struct {
 }
 
 // Visual is a diagram or chart the model drew, as Mermaid source, shown
-// in place (visuals): a data chart natively, any other diagram by limu.
+// in place (visuals): a data chart natively, any other diagram by
+// CrychicUI's diagram.Mermaid.
 type Visual struct {
 	Title   string
 	Mermaid string

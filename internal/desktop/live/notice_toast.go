@@ -22,10 +22,7 @@ func (r *Runtime) PresentNotice(notice *viewmodel.Notice) {
 		return
 	}
 	root.enqueue(func(c *ui.Context) {
-		title := notice.Title
-		if notice.TitleKey != "" {
-			title = i18n.T(c, notice.TitleKey)
-		}
+		title, body := noticeText(notice, i18n.Match(c.Locale()))
 		kind := "info"
 		switch notice.Kind {
 		case viewmodel.NoticeCompleted:
@@ -35,7 +32,11 @@ func (r *Runtime) PresentNotice(notice *viewmodel.Notice) {
 		case viewmodel.NoticeApproval:
 			kind = "warning"
 		}
-		toast := ui.Toast{ID: "notice/" + notice.ID, Type: kind, Title: title, Description: notice.Message, Timeout: kit.ToastDuration(c)}
+		toast := ui.Toast{ID: "notice/" + notice.ID, Type: kind, Title: title, Description: body, Timeout: kit.ToastDuration(c)}
+		// A persistent notice, as a reminder, stays until its user closes it.
+		if notice.Presentation != nil && notice.Presentation.Persistent {
+			toast.Timeout = -1
+		}
 		// While Demo mode shows, the window's own conversations and notices
 		// wait behind the demo's: the toast tells the notice and opens nothing.
 		if !root.App.Settings.DemoMode {

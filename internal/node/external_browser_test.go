@@ -29,6 +29,7 @@ import (
 func TestExternalBrowserRouting(t *testing.T) {
 	tool := func(name string) string { return operations.Alias("external-browser", name) }
 	worker, planner := &mediaScript{results: map[string]string{}}, &mediaScript{results: map[string]string{}}
+	late := &hookedScript{mediaScript: &mediaScript{results: map[string]string{}}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
 		Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
@@ -37,6 +38,8 @@ func TestExternalBrowserRouting(t *testing.T) {
 				return worker, nil
 			case "planner":
 				return planner, nil
+			case "late":
+				return late, nil
 			}
 			return nil, errors.New("unexpected model " + binding.Config.Model)
 		},
@@ -74,7 +77,7 @@ func TestExternalBrowserRouting(t *testing.T) {
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Browser fixture", true
 	provider.Api, provider.Authentication, provider.Endpoint, provider.DefaultModel = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, "http://127.0.0.1:1/v1", "worker"
-	for _, id := range []string{"worker", "planner"} {
+	for _, id := range []string{"worker", "planner", "late"} {
 		entry := protocol.DefaultConversationModel()
 		entry.ID, entry.Context, entry.Output, entry.Tools, entry.CustomCapabilities = id, 32000, 8000, true, true
 		provider.Models = append(provider.Models, entry)
@@ -285,6 +288,44 @@ func TestExternalBrowserRouting(t *testing.T) {
 		}
 		if sessions := node.externalBrowser.Sessions(); len(sessions) != 0 {
 			t.Fatalf("plan turn started browser sessions %v", sessions)
+		}
+	})
+
+	t.Run("a package disabled during its turn stops driving the browser", func(t *testing.T) {
+		late.steps = [][][3]string{
+			{{"discover", "tool_search", `{"query":"select:` + tool("browser_close_session") + `"}`}},
+			{{"enabled", tool("browser_close_session"), `{}`}},
+			{{"disabled", tool("browser_close_session"), `{}`}},
+		}
+		late.before = func(step int) {
+			if step != 3 {
+				return
+			}
+			accepted, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "external-browser"}}))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			info := (<-accepted.Completion).Output.Data.(protocol.PluginInfo)
+			accepted, err = node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "set_plugin_enabled",
+				Data: protocol.CommandSetPluginEnabledPayload{Name: "external-browser", ExpectedRevision: info.Summary.Revision, Enabled: false}}))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if outcome := <-accepted.Completion; outcome.Fault != nil {
+				t.Error(outcome.Fault)
+			}
+		}
+		run(t, "late", protocol.WorkModeCode)
+		late.mu.Lock()
+		results := late.results
+		late.mu.Unlock()
+		if !strings.Contains(results["enabled"], `"closed":true`) {
+			t.Fatalf("call of the enabled package = %q", results["enabled"])
+		}
+		if !strings.Contains(results["disabled"], "plugin is disabled") || strings.Contains(results["disabled"], `"closed"`) {
+			t.Fatalf("call of the disabled package = %q", results["disabled"])
 		}
 	})
 }

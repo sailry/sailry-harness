@@ -24,9 +24,10 @@ const (
 	previewW   = 280 // the hovered tick's preview
 )
 
-// navigation is the transcript's message navigation: a rail along its left
-// edge with a tick for each turn loaded, spread over the rail's height,
-// centered, at most tickSlot DIPs apart. The turn at the top of the view, or
+// navigation is the transcript's message navigation: a rail along the left
+// edge of the pane that holds the transcript and the composer, with a tick
+// for each turn loaded, spread over the pane's height, centered, at most
+// tickSlot DIPs apart. The turn at the top of the view, or
 // the last while the list shows its end, ticks in the foreground, the others
 // muted. Ticks near the pointer widen and brighten with a Gaussian falloff,
 // and the one under it shows the turn's first line beside it. A press on a
@@ -35,8 +36,8 @@ const (
 // where the transcript is wider than the content and a rail on each side, and
 // not for a delegated session's read-only transcript.
 //
-// The transcript's width is known as it paints, so the box over it
-// records it there and the rail takes the pointer only where it shows
+// The pane's width, the transcript's, is known as it paints, so the box over
+// it records it there and the rail takes the pointer only where it shows
 // ticks. Its painter and hit test are bound once, so a frame allocates
 // nothing for them, and the current turn is read from the list as it
 // paints, after layout, so the highlight follows the frame it shows.
@@ -65,7 +66,7 @@ type navigation struct {
 // wide reports whether the rail shows at the width painted last.
 func (u *navigation) wide() bool { return u.width >= railMin }
 
-// view builds the rail over the transcript's box, after its list.
+// view builds the rail over the pane, after the transcript and the composer.
 func (u *navigation) view(c *ui.Context, l *ui.ListState, turns []Turn) {
 	if u.paint == nil {
 		u.paint, u.hit, u.build, u.went = u.draw, u.hits, u.children, -1

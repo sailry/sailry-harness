@@ -464,7 +464,7 @@ func TestAgentManagementTools(t *testing.T) {
 				results = current
 				switch step {
 				case 1:
-					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief,create_goal,save_memory"}`}}
+					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief,create_goal,update_goal,save_memory"}`}}
 				case 2:
 					calls := [][3]string{
 						{"brief", "write_brief", `{"title":"Notes","html":"<p>Outline</p>"}`},
@@ -475,6 +475,13 @@ func TestAgentManagementTools(t *testing.T) {
 						calls = append(calls, [3]string{"goal", "create_goal", `{"description":"Ship the release"}`})
 					}
 					return calls
+				case 3:
+					// An active goal continues its session with further turns
+					// after this one ends, and those turns would answer from
+					// the next subtest's script: the turn finishes its goal.
+					if level.mode != protocol.WorkModePlan {
+						return [][3]string{{"finish", "update_goal", `{"goal_id":"` + field(t, current, "goal", "goal", "id") + `","expected_revision":"` + field(t, current, "goal", "goal", "revision") + `","description":"Ship the release","state":"completed"}`}}
+					}
 				}
 				return nil
 			})
@@ -485,11 +492,11 @@ func TestAgentManagementTools(t *testing.T) {
 			if refused := strings.Contains(results["memory"], "planning mode permits read-only tools"); refused != planning {
 				t.Errorf("memory under %s returned %.300q", level.name, results["memory"])
 			}
-			if !planning && (strings.Contains(results["memory"], "permission_denied") || !strings.Contains(results["goal"], "Ship the release")) {
-				t.Errorf("own storage was not written: %.300q, %.300q", results["memory"], results["goal"])
+			if !planning && (strings.Contains(results["memory"], "permission_denied") || !strings.Contains(results["goal"], "Ship the release") || !strings.Contains(results["finish"], `"state":"completed"`)) {
+				t.Errorf("own storage was not written: %.300q, %.300q, %.300q", results["memory"], results["goal"], results["finish"])
 			}
 			// The artifact and, outside Plan, the memory transaction record
-			// their storage authority; the plain goal handler records none.
+			// their storage authority; the plain goal handlers record none.
 			expected := 2
 			if planning {
 				expected = 1

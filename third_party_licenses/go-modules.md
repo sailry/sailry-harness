@@ -46,6 +46,7 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/bahlo/generic-list-go` | v0.2.0 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/Bios-Marcel/wastebasket/v2` | v2.0.3 | MPL-2.0 | `LICENSE` | D H |
 | `github.com/bmatcuk/doublestar/v4` | v4.10.4 | MIT | `LICENSE` | D H |
+| `github.com/Broderick-Westrope/pele-go` | v0.2.0 | MIT | `LICENSE` | D |
 | `github.com/buger/jsonparser` | v1.1.2 | MIT | `LICENSE` | D H |
 | `github.com/caelyreth/untie` | v0.5.0 | Apache-2.0, MIT | `LICENSE-APACHE`, `LICENSE-MIT`, `NOTICE` | D |
 | `github.com/caelyreth/untie/contrib/mygo` | v0.5.0 | No notice file in the module | none | D |
@@ -67,7 +68,6 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/emirpasic/gods` | v1.18.1 | BSD-2-Clause, ISC | `LICENSE` | D H |
 | `github.com/felixge/httpsnoop` | v1.1.0 | MIT | `LICENSE.txt` | D H |
 | `github.com/firede/limu` | v0.5.0 | MIT | `LICENSE` | D |
-| `github.com/firede/limu/limumygo` | v0.5.0 | MIT | `LICENSE` | D |
 | `github.com/fsnotify/fsnotify` | v1.10.1 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/gabriel-vasile/mimetype` | v1.4.16 | MIT | `LICENSE` | D H |
 | `github.com/getsentry/sentry-go` | v0.50.0 | MIT | `LICENSE` | D H |

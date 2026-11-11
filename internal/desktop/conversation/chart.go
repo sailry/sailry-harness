@@ -8,7 +8,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	mc "github.com/egoist/mygo/ui/chart"
-	"github.com/firede/limu"
 	"github.com/firede/limu/diagram"
 	"github.com/firede/limu/diagram/pie"
 	"github.com/firede/limu/diagram/xychart"
@@ -19,8 +18,8 @@ import (
 // Data charts of a reply (content/visuals): a Mermaid xychart or pie is
 // drawn here from limu's parsed model with MyGo's ui/chart, in the theme,
 // with the value of the mark under the pointer. Every other diagram, and a
-// chart whose data cannot be drawn, stays limu's picture (docs/crychic.md
-// says why CrychicUI's chart components are not the painters).
+// chart whose data cannot be drawn, is CrychicUI's picture (visuals.go;
+// docs/crychic.md says why its chart components are not the painters).
 
 const (
 	// chartWidth is the widest a chart is, chartHeight the height of a
@@ -30,7 +29,7 @@ const (
 	chartHeight = 200
 	chartTall   = 260
 	pieSize     = 180
-	// The most a chart draws; more is limu's picture.
+	// The most a chart draws; more is the diagram's picture.
 	maxPoints = 366
 	maxSeries = 8
 	maxSlices = 12
@@ -72,14 +71,19 @@ type dataChart struct {
 	total    float64
 }
 
-// chartOf is the chart of a parsed diagram: nil for a diagram that is not
-// a data chart, and for data the painters cannot show honestly.
-func chartOf(d *limu.Diagram) *dataChart {
-	switch m := d.Model().(type) {
-	case *xychart.Model:
-		return xyChart(m, d.Config())
-	case *pie.Model:
-		return pieChart(m)
+// chartOf is the chart of a diagram limu prepared: nil for a diagram that
+// is not a data chart, for data limu cannot parse, and for data the
+// painters cannot show honestly.
+func chartOf(p *diagram.Prepared) *dataChart {
+	switch p.Type {
+	case diagram.XYChart:
+		if m, err := xychart.ParsePrepared(p); err == nil {
+			return xyChart(m, p.Config)
+		}
+	case diagram.Pie:
+		if m, err := pie.ParsePrepared(p); err == nil {
+			return pieChart(m)
+		}
 	}
 	return nil
 }

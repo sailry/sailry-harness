@@ -472,9 +472,11 @@ dispatch service and require an online Node.
   The controls around the terminal remain Kit controls.
 - Flutter consumes shared Client state rather than its own conversation state
   machine.
-- Mermaid diagrams and math use limu and Untie through their MyGo adapters if
-  their B10 spikes pass; failed rendering keeps source text. They never use a
-  WebView. Session HTML uses an opaque-origin sandboxed MyGo WebView without a
+- Mermaid diagrams are drawn by CrychicUI's `diagram.Mermaid` on pele-go, and
+  xychart and pie by the conversation's own painter from the model limu's
+  parser reads; math uses Untie through its MyGo adapter if its B10 spike
+  passes. Failed rendering keeps source text. They never use a WebView.
+  Session HTML uses an opaque-origin sandboxed MyGo WebView without a
   bridge; browser content remains untrusted.
 - Voice reading and global selection shortcuts stay local to the controller and
   never start an Agent turn.

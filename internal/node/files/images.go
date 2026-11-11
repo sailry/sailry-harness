@@ -54,11 +54,35 @@ func ReadImage(ctx context.Context, f *core.Files, path string) (protocol.FileIm
 	out.InlineData = []protocol.InlineImage{{MimeType: mime, Data: base64.StdEncoding.EncodeToString(encoded)}}
 	return out, nil
 }
+
+// MaxCaptureBytes is the largest screenshot a tool may hand to PrepareCapture.
+const MaxCaptureBytes = 20 * 1024 * 1024
+
+// sentImageBytes is the largest image sent to a model or a conversation.
+const sentImageBytes = 3 * 1024 * 1024
+
+// PrepareImage bounds an image a user or a file supplies. It returns the
+// source facts, the facts of the reduced image when one was made, and the
+// bytes to send.
 func PrepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byte, error) {
-	var facts protocol.ImageFacts
 	if len(data) > protocol.MAX_IMAGE_BYTES {
-		return facts, nil, nil, invalid("image exceeds the inspection limit")
+		return protocol.ImageFacts{}, nil, nil, invalid("image exceeds the inspection limit")
 	}
+	return prepareImage(data)
+}
+
+// PrepareCapture bounds a screenshot a tool produced. A capture is taken at
+// the size of its subject, so it is accepted up to MaxCaptureBytes and reduced
+// like any other image instead of being refused.
+func PrepareCapture(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byte, error) {
+	if len(data) > MaxCaptureBytes {
+		return protocol.ImageFacts{}, nil, nil, invalid("capture exceeds 20 MiB")
+	}
+	return prepareImage(data)
+}
+
+func prepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byte, error) {
+	var facts protocol.ImageFacts
 	config, format, e := image.DecodeConfig(bytes.NewReader(data))
 	if e != nil {
 		return facts, nil, nil, invalid("image could not be decoded")
@@ -86,7 +110,7 @@ func PrepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byt
 		accepted = !animatedWebP(data)
 	}
 	orientation := jpegOrientation(data)
-	if accepted && config.Width <= protocol.MAX_IMAGE_SIDE && config.Height <= protocol.MAX_IMAGE_SIDE && len(data) <= 3*1024*1024 {
+	if accepted && config.Width <= protocol.MAX_IMAGE_SIDE && config.Height <= protocol.MAX_IMAGE_SIDE && len(data) <= sentImageBytes {
 		return facts, nil, data, nil
 	}
 	decoded, _, e := image.Decode(bytes.NewReader(data))
@@ -95,35 +119,42 @@ func PrepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byt
 	}
 	decoded = orientImage(decoded, orientation)
 	bounds := decoded.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-	if max(w, h) > protocol.MAX_IMAGE_SIDE {
-		scale := float64(protocol.MAX_IMAGE_SIDE) / float64(max(w, h))
-		w, h = max(1, int(float64(w)*scale)), max(1, int(float64(h)*scale))
+	// The longest side shrinks by a quarter while the encoding does not fit.
+	longest := max(bounds.Dx(), bounds.Dy())
+	for side := min(longest, protocol.MAX_IMAGE_SIDE); ; side = side * 3 / 4 {
+		if side < minimumImageSide && side < min(longest, protocol.MAX_IMAGE_SIDE) {
+			break
+		}
+		scale := float64(side) / float64(longest)
+		w, h := max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))
+		resized := image.NewNRGBA(image.Rect(0, 0, w, h))
+		xdraw.BiLinear.Scale(resized, resized.Bounds(), decoded, bounds, draw.Src, nil)
+		var encoded bytes.Buffer
+		mime = "image/png"
+		if format != "jpeg" {
+			e = png.Encode(&encoded, resized)
+		}
+		if format == "jpeg" || e == nil && encoded.Len() > sentImageBytes {
+			encoded.Reset()
+			opaque := image.NewRGBA(resized.Bounds())
+			draw.Draw(opaque, opaque.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+			draw.Draw(opaque, opaque.Bounds(), resized, image.Point{}, draw.Over)
+			e = jpeg.Encode(&encoded, opaque, &jpeg.Options{Quality: 85})
+			mime = "image/jpeg"
+		}
+		if e != nil {
+			return facts, nil, nil, invalid("image could not be encoded")
+		}
+		if encoded.Len() <= sentImageBytes {
+			sent := &protocol.ImageFacts{MimeType: mime, Width: uint32(w), Height: uint32(h), Size: uint64(encoded.Len())}
+			return facts, sent, encoded.Bytes(), nil
+		}
 	}
-	resized := image.NewNRGBA(image.Rect(0, 0, w, h))
-	xdraw.BiLinear.Scale(resized, resized.Bounds(), decoded, decoded.Bounds(), draw.Src, nil)
-	var encoded bytes.Buffer
-	mime = "image/png"
-	if format != "jpeg" {
-		e = png.Encode(&encoded, resized)
-	}
-	if format == "jpeg" || encoded.Len() > 3*1024*1024 {
-		encoded.Reset()
-		opaque := image.NewRGBA(resized.Bounds())
-		draw.Draw(opaque, opaque.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-		draw.Draw(opaque, opaque.Bounds(), resized, image.Point{}, draw.Over)
-		e = jpeg.Encode(&encoded, opaque, &jpeg.Options{Quality: 85})
-		mime = "image/jpeg"
-	}
-	if e != nil {
-		return facts, nil, nil, invalid("image could not be encoded")
-	}
-	if encoded.Len() > 3*1024*1024 {
-		return facts, nil, nil, invalid("image cannot be reduced below the model input limit")
-	}
-	sent := &protocol.ImageFacts{MimeType: mime, Width: uint32(w), Height: uint32(h), Size: uint64(encoded.Len())}
-	return facts, sent, encoded.Bytes(), nil
+	return facts, nil, nil, invalid("image cannot be reduced below the model input limit")
 }
+
+// minimumImageSide is where reduction stops: a smaller image is not legible.
+const minimumImageSide = 320
 
 // EXIF orientation is a single TIFF tag. Other metadata is left untouched.
 func jpegOrientation(data []byte) int {

@@ -38,13 +38,12 @@ type Status struct {
 
 // Service keeps the system awake while the setting is on and work is held.
 type Service struct {
-	mu            sync.Mutex
-	settings      protocol.PowerSettings
-	active        int
-	status        Status
-	backend       Backend
-	releaseFailed bool
-	failed        func(int64)
+	mu       sync.Mutex
+	settings protocol.PowerSettings
+	active   int
+	status   Status
+	backend  Backend
+	failed   func(int64)
 }
 
 // New creates the service over the system's request; failed receives the
@@ -89,12 +88,14 @@ func (s *Service) update(change func()) {
 	s.mu.Lock()
 	change()
 	needed := s.status.Enabled && !s.status.Closed && s.active > 0
+	// A refused request is asked again at the next change, so the saved
+	// setting takes effect once the system allows it; only the first refusal
+	// is reported.
 	var code int64
 	switch {
-	case !needed && s.status.Acquired && !s.releaseFailed:
+	case !needed && s.status.Acquired:
 		code = s.backend.Release()
-		s.releaseFailed = code != 0
-	case needed && !s.status.Acquired && s.status.Supported && s.status.Error == 0:
+	case needed && !s.status.Acquired && s.status.Supported:
 		code = s.backend.Acquire()
 	}
 	s.status.Acquired = s.backend.Held()
