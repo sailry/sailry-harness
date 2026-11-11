@@ -75,6 +75,9 @@ flaky.0.answer: |-
 
   `Reserve` 先检查座位是否被占用，再插入预订记录，这是**两条独立的语句**。两个同时到达的请求都会看到座位空闲。测试没有问题，是代码存在竞态。
 flaky.1.user: "修掉它，然后跑一遍完整的测试。"
+flaky.queue.ci: "CI 通过后创建拉取请求"
+flaky.queue.note: "在更新日志里补一行修复说明"
+flaky.held.bisect: "二分定位首个失败的提交"
 flaky.table.notice: "显示 12 行中的 3 行"
 flaky.1.answer: |-
   已修复。检查和插入现在处于同一个可串行化事务中，第二个请求会以 `ErrSeatTaken` 失败。
@@ -120,6 +123,8 @@ invoice.4.answer: |-
   - 它们都以欧元结算，回填时可以默认设为 `EUR`。
   - 加上这个默认值后，剩余批次应当可以原样通过。
 invoice.5.user: "先只回填 2024 年的。"
+invoice.queue.next: "然后回填 2025 年的数据"
+invoice.queue.finance: "把两年的合计发给财务团队"
 invoice.5.answer: "已按你的要求停止，完成了 12 批中的 3 批。已写入的 15 000 行数据有效，予以保留。"
 
 review.title: "和团队一起评审结账页改版"
@@ -138,6 +143,7 @@ review.0.answer: |-
   - **支付**：流程正确，梳理工作延续到了退款路径。
   - **无障碍**：因缺少测试账号而失败，需要重新运行。
 review.1.user: "重新做一次无障碍检查，同时测一下性能。"
+review.held.visual: "对比移动端断点"
 review.delegate: "3 位评审成员 · 结账页改版"
 
 onboard.title: "设计新手引导清单"
@@ -360,6 +366,10 @@ release.1.think: "三行：每个用户可见的变化各占一行，迁移说�
 
 translate.title: "翻译错误提示"
 translate.0.user: "把“Seat already taken”和“Rate limit exceeded”翻译成德语和法语。"
+translate.1.user: "再加上西班牙语和日语。"
+translate.1.partial: "**西班牙语**\n\n- Seat already taken：«El asiento ya está ocupado»"
+translate.queue.tone: "各语言都保持正式语气"
+translate.held.check: "对照术语表检查这些字符串"
 translate.0.answer: |-
   | 英语 | 德语 | 法语 |
   |---|---|---|
@@ -408,6 +418,8 @@ tool.screenshot: "页面截图"
 
 deploy.title: "将 2.4.0-rc.3 发布到预发布环境"
 deploy.0.user: "把候选版本 2.4.0-rc.3 发布到预发布环境，并运行迁移任务。"
+deploy.queue.prod: "预发环境正常后，准备生产环境的发布"
+deploy.queue.notes: "在团队频道发布本次发布摘要"
 deploy.0.think: "镜像已经构建好。预发布环境要经过堡垒机访问，而这个工作区还没有信任过这两台主机的密钥，所以先处理它们。然后是 values 文件、密钥文件、扩容、打标签和迁移任务。"
 deploy.approval.replaced: "此主机已记录的密钥添加于 10 月 12 日"
 deploy.ask.prompt: "什么时候开始发布？"
