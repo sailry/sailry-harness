@@ -414,6 +414,41 @@ func (s *Store) OnChange(f func()) func() {
 	return func() { s.mu.Lock(); delete(s.observers, id); s.mu.Unlock() }
 }
 
+// PluginDirectory is the local directory a Node's package was installed from,
+// while the Node still holds the content that installation gave it.
+func (d Data) PluginDirectory(node protocol.NodeID, name, digest string) (string, bool) {
+	if d.PluginDirectories == nil {
+		return "", false
+	}
+	directory, known := (*d.PluginDirectories)[PinKey(node, name)]
+	return directory.Path, known && directory.Digest == digest
+}
+
+// RememberPluginDirectory records the directory an installation came from. A
+// record of a later installation stays.
+func (d *Data) RememberPluginDirectory(node protocol.NodeID, name string, directory Directory) {
+	key := PinKey(node, name)
+	if d.PluginDirectories == nil {
+		d.PluginDirectories = &map[string]Directory{}
+	} else if known, exists := (*d.PluginDirectories)[key]; exists && known.InstallRevision > directory.InstallRevision {
+		return
+	}
+	(*d.PluginDirectories)[key] = directory
+}
+
+// ForgetPluginDirectory drops the record once the package was removed or
+// installed from elsewhere at the revision. A record of a later installation
+// stays.
+func (d *Data) ForgetPluginDirectory(node protocol.NodeID, name string, revision uint64) {
+	if d.PluginDirectories == nil {
+		return
+	}
+	key := PinKey(node, name)
+	if known, exists := (*d.PluginDirectories)[key]; exists && known.InstallRevision <= revision {
+		delete(*d.PluginDirectories, key)
+	}
+}
+
 func PinKey(node protocol.NodeID, session string) string {
 	return hex.EncodeToString(node[:]) + "/" + session
 }

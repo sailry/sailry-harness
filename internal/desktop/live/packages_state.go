@@ -29,6 +29,7 @@ type packageState struct {
 	failures           map[string]string
 	settings           map[string]protocol.PluginSettingsState
 	updates            map[string]protocol.PluginUpdatesReport
+	directories        map[string]*localPackage // the updates read from a local directory
 	catalog            map[string]protocol.PluginCatalogEntry
 	catalogSources     map[string]protocol.PluginCatalogSource
 	catalogInfos       map[string]protocol.PluginInfo
@@ -67,7 +68,7 @@ type packageState struct {
 func newPackageState() *packageState {
 	return &packageState{
 		infos: map[string]protocol.PluginInfo{}, removed: map[string]uint64{}, reads: map[string]bool{}, failures: map[string]string{},
-		settings: map[string]protocol.PluginSettingsState{}, updates: map[string]protocol.PluginUpdatesReport{},
+		settings: map[string]protocol.PluginSettingsState{}, updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
 		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, skillChecks: map[string]bool{},
 		documents: map[string]string{}, requests: map[string]protocol.Request{}, pending: map[string]protocol.Request{},
 		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{},
@@ -567,6 +568,10 @@ func (r *Runtime) packageCommandReport(command protocol.Command, failed string, 
 				delete(r.packages.requests, request.ID.String())
 				if info, ok := detail[protocol.PluginInfo](output.Data); ok && output.Kind == "plugin" {
 					r.packages.infos[info.Summary.Name] = info
+					if strings.HasPrefix(command.Kind, "install_") {
+						// The directory of an earlier installation is not this one's.
+						r.forgetPackageDirectory(info.Summary.Name, info.Summary.Revision)
+					}
 				}
 				if command.Kind == "remove_plugin" {
 					kit.Toast(c, kit.Done, i18n.T(c, "plugins_uninstalled"))
@@ -630,9 +635,19 @@ func (r *Runtime) uninstallPackage(id string, done func(bool)) {
 			}
 			delete(r.packages.infos, name)
 			delete(r.packages.updates, name)
+			r.forgetPackageDirectory(name, info.Summary.Revision)
 		}
 		done(ok)
 	})
+}
+
+// forgetPackageDirectory drops the local directory of a package removed or
+// installed again at the revision, with the update read from it.
+func (r *Runtime) forgetPackageDirectory(name string, revision uint64) {
+	delete(r.packages.directories, name)
+	if r.Preferences != nil {
+		r.Preferences.Data.ForgetPluginDirectory(r.controller.Target(), name, revision)
+	}
 }
 
 func optionalPackageText(value string) *string {

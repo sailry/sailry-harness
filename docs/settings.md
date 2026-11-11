@@ -24,6 +24,17 @@ Closing source discovery cancels its captured context and staged upload before
 admission. Selecting discovered skills transfers ownership to the durable
 installation queue. A later dialog close does not stop an admitted install.
 
+A plugin installed from a controller-local directory is one the Node cannot
+check for updates (`manual` in its report). The desktop remembers that
+directory in `plugin_directories` of its preferences, per Node and package,
+with the digest and revision the installation gave. Check updates reads the
+directory again while the Node still holds that digest, uploads it and offers
+a strictly newer version as the update, or reports the Sailry version it
+needs; Update installs that upload and remembers the directory for the new
+digest. A missing directory leaves the package without an update; another
+package found there is a check failure. Any other installation of the package
+and its removal drop the record.
+
 Market cards derive installed identity from the package or skill's recorded
 source, including registry namespace and Git repository/path. Catalog versions
 and release notes merge with the immutable installed manifest; a catalog slug
@@ -318,6 +329,12 @@ hover style.
 
 ## Deviations
 
+- A remembered plugin directory offers only a strictly newer version. The
+  reference also offers changed content whose version is not semantic; the
+  packages list here marks an update by its version, and a same-version change
+  is not an update anywhere else. The reference's package editor, which reads
+  the remembered directory again for Update, has no counterpart: Check updates
+  is the one path.
 - Experimental is a section the reference does not have: the sidebar's
   performance indicator, moved from General, and Demo mode (user decision
   2026-11-11). It sorts after every page of the System group but About,
