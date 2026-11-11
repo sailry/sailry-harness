@@ -212,7 +212,7 @@ the embedding capabilities through the unexported `Options.knowledge` seam.
 | Keyword scores come from SQLite FTS5 `bm25` | The Go store is SQLite; the reference scores with its own engine's FTS |
 | Globs use the package's translator; chunk keys and scope hashes hash Go's JSON encoding | No byte compatibility with a reference index is required; indexes are derived data |
 | Directory entries are scanned in sorted order | Deterministic passes and tests |
-| Watches use fsnotify per directory | The module's existing watcher; a failed backend falls back to the five-minute poll |
+| Watches go through `internal/node/fswatch` ([files.md](files.md#file-watches)): on macOS one FSEvents stream per source root, filtered to the scanned directories; elsewhere one fsnotify watch per scanned directory | The reference watches each scanned directory; fsnotify on macOS would hold a descriptor per file. A failed backend falls back to the five-minute poll |
 | The OCR extractor signature is the hash of the selected OCR resource | It changes exactly when recognized text may change |
 | Durable knowledge mutations complete inside `Dispatch` | They are single short transactions |
 | Citations open in the Desktop viewer only | See [shell.md](shell.md#deviations) |
