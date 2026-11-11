@@ -290,7 +290,9 @@ The usage at the bar's end is `State.Metrics`, drawn by
 `conversation.UsageBar` (the reference's `conversation/usage.rs`,
 `usage/external.rs`, `usage/summary.rs` and `live/context.rs` `context_bar`):
 figures 12 apart, each a 14 icon and its value in muted 14, in their declared
-order.
+order. The figures and their cards keep these sizes: they do not follow the
+message text size, which scales the transcript's content only (user decision
+2026-11-12; `TestGrouping/UsageSize`).
 
 - A live session's figures are the packages' (`live/plugin_metrics.go`): the
   footer slot's first, a provider's account status (`provider-status`
