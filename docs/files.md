@@ -121,6 +121,11 @@ content is a conflict. Rust refuses the repeated restore as a conflict; the
 changes card remembers an Undo only while its conversation stays open, so a
 repeated Undo has to succeed rather than report a conflict that does not exist.
 
+A checkpoint is captured in the transaction that admits its request, so a
+replayed request is answered from the ledger before capture and an approval that
+already has a checkpoint is a `conflict`. Rust captures in a separate
+transaction and therefore accepts a repeated capture with identical content.
+
 Checkpoint text and attachment bindings live as long as a remaining session
 lists their turn; removing the last such session deletes them, the attachment
 rows that lose their last binding and then the attachment files
