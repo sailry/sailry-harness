@@ -115,7 +115,7 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient,a.input FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
+	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient,a.input,p.request FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
 	if err != nil {
 		return value, err
 	}
@@ -125,20 +125,28 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 		var revision uint64
 		var ready bool
 		var recipient sql.NullString
-		if err = rows.Scan(&body, &revision, &ready, &requestBody, &recipient, &capturedInput); err != nil {
+		var requestID string
+		if err = rows.Scan(&body, &revision, &ready, &requestBody, &recipient, &capturedInput, &requestID); err != nil {
 			return value, err
 		}
 		var run protocol.ConversationRun
-		var request protocol.Request
 		if err = json.Unmarshal(body, &run); err != nil {
 			return value, err
 		}
-		if err = json.Unmarshal(requestBody, &request); err != nil {
-			return value, err
+		id, e := protocol.ParseRequestID(requestID)
+		if e != nil {
+			return value, e
 		}
-		message, e := agentInput(request.Command)
+		// Captured input is read from the run: a request admitted inside a
+		// plugin transaction is stored as a digest, not as its command.
+		var message protocol.ConversationInput
 		if len(capturedInput) > 0 {
 			e = json.Unmarshal(capturedInput, &message)
+		} else {
+			var request protocol.Request
+			if e = json.Unmarshal(requestBody, &request); e == nil {
+				message, e = agentInput(request.Command)
+			}
 		}
 		if e != nil {
 			return value, e
@@ -147,7 +155,7 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 		pending := protocol.DefaultConversationPending()
 		pending.Turn = run.Turn
 		pending.Notice = run.Notice
-		pending.Request = &request.ID
+		pending.Request = &id
 		pending.Kind = run.Kind
 		pending.Revision = revision
 		pending.ConfigRevision = run.Revision

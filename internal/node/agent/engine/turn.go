@@ -163,6 +163,13 @@ func (r *Runtime) execute(x *execution) {
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
 		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
 	}
+	// Packages observe every ended main task turn, whatever its status, once
+	// its end is stored and published. A stopping Node calls none.
+	unlock()
+	unlock = nil
+	if r.afterTurn != nil && r.ctx.Err() == nil && child == nil && x.inv.Session.Delegation == nil && x.inv.Run.Kind == protocol.ConversationRunKindTask {
+		r.afterTurn(r.ctx, x.inv, run.Status)
+	}
 }
 
 func inputRecord(turn protocol.TurnID, input protocol.ConversationInput, nowClock *Runtime) canonical.Record {
