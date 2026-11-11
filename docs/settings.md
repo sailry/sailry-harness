@@ -851,7 +851,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
 | About | Version, Build | `link.ProductVersion`; `settings_build_release` when the build carries a revision, otherwise `settings_build_debug` |
-| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning) |
+| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning). A channel never saved is the running build's (`updater.InitialChannel`: a prerelease starts on Experience) and is written once About shows it |
 
 The updater verifies the signed `update-v1` catalog against the release-owned
 ed25519 keys, the archive's zipsign signature and digest, the bundle identifier
