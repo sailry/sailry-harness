@@ -106,6 +106,12 @@ run. It subscribes to a child's own conversation only while that child's
 activity waits on approval, to present the pending cards in the parent's
 composer, or while its tab is open.
 
+When a child run ends in any status other than `continued`, the Node stops the
+child session's background commands through the process service. Background
+completions are never delivered to a delegated session and nothing hands a
+child's commands to its parent, so a command left running would have no reader.
+A child that needs a command's result reads it before it answers.
+
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
 conversation feed; ordinary approval ownership remains on the child session.
@@ -124,3 +130,5 @@ described in [Teams and roles](teams.md#agent-catalog-tools).
 - Rust refreshes a parent's statistics after every child event. Go refreshes
   them with the parent's feed (child start, finish and interactions); the
   totals are the same once the child settles.
+- Rust leaves a child's background commands running until the parent session
+  is deleted. Go stops them when the child's run ends.

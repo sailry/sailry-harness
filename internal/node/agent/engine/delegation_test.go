@@ -560,6 +560,8 @@ func TestStopSingleChild(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	stopped := make(chan protocol.SessionID, 4)
+	f.r.stopCommands = func(session protocol.SessionID) { stopped <- session }
 	f.start()
 	parent := f.submit("Parent task")
 	select {
@@ -620,6 +622,15 @@ func TestStopSingleChild(t *testing.T) {
 		}
 		if language.count() != 3 {
 			t.Fatalf("model requests=%d", language.count())
+		}
+		// Only the child that ran can own commands; they end with its run.
+		select {
+		case session := <-stopped:
+			if session != read(children[0]).Session || len(stopped) != 0 {
+				t.Fatalf("commands stopped for %s and %d more sessions", session, len(stopped))
+			}
+		case <-f.ctx.Done():
+			t.Fatal("the ended child's commands were not stopped")
 		}
 	})
 }

@@ -34,6 +34,9 @@ type Options struct {
 	Telemetry         *telemetry.Control
 	// Working, when set, brackets every running turn.
 	Working func() func()
+	// StopCommands, when set, stops a session's background commands. The
+	// engine calls it for a child session whose run has ended.
+	StopCommands func(protocol.SessionID)
 }
 
 type Runtime struct {
@@ -45,6 +48,7 @@ type Runtime struct {
 	hooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
 	telemetry         *telemetry.Control
 	working           func() func()
+	stopCommands      func(protocol.SessionID)
 	db                *store.Handle
 	node              protocol.NodeID
 	profile           string
@@ -110,7 +114,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 		options.Model = model.New
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runtime{telemetry: options.Telemetry, working: options.Working, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
+	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never
