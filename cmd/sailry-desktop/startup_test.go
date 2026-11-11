@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
 )
@@ -86,6 +88,72 @@ func TestInstanceLock(t *testing.T) {
 			}, item.successor, func() { pauses++ })
 			if locked != item.locked || requests != item.requests || pauses != item.requests-1 {
 				t.Fatalf("locked %v after %d requests and %d pauses", locked, requests, pauses)
+			}
+		})
+	}
+}
+
+func TestProfileRestart(t *testing.T) {
+	t.Parallel()
+	for _, item := range []struct {
+		name              string
+		check, stop, swap error
+		confirmed         bool
+		refused, relaunch bool
+		failure           error
+		steps             string
+	}{
+		{name: "a restored profile that cannot be used changes nothing", check: errors.New("no database"), confirmed: true, refused: true, steps: "check"},
+		{name: "a restart that is not confirmed changes nothing", steps: "check confirm"},
+		{name: "the profiles are swapped once the Node has stopped", confirmed: true, relaunch: true, steps: "check confirm stop swap relaunch"},
+		{name: "a failed swap is shown before the restart", swap: errors.New("rename failed"), confirmed: true, relaunch: true, failure: errors.New("rename failed"), steps: "check confirm stop swap failed relaunch"},
+		{name: "a Node that did not stop keeps its profile", stop: errors.New("stop failed"), confirmed: true, relaunch: true, failure: errors.New("stop failed"), steps: "check confirm stop failed relaunch"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			t.Parallel()
+			var steps []string
+			done := make(chan struct{})
+			var failure error
+			restart := &profileRestart{
+				profile: "/profiles/main",
+				check: func(_ context.Context, current, restored string) error {
+					steps = append(steps, "check")
+					if current != "/profiles/main" || restored != "/profiles/restored" {
+						t.Errorf("checked %q against %q", restored, current)
+					}
+					return item.check
+				},
+				stop: func() error { steps = append(steps, "stop"); return item.stop },
+				swap: func(_ context.Context, current, restored string, _ time.Time) (string, error) {
+					steps = append(steps, "swap")
+					return current + ".before-restore", item.swap
+				},
+				main:     func(run func()) { run() },
+				failed:   func(err error) { steps = append(steps, "failed"); failure = err },
+				relaunch: func() { steps = append(steps, "relaunch"); close(done) },
+			}
+			refused := false
+			restart.run("/profiles/restored", func(error) { refused = true; close(done) }, func(proceed func()) {
+				steps = append(steps, "confirm")
+				if !item.confirmed {
+					close(done)
+					return
+				}
+				proceed()
+			})
+			<-done
+			if strings.Join(steps, " ") != item.steps || refused != item.refused {
+				t.Fatalf("steps %q, refused %v", steps, refused)
+			}
+			if (failure == nil) != (item.failure == nil) || failure != nil && failure.Error() != item.failure.Error() {
+				t.Fatalf("shown failure = %v", failure)
+			}
+			// The Node is stopped once: a second request does nothing.
+			if item.relaunch {
+				restart.replace("/profiles/restored")
+				if strings.Join(steps, " ") != item.steps {
+					t.Fatalf("a second replacement ran: %q", steps)
+				}
 			}
 		})
 	}

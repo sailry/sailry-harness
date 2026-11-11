@@ -27,6 +27,9 @@ type backupDialogs struct {
 	restore               BackupRestore
 	removing              bool
 	removed, removedTitle string
+	// restarting offers the restart on the profile just restored at restart.
+	restarting bool
+	restart    string
 }
 
 // Check validates the storage draft: the i18n key of the problem, or "".
@@ -220,6 +223,10 @@ func backup(c *ui.Context, m *Model) {
 	}
 	recordsDialog(c, m)
 	restoreDialog(c, m)
+	// The consequence for the profile in use is said once.
+	if confirm(c, "restart-restored", &d.restarting, t("backup_restart_restored")+"?", t("backup_restart_consequence"), t("updates_restart")) && a != nil {
+		a.Restart(d.restart)
+	}
 	if d.removing && a != nil {
 		// Destructive: the session is named and its consequence said once.
 		if kit.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", t("backup_delete_session_consequence"),

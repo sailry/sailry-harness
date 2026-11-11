@@ -45,6 +45,15 @@ type backupSettingsState struct {
 	shown   *Runtime
 	visible bool
 	actions *settings.BackupActions
+	// restart is the Desktop's switch to a restored profile; nil without one.
+	restart func(restored string, refused func(error))
+}
+
+// SetRestartProfile gives the Backup page the Desktop's restart on a profile
+// restored by its own Node. refused reports, from any goroutine, a restored
+// profile that cannot be used: nothing was changed.
+func (r *Runtime) SetRestartProfile(restart func(restored string, refused func(error))) {
+	r.localRuntime().backupSettings.restart = restart
 }
 
 // backupSchedule is the schedule as the page drafts it.
@@ -77,6 +86,8 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Backup
 	entered := visible && !state.visible
 	state.visible = visible
+	// Only this Desktop's own profile can be switched and restarted.
+	state.actions.Restartable = owner == root && state.restart != nil
 	if owner == nil {
 		m.Backup.Pending, m.Archived, m.Sessions = true, nil, 0
 		state.actions.Records, state.actions.Partial, state.actions.Listing = nil, false, false
@@ -532,6 +543,14 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			command := protocol.Command{Kind: "restore_backup", Data: protocol.CommandRestoreBackupPayload{ID: restore.ID,
 				ExpectedRevision: owner.backupSettings.saved.Revision, Target: restore.Target, Passphrase: backupPassphrase(restore.Passphrase), Location: location}}
 			owner.submitBackup(command, "backup_restored", backupFailure, finished)
+		},
+		Restart: func(target string) {
+			if state.restart == nil || state.shown != r {
+				return
+			}
+			state.restart(target, func(error) {
+				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "backup_restart_invalid")) })
+			})
 		},
 		Unarchive: func(id string) {
 			if owner := ready(); owner != nil {

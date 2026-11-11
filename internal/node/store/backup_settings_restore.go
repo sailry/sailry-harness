@@ -111,6 +111,12 @@ func checkRestoredKnowledge(ctx context.Context, path string) error {
 	return errors.Join(err, handle.Close())
 }
 
+// RelocateProfile rewrites the stored paths that point into the profile at
+// original so they point into target, for a profile that is about to move.
+func RelocateProfile(ctx context.Context, db *sql.Conn, original, target string) error {
+	return relocateRestored(ctx, db, original, target)
+}
+
 func relocateRestored(ctx context.Context, db *sql.Conn, original, target string) error {
 	for _, table := range []string{"projects", "worktrees"} {
 		rows, err := db.QueryContext(ctx, "SELECT id,path FROM "+table)

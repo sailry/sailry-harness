@@ -2206,3 +2206,7 @@ backup_keep_consequence: After each backup, older backups of this Node are delet
 backup_last: Last backup
 backup_last_done: Completed
 backup_last_skipped: '%{count} items skipped'
+backup_restart_restored: Restart with restored profile
+backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
+backup_restart_invalid: The restored profile cannot be used; nothing was changed
+backup_restart_failed: Sailry could not switch to the restored profile

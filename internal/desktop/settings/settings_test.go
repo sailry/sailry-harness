@@ -2113,6 +2113,23 @@ func TestExtensions(t *testing.T) {
 		m.Backup.Saved.Keep = 5
 		tt.Frame()
 		shows(i18n.In("en", "backup_keep_last", "count", 5))
+		// A restored profile is offered in place of the one in use; the
+		// restart happens only when it is confirmed.
+		var restarted []string
+		m.BackupActions.Restart = func(target string) { restarted = append(restarted, target) }
+		m.backups.restart, m.backups.restarting = "/profiles/restored", true
+		tt.Frame()
+		shows(i18n.In("en", "backup_restart_restored")+"?", i18n.In("en", "backup_restart_consequence"))
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
+		if len(restarted) != 0 || m.backups.restarting {
+			t.Fatalf("a declined restart ran: %v", restarted)
+		}
+		m.backups.restarting = true
+		tt.Frame()
+		clickButton(t, tt, i18n.In("en", "updates_restart"))
+		if !slices.Equal(restarted, []string{"/profiles/restored"}) || m.backups.restarting {
+			t.Fatalf("the confirmed restart ran %v", restarted)
+		}
 	})
 	// A list row with no action is not a button and takes no hover style;
 	// one with an action is, and does.

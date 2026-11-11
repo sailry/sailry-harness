@@ -105,6 +105,13 @@ func run() error {
 		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Stop, func() { mygo.RunOnMain(guard.pass) })
 		defer updates.Service.Close()
 	}
+	var restart *profileRestart
+	if backend.Client != nil {
+		restart = newProfileRestart(backend, func() {
+			guard.passing = true
+			mygo.App.Relaunch()
+		})
+	}
 	var refreshCommands func()
 	refreshCommands = func() {
 		if active == nil {
@@ -202,6 +209,13 @@ func run() error {
 				}
 			})
 			runtime.SetPreferencesChanged(applyPreferences)
+			runtime.SetRestartProfile(func(restored string, refused func(error)) {
+				restart.run(restored, refused, func(proceed func()) {
+					if !guard.ask(entry, windows, true, proceed) {
+						proceed()
+					}
+				})
+			})
 			if updates != nil {
 				runtime.SetUpdates(updates, func() bool { return active == entry })
 			}

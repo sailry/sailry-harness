@@ -336,8 +336,10 @@ func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 			if err != nil || !filepath.IsLocal(relative) {
 				continue
 			}
+			// A folder the user registered inside the profile is theirs,
+			// as one outside it: only Sailry's own workspaces are archived.
 			if !core.ManagedWorkspace(value, profile) {
-				return backup.Plan{}, nil, invalid("worktree is outside a managed profile workspace")
+				continue
 			}
 			roots = append(roots, filepath.ToSlash(relative))
 		}

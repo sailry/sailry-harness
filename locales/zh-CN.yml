@@ -2804,3 +2804,7 @@ backup_keep_consequence: 每次备份后，将从存储中删除此节点更早�
 backup_last: 上次备份
 backup_last_done: 已完成
 backup_last_skipped: "已跳过 %{count} 项"
+backup_restart_restored: 使用恢复的数据重启
+backup_restart_consequence: Sailry 将使用恢复的数据重启，当前数据目录会以带日期的名称保留在其旁边
+backup_restart_invalid: 恢复的数据无法使用，未做任何更改
+backup_restart_failed: Sailry 无法切换到恢复的数据
