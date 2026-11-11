@@ -289,14 +289,29 @@ func TestModelPickerAndEffort(t *testing.T) {
 	if hi < rest+10 || lo < rest-2 {
 		t.Errorf("the sheen over the highest effort's fill: rest %d, darkest %d, lightest %d", rest, lo, hi)
 	}
-	// The model list chooses another model; a reasoning model takes its
-	// effort from a submenu.
+	// The model list chooses another model; a reasoning model's efforts are
+	// the column beside the list, which follows the pointer moving on the
+	// model's row. No menu opens over the panel.
 	clickButton(t, tt, "Claude Opus 5.5") // the panel's model, which opens the list
 	// The list opens under the pointer; choosing a provider does not
 	// depend on which row the pointer happens to rest on.
 	clickButton(t, tt, i18n.In("en", "provider_openai"))
-	clickItem(t, tt, "GPT-5.2")
-	clickItem(t, tt, "high")
+	row, ok := tt.AccessByRole(ui.RoleButton, "GPT-5.2")
+	if !ok {
+		t.Fatalf("no model row GPT-5.2: %q", tt.Texts())
+	}
+	tt.Move(row.Bounds.X+24, row.Bounds.Y+row.Bounds.H/2)
+	tt.Frame()
+	tt.Move(row.Bounds.X+20, row.Bounds.Y+row.Bounds.H/2)
+	tt.Frame()
+	if _, ok := tt.AccessByRole(ui.RoleMenuItem, ""); ok {
+		t.Errorf("a menu opens over the model list: %q", tt.Texts())
+	}
+	high, ok := tt.AccessByRole(ui.RoleOption, "high")
+	if !ok {
+		t.Fatalf("no effort row high beside the model list: %q", tt.Texts())
+	}
+	tt.ClickAt(high.Bounds.X+high.Bounds.W/2, high.Bounds.Y+high.Bounds.H/2)
 	tt.Frame()
 	if comp.Model != "gpt-5.2" {
 		t.Fatalf("model %q", comp.Model)

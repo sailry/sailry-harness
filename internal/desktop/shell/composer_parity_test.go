@@ -443,6 +443,7 @@ func composerParity(t *testing.T) {
 	})
 
 	t.Run("choice menus", composerMenus)
+	t.Run("model picker", composerModels)
 }
 
 // headerParity are the conversation page's header actions and its own keys:

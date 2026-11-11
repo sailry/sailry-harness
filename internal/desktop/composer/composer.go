@@ -88,9 +88,9 @@ type State struct {
 	// capability is the rail's capability filter (Capability.ID), "" for none.
 	capability string
 	open       map[string]bool
-	efforts    string // the model whose efforts submenu shows
-	settings   bool   // the compact settings popover
-	stats      bool   // the compact usage popover
+	efforts    effortState // the model picker's effort column
+	settings   bool        // the compact settings popover
+	stats      bool        // the compact usage popover
 	page       settingsPage
 	width      float32 // the toolbar's width last frame
 

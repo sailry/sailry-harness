@@ -26,7 +26,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
 | `options.go` | Mode and permission menus (with the packages' modes), host, project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
-| `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
+| `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray |
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
@@ -194,6 +194,39 @@ The context bar has one project control and at most one branch control:
   `composer_select_model` and calls `Context.SelectModel`
   (`model_label` and `Event::Settings`); `composer_model_empty` is only the
   picker's empty search result.
+- The model picker is a page of that popover (the controls' model opens it,
+  Back returns): three columns the panel's height, 8 and a 1 DIP hairline
+  (`Border`) and 8 between them.
+  - The rail, 48 wide: Back, the families, then the capability filter.
+  - The providers' groups and their models, 236 wide, scrolling. A row is 32
+    high, 8 inside, `RadiusLg`: the name, the capability marks, the score.
+    The chosen model's is filled with the primary color at 12%.
+  - The efforts, 132 wide, a listbox named `composer_effort` under that
+    heading (12, muted): the levels of one model as rows of the same shape,
+    by their IDs, each with the score measured at it (`Model.Scores`, else
+    `Model.Score` at its `Tested` level) and a check on the one the model's
+    row would choose. A model without efforts shows `composer_effort_unavailable`
+    in the rows' place, so the panel keeps its width.
+  - The column lists the chosen model's efforts until the pointer moves on
+    another model's row or the focus comes to it; that row is then filled
+    with `Hover` and stays so while the pointer or the focus is in the
+    column. A pointer at rest takes nothing from the keys. From the column's
+    own row a pointer headed for the column, more rightwards than up or down
+    (read every 6 DIPs), crosses the rows between without giving them the
+    column. Changing the family, the filter or a group gives the column back
+    to the chosen model.
+  - A model's row chooses it at the effort chosen now where the model has a
+    level of that name, else at its default (`DefaultEffort`, medium, the
+    middle). An effort's row chooses the column's model at that effort.
+    Either goes back to the controls with the popover open, as the efforts'
+    menu did; no menu opens over the panel.
+  - The controls are 296 wide and the picker 450; the popover takes the
+    page's width at once and clips while its own width eases. In a window
+    too narrow for 450 and the popover's edges (42) the rail and the efforts
+    keep their widths and the models between them narrow, their names
+    truncating, never under the controls' 296. The production window is at
+    least 760 wide, where the three columns always fit; the compact settings
+    popover hosts the same page by the same rule.
 - Send is Kit's primary button with the arrow; Stop, the square, replaces it
   while a reply runs; while dictating without a running reply neither shows.
   Send is disabled (light: `secondary_active` fill; dark: the primary fill at
@@ -344,6 +377,12 @@ type Actions interface {
   query goes back a page, Escape closes it until the trigger changes. A row
   under a resting pointer does not take the selection from the keys: the
   pointer selects once it moves.
+- Model picker: it opens with the focus on the chosen model's row. Up, Down,
+  Home and End move round a column (a MyGo focus group each); Right or Tab
+  go from the models to the checked effort of the column's model, where it
+  has efforts; Left goes back to that model's row and Shift+Tab to the row
+  that had the focus; Enter chooses the focused row; Escape closes the
+  popover. ⇧⌘M opens the controls, whose model button opens the picker.
 - Escape order: references picker (in the draft) → transcript search (its
   overlay shortcut) → queue edit → stop. The window shortcut is only
   claimed (`State.Escapes`) when the picker is closed, search is closed and
@@ -641,7 +680,8 @@ focus without sending. Native callbacks are composed by `cmd/sailry-desktop`.
 ## Tests
 
 `internal/desktop/shell/shell_test.go`: send, Enter and stop; the model picker
-(effort track, family rail, efforts submenu, non-reasoning model); the
+(effort track, family rail, the effort column under a moving pointer,
+non-reasoning model); the
 worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
 `internal/desktop/shell/composer_parity_test.go`, run as steps of
@@ -673,6 +713,16 @@ and the row under the pointer filled, by pixel; the Full access control and
 description in the warning color; a package mode's tile tinted, the same in
 two windows; the settings popover's permission page with the same rows.
 `SAILRY_SNAPSHOTS` set saves `.runtime/ui-shots/composer-menus-zh-CN-{dark,light}.png`.
+`composerModels` (`composer_models_test.go`, a step of the composer parity):
+the effort column inside the one panel, right of the models, in dark and
+light, with a hairline between them by pixel; no menu or second popover
+over a model with efforts; the column under a moving pointer and under the
+focus, with the effort a model's row keeps or falls back to; the line and
+the unchanged panel for a model without efforts; an effort's row choosing
+its model and leaving the popover open on its controls; the scores by
+effort; Right, Tab, Left, Shift+Tab, Up, Down, Enter and Escape; the narrow
+window; and no frame asked for at rest. `SAILRY_SNAPSHOTS` set saves
+`.runtime/ui-shots/composer-model-picker-zh-CN-{dark,light}.png`.
 The Kit menu's test (`kit/menu_test.go`, `choice rows`) checks the row alone
 and that an open menu at rest asks for no frame.
 The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
@@ -698,6 +748,9 @@ and every failure, over a fake microphone and recognizer.
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |
 | Chips are `TextRanges` (primary color, weight 500), deleted whole by Backspace; no click on a chip | A MyGo text area draws no inline elements |
 | The model score ring is a tooltip with axis bars | No ring component; the data is the same |
+| A model's efforts are a column of the picker's panel, not a menu beside its row (user decision 2026-11-11) | The menu floated over the list and left the panel's side empty; the column is the one place to choose an effort |
+| A model's row chooses it at once, at the effort chosen now or its default | With the menu gone a row no longer opens anything; the column shows that effort checked before the click |
+| The picker's rows are `ButtonBase` rows, the efforts with the option role in a listbox | A MyGo list or menu row has no place for the capability marks and the score with its tooltip, and the two columns share one row |
 | `kit.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. The composer, `conversation.ContextRing` and the plugin controls share the one drawing |
 | A ring's value changes at once | Kit's `ProgressCircle` eases a changed value over its normal duration |
 | The preview's ring shows the scene's usage | The reference's preview ring is always empty; ours is the same `kit.Ring`, 15 across |
