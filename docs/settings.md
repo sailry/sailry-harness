@@ -785,7 +785,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 
 | Page | Control | Live behavior |
 |---|---|---|
-| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and work runs: a turn, a command, an installation, a knowledge collection indexing changed sources, a code index query or a backup (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
+| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and work runs: a turn, a command, an installation, a knowledge collection indexing changed sources, a code index query or a backup (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice per Node process and is asked again at the next change of the setting or of running work, as is a refused release |
 | General | Error reports, Usage metrics | `save_telemetry_settings`; the Node reapplies consent after each committed change. With Error reports off no failure, interface hang or crash is reported or kept for a later report; with Usage metrics off nothing is counted, feature uses included, and no timer runs. Turning either off drops what was pending |
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
@@ -802,7 +802,8 @@ Deviations from the reference:
 
 | Deviation | Reason |
 |---|---|
-| Keep-awake is held only while work runs, not whenever the setting is on | An idle Node has nothing to finish, so the machine may sleep; `power.Service.Hold` is the one counter and every source brackets its own work with it. A terminal alone does not count |
+| Keep-awake is held only while work runs, not whenever the setting is on | An idle Node has nothing to finish, so the machine may sleep; `power.Service.Hold` is the one counter and every source brackets its own work with it. A terminal alone does not count. A pending schedule is not work either: the machine may sleep before a fire, which then runs after the wake ([dispatch](dispatch.md#wall-clock-sleep-and-catch-up)) |
+| A refused keep-awake request or release is asked again | The reference stops asking after the first refusal for the life of the process, which with a request per piece of work would leave the saved setting without effect after one transient refusal. Still one notice per process |
 | The MyGo updater is not used | It cannot verify the signed `update-v1` envelope or zipsign archives, keep Download, Ready and Install as separate steps, or report the reference's failure keys; the documented fallback ports the reference's verification |
 | Installation is macOS only; other systems fail a check with `updates_platform` | The reference's out-of-process Windows install helper and draft recovery are not ported |
 | A host's required-version check is not requested by Hosts | `Service.CheckVersion` exists; no caller is wired |

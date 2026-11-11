@@ -700,7 +700,7 @@ type powerFixture struct {
 	mu                 sync.Mutex
 	held               bool
 	acquired, released int
-	refuse             int64
+	refuse, stuck      int64
 }
 
 func (f *powerFixture) Supported() bool { return true }
@@ -721,6 +721,9 @@ func (f *powerFixture) Acquire() int64 {
 func (f *powerFixture) Release() int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.stuck != 0 {
+		return f.stuck
+	}
 	f.held, f.released = false, f.released+1
 	return 0
 }
@@ -834,7 +837,7 @@ func TestPowerAssertionOwnership(t *testing.T) {
 			t.Fatal("the request outlived the Node")
 		}
 	})
-	t.Run("a refusal is one notice and no retry", func(t *testing.T) {
+	t.Run("a refusal is one notice and the request is asked again", func(t *testing.T) {
 		t.Parallel()
 		backend := &powerFixture{refuse: 7}
 		node := systemNodeFixture(t, Options{Power: backend})
@@ -849,14 +852,34 @@ func TestPowerAssertionOwnership(t *testing.T) {
 		if details, ok := notices[0].Content.Details.Data.(*protocol.NotificationDetailsPowerPayload); !ok || details.Code != 7 {
 			t.Fatalf("details = %#v", notices[0].Content.Details.Data)
 		}
+		// Work that starts while the system still refuses is not a second notice.
+		node.power.Hold()()
+		if status := node.power.Status(); status.Acquired || status.Error != 7 || len(snapshotFixture(t, node).Notifications) != 1 {
+			t.Fatalf("second refusal = %#v", status)
+		}
+		// The saved setting takes effect as soon as the system allows it.
 		backend.mu.Lock()
 		backend.refuse = 0
 		backend.mu.Unlock()
 		save(t, node, false)
 		save(t, node, true)
-		defer node.power.Hold()()
-		if status := node.power.Status(); status.Acquired || status.Error != 7 || len(snapshotFixture(t, node).Notifications) != 1 {
-			t.Fatalf("status = %#v", status)
+		if held, acquired, _ := backend.counts(); !held || acquired != 1 || len(snapshotFixture(t, node).Notifications) != 1 {
+			t.Fatalf("allowed again = %v %d", held, acquired)
+		}
+		// A release the system refuses is asked again too: off means released.
+		backend.mu.Lock()
+		backend.stuck = 9
+		backend.mu.Unlock()
+		save(t, node, false)
+		if held, _, released := backend.counts(); !held || released != 0 {
+			t.Fatalf("refused release = %v %d", held, released)
+		}
+		backend.mu.Lock()
+		backend.stuck = 0
+		backend.mu.Unlock()
+		node.power.Hold()()
+		if held, _, released := backend.counts(); held || released != 1 || len(snapshotFixture(t, node).Notifications) != 1 {
+			t.Fatalf("released = %v %d", held, released)
 		}
 	})
 }
