@@ -586,7 +586,9 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	comp.Searching = a.Messages.SearchOpenIn(cv.ID)
 	// A sample conversation's figures are its own usage. A live session's
 	// are its packages' (the statistics and footer slots), which the
-	// controller's hook builds: both would show each figure twice.
+	// controller's hook builds: both would show each figure twice. The
+	// demo's are the statistics package's too where a controller mounts it
+	// (Hooks.DemoConversation), read from the conversation's own usage.
 	comp.Metrics = nil
 	if a.sampled() {
 		comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
@@ -613,6 +615,9 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
 	if a.sampled() {
 		ctx = a.sampleComposer(cv, comp)
+		if a.Demo() && a.Hooks.DemoConversation != nil {
+			a.Hooks.DemoConversation(c, cv, comp)
+		}
 	} else if a.Hooks.Conversation != nil {
 		ctx, act = a.Hooks.Conversation(c, cv, comp)
 	}

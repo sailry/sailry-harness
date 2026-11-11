@@ -48,6 +48,8 @@ type demoMode struct {
 	// under is set while the window's own stage is back on the fields
 	// (underneath).
 	under bool
+	// data is the demo's dataset, which DemoConversation reads.
+	data *viewmodel.Data
 }
 
 func (a *App) onStage() stage {
@@ -64,6 +66,17 @@ func (a *App) setStage(s stage) {
 
 // Demo reports whether the window shows the demo conversations.
 func (a *App) Demo() bool { return a.demo != nil && !a.demo.under }
+
+// DemoConversation is the demo's conversation of that ID, nil without the
+// demo. Unlike Demo it also answers while the window's own stage is back on
+// the fields: the controller's frame hooks keep what it mounted over a demo
+// conversation (Hooks.DemoConversation) for as long as the demo has it.
+func (a *App) DemoConversation(id string) *viewmodel.Conversation {
+	if a.demo == nil || a.demo.data == nil {
+		return nil
+	}
+	return a.demo.data.Find(id)
+}
 
 // sampled reports whether the conversations shown are sample data, whose
 // actions stay in memory: the preview's, or the demo's.
@@ -111,6 +124,7 @@ func (a *App) enterDemo(locale string) {
 	side.Sort = own.sidebar.Sort
 	shown := panel.New(d.Workspace)
 	shown.Demo = true
+	a.demo.data = d
 	// A reply's links to the demo's files and pictures show as their cards.
 	messages := conversation.New()
 	messages.Embed = func(session, dest, _ string, image bool) (conversation.Embed, bool) {
