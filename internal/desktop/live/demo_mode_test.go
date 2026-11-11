@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"math"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -91,6 +93,33 @@ func TestDemoMode(t *testing.T) {
 		}
 		r.workers.Wait()
 		tester.Frame()
+	}
+	// shot saves the frame at 2x in the dark theme to
+	// $SAILRY_SNAPSHOTS/name.png, when set.
+	shot := func(name string) {
+		t.Helper()
+		dir := os.Getenv("SAILRY_SNAPSHOTS")
+		if dir == "" {
+			return
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		tester.SetDark(true)
+		tester.SetScale(2)
+		settle()
+		file, err := os.Create(filepath.Join(dir, name+".png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(file, tester.Image())
+		file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tester.SetDark(false)
+		tester.SetScale(1)
+		settle()
 	}
 	click := func(name string) {
 		t.Helper()
@@ -448,6 +477,16 @@ func TestDemoMode(t *testing.T) {
 		if err != nil || body["session"] != nil || body["connected"] != true || body["has_messages"] != false || body["sidebar"] != true || body["statistics"] == nil {
 			t.Errorf("the composer state of a demo conversation is %v, %v", body, err)
 		}
+		// The tool calls are the transcript's, by name; a question or a plan
+		// review is none.
+		tools := demoTools([]conversation.Turn{
+			{Reply: conversation.Reply{Blocks: []conversation.Block{{Kind: conversation.ToolsBlock, Calls: []conversation.Call{
+				{Name: "read"}, {Name: "read"}, {Name: "command"}, {Name: "plan_review", Terminal: true}, {}}}}}},
+			{Reply: conversation.Reply{Blocks: []conversation.Block{{Kind: conversation.TextBlock}, {Kind: conversation.ToolsBlock, Calls: []conversation.Call{{Name: "read"}}}}}},
+		})
+		if len(tools) != 2 || tools["read"] != 3 || tools["command"] != 1 {
+			t.Errorf("the transcript's tool calls are counted as %v", tools)
+		}
 	})
 
 	t.Run("settings", func(t *testing.T) {
@@ -552,6 +591,7 @@ func TestDemoMode(t *testing.T) {
 				t.Fatalf("the context bar lacks the figure %s of %q: %q", figure, figures, tester.Texts())
 			}
 		}
+		shot("demo-figures")
 		hover := func(figure string, rows ...string) {
 			t.Helper()
 			at, _ := tester.Find(figure)
@@ -566,6 +606,7 @@ func TestDemoMode(t *testing.T) {
 			if shown := marked(); shown != "" {
 				t.Errorf("the card of %s names the demo: %q", figure, shown)
 			}
+			shot("demo-card-" + strings.ReplaceAll(strings.ToLower(rows[0]), " ", "-"))
 			tester.Move(0, 0)
 			tester.Advance(time.Second)
 			settle()
@@ -593,6 +634,11 @@ func TestDemoMode(t *testing.T) {
 		if shown := marked(); shown != "" {
 			t.Errorf("the context panel names the demo: %q", shown)
 		}
+		// Its tool calls are the ones the transcript shows.
+		if calls := demoTools(cv.Turns); len(calls) == 0 || !tester.HasText("Tool calls") {
+			t.Errorf("the context panel counts the tool calls %v: %q", calls, tester.Texts())
+		}
+		shot("demo-context-panel")
 		tester.Key(0, ui.KeyEscape)
 		settle()
 		if closed, _ := contextPanel("en"); closed.Expanded {
