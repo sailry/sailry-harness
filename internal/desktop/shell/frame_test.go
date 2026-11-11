@@ -786,6 +786,10 @@ func TestHeaderClearsTrafficLights(t *testing.T) {
 	if !ok || b.Bounds.X < trafficLights {
 		t.Fatalf("the sidebar toggle starts at %v under the lights", b.Bounds)
 	}
+	// The lights' room is kept once: the header starts one padding past it.
+	if b.Bounds.X != trafficLights+12 {
+		t.Errorf("the sidebar toggle starts at %v, want %v", b.Bounds.X, trafficLights+12)
+	}
 	tt.SetTitleBar(ui.TitleBar{})
 	tt.Frame()
 	if b, _ := tt.Access(i18n.In("en", "sidebar_toggle")); b.Bounds.X >= trafficLights {

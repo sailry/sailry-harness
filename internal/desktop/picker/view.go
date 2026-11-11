@@ -351,7 +351,7 @@ func (s *State) addressBar(c *ui.Context, off bool) {
 	// still shows.
 	reading := func() {
 		if s.reading {
-			ui.Spinner(c.Key("reading")).Size(14, 14).Shrink(0).Label(i18n.T(c, "plugins_loading"))
+			kit.Busy(c.Key("reading")).Shrink(0).Label(i18n.T(c, "plugins_loading"))
 		}
 	}
 	bar.Children(func() {
@@ -494,7 +494,7 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 			// lead elsewhere.
 			switch {
 			case s.reading:
-				ui.Row(c.Key("loading")).Grow(1).Center().Children(func() { ui.Spinner(c).Label(i18n.T(c, "plugins_loading")) })
+				ui.Row(c.Key("loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20).Label(i18n.T(c, "plugins_loading")) })
 			case s.problem != "":
 				kit.Result(c.Key("failed"), kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, s.problem), SubTitle: s.target, Extra: func() {
 					kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).Disabled(off).OnClick(s.reload)
@@ -730,7 +730,7 @@ func (s *State) footer(c *ui.Context, valid bool) {
 		confirm := i18n.T(c, s.o.Confirm)
 		button := kit.Primary(c.Key("confirm"), confirm, s.busy || s.reading || pending || !valid || paths == nil).Children(func() {
 			if pending {
-				ui.Spinner(c).Size(14, 14)
+				kit.Busy(c)
 			}
 			ui.Text(c, confirm).FontSize(14)
 		}).OnClick(s.confirm)
