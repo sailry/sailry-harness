@@ -117,20 +117,22 @@ receive write-half EOF and acknowledge readiness before a durable finish
 publishes a retained target. Downloads retain their verified open source and
 Client verifies received bytes. Preparation, opening and idle limits are 8, 60
 and 30 seconds; injected clocks support deterministic tests. Cancellation cannot
-undo publication.
-
-A stored attachment file without an `attachments` row is collected: at Node
-start before any command is admitted, at shutdown after the transfer workers
-drain, and at once after `discard_attachment`. A
-finishing upload holds the Node's effects lock from publishing its file to
-committing its row, and a collection during operation holds the same lock, so a
-file is never taken between the two. Only ordinary files whose name is a
-canonical attachment ID are removed.
 undo publication. Staging files are named `tmp/file-transfer-*` in the profile
 where the reference uses anonymous files; a start removes the ones an earlier
 process left, since a killed process cannot. A file upload has no size limit
 on either side beyond its declared, verified size. Shutdown drains active
 workers before collecting orphaned attachment files.
+
+A stored attachment file without an `attachments` row is collected: at Node
+start before any command is admitted, at shutdown after the transfer workers
+drain, at once after `discard_attachment` and after a session removal. The
+Node's stored-file lock (`internal/node/session_cleanup.go`) orders this: a
+finishing attachment upload and an artifact write hold it shared from writing
+the file to committing the row, and a collection holds it exclusively, so a
+file is never taken between the two. It is separate from the per-worktree
+effect locks, which order work inside a worktree and do not cover profile
+storage. Only ordinary files whose name is a canonical attachment ID are
+removed.
 
 Attachment IDs determine storage names; display names never become paths.
 SQL binds immutable ordered references to turns. Reads from agent execution

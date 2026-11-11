@@ -95,8 +95,8 @@ func (t *Transfers) AttachmentBytes(ctx context.Context, attachment protocol.Att
 
 // CollectAttachments removes every stored attachment file whose identifier is
 // not retained. A finished upload publishes its file before its row commits,
-// so the caller must exclude that window: it runs before admission, after the
-// transfer workers drain, or under the lock that covers a finishing upload.
+// so the caller must exclude that window: it runs while no upload can finish
+// or under a lock that every finishing upload holds from its file to its row.
 func (t *Transfers) CollectAttachments(retained map[protocol.AttachmentID]bool) error {
 	fs, err := t.attachmentDirectory(false)
 	if errors.Is(err, os.ErrNotExist) {

@@ -343,6 +343,8 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 				return protocol.Output{}, err
 			}
 			defer node.watches.changed(root, nil)
+		} else {
+			node.stored.publish(effect)
 		}
 		return node.transfers.Finish(ctx, caller, root, command)
 	case "cancel_file_transfer":
@@ -357,8 +359,9 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
 			return out, nil, store.DiscardAttachment(ctx, db, caller, input.Worktree, input.Attachment)
 		}
-		// The command still holds the effects lock; the discarded file goes now.
-		effect.after = func() { node.collectAttachmentsHeld(context.WithoutCancel(ctx)) }
+		// The discarded file goes once the row is gone. The worktree lock this
+		// command still holds orders nothing in the attachment store.
+		effect.after = func() { node.collectAttachments(context.WithoutCancel(ctx)) }
 		return protocol.Output{Kind: "attachment_discarded", Data: protocol.OutputAttachmentDiscardedPayload{Attachment: input.Attachment}}, nil
 	case "restore_file_checkpoint":
 		return node.restoreWorkspaceCheckpoint(ctx, request, root)
