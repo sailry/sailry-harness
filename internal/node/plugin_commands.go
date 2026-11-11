@@ -94,10 +94,7 @@ func (node *Node) dispatchPlugins(ctx context.Context, caller protocol.NodeID, r
 			if recover() != nil {
 				result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "plugin operation did not settle; inspect the resource before retrying"})
 				if accepted.Receipt.Durable {
-					recording := context.WithoutCancel(node.ctx)
-					_ = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
-						return admission.Complete(recording, db, caller, request.ID, result)
-					})
+					result = node.settle(caller, request.ID, result)
 				}
 				node.authCommitted(caller, request, result.Fault)
 			}
@@ -127,12 +124,7 @@ func (node *Node) dispatchPlugins(ctx context.Context, caller protocol.NodeID, r
 	if err != nil {
 		result := response(protocol.Output{}, err)
 		if accepted.Receipt.Durable {
-			recordErr := node.profile.Store.Node.Write(context.WithoutCancel(node.ctx), func(db *sql.Conn) error {
-				return admission.Complete(context.WithoutCancel(node.ctx), db, caller, request.ID, result)
-			})
-			if recordErr != nil {
-				result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "installation admission result could not be recorded"})
-			}
+			result = node.settle(caller, request.ID, result)
 		}
 		node.work.Done()
 		completion <- result

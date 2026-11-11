@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -16,6 +17,23 @@ import (
 )
 
 const credentialPrefix = "credential-v1:"
+
+// Retention is how long a settled request answers a replay or an inspection.
+// A retry later than this is a new request.
+const Retention = 7 * 24 * time.Hour
+
+// PruneInterval is how often a running Node removes expired requests.
+const PruneInterval = 24 * time.Hour
+
+// ErrNotAdmitted reports a result for a request that is not running.
+var ErrNotAdmitted = errors.New("durable admission missing")
+
+var settleRetry = time.Second
+
+// A request is in one of three states. "admitted": it is running, or its
+// result is being stored. "completed": it ended and its success or fault is
+// stored. "unknown": the Node stopped while it ran, so nobody can tell what it
+// did. The last two are final; nothing changes such a row except Prune.
 
 // CredentialBody is the ledger identity of a request that carries a secret:
 // its digest, so replay is exact and the secret is never retained.
@@ -57,9 +75,13 @@ func Admit(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request pr
 	if err != nil || previous != nil {
 		return previous, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", caller[:], request.ID.String(), Body(request.Command, encoded))
+	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,at) VALUES(?1,?2,?3,'admitted',?4)", caller[:], request.ID.String(), Body(request.Command, encoded), time.Now().Unix())
 	return nil, err
 }
+
+// Existing answers a request that was admitted before: its stored result, or
+// OutcomeUnknown while it runs and after a restart interrupted it. It never
+// runs the request again; InspectRequest tells the two unknown cases apart.
 
 func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request protocol.Request, encoded []byte) (*link.Response, error) {
 	body := Body(request.Command, encoded)
@@ -74,7 +96,10 @@ func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request
 		if status == "completed" {
 			return decode(result)
 		}
-		return &link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request outcome requires reconciliation; automatic replay is disabled"}}, nil
+		if status == "unknown" {
+			return &link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request was interrupted by a Node restart; its outcome is unknown and will not change"}}, nil
+		}
+		return &link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request is still running; inspect it using the same request identifier"}}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -82,6 +107,8 @@ func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request
 	return nil, nil
 }
 
+// Complete stores the result of a running request inside the caller's
+// transaction. A caller whose transaction then fails uses Settle.
 func Complete(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, response link.Response) error {
 	value := protocol.Result[protocol.Output, protocol.Fault]{Err: response.Fault}
 	if response.Fault == nil {
@@ -97,15 +124,75 @@ func Complete(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id prot
 	}
 	count, err := changed.RowsAffected()
 	if err == nil && count != 1 {
-		return errors.New("durable admission missing")
+		return ErrNotAdmitted
 	}
 	return err
 }
 
+// Settle stores the result of a running request in a transaction of its own
+// and repeats a failed write every second, so a request never stays "admitted"
+// after it ended. write is the store's Write. Settle gives up when ctx ends
+// (the Node is stopping, and Recover makes the request unknown at the next
+// start), when the store can no longer confirm a commit, and when the request
+// is not running.
+func Settle(ctx context.Context, write func(context.Context, func(*sql.Conn) error) error, caller protocol.NodeID, id protocol.RequestID, response link.Response) error {
+	recording := context.WithoutCancel(ctx)
+	for {
+		err := write(recording, func(db *sql.Conn) error { return Complete(recording, db, caller, id, response) })
+		if err == nil || errors.Is(err, ErrNotAdmitted) {
+			return err
+		}
+		var failed *protocol.Fault
+		if errors.As(err, &failed) && failed.Code == protocol.ErrorCodeOutcomeUnknown {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(settleRetry):
+		}
+	}
+}
+
+// Recover runs once at startup, before any command. A request still admitted
+// was interrupted by the previous stop: it becomes unknown, for good.
 func Recover(ctx context.Context, db *sql.Conn) error {
 	_, err := db.ExecContext(ctx, "UPDATE requests SET status='unknown' WHERE status='admitted'")
 	return err
 }
+
+// Prune deletes completed and unknown requests older than Retention and
+// reports how many. It keeps every request that a turn, a queued turn, an
+// approval or a dispatch job refers to, because those read their input and
+// result from this table; such a row goes once its owner is removed. A row
+// written without a time is given the current one, so it lasts a full
+// Retention from the first pass that sees it.
+func Prune(ctx context.Context, db *sql.Conn, now time.Time) (int64, error) {
+	if _, err := db.ExecContext(ctx, "UPDATE requests SET at=?1 WHERE at=0", now.Unix()); err != nil {
+		return 0, err
+	}
+	removed, err := db.ExecContext(ctx, `DELETE FROM requests WHERE status IN ('completed','unknown') AND at<?1
+		AND id NOT IN (SELECT request FROM turns)
+		AND id NOT IN (SELECT request FROM agent_pending)
+		AND id NOT IN (SELECT request FROM agent_approvals)
+		AND id NOT IN (SELECT json_extract(body,'$.request') FROM dispatch_jobs WHERE json_extract(body,'$.request') IS NOT NULL)`, now.Add(-Retention).Unix())
+	if err != nil {
+		return 0, err
+	}
+	return removed.RowsAffected()
+}
+
+// Digest is the request digest InspectRequest expects: the lowercase BLAKE3
+// of the serialized request. Any controller that kept a request can therefore
+// ask its target what became of it.
+func Digest(encoded []byte) string {
+	hash := blake3.Sum256(encoded)
+	return hex.EncodeToString(hash[:])
+}
+
+// Inspect reports what became of a request without running it: not_admitted
+// (it never arrived), admitted (running), completed (with the stored success
+// or fault) or unknown (final).
 
 func Inspect(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, digest string) (protocol.RequestOutcome, error) {
 	if len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
@@ -123,8 +210,7 @@ func Inspect(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id proto
 	}
 	stored, retained := bytes.CutPrefix(body, []byte(credentialPrefix))
 	if !retained {
-		hash := blake3.Sum256(body)
-		stored = []byte(hex.EncodeToString(hash[:]))
+		stored = []byte(Digest(body))
 	}
 	if string(stored) != digest {
 		return protocol.RequestOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "request identifier was already used for different content"}

@@ -558,9 +558,12 @@ func TestSystemGeneralUI(t *testing.T) {
 	release := window.gate.refuse("save_power_settings", errors.New("the link closed"))
 	refusal("a failed save", "Could not load or save power settings", false)
 	release()
+	// The outcome stays unknown only while the Node cannot be asked about the request.
 	release = window.gate.refuse("save_power_settings", &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the save may have been stored"})
+	unreachable := window.gate.refuse("inspect_request", errors.New("the link closed"))
 	refusal("an unknown outcome", "Save outcome is unknown; reload to check", true)
 	release()
+	unreachable()
 	if now := sleep(); now != stored {
 		t.Fatalf("the refused saves changed the Node: %+v from %+v", now, stored)
 	}

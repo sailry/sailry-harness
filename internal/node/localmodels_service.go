@@ -300,16 +300,7 @@ func (node *Node) executeLocalModelConfiguration(db *sql.Conn, caller protocol.N
 // installation lane. Only installations are observable.
 func (node *Node) submitLocalModel(caller protocol.NodeID, request protocol.Request, completion chan link.Response) {
 	registry := node.localModels.registry
-	recording := context.WithoutCancel(node.ctx)
-	settle := func(result link.Response) link.Response {
-		err := node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
-			return admission.Complete(recording, db, caller, request.ID, result)
-		})
-		if err != nil {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "local model operation result could not be recorded; read the local models before retrying"})
-		}
-		return result
-	}
+	settle := func(result link.Response) link.Response { return node.settle(caller, request.ID, result) }
 	var id string
 	removing := request.Command.Kind == "delete_local_model"
 	if removing {

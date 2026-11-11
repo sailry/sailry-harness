@@ -70,25 +70,10 @@ func (node *Node) dispatchPluginMessageCommand(ctx context.Context, caller proto
 		defer node.work.Done()
 		defer close(completed)
 		output, err := node.runPluginMessageCommand(owner, caller, *child)
-		result := response(output, err)
-		recording := context.WithoutCancel(node.ctx)
-		err = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
-			return admission.Complete(recording, db, caller, request.ID, result)
-		})
-		if err != nil {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "slash command result could not be recorded"})
-		}
-		completed <- result
+		completed <- node.settle(caller, request.ID, response(output, err))
 	}
 	if err := node.tasks.Submit(work); err != nil {
-		result := response(protocol.Output{}, err)
-		recording := context.WithoutCancel(node.ctx)
-		if saveErr := node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
-			return admission.Complete(recording, db, caller, request.ID, result)
-		}); saveErr != nil {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "slash command admission result could not be recorded"})
-		}
-		completed <- result
+		completed <- node.settle(caller, request.ID, response(protocol.Output{}, err))
 		close(completed)
 		node.work.Done()
 	}

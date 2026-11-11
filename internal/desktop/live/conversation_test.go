@@ -1368,6 +1368,33 @@ func TestComposerSendRouting(t *testing.T) {
 				if comp.Draft != "" || len(r.turnRetries) != 0 || len(r.uncertain) != 0 {
 					t.Fatal("an admitted turn left its uncertain request or draft behind")
 				}
+				// The Node answers that a restart interrupted the request. That is
+				// final, so the request is dropped and the next send is a new one.
+				transport.mu.Lock()
+				previous := transport.handle
+				transport.handle = func(request protocol.Request) (link.Response, bool) {
+					var query protocol.CommandInspectRequestPayload
+					switch data := request.Command.Data.(type) {
+					case protocol.CommandInspectRequestPayload:
+						query = data
+					case *protocol.CommandInspectRequestPayload:
+						query = *data
+					default:
+						return link.Response{}, false
+					}
+					return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: protocol.RequestOutcome{Kind: "unknown"}}}}, true
+				}
+				transport.mu.Unlock()
+				fourth := again()
+				if len(r.turnRetries) != 0 || len(r.uncertain) != 0 {
+					t.Fatal("a request the Node can never answer was kept for retry")
+				}
+				if again() == fourth {
+					t.Fatal("a released request was sent again")
+				}
+				transport.mu.Lock()
+				transport.handle = previous
+				transport.mu.Unlock()
 			}
 			if slices.ContainsFunc(r.App.Data.Models, func(m composer.Model) bool { return m.Name == "" }) {
 				t.Fatal("live model projection contains an empty sample")

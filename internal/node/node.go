@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -151,7 +152,13 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	if err != nil {
 		return nil, err
 	}
-	if err := profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return admission.Recover(ctx, db) }); err != nil {
+	if err := profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if err := admission.Recover(ctx, db); err != nil {
+			return err
+		}
+		_, err := admission.Prune(ctx, db, time.Now())
+		return err
+	}); err != nil {
 		_ = profile.Close()
 		return nil, err
 	}
@@ -251,6 +258,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	for index := range value.lanes {
 		go value.run(&value.lanes[index])
 	}
+	go value.pruneLedger()
 	value.initDispatch(options.DispatchClock)
 	value.initPluginStatus()
 	if options.Network != nil {
@@ -673,7 +681,7 @@ func (node *Node) run(lane *commandLane) {
 		}
 		result, err := node.execute(job, prepared, prepareErr)
 		if err != nil {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"})
+			result = node.unapplied(job.caller, job.request.ID, err)
 		} else {
 			node.publish()
 			node.agent.Committed()
@@ -765,6 +773,54 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 	}
 	return response(output, operationErr), err
+}
+
+// settle stores the result of an admitted request whose own transaction did
+// not store it, and answers with that result. The write is repeated until the
+// Node stops; only then, or when the store cannot confirm a commit, is the
+// answer OutcomeUnknown, and the next start marks the request unknown.
+func (node *Node) settle(caller protocol.NodeID, id protocol.RequestID, result link.Response) link.Response {
+	if err := admission.Settle(node.ctx, node.profile.Store.Node.Write, caller, id, result); err != nil {
+		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the request before retrying"})
+	}
+	return result
+}
+
+// unapplied settles an admitted request whose whole effect was in the
+// transaction that failed with cause. The store reports an error only for a
+// transaction it did not commit, so the request changed nothing and its
+// failure is its result. The exception is a commit that could not be
+// confirmed: that request stays admitted until the next start.
+func (node *Node) unapplied(caller protocol.NodeID, id protocol.RequestID, cause error) link.Response {
+	failure := nodeFault(cause).(*protocol.Fault)
+	if failure.Code == protocol.ErrorCodeOutcomeUnknown {
+		return link.Response{Fault: failure}
+	}
+	return node.settle(caller, id, link.Response{Fault: failure})
+}
+
+// pruneLedger removes expired requests once a day while the Node runs.
+func (node *Node) pruneLedger() {
+	ticker := time.NewTicker(admission.PruneInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-node.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if node.begin() != nil {
+			return
+		}
+		err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
+			_, err := admission.Prune(node.ctx, db, time.Now())
+			return err
+		})
+		node.work.Done()
+		if err != nil && node.ctx.Err() == nil {
+			slog.Warn("request ledger could not be pruned", "code", nodeFault(err).(*protocol.Fault).Code)
+		}
+	}
 }
 
 func (node *Node) publish() {
