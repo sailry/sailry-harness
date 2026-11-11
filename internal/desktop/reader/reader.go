@@ -43,6 +43,21 @@ type Service struct {
 	synthesize Synthesizer
 	play       func(context.Context, []byte) error
 	open       func() (*voice, error)
+	// started is told once for each reading which voice reads it.
+	started func(model bool)
+	voiced  string
+}
+
+// OnStarted makes started hear, on the UI thread, of each reading that
+// begins: with the model voice, or with the OS speech.
+func (s *Service) OnStarted(started func(model bool)) { s.started = started }
+
+// voice tells started once for the reading id.
+func (s *Service) voice(id string, model bool) {
+	if s.started != nil && s.voiced != id {
+		s.voiced = id
+		s.started(model)
+	}
 }
 
 // New takes application-thread scheduling that remains usable without an open
@@ -76,6 +91,7 @@ func (s *Service) Toggle(id, markdown string, failed func()) error {
 	if s.Active(id) {
 		return s.Stop()
 	}
+	s.voiced = ""
 	text := Text(markdown)
 	if strings.TrimSpace(text) == "" {
 		return nil
@@ -107,6 +123,7 @@ func (s *Service) speak(id, text string) error {
 	if err := s.engine.speak(text); err != nil {
 		return err
 	}
+	s.voice(id, false)
 	if s.monitor != nil {
 		s.monitor()
 	}
@@ -156,6 +173,13 @@ func (s *Service) narrate(ctx context.Context, id string, parts []string, failed
 		}
 		err := next.err
 		if err == nil {
+			if index == 0 {
+				s.update(func() {
+					if !s.closed && s.current == id && ctx.Err() == nil {
+						s.voice(id, true)
+					}
+				})
+			}
 			err = s.play(ctx, next.audio)
 		}
 		if ctx.Err() != nil {

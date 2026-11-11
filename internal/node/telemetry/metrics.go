@@ -18,15 +18,18 @@ import (
 
 // Anonymous counters are aggregated locally in one bounded window and sent
 // fifteen minutes after its first observation. Only these content-free
-// dimensions may enter a payload.
+// dimensions may enter a payload. The desktop's feature counters have their
+// own bound, so neither kind of count can crowd out the other.
 const (
 	metricsEndpoint = "https://api.telemetry.sh/log"
 	metricsPeriod   = 15 * time.Minute
 	metricsGroups   = 256
+	featureGroups   = 256
 	metricsAttempts = 4
+	featureTable    = "feature_uses"
 )
 
-var metricTables = []string{"app_launches", "turns", "tool_calls", "model_requests", "search_requests"}
+var metricTables = []string{"app_launches", "turns", "tool_calls", "model_requests", "search_requests", featureTable}
 
 // Tokens are a model request's reported usage.
 type Tokens struct {
@@ -45,29 +48,60 @@ type Observation struct {
 	tokens     *Tokens
 }
 
-// Tool names a called tool without its arguments: a built-in by name, a
-// connected server only as "mcp", any package only as "third_party".
+// Tool names a called tool without its arguments: a built-in by the name
+// the Node registered it under, a tool of a package the application ships
+// as "official" with <package>.<tool> from the shipped catalog, a connected
+// server only as "mcp", any other package only as "third_party".
 type Tool struct {
 	Source string `json:"source"`
 	Name   string `json:"name,omitempty"`
 }
 
-var builtinTools = []string{"ask_user", "plan_review", "list_sessions", "read_session", "search_session", "read_tool_output", "load_skill", "read_skill_resource", "tool_search", "manage_plugins", "manage_mcp", "manage_skills"}
-
-// CaptureTool classifies a tool by its name alone. A workspace tool that is
-// neither listed, a package's nor a connected server's is not counted.
-func CaptureTool(name string) (Tool, bool) {
-	switch {
-	case strings.HasPrefix(name, "mcp_"):
-		return Tool{Source: "mcp"}, true
-	case slices.Contains(builtinTools, name):
-		return Tool{Source: "builtin", Name: name}, true
-	case strings.HasPrefix(name, "plugin_"):
-		// The alias of a package's own tool. Its package stays unnamed.
-		return Tool{Source: "third_party"}, true
-	}
-	return Tool{}, false
+// UncountedBuiltins are the registered built-in tools left out of the
+// counters, each with its reason. Every other built-in is counted by name,
+// so a new one needs no entry here.
+var UncountedBuiltins = map[string]string{
+	"set_session_title": "The runtime asks for it once in every session; its count repeats the session count and says nothing about tool use",
 }
+
+// identifier reports whether value is a lowercase identifier the Node's own
+// tables use, with extra as the one separator besides digits.
+func identifier(value string, extra byte) bool {
+	if value == "" || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, b := range []byte(value) {
+		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == extra) {
+			return false
+		}
+	}
+	return true
+}
+
+// BuiltinTool counts a tool the Node registered itself, by its registered
+// name. The caller passes only names found in the turn's captured tools,
+// never a name a model or a package chose.
+func BuiltinTool(name string) (Tool, bool) {
+	if _, excluded := UncountedBuiltins[name]; excluded || !identifier(name, '_') {
+		return Tool{}, false
+	}
+	return Tool{Source: "builtin", Name: name}, true
+}
+
+// OfficialTool counts a tool of a package the application ships. The caller
+// has matched the package to the shipped catalog by name and digest.
+func OfficialTool(pack, tool string) (Tool, bool) {
+	if !identifier(pack, '-') || !identifier(tool, '_') {
+		return Tool{}, false
+	}
+	return Tool{Source: "official", Name: pack + "." + tool}, true
+}
+
+// MCPTool counts a connected server's tool, unnamed.
+func MCPTool() Tool { return Tool{Source: "mcp"} }
+
+// ThirdPartyTool counts any other package's tool, unnamed.
+func ThirdPartyTool() Tool { return Tool{Source: "third_party"} }
 
 // Model is a request's interface, authentication and model. A model outside
 // the built-in presets' static lists is "custom".
@@ -132,6 +166,21 @@ func Search(driver *protocol.SearchDriver, result string, fault *protocol.ErrorC
 	}{driver, result, fault}}
 }
 
+// FeatureUse counts one use of a desktop feature. Only an identifier of the
+// closed list is counted; an official plugin page only for a package the
+// application ships. Anything else is refused.
+func (c *Control) FeatureUse(feature protocol.FeatureUse) (Observation, bool) {
+	if !feature.Listed() {
+		name, official := feature.OfficialPluginPage()
+		if c == nil || !official || !slices.Contains(c.packages, name) {
+			return Observation{}, false
+		}
+	}
+	return Observation{table: featureTable, dimensions: struct {
+		Feature protocol.FeatureUse `json:"feature"`
+	}{feature}}, true
+}
+
 type counts struct {
 	dimensions json.RawMessage
 	count      uint64
@@ -144,6 +193,8 @@ type window struct {
 	started time.Time
 	common  map[string]any
 	groups  map[string]*counts // by table and dimensions
+	// features is how many of the groups are feature counters.
+	features int
 }
 
 type batch struct {
@@ -249,7 +300,12 @@ func (c *Control) observeLocked(observation Observation) {
 	key := observation.table + "\x00" + string(dimensions)
 	group := c.window.groups[key]
 	if group == nil {
-		if len(c.window.groups) >= metricsGroups {
+		if observation.table == featureTable {
+			if c.window.features >= featureGroups {
+				return
+			}
+			c.window.features++
+		} else if len(c.window.groups)-c.window.features >= metricsGroups {
 			return
 		}
 		group = &counts{dimensions: dimensions}

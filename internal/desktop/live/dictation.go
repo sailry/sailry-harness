@@ -223,6 +223,7 @@ func (x *conversationActions) Dictate(d *composer.Dictation, command composer.Di
 			}
 		}
 		state.active = session
+		x.countDictation()
 		d.Phase, d.Levels = composer.PreparingSpeech, nil
 		if !root.async(session.run) {
 			session.end()

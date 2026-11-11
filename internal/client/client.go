@@ -43,6 +43,7 @@ type Client struct {
 	err                     error
 	callbacks               map[uint64]func()
 	callback                uint64
+	dispatched              func(kind string)
 
 	lifecycle          sync.Mutex
 	closing            context.Context
@@ -71,6 +72,12 @@ func (client *Client) Prepare(command protocol.Command) protocol.Request {
 func (client *Client) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
 	if request.Target != client.Target() {
 		return link.Admission{}, fault(protocol.ErrorCodeWrongTarget, "request belongs to another Node")
+	}
+	client.mu.RLock()
+	observe := client.dispatched
+	client.mu.RUnlock()
+	if observe != nil {
+		observe(request.Command.Kind)
 	}
 	return client.transport.Dispatch(ctx, request)
 }

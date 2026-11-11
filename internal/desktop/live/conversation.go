@@ -38,8 +38,14 @@ func (r *Runtime) SetReaderActive(f func(string) bool) {
 }
 func (r *Runtime) SetExport(f func(string, string, conversation.ExportFormat)) {
 	r.exportConversation = f
+	if f != nil && r.parent == nil {
+		r.exportConversation = func(session, turn string, format conversation.ExportFormat) {
+			r.count(protocol.FeatureUseSessionExport)
+			f(session, turn, format)
+		}
+	}
 	for _, bound := range r.bindings {
-		bound.SetExport(f)
+		bound.exportConversation = r.exportConversation
 	}
 }
 
@@ -631,6 +637,7 @@ func (x *conversationActions) Guide(m composer.Message) { x.deliver(m, true, fal
 func (x *conversationActions) Queue(m composer.Message) { x.deliver(m, false, true) }
 
 func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
+	x.countSubmit(m, guide, queue)
 	// The view clears before dispatch; the live owner retains the captured draft.
 	x.comp.Draft = m.Text
 	x.comp.References = slices.Clone(m.References)

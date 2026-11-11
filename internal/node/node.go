@@ -374,6 +374,9 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if request.Command.Kind == "send_diagnostics" {
 		return node.dispatchDiagnostics(ctx, request)
 	}
+	if request.Command.Kind == "count_feature" {
+		return node.dispatchFeature(caller, request)
+	}
 	if request.Command.Kind == "synthesize_speech" {
 		return node.dispatchSpeech(ctx, request)
 	}

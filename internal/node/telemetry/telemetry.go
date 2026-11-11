@@ -1,7 +1,8 @@
 // Package telemetry owns the process's reporting consent, its anonymous
 // identity, the diagnostics report a controller asks for, automatic error
-// reports and anonymous usage counters. Nothing is sent and nothing runs in
-// the background while the matching switch is off.
+// reports (failed operations, interface hangs and crashes) and anonymous
+// usage counters. Nothing is sent and nothing runs in the background while
+// the matching switch is off.
 package telemetry
 
 import (
@@ -35,6 +36,9 @@ type Options struct {
 	// Models are the built-in presets' static model identifiers by preset.
 	// Any other model is counted as "custom".
 	Models map[string][]string
+	// Packages are the names of the packages the application ships. Only
+	// these may be named by a feature counter.
+	Packages []string
 }
 
 // Control is the process's consent: the environment's opt-outs, the saved
@@ -68,6 +72,7 @@ type Control struct {
 	transport   http.RoundTripper
 	timer       func(time.Duration, func()) func()
 	models      map[string][]string
+	packages    []string
 }
 
 // New reads the environment once. SAILRY_TELEMETRY=off and DO_NOT_TRACK=1
@@ -77,7 +82,7 @@ func New(options Options) *Control {
 	if lookup == nil {
 		lookup = os.Getenv
 	}
-	c := &Control{application: options.Application, transport: options.Transport, timer: options.Timer, models: options.Models, channel: "dev", limits: map[string]*limit{}}
+	c := &Control{application: options.Application, transport: options.Transport, timer: options.Timer, models: options.Models, packages: options.Packages, channel: "dev", limits: map[string]*limit{}}
 	if c.application == "" {
 		c.application = "desktop"
 	}

@@ -250,7 +250,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				defer workers.Done()
 				defer func() { <-slots }()
 				metric, started := r.telemetry.Capture(), time.Now()
-				defer func() { observeTool(metric, x.ctx, calls[i].Name, results[i], started) }()
+				defer func() { observeTool(metric, x.ctx, x.tools, calls[i].Name, results[i], started) }()
 				// A panicking tool fails its own call; the turn and the Node continue.
 				defer func() {
 					if value := recover(); value != nil {

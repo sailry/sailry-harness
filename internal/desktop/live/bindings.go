@@ -119,6 +119,7 @@ func (r *Runtime) models() []composer.Model {
 }
 
 func (r *Runtime) newBinding(controller *client.Client) *Runtime {
+	controller.OnDispatch(countSaved(r.controller))
 	ctx, cancel := context.WithCancel(r.ctx)
 	bound := &Runtime{
 		parent: r, network: r.network, controller: controller, ctx: ctx, cancel: cancel,

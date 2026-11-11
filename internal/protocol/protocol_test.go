@@ -100,7 +100,7 @@ func TestCommandKinds(t *testing.T) {
 		t.Fatalf("Rust command inventory contains %d entries, want 362", len(want))
 	}
 	got := CommandKinds()
-	if extensions := []string{"apply_git_hunk", "synthesize_speech"}; len(got) != len(want)+len(extensions) || !reflect.DeepEqual(got[:len(want)], want) || !reflect.DeepEqual(got[len(want):], extensions) {
+	if extensions := []string{"apply_git_hunk", "synthesize_speech", "count_feature"}; len(got) != len(want)+len(extensions) || !reflect.DeepEqual(got[:len(want)], want) || !reflect.DeepEqual(got[len(want):], extensions) {
 		t.Fatalf("command kinds differ from the Rust inventory plus the documented native extensions\nwant: %v + %v\n got: %v", want, extensions, got)
 	}
 	t.Run("native Git hunk extension validates captured revisions", func(t *testing.T) {

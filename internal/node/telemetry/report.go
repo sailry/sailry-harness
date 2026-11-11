@@ -130,7 +130,9 @@ func symbol(value string) bool {
 }
 
 // event is the one shape every report has. kind is "diagnostic" for the
-// report a controller asked for and "operation" for a failed operation.
+// report a controller asked for, "operation" for a failed operation, "hang"
+// for an interface thread that stopped answering and "crash" for the fatal
+// panic that ended the previous run.
 // Only fields that pass logging.Remote are included.
 func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.Stacktrace) *sentry.Event {
 	text := func(key, fallback string) string {
@@ -140,8 +142,11 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 		return fallback
 	}
 	message, level := "runtime.diagnostics:requested", sentry.LevelInfo
-	if kind == "operation" {
+	if kind != "diagnostic" {
 		message, level = text("area", "runtime")+"."+text("operation", "operation")+":"+text("code", "internal"), sentry.LevelError
+	}
+	if kind == "crash" {
+		level = sentry.LevelFatal
 	}
 	hash := blake3.New(32, nil)
 	hash.Write([]byte(kind))
@@ -176,9 +181,12 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 		// travel as one context.
 		event.Contexts = map[string]sentry.Context{"sailry": sentry.Context(fields)}
 	}
-	if kind == "operation" {
-		handled := true
-		event.Exception = []sentry.Exception{{Type: "SailryError", Value: message, Stacktrace: trace, Mechanism: &sentry.Mechanism{Type: "tracing", Handled: &handled}}}
+	if kind != "diagnostic" {
+		handled, mechanism := kind == "operation", "tracing"
+		if !handled {
+			mechanism = kind
+		}
+		event.Exception = []sentry.Exception{{Type: "SailryError", Value: message, Stacktrace: trace, Mechanism: &sentry.Mechanism{Type: mechanism, Handled: &handled}}}
 		for _, crumb := range c.breadcrumbs {
 			event.Breadcrumbs = append(event.Breadcrumbs, &sentry.Breadcrumb{Type: "log", Category: "sailry", Level: sentry.LevelWarning, Timestamp: crumb.at, Data: map[string]any(crumb.fields)})
 		}

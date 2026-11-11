@@ -19,6 +19,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("local model projection", checkLocalModelHelpers)
 	t.Run("dictation", checkDictation)
 	t.Run("system settings projection", checkSystemHelpers)
+	t.Run("feature usage", testFeatureUsage)
 	t.Run("terminal tabs prune", testTerminalTabsPrune)
 	t.Run("terminal tabs create", testTerminalTabsCreate)
 	t.Run("terminal tabs close", testTerminalTabsClose)

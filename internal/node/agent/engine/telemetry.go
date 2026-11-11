@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -38,10 +40,34 @@ func (r *Runtime) observeTurn(run protocol.ConversationRun, mode protocol.WorkMo
 	r.telemetry.Observe(telemetry.Turn(result, mode, subagent, code))
 }
 
+// CountedTool is how a call of one of a turn's registered tools is counted.
+// A name the turn did not register is not counted. A tool without a package
+// binding was registered by the Node itself and is a built-in under its
+// registered name, unless telemetry.UncountedBuiltins leaves it out. A
+// package's tool is named only when its owner is a package the application
+// ships (operations.Official); a connected server's tool and any other
+// package's tool are counted without a name.
+func CountedTool(tools []Tool, name string) (telemetry.Tool, bool) {
+	tool := findTool(tools, name)
+	switch {
+	case tool == nil:
+		return telemetry.Tool{}, false
+	case tool.Binding == nil:
+		return telemetry.BuiltinTool(name)
+	case strings.HasPrefix(name, "mcp_"):
+		return telemetry.MCPTool(), true
+	}
+	if pack, exposed, official := operations.Official(tool.Binding.Owner, name); official {
+		if named, valid := telemetry.OfficialTool(pack, exposed); valid {
+			return named, true
+		}
+	}
+	return telemetry.ThirdPartyTool(), true
+}
+
 // observeTool counts a tool call under the consent it started with.
-// Workspace tools outside the reviewed names are not counted.
-func observeTool(metric *telemetry.Capture, ctx context.Context, name string, result ToolResult, started time.Time) {
-	tool, counted := telemetry.CaptureTool(name)
+func observeTool(metric *telemetry.Capture, ctx context.Context, tools []Tool, name string, result ToolResult, started time.Time) {
+	tool, counted := CountedTool(tools, name)
 	if metric == nil || !counted {
 		return
 	}
