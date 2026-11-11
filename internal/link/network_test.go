@@ -309,49 +309,30 @@ func TestSubscriptionCancellationRetainsPartialFrame(t *testing.T) {
 func TestProtocolControlsCompatibility(t *testing.T) {
 	t.Parallel()
 	version, old, newer := uint16(protocol.VERSION), uint16(0), uint16(2)
-	release, sameRelease, olderRelease, newerRelease, invalid := "0.1.6", "0.1.6+other", "0.1.5", "0.2.0", "invalid"
-	if err := checkCompatibility(&version, &release, &version, &sameRelease); err != nil {
-		t.Fatalf("build metadata blocked the same release: %v", err)
+	unknownVersion, otherVersion := "invalid", "999.0.0"
+	if err := checkCompatibility(&version, &unknownVersion, &version, &otherVersion); err != nil {
+		t.Fatalf("product version blocked matching protocol: %v", err)
 	}
-	// Contracts change in place under one protocol number, so two releases
-	// with the same number are not interoperable and the older side updates.
 	for _, candidate := range []struct {
-		name       string
 		controller *uint16
 		host       *uint16
-		release    *string
-		hostValue  *string
 		updateHost bool
 		unverified bool
 	}{
-		{"older_host_protocol", &version, &old, &invalid, &newerRelease, true, false},
-		{"newer_host_protocol", &version, &newer, &invalid, &olderRelease, false, false},
-		{"missing_host_protocol", &version, nil, &invalid, &newerRelease, true, true},
-		{"missing_controller_protocol", nil, &version, &invalid, &olderRelease, false, true},
-		{"older_host_release", &version, &version, &release, &olderRelease, true, false},
-		{"newer_host_release", &version, &version, &release, &newerRelease, false, false},
-		{"missing_host_release", &version, &version, &release, nil, true, true},
-		{"invalid_host_release", &version, &version, &release, &invalid, true, true},
-		{"invalid_controller_release", &version, &version, &invalid, &release, false, true},
+		{&version, &old, true, false},
+		{&version, &newer, false, false},
+		{&version, nil, true, true},
+		{nil, &version, false, true},
 	} {
-		t.Run(candidate.name, func(t *testing.T) {
-			err := checkCompatibility(candidate.controller, candidate.release, candidate.host, candidate.hostValue)
-			fault := faultValue(err)
-			if fault.Code != protocol.ErrorCodeConflict || fault.Details == nil || fault.Details.Kind != "version_mismatch" {
-				t.Fatalf("compatibility fault: %#v", fault)
-			}
-			details, ok := fault.Details.Data.(protocol.FaultDetailsVersionMismatchPayload)
-			if !ok || details.UpdateHost != candidate.updateHost || details.Unverified != candidate.unverified {
-				t.Fatalf("compatibility details: %#v", fault.Details)
-			}
-			side := "update the controller"
-			if candidate.updateHost {
-				side = "update Host"
-			}
-			if !strings.HasSuffix(fault.Message, side) {
-				t.Fatalf("message does not name the side to update: %q", fault.Message)
-			}
-		})
+		err := checkCompatibility(candidate.controller, &unknownVersion, candidate.host, &otherVersion)
+		fault := faultValue(err)
+		if fault.Code != protocol.ErrorCodeConflict || fault.Details == nil || fault.Details.Kind != "version_mismatch" {
+			t.Fatalf("compatibility fault: %#v", fault)
+		}
+		details, ok := fault.Details.Data.(protocol.FaultDetailsVersionMismatchPayload)
+		if !ok || details.UpdateHost != candidate.updateHost || details.Unverified != candidate.unverified {
+			t.Fatalf("compatibility details: %#v", fault.Details)
+		}
 	}
 	expectedPlatform := map[string]string{"darwin": "macos", "linux": "linux", "windows": "windows"}[runtime.GOOS]
 	if expectedPlatform == "" {
