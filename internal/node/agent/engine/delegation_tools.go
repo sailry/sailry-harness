@@ -251,7 +251,7 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 		if err != nil {
 			return toolFault(err)
 		}
-		if !childActive(state.Run.Status) {
+		if !childPending(state.Run) {
 			return ToolResult{Value: map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status, "response": state.Response, "error": state.Run.Error}, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
 		}
 		value := map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status}
@@ -276,4 +276,11 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 
 func childActive(status protocol.ConversationStatus) bool {
 	return status == protocol.ConversationStatusQueued || status == protocol.ConversationStatusRunning || status == protocol.ConversationStatusStopping
+}
+
+// childPending reports whether a child's run is still to settle. A queued
+// child stopped by a controller is cancelled first and finished by the next
+// claim pass; its result is collected only once its record is closed.
+func childPending(run protocol.ConversationRun) bool {
+	return childActive(run.Status) || run.Status == protocol.ConversationStatusCancelled && run.FinishedMs == nil
 }

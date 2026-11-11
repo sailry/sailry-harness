@@ -231,7 +231,7 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 			return empty, nil, fault(protocol.ErrorCodeWrongTarget, "child belongs to another parent")
 		}
 		var busy bool
-		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))", session.ID.String()).Scan(&busy); err != nil {
+		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND (json_extract(a.body,'$.status') IN ('queued','running','stopping') OR json_extract(a.body,'$.status')='cancelled' AND json_extract(a.body,'$.finished_ms') IS NULL))", session.ID.String()).Scan(&busy); err != nil {
 			return empty, nil, err
 		}
 		if busy && guidance == nil {

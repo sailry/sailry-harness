@@ -520,3 +520,106 @@ func TestParentEndSettlesChildren(t *testing.T) {
 		})
 	}
 }
+
+func TestStopSingleChild(t *testing.T) {
+	childStarted := make(chan struct{})
+	var once sync.Once
+	step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		prompt, results := "", 0
+		for _, message := range request.Prompt {
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+					prompt += value.Text + "\n"
+				}
+				if part.GetType() == fantasy.ContentTypeToolResult {
+					results++
+				}
+			}
+		}
+		switch {
+		case !strings.Contains(prompt, "Parent task"):
+			once.Do(func() { close(childStarted) })
+			<-ctx.Done()
+		case results == 0:
+			_ = yield(call("first", "spawn_agent", `{"task":"First child"}`)) && yield(call("second", "spawn_agent", `{"task":"Second child"}`)) && yield(finish())
+		default:
+			_ = yield(text("Parent continued")) && yield(finish())
+		}
+	}
+	language := &scriptedModel{scripts: []script{step, step, step}}
+	f := newFixture(t, language)
+	// One slot keeps the second child queued while the first runs.
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		settings, err := store.ReadTeamSettings(f.ctx, db)
+		if err != nil {
+			return err
+		}
+		settings.ChildConcurrency = 1
+		_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.start()
+	parent := f.submit("Parent task")
+	select {
+	case <-childStarted:
+	case <-f.ctx.Done():
+		t.Fatal("first child did not start")
+	}
+	children := f.childTurns()
+	if len(children) != 2 {
+		t.Fatalf("admitted children=%d", len(children))
+	}
+	read := func(turn protocol.TurnID) protocol.ConversationRun {
+		t.Helper()
+		var run protocol.ConversationRun
+		if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err }); err != nil {
+			t.Fatal(err)
+		}
+		return run
+	}
+	t.Run("a queued child is settled without starting", func(t *testing.T) {
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: children[1]})
+		for {
+			run := read(children[1])
+			if run.FinishedMs != nil {
+				if run.Status != protocol.ConversationStatusCancelled || run.StartedMs != nil {
+					t.Fatalf("stopped queued child: %+v", run)
+				}
+				break
+			}
+			select {
+			case <-f.changed:
+			case <-f.ctx.Done():
+				t.Fatalf("stopped queued child was never settled: %+v", run)
+			}
+		}
+		if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state='running'") != 1 {
+			t.Fatal("stopped queued child left its completion record running")
+		}
+		if read(children[0]).Status != protocol.ConversationStatusRunning || read(parent).Status != protocol.ConversationStatusRunning {
+			t.Fatal("stopping one child stopped its sibling or its parent")
+		}
+	})
+	t.Run("a running child stops alone and the parent continues", func(t *testing.T) {
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: children[0]})
+		// The engine's finishing code names a stopped turn's status; either
+		// stopped status is the cancelled outcome for the parent.
+		if run := f.settled(children[0]); run.Status != protocol.ConversationStatusCancelled && run.Status != protocol.ConversationStatusInterrupted {
+			t.Fatalf("stopped running child: %+v", run)
+		}
+		f.waitRun(parent, protocol.ConversationStatusCompleted)
+		records := f.state().Records
+		for _, turn := range children {
+			mustHaveText(t, records, "Subagent "+read(turn).Session.String()+" was cancelled before it finished.")
+		}
+		mustHaveText(t, records, "Parent continued")
+		if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state!='consumed'") != 0 {
+			t.Fatal("collected children left unreported completion records")
+		}
+		if language.count() != 3 {
+			t.Fatalf("model requests=%d", language.count())
+		}
+	})
+}

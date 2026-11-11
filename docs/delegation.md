@@ -64,6 +64,16 @@ work does not join the next message and never starts a notice turn. A child
 that finished before the stop keeps its pending result. Node shutdown is not
 waited for; it interrupts children through recovery.
 
+`stop_turn` on a child's turn stops that child only; its siblings and its
+parent keep running. A running child stops like any turn. A queued child that
+never started is marked cancelled without a finish time, and the next claim
+pass finishes it from the store, which closes its completion record and
+refreshes the parent; until then the child counts as busy and its result is
+not collected. Queued guidance for a child ends where it is stopped, because
+it shares its recipient's completion record. A foreground parent receives the
+ordinary cancellation note; a background child's cancelled result joins the
+parent's next message and never starts a notice turn by itself.
+
 `wait_agent` observes existing owned work for 150 seconds through the injected
 clock. This window does not stop child execution. It returns the same session
 and turn while work remains pending, returns early for actual durable parent

@@ -105,6 +105,36 @@ func FinishQueuedChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	return events, err
 }
 
+// unstartedChild reports whether a queued turn is a child's own task. Guidance
+// queued for a child has a pending row and shares its recipient's completion
+// record, so it ends where it is stopped.
+func unstartedChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (bool, error) {
+	var value bool
+	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_delegations WHERE turn=?1) AND NOT EXISTS(SELECT 1 FROM agent_pending WHERE turn=?1)", turn.String()).Scan(&value)
+	return value, err
+}
+
+// SettleStoppedChildren finishes the queued children a controller stopped.
+// stop_turn leaves such a run cancelled without a finish time; finishing it
+// here closes its completion record and refreshes its parent. The store is the
+// source, so a stopped child is settled whether or not the Runtime still
+// holds its owner.
+func SettleStoppedChildren(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn WHERE json_extract(a.body,'$.status')='cancelled' AND json_extract(a.body,'$.finished_ms') IS NULL")
+	if err != nil {
+		return nil, err
+	}
+	events := []protocol.Event{}
+	for _, run := range runs {
+		changed, err := FinishQueuedChild(ctx, db, run.Turn, protocol.ConversationStatusCancelled, nil, now)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, changed...)
+	}
+	return events, nil
+}
+
 // ConsumeStoppedChildren consumes the completion records of the child turns a
 // stopped or failed parent turn cancelled. The parent's history already holds
 // their cancellation, so the records never join a later message or start a

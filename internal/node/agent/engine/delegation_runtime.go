@@ -129,6 +129,13 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 	if err != nil || inv != nil {
 		return inv, events, err
 	}
+	// A queued child stopped by a controller is finished here; its owner is
+	// dropped below with every other child that is no longer active.
+	settled, err := store.SettleStoppedChildren(ctx, db, r.clock.Now())
+	if err != nil {
+		return nil, nil, err
+	}
+	events = append(events, settled...)
 	r.mu.Lock()
 	children := make([]*delegatedChild, 0, len(r.children))
 	for _, child := range r.children {
@@ -331,7 +338,7 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			if childActive(state.Run.Status) {
+			if childPending(state.Run) {
 				pending = true
 				continue
 			}
