@@ -89,12 +89,10 @@ Plugin callers are refused, a cancellation stores nothing, and a repeated
 incident answers with its first notice without another event.
 
 `read_media_settings`, `list_media_models` and `save_media_settings` store which
-configured provider model serves the vision, image and video roles. A model is
-offered for a role only when its provider is enabled and its API and
-authentication support that role; a save is refused for a stale revision, an
-unlisted provider, an absent model or an unsupported role. The settings appear
-in the snapshot. Nothing consumes them yet: the Go Node has no media generation,
-and a new session's media snapshot stays empty.
+configured provider model serves the vision, image, video and speech purposes,
+and `synthesize_speech` reads text aloud with the assigned speech model. The
+settings appear in the snapshot and are captured with each admitted turn.
+Capability tags, routing, channels and limits are in [media.md](media.md).
 
 Three protocol commands have no route and answer `not_configured` "command is
 unavailable". `import_session` is the receiving half of forwarding a session to

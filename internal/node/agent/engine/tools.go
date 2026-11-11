@@ -56,6 +56,9 @@ type ToolResult struct {
 	Error           bool
 	Failure         *protocol.Fault
 	Context         *canonical.Context
+	// Attachments are stored assets shown with the result and never sent to
+	// the model.
+	Attachments []canonical.Attachment
 }
 
 func (r *Runtime) captureTools(x *execution) error {
@@ -340,7 +343,7 @@ func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) 
 		raw, _ = json.Marshal(normalized)
 	}
 	sum := blake3.Sum256(raw)
-	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider, Meta: result.Meta}}
+	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider, Meta: result.Meta, Attachments: result.Attachments}}
 }
 
 // settleCalls records an interrupted result for every call the stopped or

@@ -360,7 +360,16 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	if err != nil {
 		return empty, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,input) VALUES(?1,?2,?3,?4,?5,?6,?7)", turn.ID.String(), ready, body, providerBody, hooks, percent, input); err != nil {
+	// A child turn is admitted now and freezes the current media assignments.
+	assignments, err := CaptureMedia(ctx, db)
+	if err != nil {
+		return empty, nil, err
+	}
+	media, err := encode(assignments)
+	if err != nil {
+		return empty, nil, err
+	}
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,input,media) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", turn.ID.String(), ready, body, providerBody, hooks, percent, input, media); err != nil {
 		return empty, nil, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", session.ID.String(), turn.ID.String()); err != nil {

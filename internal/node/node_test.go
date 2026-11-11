@@ -273,8 +273,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		}
 		candidates := commandFixture(t, node, protocol.Command{Kind: "list_media_models"}).Data.([]protocol.MediaCandidate)
 		want := []protocol.MediaCandidate{
-			{Provider: provider.ID, ProviderName: provider.Name, Model: "seeing", Kinds: []protocol.MediaKind{protocol.MediaKindVision, protocol.MediaKindImage, protocol.MediaKindVideo}},
-			{Provider: provider.ID, ProviderName: provider.Name, Model: "blind", Kinds: []protocol.MediaKind{protocol.MediaKindImage, protocol.MediaKindVideo}},
+			{Provider: provider.ID, ProviderName: provider.Name, Model: "seeing", Kinds: []protocol.MediaKind{protocol.MediaKindVision}},
 		}
 		if !reflect.DeepEqual(candidates, want) {
 			t.Fatalf("media candidates = %#v", candidates)

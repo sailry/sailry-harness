@@ -62,6 +62,14 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 				(invocation.Session.Delegation != nil || invocation.Turn.Config.Resource != nil || invocation.Turn.Roles.Execution != protocol.ConversationExecutionTeam) {
 				continue
 			}
+			// A media tool exists only when its purpose routed to a model.
+			if operation := declaration.Handler.Operation; operation != nil {
+				if _, media := mediaOperationKind(*operation); media {
+					if _, bound := native[plugins.ToolAlias(info.Summary.Name, declaration.Name)]; !bound {
+						continue
+					}
+				}
+			}
 			declarations = append(declarations, declaration)
 			names = append(names, declaration.Name)
 		}

@@ -30,6 +30,8 @@ type AgentInvocation struct {
 	AuthorizationFailure *protocol.Fault
 	Instructions         []AgentInstruction
 	CompactionPercent    uint8
+	// Media holds the per-purpose model assignments frozen at admission.
+	Media MediaCapture
 	// Assistant is the declaration frozen by the turn's assistant binding.
 	Assistant *protocol.PluginConversationDeclaration
 }

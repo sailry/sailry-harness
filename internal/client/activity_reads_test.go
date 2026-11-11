@@ -69,4 +69,26 @@ func testActivityReads(t *testing.T) {
 	if _, err := controller.ReadActivityPreviews(t.Context(), scope, []protocol.SessionID{session}); faultCode(err) != protocol.ErrorCodeRevisionConflict {
 		t.Fatalf("preview lost the Node's package conflict: %v", err)
 	}
+
+	// Read-aloud synthesis is a controller command without a package scope.
+	transport.dispatch = func(request protocol.Request) (link.Admission, error) {
+		input, err := payload[protocol.CommandSynthesizeSpeechPayload](request.Command.Data)
+		if err != nil || request.Command.Kind != "synthesize_speech" || request.Plugin != nil || request.Command.Durable() || input.Text != "Read this" || input.Voice != nil {
+			t.Fatalf("speech request = %+v, %v", request.Command, err)
+		}
+		completed := make(chan link.Response, 1)
+		if fail {
+			completed <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "speech model is not assigned"}}
+		} else {
+			completed <- link.Response{Output: protocol.Output{Kind: "speech", Data: protocol.SpeechAudio{MediaType: "audio/mpeg", DataBase64: "SUQz", Provider: protocol.NewProviderID(), Model: "voice"}}}
+		}
+		return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completed}, nil
+	}
+	if _, _, err := controller.SynthesizeSpeech(t.Context(), "Read this", nil); faultCode(err) != protocol.ErrorCodeNotConfigured {
+		t.Fatalf("speech lost the Node's fault: %v", err)
+	}
+	fail = false
+	if mediaType, audio, err := controller.SynthesizeSpeech(t.Context(), "Read this", nil); err != nil || mediaType != "audio/mpeg" || string(audio) != "ID3" {
+		t.Fatalf("speech audio = %s, %q, %v", mediaType, audio, err)
+	}
 }

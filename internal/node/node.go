@@ -81,6 +81,7 @@ type Node struct {
 	stopErr           error
 	agent             *engine.Runtime
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	mediaPoll         time.Duration // interval between video job reads
 	feed              *feed.Hub
 	providerDirectory providers.Directory
 	subscribersMu     sync.Mutex
@@ -205,6 +206,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		value.hostInstalls = host.NewInstallations(*options.HostDeployment)
 	}
 	value.modelFactory = options.Model
+	value.mediaPoll = model.MediaVideoPoll
 	value.telemetry = newTelemetry(options.Telemetry)
 	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
 	if err := value.agent.Recover(ctx); err != nil {
@@ -364,6 +366,9 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	}
 	if request.Command.Kind == "send_diagnostics" {
 		return node.dispatchDiagnostics(ctx, request)
+	}
+	if request.Command.Kind == "synthesize_speech" {
+		return node.dispatchSpeech(ctx, request)
 	}
 	if localModelCommand(request.Command.Kind) {
 		return node.dispatchLocalModels(ctx, caller, request, encoded)

@@ -213,7 +213,17 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent) VALUES(?1,?2,?3,?4,?5,?6)", value.ID.String(), ready, body, provider, hooks, settings.Percent); err != nil {
+	// Media assignments are frozen here; later settings changes reach only
+	// turns admitted after them.
+	assignments, err := CaptureMedia(ctx, db)
+	if err != nil {
+		return value, err
+	}
+	media, err := encode(assignments)
+	if err != nil {
+		return value, err
+	}
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,media) VALUES(?1,?2,?3,?4,?5,?6,?7)", value.ID.String(), ready, body, provider, hooks, settings.Percent, media); err != nil {
 		return value, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", session.ID.String(), value.ID.String()); err != nil {
@@ -289,12 +299,17 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	if err != nil {
 		return nil, nil, err
 	}
-	var provider, instructions, caller, hookSettings []byte
+	var provider, instructions, caller, hookSettings, media []byte
 	var path string
 	var project sql.NullString
 	var main bool
-	if err = db.QueryRowContext(ctx, "SELECT a.hooks,a.provider,a.compaction_percent,t.instructions,t.caller,w.path,w.project,w.main FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN worktrees w ON w.id=?2 WHERE a.turn=?1", turn.String(), run.Worktree.String()).Scan(&hookSettings, &provider, &inv.CompactionPercent, &instructions, &caller, &path, &project, &main); err != nil {
+	if err = db.QueryRowContext(ctx, "SELECT a.hooks,a.provider,a.compaction_percent,t.instructions,t.caller,w.path,w.project,w.main,a.media FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN worktrees w ON w.id=?2 WHERE a.turn=?1", turn.String(), run.Worktree.String()).Scan(&hookSettings, &provider, &inv.CompactionPercent, &instructions, &caller, &path, &project, &main, &media); err != nil {
 		return nil, nil, err
+	}
+	if media != nil {
+		if err = json.Unmarshal(media, &inv.Media); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err = json.Unmarshal(hookSettings, &inv.Hooks); err != nil {
 		return nil, nil, err

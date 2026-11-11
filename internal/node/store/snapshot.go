@@ -74,10 +74,8 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 		return value, err
 	}
 	value.PowerSettingsRevision = power.Revision
-	if media, err := readBody[protocol.MediaSettings](ctx, db, "SELECT body FROM media_settings WHERE singleton=1"); err != nil {
+	if value.MediaSettings, err = ReadMediaSettings(ctx, db); err != nil {
 		return value, err
-	} else if media != nil {
-		value.MediaSettings = *media
 	}
 	if settings, err := readBody[protocol.TerminalSettings](ctx, db, "SELECT body FROM terminal_settings WHERE singleton=1"); err != nil {
 		return value, err

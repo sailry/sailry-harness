@@ -131,7 +131,7 @@ func guideDelegatedTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeI
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,input) SELECT ?1,1,?2,provider,hooks,compaction_percent,?3 FROM agent_runs WHERE turn=?4", turn.ID.String(), body, message, target.Turn.String()); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,input,media) SELECT ?1,1,?2,provider,hooks,compaction_percent,?3,media FROM agent_runs WHERE turn=?4", turn.ID.String(), body, message, target.Turn.String()); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", target.Session.String(), turn.ID.String()); err != nil {

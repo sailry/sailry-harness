@@ -105,7 +105,9 @@ use 30 seconds, 4 MiB and conditional ETags. Partner suggestions use 15 seconds 
 1 MiB. These operations run no generation, validation or title model request.
 
 Automatic capabilities come from provider metadata and the stored reference
-catalog. Refresh preserves configured token limits, custom effort choices and
+catalog. A model saved with `custom_capabilities` keeps its saved `vision`,
+`tools`, `reasoning` and `generates` tags through refresh and discovery
+([media.md](media.md)). Refresh preserves configured token limits, custom effort choices and
 compaction overrides. Catalog lookups merge shared IDs conservatively across
 providers. Scores cover published model benchmarks and are separate from Sailry
 session usage; no provider account history is collected.
