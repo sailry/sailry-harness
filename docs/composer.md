@@ -270,9 +270,9 @@ high, 16 in, 8 apart, wrapping when it is full. Left to right:
 | Git `+N −M` (native: Git is core), details as tooltip | `Changes{Added, Removed, Files}`, nil outside a repository | `OpenChanges` |
 | Plugin Status badges: icon, toned `Segment`s or the label, `Details` tooltip | `Badges []StatusBadge` (`Panel` nil for a button) | a button: `Badge(id, "")`; a panel: popover 320 with its body and buttons (`Badge(id, button)`) |
 | `reicon:ui/tasks` `composer_todo_count`, while steps remain | `Progress []conversation.Step` | popover 320 of `conversation.Steps` |
-| `background_one`/`background_count`, a spinner while `Connected` | `Commands []Command` (running and stopping) | popover 400: rows with the command (opens its `Output`), elapsed, Stop (`StopCommand`) |
+| `background_one`/`background_count`, the loader (`kit.Loader`, 14, the capsule icons' size and muted color) while `Connected` | `Commands []Command` (running and stopping) | popover 400: rows with the command (opens its `Output`), elapsed, Stop (`StopCommand`) |
 | A Globe capsule per service port | `Command.Ports` | `OpenService(port)` |
-| `composer_subagent_one`/`_count`, a spinner while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild` |
+| `composer_subagent_one`/`_count`, the loader while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild` |
 
 Then a spacer and the approvals and question. An empty strip keeps its
 row, so the composer does not move. Preview: Git totals are the Git

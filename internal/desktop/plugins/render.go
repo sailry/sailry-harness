@@ -335,7 +335,7 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 			})
 		}
 	case "Spinner":
-		result = ui.Spinner(context)
+		result = kit.Busy(context)
 	case "Progress", "ProgressTrack", "ProgressIndicator", "SliderTrack", "SliderIndicator":
 		value := runtimeFloat(properties["value"])
 		result = ui.Progress(context, float64(value)/100)

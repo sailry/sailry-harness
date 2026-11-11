@@ -154,7 +154,7 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 		return
 	}
 	if schema.loading {
-		ui.Spinner(view)
+		kit.Busy(view)
 		return
 	}
 	if schema.failure != nil {

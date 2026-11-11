@@ -441,7 +441,7 @@ func (pr *Project) history(c *ui.Context, own bool) {
 	v := &pr.Git
 	repo := &pr.Data.Repo
 	if pr.Actions != nil && v.log.Loading && len(repo.Commits) == 0 {
-		ui.Column(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
+		ui.Column(c).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
 		return
 	}
 	if len(repo.Commits) == 0 {

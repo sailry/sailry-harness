@@ -314,7 +314,7 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 			Height(32).PaddingX(12).Gap(6).Radius(16).TextColor(palette.Foreground).
 			Children(func() {
 				if entry.State.Loading {
-					ui.Spinner(view).Size(16, 16)
+					kit.Busy(view)
 				} else if entry.Declaration.Kind == "indicator" {
 					kit.Ring(view, indicatorPercent(indicator), indicator.Loading, indicatorTone(indicator), label)
 				} else {

@@ -119,14 +119,14 @@ func (r *Runtime) cliFrame(c *ui.Context) {
 					ui.Icon(c, icons.Terminal).FontSize(16)
 					ui.Text(c, label).FontSize(14).Grow(1)
 					if state.pending && state.launching == candidate.Tool {
-						ui.Spinner(c).Size(14, 14)
+						kit.Busy(c)
 					} else {
 						ui.Icon(c, icons.ChevronRight).FontSize(16)
 					}
 				}).OnClick(func() { r.launchCLI(c, state, candidate.Tool) })
 			}
 			if state.reading {
-				ui.Spinner(c).Label(title)
+				kit.Busy(c).Label(title)
 			} else if shown == 0 {
 				kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "unavailable")})
 			}

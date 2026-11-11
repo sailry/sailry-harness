@@ -247,7 +247,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 			if status != "" {
 				ui.Row(c.Key("status")).Height(18).Gap(6).Margin(16, 0, 0, 0).Children(func() {
 					if spin {
-						ui.Spinner(c).Size(14, 14)
+						kit.Busy(c)
 					}
 					col := p.MutedForeground
 					if warn {

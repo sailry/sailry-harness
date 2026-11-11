@@ -105,7 +105,7 @@ func recordsDialog(c *ui.Context, m *Model) {
 				}
 			})
 		case a.Listing:
-			ui.Row(c.Key("loading")).Justify(ui.Center).Padding(24).Children(func() { ui.Spinner(c) })
+			ui.Row(c.Key("loading")).Justify(ui.Center).Padding(24).Children(func() { kit.Loader(c, 20) })
 		default:
 			kit.Result(c, kit.ResultProps{Icon: icons.Archive, Title: t("backup_empty"), Card: true})
 		}

@@ -7,6 +7,7 @@ import (
 
 	myterminal "github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -113,7 +114,7 @@ func (state *pluginNativeState) renderTerminal(view *ui.Context, element plugins
 		return ui.Element{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin terminal is unavailable")
 	}
 	if mounted.state.reading || mounted.state.terminal == nil {
-		return ui.Row(view).Fill().Center().Children(func() { ui.Spinner(view) }), nil
+		return ui.Row(view).Fill().Center().Children(func() { kit.Loader(view, 20) }), nil
 	}
 	terminal := myterminal.View(view, mounted.state.terminal).Grow(1).MinHeight(0).FillWidth().Disabled(suspended)
 	if !suspended && state.terminalFocus == id.String() {

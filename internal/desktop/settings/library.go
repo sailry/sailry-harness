@@ -93,7 +93,7 @@ func libraryDialog(c *ui.Context, m *Model) {
 					libraryRows(c, m, shown)
 					if load.Loading {
 						// A later search keeps the rows under a spinner.
-						ui.Box(c.Key("library-loading")).Absolute().Fill().Center().Busy(true).Children(func() { kit.Loader(c, 16) })
+						ui.Box(c.Key("library-loading")).Absolute().Fill().Center().Busy(true).Children(func() { kit.Loader(c, 20) })
 					}
 				})
 			})

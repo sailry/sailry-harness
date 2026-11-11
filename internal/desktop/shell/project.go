@@ -107,7 +107,7 @@ func (a *App) projectView(c *ui.Context) {
 					kit.Ghost(c.Key("initialize"), label, false).Height(28).PaddingX(8).Gap(6).
 						Disabled(state.pending || state.actions.Initialize == nil).Children(func() {
 						if state.pending && state.opening == "" && !state.initialize {
-							ui.Spinner(c).Size(14, 14)
+							kit.Busy(c)
 						} else {
 							ui.Icon(c, icons.Network).FontSize(16)
 						}
@@ -213,7 +213,7 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 				kit.Ghost(c.Key(session.Node+"/"+session.ID), title, false).FillWidth().Padding(12).Gap(12).Justify(ui.Start).
 					Disabled(state.pending || state.actions.OpenSession == nil).Children(func() {
 					if state.pending && state.opening == session.Node+"/"+session.ID {
-						ui.Spinner(c).Size(14, 14).Shrink(0)
+						kit.Busy(c)
 					} else {
 						ui.Icon(c, icons.Bot).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
 					}
