@@ -31,6 +31,8 @@ type ProjectActions struct {
 	NewTerminal  func(*viewmodel.Project)
 	Terminals    func() []ProjectTerminal
 	OpenTerminal func(id string)
+	// Controls draws the controls packages add to the page, after its own.
+	Controls func(*ui.Context)
 }
 
 // ProjectTerminal is one row of a project's Terminal records.
@@ -145,6 +147,9 @@ func (a *App) projectView(c *ui.Context) {
 					} else {
 						kit.Tooltip(c, button, i18n.T(c, "unavailable"))
 					}
+				}
+				if state.actions.Controls != nil {
+					state.actions.Controls(c)
 				}
 			})
 			a.projectRecordsView(c, project, state)

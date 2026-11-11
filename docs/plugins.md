@@ -429,6 +429,26 @@ empty so the text remains aligned.
   explicit unavailable embedded-browser result.
 - Native Files and Git remain the accepted core pages. Their package desktop
   entries and Git Status contribution are deliberately not mounted.
+- The `project` and `project_menu` slots are drawn where the source draws
+  them: `project` controls follow the project overview's own actions as its
+  secondary buttons, and `project_menu` buttons and menus follow New terminal
+  and Records in the project's system menu as items and submenus of choices.
+  Both belong to one registry per project, scoped to its main worktree (the
+  overview's selected one). The application already draws six bundled
+  controls itself, so those declarations validate and are not mounted:
+  `commands` `terminal-new`, `terminal-cli`, `terminal-menu-new` and
+  `terminal-menu-cli` (the overview's and the menu's New terminal and AI CLI)
+  and `worktrees` `manage` (the menu's Worktrees); the Git package's `manage`
+  goes with its unmounted entry. A default installation therefore mounts
+  nothing for a project. The system menu is built when it is asked for, so
+  while an installed package declares a menu item of its own, every listed
+  project keeps its registry mounted; the source mounts on the click and
+  waits up to ten seconds before showing the menu.
+- The `provider` slot validates and is not drawn. Settings shows a channel's
+  5h and 7d quota from the Node's own `provider_quotas`
+  ([settings](settings.md)); the bundled `provider-status` `provider_usage`
+  metric repeats it. The bundled `workbuddy` `provider_credits` metric has no
+  native counterpart and is not shown.
 - An SFTP change whose reply is lost reports `outcome_unknown`; the source
   reports every non-status SFTP error as `unavailable`.
 - SSH worktree transfers accept registered execution workspaces inside the

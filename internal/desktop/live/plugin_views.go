@@ -157,6 +157,7 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 		}
 		r.syncPluginRegistry(view, owner)
 	}
+	r.projectMenuRegistries()
 	r.projectPluginViews(view)
 	for section, schema := range state.schemas {
 		if !rootPluginSchemaCurrent(r, section, schema) {
@@ -310,8 +311,8 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 	root.pluginViews.mounts[key] = mounted
 	if registry != nil && info.Extension != nil {
 		declarations := info.Extension.Ui
-		if scope.Surface.Kind == "provider" {
-			declarations = pluginViewDeclarations(declarations, scope.Surface.Kind)
+		if scope.Surface.Kind == "provider" || scope.Surface.Kind == "project" {
+			declarations = pluginViewDeclarations(info.Summary.Name, declarations, scope.Surface.Kind)
 		}
 		hooks, err := registry.Hooks(scope.Package, declarations)
 		if err != nil {
