@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"io"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -19,7 +20,7 @@ func TestMCPPoolKey(t *testing.T) {
 	var opened atomic.Int32
 	pool := New(t.Context(), Options{Clock: clock, Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
 		opened.Add(1)
-		return fakeSession(t, ctx, elicit, false)
+		return fakeSession(t, ctx, elicit, nil)
 	}})
 	defer pool.Close()
 	base := Configuration{
@@ -133,7 +134,7 @@ func TestMCPPoolKey(t *testing.T) {
 func TestMCPCleanupUnknown(t *testing.T) {
 	t.Run("retain both acquisition cleanup failures", func(t *testing.T) {
 		pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
-			return fakeSession(t, ctx, elicit, false)
+			return fakeSession(t, ctx, elicit, nil)
 		}})
 		defer pool.Close()
 		retired := errors.New("fixture retired resource cleanup failed")
@@ -215,10 +216,20 @@ func TestMCPCleanupUnknown(t *testing.T) {
 			})
 		})
 	}
-	for _, fail := range []bool{false, true} {
-		t.Run(map[bool]string{false: "confirmed", true: "unconfirmed"}[fail], func(t *testing.T) {
+	for _, row := range []struct {
+		name string
+		wrap func(sdk.Transport) sdk.Transport
+		fail bool
+	}{
+		{"confirmed", nil, false},
+		{"unconfirmed", func(wire sdk.Transport) sdk.Transport { return failingTransport{wire} }, true},
+		// How the stream ended says nothing of the transport's own close.
+		{"confirmed with a severed stream", func(wire sdk.Transport) sdk.Transport { return severedTransport{wire} }, false},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			fail := row.fail
 			pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
-				return fakeSession(t, ctx, elicit, fail)
+				return fakeSession(t, ctx, elicit, row.wrap)
 			}})
 			config := Configuration{Package: protocol.PluginReference{Name: "cleanup", Digest: "captured"}, Server: "echo", Options: protocol.DefaultPluginMcpOptions()}
 			lease, err := pool.Acquire(t.Context(), config)
@@ -243,7 +254,7 @@ func TestMCPCleanupUnknown(t *testing.T) {
 	}
 }
 
-func fakeSession(t *testing.T, ctx context.Context, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error), fail bool) (*sdk.ClientSession, error) {
+func fakeSession(t *testing.T, ctx context.Context, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error), wrap func(sdk.Transport) sdk.Transport) (*sdk.ClientSession, error) {
 	t.Helper()
 	server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
 	sdk.AddTool(server, &sdk.Tool{Name: "echo"}, func(ctx context.Context, request *sdk.CallToolRequest, input struct {
@@ -258,8 +269,8 @@ func fakeSession(t *testing.T, ctx context.Context, elicit func(context.Context,
 	}
 	t.Cleanup(func() { _ = serverSession.Close() })
 	var transport sdk.Transport = clientWire
-	if fail {
-		transport = failingTransport{clientWire}
+	if wrap != nil {
+		transport = wrap(clientWire)
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, &sdk.ClientOptions{ElicitationHandler: elicit})
 	return client.Connect(ctx, transport, nil)
@@ -280,6 +291,25 @@ type failingConnection struct{ sdk.Connection }
 func (connection failingConnection) Close() error {
 	_ = connection.Connection.Close()
 	return errors.New("fixture transport cleanup was not acknowledged")
+}
+
+// severedTransport ends its stream with an error of its own instead of the
+// end of the stream, as a pipe closed from this side does.
+type severedTransport struct{ sdk.Transport }
+
+func (transport severedTransport) Connect(ctx context.Context) (sdk.Connection, error) {
+	connection, err := transport.Transport.Connect(ctx)
+	return severedConnection{connection}, err
+}
+
+type severedConnection struct{ sdk.Connection }
+
+func (connection severedConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
+	message, err := connection.Connection.Read(ctx)
+	if err != nil {
+		err = io.ErrClosedPipe
+	}
+	return message, err
 }
 
 // brokenTransport fails every write once its flag is set while the session

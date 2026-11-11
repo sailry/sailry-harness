@@ -228,7 +228,9 @@ authorization identity. Changed captures retire old owners. Retained leases
 check current authorization, credentials and destination after acquiring their
 call locks and before each RPC. Connection, tool, descriptor and message sizes are bounded. The
 owner retains subprocess/Python resources until cleanup settles. Lost transport
-or unconfirmed cleanup returns `OutcomeUnknown`, without replay. Form and URL
+or unconfirmed cleanup returns `OutcomeUnknown`, without replay. Cleanup is
+confirmed by the transport's own close; the error a stream ends with when it is
+closed from this side is not a failed cleanup. Form and URL
 elicitation use canonical questions and pause only active elicitation time.
 
 ### MCP servers outside a turn

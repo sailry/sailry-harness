@@ -673,8 +673,11 @@ func closeConnections(connections []*connection) error {
 	return errors.Join(failures...)
 }
 
+// cleanup closes a session and waits for its connection to end. Only the
+// transport's own close decides the result: how the stream ended, which Wait
+// would add, is an error whenever a pipe is closed from this side first.
 func cleanup(session *sdk.ClientSession) error {
-	if err := errors.Join(session.Close(), session.Wait()); err != nil {
+	if err := session.Close(); err != nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "MCP connection cleanup could not be confirmed"}
 	}
 	return nil
