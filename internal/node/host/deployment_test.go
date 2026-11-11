@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/ssh"
 	cryptossh "golang.org/x/crypto/ssh"
@@ -120,4 +121,57 @@ func TestSSHInstallationContracts(t *testing.T) {
 	if err := NewInstallations(paths).installRelease(context.Background(), nil, node, request.ID, nil, nil); err == nil {
 		t.Fatal("release installation accepted isolated managed paths")
 	}
+	t.Run("bootstrap pairing", func(t *testing.T) {
+		t.Parallel()
+		refused := &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "pairing rejected"}
+		paired := link.EndpointAddress{ID: protocol.NodeID{7}}
+		for _, row := range []struct {
+			name    string
+			tickets []string
+			results []error
+			tried   []string
+			message string
+		}{
+			{"first ticket", []string{"", "", "a"}, []error{nil}, []string{"a"}, ""},
+			{"refused once", []string{"a", "a", "b"}, []error{refused, refused, nil}, []string{"a", "a", "b"}, ""},
+			{"unreachable once", []string{"a", "a"}, []error{errors.New("no route"), nil}, []string{"a", "a"}, ""},
+			{"always refused", []string{"a", "b", "c", "d", "e", "f"}, []error{refused, refused, refused, refused, refused, nil}, []string{"a", "b", "c", "d", "e"}, "Host installed but pairing could not be confirmed"},
+			{"trust unconfirmed", []string{"a", "b"}, []error{unknown("trust could not be confirmed"), nil}, []string{"a"}, "trust could not be confirmed"},
+			{"never published", nil, nil, nil, "Host service started but pairing is unavailable; inspect the host service"},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				reads, waits := 0, 0
+				var tried []string
+				address, err := pairBootstrap(context.Background(), func() (string, error) {
+					reads++
+					if reads > len(row.tickets) {
+						return "", nil
+					}
+					return row.tickets[reads-1], nil
+				}, func(ticket string) (link.EndpointAddress, error) {
+					tried = append(tried, ticket)
+					if err := row.results[len(tried)-1]; err != nil {
+						return link.EndpointAddress{}, err
+					}
+					return paired, nil
+				}, func(context.Context) error { waits++; return nil })
+				if strings.Join(tried, ",") != strings.Join(row.tried, ",") {
+					t.Fatalf("tickets tried: %v", tried)
+				}
+				if row.message == "" {
+					if err != nil || address.ID != paired.ID {
+						t.Fatalf("pairing: %+v, %v", address, err)
+					}
+					return
+				}
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown || fault.Message != row.message {
+					t.Fatalf("pairing failure: %v", err)
+				}
+				if reads > 90 || waits > 90 {
+					t.Fatalf("pairing was not bounded: %d reads, %d waits", reads, waits)
+				}
+			})
+		}
+	})
 }

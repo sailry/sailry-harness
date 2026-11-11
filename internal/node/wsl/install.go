@@ -70,20 +70,37 @@ func (installation *Installation) Execute(environment []string, endpoint *link.L
 	return outcome, err
 }
 
+// pairingAttempts is how many times an installation tries to pair with the
+// Host it installed.
+const pairingAttempts = 5
+
 // pair waits for the installed service to publish its bootstrap ticket, then
-// confirms an independent endpoint running the expected release.
+// confirms an independent endpoint running the expected release. The service
+// has only just started, so one refused or unreachable attempt does not end
+// the installation: the ticket is read again, because the Host replaces one
+// that expired, and pairing is tried up to pairingAttempts times within 90
+// seconds. A result that may have changed trust is not retried.
 func (installation *Installation) pair(ctx context.Context, executable string, arguments, environment []string, endpoint *link.Link, local protocol.NodeID, network *protocol.NetworkSelection, version string, configure ConfigureNetwork) (protocol.HostInstallationOutcome, error) {
 	deadline := time.Now().Add(90 * time.Second)
-	ticket := ""
-	for {
+	var address link.EndpointAddress
+	for failures := 0; ; {
 		output, err := run(ctx, executable, arguments, environment, ticketScript, 5*time.Second)
 		if err != nil {
 			return protocol.HostInstallationOutcome{}, unknown("Host installed but its bootstrap ticket could not be read")
 		}
-		if ticket = strings.TrimSpace(output); ticket != "" {
-			break
+		if ticket := strings.TrimSpace(output); ticket != "" {
+			if address, err = endpoint.Pair(ctx, ticket); err == nil {
+				break
+			}
+			var settled *protocol.Fault
+			if failures++; failures == pairingAttempts || errors.As(err, &settled) && settled.Code == protocol.ErrorCodeOutcomeUnknown {
+				return protocol.HostInstallationOutcome{}, unknown("Host installed but pairing could not be confirmed")
+			}
 		}
 		if !time.Now().Before(deadline) {
+			if failures > 0 {
+				return protocol.HostInstallationOutcome{}, unknown("Host installed but pairing could not be confirmed")
+			}
 			return protocol.HostInstallationOutcome{}, unknown("Host service started but pairing is unavailable; inspect the distribution service")
 		}
 		timer := time.NewTimer(time.Second)
@@ -93,10 +110,6 @@ func (installation *Installation) pair(ctx context.Context, executable string, a
 			return protocol.HostInstallationOutcome{}, ctx.Err()
 		case <-timer.C:
 		}
-	}
-	address, err := endpoint.Pair(ctx, ticket)
-	if err != nil {
-		return protocol.HostInstallationOutcome{}, unknown("Host installed but pairing could not be confirmed")
 	}
 	if address.ID == local {
 		return protocol.HostInstallationOutcome{}, unknown("Installed Host identity is not independent")

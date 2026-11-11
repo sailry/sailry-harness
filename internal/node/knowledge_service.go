@@ -342,7 +342,7 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
-		completion <- response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "knowledge collection result could not be recorded; list the collections before retrying"})
+		completion <- node.unapplied(caller, request.ID, err)
 		return accepted, nil
 	}
 	if operationErr == nil {

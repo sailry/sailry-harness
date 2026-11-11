@@ -309,30 +309,49 @@ func TestSubscriptionCancellationRetainsPartialFrame(t *testing.T) {
 func TestProtocolControlsCompatibility(t *testing.T) {
 	t.Parallel()
 	version, old, newer := uint16(protocol.VERSION), uint16(0), uint16(2)
-	unknownVersion, otherVersion := "invalid", "999.0.0"
-	if err := checkCompatibility(&version, &unknownVersion, &version, &otherVersion); err != nil {
-		t.Fatalf("product version blocked matching protocol: %v", err)
+	release, sameRelease, olderRelease, newerRelease, invalid := "0.1.6", "0.1.6+other", "0.1.5", "0.2.0", "invalid"
+	if err := checkCompatibility(&version, &release, &version, &sameRelease); err != nil {
+		t.Fatalf("build metadata blocked the same release: %v", err)
 	}
+	// Contracts change in place under one protocol number, so two releases
+	// with the same number are not interoperable and the older side updates.
 	for _, candidate := range []struct {
+		name       string
 		controller *uint16
 		host       *uint16
+		release    *string
+		hostValue  *string
 		updateHost bool
 		unverified bool
 	}{
-		{&version, &old, true, false},
-		{&version, &newer, false, false},
-		{&version, nil, true, true},
-		{nil, &version, false, true},
+		{"older_host_protocol", &version, &old, &invalid, &newerRelease, true, false},
+		{"newer_host_protocol", &version, &newer, &invalid, &olderRelease, false, false},
+		{"missing_host_protocol", &version, nil, &invalid, &newerRelease, true, true},
+		{"missing_controller_protocol", nil, &version, &invalid, &olderRelease, false, true},
+		{"older_host_release", &version, &version, &release, &olderRelease, true, false},
+		{"newer_host_release", &version, &version, &release, &newerRelease, false, false},
+		{"missing_host_release", &version, &version, &release, nil, true, true},
+		{"invalid_host_release", &version, &version, &release, &invalid, true, true},
+		{"invalid_controller_release", &version, &version, &invalid, &release, false, true},
 	} {
-		err := checkCompatibility(candidate.controller, &unknownVersion, candidate.host, &otherVersion)
-		fault := faultValue(err)
-		if fault.Code != protocol.ErrorCodeConflict || fault.Details == nil || fault.Details.Kind != "version_mismatch" {
-			t.Fatalf("compatibility fault: %#v", fault)
-		}
-		details, ok := fault.Details.Data.(protocol.FaultDetailsVersionMismatchPayload)
-		if !ok || details.UpdateHost != candidate.updateHost || details.Unverified != candidate.unverified {
-			t.Fatalf("compatibility details: %#v", fault.Details)
-		}
+		t.Run(candidate.name, func(t *testing.T) {
+			err := checkCompatibility(candidate.controller, candidate.release, candidate.host, candidate.hostValue)
+			fault := faultValue(err)
+			if fault.Code != protocol.ErrorCodeConflict || fault.Details == nil || fault.Details.Kind != "version_mismatch" {
+				t.Fatalf("compatibility fault: %#v", fault)
+			}
+			details, ok := fault.Details.Data.(protocol.FaultDetailsVersionMismatchPayload)
+			if !ok || details.UpdateHost != candidate.updateHost || details.Unverified != candidate.unverified {
+				t.Fatalf("compatibility details: %#v", fault.Details)
+			}
+			side := "update the controller"
+			if candidate.updateHost {
+				side = "update Host"
+			}
+			if !strings.HasSuffix(fault.Message, side) {
+				t.Fatalf("message does not name the side to update: %q", fault.Message)
+			}
+		})
 	}
 	expectedPlatform := map[string]string{"darwin": "macos", "linux": "linux", "windows": "windows"}[runtime.GOOS]
 	if expectedPlatform == "" {
@@ -674,6 +693,29 @@ func TestConnectionTelemetrySharesSampler(t *testing.T) {
 			if slot.ctx.Err() == nil || slot.connection != nil || slot.telemetry != nil {
 				t.Fatal("evicted slot retained its lifetime or connection owners")
 			}
+		}
+	})
+	t.Run("disconnect_drops_cached_connection", func(t *testing.T) {
+		link := newFixtureLink(t)
+		peer := protocol.NodeID{9}
+		ctx, cancel := context.WithCancel(link.ctx)
+		defer cancel()
+		joined := make(chan struct{})
+		slot := &outgoingSlot{ctx: ctx, cancel: cancel, dial: make(chan struct{}, 1)}
+		slot.telemetry = &connectionTelemetry{changed: make(chan struct{}), done: joined, cancel: func() { close(joined) }}
+		link.outgoing[peer] = slot
+		link.Disconnect(protocol.NodeID{8})
+		if slot.telemetry == nil {
+			t.Fatal("disconnecting another peer dropped this connection")
+		}
+		link.Disconnect(peer)
+		link.Disconnect(peer)
+		if !channelClosed(joined) || slot.telemetry != nil || slot.connection != nil {
+			t.Fatal("the cached connection outlived the disconnect")
+		}
+		// The peer stays paired and its slot stays usable: only the next use dials.
+		if link.outgoing[peer] != slot || slot.ctx.Err() != nil {
+			t.Fatal("disconnect removed the peer's slot")
 		}
 	})
 }

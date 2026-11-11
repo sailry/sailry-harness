@@ -150,7 +150,11 @@ func (node *Node) executeBackup(caller protocol.NodeID, request protocol.Request
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
-		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "backup operation result could not be recorded; inspect the backup list using the original request identifier"})
+		if configuration {
+			return node.unapplied(caller, request.ID, err)
+		}
+		// The operation ran outside the transaction, so its result is what is stored.
+		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	if configuration && operationErr == nil {
 		node.publish()

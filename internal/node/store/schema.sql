@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS requests (
     body BLOB NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('admitted','completed','unknown')),
     result TEXT,
+    at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(caller,id)
 );
 CREATE TABLE IF NOT EXISTS projects (

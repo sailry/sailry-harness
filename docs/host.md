@@ -131,6 +131,32 @@ and reconnect confirmation. `ReadHostInstall` supplies connecting, detecting,
 installing and pairing stages. Only a confirmed matching Node result displays
 Current. Release catalog acquisition belongs to B14.
 
+A controller and a Host exchange execution calls only when their protocol
+numbers and their releases are the same (`link.CheckHost`, and the Host's own
+check of each call). Contracts stay at v1 and change in place until the first
+release ([ARCHITECTURE.md](../ARCHITECTURE.md#contract-and-storage-versions)),
+so the protocol number alone does not show that two builds agree. Releases are
+compared by semantic-version precedence without build metadata. The older
+side is the one to update and a release that cannot be read counts as older;
+the `version_mismatch` fault names the side (`update_host`). A Host that does
+not match stays offline with that fault as its runtime error and no Client is
+started for it, so it is inspected every ten seconds instead of reconnecting;
+an older Host shows Update, which works over SSH and does not need a
+compatible Link. Two development builds of one release with different
+contracts are not told apart.
+
+An update whose result was not observed keeps its request and offers Check
+status, which asks the Node what became of that request
+([node.md](node.md#unobserved-outcomes)). A recorded success shows Current and
+a recorded failure is a plain failure. A result the Node recorded as
+unconfirmed, or lost to a restart, is final: asking again cannot change it, so
+the uncertain toast is shown once, the request is dropped and Check status
+reads the Host's version instead. The Host then shows Current, or the update
+is offered again under a new request. Before it confirms an update, the Node
+drops its cached connection to that Host (`Link.Disconnect`) and drops it
+again after every probe that did not confirm, so a connection to the replaced
+process is never the one that answers.
+
 Add host uses the local Node's `SaveSsh`, `CheckSsh`, explicit `TrustSsh` and
 `InstallHost` sequence. Passwords, inline private keys, key paths and passphrases
 are passed only to Node-owned configuration. A host-key prompt shows the exact
@@ -179,6 +205,44 @@ invitation still receives that frame. A claimant whose trust could not be
 stored releases the invitation for another device. Pairing is bidirectional as
 in Rust: either paired side may command the other.
 
+Removing a pairing is one-sided. It deletes this device's record of the peer
+and closes the connections between them; the peer keeps its record of this
+device and is refused when it connects. It does not stop work the Host is
+already running: sessions and queued turns, commands, terminals and anything
+else this controller started there continue, and stay reachable from the
+Host's other controllers. Stop that work before removing the pairing.
+
+A paired controller may send every command except the few the Node keeps for
+the controller on its own device:
+
+| Command | Refusal for a paired controller | Check |
+|---|---|---|
+| `create_session_at` for another Node (session forwarding) | `permission_denied`, "only the local controller can forward configuration to another Node" | `store.PrepareSessionForward` |
+| `import_session` | accepted only from the paired Node named as its source, never from the Node's own controller | `store.importSession` |
+| A dispatch job's callback | a controller that repeats the job's request identifier gets none of the job's package authority | `store.DispatchPackage` |
+| A plugin request scoped to a turn or to a running invocation | `permission_denied`, "plugin turn belongs to the execution Node" or "plugin invocation does not own this action" | `store.PluginRequestPackage`, `validatePluginRequestDB`, `pluginCallback`, `plugin_connection.go` |
+| `request_computer_permission` | `permission_denied`, "system permissions must be granted on the execution device"; `read_computer_permissions` answers with `local: false` | `computer.Probe.Request` |
+| `count_feature` | `permission_denied`, "feature counters require the local controller" | `dispatchFeature` |
+
+A plugin scope reaches no network command (`read_network_settings`,
+`save_network_settings`, `list_network_presets`, `probe_network`), port
+command, WSL command, backup command, `inspect_host`, `read_host_metrics` or
+`stop_host_process`. A package that declares `manage_ssh` may save, trust and
+remove an SSH connection within its scope and install or update a Host
+through it, as in Rust (`store/plugins/connections.rs`); a Host installed
+that way is paired like any other.
+
+Only the sharing side decides whether a ticket is still valid: it holds the
+60-second deadline and its token. The joining side does not compare the
+ticket's expiry with its own clock, and neither does it for a ticket the
+pairing service released for a PIN, because the two machines' clocks differ.
+An installation pairs with the Host it installed through the ticket the Host
+service publishes, and the Host replaces a ticket that expired. The service
+has only just started, so a refused or unreachable attempt reads the ticket
+again and pairs again, at most five times within the 90 seconds the
+installation waits; SSH and WSL installations do the same. A result that may
+have changed trust is not retried.
+
 Port actions are additive callbacks over the accepted picker. Each window owns
 its Client Forwarders, binds only a loopback listener, and releases its forwards
 on window close. Open uses the confirmed local address through the native
@@ -186,6 +250,13 @@ opener; Create reports backend failure while retaining the entered ports. A
 port stream that fails to open is released on the Node with `cancel_port` even
 when the caller's cancellation caused the failure; that cleanup waits at most
 two seconds.
+
+A forward fails when its Host's connection is lost, and its row shows it as
+not listening. When the Host is connected again the window creates the forward
+again on the same local port, from the same announced service when it had
+one, at most three times for each return of the Host; a forward that cannot
+be created (the service ended, the local port was taken) stays not listening.
+A forward the user or its service closed is not created again.
 
 A session on a remote Host can use a provider configured only on this Desktop:
 the local Node forwards the provider, a transferable secret and the roles over
@@ -245,6 +316,11 @@ confirmation, cancel and busy state.
 | The rail's Add host opens Settings › Connections | The add dialog lives with the Connections page |
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
 | Update Download prepares the update instead of acquiring a release | The frozen protocol has a single install/update command. Apply runs it: the remote machine downloads and verifies the release feed's installer and archive, or the execution Node uploads `host-artifacts/<goos>-<goarch>/` when that directory holds a locally built `sailry-host` |
-| A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends |
+| A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends. Rust leaves a failed forward to the user; the window creates it again when the Host returns |
+| Compatibility also requires the same release | Rust compares only the protocol number (`link/src/compatibility.rs`), which it bumps with its contracts. Here contracts change in place at v1, and mismatched builds failed as "unknown Node event" and reconnected every ten seconds |
+| The joining side does not check a pairing ticket's expiry | Rust rejects a ticket that its own clock finds expired or more than 60 seconds from expiry (`link/src/network/pairing.rs`, `rendezvous.rs`), so a correct ticket from a Host whose clock was 7.4 seconds ahead was refused. The sharing side enforces the lifetime and the token |
+| Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
+| An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
+| Update confirmation drops the cached connection after each unconfirmed probe as well as before the first | Rust disconnects once before probing; a probe that reached the old process would otherwise leave its connection for the next |
 | Remote timezone remains unknown | HostInfo and the Link handshake do not expose it; the controller does not substitute its own timezone |
 | Live metrics keep the accepted column and sidebar footer | B7 supplies real samples without restoring the Rust monitor's additional gauges, trends or process actions |

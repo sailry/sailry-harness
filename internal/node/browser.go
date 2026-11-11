@@ -409,13 +409,7 @@ func (node *Node) dispatchBrowser(ctx context.Context, caller protocol.NodeID, r
 		defer node.work.Done()
 		defer close(completion)
 		output, effectErr := node.useBrowser(node.ctx, caller, request.ID, *input)
-		outcome := response(output, effectErr)
-		if err := node.profile.Store.Node.Write(context.WithoutCancel(node.ctx), func(db *sql.Conn) error {
-			return admission.Complete(context.WithoutCancel(node.ctx), db, caller, request.ID, outcome)
-		}); err != nil {
-			outcome = response(protocol.Output{}, browserFault(protocol.ErrorCodeOutcomeUnknown, "operation result could not be recorded; inspect the target before retrying"))
-		}
-		completion <- outcome
+		completion <- node.settle(caller, request.ID, response(output, effectErr))
 	}()
 	return result, nil
 }

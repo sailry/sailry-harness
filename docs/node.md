@@ -21,6 +21,40 @@ context and is independent of the controller's observation context.
 Completed replay returns its original success or fault without another mutation
 or event. Reusing an ID for different content returns Conflict. An admitted or
 unknown request returns OutcomeUnknown and never executes again automatically.
+
+Every admitted request ends in one of two final states
+(`internal/node/admission`):
+
+- `completed`: it ended, and its success or its fault is stored. A request
+  whose whole effect was in the transaction that failed changed nothing, so
+  that failure is stored as its result (`Node.unapplied`); a retry gets the
+  same fault and the controller starts a new request.
+- `unknown`: the Node stopped while the request ran. Startup sets this for
+  every request still `admitted`, and it never changes again. The Node cannot
+  tell which of them took effect, so it does not guess.
+
+`admitted` therefore always means "running, or its result is being stored".
+A result that could not be stored with its transaction is written again in a
+transaction of its own every second (`admission.Settle`) until it is stored or
+the Node stops; a stopping Node makes one last attempt. Only a commit that the
+store could not confirm leaves a request admitted until the next start.
+
+`InspectRequest` answers "what became of request X" for the controller that
+sent it: `not_admitted`, `admitted`, `completed` with the stored result, or
+`unknown`. Any paired or local controller may ask; a Node that forwarded a
+request to another Node asks that Node the same way, with
+`admission.Digest` of the serialized request. Controllers resolve every
+unobserved outcome through `Client.Settle`, described in
+[Unobserved outcomes](#unobserved-outcomes).
+
+Completed and unknown requests are deleted `admission.Retention` (7 days)
+after their admission, at startup and once a day. A retry later than that is
+a new request. Requests that a turn, a queued turn, an approval or a dispatch
+job refers to are kept, because those rows read their input and result from
+the ledger; they go when their owner is removed. The `requests.at` column
+(Unix seconds, added in place) holds the admission time; a row written before
+it existed is dated at the first pass that sees it.
+
 `InspectRequest` checks a lowercase 64-character BLAKE3 digest and reports the
 recorded outcome without admitting or replaying the original command. The digest
 covers the request as this engine serializes it: Go writes a union's content
@@ -58,6 +92,39 @@ cannot reach: backups, exports and file copies made earlier (including
 Rust release, and blocks the filesystem or an SSD has already released or
 remapped. Connections saved by a turn before the update no longer count as
 created by that turn.
+
+### Unobserved outcomes
+
+A controller that did not see the result of a durable request (the reply was
+lost, or the Node answered a duplicate with OutcomeUnknown) has one way to
+resolve it, `Client.Settle` in `internal/client/resolve.go`. It executes the
+request once and, on an unknown outcome, asks the Node by request ID:
+
+| Node answers | Settle returns | The caller |
+|---|---|---|
+| `completed`, success | the stored output, no error | treats it as the success it is |
+| `completed`, fault | the stored fault | reports the failure |
+| `completed` with an OutcomeUnknown fault, or `unknown` | OutcomeUnknown, `client.Released` | drops the request, says once that the result could not be confirmed, starts a new request next time |
+| `not_admitted` | Unavailable "did not reach the Node", `client.Released` | drops the request, reports a failure; nothing changed |
+| `admitted`, or the Node cannot be asked | OutcomeUnknown, `client.Retained` | keeps the request; the same request settled again resolves it |
+
+The Desktop's `Runtime.execute` uses it for every command it sends that way
+(sends, queue actions, settings saves, provider and package commands) and
+keeps a request only while `client.Retained` holds. Flows that poll their own
+long operation (Host installation, uploads, plugin requests) call
+`Client.Resolve` or `Client.Outcome` directly.
+
+Differences from Rust, deliberate:
+
+- Rust has no final state: an `admitted` request whose result write failed
+  stays admitted until restart, and an `unknown` one answers OutcomeUnknown to
+  every retry, which the Desktop kept sending. Go retries the result write,
+  stores the failure of a request that was not applied, and releases a request
+  the Node can never answer.
+- Rust never deletes a ledger row. Go deletes settled, unreferenced rows after
+  7 days.
+- Rust confirms an unobserved settings save in the Desktop
+  (`settings/requests.rs`); Go does it in the Client for every command.
 
 Protocol and stored JSON is decoded in one pass by `protocol.Decoder`
 (`encoding/json/jsontext` tokens, per-type member tables built once). The wire
@@ -136,6 +203,14 @@ configured provider model serves the vision, image, video and speech purposes,
 and `synthesize_speech` reads text aloud with the assigned speech model. The
 settings appear in the snapshot and are captured with each admitted turn.
 Capability tags, routing, channels and limits are in [media.md](media.md).
+
+`save_network_settings` checks the expected revision, makes the selection the
+Link's effective one and only then stores it, so a selection whose relays
+could not be reached changes nothing and is not the one the next start uses.
+A selection that was applied but could not be stored is taken back; when the
+commit itself could not be confirmed the effective selection stays. Rust
+stores the selection before applying it and keeps it when the relays fail
+(`store/network.rs`); this order is the deliberate difference.
 
 `count_feature {feature}` counts one use of a desktop feature in the usage
 window and answers `feature_counted`. It is a v1 extension, not durable,
