@@ -1799,17 +1799,17 @@ git_unborn_changes: 尚无提交或变更数据
 git_initialize_changed: 项目路径已变更，请关闭后重新初始化
 git_worktree_requires_commit: 仓库尚无提交，无法从起点引用创建 worktree
 git_detached: 分离头指针
-directory_title: 选择目录
+directory_title: "选择文件夹"
 directory_scope: "%{host} · 示例目录，不读取文件系统"
 directory_root: 根目录
-directory_home: 主目录
+directory_home: "主文件夹"
 directory_back: 后退
 directory_forward: 前进
-directory_up: 上级目录
+directory_up: "上级文件夹"
 directory_address: 输入路径
 directory_empty: 没有可显示的子目录
-directory_missing: 此路径不在该主机的示例目录中，可返回示例位置
-directory_denied: 此目录为无访问权限示例，可选择其他目录
+directory_missing: "文件夹不存在"
+directory_denied: "没有权限访问此文件夹"
 directory_stale: 原表单路径已变更，请关闭后重新选择
 directory_preview: 示例文件
 directory_desktop: 桌面
@@ -2687,15 +2687,15 @@ chat_continuation: "继续执行"
 directory_filter: "筛选"
 directory_list: "列表"
 directory_grid: "网格"
-directory_hidden: "隐藏项"
+directory_hidden: "显示隐藏项"
 directory_kind: "种类"
 directory_size: "大小"
 directory_locations: "位置"
 directory_devices: "设备"
 directory_no_matches: "没有匹配项"
-directory_count_directories: "%{count} 目录"
-directory_count_files: "%{count} 文件"
-directory_count_hidden: "%{count} 隐藏"
+directory_count_directories: "%{count} 个文件夹"
+directory_count_files: "%{count} 个文件"
+directory_count_hidden: "%{count} 个隐藏项"
 directory_folder_kind: "文件夹"
 directory_file_kind: "文件"
 directory_markdown_kind: "Markdown 文档"

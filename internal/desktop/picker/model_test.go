@@ -189,6 +189,63 @@ func TestModel(t *testing.T) {
 		}
 	})
 
+	// A directory picker selects directories alone and always has a choice;
+	// the file pickers select anything and choose files.
+	t.Run("selection rules", func(t *testing.T) {
+		l := Listing{Separator: "/", Path: "/work", Entries: []Entry{{Name: "src", Kind: "directory"}, {Name: "a.go", Kind: "file"}, {Name: "link", Kind: "symlink"}}}
+		for i, want := range []bool{true, false, false} {
+			if Selectable(Directory, l.Entries[i]) != want || !Selectable(File, l.Entries[i]) || !Selectable(Files, l.Entries[i]) {
+				t.Errorf("%s is selectable in the wrong modes", l.Entries[i].Name)
+			}
+		}
+		for _, c := range []struct {
+			mode     Mode
+			selected []int
+			want     []string
+		}{
+			{Directory, nil, []string{"/work"}},
+			{Directory, []int{0}, []string{"/work/src"}},
+			{Directory, []int{1}, nil},
+			{File, nil, nil},
+			{File, []int{0}, nil},
+			{File, []int{1}, []string{"/work/a.go"}},
+			{Files, []int{0, 1, 2}, []string{"/work/a.go"}},
+		} {
+			if got := Resolve(c.mode, l, c.selected); !slices.Equal(got, c.want) {
+				t.Errorf("Resolve(%d, %v) = %q, want %q", c.mode, c.selected, got, c.want)
+			}
+		}
+		// A name that only starts with a dot has no extension to name.
+		if key, extension := KindKey(Entry{Name: ".gitignore", Kind: "file"}); key != "directory_file_kind" || extension != "" {
+			t.Errorf(".gitignore is a %s %q", key, extension)
+		}
+		if key, extension := KindKey(Entry{Name: "a.deb", Kind: "file"}); key != "directory_extension_kind" || extension != "DEB" {
+			t.Errorf("a.deb is a %s %q", key, extension)
+		}
+	})
+
+	// The sidebar marks the longest location holding the directory, by
+	// whole path steps.
+	t.Run("nearest location", func(t *testing.T) {
+		locations := []Location{{Kind: "root", Path: "/"}, {Kind: "home", Path: "/home/me"}, {Kind: "project", Path: "/home/me/work"}, {Path: ""}}
+		for path, want := range map[string]string{
+			"/": "/", "/usr/lib": "/", "/home/me": "/home/me", "/home/me/notes": "/home/me", "/home/me/work": "/home/me/work",
+			"/home/me/work/src": "/home/me/work", "/home/me/workshop": "/home/me", "/home/meadow": "/",
+		} {
+			if got, ok := Nearest(Listing{Separator: "/", Path: path}, locations); !ok || got != want {
+				t.Errorf("Nearest(%s) = %q, want %q", path, got, want)
+			}
+		}
+		if got, ok := Nearest(Listing{Separator: `\`, Path: `D:\data`}, []Location{{Path: `C:\`}, {Path: `D:\`}}); !ok || got != `D:\` {
+			t.Errorf(`Nearest(D:\data) = %q`, got)
+		}
+		if _, ok := Nearest(Listing{Separator: `\`, Path: `D:\data`}, []Location{{Path: `C:\`}}); ok {
+			t.Error("a directory under no location has a nearest one")
+		}
+	})
+
+	t.Run("view", views)
+
 	t.Run("tile classes", func(t *testing.T) {
 		for name, want := range map[string]string{
 			"main.go": "code", "notes.md": "text", "paper.PDF": "pdf", "photo.jpeg": "image", "data.csv": "sheet",

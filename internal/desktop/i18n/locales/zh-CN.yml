@@ -371,7 +371,7 @@ project_name_placeholder: 输入名称
 project_path_placeholder: 选择目录
 project_repository_placeholder: https://github.com/org/repository.git
 project_branch_placeholder: 默认分支
-directory_title: 选择目录
+directory_title: 选择文件夹
 project_required: 请填写项目名称和路径
 project_duplicate_path: 此主机已添加相同路径的项目
 project_clone_required: 请填写名称、仓库和保存位置
@@ -744,15 +744,15 @@ dictation_preparing: 正在准备本地语音模型
 dictation_transcribing: 正在识别
 directory_back: 后退
 directory_forward: 前进
-directory_up: 上级目录
+directory_up: 上级文件夹
 directory_filter: 筛选
-directory_home: 主目录
+directory_home: 主文件夹
 directory_desktop: 桌面
 directory_documents: 文档
 directory_downloads: 下载
 directory_locations: 位置
-directory_count_directories: '%{count} 目录'
-directory_count_files: '%{count} 文件'
+directory_count_directories: '%{count} 个文件夹'
+directory_count_files: '%{count} 个文件'
 directory_name: 名称
 directory_size: 大小
 directory_kind: 种类
@@ -2084,21 +2084,21 @@ updates_save_first: 请先保存打开的文档
 notification_details: 详情
 directory_action_failed: 操作失败，请检查路径和权限
 directory_address: 输入路径
-directory_count_hidden: '%{count} 隐藏'
+directory_count_hidden: '%{count} 个隐藏项'
 directory_create: 新建文件夹
-directory_denied: 此目录为无访问权限示例，可选择其他目录
+directory_denied: 没有权限访问此文件夹
 directory_devices: 设备
 directory_extension_kind: '%{extension} 文件'
 directory_go_to: 前往文件夹
 directory_grid: 网格
-directory_hidden: 隐藏项
+directory_hidden: 显示隐藏项
 directory_image_kind: 图像
 directory_invalid_name: 请输入有效名称
 directory_json_kind: JSON 文件
 directory_keep_both: 保留两者
 directory_list: 列表
 directory_markdown_kind: Markdown 文档
-directory_missing: 此路径不在该主机的示例目录中，可返回示例位置
+directory_missing: 文件夹不存在
 directory_refresh: 刷新
 directory_root: 根目录
 directory_stale: 原表单路径已变更，请关闭后重新选择
@@ -2191,3 +2191,12 @@ queue_draft_changed: 队列已改变，编辑草稿已保留
 directory_modified: 修改时间
 directory_modified_today: 今天 %{time}
 directory_modified_yesterday: 昨天 %{time}
+directory_counts: '%{directories} 个文件夹，%{files} 个文件'
+directory_counts_hidden: '%{directories} 个文件夹，%{files} 个文件，%{hidden} 个隐藏项'
+directory_selected_files: 已选择 %{count} 个文件
+directory_nothing_selected: 未选择文件
+directory_failed: 无法读取文件夹
+directory_host_unavailable: 主机不可用
+directory_fallback: 无法打开 %{path}，已显示主文件夹
+directory_trash: 移到废纸篓
+directory_trash_confirm: 将“%{name}”移到废纸篓

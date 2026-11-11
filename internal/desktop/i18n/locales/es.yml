@@ -2086,7 +2086,7 @@ directory_action_failed: Operación fallida; compruebe ruta y permisos
 directory_address: Introduzca la ruta
 directory_count_hidden: '%{count} ocultos'
 directory_create: Una nueva carpeta
-directory_denied: Vista previa de acceso denegado; elija otro directorio
+directory_denied: Sin permiso para abrir esta carpeta
 directory_devices: Dispositivos
 directory_extension_kind: Archivo %{extension}
 directory_go_to: Ir a la carpeta
@@ -2098,7 +2098,7 @@ directory_json_kind: Archivo JSON
 directory_keep_both: Mantener ambos
 directory_list: Lista
 directory_markdown_kind: Documento Markdown
-directory_missing: La ruta no está en la vista previa de este host; vuelve a una ubicación de vista previa
+directory_missing: Carpeta no encontrada
 directory_refresh: Actualizar
 directory_root: Raíz
 directory_stale: Ruta del formulario cambiada; vuelva a abrir el selector
@@ -2191,3 +2191,12 @@ queue_draft_changed: La cola cambió; el borrador se mantuvo
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

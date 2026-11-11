@@ -125,6 +125,10 @@ func (l Listing) Join(name string) string {
 	return strings.TrimRight(l.Path, l.Separator) + l.Separator + name
 }
 
+// Selectable reports whether the mode lets e be selected: a directory picker
+// selects directories only, and shows the files beside them for bearings.
+func Selectable(mode Mode, e Entry) bool { return mode != Directory || e.Dir() }
+
 // Resolve is what Confirm would choose, nil for nothing: in Directory mode the
 // directory shown, or the one directory selected; in the file modes the
 // selected files, exactly one for File.
@@ -148,6 +152,23 @@ func Resolve(mode Mode, l Listing, selected []int) []string {
 		return nil
 	}
 	return files
+}
+
+// Nearest is the path of the location the listing's directory is, or is
+// inside: the longest one, so a project under the home marks the project.
+// It is "", false when no location holds the directory.
+func Nearest(l Listing, locations []Location) (string, bool) {
+	best, found := "", false
+	for _, loc := range locations {
+		rest, under := strings.CutPrefix(l.Path, loc.Path)
+		if !under || loc.Path == "" || rest != "" && !strings.HasPrefix(rest, l.Separator) && !strings.HasSuffix(loc.Path, l.Separator) {
+			continue
+		}
+		if !found || len(loc.Path) > len(best) {
+			best, found = loc.Path, true
+		}
+	}
+	return best, found
 }
 
 // Crumb is a step of the address: its label and the path it opens.
@@ -204,12 +225,13 @@ func Crumbs(l Listing) []Crumb {
 }
 
 // KindKey is the i18n key naming an entry's kind, and for
-// directory_extension_kind the upper-cased extension it takes.
+// directory_extension_kind the upper-cased extension it takes. A name that
+// only starts with a dot (.gitignore) has no extension.
 func KindKey(e Entry) (key, extension string) {
 	if e.Dir() {
 		return "directory_folder_kind", ""
 	}
-	if i := strings.LastIndex(e.Name, "."); i >= 0 {
+	if i := strings.LastIndex(e.Name, "."); i > 0 {
 		extension = strings.ToLower(e.Name[i+1:])
 	}
 	switch extension {

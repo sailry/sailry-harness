@@ -157,7 +157,7 @@ element by element:
 | `project_name` | Suggested by `SuggestName` from the path's last element, or the repository's without `.git`, until the user types a different name; an empty name is suggested again on save |
 | `project_host` (`kit.Select`) | The hosts of `Data.Hosts`; disabled when editing and while saving. Changing it clears the path, since a path belongs to its host |
 | `project_repository`, `project_branch` | Clone only; the branch is optional |
-| `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path. The answer is dropped if the host or the path changed meanwhile |
+| `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path, its Projects group listing that host's registered projects (`projectPlaces`). The answer is dropped if the host or the path changed meanwhile |
 | Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with a `ui.Spinner` from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
 
 The preview checks `CheckProject` (`project_required`,

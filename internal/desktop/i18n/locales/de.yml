@@ -2086,7 +2086,7 @@ directory_action_failed: Vorgang fehlgeschlagen; Pfad und Berechtigungen überpr
 directory_address: Pfad eingeben
 directory_count_hidden: '%{count} ausgeblendet'
 directory_create: Neuer Ordner
-directory_denied: Zugriffsverweigerte Vorschau; wählen Sie ein anderes Verzeichnis
+directory_denied: Keine Berechtigung zum Öffnen dieses Ordners
 directory_devices: Geräte
 directory_extension_kind: '%{extension}-Datei'
 directory_go_to: Zum Ordner
@@ -2098,7 +2098,7 @@ directory_json_kind: JSON-Datei
 directory_keep_both: Behalten Sie beide
 directory_list: Liste
 directory_markdown_kind: Markdown-Dokument
-directory_missing: Pfad nicht in der Vorschau dieses Hosts; zu einem Vorschauspeicherort zurückkehren
+directory_missing: Ordner nicht gefunden
 directory_refresh: Aktualisieren
 directory_root: Wurzel
 directory_stale: Formularpfad geändert; Selektor neu öffnen
@@ -2191,3 +2191,12 @@ queue_draft_changed: Warteschlange geändert; Entwurf beibehalten
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

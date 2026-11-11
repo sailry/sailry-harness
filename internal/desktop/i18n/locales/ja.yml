@@ -2086,7 +2086,7 @@ directory_action_failed: 操作に失敗しました。パスと権限を確認�
 directory_address: パスを入力
 directory_count_hidden: 非表示 %{count} 件
 directory_create: 新しいフォルダ
-directory_denied: プレビューへのアクセスが拒否されました。他のディレクトリを選択してください
+directory_denied: このフォルダーを開く権限がありません
 directory_devices: デバイス
 directory_extension_kind: '%{extension} ファイル'
 directory_go_to: フォルダへ移動
@@ -2098,7 +2098,7 @@ directory_json_kind: JSON ファイル
 directory_keep_both: 両方持ってて
 directory_list: 一覧
 directory_markdown_kind: Markdown 文書
-directory_missing: パスはこのホストのプレビューにありません。プレビューの場所に戻ります
+directory_missing: フォルダーが見つかりません
 directory_refresh: 更新
 directory_root: ルート
 directory_stale: フォームのパスが変更されました。ピックアップを再開してください
@@ -2191,3 +2191,12 @@ queue_draft_changed: キューが変更され、草稿は保持されます
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

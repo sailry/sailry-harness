@@ -4,6 +4,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -18,9 +19,14 @@ type Options struct {
 	// Initial is the directory first shown, the host's home for "".
 	Initial string
 	Source  Source
-	// Host names the execution host in the outcome toasts of file actions,
-	// "" for none.
+	// Host names the execution host beside the title and in the outcome
+	// toasts of file actions, "" for none.
 	Host string
+	// Projects are the directories of the projects registered on the host,
+	// the most recently used first: a group of the sidebar between the
+	// host's places and its devices, left out when empty. Only Name and Path
+	// are read.
+	Projects []Location
 	// Preview marks the catalog of sample directories.
 	Preview bool
 	// Valid, when set, reports whether the caller still wants the choice: a
@@ -38,6 +44,8 @@ type visit int
 
 const (
 	push visit = iota
+	// first is the directory the picker opens at.
+	first
 	goTo
 	history
 	refresh
@@ -47,6 +55,7 @@ type notice struct {
 	outcome kit.Outcome
 	key     string
 	host    bool
+	path    string // what the text's %{path} names
 }
 
 // State is the one picker of a window. Grid and Hidden are the view
@@ -58,8 +67,10 @@ type State struct {
 	open       bool
 	o          Options
 	generation int
-	busy       bool
-	failed     bool
+	busy       bool   // a file action runs, and the directory waits for its outcome
+	reading    bool   // a directory is being read; navigating elsewhere replaces the read
+	target     string // the directory being read, else the one shown or the one that failed to show
+	problem    string // why target cannot show, an i18n key: set only while no directory shows
 	loaded     bool
 	listing    Listing
 	history    []string
@@ -76,10 +87,13 @@ type State struct {
 	chosen ui.Selection[string]
 	row    int
 	rows   []int
-	list   ui.ListState
-	grid   ui.GridState
-	sort   ui.SortOrder
-	view   int
+	// refused is the frame in which a click or a key landed on an entry
+	// the mode cannot choose.
+	refused time.Time
+	list    ui.ListState
+	grid    ui.GridState
+	sort    ui.SortOrder
+	view    int
 
 	clipboard []string
 	cut       bool
@@ -109,7 +123,7 @@ func (s *State) Open(o Options) {
 	s.generation++
 	*s = State{Grid: s.Grid, Hidden: s.Hidden, Changed: s.Changed, generation: s.generation, open: true, o: o, row: -1,
 		children: map[string][]Crumb{}, childrenBusy: map[string]bool{}}
-	s.navigate(o.Initial, push, 0)
+	s.navigate(o.Initial, first, 0)
 }
 
 // Showing reports whether the picker is open.
@@ -118,40 +132,56 @@ func (s *State) Showing() bool { return s.open }
 // Close dismisses the picker and drops what it was reading.
 func (s *State) Close() {
 	s.generation++
-	s.open, s.busy = false, false
+	s.open, s.busy, s.reading = false, false, false
 	s.naming.open, s.trashing.open, s.jump.open = false, false, false
 }
 
 func (s *State) valid() bool { return s.o.Valid == nil || s.o.Valid() }
 
+func (s *State) selectable(e Entry) bool { return Selectable(s.o.Mode, e) }
+
 func (s *State) pending() bool { return s.o.Pending != nil && s.o.Pending() }
 
-// navigate reads path and shows it when it arrives. A read that fails keeps
-// the directory shown and blocks Confirm until another succeeds.
+// navigate reads path and shows it when it arrives. A read blocks nothing:
+// navigating elsewhere replaces it, and its answer is dropped. One that fails
+// keeps the directory shown and says why in a toast. With no directory shown
+// yet, the picker's first falls back to the host's home, and any other leaves
+// its reason in the entries' place, with Retry.
 func (s *State) navigate(path string, how visit, cursor int) {
 	if !s.open || s.busy || !s.valid() {
 		return
 	}
 	s.generation++
 	generation := s.generation
-	s.busy = true
+	s.reading, s.target, s.problem = true, path, ""
+	clear(s.childrenBusy)
 	s.o.Source.Browse(path, func(l Listing, problem string) {
-		if !s.open || s.generation != generation || !s.valid() {
+		if !s.open || s.generation != generation {
 			return
 		}
-		s.busy = false
-		if problem != "" {
-			s.failed = true
-			s.notices = append(s.notices, notice{kit.Failed, problem, false})
-			return
+		s.reading = false
+		switch {
+		case !s.valid():
+		case problem == "":
+			s.arrive(l, how, cursor)
+		case s.loaded:
+			s.target = s.listing.Path
+			s.notices = append(s.notices, notice{outcome: kit.Failed, key: problem})
+		case how == first && path != "":
+			// The sample tree holds no caller's path: its home needs no excuse.
+			if !s.o.Preview {
+				s.notices = append(s.notices, notice{outcome: kit.Failed, key: "directory_fallback", path: path})
+			}
+			s.navigate("", push, 0)
+		default:
+			s.problem, s.address, s.refocus = problem, path, true
 		}
-		s.arrive(l, how, cursor)
 	})
 }
 
 func (s *State) arrive(l Listing, how visit, cursor int) {
 	switch how {
-	case push, goTo:
+	case push, first, goTo:
 		if s.cursor >= len(s.history) || s.history[s.cursor] != l.Path {
 			s.history = append(s.history[:min(s.cursor+1, len(s.history))], l.Path)
 			s.cursor = len(s.history) - 1
@@ -160,7 +190,7 @@ func (s *State) arrive(l Listing, how visit, cursor int) {
 		s.cursor = cursor
 	}
 	changed := !s.loaded || s.listing.Path != l.Path
-	s.listing, s.loaded, s.failed = l, true, false
+	s.listing, s.loaded, s.target, s.problem = l, true, l.Path, ""
 	s.address, s.editing, s.refocus = l.Path, false, true
 	s.crumbs.X = math.MaxFloat32
 	if changed {
@@ -192,9 +222,12 @@ func (s *State) up() {
 	}
 }
 
+// reload reads the directory shown again, or the one that failed to show.
 func (s *State) reload() {
 	if s.loaded {
 		s.navigate(s.listing.Path, refresh, 0)
+	} else {
+		s.navigate(s.target, push, 0)
 	}
 }
 
@@ -244,7 +277,7 @@ func (s *State) activate(index int) {
 
 func (s *State) confirm() {
 	paths := s.selection()
-	if paths == nil || s.busy || s.failed || s.pending() || !s.valid() {
+	if paths == nil || s.busy || s.reading || s.pending() || !s.valid() {
 		return
 	}
 	if s.o.Choose == nil || s.o.Choose(paths) {
@@ -265,15 +298,15 @@ func (s *State) manage(a Action) {
 			return
 		}
 		s.busy = false
-		n := notice{kit.Done, "task_completed", true}
+		n := notice{outcome: kit.Done, key: "task_completed", host: true}
 		switch problem {
 		case "":
 		case "directory_outcome_unknown":
-			n = notice{kit.Uncertain, problem, true}
+			n = notice{outcome: kit.Uncertain, key: problem, host: true}
 		case "files_paste_conflict":
-			n = notice{kit.Conflict, problem, true}
+			n = notice{outcome: kit.Conflict, key: problem, host: true}
 		default:
-			n = notice{kit.Failed, problem, true}
+			n = notice{outcome: kit.Failed, key: problem, host: true}
 		}
 		s.notices = append(s.notices, n)
 		if a.Kind == "transfer" && a.Cut && problem == "" {
@@ -283,9 +316,10 @@ func (s *State) manage(a Action) {
 	})
 }
 
-func (s *State) copy(cut bool) {
-	if s.current != "" {
-		s.clipboard, s.cut = []string{s.listing.Join(s.current)}, cut
+// copy puts the entry named name on the picker's clipboard, "" for none.
+func (s *State) copy(name string, cut bool) {
+	if name != "" {
+		s.clipboard, s.cut = []string{s.listing.Join(name)}, cut
 	}
 }
 
@@ -299,7 +333,7 @@ func (s *State) paste(conflict string) {
 func (s *State) saveName() {
 	name := strings.TrimSpace(s.naming.value)
 	if !ValidName(name) {
-		s.notices = append(s.notices, notice{kit.Failed, "directory_invalid_name", false})
+		s.notices = append(s.notices, notice{outcome: kit.Failed, key: "directory_invalid_name"})
 		return
 	}
 	s.naming.open = false
@@ -333,7 +367,7 @@ func (s *State) loadChildren(path string) {
 		}
 		delete(s.childrenBusy, path)
 		if problem != "" {
-			s.notices = append(s.notices, notice{kit.Failed, problem, false})
+			s.notices = append(s.notices, notice{outcome: kit.Failed, key: problem})
 			s.dismiss = path
 			return
 		}

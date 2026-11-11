@@ -2086,7 +2086,7 @@ directory_action_failed: Operação falhou; verifique caminho e permissões
 directory_address: Digite o caminho
 directory_count_hidden: '%{count} ocultos'
 directory_create: Nova pasta
-directory_denied: Pré-visualização de acesso negado; escolha outro diretório
+directory_denied: Sem permissão para abrir esta pasta
 directory_devices: Dispositivos
 directory_extension_kind: Arquivo %{extension}
 directory_go_to: Ir para a pasta
@@ -2098,7 +2098,7 @@ directory_json_kind: Arquivo JSON
 directory_keep_both: Mantenha os dois
 directory_list: Lista
 directory_markdown_kind: Documento Markdown
-directory_missing: O caminho não está na visualização deste host; retorne a um local de visualização
+directory_missing: Pasta não encontrada
 directory_refresh: Atualizar
 directory_root: Raiz
 directory_stale: Caminho do formulário alterado; reabrir o seletor
@@ -2191,3 +2191,12 @@ queue_draft_changed: Fila alterada; rascunho mantido
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

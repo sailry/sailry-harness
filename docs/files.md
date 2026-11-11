@@ -44,14 +44,29 @@ remote directory can be chosen; the preview uses the in-memory
 `picker.Catalog`. There is no OS-native folder dialog, for the local host
 either, as in the reference.
 
+The dialog is Kit's with `DialogOptions{Bleed: true}`: the content runs edge
+to edge under the frosted panel, 1040 by 680 at most and 24 DIP clear of the
+window. The sidebar keeps the frost under its `Muted` wash; the header, the
+entries and the footer sit on the `Popover` color, so what is behind the
+dialog does not read through their text.
+
 | Part | Behavior |
 |---|---|
-| Toolbar | Back, Forward, Up; the address as crumbs (the volume or root as the host names it, each crumb a menu of its child directories), scrolled to its end, or a path field after a click beside them or ⌘L; the filter; list and grid; the hidden-entries toggle; Refresh (F5); Go to folder |
-| Side column | `directory_locations` (home, desktop, documents, downloads) and `directory_devices` (volumes, roots) of the host |
-| Entries | `ui.Table` with name, kind and size, sortable, directories always first; or `ui.GridView` tiles; both virtualised. Each entry shows a tinted tile of its type (`picker.Class`), 28 DIP in a row and 44 in the grid. Hidden entries are dimmed. Enter or a double click opens a directory (in the file modes, chooses that file alone and confirms), Backspace goes up, the arrows move the selection. `Files` mode chooses several entries through `ui.Selection` (Cmd-click, Shift-click, Shift with the arrows, Cmd+A); only those still shown stay chosen |
+| Sidebar | 204 wide, flush left: the title and the host's name (`Options.Host`), then `directory_locations` (home, desktop, documents, downloads), `projects` (`Options.Projects`: the directories of the projects registered on the host, the most recently used first, eight at most, left out when empty) and `directory_devices` (volumes, roots). The location that holds the directory shown is marked, the longest one (`picker.Nearest`) |
+| Header bar | Back and Forward over the dialog's own history, Up; the address as crumbs (the volume or root as the host names it, each crumb a menu of its child directories), scrolled to its end, or a path field after a click beside them or ⌘L; a spinner at its end while a directory is read; the filter; list and grid; New folder; More: the hidden-entries toggle, Refresh (F5), Go to folder (⇧⌘G) |
+| Entries | `ui.Table` named `files` with Name, Size, Modified and Kind, sortable, directories always first; or `ui.GridView` tiles, a long name on two lines with a middle ellipsis and its tip; both virtualised. Each entry shows a tinted tile of its type (`picker.Class`), 20 DIP in a row and 44 in the grid. Hidden entries are dimmed. Modified is today's or yesterday's time of day, else a date, in the frame's language and hour cycle, the full time in a tip and a dash for none. Enter or a double click opens a directory (in the file modes, chooses that file alone and confirms), Backspace or ⌘↑ goes up, the arrows move the selection, typing finds an entry. `Files` mode chooses several entries through `ui.Selection` (Cmd-click, Shift-click, Shift with the arrows, Cmd+A); only those still shown stay chosen |
+| Directory mode | Files show dimmed and cannot be selected (`picker.Selectable`): a click, an arrow or a double click that lands on one leaves the selection where it was |
 | Empty | `files_directory_empty`, or `directory_no_matches` under a filter |
-| Menus (native) | Entry: Open, Copy, Cut, Rename, Paste (stop, replace, keep both), Trash after a confirmation; background: New folder, Paste, Refresh. Outcomes are toasts naming the host |
-| Footer | The path Confirm would choose (the selected directory, otherwise the one shown), Cancel, Confirm; Confirm is disabled while loading, after a failed load, while the caller saves and once the caller's draft changed (`directory_stale`) |
+| Reading | A read blocks nothing: navigating elsewhere replaces it and its late answer is dropped. Confirm waits for it. With nothing shown yet, a spinner takes the entries' place |
+| Failed read | Over a directory that shows: a failure toast with the reason, the directory and its choice staying. For the directory the picker opens at: the host's home instead, with `directory_fallback` naming the path (silent in the preview, whose sample tree holds no caller's path). With nothing to show: the reason and the path in the entries' place with Retry, while the address, Go to folder and the sidebar (the home, the projects) lead elsewhere. The live source tells `directory_missing` (`not_found`), `directory_denied` (`permission_denied`) and `directory_host_unavailable` (`unavailable`, or no answer) from `directory_failed` |
+| Menus (native) | Entry: Open, Copy, Cut, Rename, Paste (stop, replace, keep both), New folder, Move to Trash after a confirmation naming the entry; background: New folder, Paste, Refresh. Outcomes are toasts naming the host |
+| Footer bar | What Confirm would choose: in Directory mode the path of the selected directory, otherwise of the one shown; in File mode the file's path or `directory_nothing_selected`; in Files mode one path, or `directory_selected_files` for several. Then the counts (`directory_counts`), Cancel and Confirm, which carries the choice as its description and tip. Confirm is disabled without a choice, while a directory is read, while the caller saves and once the caller's draft changed (`directory_stale`) |
+
+A narrower dialog gives up, in this order: the Kind column under 960 DIP of
+dialog width, the Modified column under 860, and the sidebar under 780, where
+the title and the host move to a row over the header bar and the locations
+into submenus of More. The window's least size, 760 by 560, leaves a 712 by
+512 dialog with Name and Size.
 
 List or grid and the hidden toggle are the controller preference
 `file_picker` in `desktop/preferences.json`.
@@ -63,6 +78,7 @@ Callers, the reference's and ours:
 | Project editor's folder button | Directory on the editor's host | `sidebar.State.browse`; fills the path and suggests the name |
 | Open folder (`menu_open_folder`) | Directory on the shown host | `sidebar.State.OpenFolder`; opens the registered project or adds one, the picker staying open while it saves |
 | Settings › Backup, local directory | Directory on the shown host | `live.Runtime.chooseDirectory` through `settings.BackupActions.ChooseFolder` |
+| (ours) Settings › Plugins, Install: package path | One file on the controller's machine | `live.Runtime.chooseFile` through `settings.PackageActions.Browse`: the package is read on this machine before its upload, so the picker browses the local Node whichever host is shown. It chooses a ZIP archive; a package directory is still typed |
 | Documents plugin, Markdown image (`content_image_choose`) | One file | Not wired: the Go editor's image prompt (`files_insert_image`) takes an address only and has no Choose file button |
 
 Everything else that takes a path in the reference (attachments, SSH keys,
@@ -82,6 +98,16 @@ the Node's listing (`core.Files.ListDirectory`) and the SFTP listing fill
 from the entry's own time; the field is optional, so an entry of a peer that
 does not send it shows a dash. Several files are chosen with the
 list's own modifiers rather than the reference's name-cell checkbox.
+
+By the user's decision of November 11, 2026 the picker is laid out as a file
+manager's window rather than the reference's padded dialog around a bordered
+box: the full-bleed dialog above, the sidebar's Projects group, New folder in
+the header, the rarer actions in More, the counts in the footer, and a read
+that fails or hangs handled as the table says. The trash action is named
+`directory_trash` (Move to Trash): `manage_files` moves the entry to the
+host's trash and deletes nothing. `browse_files` answers `not_found` and
+`permission_denied` for a path that does not resolve
+(`internal/node/files/browser.go`), where it answered `unavailable`.
 
 ## Transfers
 

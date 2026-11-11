@@ -101,6 +101,35 @@ func TestFileInspectionPages(t *testing.T) {
 			t.Errorf("an entry without a time decodes as %+v %v", decoded, err)
 		}
 	})
+
+	// A directory that is not there is told from one the Node may not read,
+	// and both from a Node that cannot answer.
+	t.Run("browse faults", func(t *testing.T) {
+		directory := t.TempDir()
+		missing := filepath.Join(directory, "gone")
+		if _, err := Browse(ctx, &missing, nil); fault(err).Code != protocol.ErrorCodeNotFound {
+			t.Errorf("a missing directory answers %v", err)
+		}
+		locked := filepath.Join(directory, "locked")
+		if err := os.MkdirAll(filepath.Join(locked, "inner"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+		// A privileged process, and a file system without modes, read it
+		// all the same.
+		if _, err := os.ReadDir(locked); err == nil {
+			return
+		}
+		inner := filepath.Join(locked, "inner")
+		for _, path := range []string{locked, inner} {
+			if _, err := Browse(ctx, &path, nil); fault(err).Code != protocol.ErrorCodePermissionDenied {
+				t.Errorf("%s answers %v", path, err)
+			}
+		}
+	})
 }
 func TestImagePreparation(t *testing.T) {
 	t.Parallel()
