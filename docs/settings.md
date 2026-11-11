@@ -532,7 +532,9 @@ capabilities and the selected default effort. Catalog refresh never inserts samp
 models. Compaction reads and saves use the Node revision; a failed save keeps its
 draft and never invents a new revision. A `compaction_settings_changed` with a
 revision newer than the one shown, as another controller's save is, reads the
-threshold again once no save is under way and the slider holds no draft.
+threshold again once no save is under way and the slider holds no draft. A
+read answered with a revision older than the one shown, as a read that crossed
+a save is, is dropped.
 
 `ChannelModel` carries `Vision`, `Tools`, `Reasoning`, `Generates` and
 `CustomCapabilities`. The model form's capability boxes edit them, and the

@@ -72,7 +72,8 @@ func (r *Runtime) readProviders() {
 }
 
 // fetchCompaction reads the Node's compaction threshold off the UI thread.
-// A draft the user holds stays; only the saved value and revision move.
+// A draft the user holds stays; only the saved value and revision move, and
+// never back to an older revision.
 func (r *Runtime) fetchCompaction() {
 	result, failed := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
 	r.enqueue(func(c *ui.Context) {
@@ -85,7 +86,9 @@ func (r *Runtime) fetchCompaction() {
 		}
 		if value, ok := detail[protocol.ConversationCompactionSettings](result.Data); ok {
 			field := &r.App.Settings.Compaction
-			if !field.Pending {
+			// A read the Node answered before a save can arrive after the
+			// save's answer; the older revision does not replace the newer.
+			if !field.Pending && value.Revision >= field.Revision {
 				pristine := field.Draft == field.Saved
 				field.Saved = float64(value.Percent)
 				if pristine {
