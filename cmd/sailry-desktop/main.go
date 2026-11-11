@@ -59,6 +59,10 @@ func run() error {
 	}()
 	mygo.App.SetLanguages(i18n.Languages...)
 	crychic.Setup()
+	if backend.Node != nil {
+		// A schedule that became due during sleep fires at the wake.
+		mygo.Power.OnResume(backend.Node.CheckSchedules)
+	}
 	var notifier *live.Notifier
 	var notificationWindow *mygo.Window
 	if backend.Client != nil {
