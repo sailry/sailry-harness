@@ -73,6 +73,16 @@ const (
 	pluginBranchControl    = "branch"
 )
 
+// A header popover's panel is the declared width or 480, at most the
+// window's less 32, and scrolls past the window's height less 110; neither
+// bound goes under 100 (plugins/contributions/header.rs).
+const (
+	pluginHeaderPanelWidth  = 480
+	pluginHeaderPanelMargin = 32
+	pluginHeaderPanelRoom   = 110
+	pluginHeaderPanelLeast  = 100
+)
+
 // pluginContextControl reports whether a context-slot entry is the named
 // bundled package's control.
 func pluginContextControl(entry plugins.ContributionEntry, name, id string) bool {
@@ -350,6 +360,38 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 		r.pluginChoicePicker(view, registry, entry, state)
 	case "popover", "indicator":
 		button := ui.ButtonBase(view)
+		if header && entry.Declaration.Kind == "popover" {
+			// The header's popover is the window's to open and close
+			// (plugins/contributions/header.rs): the package draws the panel
+			// and hears nothing of it. Asked with a change event, a package
+			// that does not answer one, as the statistics package's context
+			// panel, never opened it, and the pending interaction disabled
+			// the button.
+			if entry.Declaration.Handler == nil {
+				state.open = false
+			}
+			selected = state.open
+			look(button)
+			if entry.Declaration.Handler == nil {
+				return
+			}
+			button.HasPopup(ui.PopupDialog).Expanded(state.open).OnClick(func() { state.open = !state.open })
+			width, height := view.Size()
+			panel := kit.Popover(view, button, &state.open, func() {
+				ui.Scroll(view.Key("panel")).FillWidth().MaxHeight(max(height-pluginHeaderPanelRoom, pluginHeaderPanelLeast)).Children(func() {
+					r.renderPluginContribution(view, entry.Key)
+				})
+			})
+			if panel != (ui.Element{}) {
+				declared := float32(pluginHeaderPanelWidth)
+				if entry.Declaration.Width != nil {
+					declared = float32(*entry.Declaration.Width)
+				}
+				panel.AttachTo(button, ui.AnchorBottomEnd, ui.AnchorTopEnd).Padding(0).
+					Width(max(min(declared, width-pluginHeaderPanelMargin), pluginHeaderPanelLeast))
+			}
+			return
+		}
 		look(button)
 		if entry.Declaration.Handler == nil {
 			return
