@@ -199,7 +199,8 @@ type Actions interface {
 	CreateWorktree()
 	AddProject()
 	ManageTeams()
-	// Decide answers approval id; reason is the text of Deny with reason.
+	// Decide answers approval id. The popover has no reason form
+	// (docs/removed-ui.md) and passes "".
 	Decide(id string, d Decision, reason string)
 	Answer(id string, a Answer)
 	CancelQuestion(id string)
@@ -219,8 +220,6 @@ type Actions interface {
 type interaction struct {
 	approvals, question bool   // the popovers are open
 	at                  int    // the approval shown
-	denying             string // the approval whose reason is being typed
-	reason              string
 	asked               string // the question the draft is for
 	chosen              int
 	choices             map[int]*bool
@@ -301,12 +300,11 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 
 // approval is one request: its title (who asks, the tool, where, on one
 // line), the request in a card (the host key, the command, the text or the
-// change set), the notices, and Deny and Allow: Deny with a menu for a
-// reason, Allow with a menu of the wider grants. Details still being read
-// show a spinner, a failed read Retry.
+// change set), the notices, and Deny and Allow, Allow with a menu of the
+// wider grants. Deny takes no reason (docs/removed-ui.md). Details still
+// being read show a spinner, a failed read Retry.
 func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 	p := theme.Of(c)
-	in := &s.in
 	ui.Row(c.Key("title")).Gap(8).AlignItems(ui.Center).Children(func() {
 		title := a.Title
 		if a.Child != "" {
@@ -363,40 +361,14 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 		return
 	}
 	locked := a.Disabled || a.Busy
-	if in.denying == a.ID {
-		reason := strings.TrimSpace(in.reason)
-		ui.TextAreaBase(c.Key("reason"), &in.reason).Label(i18n.T(c, "approval_reason")).
-			Placeholder(i18n.T(c, "approval_reason")).PlaceholderColor(p.MutedForeground).
-			Lines(1, 3).FontSize(14).Padding(8).Radius(p.Radius).Border(1, p.Border).Disabled(locked)
-		ui.Row(c.Key("reasoned")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
-			cancel := i18n.T(c, "approval_reason_cancel")
-			kit.Ghost(c.Key("cancel"), cancel, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Disabled(a.Busy).
-				Children(func() { ui.Text(c, cancel).FontSize(14) }).
-				OnClick(func() { in.denying, in.reason = "", "" })
-			deny := i18n.T(c, "approval_reject")
-			kit.Primary(c.Key("deny"), deny, locked || reason == "").Height(28).Radius(14).MinWidth(48).
-				Children(func() { busyLabel(c, deny, a.Busy) }).
-				OnClick(func() { actions.Decide(a.ID, Deny, reason) })
-		})
-		return
-	}
 	ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
 		if a.Busy {
 			ui.Spinner(c).Size(14, 14)
 		}
-		ui.Row(c.Key("deny-group")).Children(func() {
-			deny := i18n.T(c, "approval_reject")
-			kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Disabled(locked).
-				Children(func() { ui.Text(c, deny).FontSize(14) }).
-				OnClick(func() { actions.Decide(a.ID, Deny, "") })
-			kit.MenuButton(c.Key("deny-options"), "deny-"+a.ID, func(b ui.Element) {
-				kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_deny_reason"), "", 28, false).Disabled(locked)
-			}, func(m *kit.Menu) {
-				if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
-					in.denying, in.reason = a.ID, ""
-				}
-			})
-		})
+		deny := i18n.T(c, "approval_reject")
+		kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Disabled(locked).
+			Children(func() { ui.Text(c, deny).FontSize(14) }).
+			OnClick(func() { actions.Decide(a.ID, Deny, "") })
 		ui.Row(c.Key("allow-group")).Children(func() {
 			allow := i18n.T(c, "approval_allow_once")
 			b := kit.Primary(c.Key("allow"), allow, locked || a.Loading || a.Failed).Height(28)

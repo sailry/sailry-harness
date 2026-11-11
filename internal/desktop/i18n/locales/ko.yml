@@ -174,9 +174,6 @@ question_other: 기타
 question_decline: 거절
 interaction_submit: 제출
 interaction_cancel: 취소
-approval_deny_reason: 이유를 적어 거부
-approval_reason: 이유
-approval_reason_cancel: 취소
 approval_receipt: 승인 영수증
 approval_busy: 승인 대기 중
 approval_ssh_trust: '%{host}:%{port} 신뢰 — %{algorithm} %{fingerprint}'

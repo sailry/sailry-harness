@@ -142,11 +142,6 @@ func DemoComposer(d *Data, c *Conversation, worktree string) *composer.Context {
 	return ctx
 }
 
-// Reason notes why the call id of c was denied, on its row.
-func Reason(c *Conversation, id, reason string) {
-	eachCall(c, id, func(call *cv.Call) { call.Error = reason })
-}
-
 // attached visits the files of c: the ones its messages carry, then the ones
 // its replies made.
 func attached(c *Conversation, visit func(cv.File) bool) {

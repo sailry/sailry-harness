@@ -174,9 +174,6 @@ question_other: Otro
 question_decline: Rechazar
 interaction_submit: Enviar
 interaction_cancel: Cancelar
-approval_deny_reason: Denegar con motivo
-approval_reason: Motivo
-approval_reason_cancel: Cancelar
 approval_receipt: Recibo de aprobación
 approval_busy: Aprobación pendiente
 approval_ssh_trust: Confiar en %{host}:%{port} — %{algorithm} %{fingerprint}

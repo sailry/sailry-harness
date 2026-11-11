@@ -182,9 +182,6 @@ question_other
 question_decline
 interaction_submit
 interaction_cancel
-approval_deny_reason
-approval_reason
-approval_reason_cancel
 approval_receipt
 approval_busy
 approval_ssh_trust

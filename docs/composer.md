@@ -107,10 +107,9 @@ rebuilt each frame from backend data.
 - Each opens a popover 320 wide anchored at its bottom right, 8 above:
   the floating fill, shadowed in light, outlined in dark.
 - Approvals show one request at a time, with previous/next controls for several.
-  **Deny** resolves without a reason; its menu's `approval_deny_reason` opens
-  a reason field (`approval_reason`) with `approval_reason_cancel` and Deny,
-  disabled until there is text. **Allow** has the session and prefix choices
-  permitted by the captured request, the only remembered scopes. An SSH host
+  **Deny** resolves without a reason: it has no menu and no reason form
+  ([removed-ui.md](removed-ui.md)). **Allow** has the session and prefix
+  choices permitted by the captured request, the only remembered scopes. An SSH host
   key shows its trust prompt. Details being read show a spinner and a failed
   read `chat_retry`; Allow waits for them.
 - A request is disabled while the host is away, its turn is not running or a
@@ -644,7 +643,7 @@ details dialog.
 |---|---|
 | Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs, files |
 | Pickers, popovers, dialogs, queue editor | Queue, `Running`, attachment status and progress, dictation phase |
-| Reason drafts, question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
+| Question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
 | Selected project before admission and window-owned port actions | Project-to-Node identity, command services and Forwarder state from the captured Client |
 
 ## Live attachments
