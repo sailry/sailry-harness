@@ -33,6 +33,16 @@ func (value *pluginOutputMetadata) UnmarshalJSON(raw []byte) error {
 	return json.Unmarshal(raw, (*plain)(value))
 }
 
+// cutToolError is what the model reads for a call its reply ended inside. The
+// call never ran.
+func cutToolError(limit bool) *canonical.ToolError {
+	message := "tool call ended before its arguments were complete"
+	if limit {
+		message = "tool call was not run: the reply reached the output limit before its arguments ended; send less in one call"
+	}
+	return &canonical.ToolError{Code: -32602, Message: message}
+}
+
 func ApplyPluginMetadata(block *canonical.Block, part fantasy.StreamPart) error {
 	metadata, ok := part.ProviderMetadata[pluginMetadataKey].(*pluginOutputMetadata)
 	if !ok || metadata == nil {

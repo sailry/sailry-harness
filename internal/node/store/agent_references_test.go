@@ -172,6 +172,42 @@ func TestAgentHistoryAndReview(t *testing.T) {
 			t.Fatal(entry)
 		}
 	})
+	t.Run("an answer cut at the output limit says so", func(t *testing.T) {
+		for _, test := range []struct {
+			name    string
+			limited bool
+			blocks  []canonical.Block
+			want    bool
+		}{
+			{"cut answer", true, []canonical.Block{canonical.Text(0, "Half an ans")}, true},
+			{"cut without text", true, nil, true},
+			{"complete answer", false, []canonical.Block{canonical.Text(0, "Answer")}, false},
+			{"cut reply that requested a tool", true, []canonical.Block{canonical.Text(0, "Reading"), {Index: 1, Kind: "tool_request", Data: &canonical.ToolRequest{ID: "call", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}, false},
+		} {
+			message := canonical.NewMessage(canonical.Assistant, test.blocks...)
+			record := canonical.NewRecord(protocol.NewTurnID(), "message", &message, time.Unix(1, 0))
+			record.Provenance.Author = "assistant"
+			runtime := canonical.DefaultRuntime()
+			runtime.OutputLimitReached = test.limited
+			record.Metadata.Runtime = &runtime
+			entry, err := CanonicalEntry(record, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			notices := 0
+			for index, part := range entry.Parts {
+				if raw, resource := part.Data.(json.RawMessage); resource && part.Kind == "resource" && string(raw) == `{"type":"output_limit"}` {
+					notices++
+					if index != len(entry.Parts)-1 {
+						t.Errorf("%s: notice is part %d of %d", test.name, index, len(entry.Parts))
+					}
+				}
+			}
+			if notices != map[bool]int{true: 1}[test.want] {
+				t.Errorf("%s: %d notices in %#v", test.name, notices, entry.Parts)
+			}
+		}
+	})
 
 	t.Run("scope revision and explicit truncation", func(t *testing.T) {
 		t.Parallel()

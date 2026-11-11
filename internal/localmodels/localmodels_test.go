@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/jonboulle/clockwork"
 
+	"github.com/sailry/sailry-harness/internal/localmodels/assets"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -273,6 +276,35 @@ func TestRegistryVerification(t *testing.T) {
 		}
 		if _, err := registry.Resource(protocol.ModelsKindDecision, id, nil); err != nil || state(registry, id) != "installed" {
 			t.Fatalf("after the wait: state %q, resource %v", state(registry, id), err)
+		}
+	})
+	t.Run("a file the volume cannot hold is not requested", func(t *testing.T) {
+		var requests atomic.Int64
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			requests.Add(1)
+			_, _ = writer.Write(body)
+		}))
+		t.Cleanup(server.Close)
+		address, err := url.Parse(server.URL + "/model.gguf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(body)
+		directory := filepath.Join(t.TempDir(), "model")
+		// No volume holds four exbibytes.
+		download := assets.Download{File: assets.File{Name: "model.gguf", Size: 1 << 62, SHA256: hex.EncodeToString(digest[:])}, URL: address}
+		prepare := func() error {
+			return assets.Prepare(t.Context(), assets.Client(server.Client().Transport), directory, []assets.Download{download}, func(assets.Progress) {})
+		}
+		if err := prepare(); !errors.Is(err, assets.ErrStorage) || !strings.Contains(err.Error(), "not enough free space for model.gguf") || requests.Load() != 0 {
+			t.Fatalf("oversized file: %v after %d requests", err, requests.Load())
+		}
+		if entries, err := os.ReadDir(directory); err != nil || len(entries) != 0 {
+			t.Fatalf("refused transfer left %v (%v)", entries, err)
+		}
+		download.File.Size = uint64(len(body))
+		if err := prepare(); err != nil || requests.Load() != 1 || !assets.Ready(directory, []assets.File{download.File}) {
+			t.Fatalf("fitting file: %v after %d requests", err, requests.Load())
 		}
 	})
 	t.Run("unpinned revision", func(t *testing.T) {

@@ -2223,3 +2223,4 @@ queue_wait_interrupted
 queue_wait_unsent
 queue_wait_limit
 queue_wait_failed
+chat_output_limit

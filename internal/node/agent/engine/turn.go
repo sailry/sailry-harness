@@ -407,11 +407,9 @@ func (r *Runtime) reload(ctx context.Context, session protocol.SessionID, previo
 			if message := state.Records[i].MutableMessage(); message != nil {
 				for _, block := range message.Content {
 					if result, ok := block.Data.(*canonical.ToolResponse); ok {
-						value, err := store.HydrateCanonicalPayload(ctx, db, result.Result)
-						if err != nil {
+						if err := hydrateToolResult(ctx, db, result); err != nil {
 							return err
 						}
-						result.Result = canonical.Payload{Value: value}
 					}
 				}
 			}

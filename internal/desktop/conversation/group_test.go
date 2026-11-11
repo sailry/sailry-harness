@@ -304,6 +304,10 @@ func testAnswerFrom(t *testing.T) {
 	if got := AnswerFrom(blocks[2:]); got != 0 {
 		t.Errorf("answer from %d without work", got)
 	}
+	// The notice that the answer was cut stays with the answer.
+	if got := AnswerFrom(append(blocks[:6:6], Block{Kind: LimitBlock})); got != 2 {
+		t.Errorf("answer from %d with a cut answer", got)
+	}
 }
 
 func testLastLines(t *testing.T) {

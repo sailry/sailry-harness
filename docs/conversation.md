@@ -366,6 +366,38 @@ of older work blocks. The latest failed run supplies the diagnostic card, and
 summary context estimates use their captured budget limit when reported context
 usage is absent.
 
+A compaction that ends without a summary (`engine/compaction.go`) saves, after
+its billed attempts, one system record whose `metadata.compaction.failure`
+names the source (`manual` or `automatic`), the stage (`budget`, `request`,
+`summary`, `history`), the reason, the HTTP status of the last attempt and the
+cause; a stopped turn records none. The page carries it as the resource
+`{"type":"compaction_failure","failure":{…}}`, statistics report it as the last
+compaction with outcome `failed`, and the run still fails with the same error.
+The transcript shows it as the error block `chat_compact_failed` with the
+cause, and then omits the run's own error block when it repeats that cause, so
+the failure reads once; the diagnostic card is unchanged. A manual compaction
+turn keeps its failed state and cause from the run. A completed compaction run
+whose loaded turn holds no summary shows `chat_compact_unneeded`; a turn whose
+entries are not loaded keeps `chat_compacted`.
+
+Differences from the reference, deliberate: the reference ends the turn
+normally with an English assistant message ("Ran into this error trying to
+compact: … Please try again or create a new session") and never writes the
+failure record its statistics, notifications and queue read. Go fails the run
+and writes the record, so each client words the notice in its own language. The
+reference's check that pauses the queue for a turn holding a failure that did
+not continue is not ported: the queue treats that turn as any other failed run.
+
+An answer the model's output limit cut short says so once. The engine records
+`metadata.runtime.output_limit_reached` on the reply; the page carries the
+resource `{"type":"output_limit"}` after that reply's parts when it requested no
+tool, which is the reply that ends its turn (a cut reply that requested tools
+goes on to their results and shows nothing). The transcript shows it as
+`LimitBlock`, one plain warning row `chat_output_limit` below the cut text, and
+keeps it with the answer rather than the work region; exports and the mobile
+transcript likewise keep the text before it as the answer and show no row. The
+reference stores the flag and shows nothing.
+
 Sent context/session mentions retain their canonical target bindings in private
 transcript state through `SetReferences`; inline MyGo text opens the bound target.
 A sent message is edited in its bubble. `Edit` captures the turn, the head

@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/egoist/mygo/netproxy"
@@ -84,7 +86,49 @@ type factsKey struct{}
 const maxFailureBody = 1024 * 1024
 
 type sourceBodyKey struct{}
-type responseTransport struct{ base http.RoundTripper }
+
+// stallTimeout is how long a model response may send nothing, counted from
+// the request and again from each read. It is the reference's read timeout.
+const stallTimeout = 600 * time.Second
+
+type responseTransport struct {
+	base  http.RoundTripper
+	stall time.Duration
+}
+
+// stallError ends a request whose response stayed silent. It is a network
+// timeout, so a step that has shown nothing takes the normal retry path.
+type stallError struct{}
+
+func (stallError) Error() string   { return "model stream stalled" }
+func (stallError) Timeout() bool   { return true }
+func (stallError) Temporary() bool { return true }
+
+// stallBody cancels its request when no data arrives within the limit.
+type stallBody struct {
+	io.ReadCloser
+	limit   time.Duration
+	timer   *time.Timer
+	cancel  context.CancelFunc
+	stalled *atomic.Bool
+}
+
+func (body *stallBody) Read(buffer []byte) (int, error) {
+	count, err := body.ReadCloser.Read(buffer)
+	if body.stalled.Load() {
+		return 0, stallError{}
+	}
+	if count > 0 {
+		body.timer.Reset(body.limit)
+	}
+	return count, err
+}
+
+func (body *stallBody) Close() error {
+	body.timer.Stop()
+	body.cancel()
+	return body.ReadCloser.Close()
+}
 
 func (transport responseTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if raw, ok := request.Context().Value(sourceBodyKey{}).([]byte); ok {
@@ -107,8 +151,19 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 		}
 		capturePrepared(request.Context(), raw)
 	}
-	response, err := transport.base.RoundTrip(request)
+	owner, cancel := context.WithCancel(request.Context())
+	stalled := &atomic.Bool{}
+	timer := time.AfterFunc(transport.stall, func() { stalled.Store(true); cancel() })
+	response, err := transport.base.RoundTrip(request.WithContext(owner))
+	if response == nil {
+		timer.Stop()
+		cancel()
+		if stalled.Load() {
+			err = stallError{}
+		}
+	}
 	if response != nil {
+		response.Body = &stallBody{ReadCloser: response.Body, limit: transport.stall, timer: timer, cancel: cancel, stalled: stalled}
 		captureHeaders(request.Context(), response.StatusCode)
 		if facts, ok := request.Context().Value(factsKey{}).(*responseFacts); ok {
 			facts.status, facts.headers = response.StatusCode, response.Header.Clone()
@@ -127,7 +182,7 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 }
 
 func newSDK(_ context.Context, config transportConfig) (fantasy.LanguageModel, error) {
-	var transport http.RoundTripper = responseTransport{base: netproxy.Transport()}
+	var transport http.RoundTripper = responseTransport{base: netproxy.Transport(), stall: stallTimeout}
 	if config.Kind == "anthropic" && config.OAuth {
 		transport = claudeTransport{base: transport}
 	}

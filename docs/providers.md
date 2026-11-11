@@ -123,6 +123,22 @@ compaction overrides. Catalog lookups merge shared IDs conservatively across
 providers. Scores cover published model benchmarks and are separate from Sailry
 session usage; no provider account history is collected.
 
+Session and usage costs are reference prices from the stored models.dev catalog,
+not billed amounts. A response is priced by the exact model identifier under the
+vendor of the channel that ran it: the built-in preset the channel was created
+from (the one captured with the run, else the channel as saved now), then that
+preset's brand, then the vendor its wire protocol belongs to (OpenAI for
+Responses and Chat Completions, Anthropic, Google). Seven names differ from
+models.dev and are mapped in `store/agent_usage.go` (`gemini` to `google`, `qwen`
+to `alibaba`, `moonshot` to `moonshotai`, `fireworks` to `fireworks-ai`,
+`together` to `togetherai`, `zhipu` to `zhipuai`, `doubao` to `volcengine`). When
+none of these lists the model, the identifier is priced from the other vendors
+only if every one that states a price states the same one; resellers price one
+identifier differently, so a disputed or unknown model stays unpriced. Partner
+and package presets are not vendors. The Rust source prices by wire protocol
+alone, which leaves every Chat Completions vendor other than OpenAI, and the
+DeepSeek, OpenCode and Azure protocols, without a cost.
+
 ## Model requests
 
 Model capture copies provider, session configuration, secret and session identity.
@@ -138,14 +154,141 @@ captured provider/model scope. Provider metadata conversion is owned by
 Tool calls without a result and results without a call are omitted from the
 request, for SDK and plugin transports alike.
 
+Media a tool returns is model input as media, never as base64 text.
+`store.AppendCanonical` moves every binary field a new tool result declares
+beside a MIME key into a blob and leaves a slot in the stored value. Reloading
+the turn's history lifts the `inline_data` of a JSON result (at its root, or in
+the `data` of a `computer`, `browser`, `external_browser` or `file_image`
+output) out of the value into the in-memory result's attachments; an MCP result
+keeps its image, audio and resource content. `BuildCall` then emits one tool
+message: the result text followed by its media parts, which each wire renders
+its own way:
+
+| Wire | Tool media |
+| --- | --- |
+| Anthropic Messages | `image` blocks, and a PDF as a `document` block, inside the `tool_result` content |
+| OpenAI Responses | `input_image` parts in the `function_call_output` content list |
+| Chat Completions | The tool message ends with "This tool result included an image that is uploaded in the next message."; the images of one assistant turn follow its tool messages in a single user message |
+| Gemini | `inlineData` parts inside the `functionResponse` for `gemini-3*` models, beside it for earlier ones |
+| Plugin adapter | `image` content blocks in the result's MCP envelope, when the adapter declares vision |
+
+Only a model with the vision capability receives images: the listed model's
+tag, or the provider's default vision channel for a model the provider does not
+list. Any other model reads "(tool image omitted: model does not support
+images)" in the result text. Producers keep the reference's size rules (file
+images 5 MiB and 1568 px, browser captures 1 MiB and 1568 px); media a
+producer did not bound is refused above 5 MiB with "(tool image omitted:
+larger than 5 MiB)". Media with an `audience` annotation that excludes the
+assistant is not sent.
+
+Differences from the reference, all deliberate:
+
+- The reference lifts media in every outgoing projection; Go lifts once when a
+  record is loaded, so history and token estimates never hold the base64.
+- The reference sends a tool result's stored attachments. Go's only attachment
+  is a generated image, which is shown and never sent back
+  ([media.md](media.md)), so attachments a tool declares are not model input.
+- The 5 MiB bound and its note, and the note that replaces audio or binary
+  content a wire cannot carry, exist only here; the reference drops such
+  content silently or lets the provider reject the request.
+- Chat images are deferred until the tool messages of the assistant turn end,
+  so several results never interleave user messages between tool messages.
+- An MCP resource blob that is an image is sent as an image on every wire.
+- The reference omits the older images of an MCP server with `keep_images`
+  from each request, across the history; Go applies `keep_images` to each
+  result when the tool runs, so earlier results keep their images.
+- The reference sends an adapter every content block; Go adds lifted images
+  only for an adapter that declares vision.
+
 Account credentials are authorized before every inference and before compaction.
 A credential that is still valid is read locally; an expired one is renewed
 through its provider flow, and the transport is rebuilt only when the secret
 changed. API-key providers keep the secret captured with the turn.
 
-Main transport attempts have at most five additional transient retries, 60 seconds
-apart, before any output event escapes. Summary output stays buffered and has one
-additional transient retry after five seconds. Authentication, quota, invalid
+A native model request that sends nothing for 600 seconds, before its response
+or between two reads of its stream, is cancelled and fails as a network error
+"Model stream sent no data for 600 seconds", as the reference's read timeout
+and the plugin transport do. A step that has shown nothing then takes the
+retry path below; stopping the turn still cancels the request at once.
+
+Chat Completions content passes through the inline thinking filter
+(`model/thinking.go`, from Goose): text between `<think>` or `<thinking>` tags,
+in any case, with attributes, nested or split across deltas, is reasoning, and
+a self-closed tag is removed. A tag still arriving is held back up to 8 KiB; a
+stray closing tag and an unfinished tag at the end are text, and reasoning that
+never closed stays reasoning. Once the provider reports reasoning in
+`reasoning_content` or `reasoning`, inline reasoning is dropped, since that
+field is its source. Inline reasoning is stored and replayed as any other
+reasoning of the wire. The reference buffers inline reasoning and emits it once
+when the stream ends; Go streams it as reasoning in the order it arrives, so a
+long thought shows while it is written.
+
+A reply that ends at the output limit is an answer, not a failure. Responses
+`response.incomplete` is a terminal that keeps its text, reasoning, complete
+calls and usage: `max_output_tokens` finishes as length, `content_filter` as
+content filter and any other reason as other. A tool call the reply ended
+inside never runs. Chat Completions (on `length`) and Responses drop it and
+keep the complete calls, as the reference does. Messages keeps it with an
+error, so the engine answers it with a failed result the model reads: "tool
+call was not run: the reply reached the output limit before its arguments
+ended; send less in one call", or "tool call ended before its arguments were
+complete" when the stop reason was another; the reference's one message is
+"tool call ended before its content block was complete". A call that sent no
+input at all is a call without arguments (`{}`) unless the output limit ended
+the reply. A stream that ends without its completion event stays terminal.
+
+A provider that lists models offers only those: `model.Capture` refuses a model
+missing from a non-empty list as `not_configured` ("model is not in the
+provider's model list"), for turns, media, search and plugin generation alike,
+so a model removed from its provider stops at its next turn. A provider with
+an empty list runs any name. Such a model declares no capabilities, and its
+context window (`model.ContextLimit`) is derived, in order, from:
+
+1. the size its server reports. `model.New` asks an OpenAI-compatible endpoint
+   (Responses, Chat Completions, DeepSeek, OpenCode) once for
+   `GET <base>/models` and reads `data[].meta.n_ctx` of the model's entry, or
+   of the only entry. The request carries the provider's headers, follows no
+   redirect and ends after 5 seconds or when the turn stops. An answer,
+   including "no size", is kept for 15 minutes and a failure for 60 seconds, in
+   at most 128 entries;
+2. the bundled catalog (`model/data/model-catalog.json`): the model under its
+   API's own vendor, by full name or by the name after the last `/`, with or
+   without a dated suffix; then the same name under any vendor, where the
+   smallest window wins;
+3. 128,000 tokens.
+
+Automatic compaction, `/compact`, overflow recovery, the recorded observation
+and the composer's context ring all use that window. Differences from the
+reference, all deliberate:
+
+- The reference keys the reported size by session and credential fingerprint;
+  Go keys it by API, endpoint and model, since the size is a fact of the
+  server.
+- The reference resolves names through Goose's canonical-name builder and its
+  `limits.json`. Go has one bundled catalog and a plain lookup; a name known
+  only under another vendor takes the smallest window listed for it, so a wrong
+  guess compacts early instead of overflowing.
+- For Azure AI Foundry the reference sizes the model a deployment serves; Go
+  does the same when the deployment lookup that `model.New` already performs
+  names another model, without a second request.
+- The ring of a session that is not running reads the window through
+  `store.agentStatisticsBudget`, which performs no request and therefore shows
+  the catalog value until a turn has asked the server.
+
+Main transport attempts have at most five additional transient retries before
+any output event escapes. Summary output stays buffered and has one additional
+transient retry. `model.Run` is the only retry loop: the provider SDKs run with
+their own retries off. A retry waits 5 seconds, then twice as long each time up
+to 60 seconds (5, 10, 20, 40, 60), each wait spread by a fifth
+(`cenkalti/backoff` exponential schedule), so five retries wait about 135
+seconds and never more than 162. A positive `Retry-After` (header, or
+`retry_after_ms` from a plugin adapter) replaces the scheduled wait, capped at
+60 seconds; a provider that asks for longer is asked again after 60. Stopping
+the turn ends a wait at once. The retry record carries the wait that was
+actually chosen (`delay_ms`). The reference parses `Retry-After` and ignores
+it, waiting a fixed 60 seconds five times (5 seconds once for a summary); Go
+differs deliberately, so a brief failure is retried within seconds and a rate
+limit is retried when the provider says. Authentication, quota, invalid
 requests and malformed/truncated streams are terminal. Every attempted request
 reports timing, optional usage and failure facts once through the engine observer.
 Unknown token counts remain unknown; an explicitly reported zero remains known.
@@ -199,6 +342,9 @@ Repeated visible file reads can reuse earlier complete ranges; visibility change
 or compaction membership invalidate that reuse. Numbered file/search/edit and
 persisted-result page previews affect only the outgoing copy. Image and MCP
 annotations limit assistant audiences before request serialization and compaction.
+`TestToolResultMedia` holds each wire's tool-media layout and the refusals;
+`TestToolMedia` runs a tool that returns a picture through storage, reload and
+the next request.
 
 The provider editor's capability boxes and the Providers page's Media models
 group are described in [media.md](media.md#desktop). A model the user tagged

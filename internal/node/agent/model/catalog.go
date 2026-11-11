@@ -34,6 +34,9 @@ type catalogModel struct {
 	Rig struct {
 		Adaptive bool `json:"adaptive_thinking"`
 	} `json:"rig"`
+	Limit struct {
+		Context uint32 `json:"context"`
+	} `json:"limit"`
 }
 
 func catalogEntry(provider, model string) (catalogModel, bool) {
