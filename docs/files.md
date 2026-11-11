@@ -52,9 +52,9 @@ entries and the footer sit on the `Popover` color at full opacity
 
 | Part | Behavior |
 |---|---|
-| Sidebar | 204 wide, flush left: the title and the host's name (`Options.Host`), then `directory_locations` (home, desktop, documents, downloads), `projects` (`Options.Projects`: the directories of the projects registered on the host, the most recently used first, eight at most, left out when empty) and `directory_devices` (volumes, roots). The location that holds the directory shown is marked, the longest one (`picker.Nearest`) |
-| Header bar | Back and Forward over the dialog's own history, Up; the address as crumbs (the volume or root as the host names it, each crumb a menu of its child directories), scrolled to its end, or a path field after a click beside them or ⌘L; a spinner at its end while a directory is read; the filter; list and grid; New folder; More: the hidden-entries toggle, Refresh (F5), Go to folder (⇧⌘G) |
-| Entries | `ui.Table` named `files` with Name, Size, Modified and Kind, sortable, directories always first; or `ui.GridView` tiles, a long name on two lines with a middle ellipsis and its tip; both virtualised. Each entry shows a tinted tile of its type (`picker.Class`), 20 DIP in a row and 44 in the grid. Hidden entries are dimmed. Modified is today's or yesterday's time of day, else a date, in the frame's language and hour cycle, the full time in a tip and a dash for none. Enter or a double click opens a directory (in the file modes, chooses that file alone and confirms), Backspace or ⌘↑ goes up, the arrows move the selection, typing finds an entry. `Files` mode chooses several entries through `ui.Selection` (Cmd-click, Shift-click, Shift with the arrows, Cmd+A); only those still shown stay chosen |
+| Sidebar | 204 wide, flush left: the title alone on one line, level with the header bar and saying what is chosen (`Options.Title`), then `directory_locations` (the host's home, desktop, documents, downloads and applications), `projects` (`Options.Projects`: the directories of the projects registered on the host, the most recently used first, eight at most, left out when empty) and `directory_devices` (the host's volumes and roots, under the names the host gives them). Each place has the icon of its kind, and a volume the one of its medium. A host other than this device (`Options.Remote`) is named after the first group's heading (`Locations · build-box`); this device is not named. The location that holds the directory shown is marked with the neutral `Palette.Selected` fill, the longest one (`picker.Nearest`) |
+| Header bar | Back and Forward over the dialog's own history, Up; the address as crumbs (the volume or root as the host names it, each crumb a menu of its child directories), scrolled to its end, or a path field after a click beside them or ⌘L: Enter goes to the path, and Escape or the focus leaving the field (a click anywhere else, Tab) drops what was typed and shows the crumbs again, that Escape leaving the dialog open with the keys in the entries; a spinner at its end while a directory is read; the filter; list and grid; New folder; More: the hidden-entries toggle, Refresh (F5), Go to folder (⇧⌘G) |
+| Entries | `ui.Table` named `files` with Name, Size, Modified and Kind, sortable, directories always first; or `ui.GridView` tiles, a long name on two lines with a middle ellipsis and its tip; both virtualised. Each entry shows a tinted tile of its type (`picker.Class`), 20 DIP in a row and 44 in the grid. Hidden entries are dimmed. Modified is today's or yesterday's time of day, else a date, in the frame's language and hour cycle, the full time in a tip and a dash for none. Enter or a double click opens a directory (in the file modes, chooses that file alone and confirms), Backspace or ⌘↑ goes up, the arrows move the selection, typing finds an entry. `Files` mode chooses several entries through `ui.Selection` (Cmd-click, Shift-click, Shift with the arrows, Cmd+A); only those still shown stay chosen. A chosen row or tile is filled with `Palette.Selected` under the normal foreground |
 | Directory mode | Files show dimmed and cannot be selected (`picker.Selectable`): a click, an arrow or a double click that lands on one leaves the selection where it was |
 | Empty | `files_directory_empty`, or `directory_no_matches` under a filter |
 | Reading | A read blocks nothing: navigating elsewhere replaces it and its late answer is dropped. Confirm waits for it. With nothing shown yet, a spinner takes the entries' place |
@@ -64,8 +64,8 @@ entries and the footer sit on the `Popover` color at full opacity
 
 A narrower dialog gives up, in this order: the Kind column under 960 DIP of
 dialog width, the Modified column under 860, and the sidebar under 780, where
-the title and the host move to a row over the header bar and the locations
-into submenus of More. The window's least size, 760 by 560, leaves a 712 by
+the title moves to a row over the header bar, a remote host's name after it,
+and the locations into submenus of More. The window's least size, 760 by 560, leaves a 712 by
 512 dialog with Name and Size.
 
 List or grid and the hidden toggle are the controller preference
@@ -91,8 +91,7 @@ the rows take the look of CrychicUI's `files.FileList` without its module: a
 tile washed at 14% with the status color of the entry's type (folders and
 archives `Warning`, code `Primary`, images and sheets `Success`, PDF, audio
 and video `Danger`, the rest muted) holding the glyph in that color, and the
-chosen entry's name in bold. A chosen row is filled with the accent, so its
-tile takes `PrimaryForeground`. The list keeps MyGo's own table and grid
+chosen entry's name in bold. The list keeps MyGo's own table and grid
 behavior. The Modified column shows `protocol.FileEntry.modified_ms`, which
 the Node's listing (`core.Files.ListDirectory`) and the SFTP listing fill
 from the entry's own time; the field is optional, so an entry of a peer that
@@ -108,6 +107,73 @@ that fails or hangs handled as the table says. The trash action is named
 host's trash and deletes nothing. `browse_files` answers `not_found` and
 `permission_denied` for a path that does not resolve
 (`internal/node/files/browser.go`), where it answered `unavailable`.
+
+By the user's decision of November 12, 2026:
+
+- Whatever is chosen or in use is marked with the neutral `Palette.Selected`
+  fill under the normal foreground, a step over the hover's, never with the
+  emphasis color: the view switch, the sidebar's place, the chosen rows and
+  tiles. MyGo fills a chosen row and a `Selected` control with its theme's
+  accent, which the app's theme maps to `Primary`, so the table and the grid
+  are built under `ui.Themed` with `theme.Neutral(c)` (the frame's theme with
+  the accent replaced), and the switch and the place set their own fill. The
+  grid's chosen tile is that fill over the faint one MyGo gives the cell.
+  Focus rings are unchanged.
+- The heading is the title alone. The reference's second line, the host's
+  name under the title, is removed; a remote host is named as the table says.
+- The band at the dialog's top moves the window (`DragWindow` on the
+  sidebar's title row, the narrow layout's title row and the header bar):
+  its empty parts start a drag and its controls keep their clicks. The
+  dialog stays 24 DIP clear of the window's edges and its title starts 16
+  further in, so the title is below and clear of macOS's window controls
+  (12, 16; about 30 DIP tall) in every layout, and nothing is inset for
+  them.
+- The demo (`kit.Demo`) shows no `directory_preview` notice; the plain
+  preview keeps it.
+
+### Locations and devices
+
+The Node of the browsed machine resolves the sidebar's places, so a remote
+picker lists the remote machine's. `browse_files` returns them in
+`FileBrowserPage.locations` with the first page of a directory
+(`internal/node/files/browser.go`, `browser_places*.go`,
+`browser_volumes*.go`); the desktop names the kinds from its own catalog
+(`directory_home`, `directory_desktop`, `directory_documents`,
+`directory_downloads`, `directory_applications`, `directory_root`) and shows
+a volume under the name the Node sends. Only directories that exist and that
+the Node's account may list are sent, in this order:
+
+| Kind | macOS | Linux | Windows |
+|---|---|---|---|
+| `home` | The account's home | The same | The same |
+| `desktop`, `documents`, `downloads` | `~/Desktop`, `~/Documents`, `~/Downloads` | `XDG_DESKTOP_DIR`, `XDG_DOCUMENTS_DIR`, `XDG_DOWNLOAD_DIR` of `user-dirs.dirs` under `XDG_CONFIG_HOME` or `~/.config`, then of the environment, then the folders of those names in the home; one that is the home itself is left out | The Known Folders `Desktop`, `Documents`, `Downloads`, then the folders of those names in the home |
+| `applications` | `/Applications` | None | None |
+| `root` | `/`, named as the startup volume (`Macintosh HD`) | `/`, unnamed: the desktop calls it Root | None |
+| `volume` | The mounted, browsable volumes directly under `/Volumes` | The mounts directly under `/media/<account>`, `/run/media/<account>` and `/mnt` | Every mounted drive letter, named by its label (`Data (D:)`) or its letter |
+
+Volumes are the mounts of gopsutil's `disk.Partitions`, the list the host
+metrics use, so pseudo file systems are left out; a failure to list them
+leaves the places and the root. The optional `medium` of a location is
+`internal`, `external` or `network` where the system tells: the startup
+volume and a fixed Windows drive are internal, a volume under `/media` or
+`/run/media` and a removable or optical Windows drive are external, a macOS
+mount that is not local and a Windows network drive are network. macOS does
+not tell an internal volume from an external one through this list, and
+Linux leaves its `nodev` (NFS, SMB) mounts out of it, so those carry no
+medium or do not show.
+
+The contract changes in place at `v1`: `FileBrowserLocation.medium` is
+optional and `FileBrowserLocationKind` gains `applications`. A peer that
+does not send `medium`, or sends only a home and a root, is shown as before;
+a desktop older than this change ignores `medium` but does not decode the
+`applications` kind a newer macOS Node sends.
+
+The preview's `picker.Catalog` is laid out as a machine's own tree. The
+local one is a macOS home, `/Users/alex`, with Home, Desktop, Documents,
+Downloads and Applications and the devices `Macintosh HD` (`/`) and `Backup`
+(`/Volumes/Backup`, external); the remote one is a Linux home,
+`/home/alex`, with Home, Documents and Downloads and the devices Root and
+`data` (`/mnt/data`).
 
 ## Transfers
 

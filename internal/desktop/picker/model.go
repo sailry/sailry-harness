@@ -39,9 +39,12 @@ type Entry struct {
 // Dir reports whether the entry is a directory.
 func (e Entry) Dir() bool { return e.Kind == "directory" }
 
-// Location is a place the host offers in the sidebar: Kind is home, desktop,
-// documents, downloads, volume or root.
-type Location struct{ Kind, Name, Path string }
+// Location is a place the host offers in the sidebar. Kind is home, desktop,
+// documents, downloads or applications for a standard folder, named by the
+// desktop's language, and volume or root for a device, named by its host
+// where it has a name. Medium is a device's, where its host can tell:
+// internal, external or network.
+type Location struct{ Kind, Name, Path, Medium string }
 
 // Listing is one directory as its host reports it.
 type Listing struct {

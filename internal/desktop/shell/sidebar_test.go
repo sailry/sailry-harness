@@ -582,7 +582,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	clickButton(t, tt, en("directory_title"))
 	settle(tt)
 	for _, text := range []string{en("directory_preview"), "sailry", "scratch", "many", en("directory_locations"), en("directory_devices"),
-		en("directory_count_directories", "count", 5), "/preview"} {
+		en("directory_count_directories", "count", 8), "/Users/alex"} {
 		if !tt.HasText(text) {
 			t.Fatalf("the picker does not show %q: %q", text, tt.Texts())
 		}
@@ -599,7 +599,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	}
 	click(t, tt, "scratch")
 	settle(tt)
-	if !tt.HasText("/preview/scratch") {
+	if !tt.HasText("/Users/alex/scratch") {
 		t.Fatalf("selecting a directory does not show its path: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEnter)
@@ -656,7 +656,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	settle(tt)
 	snapshot(t, tt, "project-picker")
 	pick(en("directory_title"))
-	if d := a.Sidebar.Draft(); d.Path != "/preview/scratch/new-project" || d.Name != "new-project" || a.Sidebar.Picker.Showing() {
+	if d := a.Sidebar.Draft(); d.Path != "/Users/alex/scratch/new-project" || d.Name != "new-project" || a.Sidebar.Picker.Showing() {
 		t.Fatalf("the choice did not fill the path: %+v", d)
 	}
 
@@ -683,13 +683,13 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	snapshot(t, tt, "project-editor-clone")
 	click(t, tt, en("project_local"))
 	settle(tt)
-	if d := a.Sidebar.Draft(); d.Path != "/preview/scratch/new-project" {
+	if d := a.Sidebar.Draft(); d.Path != "/Users/alex/scratch/new-project" {
 		t.Fatalf("Local lost its path: %q", d.Path)
 	}
 	click(t, tt, "Save preview")
 	settle(tt)
 	added := a.Data.Projects[len(a.Data.Projects)-1]
-	if len(a.Data.Projects) != n+2 || added.Icon != "code" || added.Color != "green" || added.Path != "/preview/scratch/new-project" {
+	if len(a.Data.Projects) != n+2 || added.Icon != "code" || added.Color != "green" || added.Path != "/Users/alex/scratch/new-project" {
 		t.Fatalf("the project was not saved with its appearance: %+v", added)
 	}
 	if !slices.Contains(tt.Texts(), en("project_icon_code")) {
@@ -755,7 +755,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	click(t, tt, "sailry")
 	settle(tt)
 	pick(en("directory_open"))
-	if last := a.Data.Projects[len(a.Data.Projects)-1]; len(a.Data.Projects) != n+3 || last.Name != "sailry" || last.Path != "/preview/sailry" || a.Sidebar.Picker.Showing() {
+	if last := a.Data.Projects[len(a.Data.Projects)-1]; len(a.Data.Projects) != n+3 || last.Name != "sailry" || last.Path != "/Users/alex/sailry" || a.Sidebar.Picker.Showing() {
 		t.Fatalf("Open folder did not add the project: %+v", last)
 	}
 	a.Do("folder.open")
@@ -820,7 +820,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 			tt.Frame()
 			// Two of the sample projects live in the sample tree, the
 			// first used last.
-			for i, path := range []string{"/preview/sailry", "/preview/scratch"} {
+			for i, path := range []string{"/Users/alex/sailry", "/Users/alex/scratch"} {
 				a.Data.Projects[i].Host, a.Data.Projects[i].Path = a.Data.Hosts[0].ID, path
 			}
 			a.Sidebar.OpenEditor(nil)
@@ -841,7 +841,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 		}
 		a, tt := open(true)
 		a.Sidebar.Picker.Open(picker.Options{Mode: picker.Directory, Title: "directory_title", Confirm: "directory_title", Initial: "/srv/builds",
-			Host: "build-box", Projects: []picker.Location{{Name: "harbor-api", Path: "/srv/harbor-api"}, {Name: "lumen-web", Path: "/srv/lumen-web"}},
+			Host: "build-box", Remote: true, Projects: []picker.Location{{Name: "harbor-api", Path: "/srv/harbor-api"}, {Name: "lumen-web", Path: "/srv/lumen-web"}},
 			Source: picker.Source{Browse: func(_ string, done func(picker.Listing, string)) {
 				done(picker.Listing{}, "directory_host_unavailable")
 			}}})

@@ -725,6 +725,7 @@ directory_home: 主目錄
 directory_desktop: 桌面
 directory_documents: 文件
 directory_downloads: 下載
+directory_applications: Applications
 directory_locations: 位置
 directory_count_directories: '%{count} 資料夾'
 directory_count_files: '%{count} 檔案'

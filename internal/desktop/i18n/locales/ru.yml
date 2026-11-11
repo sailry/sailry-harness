@@ -725,6 +725,7 @@ directory_home: Главная
 directory_desktop: Настольный
 directory_documents: Документация
 directory_downloads: Загрузки
+directory_applications: Applications
 directory_locations: Расположения
 directory_count_directories: '%{count} папок'
 directory_count_files: '%{count} файлов'

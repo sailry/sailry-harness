@@ -725,6 +725,7 @@ directory_home: ホーム
 directory_desktop: デスクトップ
 directory_documents: ドキュメンテーション
 directory_downloads: ダウンロード
+directory_applications: Applications
 directory_locations: 場所
 directory_count_directories: フォルダー %{count} 件
 directory_count_files: ファイル %{count} 件
