@@ -70,18 +70,7 @@ func (p *workspaceProject) saveFile(c *ui.Context, relative, text string) {
 		p.workspaceError(c, protocol.ErrorCodeRevisionConflict, "complete file source is not loaded")
 		return
 	}
-	p.panel.SetFileStatus(relative, true, source.Truncated)
-	p.mutate(protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: p.owner.ID, Path: relative, Text: text, ExpectedRevision: source.Revision}}, func(c *ui.Context, out protocol.Output) {
-		p.panel.SetFileStatus(relative, false, source.Truncated)
-		written, ok := detail[protocol.FileWritten](out.Data)
-		if !ok {
-			return
-		}
-		source.Text, source.Revision, source.Size = text, &written.Revision, written.Size
-		p.files[relative] = source
-		p.panel.SavedFile(relative, text)
-		kit.Toast(c, kit.Done, i18n.T(c, "workspace_saved"))
-	})
+	p.writeFile(relative, text, source.Revision)
 }
 func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 	native := p.runtime.workspace.native

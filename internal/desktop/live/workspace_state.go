@@ -61,6 +61,7 @@ type workspaceProject struct {
 	gitRefreshTimer          *time.Timer
 	gitRefreshGeneration     uint64
 	files                    map[string]protocol.FileContent
+	changedFiles             map[string]changedFile
 	directories              map[string]bool
 	loading                  map[string]bool
 	failedReads              map[string]bool
@@ -433,24 +434,53 @@ func (p *workspaceProject) readFile(relative string) {
 	if _, loaded := p.files[relative]; loaded {
 		return
 	}
+	p.loadFile(relative)
+}
+
+// loadFile reads a file into its editor. A file that is open keeps its source
+// until the read ends, so a draft begun meanwhile still names the content it
+// began from.
+func (p *workspaceProject) loadFile(relative string) {
 	p.read("file/"+relative, protocol.Command{Kind: "read_file", Data: protocol.CommandReadFilePayload{Worktree: p.owner.ID, Path: relative}}, func(c *ui.Context, out protocol.Output) {
 		value, ok := detail[protocol.FileContent](out.Data)
 		if !ok {
 			p.fileUnavailable(relative)
 			return
 		}
-		p.files[relative] = value
-		p.ensureFile(relative)
-		p.panel.SetFile(relative, value.Text)
-		p.panel.SetFileUnavailable(relative, false)
-		p.panel.SetFileWritable(relative, value.Revision != nil && !value.Truncated)
-		p.panel.SetFileStatus(relative, false, value.Truncated)
+		p.fileLoaded(relative, value)
 	})
 }
+
+// fileLoaded shows the content a read returned. Under a draft it is not the
+// draft's new source but what the file holds on disk now.
+func (p *workspaceProject) fileLoaded(relative string, value protocol.FileContent) {
+	if _, loaded := p.files[relative]; loaded {
+		if _, dirty := p.panel.FileDraft(relative); dirty {
+			p.draftSource(relative, changedFile{content: value})
+			return
+		}
+	}
+	p.files[relative] = value
+	p.clearChanged(relative)
+	p.ensureFile(relative)
+	p.panel.SetFile(relative, value.Text)
+	p.panel.SetFileUnavailable(relative, false)
+	p.panel.SetFileWritable(relative, value.Revision != nil && !value.Truncated)
+	p.panel.SetFileStatus(relative, false, value.Truncated)
+}
 func (p *workspaceProject) fileUnavailable(relative string) {
+	_, dirty := p.panel.FileDraft(relative)
+	if _, loaded := p.files[relative]; loaded {
+		if dirty {
+			// The draft keeps its source; the next refresh tells what became
+			// of the file.
+			return
+		}
+		delete(p.files, relative)
+	}
 	p.panel.SetFileUnavailable(relative, true)
 	p.panel.SetFileStatus(relative, false, false)
-	if _, dirty := p.panel.FileDraft(relative); !dirty {
+	if !dirty {
 		if node := workspaceFileNode(p.data.Files, relative); node != nil {
 			node.Text = ""
 		}
@@ -637,9 +667,10 @@ func (p *workspaceProject) refreshFiles() {
 		p.readDirectory(directory, true)
 	}
 	for filename := range p.files {
-		if _, dirty := p.panel.FileDraft(filename); !dirty {
-			delete(p.files, filename)
-			p.readFile(filename)
+		if _, dirty := p.panel.FileDraft(filename); dirty {
+			p.checkDraft("draft", filename, nil)
+		} else {
+			p.loadFile(filename)
 		}
 	}
 }

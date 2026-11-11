@@ -283,6 +283,11 @@ workspace_action_failed: "Workspace action failed"
 workspace_changed: "Workspace changed; reload before trying again"
 workspace_action_unknown: "Outcome uncertain; inspect before trying again"
 workspace_saved: "Saved"
+files_changed_on_disk: Changed on disk
+files_conflict_description: "Overwrite replaces the file on disk with your draft; Reload discards your draft"
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: "Completed"
 workspace_native_unavailable: "File action unavailable"
 workspace_invalid: "Check the entered values"

@@ -84,6 +84,36 @@ func TestPanelProjection(t *testing.T) {
 			t.Fatal("failed read erased the dirty draft")
 		}
 	})
+	t.Run("draft keeps its source while the file changes on disk", func(t *testing.T) {
+		data := &viewmodel.Workspace{Files: &viewmodel.FileNode{Children: []*viewmodel.FileNode{{Name: "a.go", Path: "a.go"}}}}
+		p := &workspaceProject{data: data, files: map[string]protocol.FileContent{}}
+		p.panel = panel.NewLiveProject("worktree", data, &panel.Actions{})
+		first, second := "first", "second"
+		p.fileLoaded("a.go", protocol.FileContent{Path: "a.go", Text: "one\n", Revision: &first})
+		p.panel.FileChanged("a.go", "mine")
+		p.fileLoaded("a.go", protocol.FileContent{Path: "a.go", Text: "theirs\n", Revision: &second})
+		if draft, dirty := p.panel.FileDraft("a.go"); draft != "mine\n" || !dirty || *p.files["a.go"].Revision != first || p.changedFiles["a.go"].content.Text != "theirs\n" {
+			t.Fatalf("a read under a draft replaced the draft or its source: %q %v %#v %#v", draft, dirty, p.files["a.go"], p.changedFiles["a.go"])
+		}
+		p.draftSource("a.go", changedFile{content: protocol.FileContent{Path: "a.go", Text: "one\n", Revision: &first}})
+		if _, changed := p.changedFiles["a.go"]; changed {
+			t.Fatal("a file back at the draft's source stayed marked as changed")
+		}
+		p.draftSource("a.go", changedFile{missing: true})
+		p.fileUnavailable("a.go")
+		if _, loaded := p.files["a.go"]; !loaded || !p.changedFiles["a.go"].missing {
+			t.Fatal("a file gone under a draft lost the draft's source or its mark")
+		}
+		p.panel.DropFileDraft("a.go")
+		p.fileLoaded("a.go", protocol.FileContent{Path: "a.go", Text: "theirs\n", Revision: &second})
+		if draft, dirty := p.panel.FileDraft("a.go"); draft != "theirs\n" || dirty || len(p.changedFiles) != 0 || *p.files["a.go"].Revision != second {
+			t.Fatalf("reload kept the draft or the old source: %q %v", draft, dirty)
+		}
+		p.fileUnavailable("a.go")
+		if _, loaded := p.files["a.go"]; loaded {
+			t.Fatal("a failed clean read kept its source")
+		}
+	})
 	t.Run("search captures content options and bounded globs", func(t *testing.T) {
 		options := workspaceSearchOptions(panel.SearchQuery{Query: "needle", Filter: "  *.go  \n\n !vendor/** \n", CaseSensitive: true, Regex: true})
 		if options.Query != "needle" || options.Mode != protocol.SearchModeContent || options.Limit != 200 || !options.CaseSensitive || !options.Regex || !reflect.DeepEqual(options.Globs, []string{"*.go", "!vendor/**"}) {

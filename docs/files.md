@@ -92,8 +92,8 @@ and 30 seconds; injected clocks support deterministic tests. Cancellation cannot
 undo publication. Staging files are named `tmp/file-transfer-*` in the profile
 where the reference uses anonymous files; a start removes the ones an earlier
 process left, since a killed process cannot. A file upload has no size limit
-on either side beyond its declared, verified size. Shutdown drains active workers before collecting orphaned
-attachment files.
+on either side beyond its declared, verified size. Shutdown drains active
+workers before collecting orphaned attachment files.
 
 Attachment IDs determine storage names; display names never become paths.
 SQL binds immutable ordered references to turns. Reads from agent execution

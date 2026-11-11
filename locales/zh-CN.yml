@@ -2733,6 +2733,11 @@ workspace_action_failed: "工作区操作失败"
 workspace_changed: "工作区已变更，请刷新后重试"
 workspace_action_unknown: "结果尚不确定，请检查后再重试"
 workspace_saved: "已保存"
+files_changed_on_disk: 磁盘上已更改
+files_conflict_description: 覆盖会用草稿替换磁盘上的文件，重新加载会丢弃草稿
+files_keep_editing: 继续编辑
+files_reload: 重新加载
+files_overwrite: 覆盖
 workspace_completed: "已完成"
 workspace_native_unavailable: "文件操作不可用"
 workspace_invalid: "请检查输入内容"

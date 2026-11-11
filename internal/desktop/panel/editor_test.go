@@ -171,6 +171,67 @@ func TestEditorContracts(t *testing.T) {
 			}
 		}
 	})
+	t.Run("save conflict choices settle the draft", func(t *testing.T) {
+		pr := editorFixture("note.txt", "base\n")
+		pr.FileChanged("note.txt", "draft")
+		pr.SetFileChanged("note.txt", true)
+		closed := 0
+		pr.requestEditorClose("note.txt", func() { closed++ })
+		overwrote, reloaded := 0, 0
+		ask := func() {
+			pr.FileConflict("note.txt", func(*ui.Context) { overwrote++ }, func(*ui.Context) {
+				reloaded++
+				pr.DropFileDraft("note.txt")
+				pr.SetFileChanged("note.txt", false)
+			})
+		}
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Children(func() {
+				pr.liveFileEditor(c, "note.txt", true)
+				pr.promptDialog(c)
+			})
+		}, 1000, 700)
+		tester.SetLocale("en")
+		ask()
+		tester.Frame()
+		tester.Frame()
+		if pr.closing != nil || closed != 0 {
+			t.Fatal("a refused save left its close request open or closed the draft")
+		}
+		if !tester.HasText(en("files_changed_on_disk")) || !tester.HasText(en("files_conflict_description")) {
+			t.Fatalf("no conflict choices: %q", tester.Texts())
+		}
+		for _, step := range []struct {
+			choice              string
+			overwrote, reloaded int
+			dirty               bool
+		}{{"files_keep_editing", 0, 0, true}, {"files_overwrite", 1, 0, true}, {"files_reload", 1, 1, false}} {
+			ask()
+			tester.Frame()
+			if err := tester.Click(en(step.choice)); err != nil {
+				t.Fatal(err)
+			}
+			tester.Frame()
+			tester.Frame()
+			if _, dirty := pr.FileDraft("note.txt"); overwrote != step.overwrote || reloaded != step.reloaded || dirty != step.dirty || pr.conflict != nil {
+				t.Fatalf("%s: overwrote %d, reloaded %d, dirty %v, open %v", step.choice, overwrote, reloaded, dirty, pr.conflict != nil)
+			}
+		}
+		if draft, _ := pr.FileDraft("note.txt"); draft != "base\n" || tester.HasText(en("files_changed_on_disk")) {
+			t.Fatalf("reload left the draft %q or the mark", draft)
+		}
+		// A file whose content is not known offers no overwrite.
+		pr.FileChanged("note.txt", "again")
+		pr.FileConflict("note.txt", nil, func(*ui.Context) {})
+		tester.Frame()
+		_ = tester.Click(en("files_overwrite"))
+		tester.Frame()
+		tester.Frame()
+		if pr.conflict == nil {
+			t.Fatal("a disabled overwrite settled the conflict")
+		}
+	})
 	t.Run("close and unavailable preserve drafts", func(t *testing.T) {
 		pr := editorFixture("note.md", "base\n")
 		pr.FileChanged("note.md", "draft")
