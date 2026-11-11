@@ -1,28 +1,29 @@
 # Components
 
-Which component to use where. The component library is MyGo's own
-(`github.com/egoist/mygo/ui`, `ui/editor`, `ui/markdown`, `ui/shader`) plus
-ours in `internal/desktop/kit`. Theme tokens and surfaces are in
-[theme.md](theme.md).
+Which component to use where. The component libraries are MyGo's own
+(`github.com/egoist/mygo/ui`, `ui/editor`, `ui/markdown`, `ui/shader`), then
+CrychicUI ([crychic.md](crychic.md)), then ours in `internal/desktop/kit`.
+Theme tokens and surfaces are in [theme.md](theme.md).
 
 ## Choosing
 
 1. A MyGo component, when it fits as it is.
-2. A Lobe MyGo component (mygo.lobehub.com), copied as source into
-   `internal/desktop/kit` with its MIT header and the upstream path and revision
-   (`github.com/lobehub/lobe-mygo` at `5b3ecde`). Never add Lobe MyGo as a
-   module dependency.
-3. Our own, built on MyGo's headless bases (`ButtonBase`, `PopoverBase`,
-   `MenuBase`, `DialogBase`, `TooltipBase`, `SegmentedBase`, `SliderBase`,
-   `ToastBase`, `CollapsibleBase`, `TextInputBase`), with custom drawing only
-   where MyGo has no such figure (the reason stays in the doc comment).
-
-4. An approved CrychicUI component, only for a gap the three above leave and
-   under the rules in [crychic.md](crychic.md). Kit wins when both have one.
+2. A CrychicUI component verified in [crychic.md](crychic.md), under its
+   rules. It may replace one of ours where no function is lost.
+3. Kit, where neither fits or where ours does more:
+   - a Lobe MyGo component (mygo.lobehub.com), copied as source into
+     `internal/desktop/kit` with its MIT header and the upstream path and
+     revision (`github.com/lobehub/lobe-mygo` at `5b3ecde`). Never add Lobe
+     MyGo as a module dependency;
+   - our own, built on MyGo's headless bases (`ButtonBase`, `PopoverBase`,
+     `MenuBase`, `DialogBase`, `TooltipBase`, `SegmentedBase`, `SliderBase`,
+     `ToastBase`, `CollapsibleBase`, `TextInputBase`), with custom drawing
+     only where MyGo has no such figure (the reason stays in the doc comment).
 
 Every floating layer (dialog, popover, menu, select, toast, tooltip, hover
-card) paints through `kit.Floating`. Nothing else sets a floating surface,
-except the six CrychicUI overlays named in [crychic.md](crychic.md).
+card) paints through `kit.Floating`. Nothing else sets a floating surface: a
+CrychicUI component is content inside one, and one that draws its own is not
+used ([crychic.md](crychic.md#floating-surfaces)).
 
 ## Kit components
 

@@ -1,20 +1,31 @@
 # CrychicUI
 
-`github.com/ELY-Open-Source/CrychicUI` (MIT) is a third-party MyGo component
-library. Desktop links it at the pseudo-version pinned in `go.mod`
-(`v0.0.0-20261110123803-1c55e6a884bb`) against Sailry's own MyGo pin; notices
-are in [third_party_licenses/crychicui.md](../third_party_licenses/crychicui.md).
+`github.com/ELY-Open-Source/CrychicUI` (MIT) is a MyGo component library and
+Desktop's second UI library, after MyGo's own controls. Desktop links it at
+the pseudo-version pinned in `go.mod` (`v0.0.0-20261110123803-1c55e6a884bb`)
+against Sailry's own MyGo pin; notices are in
+[third_party_licenses/crychicui.md](../third_party_licenses/crychicui.md).
 
 ## Rules
 
-- **Gap-filling only; Kit wins when both exist.** Choose a component in the
-  order of [components.md](components.md#choosing): MyGo, then Kit, then this
-  list. Never replace an existing Kit component, and never use a CrychicUI
-  dialog, menu, toast, tabs or button where Kit has one.
-- **Only the approved list below.** Not approved: `agent.Approval`, `Plan`,
-  `ToolCall`, `Reasoning`, `ModelPicker`, `ContextMeter`, `data.ReorderList`
-  and everything not listed. Never import `diagram`: it links pele-go and
-  adds about 6 MB.
+- **Order of preference.** A MyGo control; then a CrychicUI component verified
+  below; then Kit or custom drawing, where neither fits or where ours does
+  more ([components.md](components.md#choosing)).
+- **Replacing one of ours.** A CrychicUI component may replace a Kit or
+  feature component where it is better suited and no function is lost. List
+  what ours does, show the replacement keeps each item, and move every caller
+  in the same change. Where ours does more, ours stays: see
+  [What ours keeps](#what-ours-keeps).
+- **Floating surfaces stay Kit's frost.** Menus, popovers, dialogs, hover
+  cards and sheets paint through `kit.Floating` (`kit.Dialog`, `kit.Popover`,
+  `kit.MenuButton`, `kit.Tooltip`, the hover card). CrychicUI supplies content inside
+  such a surface, never the surface. A component that draws its own floating
+  surface is not used; one that draws an opaque card is placed in a Kit
+  surface only through an adapter that clears the card. The findings per
+  component are in [Floating surfaces](#floating-surfaces).
+- **Only verified components.** A component is used once it is in the lists
+  below with a status that allows it. Never import `diagram`: it links pele-go
+  and adds about 6 MB.
 - **Sound is off.** `crychic.Setup()` (`internal/desktop/kit/crychic`), called
   once in `cmd/sailry-desktop` before the first window, mutes the cue the
   library plays on every interaction. A muted cue returns before a sound is
@@ -25,19 +36,25 @@ are in [third_party_licenses/crychicui.md](../third_party_licenses/crychicui.md)
   `internal/desktop/i18n`. Fields marked *format* are `fmt` formats: the
   translation must keep the verbs shown, in that order.
 - **Data Sailry does not author goes through the adapter.** The library panics
-  on input it calls a programmer error, which includes empty names, shares
-  outside 0 to 1 and repeated IDs. Components marked *adapter* are called as
-  `crychic.<Name>` with the same arguments. An adapter repairs what has one
-  honest reading and otherwise builds nothing: it then returns `false` and
-  MyGo's absent element, whose methods do nothing. Components marked *direct*
-  are called from their own package and get no wrapper.
+  on input it calls a programmer error, which includes empty lists, empty
+  names, shares outside 0 to 1 and repeated IDs. Components marked *adapter*
+  are called as `crychic.<Name>` with the same arguments. An adapter repairs
+  what has one honest reading and otherwise builds nothing: it then returns
+  `false` and MyGo's absent element, whose methods do nothing. Components
+  marked *direct* are called from their own package and get no wrapper.
 - **Shares** (`media.Recorder`'s level and any other 0 to 1 argument of a direct
   component) pass through `crychic.Unit`.
 
-## What holds for every approved component
+Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
+**hosted** (direct on a page; inside a Kit floating surface only through the
+adapter), **blocked** (English with no option; usable once the library takes
+one), **not usable** (draws a floating surface of its own).
+
+## What holds for every verified component
 
 Verified by `TestApprovedComponents` and `TestPolicy` in
-`internal/desktop/kit/crychic` unless marked *(read)*.
+`internal/desktop/kit/crychic` unless marked *(read)*: read in the library's
+source, not exercised.
 
 - **Theme.** Each builds in the application theme (`theme.Apply`), light and
   dark. Colours are `c.Theme()` tokens and their mixes *(read)*; the exceptions
@@ -45,11 +62,14 @@ Verified by `TestApprovedComponents` and `TestPolicy` in
   `Palette.Backdrop` and the Lightbox scrim at 0.88 in both appearances. Filled actions use `Accent`, which Sailry's theme
   maps to Kit's primary, and several buttons are pills (radius 999) where
   Kit's are not.
-- **Floating layers.** `DangerDialog`, `ShortcutSheet`, `WhatsNew`, `Lightbox`,
-  `HoverCard` and `Picker`'s popover set their own surface on MyGo's bases.
-  They do not paint through `kit.Floating`, so they have no frost. This is the
-  accepted deviation from [components.md](components.md#floating-layers-and-overlays)
-  for these six only.
+- **Surfaces.** Cards and fields are opaque `t.Background` with a 1 DIP
+  border, not Kit's frosted cards. On a page that is their look. In or as a
+  floating surface see [Floating surfaces](#floating-surfaces).
+- **Tooltips.** `color.SwatchGrid`, `files.FileCard`, `agent.Citation`,
+  `media.Recorder` and `navigation.ZoomControl` name their icon buttons with
+  MyGo's own `Element.Tooltip`: a small opaque tip in the theme's inverse
+  colors, not Kit's frosted `kit.Tooltip`, and shown even where Kit hides
+  tips *(read)*. There is no option to turn it off.
 - **Idle.** At rest none builds, paints or asks for a frame. The states below
   move by design while visible and stop in a hidden window; everything else
   animates only on arrival, hover, press or a value change.
@@ -74,16 +94,61 @@ Verified by `TestApprovedComponents` and `TestPolicy` in
   reaches the log files. `sound` logs at warn or info only after a cue has
   played, which Setup prevents.
 
-## Approved components
+## Floating surfaces
 
-Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
-**blocked** (do not use until solved).
+Each frame was drawn over a red page and over a blue one, in the light
+appearance, and a pixel of the surface compared (`TestPolicy`, "floating
+surfaces stay Kit's frost"). A surface that hides the page gives the same
+pixel twice; Kit's frost does not.
+
+| Component | The surface it draws | Measured | Can Kit's surface host its content | Status |
+|---|---|---|---|---|
+| `overlay.DangerDialog` | MyGo `DialogBase` with its own panel: `t.Background`, 1.5 radius, a black shadow, over a black backdrop at 0.4 | hides the page | No. The content is built inside that panel and is not offered apart from it | **not usable** |
+| `overlay.ShortcutSheet` | the same panel | hides the page | No, as above | **not usable** |
+| `overlay.WhatsNew` | the same panel | hides the page | No, as above | **not usable** |
+| `overlay.HoverCard` | its own `ui.Overlay` card: `t.Background`, a border, a black shadow | hides the page | Nothing to host: the content is the caller's, the library adds only the card and a 300 ms grace | **not usable** |
+| `overlay.Lightbox` | no panel: a black scrim at 0.88 over the window in both appearances, with its buttons on it | an eighth of the page shows | No. Images and buttons are built on the scrim | **not usable** |
+| `desktop.UpdatePrompt` | not floating itself: an opaque card (`t.Background`, a border, a faint shadow) | in `kit.Dialog` the card hides the frost; through `crychic.UpdatePrompt` the frost shows | Yes, through the adapter, which clears the card's fill and edge | **hosted** |
+| `color.Picker` | the trigger is a field; its popover is MyGo's themed `ui.Popover`: `t.Background`, a border, a black shadow | hides the page | No. The library opens the popover itself | **not usable** |
+| `files.FileCard` | the card is on the page; its ⋯ is MyGo's menu button, which Sailry's windows show as the system's menu | the menu opens with the caller's three items | Not a drawn surface | direct, see below |
+
+What to use instead, with the surface Kit's:
+
+- A destructive confirmation: `kit.Dialog` with `kit.Danger`. Where the name
+  must be typed, `form.TypeToConfirm` inside `kit.Dialog` (measured: the frost
+  shows around and inside it).
+- A shortcut sheet or a what's-new pager: `kit.Dialog` or `kit.BareDialog`
+  with the caller's content.
+- A hover card: MyGo's `TooltipBase` with `kit.Floating`, as
+  `kit.SessionCard` is built.
+- Images: `kit.ImageViewer`, which pages through several images and also
+  zooms, pans, rotates, copies and saves.
+- A free color: MyGo's `ui.ColorPicker` inside `kit.Popover`.
+- `crychic.UpdatePrompt` builds the prompt under a theme whose `Background`
+  and `Border` are clear, so the card and the Later button's outline are gone
+  and the surface it sits in is the only one. The card's shadow is in the
+  text color at 0.06 and cannot be cleared: a faint line stays where the
+  card's edge was. Build nothing of Kit's inside it. On a page call
+  `desktop.UpdatePrompt` itself.
+- `files.FileCard`'s ⋯ opens the system's menu on a left click, which
+  [AGENTS.md](../AGENTS.md) keeps for right clicks. The card has no option to
+  leave the button out: use it only where that is accepted, and never for a
+  list that already has a Kit row menu.
+- An inline component with no card of its own may sit in a Kit surface as it
+  is: `form.TypeToConfirm` was measured, the `feedback` components and
+  `input.TagInput` are the same by reading. One whose
+  root is an opaque card (`files.FileCard`, `files.FileList`,
+  `chat.LinkPreview`, `code.BranchPicker`, `devtools.LogView`,
+  `agent.RunTimeline`, `agent.TaskProgress`) shows as a card on the frost;
+  the surface around it stays Kit's.
+
+## Verified components
 
 ### Appearance
 
 | Component | Signature | Panics on | Copy | Status |
 |---|---|---|---|---|
-| `color.Picker` | `(c, label string, value *ui.Color) ui.Element` | empty label, nil value | none of its own; shows the hex; the popover is MyGo's `ui.ColorPicker` | direct |
+| `color.Picker` | `(c, label string, value *ui.Color) ui.Element` | empty label, nil value | none of its own; shows the hex; the popover is MyGo's `ui.ColorPicker` | **not usable** (its popover) |
 | `color.SwatchGrid` | `(c, label, colors []ui.Color, value *ui.Color, o SwatchGridOptions) ui.Element` | empty label, no colours, nil value, `Columns < 0`, `Names` not one per colour | `Names` (else each hex) | direct |
 | `color.Palette` | `(c, base ui.Color, o PaletteOptions) ui.Element` | `Steps` outside 2 to 20 (0 is 9) | none | direct |
 
@@ -93,12 +158,38 @@ Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
 |---|---|---|---|---|
 | `files.Dropzone` | `(c, label string, paths *[]string, o DropzoneOptions) ui.Element` | empty label, nil paths, negative or non-finite `Height` | `Prompt`, `Detail`, `One`, `Many` (*format* `%d`) | direct |
 | `form.FileField` | `(c, label string, path *string, o FileFieldOptions) (root, browse ui.Element)` | empty label, nil path | `Empty`, `Browse`, `Remove` | direct |
-| `files.FileCard` | `(c, item FileItem, action *FileAction, o FileCardOptions) (root, menu ui.Element)` | empty `Name`, negative `Size`, nil or unknown action | `Menu`, `Open`, `Rename`, `Delete`, and `FormatDate` (the default is English `Jan 2, 2006`) | direct |
+| `files.FileCard` | `(c, item FileItem, action *FileAction, o FileCardOptions) (root, menu ui.Element)` | empty `Name`, negative `Size`, nil or unknown action | `Menu`, `Open`, `Rename`, `Delete`, and `FormatDate` (the default is English `Jan 2, 2006`); **fixed** size units | direct, with its menu and units |
+| `files.FileIcon` | `(c, name string, o FileIconOptions) ui.Element` | empty name; a negative or non-finite `Size` | none | direct |
+| `files.FileList` | `(c, label string, list []FileItem, selected *int, sort *FileSort, o FileListOptions) ui.Element` | empty label; an empty list; an entry without a name or with a negative size; two entries with the same `Path` and `Name`; nil `selected` or `sort`; a selection outside -1 to `len(list)-1`; an unknown sort | `Name`, `Size`, `Date`, and `FormatDate` (the default is English); **fixed** size units | **not for the picker**; no adapter |
 
 - `Dropzone` appends every drop, repeats included. `FileField` keeps the first
   dropped file; `browse` only reports the click, the caller opens the dialog.
-- `FileCard`'s ellipsis opens MyGo's own menu, not `kit.Menu`. Sizes read
-  `B`, `KB`, `MB` in every language.
+- `FileCard`'s ⋯ opens the system's menu
+  ([Floating surfaces](#floating-surfaces)).
+- Sizes in `FileCard` and `FileList` come from the library's
+  `typography.Bytes`: decimal (1000) with the symbols `B`, `KB`, `MB`, `GB`,
+  `TB` in every language. Sailry's own sizes are binary and translated
+  (`KiB`, `MiB`). Do not show both for the same files.
+- `FileIcon` is a tile tinted by kind (48 DIP unless `Size` says otherwise)
+  over a pill with the extension in capitals. The kind comes from a fixed
+  table of extensions; everything else is a grey file. A dotfile's whole name
+  is its extension (`.gitignore` shows `GITIGNORE`) and a name without one
+  has no pill. It is a column, so it suits a grid cell, not a 28 DIP row. A
+  directory entry always has a name; check one that comes from a model.
+- `FileList` is a catalog list and not a file picker. An empty directory
+  panics, so the caller must show its own empty state instead. What it lacks
+  against the picker's `ui.Table`:
+  - activation: a click selects, a click on the selected row does nothing,
+    and there is no double click or Enter;
+  - a context menu, multiple selection and disabled or dimmed rows;
+  - virtualisation: every row is built on every build;
+  - descending order: a header click only picks the column, ascending;
+    folders always sort first and names compare bytewise, so `Zed` comes
+    before `apple`;
+  - a Kind column, column resizing, and `Modified` cannot be left out,
+    though a listing may not carry it.
+
+  It adds a tinted kind tile per row. Its root is an opaque card.
 
 ### Forms
 
@@ -135,15 +226,15 @@ Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
 | Component | Signature | Panics on | Copy | Status |
 |---|---|---|---|---|
 | `form.TypeToConfirm` | `(c, name string, typed *string, o TypeToConfirmOptions) (root, confirm ui.Element)` | empty name, nil typed | `Prompt` (*format* `%s` the name), `Action` | direct |
-| `overlay.DangerDialog` | `(c, title, text string, open *bool, o DangerDialogOptions) (root, confirm ui.Element)` | empty title, nil open | `Cancel`, `Confirm` | direct |
+| `overlay.DangerDialog` | `(c, title, text string, open *bool, o DangerDialogOptions) (root, confirm ui.Element)` | empty title, nil open | `Cancel`, `Confirm` | **not usable** (its panel) |
 
 - `TypeToConfirm` matches exactly, case and spaces included. A target whose
   name can be empty (an untitled session) is confirmed another way: do not
   call it with an empty name.
-- `DangerDialog` closes itself on either button; `confirm` is the absent
-  element while closed. Name the target and the consequence once, in `title`
-  and `text`. A confirmation Kit's `Dialog` with `kit.Danger` already covers
-  stays on Kit.
+- `TypeToConfirm` has no surface of its own: inside `kit.Dialog` the frost
+  stays. That is the destructive confirmation with a typed name.
+- `DangerDialog` draws its own opaque panel. Confirm in `kit.Dialog` with
+  `kit.Danger`, naming the target and the consequence once.
 
 ### Conversation
 
@@ -156,7 +247,7 @@ Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
 | `agent.TaskProgress` | `(c, label string, steps []string, current int, o TaskProgressOptions) ui.Element` | empty label, no steps, an empty step, current outside 0 to `len(steps)` | `Format` (*format* `%d` step, `%d` count), `Finished` | adapter |
 | `chat.LinkPreview` | `(c, title, host string, image *ui.Bitmap) ui.Element` | empty title or host | none | adapter |
 | `chat.JumpToLatest` | `(c, count int, o JumpToLatestOptions) ui.Element` | a negative count | `One`, `Many` (*format* `%d`) | direct |
-| `overlay.Lightbox` | `(c, label string, images []*ui.Bitmap, captions []string, at *int, open *bool, o LightboxOptions) ui.Element` | empty label, no image, a nil image, nil or out-of-range `at`, nil open, captions not one per image | `Back`, `Forth`, `Close` | adapter |
+| `overlay.Lightbox` | `(c, label string, images []*ui.Bitmap, captions []string, at *int, open *bool, o LightboxOptions) ui.Element` | empty label, no image, a nil image, nil or out-of-range `at`, nil open, captions not one per image | `Back`, `Forth`, `Close` | **not usable** (its scrim; Kit's viewer does more) |
 
 - Adapters: `ImageGenerating` clamps the progress and builds nothing without a
   prompt. `SourceCard` and `Citation` read a missing host from the address and
@@ -171,23 +262,25 @@ Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
   the click as `Changed`.
 - `JumpToLatest` builds an empty box at zero and does not scroll: read
   `Clicked`.
-- `Lightbox` overlaps Kit's image viewer; use it only for what that lacks.
+- `Lightbox` has nothing `kit.ImageViewer` lacks. Its adapter is kept and
+  tested, unused.
 
 ### Other
 
 | Component | Signature | Panics on | Copy | Status |
 |---|---|---|---|---|
-| `overlay.ShortcutSheet` | `(c, title string, groups []ShortcutGroup, open *bool, o ShortcutSheetOptions) ui.Element` | empty title, no group, an untitled or empty group, a shortcut without label or keys, nil open | `Close` | adapter |
-| `overlay.WhatsNew` | `(c, title string, features []Feature, page *int, open *bool, o WhatsNewOptions) ui.Element` | empty title, no feature, an untitled feature, an `Icon` that is not a Lucide name, nil or out-of-range page, nil open | `Back`, `Next`, `Done` | direct |
-| `desktop.UpdatePrompt` | `(c, app, version string, notes []string, o UpdatePromptOptions) (root, install, later ui.Element)` | blank app or version, an `Icon` that is not a Lucide name | `Title` (*format* `%s` the app), `Version` (*format* `%s`), `Install`, `Later` | direct |
-| `overlay.HoverCard` | `(c, label string, anchor ui.Element, content func()) ui.Element` | empty label, nil content | none | direct |
+| `overlay.ShortcutSheet` | `(c, title string, groups []ShortcutGroup, open *bool, o ShortcutSheetOptions) ui.Element` | empty title, no group, an untitled or empty group, a shortcut without label or keys, nil open | `Close` | **not usable** (its panel) |
+| `overlay.WhatsNew` | `(c, title string, features []Feature, page *int, open *bool, o WhatsNewOptions) ui.Element` | empty title, no feature, an untitled feature, an `Icon` that is not a Lucide name, nil or out-of-range page, nil open | `Back`, `Next`, `Done` | **not usable** (its panel) |
+| `desktop.UpdatePrompt` | `(c, app, version string, notes []string, o UpdatePromptOptions) (root, install, later ui.Element)` | blank app or version, an `Icon` that is not a Lucide name | `Title` (*format* `%s` the app), `Version` (*format* `%s`), `Install`, `Later` | **hosted** |
+| `overlay.HoverCard` | `(c, label string, anchor ui.Element, content func()) ui.Element` | empty label, nil content | none | **not usable** (its card) |
 | `navigation.ZoomControl` | `(c, label string, zoom *float64, o ZoomControlOptions) ui.Element` | empty label, nil zoom, a zoom that is NaN or outside `Min` to `Max`, an invalid range | `Out`, `In`, `Fit` | adapter |
 | `media.Waveform` | `(c, label string, levels []float64, played float64, o WaveformOptions) ui.Element` | empty label, no level, a level or `played` outside 0 to 1 or NaN, a negative or non-finite `Height` | none | adapter |
 | `media.Recorder` | `(c, label string, state *Take, level float64, o RecorderOptions) ui.Element` | empty label, nil or unknown state, a level outside 0 to 1 or NaN | `Record`, `Pause`, `Resume`, `Stop` | direct, level through `crychic.Unit` |
 | `media.AudioPlayer` | `(c, label string, clip Clip, pos *time.Duration, playing *bool, o AudioPlayerOptions) ui.Element` | empty label, no note, a note outside 20 to 20000 Hz, a beat of zero, nil or out-of-range pos, nil playing | `Play`, `Seek` | **blocked** |
 | `devtools.LogView` | `(c, lines []LogLine, query *string, follow *bool, o LogViewOptions) ui.Element` | nil query or follow, a negative `Height`, a line without time or message, an unknown level, a blank or repeated ID | `Title`, `Search`, `Follow`, `Empty`, `Levels` | adapter |
 | `devtools.LevelFilter` | `(c, on *[4]bool, counts [4]int, o LevelFilterOptions) ui.Element` | nil `on`, a negative count | `Levels` | direct |
-| `code.CommitGraph` | `(c, label string, commits []GraphCommit) ui.Element` | empty label, no commit, an empty hash or message, a lane outside 0 to 7, a repeated hash, a parent listed before its child | none | adapter |
+| `code.CommitGraph` | `(c, label string, commits []GraphCommit) ui.Element` | empty label, no commit, an empty hash or message, a lane outside 0 to 7, a repeated hash, a parent listed at or before its child | none | adapter |
+| `code.DiffView` | `(c, st *editor.DiffState, split *bool, o DiffViewOptions) ui.Element` | nil state or flag; a negative or non-finite `Height` | `Name` (the file; the default is English `Changes`), `Split`, `Unified` | direct |
 | `code.BranchPicker` | `(c, label string, branches []Branch, current *int, query *string, o BranchPickerOptions) (root, field ui.Element)` | empty label, no branch, an unnamed or repeated branch, a negative count, nil or out-of-range current, nil query | `Placeholder`, `Empty`, `Current`; **fixed** accessible name `Clear search` | **blocked** |
 | `code.Blame` | `(c, label string, lines []BlameLine, o BlameOptions) ui.Element` | empty label, no line, a line without author or time | `FormatAge` (the default is English: `now`, `5m`, `2mo`) | adapter |
 
@@ -199,23 +292,114 @@ Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
 - `code.BranchPicker` is blocked by the fixed name on the clear button of the
   library's search field, shown once the query is not empty. Its adapter is
   kept and tested for when that is solved.
-- Adapters: `ShortcutSheet` drops actions without keys and groups left empty.
-  `ZoomControl` clamps a stored zoom; the range in `o` is the caller's.
+- Adapters: `ShortcutSheet` (kept and tested, unused) drops actions without
+  keys and groups left empty. `ZoomControl` clamps a stored zoom; the range in `o` is the caller's.
   `Waveform` clamps levels. `LogView` drops records without a message, shows a
   dash for a missing time, clamps levels and replaces blank or repeated IDs.
   `CommitGraph` shows the hash for a missing message, folds lanes onto eight
   and builds nothing for a history it cannot draw. `BranchPicker` and `Blame`
   build nothing for an unnamed or repeated branch and for a line without a time.
-- `WhatsNew` and `UpdatePrompt` take bundled data and icons: a wrong icon name
-  panics on first build, so it is caught by the feature's own test.
-  `UpdatePrompt` is a card, not a dialog; the updater's existing surface wins
-  where it already shows the same thing.
-- `HoverCard` stays open for 300 ms after the pointer leaves, and opens on
-  keyboard focus of the anchor.
-- `CommitGraph` and `Blame` build every row and `LogView` filters every record
-  on each build: give them a bounded page, not a whole history or log.
+- `UpdatePrompt` takes bundled data and icons: a wrong icon name panics on
+  first build, so it is caught by the feature's own test. It is a card with
+  Install and Later, not a dialog, and reports only the two clicks. The
+  updater's own surface, with its check, download, verification and restart,
+  does more and stays.
+- `Blame` builds every row and `LogView` filters every record on each build:
+  give them a bounded page, not a whole history or log.
 - `Blame` highlights with MyGo's editor language named by `Lang`; an unknown
   name leaves the text plain.
+
+### `code.CommitGraph`
+
+It draws what it is given and computes nothing. Per commit, newest first:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `Hash` | yes, unique in the list | Identity, and the key parents refer to. The row shows its first 7 characters |
+| `Message` | yes | The row's text and accessible name, on one line |
+| `Lane` | 0 to 7 | The column of the commit's dot. The caller assigns lanes: the library has no layout of its own |
+| `Parents` | no | Hashes. A parent in the list must come later in it; an edge is drawn to its dot, curving to its lane. A parent not in the list (beyond the page) is drawn as a line to the bottom edge. None draws no edge. Two or more make the dot larger |
+| `Refs` | no | Branch and tag names, shown as chips in the lane's color |
+| `Author` | no | Shown muted after the message |
+
+- So a history needs each commit's parents, an order in which every child
+  precedes its parents (`git log --topo-order`, or by date for an ordinary
+  history), and a lane per commit worked out by the caller. A listing without
+  parents cannot be drawn as a graph.
+- Panics (each by test): no commits, a commit without a message, a lane of 8,
+  a repeated hash, a parent listed before its child. Also an empty label or
+  hash and a commit that names itself as parent *(read)*.
+- `crychic.CommitGraph` shows the hash for a missing message, folds lanes
+  onto the eight drawn (lane 9 is drawn in lane 1, so two branches can share
+  a column) and builds nothing for a history it cannot draw: none, an
+  unnamed or repeated commit, or a parent listed before its child. Check the
+  result and show the plain history list instead.
+- Rows are not interactive: no selection, click or menu. Lane colors repeat
+  after four (accent, success, warning, danger).
+- It is not virtual. 400 commits build 400 rows at 36 DIP each, 14,408 DIP
+  tall, and every paint strokes every edge; that frame is at rest after the
+  one-second arrival and asks for no more *(tested with 400)*. It has no
+  scroll of its own: put it in a `ui.Scroll`, and page the history rather
+  than give it thousands of commits.
+
+### `code.DiffView`
+
+MyGo's `editor.DiffView` under a file bar: a file glyph, `Name`, `+N` and
+`−N` from the state, and a Split and Unified switch.
+
+- The caller owns the `editor.DiffState`, so the theme, font, hunk actions
+  and fit set on it stay. The component writes `st.Layout` from `*split` on
+  every build: the flag wins over the state *(tested)*.
+- Height. As built the root is `o.Height` tall, 320 DIP by default: it stays
+  320 in a taller body and shrinks into a shorter one. `Grow(1)` on the
+  returned root makes it fill a flexible tab body *(tested at 200 and 600
+  DIP)*; nothing in the library has to change.
+- It has its own border and radius and plays an arrival. The counts in the
+  bar duplicate any `+N −N` the caller shows.
+- Empty, binary and partial states are not its concern: build it only for a
+  text diff.
+
+## Compared with ours
+
+A read-only audit compared the whole library with our components by reading
+alone. Its findings about the components verified here were checked; its
+findings about components not in this document were not.
+
+| Finding | Result |
+|---|---|
+| CrychicUI needs MyGo v0.8.3; does it build against our pin? | Yes: the adapters and the tests build and pass on the pinned MyGo |
+| Colors come from `c.Theme()`; surfaces are opaque cards | Confirmed: every probe builds in both appearances; the overlays hide the page *(tested)* |
+| Every interaction asks for a cue; `SetEnabled(false)` silences it | Confirmed *(tested)*: the cue is recorded and nothing plays |
+| Logs are `slog.Debug` | Confirmed *(tested)* |
+| Fixed English: `input.PasswordField` (`Reveal <label>`), `input.KeyValueField` (`Remove row`), `code.BranchPicker` (`Clear search`) | Confirmed *(tested)*: each is present with every option filled |
+| Sizes are `B`, `KB`, `MB`; dates and ages default to English | Confirmed *(tested)*: `KB` shows in `FileCard` and `FileList`; `FormatDate` and `FormatAge` replace the others |
+| `files.FileList` panics on an empty directory and on duplicates | Confirmed *(tested)*. Corrected: a duplicate is the same `Path` and `Name`; one name in two folders is accepted |
+| `files.FileIcon` panics only on an empty name | Corrected: also on a negative or non-finite `Size` *(read)* |
+| `code.CommitGraph` panics on no commits, an empty message, more than 8 lanes, a child after its parent | Confirmed *(tested)*. Also a repeated or empty hash and an empty label. A parent outside the list is accepted |
+| `code.BranchPicker` panics on a repository with no branches | Confirmed *(tested)* |
+| `overlay.Lightbox` panics on an image not decoded | Confirmed *(tested)* |
+| `devtools.LogView` panics on a line without a time or message; `overlay.ShortcutSheet` on no groups | Confirmed *(tested)* |
+| `code.DiffView` has a fixed height; can it fill a tab? | It can: `Grow(1)` on the root *(tested)* |
+| `code.DiffView` rewrites `st.Layout` on every build; its labels are options | Confirmed *(tested)* |
+| `feedback.ErrorState` always shows Retry | Confirmed *(tested)*; it also shakes once and asks for a cue *(read)* |
+| `chat.JumpToLatest` draws nothing at zero | Confirmed *(tested)*: an empty box |
+| Tooltips are MyGo's own and ignore Kit's hidden tips | Confirmed *(read)* |
+| Are arrivals skipped under Reduce Motion? | By MyGo's contract for `Element.Keyframes`, playback completes at once *(read, not tested)* |
+
+### What ours keeps
+
+The audit's decisions stand where ours does more; none was overturned here.
+
+- **Replace, in part:** the panel's single-file diff may take
+  `code.DiffView` for its bar and Split and Unified switch, keeping
+  `kit.Diff`'s state, hunk actions and its empty, binary and partial states.
+  The height question is settled above.
+- **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
+  cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
+  when those features are added.
+- **Ours stays:** the picker's list (`files.FileList` loses the functions
+  listed above), every Kit overlay, the image viewer, the updater, settings
+  rows and editors, the composer and conversation components.
 
 ## Size
 
@@ -227,20 +411,28 @@ Status: **direct** (call the library), **adapter** (call `crychic.<Name>`),
 | `crychic.Setup` and the adapters (as committed) | 270,468,466 | +1,167,888 (1.11 MiB) |
 | Every approved component referenced | 271,027,026 | +1,726,448 (1.65 MiB, 0.64%) |
 
+Measured before `code.DiffView`, `files.FileIcon` and `files.FileList` were
+verified. They add no package: `code`, `files` and MyGo's `ui/editor` were
+already linked.
+
 ## Adding a component
 
-1. Show the gap: neither MyGo nor Kit has it. Get it approved and add it to
-   the list above with its use.
+1. Say what it is for: something MyGo lacks, or a component of ours it
+   replaces without losing a function. Add it to the lists above.
 2. Read its source and every helper it calls. Record the signature, every
    input that panics, its copy defaults and whether each has an option, what
-   moves while idle, and any colour that is not a theme token.
-3. English with no option blocks it. Report it upstream; do not patch or copy
-   the library.
+   moves while idle, any color that is not a theme token, and every floating
+   surface it draws or opens (a dialog, a popover, a menu, a tooltip).
+3. English with no option blocks it, and a floating surface of its own makes
+   it not usable. Report either upstream; do not patch or copy the library.
 4. Add a probe to `probes` in `internal/desktop/kit/crychic/crychic_test.go`
    with every option filled, its defaults in `english`, and an `active` view if
-   a state moves by design. The test must pass in both appearances.
-5. Add an adapter only if it can panic on data Sailry does not author, with a
-   hostile case in `TestPolicy`. A component that is safe to call gets none.
+   a state moves by design. The test must pass in both appearances. Add each
+   documented panic to the cases of `TestPolicy`, and a floating-surface case
+   if it is to sit in a Kit surface.
+5. Add an adapter only if it can panic on data Sailry does not author, or if
+   its card must be cleared inside a Kit surface, with a hostile case in
+   `TestPolicy`. A component that is safe to call gets none.
 6. Run with `SAILRY_SNAPSHOTS=.runtime/review/crychic-shots` and look at both
    frames. Rebuild for the size table if a new library package is linked, and
    update `third_party_licenses/` if the pin moves.

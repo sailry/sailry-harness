@@ -2,6 +2,7 @@ package crychic
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/png"
 	"log/slog"
@@ -30,6 +31,8 @@ import (
 	"github.com/ELY-Open-Source/CrychicUI/overlay"
 	"github.com/ELY-Open-Source/CrychicUI/sound"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -87,7 +90,7 @@ var probes = []probe{
 			form.FileField(c, "t:key file", &path, form.FileFieldOptions{Empty: "t:empty", Browse: "t:browse", Remove: "t:remove"})
 		}
 	}},
-	{name: "files.FileCard", english: []string{"File actions", "Nov 2, 2026"}, idle: func() func(*ui.Context) {
+	{name: "files.FileCard", english: []string{"File actions", "Nov 2, 2026"}, fixed: []string{"KB"}, idle: func() func(*ui.Context) {
 		var action files.FileAction
 		return func(c *ui.Context) {
 			files.FileCard(c, files.FileItem{Name: "report.pdf", Size: 48213, Modified: day}, &action, files.FileCardOptions{
@@ -288,13 +291,36 @@ var probes = []probe{
 			code.Blame(c, "t:blame", lines, code.BlameOptions{Lang: "go", FormatAge: func(time.Duration) string { return "t:age" }})
 		}
 	}},
+	{name: "code.DiffView", english: []string{"Changes", "Split", "Unified"}, idle: func() func(*ui.Context) {
+		st, split := changes(), false
+		return func(c *ui.Context) { code.DiffView(c, st, &split, diffCopy) }
+	}},
+	{name: "files.FileIcon", idle: func() func(*ui.Context) {
+		return func(c *ui.Context) {
+			files.FileIcon(c, "report.pdf", files.FileIconOptions{})
+			files.FileIcon(c, "notes", files.FileIconOptions{Size: 28})
+		}
+	}},
+	{name: "files.FileList", english: []string{"Name", "Size", "Modified", "Nov 2, 2026"}, fixed: []string{"KB"}, idle: func() func(*ui.Context) {
+		selected, sort := 1, files.SortName
+		return func(c *ui.Context) { files.FileList(c, "t:files", folder, &selected, &sort, listCopy) }
+	}},
 }
 
 var (
 	recorderCopy = media.RecorderOptions{Record: "t:start", Pause: "t:hold", Resume: "t:on", Stop: "t:end"}
 	logCopy      = devtools.LogViewOptions{Title: "t:title", Search: "t:find", Follow: "t:tail", Empty: "t:none", Levels: [4]string{"t:d", "t:i", "t:w", "t:e"}}
 	clip         = media.Clip{Notes: []float64{440, 0, 660, 880}, Beat: 10 * time.Minute}
+	diffCopy     = code.DiffViewOptions{Name: "main.go", Split: "t:two", Unified: "t:one"}
+	folder       = []files.FileItem{{Name: "docs", Dir: true, Modified: day}, {Name: "report.pdf", Size: 48213, Modified: day}}
+	listCopy     = files.FileListOptions{Name: "t:name", Size: "t:size", Date: "t:date", FormatDate: func(time.Time) string { return "t:day" }}
+	updateCopy   = desktop.UpdatePromptOptions{Title: "t:%s ready", Version: "t:v%s", Install: "t:install", Later: "t:wait"}
 )
+
+// changes is a two-line edit, as a panel's diff tab holds one.
+func changes() *editor.DiffState {
+	return &editor.DiffState{Old: editor.NewBuffer("package main\n\nfunc main() {}\n"), New: editor.NewBuffer("package main\n\nfunc main() { run() }\n")}
+}
 
 // stage is one headless window showing a view in the application's theme.
 type stage struct {
@@ -431,7 +457,10 @@ func (r *records) Handle(_ context.Context, record slog.Record) error {
 }
 
 // Setup mutes the library before anything plays, its logs stay at debug, and
-// the adapters build, or decline, data no component would take.
+// the adapters build, or decline, data no component would take. The library
+// panics exactly where docs/crychic.md says, DiffView and CommitGraph size
+// and settle as it says, and the floating surfaces it says hide the page do,
+// while content hosted in Kit's leaves the frost showing.
 func TestPolicy(t *testing.T) {
 	t.Run("setup mutes every cue and starts no audio output", func(t *testing.T) {
 		logs := &records{}
@@ -532,6 +561,340 @@ func TestPolicy(t *testing.T) {
 			if !s.tt.HasText(text) {
 				t.Errorf("the log lost %q: %q", text, s.tt.Texts())
 			}
+		}
+	})
+	t.Run("the library panics exactly where the documents say", func(t *testing.T) {
+		at, open, sheet, split := 0, true, true, false
+		query, follow, current := "", false, 0
+		none, past, sort := -1, 5, files.SortName
+		named := func(commits ...code.GraphCommit) []code.GraphCommit {
+			for i := range commits {
+				commits[i].Message = "edit"
+			}
+			return commits
+		}
+		cases := []struct {
+			name   string
+			panics bool
+			build  func(c *ui.Context)
+		}{
+			{"files.FileList: an empty directory", true, func(c *ui.Context) { files.FileList(c, "t:files", nil, &none, &sort, listCopy) }},
+			{"files.FileList: a repeated name", true, func(c *ui.Context) {
+				files.FileList(c, "t:files", []files.FileItem{{Name: "a.txt"}, {Name: "a.txt"}}, &none, &sort, listCopy)
+			}},
+			{"files.FileList: an unnamed entry", true, func(c *ui.Context) { files.FileList(c, "t:files", []files.FileItem{{}}, &none, &sort, listCopy) }},
+			{"files.FileList: a selection past the end", true, func(c *ui.Context) { files.FileList(c, "t:files", folder, &past, &sort, listCopy) }},
+			{"files.FileList: one name in two folders", false, func(c *ui.Context) {
+				files.FileList(c, "t:files", []files.FileItem{{Name: "a.txt", Path: "/one"}, {Name: "a.txt", Path: "/two"}}, &none, &sort, listCopy)
+			}},
+			{"files.FileIcon: no name", true, func(c *ui.Context) { files.FileIcon(c, "", files.FileIconOptions{}) }},
+			{"files.FileIcon: a dotfile", false, func(c *ui.Context) { files.FileIcon(c, ".gitignore", files.FileIconOptions{}) }},
+			{"code.CommitGraph: no commits", true, func(c *ui.Context) { code.CommitGraph(c, "t:history", nil) }},
+			{"code.CommitGraph: no message", true, func(c *ui.Context) { code.CommitGraph(c, "t:history", []code.GraphCommit{{Hash: "a"}}) }},
+			{"code.CommitGraph: a ninth lane", true, func(c *ui.Context) { code.CommitGraph(c, "t:history", named(code.GraphCommit{Hash: "a", Lane: 8})) }},
+			{"code.CommitGraph: a repeated hash", true, func(c *ui.Context) {
+				code.CommitGraph(c, "t:history", named(code.GraphCommit{Hash: "a"}, code.GraphCommit{Hash: "a"}))
+			}},
+			{"code.CommitGraph: a parent before its child", true, func(c *ui.Context) {
+				code.CommitGraph(c, "t:history", named(code.GraphCommit{Hash: "a"}, code.GraphCommit{Hash: "b", Parents: []string{"a"}}))
+			}},
+			{"code.CommitGraph: a parent outside the page", false, func(c *ui.Context) {
+				code.CommitGraph(c, "t:history", named(code.GraphCommit{Hash: "c", Lane: 7, Parents: []string{"gone"}}))
+			}},
+			{"code.BranchPicker: no branches", true, func(c *ui.Context) {
+				code.BranchPicker(c, "t:branches", nil, &current, &query, code.BranchPickerOptions{})
+			}},
+			{"code.DiffView: no state", true, func(c *ui.Context) { code.DiffView(c, nil, &split, diffCopy) }},
+			{"overlay.Lightbox: an image not decoded", true, func(c *ui.Context) {
+				overlay.Lightbox(c, "t:images", []*ui.Bitmap{nil}, nil, &at, &open, overlay.LightboxOptions{})
+			}},
+			{"overlay.ShortcutSheet: no groups", true, func(c *ui.Context) {
+				overlay.ShortcutSheet(c, "t:keys", nil, &sheet, overlay.ShortcutSheetOptions{})
+			}},
+			{"devtools.LogView: a line without a time", true, func(c *ui.Context) {
+				devtools.LogView(c, []devtools.LogLine{{ID: "1", Message: "ready"}}, &query, &follow, logCopy)
+			}},
+			{"devtools.LogView: a line without a message", true, func(c *ui.Context) {
+				devtools.LogView(c, []devtools.LogLine{{ID: "1", Time: "09:30"}}, &query, &follow, logCopy)
+			}},
+			{"chat.JumpToLatest: nothing new", false, func(c *ui.Context) { chat.JumpToLatest(c, 0, chat.JumpToLatestOptions{}) }},
+			{"feedback.ErrorState: no message", false, func(c *ui.Context) {
+				feedback.ErrorState(c, "", feedback.ErrorStateOptions{Title: "t:title", Retry: "t:again"})
+			}},
+		}
+		// Each refusal comes before the component builds anything, so the
+		// frame around a recovered one stays whole.
+		got := map[string]bool{}
+		s := newStage(func(c *ui.Context) {
+			for _, k := range cases {
+				func() {
+					defer func() { got[k.name] = recover() != nil }()
+					k.build(c)
+				}()
+			}
+		}, theme.Light)
+		s.settle()
+		for _, k := range cases {
+			if got[k.name] != k.panics {
+				t.Errorf("%s: panicked %v, documented %v", k.name, got[k.name], k.panics)
+			}
+		}
+		// A dotfile's whole name is its extension pill, and the Retry of an
+		// error state cannot be left out.
+		for _, text := range []string{"GITIGNORE", "t:again"} {
+			if !s.tt.HasText(text) {
+				t.Errorf("%q is documented as shown and is not: %q", text, s.tt.Texts())
+			}
+		}
+	})
+	t.Run("DiffView keeps its height unless told to fill, and its flag owns the layout", func(t *testing.T) {
+		// body is the diff's height in a tab body h tall, as built or
+		// with Grow(1) on the root it returns. As built it keeps its
+		// default in a taller body and shrinks into a shorter one.
+		body := func(h int, fill bool) (got, standard float32) {
+			st, split := changes(), false
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				standard = c.Theme().Space(80)
+				ui.Column(c).Fill().Children(func() {
+					if root := code.DiffView(c, st, &split, diffCopy); fill {
+						root.Grow(1)
+					}
+				})
+			}, 640, h, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+			tt.Frame()
+			tt.Advance(time.Second)
+			tt.Frame()
+			box, ok := tt.AccessByRole(ui.RoleGroup, diffCopy.Name)
+			if !ok {
+				t.Fatalf("no diff group in a body of %d", h)
+			}
+			return box.Bounds.H, standard
+		}
+		for _, k := range []struct {
+			h    int
+			fill bool
+			want float32
+		}{{600, false, 0}, {200, false, 200}, {600, true, 600}, {200, true, 200}} {
+			// Zero is the component's own default, 80 spaces of the theme.
+			got, standard := body(k.h, k.fill)
+			if k.want == 0 {
+				k.want = standard
+			}
+			if got != k.want {
+				t.Errorf("body %d, fill %v: the diff is %v tall, documented %v", k.h, k.fill, got, k.want)
+			}
+		}
+		st, split := changes(), false
+		st.Layout = editor.DiffSplit
+		s := newStage(func(c *ui.Context) { code.DiffView(c, st, &split, diffCopy) }, theme.Light)
+		s.settle()
+		if st.Layout != editor.DiffUnified {
+			t.Errorf("the state kept layout %v against the flag", st.Layout)
+		}
+		if !s.tt.HasText("+1") || !s.tt.HasText("−1") {
+			t.Errorf("the header lost the counts: %q", s.tt.Texts())
+		}
+		if err := s.tt.Click("t:two"); err != nil {
+			t.Fatal(err)
+		}
+		s.settle()
+		if !split || st.Layout != editor.DiffSplit {
+			t.Errorf("after the split side: flag %v, layout %v", split, st.Layout)
+		}
+	})
+	t.Run("CommitGraph builds every row of a long history and comes to rest", func(t *testing.T) {
+		const n = 400
+		hash := func(i int) string { return fmt.Sprintf("%07x", n-i) }
+		long := make([]code.GraphCommit, n)
+		for i := range long {
+			k := code.GraphCommit{Hash: hash(i), Message: fmt.Sprintf("commit %d", n-i), Author: "Ada"}
+			if i+1 < n {
+				k.Parents = []string{hash(i + 1)}
+			}
+			// A merge every twenty commits, and a side lane after it.
+			if i%20 == 0 && i+3 < n {
+				k.Parents = append(k.Parents, hash(i+3))
+			}
+			if i%20 == 1 || i%20 == 2 {
+				k.Lane = 1
+			}
+			long[i] = k
+		}
+		built := false
+		start := time.Now()
+		s := newStage(func(c *ui.Context) {
+			ui.Scroll(c).FillWidth().Grow(1).Children(func() { _, built = CommitGraph(c, "t:history", long) })
+		}, theme.Light)
+		first := time.Since(start)
+		s.settle()
+		if !built {
+			t.Fatal("the adapter declined a well-formed history")
+		}
+		rows := 0
+		for _, a := range s.tt.AccessAll() {
+			if a.Role == ui.RoleListItem {
+				rows++
+			}
+		}
+		list, _ := s.tt.AccessByRole(ui.RoleList, "t:history")
+		t.Logf("%d commits: %d rows built, %v tall, first frames in %v", n, rows, list.Bounds.H, first)
+		if rows != n || list.Bounds.H < n*30 {
+			t.Errorf("%d rows built, %v tall, for %d commits: documented as one each at full height, not virtual", rows, list.Bounds.H, n)
+		}
+		if s.moves(10 * time.Second) {
+			t.Error("a long history redraws while idle")
+		}
+	})
+	t.Run("floating surfaces stay Kit's frost", func(t *testing.T) {
+		above := func(text string) func(*ui.Tester) (x, y float32, ok bool) {
+			return func(tt *ui.Tester) (float32, float32, bool) {
+				r, ok := tt.Find(text)
+				return r.X - 4, r.Y - 4, ok
+			}
+		}
+		// before is the gap at the start of a text, where the title is
+		// also the name of the whole component.
+		before := func(text string) func(*ui.Tester) (x, y float32, ok bool) {
+			return func(tt *ui.Tester) (float32, float32, bool) {
+				r, ok := tt.Find(text)
+				return r.X - 6, r.Y + r.H/2, ok
+			}
+		}
+		// hosted is content in Kit's dialog, the frosted surface.
+		hosted := func(content func(c *ui.Context)) func() func(*ui.Context) {
+			return func() func(*ui.Context) {
+				open := true
+				return func(c *ui.Context) { kit.Dialog(c, &open, func() { content(c) }) }
+			}
+		}
+		cases := []struct {
+			name string
+			// covers is what the documents say: the surface at the spot is
+			// the component's own and hides what is under it.
+			covers bool
+			view   func() func(*ui.Context)
+			show   func(tt *ui.Tester) error
+			spot   func(tt *ui.Tester) (x, y float32, ok bool)
+		}{
+			{name: "kit.Dialog", view: hosted(func(c *ui.Context) { ui.Text(c, "t:ours") }), spot: above("t:ours")},
+			{name: "overlay.DangerDialog", covers: true, view: func() func(*ui.Context) {
+				open := true
+				return func(c *ui.Context) {
+					overlay.DangerDialog(c, "t:remove project", "t:consequence", &open, overlay.DangerDialogOptions{Cancel: "t:keep", Confirm: "t:remove"})
+				}
+			}, spot: above("t:remove project")},
+			{name: "overlay.ShortcutSheet", covers: true, view: func() func(*ui.Context) {
+				open := true
+				groups := []overlay.ShortcutGroup{{Title: "t:panel", Shortcuts: []overlay.Shortcut{{Label: "t:files", Keys: []string{"P"}}}}}
+				return func(c *ui.Context) {
+					overlay.ShortcutSheet(c, "t:shortcuts", groups, &open, overlay.ShortcutSheetOptions{Close: "t:shut"})
+				}
+			}, spot: above("t:shortcuts")},
+			{name: "overlay.WhatsNew", covers: true, view: func() func(*ui.Context) {
+				page, open := 0, true
+				features := []overlay.Feature{{Icon: "sparkles", Title: "t:first", Text: "t:text"}}
+				return func(c *ui.Context) {
+					overlay.WhatsNew(c, "t:news", features, &page, &open, overlay.WhatsNewOptions{Back: "t:back", Next: "t:forth", Done: "t:shut"})
+				}
+			}, spot: above("t:news")},
+			{name: "overlay.HoverCard", covers: true, view: func() func(*ui.Context) {
+				return func(c *ui.Context) {
+					anchor := ui.Button(c, "t:anchor")
+					overlay.HoverCard(c, "t:card", anchor, func() { ui.Text(c, "t:inside") })
+				}
+			}, show: func(tt *ui.Tester) error {
+				at, ok := tt.Find("t:anchor")
+				if !ok {
+					return fmt.Errorf("no anchor")
+				}
+				tt.Move(at.X+at.W/2, at.Y+at.H/2)
+				return nil
+			}, spot: above("t:inside")},
+			// A scrim, not a panel: an eighth of the page shows through it.
+			{name: "overlay.Lightbox", view: func() func(*ui.Context) {
+				at, open := 0, true
+				return func(c *ui.Context) {
+					overlay.Lightbox(c, "t:images", []*ui.Bitmap{photo}, []string{"t:first"}, &at, &open, overlay.LightboxOptions{Back: "t:back", Forth: "t:forth", Close: "t:shut"})
+				}
+			}, spot: above("t:first")},
+			{name: "color.Picker's popover", covers: true, view: func() func(*ui.Context) {
+				v := swatch[0]
+				return func(c *ui.Context) { color.Picker(c, "t:accent", &v) }
+			}, show: func(tt *ui.Tester) error { return tt.Click("t:accent") }, spot: func(tt *ui.Tester) (float32, float32, bool) {
+				// MyGo's popover hangs 4 DIP under its anchor, from its start.
+				a, ok := tt.Access("t:accent")
+				return a.Bounds.X + 3, a.Bounds.Y + a.Bounds.H + 7, ok
+			}},
+			{name: "desktop.UpdatePrompt in kit.Dialog", covers: true, view: hosted(func(c *ui.Context) {
+				desktop.UpdatePrompt(c, "Sailry", "1.2.0", []string{"t:note"}, updateCopy)
+			}), spot: before("t:v1.2.0")},
+			{name: "crychic.UpdatePrompt in kit.Dialog", view: hosted(func(c *ui.Context) {
+				UpdatePrompt(c, "Sailry", "1.2.0", []string{"t:note"}, updateCopy)
+			}), spot: before("t:v1.2.0")},
+			{name: "form.TypeToConfirm in kit.Dialog", view: func() func(*ui.Context) {
+				open, typed := true, ""
+				return func(c *ui.Context) {
+					kit.Dialog(c, &open, func() {
+						form.TypeToConfirm(c, "sailry-go", &typed, form.TypeToConfirmOptions{Prompt: "t:type %s", Action: "t:remove"})
+					})
+				}
+			}, spot: func(tt *ui.Tester) (float32, float32, bool) {
+				// Between the prompt and the field, inside the component.
+				r, ok := tt.Find("t:type sailry-go")
+				return r.X + 2, r.Y + r.H + 6, ok
+			}},
+		}
+		for _, k := range cases {
+			// The same frame over a red page and a blue one: a surface that
+			// hides the page gives the same pixel twice, frost does not.
+			var seen [2][3]int
+			for i, page := range []ui.Color{ui.RGB(0xff, 0, 0), ui.RGB(0, 0, 0xff)} {
+				view := k.view()
+				tt := ui.NewTesterWith(func(c *ui.Context) {
+					theme.Apply(c, "", theme.Light)
+					ui.Column(c).Fill().Padding(24).Gap(12).Background(page).Children(func() { view(c) })
+				}, 640, 520, ui.TesterOptions{})
+				tt.SetLocale("en")
+				tt.Frame()
+				if k.show != nil {
+					if err := k.show(tt); err != nil {
+						t.Fatalf("%s: %v", k.name, err)
+					}
+				}
+				tt.Advance(time.Second)
+				tt.Frame()
+				x, y, ok := k.spot(tt)
+				if !ok {
+					t.Fatalf("%s: nothing to sample by: %q", k.name, tt.Texts())
+				}
+				px := tt.Image().RGBAAt(int(x), int(y))
+				seen[i] = [3]int{int(px.R), int(px.G), int(px.B)}
+				if i == 1 {
+					(&stage{tt: tt}).shot(t, "surface-"+strings.NewReplacer(" ", "-", "'", "").Replace(k.name))
+				}
+			}
+			apart := 0
+			for ch := range 3 {
+				apart += max(seen[0][ch]-seen[1][ch], seen[1][ch]-seen[0][ch])
+			}
+			if covers := apart <= 6; covers != k.covers {
+				t.Errorf("%s: covers the page %v, documented %v (over red %v, over blue %v)", k.name, covers, k.covers, seen[0], seen[1])
+			}
+		}
+		// FileCard's own menu is MyGo's menu button, which Sailry's windows
+		// show as the system's menu.
+		var action files.FileAction
+		s := newStage(func(c *ui.Context) {
+			files.FileCard(c, files.FileItem{Name: "report.pdf", Size: 48213, Modified: day}, &action, files.FileCardOptions{
+				Menu: "t:menu", Open: "t:open", Rename: "t:rename", Delete: "t:remove", FormatDate: func(time.Time) string { return "t:date" }})
+		}, theme.Light)
+		s.settle()
+		if err := s.tt.Click("t:menu"); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.tt.Menu(); !slices.Equal(got, []string{"t:open", "t:rename", "t:remove"}) {
+			t.Errorf("FileCard's menu shows %q", got)
 		}
 	})
 }

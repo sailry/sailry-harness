@@ -13,7 +13,7 @@ single owning package, and this index lists every location.
 | OpenAI Codex patch format, adapted in `internal/node/files` | Apache-2.0 | [codex.md](codex.md), [codex-LICENSE](codex-LICENSE), [codex-NOTICE](codex-NOTICE) |
 | Agent Plugins schema in `schemas/agent-plugins` | Apache-2.0 | [agent-plugins.md](agent-plugins.md), [agent-plugins-Apache-2.0.txt](agent-plugins-Apache-2.0.txt) |
 | Lobe Icons provider marks in `internal/desktop/icons/svg` | MIT | [lobe-icons.txt](lobe-icons.txt) |
-| CrychicUI gap-filling components and their bundled Lucide icons, linked into Desktop | MIT, ISC | [crychicui.md](crychicui.md), [crychicui-MIT.txt](crychicui-MIT.txt), [crychicui-THIRD_PARTY_NOTICES.md](crychicui-THIRD_PARTY_NOTICES.md) |
+| CrychicUI components and their bundled Lucide icons, linked into Desktop | MIT, ISC | [crychicui.md](crychicui.md), [crychicui-MIT.txt](crychicui-MIT.txt), [crychicui-THIRD_PARTY_NOTICES.md](crychicui-THIRD_PARTY_NOTICES.md) |
 | libghostty-vt terminal engine, shipped by the MyGo terminal plugin | MIT | [ghostty-terminal.md](ghostty-terminal.md), [ghostty-MIT.txt](ghostty-MIT.txt) |
 | llama.cpp and ggml runtime | MIT | [llama.md](llama.md) |
 | LLVM OpenMP runtime in the Windows llama.cpp packages | Apache-2.0 with LLVM exceptions, MIT | [llvm-OpenMP-LICENSE](llvm-OpenMP-LICENSE) |

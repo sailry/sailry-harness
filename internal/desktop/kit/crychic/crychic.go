@@ -1,9 +1,10 @@
 // Package crychic holds Sailry's policy for CrychicUI
-// (github.com/ELY-Open-Source/CrychicUI), the component library that fills
-// gaps Kit and MyGo leave. It is not a second Kit: a component that is safe
-// with the data it is given is called from its own package, and only the ones
-// that panic on data Sailry does not author have an adapter here. The approved
-// list, the copy every caller supplies and the caveats are in docs/crychic.md.
+// (github.com/ELY-Open-Source/CrychicUI), the application's second UI
+// library after MyGo's own controls. It is not a second Kit: a component that
+// is safe with the data it is given is called from its own package, and only
+// the ones that panic on data Sailry does not author, or that would cover a
+// Kit floating surface, have an adapter here. The verified components, the
+// copy every caller supplies and the caveats are in docs/crychic.md.
 package crychic
 
 import (
@@ -15,6 +16,7 @@ import (
 	"github.com/ELY-Open-Source/CrychicUI/agent"
 	"github.com/ELY-Open-Source/CrychicUI/chat"
 	"github.com/ELY-Open-Source/CrychicUI/code"
+	"github.com/ELY-Open-Source/CrychicUI/desktop"
 	"github.com/ELY-Open-Source/CrychicUI/devtools"
 	"github.com/ELY-Open-Source/CrychicUI/media"
 	"github.com/ELY-Open-Source/CrychicUI/navigation"
@@ -134,6 +136,8 @@ func LinkPreview(c *ui.Context, title, host string, image *ui.Bitmap) (ui.Elemen
 // Lightbox is overlay.Lightbox for decoded attachments. It builds nothing,
 // and closes, when there is no image or one failed to decode; the shown
 // index stays within the images and captions that do not match are dropped.
+// The component is blocked (docs/crychic.md): it draws its own scrim and
+// Kit's image viewer does more. The adapter is kept for when that changes.
 func Lightbox(c *ui.Context, label string, images []*ui.Bitmap, captions []string, at *int, open *bool, o overlay.LightboxOptions) (ui.Element, bool) {
 	ok := label != "" && len(images) > 0
 	for _, img := range images {
@@ -151,7 +155,9 @@ func Lightbox(c *ui.Context, label string, images []*ui.Bitmap, captions []strin
 }
 
 // ShortcutSheet is overlay.ShortcutSheet for the user's own key bindings:
-// an action without keys is left out, and so is a group left empty.
+// an action without keys is left out, and so is a group left empty. The
+// component is blocked (docs/crychic.md): its panel is opaque, not Kit's
+// frost. The adapter is kept for when the library takes a surface.
 func ShortcutSheet(c *ui.Context, title string, groups []overlay.ShortcutGroup, open *bool, o overlay.ShortcutSheetOptions) (ui.Element, bool) {
 	var kept []overlay.ShortcutGroup
 	for _, g := range groups {
@@ -170,6 +176,22 @@ func ShortcutSheet(c *ui.Context, title string, groups []overlay.ShortcutGroup, 
 		return ui.Element{}, false
 	}
 	return overlay.ShortcutSheet(c, title, kept, open, o), true
+}
+
+// UpdatePrompt is desktop.UpdatePrompt as the content of a Kit floating
+// surface (kit.Dialog, kit.Popover). On its own the prompt is an opaque
+// card, which would cover the frost of the surface it sits in: here its
+// fill and its edge are cleared, so that surface stays the only one. The
+// Later button's outline goes with the edge, and the card's faint shadow,
+// which is in the text color, stays. On a page, where nothing is under it,
+// call the library's own.
+func UpdatePrompt(c *ui.Context, app, version string, notes []string, o desktop.UpdatePromptOptions) (root, install, later ui.Element) {
+	bare := *c.Theme()
+	bare.Background, bare.Border = ui.Transparent, ui.Transparent
+	ui.Themed(c, &bare).FillWidth().Children(func() {
+		root, install, later = desktop.UpdatePrompt(c, app, version, notes, o)
+	})
+	return root, install, later
 }
 
 // ZoomControl is navigation.ZoomControl for a stored zoom: one outside the
