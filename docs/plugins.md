@@ -438,6 +438,13 @@ like any MCP tool. Core supplies only the helper:
   (`AGENT_DESKTOP_SESSION`), configured with the cursor overlay. The session
   ends when the package is removed, disabled or turns the setting off, and at
   Node shutdown. A failed overlay step leaves the launch without an overlay.
+- **Screenshots.** The helper returns a capture at the size of the display.
+  `boundToolImages` (`internal/node/tool_images.go`) gives every image part of
+  an MCP result the limits of the other tool images, 1568 pixels on a side
+  and 3 MiB (`files.PrepareCapture`, at most 20 MiB in), and replaces one it
+  cannot reduce by the note "image omitted: <reason>". The reference passes
+  MCP images on unreduced, at sizes model providers refuse.
+  `TestToolImageBounds` covers it.
 - The retired `computer.read` and `computer.control` operations are not
   registered: the reference keeps them only as unavailable metadata.
 - A declared handler operation `media.inspect`, `media.image` or `media.video`
