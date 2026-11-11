@@ -2,6 +2,7 @@ package composer
 
 import (
 	"fmt"
+	"hash/fnv"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -23,11 +24,12 @@ const (
 	Flagship
 )
 
-// Modes are the modes' copy and icons, in the menu's order.
+// Modes are the modes' copy, icons and tints, in the menu's order: Code
+// neutral, Plan blue, Flagship violet.
 var Modes = []choice{
-	{"composer_mode_code", "composer_mode_code_description", icons.Terminal},
-	{"composer_mode_plan", "composer_mode_plan_description", icons.Map},
-	{"composer_mode_flagship", "composer_mode_flagship_description", icons.Bot},
+	{"composer_mode_code", "composer_mode_code_description", icons.Terminal, [2]ui.Color{}},
+	{"composer_mode_plan", "composer_mode_plan_description", icons.Map, theme.Tints[0]},
+	{"composer_mode_flagship", "composer_mode_flagship_description", icons.Bot, theme.Tints[1]},
 }
 
 // Permission is what the agent may do without asking.
@@ -39,17 +41,30 @@ const (
 	FullAccess
 )
 
-// Permissions are the permission modes' copy and icons.
+// Permissions are the permission modes' copy, icons and tints: asking
+// neutral, project access teal, full access amber.
 var Permissions = []choice{
-	{"composer_permission_ask", "composer_permission_ask_description", icons.CircleUser},
-	{"composer_permission_project", "composer_permission_project_description", icons.CircleCheck},
-	{"composer_permission_full", "composer_permission_full_description", icons.TriangleAlert},
+	{"composer_permission_ask", "composer_permission_ask_description", icons.CircleUser, [2]ui.Color{}},
+	{"composer_permission_project", "composer_permission_project_description", icons.CircleCheck, theme.Tints[2]},
+	{"composer_permission_full", "composer_permission_full_description", icons.TriangleAlert, theme.Tints[3]},
 }
 
-// choice is a label over a description.
+// choice is a label over a description, with the icon and the tint of its
+// row (kit.Choice); the zero tint is Kit's neutral one.
 type choice struct {
 	label, description string
 	icon               *ui.SVG
+	tint               [2]ui.Color
+}
+
+// modeTint is the tint of a package's mode, which declares none: one of the
+// colored theme.Tints (the last is the neutral gray, the built-in Code
+// mode's) by the FNV hash of the mode's key, as kit.Tint chooses an emblem's,
+// so a mode keeps its color and the packages' modes tell apart.
+func modeTint(key string) [2]ui.Color {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return theme.Tints[h.Sum32()%uint32(len(theme.Tints)-1)]
 }
 
 // subtle is crate::theme::subtle_button on a round trigger: a ghost
@@ -139,9 +154,10 @@ func (s *State) cycleMode(ctx *Context) {
 	ctx.SelectMode(plugins[next-len(Modes)].Key)
 }
 
-// modeMenu is the mode's icon and label, a menu of the modes with their
-// descriptions, the check on the right; the packages' modes follow the
-// built-in ones, a mode that cannot be chosen disabled (live/mode.rs).
+// modeMenu is the mode's icon and label, a menu of the modes as Kit's choice
+// rows: the icon in its tinted tile, the description, a check on the chosen
+// one. The packages' modes follow the built-in ones, each in its key's tint,
+// a mode that cannot be chosen disabled (live/mode.rs).
 func (s *State) modeMenu(c *ui.Context, ctx *Context) {
 	icon, label := s.modeLook(c, ctx)
 	active := activeMode(ctx)
@@ -149,7 +165,7 @@ func (s *State) modeMenu(c *ui.Context, ctx *Context) {
 		subtle(c, b.Disabled(ctx.Readonly), icon, label, theme.Of(c).Foreground)
 	}, func(menu *kit.Menu) {
 		for i, m := range Modes {
-			if menu.Item(i18n.T(c, m.label)).Description(i18n.T(c, m.description)).Icon(m.icon).
+			if menu.Item(i18n.T(c, m.label)).Description(i18n.T(c, m.description)).Icon(m.icon).Tint(m.tint).
 				Checked(active == nil && Mode(i) == s.Mode).Chosen() {
 				s.selectMode(ctx, Mode(i))
 			}
@@ -159,7 +175,7 @@ func (s *State) modeMenu(c *ui.Context, ctx *Context) {
 			if icon == nil {
 				icon = icons.Bot
 			}
-			item := menu.Item(m.Label).Icon(icon).Checked(m.Selected).Disabled(m.Disabled || ctx.SelectMode == nil)
+			item := menu.Item(m.Label).Icon(icon).Tint(modeTint(m.Key)).Checked(m.Selected).Disabled(m.Disabled || ctx.SelectMode == nil)
 			if m.Description != "" {
 				item.Description(m.Description)
 			}
@@ -170,8 +186,9 @@ func (s *State) modeMenu(c *ui.Context, ctx *Context) {
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart, CheckRight: true})
 }
 
-// permissionMenu is Full access in the danger color, project access in the
-// warning color.
+// permissionMenu is the permission's icon and label, in the warning color
+// unless it asks every time, over a menu of the permissions as Kit's choice
+// rows; Full access has its description in the warning color.
 func (s *State) permissionMenu(c *ui.Context, ctx *Context) {
 	m := Permissions[s.Permission]
 	label := i18n.T(c, m.label)
@@ -179,22 +196,26 @@ func (s *State) permissionMenu(c *ui.Context, ctx *Context) {
 		kit.Tooltip(c, subtle(c, b.Disabled(ctx.Readonly), m.icon, label, permissionColor(theme.Of(c), s.Permission)), label)
 	}, func(menu *kit.Menu) {
 		for i, m := range Permissions {
-			if menu.Item(i18n.T(c, m.label)).Description(i18n.T(c, m.description)).Icon(m.icon).
-				Checked(Permission(i) == s.Permission).Chosen() {
+			item := menu.Item(i18n.T(c, m.label)).Description(i18n.T(c, m.description)).Icon(m.icon).Tint(m.tint).
+				Checked(Permission(i) == s.Permission)
+			if Permission(i) == FullAccess {
+				item.Warning()
+			}
+			if item.Chosen() {
 				s.Permission = Permission(i)
 			}
 		}
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart, CheckRight: true})
 }
 
+// permissionColor is the permission control's color: the warning color for
+// a permission that changes files without asking. The danger color stays
+// for errors and destructive actions.
 func permissionColor(p *theme.Palette, m Permission) ui.Color {
-	switch m {
-	case FullAccess:
-		return p.Danger
-	case ProjectAccess:
-		return p.Warning
+	if m == AskFirst {
+		return p.Foreground
 	}
-	return p.Foreground
+	return p.Warning
 }
 
 // project is the draft's project, nil for a chat without one.
@@ -448,32 +469,18 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			MenuRow(c, kit.Ghost(c.Key("back"), label, false), icons.ChevronLeft, label, p.Foreground, nil).
 				OnClick(func() { s.page = settingsMain })
 		}
-		// option is a choice of a page: the icon, the label over its
-		// description, selected while it is the one chosen.
-		option := func(key string, icon *ui.SVG, label, description string, chosen, disabled bool, color ui.Color, pick func()) {
-			b := kit.Ghost(c.Key(key), label, chosen).FillWidth().Padding(8, 10).Gap(8).
-				Justify(ui.Start).AccessSelected(chosen).TextColor(color).Disabled(disabled)
-			b.Children(func() {
-				ui.Icon(c, icon).FontSize(16).Shrink(0)
-				ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-					ui.Text(c, label).FontSize(14).LineHeight(1.25)
-					if description != "" {
-						ui.Text(c, description).FontSize(12).LineHeight(1.25).TextColor(p.MutedForeground)
-					}
-				})
-			}).OnClick(func() { pick(); s.page = settingsMain })
+		// option is a choice of a page, the row the mode and permission
+		// menus have (kit.ChoiceRow), selected while it is the one chosen.
+		option := func(key string, o kit.Choice, pick func()) {
+			b := ui.ButtonBase(c.Key(key)).Label(o.Label).FillWidth().AccessSelected(o.Checked).Disabled(o.Disabled)
+			o.Highlighted = b.Hovered() || b.Pressed()
+			kit.ChoiceRow(c, b, o).OnClick(func() { pick(); s.page = settingsMain })
 		}
-		choices := func(list []choice, chosen int, color func(int) ui.Color, pick func(int)) {
+		choices := func(list []choice, chosen int, warning func(int) bool, pick func(int)) {
 			for i, m := range list {
-				option(m.label, m.icon, i18n.T(c, m.label), i18n.T(c, m.description), i == chosen, false, color(i), func() { pick(i) })
+				option(m.label, kit.Choice{Label: i18n.T(c, m.label), Description: i18n.T(c, m.description), Icon: m.icon,
+					Tint: m.tint, Checked: i == chosen, Warning: warning(i)}, func() { pick(i) })
 			}
-		}
-		// Full access is the danger color, on its row and its choice.
-		danger := func(m Permission) ui.Color {
-			if m == FullAccess {
-				return p.Danger
-			}
-			return p.Foreground
 		}
 		switch s.page {
 		case settingsMode:
@@ -482,18 +489,18 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			if activeMode(ctx) != nil {
 				builtin = -1
 			}
-			choices(Modes, builtin, func(int) ui.Color { return p.Foreground }, func(i int) { s.selectMode(ctx, Mode(i)) })
+			choices(Modes, builtin, func(int) bool { return false }, func(i int) { s.selectMode(ctx, Mode(i)) })
 			for _, m := range ctx.PluginModes {
 				icon := m.Icon
 				if icon == nil {
 					icon = icons.Bot
 				}
-				option("plugin-"+m.Key, icon, m.Label, m.Description, m.Selected, m.Disabled || ctx.SelectMode == nil, p.Foreground,
-					func() { ctx.SelectMode(m.Key) })
+				option("plugin-"+m.Key, kit.Choice{Label: m.Label, Description: m.Description, Icon: icon, Tint: modeTint(m.Key),
+					Checked: m.Selected, Disabled: m.Disabled || ctx.SelectMode == nil}, func() { ctx.SelectMode(m.Key) })
 			}
 		case settingsPermission:
 			back()
-			choices(Permissions, int(s.Permission), func(i int) ui.Color { return danger(Permission(i)) },
+			choices(Permissions, int(s.Permission), func(i int) bool { return Permission(i) == FullAccess },
 				func(i int) { s.Permission = Permission(i) })
 		default:
 			pm := Permissions[s.Permission]
@@ -507,7 +514,7 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 				s.controls(c, ctx, actions)
 			}
 			row("mode-page", modeIcon, modeLabel, p.Foreground, settingsMode)
-			row("permission-page", pm.icon, i18n.T(c, pm.label), danger(s.Permission), settingsPermission)
+			row("permission-page", pm.icon, i18n.T(c, pm.label), permissionColor(p, s.Permission), settingsPermission)
 			s.renderPluginControls(c, "composer", ControlMenu)
 			if narrow {
 				s.hostMenu(c, ctx, menuForm)

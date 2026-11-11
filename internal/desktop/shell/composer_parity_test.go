@@ -434,6 +434,8 @@ func composerParity(t *testing.T) {
 			t.Errorf("a stale command changed the draft: %q", comp.Draft)
 		}
 	})
+
+	t.Run("choice menus", composerMenus)
 }
 
 // headerParity are the conversation page's header actions and its own keys:

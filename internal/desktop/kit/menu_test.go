@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -177,6 +178,106 @@ func TestMenuLooksAndChooses(t *testing.T) {
 		tt.Advance(200 * time.Millisecond)
 		if acted != 1 || chosen || tt.HasText("Host") {
 			t.Errorf("the action ran %d times, chose the item %v, menu open %v", acted, chosen, tt.HasText("Host"))
+		}
+	})
+	// An item with a description is a choice row: its icon in a tile of its
+	// tint, the checked one without a fill, the highlight alone filled, a
+	// warning's description in the warning color, and nothing redrawn at
+	// rest.
+	t.Run("choice rows", func(t *testing.T) {
+		var p *theme.Palette
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			p = theme.Of(c)
+			ui.Column(c).Fill().Padding(20).Children(func() {
+				MenuButton(c, "choices", func(b ui.Element) {
+					GhostLook(c, b.Label("Open"), false).Children(func() { ui.Text(c, "Open") })
+				}, func(m *Menu) {
+					m.Item("Alpha").Description("First").Icon(icons.Map).Tint(theme.Tints[0]).Checked(true).Chosen()
+					m.Item("Beta").Description("Second").Icon(icons.Bot).Chosen()
+					m.Item("Gamma").Description("Third").Icon(icons.TriangleAlert).Tint(theme.Tints[3]).Warning().Chosen()
+				})
+			})
+		}, 400, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.Frame()
+		if err := tt.Click("Open"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(200 * time.Millisecond)
+		item := func(name string) ui.AccessInfo {
+			t.Helper()
+			for _, e := range tt.AccessAll() {
+				if e.Name == name && (e.Role == ui.RoleMenuItem || e.Role == ui.RoleMenuItemCheckBox) {
+					return e
+				}
+			}
+			t.Fatalf("no item %q: %q", name, tt.Texts())
+			return ui.AccessInfo{}
+		}
+		at := func(x, y float32) ui.Color {
+			c := tt.Image().RGBAAt(int(x), int(y))
+			return ui.RGBA(c.R, c.G, c.B, 1)
+		}
+		// edge is a row's fill, in its padding before the tile.
+		edge := func(name string) ui.Color {
+			b := item(name).Bounds
+			return at(b.X+3, b.Y+b.H/2)
+		}
+		// chroma is the most colored pixel of box: how far its channels are
+		// apart, and whether it is warm (the warning color's hue).
+		chroma := func(box ui.Rect) (most int, warm bool) {
+			for y := int(box.Y); y < int(box.Y+box.H); y++ {
+				for x := int(box.X); x < int(box.X+box.W); x++ {
+					c := tt.Image().RGBAAt(x, y)
+					r, g, b := int(c.R), int(c.G), int(c.B)
+					if d := max(r, g, b) - min(r, g, b); d > most {
+						most, warm = d, r-b > 60 && g-b > 30
+					}
+				}
+			}
+			return most, warm
+		}
+		tile := func(name string) ui.Rect {
+			b := item(name).Bounds
+			return ui.Rect{X: b.X + 8, Y: b.Y + (b.H-choiceTile)/2, W: choiceTile, H: choiceTile}
+		}
+		if alpha, beta := item("Alpha"), item("Beta"); !alpha.Checked || beta.Checked {
+			t.Errorf("checked: Alpha %v, Beta %v", alpha.Checked, beta.Checked)
+		}
+		if got, rest := edge("Alpha"), edge("Beta"); !near(got, rest) {
+			t.Errorf("the checked row is filled %v, a row at rest %v", got, rest)
+		}
+		if most, _ := chroma(tile("Alpha")); most < 60 {
+			t.Errorf("the tinted tile's color is %d apart, want its tint", most)
+		}
+		if most, _ := chroma(tile("Beta")); most > 40 {
+			t.Errorf("the tile without a tint is %d apart, want the neutral gray", most)
+		}
+		if _, warm := chroma(tile("Gamma")); !warm {
+			t.Error("the amber tile is not warm")
+		}
+		for name, want := range map[string]bool{"Second": false, "Third": true} {
+			r, ok := tt.Find(name)
+			if !ok {
+				t.Fatalf("no description %q", name)
+			}
+			if most, warm := chroma(r); (most > 60 && warm) != want {
+				t.Errorf("description %q is %d apart, warm %v; in the warning color: want %v", name, most, warm, want)
+			}
+		}
+		rest := edge("Beta")
+		g := item("Gamma").Bounds
+		tt.Move(g.X+g.W/2, g.Y+g.H/2)
+		tt.Advance(200 * time.Millisecond)
+		if got, want := edge("Gamma"), blend(p.Hover, rest); !near(got, want) {
+			t.Errorf("the highlighted row is %v, want accent.background %v", got, want)
+		}
+		if got := edge("Alpha"); !near(got, rest) {
+			t.Errorf("the checked row is filled %v beside the highlight", got)
+		}
+		tt.Advance(time.Second)
+		if tt.FramePending() {
+			t.Error("the open menu keeps redrawing at rest")
 		}
 	})
 }

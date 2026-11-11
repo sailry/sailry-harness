@@ -45,12 +45,12 @@ import (
 // window's Background and highlight with the saturated Accent, and its Theme
 // has no menu slot to set them once. The panel is a floating layer as the
 // app's popovers (Palette.Floating, MyGo's popover radius, border and
-// shadow); rows are Kit's: 26 high, 8 apart from the edges, the highlight in
+// shadow); rows are Kit's: 30 high, 8 apart from the edges, the highlight in
 // accent.background with accent.foreground, a left slot holding the icon or,
 // without one, the check, then the label, a muted trailing text or action,
-// the check on the right where the menu asks, and the shortcut. Keys, focus
-// and roles are MenuBase's. Right-click menus stay the system's
-// (ContextMenu).
+// the check on the right where the menu asks, and the shortcut. An item with
+// a description is a ChoiceRow. Keys, focus and roles are MenuBase's.
+// Right-click menus stay the system's (ContextMenu).
 //
 // Build items in the order they show; an item draws once Chosen asks
 // whether it was chosen, which is true in the pass after its click.
@@ -69,7 +69,9 @@ type Item struct {
 	description               string
 	icon                      *ui.SVG
 	image                     bool
+	tint                      [2]ui.Color
 	checked, danger, disabled bool
+	warning                   bool
 	separator                 bool
 	action                    string
 	act                       func()
@@ -213,10 +215,18 @@ func (it *Item) Image(mark *ui.SVG) *Item { it.icon, it.image = mark, mark != ni
 // icon, or after the label in a menu with CheckRight.
 func (it *Item) Checked(on bool) *Item { it.checked = on; return it }
 
-// Description shows a muted line under the label, as Kit's choice rows: the
-// row grows to two lines, its icon 16, and a checked row keeps the selected
-// fill.
+// Description shows a muted line under the label: the item is drawn as a
+// ChoiceRow, its icon in a tile and its check after the label, whichever
+// side the menu's checks are on.
 func (it *Item) Description(text string) *Item { it.description = text; return it }
+
+// Tint colors the tile and the check of an item with a description, as
+// Choice.Tint; without one they are neutral.
+func (it *Item) Tint(tint [2]ui.Color) *Item { it.tint = tint; return it }
+
+// Warning draws the description of an item in the warning color, for a
+// choice with a risk the user should read before taking it.
+func (it *Item) Warning() *Item { it.warning = true; return it }
 
 // Trailing shows muted text after the label.
 func (it *Item) Trailing(text string) *Item { it.trailing = text; return it }
@@ -297,8 +307,10 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 		}
 		row.Label(it.label).Disabled(it.disabled).PaddingX(8).Gap(4).Radius(min(p.Radius, 8)).
 			AlignItems(ui.Center).Shrink(0).Transition(menuRow)
+		described := Choice{Label: it.label, Description: it.description, Icon: it.icon, Tint: it.tint,
+			Checked: it.checked, Warning: it.warning, Disabled: it.disabled, Highlighted: row.Highlighted()}
 		if it.description != "" {
-			row.PaddingY(8).Gap(8).MaxWidth(400)
+			choiceLook(c, row.MaxWidth(400), described)
 		} else {
 			row.Height(30)
 		}
@@ -309,8 +321,6 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 		case row.Highlighted():
 			color = p.HoverForeground
 			row.Background(p.Hover)
-		case it.checked && it.description != "":
-			row.Background(p.Active)
 		}
 		if it.danger && !it.disabled {
 			color = p.Danger
@@ -318,16 +328,7 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 		row.TextColor(color)
 		row.Children(func() {
 			if it.description != "" {
-				if it.icon != nil {
-					ui.Icon(c, it.icon).FontSize(16).Shrink(0)
-				}
-				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
-					ui.Text(c, it.label).FontSize(14).LineHeight(1.25)
-					ui.Text(c, it.description).FontSize(12).LineHeight(1.25).TextColor(muted)
-				})
-				if it.checked && o.CheckRight {
-					ui.Icon(c, icons.Check).FontSize(12).Shrink(0)
-				}
+				choiceContent(c, described)
 				return
 			}
 			if slot {
@@ -377,6 +378,103 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 			ch.chosen = it.index
 		}
 	}
+}
+
+// Choice is what a ChoiceRow shows.
+type Choice struct {
+	Label, Description string
+	// Icon shows in a tile before the texts; a row without one has no tile.
+	Icon *ui.SVG
+	// Tint is the tile's and the check's color, one of theme.Tints or
+	// Tint's; the zero value is the neutral gray tile with the check in the
+	// text color.
+	Tint [2]ui.Color
+	// Checked marks the choice taken: a check after the label and a
+	// stronger tile, never a fill.
+	Checked bool
+	// Warning draws the description in the warning color.
+	Warning bool
+	// Disabled mutes the label.
+	Disabled bool
+	// Highlighted fills the row: the pointer is over it or the keys are on
+	// it.
+	Highlighted bool
+}
+
+const (
+	// choiceTile is the side of a ChoiceRow's tile, choiceIcon its icon's.
+	choiceTile = 28
+	choiceIcon = 16
+	// choiceTint is how strongly the tint fills the tile, choiceTintChecked
+	// on the choice taken.
+	choiceTint        = 0.14
+	choiceTintChecked = 0.3
+)
+
+// ChoiceRow gives row, a button without a look, the look of a choice with a
+// description, the one a Menu's described items have: the icon in a tinted
+// tile 28 across, the label 13 medium over the description 12 muted, 6 by 8
+// inside. The choice taken has a check after its label in the tint and a
+// stronger tile; the fill is only the highlight's. A panel that lists
+// choices outside a Menu (the composer's settings popover) uses it for the
+// same rows.
+func ChoiceRow(c *ui.Context, row ui.Element, o Choice) ui.Element {
+	p := theme.Of(c)
+	color := p.PopoverForeground
+	if o.Disabled {
+		color = p.MutedForeground
+	}
+	row.Radius(min(p.Radius, 8)).Justify(ui.Start).TextColor(color).Cursor(ui.CursorPointer).Transition(menuRow)
+	return choiceLook(c, row, o).Children(func() { choiceContent(c, o) })
+}
+
+// choiceLook is a ChoiceRow's box: its padding and the highlight's fill.
+func choiceLook(c *ui.Context, row ui.Element, o Choice) ui.Element {
+	row.Padding(6, 8).Gap(10).AlignItems(ui.Center)
+	if o.Highlighted && !o.Disabled {
+		row.Background(theme.Of(c).Hover)
+	}
+	return row
+}
+
+// choiceContent draws a ChoiceRow's children in the row being built: the
+// tile, the label with the check, and the description. The label takes the
+// row's text color.
+func choiceContent(c *ui.Context, o Choice) {
+	p := theme.Of(c)
+	tint, check := o.Tint, o.Tint
+	if tint == ([2]ui.Color{}) {
+		tint = theme.Tints[len(theme.Tints)-1]
+		check = [2]ui.Color{p.PopoverForeground, p.PopoverForeground}
+	}
+	// The lighter stop reads on the dark surface, the darker on the light.
+	accent, mark := tint[1], check[1]
+	if p.Dark {
+		accent, mark = tint[0], check[0]
+	}
+	if o.Icon != nil {
+		fill := accent.Alpha(choiceTint)
+		if o.Checked {
+			fill = accent.Alpha(choiceTintChecked)
+		}
+		ui.Row(c).Size(choiceTile, choiceTile).Shrink(0).Radius(8).Center().Background(fill).Children(func() {
+			ui.Icon(c, o.Icon).FontSize(choiceIcon).TextColor(accent)
+		})
+	}
+	ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(1).Children(func() {
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, o.Label).FontSize(13).FontWeight(500).LineHeight(1.3).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			if o.Checked {
+				ui.Icon(c, icons.Check).FontSize(14).Shrink(0).TextColor(mark)
+			}
+		})
+		if o.Description != "" {
+			description := ui.Text(c, o.Description).FontSize(12).LineHeight(1.3).TextColor(p.MutedForeground)
+			if o.Warning && !o.Disabled {
+				description.TextColor(p.Warning)
+			}
+		}
+	})
 }
 
 // menuGap keeps a menu gap apart from its trigger on the side it shows,
