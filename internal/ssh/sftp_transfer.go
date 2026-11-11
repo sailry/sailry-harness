@@ -140,7 +140,7 @@ func Upload(client *sftp.Client, path string, source io.Reader, size uint64, ove
 	}
 	remote, err := client.OpenFile(path, uploadFlags(overwrite))
 	if err != nil {
-		return 0, sftpFault(err)
+		return 0, sftpChange(err)
 	}
 	copied, err := io.Copy(remote, source)
 	if err != nil {

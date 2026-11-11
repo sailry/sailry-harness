@@ -284,6 +284,8 @@ func (binding *NativeBinding) renderModal(view *ui.Context, element NativeElemen
 	var dialog ui.Element
 	var renderErr error
 	palette := theme.Of(view)
+	// The window holds its native menu's commands behind a modal dialog.
+	kit.NoteModal(view)
 	ui.Overlay(view, func() {
 		backdrop := ui.Box(view).Absolute().Left(0).Top(0).Right(0).Bottom(0).Background(palette.Backdrop()).Modal().AlignItems(ui.Center)
 		if form {

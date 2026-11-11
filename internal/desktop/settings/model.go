@@ -186,11 +186,19 @@ type Model struct {
 	Catalog    preview.Catalog
 	Compaction Stored[float64]
 	Family     string
-	expanded   string // the channel whose models show
-	provider   providerEditor
-	login      Authorization
-	loginFor   string
-	removing   string
+	// Media models: the model each of viewmodel.MediaKinds uses, by its
+	// MediaOption.Key, "" following the conversation model; the models
+	// offered; and the saved choices that can no longer run. SaveMedia sends
+	// the draft at its revision.
+	Media            Stored[[4]string]
+	MediaOptions     []viewmodel.MediaOption
+	MediaUnavailable [4]bool
+	SaveMedia        func()
+	expanded         string // the channel whose models show
+	provider         providerEditor
+	login            Authorization
+	loginFor         string
+	removing         string
 
 	// Connectors and MCP: the services, the connector types plugins declare, the
 	// host's CLI accounts, the search and the method filter (of
@@ -323,6 +331,7 @@ func NewModel(d *preview.Settings) *Model {
 	ex := preview.ExtensionsData()
 	m := &Model{
 		Channels: pr.Channels, Brands: pr.Brands, Catalog: pr.Catalog, Compaction: stored(pr.Compaction),
+		Media: stored([4]string{}), MediaOptions: pr.Media,
 		Services: cn.Services, ConnTypes: cn.Types, ConnAccounts: cn.Accounts,
 		Teams: td.Teams, Roles: td.Roles, Concurrency: stored(td.Concurrency),
 		Packages: ex.Packages, MarketPlugins: ex.Catalog, SkillList: ex.Skills, MarketSkills: ex.Market, Themes: ex.Themes, Library: ex.Library,

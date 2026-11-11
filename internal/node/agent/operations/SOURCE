@@ -8,3 +8,4 @@ Bundled declarations come from this repository's immutable plugin snapshot.
 The three code index operations (code.search, code.outline, code.graph) were transcribed from operations/code.rs with the policy in operations.rs.
 The six knowledge operations (knowledge.query, knowledge.read, knowledge.collections, knowledge.create, knowledge.rebuild, knowledge.remove) were transcribed from operations/knowledge.rs with the policy in operations.rs.
 The plugin storage operations (storage.get, storage.list, storage.set, storage.delete) were transcribed from operations/schema.rs and progress.update from operations/progress.rs, with the policy in operations.rs.
+The two local model operations (models.install, models.remove) were transcribed from operations/models.rs and the four role operations (roles.list, roles.save, roles.remove, roles.apply) from operations/roles.rs, with the policy in operations.rs.

@@ -68,7 +68,7 @@ func TestWaitAgent(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f, x := delegationFixture(t)
 			spawn := saveDelegationCall(t, f, x, "background", true)
-			result := f.r.spawnChild(x, spawn)
+			result := f.r.spawnChild(x, spawn, spawn.Arguments)
 			if result.Failure != nil {
 				t.Fatal(result.Failure)
 			}
@@ -146,7 +146,7 @@ func TestDelegationHandoff(t *testing.T) {
 			}}
 			f, parent := delegationFixture(t, language)
 			spawn := saveDelegationCall(t, f, parent, "late guidance", false)
-			result := f.r.spawnChild(parent, spawn)
+			result := f.r.spawnChild(parent, spawn, spawn.Arguments)
 			if result.Failure != nil {
 				t.Fatal(result.Failure)
 			}
@@ -296,7 +296,7 @@ func TestDelegationHandoff(t *testing.T) {
 	t.Run("detached background releases parent drain", func(t *testing.T) {
 		f, x := delegationFixture(t)
 		call := saveDelegationCall(t, f, x, "detached", true)
-		result := f.r.spawnChild(x, call)
+		result := f.r.spawnChild(x, call, call.Arguments)
 		if result.Failure != nil {
 			t.Fatal(result.Failure)
 		}

@@ -17,7 +17,7 @@ func (node *Node) replayPluginAdmission(ctx context.Context, caller protocol.Nod
 	var previous *link.Response
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		previous, err = admission.Existing(ctx, db, caller, request.ID, body)
+		previous, err = admission.Existing(ctx, db, caller, request, body)
 		return err
 	})
 	if err != nil || previous == nil {

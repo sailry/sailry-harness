@@ -381,7 +381,8 @@ execution owner is available; their content and captured project Host are kept.
 The application export callback resolves and freezes the session's Client before
 opening the native save panel. Title, committed history, images and attachment
 bytes all use that exact owner even if navigation changes while the panel is
-open. Read aloud remains a controller-native effect. Opening a remote session
+open. Read aloud remains a controller-native effect: the local Node's speech
+model where one is assigned, the OS speech otherwise ([media.md](media.md#desktop)). Opening a remote session
 in another window keeps its requested selection until remote data arrives.
 These routes use additive Node identity without rewriting protocol SessionIDs.
 

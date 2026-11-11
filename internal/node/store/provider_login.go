@@ -241,16 +241,34 @@ type ProviderRenewal struct {
 	Grant      providers.AccountGrant
 }
 
+// CaptureProviderAuthorization also reads the unlisted provider a paired Node
+// forwarded, which holds only a transferable authentication.
 func CaptureProviderAuthorization(ctx context.Context, db *sql.Conn, id protocol.ProviderID) (protocol.ConversationProvider, error) {
-	saved, err := currentProvider(ctx, db, id, nil)
+	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", id.String())
 	if err != nil {
 		return protocol.ConversationProvider{}, err
+	}
+	if saved == nil || saved.Provider == nil || !saved.Listed && transferable(saved.Provider.Authentication) != nil {
+		return protocol.ConversationProvider{}, fault(protocol.ErrorCodeNotFound, "provider does not exist")
 	}
 	return CaptureProvider(ctx, db, *saved.Provider)
 }
 
+// authorizationProvider also admits the unlisted provider a paired Node
+// forwarded, whose only account kind is the transferable Copilot grant.
+func authorizationProvider(ctx context.Context, db *sql.Conn, provider protocol.ConversationProvider) (*providerConfiguration, error) {
+	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", provider.ID.String())
+	if err != nil {
+		return nil, err
+	}
+	if saved == nil || saved.Provider == nil || !saved.Listed && provider.Authentication != protocol.AuthenticationCopilot {
+		return nil, fault(protocol.ErrorCodeNotFound, "provider does not exist")
+	}
+	return saved, nil
+}
+
 func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {
-	saved, err := currentProvider(ctx, db, provider.ID, nil)
+	saved, err := authorizationProvider(ctx, db, provider)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +298,7 @@ func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeI
 	if reference.Node != node {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
 	}
-	saved, err := currentProvider(ctx, db, provider.ID, nil)
+	saved, err := authorizationProvider(ctx, db, provider)
 	if err != nil || provider.Authentication == protocol.AuthenticationApiKey {
 		return nil, err
 	}
@@ -339,7 +357,7 @@ func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeI
 }
 
 func CompleteProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeID, renewal ProviderRenewal, grant providers.AccountGrant) ([]protocol.Event, error) {
-	saved, err := currentProvider(ctx, db, renewal.Capture.Provider.ID, nil)
+	saved, err := authorizationProvider(ctx, db, renewal.Capture.Provider)
 	if err != nil {
 		return nil, err
 	}

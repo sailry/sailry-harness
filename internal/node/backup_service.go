@@ -53,7 +53,7 @@ func (node *Node) dispatchBackup(ctx context.Context, caller protocol.NodeID, re
 	var previous *link.Response
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
-		if previous, err = admission.Existing(ctx, db, caller, request.ID, body); err != nil || previous != nil {
+		if previous, err = admission.Existing(ctx, db, caller, request, body); err != nil || previous != nil {
 			return err
 		}
 		if request.Command.Kind != "save_backup_settings" {

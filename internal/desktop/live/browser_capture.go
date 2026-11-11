@@ -126,7 +126,7 @@ func (r *Runtime) captureBrowser(ctx context.Context, plan browserPlan, request 
 		}
 		// Measure after layout and painting settle at the scrolled position.
 		if !browserSleep(ctx, 100*time.Millisecond) {
-			return browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+			return browserEnded(ctx)
 		}
 	}
 	facts, failure := browserEvaluate(ctx, plan.view, measure(false))
@@ -164,7 +164,7 @@ func (r *Runtime) captureBrowser(ctx context.Context, plan browserPlan, request 
 	case <-timer.C:
 		return failed
 	case <-ctx.Done():
-		return browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+		return browserEnded(ctx)
 	}
 	if capture.err != nil {
 		return failed

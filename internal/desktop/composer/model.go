@@ -57,6 +57,17 @@ type Model struct {
 	Scores map[string]*Score
 	// Features are its options beyond the effort, as Fast mode.
 	Features []Feature
+	// Capabilities are what it understands and generates beyond text, as
+	// the picker marks and filters them.
+	Capabilities []Capability
+}
+
+// Capability is a model's capability tag the picker shows: understanding
+// images, or generating images, video or speech.
+type Capability struct {
+	ID    string
+	Label string // i18n key
+	Icon  *ui.SVG
 }
 
 // Family is a group of providers on the model picker's rail: a cloud,

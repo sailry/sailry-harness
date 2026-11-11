@@ -2756,3 +2756,13 @@ git_repository: "包含 1 个 Git 仓库"
 git_switch_confirm: "切换到 %{branch}"
 git_switch_confirm_action: "切换"
 git_switch_confirm_detail: "使用这个工作树的会话、终端和已打开的文件都会切换到这个分支。"
+provider_capabilities: 能力
+provider_cap_understands: 理解
+provider_cap_can: 支持
+provider_cap_generates: 生成
+provider_cap_reset: 恢复模型数据
+media_image: 图片
+media_video: 视频
+media_speech: 语音
+media_follow: 跟随对话模型
+media_load_failed: 无法读取媒体模型

@@ -94,11 +94,68 @@ and `synthesize_speech` reads text aloud with the assigned speech model. The
 settings appear in the snapshot and are captured with each admitted turn.
 Capability tags, routing, channels and limits are in [media.md](media.md).
 
-Three protocol commands have no route and answer `not_configured` "command is
-unavailable". `import_session` is the receiving half of forwarding a session to
-another Node, which this Node does not send. `use_media` and
-`use_external_browser` are agent resource effects whose subsystems do not exist
-here.
+`list_associated_sessions` pages the sessions bound to one association, newest
+first, with a limit of 1 to 100 and a `before` cursor that must belong to the
+same association. A plugin scope with a worktree confines the page to it, and a
+plugin may list only its own namespace from a scope without a session or turn.
+
+### Session forwarding
+
+`create_session_at` whose target is another Node creates the session there with
+this Node's configuration. Only the local controller may forward; any other
+caller is refused with `permission_denied`. `store.PrepareSessionForward` checks
+that the listed provider still has the expected revision, validates the
+selection, and packages the provider, the selected credential's secret and
+expiry, the captured roles and each role provider's secret into `import_session`
+under the same request ID. The explicit credential selection is authoritative: a
+configuration without a credential forwards no secret. API keys and Copilot
+grants are transferable. Any other sign-in is refused with `not_configured`
+"Claude sign-in is required on the execution Node" or "ChatGPT sign-in is
+required on the execution Node".
+
+The request is admitted durably first; its ledger body holds no secret. A
+refusal, a Node without a Link, or more than 128 forwards in flight completes
+the admission with its fault (`busy` "Node operation queue is unavailable" for
+the last two). The transfer then runs on its own goroutine, outside both command
+lanes, for at most 30 seconds. An unpaired target answers `not_found` "target
+Node is not paired". Once dispatch begins, a failed dispatch, a lost completion,
+the limit or Node shutdown records `outcome_unknown` "remote session creation
+could not be confirmed; automatic replay is disabled". Replay returns the
+recorded outcome and never sends again; the controller inspects the target with
+the same request ID.
+
+`import_session` is accepted only from the paired caller named as its source,
+never from the local controller. The bundle must be consistent: the
+configuration names the bundled provider and credential, the credential belongs
+to the caller, and a secret is present exactly when a credential is. The
+provider and every role provider are stored unlisted under new provider and
+credential identities, the configuration and role models are rewritten to them,
+and the session revision records a profile with the source Node and the captured
+provider. A plugin assistant binding requires the same package digest installed
+here. Turns of such a session run on the profile's provider and keep the
+forwarded roles without refreshing them. The ledger keeps
+`credential-v1:<BLAKE3 hex>` of the request instead of its body, so replay is
+exact and the secret is stored only in the private provider row;
+`inspect_request` compares that digest. The operation log names the command, the
+request and a worktree identifier only.
+
+Removing a forwarded session deletes its private providers and their secrets
+once no remaining session revision refers to them.
+
+`use_external_browser` drives the session's managed browser on this Node. It
+uses only a Chrome, Chromium or Edge installed on the machine and answers
+`not_configured` without one; its checks, bounds and session lifetime are in
+[browser-external.md](browser-external.md).
+
+One protocol command has no route and answers `not_configured` "command is
+unavailable": `use_media` is an agent resource effect that runs only as a turn
+tool.
+
+| Deviation from Rust | Reason |
+|---|---|
+| `create_session_at` whose target is this Node still creates the session locally | The Desktop creates every session through it; Rust refuses a local target |
+| Private providers are deleted with their session | Rust retains them; a removed session should not leave a forwarded secret behind |
+| Other credential-bearing commands keep their full ledger body | Only `import_session` is retained by digest here; Rust also digests `put_credential`, `save_provider` and similar commands |
 
 ## Observation
 
@@ -155,6 +212,13 @@ keeps up to eight idle.
   plugin's captured session that the session did not inherit from another one.
   `read_tool_output` must name the plugin's captured turn, and so must
   `run_command` when the plugin has one.
+- `start_queued_turn` starts a queued turn, or retries one that failed, was
+  cancelled or was interrupted before its input reached the conversation. A
+  running or stopping turn answers `conflict` "turn input has already been
+  consumed": its pending input row stays until the input is recorded, so the row
+  alone never makes a turn restartable. The Agent Runtime keeps one owner per
+  turn; a claim that finds an earlier owner waits for it and runs only when the
+  turn is still running afterwards, so an input is never sent twice.
 - A turn loads its history once. Each later step decodes only the records
   appended since the previous step (`ExtendAgentState`); history grows only
   within one `history_revision`, and a rewind forces a complete load. Loaded

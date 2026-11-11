@@ -22,6 +22,7 @@ import (
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
 	"github.com/cespare/xxhash/v2"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 const sessionID = "11111111-1111-4111-8111-111111111111"
@@ -223,6 +224,33 @@ func saveCaptures(t *testing.T, name string, captured []capturedRequest) {
 }
 
 func TestRequestParity(t *testing.T) {
+	t.Run("user reasoning tag outranks discovery", func(t *testing.T) {
+		for _, row := range []struct {
+			name                    string
+			tag, custom, discovered bool
+			want                    any
+		}{
+			{"custom off over discovered on", false, true, true, nil},
+			{"custom on over discovered off", true, true, false, "high"},
+			{"discovery decides an untagged model", false, false, true, "high"},
+			{"discovery disables an untagged model", true, false, false, nil},
+		} {
+			provider := protocol.DefaultConversationProvider()
+			provider.Api, provider.Authentication = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey
+			entry := protocol.DefaultConversationModel()
+			entry.ID, entry.Reasoning, entry.CustomCapabilities = "custom/model", row.tag, row.custom
+			capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+			capabilities.Reasoning = &row.discovered
+			entry.Capabilities = &capabilities
+			provider.Models = []protocol.ConversationModel{entry}
+			config := protocol.DefaultSessionConfig()
+			config.Model, config.Effort = entry.ID, protocol.Effort{Kind: "high"}
+			params := requestParameters(Binding{Provider: provider, Config: config}, &fantasy.Call{})
+			if got := params.Body["reasoning_effort"]; got != row.want {
+				t.Errorf("%s: reasoning_effort = %v, want %v", row.name, got, row.want)
+			}
+		}
+	})
 	t.Run("provider source annotations survive official SDK streams", func(t *testing.T) {
 		for _, kind := range []string{"responses", "chat", "anthropic", "google"} {
 			t.Run(kind, func(t *testing.T) {

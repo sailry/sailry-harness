@@ -398,6 +398,8 @@ type conversationTestTransport struct {
 	sessions     map[protocol.SessionID]protocol.Session
 	teamFailure  protocol.ErrorCode
 	teamOutputs  map[protocol.RequestID]protocol.Output
+	// handle answers a command before the fixture's own answers, under mu.
+	handle func(protocol.Request) (link.Response, bool)
 }
 
 func (t *conversationTestTransport) Target() protocol.NodeID { return t.snapshot.Node }
@@ -425,6 +427,13 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 		}
 	}
 	response := link.Response{}
+	if t.handle != nil {
+		if answer, handled := t.handle(request); handled {
+			completion := make(chan link.Response, 1)
+			completion <- answer
+			return link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: completion}, nil
+		}
+	}
 	switch request.Command.Kind {
 	case "set_session_config":
 		p := request.Command.Data.(protocol.CommandSetSessionConfigPayload)
@@ -647,6 +656,7 @@ func TestComposerSendRouting(t *testing.T) {
 		{"uncertain_team_before_admission", "existing", "submit_turn", false, "", false},
 		{"replace_references", "existing", "replace_turn", false, "", false},
 		{"new_session_after_navigation", "draft/1", "submit_turn", false, "", false},
+		{"new_session_base_keeps_later_input", "draft/1", "submit_turn", false, "", false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
@@ -678,6 +688,16 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 			}
 			transport := &conversationTestTransport{snapshot: snapshot, failure: row.failure}
+			// based sends from a draft whose base worktree is created first.
+			based, baseTree := row.name == "new_session_base_keeps_later_input", protocol.Worktree{ID: protocol.WorktreeID{4}, Project: &project, Path: "/fixture/base"}
+			if based {
+				transport.handle = func(request protocol.Request) (link.Response, bool) {
+					if request.Command.Kind != "create_managed_worktree" {
+						return link.Response{}, false
+					}
+					return link.Response{Output: protocol.Output{Kind: "worktree", Data: baseTree}}, true
+				}
+			}
 			if row.name == "uncertain_team_before_admission" {
 				transport.teamFailure = protocol.ErrorCodeUnavailable
 			}
@@ -723,6 +743,18 @@ func TestComposerSendRouting(t *testing.T) {
 			comp.Project = project.String()
 			comp.Worktree = "/fixture/worktree"
 			comp.Host = node.String()
+			if based {
+				r.sessionBases[comp] = &sessionBaseStart{base: sessionBase{From: "main", Branch: "feature", Commit: strings.Repeat("a", 40)}, project: project, source: worktree, worktree: comp.Worktree}
+			}
+			// Browser tabs opened in this draft, in another draft and in no
+			// conversation: only the first follows the draft into its session.
+			r.browser = &browserState{available: true, tabs: map[string]*browserTab{}, serving: map[*Runtime]context.CancelFunc{r: func() {}},
+				documents: map[string]*documentView{}, sources: map[string]protocol.ArtifactContent{}}
+			var browserTabs [3]*browserTab
+			for index := range browserTabs {
+				browserTabs[index] = r.browserTabFor(r.App.Panel.AddBrowser(false).ID)
+			}
+			browserTabs[1].conversation, browserTabs[2].conversation = "draft/other", ""
 			if row.running || row.name == "replace_references" || row.failure == protocol.ErrorCodeOutcomeUnknown {
 				changes := make(chan struct{}, 1)
 				release, err := controller.WatchConversation(t.Context(), session, func() {
@@ -799,6 +831,12 @@ func TestComposerSendRouting(t *testing.T) {
 				actions.Guide(message)
 			} else {
 				actions.Send(message)
+			}
+			if based {
+				// Typed while the base worktree is being created.
+				comp.Draft = "Typed meanwhile"
+				comp.References = []composer.Reference{{ID: "host", Kind: composer.Location, Label: "Host"}}
+				comp.Attachments = []*composer.Attachment{{ID: "later", Name: "later.txt", Status: composer.Ready}}
 			}
 			elsewhere := ""
 			if row.name == "new_session_after_navigation" {
@@ -887,8 +925,29 @@ func TestComposerSendRouting(t *testing.T) {
 					t.Fatalf("new session routing = %#v", commands)
 				}
 				create := commands[0].Command.Data.(protocol.CommandCreateSessionAtPayload)
-				if create.Target != node || create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != worktree || create.ProviderRevision != 7 {
+				started := worktree
+				if based {
+					started = baseTree.ID
+				}
+				if create.Target != node || create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != started || create.ProviderRevision != 7 {
 					t.Fatalf("captured project/Node scope = %#v", create)
+				}
+				// The session owns its draft's browser tab and no other: an agent
+				// call of the selected session rebinds nothing.
+				created := (protocol.SessionID{9}).String()
+				r.App.Sidebar.Selected = created
+				listed := r.planBrowserCall(node, created, browserRequest{Action: "tabs"})
+				var answer struct {
+					Tabs []struct{ ID uint64 }
+				}
+				if listed.result == nil || listed.result.Ok == nil || json.Unmarshal(*listed.result.Ok, &answer) != nil || len(answer.Tabs) != 1 || answer.Tabs[0].ID != browserTabs[0].id {
+					t.Fatalf("the created session's browser tabs = %+v", listed.result)
+				}
+				if browserTabs[0].conversation != created || browserTabs[1].conversation != "draft/other" || browserTabs[2].conversation != "" {
+					t.Fatalf("browser tabs changed owner: %q, %q, %q", browserTabs[0].conversation, browserTabs[1].conversation, browserTabs[2].conversation)
+				}
+				if elsewhere != "" {
+					r.App.Sidebar.Selected = elsewhere
 				}
 			} else if len(commands) != 1 {
 				t.Fatalf("existing routing = %#v", commands)
@@ -972,7 +1031,17 @@ func TestComposerSendRouting(t *testing.T) {
 			if row.failure != "" && comp.Draft != "Captured draft" {
 				t.Fatal("failed request discarded the draft")
 			}
-			if row.failure == "" && comp.Draft != "" {
+			if based {
+				// The first submission was sent as captured, and what was typed
+				// while its worktree was created is still the composer's.
+				sent := commands[len(commands)-1].Command.Data.(protocol.CommandSubmitTurnPayload)
+				if sent.Message.Text != "Captured draft" || len(sent.Message.References) != 0 || len(sent.Message.Attachments) != 0 {
+					t.Fatalf("the send after its base worktree = %#v", sent.Message)
+				}
+				if comp.Draft != "Typed meanwhile" || len(comp.References) != 1 || len(comp.Attachments) != 1 || comp.Attachments[0].ID != "later" {
+					t.Fatalf("input typed while the base worktree was created was lost: %q, %d references, %d attachments", comp.Draft, len(comp.References), len(comp.Attachments))
+				}
+			} else if row.failure == "" && comp.Draft != "" {
 				t.Fatal("successful request retained the submitted draft")
 			}
 			if row.failure == protocol.ErrorCodeOutcomeUnknown {

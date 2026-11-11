@@ -1,14 +1,17 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,6 +142,100 @@ func TestAdmissionSameRequestID(t *testing.T) {
 			}
 		})
 	}
+	// Every command that can carry a secret is admitted by digest: nothing in
+	// the ledger holds the secret, replay returns the recorded outcome, and a
+	// different secret under the same identifier is a conflict.
+	t.Run("secret-bearing commands are kept by digest", func(t *testing.T) {
+		node := nodeFixture(t)
+		ledger := func() string {
+			var text bytes.Buffer
+			err := node.profile.Store.Node.Read(context.Background(), func(db *sql.Conn) error {
+				rows, err := db.QueryContext(context.Background(), "SELECT body,coalesce(result,'') FROM requests")
+				if err != nil {
+					return err
+				}
+				defer rows.Close()
+				for rows.Next() {
+					var body, result []byte
+					if err := rows.Scan(&body, &result); err != nil {
+						return err
+					}
+					text.Write(body)
+					text.Write(result)
+				}
+				return rows.Err()
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return text.String()
+		}
+		outcome := func(request protocol.Request) (string, error) {
+			accepted, err := node.Dispatch(context.Background(), node.ID(), request)
+			if err != nil {
+				return "", err
+			}
+			value := <-accepted.Completion
+			result := protocol.Result[protocol.Output, protocol.Fault]{Err: value.Fault}
+			if value.Fault == nil {
+				result.Ok = &value.Output
+			}
+			body, err := json.Marshal(result)
+			return string(body), err
+		}
+		commands := secretCommands("ledger-canary")
+		for _, kind := range protocol.CommandKinds() {
+			if _, built := commands[kind]; admission.DigestOnly(kind) != built {
+				t.Errorf("%s: kept by digest = %t, exercised here = %t", kind, admission.DigestOnly(kind), built)
+			}
+		}
+		var refused []string
+		for _, kind := range slices.Sorted(maps.Keys(commands)) {
+			request := protocol.NewRequest(node.ID(), commands[kind])
+			encoded, err := json.Marshal(request)
+			if err != nil || !bytes.Contains(encoded, []byte("ledger-canary")) {
+				t.Fatalf("%s request = %s, %v", kind, encoded, err)
+			}
+			first, dispatchErr := outcome(request)
+			if text := ledger(); strings.Contains(text, "ledger-canary") {
+				t.Fatalf("the ledger holds the secret of %s: %s", kind, text)
+			}
+			var body []byte
+			caller := node.ID()
+			err = node.profile.Store.Node.Read(context.Background(), func(db *sql.Conn) error {
+				return db.QueryRowContext(context.Background(), "SELECT body FROM requests WHERE caller=?1 AND id=?2", caller[:], request.ID.String()).Scan(&body)
+			})
+			if errors.Is(err, sql.ErrNoRows) && dispatchErr != nil {
+				// Refused before admission: there is nothing to replay.
+				refused = append(refused, kind)
+				continue
+			}
+			digest := blake3.Sum256(encoded)
+			if err != nil || dispatchErr != nil || string(body) != "credential-v1:"+hex.EncodeToString(digest[:]) {
+				t.Fatalf("%s admission = %q, %v, %v", kind, body, err, dispatchErr)
+			}
+			if replayed, err := outcome(request); err != nil || replayed != first {
+				t.Fatalf("%s replay = %s, %v, want %s", kind, replayed, err, first)
+			}
+			inspected := commandFixture(t, node, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: request.ID, Digest: hex.EncodeToString(digest[:])}})
+			if inspected.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != "completed" {
+				t.Fatalf("%s inspection = %#v", kind, inspected)
+			}
+			request.Command = secretCommands("another-secret")[kind]
+			var conflict *protocol.Fault
+			if _, err := outcome(request); !errors.As(err, &conflict) || conflict.Code != protocol.ErrorCodeConflict {
+				t.Fatalf("%s with another secret = %v", kind, err)
+			}
+		}
+		// A restore names a backup that does not exist here and is refused
+		// before admission; it reaches the ledger through the same call.
+		if want := []string{"restore_backup", "restore_backup_file"}; !slices.Equal(refused, want) {
+			t.Fatalf("refused before admission: %v, want %v", refused, want)
+		}
+		if text := ledger(); strings.Contains(text, "ledger-canary") || strings.Contains(text, "another-secret") {
+			t.Fatalf("the ledger holds a secret: %s", text)
+		}
+	})
 	t.Run("project lifecycle and worktree ownership", func(t *testing.T) {
 		node := nodeFixture(t)
 		directory := t.TempDir()
@@ -499,20 +596,116 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { _, err := admission.Admit(ctx, db, id, request, body); return err }); err != nil {
+	// A secret-bearing request interrupted after its admission, and the rows
+	// an earlier build left for such commands: their complete request.
+	const legacyKey = "legacy-ledger-key"
+	encode := func(request protocol.Request) []byte {
+		t.Helper()
+		body, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	interrupted := protocol.NewRequest(id, secretCommands("interrupted-ledger-key")["save_provider"])
+	legacyCompleted := protocol.NewRequest(id, secretCommands(legacyKey)["save_provider"])
+	legacyAdmitted := protocol.NewRequest(id, secretCommands(legacyKey)["put_credential"])
+	recorded, err := json.Marshal(protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "recorded before the update"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if _, err := admission.Admit(ctx, db, id, request, body); err != nil {
+			return err
+		}
+		if _, err := admission.Admit(ctx, db, id, interrupted, encode(interrupted)); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)", id[:], legacyCompleted.ID.String(), encode(legacyCompleted), string(recorded)); err != nil {
+			return err
+		}
+		_, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", id[:], legacyAdmitted.ID.String(), encode(legacyAdmitted))
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := node.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// stored names the files below the profile's storage that hold the text.
+	stored := func(text string) (found []string) {
+		t.Helper()
+		err := filepath.WalkDir(filepath.Join(path, "storage"), func(file string, entry os.DirEntry, err error) error {
+			if err != nil || !entry.Type().IsRegular() {
+				return err
+			}
+			content, err := os.ReadFile(file)
+			if bytes.Contains(content, []byte(text)) {
+				found = append(found, file)
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return found
+	}
+	backups := func() int {
+		t.Helper()
+		entries, err := os.ReadDir(filepath.Join(path, "storage", "backups"))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	if len(stored(legacyKey)) == 0 || len(stored("interrupted-ledger-key")) != 0 || backups() != 0 {
+		t.Fatalf("before the update: legacy secret in %v, interrupted secret in %v, %d backups", stored(legacyKey), stored("interrupted-ledger-key"), backups())
+	}
 	restarted, err := startFixtureNode(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restarted.Stop(ctx)
+	stopped := false
+	defer func() {
+		if !stopped {
+			restarted.Stop(ctx)
+		}
+	}()
 	result := dispatchFixture(t, restarted, id, request)
 	if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeOutcomeUnknown {
 		t.Fatalf("recovery = %#v", result)
+	}
+	for name, unfinished := range map[string]protocol.Request{"interrupted": interrupted, "legacy": legacyAdmitted} {
+		result := dispatchFixture(t, restarted, id, unfinished)
+		if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("%s secret-bearing recovery = %#v", name, result)
+		}
+	}
+	// The update kept the replay identity of the rows it replaced.
+	if result := dispatchFixture(t, restarted, id, legacyCompleted); result.Fault == nil || result.Fault.Message != "recorded before the update" {
+		t.Fatalf("legacy replay = %#v", result)
+	}
+	for _, legacy := range []protocol.Request{legacyCompleted, legacyAdmitted} {
+		changed := legacy
+		changed.Command = secretCommands("another-secret")[legacy.Command.Kind]
+		var conflict *protocol.Fault
+		if _, err := restarted.Dispatch(ctx, id, changed); !errors.As(err, &conflict) || conflict.Code != protocol.ErrorCodeConflict {
+			t.Fatalf("legacy %s with another secret = %v", legacy.Command.Kind, err)
+		}
+		digest := blake3.Sum256(encode(legacy))
+		var kept []byte
+		if err := restarted.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			return db.QueryRowContext(ctx, "SELECT body FROM requests WHERE caller=?1 AND id=?2", id[:], legacy.ID.String()).Scan(&kept)
+		}); err != nil || string(kept) != "credential-v1:"+hex.EncodeToString(digest[:]) {
+			t.Fatalf("legacy %s body = %q, %v", legacy.Command.Kind, kept, err)
+		}
+		inspection := commandFixture(t, restarted, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: legacy.ID, Digest: hex.EncodeToString(digest[:])}})
+		if want := map[string]string{"save_provider": "completed", "put_credential": "unknown"}[legacy.Command.Kind]; inspection.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != want {
+			t.Fatalf("legacy %s inspection = %#v, want %s", legacy.Command.Kind, inspection, want)
+		}
+	}
+	if providers := commandFixture(t, restarted, protocol.Command{Kind: "list_providers"}).Data.([]protocol.ConversationProvider); len(providers) != 0 {
+		t.Fatalf("a replayed admission ran again: %#v", providers)
 	}
 	if snapshotFixture(t, restarted).Cursor != 0 {
 		t.Fatal("unfinished admission was replayed")
@@ -527,6 +720,25 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 		if value.Fault == nil || value.Fault.Code != protocol.ErrorCodeInvalidRequest {
 			t.Fatalf("invalid digest accepted: %#v", value)
 		}
+	}
+	// Neither the database, its log, nor the backup that preceded the update
+	// keeps the secret, and a later start has nothing left to replace.
+	stopped = true
+	if err := restarted.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if files := stored(legacyKey); len(files) != 0 || backups() != 1 {
+		t.Fatalf("after the update: legacy secret in %v, %d backups", files, backups())
+	}
+	again, err := startFixtureNode(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := again.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if files := stored(legacyKey); len(files) != 0 || backups() != 1 {
+		t.Fatalf("after another start: legacy secret in %v, %d backups", files, backups())
 	}
 }
 
@@ -899,4 +1111,80 @@ func fixtureMCPOptions() *mcp.Options {
 	return &mcp.Options{Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture MCP server is unavailable"}
 	}}
+}
+
+// secretCommands builds one request of every command the ledger keeps by
+// digest, each carrying the given text where its secret belongs.
+func secretCommands(canary string) map[string]protocol.Command {
+	secret := protocol.NewSecret(canary)
+	replace := protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: &secret}
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Name, provider.Api = protocol.NewProviderID(), "Ledger", protocol.ConversationModelApiChatCompletions
+	provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "https://ledger.invalid/v1"
+	database := protocol.DefaultCommandSaveDatabasePayload()
+	database.Profile.ID, database.Profile.Name, database.Password = protocol.NewDatabaseID(), "Ledger", &secret
+	database.Profile.Connection = protocol.DatabaseConnection{Kind: "network", Data: &protocol.DatabaseConnectionNetworkPayload{
+		Engine: protocol.DatabaseEnginePostgres, Host: "ledger.invalid", Port: 5432, Database: "app", Username: "reader", Tls: protocol.DatabaseTlsRequire,
+	}}
+	ssh := protocol.DefaultCommandSaveSshPayload()
+	ssh.Profile.ID, ssh.Profile.Name, ssh.Profile.Host, ssh.Profile.Username = protocol.NewSshID(), "Ledger", "ledger.invalid", "ledger"
+	ssh.Profile.Authentication = protocol.SshAuthenticationPassword
+	ssh.Credential = &protocol.SshCredential{Kind: "password", Data: &protocol.SshCredentialPasswordPayload{Password: secret}}
+	search := protocol.DefaultSearchUpdate()
+	search.Credentials = map[protocol.SearchDriver]protocol.SearchCredentials{protocol.SearchDriverExa: {Key: replace, Basic: protocol.PluginSettingsSecretUpdate{Kind: "keep"}}}
+	backup := protocol.DefaultBackupUpdate()
+	keep := protocol.PluginSettingsSecretUpdate{Kind: "keep"}
+	backup.Identity, backup.Secret, backup.SessionToken, backup.Passphrase = keep, keep, keep, replace
+	settings := protocol.DefaultCommandSavePluginSettingsPayload()
+	settings.Package.Name, settings.Secrets = "ledger", map[string]protocol.PluginSettingsSecretUpdate{"token": replace}
+	servers := protocol.DefaultCommandSavePluginMcpPayload()
+	servers.Package.Name = "ledger"
+	servers.Configuration.Servers = map[string]protocol.PluginMcpServer{"ledger": {Kind: "stdio", Data: &protocol.PluginMcpServerStdioPayload{
+		Command: "ledger", Args: []string{}, Env: map[string]string{"TOKEN": canary},
+	}}}
+	install := protocol.DefaultCommandInstallMcpPayload()
+	install.Name, install.Secrets = "ledger", map[string]protocol.PluginSettingsSecretUpdate{"token": replace}
+	definition := protocol.DefaultPluginMcpDefinitionStdioPayload()
+	definition.Command = "ledger"
+	install.Definition = protocol.PluginMcpDefinition{Kind: "stdio", Data: &definition}
+	input := protocol.DefaultPluginConnectorInput()
+	input.Secrets = map[string]protocol.Secret{"token": secret}
+	login := protocol.DefaultCommandStartConnectorLoginPayload()
+	login.Package.Name, login.Connector, login.Method, login.Input = "ledger", "ledger", protocol.PluginConnectorKindSecret, input
+	restore := protocol.DefaultCommandRestoreBackupPayload()
+	restore.ID, restore.Passphrase, restore.Location = "ledger", &secret, protocol.BackupLocationLocal
+	file := protocol.DefaultCommandRestoreBackupFilePayload()
+	file.Passphrase = &secret
+	handler := protocol.DefaultDispatchHandler()
+	handler.Name, handler.Queue = "ledger", "ledger"
+	handler.Callback.Completion, handler.Callback.Command = protocol.DispatchCompletionCommand, &protocol.Command{Kind: "save_database", Data: &database}
+	schedule := protocol.DispatchCommand{Kind: "save_handler", Data: &handler}
+	dispatch := protocol.DefaultCommandDispatchPayload()
+	dispatch.Package.Name, dispatch.Action = "ledger", schedule
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model, config.Mode, config.Permission = provider.ID, "fixture", protocol.WorkModeCode, protocol.PermissionProject
+	imported := protocol.DefaultSessionImport()
+	imported.Source, imported.Config, imported.Provider, imported.Secret = protocol.NodeID{1}, config, provider, &secret
+	return map[string]protocol.Command{
+		"put_credential":          {Kind: "put_credential", Data: &protocol.CommandPutCredentialPayload{ID: protocol.NewCredentialID(), Provider: provider.ID, Secret: secret}},
+		"save_provider":           {Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}},
+		"complete_provider_login": {Kind: "complete_provider_login", Data: &protocol.CommandCompleteProviderLoginPayload{Attempt: protocol.NewRequestID(), Callback: secret}},
+		"import_session":          {Kind: "import_session", Data: &imported},
+		"save_ssh":                {Kind: "save_ssh", Data: &ssh},
+		"save_database":           {Kind: "save_database", Data: &database},
+		"save_search_settings":    {Kind: "save_search_settings", Data: &search},
+		"save_plugin_settings":    {Kind: "save_plugin_settings", Data: &settings},
+		"save_plugin_mcp":         {Kind: "save_plugin_mcp", Data: &servers},
+		"install_mcp":             {Kind: "install_mcp", Data: &install},
+		"start_connector_login":   {Kind: "start_connector_login", Data: &login},
+		"submit_connector_input":  {Kind: "submit_connector_input", Data: &protocol.CommandSubmitConnectorInputPayload{Attempt: protocol.NewRequestID(), Input: secret}},
+		"update_connection":       {Kind: "update_connection", Data: &protocol.CommandUpdateConnectionPayload{Connection: protocol.NewRequestID(), Input: input}},
+		"save_backup_settings":    {Kind: "save_backup_settings", Data: &backup},
+		"restore_backup":          {Kind: "restore_backup", Data: &restore},
+		"restore_backup_file":     {Kind: "restore_backup_file", Data: &file},
+		"dispatch":                {Kind: "dispatch", Data: &dispatch},
+		"plugin_transaction": {Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{
+			Operations: []protocol.PluginTransactionOperation{{Kind: "dispatch", Data: &schedule}},
+		}},
+	}
 }

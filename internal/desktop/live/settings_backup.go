@@ -327,9 +327,19 @@ func (r *Runtime) readBackupSettings() {
 				kit.Toast(c, outcome, i18n.T(c, key))
 				return
 			}
-			r.acceptBackupSettings(value)
+			r.acceptBackupRead(value)
 		})
 	})
+}
+
+// acceptBackupRead takes a read's answer, unless it is older than the
+// settings held: such a read was answered before an action whose result was
+// accepted since, and would take the page back to what that action replaced.
+func (r *Runtime) acceptBackupRead(value protocol.BackupSettings) {
+	if s := &r.backupSettings; s.known && value.Revision < s.saved.Revision {
+		return
+	}
+	r.acceptBackupSettings(value)
 }
 
 // saveBackupSchedule saves the schedule's draft once it differs from what

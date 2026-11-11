@@ -110,6 +110,17 @@ func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, 
 	}); err != nil {
 		return nil, err
 	}
+	if definition.ledger {
+		// Fold the log into the database file and truncate it, so neither
+		// keeps a page image that precedes the replacement.
+		closed, err := handle.Pause(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := closed.Reopen(ctx); err != nil {
+			return nil, err
+		}
+	}
 	knowledge, err := OpenHandle(ctx, filepath.Join(storage, "knowledge.sqlite"))
 	if err != nil {
 		return nil, err
@@ -146,6 +157,8 @@ type currentSchema struct {
 	expected schemaObjects
 	plan     schemaPlan
 	path     string
+	// ledger reports admissions of secret-bearing commands stored in full.
+	ledger bool
 }
 
 func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (currentSchema, error) {
@@ -189,6 +202,11 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 			return err
 		}
 		definition.state = schemaUpdate
+		if !definition.plan.created["requests"] {
+			if definition.ledger, err = ledgerSecretsPending(ctx, connection); err != nil {
+				return err
+			}
+		}
 		if len(definition.plan.statements) != 0 {
 			return nil
 		}
@@ -199,7 +217,7 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 		if err != nil {
 			return err
 		}
-		if !pending {
+		if !pending && !definition.ledger {
 			definition.state = schemaCurrent
 		}
 		return nil
@@ -290,8 +308,15 @@ func rehearseSchemaUpdate(ctx context.Context, handle *Handle, definition curren
 	if err := errors.Join(rehearsalError, rehearsal.Close()); err != nil {
 		return err
 	}
-	if _, err := saveBeforeUpgrade(handle.Path()); err != nil {
+	backup, err := saveBeforeUpgrade(handle.Path())
+	if err != nil {
 		return err
+	}
+	if definition.ledger {
+		// The backup would otherwise keep the secrets this update removes.
+		if err := digestLedgerCopy(ctx, backup); err != nil {
+			return err
+		}
 	}
 	return closed.Reopen(ctx)
 }

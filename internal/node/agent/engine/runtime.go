@@ -92,6 +92,7 @@ type execution struct {
 	inv               *store.AgentInvocation
 	ctx               context.Context
 	cancel            context.CancelFunc
+	done              chan struct{}
 	wake              chan struct{}
 	guidance          chan struct{}
 	tools             []Tool
@@ -201,22 +202,29 @@ func (r *Runtime) run() {
 			}
 			r.mu.Unlock()
 			ctx, cancel := context.WithCancel(parent)
-			x := &execution{inv: inv, ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), guidance: make(chan struct{}, 1)}
+			x := &execution{inv: inv, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), guidance: make(chan struct{}, 1)}
+			// A turn has one owner. A claim that finds an earlier owner waits
+			// for it in its worker instead of taking its place.
 			r.mu.Lock()
-			r.active[inv.Run.Turn] = x
+			previous := r.active[inv.Run.Turn]
+			if previous == nil {
+				r.active[inv.Run.Turn] = x
+			}
 			r.mu.Unlock()
 			// A stop may commit between claiming the durable turn and registering
 			// its cancellation owner. Recheck after registration closes that gap.
 			var current protocol.ConversationRun
-			err = r.db.Read(r.ctx, func(db *sql.Conn) error {
-				var err error
-				current, err = store.ReadAgentRun(r.ctx, db, inv.Run.Turn)
-				return err
-			})
-			if err != nil || current.Status != protocol.ConversationStatusRunning {
-				cancel()
+			if previous == nil {
+				err = r.db.Read(r.ctx, func(db *sql.Conn) error {
+					var err error
+					current, err = store.ReadAgentRun(r.ctx, db, inv.Run.Turn)
+					return err
+				})
+				if err != nil || current.Status != protocol.ConversationStatusRunning {
+					cancel()
+				}
 			}
-			if err == nil {
+			if previous == nil && err == nil {
 				r.feed.Publish(inv.Session.ID, protocol.ConversationChange{Kind: "run", Data: current})
 				r.RefreshStatisticsCommitted(inv.Session.ID)
 				if inv.Session.Delegation != nil && *inv.Session.Delegation != nil {
@@ -228,7 +236,9 @@ func (r *Runtime) run() {
 			go func() {
 				defer r.workers.Done()
 				defer cancel()
-				r.executeOwned(x)
+				if previous == nil || r.succeed(x, previous) {
+					r.executeOwned(x)
+				}
 				r.mu.Lock()
 				delete(r.active, inv.Run.Turn)
 				if child := r.children[inv.Run.Turn]; child != nil {
@@ -236,10 +246,40 @@ func (r *Runtime) run() {
 					delete(r.children, inv.Run.Turn)
 				}
 				r.mu.Unlock()
+				close(x.done)
 				r.Wake()
 			}()
 		}
 	}
+}
+
+// succeed waits for the turn's earlier owners, then registers x in their
+// place. It reports whether the turn is still x's to run: an owner that
+// finished the turn after this claim leaves nothing to execute, and its input
+// is never sent twice.
+func (r *Runtime) succeed(x, previous *execution) bool {
+	turn := x.inv.Run.Turn
+	for previous != nil {
+		<-previous.done
+		r.mu.Lock()
+		if previous = r.active[turn]; previous == nil {
+			r.active[turn] = x
+		}
+		r.mu.Unlock()
+	}
+	unlock := r.LockPublication()
+	defer unlock()
+	var current protocol.ConversationRun
+	err := r.db.Read(r.ctx, func(db *sql.Conn) error {
+		var err error
+		current, err = store.ReadAgentRun(r.ctx, db, turn)
+		return err
+	})
+	if err != nil || current.Status == protocol.ConversationStatusStopping {
+		x.cancel()
+		return true
+	}
+	return current.Status == protocol.ConversationStatusRunning
 }
 
 // Committed wakes owners only after a controller transaction has committed.

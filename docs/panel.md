@@ -312,10 +312,16 @@ The agent's browser tool uses the same tabs. `internal/node/browser.go` routes
 `use_browser` to the controller that issued it as a `browser_call` update on
 the `browser` topic and settles it with `complete_browser`: one subscription
 per controller, a 30-second deadline, a retryable fault for unanswered reads
-and an unknown outcome for unanswered actions. `browser.read` and
+and an unknown outcome for unanswered actions. The deadline is each call's
+`expires_at_ms` and bounds every action: a `wait` may ask for a longer
+`timeout_ms`, but it ends with the call as an unanswered read, and the timed-out
+call leaves no pending entry for a late completion. `browser.read` and
 `browser.control` plugin tools reach it through the turn's native tools; control
-actions ask for workspace approval. `client.ServeBrowser` delivers each call and
-`live/browser_calls.go` runs it against the tabs opened in the call's
+actions ask for workspace approval. `client.ServeBrowser` delivers each call
+under a context that ends at the call's `expires_at_ms`, so a wait or a queued
+action that outlives the call is abandoned (the Node has settled it by then)
+and the next call is served; an action still queued for the UI thread when
+its call ends does not run. `live/browser_calls.go` runs each call against the tabs opened in the call's
 conversation with the automation script of the reference, never with source
 the model provides. Captures are measured, cropped and encoded within 1 MiB and
 1568 pixels by `live/browser_capture.go`, and the Node checks them again.
@@ -451,7 +457,7 @@ at its width.
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
-| Browser tabs belong to the window, each to the conversation it was opened in | The accepted panel keeps one flat tab strip; the agent drives only its own conversation's tabs, and a tab opened in a draft follows the session that draft becomes |
+| Browser tabs belong to the window, each to the conversation it was opened in | The accepted panel keeps one flat tab strip; the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
 | Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
 | Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |

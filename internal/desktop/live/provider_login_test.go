@@ -10,11 +10,13 @@ import (
 )
 
 func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
-	t.Parallel()
+	// The plugin subtests draw with a ui.Tester, whose font atlas every
+	// tester shares: they run before this test joins the parallel ones.
 	t.Run("canonical card contracts", testPluginCardContracts)
 	t.Run("native component authority", testNativeComponentAuthority)
 	t.Run("plugin view ownership", testPluginViewOwnership)
 	t.Run("plugin location ownership", testPluginLocationOwnership)
+	t.Parallel()
 	t.Run("quota remains unknown after reset", func(t *testing.T) {
 		reset := uint64(100)
 		window := &protocol.ConversationQuotaWindow{UsedBasisPoints: 4250, ResetAtMs: &reset}

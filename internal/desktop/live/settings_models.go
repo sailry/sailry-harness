@@ -186,9 +186,19 @@ func (r *Runtime) readLocalModels() {
 				s.stale = true
 				return
 			}
-			s.acceptSettings(value)
+			s.acceptRead(value)
 		})
 	})
+}
+
+// acceptRead takes a read's answer, unless it is older than the settings
+// held: such a read was answered before a save whose result was accepted
+// since, and would take the pages back to what that save replaced.
+func (s *localModelState) acceptRead(value protocol.ModelsLocalSettings) {
+	if s.known && value.Revision < s.settings.Revision {
+		return
+	}
+	s.acceptSettings(value)
 }
 
 // acceptSettings takes the settings the Node holds. A choice that differs

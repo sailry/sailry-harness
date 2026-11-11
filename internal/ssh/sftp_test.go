@@ -4,15 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/pkg/sftp"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -34,6 +39,37 @@ func faultCode(err error) protocol.ErrorCode {
 		return fault.Code
 	}
 	return ""
+}
+
+// replyCut loses the server's reply to an armed rename request.
+type replyCut struct{ armed, lost atomic.Bool }
+
+// renameWatch is the client's request stream.
+type renameWatch struct {
+	io.WriteCloser
+	cut *replyCut
+}
+
+func (watch renameWatch) Write(data []byte) (int, error) {
+	// An SFTP packet is a length, then its type; 18 is SSH_FXP_RENAME.
+	if len(data) >= 5 && data[4] == 18 && watch.cut.armed.Load() {
+		watch.cut.lost.Store(true)
+	}
+	return watch.WriteCloser.Write(data)
+}
+
+// lossyReplies is the server's reply stream.
+type lossyReplies struct {
+	*io.PipeWriter
+	cut *replyCut
+}
+
+func (replies lossyReplies) Write(data []byte) (int, error) {
+	if replies.cut.lost.Load() {
+		_ = replies.PipeWriter.CloseWithError(io.ErrClosedPipe)
+		return len(data), nil
+	}
+	return replies.PipeWriter.Write(data)
 }
 
 func dialError(code syscall.Errno) error {
@@ -363,6 +399,12 @@ func TestTransferResume(t *testing.T) {
 			{"noisy remote", remoteFailure(stageOpen, errors.New(noisy)), protocol.ErrorCodeOutcomeUnknown, "界"},
 			{"noisy io", ioFailure(stageClose, errors.New(noisy)), protocol.ErrorCodeOutcomeUnknown, "界"},
 			{"noisy local", localFailure("local read", errors.New(noisy)), protocol.ErrorCodeInvalidRequest, "界"},
+			{"change lost in transit", sftpChange(sftp.ErrSSHFxConnectionLost), protocol.ErrorCodeOutcomeUnknown, "SFTP reply was lost; inspect the remote entry before retrying"},
+			{"change cut short", sftpChange(io.ErrUnexpectedEOF), protocol.ErrorCodeOutcomeUnknown, "SFTP reply was lost"},
+			{"change refused", sftpChange(&sftp.StatusError{Code: 4}), protocol.ErrorCodeUnavailable, "SFTP operation failed"},
+			{"change denied", sftpChange(os.ErrPermission), protocol.ErrorCodePermissionDenied, "SFTP operation failed"},
+			{"change target missing", sftpChange(os.ErrNotExist), protocol.ErrorCodeNotFound, "SFTP operation failed"},
+			{"read lost in transit", sftpRead(sftp.ErrSSHFxConnectionLost), protocol.ErrorCodeUnavailable, "SFTP operation failed"},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				var fault *protocol.Fault
@@ -381,6 +423,53 @@ func TestTransferResume(t *testing.T) {
 		staged := AtStage(original, "local preparation")
 		if faultCode(staged) != protocol.ErrorCodeRevisionConflict || original.Message != "file changed outside this operation" {
 			t.Fatalf("AtStage changed its input: %v, %v", staged, original)
+		}
+	})
+
+	// A real server applies a move whose reply never arrives: the caller must
+	// learn the outcome is unknown, while a refusal the server sends stays
+	// definite.
+	t.Run("lost mutation reply", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("the in-process SFTP server needs POSIX paths")
+		}
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestsIn, requestsOut := io.Pipe()
+		repliesIn, repliesOut := io.Pipe()
+		cut := &replyCut{}
+		server, err := sftp.NewServer(struct {
+			io.Reader
+			io.WriteCloser
+		}{requestsIn, lossyReplies{repliesOut, cut}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() { _ = server.Serve() }()
+		client, err := sftp.NewClientPipe(repliesIn, renameWatch{requestsOut, cut})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+		source, destination := filepath.Join(root, "source.txt"), filepath.Join(root, "moved.txt")
+		if err = os.WriteFile(source, []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		move := func(from, to string) error {
+			return Modify(client, from, protocol.SshFileAction{Kind: "move", Data: &protocol.SshFileActionMovePayload{Destination: to}})
+		}
+		if code := faultCode(move(filepath.Join(root, "absent.txt"), filepath.Join(root, "elsewhere.txt"))); code != protocol.ErrorCodeNotFound {
+			t.Fatalf("refused move = %s", code)
+		}
+		cut.armed.Store(true)
+		err = move(source, destination)
+		if _, statErr := os.Stat(destination); statErr != nil {
+			t.Fatalf("server did not apply the move: %v", statErr)
+		}
+		if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("applied move with a lost reply = %v", err)
 		}
 	})
 

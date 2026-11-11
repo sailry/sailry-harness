@@ -214,7 +214,7 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	recipient := state.Run.Turn
 	state.Recipient = &recipient
 	if state.Run.Status == protocol.ConversationStatusRunning {
-		inv, events, err := delegateAgent(ctx, db, node, parent, identity, nil, true, now, &state.Run)
+		inv, events, err := delegateAgent(ctx, db, node, parent, identity, identity.Arguments, nil, true, now, &state.Run)
 		if err == nil {
 			state.Run = inv.Run
 		}

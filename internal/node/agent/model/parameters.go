@@ -34,7 +34,8 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 	if model != nil {
 		v := model.Reasoning
 		reasoning = &v
-		if model.Capabilities != nil && model.Capabilities.Reasoning != nil {
+		// A user's own tag outranks what discovery reported.
+		if !model.CustomCapabilities && model.Capabilities != nil && model.Capabilities.Reasoning != nil {
 			reasoning = model.Capabilities.Reasoning
 		}
 	}

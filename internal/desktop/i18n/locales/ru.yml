@@ -1908,3 +1908,24 @@ updates_install_uncertain: Результат установки не подтв
 updates_receipt_failed: Обновление было установлено; не удалось сохранить данные восстановления
 updates_profile_inside: Профиль данных находится внутри Sailry; переместите его перед обновлением
 compatibility_update_unavailable: Эта версия пока недоступна для автоматического обновления
+settings_media: Фотомодели СМИ
+provider_cap_vision: Видение
+provider_cap_tools: Инструменты
+provider_cap_reasoning: Обоснование
+provider_cap_image: Генерация изображений
+provider_cap_video: Генерация видео
+media_speech_synthesis: Синтез речи
+media_model_unavailable: Модель отсутствует
+media_conflict: Настройки изменены; выберите снова
+media_unknown: Результат сохранения неизвестен; проверьте текущие настройки
+media_failed: Сохранение не удалось
+provider_capabilities: Capabilities
+provider_cap_understands: Understands
+provider_cap_can: Can
+provider_cap_generates: Generates
+provider_cap_reset: Reset to model data
+media_image: Image
+media_video: Video
+media_speech: Speech
+media_follow: Follow conversation model
+media_load_failed: Could not read media models

@@ -149,6 +149,7 @@ func run() error {
 						candidate.window.Invalidate()
 					}
 				})
+				speech.SetSynthesizer(backend.Client.SynthesizeSpeech)
 			}
 			bindConversation(ctx, entry, speech)
 			bindFiles(entry, backend.Client.Target())

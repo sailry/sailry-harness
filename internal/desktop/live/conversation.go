@@ -94,6 +94,13 @@ func (r *Runtime) projectModels() {
 				name = *m.DisplayName
 			}
 			v := composer.Model{ID: modelKey(p.ID, m.ID), Name: name, Provider: p.Name, Reasoning: m.Reasoning, Family: modelFamily(p.Api), DefaultEffort: effortName(m.DefaultEffort), Score: r.measuredScore(modelKey(p.ID, m.ID), m.DefaultEffort)}
+			generates := make([]string, len(m.Generates))
+			for i, generated := range m.Generates {
+				generates[i] = string(generated)
+			}
+			for _, kind := range viewmodel.Capabilities(m.Vision, generates) {
+				v.Capabilities = append(v.Capabilities, composer.Capability{ID: kind, Label: viewmodel.CapabilityLabels[kind], Icon: icons.Capabilities[kind]})
+			}
 			for _, e := range m.Efforts {
 				v.Efforts = append(v.Efforts, effortName(e))
 			}
@@ -608,6 +615,13 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 	x.comp.Draft = m.Text
 	x.comp.References = slices.Clone(m.References)
 	x.comp.Attachments = slices.Clone(m.Attachments)
+	x.submit(m, guide, queue, composerFingerprint(x.comp))
+}
+
+// submit sends the captured submission m, whose composer read draft when it
+// was captured. A send that first waits for its base worktree continues
+// here, so the composer keeps whatever was typed meanwhile.
+func (x *conversationActions) submit(m composer.Message, guide, queue bool, draft string) {
 	if x.readonly() {
 		x.unavailable()
 		return
@@ -618,7 +632,6 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 			return
 		}
 	}
-	draft := composerFingerprint(x.comp)
 	finish := func(output protocol.Output, ok bool) {
 		if ok {
 			x.r.attachmentsCommitted(m.Attachments)
@@ -645,7 +658,7 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 				}
 				next := *x
 				next.c = c
-				next.deliver(m, guide, queue)
+				next.submit(m, guide, queue, draft)
 			})
 			return
 		}
@@ -831,7 +844,7 @@ func (x *conversationActions) AddProject() {
 }
 func (x *conversationActions) ManageTeams() {
 	if !x.readonly() {
-		x.r.App.Settings.Section = settings.Teams
+		x.r.App.Settings.Open(settings.Teams)
 		x.r.App.Navigate(shell.SettingsPage)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The Providers page (settings/providers): the model catalog with the
@@ -21,6 +22,9 @@ import (
 // the authorization dialog.
 
 var compactionMessages = Messages{"", "compaction_settings_failed", "compaction_settings_conflict", "compaction_settings_unknown"}
+
+// MediaMessages are the toasts of a media models save.
+var MediaMessages = Messages{"", "media_failed", "media_conflict", "media_unknown"}
 
 // chips is how many model IDs an expanded row shows.
 const chips = 8
@@ -60,6 +64,7 @@ func providers(c *ui.Context, s *State) {
 	m := s.Model
 	ui.Column(c).Gap(24).Children(func() {
 		catalog(c, m)
+		mediaModels(c, m)
 		ui.Column(c.Key("channels")).Gap(12).Children(func() {
 			var shown []int
 			for i := range m.Channels {
@@ -164,6 +169,58 @@ func catalog(c *ui.Context, m *Model) {
 	})
 }
 
+// mediaModels is the model each media purpose uses: Vision, Image, Video and
+// Speech, each a select of the models tagged for it under Follow conversation
+// model. A choice saves at once; a failed save keeps it as the draft. A saved
+// model that can no longer run is marked and stays the select's choice.
+func mediaModels(c *ui.Context, m *Model) {
+	p := theme.Of(c)
+	kit.Group(c, "media", i18n.T(c, "settings_media"), "", nil, func() {
+		kit.Card(c, func() {
+			for i, kind := range viewmodel.MediaKinds {
+				labels, values := []string{i18n.T(c, "media_follow")}, []string{""}
+				for _, option := range m.MediaOptions {
+					if slices.Contains(option.Kinds, kind) || option.Key == m.Media.Draft[i] {
+						labels, values = append(labels, option.Label), append(values, option.Key)
+					}
+				}
+				title := i18n.T(c, mediaTitles[i])
+				kit.WideRow(c, kind, title, "", func() {
+					if m.MediaUnavailable[i] && m.Media.Draft[i] != "" && m.Media.Draft[i] == m.Media.Saved[i] {
+						ui.Row(c.Key("status")).Shrink(0).Gap(6).Children(func() {
+							ui.Box(c).Size(6, 6).Radius(3).Background(p.Warning)
+							ui.Text(c, i18n.T(c, "media_model_unavailable")).FontSize(14).TextColor(p.MutedForeground).SingleLine()
+						})
+					}
+					b, changed := kit.Select(c.Key("select"), "media-"+kind, title, &m.Media.Draft[i], labels, m.Media.Pending, values)
+					b.Grow(1).Shrink(1).MinWidth(0)
+					if !changed {
+						return
+					}
+					if m.Live && m.SaveMedia != nil {
+						m.SaveMedia()
+					} else {
+						report(c, m.Media.Commit(), MediaMessages)
+					}
+				})
+			}
+		})
+	})
+}
+
+// mediaTitles are the media rows' titles, in viewmodel.MediaKinds' order.
+var mediaTitles = [4]string{"provider_cap_vision", "media_image", "media_video", "media_speech"}
+
+// capabilityMarks are the small icons of what a model understands and
+// generates, each named by its tooltip.
+func capabilityMarks(c *ui.Context, x *preview.ChannelModel) {
+	p := theme.Of(c)
+	for _, kind := range viewmodel.Capabilities(x.Vision, x.Generates) {
+		label := i18n.T(c, viewmodel.CapabilityLabels[kind])
+		kit.Tooltip(c, ui.Icon(c.Key(kind), icons.Capabilities[kind]).FontSize(12).Shrink(0).TextColor(p.MutedForeground).Label(label), label)
+	}
+}
+
 // families is All, then each brand, the list's filter.
 func families(c *ui.Context, m *Model) {
 	labels := []string{i18n.T(c, "provider_all")}
@@ -241,12 +298,12 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 // most chips of them and the count of the rest.
 func channelModels(c *ui.Context, ch *preview.Channel) {
 	p := theme.Of(c)
-	ids := make([]string, 0, len(ch.Models))
-	for i, x := range ch.Models {
+	ids := make([]*preview.ChannelModel, 0, len(ch.Models))
+	for i := range ch.Models {
 		if i == ch.Default {
-			ids = append([]string{x.ID}, ids...)
+			ids = append([]*preview.ChannelModel{&ch.Models[i]}, ids...)
 		} else {
-			ids = append(ids, x.ID)
+			ids = append(ids, &ch.Models[i])
 		}
 	}
 	hidden := max(0, len(ids)-chips)
@@ -255,8 +312,13 @@ func channelModels(c *ui.Context, ch *preview.Channel) {
 		if len(ids) == 0 {
 			ui.Text(c, i18n.T(c, "provider_models_empty")).FontSize(14).TextColor(p.MutedForeground)
 		}
-		for _, id := range ids {
-			ui.Text(c.Key(id), id).FontSize(12).Height(24).Padding(4, 8).Border(1, p.Border).Radius(p.Radius).SingleLine()
+		for _, x := range ids {
+			// The model's ID, then the marks of what it understands and
+			// generates.
+			ui.Row(c.Key(x.ID)).Height(24).Padding(4, 8).Gap(4).AlignItems(ui.Center).Border(1, p.Border).Radius(p.Radius).Children(func() {
+				ui.Text(c, x.ID).FontSize(12).SingleLine()
+				capabilityMarks(c, x)
+			})
 		}
 		if hidden > 0 {
 			ui.Textf(c, "+%d", hidden).FontSize(12).Height(24).Padding(4, 8).TextColor(p.MutedForeground)
@@ -344,6 +406,12 @@ type modelDraft struct {
 	effort  string // the effort being added
 	def     int    // the default effort
 	open    bool
+	// hosted keeps the image tool the model came with: ticking Image again
+	// restores it rather than the images endpoint.
+	hosted bool
+	// catalog is the model as it came when its tags were the catalog's,
+	// which a reset of the tags shows again; nil when they were the user's.
+	catalog *preview.ChannelModel
 }
 
 // providerEditor is the step, the brand and method chosen, the fields and the
@@ -377,7 +445,13 @@ func draftsOf(ms []preview.ChannelModel) []modelDraft {
 		if x.Context > 0 {
 			ctx = strconv.Itoa(x.Context)
 		}
-		out[i] = modelDraft{model: x, id: x.ID, context: ctx, efforts: slices.Clone(x.Efforts), def: max(0, slices.Index(x.Efforts, x.DefaultEffort))}
+		x.Generates = slices.Clone(x.Generates)
+		out[i] = modelDraft{model: x, id: x.ID, context: ctx, efforts: slices.Clone(x.Efforts), def: max(0, slices.Index(x.Efforts, x.DefaultEffort)),
+			hosted: slices.Contains(x.Generates, viewmodel.GenerateImageTool)}
+		if !x.CustomCapabilities {
+			came := ms[i]
+			out[i].catalog = &came
+		}
 	}
 	return out
 }
@@ -780,7 +854,8 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				kit.Toast(c, kit.Done, t("provider_discovered_preview"))
 			})
 			kit.Secondary(c.Key("add-model"), t("provider_add_model")).Disabled(e.probing).OnClick(func() {
-				e.models = append(e.models, modelDraft{open: true})
+				// A model typed in starts with the tags a save gives it.
+				e.models = append(e.models, modelDraft{open: true, model: preview.ChannelModel{Vision: true, Tools: true}})
 			})
 		})
 		modalList(c, "models", "", "", t("provider_models_empty"), len(e.models), func() {
@@ -862,6 +937,7 @@ func modelForm(c *ui.Context, d *modelDraft) {
 			})
 			ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).FillWidth().Disabled(d.pending)
 		})
+		capabilityForm(c, d)
 		if d.model.ID == "" || len(d.model.Efforts) > 0 {
 			ui.Column(c.Key("efforts")).Gap(6).Children(func() {
 				ui.Text(c, t("provider_efforts")).FontSize(14)
@@ -903,6 +979,85 @@ func modelForm(c *ui.Context, d *modelDraft) {
 				})
 			})
 		}
+	})
+}
+
+// capabilityForm is the model's capability tags as checkboxes in three
+// groups: what it understands, what it can do and what it generates. A
+// change marks the tags as the user's (CustomCapabilities), which a save
+// then keeps over the catalog's. Tags that are the user's can be reset: a
+// save then leaves them to the catalog again, and the boxes show the
+// catalog's tags where the model came with them.
+func capabilityForm(c *ui.Context, d *modelDraft) {
+	p := theme.Of(c)
+	t := func(k string) string { return i18n.T(c, k) }
+	x := &d.model
+	check := func(group, key, name string, on *bool) bool {
+		changed := ui.Checkbox(c.Key(key), on, t(name)).Label(t(group) + " " + t(name)).Disabled(d.pending).Changed()
+		x.CustomCapabilities = x.CustomCapabilities || changed
+		return changed
+	}
+	generates := func(key, name string, on bool, set func(bool)) {
+		if check("provider_cap_generates", key, name, &on) {
+			set(on)
+		}
+	}
+	toggle := func(value string) func(bool) {
+		return func(on bool) {
+			x.Generates = slices.DeleteFunc(x.Generates, func(v string) bool { return v == value })
+			if on {
+				x.Generates = append(x.Generates, value)
+			}
+		}
+	}
+	group := func(key string, boxes func()) {
+		ui.Row(c.Key(key)).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, t(key)).FontSize(12).TextColor(p.MutedForeground).SingleLine()
+			boxes()
+		})
+	}
+	ui.Column(c.Key("capabilities")).Gap(6).Children(func() {
+		ui.Row(c.Key("heading")).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, t("provider_capabilities")).FontSize(14).FontWeight(500).Grow(1).Shrink(1).MinWidth(0).SingleLine().TextColor(p.PopoverForeground)
+			if x.CustomCapabilities {
+				b := kit.Ghost(c.Key("reset"), t("provider_cap_reset"), false).Height(24).PaddingX(8).Border(1, p.Border).Shrink(0).Disabled(d.pending)
+				b.Children(func() { ui.Text(c, t("provider_cap_reset")).FontSize(12) }).OnClick(func() {
+					x.CustomCapabilities = false
+					if d.catalog != nil {
+						x.Vision, x.Tools, x.Reasoning, x.Generates = d.catalog.Vision, d.catalog.Tools, d.catalog.Reasoning, slices.Clone(d.catalog.Generates)
+					}
+				})
+			}
+		})
+		// The form's surface, not the window's, under the unchecked boxes.
+		surface := *c.Theme()
+		surface.Background = ui.Transparent
+		ui.Themed(c, &surface).Background(ui.Transparent).Children(func() {
+			ui.Row(c).Wrap().Gap(20).Children(func() {
+				group("provider_cap_understands", func() { check("provider_cap_understands", "vision", "media_image", &x.Vision) })
+				group("provider_cap_can", func() {
+					check("provider_cap_can", "tools", "provider_cap_tools", &x.Tools)
+					check("provider_cap_can", "reasoning", "provider_cap_reasoning", &x.Reasoning)
+				})
+				group("provider_cap_generates", func() {
+					// One Image box for both ways of generating: the hosted
+					// tool the model came with is kept, else the endpoint.
+					image := slices.Contains(x.Generates, viewmodel.GenerateImage) || slices.Contains(x.Generates, viewmodel.GenerateImageTool)
+					generates("image", "media_image", image, func(on bool) {
+						toggle(viewmodel.GenerateImage)(false)
+						toggle(viewmodel.GenerateImageTool)(false)
+						switch {
+						case on && d.hosted:
+							toggle(viewmodel.GenerateImageTool)(true)
+						case on:
+							toggle(viewmodel.GenerateImage)(true)
+						}
+					})
+					generates("video", "media_video", slices.Contains(x.Generates, viewmodel.GenerateVideo), toggle(viewmodel.GenerateVideo))
+					generates("speech", "media_speech", slices.Contains(x.Generates, viewmodel.GenerateSpeech), toggle(viewmodel.GenerateSpeech))
+				})
+			})
+		})
 	})
 }
 

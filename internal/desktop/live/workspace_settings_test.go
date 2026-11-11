@@ -25,6 +25,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("terminal tabs project", testTerminalTabsProject)
 	t.Run("browser address", testBrowserAddress)
 	t.Run("browser capture", testBrowserCapture)
+	t.Run("browser call deadline", testBrowserDeadline)
 	t.Run("remote settings keep their owner through navigation and completion", func(t *testing.T) {
 		owners := make([]*Runtime, 2)
 		transports := make([]*conversationTestTransport, 2)

@@ -77,8 +77,10 @@ func TestSidebarProjection(t *testing.T) {
 }
 
 func TestNoticesProjection(t *testing.T) {
-	t.Parallel()
+	// The viewer draws with a ui.Tester, whose font atlas every tester
+	// shares: it runs before this test joins the parallel ones.
 	t.Run("knowledge viewer", testKnowledgeViewer)
+	t.Parallel()
 	node := protocol.NodeID{1}
 	session := protocol.SessionID{1}
 	times := []int64{100, 200}

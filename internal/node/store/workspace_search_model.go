@@ -39,5 +39,7 @@ func ResolveSearchBinding(ctx context.Context, db *sql.Conn, node protocol.NodeI
 	config := protocol.DefaultSessionConfig()
 	config.Provider = provider.ID
 	config.Model = name
+	// A binding is captured through protocol JSON, which rejects an unset mode.
+	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
 	return model.Capture(provider, config, secret, session)
 }

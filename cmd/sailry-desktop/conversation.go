@@ -21,7 +21,7 @@ func bindConversation(ctx context.Context, entry *desktopWindow, speech *reader.
 	runtime := entry.live
 	runtime.SetReaderActive(speech.Active)
 	runtime.SetReadAloud(func(session, turn, text string) {
-		if err := speech.Toggle(turn, text); err != nil {
+		if err := speech.Toggle(turn, text, runtime.ReportReaderFailure); err != nil {
 			runtime.ReportReaderFailure()
 		}
 	})

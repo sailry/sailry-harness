@@ -45,6 +45,7 @@ func (x *conversationActions) create(command protocol.Command, m composer.Messag
 		delete(x.r.conversationCreations, before)
 		x.r.admittedSessions[session.ID.String()] = session
 		x.r.App.ReplaceConversationID(before, session.ID.String())
+		x.r.browserAdopt(before, session.ID.String())
 		x.cv.ID = session.ID.String()
 		x.r.composerInitialized[x.cv.ID] = true
 		x.r.composerRevisions[x.cv.ID] = session.Revision

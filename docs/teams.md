@@ -48,6 +48,26 @@ Desktop-only package skills do not contribute execution choices. Loading and
 executing skills belongs to the Node; Python readiness remains unavailable until
 its runtime phase.
 
+## Agent catalog tools
+
+`list_agents`, `add_agent`, `edit_agent`, `delete_agent`, `apply_agents`,
+`list_teams`, `add_team`, `edit_team`, `delete_team` and `apply_team` are
+deferred Node-owned agent tools (`internal/node/agent_tools_roles.go`) offered
+to unrestricted project turns that are not delegated children. They dispatch
+`list_roles`, `put_role`, `remove_role`, `set_session_roles`, `list_teams`,
+`put_team`, `remove_team` and `set_session_team` as the turn's caller, so the
+catalog has one owner. Revisions cross the tool boundary as decimal strings.
+The two listings are read-only; every other tool takes one non-rememberable
+approval and is refused in Plan mode. Application changes future admission
+only: the turn context states the captured conversation revision, and a stale
+revision returns `revision_conflict` without rebasing. Package tools reach the
+same commands through the `roles.list`, `roles.save`, `roles.remove` and
+`roles.apply` operations with the `roles.read` and `roles.write` actions.
+
+Deviations: the store validates a role or team definition when the approved
+command executes, so an invalid definition is reported after approval with the
+store's message, and the Plan-mode refusal uses the engine's read-only message.
+
 ## Ownership and deviations
 
 The accepted UI exposes skills in the mention catalog; the reference's command

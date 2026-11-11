@@ -53,6 +53,8 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/cespare/xxhash/v2` | v2.3.0 | MIT | `LICENSE.txt` | D H |
 | `github.com/charmbracelet/openai-go` | v0.0.0-20260921175203-216db9e71b83 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/charmbracelet/x/exp/slice` | v0.1.0 | MIT | `LICENSE` | D H |
+| `github.com/chromedp/cdproto` | v0.159.0 | MIT | `LICENSE` | D H |
+| `github.com/chromedp/chromedp` | v0.23.0 | MIT | `LICENSE` | D H |
 | `github.com/cloudflare/circl` | v1.6.3 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/coder/websocket` | v1.8.15 | ISC | `LICENSE.txt` | D H |
 | `github.com/creack/pty/v2` | v2.0.1 | MIT | `LICENSE` | D H |

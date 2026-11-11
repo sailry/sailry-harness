@@ -12,6 +12,7 @@ import (
 )
 
 func (node *Node) conversationEvents(changes []protocol.Event) {
+	node.externalBrowserEvents(changes)
 	sessions := map[protocol.SessionID]bool{}
 	refreshStatistics := false
 	for _, change := range changes {

@@ -139,7 +139,7 @@ func (transfers *Transfers) TransferSSH(ctx context.Context, connection *cryptos
 			entry.file, entry.tempRoot, entry.temporary, err = transfers.temporary()
 		}
 	}
-	if err == nil && transfers.profile != "" && pathWithin(filepath.Join(root, filepath.FromSlash(transfer.Path)), transfers.profile) {
+	if err == nil && transfers.storage(root, transfer.Path) {
 		err = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Node storage cannot be transferred over SSH"}
 	}
 	if err != nil {
@@ -169,6 +169,14 @@ func (transfers *Transfers) TransferSSH(ctx context.Context, connection *cryptos
 		return 0, ssh.AtStage(err, "local publish")
 	}
 	return size, nil
+}
+
+// storage reports whether a worktree path is Node storage. A registered
+// execution workspace lives inside the profile and stays transferable; its
+// handle already confines the path and refuses links.
+func (transfers *Transfers) storage(root, path string) bool {
+	return transfers.profile != "" && !core.ManagedWorkspace(root, transfers.profile) &&
+		pathWithin(filepath.Join(root, filepath.FromSlash(path)), transfers.profile)
 }
 
 func pathWithin(path, directory string) bool {

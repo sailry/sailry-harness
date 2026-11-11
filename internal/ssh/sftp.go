@@ -204,7 +204,7 @@ func Modify(client *sftp.Client, path string, action protocol.SshFileAction) err
 		return copyRemote(client, source, destination)
 	}
 	if err = client.Rename(source, destination); err != nil {
-		return sftpFault(err)
+		return sftpChange(err)
 	}
 	return nil
 }
@@ -215,16 +215,16 @@ func create(client *sftp.Client, path string, directory bool) error {
 	}
 	if directory {
 		if err := client.Mkdir(path); err != nil {
-			return sftpFault(err)
+			return sftpChange(err)
 		}
 		return nil
 	}
 	file, err := createExclusive(client, path)
 	if err != nil {
-		return sftpFault(err)
+		return sftpChange(err)
 	}
 	if err = file.Close(); err != nil {
-		return sftpFault(err)
+		return sftpChange(err)
 	}
 	return nil
 }
@@ -235,29 +235,33 @@ func remove(client *sftp.Client, path string) error {
 		visited bool
 	}
 	pending := []step{{path: path}}
+	// Once an entry is removed, a lost read leaves the rest unknown too.
+	read := sftpRead
 	for len(pending) > 0 {
 		current := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
 		if current.visited {
 			if err := client.RemoveDirectory(current.path); err != nil {
-				return sftpFault(err)
+				return sftpChange(err)
 			}
+			read = sftpChange
 			continue
 		}
 		metadata, err := client.Lstat(current.path)
 		if err != nil {
-			return sftpFault(err)
+			return read(err)
 		}
 		if !metadata.IsDir() {
 			if err = client.Remove(current.path); err != nil {
-				return sftpFault(err)
+				return sftpChange(err)
 			}
+			read = sftpChange
 			continue
 		}
 		pending = append(pending, step{current.path, true})
 		entries, err := client.ReadDir(current.path)
 		if err != nil {
-			return sftpFault(err)
+			return read(err)
 		}
 		for _, entry := range entries {
 			if !strings.ContainsAny(entry.Name(), "/\x00") {
@@ -270,21 +274,24 @@ func remove(client *sftp.Client, path string) error {
 
 func copyRemote(client *sftp.Client, source, destination string) error {
 	pending := [][2]string{{source, destination}}
+	// Once an entry is copied, a lost read leaves the rest unknown too.
+	read := sftpRead
 	for len(pending) > 0 {
 		source, destination = pending[len(pending)-1][0], pending[len(pending)-1][1]
 		pending = pending[:len(pending)-1]
 		metadata, err := client.Lstat(source)
 		if err != nil {
-			return sftpFault(err)
+			return read(err)
 		}
 		switch {
 		case metadata.IsDir():
 			if err = client.Mkdir(destination); err != nil {
-				return sftpFault(err)
+				return sftpChange(err)
 			}
+			read = sftpChange
 			entries, err := client.ReadDir(source)
 			if err != nil {
-				return sftpFault(err)
+				return read(err)
 			}
 			for _, entry := range entries {
 				if !strings.ContainsAny(entry.Name(), "/\x00") {
@@ -294,15 +301,17 @@ func copyRemote(client *sftp.Client, source, destination string) error {
 		case metadata.Mode()&os.ModeSymlink != 0:
 			target, err := client.ReadLink(source)
 			if err != nil {
-				return sftpFault(err)
+				return read(err)
 			}
 			if err = client.Symlink(target, destination); err != nil {
-				return sftpFault(err)
+				return sftpChange(err)
 			}
+			read = sftpChange
 		case metadata.Mode().IsRegular():
-			if err = copyRemoteFile(client, source, destination); err != nil {
+			if err = copyRemoteFile(client, source, destination, read); err != nil {
 				return err
 			}
+			read = sftpChange
 		default:
 			return invalid("Unsupported remote file type")
 		}
@@ -310,22 +319,22 @@ func copyRemote(client *sftp.Client, source, destination string) error {
 	return nil
 }
 
-func copyRemoteFile(client *sftp.Client, source, destination string) error {
+func copyRemoteFile(client *sftp.Client, source, destination string, read func(error) error) error {
 	input, err := client.Open(source)
 	if err != nil {
-		return sftpFault(err)
+		return read(err)
 	}
 	defer input.Close()
 	output, err := createExclusive(client, destination)
 	if err != nil {
-		return sftpFault(err)
+		return sftpChange(err)
 	}
 	if _, err = io.Copy(output, input); err != nil {
 		_ = output.Close()
 		return unknown("Remote copy interrupted; inspect the destination")
 	}
 	if err = output.Close(); err != nil {
-		return sftpFault(err)
+		return sftpChange(err)
 	}
 	return nil
 }
@@ -404,6 +413,21 @@ func sftpFault(err error) *protocol.Fault {
 		code = protocol.ErrorCodeNotFound
 	}
 	return &protocol.Fault{Code: code, Message: "SFTP operation failed: " + bounded(err.Error())}
+}
+
+// sftpRead is sftpFault for a request that changes nothing.
+func sftpRead(err error) error { return sftpFault(err) }
+
+// sftpChange classifies the failure of a request that changes the remote, or
+// of a read after such a change. A status from the server is its refusal.
+// Anything else means the reply never arrived: the server may have applied the
+// request, so the outcome is unknown and the caller must not retry blindly.
+func sftpChange(err error) error {
+	var status *sftp.StatusError
+	if errors.As(err, &status) || errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrNotExist) {
+		return sftpFault(err)
+	}
+	return unknown("SFTP reply was lost; inspect the remote entry before retrying")
 }
 
 func unknown(message string) error {

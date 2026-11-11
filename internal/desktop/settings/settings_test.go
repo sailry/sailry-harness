@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 func TestKeysCapture(t *testing.T) {
@@ -226,6 +227,217 @@ func TestProviderEditor(t *testing.T) {
 		d := m.provider.models[0]
 		if !slices.Equal(d.efforts, []string{"medium", "high"}) || d.efforts[d.def] != "medium" {
 			t.Errorf("efforts %v, default %d", d.efforts, d.def)
+		}
+	})
+	// The capability boxes show a model's tags; a change marks them the
+	// user's own, and the save carries them.
+	t.Run("capabilities", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var saved []ProviderDraft
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true, models: draftsOf([]preview.ChannelModel{
+			{ID: "hosted", Context: 128000, Tools: true, Generates: []string{viewmodel.GenerateImageTool, viewmodel.GenerateSpeech}},
+			{ID: "plain", Context: 128000, Vision: true},
+		})}
+		for i := range m.provider.models {
+			m.provider.models[i].open = true
+		}
+		tt := ui.NewTesterWith(func(c *ui.Context) { providerEditorDialog(c, m) }, 900, 1400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Advance(time.Second)
+		// boxes are a model's six, in the form's order.
+		names := []string{"Understands Image", "Can Tools", "Can Reasoning", "Generates Image", "Generates Video", "Generates Speech"}
+		boxes := func(model int) (checked [6]bool, at [6]ui.AccessInfo) {
+			t.Helper()
+			for i, name := range names {
+				seen := 0
+				for _, x := range tt.AccessAll() {
+					if x.Role == ui.RoleCheckBox && x.Name == name {
+						if seen == model {
+							checked[i], at[i] = x.Checked, x
+						}
+						seen++
+					}
+				}
+				if seen != 2 {
+					t.Fatalf("%d boxes named %q", seen, name)
+				}
+			}
+			return
+		}
+		click := func(model, box int) {
+			t.Helper()
+			_, at := boxes(model)
+			tt.ClickAt(at[box].Bounds.X+at[box].Bounds.H/2, at[box].Bounds.Y+at[box].Bounds.H/2)
+			tt.Frame()
+		}
+		if got, _ := boxes(0); got != [6]bool{false, true, false, true, false, true} {
+			t.Fatalf("hosted model's boxes %v", got)
+		}
+		if got, _ := boxes(1); got != [6]bool{true, false, false, false, false, false} {
+			t.Fatalf("plain model's boxes %v", got)
+		}
+		hosted, plain := &m.provider.models[0].model, &m.provider.models[1].model
+		if hosted.CustomCapabilities || plain.CustomCapabilities {
+			t.Fatal("unedited tags are the user's own")
+		}
+		// The one Image box keeps the hosted tool the model came with.
+		click(0, 3)
+		if !slices.Equal(hosted.Generates, []string{viewmodel.GenerateSpeech}) || !hosted.CustomCapabilities {
+			t.Fatalf("hosted model without Image: %+v", hosted)
+		}
+		click(0, 3)
+		if !slices.Equal(hosted.Generates, []string{viewmodel.GenerateSpeech, viewmodel.GenerateImageTool}) {
+			t.Fatalf("hosted model with Image again generates %v", hosted.Generates)
+		}
+		click(0, 0)
+		click(0, 2)
+		// A model without the hosted tool generates by the endpoint.
+		click(1, 3)
+		click(1, 4)
+		click(1, 0)
+		if !slices.Equal(plain.Generates, []string{viewmodel.GenerateImage, viewmodel.GenerateVideo}) || plain.Vision || !plain.CustomCapabilities {
+			t.Fatalf("plain model: %+v", plain)
+		}
+		if got, _ := boxes(1); got != [6]bool{false, false, false, true, true, false} {
+			t.Fatalf("plain model's boxes after edits %v", got)
+		}
+		// Tags that are the user's own can be reset: the boxes show the tags
+		// the model came with, which a save leaves to the catalog.
+		resets := func() (found []ui.AccessInfo) {
+			for _, x := range tt.AccessAll() {
+				if x.Role == ui.RoleButton && x.Name == "Reset to model data" {
+					found = append(found, x)
+				}
+			}
+			return
+		}
+		at := resets()
+		if len(at) != 2 {
+			t.Fatalf("%d resets for two edited models", len(at))
+		}
+		tt.ClickAt(at[1].Bounds.X+at[1].Bounds.W/2, at[1].Bounds.Y+at[1].Bounds.H/2)
+		tt.Frame()
+		if got, _ := boxes(1); got != [6]bool{true, false, false, false, false, false} || plain.CustomCapabilities || len(plain.Generates) != 0 || len(resets()) != 1 {
+			t.Fatalf("plain model after its reset: boxes %v, %+v, %d resets", got, plain, len(resets()))
+		}
+		click(1, 3)
+		click(1, 4)
+		click(1, 0)
+		if problem := m.provider.save(m); problem != "" || len(saved) != 1 {
+			t.Fatalf("save: %q, %d drafts", problem, len(saved))
+		}
+		first, second := saved[0].Channel.Models[0], saved[0].Channel.Models[1]
+		if !first.CustomCapabilities || !first.Vision || !first.Tools || !first.Reasoning || !slices.Equal(first.Generates, []string{viewmodel.GenerateSpeech, viewmodel.GenerateImageTool}) {
+			t.Errorf("saved hosted model %+v", first)
+		}
+		if !second.CustomCapabilities || second.Vision || second.Tools || !slices.Equal(second.Generates, []string{viewmodel.GenerateImage, viewmodel.GenerateVideo}) {
+			t.Errorf("saved plain model %+v", second)
+		}
+	})
+	// Each media row offers Follow conversation model and the models tagged
+	// for its purpose, and marks a saved model that cannot run.
+	t.Run("media rows", func(t *testing.T) {
+		s := New()
+		m := s.Model
+		m.MediaOptions = []viewmodel.MediaOption{
+			{Key: "a/see", Label: "A · see", Kinds: []string{"vision"}},
+			{Key: "a/draw", Label: "A · draw", Kinds: []string{"image"}},
+			{Key: "a/all", Label: "A · all", Kinds: []string{"vision", "image", "video", "speech"}},
+			{Key: "b/gone", Label: "B · gone"},
+		}
+		m.Media = stored([4]string{"", "", "", "b/gone"})
+		m.MediaUnavailable = [4]bool{false, false, false, true}
+		var toasts []string
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			providers(c, s)
+			ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
+				toasts = toasts[:0]
+				for _, toast := range shown {
+					toasts = append(toasts, toast.Title)
+				}
+			})
+		}, 900, 1600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		named := func(role ui.Role, name string) (found []ui.AccessInfo) {
+			for _, x := range tt.AccessAll() {
+				if x.Role == role && x.Name == name {
+					found = append(found, x)
+				}
+			}
+			return
+		}
+		// offered opens a row's select and returns its options.
+		offered := func(row string) (labels []string) {
+			t.Helper()
+			trigger := named(ui.RoleMenuButton, row)
+			if len(trigger) != 1 {
+				t.Fatalf("%d selects named %q", len(trigger), row)
+			}
+			tt.ClickAt(trigger[0].Bounds.X+trigger[0].Bounds.W/2, trigger[0].Bounds.Y+trigger[0].Bounds.H/2)
+			tt.Frame()
+			tt.Advance(time.Second)
+			for _, x := range tt.AccessAll() {
+				if x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox {
+					labels = append(labels, x.Name)
+				}
+			}
+			return
+		}
+		choose := func(label string) {
+			t.Helper()
+			for _, x := range tt.AccessAll() {
+				if (x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox) && x.Name == label {
+					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(time.Second)
+					return
+				}
+			}
+			t.Fatalf("no option %q", label)
+		}
+		follow := i18n.In("en", "media_follow")
+		for row, want := range map[string][]string{
+			"Vision": {follow, "A · see", "A · all"},
+			"Image":  {follow, "A · draw", "A · all"},
+			"Video":  {follow, "A · all"},
+			"Speech": {follow, "A · all", "B · gone"},
+		} {
+			if got := offered(row); !slices.Equal(got, want) {
+				t.Errorf("%s offers %q, want %q", row, got, want)
+			}
+			tt.Key(0, ui.KeyEscape)
+			tt.Frame()
+			tt.Advance(time.Second)
+		}
+		unavailable := i18n.In("en", "media_model_unavailable")
+		marked := func() (count int) {
+			for _, x := range tt.AccessAll() {
+				if x.Name == unavailable || x.Value == unavailable {
+					count++
+				}
+			}
+			return
+		}
+		if marked() != 1 {
+			t.Errorf("%d rows marked unavailable, want the Speech row alone", marked())
+		}
+		offered("Image")
+		choose("A · draw")
+		if m.Media.Draft != [4]string{"", "a/draw", "", "b/gone"} || m.Media.Saved != m.Media.Draft {
+			t.Errorf("chosen image model: draft %q, saved %q", m.Media.Draft, m.Media.Saved)
+		}
+		if len(toasts) != 0 {
+			t.Errorf("a saved choice toasted %q", toasts)
+		}
+		// Another choice leaves the row: the unavailable mark is the saved model's.
+		offered("Speech")
+		choose(follow)
+		if marked() != 0 || m.Media.Draft[3] != "" {
+			t.Errorf("after Follow conversation model: %d marks, draft %q", marked(), m.Media.Draft)
 		}
 	})
 	t.Run("context_limits", func(t *testing.T) {

@@ -117,8 +117,11 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	value.Revision = session.Revision
 	value.Config = session.Config
 	value.Roles = session.Roles
-	if err := RefreshTurnRoles(ctx, db, &value.Roles); err != nil {
-		return value, err
+	// A forwarded session keeps the roles its source Node captured.
+	if session.Profile == nil {
+		if err := RefreshTurnRoles(ctx, db, &value.Roles); err != nil {
+			return value, err
+		}
 	}
 	value.Kind = kind
 	var err error
@@ -149,15 +152,24 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if count >= 256 {
 		return value, fault(protocol.ErrorCodeBusy, "session queue is full")
 	}
-	config, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
-	if err != nil {
-		return value, err
+	var selectedProvider *protocol.ConversationProvider
+	if session.Profile != nil {
+		// A forwarded session runs on the provider its source Node captured.
+		selectedProvider = &session.Profile.Provider
+	} else {
+		config, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
+		if err != nil {
+			return value, err
+		}
+		if config != nil && config.Listed {
+			selectedProvider = config.Provider
+		}
 	}
-	if config == nil || !config.Listed || config.Provider == nil || !config.Provider.Enabled {
+	if selectedProvider == nil || !selectedProvider.Enabled {
 		return value, fault(protocol.ErrorCodeNotConfigured, "model provider is unavailable")
 	}
 	var selected bool
-	for _, model := range config.Provider.Models {
+	for _, model := range selectedProvider.Models {
 		if model.ID == session.Config.Model {
 			selected = true
 			break
@@ -193,7 +205,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	captured, err := CaptureProvider(ctx, db, *config.Provider)
+	captured, err := CaptureProvider(ctx, db, *selectedProvider)
 	if err != nil {
 		return value, err
 	}

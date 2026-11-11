@@ -49,7 +49,7 @@ rebuilt each frame from backend data.
 | Type / field | Meaning |
 |---|---|
 | `Context.Models`, `Families` | Models offered and the picker's family rail |
-| `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` feeds the tooltip; `Features` are the feature buttons |
+| `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features, Capabilities}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` feeds the tooltip; `Features` are the feature buttons; `Capabilities` (`Capability{ID, Label, Icon}`) are the row's marks and the rail's capability filter ([media.md](media.md#desktop)) |
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided}` | The queue strip, oldest first; `Guided` is guidance pending for the running turn |
@@ -328,7 +328,9 @@ A package's location control can give an unsent project draft a session base:
 a display name, branch and commit. `live/session_base.go` keeps it with that
 draft until its project or worktree changes. The first send or first attachment
 creates a managed worktree from the base, moves the draft into it and continues
-with the ordinary session creation. The draft is busy meanwhile. A failure
+with the ordinary session creation. The draft is busy meanwhile. The send
+that started the worktree continues as it was captured: text, references or
+attachments entered while the worktree is created stay in the composer. A failure
 leaves the draft and base unchanged; an uncertain result retries its captured
 request rather than creating a second worktree.
 

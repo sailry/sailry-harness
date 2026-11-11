@@ -14,6 +14,13 @@ against the captured catalog. Role instructions and selected complete skill
 documents join the stable policy. Role action budgets retain the source prompt
 and termination behavior.
 
+A package tool bound to `agents.delegate` (the code-review package's
+`delegate_review`) admits a child through the same path. Its host script
+prepares the child's arguments from the ones the model sent. The recorded call
+keeps the name and arguments the model sent and locates the child's origin; the
+prepared arguments describe the child. Store accepts a package alias only when
+the parent turn's captured packages bind it to `agents.delegate`.
+
 Foreground spawns return admitted identities and canonical pending receipts.
 The complete parent tool batch settles before its children become executable.
 Children from that response form one concurrent wave. Their durable final
@@ -56,3 +63,9 @@ owned by its later runtime phase.
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
 conversation feed; ordinary approval ownership remains on the child session.
+
+When `apply_agents` or `apply_team` is offered, the delegation context ends
+with the captured conversation revision and the rule that catalog changes do
+not alter the running turn's roster. `list_roles` is among the operations a
+restricted child role may be granted. The role and team catalog tools are
+described in [Teams and roles](teams.md#agent-catalog-tools).

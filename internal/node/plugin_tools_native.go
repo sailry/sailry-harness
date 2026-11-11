@@ -57,13 +57,19 @@ func (owner *pluginScriptTurn) bindNative(tool, bound engine.Tool, declaration p
 		if !exists {
 			return workspaceToolFault(&protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "plugin tool was not prepared"})
 		}
-		call = prepared
-		output := bound.Execute(ctx, call)
+		// A native tool that locates its call in the conversation keeps the
+		// identity the model sent and executes the prepared arguments.
+		var output engine.ToolResult
+		if bound.ExecutePrepared != nil {
+			output = bound.ExecutePrepared(ctx, call, prepared.Arguments)
+		} else {
+			output = bound.Execute(ctx, prepared)
+		}
 		if handler.Result == nil || output.Failure != nil {
 			return output
 		}
 		var arguments any
-		_ = json.Unmarshal(call.Arguments, &arguments)
+		_ = json.Unmarshal(prepared.Arguments, &arguments)
 		formatted, err := owner.evaluate(ctx, *handler.Result, declaration.Name, call.ID, map[string]any{"arguments": arguments, "output": output.Value}, true)
 		if err != nil {
 			return output

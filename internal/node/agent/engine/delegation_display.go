@@ -40,7 +40,8 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 		case *canonical.ToolResponse:
 			name = value.Name
 		}
-		if !slices.Contains([]string{"spawn_agent", "guide_agent", "wait_agent", "load_skill", "read_skill_resource"}, name) || findTool(owner.tools, name) == nil {
+		manager, catalog := managementLabels[name], slices.Contains(catalogToolNames, name)
+		if !slices.Contains([]string{"spawn_agent", "guide_agent", "wait_agent", "load_skill", "read_skill_resource"}, name) && manager == "" && !catalog || findTool(owner.tools, name) == nil {
 			continue
 		}
 		if record.Metadata.Presentation == nil {
@@ -58,6 +59,9 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 		}
 		p.Tools[name] = protocol.ToolPresentationDetails
 		label := coreLabels()["tool_"+name]
+		if manager != "" {
+			label = coreLabels()[manager]
+		}
 		display := protocol.ToolDisplay{Label: label["en"], Locales: map[string]string{}}
 		for locale, value := range label {
 			if locale != "en" {
@@ -65,6 +69,25 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 			}
 		}
 		field := func(path string) *protocol.ToolDisplayField { return &protocol.ToolDisplayField{Path: path} }
+		if manager != "" {
+			display.Input = &protocol.ToolDisplayInput{Summary: field("/name")}
+			display.Output = managementOutput(name)
+			p.Displays[name] = display
+			continue
+		}
+		if catalog {
+			display.Icon = &protocol.PluginDesktopIcon{Kind: "Name", Data: "reicon:users/users2"}
+			switch name {
+			case "list_agents", "list_teams":
+				p.Tools[name] = protocol.ToolPresentationSummary
+			case "add_agent", "add_team":
+				display.Input = &protocol.ToolDisplayInput{Summary: field("/name")}
+			case "edit_agent", "delete_agent", "edit_team", "delete_team":
+				display.Input = &protocol.ToolDisplayInput{Summary: field("/id")}
+			}
+			p.Displays[name] = display
+			continue
+		}
 		display.Input = &protocol.ToolDisplayInput{}
 		switch name {
 		case "spawn_agent":
@@ -87,4 +110,26 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 		}
 		p.Displays[name] = display
 	}
+}
+
+// managementLabels names the settings label each package manager is shown under.
+var managementLabels = map[string]string{"manage_plugins": "settings_plugins", "manage_skills": "settings_skills", "manage_mcp": "settings_mcp"}
+
+// catalogToolNames are the role and team catalog tools.
+var catalogToolNames = []string{"list_agents", "add_agent", "edit_agent", "delete_agent", "apply_agents", "list_teams", "add_team", "edit_team", "delete_team", "apply_team"}
+
+// managementOutput previews a package change as its name and resulting
+// version, followed by any per-package failures.
+func managementOutput(name string) *protocol.ToolDisplayProjectionOutput {
+	mutations := `{"any":[{"value":{"source":"arguments","path":"/action"},"equals":"install"},{"value":{"source":"arguments","path":"/action"},"equals":"update"},{"value":{"source":"arguments","path":"/action"},"equals":"uninstall"}]}`
+	parts := `{"value":{"source":"arguments","path":"/name"},"when":` + mutations + `}`
+	if version := map[string]string{"manage_plugins": "/summary/version", "manage_skills": "/source/registry/version"}[name]; version != "" {
+		parts += `,{"value":{"source":"result","path":"` + version + `"},"when":` + mutations + `}`
+	}
+	parts += `,{"rows":{"value":{"source":"result","path":"/failures"},"separator":"\n","text":{"separator":": ","parts":[{"value":{"source":"item","path":"/name"}},{"value":{"source":"item","path":"/error/code"}},{"value":{"source":"item","path":"/error/message"}}]}}}`
+	var output protocol.ToolDisplayProjectionOutput
+	if err := json.Unmarshal([]byte(`{"preview":{"separator":" ","parts":[`+parts+`]}}`), &output); err != nil {
+		panic(err)
+	}
+	return &output
 }

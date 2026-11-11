@@ -112,9 +112,20 @@ func (r *Runtime) readTerminalSettings() {
 				settings.Report(c, kit.Failed, settings.TerminalMessages)
 				return
 			}
-			r.acceptTerminalSettings(value, shells)
+			r.acceptTerminalRead(value, shells)
 		})
 	})
+}
+
+// acceptTerminalRead takes a read's answer, unless it is older than the
+// settings held: such a read was answered before a save whose result was
+// accepted since, and would take the page back to what that save replaced.
+// The shells it lists are still the Node's.
+func (r *Runtime) acceptTerminalRead(value protocol.TerminalSettings, shells []protocol.TerminalShell) {
+	if state := &r.terminalSettings; state.known && value.Revision < state.saved.Revision {
+		value = state.saved
+	}
+	r.acceptTerminalSettings(value, shells)
 }
 
 // acceptTerminalSettings takes what the Node holds. A draft that differs

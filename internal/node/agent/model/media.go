@@ -227,6 +227,8 @@ func (call *mediaCall) detail(message string) string {
 	if message == "" {
 		return ""
 	}
+	// Redact before truncation so a cut can never leave a partial credential.
+	message = safeDiagnostic(message, call.secrets)
 	if len(message) > 300 {
 		end := 300
 		for end > 0 && !utf8.RuneStart(message[end]) {
@@ -234,7 +236,7 @@ func (call *mediaCall) detail(message string) string {
 		}
 		message = message[:end]
 	}
-	return ": " + safeDiagnostic(message, call.secrets)
+	return ": " + message
 }
 
 func mediaContextFailure(ctx context.Context) error {

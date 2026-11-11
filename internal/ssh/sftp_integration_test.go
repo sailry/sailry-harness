@@ -498,6 +498,41 @@ func TestSftpIntegration(t *testing.T) {
 		if _, err = inside.TransferSSH(t.Context(), fixture.connect(t), root, core.ManualFiles, protocol.SshTransfer{Path: "source.bin", RemotePath: uploaded, Direction: protocol.SshDirectionUpload}); code(err) != protocol.ErrorCodePermissionDenied {
 			t.Fatalf("Node storage transfer = %v", err)
 		}
+
+		// A registered execution workspace inside the profile transfers both
+		// ways; a link in it is still refused.
+		workspace, err := core.ConnectionWorkspace(root, protocol.ConnectionResource{Kind: "ssh", Data: protocol.NewSshID()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.MkdirAll(workspace, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(workspace, "source.bin"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.Symlink(filepath.Join(root, "source.bin"), filepath.Join(workspace, "linked.bin")); err != nil {
+			t.Fatal(err)
+		}
+		managed := func(direction protocol.SshDirection, path, remotePath string) (uint64, error) {
+			return inside.TransferSSH(t.Context(), fixture.connect(t), workspace, core.ManualFiles, protocol.SshTransfer{Path: path, RemotePath: remotePath, Direction: direction})
+		}
+		sent := filepath.Join(remote, "workspace.bin")
+		if size, err := managed(protocol.SshDirectionUpload, "source.bin", sent); err != nil || size != uint64(len(data)) {
+			t.Fatalf("workspace upload = %d, %v", size, err)
+		}
+		if size, err := managed(protocol.SshDirectionDownload, "received.bin", sent); err != nil || size != uint64(len(data)) {
+			t.Fatalf("workspace download = %d, %v", size, err)
+		}
+		if received, err := os.ReadFile(filepath.Join(workspace, "received.bin")); err != nil || !bytes.Equal(received, data) {
+			t.Fatalf("workspace download wrote %d bytes, %v", len(received), err)
+		}
+		if _, err := managed(protocol.SshDirectionUpload, "linked.bin", filepath.Join(remote, "linked.bin")); err == nil {
+			t.Fatal("workspace upload followed a link")
+		}
+		if _, err := os.Lstat(filepath.Join(remote, "linked.bin")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("linked upload reached the remote: %v", err)
+		}
 	})
 
 	t.Run("run", func(t *testing.T) {

@@ -1908,3 +1908,24 @@ updates_install_uncertain: The installation outcome is unconfirmed; the original
 updates_receipt_failed: The update was installed; could not save recovery details
 updates_profile_inside: The data profile is inside Sailry; move it before updating
 compatibility_update_unavailable: This version is not available for automatic update yet
+settings_media: Media models
+provider_cap_vision: Vision
+provider_cap_tools: Tools
+provider_cap_reasoning: Reasoning
+provider_cap_image: Image generation
+provider_cap_video: Video generation
+media_speech_synthesis: Speech synthesis
+media_model_unavailable: Model unavailable
+media_conflict: Settings changed; select again
+media_unknown: Save outcome is unknown; check the current settings
+media_failed: Save failed
+provider_capabilities: Capabilities
+provider_cap_understands: Understands
+provider_cap_can: Can
+provider_cap_generates: Generates
+provider_cap_reset: Reset to model data
+media_image: Image
+media_video: Video
+media_speech: Speech
+media_follow: Follow conversation model
+media_load_failed: Could not read media models

@@ -39,13 +39,21 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 			}
 			switch name {
 			case "spawn_agent":
-				return r.spawnChild(x, call)
+				return r.spawnChild(x, call, call.Arguments)
 			case "guide_agent":
 				return r.guideChild(x, call)
 			default:
 				return r.waitChild(x, call)
 			}
 		})
+		if name == "spawn_agent" {
+			tool.ExecutePrepared = func(ctx context.Context, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
+				if ctx.Err() != nil || x.ctx.Err() != nil {
+					return invalidTool("delegation is no longer active")
+				}
+				return r.spawnChild(x, call, arguments)
+			}
+		}
 		tool.Delegation = true
 		tool.Deferred = x.inv.Turn.Config.Mode != protocol.WorkModeFlagship && selectedRole(x.inv.Message) == nil
 		values = append(values, tool)
@@ -117,6 +125,19 @@ func (r *Runtime) usableRole(x *execution, role protocol.RoleProfile) bool {
 }
 
 func (r *Runtime) delegationContext(x *execution, state store.AgentState) string {
+	text := r.delegationRoster(x, state)
+	// Catalog changes never rebase the captured turn; application names the
+	// exact conversation revision it replaces.
+	if findTool(x.tools, "apply_agents") != nil || findTool(x.tools, "apply_team") != nil {
+		if text != "" {
+			text += "\n"
+		}
+		text += fmt.Sprintf("Captured conversation revision: %d. Catalog changes do not change this turn's roster. Explicit application affects future admission only; use the exact inspected revision and never silently rebase a conflict.", x.inv.Turn.Revision)
+	}
+	return text
+}
+
+func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string {
 	if !delegationAvailable(x) {
 		return ""
 	}
@@ -147,12 +168,14 @@ func (r *Runtime) delegationContext(x *execution, state store.AgentState) string
 	return text + fmt.Sprintf("\nConcurrency budget: up to %d children run at once in this conversation; later children queue in FIFO order.", x.childBudget)
 }
 
-func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest) ToolResult {
+// spawnChild admits a child for call. arguments are the ones that execute:
+// the call's own, or those a package tool prepared from them.
+func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
 	var args struct {
 		Role       *string `json:"role"`
 		Background bool    `json:"background"`
 	}
-	if json.Unmarshal(call.Arguments, &args) != nil {
+	if json.Unmarshal(arguments, &args) != nil {
 		return invalidTool("invalid delegation arguments")
 	}
 	if args.Role != nil && !slices.ContainsFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool { return role.Key == *args.Role && r.usableRole(x, role) }) {
@@ -168,7 +191,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest) ToolResul
 		selected = &copy
 	}
 	return r.admitChild(x, call, args.Background, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
-		inv, events, err := store.DelegateAgent(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), selected, args.Background, r.clock.Now())
+		inv, events, err := store.DelegatePrepared(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, selected, args.Background, r.clock.Now())
 		return &inv, events, err
 	})
 }

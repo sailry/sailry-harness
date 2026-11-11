@@ -1908,3 +1908,24 @@ updates_install_uncertain: インストール結果は確認されていませ�
 updates_receipt_failed: 更新はインストールされましたが、回復の詳細を保存できませんでした
 updates_profile_inside: データプロファイルは Sailry の中にあります。更新する前に移動してください
 compatibility_update_unavailable: このバージョンはまだ自動更新できません
+settings_media: メディアモデル
+provider_cap_vision: ビジョン
+provider_cap_tools: ツール
+provider_cap_reasoning: 推論
+provider_cap_image: イメージ生成
+provider_cap_video: ビデオ生成
+media_speech_synthesis: 音声合成
+media_model_unavailable: モデルが利用できません
+media_conflict: 設定が変更されました。もう一度選択してください
+media_unknown: 保存結果が不明です。現在の設定を確認してください
+media_failed: 保存に失敗
+provider_capabilities: Capabilities
+provider_cap_understands: Understands
+provider_cap_can: Can
+provider_cap_generates: Generates
+provider_cap_reset: Reset to model data
+media_image: Image
+media_video: Video
+media_speech: Speech
+media_follow: Follow conversation model
+media_load_failed: Could not read media models

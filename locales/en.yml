@@ -323,3 +323,13 @@ git_switch_confirm: "Switch to %{branch}"
 git_switch_confirm_action: "Switch"
 git_switch_confirm_detail: "Sessions, terminals and open files in this worktree all move to this branch."
 connector_consent_effect: Allow the changed connection permissions
+provider_capabilities: Capabilities
+provider_cap_understands: Understands
+provider_cap_can: Can
+provider_cap_generates: Generates
+provider_cap_reset: Reset to model data
+media_image: Image
+media_video: Video
+media_speech: Speech
+media_follow: Follow conversation model
+media_load_failed: Could not read media models

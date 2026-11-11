@@ -4,8 +4,8 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -62,7 +62,7 @@ func browserValue(value any) protocol.BrowserResult {
 // workers on that thread.
 func browserMain[T any](ctx context.Context, work func() T) (T, bool) {
 	done := make(chan T, 1)
-	go mygo.RunOnMain(func() { done <- work() })
+	go mygo.RunOnMain(func() { browserQueued(ctx, done, work) })
 	select {
 	case value := <-done:
 		return value, true
@@ -70,6 +70,24 @@ func browserMain[T any](ctx context.Context, work func() T) (T, bool) {
 		var zero T
 		return zero, false
 	}
+}
+
+// browserQueued is a queued action's turn on the main thread. An action
+// whose call ended while it waited there does not run: the Node has given
+// the call up and the agent may already be acting on its answer.
+func browserQueued[T any](ctx context.Context, done chan<- T, work func() T) {
+	if ctx.Err() == nil {
+		done <- work()
+	}
+}
+
+// browserEnded is the result of a call cut short: by its own deadline, or by
+// the browser's service closing.
+func browserEnded(ctx context.Context) protocol.BrowserResult {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return browserFailure(protocol.ErrorCodeCancelled, "browser call expired")
+	}
+	return browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
 }
 
 func browserSleep(ctx context.Context, duration time.Duration) bool {
@@ -85,7 +103,8 @@ func browserSleep(ctx context.Context, duration time.Duration) bool {
 
 // executeBrowserCall runs one of the agent's browser actions against the
 // tabs of its session. The WebView is the execution adapter; authorization
-// lives on the Node.
+// lives on the Node. ctx ends with the call (ServeBrowser), which bounds
+// every step and a wait whose own timeout is longer.
 func (r *Runtime) executeBrowserCall(ctx context.Context, owner *Runtime, call protocol.BrowserCall) protocol.BrowserResult {
 	if uint64(time.Now().UnixMilli()) >= call.ExpiresAtMs || ctx.Err() != nil {
 		return browserFailure(protocol.ErrorCodeCancelled, "browser call expired")
@@ -101,7 +120,7 @@ func (r *Runtime) executeBrowserCall(ctx context.Context, owner *Runtime, call p
 		return plan
 	})
 	if !ran {
-		return browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+		return browserEnded(ctx)
 	}
 	if plan.result != nil {
 		return *plan.result
@@ -122,7 +141,7 @@ func (r *Runtime) executeBrowserCall(ctx context.Context, owner *Runtime, call p
 		// Let the web engine publish a navigation started by a click or by
 		// going back before the document is inspected.
 		if !browserSleep(ctx, 100*time.Millisecond) {
-			return browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+			return browserEnded(ctx)
 		}
 	}
 	if failure := browserLoaded(ctx, plan, deadline); failure != nil {
@@ -140,7 +159,7 @@ func (r *Runtime) executeBrowserCall(ctx context.Context, owner *Runtime, call p
 			return browserFailure(protocol.ErrorCodeUnavailable, "browser wait timed out")
 		}
 		if !browserSleep(ctx, 100*time.Millisecond) {
-			return browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+			return browserEnded(ctx)
 		}
 	}
 	read, _ := json.Marshal(map[string]string{"action": "read", "snapshot": protocol.NewRequestID().String()})
@@ -170,10 +189,8 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 		if tab == nil || tab.node != node {
 			continue
 		}
-		// A tab opened in the draft that became this session is its own.
-		if tab.conversation != session && selected && (tab.conversation == "" || strings.HasPrefix(tab.conversation, "draft/")) {
-			tab.conversation = session
-		}
+		// A tab opened in the draft that became this session is already its
+		// own (browserAdopt); another conversation's tab never is.
 		if tab.conversation == session {
 			tabs = append(tabs, tab)
 		}
@@ -271,7 +288,7 @@ func browserLoaded(ctx context.Context, plan browserPlan, deadline time.Time) *p
 		var failure protocol.BrowserResult
 		switch {
 		case !ran:
-			failure = browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+			failure = browserEnded(ctx)
 		case current.failed:
 			failure = browserFailure(protocol.ErrorCodeUnavailable, "browser page failed to load")
 		case !current.loading:
@@ -279,7 +296,7 @@ func browserLoaded(ctx context.Context, plan browserPlan, deadline time.Time) *p
 		case !time.Now().Before(deadline):
 			failure = browserFailure(protocol.ErrorCodeUnavailable, "browser page is still loading; read it again")
 		case !browserSleep(ctx, 50*time.Millisecond):
-			failure = browserFailure(protocol.ErrorCodeCancelled, "browser is closed")
+			failure = browserEnded(ctx)
 		default:
 			continue
 		}

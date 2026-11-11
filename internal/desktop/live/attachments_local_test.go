@@ -21,7 +21,8 @@ import (
 )
 
 func TestAttachmentLocalIO(t *testing.T) {
-	t.Parallel()
+	// The first subtests draw with a ui.Tester, whose font atlas every
+	// tester shares: they run before this test joins the parallel ones.
 	t.Run("remote transfer dialog retains its cancel owner", func(t *testing.T) {
 		local := &Runtime{}
 		cancelled := 0
@@ -46,6 +47,7 @@ func TestAttachmentLocalIO(t *testing.T) {
 	})
 	t.Run("workspace uploads", testWorkspaceUploads)
 	t.Run("ssh transfers", testSshTransferBridge)
+	t.Parallel()
 	t.Run("source evidence and limits", func(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, "input.txt")

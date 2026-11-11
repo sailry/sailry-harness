@@ -12,6 +12,11 @@ import (
 // the call with complete_browser. It subscribes again a second after the
 // subscription or a completion fails, and returns when ctx ends. A lost
 // completion is not permission to replay a browser action.
+//
+// The context handle gets ends when the Node stops waiting for the call
+// (ExpiresAtMs), so that one call cannot hold the calls behind it. The Node
+// answers the completion of a call it gave up on with a fault, which says
+// nothing about the subscription.
 func (client *Client) ServeBrowser(ctx context.Context, handle func(context.Context, protocol.BrowserCall) protocol.BrowserResult) error {
 	for {
 		if stream, err := client.Subscribe(ctx, protocol.Topic{Kind: "browser"}); err == nil {
@@ -29,8 +34,11 @@ func (client *Client) ServeBrowser(ctx context.Context, handle func(context.Cont
 				default:
 					continue
 				}
-				result := handle(ctx, call)
-				if _, err := client.Do(ctx, protocol.Command{Kind: "complete_browser", Data: protocol.CommandCompleteBrowserPayload{ID: call.ID, Result: result}}); err != nil {
+				within, cancel := context.WithDeadline(ctx, time.UnixMilli(int64(call.ExpiresAtMs)))
+				result := handle(within, call)
+				expired := within.Err() != nil
+				cancel()
+				if _, err := client.Do(ctx, protocol.Command{Kind: "complete_browser", Data: protocol.CommandCompleteBrowserPayload{ID: call.ID, Result: result}}); err != nil && !expired {
 					break
 				}
 			}

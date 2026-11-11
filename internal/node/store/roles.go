@@ -48,7 +48,10 @@ func validRolePackage(value string) bool {
 	}
 	return true
 }
-func validateRole(role protocol.RoleProfile) error {
+
+// ValidateRole reports what a role definition alone makes invalid. A caller
+// that asks for approval of a definition checks it first.
+func ValidateRole(role protocol.RoleProfile) error {
 	if role.ID == (protocol.RoleID{}) || !roleKey(role.Key) || strings.TrimSpace(role.Name) == "" || role.MaxTurns != nil && *role.MaxTurns == 0 {
 		return invalid("role key, name or turn limit is invalid")
 	}
@@ -132,7 +135,7 @@ func listedRoleProvider(ctx context.Context, db *sql.Conn, id protocol.ProviderI
 	return *stored.Provider, nil
 }
 func putRole(ctx context.Context, db *sql.Conn, role protocol.RoleProfile, expected uint64) (protocol.RoleProfile, error) {
-	if err := validateRole(role); err != nil {
+	if err := ValidateRole(role); err != nil {
 		return role, err
 	}
 	current, err := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", role.ID.String())
@@ -176,14 +179,33 @@ func putRole(ctx context.Context, db *sql.Conn, role protocol.RoleProfile, expec
 	_, err = db.ExecContext(ctx, "INSERT INTO roles(id,key,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body", role.ID.String(), role.Key, body)
 	return role, err
 }
-func putTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile, expected uint64) (protocol.TeamProfile, error) {
+
+// ValidateTeam reports what a team definition alone makes invalid, before
+// its members and model are resolved against the catalog.
+func ValidateTeam(team protocol.TeamProfile) error {
 	if team.ID == (protocol.TeamID{}) || !roleKey(team.Key) || team.Key == "default" || strings.TrimSpace(team.Name) == "" {
-		return team, invalid("team key or name is invalid")
+		return invalid("team key or name is invalid")
 	}
 	if team.Appearance != nil {
 		if err := validateAppearance(*team.Appearance); err != nil {
-			return team, err
+			return err
 		}
+	}
+	if team.Model != nil && strings.TrimSpace(team.Model.Model) == "" {
+		return invalid("team model identifier is invalid")
+	}
+	seen := map[protocol.RoleID]bool{}
+	for _, id := range team.Members {
+		if seen[id] {
+			return invalid("team members must be distinct")
+		}
+		seen[id] = true
+	}
+	return nil
+}
+func putTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile, expected uint64) (protocol.TeamProfile, error) {
+	if err := ValidateTeam(team); err != nil {
+		return team, err
 	}
 	current, err := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", team.ID.String())
 	if err != nil {
@@ -203,12 +225,7 @@ func putTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile, expec
 	if used {
 		return team, fault(protocol.ErrorCodeConflict, "team key is already in use")
 	}
-	seen := map[protocol.RoleID]bool{}
 	for _, id := range team.Members {
-		if seen[id] {
-			return team, invalid("team members must be distinct")
-		}
-		seen[id] = true
 		role, err := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", id.String())
 		if err != nil {
 			return team, err

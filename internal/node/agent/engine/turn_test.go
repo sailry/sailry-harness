@@ -413,6 +413,60 @@ func TestQueueOrder(t *testing.T) {
 	if !reflect.DeepEqual(inputs, []string{"First", "Second"}) {
 		t.Fatalf("queue order=%v", inputs)
 	}
+	// A turn that is already running is not started again: its pending row
+	// stays until the input is recorded, and a durable row forced back to
+	// queued still gets no second owner.
+	t.Run("running turn is not restarted", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(text("Only reply"), finish())}}
+		f := newFixture(t, m)
+		entered, release := make(chan struct{}), make(chan struct{})
+		var once, released sync.Once
+		f.r.model = func(context.Context, model.Binding) (fantasy.LanguageModel, error) {
+			held := false
+			once.Do(func() { held = true })
+			if held {
+				close(entered)
+				<-release
+			}
+			return m, nil
+		}
+		f.start()
+		t.Cleanup(func() { released.Do(func() { close(release) }) })
+		turn := f.submit("Once")
+		<-entered
+		request := protocol.NewRequest(f.node, protocol.Command{Kind: "start_queued_turn", Data: &protocol.CommandStartQueuedTurnPayload{Turn: turn}})
+		err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			_, _, err := store.ExecuteAgentCommand(f.ctx, db, f.node, f.r.profile, f.node, request, f.r.clock.Now())
+			return err
+		})
+		var refused *protocol.Fault
+		if !errors.As(err, &refused) || refused.Code != protocol.ErrorCodeConflict || refused.Message != "turn input has already been consumed" {
+			t.Fatalf("restart of a running turn = %v", err)
+		}
+		if run := f.waitRun(turn, protocol.ConversationStatusRunning); run.StartedMs == nil {
+			t.Fatalf("refused restart changed the run: %+v", run)
+		}
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			_, err := db.ExecContext(f.ctx, "UPDATE agent_runs SET ready=1,body=json_set(body,'$.status','queued') WHERE turn=?1", turn.String())
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		f.r.Wake()
+		f.waitRun(turn, protocol.ConversationStatusRunning)
+		released.Do(func() { close(release) })
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		f.r.Stop()
+		inputs := 0
+		for _, record := range f.state().Records {
+			if record.Provenance.Author == "user" {
+				inputs++
+			}
+		}
+		if m.count() != 1 || inputs != 1 {
+			t.Fatalf("requests=%d inputs=%d, want one of each", m.count(), inputs)
+		}
+	})
 }
 func TestStopSealsInterrupted(t *testing.T) {
 	partial := make(chan struct{})

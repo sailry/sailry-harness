@@ -136,6 +136,21 @@ func (r *Runtime) browserTabFor(id string) *browserTab {
 	return tab
 }
 
+// browserAdopt gives the tabs opened in a draft to the session that draft
+// became on this runtime's Node, which a draft's location may have changed
+// since the tab opened. No other tab changes its conversation.
+func (r *Runtime) browserAdopt(draft, session string) {
+	state := r.localRuntime().browser
+	if state == nil {
+		return
+	}
+	for _, tab := range state.tabs {
+		if tab.conversation == draft {
+			tab.node, tab.conversation = r.controller.Target(), session
+		}
+	}
+}
+
 // browserLoad shows an address in a tab, making its WebView on the first one.
 // The page is untrusted: it calls nothing of the app, gets no permission,
 // opens no window, downloads nothing and stays on HTTP(S).

@@ -138,7 +138,10 @@ func (r *Runtime) aboutFrame(c *ui.Context) {
 	if r.updatesFocused != nil && !r.updatesFocused() {
 		return
 	}
-	about := func() { r.App.Page, m.Section = shell.SettingsPage, settings.About }
+	about := func() {
+		m.Open(settings.About)
+		r.App.Navigate(shell.SettingsPage)
+	}
 	for _, notice := range service.Notices() {
 		switch {
 		case notice.Version != "":

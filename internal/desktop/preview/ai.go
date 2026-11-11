@@ -42,29 +42,31 @@ type Providers struct {
 	Brands     []Brand
 	Catalog    Catalog
 	Compaction float64 // the threshold, percent
+	// Media are the enabled channels' models the media settings offer.
+	Media []viewmodel.MediaOption
 }
 
 // ProvidersData builds the providers' dataset, fresh each call.
 func ProvidersData() *Providers {
 	efforts := []string{"low", "medium", "high"}
-	return &Providers{
+	d := &Providers{
 		Catalog: Catalog{Updated: true, Scores: true, Last: "2026-11-08 09:30"}, Compaction: 80,
 		Channels: []Channel{
 			{ID: "anthropic", Name: "Anthropic", Brand: "anthropic", Method: "claude-login", API: "Anthropic Messages", Auth: AuthOAuth,
 				Enabled: true, SignedIn: true, Account: "dev@example.com", Quota: &Quota{FiveHour: 62, SevenDay: 81},
 				Models: []ChannelModel{
-					{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Context: 1000000, Output: 64000, Efforts: efforts},
-					{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Context: 1000000, Output: 64000, Efforts: efforts},
-					{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5", Context: 200000, Output: 32000},
+					{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Context: 1000000, Output: 64000, Efforts: efforts, Vision: true, Tools: true, Reasoning: true},
+					{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Context: 1000000, Output: 64000, Efforts: efforts, Vision: true, Tools: true, Reasoning: true},
+					{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5", Context: 200000, Output: 32000, Vision: true, Tools: true},
 				}},
 			{ID: "openai", Name: "OpenAI", Brand: "openai", Method: "openai-key", API: "OpenAI Responses", Auth: AuthKey, Enabled: true, KeySet: true,
 				Models: []ChannelModel{
-					{ID: "gpt-5.2", Name: "GPT-5.2", Context: 400000, Output: 128000, Efforts: efforts},
-					{ID: "gpt-5.2-mini", Name: "GPT-5.2 mini", Context: 400000, Output: 128000, Efforts: efforts},
-					{ID: "o5", Name: "o5", Context: 200000, Output: 100000, Efforts: efforts},
-					{ID: "gpt-4.1", Name: "GPT-4.1", Context: 1000000, Output: 32000},
-					{ID: "gpt-4.1-mini", Name: "GPT-4.1 mini", Context: 1000000, Output: 32000},
-					{ID: "gpt-image-2", Name: "GPT Image 2"},
+					{ID: "gpt-5.2", Name: "GPT-5.2", Context: 400000, Output: 128000, Efforts: efforts, Vision: true, Tools: true, Reasoning: true, Generates: []string{viewmodel.GenerateImageTool}},
+					{ID: "gpt-5.2-mini", Name: "GPT-5.2 mini", Context: 400000, Output: 128000, Efforts: efforts, Vision: true, Tools: true, Reasoning: true},
+					{ID: "o5", Name: "o5", Context: 200000, Output: 100000, Efforts: efforts, Tools: true, Reasoning: true},
+					{ID: "gpt-4.1", Name: "GPT-4.1", Context: 1000000, Output: 32000, Vision: true, Tools: true},
+					{ID: "gpt-4.1-mini", Name: "GPT-4.1 mini", Context: 1000000, Output: 32000, Vision: true, Tools: true},
+					{ID: "gpt-image-2", Name: "GPT Image 2", Generates: []string{viewmodel.GenerateImage}},
 					{ID: "text-embedding-4", Name: "Embedding 4"},
 				}},
 			{ID: "google", Name: "Google", Brand: "google", Method: "gemini-key", API: "Gemini", Auth: AuthKey,
@@ -104,6 +106,14 @@ func ProvidersData() *Providers {
 			}},
 		},
 	}
+	for _, ch := range d.Channels {
+		for _, x := range ch.Models {
+			if kinds := viewmodel.Capabilities(x.Vision, x.Generates); ch.Enabled && len(kinds) > 0 {
+				d.Media = append(d.Media, viewmodel.MediaOption{Key: ch.ID + "/" + x.ID, Label: ch.Name + " · " + x.Name, Kinds: kinds})
+			}
+		}
+	}
+	return d
 }
 
 // Discovered are the models a provider's model listing returns in the

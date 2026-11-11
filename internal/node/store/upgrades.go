@@ -10,7 +10,9 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"strings"
 
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -56,6 +58,89 @@ const checkpointWatermarkPending = "SELECT coalesce((SELECT max(rowid) FROM file
 
 const missingArtifactKind = "CASE WHEN json_valid(body) THEN json_type(body)='object' AND json_type(body,'$.kind') IS NULL ELSE 0 END"
 
+// rawSecretRequest selects the admissions of secret-bearing commands that an
+// earlier build stored as their serialized request.
+var rawSecretRequest = func() string {
+	var kinds []string
+	for _, kind := range protocol.CommandKinds() {
+		if admission.DigestOnly(kind) {
+			kinds = append(kinds, "'"+kind+"'")
+		}
+	}
+	return "CASE WHEN json_valid(CAST(body AS TEXT)) THEN json_extract(CAST(body AS TEXT),'$.command.kind') IN (" + strings.Join(kinds, ",") + ") ELSE 0 END"
+}()
+
+func ledgerSecretsPending(ctx context.Context, connection *sql.Conn) (bool, error) {
+	var pending bool
+	err := connection.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM requests WHERE "+rawSecretRequest+")").Scan(&pending)
+	return pending, err
+}
+
+// digestLedgerSecrets replaces each such body by the digest that admission
+// stores now, so replay, conflict detection and inspection are unchanged. The
+// replaced bytes are overwritten rather than left in freed space.
+func digestLedgerSecrets(ctx context.Context, connection *sql.Conn) error {
+	rows, err := connection.QueryContext(ctx, "SELECT caller,id,body FROM requests WHERE "+rawSecretRequest)
+	if err != nil {
+		return err
+	}
+	type identity struct {
+		caller []byte
+		id     string
+		body   []byte
+	}
+	var pending []identity
+	for rows.Next() {
+		var row identity
+		if err := rows.Scan(&row.caller, &row.id, &row.body); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		row.body = admission.CredentialBody(row.body)
+		pending = append(pending, row)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil || len(pending) == 0 {
+		return err
+	}
+	var previous int
+	if err := connection.QueryRowContext(ctx, "PRAGMA secure_delete").Scan(&previous); err != nil {
+		return err
+	}
+	var enabled int
+	if err := connection.QueryRowContext(ctx, "PRAGMA secure_delete=ON").Scan(&enabled); err != nil {
+		return err
+	}
+	if enabled != 1 {
+		return errors.New("secure deletion is unavailable; existing data was not changed")
+	}
+	for _, row := range pending {
+		if _, err = connection.ExecContext(ctx, "UPDATE requests SET body=?3 WHERE caller=?1 AND id=?2", row.caller, row.id, row.body); err != nil {
+			break
+		}
+	}
+	mode := [...]string{"OFF", "ON", "FAST"}[min(max(previous, 0), 2)]
+	var restored int
+	return errors.Join(err, connection.QueryRowContext(ctx, "PRAGMA secure_delete="+mode).Scan(&restored))
+}
+
+// digestLedgerCopy applies the same replacement to a closed database copy.
+func digestLedgerCopy(ctx context.Context, path string) error {
+	handle, err := OpenHandle(ctx, path)
+	if err != nil {
+		return err
+	}
+	if err := handle.Write(ctx, func(connection *sql.Conn) error { return digestLedgerSecrets(ctx, connection) }); err != nil {
+		return errors.Join(err, handle.Close())
+	}
+	// Pausing folds the log into the copy, whose pages still precede the
+	// replacement, and truncates it.
+	closed, err := handle.Pause(ctx)
+	if err != nil {
+		return errors.Join(err, handle.Close())
+	}
+	return closed.Close()
+}
+
 func upgradesNeeded(ctx context.Context, connection *sql.Conn) (bool, error) {
 	for _, table := range []string{"artifacts", "artifact_revisions"} {
 		var pending bool
@@ -78,6 +163,9 @@ func upgradesNeeded(ctx context.Context, connection *sql.Conn) (bool, error) {
 
 func applyUpgrades(ctx context.Context, connection *sql.Conn) error {
 	if err := upgradeToolMetadata(ctx, connection); err != nil {
+		return err
+	}
+	if err := digestLedgerSecrets(ctx, connection); err != nil {
 		return err
 	}
 	var pending bool

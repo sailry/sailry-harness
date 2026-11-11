@@ -20,6 +20,15 @@ their declaring package's authentication target in the existing `auth` field.
 Reading a key is an explicit API-key-only settings command. Removing a provider
 clears listing state and retains its authorizations and historical captures.
 
+A session forwarded from a paired Node brings its provider with it
+([node.md](node.md#session-forwarding)). That provider, and each provider its
+roles use, is stored as an unlisted record under a new provider and credential
+ID, so it cannot alias a provider configured here. It appears in no provider
+list and cannot be edited; its credential metadata is listed like any other.
+Only API keys and Copilot grants leave their Node; a Copilot grant renews on an
+unlisted record, every other account kind requires a listed provider. The record
+is deleted when its session is removed.
+
 `store.PrepareProviderCommand` captures current provider, revision and credential
 facts inside the SQL owner. `providers.Run` performs explicitly requested HTTP work
 outside SQL. `store.ExecuteProviderCommand` checks the captured revision again,
@@ -107,7 +116,9 @@ use 30 seconds, 4 MiB and conditional ETags. Partner suggestions use 15 seconds 
 Automatic capabilities come from provider metadata and the stored reference
 catalog. A model saved with `custom_capabilities` keeps its saved `vision`,
 `tools`, `reasoning` and `generates` tags through refresh and discovery
-([media.md](media.md)). Refresh preserves configured token limits, custom effort choices and
+([media.md](media.md)). Requests follow the same rule: the saved `reasoning` tag
+of such a model decides whether reasoning parameters are sent, and discovery's
+reasoning capability decides only for models the user has not tagged. Refresh preserves configured token limits, custom effort choices and
 compaction overrides. Catalog lookups merge shared IDs conservatively across
 providers. Scores cover published model benchmarks and are separate from Sailry
 session usage; no provider account history is collected.
@@ -174,6 +185,13 @@ Repeated visible file reads can reuse earlier complete ranges; visibility change
 or compaction membership invalidate that reuse. Numbered file/search/edit and
 persisted-result page previews affect only the outgoing copy. Image and MCP
 annotations limit assistant audiences before request serialization and compaction.
+
+The provider editor's capability boxes and the Providers page's Media models
+group are described in [media.md](media.md#desktop). A model the user tagged
+is saved with `custom_capabilities` and its boxes as tags; the editor never
+turns a discovered `image_tool` into `image` while the box stays ticked.
+Reset to model data sends the model without `custom_capabilities`, and the
+save completes its tags from the catalog as for a model never tagged.
 
 The provider editor requires a positive context limit within the v1 `uint32`
 range and at least the model's output limit. It rejects an empty or oversized

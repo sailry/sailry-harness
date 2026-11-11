@@ -58,4 +58,17 @@ func checkTerminalSettingsHelpers(t *testing.T) {
 	if _, err := request.MarshalJSON(); err != nil {
 		t.Errorf("request does not encode: %v", err)
 	}
+
+	// A read answered before a save that was accepted since does not take
+	// the page back; a newer one is taken.
+	r := &Runtime{}
+	r.acceptTerminalSettings(saved, offered)
+	r.acceptTerminalRead(protocol.TerminalSettings{Revision: 3, Shell: "/bin/bash"}, offered)
+	if state := r.terminalSettings; state.saved.Revision != 4 || state.saved.Shell != "/opt/fish" || state.model.Revision != 4 || state.model.Saved.Shell != 3 {
+		t.Errorf("an older read left %+v, model %+v", state.saved, state.model)
+	}
+	r.acceptTerminalRead(protocol.TerminalSettings{Revision: 5, Shell: "/bin/bash"}, offered)
+	if state := r.terminalSettings; state.saved.Revision != 5 || state.model.Revision != 5 || state.model.Saved.Shell != 2 {
+		t.Errorf("a newer read left %+v, model %+v", state.saved, state.model)
+	}
 }

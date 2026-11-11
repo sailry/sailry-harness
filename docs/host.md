@@ -150,6 +150,13 @@ port stream that fails to open is released on the Node with `cancel_port` even
 when the caller's cancellation caused the failure; that cleanup waits at most
 two seconds.
 
+A session on a remote Host can use a provider configured only on this Desktop:
+the local Node forwards the provider, a transferable secret and the roles over
+the paired Link, and the Host keeps them private to that session
+([node.md](node.md#session-forwarding)). The secret travels Node to Node and
+never reaches a controller. The Desktop composer does not send this yet; it
+still lists the selected Host's own providers.
+
 ## Host task automation
 
 `cmd/sailry-host` and `internal/hostctl` serve noninteractive `submit` and `wait`

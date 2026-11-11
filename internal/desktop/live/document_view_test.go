@@ -2,12 +2,15 @@ package live
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/png"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // TestDocumentSandboxNoBridge covers what a session document's page is given:
@@ -64,6 +67,38 @@ func testBrowserAddress(t *testing.T) {
 		if browserAddress(address) {
 			t.Fatalf("browser loads %q", address)
 		}
+	}
+}
+
+// testBrowserDeadline covers a browser call that ended before its action's
+// turn on the main thread: the action does not run, and the call reports its
+// own deadline rather than a closed browser.
+func testBrowserDeadline(t *testing.T) {
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	done, runs := make(chan int, 2), 0
+	work := func() int { runs++; return runs }
+	browserQueued(expired, done, work)
+	if runs != 0 || len(done) != 0 {
+		t.Fatalf("a queued browser action ran %d times after its call ended", runs)
+	}
+	if result := browserEnded(expired); result.Err == nil || result.Err.Code != protocol.ErrorCodeCancelled || result.Err.Message != "browser call expired" {
+		t.Fatalf("an expired call ended as %+v", result.Err)
+	}
+	if browserSleep(expired, time.Hour) {
+		t.Fatal("a browser wait outlasted its call")
+	}
+	if result := (&Runtime{}).executeBrowserCall(expired, nil, protocol.BrowserCall{ExpiresAtMs: uint64(time.Now().Add(time.Hour).UnixMilli())}); result.Err == nil || result.Err.Code != protocol.ErrorCodeCancelled {
+		t.Fatalf("a call whose context ended ran: %+v", result)
+	}
+	closed, stop := context.WithCancel(t.Context())
+	stop()
+	if result := browserEnded(closed); result.Err == nil || result.Err.Message != "browser is closed" {
+		t.Fatalf("a closed browser ended a call as %+v", result.Err)
+	}
+	browserQueued(t.Context(), done, work)
+	if runs != 1 || <-done != 1 {
+		t.Fatalf("a queued browser action of a live call ran %d times", runs)
 	}
 }
 

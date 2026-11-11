@@ -136,7 +136,7 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 			trustTitle = i18n.T(c, "ssh_key_changed")
 		}
 		open := true
-		if ui.AlertDialog(c.Key("host-update-key-"+state.view.ID), &open, trustTitle, trust.Host+"\n"+trust.Algorithm+"\n"+trust.Fingerprint, i18n.T(c, "settings_cancel"), i18n.T(c, "ssh_trust")) == 1 {
+		if kit.AlertDialog(c.Key("host-update-key-"+state.view.ID), &open, trustTitle, trust.Host+"\n"+trust.Algorithm+"\n"+trust.Fingerprint, i18n.T(c, "settings_cancel"), i18n.T(c, "ssh_trust")) == 1 {
 			r.App.Settings.HostTrust = nil
 			trust.Confirm()
 		}

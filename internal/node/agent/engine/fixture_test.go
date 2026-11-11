@@ -156,7 +156,7 @@ func newFixture(t *testing.T, m *scriptedModel, tools ...Tool) *engineFixture {
 		config.Mode = protocol.WorkModeCode
 		config.Permission = protocol.PermissionAsk
 		request := protocol.NewRequest(node, protocol.Command{Kind: "create_session", Data: &protocol.CommandCreateSessionPayload{Config: &config}})
-		output, _, err := store.ExecuteCommand(ctx, db, node, profile, request, store.PreparedPaths{})
+		output, _, err := store.ExecuteCommand(ctx, db, node, node, profile, request, store.PreparedPaths{})
 		if err != nil {
 			return err
 		}

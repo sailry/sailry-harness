@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -62,13 +63,14 @@ func TestBrowserCallRouting(t *testing.T) {
 		// The call reaches its own controller with a deadline, and that
 		// controller's completion settles it.
 		id := protocol.NewRequestID()
+		expires := uint64(time.Now().Add(browserCallTimeout).UnixMilli())
 		done := start(ctx, owner, id, read)
 		update, err := stream.Next(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
 		call, routed := update.Data.(protocol.BrowserCall)
-		if update.Kind != "browser_call" || !routed || call.ID != id || call.Session != session || call.Action.Kind != "read" || call.ExpiresAtMs == 0 {
+		if update.Kind != "browser_call" || !routed || call.ID != id || call.Session != session || call.Action.Kind != "read" || call.ExpiresAtMs != expires {
 			t.Fatalf("update = %+v", update)
 		}
 		_, err = registry.call(ctx, owner, session, id, read)
@@ -102,6 +104,42 @@ func TestBrowserCallRouting(t *testing.T) {
 		fault(registry.complete(owner, id, value(`{}`)), protocol.ErrorCodeNotFound, "browser call is no longer pending")
 		done = start(ctx, owner, protocol.NewRequestID(), back)
 		fault((<-done).err, protocol.ErrorCodeOutcomeUnknown, "browser response unavailable; read the page before trying another action")
+
+		// A wait may ask for longer than the call lasts. The call's deadline
+		// is the bound: it ends as an unanswered read at that deadline and
+		// leaves nothing pending.
+		wait := protocol.BrowserAction{Kind: "wait", Data: &protocol.BrowserActionWaitPayload{
+			Condition: protocol.BrowserCondition{Kind: "text", Data: &protocol.BrowserConditionTextPayload{Text: "Ready"}}, TimeoutMs: 120_000}}
+		if err := validateBrowserAction(wait); err != nil {
+			t.Fatal(err)
+		}
+		id = protocol.NewRequestID()
+		began := time.Now()
+		done = start(ctx, owner, id, wait)
+		// The unanswered calls above are still queued for the controller,
+		// which drops them by their expiry.
+		for call.ID != id {
+			if update, err = stream.Next(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if call = update.Data.(protocol.BrowserCall); call.ID != id && call.ExpiresAtMs > uint64(began.UnixMilli()) {
+				t.Fatalf("unanswered call %s is delivered unexpired", call.ID)
+			}
+		}
+		if call.ExpiresAtMs != uint64(began.Add(browserCallTimeout).UnixMilli()) {
+			t.Fatalf("long wait expires at %d", call.ExpiresAtMs)
+		}
+		fault((<-done).err, protocol.ErrorCodeUnavailable, "browser response unavailable; read the page before trying another action")
+		if elapsed := time.Since(began); elapsed != browserCallTimeout {
+			t.Fatalf("long wait ended after %s", elapsed)
+		}
+		registry.mu.Lock()
+		pending := len(registry.connections[owner].replies)
+		registry.mu.Unlock()
+		if pending != 0 {
+			t.Fatalf("%d timed-out calls are still pending", pending)
+		}
+		fault(registry.complete(owner, id, value(`{}`)), protocol.ErrorCodeNotFound, "browser call is no longer pending")
 
 		// An interrupted call says so.
 		interrupted, cancel := context.WithCancel(ctx)

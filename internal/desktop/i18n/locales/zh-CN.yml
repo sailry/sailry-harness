@@ -1908,3 +1908,24 @@ updates_install_uncertain: 安装结果尚未确认，原应用已保留
 updates_receipt_failed: 更新已安装，但无法保存恢复信息
 updates_profile_inside: 数据目录位于 Sailry 应用内，请移出后再更新
 compatibility_update_unavailable: 此版本暂不可自动更新
+settings_media: 媒体模型
+provider_cap_vision: 识图
+provider_cap_tools: 工具
+provider_cap_reasoning: 推理
+provider_cap_image: 生图
+provider_cap_video: 生视频
+media_speech_synthesis: 语音合成
+media_model_unavailable: 模型不可用
+media_conflict: 配置已变更，请重新选择
+media_unknown: 保存结果未确认，请查看当前配置
+media_failed: 保存失败
+provider_capabilities: 能力
+provider_cap_understands: 理解
+provider_cap_can: 支持
+provider_cap_generates: 生成
+provider_cap_reset: 恢复模型数据
+media_image: 图片
+media_video: 视频
+media_speech: 语音
+media_follow: 跟随对话模型
+media_load_failed: 无法读取媒体模型

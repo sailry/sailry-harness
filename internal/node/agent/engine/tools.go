@@ -45,6 +45,9 @@ type Tool struct {
 	BeforeModel       func(context.Context, []canonical.Record) (bool, error)
 	BindDelegation    func(Tool) Tool
 	schema            *jsonschema.Schema
+	// ExecutePrepared runs a call with arguments a package prepared. The call
+	// keeps the identity the model sent; the arguments are what executes.
+	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
 }
 type ToolResult struct {
 	Collect         *collectedChild

@@ -3,6 +3,7 @@ package reader
 import (
 	"bytes"
 	"strings"
+	"unicode"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -63,4 +64,43 @@ func Text(markdown string) string {
 		return ast.WalkContinue, nil
 	})
 	return spoken.String()
+}
+
+// Chunks splits text into parts of at most limit characters, each as long
+// as its sentences allow, for a speech model that reads a bounded input. A
+// sentence longer than limit is cut at a space, and one without spaces
+// where the limit falls.
+func Chunks(text string, limit int) []string {
+	var parts []string
+	rest := []rune(strings.TrimSpace(text))
+	for len(rest) > limit {
+		cut, space := 0, 0
+		for index := 0; index < limit; index++ {
+			switch rest[index] {
+			case '\n', '。', '！', '？', '…':
+				cut = index + 1
+			case '.', '!', '?':
+				// A full stop inside a number or a name ends no sentence.
+				if unicode.IsSpace(rest[index+1]) {
+					cut = index + 1
+				}
+			case ' ', '\t':
+				space = index + 1
+			}
+		}
+		if cut == 0 {
+			cut = space
+		}
+		if cut == 0 {
+			cut = limit
+		}
+		if part := strings.TrimSpace(string(rest[:cut])); part != "" {
+			parts = append(parts, part)
+		}
+		rest = []rune(strings.TrimSpace(string(rest[cut:])))
+	}
+	if len(rest) > 0 {
+		parts = append(parts, string(rest))
+	}
+	return parts
 }

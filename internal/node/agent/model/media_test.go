@@ -185,6 +185,15 @@ func TestMediaDrivers(t *testing.T) {
 		if strings.Contains(failed.Message, "media-secret") || strings.Contains(failed.Message, "PROMPT-TEXT") || !strings.Contains(failed.Message, "[redacted]") || len(failed.Message) > 400 {
 			t.Fatalf("refusal message = %q", failed.Message)
 		}
+		// A credential that straddles the length bound leaves no prefix behind.
+		handle("POST /v1/images/generations", func(writer http.ResponseWriter, _ *http.Request) {
+			writer.WriteHeader(http.StatusUnauthorized)
+			_, _ = writer.Write([]byte(`{"error":{"message":"` + strings.Repeat("x", 291) + `media-secret rejected"}}`))
+		})
+		_, err = GenerateImage(t.Context(), bind(protocol.ConversationModelApiChatCompletions, "/v1", "painter"), MediaImages, "a harbor")
+		if failed := failure(err, Authentication); strings.Contains(failed.Message, "media-") || !strings.Contains(failed.Message, strings.Repeat("x", 291)+"[redacte") || len(failed.Message) > 400 {
+			t.Fatalf("refusal message with a credential at the bound = %q", failed.Message)
+		}
 		handle("POST /v1/images/generations", func(writer http.ResponseWriter, _ *http.Request) {
 			writer.Header().Set("Location", server.URL+"/elsewhere")
 			writer.WriteHeader(http.StatusFound)

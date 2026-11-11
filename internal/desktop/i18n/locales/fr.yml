@@ -1908,3 +1908,24 @@ updates_install_uncertain: Le résultat de l'installation n'est pas confirmé; l
 updates_receipt_failed: La mise à jour a été installée; impossible d'enregistrer les détails de récupération
 updates_profile_inside: Le profil de données est à l'intérieur de Sailry; déplacez-le avant la mise à jour
 compatibility_update_unavailable: Cette version ne permet pas encore la mise à jour automatique
+settings_media: Modèles de médias
+provider_cap_vision: Vision
+provider_cap_tools: Outils
+provider_cap_reasoning: Raisonnement
+provider_cap_image: Génération d'images
+provider_cap_video: Génération de vidéo
+media_speech_synthesis: Synthèse de la parole
+media_model_unavailable: Modèle non disponible
+media_conflict: Paramètres modifiés; sélectionner à nouveau
+media_unknown: Le résultat de l'enregistrement est inconnu; vérifiez les paramètres actuels
+media_failed: Enregistrement échoué
+provider_capabilities: Capabilities
+provider_cap_understands: Understands
+provider_cap_can: Can
+provider_cap_generates: Generates
+provider_cap_reset: Reset to model data
+media_image: Image
+media_video: Video
+media_speech: Speech
+media_follow: Follow conversation model
+media_load_failed: Could not read media models

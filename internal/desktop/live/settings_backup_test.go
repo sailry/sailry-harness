@@ -10,6 +10,8 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -168,5 +170,18 @@ func checkBackupSettingsHelpers(t *testing.T) {
 		if outcome, key := failure(test.err); outcome != test.outcome || key != test.key {
 			t.Errorf("%v = %v %q, want %v %q", test.err, outcome, key, test.outcome, test.key)
 		}
+	}
+
+	// A read answered before an action that was accepted since does not
+	// take the page back; a newer one is taken.
+	r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	r.acceptBackupSettings(saved)
+	r.acceptBackupRead(protocol.BackupSettings{Revision: 6})
+	if held := r.backupSettings.saved; held.Revision != 7 || held.Local == nil {
+		t.Errorf("an older read left %+v", held)
+	}
+	r.acceptBackupRead(protocol.BackupSettings{Revision: 8})
+	if held := r.backupSettings.saved; held.Revision != 8 {
+		t.Errorf("a newer read left %+v", held)
 	}
 }

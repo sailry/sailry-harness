@@ -76,17 +76,19 @@ type State struct {
 	References              []Reference // chipped into the draft
 	Dictation               Dictation
 
-	view     kit.Viewer[*Attachment] // the image viewer over the draft's pictures
-	picker   bool                    // the model controls are open
-	layer    layer
-	member   string // the team member whose model the controls set
-	family   string // the picker's rail choice, "" for all
-	open     map[string]bool
-	efforts  string // the model whose efforts submenu shows
-	settings bool   // the compact settings popover
-	stats    bool   // the compact usage popover
-	page     settingsPage
-	width    float32 // the toolbar's width last frame
+	view   kit.Viewer[*Attachment] // the image viewer over the draft's pictures
+	picker bool                    // the model controls are open
+	layer  layer
+	member string // the team member whose model the controls set
+	family string // the picker's rail choice, "" for all
+	// capability is the rail's capability filter (Capability.ID), "" for none.
+	capability string
+	open       map[string]bool
+	efforts    string // the model whose efforts submenu shows
+	settings   bool   // the compact settings popover
+	stats      bool   // the compact usage popover
+	page       settingsPage
+	width      float32 // the toolbar's width last frame
 
 	menus         map[string]string // this composer's menu IDs (menuID)
 	projectPicker bool

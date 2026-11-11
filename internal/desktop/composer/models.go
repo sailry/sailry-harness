@@ -257,7 +257,7 @@ func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 			ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
 			ui.Icon(c, icons.ChevronRight).FontSize(12).TextColor(p.MutedForeground)
 		}).OnClick(func() {
-			s.layer, s.family = layerModels, m.Family
+			s.layer, s.family, s.capability = layerModels, m.Family, ""
 			s.open = map[string]bool{m.Provider: true}
 		})
 	})
@@ -492,7 +492,8 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 }
 
 // modelPicker is the families' rail, with Back to the controls, beside the
-// providers' groups, each opening to its models. Hovering or clicking a model
+// providers' groups, each opening to its models. Under the families the
+// rail filters by a capability the models have. Hovering or clicking a model
 // with efforts opens its efforts' menu at its left; a model without them is
 // chosen at once.
 func (s *State) modelPicker(c *ui.Context, ctx *Context) {
@@ -500,10 +501,23 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 	if s.open == nil {
 		s.open = map[string]bool{}
 	}
+	// The capabilities the models have, in the order they first appear.
+	var capabilities []Capability
+	for _, m := range ctx.Models {
+		for _, capability := range m.Capabilities {
+			if !slices.ContainsFunc(capabilities, func(known Capability) bool { return known.ID == capability.ID }) {
+				capabilities = append(capabilities, capability)
+			}
+		}
+	}
+	shown := func(m Model) bool {
+		return (s.family == "" || m.Family == s.family) &&
+			(s.capability == "" || slices.ContainsFunc(m.Capabilities, func(capability Capability) bool { return capability.ID == s.capability }))
+	}
 	var providers []string
 	seen := map[string]bool{}
 	for _, m := range ctx.Models {
-		if (s.family == "" || m.Family == s.family) && !seen[m.Provider] {
+		if shown(m) && !seen[m.Provider] {
 			seen[m.Provider] = true
 			providers = append(providers, m.Provider)
 		}
@@ -522,6 +536,24 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 					}
 					b.OnClick(func() {
 						s.family, s.efforts = f.ID, ""
+						s.open = map[string]bool{}
+					})
+				}
+				if len(capabilities) > 0 {
+					ui.Box(c.Key("capability-divider")).FillWidth().Height(1).Shrink(0).Background(p.Border)
+				}
+				for _, capability := range capabilities {
+					selected := s.capability == capability.ID
+					b := kit.IconButton(c.Key("capability-"+capability.ID), capability.Icon, i18n.T(c, capability.Label), 40, false).Radius(20).
+						AccessSelected(selected).TextColor(p.MutedForeground)
+					if selected {
+						b.Background(p.Floating()).TextColor(p.Foreground)
+					}
+					b.OnClick(func() {
+						if s.capability = capability.ID; selected {
+							s.capability = ""
+						}
+						s.efforts = ""
 						s.open = map[string]bool{}
 					})
 				}
@@ -554,7 +586,7 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 					continue
 				}
 				for _, m := range ctx.Models {
-					if m.Provider == pr && (s.family == "" || m.Family == s.family) {
+					if m.Provider == pr && shown(m) {
 						s.modelRow(c, m)
 					}
 				}
@@ -579,6 +611,10 @@ func (s *State) modelRow(c *ui.Context, m Model) {
 		}
 		b.Children(func() {
 			ui.Text(c, m.Name).FontSize(14).LineHeight(20.0 / 14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			for _, capability := range m.Capabilities {
+				label := i18n.T(c, capability.Label)
+				kit.Tooltip(c, ui.Icon(c.Key(capability.ID), capability.Icon).FontSize(12).Shrink(0).TextColor(p.MutedForeground).Label(label), label)
+			}
 			if m.Score != nil {
 				t := ui.Text(c, fmt.Sprintf("%.1f", m.Score.Overall)).Font("monospace").FontSize(14).Shrink(0).
 					TextColor(p.MutedForeground)

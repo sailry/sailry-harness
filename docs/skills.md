@@ -31,3 +31,12 @@ Package conversation modes use captured host-scope declarations and validated
 string options. One selected mode is allowed, package modes cannot combine with
 Flagship, and a read-only mode requires Plan. Mode instructions retain ordinary
 captured tool authority. No JavaScript execution occurs in this resource path.
+
+`manage_skills` lists, discovers, installs, updates and removes standalone
+skill packages from a turn. It maps onto `list_plugins`, `discover_skills`,
+`discover_registry_skill`, `discover_local_skills`, `install_skill`,
+`install_registry_skill`, `install_skill_upload` and `remove_plugin`; update
+and removal require the installed revision, a registry update requires a newer
+semantic version and an import requires rediscovery. Changes affect later
+selections and never the running turn's captured resources. Approval and Plan
+behavior are in [Plugin packages](plugins.md#agent-management-tools).

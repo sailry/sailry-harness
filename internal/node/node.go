@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"charm.land/fantasy"
@@ -17,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/computer"
+	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
 	"github.com/sailry/sailry-harness/internal/node/files"
 	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/host"
@@ -54,6 +56,7 @@ type Node struct {
 	databases         databaseOperations
 	ports             *ports.Service
 	browsers          browserRegistry
+	externalBrowser   *externalbrowser.Browsers
 	localModels       *localModelControls
 	power             *power.Service
 	telemetry         *telemetry.Control
@@ -81,6 +84,8 @@ type Node struct {
 	stopErr           error
 	agent             *engine.Runtime
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	forward           func(context.Context, protocol.Request) (link.Admission, error) // sends an import to its paired target
+	forwards          atomic.Int32
 	mediaPoll         time.Duration // interval between video job reads
 	feed              *feed.Hub
 	providerDirectory providers.Directory
@@ -199,6 +204,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	value.feed = feed.New(value.ID())
 	value.ports = ports.New(nodeContext, ports.Options{})
+	value.externalBrowser = externalbrowser.New(externalbrowser.Options{Profile: profile.Ownership.Path, Node: value.ID(), Changed: func(root string) { value.watches.changed(root, nil) }})
 	value.networkDirectory = &networkDirectory{listing: protocol.DefaultNetworkListing()}
 	value.networkProbes = &networkProbes{permits: make(chan struct{}, 4), now: time.Now}
 	value.initHost()
@@ -281,6 +287,7 @@ func (node *Node) Stop(ctx context.Context) error {
 			taskErr := node.tasks.Close(context.Background())
 			node.knowledge.Close()
 			node.closeLocalModels()
+			node.externalBrowser.Shutdown()
 			pluginErr := node.closePlugins()
 			node.work.Wait()
 			node.detachLogging()
@@ -388,8 +395,14 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if request.Command.Kind == "open_port" || request.Command.Kind == "cancel_port" {
 		return node.dispatchPort(ctx, caller, request)
 	}
+	if request.Command.Kind == "use_external_browser" {
+		return node.dispatchExternalBrowser(ctx, caller, request, encoded)
+	}
 	if request.Command.Kind == "use_browser" || request.Command.Kind == "complete_browser" {
 		return node.dispatchBrowser(ctx, caller, request, encoded)
+	}
+	if input, ok := request.Command.Data.(*protocol.CommandCreateSessionAtPayload); ok && input.Target != node.ID() {
+		return node.dispatchSessionForward(ctx, caller, request, encoded)
 	}
 	supported := supportedCommand(request.Command.Kind)
 	durable := request.Command.Durable()
@@ -489,6 +502,9 @@ func externalCommand(command protocol.Command) bool {
 	case "create_session":
 		input := command.Data.(*protocol.CommandCreateSessionPayload)
 		return input.Project == nil && (input.Config == nil || input.Config.Resource != nil || input.Config.Assistant != nil)
+	case "import_session":
+		input := command.Data.(*protocol.SessionImport)
+		return input.Project == nil && (input.Config.Resource != nil || input.Config.Assistant != nil)
 	default:
 		return false
 	}
@@ -499,14 +515,14 @@ func supportedCommand(kind string) bool {
 		return true
 	}
 	switch kind {
-	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings", "read_plugin_version", "read_activity_catalog", "read_activity",
+	case "snapshot", "inspect_request", "read_session", "list_associated_sessions", "read_power_settings", "read_telemetry_settings", "read_plugin_version", "read_activity_catalog", "read_activity",
 		"read_media_settings", "list_media_models":
 		return true
 	case "register_project", "report_diagnostic", "save_media_settings":
 		return true
 	case "deliver_background", "continue_turn":
 		return true
-	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "bind_connection_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
+	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "import_session", "bind_connection_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
 		return true
 	default:
 		return false
@@ -569,6 +585,10 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "read_session":
 			value, err := store.ReadSession(ctx, db, request.Command.Data.(*protocol.CommandReadSessionPayload).Session)
 			output = protocol.Output{Kind: "session", Data: value}
+			return err
+		case "list_associated_sessions":
+			value, err := store.ListAssociatedSessions(ctx, db, request)
+			output = protocol.Output{Kind: "associated_sessions", Data: value}
 			return err
 		case "read_power_settings":
 			value, err := store.ReadPower(ctx, db)
@@ -700,7 +720,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			case store.SupportsProviderCommand(job.request.Command.Kind):
 				output, changes, operationErr = store.ExecuteProviderCommand(node.ctx, db, node.ID(), job.caller, job.request, job.provider)
 			default:
-				output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.request, prepared)
+				output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}
 		}
 		if operationErr == nil {

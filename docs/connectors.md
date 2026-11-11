@@ -76,3 +76,9 @@ changes, retained MCP invalidation, interrupted attempt recovery and controller
 callbacks. Live provider
 accounts, external CLI installations and cross-platform native OAuth callbacks
 remain manual acceptance boundaries; source fixtures do not claim those results.
+
+`manage_mcp` lists MCP packages and installs, updates or removes standalone
+`mcp-*` packages from a turn through `install_mcp` and `remove_plugin`. Its
+results carry transport and credential slot names only, never values; an update
+must keep the transport and slots and may clear named slots. Approval and Plan
+behavior are in [Plugin packages](plugins.md#agent-management-tools).

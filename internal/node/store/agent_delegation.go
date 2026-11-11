@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -44,12 +45,46 @@ func queuedInvocationInput(ctx context.Context, db *sql.Conn, turn protocol.Turn
 	return value, err
 }
 func DelegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, selected *protocol.ConversationInput, ready bool, now time.Time) (AgentInvocation, []protocol.Event, error) {
-	return delegateAgent(ctx, db, node, parent, identity, selected, ready, now, nil)
+	return delegateAgent(ctx, db, node, parent, identity, identity.Arguments, selected, ready, now, nil)
 }
-func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, selected *protocol.ConversationInput, ready bool, now time.Time, guidance *protocol.ConversationRun) (AgentInvocation, []protocol.Event, error) {
+
+// DelegatePrepared admits a child for a call whose executing arguments differ
+// from the ones the model sent: a package tool bound to agents.delegate
+// prepares them. identity stays the recorded call, which locates it in the
+// conversation; arguments describe the child.
+func DelegatePrepared(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready bool, now time.Time) (AgentInvocation, []protocol.Event, error) {
+	return delegateAgent(ctx, db, node, parent, identity, arguments, selected, ready, now, nil)
+}
+
+// delegatingTool reports whether a package tool of the turn's captured
+// packages is bound to agents.delegate. Core tool names never collide with
+// package aliases.
+func delegatingTool(ctx context.Context, db *sql.Conn, turn protocol.TurnID, name string) (bool, error) {
+	capture, err := readTurnCapture(ctx, db, turn)
+	if err != nil {
+		return false, err
+	}
+	for _, reference := range capture.Plugins {
+		info, err := ReadPluginVersion(ctx, db, reference)
+		if err != nil {
+			return false, err
+		}
+		if operation := plugins.ToolOperation(info, name); operation != nil {
+			return *operation == protocol.ToolOperationDelegateAgent, nil
+		}
+	}
+	return false, nil
+}
+func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready bool, now time.Time, guidance *protocol.ConversationRun) (AgentInvocation, []protocol.Event, error) {
 	empty := AgentInvocation{}
 	if identity.Name != "spawn_agent" && identity.Name != "guide_agent" {
-		return empty, nil, invalid("invalid delegation tool")
+		delegates, err := delegatingTool(ctx, db, parent, identity.Name)
+		if err != nil {
+			return empty, nil, err
+		}
+		if !delegates {
+			return empty, nil, invalid("invalid delegation tool")
+		}
 	}
 	parentRun, err := activeAgentRun(ctx, db, parent)
 	if err != nil {
@@ -79,15 +114,15 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 			Session protocol.SessionID `json:"session"`
 			Message string             `json:"message"`
 		}
-		if err = protocol.DecodeObject(identity.Arguments, &guide, []string{"session", "message"}, true); err != nil {
+		if err = protocol.DecodeObject(arguments, &guide, []string{"session", "message"}, true); err != nil {
 			return empty, nil, invalid("invalid child guidance arguments")
 		}
 		args.Session, args.Task = &guide.Session, guide.Message
-	} else if err = protocol.DecodeObject(identity.Arguments, &args, []string{"task"}, true); err != nil {
+	} else if err = protocol.DecodeObject(arguments, &args, []string{"task"}, true); err != nil {
 		return empty, nil, invalid("invalid delegation arguments")
 	}
 	var fields map[string]json.RawMessage
-	_ = json.Unmarshal(identity.Arguments, &fields)
+	_ = json.Unmarshal(arguments, &fields)
 	if value, ok := fields["session"]; ok && string(value) == "null" {
 		return empty, nil, invalid("child session must not be null")
 	}

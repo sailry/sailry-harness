@@ -308,6 +308,13 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			Identity: backupFixtureKeep(), Secret: backupFixtureKeep(), SessionToken: backupFixtureKeep(), Passphrase: protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: &secret}}
 		change(protocol.Command{Kind: "save_backup_settings", Data: backup})
 		change(protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: worktree, Path: "SECRET/notes.txt", Text: "SECRET contents"}})
+		// A forwarded configuration is recorded like any other credential.
+		forwarded := protocol.DefaultSessionImport()
+		forwarded.Source, forwarded.Provider, forwarded.Secret = node.ID(), provider, &secret
+		forwarded.Config.Provider, forwarded.Config.Model = provider.ID, "SECRET-model"
+		forwarded.Config.Mode, forwarded.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+		forwarded.RoleCredentials = []protocol.RoleProviderSecret{{Provider: provider.ID, Secret: secret}}
+		change(protocol.Command{Kind: "import_session", Data: forwarded})
 		// A read whose caller has gone is cancelled, not failed.
 		gone, leave := context.WithCancel(context.Background())
 		leave()

@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -57,6 +58,19 @@ func TestTeamsProjection(t *testing.T) {
 			t.Fatal(got)
 		}
 	})
+	t.Run("an older settings read does not lower the revision held", func(t *testing.T) {
+		r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}), teams: &teamState{}}
+		field := &r.App.Settings.Concurrency
+		r.acceptTeamRead(protocol.TeamSettings{Revision: 5, ChildConcurrency: 4})
+		r.acceptTeamRead(protocol.TeamSettings{Revision: 4, ChildConcurrency: 2})
+		if field.Revision != 5 || field.Saved != 4 || field.Draft != 4 || r.teams.observed != 5 {
+			t.Fatalf("an older read left %+v, observed %d", *field, r.teams.observed)
+		}
+		if r.acceptTeamRead(protocol.TeamSettings{Revision: 6, ChildConcurrency: 3}); field.Revision != 6 || field.Saved != 3 {
+			t.Fatalf("a newer read left %+v", *field)
+		}
+	})
+
 	t.Run("default roster and explicit member overrides", func(t *testing.T) {
 		provider, role := protocol.ProviderID{1}, protocol.RoleID{2}
 		model := provider.String() + "/model"

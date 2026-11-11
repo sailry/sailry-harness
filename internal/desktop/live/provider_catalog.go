@@ -63,6 +63,19 @@ func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discov
 							}
 						}
 					}
+					// As the Node completes them on save: an output the catalog
+					// lists is generated, audio only without text.
+					model.Generates = nil
+					for _, output := range catalog.Outputs {
+						switch {
+						case output == "image":
+							model.Generates = append(model.Generates, protocol.MediaGenerationImage)
+						case output == "video":
+							model.Generates = append(model.Generates, protocol.MediaGenerationVideo)
+						case output == "audio" && !slices.Contains(catalog.Outputs, "text"):
+							model.Generates = append(model.Generates, protocol.MediaGenerationSpeech)
+						}
+					}
 					if len(model.Efforts) > 0 && (caps == nil || caps.DefaultEffort == nil) {
 						model.DefaultEffort = model.Efforts[min(1, len(model.Efforts)-1)]
 					}

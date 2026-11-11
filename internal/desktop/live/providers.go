@@ -32,6 +32,7 @@ func (r *Runtime) initProviders() {
 			})
 		},
 	}
+	r.App.Settings.SaveMedia = r.saveMedia
 	r.readProviders()
 }
 
@@ -208,6 +209,7 @@ func (r *Runtime) projectProviderSnapshot() {
 		channels = append(channels, ch)
 	}
 	r.App.Settings.Channels = channels
+	r.followMedia(snapshot)
 	status := snapshot.ModelCatalog
 	r.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Scores: status.Scores.UpdatedAtMs != nil}
 	if status.UpdatedAtMs != nil {
@@ -216,7 +218,11 @@ func (r *Runtime) projectProviderSnapshot() {
 }
 
 func channelModel(m protocol.ConversationModel) viewmodel.ChannelModel {
-	v := viewmodel.ChannelModel{ID: m.ID, Name: m.ID, Context: int(m.Context), Output: int(m.Output), DefaultEffort: effortName(m.DefaultEffort)}
+	v := viewmodel.ChannelModel{ID: m.ID, Name: m.ID, Context: int(m.Context), Output: int(m.Output), DefaultEffort: effortName(m.DefaultEffort),
+		Vision: m.Vision, Tools: m.Tools, Reasoning: m.Reasoning, CustomCapabilities: m.CustomCapabilities}
+	for _, generated := range m.Generates {
+		v.Generates = append(v.Generates, string(generated))
+	}
 	if m.DisplayName != nil {
 		v.Name = *m.DisplayName
 	}
@@ -342,6 +348,15 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			m.Efforts = append(m.Efforts, parseEffort(e))
 		}
 		m.Reasoning = len(m.Efforts) > 0
+		// Tags the user chose in the form replace the catalog's and stay the
+		// model's; without them the Node completes the tags from its catalog.
+		if m.CustomCapabilities = model.CustomCapabilities; m.CustomCapabilities {
+			m.Vision, m.Tools, m.Reasoning = model.Vision, model.Tools, model.Reasoning
+			m.Generates = []protocol.MediaGeneration{}
+			for _, generated := range model.Generates {
+				m.Generates = append(m.Generates, protocol.MediaGeneration(generated))
+			}
+		}
 		m.DefaultEffort = parseEffort(model.DefaultEffort)
 		p.Models = append(p.Models, m)
 	}

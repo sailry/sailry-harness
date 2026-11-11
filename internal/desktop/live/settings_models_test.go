@@ -156,6 +156,17 @@ func checkLocalModelHelpers(t *testing.T) {
 	if len(state.drafts) != 0 || state.settings.Revision != 5 {
 		t.Fatalf("accepted settings = %+v, drafts %+v", state.settings, state.drafts)
 	}
+	// A read answered before that save does not take the pages back; a
+	// newer one is taken.
+	state.acceptRead(protocol.ModelsLocalSettings{Revision: 4})
+	if state.settings.Revision != 5 || len(state.settings.Choices) != len(request.Choices) {
+		t.Fatalf("an older read left %+v", state.settings)
+	}
+	newer := request
+	newer.Revision = 6
+	if state.acceptRead(newer); state.settings.Revision != 6 {
+		t.Fatalf("a newer read left %+v", state.settings)
+	}
 
 	// The library: a result takes the state of the Node's model from the
 	// same source; a commit must match, a branch matches any revision.

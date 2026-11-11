@@ -103,16 +103,24 @@ func (r *Runtime) readTeamSettings() {
 				r.reportKeys(c, err, "teams_settings_failed", "teams_settings_conflict", "teams_settings_unknown")
 				return
 			}
-			field := &r.App.Settings.Concurrency
-			if !field.Pending && r.teams.settingsUnknown == nil {
-				if field.Draft == field.Saved {
-					field.Draft = float64(value.ChildConcurrency)
-				}
-				field.Saved, field.Revision = float64(value.ChildConcurrency), value.Revision
-				r.teams.observed = value.Revision
-			}
+			r.acceptTeamRead(value)
 		})
 	})
+}
+
+// acceptTeamRead takes a read's answer, unless a save is under way or in
+// doubt, or the answer is older than the settings held: such a read was
+// answered before a save whose result was accepted since.
+func (r *Runtime) acceptTeamRead(value protocol.TeamSettings) {
+	field := &r.App.Settings.Concurrency
+	if field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
+		return
+	}
+	if field.Draft == field.Saved {
+		field.Draft = float64(value.ChildConcurrency)
+	}
+	field.Saved, field.Revision = float64(value.ChildConcurrency), value.Revision
+	r.teams.observed = value.Revision
 }
 
 func (r *Runtime) saveConcurrency() {

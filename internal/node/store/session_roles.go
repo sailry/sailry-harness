@@ -62,7 +62,7 @@ func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeI
 	ids := map[protocol.RoleID]bool{}
 	keys := map[string]bool{}
 	for _, role := range value.Profiles {
-		if err := validateRole(role); err != nil {
+		if err := ValidateRole(role); err != nil {
 			return value, err
 		}
 		if ids[role.ID] || keys[role.Key] {

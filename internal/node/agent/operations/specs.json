@@ -2682,5 +2682,139 @@
     },
     "read_only": false,
     "concurrent": false
+  },
+  {
+    "operation": "models.install",
+    "description": "Install an admitted model on the execution Node",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model"
+      ],
+      "properties": {
+        "model": {
+          "type": "object"
+        }
+      }
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "models.remove",
+    "description": "Uninstall a local model without removing its definition",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model"
+      ],
+      "properties": {
+        "model": {
+          "type": "object"
+        }
+      }
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "roles.list",
+    "description": "Manage public role definitions and explicitly apply selected revisions to this conversation",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "read_only": true,
+    "concurrent": false
+  },
+  {
+    "operation": "roles.save",
+    "description": "Manage public role definitions and explicitly apply selected revisions to this conversation",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "object"
+        },
+        "expected_revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "required": [
+        "role",
+        "expected_revision"
+      ]
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "roles.remove",
+    "description": "Manage public role definitions and explicitly apply selected revisions to this conversation",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "required": [
+        "role",
+        "expected_revision"
+      ]
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "roles.apply",
+    "description": "Manage public role definitions and explicitly apply selected revisions to this conversation",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            }
+          }
+        },
+        "expected_revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "required": [
+        "roles",
+        "expected_revision"
+      ]
+    },
+    "read_only": false,
+    "concurrent": false
   }
 ]

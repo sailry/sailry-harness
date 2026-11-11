@@ -59,6 +59,7 @@ type Runtime struct {
 	terminalSettings         terminalSettingsState
 	backupSettings           backupSettingsState
 	localModels              localModelState
+	media                    mediaState
 	dictation                dictationState
 	permissions              permissionState
 	knowledgeWanted          string // the citation the knowledge viewer was last asked for

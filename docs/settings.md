@@ -237,7 +237,7 @@ save is pending, as its Cancel is disabled then.
   conflict with another shortcut and with a fixed key, clear, reset,
   idle), environment variable validation, hook and backup checks,
   `Stored.Commit`; `TestProviderEditor` (steps, back, checks, save,
-  statuses), `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
+  statuses, capability boxes, media rows), `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
   `TestExtensions` (classification, configuration checks, market actions,
   skill sources, a section closing the details).
 - `internal/desktop/shell/settings_test.go`: every section opens with its title in
@@ -377,6 +377,16 @@ capabilities and the selected default effort. Catalog refresh never inserts samp
 models. Compaction reads and saves use the Node revision; a failed save keeps its
 draft and never invents a new revision.
 
+`ChannelModel` carries `Vision`, `Tools`, `Reasoning`, `Generates` and
+`CustomCapabilities`. The model form's capability boxes edit them, and the
+adapter sends them as the model's tags only when `CustomCapabilities` is set;
+other models keep the Node's tags. Discovery fills `Generates` from the
+catalog's output kinds for display. `Model.Media` (`Stored[[4]string]` of
+option keys in `viewmodel.MediaKinds` order), `MediaOptions`,
+`MediaUnavailable` and `SaveMedia` back the Media models group, which
+`live/settings_media.go` reads and saves. Controls, outcomes and deviations
+are in [media.md](media.md#desktop).
+
 ## B7 Connections wiring
 
 `internal/desktop/live/connections*.go` adapts the shared application `Network`,
@@ -447,7 +457,9 @@ takes the Node's answer; failure, conflict and unknown outcomes are the
 outcome is retained and reused by an identical draft. After a failed or
 conflicting save the settings are read again: the saved value and revision
 follow the Node while a differing draft stays, so the next change saves it at
-the new revision.
+the new revision. A read answered before a save that was accepted since is
+older than the settings held and does not replace them; the same holds for
+the local model, backup and team settings reads.
 
 Paste protection, font size and font family are controller preferences
 (`terminal.paste_protection`, `terminal.font_size`, `terminal.font_family`),

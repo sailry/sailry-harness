@@ -186,14 +186,23 @@ func checkQueueItem(ctx context.Context, db *sql.Conn, turn protocol.TurnID, exp
 	}
 	return run, nil
 }
+
+// retainedTurn reports whether a turn that ended before its input reached the
+// conversation still holds that input. A running or stopping turn keeps its
+// pending row until the input is recorded, so the row alone is not enough.
+func retainedTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (bool, error) {
+	var retained bool
+	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.turn=?1 AND json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))", turn.String()).Scan(&retained)
+	return retained, err
+}
 func startQueued(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationRun, error) {
 	run, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
 		return run, err
 	}
 	if run.Status != protocol.ConversationStatusQueued {
-		var retained bool
-		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_pending WHERE turn=?1)", turn.String()).Scan(&retained); err != nil {
+		retained, err := retainedTurn(ctx, db, turn)
+		if err != nil {
 			return run, err
 		}
 		if !retained {
@@ -219,7 +228,7 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 	}
 	var retained bool
 	if run.Status != protocol.ConversationStatusQueued {
-		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.turn=?1 AND json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))", turn.String()).Scan(&retained); err != nil {
+		if retained, err = retainedTurn(ctx, db, turn); err != nil {
 			return run, err
 		}
 	}

@@ -159,6 +159,8 @@ var (
 	CircleAlert    = load("circle-alert")
 	CircleQuestion = load("circle-question-mark")
 	SailryMark     = load("sailry-mark")
+	// A model that generates video (the media settings and capability marks).
+	Video = load("reicon-video-play")
 
 	Providers = map[string]*ui.SVG{
 		"anthropic": load("provider-anthropic"),
@@ -167,6 +169,10 @@ var (
 		"deepseek":  load("provider-deepseek"),
 	}
 )
+
+// Capabilities are the marks of what a model understands and generates, by
+// media kind.
+var Capabilities = map[string]*ui.SVG{"vision": Eye, "image": Image, "video": Video, "speech": Volume}
 
 // named are the icons a view model names by string, as tools declare theirs.
 var named map[string]*ui.SVG

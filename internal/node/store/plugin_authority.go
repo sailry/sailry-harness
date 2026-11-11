@@ -78,6 +78,12 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		return err
 	}
 	if !allowed {
+		action, allowed, err = pluginExternalBrowserAction(ctx, db, request)
+		if err != nil {
+			return err
+		}
+	}
+	if !allowed {
 		action, allowed = pluginAction(request.Command.Kind)
 	}
 	if !allowed {
@@ -117,6 +123,17 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	case "read_plugin_connection":
 		if err := CheckPluginConnectionRequest(request, info); err != nil {
 			return err
+		}
+	case "list_associated_sessions":
+		if scope.Turn != nil || scope.Session != nil {
+			return fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
+		}
+		association := request.Command.Data.(*protocol.CommandListAssociatedSessionsPayload).Association
+		if err := validateSessionAssociation(association); err != nil {
+			return err
+		}
+		if association.Namespace != scope.Package.Name {
+			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
 		}
 	}
 	if action == protocol.PluginActionReadTerminals || action == protocol.PluginActionControlTerminals {

@@ -122,6 +122,31 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 			}
 		})
 	}
+	t.Run("SSH transfer scope", func(t *testing.T) {
+		transfers, project, _ := transferFixture(t)
+		profile := transfers.profile
+		connection, err := core.ConnectionWorkspace(profile, protocol.ConnectionResource{Kind: "ssh", Data: protocol.NewSshID()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range []struct {
+			name, root, path string
+			storage          bool
+		}{
+			{"project", project, "notes.txt", false},
+			{"connection workspace", connection, "notes.txt", false},
+			{"session workspace", core.SessionWorkspace(profile, protocol.NewSessionID()), "nested/notes.txt", false},
+			{"profile", profile, "node.db", true},
+			{"profile reaching a workspace", profile, "connections/ssh/notes.txt", true},
+			{"workspace parent", filepath.Dir(connection), "workspace/notes.txt", true},
+			{"workspace descendant", filepath.Join(connection, "nested"), "notes.txt", true},
+			{"unregistered directory", filepath.Join(profile, "tmp"), "notes.txt", true},
+		} {
+			if got := transfers.storage(row.root, row.path); got != row.storage {
+				t.Errorf("%s: Node storage = %v, want %v", row.name, got, row.storage)
+			}
+		}
+	})
 	t.Run("verified command inputs", func(t *testing.T) {
 		transfers, root, caller := transferFixture(t)
 		spec := protocol.AttachmentSpec{Worktree: protocol.NewWorktreeID(), Name: "display-only.txt", MediaType: "text/plain", Size: 5, Revision: revision([]byte("input"))}

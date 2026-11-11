@@ -181,6 +181,14 @@ transfers to the existing verified connection. Staged uploads use the Node's
 single-use transfer streams and are published once for their original caller,
 profile revision and path. Remote effects that may exist after cancellation,
 timeout or a lost connection report an uncertain outcome and are never replayed.
+A file change the server refuses with an SFTP status keeps its definite fault;
+a create, move, copy, remove or upload whose reply never arrives reports
+`outcome_unknown`, because the server may have applied it.
+
+A worktree transfer refuses Node storage, except a registered execution
+workspace inside the profile (a session, connection or assistant workspace or
+a managed worktree), which is the worktree of its own conversation. The
+workspace handle still confines the path and refuses links.
 
 Database and SSH commands share the Host admission path and run outside the
 storage writer. Plugin scopes reach them only through their declared database
@@ -220,6 +228,39 @@ scope and generation; it cannot select a newly focused draft or another Node.
   explicit unavailable embedded-browser result.
 - Native Files and Git remain the accepted core pages. Their package desktop
   entries and Git Status contribution are deliberately not mounted.
+- An SFTP change whose reply is lost reports `outcome_unknown`; the source
+  reports every non-status SFTP error as `unavailable`.
+- SSH worktree transfers accept registered execution workspaces inside the
+  profile; the source refuses every path inside the profile, which leaves a
+  connection session unable to transfer its own files.
+
+## Agent management tools
+
+`manage_plugins`, `manage_mcp` and `manage_skills` are Node-owned agent tools
+(`internal/node/agent_tools*.go`). They are bound for unrestricted turns and for
+assistant turns, are deferred until `tool_search` loads them, and dispatch the
+same commands the Settings pages use (`list_plugins`, `read_plugin`,
+`search_plugin_catalog`, `read_catalog_plugin_info`, `inspect_plugin_source`,
+`check_plugin_update`, `check_plugin_updates`, `install_bundled_plugin`,
+`install_plugin_source`, `install_mcp`, `install_skill`,
+`install_registry_skill`, `install_skill_upload`, the discovery commands and
+`remove_plugin`) as the turn's caller. They add no installation, enablement or removal logic. In Code
+mode every call, including a listing, takes one non-rememberable approval;
+`full` permission approves it automatically. Checks that need no effect, such
+as the standalone-package and revision checks, run before the approval. In Plan
+mode listings run without approval and a mutation returns the manager's own
+`permission_denied` fault. Children without an explicit role tool list do not
+receive these tools.
+
+Package tools declaring `models.install`, `models.remove` or a `roles.*`
+operation are bound by `internal/node/plugin_tools_scoped.go` with the package
+scope, the workspace approval binding and the existing `install_local_model`,
+`delete_local_model`, `list_roles`, `put_role`, `remove_role` and
+`set_session_roles` commands. A script handler such as the `files` package's
+`install_ocr_model` calls that native binding, so installation enters the
+local model queue and removal passes `AuthorizeLocalModelRemoval`. The package
+needs the matching action (`models.install`, `roles.read`, `roles.write`).
+`TestAgentManagementTools` runs these tools in real turns.
 
 ## B13 computer helper
 

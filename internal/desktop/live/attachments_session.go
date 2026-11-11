@@ -73,6 +73,7 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 		if err == nil {
 			r.admittedSessions[session.ID.String()] = session
 			r.App.ReplaceConversationID(before, session.ID.String())
+			r.browserAdopt(before, session.ID.String())
 			x.cv.ID = session.ID.String()
 			r.composerInitialized[x.cv.ID] = true
 			r.composerRevisions[x.cv.ID] = session.Revision

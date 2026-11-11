@@ -20,9 +20,13 @@ func (r *Runtime) readInstalledThemes() {
 			if generation != r.packages.themeGeneration.Load() {
 				return
 			}
+			// One invalid theme is reported without hiding the valid ones
+			// read beside it.
 			if err != nil {
 				r.packageReport(c, err)
-				return
+				if installed == nil {
+					return
+				}
 			}
 			r.packages.themes = map[string]theme.Snapshot{}
 			var packages []*theme.Package

@@ -193,6 +193,15 @@ func reviseSession(ctx context.Context, db *sql.Conn, value protocol.Session) (p
 }
 
 func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, input protocol.CommandCreateSessionPayload, capturedRoles ...protocol.RoleSnapshot) (protocol.Output, []protocol.Event, error) {
+	if len(capturedRoles) > 0 {
+		return createProfiledSession(ctx, db, node, profile, input, nil, &capturedRoles[0])
+	}
+	return createProfiledSession(ctx, db, node, profile, input, nil, nil)
+}
+
+// createProfiledSession also records the provider a paired Node forwarded for
+// this session. Its turns use that capture instead of a listed provider.
+func createProfiledSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, input protocol.CommandCreateSessionPayload, forwarded *protocol.SessionProfile, capturedRoles *protocol.RoleSnapshot) (protocol.Output, []protocol.Event, error) {
 	config := input.Config
 	if config == nil {
 		defaults, err := ReadDefaults(ctx, db)
@@ -215,9 +224,10 @@ func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, prof
 	}
 	value := protocol.DefaultSession()
 	value.ID, value.Project, value.Config, value.Revision = protocol.NewSessionID(), input.Project, *config, 1
+	value.Profile = forwarded
 	var err error
-	if len(capturedRoles) > 0 {
-		value.Roles = capturedRoles[0]
+	if capturedRoles != nil {
+		value.Roles = *capturedRoles
 	} else {
 		value.Roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, nil, nil)
 		if err != nil {
@@ -399,7 +409,17 @@ func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, exp
 			return protocol.Output{}, nil, err
 		}
 	}
+	private := []protocol.ProviderID{}
 	for _, id := range ids {
+		// Only a forwarded session owns providers; a child shares its parent's.
+		if session, err := ReadSession(ctx, db, id); err != nil {
+			return protocol.Output{}, nil, err
+		} else if session.Profile != nil && session.Delegation == nil {
+			private = append(private, session.Profile.Provider.ID)
+			for _, provider := range session.Roles.Providers {
+				private = append(private, provider.ID)
+			}
+		}
 		var busy bool
 		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))", id.String()).Scan(&busy); err != nil {
 			return protocol.Output{}, nil, err
@@ -412,6 +432,9 @@ func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, exp
 		if _, err := db.ExecContext(ctx, "UPDATE sessions SET state='removed' WHERE id=?1", id.String()); err != nil {
 			return protocol.Output{}, nil, err
 		}
+	}
+	if err := removePrivateProviders(ctx, db, private); err != nil {
+		return protocol.Output{}, nil, err
 	}
 	return protocol.Output{Kind: "sessions_removed", Data: ids}, []protocol.Event{{Kind: "sessions_removed", Data: ids}}, nil
 }
