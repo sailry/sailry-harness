@@ -48,8 +48,14 @@ func (r *Runtime) recoverSSH(operation *sshInstallation) {
 					return
 				}
 				if ok && result.Err != nil {
-					operation.partial = result.Err.Code == protocol.ErrorCodeOutcomeUnknown
-					r.completeSSH(c, operation, protocol.Output{}, result.Err)
+					if result.Err.Code == protocol.ErrorCodeOutcomeUnknown {
+						operation.partial = true
+						r.completeSSH(c, operation, protocol.Output{}, result.Err)
+						return
+					}
+					// The Node recorded the failure: nothing is left to check.
+					operation.request, operation.uncertain = nil, false
+					r.endSSH(c, operation, result.Err, false)
 					return
 				}
 			case "not_admitted":

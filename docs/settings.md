@@ -276,8 +276,11 @@ save is pending, as its Cancel is disabled then.
   binding (Hooks, Runtime, OCR), so they can be reviewed.
 - Connections follows the reference (paired hosts and mobile devices, the
   Add host dialog with pairing and SSH methods), not a separate SSH list.
-  The add dialog's sharing scope section (hosts/sharing.rs) and WSL are
-  not built. The pairing code is `kit.InputOTP` (six digit cells, from
+  The add dialog is 620 wide so that five methods fit as segments. It
+  offers the SSH agent, which the reference's dialog does not, except on
+  Windows, where WSL takes its place; the sharing scope lists the local
+  Node's projects, which the reference leaves empty (docs/host.md). The
+  Host update form has no sharing scope. The pairing code is `kit.InputOTP` (six digit cells, from
   Lobe MyGo's field.InputOTP, MIT), whose full code would pair, which the
   preview does not; the share dialog shows empty cells since the preview
   has no code.
@@ -467,7 +470,7 @@ keep the editable draft; a refreshed backend revision does not replace it.
 Success, failure, conflict and uncertain outcomes use distinct toasts.
 
 The preview constructor remains isolated and shows its existing empty sharing
-code. The previously documented sharing-scope and WSL UI deviations remain.
+code.
 Executable acceptance and cross-platform runtime checks belong to the
 coordinator; this wiring's implementation review uses static checks only.
 

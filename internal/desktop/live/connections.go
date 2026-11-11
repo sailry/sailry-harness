@@ -33,6 +33,16 @@ type connectionState struct {
 	shareSelection  string
 	shareChange     *connectionNetworkChange
 	localName       string
+	revoking        map[string]bool
+	wsl             wslDistributions
+}
+
+// wslDistributions are the distributions the local Node found for the Add
+// host dialog's WSL method. A failed read is tried again when the method or
+// the dialog is opened again.
+type wslDistributions struct {
+	names                   []string
+	loading, loaded, failed bool
 }
 
 func (r *Runtime) initConnectionActions() {
@@ -50,6 +60,7 @@ func (r *Runtime) initConnectionActions() {
 	model := r.App.Settings.Model
 	model.ConnectionActions = &settings.ConnectionActions{
 		Add:         r.addConnection,
+		CheckStatus: r.checkSSHHost,
 		Revoke:      r.revokeConnection,
 		EditNetwork: r.editConnectionNetwork,
 		SaveNetwork: r.saveConnectionNetwork,
@@ -88,6 +99,17 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	if r.App.Page != shell.SettingsPage || r.App.Settings.Section != settings.Connections {
 		model.CloseConnectionDialogs()
 	}
+	if model.Adding() && model.ConnectionDraft().Method == settings.ByWSL {
+		if !state.wsl.loading && !state.wsl.loaded && !state.wsl.failed {
+			r.loadWSLDistributions()
+		}
+	} else {
+		state.wsl.failed = false
+		if !model.Adding() {
+			state.wsl.loaded = false
+		}
+	}
+	model.SetConnectionStatus(r.connectionStatus())
 	visible := model.Adding() || model.Sharing()
 	if visible != state.visible {
 		state.visible = visible
@@ -146,6 +168,65 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	}
 }
 
+// connectionStatus is what the Connections page shows of the operations under
+// way: the installation to check, the connection the Add host dialog saved,
+// the projects it can be shared with, the WSL distributions and the pairings
+// being removed.
+func (r *Runtime) connectionStatus() settings.ConnectionStatus {
+	state := r.connections
+	status := settings.ConnectionStatus{
+		Revoking: state.revoking, Distributions: state.wsl.names,
+		DistributionsLoading: state.wsl.loading, DistributionsLoaded: state.wsl.loaded,
+	}
+	if !r.App.Settings.Adding() {
+		return status
+	}
+	local := r.controller.Target().String()
+	for _, project := range r.App.Data.Projects {
+		if project.Host == local {
+			status.Projects = append(status.Projects, settings.ProjectChoice{ID: project.ID, Name: project.Name})
+		}
+	}
+	if host := r.hostState(local); host != nil && host.install != nil {
+		operation := host.install
+		status.Recovery = sshRecoverable(operation)
+		if operation.profile != nil {
+			for _, method := range []settings.Method{settings.ByPassword, settings.ByPrivateKey, settings.ByKeyFile, settings.ByAgent} {
+				if sshAuthentication(method) == string(operation.profile.Authentication) {
+					status.Saved = method
+				}
+			}
+		}
+	}
+	return status
+}
+
+// loadWSLDistributions asks the local Node for the WSL 2 distributions a
+// Host can be installed in.
+func (r *Runtime) loadWSLDistributions() {
+	state := r.connections
+	state.wsl.loading = true
+	r.async(func() {
+		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_wsl_distributions"})
+		r.enqueue(func(c *ui.Context) {
+			state.wsl.loading = false
+			distributions, ok := detail[[]protocol.WslDistribution](output.Data)
+			if err != nil || output.Kind != "wsl_distributions" || !ok {
+				state.wsl.failed = true
+				kit.Toast(c, kit.Failed, i18n.T(c, "host_wsl_load_failed"))
+				return
+			}
+			state.wsl.names = nil
+			for _, distribution := range distributions {
+				if distribution.Version == 2 {
+					state.wsl.names = append(state.wsl.names, distribution.Name)
+				}
+			}
+			state.wsl.loaded = true
+		})
+	})
+}
+
 func (r *Runtime) closeConnections() {
 	if state := r.connections; state != nil {
 		if state.pairCancel != nil {
@@ -179,6 +260,7 @@ func (r *Runtime) connectionSelection(draft settings.ConnectionDraft) (protocol.
 }
 
 func (r *Runtime) addConnection(draft settings.ConnectionDraft, completed func(bool)) {
+	// Every other method installs a Host: over SSH or into WSL.
 	if draft.Method != settings.ByPairing {
 		r.addSSHHost(draft, completed)
 		return
@@ -245,10 +327,20 @@ func (r *Runtime) revokeConnection(device viewmodel.Device) {
 	}
 	var id protocol.NodeID
 	copy(id[:], decoded)
-	endpoint := r.connections.endpoint
+	// A pairing is removed once; its row shows the removal until it ends.
+	state := r.connections
+	if state.revoking[device.ID] {
+		return
+	}
+	if state.revoking == nil {
+		state.revoking = map[string]bool{}
+	}
+	state.revoking[device.ID] = true
+	endpoint := state.endpoint
 	r.async(func() {
 		err := endpoint.SetTrust(r.ctx, id, false)
 		r.enqueue(func(c *ui.Context) {
+			delete(state.revoking, device.ID)
 			if err != nil {
 				r.report(c, err, "pairing_failed")
 			} else if r.Preferences.Data.Devices != nil {

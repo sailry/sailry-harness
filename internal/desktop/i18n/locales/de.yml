@@ -1941,3 +1941,16 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+host_check_status: Check status
+ssh_agent_short: Agent
+ssh_keep_credential: Leer lassen, um die gespeicherten Anmeldeinformationen zu behalten
+ssh_busy: Eine andere Verbindung ist besetzt, versuchen Sie es in Kürze erneut
+connection_scope: Bereich
+connection_private: Privat
+connection_global: Global Sharing
+connection_projects: Projektfreigabe
+host_wsl: WSL
+host_wsl_distribution: Distribution
+host_wsl_requirement: Erfordert WSL2, GNU Linux x64/arm64 und systemd
+host_wsl_empty: Keine installierten WSL2-Distributionen
+host_wsl_load_failed: WSL-Distributionen konnten nicht geladen werden

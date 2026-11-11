@@ -127,13 +127,36 @@ endpoint, algorithm and fingerprint, including changed-key status; opening or
 dismissing it never grants trust. Key-file selection uses the native window
 picker. Install progress retains the original request identifier.
 
-An uncertain completion keeps that request and checks `Client.Outcome` on
-Retry. Admitted work is never replayed; an explicitly not-admitted request can
-be sent with its original identifier. A terminal unknown result requires target
-inspection and does not start another installation. Network-unconfirmed
-installation recovery checks the old address, then the selected network hints,
-verifies the returned Node identity and effective selection, and remembers only
-the confirmed address.
+The dialog also offers the SSH agent, which has no secret. The Node reaches
+the agent through `SSH_AUTH_SOCK`, a Unix socket, so the method is not offered
+on Windows. One dialog saves one connection: a changed draft updates it at its
+revision with its trusted host key, and a secret left blank under the same
+authentication sends no credential, which keeps the saved one. The Host update
+form saves the same way. SSH methods choose the connection's sharing: private,
+global, or the local Node's projects checked in the list; project sharing needs
+at least one project.
+
+On Windows the dialog offers WSL instead of the agent. It lists the local
+Node's WSL2 distributions (`ListWslDistributions`) and installs with
+`InstallWslHost` in one step, with `ReadWslHostInstall` progress and
+`CancelWslHostInstall`; its result ends the dialog as an SSH installation's
+does. WSL behavior is verified only on Windows.
+
+An uncertain completion keeps that request, locks the draft and turns the
+primary button into Check status, which checks `Client.Outcome` and never
+sends the installation again. A recorded success completes the dialog and a
+recorded failure is a plain failure that unlocks the draft. Admitted work is
+never replayed; an explicitly not-admitted request is sent with its original
+identifier. A receipt the Node no longer has cannot be confirmed: the
+uncertain toast tells the user to check the host, and the dialog takes a new
+draft. A failed connection test (unreachable host, refused login, missing
+agent) changes nothing and is a plain failure. Closing the dialog abandons an
+installation left to check. Network-unconfirmed installation recovery checks
+the old address, then the selected network hints, verifies the returned Node
+identity and effective selection, and remembers only the confirmed address.
+While a step runs the primary button shows a spinner and is disabled; a step
+cancelled here that still runs on the Node reports busy instead of starting
+another. A pairing being removed shows a spinner in place of its menu.
 
 The sharing side serves pairing connections only while an invitation is open
 and gives one invitation at most four concurrent claimants; any other pairing

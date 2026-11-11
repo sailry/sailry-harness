@@ -13,10 +13,14 @@ type ConnectionDraft struct {
 	Relay                                     int
 	Address, Code, Name, Host, Port, Username string
 	Password, Key, Passphrase                 string
+	Scope                                     int    // a sharing scope
+	Projects                                  string // shared project IDs, joined by commas
+	Distribution                              string // WSL
 }
 
 type ConnectionActions struct {
 	Add         func(ConnectionDraft, func(bool))
+	CheckStatus func(func(bool))
 	Revoke      func(viewmodel.Device)
 	EditNetwork func(viewmodel.Device)
 	SaveNetwork func(*NetworkEditor)
@@ -55,7 +59,8 @@ type HostTrust struct {
 
 func (m *Model) ConnectionDraft() ConnectionDraft {
 	value := m.pairing
-	return ConnectionDraft{Method: Method(value.method), Relay: value.relay, Address: value.address, Code: value.code, Name: value.name, Host: value.host, Port: value.port, Username: value.user, Password: value.secret, Key: value.key, Passphrase: value.passphrase}
+	return ConnectionDraft{Method: Method(value.method), Relay: value.relay, Address: value.address, Code: value.code, Name: value.name, Host: value.host, Port: value.port, Username: value.user, Password: value.secret, Key: value.key, Passphrase: value.passphrase,
+		Scope: value.scope, Projects: value.sharedProjects(), Distribution: value.distributionName()}
 }
 
 func (m *Model) Sharing() bool { return m.pairing.sharing }

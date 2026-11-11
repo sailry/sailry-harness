@@ -1,6 +1,10 @@
 package settings
 
 import (
+	"runtime"
+	"slices"
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -17,22 +21,115 @@ const (
 	ByPassword
 	ByPrivateKey
 	ByKeyFile
+	ByAgent
+	ByWSL
 )
 
-var methods = []string{"host_pairing_mode", "ssh_password", "ssh_private_key", "ssh_key_file"}
+// methodLabels are the methods' labels, by Method.
+var methodLabels = []string{"host_pairing_mode", "ssh_password", "ssh_private_key", "ssh_key_file", "ssh_agent_short", "host_wsl"}
+
+// hostOS is the system the methods are offered for.
+var hostOS = runtime.GOOS
+
+// hostMethods are the methods this computer can act on: WSL only on
+// Windows, and the SSH agent only where the Node reaches it through a
+// socket, which Windows' agent does not offer.
+func hostMethods() []Method {
+	offered := []Method{ByPairing, ByPassword, ByPrivateKey, ByKeyFile}
+	if hostOS == "windows" {
+		return append(offered, ByWSL)
+	}
+	return append(offered, ByAgent)
+}
+
+// SSH is whether the method logs in over SSH.
+func (method Method) SSH() bool { return method != ByPairing && method != ByWSL }
+
+// Sharing scopes of an SSH host's saved connection.
+const (
+	ScopePrivate = iota
+	ScopeGlobal
+	ScopeProjects
+)
+
+var scopes = []string{"connection_private", "connection_global", "connection_projects"}
+
+// ProjectChoice is a project a saved connection can be shared with.
+type ProjectChoice struct{ ID, Name string }
+
+// ConnectionStatus is what the backend reports of the page's operations
+// beyond the dialog's own draft.
+type ConnectionStatus struct {
+	// Recovery is an installation whose outcome is uncertain: the dialog
+	// locks its draft and offers Check status instead of Install.
+	Recovery bool
+	// Saved is the authentication of the connection this dialog already
+	// saved, ByPairing for none: its secret left blank keeps the saved one.
+	Saved Method
+	// Projects are the local Node's projects, for the sharing scope.
+	Projects []ProjectChoice
+	// Distributions are the WSL distributions a Host can be installed in.
+	Distributions                             []string
+	DistributionsLoading, DistributionsLoaded bool
+	// Revoking are the devices whose pairing is being removed, by ID.
+	Revoking map[string]bool
+}
+
+// SetConnectionStatus is the backend's report, each frame.
+func (m *Model) SetConnectionStatus(status ConnectionStatus) { m.pairing.status = status }
 
 // pairing is the Connections page's dialogs: adding a host, sharing this
 // computer's code, and the pairing being revoked. Pairing, installing over
-// SSH and sharing reach the network; the preview stops at the notice.
+// SSH or into WSL and sharing reach the network; the preview stops at the
+// notice.
 type pairing struct {
 	adding, sharing         bool
 	relay                   int // of relayOptions
 	address                 string
-	method                  int
+	method                  int // a Method
 	code                    string
 	name, host, port, user  string
 	secret, key, passphrase string
+	scope                   int              // a sharing scope
+	shared                  map[string]*bool // the projects shared with, by ID
+	distribution            int              // of status.Distributions
 	revoking                *viewmodel.Device
+	status                  ConnectionStatus
+}
+
+// sharedProjects are the offered projects the draft shares with, joined by
+// commas in the offered order.
+func (pr *pairing) sharedProjects() string {
+	if pr.scope != ScopeProjects {
+		return ""
+	}
+	var ids []string
+	for _, project := range pr.status.Projects {
+		if on := pr.shared[project.ID]; on != nil && *on {
+			ids = append(ids, project.ID)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+
+// distributionName is the chosen WSL distribution, "" for none.
+func (pr *pairing) distributionName() string {
+	if pr.distribution < 0 || pr.distribution >= len(pr.status.Distributions) {
+		return ""
+	}
+	return pr.status.Distributions[pr.distribution]
+}
+
+// installable is whether the draft names what its method needs before the
+// backend can act on it.
+func (pr *pairing) installable() bool {
+	switch method := Method(pr.method); {
+	case method == ByWSL:
+		return pr.distributionName() != ""
+	case method.SSH():
+		return pr.scope != ScopeProjects || pr.sharedProjects() != ""
+	}
+	return true
 }
 
 // relayOptions are the connection servers: the public network, the named
@@ -138,6 +235,13 @@ func devices(c *ui.Context, m *Model, execution bool) {
 						if d.Local {
 							return
 						}
+						// A pairing being removed cannot be removed again.
+						if m.pairing.status.Revoking[d.ID] {
+							ui.Row(c.Key("revoking")).Size(28, 28).Center().Children(func() {
+								ui.Spinner(c).Size(14, 14).Label(i18n.T(c, "live_revoke"))
+							})
+							return
+						}
 						kit.MenuButton(c.Key("menu"), "device-menu-"+d.ID, func(b ui.Element) {
 							kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false)
 						}, func(menu *kit.Menu) {
@@ -233,8 +337,9 @@ func relayFields(c *ui.Context, pr *pairing, relays []string) {
 	}
 }
 
-// addHost is the network, the method, and the pairing code or the SSH login,
-// with Connect or Install.
+// addHost is the network, the method, and the pairing code, the SSH login or
+// the WSL distribution, with Connect or Install. An installation whose
+// outcome is uncertain locks the draft and offers Check status.
 func addHost(c *ui.Context, m *Model) {
 	pr := &m.pairing
 	if !pr.adding {
@@ -242,6 +347,7 @@ func addHost(c *ui.Context, m *Model) {
 	}
 	p := theme.Of(c)
 	title := i18n.T(c, "host_add")
+	locked := m.ConnectionPending || pr.status.Recovery
 	// The title over its hint; the method as segments; the pairing code
 	// large and centered, or the SSH login with host and port on one row;
 	// the relay network last, as it rarely changes.
@@ -251,15 +357,26 @@ func addHost(c *ui.Context, m *Model) {
 			ui.Text(c, i18n.T(c, "host_pairing_hint")).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Padding(4, 0, 0, 0).Children(func() {
-			kit.Segmented(c, "method", &pr.method, labels(c, methods), kit.SegmentedProps{Block: true}).Disabled(m.ConnectionPending).Label(i18n.T(c, "connection"))
-			if Method(pr.method) == ByPairing {
-				ui.Row(c.Key("code")).FillWidth().Justify(ui.Center).Padding(16, 0).Children(func() {
-					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Disabled(m.ConnectionPending).Label(i18n.T(c, "host_pairing_mode"))
-				})
-			} else {
-				sshFields(c, pr, m)
+			offered := hostMethods()
+			names := make([]string, len(offered))
+			for index, method := range offered {
+				names[index] = i18n.T(c, methodLabels[method])
 			}
-			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, m.ConnectionPending)
+			choice := max(slices.Index(offered, Method(pr.method)), 0)
+			kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{Block: true, Size: kit.SizeSmall}).Disabled(locked).Label(i18n.T(c, "connection"))
+			pr.method = int(offered[choice])
+			switch method := Method(pr.method); {
+			case method == ByPairing:
+				ui.Row(c.Key("code")).FillWidth().Justify(ui.Center).Padding(16, 0).Children(func() {
+					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Disabled(locked).Label(i18n.T(c, "host_pairing_mode"))
+				})
+			case method == ByWSL:
+				wslFields(c, pr, locked)
+			default:
+				sshFields(c, pr, m, locked)
+				scopeFields(c, pr, locked)
+			}
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked)
 			if m.ConnectionPending {
 				stage := m.ConnectionStage
 				if stage == "" {
@@ -269,37 +386,56 @@ func addHost(c *ui.Context, m *Model) {
 			}
 		})
 		action := i18n.T(c, "pairing_connect")
-		if Method(pr.method) != ByPairing {
+		switch {
+		case pr.status.Recovery:
+			action = i18n.T(c, "host_check_status")
+		case Method(pr.method) != ByPairing:
 			action = i18n.T(c, "host_install")
 		}
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pr.adding = false })
-			kit.Primary(c.Key("ok"), action, false).Disabled(m.ConnectionPending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
-				if m.ConnectionActions != nil && m.ConnectionActions.Add != nil {
-					draft := m.ConnectionDraft()
-					generation := m.connectionGeneration
-					m.ConnectionActions.Add(draft, func(ok bool) {
-						current := m.ConnectionDraft()
-						current.Relay = draft.Relay
-						if ok && generation == m.connectionGeneration && draft == current {
-							pr.adding = false
-						}
-					})
-				} else {
-					notice(c)
+			// A step under way shows in its button, which cannot start another.
+			kit.Primary(c.Key("ok"), action, false).Disabled(m.ConnectionPending || !pr.status.Recovery && !pr.installable()).Children(func() {
+				if m.ConnectionPending {
+					ui.Spinner(c).Size(14, 14)
 				}
+				ui.Text(c, action).FontSize(14)
+			}).OnClick(func() {
+				if m.ConnectionActions == nil || m.ConnectionActions.Add == nil {
+					notice(c)
+					return
+				}
+				draft := m.ConnectionDraft()
+				generation := m.connectionGeneration
+				completed := func(ok bool) {
+					current := m.ConnectionDraft()
+					current.Relay = draft.Relay
+					if ok && generation == m.connectionGeneration && draft == current {
+						pr.adding = false
+					}
+				}
+				// Checking asks the host what became of the installation
+				// already sent; it never sends another.
+				if pr.status.Recovery {
+					if m.ConnectionActions.CheckStatus != nil {
+						m.ConnectionActions.CheckStatus(completed)
+					}
+					return
+				}
+				m.ConnectionActions.Add(draft, completed)
 			})
 		})
-	}).Width(min(520, width(c)-48)).Label(title)
+	}).Width(min(620, width(c)-48)).Label(title)
 }
 
 // sshFields are the name, the host and port on one row, the user, then the
-// method's secret.
-func sshFields(c *ui.Context, pr *pairing, m *Model) {
+// method's secret; the agent has none. A secret left blank keeps the one the
+// dialog already saved for the same method.
+func sshFields(c *ui.Context, pr *pairing, m *Model, locked bool) {
 	p := theme.Of(c)
 	field := func(key string, value *string) {
 		label := i18n.T(c, key)
-		kit.Field(c, key, label, "", func() { ui.TextInput(c.Key("input"), value).Disabled(m.ConnectionPending).Label(label).FillWidth() })
+		kit.Field(c, key, label, "", func() { ui.TextInput(c.Key("input"), value).Disabled(locked).Label(label).FillWidth() })
 	}
 	field("settings_name", &pr.name)
 	ui.Row(c.Key("address")).Gap(12).Children(func() {
@@ -307,24 +443,28 @@ func sshFields(c *ui.Context, pr *pairing, m *Model) {
 		ui.Column(c.Key("port")).Width(96).Shrink(0).Children(func() { field("ssh_port", &pr.port) })
 	})
 	field("ssh_username", &pr.user)
+	keep := ""
+	if pr.status.Saved == Method(pr.method) {
+		keep = i18n.T(c, "ssh_keep_credential")
+	}
 	switch Method(pr.method) {
 	case ByPassword:
 		label := i18n.T(c, "ssh_password")
-		kit.Field(c, "secret", label, "", func() {
-			ui.TextInput(c.Key("input"), &pr.secret).Disabled(m.ConnectionPending).Password().Label(label).FillWidth()
+		kit.Field(c, "secret", label, keep, func() {
+			ui.TextInput(c.Key("input"), &pr.secret).Disabled(locked).Password().Label(label).FillWidth()
 		})
 	case ByPrivateKey:
 		label := i18n.T(c, "ssh_private_key")
-		kit.Field(c, "key", label, "", func() {
-			ui.TextArea(c.Key("input"), &pr.key).Disabled(m.ConnectionPending).Label(label).Placeholder(i18n.T(c, "form_private_key_hint")).FillWidth().Height(96).Font("monospace")
+		kit.Field(c, "key", label, keep, func() {
+			ui.TextArea(c.Key("input"), &pr.key).Disabled(locked).Label(label).Placeholder(i18n.T(c, "form_private_key_hint")).FillWidth().Height(96).Font("monospace")
 		})
 	case ByKeyFile:
 		label := i18n.T(c, "ssh_key_path")
-		kit.Field(c, "path", label, "", func() {
+		kit.Field(c, "path", label, keep, func() {
 			ui.Row(c).Gap(6).Children(func() {
-				ui.TextInput(c.Key("input"), &pr.key).Disabled(m.ConnectionPending).Label(label).Placeholder("~/.ssh/id_ed25519").Grow(1)
+				ui.TextInput(c.Key("input"), &pr.key).Disabled(locked).Label(label).Placeholder("~/.ssh/id_ed25519").Grow(1)
 				// Choosing the file reads the disk.
-				kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "ssh_key_file"), 32, false).Disabled(m.ConnectionPending).Border(1, p.Input).OnClick(func() {
+				kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "ssh_key_file"), 32, false).Disabled(locked).Border(1, p.Input).OnClick(func() {
 					if m.ConnectionActions != nil && m.ConnectionActions.BrowseKey != nil {
 						generation, key := m.connectionGeneration, pr.key
 						m.ConnectionActions.BrowseKey(func(path string) {
@@ -339,12 +479,64 @@ func sshFields(c *ui.Context, pr *pairing, m *Model) {
 			})
 		})
 	}
-	if Method(pr.method) != ByPassword {
+	if method := Method(pr.method); method == ByPrivateKey || method == ByKeyFile {
 		label := i18n.T(c, "ssh_passphrase")
 		kit.Field(c, "passphrase", label, "", func() {
-			ui.TextInput(c.Key("input"), &pr.passphrase).Disabled(m.ConnectionPending).Password().Label(label).Placeholder(i18n.T(c, "form_passphrase_hint")).FillWidth()
+			ui.TextInput(c.Key("input"), &pr.passphrase).Disabled(locked).Password().Label(label).Placeholder(i18n.T(c, "form_passphrase_hint")).FillWidth()
 		})
 	}
+}
+
+// scopeFields are who else may use the saved SSH connection: nobody, every
+// project, or the chosen ones.
+func scopeFields(c *ui.Context, pr *pairing, locked bool) {
+	p := theme.Of(c)
+	label := i18n.T(c, "connection_scope")
+	kit.Field(c, "scope", label, "", func() {
+		ui.RadioGroup(c, func() {
+			ui.Row(c.Key("choices")).Gap(16).Wrap().Children(func() {
+				for index, key := range scopes {
+					ui.Radio(c.Key(index), &pr.scope, index, i18n.T(c, key)).Disabled(locked)
+				}
+			})
+		}).Label(label)
+		if pr.scope != ScopeProjects {
+			return
+		}
+		if len(pr.status.Projects) == 0 {
+			ui.Text(c, i18n.T(c, "connection_no_projects")).FontSize(14).TextColor(p.MutedForeground)
+			return
+		}
+		if pr.shared == nil {
+			pr.shared = map[string]*bool{}
+		}
+		ui.Scroll(c.Key("projects")).MaxHeight(192).Gap(8).Children(func() {
+			for _, project := range pr.status.Projects {
+				if pr.shared[project.ID] == nil {
+					pr.shared[project.ID] = new(bool)
+				}
+				ui.Checkbox(c.Key(project.ID), pr.shared[project.ID], project.Name).Disabled(locked)
+			}
+		})
+	})
+}
+
+// wslFields are the distribution the Host is installed in, of those the
+// Node found.
+func wslFields(c *ui.Context, pr *pairing, locked bool) {
+	p := theme.Of(c)
+	label := i18n.T(c, "host_wsl_distribution")
+	status := pr.status
+	kit.Field(c, "distribution", label, i18n.T(c, "host_wsl_requirement"), func() {
+		switch {
+		case status.DistributionsLoading:
+			kit.Shimmer(c, i18n.T(c, "host_runtime_loading"), 14, p.MutedForeground)
+		case len(status.Distributions) > 0:
+			pick(c, "distribution", label, &pr.distribution, status.Distributions, locked).Fill()
+		case status.DistributionsLoaded:
+			ui.Text(c, i18n.T(c, "host_wsl_empty")).FontSize(14).TextColor(p.MutedForeground)
+		}
+	})
 }
 
 // shareCode is the share dialog: the network, this computer's pairing code in
@@ -407,7 +599,7 @@ func (s *State) AddHost() { s.Model.openAddHost() }
 
 func (m *Model) openAddHost() {
 	m.connectionGeneration++
-	m.pairing = pairing{adding: true, port: "22"}
+	m.pairing = pairing{adding: true, port: "22", status: m.pairing.status}
 }
 
 func connectionRelayFields(c *ui.Context, pr *pairing, relays []string, choices []RelayChoice, disabled bool) {

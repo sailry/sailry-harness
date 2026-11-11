@@ -1941,3 +1941,16 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+host_check_status: Check status
+ssh_agent_short: 대리인
+ssh_keep_credential: 저장된 자격 증명을 유지하려면 비워 두십시오
+ssh_busy: 다른 연결이 바빠서 곧 다시 시도하십시오
+connection_scope: 범위
+connection_private: 비공개
+connection_global: 전역 공유
+connection_projects: 프로젝트 공유
+host_wsl: WSL
+host_wsl_distribution: 배포판
+host_wsl_requirement: WSL2, GNU Linux x64/arm64 및 systemd 필요
+host_wsl_empty: 설치된 WSL2 배포판 없음
+host_wsl_load_failed: WSL 배포판을 불러올 수 없음

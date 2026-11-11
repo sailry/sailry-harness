@@ -1941,3 +1941,16 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+host_check_status: Check status
+ssh_agent_short: SSH Agent
+ssh_keep_credential: 留空保留已儲存的憑據
+ssh_busy: 正在處理其他連線，請稍後重試
+connection_scope: 使用範圍
+connection_private: 私有使用
+connection_global: 全域性共享
+connection_projects: 專案共享
+host_wsl: WSL
+host_wsl_distribution: 發行版
+host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 與 systemd
+host_wsl_empty: 尚未安裝 WSL2 發行版
+host_wsl_load_failed: 無法載入 WSL 發行版

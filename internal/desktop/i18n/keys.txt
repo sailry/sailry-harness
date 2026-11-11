@@ -1953,3 +1953,16 @@ media_load_failed
 panel_history_empty
 panel_documents_empty
 connections_copy_id
+host_check_status
+ssh_agent_short
+ssh_keep_credential
+ssh_busy
+connection_scope
+connection_private
+connection_global
+connection_projects
+host_wsl
+host_wsl_distribution
+host_wsl_requirement
+host_wsl_empty
+host_wsl_load_failed
