@@ -23,6 +23,9 @@ type Hooks struct {
 	PackageDialogs   func(*ui.Context)
 	BeforeFrame      func(*ui.Context)
 	AfterFrame       func()
+	// DemoChanged runs when Demo mode went on, off or into another
+	// language, before the frame's other hooks.
+	DemoChanged      func()
 	Refresh          func()
 	ReadNotice       func(string)
 	ReadNotices      func([]string)
