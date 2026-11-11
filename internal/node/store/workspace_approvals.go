@@ -35,10 +35,21 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 			value.CanRemember = false
 			value.Prefix = nil
 		} else if supported && access == protocol.ProcessAccessUnrestricted && capture.Config.Permission != protocol.PermissionFull {
-			value.Source = protocol.ConversationApprovalSourceUser
-			value.State = protocol.ConversationApprovalStatePending
-			value.CanRemember = false
-			value.Prefix = nil
+			sandbox, err := ReadSandboxSettings(ctx, db)
+			if err != nil {
+				return value, err
+			}
+			// With the sandbox on, an unrestricted command leaves it: the user
+			// decides each one and no rule answers for them. With the sandbox
+			// off there is nothing to leave, so the command is an ordinary
+			// approval and keeps its session and prefix rules.
+			if sandbox.Enabled {
+				value.Source = protocol.ConversationApprovalSourceUser
+				value.State = protocol.ConversationApprovalStatePending
+				value.CanRemember = false
+				value.Prefix = nil
+				value.Choice = nil
+			}
 		}
 	} else if operation == protocol.ToolOperationSetValue || operation == protocol.ToolOperationDeleteValue || operation == protocol.ToolOperationStorageTransaction {
 		// A plugin writes only its own namespace, so the write is authorized
@@ -91,9 +102,16 @@ func ApprovedWorkspaceRequest(ctx context.Context, db *sql.Conn, turn protocol.T
 	if !claimed || id != request.ID.String() {
 		return fault(protocol.ErrorCodePermissionDenied, "tool operation differs from its admitted approval")
 	}
-	if input, ok := request.Command.Data.(*protocol.CommandRunCommandPayload); ok {
-		if value.Access == nil || *value.Access != input.Access {
-			return fault(protocol.ErrorCodePermissionDenied, "prepared command access differs from approval")
+	input, command := request.Command.Data.(*protocol.CommandRunCommandPayload)
+	if command && (value.Access == nil || *value.Access != input.Access) {
+		return fault(protocol.ErrorCodePermissionDenied, "prepared command access differs from approval")
+	}
+	// A prefix answers for the command that runs. A handler script prepares
+	// that command from the model's arguments, which the rule was matched on.
+	if value.Choice != nil && value.Choice.Kind == "prefix" {
+		prefix, valid := value.Choice.Data.(*string)
+		if !command || !valid || !approvalPrefixMatches(input.Command, *prefix) {
+			return fault(protocol.ErrorCodePermissionDenied, "prepared command is outside the approved prefix")
 		}
 	}
 	return nil

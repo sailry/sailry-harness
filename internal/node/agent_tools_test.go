@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -484,6 +485,47 @@ func TestAgentManagementTools(t *testing.T) {
 			}
 		})
 	}
+
+	// With the sandbox setting off a command is an ordinary approval the
+	// session can remember, and each command reads the setting as it is now.
+	// The fixture launches nothing: the calls fail after their approval.
+	t.Run("commands follow the sandbox setting", func(t *testing.T) {
+		sandbox := func(enabled bool) {
+			current := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings)
+			current.Enabled = enabled
+			commandFixture(t, node, protocol.Command{Kind: "save_sandbox_settings", Data: &current})
+		}
+		sandbox(false)
+		defer sandbox(true)
+		asked := 0
+		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+			asked++
+			if !approval.CanRemember || approval.Prefix == nil || *approval.Prefix != "git status" || approval.Access == nil || *approval.Access != protocol.ProcessAccessUnrestricted {
+				t.Errorf("command without a sandbox is not an ordinary approval: %+v", approval)
+			}
+			return "approve_session"
+		}, func(step int, _ map[string]string) [][3]string {
+			switch step {
+			case 1:
+				return [][3]string{{"first", "run_command", `{"command":"git status --short"}`}}
+			case 2:
+				return [][3]string{{"second", "run_command", `{"command":"git log"}`}}
+			case 3:
+				// The user turns the sandbox back on while the turn runs.
+				sandbox(true)
+				return [][3]string{{"third", "run_command", `{"command":"git diff"}`}}
+			}
+			return nil
+		})
+		if asked != 1 || len(approvals) != 3 || approvals[1].Source != protocol.ConversationApprovalSourceSessionRule || approvals[1].State != protocol.ConversationApprovalStateApproved {
+			t.Fatalf("session rule did not answer the second command: asked %d, %+v", asked, approvals)
+		}
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			if last := approvals[2]; last.Source != protocol.ConversationApprovalSourceSandbox || last.Access == nil || *last.Access != protocol.ProcessAccessWorkspace {
+				t.Fatalf("command ignored the sandbox turned on during its turn: %+v", last)
+			}
+		}
+	})
 
 	t.Run("plan mode", func(t *testing.T) {
 		var results map[string]string
