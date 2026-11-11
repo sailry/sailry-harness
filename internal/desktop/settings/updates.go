@@ -210,7 +210,7 @@ func updates(c *ui.Context, m *Model) {
 		run(func(a *UpdateActions) func() { return a.Install }, func() { u.start(UpdateInstalling, c.Now()) })()
 	}
 	if u.Failure != nil {
-		kit.Details(c, &u.details, i18n.T(c, "updates_details"), "", u.Failure.Detail)
+		kit.Details(c.Key("details"), &u.details, i18n.T(c, "updates_details"), "", u.Failure.Detail)
 	}
 }
 

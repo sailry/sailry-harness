@@ -35,14 +35,15 @@ func Retry(c *ui.Context, message string, again func()) {
 
 // Details is a dialog up to 560 wide and 80% of the window high with the
 // title, a muted subtitle ("" for none) and the detail as selectable
-// Markdown. It shows while *open.
+// Markdown. It shows while *open. The dialog takes the caller's context as
+// it is: a caller keys it, as any element that is not always built.
 func Details(c *ui.Context, open *bool, title, subtitle, detail string) {
 	if !*open {
 		return
 	}
 	p := theme.Of(c)
 	w, h := c.Size()
-	Dialog(c.Key("details"), open, func() {
+	Dialog(c, open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground).PaddingEnd(24)
 		ui.Scroll(c.Key("detail")).Grow(1).Shrink(1).Gap(12).Children(func() {
 			if subtitle != "" {
