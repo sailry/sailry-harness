@@ -46,7 +46,13 @@ type Tool struct {
 	BindDelegation    func(Tool) Tool
 	// Guidance makes BindDelegation receive guide_agent instead of spawn_agent.
 	Guidance bool
-	schema   *jsonschema.Schema
+	// Hosted marks a package tool whose script runs with neither a bound
+	// operation nor a flow, within the package's declared actions. Flow lists
+	// the operations a flow tool may run. A child without a tool list keeps
+	// such tools by these declarations.
+	Hosted bool
+	Flow   []protocol.ToolOperation
+	schema *jsonschema.Schema
 	// ExecutePrepared runs a call with arguments a package prepared. The call
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult

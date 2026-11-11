@@ -14,6 +14,13 @@ against the captured catalog. Role instructions and selected complete skill
 documents join the stable policy. Role action budgets retain the source prompt
 and termination behavior.
 
+A child without a role tool list keeps the standard catalog, as in Rust: the
+session reference and skill tools, package tools whose every declared
+operation (the bound one and a flow's) is a standard worktree, Git, command,
+web, artifact or code-index operation, and hosted script tools that are
+read-only by their handler or by the package's actions. MCP tools and other
+operations need an explicit role selection.
+
 A package tool bound to `agents.delegate` (the code-review package's
 `delegate_review`) admits a child through the same path. Its host script
 prepares the child's arguments from the ones the model sent. The recorded call
