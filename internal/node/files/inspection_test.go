@@ -3,6 +3,7 @@ package files
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -62,6 +64,43 @@ func TestFileInspectionPages(t *testing.T) {
 	if err != nil || len(result.Counts) != 1 || result.Counts[0].Count != 2 {
 		t.Fatalf("search count: %+v %v", result, err)
 	}
+
+	// A browsed entry carries its modified time, optional on the wire.
+	t.Run("modified time", func(t *testing.T) {
+		directory := t.TempDir()
+		stamp := time.Date(2026, 11, 8, 14, 32, 10, 0, time.UTC)
+		if err := os.Mkdir(filepath.Join(directory, "folder"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "notes.md"), []byte("notes"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"folder", "notes.md"} {
+			if err := os.Chtimes(filepath.Join(directory, name), stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+		}
+		listing, err := Browse(ctx, &directory, nil)
+		if err != nil || len(listing.Directory.Entries) != 2 {
+			t.Fatalf("browsing %s: %+v %v", directory, listing, err)
+		}
+		for _, entry := range listing.Directory.Entries {
+			if entry.ModifiedMs == nil || *entry.ModifiedMs != uint64(stamp.UnixMilli()) {
+				t.Errorf("%s was modified at %v, want %d", entry.Name, entry.ModifiedMs, stamp.UnixMilli())
+			}
+		}
+		encoded, err := json.Marshal(listing.Directory.Entries[1])
+		if want := fmt.Sprintf(`{"modified_ms":%d,"name":"notes.md","kind":"file","size":5}`, stamp.UnixMilli()); err != nil || string(encoded) != want {
+			t.Errorf("the entry encodes as %s %v, want %s", encoded, err, want)
+		}
+		var decoded protocol.FileEntry
+		if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.ModifiedMs == nil || *decoded.ModifiedMs != uint64(stamp.UnixMilli()) {
+			t.Errorf("the entry decodes as %+v %v", decoded, err)
+		}
+		if err := json.Unmarshal([]byte(`{"name":"a","kind":"file","size":1}`), &decoded); err != nil || decoded.ModifiedMs != nil {
+			t.Errorf("an entry without a time decodes as %+v %v", decoded, err)
+		}
+	})
 }
 func TestImagePreparation(t *testing.T) {
 	t.Parallel()

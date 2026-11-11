@@ -375,9 +375,10 @@ func (value *EntryKind) UnmarshalText(data []byte) error {
 }
 
 type FileEntry struct {
-	Name string    `json:"name"`
-	Kind EntryKind `json:"kind"`
-	Size uint64    `json:"size"`
+	ModifiedMs *uint64   `json:"modified_ms,omitempty"`
+	Name       string    `json:"name"`
+	Kind       EntryKind `json:"kind"`
+	Size       uint64    `json:"size"`
 }
 
 func DefaultFileEntry() FileEntry {

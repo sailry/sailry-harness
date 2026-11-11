@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name} · 主机'
 chat_config_desktop: 桌面配置
 usage_read_failed: 无法读取用量，请重试
 queue_draft_changed: 队列已改变，编辑草稿已保留
+directory_modified: 修改时间
+directory_modified_today: 今天 %{time}
+directory_modified_yesterday: 昨天 %{time}

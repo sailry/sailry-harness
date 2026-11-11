@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name} · Host'
 chat_config_desktop: Desktop configuration
 usage_read_failed: Could not load usage, try again
 queue_draft_changed: Queue changed; draft kept
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}

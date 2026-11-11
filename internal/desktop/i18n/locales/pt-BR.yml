@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name} · Anfitrião'
 chat_config_desktop: Configuração do desktop
 usage_read_failed: Não foi possível carregar o uso, tente novamente
 queue_draft_changed: Fila alterada; rascunho mantido
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}

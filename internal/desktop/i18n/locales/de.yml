@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name} · Host'
 chat_config_desktop: Desktop-Konfiguration
 usage_read_failed: Konnte die Nutzung nicht laden, versuchen Sie es erneut
 queue_draft_changed: Warteschlange geändert; Entwurf beibehalten
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}

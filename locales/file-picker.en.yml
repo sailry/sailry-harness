@@ -1,0 +1,3 @@
+directory_modified: "Modified"
+directory_modified_today: "Today %{time}"
+directory_modified_yesterday: "Yesterday %{time}"

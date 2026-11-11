@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Mode is what the picker chooses.
@@ -30,6 +31,9 @@ type Entry struct {
 	// files can be selected.
 	Kind string
 	Size uint64
+	// Modified is when the entry last changed, zero where its host does not
+	// say.
+	Modified time.Time
 }
 
 // Dir reports whether the entry is a directory.
@@ -82,8 +86,9 @@ func Visible(entries []Entry, hidden bool, filter string) []int {
 }
 
 // Order sorts visible indexes: directories first, then by the column (name,
-// kind or size) and the lower-cased name; descending reverses the files and
-// the directories among themselves.
+// kind, size or modified) and the lower-cased name; descending reverses the
+// files and the directories among themselves. An entry without a modified
+// time is older than any with one.
 func Order(entries []Entry, visible []int, column string, descending bool, kind func(Entry) string) {
 	slices.SortStableFunc(visible, func(a, b int) int {
 		x, y := entries[a], entries[b]
@@ -99,6 +104,8 @@ func Order(entries []Entry, visible []int, column string, descending bool, kind 
 			order = strings.Compare(kind(x), kind(y))
 		case "size":
 			order = cmp.Compare(x.Size, y.Size)
+		case "modified":
+			order = x.Modified.Compare(y.Modified)
 		}
 		if order == 0 {
 			order = strings.Compare(strings.ToLower(x.Name), strings.ToLower(y.Name))
@@ -238,6 +245,24 @@ func Bytes(e Entry) string {
 		return fmt.Sprintf("%.1f KB", float64(e.Size)/1e3)
 	}
 	return fmt.Sprintf("%d B", e.Size)
+}
+
+// Day places a modification time against now, in now's time zone: 0 on the
+// same day, 1 on the day before, 2 on any other, and -1 for no time. The
+// list shows the first two with the time of day and the rest as a date.
+func Day(modified, now time.Time) int {
+	if modified.IsZero() {
+		return -1
+	}
+	year, month, day := now.Date()
+	today := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+	switch {
+	case !modified.Before(today) && modified.Before(today.AddDate(0, 0, 1)):
+		return 0
+	case !modified.Before(today.AddDate(0, 0, -1)) && modified.Before(today):
+		return 1
+	}
+	return 2
 }
 
 // ValidName reports whether name can be a new entry's: not empty, not . or ..,

@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name}'
 chat_config_desktop: Configuración de escritorio
 usage_read_failed: No se pudo cargar el uso, inténtelo de nuevo
 queue_draft_changed: La cola cambió; el borrador se mantuvo
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}

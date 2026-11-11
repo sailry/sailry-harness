@@ -1,6 +1,8 @@
 package live
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -49,7 +51,11 @@ func (r *Runtime) browseFiles(directory string, done func(picker.Listing, string
 				target = &listing.Path
 			}
 			for _, entry := range page.Directory.Entries {
-				listing.Entries = append(listing.Entries, picker.Entry{Name: entry.Name, Kind: string(entry.Kind), Size: entry.Size})
+				item := picker.Entry{Name: entry.Name, Kind: string(entry.Kind), Size: entry.Size}
+				if entry.ModifiedMs != nil {
+					item.Modified = time.UnixMilli(int64(*entry.ModifiedMs))
+				}
+				listing.Entries = append(listing.Entries, item)
 			}
 			if after = page.Directory.Next; after == nil {
 				break

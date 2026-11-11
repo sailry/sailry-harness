@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	format "github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -12,12 +13,14 @@ import (
 )
 
 // The dialog is 1040 by 680 at most and 24 DIP clear of the window's edges.
-// As it narrows, the Kind column and then the sidebar give way to the names:
-// under sidebarFrom the title moves over the header bar and the locations
-// into its More menu.
+// As it narrows, the Kind column, then the Modified column, then the sidebar
+// give way to the names: under sidebarFrom the title moves over the header
+// bar and the locations into its More menu. The window's least size, 760 by
+// 560, leaves the names and the sizes.
 const (
-	kindFrom    = 960
-	sidebarFrom = 780
+	kindFrom     = 960
+	modifiedFrom = 860
+	sidebarFrom  = 780
 )
 
 // View builds the picker over the window's other dialogs, its content edge
@@ -77,7 +80,7 @@ func (s *State) View(c *ui.Context) {
 						ui.Text(c, i18n.T(c, notice)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 					})
 				}
-				s.entries(c, valid, width >= kindFrom)
+				s.entries(c, valid, width)
 				// A key or a click in the entries may have shown another directory.
 				s.arrange(c)
 				s.footer(c, valid)
@@ -350,9 +353,37 @@ func (s *State) addressBar(c *ui.Context, off bool) {
 	})
 }
 
+// modified is an entry's modification time as the list shows it, and in full
+// as its tooltip does: today's and yesterday's with the time of day, any
+// other as a date, a dash for none. The frame's language writes the dates,
+// and the desktop's hour cycle the times.
+func (s *State) modified(c *ui.Context, e Entry) (short, full string) {
+	now := c.Now()
+	if s.o.Preview {
+		now = CatalogNow
+	}
+	locale, cycle := i18n.Match(c.Locale()), c.Region().HourCycle
+	at := e.Modified.In(now.Location())
+	clock := func() string {
+		return format.FormatDate(locale, at, format.DateOptions{Skeleton: "jm", HourCycle: cycle})
+	}
+	switch Day(e.Modified, now) {
+	case -1:
+		return "—", ""
+	case 0:
+		short = i18n.T(c, "directory_modified_today", "time", clock())
+	case 1:
+		short = i18n.T(c, "directory_modified_yesterday", "time", clock())
+	default:
+		short = format.FormatDate(locale, at, format.DateOptions{Date: format.MediumStyle})
+	}
+	return short, format.FormatDate(locale, at, format.DateOptions{Date: format.LongStyle, Time: format.MediumStyle, HourCycle: cycle})
+}
+
 // entries is the directory in the table or the grid, with its native
-// right-click menus and its keys. kinds shows the table's Kind column.
-func (s *State) entries(c *ui.Context, valid, kinds bool) {
+// right-click menus and its keys. width is the dialog's, which the table's
+// columns follow.
+func (s *State) entries(c *ui.Context, valid bool, width float32) {
 	p := theme.Of(c)
 	entries, rows := s.listing.Entries, s.rows
 	off := s.busy || !valid
@@ -430,11 +461,12 @@ func (s *State) entries(c *ui.Context, valid, kinds bool) {
 			}
 			return i == s.row
 		}
-		detail := func(text string, selected bool) {
+		detail := func(text string, selected bool) ui.Element {
 			el := ui.Text(c, text).FontSize(13).SingleLine()
 			if !selected {
 				el.TextColor(p.MutedForeground)
 			}
+			return el
 		}
 		dim := func(e Entry, el ui.Element) {
 			if strings.HasPrefix(e.Name, ".") {
@@ -461,8 +493,11 @@ func (s *State) entries(c *ui.Context, valid, kinds bool) {
 				{Title: i18n.T(c, "files_entry_name"), ID: "name", Sortable: true, MinWidth: 200},
 				{Title: i18n.T(c, "directory_size"), ID: "size", Width: 96, Align: ui.End, Sortable: true},
 			}
-			if kinds {
-				cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_kind"), ID: "kind", Width: 148, Sortable: true})
+			if width >= modifiedFrom {
+				cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_modified"), ID: "modified", Width: 156, Sortable: true})
+			}
+			if width >= kindFrom {
+				cols = append(cols, ui.TableColumn{Title: i18n.T(c, "directory_kind"), ID: "kind", Width: 140, Sortable: true})
 			}
 			s.list.RoundRows = true
 			view = ui.Table(c.Key("list/"+s.listing.Path), &s.list, cols, len(rows), func(row, col int) {
@@ -484,6 +519,11 @@ func (s *State) entries(c *ui.Context, valid, kinds bool) {
 					detail(kind(c, e), on(row))
 				case "size":
 					detail(Bytes(e), on(row))
+				case "modified":
+					short, full := s.modified(c, e)
+					if text := detail(short, on(row)); full != "" {
+						kit.Tooltip(c, text, full)
+					}
 				}
 			}).Grow(1).Padding(0, 6)
 		}

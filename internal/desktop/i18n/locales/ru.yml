@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name} · Хозяин'
 chat_config_desktop: Конфигурация рабочего стола
 usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
 queue_draft_changed: Очередность изменена; проект сохранен
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}

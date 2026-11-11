@@ -2188,3 +2188,6 @@ chat_provider_node: '%{name} · Hôte'
 chat_config_desktop: Configuration du bureau
 usage_read_failed: Impossible de charger l'utilisation, réessayez
 queue_draft_changed: Changement de file d &apos; attente; brouillon conservé
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}

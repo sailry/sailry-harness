@@ -77,8 +77,10 @@ archives `Warning`, code `Primary`, images and sheets `Success`, PDF, audio
 and video `Danger`, the rest muted) holding the glyph in that color, and the
 chosen entry's name in bold. A chosen row is filled with the accent, so its
 tile takes `PrimaryForeground`. The list keeps MyGo's own table and grid
-behavior. There is no Modified column: `protocol.FileEntry` carries a name, a
-kind and a size, not a modified time. Several files are chosen with the
+behavior. The Modified column shows `protocol.FileEntry.modified_ms`, which
+the Node's listing (`core.Files.ListDirectory`) and the SFTP listing fill
+from the entry's own time; the field is optional, so an entry of a peer that
+does not send it shows a dash. Several files are chosen with the
 list's own modifiers rather than the reference's name-cell checkbox.
 
 ## Transfers

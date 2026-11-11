@@ -2200,3 +2200,6 @@ chat_provider_node
 chat_config_desktop
 usage_read_failed
 queue_draft_changed
+directory_modified
+directory_modified_today
+directory_modified_yesterday
