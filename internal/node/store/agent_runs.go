@@ -452,6 +452,11 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err != nil {
 		return run, nil, err
 	}
+	notice, err := runNotice(ctx, db, run)
+	if err != nil {
+		return run, nil, err
+	}
+	events = append(events, notice...)
 	origin, err := readDelegation(ctx, db, turn)
 	if err != nil {
 		return run, nil, err
