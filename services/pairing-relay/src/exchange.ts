@@ -30,12 +30,14 @@ export class Exchange {
     const prefix = generation(now);
     const origin = `${prefix}rate/${kind}/${await digest(source)}/`;
     const allowance = kind === "publish" ? this.budget.publish : this.budget.redeem;
-    // Slots fill in order, so an occupied last slot means the source is spent.
-    // Refusing it on this read keeps one source from draining the global budget.
-    if (await this.store.get(`${origin}${allowance - 1}`)) return failure(429, "rate_limited");
-    // Admit globally before creating source records, bounding unique-source growth.
-    if (!await this.slot(`${prefix}rate/${kind}/global/`, this.budget.global, now)
-      || !await this.slot(origin, allowance, now))
+    const shared = `${prefix}rate/${kind}/global/`;
+    // Slots fill in order, so an occupied last slot means the budget is spent.
+    // Refusing on this read writes no source record once the window is full.
+    if (await this.store.get(`${shared}${this.budget.global - 1}`)) return failure(429, "rate_limited");
+    // The source slot is a conditional write and comes first: one source holds
+    // at most its allowance, so it takes at most that many global slots however
+    // its requests are timed.
+    if (!await this.slot(origin, allowance, now) || !await this.slot(shared, this.budget.global, now))
       return failure(429, "rate_limited");
     if (kind === "publish") return this.publish(body as Publication, current);
     if (kind === "redeem") return this.redeem(body as Redemption, current);
