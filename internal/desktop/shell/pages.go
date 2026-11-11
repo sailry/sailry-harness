@@ -20,7 +20,7 @@ var pageFeatures = map[string]Page{
 // project returns the state of the selected conversation's project, nil
 // when it has none.
 func (a *App) project() *panel.Project {
-	if !a.Preview {
+	if !a.sampled() {
 		if a.Hooks.WorkspaceProject != nil {
 			return a.Hooks.WorkspaceProject()
 		}
@@ -94,7 +94,7 @@ func (a *App) featurePage(c *ui.Context) {
 		a.Hooks.PluginPage(c, a.pluginPage)
 		return
 	}
-	if !a.Preview && a.Data.ProjectOf(a.Sidebar.Selected) != nil {
+	if !a.sampled() && a.Data.ProjectOf(a.Sidebar.Selected) != nil {
 		a.unavailable(c)
 		return
 	}

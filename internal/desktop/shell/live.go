@@ -95,7 +95,7 @@ func (a *App) unavailable(c *ui.Context) {
 }
 
 func (a *App) notice(c *ui.Context) {
-	if a.Preview {
+	if a.sampled() {
 		kit.PreviewNotice(c)
 		return
 	}

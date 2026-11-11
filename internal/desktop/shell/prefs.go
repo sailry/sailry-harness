@@ -92,8 +92,8 @@ func SavePrefs(dir string, p Prefs) error {
 	return os.Rename(tmp, filepath.Join(dir, PrefsFile))
 }
 
-// Prefs returns the app's preferences as they are now.
-func (a *App) Prefs() Prefs {
+// prefs are the preferences of the stage on the window (Prefs).
+func (a *App) prefs() Prefs {
 	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),

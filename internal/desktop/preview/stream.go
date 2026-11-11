@@ -27,6 +27,14 @@ const Tick = 50 * time.Millisecond
 
 const answer = "The preview played this reply without a model. It grows a few characters at a time, as a streamed answer does, so the transcript can be checked to follow its end.\n\n- The work region stays open while it runs.\n- It folds once the run completes.\n\nScroll up while it plays and the jump button shows; click it to follow again."
 
+// script is the reply a send plays: the file it reads and the answer it
+// writes.
+type script struct {
+	label, file, output, answer string
+}
+
+var previewScript = script{label: "Read file", file: "README.md", output: "# sailry-go\n\nA Go prototype of Sailry's desktop UI.", answer: answer}
+
 type stream struct {
 	start time.Time
 	turn  int
@@ -49,21 +57,26 @@ func Advance(c *Conversation, now time.Time) {
 		return
 	}
 	t := &c.Turns[s.turn]
+	play := &previewScript
+	if own := simulation(c).script; own != nil {
+		play = own
+	}
 	d := now.Sub(s.start)
 	r := cv.Reply{Status: cv.Running, Elapsed: d.Truncate(time.Second), Phase: cv.Thinking}
 	if d >= readAt {
-		read := cv.Call{ID: t.ID + "/read", Name: "read", Label: "Read file", Icon: "book-open", Detail: "README.md", Code: true}
+		read := cv.Call{ID: t.ID + "/read", Name: "read", Label: play.label, Icon: "book-open", Detail: play.file, Code: true}
 		if d < readAt+readFor {
 			read.Running = true
 		} else {
-			read.Output = &cv.Output{Text: "# sailry-go\n\nA Go prototype of Sailry's desktop UI."}
+			read.Output = &cv.Output{Text: play.output}
 		}
 		r.Blocks = append(r.Blocks, cv.Block{Kind: cv.ToolsBlock, Calls: []cv.Call{read}})
 	}
 	if d >= answerAt {
+		answer := []rune(play.answer)
 		n := min(int((d-answerAt)/charEvery), len(answer))
 		r.Phase = cv.Generating
-		r.Blocks = append(r.Blocks, cv.Block{Kind: cv.TextBlock, Text: answer[:n]})
+		r.Blocks = append(r.Blocks, cv.Block{Kind: cv.TextBlock, Text: string(answer[:n])})
 		if n == len(answer) {
 			r.Status, r.Phase = cv.Completed, cv.PhaseNone
 			simulation(c).stream, c.Status, c.Animating = nil, Idle, false

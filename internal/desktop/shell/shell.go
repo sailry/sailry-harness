@@ -173,6 +173,8 @@ type App struct {
 	panes workspace
 	// panels are the conversations' right panels (panels.go).
 	panels conversationPanels
+	// demo is the demo conversations while they show (demo.go).
+	demo *demoMode
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -236,12 +238,13 @@ func (a *App) View(c *ui.Context) {
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
 	// The panel is the selected conversation's before anything opens a tab
 	// in it (panels.go).
+	a.syncDemo(c)
 	a.MountPanel()
 	if a.Hooks.BeforeFrame != nil {
-		a.Hooks.BeforeFrame(c)
+		a.underneath(func() { a.Hooks.BeforeFrame(c) })
 	}
 	if a.Hooks.AfterFrame != nil {
-		defer a.Hooks.AfterFrame()
+		defer a.underneath(a.Hooks.AfterFrame)
 	}
 	if a.Mode != a.applied && a.OnMode != nil {
 		a.OnMode(a.Mode)
@@ -561,10 +564,10 @@ func (a *App) page(c *ui.Context) {
 // state is kept by session, and a session shows in one pane at most.
 func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Handle) {
 	// Only the explicit preview advances simulated replies.
-	if a.Preview {
+	if a.sampled() {
 		preview.Advance(cv, c.Now())
 	}
-	if a.Preview && cv.Playing() {
+	if a.sampled() && cv.Playing() {
 		c.After(preview.Tick)
 	}
 	comp := a.Composer(cv.ID)
@@ -576,14 +579,14 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	// The preview draws its own ring. A live session's is a package's
 	// indicator, which its context carries: both would be two rings.
 	comp.Indicator = nil
-	if a.Preview {
+	if a.sampled() {
 		comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
 	}
 	var act ConversationActions = &actions{a: a, c: c, cv: cv, comp: comp}
-	if a.Preview && a.transfers.Advance(comp.Attachments, c.Now()) {
+	if a.sampled() && a.transfers.Advance(comp.Attachments, c.Now()) {
 		c.After(preview.Tick)
 	}
-	if a.Preview {
+	if a.sampled() {
 		if changing, done := a.voice.Advance(&comp.Dictation, c.Now()); changing {
 			c.After(preview.Tick)
 		} else if done {
@@ -591,8 +594,8 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		}
 	}
 	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
-	if a.Preview {
-		ctx = preview.Composer(a.Data, cv, comp.Worktree)
+	if a.sampled() {
+		ctx = a.sampleComposer(cv, comp)
 	} else if a.Hooks.Conversation != nil {
 		ctx, act = a.Hooks.Conversation(c, cv, comp)
 	}
@@ -602,7 +605,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		comp.Escape(act)
 	}
 	if cv.ID == a.Sidebar.Selected {
-		if !a.Preview && a.Hooks.RenderChild != nil {
+		if !a.sampled() && a.Hooks.RenderChild != nil {
 			a.Panel.Child = a.Hooks.RenderChild
 		} else {
 			a.Panel.Child = func(c *ui.Context, id string) {
@@ -753,7 +756,9 @@ func (x *actions) Decide(id string, d composer.Decision, reason string) {
 		return
 	}
 	preview.Decide(x.cv, id, d)
-	kit.Message(x.c, i18n.T(x.c, "approval_preview_result"))
+	if !x.a.Demo() {
+		kit.Message(x.c, i18n.T(x.c, "approval_preview_result"))
+	}
 }
 
 func (x *actions) Answer(id string, ans composer.Answer) {
@@ -816,7 +821,7 @@ func (x *actions) OpenChild(id string) {
 // The transcript's actions that would run a model, change the session,
 // write a file or leave the window only say so in the preview.
 func (x *actions) notice() {
-	if x.a.Preview {
+	if x.a.sampled() {
 		kit.PreviewNotice(x.c)
 		return
 	}
@@ -824,7 +829,7 @@ func (x *actions) notice() {
 }
 
 func (x *actions) blocked() bool {
-	if !x.a.Preview {
+	if !x.a.sampled() {
 		x.notice()
 		return true
 	}
@@ -870,7 +875,9 @@ func (x *actions) FileAction(f conversation.File, a conversation.FileAction) {
 	case conversation.OpenExternal:
 		x.openSystem(f)
 	case conversation.Download:
-		x.a.startDownload(f.Name())
+		if !x.a.Demo() {
+			x.a.startDownload(f.Name())
+		}
 	default:
 		x.notice()
 	}

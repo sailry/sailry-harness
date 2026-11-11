@@ -61,7 +61,7 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
-			if a.Preview {
+			if a.Preview && !a.Demo() {
 				preview := ui.Row(c.Key("preview")).Radius(999).Shrink(0).Background(p.Background)
 				kit.Tooltip(c, preview, i18n.T(c, "preview_notice"))
 				preview.Children(func() {
