@@ -337,6 +337,8 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
 			return out, nil, store.DiscardAttachment(ctx, db, caller, input.Worktree, input.Attachment)
 		}
+		// The command still holds the effects lock; the discarded file goes now.
+		effect.after = func() { node.collectAttachmentsHeld(context.WithoutCancel(ctx)) }
 		return protocol.Output{Kind: "attachment_discarded", Data: protocol.OutputAttachmentDiscardedPayload{Attachment: input.Attachment}}, nil
 	case "restore_file_checkpoint":
 		return node.restoreWorkspaceCheckpoint(ctx, request, root)
