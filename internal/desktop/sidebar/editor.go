@@ -198,9 +198,15 @@ func (s *State) editorDialog(c *ui.Context) {
 					kit.SegmentedProps{Block: true, Disabled: e.Pending})
 			}
 			kit.Field(c, "name", i18n.T(c, "project_name"), "", func() {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					kit.AppearancePicker(c.Key("appearance"), &e.Icon, &e.Color, e.Pending).Size(32, 32).Border(1, p.Input)
-					ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).Grow(1).Disabled(e.Pending)
+				// The appearance is the field's leading control, inside its frame.
+				box := ui.Row(c.Key("box")).Height(32).PaddingStart(2).PaddingEnd(8).Gap(4).Radius(p.Radius).Border(1, p.Input).AlignItems(ui.Center)
+				if box.FocusWithin() {
+					box.Border(1, p.Ring)
+				}
+				box.Children(func() {
+					kit.AppearancePicker(c.Key("appearance"), &e.Icon, &e.Color, e.Pending)
+					ui.TextInputBase(c.Key("input"), &e.Name).Grow(1).FontSize(14).Placeholder(i18n.T(c, "project_name_placeholder")).
+						PlaceholderColor(p.MutedForeground).Label(i18n.T(c, "project_name")).Disabled(e.Pending)
 				})
 			})
 			kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
@@ -232,11 +238,9 @@ func (s *State) editorDialog(c *ui.Context) {
 			kit.Field(c, "path", label, hint, func() {
 				ui.Row(c).Gap(6).Children(func() {
 					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1).Disabled(e.Pending)
-					// The demo has no host whose directories it could list.
-					if !kit.Demo(c) {
-						kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
-							Border(1, p.Input).Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
-					}
+					// The demo browses the sample catalog, as the preview does.
+					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
+						Border(1, p.Input).Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
 				})
 			})
 		})
