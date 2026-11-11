@@ -799,6 +799,7 @@ knowledge_installed: Instalado
 knowledge_missing: Não instalado
 knowledge_model_details: Detalhes
 live_revoke: Remover o emparelhamento
+live_revoke_confirm: Desconecte “%{name}” e remova o emparelhamento? A reconexão exigirá o emparelhamento novamente
 local_models_available: Disponíveis
 local_models_empty: Nenhum modelo instalado
 local_models_status: Status
@@ -1430,6 +1431,7 @@ metrics_indexer: Preview indexer
 metrics_loading: À espera de métricas (visualização)
 metrics_error: Métricas indisponíveis (visualização)
 port_title: Encaminhamento de porta
+port_mappings: Mapeamentos de portas
 port_add: Novo avançado
 port_create: Criar
 port_remote: Porta do host

@@ -132,7 +132,12 @@ each opening its page (`HostPage`, docs/host.md, whose Update opens the
 update dialog; no trailing Update in the menu), `host_add` opening
 Settings › Connections' Add host; a dot when one has an update; its right-click menu
 is the system's (`workspace_host` opens the chosen host's page,
-`connection_action_edit`, `project_add`). The host page has the right
+`connection_action_edit`, `project_add`; then `App.hostMenu`: `port_mappings`,
+a submenu of the chosen host's forwards, each opening its address, over
+`port_title`, which opens the host page's port picker; `sidebar_host_update`
+with the name of every host that has an update, opening its page with the
+update dialog, since the approved picker rows carry no trailing Update; and,
+for a paired host, `live_revoke`, which opens the page's confirmation). The host page has the right
 column too: its metrics, toggled by the details button and ⌥⌘B.
 
 A host's name shows as it is (`App.hostName`): only the preview's hosts and

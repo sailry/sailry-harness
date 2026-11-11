@@ -17,6 +17,7 @@ activity,metrics,metrics/data,runtime,update}.rs`,
 | `page.go` | `State`, `Actions`, `Page`: header, facts, projects, runtime, activity; `Platform`; failure toasts |
 | `update.go` | The update dialog, `OpenUpdate` |
 | `metrics.go` | `MetricsPanel`, the right column |
+| `menu.go` | What the rail's host menu opens (the port picker, a forward's address, Remove pairing) and the removal's confirmation |
 | `ports.go` | The header's forwards, the port picker and the new forward dialog |
 
 Preview data: `preview.HostPages(d)` (`internal/desktop/preview/hosts.go`), one
@@ -30,7 +31,10 @@ update, the metrics sample of
 The rail's host menu (`shell.App.hostPicker`): choosing a host sets
 `App.Host` and opens `HostPage` (`Shell::select_host`); the host's Update
 opens the page with its update dialog; the right-click menu's Host opens
-the current host's page. Add host opens Settings › Connections with the
+the current host's page, and its Port mappings, Update and Remove pairing
+items (`shell.App.hostMenu`, docs/shell.md) open the page with the port
+picker (`State.OpenPorts`), the update dialog or the removal's confirmation
+(`State.AskRevoke`). Add host opens Settings › Connections with the
 Add host dialog (`settings.State.AddHost`). The header shows the host's
 name and, over the metrics column, `metrics_title`; the details button and ⌥⌘B toggle the metrics (`App.Metrics`, the
 reference's per-page panel), ⌘W in the column closes them, ⌘W in the page
@@ -47,7 +51,13 @@ host.MetricsPanel(c, st, h)          // right column
 The overview is 800 wide at most, centered, padded 24 with 24 between
 sections: the platform logo (40), name (20 semibold), `workspace_host_status`
 and the platform line; the first three forwards and Port forwarding, then
-Update host on a host updated from here. A one-column description list
+Update host on a host updated from here and Remove pairing on a paired host
+(`Actions.Revoke`; `menu.go`): its confirmation names the host and the
+consequence once (`live_revoke_confirm`), and the button is disabled while
+the removal runs (`Host.Revoking`). The live window binds it for every
+paired host (`Runtime.revokeHost`, the `SetTrust` Settings › Connections
+uses); a failure toasts, and a host whose pairing is removed leaves the
+menu. A one-column description list
 (type, projects, worktrees, sessions, terminals, active sessions), the
 projects (rows opening the project's first conversation, or the dashed
 empty card with Add project), the runtime's five facts with
@@ -196,7 +206,8 @@ original request and its recorded outcome.
 `internal/desktop/host/host_test.go`: formats, the update's phases and stale
 clicks, new forwards. `internal/desktop/shell/hosts_test.go`: the host page with
 its metrics, the update dialog's Check, toggling the metrics, closing the
-page.
+page; the rail menu's forwards, Update and Remove pairing with its
+confirmation, cancel and busy state.
 
 ## Deviations
 
@@ -204,6 +215,7 @@ page.
 |---|---|
 | The page combines the preview overview (`workspace/host.rs`) with the live header's platform logo and forwards | Phase 6 asks for one host page on preview data; the live monitor (gauges, trends, process actions) needs a Node |
 | Port forwards show on the preview page | The reference shows them only on a live host |
+| The rail's host rows have no Update button; the picker's right-click menu offers Update for each host that has one | The approved picker rows are a name and a check; the reference's trailing Update would change them |
 | The rail's Add host opens Settings › Connections | The add dialog lives with the Connections page |
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
 | Update Download prepares the update instead of acquiring a release | The frozen protocol has a single install/update command. Apply runs it: the remote machine downloads and verifies the release feed's installer and archive, or the execution Node uploads `host-artifacts/<goos>-<goarch>/` when that directory holds a locally built `sailry-host` |

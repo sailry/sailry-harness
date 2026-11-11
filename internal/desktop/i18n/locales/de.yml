@@ -799,6 +799,7 @@ knowledge_installed: Installiert
 knowledge_missing: Nicht installiert
 knowledge_model_details: Details
 live_revoke: Kopplung entfernen
+live_revoke_confirm: Trennen Sie die Verbindung zu „%{name}“ und entfernen Sie die Kopplung
 local_models_available: Verfügbar
 local_models_empty: Keine installierten Modelle
 local_models_status: Status
@@ -1430,6 +1431,7 @@ metrics_indexer: Vorschau-Indizierer
 metrics_loading: Warten auf Metriken (Vorschau)
 metrics_error: Metriken nicht verfügbar (Vorschau)
 port_title: Portweiterleitung
+port_mappings: Port-Mappings
 port_add: Neuer Stürmer
 port_create: Erstellen
 port_remote: Host-Port

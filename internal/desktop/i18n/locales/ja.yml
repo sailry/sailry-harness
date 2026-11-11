@@ -799,6 +799,7 @@ knowledge_installed: インストール済み
 knowledge_missing: 未インストール
 knowledge_model_details: 詳細
 live_revoke: ペアを削除
+live_revoke_confirm: “%{name}” を切断してペアリングを削除しますか？再接続するとペアリングが必要になります
 local_models_available: インストール可能
 local_models_empty: インストール済みのモデルはありません
 local_models_status: 状態
@@ -1430,6 +1431,7 @@ metrics_indexer: プレビューインデクサ
 metrics_loading: メトリクスを待っています (プレビュー)
 metrics_error: メトリクスが利用できません (プレビュー)
 port_title: ポートフォワード
+port_mappings: ポートマッピング
 port_add: ニュー・フォワード
 port_create: 作成
 port_remote: ホストポート

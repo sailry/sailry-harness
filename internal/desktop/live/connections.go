@@ -236,11 +236,19 @@ func (r *Runtime) addConnection(draft settings.ConnectionDraft, completed func(b
 }
 
 func (r *Runtime) revokeConnection(device viewmodel.Device) {
-	if device.Local || r.connections == nil || r.connections.endpoint == nil {
-		return
+	if !device.Local {
+		r.revokeNode(device.ID, nil)
 	}
-	decoded, err := hex.DecodeString(device.ID)
-	if err != nil || len(decoded) != len(protocol.NodeID{}) {
+}
+
+// revokeNode removes the trust in a paired Node; finished, when set, runs on
+// the UI thread once the outcome is known, also when nothing was sent.
+func (r *Runtime) revokeNode(node string, finished func()) {
+	decoded, err := hex.DecodeString(node)
+	if r.connections == nil || r.connections.endpoint == nil || err != nil || len(decoded) != len(protocol.NodeID{}) {
+		if finished != nil {
+			r.enqueue(func(*ui.Context) { finished() })
+		}
 		return
 	}
 	var id protocol.NodeID
@@ -249,10 +257,13 @@ func (r *Runtime) revokeConnection(device viewmodel.Device) {
 	r.async(func() {
 		err := endpoint.SetTrust(r.ctx, id, false)
 		r.enqueue(func(c *ui.Context) {
+			if finished != nil {
+				finished()
+			}
 			if err != nil {
 				r.report(c, err, "pairing_failed")
 			} else if r.Preferences.Data.Devices != nil {
-				delete(*r.Preferences.Data.Devices, device.ID)
+				delete(*r.Preferences.Data.Devices, node)
 			}
 		})
 	})

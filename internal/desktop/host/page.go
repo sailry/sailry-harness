@@ -12,8 +12,11 @@ import (
 )
 
 // Actions are what the page asks of the window: open a project or a
-// session, and add a project (the project editor).
+// session, and add a project (the project editor). Revoke removes the
+// host's pairing, nil for a host that has none to remove (this computer, the
+// preview's).
 type Actions struct {
+	Revoke      func()
 	OpenProject func(id string)
 	OpenSession func(id string)
 	AddProject  func()
@@ -27,6 +30,7 @@ type Actions struct {
 // State is the page's UI state: its dialogs and their drafts.
 type State struct {
 	updating bool       // the update dialog
+	revoking bool       // the Remove pairing confirmation
 	ports    portPicker // the port picker and the new forward dialog
 	// The failures toasted already, so a redraw does not repeat them.
 	failed, metricsFailed, runtimeFailed string
@@ -51,6 +55,7 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	s.report(c, h)
 	updateDialog(c, s, h, act)
 	portDialogs(c, s, h, act)
+	revokeDialog(c, s, h, act)
 	if act.Dialogs != nil {
 		act.Dialogs(c)
 	}
@@ -82,7 +87,8 @@ func (h *Host) label(c *ui.Context, text string) string {
 }
 
 // header is the host's name, status and platform beside its logo, then its
-// port forwards and Update for a host updated from here.
+// port forwards, Update for a host updated from here and Remove pairing for
+// a paired one, disabled while its removal runs.
 func header(c *ui.Context, s *State, h *Host, act Actions) {
 	p := theme.Of(c)
 	ui.Row(c.Key("header")).Gap(16).Padding(16, 0).Wrap().Children(func() {
@@ -105,6 +111,9 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 			portsHeader(c, s, h, act)
 			if h.Update != nil {
 				small(c, "update", icons.ArrowUp, i18n.T(c, "host_update"), false, true).OnClick(func() { s.updating = true })
+			}
+			if act.Revoke != nil {
+				small(c, "revoke", nil, i18n.T(c, "live_revoke"), h.Revoking, true).OnClick(func() { s.revoking = true })
 			}
 		})
 	})

@@ -36,6 +36,8 @@ type Host struct {
 	MetricsError string
 	// Ports are the port forwards to this computer.
 	Ports []Port
+	// Revoking is whether the removal of the host's pairing runs.
+	Revoking bool
 }
 
 // Project is a project on the host.

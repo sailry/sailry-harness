@@ -799,6 +799,7 @@ knowledge_installed: 已安装
 knowledge_missing: 未安装
 knowledge_model_details: 详情
 live_revoke: 移除配对
+live_revoke_confirm: 确认断开“%{name}”并取消配对？再次连接需重新配对
 local_models_available: 可安装
 local_models_empty: 暂无已安装模型
 local_models_status: 状态
@@ -1430,6 +1431,7 @@ metrics_indexer: 示例索引进程
 metrics_loading: 等待指标（示例）
 metrics_error: 指标暂不可用（示例）
 port_title: 端口转发
+port_mappings: 端口映射
 port_add: 新建转发
 port_create: 创建
 port_remote: 主机端口

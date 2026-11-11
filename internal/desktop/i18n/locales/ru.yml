@@ -799,6 +799,7 @@ knowledge_installed: Установлена
 knowledge_missing: Не установлена
 knowledge_model_details: Подробности
 live_revoke: Удалить пары
+live_revoke_confirm: Отключить “%{name}” и удалить пары? Повторное подключение потребует повторной пары
 local_models_available: Доступные
 local_models_empty: Нет установленных моделей
 local_models_status: Статус
@@ -1430,6 +1431,7 @@ metrics_indexer: Индексатор предварительного прос�
 metrics_loading: Ожидание показателей (предварительный просмотр)
 metrics_error: Метрики недоступны (предварительный просмотр)
 port_title: Перенаправление портов
+port_mappings: Сопоставления портов
 port_add: Новый форвард
 port_create: Создать
 port_remote: Хост-порт

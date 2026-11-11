@@ -799,6 +799,7 @@ knowledge_installed: 已安裝
 knowledge_missing: 未安裝
 knowledge_model_details: 詳細資訊
 live_revoke: 移除配對
+live_revoke_confirm: 確認斷開“%{name}”並取消配對？再次連線需重新配對
 local_models_available: 可安裝
 local_models_empty: 尚無已安裝模型
 local_models_status: 狀態
@@ -1430,6 +1431,7 @@ metrics_indexer: 示例索引程序
 metrics_loading: 等待指標（示例）
 metrics_error: 指標暫不可用（示例）
 port_title: 埠轉發
+port_mappings: 埠對映
 port_add: 新建轉發
 port_create: 建立
 port_remote: 主機埠

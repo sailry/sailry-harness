@@ -345,12 +345,27 @@ func (r *Runtime) readHostInfo(state *liveHost) {
 func (r *Runtime) hostActions(id string) host.Actions {
 	actions := r.portActions(id)
 	actions.Update = func(expected host.Update) { r.advanceHostUpdate(id, expected) }
+	root := r.localRuntime()
+	if state := root.hosts[id]; state != nil && !state.view.Local && root.connections != nil && root.connections.endpoint != nil {
+		actions.Revoke = func() { root.revokeHost(state) }
+	}
 	actions.Dialogs = func(c *ui.Context) {
 		if state := r.hostState(id); state != nil && state.update != nil {
 			r.hostUpdateFrame(c, state)
 		}
 	}
 	return actions
+}
+
+// revokeHost removes a paired host's pairing, as Settings › Connections
+// does: its page and the rail's menu disable Remove pairing meanwhile, and
+// the host leaves the list with its peer.
+func (r *Runtime) revokeHost(state *liveHost) {
+	if state.view.Revoking {
+		return
+	}
+	state.view.Revoking = true
+	r.revokeNode(state.view.ID, func() { state.view.Revoking = false })
 }
 
 func (r *Runtime) hostState(id string) *liveHost {

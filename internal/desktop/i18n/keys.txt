@@ -818,6 +818,7 @@ knowledge_installed
 knowledge_missing
 knowledge_model_details
 live_revoke
+live_revoke_confirm
 local_models_available
 local_models_empty
 local_models_status
@@ -1442,6 +1443,7 @@ metrics_indexer
 metrics_loading
 metrics_error
 port_title
+port_mappings
 port_add
 port_create
 port_remote

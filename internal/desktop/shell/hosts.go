@@ -82,6 +82,13 @@ func (a *App) addHost() {
 // first conversation, a session itself.
 func (a *App) hostView(c *ui.Context) {
 	h, st := a.hostPage()
+	host.Page(c, st, h, a.hostActions())
+}
+
+// hostActions are the chosen host's actions, as its page and the rail's
+// host menu run them: the live controller's, and the window's own for what
+// it leaves out.
+func (a *App) hostActions() host.Actions {
 	actions := host.Actions{}
 	if a.Hooks.HostActions != nil {
 		actions = a.Hooks.HostActions(a.Host)
@@ -103,7 +110,7 @@ func (a *App) hostView(c *ui.Context) {
 			a.Sidebar.OpenEditorAtHost(a.Host)
 		}
 	}
-	host.Page(c, st, h, actions)
+	return actions
 }
 
 // selectConversation shows a conversation, revealing it in the sidebar.

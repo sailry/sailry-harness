@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -265,9 +266,46 @@ func featureDropLine(c *ui.Context, p *theme.Palette, after bool) {
 	})
 }
 
+// hostMenu is the rest of the host picker's right-click menu: the chosen
+// host's port forwards, each opening its address, over Port forwarding, which
+// opens the host page's picker; Update for every host that has one, opening
+// its page with the update dialog; and Remove pairing for a paired host,
+// which asks on its page.
+func (a *App) hostMenu(c *ui.Context, m *ui.Menu) {
+	h, st := a.hostPage()
+	actions := a.hostActions()
+	m.Separator()
+	m.Submenu(i18n.T(c, "port_mappings"), func(sub *ui.Menu) {
+		for _, port := range h.Ports {
+			if sub.Item(port.Route()).Disabled(!port.Listening).Chosen() {
+				host.OpenPort(c, port, actions)
+			}
+		}
+		if len(h.Ports) > 0 {
+			sub.Separator()
+		}
+		if sub.Item(i18n.T(c, "port_title")).Chosen() {
+			a.openHost(a.Host, false)
+			st.OpenPorts()
+		}
+	})
+	for _, other := range a.Data.Hosts {
+		if other.Update && m.Item(i18n.T(c, "sidebar_host_update")+" "+a.hostName(c, other.Name)).Chosen() {
+			a.openHost(other.ID, true)
+		}
+	}
+	if actions.Revoke != nil {
+		m.Separator()
+		if m.Item(i18n.T(c, "live_revoke")).Danger().Disabled(h.Revoking).Chosen() {
+			a.openHost(a.Host, false)
+			st.AskRevoke()
+		}
+	}
+}
+
 // hostPicker is the host picker: the hosts with a check on this one, and Add
-// host; a dot when a host has an update, which the host's page offers. Its
-// right-click menu is the system's.
+// host; a dot when a host has an update, which its right-click menu and the
+// host's page offer. Its right-click menu is the system's.
 func (a *App) hostPicker(c *ui.Context) {
 	p := theme.Of(c)
 	update := false
@@ -278,8 +316,8 @@ func (a *App) hostPicker(c *ui.Context) {
 		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", RailButton, a.Page == HostPage)
 	}, func(m *kit.Menu) {
 		for _, h := range a.Data.Hosts {
-			// No trailing Update: the host's page offers it, and the
-			// button's dot tells one is ready.
+			// No trailing Update: the right-click menu and the host's
+			// page offer it, and the button's dot tells one is ready.
 			if m.Item(a.hostName(c, h.Name)).Checked(h.ID == a.Host).Chosen() {
 				a.openHost(h.ID, false)
 			}
@@ -304,6 +342,7 @@ func (a *App) hostPicker(c *ui.Context) {
 		if m.Item(i18n.T(c, "project_add")).Chosen() {
 			a.Sidebar.OpenEditor(nil)
 		}
+		a.hostMenu(c, m)
 	})
 	if update {
 		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {

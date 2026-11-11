@@ -799,6 +799,7 @@ knowledge_installed: Installed
 knowledge_missing: Not installed
 knowledge_model_details: Details
 live_revoke: Remove pairing
+live_revoke_confirm: Disconnect “%{name}” and remove pairing? Reconnection will require pairing again
 local_models_available: Available
 local_models_empty: No installed models
 local_models_status: Status
@@ -1430,6 +1431,7 @@ metrics_indexer: Preview indexer
 metrics_loading: Waiting for metrics (preview)
 metrics_error: Metrics unavailable (preview)
 port_title: Port forwarding
+port_mappings: Port mappings
 port_add: New forward
 port_create: Create
 port_remote: Host port
