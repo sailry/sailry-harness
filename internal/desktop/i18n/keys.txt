@@ -331,6 +331,7 @@ worktree_remove_busy
 worktree_remove_dirty
 worktree_remove_conflict
 worktree_remove_missing
+worktree_unused
 git_branch_exists
 git_branch_checked_out
 git_index_failed
@@ -1735,6 +1736,11 @@ workspace_action_failed
 workspace_changed
 workspace_action_unknown
 workspace_saved
+files_changed_on_disk
+files_conflict_description
+files_keep_editing
+files_reload
+files_overwrite
 workspace_completed
 workspace_native_unavailable
 workspace_invalid

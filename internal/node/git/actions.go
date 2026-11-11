@@ -207,17 +207,6 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 			return []string{"push", "--force-with-lease=" + ref + ":" + v.Commit, *v.Remote, ":" + ref}, name(*v.Remote)
 		}
 		return []string{"update-ref", "-d", ref, v.Commit}, nil
-	case "delete_remote_branch":
-		v := data[protocol.GitActionDeleteRemoteBranchPayload](action.Data)
-		remote, local, ok := strings.Cut(v.Branch, "/")
-		if !ok {
-			return nil, invalid("invalid remote branch")
-		}
-		if err := fullHash(v.Commit); err != nil {
-			return nil, err
-		}
-		ref := "refs/heads/" + local
-		return []string{"push", "--force-with-lease=" + ref + ":" + v.Commit, remote, ":" + ref}, name(remote)
 	case "push_tags":
 		v := data[protocol.GitActionPushTagsPayload](action.Data)
 		return []string{"push", "--tags", v.Remote}, name(v.Remote)
@@ -232,7 +221,7 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 		}
 		return args, nil
 	case "continue", "abort":
-		if operation != "merge" && operation != "rebase" && operation != "cherry-pick" {
+		if operation != "merge" && operation != "rebase" && operation != "cherry-pick" && operation != "revert" {
 			return nil, invalid("no Git operation to continue or abort")
 		}
 		return []string{operation, "--" + action.Kind}, nil
@@ -253,8 +242,37 @@ func pathsValid(paths []string) error {
 	}
 	return nil
 }
+
+// remoteAction reports whether an action transfers with a remote.
+func remoteAction(action protocol.GitAction) bool {
+	switch action.Kind {
+	case "fetch", "pull", "push", "sync", "push_tags", "delete_remote_branch":
+		return true
+	case "delete_tag":
+		return data[protocol.GitActionDeleteTagPayload](action.Data).Remote != nil
+	}
+	return false
+}
+
+// pull fetches outside the root lock and lets git pull integrate under it. Its
+// own fetch then finds the objects present, so the lock covers a short
+// negotiation and the merge or rebase, not the transfer.
+func (s *Service) pull(ctx context.Context, root, flag string, target ...string) error {
+	if _, err := s.network(ctx, root, append([]string{"fetch"}, target...)); err != nil {
+		return err
+	}
+	defer s.lock(root)()
+	_, err := s.network(ctx, root, append([]string{"pull", flag, "--no-edit"}, target...))
+	return err
+}
+
 func (s *Service) Action(ctx context.Context, root string, input protocol.CommandRunGitActionPayload) error {
 	action := input.Action
+	// A transfer with a remote must not hold the root lock that file effects
+	// wait for; every other action holds it throughout.
+	if !remoteAction(action) {
+		defer s.lock(root)()
+	}
 	if action.Kind == "initialize" {
 		if input.ExpectedIndex != "" || input.ExpectedHead != nil || input.ExpectedBranch != nil {
 			return conflict()
@@ -275,6 +293,7 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	}
 	defer s.Invalidate(root)
 	run := func(args []string) error { _, err := s.command(ctx, root, args, nil, false); return err }
+	transfer := func(args []string) error { _, err := s.network(ctx, root, args); return err }
 	branch := ""
 	if input.ExpectedBranch != nil {
 		branch = *input.ExpectedBranch
@@ -300,16 +319,54 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 		return s.trash(ctx, root, data[protocol.GitActionTrashPayload](action.Data).Paths, true)
 	case "discard_all":
 		return s.discardAll(ctx, root, data[protocol.GitActionDiscardAllPayload](action.Data).Paths)
+	case "discard":
+		// Restoring from HEAD removes a path HEAD does not hold, and a staged
+		// new file exists nowhere else. Such paths are refused here; discard_all
+		// unstages them and moves the file to Trash.
+		v := data[protocol.GitActionDiscardPayload](action.Data)
+		if err := pathsValid(v.Paths); err != nil {
+			return err
+		}
+		tree, err := headTree(r)
+		if err != nil {
+			return err
+		}
+		for _, path := range v.Paths {
+			if _, err := safePath(root, path); err != nil {
+				return err
+			}
+			held, err := heldByHead(tree, path)
+			if err != nil {
+				return err
+			}
+			if !held {
+				return invalid("discard requires files that HEAD holds")
+			}
+		}
+	case "delete_remote_branch":
+		v := data[protocol.GitActionDeleteRemoteBranchPayload](action.Data)
+		if err := name(v.Branch); err != nil {
+			return err
+		}
+		if err := fullHash(v.Commit); err != nil {
+			return err
+		}
+		remote, local, err := remoteBranch(r, v.Branch)
+		if err != nil {
+			return err
+		}
+		ref := "refs/heads/" + local
+		return transfer([]string{"push", "--force-with-lease=" + ref + ":" + v.Commit, remote, ":" + ref})
 	case "sync":
 		v := data[protocol.GitActionSyncPayload](action.Data)
 		flag := "--no-rebase"
 		if v.Rebase {
 			flag = "--rebase"
 		}
-		if err := run([]string{"pull", flag, "--no-edit"}); err != nil {
+		if err := s.pull(ctx, root, flag); err != nil {
 			return err
 		}
-		return run([]string{"push"})
+		return transfer([]string{"push"})
 	case "start_branch":
 		if input.ExpectedHead != nil {
 			return conflict()
@@ -411,7 +468,35 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	if err != nil {
 		return err
 	}
+	// fetch, pull and push talk to a remote; so do the pushes that delete a
+	// remote tag or branch.
+	if args[0] == "pull" {
+		return s.pull(ctx, root, args[1], args[3:]...)
+	}
+	if args[0] == "fetch" || args[0] == "push" {
+		return transfer(args)
+	}
 	return run(args)
+}
+
+// remoteBranch splits a remote-tracking branch into its remote and the branch
+// there. A remote's name may hold a slash, so the longest configured remote
+// that begins the name is the one meant.
+func remoteBranch(r *gogit.Repository, branch string) (string, string, error) {
+	config, err := r.Config()
+	if err != nil {
+		return "", "", mapError(err)
+	}
+	remote := ""
+	for name := range config.Remotes {
+		if strings.HasPrefix(branch, name+"/") && len(name) > len(remote) {
+			remote = name
+		}
+	}
+	if remote == "" {
+		return "", "", fault(protocol.ErrorCodeNotConfigured, "Git remote is not configured")
+	}
+	return remote, branch[len(remote)+1:], nil
 }
 func valueOr(value *string) string {
 	if value == nil {
@@ -450,10 +535,6 @@ func actionRemotes(action protocol.GitAction) []string {
 		return []string{data[protocol.GitActionRemoveRemotePayload](action.Data).Name}
 	case "delete_tag":
 		value = data[protocol.GitActionDeleteTagPayload](action.Data).Remote
-	case "delete_remote_branch":
-		if remote, _, ok := strings.Cut(data[protocol.GitActionDeleteRemoteBranchPayload](action.Data).Branch, "/"); ok {
-			return []string{remote}
-		}
 	}
 	if value != nil {
 		return []string{*value}

@@ -182,6 +182,7 @@ worktree_prune_on_select: Unavailable · click to clean up
 worktree_pruned: Stale worktree registration removed
 worktree_prune_failed: "Not cleaned up: the directory exists, is locked, or could not be verified"
 worktree_main: Main
+worktree_unused: No session
 worktree_path_exists: Path already exists
 worktree_prune: Clean up stale worktree
 worktree_prune_confirm: Remove this stale registration; no files are deleted
@@ -282,6 +283,11 @@ workspace_action_failed: "Workspace action failed"
 workspace_changed: "Workspace changed; reload before trying again"
 workspace_action_unknown: "Outcome uncertain; inspect before trying again"
 workspace_saved: "Saved"
+files_changed_on_disk: Changed on disk
+files_conflict_description: "Overwrite replaces the file on disk with your draft; Reload discards your draft"
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: "Completed"
 workspace_native_unavailable: "File action unavailable"
 workspace_invalid: "Check the entered values"

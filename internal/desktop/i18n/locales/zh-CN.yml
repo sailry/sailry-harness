@@ -317,6 +317,7 @@ worktree_remove_busy: worktree 正在使用，请稍后重新打开
 worktree_remove_dirty: worktree 包含未提交改动，不能移除
 worktree_remove_conflict: worktree 有改动、会话占用或引用已变化，请检查后重新打开
 worktree_remove_missing: worktree 或所属项目已不存在，请重新打开管理列表
+worktree_unused: 无会话
 git_branch_exists: 分支已存在，换个名称
 git_branch_checked_out: 分支已在其他 worktree 中检出
 git_index_failed: 暂存区更新失败，请重试
@@ -1723,6 +1724,11 @@ workspace_action_failed: 工作区操作失败
 workspace_changed: 工作区已变更，请刷新后重试
 workspace_action_unknown: 结果尚不确定，请检查后再重试
 workspace_saved: 已保存
+files_changed_on_disk: 磁盘上已更改
+files_conflict_description: 覆盖会用草稿替换磁盘上的文件，重新加载会丢弃草稿
+files_keep_editing: 继续编辑
+files_reload: 重新加载
+files_overwrite: 覆盖
 workspace_completed: 已完成
 workspace_native_unavailable: 文件操作不可用
 workspace_invalid: 请检查输入内容
@@ -2147,7 +2153,7 @@ files_trash_confirm: 确认删除“%{name}”
 live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识
 plugins_loading: 正在读取
 project_appearance: 项目外观
-project_clone_failed: 克隆未完成，请检查目标目录
+project_clone_failed: 克隆失败，请检查地址、分支和网络
 project_grant: 信任并继续
 project_grant_description: 信任后，项目指令和工具可能执行代码，适用于所有 worktree
 project_grant_title: 信任此项目

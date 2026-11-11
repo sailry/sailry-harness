@@ -248,7 +248,7 @@ project_branch: 分支
 project_branch_placeholder: 默认分支
 project_destination: 保存位置
 project_clone_required: 请填写名称、仓库和保存位置
-project_clone_failed: 克隆未完成，请检查目标目录
+project_clone_failed: 克隆失败，请检查地址、分支和网络
 project_outcome_unknown: 结果未确认，请先检查目标目录，重试将查询原请求
 project_appearance: 项目外观
 project_name_placeholder: 输入名称
@@ -431,6 +431,7 @@ worktree_prune_on_select: 不可用 · 点击清理记录
 worktree_pruned: 已清理失效工作树记录
 worktree_prune_failed: 未清理：目录仍存在、被锁定或无法确认状态
 worktree_main: 主 worktree
+worktree_unused: 无会话
 worktree_path_exists: 路径已存在
 worktree_prune: 清理失效 worktree
 worktree_prune_confirm: 移除此失效记录，不删除任何文件
@@ -2731,6 +2732,11 @@ workspace_action_failed: "工作区操作失败"
 workspace_changed: "工作区已变更，请刷新后重试"
 workspace_action_unknown: "结果尚不确定，请检查后再重试"
 workspace_saved: "已保存"
+files_changed_on_disk: 磁盘上已更改
+files_conflict_description: 覆盖会用草稿替换磁盘上的文件，重新加载会丢弃草稿
+files_keep_editing: 继续编辑
+files_reload: 重新加载
+files_overwrite: 覆盖
 workspace_completed: "已完成"
 workspace_native_unavailable: "文件操作不可用"
 workspace_invalid: "请检查输入内容"

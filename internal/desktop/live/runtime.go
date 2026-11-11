@@ -924,6 +924,8 @@ func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
 				outcome, key = kit.Conflict, "project_changed"
 			case code == protocol.ErrorCodeBusy:
 				key = "project_path_in_use"
+			case clone && code == protocol.ErrorCodePermissionDenied:
+				key = "git_auth_failed"
 			case clone:
 				key = "project_clone_failed"
 			}

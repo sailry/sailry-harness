@@ -126,6 +126,11 @@ finishing upload holds the Node's effects lock from publishing its file to
 committing its row, and a collection during operation holds the same lock, so a
 file is never taken between the two. Only ordinary files whose name is a
 canonical attachment ID are removed.
+undo publication. Staging files are named `tmp/file-transfer-*` in the profile
+where the reference uses anonymous files; a start removes the ones an earlier
+process left, since a killed process cannot. A file upload has no size limit
+on either side beyond its declared, verified size. Shutdown drains active
+workers before collecting orphaned attachment files.
 
 Attachment IDs determine storage names; display names never become paths.
 SQL binds immutable ordered references to turns. Reads from agent execution

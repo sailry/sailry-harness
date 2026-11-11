@@ -317,6 +317,7 @@ worktree_remove_busy: ワークトリーが使用中
 worktree_remove_dirty: ワークトリーには未コミットの変更があり、削除できません
 worktree_remove_conflict: ワークトリーが変更されました。削除する前に更新してください
 worktree_remove_missing: ワークトリーが見つかりません
+worktree_unused: No session
 git_branch_exists: ブランチは既に存在します
 git_branch_checked_out: Branch is checked out in another worktree
 git_index_failed: ステージを更新できませんでした。もう一度試してください
@@ -1723,6 +1724,11 @@ workspace_action_failed: Workspace action failed
 workspace_changed: Workspace changed; reload before trying again
 workspace_action_unknown: Outcome uncertain; inspect before trying again
 workspace_saved: Saved
+files_changed_on_disk: Changed on disk
+files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
+files_keep_editing: Keep editing
+files_reload: Reload
+files_overwrite: Overwrite
 workspace_completed: Completed
 workspace_native_unavailable: File action unavailable
 workspace_invalid: Check the entered values

@@ -351,7 +351,7 @@ func (g gitMenus) changes() []action {
 		paths = append(paths, e.Path)
 	}
 	return []action{
-		g.run("git_stage_all", len(indexPaths(g.entries(), "stage")) > 0),
+		g.run("git_stage_all", len(g.pr.stagePaths(g.entries(), false)) > 0),
 		g.run("git_unstage_all", len(indexPaths(g.entries(), "unstage")) > 0),
 		g.confirm("git_discard_all", "git_discard_all_confirm", strings.Join(paths, "\n"), len(paths) > 0, "git_discard_all"),
 	}
@@ -474,6 +474,7 @@ func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryP
 	if directory && len(directoryPath) > 0 && directoryPath[0] != "" {
 		ignorePaths, ignoreDirectory = []string{directoryPath[0]}, true
 	}
+	stage := g.pr.stagePaths(entries, len(entries) == 1 && !directory)
 	var out []action
 	if len(entries) == 1 && !directory {
 		e := entries[0]
@@ -488,12 +489,12 @@ func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryP
 	}
 	return append(out,
 		g.item("git_stage", func(c *ui.Context) {
-			g.pr.gitAction(c, GitAction{Kind: "git_stage", Paths: indexPaths(entries, "stage")})
-		}, len(indexPaths(entries, "stage")) > 0),
+			g.pr.gitAction(c, GitAction{Kind: "git_stage", Paths: stage})
+		}, len(stage) > 0),
 		g.item("git_unstage", func(c *ui.Context) {
 			g.pr.gitAction(c, GitAction{Kind: "git_unstage", Paths: indexPaths(entries, "unstage")})
 		}, len(indexPaths(entries, "unstage")) > 0),
-		g.confirm("git_discard_changes", "git_discard_confirm", strings.Join(paths, "\n"), len(paths) > 0, "git_discard_changes"),
+		g.discard(entries, paths),
 		g.item("git_ignore", func(c *ui.Context) {
 			g.pr.gitAction(c, GitAction{Kind: "git_ignore", Paths: ignorePaths, Scope: func() string {
 				if ignoreDirectory {
@@ -503,6 +504,28 @@ func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryP
 			}()})
 		}, len(paths) > 0), separatorItem,
 		g.item("git_copy_path", func(c *ui.Context) { c.WriteClipboard(strings.Join(paths, "\n")) }, true))
+}
+
+// newFile reports a change HEAD does not hold: an untracked file or a
+// staged addition. Restoring HEAD would delete it.
+func newFile(e preview.FileChange) bool {
+	return e.Staged == "A" || e.Untracked && e.Staged == ""
+}
+
+// discard is Discard Changes on a selection. Changes HEAD holds are
+// restored from it. A selection with a new file discards as Discard all
+// does, the new files moved to Trash, and its confirmation says so.
+func (g gitMenus) discard(entries []preview.FileChange, paths []string) action {
+	kind, message := "git_discard_changes", "git_discard_confirm"
+	if slices.ContainsFunc(entries, newFile) {
+		kind, message = "git_discard_all", "git_discard_all_confirm"
+	}
+	target := strings.Join(paths, "\n")
+	return g.item("git_discard_changes", func(*ui.Context) {
+		g.v.confirm = confirm{open: true, title: g.t("git_discard_changes"), message: g.t(message), target: target, run: func(c *ui.Context) {
+			g.pr.gitAction(c, GitAction{Kind: kind, Target: target, Paths: paths})
+		}}
+	}, len(paths) > 0)
 }
 
 // fill adds actions to a left-click menu.

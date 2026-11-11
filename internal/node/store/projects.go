@@ -15,8 +15,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// PreparedPaths contains filesystem observations made outside SQL transactions.
-type PreparedPaths struct{ Path string }
+// PreparedPaths contains the observations and effects made outside SQL
+// transactions: the canonical directory, and whether a project removal already
+// closed one of the project's terminals.
+type PreparedPaths struct {
+	Path            string
+	TerminalsClosed bool
+}
 
 func PreparePaths(command protocol.Command) (PreparedPaths, error) {
 	var path string
@@ -220,25 +225,104 @@ func updateProject(ctx context.Context, db *sql.Conn, input protocol.CommandUpda
 	return protocol.Output{Kind: "project", Data: value}, []protocol.Event{{Kind: "project_changed", Data: value}}, err
 }
 
-func removeProject(ctx context.Context, db *sql.Conn, expected protocol.Project) (protocol.Output, []protocol.Event, error) {
+// ProjectRemoval lists what the Node closes before a removal is recorded.
+type ProjectRemoval struct {
+	Terminals []protocol.TerminalInfo
+	Sessions  []protocol.SessionID
+}
+
+// PlanProjectRemoval validates a removal and lists the project's terminals
+// that are not closed and its sessions, whose background commands stop. A
+// stale or busy removal fails here, before anything is closed.
+func PlanProjectRemoval(ctx context.Context, db *sql.Conn, expected protocol.Project) (ProjectRemoval, error) {
+	if err := checkProjectRemoval(ctx, db, expected); err != nil {
+		return ProjectRemoval{}, err
+	}
+	terminals, err := openProjectTerminals(ctx, db, expected.ID)
+	if err != nil {
+		return ProjectRemoval{}, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT id FROM sessions WHERE project=?1 ORDER BY rowid", expected.ID.String())
+	if err != nil {
+		return ProjectRemoval{}, err
+	}
+	defer rows.Close()
+	plan := ProjectRemoval{Terminals: terminals}
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			return ProjectRemoval{}, err
+		}
+		id, err := protocol.ParseSessionID(text)
+		if err != nil {
+			return ProjectRemoval{}, err
+		}
+		plan.Sessions = append(plan.Sessions, id)
+	}
+	return plan, rows.Err()
+}
+
+func checkProjectRemoval(ctx context.Context, db *sql.Conn, expected protocol.Project) error {
 	if err := checkProject(ctx, db, expected); err != nil {
-		return protocol.Output{}, nil, err
+		return err
 	}
 	var busy bool
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN sessions s ON s.id=t.session WHERE s.project=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))", expected.ID.String()).Scan(&busy); err != nil {
-		return protocol.Output{}, nil, err
+		return err
 	}
 	if busy {
-		return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "project has pending tasks", Details: &protocol.FaultDetails{Kind: "project_removal", Data: protocol.FaultDetailsProjectRemovalPayload{TasksActive: true}}}
+		return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "project has pending tasks", Details: &protocol.FaultDetails{Kind: "project_removal", Data: protocol.FaultDetailsProjectRemovalPayload{TasksActive: true}}}
 	}
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM terminals t JOIN worktrees w ON w.id=t.worktree WHERE w.project=?1 AND json_extract(t.body,'$.status')!='closed')", expected.ID.String()).Scan(&busy); err != nil {
+	return nil
+}
+
+func openProjectTerminals(ctx context.Context, db *sql.Conn, project protocol.ProjectID) ([]protocol.TerminalInfo, error) {
+	return readBodies[protocol.TerminalInfo](ctx, db, "SELECT t.body FROM terminals t JOIN worktrees w ON w.id=t.worktree WHERE w.project=?1 AND json_extract(t.body,'$.status')!='closed' ORDER BY t.rowid", project.String())
+}
+
+// removeProject records a removal after the Node closed the project's running
+// terminals. Records left by an earlier process have no terminal behind them
+// and are closed here. A failure names the terminals the Node already closed.
+func removeProject(ctx context.Context, db *sql.Conn, expected protocol.Project, terminalsClosed bool) (protocol.Output, []protocol.Event, error) {
+	output, changes, err := recordProjectRemoval(ctx, db, expected)
+	var failure *protocol.Fault
+	if terminalsClosed && errors.As(err, &failure) {
+		details := protocol.FaultDetailsProjectRemovalPayload{TerminalsMayBeClosed: true}
+		if failure.Details != nil {
+			if previous, ok := failure.Details.Data.(protocol.FaultDetailsProjectRemovalPayload); ok {
+				details.TasksActive = previous.TasksActive
+			}
+		}
+		marked := *failure
+		marked.Details = &protocol.FaultDetails{Kind: "project_removal", Data: details}
+		err = &marked
+	}
+	return output, changes, err
+}
+
+func recordProjectRemoval(ctx context.Context, db *sql.Conn, expected protocol.Project) (protocol.Output, []protocol.Event, error) {
+	if err := checkProjectRemoval(ctx, db, expected); err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if busy {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "project still has open terminals")
+	terminals, err := openProjectTerminals(ctx, db, expected.ID)
+	if err != nil {
+		return protocol.Output{}, nil, err
 	}
-	_, err := db.ExecContext(ctx, "INSERT INTO removed_projects(project) VALUES(?1)", expected.ID.String())
-	return protocol.Output{Kind: "project_removed", Data: protocol.OutputProjectRemovedPayload{ID: expected.ID}}, []protocol.Event{{Kind: "project_removed", Data: protocol.EventProjectRemovedPayload{ID: expected.ID}}}, err
+	var changes []protocol.Event
+	for _, terminal := range terminals {
+		if terminal.Status.Kind == "running" {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "project still has open terminals")
+		}
+		terminal.Status, terminal.Owner = protocol.TerminalStatus{Kind: "closed"}, nil
+		terminal.Revision++
+		closed, err := SaveTerminal(ctx, db, terminal, false)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		changes = append(changes, closed...)
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO removed_projects(project) VALUES(?1)", expected.ID.String())
+	return protocol.Output{Kind: "project_removed", Data: protocol.OutputProjectRemovedPayload{ID: expected.ID}}, append(changes, protocol.Event{Kind: "project_removed", Data: protocol.EventProjectRemovedPayload{ID: expected.ID}}), err
 }
 
 func ReadWorktrees(ctx context.Context, db *sql.Conn) ([]protocol.Worktree, error) {

@@ -77,7 +77,7 @@ type Node struct {
 	computerOverlay   computer.Overlay
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
-	effects           sync.Mutex
+	locks             workspaceLocks
 	profile           *Profile
 	ctx               context.Context
 	mu                sync.Mutex
@@ -269,6 +269,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	go value.pruneLedger()
 	value.initDispatch(options.DispatchClock)
 	value.initPluginStatus()
+	value.sweepSessionWorkspaces()
 	if options.Network != nil {
 		if err := value.bindNetwork(ctx, *options.Network); err != nil {
 			_ = value.Stop(context.Background())
@@ -735,18 +736,24 @@ func (node *Node) run(lane *commandLane) {
 	defer close(lane.done)
 	for job, ok := node.next(lane); ok; job, ok = node.next(lane) {
 		projectEffect := projectEffect(job.request.Command.Kind)
-		if projectEffect {
-			node.effects.Lock()
-		}
-
 		prepared, prepareErr := node.prepare(job.request.Command)
+		if prepareErr == nil && job.request.Command.Kind == "remove_project" {
+			prepared.TerminalsClosed, prepareErr = node.closeProjectResources(job.request.Command)
+		}
 		if prepareErr == nil {
 			prepareErr = node.renewCommandProvider(node.ctx, job.request)
 		}
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
 		}
+		// A clone and the checks above run unlocked. Only recording which
+		// roots exist excludes workspace effects.
+		registered := func() {}
+		if projectEffect {
+			registered = node.locks.registration()
+		}
 		result, err := node.execute(job, prepared, prepareErr)
+		registered()
 		if err != nil {
 			result = node.unapplied(job.caller, job.request.ID, err)
 		} else {
@@ -755,9 +762,6 @@ func (node *Node) run(lane *commandLane) {
 			if job.request.Command.Kind == "remove_project" && result.Fault == nil {
 				node.removeProjectCodeIndexes(job.request.Command)
 			}
-		}
-		if projectEffect {
-			node.effects.Unlock()
 		}
 		job.completion <- result
 		close(job.completion)

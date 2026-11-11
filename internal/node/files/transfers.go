@@ -61,7 +61,21 @@ type Transfers struct {
 	withTimeout func(context.Context, time.Duration) (context.Context, context.CancelFunc)
 }
 
+// transferPrefix names every staging file in the profile's tmp directory.
+const transferPrefix = "file-transfer-"
+
+// NewTransfers also removes the staging files an earlier process left: a
+// process that is killed cannot run its cleanup, and one process owns a
+// profile, so every staging file found at start is an orphan.
 func NewTransfers(profile string) *Transfers {
+	directory := filepath.Join(profile, "tmp")
+	if entries, err := os.ReadDir(directory); err == nil {
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), transferPrefix) {
+				_ = os.Remove(filepath.Join(directory, entry.Name()))
+			}
+		}
+	}
 	return &Transfers{profile: profile, entries: map[protocol.StreamID]*transferEntry{}, now: time.Now, afterFunc: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }, withTimeout: context.WithTimeout}
 }
 func transferMissing() error {
@@ -160,7 +174,7 @@ func (t *Transfers) temporary() (*os.File, *os.Root, string, error) {
 		root.Close()
 		return nil, nil, "", conflict("temporary directory changed")
 	}
-	name := "file-transfer-" + protocol.NewStreamID().String()
+	name := transferPrefix + protocol.NewStreamID().String()
 	file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		root.Close()
