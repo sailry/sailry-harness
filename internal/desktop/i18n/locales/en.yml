@@ -1541,6 +1541,31 @@ metrics_worker: Preview worker
 metrics_indexer: Preview indexer
 metrics_loading: Waiting for metrics (preview)
 metrics_error: Metrics unavailable (preview)
+host_node_uptime: Sailry uptime
+host_sampling: Waiting for sample
+host_sampling_failed: Host data not updated
+host_metric_unavailable: No data
+host_cores: '%{count} cores'
+host_load: Load
+host_core: Core %{index} · %{value}
+host_memory_total: '%{value} total'
+host_memory_used: Used
+host_memory_cached: Cached
+host_memory_swap: Swap
+host_utilization: Utilization
+host_network_total: Totals since boot
+host_disk_write: Write
+host_disk_read: Read
+host_storage: Storage
+host_partition_count: '%{count} partitions'
+host_read_short: R
+host_write_short: W
+host_process_search: Search processes
+host_process_limited: Showing the top 2048 processes by usage
+host_process_name: Processes
+host_pid: PID
+host_process_empty: No processes
+host_process_no_matches: No matching processes
 port_title: Port forwarding
 port_mappings: Port mappings
 port_add: New forward

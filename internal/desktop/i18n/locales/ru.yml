@@ -1541,6 +1541,31 @@ metrics_worker: Предварительный просмотр
 metrics_indexer: Индексатор предварительного просмотра
 metrics_loading: Ожидание показателей (предварительный просмотр)
 metrics_error: Метрики недоступны (предварительный просмотр)
+host_node_uptime: Работа Sailry
+host_sampling: Ожидание образца
+host_sampling_failed: Данные хоста не обновлены
+host_metric_unavailable: Данные отсутствуют
+host_cores: 'Ядер: %{count}'
+host_load: Нагрузка
+host_core: Ядро %{index} · %{value}
+host_memory_total: Всего %{value}
+host_memory_used: Занято
+host_memory_cached: Кэш
+host_memory_swap: Подкачка
+host_utilization: Загрузка
+host_network_total: С момента запуска
+host_disk_write: Запись
+host_disk_read: Чтение
+host_storage: Хранилище
+host_partition_count: 'Разделов: %{count}'
+host_read_short: R
+host_write_short: W
+host_process_search: Процессы поиска
+host_process_limited: Отображение топ 2048 процессов по использованию
+host_process_name: Процессы
+host_pid: PID
+host_process_empty: Отсутствие процессов
+host_process_no_matches: Отсутствие процессов сопоставления
 port_title: Перенаправление портов
 port_mappings: Сопоставления портов
 port_add: Новый форвард

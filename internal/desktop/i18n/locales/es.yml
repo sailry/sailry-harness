@@ -1541,6 +1541,31 @@ metrics_worker: Trabajador de vista previa
 metrics_indexer: Indexador de vista previa
 metrics_loading: Esperando métricas (vista previa)
 metrics_error: Métricas no disponibles (vista previa)
+host_node_uptime: Tiempo de Sailry
+host_sampling: Esperando la muestra
+host_sampling_failed: Datos de host no actualizados
+host_metric_unavailable: No hay datos
+host_cores: '%{count} núcleos'
+host_load: Carga
+host_core: Núcleo %{index} · %{value}
+host_memory_total: '%{value} en total'
+host_memory_used: En uso
+host_memory_cached: Caché
+host_memory_swap: Swap
+host_utilization: Utilización
+host_network_total: Desde el arranque
+host_disk_write: Escritura
+host_disk_read: Lectura
+host_storage: Almacenamiento
+host_partition_count: '%{count} particiones'
+host_read_short: R
+host_write_short: W
+host_process_search: Procesos de búsqueda
+host_process_limited: Mostrando los 2048 procesos principales por uso
+host_process_name: Procesos
+host_pid: PID
+host_process_empty: No hay procesos
+host_process_no_matches: No hay procesos coincidentes
 port_title: Reenvío de puertos
 port_mappings: Asignaciones de puertos
 port_add: Nuevo delantero

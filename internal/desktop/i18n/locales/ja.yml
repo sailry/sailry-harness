@@ -1541,6 +1541,31 @@ metrics_worker: プレビューワーカー
 metrics_indexer: プレビューインデクサ
 metrics_loading: メトリクスを待っています (プレビュー)
 metrics_error: メトリクスが利用できません (プレビュー)
+host_node_uptime: Sailry 稼働時間
+host_sampling: サンプルを待っています
+host_sampling_failed: ホストデータが更新されていません
+host_metric_unavailable: データなし
+host_cores: '%{count} コア'
+host_load: 負荷
+host_core: コア %{index} · %{value}
+host_memory_total: 合計 %{value}
+host_memory_used: 使用中
+host_memory_cached: キャッシュ
+host_memory_swap: スワップ
+host_utilization: 使用率
+host_network_total: 起動後の累計
+host_disk_write: 書き込み
+host_disk_read: 読み込み
+host_storage: ストレージ
+host_partition_count: '%{count} パーティション'
+host_read_short: R
+host_write_short: W
+host_process_search: 検索プロセス
+host_process_limited: 使用量別のトップ 2048 プロセスを表示
+host_process_name: プロセス
+host_pid: PID
+host_process_empty: プロセスなし
+host_process_no_matches: マッチングプロセスなし
 port_title: ポートフォワード
 port_mappings: ポートマッピング
 port_add: ニュー・フォワード

@@ -1541,6 +1541,31 @@ metrics_worker: 示例工作程序
 metrics_indexer: 示例索引程序
 metrics_loading: 等待指標（示例）
 metrics_error: 指標暫不可用（示例）
+host_node_uptime: Sailry 執行
+host_sampling: 等待取樣
+host_sampling_failed: 主機資料未更新
+host_metric_unavailable: 暫無資料
+host_cores: '%{count} 核'
+host_load: 負載
+host_core: 核心 %{index} · %{value}
+host_memory_total: 共 %{value}
+host_memory_used: 已用
+host_memory_cached: 快取
+host_memory_swap: 交換
+host_utilization: 利用率
+host_network_total: 開機以來累計
+host_disk_write: 寫入
+host_disk_read: 讀取
+host_storage: 儲存
+host_partition_count: '%{count} 個分割區'
+host_read_short: R
+host_write_short: W
+host_process_search: 搜尋程序
+host_process_limited: 僅顯示佔用最高的 2048 個程序
+host_process_name: 程序
+host_pid: PID
+host_process_empty: 暫無程序
+host_process_no_matches: 無匹配程序
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發
