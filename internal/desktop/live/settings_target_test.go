@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -27,8 +28,8 @@ func TestSettingsTarget(t *testing.T) {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = node
 		// Each Node answers its own values: the local one revision 1, 60 %, 4
-		// children, sleep allowed, sandbox on; the remote one revision 2,
-		// 70 %, 5 children, sleep prevented, sandbox off.
+		// children, sleep allowed, sandbox and code index on; the remote
+		// one revision 2, 70 %, 5 children, sleep prevented, both off.
 		revision := uint64(index + 1)
 		snapshot.PowerSettingsRevision, snapshot.SandboxSettingsRevision, snapshot.TeamSettingsRevision = revision, revision, revision
 		transport := &conversationTestTransport{snapshot: snapshot}
@@ -69,6 +70,17 @@ func TestSettingsTarget(t *testing.T) {
 				input, _ := detail[protocol.SandboxSettings](request.Command.Data)
 				input.Revision++
 				return output("sandbox_settings", input)
+			case "read_code_index_settings":
+				return output("code_index_settings", protocol.CodeIndexSettings{Revision: revision, Enabled: index == 0})
+			case "save_code_index_settings":
+				input, _ := detail[protocol.CommandSaveCodeIndexSettingsPayload](request.Command.Data)
+				// The fixture keeps no state: a second save finds the
+				// revision it read first, as after another controller's.
+				if input.ExpectedRevision != revision {
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "code index settings changed before saving"}}, true
+				}
+				input.Settings.Revision++
+				return output("code_index_settings", input.Settings)
 			case "save_telemetry_settings":
 				input, _ := detail[protocol.TelemetryUpdate](request.Command.Data)
 				return output("telemetry_settings", protocol.TelemetrySettings{Revision: input.Revision + 1, Errors: input.Errors, Metrics: input.Metrics})
@@ -99,6 +111,7 @@ func TestSettingsTarget(t *testing.T) {
 		for _, post := range queue {
 			post(c)
 		}
+		kit.ToastHost(c)
 	}, 640, 480)
 	tester.SetLocale("en")
 	// settle runs the commands under way to their answers, and the commands
@@ -153,8 +166,11 @@ func TestSettingsTarget(t *testing.T) {
 		if m.Sandbox.Revision != revision || m.Sandbox.Saved != (index == 0) || m.Sandbox.Draft != (index == 0) {
 			t.Errorf("sandbox shows %+v, want Node %d's", m.Sandbox, index)
 		}
+		if m.CodeIndex.Revision != revision || m.CodeIndex.Saved != (index == 0) || m.CodeIndex.Draft != (index == 0) || m.CodeIndex.Pending {
+			t.Errorf("code index shows %+v, want Node %d's", m.CodeIndex, index)
+		}
 	}
-	reads := []string{"read_power_settings", "list_channel_presets", "read_compaction_settings", "read_team_settings", "read_media_settings", "read_sandbox_settings"}
+	reads := []string{"read_power_settings", "list_channel_presets", "read_compaction_settings", "read_team_settings", "read_media_settings", "read_sandbox_settings", "read_code_index_settings"}
 
 	root.workspaceSettingsFrame()
 	settle()
@@ -196,11 +212,13 @@ func TestSettingsTarget(t *testing.T) {
 		m.SaveMedia()
 		m.Sandbox.Draft = true
 		m.SaveSandbox()
+		m.CodeIndex.Draft = true
+		m.SaveCodeIndex()
 		m.TeamActions.SaveRole(viewmodel.Role{Key: "review", Name: "Review"}, func(kit.Outcome) {})
 		m.ProviderActions.RefreshCatalog()
 		m.ConnectorActions.SaveMCP(settings.MCPDraft{Name: "fixture", Server: viewmodel.ConnectorServer{Command: "run"}}, func(bool) {})
 		settle()
-		for _, kind := range []string{"save_power_settings", "save_compaction_settings", "save_team_settings", "save_media_settings", "save_sandbox_settings", "put_role", "refresh_model_catalog", "install_mcp"} {
+		for _, kind := range []string{"save_power_settings", "save_compaction_settings", "save_team_settings", "save_media_settings", "save_sandbox_settings", "save_code_index_settings", "put_role", "refresh_model_catalog", "install_mcp"} {
 			if count(1, kind) != 1 {
 				t.Errorf("%s reached the selected host %d times", kind, count(1, kind))
 			}
@@ -208,8 +226,21 @@ func TestSettingsTarget(t *testing.T) {
 				t.Errorf("%s was sent to the local Node", kind)
 			}
 		}
-		if m.Power.Revision != 3 || m.Power.Saved || m.Compaction.Revision != 3 || m.Compaction.Saved != 75 || m.Concurrency.Revision != 3 || m.Concurrency.Saved != 2 || m.Sandbox.Revision != 3 || !m.Sandbox.Saved {
-			t.Errorf("the saved values were not taken: power %+v, compaction %+v, concurrency %+v, sandbox %+v", m.Power, m.Compaction, m.Concurrency, m.Sandbox)
+		if m.Power.Revision != 3 || m.Power.Saved || m.Compaction.Revision != 3 || m.Compaction.Saved != 75 || m.Concurrency.Revision != 3 || m.Concurrency.Saved != 2 || m.Sandbox.Revision != 3 || !m.Sandbox.Saved || m.CodeIndex.Revision != 3 || !m.CodeIndex.Saved || m.CodeIndex.Pending {
+			t.Errorf("the saved values were not taken: power %+v, compaction %+v, concurrency %+v, sandbox %+v, code index %+v", m.Power, m.Compaction, m.Concurrency, m.Sandbox, m.CodeIndex)
+		}
+	})
+
+	t.Run("a code index save that conflicts puts the switch back", func(t *testing.T) {
+		m.CodeIndex.Draft = false
+		m.SaveCodeIndex()
+		settle()
+		// The switch shows what the Node answers the read that follows.
+		if m.CodeIndex.Draft || m.CodeIndex.Saved || m.CodeIndex.Revision != 2 || m.CodeIndex.Pending || count(1, "read_code_index_settings") != 2 {
+			t.Errorf("code index shows %+v after a conflict, read %d times", m.CodeIndex, count(1, "read_code_index_settings"))
+		}
+		if !tester.HasText(i18n.In("en", "code_index_settings_conflict")) {
+			t.Errorf("the conflict was not reported: %q", tester.Texts())
 		}
 	})
 
@@ -237,7 +268,7 @@ func TestSettingsTarget(t *testing.T) {
 	t.Run("a host without a connection has no Node to edit", func(t *testing.T) {
 		before := [2]int{len(sent(0)), len(sent(1))}
 		show("0000000000000000000000000000000000000000000000000000000000000009")
-		if !m.Power.Pending || !m.Compaction.Pending || !m.Concurrency.Pending || !m.Media.Pending || m.SaveSandbox != nil || m.ProviderActions.Available() {
+		if !m.Power.Pending || !m.Compaction.Pending || !m.Concurrency.Pending || !m.Media.Pending || !m.CodeIndex.Pending || m.SaveSandbox != nil || m.ProviderActions.Available() {
 			t.Error("a host without a connection left a setting editable")
 		}
 		saved := true

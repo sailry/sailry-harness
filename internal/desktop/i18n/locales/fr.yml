@@ -2196,3 +2196,9 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed

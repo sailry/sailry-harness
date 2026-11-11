@@ -2,8 +2,11 @@
 
 The Node owns the code index in `internal/node/codeindex`; the wiring is
 `internal/node/codeindex_service.go` and the settings and index schema are in
-`internal/node/store/code_index.go`. There is no UI surface: controllers and the
-Agent reach it through commands.
+`internal/node/store/code_index.go`. Controllers and the Agent reach it through
+commands; its one control is the Code index switch in Settings › Conversation
+(`live/settings_codeindex.go`), which reads and saves the selected host's
+`code_index_settings`. A save that fails, conflicts or cannot be confirmed is a
+toast and the switch returns to the Node's value.
 
 Each worktree has one disposable index at
 `<profile>/cache/code-index/<WorktreeId>/index.sqlite`. It is built lazily on the
@@ -38,7 +41,7 @@ one-based lines. An index build holds the keep-awake request (see
 | The index fingerprint differs from the reference, so each engine rebuilds the other's rows | The parser and extraction rules are a different implementation; the index is disposable |
 | Full-text ranking uses SQLite FTS5 `bm25` | The reference ranks with its own database's score function; the ordering rules are the same, scores can differ |
 | A change marks the whole worktree stale and the next query rescans by revision | The reference invalidates single paths at each write site; the watch subscription already covers external and internal edits |
-| The index setting is not tied to the code package's enabled state | The reference couples both; here a disabled package only removes its tools |
+| The index setting is not tied to the code package's enabled state, and Settings has its own switch for it | The reference has no control and no sender for the setting: its `code` package declares `enabled_service: code_index` and enabling or disabling the package saves the setting. Here a disabled package only removes its tools, so the index needs a switch to be turned off |
 | `code_search` and `code_outline` tool results keep the `{kind, data}` envelope | Direct operations return the command output; the reference returns the shaped data alone |
 | The prune deadline is checked between batches of 64 files | Checking per file adds nothing at that batch size |
 | SQL, just and caddy grammars come from the registry's sources, Go tags fall back per pattern, and seven injection queries the engine rejects are skipped | Coverage follows the pinned parser version |

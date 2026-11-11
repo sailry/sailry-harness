@@ -10,8 +10,8 @@ import (
 // Settings edits one Node: the host selected in the shell (App.Host, the
 // local Node by default), as the reference binds every page to its settings
 // Node. Prevent sleep, providers, the compaction threshold, media models,
-// teams, roles, child concurrency, connectors, MCP, the sandbox and hooks
-// are that Node's, beside the terminal, backup, local model, plugin and
+// teams, roles, child concurrency, connectors, MCP, the sandbox, the code
+// index and hooks are that Node's, beside the terminal, backup, local model, plugin and
 // Python pages. Language, appearance, shortcuts, notifications, dictation
 // and telemetry consent are this desktop's and stay local.
 //
@@ -56,6 +56,7 @@ func (r *Runtime) initNodeSettings() {
 	m := r.App.Settings
 	m.SavePower = func() { on(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
+	m.SaveCodeIndex = func() { on(func(owner *Runtime) { owner.saveCodeIndex() }) }
 	m.ProviderActions = settings.ProviderActions{
 		NewID: func() string { return protocol.NewProviderID().String() },
 		Available: func() bool {
@@ -201,6 +202,7 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	waiting := owner == nil
 	m.Power, m.Compaction, m.Concurrency = settings.Stored[bool]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}
 	m.Media, m.MediaOptions, m.MediaUnavailable = settings.Stored[[4]string]{Pending: waiting}, nil, [4]bool{}
+	m.CodeIndex = settings.Stored[bool]{Pending: waiting}
 	m.Channels, m.Brands, m.Catalog = nil, nil, viewmodel.Catalog{}
 	m.Roles, m.Teams = nil, nil
 	m.Services, m.ConnTypes, m.ConnAccounts = nil, nil, nil
@@ -221,6 +223,7 @@ func (r *Runtime) enterNodeSettings() {
 	}
 	r.media.seen = ""
 	r.readPower()
+	r.readCodeIndex()
 	r.readProviders()
 	r.teamsFrame()
 	r.readTeamSettings()

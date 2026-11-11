@@ -2208,3 +2208,9 @@ settings_experimental_description
 settings_demo_mode
 settings_demo_mode_description
 provider_deepseek
+settings_code_index
+settings_code_index_description
+code_index_settings_saved
+code_index_settings_failed
+code_index_settings_conflict
+code_index_settings_unknown

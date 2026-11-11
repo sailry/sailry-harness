@@ -223,7 +223,7 @@ holds the rule; `Runtime.settingsOwner` is the one lookup.
 
 | Owner | Pages and settings |
 | --- | --- |
-| The selected host's Node | General › Prevent sleep; Providers, the model catalog and the compaction threshold; Media models; Teams, roles and child concurrency; Connectors and MCP; Conversation › Command sandbox; Hooks; Terminal shell and environment; Backup; Knowledge, Decision and OCR models; Plugins, Skills and Python |
+| The selected host's Node | General › Prevent sleep; Providers, the model catalog and the compaction threshold; Media models; Teams, roles and child concurrency; Connectors and MCP; Conversation › Command sandbox and Code index; Hooks; Terminal shell and environment; Backup; Knowledge, Decision and OCR models; Plugins, Skills and Python |
 | This desktop (`preferences.json`) | Language, notifications, toast duration, appearance, session order, message display, shortcuts, dictation, terminal font and paste protection, experimental switches, the update channel |
 | The local Node, whichever host is selected | Telemetry consent, identity reset and Send diagnostics (the reference's stated exception) |
 
@@ -334,6 +334,10 @@ hover style.
 - Selecting another host drops the drafts of Prevent sleep, compaction, child
   concurrency and media models instead of holding one per Node: each is a
   single control that saves on change.
+- Conversation › Execution has a Code index switch the reference does not
+  have ([code index](codeindex.md)). After a save that did not take it shows
+  the Node's value again; the sandbox and Prevent sleep switches keep the
+  position chosen.
 
 - Preview pages show populated data where the reference shows
   "knowledge_host_required"/"hooks_project_required" without a host
