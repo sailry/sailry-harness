@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestForkRewindReplace(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"fork shares records", "rewind preserves title and records", "replace is atomic", "replace rolls back admission failure"} {
+	for _, scenario := range []string{"fork shares records", "rewind preserves title and records", "replace is atomic", "replace rolls back admission failure", "rewind backup keeps current plugin values"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			profile, node, storage := schemaFixture(t)
@@ -138,6 +139,50 @@ func TestForkRewindReplace(t *testing.T) {
 					}
 					if len(page.Page.Runs) != 1 {
 						return errors.New("rewind left later membership")
+					}
+					return nil
+				})
+			case "rewind backup keeps current plugin values":
+				err = storage.Node.Write(ctx, func(db *sql.Conn) error {
+					info, err := InstallPlugin(ctx, db, pluginTestInfo("conversation-fixture", 'a'), 0, true)
+					if err != nil {
+						return err
+					}
+					reference := plugins.PackageReference(info)
+					if _, err = WritePluginConversationValue(ctx, db, reference, session.ID, &turns[2], "checkpoint", json.RawMessage(`{"step":1}`), 0); err != nil {
+						return err
+					}
+					// The first rewind revokes the value: no remaining record holds it.
+					if _, _, err = rewindConversation(ctx, db, protocol.CommandRewindConversationPayload{Session: session.ID, Through: &turns[1], ExpectedHead: turns[2], ExpectedRevision: initialHistoryRevision}, false); err != nil {
+						return err
+					}
+					revoked, err := ReadPluginConversationValue(ctx, db, reference, session.ID, "checkpoint")
+					if err != nil || revoked.Present || !revoked.Restored {
+						return fmt.Errorf("rewind kept a later value: %+v, %v", revoked, err)
+					}
+					history, _, err := rewindConversation(ctx, db, protocol.CommandRewindConversationPayload{Session: session.ID, Through: &turns[0], ExpectedHead: turns[1], ExpectedRevision: initialHistoryRevision + 1}, true)
+					if err != nil {
+						return err
+					}
+					if history.Backup == nil {
+						return errors.New("rewind made no backup")
+					}
+					saved, err := ReadPluginConversationValue(ctx, db, reference, history.Backup.ID, "checkpoint")
+					if err != nil || saved.Present || !saved.Restored || saved.Revision == 0 {
+						return fmt.Errorf("backup lost the revoked value's state: %+v, %v", saved, err)
+					}
+					// An ordinary fork inherits records only.
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					fork, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: session.ID, Through: turns[0], ExpectedRevision: current.Revision})
+					if err != nil {
+						return err
+					}
+					inherited, err := ReadPluginConversationValue(ctx, db, reference, fork.ID, "checkpoint")
+					if err != nil || inherited.Present || inherited.Restored || inherited.Revision != 0 {
+						return fmt.Errorf("fork inherited a value outside its records: %+v, %v", inherited, err)
 					}
 					return nil
 				})
