@@ -3,8 +3,13 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -73,6 +78,7 @@ func testNativeComponentAuthority(t *testing.T) {
 		}
 	})
 	t.Run("assistant draft retains source through first admission and retry", testNativeAssistantDraft)
+	t.Run("assistant panel switches between its sessions", testNativeAssistantSessions)
 }
 
 func testNativeAssistantDraft(t *testing.T) {
@@ -180,5 +186,154 @@ func testNativeAssistantDraft(t *testing.T) {
 	if !valid || created[0].Target != node || input.Worktree == nil || *input.Worktree != worktree || input.Project == nil || *input.Project != project ||
 		input.Config == nil || input.Config.Assistant == nil || input.Config.Assistant.Package != reference || input.Config.Assistant.ID != "review" {
 		t.Fatal("assistant first admission lost its captured configuration")
+	}
+}
+
+// An assistant's panel has New and the session history beside its heading:
+// the history lists the assistant's sessions of the captured workspace and
+// moves the panel to the one chosen, New to a draft, which says what the
+// panel is for.
+func testNativeAssistantSessions(t *testing.T) {
+	node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
+	reference := protocol.PluginReference{Name: "assistant-fixture", Digest: strings.Repeat("a", 64), SettingsRevision: 3}
+	older, newer, foreign := protocol.SessionID{10}, protocol.SessionID{11}, protocol.SessionID{12}
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = node
+	snapshot.Projects = []protocol.Project{{ID: project, Name: "Captured project", Path: "/fixture/project"}}
+	snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/project", Main: true}}
+	snapshot.Providers = []protocol.ConversationProvider{{
+		ID: provider, Revision: 7, Name: "Captured provider", Enabled: true, Api: "responses", Authentication: "api_key",
+		Models: []protocol.ConversationModel{{ID: "fixture", DefaultEffort: protocol.Effort{Kind: "default"}}},
+	}}
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model, config.Mode, config.Permission = provider, "fixture", protocol.WorkModeCode, protocol.PermissionAsk
+	config.Effort = protocol.Effort{Kind: "default"}
+	bound := config
+	bound.Assistant = &protocol.PluginConversationBinding{Package: reference, ID: "review"}
+	for index, row := range []struct {
+		id     protocol.SessionID
+		title  string
+		config protocol.SessionConfig
+	}{{older, "Older review", bound}, {newer, "Newer review", bound}, {foreign, "Ordinary session", config}} {
+		session := protocol.Session{ID: row.id, CreationOrder: uint64(index + 1), Revision: 1, Project: &project, Worktree: worktree, Config: row.config, Roles: protocol.DefaultRoleSnapshot()}
+		session.Activity.Title = row.title
+		snapshot.Sessions = append(snapshot.Sessions, session)
+	}
+	transport := &conversationTestTransport{snapshot: snapshot}
+	transport.conversation = protocol.DefaultConversationSnapshot()
+	transport.conversation.Node = node
+	controller := client.New(transport)
+	if err := controller.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Close()
+	runtime, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	info := protocol.PluginInfo{Extension: &protocol.PluginExtension{
+		Actions: []protocol.PluginAction{protocol.PluginActionReadConversation, protocol.PluginActionControlConversation},
+		Desktop: &protocol.PluginDesktopManifest{Conversations: []protocol.PluginConversationDeclaration{
+			{ID: "review", Resource: protocol.PluginConversationResourceWorkspace},
+		}},
+	}}
+	info.Summary.Name, info.Summary.Digest = reference.Name, reference.Digest
+	info.Summary.SettingsRevision, info.Summary.Enabled, info.Summary.Compatibility.Kind = reference.SettingsRevision, true, "compatible"
+	scope := protocol.DefaultPluginContext()
+	scope.Package, scope.Worktree, scope.Surface = reference, &worktree, protocol.PluginDesktopSurface{Kind: "workspace"}
+	native := plugins.NewNativeBinding(t.Context())
+	state := &pluginNativeState{runtime: runtime, scope: scope, native: &native, conversations: map[string]*pluginNativeConversation{}}
+	var failure error
+	tester := ui.NewTesterWith(func(view *ui.Context) {
+		runtime.drain(view)
+		theme.Apply(view, "", theme.Dark)
+		runtime.packages.infos[reference.Name] = info
+		_, failure = state.renderConversation(view, plugins.NativeElement{
+			ID: 19, Props: json.RawMessage(`["assistant-chat",{"assistant":"review","heading":"Review assistant"}]`),
+		}, nil, nil)
+		runtime.finishFrame()
+	}, 520, 640, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tester.SetLocale("zh-CN")
+	tester.SetDark(true)
+	text := func(key string) string { return i18n.In("zh-CN", key) }
+	settle := func() {
+		t.Helper()
+		for range 4 {
+			runtime.workers.Wait()
+			tester.Advance(100 * time.Millisecond)
+			tester.Frame()
+		}
+		if failure != nil {
+			t.Fatal(failure)
+		}
+	}
+	settle()
+	press := func(name string) {
+		t.Helper()
+		info, ok := tester.AccessByRole(ui.RoleButton, name)
+		if !ok || info.Disabled {
+			t.Fatalf("no enabled button %q: %q", name, tester.Texts())
+		}
+		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		settle()
+	}
+	shot := func(name string) {
+		if dir := os.Getenv("SAILRY_UI_SHOTS"); dir != "" {
+			if file, err := os.Create(filepath.Join(dir, name+".png")); err == nil {
+				_ = png.Encode(file, tester.Image())
+				file.Close()
+			}
+		}
+	}
+	// The panel opens on the assistant's latest session.
+	if mounted := state.conversations["assistant-chat"]; mounted == nil || mounted.session != newer {
+		t.Fatalf("the panel did not open on the latest session: %+v", mounted)
+	}
+	if !tester.HasText("Review assistant") {
+		t.Fatalf("no heading: %q", tester.Texts())
+	}
+	// The history lists the assistant's sessions only, the current one
+	// checked, and filters by the query.
+	press(text("chat_connection_history"))
+	if !tester.HasText("Older review") || !tester.HasText("Newer review") || tester.HasText("Ordinary session") {
+		t.Fatalf("the history lists %q", tester.Texts())
+	}
+	shot("parity-live-session-history")
+	tester.Type("older")
+	settle()
+	if !tester.HasText("Older review") || tester.HasText("Newer review") {
+		t.Fatalf("the filtered history lists %q", tester.Texts())
+	}
+	tester.Key(0, ui.KeyEnter)
+	settle()
+	if mounted := state.conversations["assistant-chat"]; mounted.session != older || mounted.draft != nil {
+		t.Fatalf("choosing a session left the panel on %v", mounted.session)
+	}
+	// New starts a draft for the same assistant and workspace.
+	press(text("chat_new"))
+	mounted := state.conversations["assistant-chat"]
+	if mounted.draft == nil || mounted.session != (protocol.SessionID{}) || mounted.draft.Config.Assistant == nil || *mounted.draft.Config.Assistant != *bound.Assistant ||
+		mounted.draft.Project == nil || *mounted.draft.Project != project || mounted.composer.Permission != composer.AskFirst {
+		t.Fatalf("New left the panel on %+v", mounted)
+	}
+	if !tester.HasText(text("chat_sidebar_empty")) {
+		t.Fatalf("a new assistant draft has no empty state: %q", tester.Texts())
+	}
+	shot("parity-live-session-empty")
+	if button, _ := tester.AccessByRole(ui.RoleButton, text("chat_new")); !button.Disabled {
+		t.Error("New is enabled on a draft")
+	}
+	// The history goes back from the draft.
+	press(text("chat_connection_history"))
+	if err := tester.Click("Newer review"); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	if mounted := state.conversations["assistant-chat"]; mounted.session != newer {
+		t.Fatalf("the history did not leave the draft: %+v", mounted)
+	}
+	if runtime.pluginComposerView(mounted.view.ID) != nil {
+		t.Error("the left draft kept its presentation")
 	}
 }

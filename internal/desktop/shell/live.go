@@ -40,6 +40,8 @@ type Hooks struct {
 	PluginHeader     func(*ui.Context)
 	PluginTitle      func(*ui.Context) bool
 	PluginOverlays   func(*ui.Context)
+	// Overview is a conversation's session overview for the header's button.
+	Overview func(*ui.Context, *viewmodel.Conversation) *composer.Overview
 }
 
 type ConversationActions interface {

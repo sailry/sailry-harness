@@ -46,26 +46,29 @@ func (x *conversationActions) SendQueued(id string) {
 	if !ok {
 		return
 	}
-	if run, active := x.activeRun(); active {
-		x.r.command(protocol.Command{Kind: "guide_queued_turn", Data: protocol.CommandGuideQueuedTurnPayload{Turn: item.Turn, Recipient: run.Turn, ExpectedRevision: item.Revision}}, "session_changed", nil)
+	if run, active := x.activeRun(); active && !item.Notice && item.Kind == protocol.ConversationRunKindTask {
+		x.queueCommand(protocol.Command{Kind: "guide_queued_turn", Data: protocol.CommandGuideQueuedTurnPayload{Turn: item.Turn, Recipient: run.Turn, ExpectedRevision: item.Revision}})
 	} else {
-		x.r.command(protocol.Command{Kind: "send_queued_turn", Data: protocol.CommandSendQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision}}, "session_changed", nil)
+		x.queueCommand(protocol.Command{Kind: "send_queued_turn", Data: protocol.CommandSendQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision}})
 	}
 }
+
+// A subagent's session is read-only, but its queue tray still withdraws
+// guidance and removes a message while its Host is connected.
 func (x *conversationActions) WithdrawGuidance(id string) {
-	if x.readonly() {
+	if !x.owned() || !x.r.controller.Connected() {
 		return
 	}
 	if p, ok := x.queued(id); ok {
-		x.r.command(protocol.Command{Kind: "withdraw_guidance", Data: protocol.CommandWithdrawGuidancePayload{Turn: p.Turn, ExpectedRevision: p.Revision}}, "session_changed", nil)
+		x.queueCommand(protocol.Command{Kind: "withdraw_guidance", Data: protocol.CommandWithdrawGuidancePayload{Turn: p.Turn, ExpectedRevision: p.Revision}})
 	}
 }
 func (x *conversationActions) RemoveQueued(id string) {
-	if x.readonly() {
+	if !x.owned() || !x.r.controller.Connected() {
 		return
 	}
 	if p, ok := x.queued(id); ok {
-		x.r.command(protocol.Command{Kind: "remove_queued_turn", Data: protocol.CommandRemoveQueuedTurnPayload{Turn: p.Turn, ExpectedRevision: p.Revision}}, "session_changed", nil)
+		x.queueCommand(protocol.Command{Kind: "remove_queued_turn", Data: protocol.CommandRemoveQueuedTurnPayload{Turn: p.Turn, ExpectedRevision: p.Revision}})
 	}
 }
 func (x *conversationActions) MoveQueued(id, before string) {
@@ -88,7 +91,7 @@ func (x *conversationActions) MoveQueued(id, before string) {
 			return
 		}
 	}
-	x.r.command(protocol.Command{Kind: "move_queued_turn", Data: protocol.CommandMoveQueuedTurnPayload{Session: s.ID, ExpectedRevision: state.Page.Queue.Revision, Turn: item.Turn, Before: target}}, "session_changed", nil)
+	x.queueCommand(protocol.Command{Kind: "move_queued_turn", Data: protocol.CommandMoveQueuedTurnPayload{Session: s.ID, ExpectedRevision: state.Page.Queue.Revision, Turn: item.Turn, Before: target}})
 }
 func (x *conversationActions) SaveQueued(id, text string) {
 	if x.readonly() {
@@ -100,12 +103,20 @@ func (x *conversationActions) SaveQueued(id, text string) {
 	}
 	x.r.saveQueued(item, text, nil)
 }
-func (x *conversationActions) Compact() {
+func (x *conversationActions) Compact() { x.compact("") }
+
+// compact compacts the conversation's context, keeping focus in view when
+// the user wrote one after /compact.
+func (x *conversationActions) compact(focus string) {
 	if x.readonly() {
 		return
 	}
 	if s, ok := x.r.session(x.cv.ID); ok {
-		x.turn(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: s.ID, ExpectedRevision: s.Revision}}, nil)
+		payload := protocol.CommandCompactContextPayload{Session: s.ID, ExpectedRevision: s.Revision}
+		if focus != "" {
+			payload.Focus = &focus
+		}
+		x.turn(protocol.Command{Kind: "compact_context", Data: payload}, nil)
 	}
 }
 

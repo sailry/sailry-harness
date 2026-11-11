@@ -40,6 +40,9 @@ const (
 // choices the user makes for it, kept per conversation, and which of its
 // popovers show.
 type State struct {
+	// later is what a key or a paste asked of a frame: their callbacks run
+	// between frames, where the context shows no toast and has no locale.
+	later             []func(*ui.Context)
 	pluginControls    func(*ui.Context, string, ControlPlace)
 	pluginCommand     func(Reference) (string, bool)
 	statusCallbacks   *StatusCallbacks
@@ -112,6 +115,34 @@ func New(model string) *State {
 // Focus puts the keyboard focus in the draft at the next frame that builds
 // the composer: New session over the draft already shown asks for it.
 func (s *State) Focus() { s.focus = true }
+
+// OpenModels is the ModelControls shortcut: it opens the model controls, in
+// the compact settings popover when the toolbar is folded, or the Node's model
+// settings while no model is offered. A read-only composer does nothing.
+func (s *State) OpenModels(ctx *Context) {
+	switch {
+	case ctx.Readonly || ctx.Child:
+	case len(ctx.Models) == 0:
+		if ctx.SelectModel != nil {
+			ctx.SelectModel()
+		}
+	case s.width > 0 && s.width < compactWidth:
+		s.settings, s.page, s.layer = true, settingsMain, layerMain
+	default:
+		s.picker, s.layer = true, layerMain
+	}
+}
+
+// inFrame runs fn with a context that is building a frame: now when c is,
+// in the next frame when c is called from a key's or a paste's callback.
+func (s *State) inFrame(c *ui.Context, fn func(*ui.Context)) {
+	if c.Valid() {
+		fn(c)
+		return
+	}
+	s.later = append(s.later, fn)
+	c.Invalidate()
+}
 
 // Chosen returns the model chosen, the first one when the ID is unknown.
 func (s *State) Chosen(models []Model) Model {
@@ -191,9 +222,21 @@ func (s *State) deliverable(ctx *Context) bool {
 // queue strip, the input surface with its chips, draft and toolbar, and
 // the context bar. The page builds it under the transcript.
 func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
+	for len(s.later) > 0 {
+		next := s.later[0]
+		s.later = s.later[1:]
+		next(c)
+	}
 	// submit sends the draft, or guides the running reply with it
 	// (Delivery::enter), and reports whether it went.
 	submit := func() bool {
+		// A draft that is the /compact command compacts, with the text
+		// after it as the focus, and is not a message (send_draft).
+		if focus, typed := compactFocus(s.Draft); typed && compacts(ctx) && !ctx.Readonly {
+			s.clear()
+			s.compact(ctx, actions, focus)
+			return true
+		}
 		if !s.deliverable(ctx) {
 			return false
 		}
@@ -205,6 +248,16 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			actions.Send(msg)
 		}
 		return true
+	}
+	if ctx.Child {
+		// A delegated session has no composer; it still receives queued
+		// guidance, so its queue tray stays, read-only.
+		if len(ctx.Queue) > 0 || s.queue.editing != "" {
+			ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Children(func() {
+				s.queueTray(c, ctx, actions)
+			})
+		}
+		return
 	}
 	s.syncReferences()
 	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
@@ -279,7 +332,7 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 		s.focus = false
 	}
 	s.chips(c, area)
-	area.OnPaste(func(text string) bool { return text == "" && s.paste(c, actions) })
+	area.OnPaste(func(text string) bool { return s.paste(c, text, actions) })
 	// The element is this pass's: the callback runs later, so it reads
 	// what the pass saw.
 	composing := area.Composing()
@@ -331,7 +384,9 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 			return true
 		case k.Key == ui.KeyTab && k.Mods == ui.Shift:
 			// CycleMode (OutdentInline): the next mode.
-			s.Mode = (s.Mode + 1) % Mode(len(Modes))
+			if !ctx.Readonly {
+				s.cycleMode(ctx)
+			}
 			return true
 		case k.Key == ui.KeyBackspace && k.Mods == 0:
 			return s.deleteChip(selStart, selEnd, k)
@@ -425,7 +480,8 @@ func action(b ui.Element, a *theme.Action, disabled bool) {
 	}
 }
 
-// contextBar is under the surface: the project and the worktree, then the
+// contextBar is under the surface: the host where there is another to
+// choose, the project and the worktree, then the
 // usage at its end. Wide, both wrap; compact, they stay on one line and the
 // usage is one button; below the icon width the location is in the settings
 // popover and the bar keeps the usage alone.
@@ -445,6 +501,7 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 		}
 		location.Children(func() {
 			if !narrow {
+				s.hostMenu(c, ctx, toolbarForm)
 				s.projectButton(c, ctx, actions, toolbarForm)
 				s.worktreeMenu(c, ctx, actions, toolbarForm)
 			}

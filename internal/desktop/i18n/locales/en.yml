@@ -2164,3 +2164,27 @@ files_remote_path: This path is outside the remote workspace
 queue_draft_present: Composer has a draft
 tool_read_skill_resource: Read skill resource
 tool_session_title: Set session title
+queue_read: Read
+chat_assets_title: Activity
+chat_assets_activity: Activity
+chat_assets_progress: Progress
+chat_assets_output: Output
+chat_assets_sources: Sources
+chat_assets_no_activity: No subagents
+chat_assets_no_progress: No tasks
+chat_assets_no_output: No output
+chat_assets_no_sources: No sources
+chat_assets_failed: Could not load resources and artifacts
+chat_assets_more: Show earlier
+queue_guidance_separate: Settings differ; queued separately
+reference_stale: Reference ownership or configuration changed; remove and select again
+chat_clipboard_image: Image %{count}
+chat_connection_history: Session history
+chat_connection_history_empty: No session history
+chat_sidebar_empty: Start a session
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · Session'
+chat_provider_node: '%{name} · Host'
+chat_config_desktop: Desktop configuration
+usage_read_failed: Could not load usage, try again
+queue_draft_changed: Queue changed; draft kept

@@ -2164,3 +2164,27 @@ files_remote_path: Esta ruta está fuera del espacio de trabajo remoto
 queue_draft_present: El editor contiene un borrador
 tool_read_skill_resource: Recurso de habilidad de lectura
 tool_session_title: Establecer título de sesión
+queue_read: Leer
+chat_assets_title: Actividad
+chat_assets_activity: Actividad
+chat_assets_progress: Progreso
+chat_assets_output: Resultados
+chat_assets_sources: Fuentes
+chat_assets_no_activity: Sin subagentes
+chat_assets_no_progress: Sin tareas
+chat_assets_no_output: Sin resultados
+chat_assets_no_sources: Sin fuentes
+chat_assets_failed: No se pudo cargar recursos y artefactos
+chat_assets_more: Mostrar antes
+queue_guidance_separate: Configuración diferente; en cola por separado
+reference_stale: La propiedad o configuración de la referencia ha cambiado; quítela y vuelva a seleccionarla
+chat_clipboard_image: Imagen %{count}
+chat_connection_history: Historial de sesiones
+chat_connection_history_empty: Sin historial de sesiones
+chat_sidebar_empty: Iniciar una sesión
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · Sesión en curso'
+chat_provider_node: '%{name}'
+chat_config_desktop: Configuración de escritorio
+usage_read_failed: No se pudo cargar el uso, inténtelo de nuevo
+queue_draft_changed: La cola cambió; el borrador se mantuvo

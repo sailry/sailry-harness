@@ -42,8 +42,10 @@ var Registry = []Shortcut{
 }
 
 // Fixed are keys of the app no shortcut may take: Settings, Find in
-// Conversation, Close Tab, Close Window and Quit.
-var Fixed = []Chord{{ui.Cmd, ui.KeyComma}, {ui.Cmd, ui.KeyF}, {ui.Cmd, ui.KeyW}, {ui.Cmd | ui.Shift, ui.KeyW}, {ui.Cmd, ui.KeyQ}}
+// Conversation, Close Tab, Close Window and Quit, then the conversation's
+// Stop, Focus the composer and model controls.
+var Fixed = []Chord{{ui.Cmd, ui.KeyComma}, {ui.Cmd, ui.KeyF}, {ui.Cmd, ui.KeyW}, {ui.Cmd | ui.Shift, ui.KeyW}, {ui.Cmd, ui.KeyQ},
+	{ui.Cmd, ui.KeyPeriod}, {ui.Cmd, ui.KeyL}, {ui.Cmd | ui.Shift, ui.KeyM}}
 
 // Keys is the Shortcuts page's state: the user's keys over the defaults, and
 // the shortcut being recorded.

@@ -28,7 +28,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		return
 	}
 	if delegated(session) {
-		ctx.Readonly = true
+		ctx.Readonly, ctx.Child = true, true
 		ctx.Interactions = composer.Interactions{}
 		ctx.Activity.Children = nil
 		return

@@ -78,17 +78,93 @@ func (s *State) menuID(name string) string {
 	return id
 }
 
-// modeMenu is the mode's icon and label, a menu of the modes with their
-// descriptions, the check on the right.
-func (s *State) modeMenu(c *ui.Context, ctx *Context) {
+// modeKeys are the built-in modes' keys, as Context.SelectMode takes them.
+var modeKeys = []string{"code", "plan", "flagship"}
+
+// activeMode is the package's mode the conversation runs in, nil while a
+// built-in one does.
+func activeMode(ctx *Context) *PluginMode {
+	for i := range ctx.PluginModes {
+		if ctx.PluginModes[i].Selected {
+			return &ctx.PluginModes[i]
+		}
+	}
+	return nil
+}
+
+// modeLook is the current mode's icon and label: the package's while one of
+// its modes is chosen.
+func (s *State) modeLook(c *ui.Context, ctx *Context) (*ui.SVG, string) {
+	if m := activeMode(ctx); m != nil {
+		icon := m.Icon
+		if icon == nil {
+			icon = Modes[s.Mode].icon
+		}
+		return icon, m.Label
+	}
 	m := Modes[s.Mode]
+	return m.icon, i18n.T(c, m.label)
+}
+
+// selectMode chooses a built-in mode, which ends a package's.
+func (s *State) selectMode(ctx *Context, m Mode) {
+	s.Mode = m
+	if ctx.SelectMode != nil {
+		ctx.SelectMode(modeKeys[m])
+	}
+}
+
+// cycleMode is Shift+Tab (CycleMode): the next of the built-in modes and
+// then the packages' modes that can be chosen, round.
+func (s *State) cycleMode(ctx *Context) {
+	var plugins []PluginMode
+	if ctx.SelectMode != nil {
+		for _, m := range ctx.PluginModes {
+			if !m.Disabled {
+				plugins = append(plugins, m)
+			}
+		}
+	}
+	index := int(s.Mode)
+	for i, m := range plugins {
+		if m.Selected {
+			index = len(Modes) + i
+		}
+	}
+	next := (index + 1) % (len(Modes) + len(plugins))
+	if next < len(Modes) {
+		s.selectMode(ctx, Mode(next))
+		return
+	}
+	ctx.SelectMode(plugins[next-len(Modes)].Key)
+}
+
+// modeMenu is the mode's icon and label, a menu of the modes with their
+// descriptions, the check on the right; the packages' modes follow the
+// built-in ones, a mode that cannot be chosen disabled (live/mode.rs).
+func (s *State) modeMenu(c *ui.Context, ctx *Context) {
+	icon, label := s.modeLook(c, ctx)
+	active := activeMode(ctx)
 	kit.MenuButton(c.Key("mode"), s.menuID("mode"), func(b ui.Element) {
-		subtle(c, b.Disabled(ctx.Readonly), m.icon, i18n.T(c, m.label), theme.Of(c).Foreground)
+		subtle(c, b.Disabled(ctx.Readonly), icon, label, theme.Of(c).Foreground)
 	}, func(menu *kit.Menu) {
 		for i, m := range Modes {
 			if menu.Item(i18n.T(c, m.label)).Description(i18n.T(c, m.description)).Icon(m.icon).
-				Checked(Mode(i) == s.Mode).Chosen() {
-				s.Mode = Mode(i)
+				Checked(active == nil && Mode(i) == s.Mode).Chosen() {
+				s.selectMode(ctx, Mode(i))
+			}
+		}
+		for _, m := range ctx.PluginModes {
+			icon := m.Icon
+			if icon == nil {
+				icon = icons.Bot
+			}
+			item := menu.Item(m.Label).Icon(icon).Checked(m.Selected).Disabled(m.Disabled || ctx.SelectMode == nil)
+			if m.Description != "" {
+				item.Description(m.Description)
+			}
+			if item.Chosen() {
+				ctx.SelectMode(m.Key)
 			}
 		}
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart, CheckRight: true})
@@ -169,6 +245,45 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 	return ContextButton(c, b, icon, label, false, true)
 }
 
+// hostLabel is a host's name: its key's text for the local and the preview
+// hosts.
+func hostLabel(c *ui.Context, h Host) string {
+	if h.Key {
+		return i18n.T(c, h.Name)
+	}
+	return h.Name
+}
+
+// hostMenu chooses the host a new conversation runs on (live/context.rs
+// host_control): the host's name, a menu of the hosts with a check on the
+// current one. It shows only where there is another host to choose, before
+// the project; a session stays on its host, so there it names the host and
+// is disabled. A draft whose host went away is read-only and may still move
+// to another. Another host has its own projects and models: the draft goes
+// to that host's chats and takes its default model.
+func (s *State) hostMenu(c *ui.Context, ctx *Context, form controlForm) {
+	if len(ctx.Hosts) < 2 {
+		return
+	}
+	current := ctx.Hosts[0]
+	for _, h := range ctx.Hosts {
+		if h.ID == s.Host || s.Host == "" && h.Local {
+			current = h
+		}
+	}
+	label := hostLabel(c, current)
+	kit.MenuButton(c.Key("host"), s.menuID("host"), func(b ui.Element) {
+		contextButton(c, b.Disabled(ctx.LocationLocked), icons.Cpu, label, form)
+	}, func(m *kit.Menu) {
+		for _, h := range ctx.Hosts {
+			if m.Item(hostLabel(c, h)).Checked(h.ID == current.ID).Chosen() && h.ID != current.ID {
+				s.Host, s.Project, s.Worktree = h.ID, "", ""
+				s.Model, s.Team, s.MemberModels = "", "", nil
+			}
+		}
+	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
+}
+
 // projectButton is the location, the one project control of the bar: a
 // package's control of the same choice is not drawn beside it (live
 // plugin_controls.go). It reads the project's name, or Chats for none,
@@ -204,6 +319,10 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form
 			choose("")
 		}
 		for _, pr := range ctx.Projects {
+			// With a host control the list is the chosen host's.
+			if len(ctx.Hosts) > 1 && pr.Host != "" && s.Host != "" && pr.Host != s.Host {
+				continue
+			}
 			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project).Chosen() {
 				choose(pr.ID)
 			}
@@ -311,7 +430,8 @@ const (
 func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
 	narrow := s.width > 0 && s.width < iconWidth
-	hint := i18n.T(c, "composer_settings") + " · " + i18n.T(c, Modes[s.Mode].label) + " · " + i18n.T(c, Permissions[s.Permission].label)
+	modeIcon, modeLabel := s.modeLook(c, ctx)
+	hint := i18n.T(c, "composer_settings") + " · " + modeLabel + " · " + i18n.T(c, Permissions[s.Permission].label)
 	b := kit.IconButton(c.Key("settings"), icons.Settings2, hint, 32, s.settings).Radius(16).Disabled(ctx.Readonly)
 	b.HasPopup(ui.PopupDialog).Expanded(s.settings).OnClick(func() {
 		s.settings, s.page, s.layer = !s.settings, settingsMain, layerMain
@@ -328,17 +448,24 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			MenuRow(c, kit.Ghost(c.Key("back"), label, false), icons.ChevronLeft, label, p.Foreground, nil).
 				OnClick(func() { s.page = settingsMain })
 		}
+		// option is a choice of a page: the icon, the label over its
+		// description, selected while it is the one chosen.
+		option := func(key string, icon *ui.SVG, label, description string, chosen, disabled bool, color ui.Color, pick func()) {
+			b := kit.Ghost(c.Key(key), label, chosen).FillWidth().Padding(8, 10).Gap(8).
+				Justify(ui.Start).AccessSelected(chosen).TextColor(color).Disabled(disabled)
+			b.Children(func() {
+				ui.Icon(c, icon).FontSize(16).Shrink(0)
+				ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+					ui.Text(c, label).FontSize(14).LineHeight(1.25)
+					if description != "" {
+						ui.Text(c, description).FontSize(12).LineHeight(1.25).TextColor(p.MutedForeground)
+					}
+				})
+			}).OnClick(func() { pick(); s.page = settingsMain })
+		}
 		choices := func(list []choice, chosen int, color func(int) ui.Color, pick func(int)) {
 			for i, m := range list {
-				b := kit.Ghost(c.Key(m.label), i18n.T(c, m.label), i == chosen).FillWidth().Padding(8, 10).Gap(8).
-					Justify(ui.Start).AccessSelected(i == chosen).TextColor(color(i))
-				b.Children(func() {
-					ui.Icon(c, m.icon).FontSize(16).Shrink(0)
-					ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-						ui.Text(c, i18n.T(c, m.label)).FontSize(14).LineHeight(1.25)
-						ui.Text(c, i18n.T(c, m.description)).FontSize(12).LineHeight(1.25).TextColor(p.MutedForeground)
-					})
-				}).OnClick(func() { pick(i); s.page = settingsMain })
+				option(m.label, m.icon, i18n.T(c, m.label), i18n.T(c, m.description), i == chosen, false, color(i), func() { pick(i) })
 			}
 		}
 		// Full access is the danger color, on its row and its choice.
@@ -351,13 +478,25 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 		switch s.page {
 		case settingsMode:
 			back()
-			choices(Modes, int(s.Mode), func(int) ui.Color { return p.Foreground }, func(i int) { s.Mode = Mode(i) })
+			builtin := int(s.Mode)
+			if activeMode(ctx) != nil {
+				builtin = -1
+			}
+			choices(Modes, builtin, func(int) ui.Color { return p.Foreground }, func(i int) { s.selectMode(ctx, Mode(i)) })
+			for _, m := range ctx.PluginModes {
+				icon := m.Icon
+				if icon == nil {
+					icon = icons.Bot
+				}
+				option("plugin-"+m.Key, icon, m.Label, m.Description, m.Selected, m.Disabled || ctx.SelectMode == nil, p.Foreground,
+					func() { ctx.SelectMode(m.Key) })
+			}
 		case settingsPermission:
 			back()
 			choices(Permissions, int(s.Permission), func(i int) ui.Color { return danger(Permission(i)) },
 				func(i int) { s.Permission = Permission(i) })
 		default:
-			m, pm := Modes[s.Mode], Permissions[s.Permission]
+			pm := Permissions[s.Permission]
 			if len(ctx.Models) == 0 {
 				// model_settings without a model: Select model, to the settings.
 				kit.Ghost(c.Key("select-model"), i18n.T(c, "composer_select_model"), false).FillWidth().Height(32).
@@ -367,10 +506,11 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			} else {
 				s.controls(c, ctx, actions)
 			}
-			row("mode-page", m.icon, i18n.T(c, m.label), p.Foreground, settingsMode)
+			row("mode-page", modeIcon, modeLabel, p.Foreground, settingsMode)
 			row("permission-page", pm.icon, i18n.T(c, pm.label), danger(s.Permission), settingsPermission)
 			s.renderPluginControls(c, "composer", ControlMenu)
 			if narrow {
+				s.hostMenu(c, ctx, menuForm)
 				s.projectButton(c, ctx, actions, menuForm)
 				s.worktreeMenu(c, ctx, actions, menuForm)
 			}

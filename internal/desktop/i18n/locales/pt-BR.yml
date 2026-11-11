@@ -2164,3 +2164,27 @@ files_remote_path: Este caminho está fora do espaço de trabalho remoto
 queue_draft_present: O campo contém um rascunho
 tool_read_skill_resource: Ler recurso de habilidade
 tool_session_title: Definir título da sessão
+queue_read: Ler
+chat_assets_title: Atividade
+chat_assets_activity: Atividade
+chat_assets_progress: Progresso
+chat_assets_output: Resultados
+chat_assets_sources: Fontes
+chat_assets_no_activity: Sem subagentes
+chat_assets_no_progress: Sem tarefas
+chat_assets_no_output: Sem resultados
+chat_assets_no_sources: Sem fontes
+chat_assets_failed: Não foi possível carregar recursos e artefatos
+chat_assets_more: Mostrar mais cedo
+queue_guidance_separate: Configurações diferentes; na fila separadamente
+reference_stale: Propriedade ou configuração de referência alterada; remova e selecione novamente
+chat_clipboard_image: Imagem %{count}
+chat_connection_history: Histórico da sessão
+chat_connection_history_empty: Nenhum histórico de sessão
+chat_sidebar_empty: Iniciar uma sessão
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · Início de sessão'
+chat_provider_node: '%{name} · Anfitrião'
+chat_config_desktop: Configuração do desktop
+usage_read_failed: Não foi possível carregar o uso, tente novamente
+queue_draft_changed: Fila alterada; rascunho mantido

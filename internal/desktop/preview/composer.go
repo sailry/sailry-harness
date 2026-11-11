@@ -68,10 +68,10 @@ func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 		Files: entries(d), Readonly: false,
 	}
 	for _, h := range d.Hosts {
-		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
+		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Key: true, Local: h.Local})
 	}
 	for _, p := range d.Projects {
-		pr := composer.Project{ID: p.ID, Name: p.Name}
+		pr := composer.Project{ID: p.ID, Name: p.Name, Host: p.Host}
 		for _, w := range p.Worktrees {
 			pr.Worktrees = append(pr.Worktrees, composer.Worktree{Branch: w.Branch, Main: w.Main})
 		}
@@ -486,4 +486,49 @@ func goal() composer.StatusBadge {
 			{ID: "goal-stop", Label: t("Stop", "停止")},
 			{ID: "goal-clear", Label: t("Clear", "清理"), Ghost: true},
 		}}}
+}
+
+// Overview is c's session overview: the last turn's subagents, task progress
+// and cited pages, and the transcript's files as its outputs.
+func Overview(c *Conversation) *composer.Overview {
+	o := &composer.Overview{Session: len(c.Turns) > 0}
+	if !o.Session {
+		return o
+	}
+	last := c.Turns[len(c.Turns)-1]
+	o.Active = c.Running()
+	seen := map[string]bool{}
+	cite := func(list []conversation.Citation) {
+		for _, source := range list {
+			if !seen[source.URI] {
+				seen[source.URI] = true
+				o.Citations = append(o.Citations, source)
+			}
+		}
+	}
+	for _, b := range last.Reply.Blocks {
+		switch b.Kind {
+		case conversation.ProgressBlock:
+			o.Steps = b.Steps
+		case conversation.ChildrenBlock:
+			for _, k := range b.Children {
+				if k.Status == conversation.ChildRunning {
+					o.Children = append(o.Children, composer.OverviewChild{ID: k.ID, Name: k.Title, Status: "chat_running", Running: true})
+				}
+			}
+		}
+		cite(b.Sources)
+	}
+	cite(last.Reply.Citations)
+	for _, t := range c.Turns {
+		for _, f := range t.Files {
+			o.Sources = append(o.Sources, composer.OverviewAsset{ID: f.ID, Name: f.Path, Label: f.Name(), Icon: conversation.FileIcon(f)})
+		}
+		for _, b := range t.Reply.Blocks {
+			for _, f := range b.Files {
+				o.Output = append(o.Output, composer.OverviewAsset{ID: f.ID, Name: f.Name(), Icon: conversation.FileIcon(f)})
+			}
+		}
+	}
+	return o
 }

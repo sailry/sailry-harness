@@ -2164,3 +2164,27 @@ files_remote_path: 此路徑不在遠端工作區內
 queue_draft_present: 輸入框已有草稿
 tool_read_skill_resource: 讀取技能資源
 tool_session_title: 設定會話標題
+queue_read: 查看
+chat_assets_title: 活動
+chat_assets_activity: 活動
+chat_assets_progress: 進度
+chat_assets_output: 輸出
+chat_assets_sources: 來源
+chat_assets_no_activity: 無子智慧體
+chat_assets_no_progress: 無任務
+chat_assets_no_output: 無輸出
+chat_assets_no_sources: 無來源
+chat_assets_failed: 資源與產物載入失敗
+chat_assets_more: 檢視更早
+queue_guidance_separate: 設定不同，已依原設定排隊執行
+reference_stale: 引用的歸屬或配置已改變，請移除後重新選擇
+chat_clipboard_image: 圖片 %{count}
+chat_connection_history: 歷史會話
+chat_connection_history_empty: 暫無歷史會話
+chat_sidebar_empty: 開始會話
+chat_provider_source: '%{name} · %{source}'
+chat_provider_session: '%{name} · 會話'
+chat_provider_node: '%{name} · 主機'
+chat_config_desktop: 桌面配置
+usage_read_failed: 無法讀取用量，請重試
+queue_draft_changed: 佇列已改變，編輯草稿已保留

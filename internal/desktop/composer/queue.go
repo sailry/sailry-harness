@@ -16,8 +16,12 @@ import (
 // runs, each with Edit, Send now and Remove, dragged by its handle to another
 // place; Edit opens the message in an editor in the strip with Cancel and
 // Save. A message whose guidance is pending shows the loader in the handle's
-// place and Withdraw, with Edit, Send now and Remove disabled. Rows come in
-// and go out collapsing, as the strip does.
+// place and Withdraw, with Edit and Remove disabled, and Send now too unless
+// the guidance is aimed at the turn taking guidance now. A message still on
+// its way to the queue is a last row whose actions are all disabled. A child
+// session's strip is read-only: Read opens the text with Copy, Close and
+// Remove, and nothing is sent ahead or dragged (live/queue/render.rs). Rows
+// come in and go out collapsing, as the strip does.
 
 // queueState is the strip's: the message edited and its draft.
 type queueState struct {
@@ -61,25 +65,41 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 		q.editing = "" // sent or removed meanwhile
 	}
 	ui.Column(c.Key("queue-slot")).FillWidth().Children(func() {
-		if len(ctx.Queue) == 0 && q.editing == "" {
+		if len(ctx.Queue) == 0 && q.editing == "" && ctx.Outgoing == nil {
 			return
 		}
 		p := theme.Of(c)
 		r := p.Radius2xl()
-		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Gap(4).Radius(r, r, 0, 0), p.Secondary, kit.SurfaceTint).
+		// The tray tucks behind the composer; a child session has none, so
+		// its tray is closed below too.
+		below := float32(0)
+		if ctx.Child {
+			below = r
+		}
+		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Gap(4).Radius(r, r, below, below), p.Secondary, kit.SurfaceTint).
 			Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).Transition(queueMotion).Children(func() {
 			if q.editing != "" {
 				s.queueEditor(c, ctx, actions)
 				return
 			}
-			ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Children(func() {
-				// Dragged by the handle into another place: the move goes
-				// to the conversation, before the message now after it.
-				list := slices.Clone(ctx.Queue)
-				kit.SortableList(c, &list, func(q Queued) string { return q.ID }, kit.SortableListProps{
-					Gap: 4, Handle: i18n.T(c, "queue_drag"),
-					OnMove: func(_, to int) { actions.MoveQueued(list[to].ID, after(list, list[to].ID)) },
-				}, func(item Queued, handle func()) { s.queueRow(c, ctx, actions, item, handle) })
+			ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Gap(4).Children(func() {
+				if ctx.Child {
+					// Nothing is reordered from a child's strip.
+					for _, item := range ctx.Queue {
+						s.queueRow(c, ctx, actions, item, func() {})
+					}
+				} else if len(ctx.Queue) > 0 {
+					// Dragged by the handle into another place: the move goes
+					// to the conversation, before the message now after it.
+					list := slices.Clone(ctx.Queue)
+					kit.SortableList(c, &list, func(q Queued) string { return q.ID }, kit.SortableListProps{
+						Gap: 4, Handle: i18n.T(c, "queue_drag"),
+						OnMove: func(_, to int) { actions.MoveQueued(list[to].ID, after(list, list[to].ID)) },
+					}, func(item Queued, handle func()) { s.queueRow(c, ctx, actions, item, handle) })
+				}
+				if ctx.Outgoing != nil {
+					s.outgoingRow(c, *ctx.Outgoing)
+				}
 			})
 		})
 	})
@@ -108,21 +128,34 @@ func queued(ctx *Context, id string) bool {
 	return false
 }
 
+// queueBlocked reports whether the strip's actions are held: the composer is
+// read-only, or a child session's Node is away.
+func queueBlocked(ctx *Context) bool {
+	if ctx.Child {
+		return !ctx.Activity.Connected
+	}
+	return ctx.Readonly
+}
+
+// queueSmall is a row's action: a small round ghost icon button.
+func queueSmall(c *ui.Context, key string, icon *ui.SVG, tip string, disabled bool, fn func()) {
+	kit.IconButton(c.Key(key), icon, tip, 24, false).Radius(12).Disabled(disabled).OnClick(fn)
+}
+
 // queueRow is 32 high, rounded 2xl, the drag handle (SortableList's; none for
-// a notice or while read-only) or, while its guidance is pending, the loader,
-// the label, a file icon when it carries files, then its actions; small round
-// ghost buttons.
+// a notice, in a child session or while read-only) or, while its guidance is
+// pending, the loader, the label, a file icon when it carries files, then
+// its actions; small round ghost buttons. A child session's row has Read in
+// Edit's place and no Send now.
 func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queued, handle func()) {
 	p := theme.Of(c)
 	label := queueLabel(c, item)
-	draggable := !item.Notice && !ctx.Readonly && !item.Guided
+	blocked := queueBlocked(ctx)
+	draggable := !item.Notice && !blocked && !ctx.Child && !item.Guided
 	row := ui.Row(c.Key(item.ID)).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
 		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion)
 	if row.Hovered() {
 		row.Background(p.Hover)
-	}
-	small := func(key string, icon *ui.SVG, tip string, disabled bool, fn func()) {
-		kit.IconButton(c.Key(key), icon, tip, 24, false).Radius(12).Disabled(disabled).OnClick(fn)
 	}
 	row.Children(func() {
 		switch {
@@ -136,18 +169,43 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
 		}
 		if !item.Notice && !item.Compaction {
-			small("edit", icons.Replace, i18n.T(c, "queue_edit"), ctx.Readonly || item.Guided, func() {
+			icon, tip := icons.Replace, "queue_edit"
+			if ctx.Child {
+				icon, tip = icons.FileText, "queue_read"
+			}
+			queueSmall(c, "edit", icon, i18n.T(c, tip), blocked || item.Guided, func() {
 				s.queue = queueState{editing: item.ID, text: item.Text, original: item.Text, revision: item.Revision, generation: s.queue.generation + 1}
 				s.loadQueued(item)
 			})
 		}
 		if item.Guided {
-			small("withdraw", icons.Undo, i18n.T(c, "queue_withdraw"), ctx.Readonly, func() { actions.WithdrawGuidance(item.ID) })
+			queueSmall(c, "withdraw", icons.Undo, i18n.T(c, "queue_withdraw"), blocked, func() { actions.WithdrawGuidance(item.ID) })
 		}
-		if !item.Notice {
-			small("send", icons.ArrowUp, i18n.T(c, "queue_send_now"), ctx.Readonly || item.Guided, func() { actions.SendQueued(item.ID) })
+		if !item.Notice && !ctx.Child {
+			queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), blocked || item.Guided && !item.Joining, func() { actions.SendQueued(item.ID) })
 		}
-		small("delete", icons.Delete, i18n.T(c, "queue_delete"), ctx.Readonly || item.Guided, func() { actions.RemoveQueued(item.ID) })
+		queueSmall(c, "delete", icons.Delete, i18n.T(c, "queue_delete"), blocked || item.Guided, func() { actions.RemoveQueued(item.ID) })
+	})
+}
+
+// outgoingRow is the message on its way to the queue: the loader while it
+// goes as guidance, its label, and Edit, Send now and Remove, all disabled
+// until the Node lists it (queue-outgoing).
+func (s *State) outgoingRow(c *ui.Context, item Queued) {
+	p := theme.Of(c)
+	label := queueLabel(c, item)
+	ui.Row(c.Key("outgoing")).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
+		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion).Children(func() {
+		if item.Guided {
+			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 16) })
+		}
+		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+		if len(item.Attachments) > 0 {
+			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
+		}
+		queueSmall(c, "edit", icons.Replace, i18n.T(c, "queue_edit"), true, func() {})
+		queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), true, func() {})
+		queueSmall(c, "delete", icons.Delete, i18n.T(c, "queue_delete"), true, func() {})
 	})
 }
 
@@ -183,7 +241,8 @@ func after(list []Queued, id string) string {
 // message changed meanwhile, Cancel and Save, then the message's files as the
 // draft's cards, without their actions, at the text's inset. Enter saves,
 // Shift+Enter breaks the line, Escape cancels (the conversation's Escape
-// order, State.Escape).
+// order, State.Escape). A child session's is read-only: the text, then Copy,
+// Close and Remove.
 func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
 	q := &s.queue
@@ -217,11 +276,15 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 		}
 	}
 	ui.Column(c.Key("queue-editor")).FillWidth().Padding(4).Gap(8).Children(func() {
-		area := ui.TextAreaBase(c.Key("queue-input"), &q.text).Label(i18n.T(c, "queue_edit")).Lines(1, 6).FontSize(14).
-			LineHeight(1.5).TextColor(p.Foreground).Padding(4).AutoFocus().Disabled(q.loading || q.saving)
+		name := "queue_edit"
+		if ctx.Child {
+			name = "queue_read"
+		}
+		area := ui.TextAreaBase(c.Key("queue-input"), &q.text).Label(i18n.T(c, name)).Lines(1, 6).FontSize(14).
+			LineHeight(1.5).TextColor(p.Foreground).Padding(4).AutoFocus().Disabled(q.loading || q.saving).ReadOnly(ctx.Child)
 		composing := area.Composing() // the callback runs after this pass
 		area.OnTextKey(func(k ui.TextKey) bool {
-			if k.Key == ui.KeyEnter && k.Mods == 0 && !composing {
+			if k.Key == ui.KeyEnter && k.Mods == 0 && !composing && !ctx.Child {
 				save()
 				return true
 			}
@@ -237,6 +300,21 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 			button := func(key, label string) ui.Element {
 				return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(12).Radius(14).Border(1, p.Border).
 					Children(func() { ui.Text(c, label).FontSize(14) })
+			}
+			if ctx.Child {
+				kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false).Radius(14).Disabled(q.loading).
+					OnClick(func() {
+						c.WriteClipboard(q.text)
+						kit.Message(c, i18n.T(c, "content_copied"))
+					})
+				button("close", i18n.T(c, "close")).OnClick(func() { *q = queueState{generation: q.generation + 1} })
+				id := q.editing
+				kit.IconButton(c.Key("remove"), icons.Delete, i18n.T(c, "queue_delete"), 28, false).Radius(14).
+					Disabled(queueBlocked(ctx) || changed).OnClick(func() {
+					*q = queueState{generation: q.generation + 1}
+					actions.RemoveQueued(id)
+				})
+				return
 			}
 			if changed {
 				reload := button("reload", i18n.T(c, "queue_reload"))

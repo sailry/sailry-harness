@@ -187,7 +187,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	}
 	if owner := r.conversationRuntime(cv, comp); owner == nil {
 		cv.Session.Connection = conversation.Offline
-		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue},
+		// The Host is gone: a draft may still move to another one.
+		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue, Hosts: r.composerHosts(comp), Projects: r.composerProjects()},
 			&conversationActions{r: r, c: c, cv: cv, comp: comp}
 	} else if owner != r {
 		return owner.conversation(c, cv, comp)
@@ -273,6 +274,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		}
 	}
 	ctx.Models = r.offeredModels(cv.ID, ctx.Models)
+	r.nameModelSources(c, cv.ID, ctx.Models)
 	ctx.MemberModels = r.memberModels(ctx.Models)
 	for i := range ctx.Models {
 		model := &ctx.Models[i]
@@ -285,16 +287,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			ctx.Families = append(ctx.Families, family)
 		}
 	}
-	for _, h := range r.App.Data.Hosts {
-		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
-	}
-	for _, p := range r.App.Data.Projects {
-		v := composer.Project{ID: p.ID, Name: p.Name, Host: p.Host}
-		for _, w := range p.Worktrees {
-			v.Worktrees = append(v.Worktrees, composer.Worktree{Branch: w.Path, Main: w.Main})
-		}
-		ctx.Projects = append(ctx.Projects, v)
-	}
+	ctx.Hosts, ctx.Projects = r.composerHosts(comp), r.composerProjects()
 	if s, ok := r.session(cv.ID); ok {
 		ctx.LocationLocked = true
 		comp.Project = ""
@@ -364,6 +357,10 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	r.projectPluginComposer(c, cv, comp, ctx)
 	r.bindSkillReferences(cv, comp)
 	actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
+	r.projectComposerModes(c, cv, comp, ctx)
+	r.projectComposerQueue(actions, ctx)
+	ctx.Compact = actions.compact
+	ctx.Stale = func(reference composer.Reference) bool { return staleReference(ctx, reference) }
 	r.bindComposerAttachments(actions)
 	return ctx, actions
 }
@@ -663,6 +660,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		}
 	}
 	finish := func(output protocol.Output, ok bool) {
+		delete(x.r.composerOutgoing, x.cv.ID)
 		if ok {
 			x.r.attachmentsCommitted(m.Attachments)
 		}
@@ -715,10 +713,14 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		x := &sender
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
+			if guide || queue {
+				x.outgoing(m, guide)
+			}
 			if guide {
 				if run, ok := x.activeRun(); ok {
 					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, finish)
 				} else {
+					delete(x.r.composerOutgoing, x.cv.ID)
 					x.unavailable()
 				}
 				return

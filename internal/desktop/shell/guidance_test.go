@@ -68,6 +68,7 @@ func TestComposerGuidesRunningTurn(t *testing.T) {
 	if all, _ := queueButtons(tt, i18n.In("en", "queue_withdraw")); all != 0 {
 		t.Error("Withdraw stays after withdrawing")
 	}
+	t.Run("composer parity", composerParity)
 }
 
 // Send now joins a queued message to the running reply without stopping

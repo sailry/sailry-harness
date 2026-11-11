@@ -127,6 +127,11 @@ type Runtime struct {
 	snapshotRead             bool
 	conversationCopies       map[protocol.SessionID]conversationCopy
 	conversationsStale       atomic.Bool
+	// composerOutgoing is a queued or guiding message on its way to the
+	// Host, by conversation: the queue tray's placeholder row.
+	composerOutgoing map[string]composer.Queued
+	// overviews are the asset inventories the overview popover read.
+	overviews map[protocol.SessionID]*overviewRead
 }
 
 type conversationCopy struct {
@@ -223,6 +228,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
 	r.App.Hooks.Conversation = r.conversation
 	r.App.Hooks.RenderChild = r.renderLiveChild
+	r.App.Hooks.Overview = r.sessionOverview
 	r.conversationWatches = map[protocol.SessionID]func(){}
 	r.conversationSeen = map[protocol.SessionID]bool{}
 	r.composerInitialized = map[string]bool{}

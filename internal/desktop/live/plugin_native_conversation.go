@@ -3,11 +3,16 @@ package live
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -23,6 +28,12 @@ type pluginNativeConversation struct {
 	composer *composer.State
 	context  *composer.Context
 	actions  shell.ConversationActions
+	// history is the assistant's session picker: its query and row.
+	history struct {
+		open  bool
+		query string
+		row   int
+	}
 }
 
 type pluginNativeConversationRequest struct {
@@ -107,7 +118,14 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 	}
 	region := ui.Column(view.Key(fmt.Sprintf("plugin-conversation-%s", identity))).Fill().MinWidth(0).MinHeight(0).Disabled(suspended)
 	region.Children(func() {
-		if heading != "" {
+		if request.Assistant != nil {
+			// An assistant's panel moves between its own sessions: the
+			// heading, then New and the session history.
+			ui.Row(view.Key("session-controls")).FillWidth().MinWidth(0).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Text(view, heading).FontSize(14).FontWeight(600).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+				state.sessionControls(view, identity, mounted, target, suspended)
+			})
+		} else if heading != "" {
 			ui.Text(view, heading).FontSize(14).FontWeight(600).SingleLine()
 		}
 		if !suspended {
@@ -131,10 +149,110 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 		}
 		context := *mounted.context
 		context.Readonly = context.Readonly || suspended
-		conversation.View(view, state.runtime.App.Messages, target.ID, target.Turns, &target.Session, mounted.actions)
+		if request.Assistant != nil && len(target.Turns) == 0 && !target.Session.Loading {
+			// An assistant's session without a message yet says what the
+			// panel is for.
+			ui.Column(view.Key("session-empty")).Grow(1).MinHeight(0).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+				kit.Result(view, kit.ResultProps{Title: i18n.T(view, "chat_sidebar_empty"), Icon: icons.Bot})
+			})
+		} else {
+			conversation.View(view, state.runtime.App.Messages, target.ID, target.Turns, &target.Session, mounted.actions)
+		}
 		composer.View(view, comp, &context, mounted.actions)
 	})
 	return region, nil
+}
+
+// assistantSessions are the sessions of the assistant and resource session
+// belongs to, in its project and worktree, newest first: what the panel's
+// history lists.
+func (state *pluginNativeState) assistantSessions(like protocol.Session) []protocol.Session {
+	var sessions []protocol.Session
+	all := state.runtime.snapshot().Sessions
+	for index := len(all) - 1; index >= 0; index-- {
+		session := all[index]
+		assistant := session.Config.Assistant
+		if session.Archived || session.Delegation != nil || assistant == nil || like.Config.Assistant == nil || *assistant != *like.Config.Assistant ||
+			!pluginNativeResourceEqual(session.Config.Resource, like.Config.Resource) || !pluginNativeProjectEqual(session.Project, like.Project) ||
+			like.Project != nil && session.Worktree != like.Worktree {
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions
+}
+
+// sessionControls are New and the session history of an assistant's panel.
+// They act while the Host is connected and no turn runs.
+func (state *pluginNativeState) sessionControls(view *ui.Context, identity string, mounted *pluginNativeConversation, target *viewmodel.Conversation, suspended bool) {
+	like, current := protocol.Session{}, false
+	if mounted.draft != nil {
+		like = *mounted.draft
+	} else {
+		like, current = state.runtime.session(mounted.session.String())
+	}
+	blocked := suspended || like.Config.Assistant == nil || !state.runtime.controller.Connected() || target.Running()
+	// The mount moves to another session of the assistant, or to a draft
+	// that keeps the composer's choices and asks before acting.
+	move := func(to *protocol.Session) {
+		next := &pluginNativeConversation{request: mounted.request}
+		if to != nil {
+			next.session = to.ID
+		} else {
+			draft := protocol.Session{Project: like.Project, Config: protocol.DefaultSessionConfig()}
+			draft.Config.Assistant, draft.Config.Resource = like.Config.Assistant, like.Config.Resource
+			if like.Project != nil {
+				draft.Worktree = like.Worktree
+			}
+			previous := mounted.composer
+			next.draft = &draft
+			next.view, next.composer = state.newAssistantDraft(identity, draft)
+			next.draftID = next.view.ID
+			if previous != nil && previous != next.composer {
+				next.composer.Model, next.composer.Effort, next.composer.Mode = previous.Model, previous.Effort, previous.Mode
+				next.composer.Features = maps.Clone(previous.Features)
+			}
+		}
+		state.releaseConversation(mounted)
+		state.conversations[identity] = next
+	}
+	kit.IconButton(view.Key("session-new"), icons.Plus, i18n.T(view, "chat_new"), 28, false).
+		Disabled(blocked || mounted.draft != nil).OnClick(func() { move(nil) })
+	history := &mounted.history
+	kit.IconButton(view.Key("session-history"), icons.BookOpen, i18n.T(view, "chat_connection_history"), 28, history.open).
+		Disabled(blocked).OnClick(func() { history.open, history.query, history.row = true, "", 0 })
+	if !history.open {
+		return
+	}
+	if blocked {
+		history.open = false
+		return
+	}
+	sessions := state.assistantSessions(like)
+	var shown []protocol.Session
+	var items []kit.CommandItem
+	query := strings.ToLower(history.query)
+	for _, session := range sessions {
+		title := session.Activity.Title
+		if title == "" {
+			title = i18n.T(view, "conversation")
+		}
+		if strings.Contains(strings.ToLower(title), query) {
+			shown = append(shown, session)
+			items = append(items, kit.CommandItem{ID: session.ID.String(), Label: title, Checked: current && session.ID == like.ID})
+		}
+	}
+	empty := "connection_search_empty"
+	if len(sessions) == 0 {
+		empty = "chat_connection_history_empty"
+	}
+	kit.Command(view, "session-history-picker", &history.open, &history.query, &history.row, items,
+		kit.CommandProps{Placeholder: i18n.T(view, "connection_search"), Empty: i18n.T(view, empty)}, func(index int) {
+			history.open = false
+			if chosen := shown[index]; !current || chosen.ID != like.ID {
+				move(&chosen)
+			}
+		})
 }
 
 func (state *pluginNativeState) newAssistantDraft(identity string, session protocol.Session) (*viewmodel.Conversation, *composer.State) {
