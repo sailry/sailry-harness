@@ -4,26 +4,26 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ELY-Open-Source/CrychicUI/diagram"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
-	"github.com/firede/limu"
 	limudiagram "github.com/firede/limu/diagram"
-	"github.com/firede/limu/layout"
-	"github.com/firede/limu/limumygo"
-	"github.com/firede/limu/scene"
-	"github.com/firede/limu/style"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // Visuals of a reply: a Mermaid source, in a fenced block of the text or
 // as a VisualBlock, drawn in place with no card around it. A data chart
-// is drawn natively (chart.go); any other diagram is limu's picture,
-// scaled down to the reply. A source limu cannot read stays a code block.
+// is drawn natively (chart.go); any other diagram is CrychicUI's picture
+// (diagram.Mermaid, on pele-go), scaled down to the reply. A source it
+// cannot draw stays a code block.
 
 const (
 	// maxDiagramSource is the longest source drawn as a diagram: a longer
-	// one stays a code block, as layout runs on the UI goroutine.
+	// one stays a code block, as layout runs on the UI goroutine. Pele's
+	// own limit is 50,000 characters.
 	maxDiagramSource = 64 * 1024
 	// diagramHeight is the tallest a diagram is and diagramScale the
 	// smallest it is scaled to fit the reply: one still larger scrolls.
@@ -69,18 +69,15 @@ func showVisual(c *ui.Context, box ui.Element, src, title string) bool {
 	if len(src) > maxDiagramSource || strings.TrimSpace(src) == "" {
 		return false
 	}
-	v := visualOf(src)
-	if v.err != nil {
-		return false
-	}
 	width := box.LayoutBounds().W
-	if d := v.chart; d != nil {
+	if v := visualOf(src); v.chart != nil {
+		d := v.chart
 		if title == "" {
 			title = clip(d.title, labelRunes)
 		}
 		name := title
 		if name == "" {
-			name = string(v.d.Type())
+			name = v.kind
 		}
 		box.Gap(visualGap).Children(func() {
 			caption(c, title)
@@ -88,41 +85,56 @@ func showVisual(c *ui.Context, box ui.Element, src, title string) bool {
 		})
 		return true
 	}
-	sc, err := v.scene(width)
-	if err != nil {
+	pic, ok := crychic.MermaidOf(c, src)
+	if !ok {
 		return false
 	}
-	// As large as it is laid out, down to what fits the reply's width
-	// and diagramHeight; past diagramScale it scrolls instead.
-	k := 1.0
-	if width > 0 && sc.Width > float64(width) {
-		k = float64(width) / sc.Width
+	// As large as it is drawn, down to what fits the reply's width and
+	// diagramHeight; past diagramScale it scrolls instead.
+	k := float32(1)
+	if width > 0 && pic.Width > width {
+		k = width / pic.Width
 	}
-	if sc.Height*k > diagramHeight {
-		k = diagramHeight / sc.Height
+	if pic.Height*k > diagramHeight {
+		k = diagramHeight / pic.Height
 	}
 	scrolls := k < diagramScale
 	if scrolls {
 		k = diagramScale
 	}
+	w := pic.Width * k
+	if k < 1 {
+		// Whole DIPs, so that rounding never takes the height past the cap.
+		w = float32(int(w))
+	}
 	name := title
 	if name == "" {
-		name = sc.Title
+		name = pic.Title
 	}
 	if name == "" {
-		name = sc.Type
+		name = pic.Kind
 	}
-	look := &limumygo.Options{Look: style.Look{Theme: diagramTheme(theme.Of(c)), ThemeOnly: true}, Fonts: limumygo.DefaultFonts, Scale: k}
+	// The picture is drawn in the theme it is built under: the palette's
+	// inset fill in its nodes, so they stand off the page in a light theme
+	// too, its second tone and its outline, with half the corner.
+	p := theme.Of(c)
+	look := *c.Theme()
+	look.Surface, look.SurfaceHover, look.Border, look.Radius = p.Muted, p.Secondary, p.Border, p.Radius/2
 	box.Gap(visualGap).Children(func() {
-		if !titled(sc) {
+		if !pic.Titled {
 			caption(c, title)
 		}
-		view := func() { limumygo.View(c, sc, look).Label(name).Element().AlignSelf(ui.Start).Shrink(0) }
+		// The picture fills the width it is given, at its own proportions.
+		view := func() {
+			ui.Themed(c.Key("picture"), &look).Background(ui.Transparent).Width(w).Shrink(0).AlignSelf(ui.Start).Children(func() {
+				crychic.Mermaid(c, src, diagram.MermaidOptions{Label: name, Failed: i18n.T(c, "artifact_preview_failed")})
+			})
+		}
 		if !scrolls {
 			view()
 			return
 		}
-		ui.ScrollBoth(c.Key("diagram")).FillWidth().Height(float32(min(sc.Height*k, diagramHeight))).Children(view)
+		ui.ScrollBoth(c.Key("diagram")).FillWidth().Height(min(pic.Height*k, diagramHeight)).Children(view)
 	})
 	return true
 }
@@ -134,94 +146,39 @@ func caption(c *ui.Context, text string) {
 	}
 }
 
-// titled reports whether a scene draws its own title.
-func titled(sc *scene.Scene) bool {
-	for i := range sc.Items {
-		if it := &sc.Items[i]; it.Kind == scene.Text && string(it.Role) == sc.Type+".title" {
-			return true
-		}
-	}
-	return false
-}
-
-// laidOut is what limu made of a source at a width: its scene, or why it
-// could not lay it out.
-type laidOut struct {
-	sc  *scene.Scene
-	err error
-}
-
-// parsedVisual is what a Mermaid source is: the diagram limu read, or why
-// it could not; its chart when it is one the painters draw; and the
-// scenes laid out so far, by width.
+// parsedVisual is what a Mermaid source is to the painters: its kind, and
+// its chart when it is a data chart they draw.
 type parsedVisual struct {
-	d      *limu.Diagram
-	err    error
-	chart  *dataChart
-	scenes map[int]laidOut
+	kind  string
+	chart *dataChart
 }
 
-// visualLimit bounds the sources kept and widthLimit the layouts of one:
-// a long session, or a window resized across many widths, starts over
-// rather than keeping each.
-const (
-	visualLimit = 256
-	widthLimit  = 32
-)
+// visualLimit bounds the sources kept: a long session starts over rather
+// than keeping each.
+const visualLimit = 256
 
-// visuals keeps the sources parsed and their scenes laid out, as layout
-// measures every label, and the sources limu could not read, so they are
-// not parsed every frame.
+// visuals keeps the sources read, so a chart's data is not parsed every
+// frame.
 var visuals = struct {
 	sync.Mutex
 	m map[string]*parsedVisual
 }{m: map[string]*parsedVisual{}}
 
-// visualOf is src parsed, once.
+// visualOf is src read, once: limu reads its front matter and kind, and
+// the data of an xychart or pie. Every other kind is left to the picture.
 func visualOf(src string) *parsedVisual {
 	visuals.Lock()
 	defer visuals.Unlock()
 	if v, ok := visuals.m[src]; ok {
 		return v
 	}
-	v := &parsedVisual{scenes: map[int]laidOut{}}
-	if v.d, v.err = limu.Parse(src, limudiagram.Options{}); v.err == nil {
-		v.chart = chartOf(v.d)
+	v := &parsedVisual{}
+	if p, err := limudiagram.Prepare(src, limudiagram.Options{}); err == nil {
+		v.kind, v.chart = string(p.Type), chartOf(p)
 	}
 	if len(visuals.m) >= visualLimit {
 		clear(visuals.m)
 	}
 	visuals.m[src] = v
 	return v
-}
-
-// scene is the diagram laid out for a width (a frame's whole DIPs; none
-// before the first layout), in the app's fonts and 14 DIP text.
-func (v *parsedVisual) scene(width float32) (*scene.Scene, error) {
-	k := max(int(width), 0)
-	visuals.Lock()
-	defer visuals.Unlock()
-	if d, ok := v.scenes[k]; ok {
-		return d.sc, d.err
-	}
-	sc, err := v.d.Layout(&layout.Options{Measurer: limumygo.DefaultFonts, FontSize: 14, MaxWidth: float64(k), Snap: 0.5})
-	if len(v.scenes) >= widthLimit {
-		clear(v.scenes)
-	}
-	v.scenes[k] = laidOut{sc, err}
-	return sc, err
-}
-
-// diagramTheme is limu's theme in the palette's colors: no fill behind
-// the diagram, the text, lines and outlines of the transcript, and the
-// series in the primary and the theme's accents.
-func diagramTheme(p *theme.Palette) *style.Theme {
-	col := func(c ui.Color) style.Color { return style.Color{R: c.R, G: c.G, B: c.B, A: c.A} }
-	return &style.Theme{
-		Bg: col(p.Surface.Alpha(0)), Fg: col(p.Foreground), Muted: col(p.MutedForeground), Line: col(p.MutedForeground),
-		Surface: col(p.Muted), SurfaceAlt: col(p.Secondary), Border: col(p.Border), Accent: col(p.Primary), Critical: col(p.Danger),
-		Series:      [8]style.Color{col(p.Primary), col(p.Orange), col(p.Success), col(p.Danger), col(p.Blue), col(p.Green), col(p.Yellow), col(p.Magenta)},
-		Radius:      float64(p.Radius) / 2,
-		StrokeWidth: 1,
-	}
 }

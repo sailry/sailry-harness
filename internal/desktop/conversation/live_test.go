@@ -370,6 +370,7 @@ func scenesTester(t *testing.T, dark bool, lang string) (*conversation.State, []
 func TestLiveBlocks(t *testing.T) {
 	t.Run("mermaid", checkMermaidBlocks)
 	t.Run("charts", checkCharts)
+	t.Run("diagrams", checkDiagrams)
 	t.Run("math", checkMath)
 	t.Run("transcript", checkTranscript)
 	for _, lang := range []string{"en", "zh-CN"} {
