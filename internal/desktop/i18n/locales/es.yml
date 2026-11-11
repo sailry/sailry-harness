@@ -1083,6 +1083,10 @@ connector_expired: Caducado
 connector_confirmation: Requiere confirmación
 connector_failed: Error de conexión
 connector_server_disabled: Servidor desactivado
+connector_package_disabled: Complemento desactivado
+connector_account_disabled: Cuenta desactivada
+connector_configuration_required: Requiere configuración
+connector_unavailable: No disponible
 connector_search: Buscar conectores
 connector_all_methods: Todos los métodos
 connector_filter: Método de autenticación

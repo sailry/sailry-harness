@@ -460,12 +460,171 @@ func TestConnectors(t *testing.T) {
 	if !StatusOf(linear).Connecting || StatusOf(notion).Problem != "connector_not_connected" || !StatusOf(fs).Failed {
 		t.Error("statuses")
 	}
-	if got := serviceItems(notion); got[0] != "connector_connect" {
+	if got := m.serviceItems(notion); got[0] != "connector_connect" {
 		t.Errorf("notion items %v", got)
 	}
-	if got := serviceItems(fs); got[0] != "connector_configure" || got[len(got)-1] != "connector_details" {
+	if got := m.serviceItems(fs); got[0] != "connector_configure" || got[len(got)-1] != "connector_details" {
 		t.Errorf("manual items %v", got)
 	}
+	// Each state shows its own status and offers only the actions it has: a
+	// server never asked to connect or waiting for credentials is not failed,
+	// a failure and an unavailable helper carry their reason, and a row with
+	// no action has a disabled menu button.
+	t.Run("row states", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var reconnected []string
+		m.ConnectorActions = &ConnectorActions{Reconnect: func(id string) { reconnected = append(reconnected, id) }}
+		m.ConnTypes = []preview.ConnectorType{{ID: "hub/hub", Package: "hub", Name: "Hub", Methods: []string{"connector_token"}, Fields: []preview.ConnectorField{{Name: "token", Title: "Token", Secret: true}}, Enabled: true}}
+		one := func(id, kind string, x preview.Server) preview.Service {
+			x.Name, x.Allowed = "server", true
+			return preview.Service{ID: id, Type: kind, Name: id, Servers: []preview.Server{x}}
+		}
+		m.Services = []preview.Service{
+			one("idle", "hub/hub", preview.Server{State: preview.ServerIdle}),
+			one("waiting", "hub/hub", preview.Server{State: preview.ServerAuth}),
+			one("failed", "hub/hub", preview.Server{State: preview.ServerDown, Error: "dial refused"}),
+			one("helper", "", preview.Server{State: preview.ServerIdle, Problem: "connector_unavailable", Error: "computer helper is missing"}),
+			one("disabled", "", preview.Server{State: preview.ServerIdle, Problem: "connector_package_disabled"}),
+			one("unset", "", preview.Server{State: preview.ServerIdle, Problem: "connector_configuration_required"}),
+			one("checking", "", preview.Server{State: preview.ServerStarting}),
+			one("up", "", preview.Server{State: preview.ServerUp, Tools: 3}),
+			{ID: "bare", Name: "bare"},
+		}
+		want := []struct {
+			status ConnStatus
+			label  string
+			items  []string
+		}{
+			{ConnStatus{Problem: "connector_not_connected", Tools: -1}, "connector_not_connected", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}},
+			{ConnStatus{Problem: "connector_not_connected", Tools: -1}, "connector_not_connected", []string{"connector_connect", "connector_details"}},
+			{ConnStatus{Failed: true, Reason: "dial refused", Tools: -1}, "connector_mcp_failed", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}},
+			{ConnStatus{Problem: "connector_unavailable", Reason: "computer helper is missing", Tools: -1}, "connector_unavailable", []string{"connector_details"}},
+			{ConnStatus{Problem: "connector_package_disabled", Tools: -1}, "connector_package_disabled", []string{"connector_details"}},
+			{ConnStatus{Problem: "connector_configuration_required", Tools: -1}, "connector_configuration_required", []string{"connector_details"}},
+			{ConnStatus{Connecting: true, Tools: -1}, "connector_mcp_connecting", []string{"connector_details"}},
+			{ConnStatus{Tools: 3}, "", []string{"connector_mcp_reconnect", "connector_details"}},
+			{ConnStatus{Problem: "connector_not_connected", Tools: -1}, "connector_not_connected", nil},
+		}
+		for i, x := range want {
+			s := &m.Services[i]
+			if got := StatusOf(s); got != x.status {
+				t.Errorf("%s status %+v, want %+v", s.ID, got, x.status)
+			}
+			if got := m.serviceItems(s); !slices.Equal(got, x.items) {
+				t.Errorf("%s items %v, want %v", s.ID, got, x.items)
+			}
+		}
+		tt := ui.NewTesterWith(func(c *ui.Context) { connectors(c, m) }, 1000, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Advance(time.Second)
+		texts := tt.Texts()
+		count := func(key string) (n int) {
+			for _, text := range texts {
+				if text == i18n.In("en", key) {
+					n++
+				}
+			}
+			return n
+		}
+		// The failed row's dot is named as its text is.
+		for key, n := range map[string]int{"connector_not_connected": 3, "connector_mcp_failed": 2, "connector_unavailable": 1, "connector_package_disabled": 1, "connector_configuration_required": 1, "connector_mcp_connecting": 1} {
+			if got := count(key); got != n {
+				t.Errorf("%d rows show %q, want %d: %q", got, i18n.In("en", key), n, texts)
+			}
+		}
+		if !slices.Contains(texts, i18n.In("en", "connector_mcp_tools", "n", 3)) {
+			t.Errorf("the connected row does not show its tools: %q", texts)
+		}
+		menus := func() (found []ui.AccessInfo) {
+			for _, x := range tt.AccessAll() {
+				if x.Name == i18n.In("en", "more") {
+					found = append(found, x)
+				}
+			}
+			return found
+		}
+		buttons := menus()
+		if len(buttons) != len(want) {
+			t.Fatalf("%d menu buttons for %d rows", len(buttons), len(want))
+		}
+		for i, b := range buttons {
+			if b.Disabled != (want[i].items == nil) {
+				t.Errorf("%s menu button disabled %v with items %v", m.Services[i].ID, b.Disabled, want[i].items)
+			}
+		}
+		// The reason of a failure and of an unavailable helper is reachable
+		// from the row: resting on the status shows it.
+		for label, reason := range map[string]string{"connector_mcp_failed": "dial refused", "connector_unavailable": "computer helper is missing"} {
+			box, ok := tt.Find(i18n.In("en", label))
+			if !ok {
+				t.Fatalf("no %q status", label)
+			}
+			tt.Move(box.X+box.W/2, box.Y+box.H/2)
+			tt.Frame()
+			tt.Advance(2 * time.Second)
+			if !tt.HasText(reason) {
+				t.Errorf("resting on %q does not show %q: %q", i18n.In("en", label), reason, tt.Texts())
+			}
+		}
+		tt.Move(1, 1)
+		tt.Advance(time.Second)
+		// A menu lists its row's items alone, and each does its action.
+		choose := func(row int, key string) {
+			t.Helper()
+			b := menus()[row].Bounds
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			tt.Frame()
+			tt.Advance(time.Second)
+			var listed []string
+			var target *ui.AccessInfo
+			for _, x := range tt.AccessAll() {
+				if x.Role != ui.RoleMenuItem {
+					continue
+				}
+				listed = append(listed, x.Name)
+				if x.Name == i18n.In("en", key) {
+					target = &x
+				}
+			}
+			var items []string
+			for _, k := range want[row].items {
+				items = append(items, i18n.In("en", k))
+			}
+			if !slices.Equal(listed, items) || target == nil {
+				t.Fatalf("%s menu lists %q, want %q", m.Services[row].ID, listed, items)
+			}
+			tt.ClickAt(target.Bounds.X+target.Bounds.W/2, target.Bounds.Y+target.Bounds.H/2)
+			tt.Frame()
+			tt.Advance(time.Second)
+		}
+		choose(2, "connector_mcp_reconnect")
+		if !slices.Equal(reconnected, []string{"failed"}) {
+			t.Errorf("Reconnect asked for %v", reconnected)
+		}
+		choose(2, "connector_details")
+		if m.connDetails != "failed" || !slices.Contains(tt.Texts(), "dial refused") {
+			t.Errorf("Details opened %q: %q", m.connDetails, tt.Texts())
+		}
+		m.connDetails = ""
+		tt.Frame()
+		tt.Advance(time.Second)
+		choose(0, "connector_add_credentials")
+		if e := m.connector; !e.open || e.kind == nil || e.kind.ID != "hub/hub" || e.service != "" {
+			t.Errorf("Add credentials opened %+v", e)
+		}
+		if _, ok := tt.AccessByRole(ui.RoleTextField, "Token"); !ok {
+			t.Errorf("the editor does not show the connector's fields: %q", tt.Texts())
+		}
+		m.connector = connectorEditor{}
+		tt.Frame()
+		tt.Advance(time.Second)
+		choose(1, "connector_connect")
+		if e := m.connector; !e.open || e.kind == nil || e.kind.ID != "hub/hub" {
+			t.Errorf("Connect opened %+v", e)
+		}
+	})
 	e := mcpEditor{name: "Bad Name", command: "npx"}
 	if e.Check() != "mcp_invalid" {
 		t.Error("bad name passed")

@@ -1102,6 +1102,10 @@ connector_expired
 connector_confirmation
 connector_failed
 connector_server_disabled
+connector_package_disabled
+connector_account_disabled
+connector_configuration_required
+connector_unavailable
 connector_search
 connector_all_methods
 connector_filter

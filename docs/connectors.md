@@ -61,12 +61,71 @@ Desktop projects live connector declarations, account state and MCP facts throug
 Client subscriptions. Installed package declarations are read in one pass at a
 time; an update during a pass asks for one more pass, a failed read keeps the
 package's shown declaration and each pass reports its first failure once. Its editor retains its opening revision and masked secret
-slots. Plugin MCP credentials use an existing declared settings form when present;
-other plugin MCP configuration uses `ReadPluginMcp` and `SavePluginMcp`. Standalone
+slots. The `ConfigureMCP` action opens a declared settings form when present and
+otherwise edits plugin MCP configuration through `ReadPluginMcp` and
+`SavePluginMcp`; the row menu no longer calls it, as the reviewed menu has no
+such item. Standalone
 MCP definitions use `InstallMcp` for captured definition and secret-slot updates.
 This declaration-specific command choice preserves the accepted editor layout.
 Saving a server starts its check, and reconnect, probe, consent and deletion report
-their actual result through toasts. The application registration action runs the
+their actual result through toasts: a failure carries the Node's reason under its
+title, and a conflict and an uncertain outcome keep their own wording.
+
+## Server status and row actions
+
+`read_plugin` reports each MCP server's availability and, once the pool holds a
+connection for it, its runtime. Availability follows the reviewed implementation:
+an incompatible package is `unavailable`, a disabled one `package_disabled`, a
+withdrawn permission `server_disabled`, a missing required setting
+`configuration_required`; a server bound to a connector by its injection or its
+MCP OAuth method takes the connection's state (`connection_required`,
+`connection_disabled`, `authorization_expired`, `consent_required`,
+`unavailable`). A standalone definition, and a connector whose only method is a
+secret with optional fields alone, needs no connection. The computer server
+whose signed helper is absent is `unavailable` with a failed runtime carrying
+that fault, since it cannot start. The helper is resolved from
+`SAILRY_HELPERS_DIR` or the `helpers` directory of the installed application,
+so a run from source without that variable reports the helper as missing.
+
+Desktop shows that state, never a failure that did not happen:
+
+| Server | Row status |
+| --- | --- |
+| not allowed | Server disabled |
+| availability other than available | its problem: Plugin disabled, Configuration required, Not connected, Account disabled, Expired, Needs confirmation, Unavailable |
+| available, no runtime | Not connected |
+| checking or connecting | Connecting |
+| connected | its tool count |
+| failed | Connection failed |
+
+The reason of a failed or unavailable server is the tooltip of its status and a
+line of its details. The pool keeps no state for a server that never connected,
+so Desktop keeps the reason of the last failed check for the package content and
+settings it checked, until a check succeeds.
+
+The row menu lists only the actions the row has now, and the button is disabled
+when it has none:
+
+- a server added by hand: Configure, Delete;
+- an account: its edit action (Confirm, Bind, Connect, Reauthorize or
+  Configure), Check while it is enabled without servers, Delete;
+- a package's servers without an account: Connect when a server waits for the
+  connection, otherwise Add credentials, only while the package declares a
+  connector with a method and is enabled; either opens that connector's editor;
+- Reconnect while a server is allowed, available and not connecting, and the
+  account, if any, is enabled;
+- Details while the service has servers.
+
+Package settings stay in the plugin's own settings form on the Plugins page; the
+Connectors row does not open it.
+
+`check_plugin_mcp` is a durable command answered from its recorded result: it
+connects outside SQL, lists the tools and stores the answer for the request. A
+check changes nothing to recover, so Desktop sends a new request after an
+uncertain one. Closing a kept connection whose endpoint is gone cannot be
+confirmed and reports an uncertain outcome; the next check fails outright.
+Transport errors are reported as `MCP server is unavailable`; the Node does not
+forward the transport's own text. The application registration action runs the
 declared registration workflow, matching the reviewed implementation rather than
 the older coverage row's external-link description.
 

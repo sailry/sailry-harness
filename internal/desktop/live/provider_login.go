@@ -33,6 +33,8 @@ type authorizationState struct {
 	quotaCancel                    context.CancelFunc
 	mcpDrafts                      map[string]protocol.PluginMcpState
 	mcpConfiguring                 string
+	mcpChecking                    map[string]bool // package and server of each check in flight
+	mcpFailed                      map[string]mcpFailure
 }
 
 type liveAuthorization struct {
@@ -107,7 +109,7 @@ func (r *Runtime) initAuthorization() {
 	r.authorizations = &authorizationState{
 		credentials: map[protocol.CredentialID]protocol.Credential{}, savedProviders: map[string]protocol.ConversationProvider{},
 		types: map[string]protocol.PluginConnectorType{}, connections: map[string]protocol.PluginConnectorConnection{}, packages: map[string]protocol.PluginInfo{},
-		mcpDrafts: map[string]protocol.PluginMcpState{},
+		mcpDrafts: map[string]protocol.PluginMcpState{}, mcpChecking: map[string]bool{}, mcpFailed: map[string]mcpFailure{},
 	}
 	r.initConnectorUI()
 }

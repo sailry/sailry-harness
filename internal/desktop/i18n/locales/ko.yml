@@ -1083,6 +1083,10 @@ connector_expired: 만료됨
 connector_confirmation: 확인 필요
 connector_failed: 연결 실패
 connector_server_disabled: 서버 비활성화됨
+connector_package_disabled: 플러그인 비활성화됨
+connector_account_disabled: 계정 비활성화됨
+connector_configuration_required: 설정 필요
+connector_unavailable: 사용 불가
 connector_search: 커넥터 검색
 connector_all_methods: 모든 방식
 connector_filter: 인증 방식

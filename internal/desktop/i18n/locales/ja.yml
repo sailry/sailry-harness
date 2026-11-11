@@ -1083,6 +1083,10 @@ connector_expired: 期限切れ
 connector_confirmation: 確認が必要
 connector_failed: 接続に失敗
 connector_server_disabled: サーバーは無効
+connector_package_disabled: プラグインは無効
+connector_account_disabled: アカウントは無効
+connector_configuration_required: 設定が必要
+connector_unavailable: 利用不可
 connector_search: コネクターを検索
 connector_all_methods: すべての方法
 connector_filter: 認証方法

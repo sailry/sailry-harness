@@ -239,6 +239,12 @@ func (node *Node) preparePluginCommand(ctx context.Context, caller protocol.Node
 			prepared.output = &output
 			return prepared, err
 		}
+		if request.Command.Kind == "check_plugin_mcp" {
+			// The check connects outside SQL; its recorded result is the output.
+			output, err := node.checkPluginMCP(ctx, request)
+			prepared.output = &output
+			return prepared, err
+		}
 		if request.Command.Kind == "cancel_plugin_call" {
 			output, err := node.readPluginCommand(ctx, caller, request)
 			prepared.output = &output
