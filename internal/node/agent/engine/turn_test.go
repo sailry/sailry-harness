@@ -297,7 +297,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			}
 		}
 		close(hold)
-		f.waitRun(turn, protocol.ConversationStatusInterrupted)
+		f.waitRun(turn, protocol.ConversationStatusCancelled)
 		if starts.Load() != 8 {
 			t.Fatalf("stopped turn started %d calls", starts.Load())
 		}
@@ -488,7 +488,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 		t.Fatal("no partial")
 	}
 	f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
-	f.waitRun(turn, protocol.ConversationStatusInterrupted)
+	f.waitRun(turn, protocol.ConversationStatusCancelled)
 	select {
 	case <-closed:
 	default:
@@ -558,7 +558,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 		}
 		fixture.waitingApproval()
 		fixture.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
-		fixture.waitRun(turn, protocol.ConversationStatusInterrupted)
+		fixture.waitRun(turn, protocol.ConversationStatusCancelled)
 		var order []string
 		for _, record := range fixture.state().Records {
 			if message := record.Message(); message != nil {
@@ -604,7 +604,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 			t.Fatal(err)
 		}
 		close(release)
-		fixture.waitRun(turn, protocol.ConversationStatusInterrupted)
+		fixture.waitRun(turn, protocol.ConversationStatusCancelled)
 		if model.count() != 0 {
 			t.Fatal("stopped claim started a model request")
 		}
@@ -761,4 +761,85 @@ func TestSystemPromptByteStable(t *testing.T) {
 	if strings.Contains(first, "Session environment") || strings.Contains(first, "Session title") {
 		t.Fatal("dynamic turn state entered the system prompt")
 	}
+}
+func TestTurnSettlement(t *testing.T) {
+	t.Run("stop closes the pending question as cancelled", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(call("ask", "ask_user", `{"prompt":"Choose","input":{"kind":"choice","options":["First (Recommended)","Second"],"multiple":false}}`), finish())}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Task")
+		question := f.waitingQuestion()
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+		f.waitRun(turn, protocol.ConversationStatusCancelled)
+		var after protocol.ConversationQuestion
+		if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+			var err error
+			after, err = store.ReadQuestion(f.ctx, db, question.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if after.State.Kind != "cancelled" {
+			t.Fatalf("stopped question=%+v", after.State)
+		}
+		if f.readQuery("SELECT unread FROM session_attention WHERE session='"+f.session.ID.String()+"' UNION ALL SELECT 0 LIMIT 1") != 0 {
+			t.Fatal("a stopped turn raised attention")
+		}
+	})
+	t.Run("failed finishing write is repeated", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(text("Answer"), finish())}}
+		f := newFixture(t, m)
+		// The store refuses the terminal write until the trigger is dropped.
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			_, err := db.ExecContext(f.ctx, "CREATE TRIGGER refuse_finish BEFORE UPDATE OF body ON agent_runs WHEN json_extract(NEW.body,'$.status')='completed' BEGIN SELECT RAISE(ABORT,'injected storage failure'); END")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		f.start()
+		turn := f.submit("Task")
+		timer := f.r.clock.(*manualClock)
+		for range 2 {
+			select {
+			case wait := <-timer.waits:
+				if wait.duration != settlementRetry {
+					t.Fatalf("settlement wait=%s", wait.duration)
+				}
+				close(wait.advance)
+			case <-f.ctx.Done():
+				t.Fatal("the failed finishing write was not repeated")
+			}
+		}
+		var run protocol.ConversationRun
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			var err error
+			if run, err = store.ReadAgentRun(f.ctx, db, turn); err != nil {
+				return err
+			}
+			_, err = db.ExecContext(f.ctx, "DROP TRIGGER refuse_finish")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if run.Status != protocol.ConversationStatusRunning {
+			t.Fatalf("unsettled run is %s", run.Status)
+		}
+		// An attempt that began before the trigger was dropped waits once more.
+		settled := make(chan struct{})
+		defer close(settled)
+		go func() {
+			for {
+				select {
+				case wait := <-timer.waits:
+					close(wait.advance)
+				case <-settled:
+					return
+				}
+			}
+		}()
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		if m.count() != 1 {
+			t.Fatal("repeated settlement replayed the model")
+		}
+	})
 }

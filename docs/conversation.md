@@ -470,6 +470,60 @@ needs `github.com/caelyreth/untie` and its `contrib/mygo` module in `go.mod`
 and an OpenType MATH font at `internal/desktop/conversation/math.otf`; until
 both are added the tag does not build.
 
+## Turn settlement and queue
+
+`store.FinishTurn` ends a turn and settles its session's queue in one
+transaction; `store.RecoverRuns` does the same for turns a restart left
+without an owner.
+
+- **Guidance.** A message sent to guide a running turn carries that turn as
+  its recipient and is skipped by the ordinary claim while the recipient can
+  still join it. When the recipient finishes or is recovered without joining
+  it, the message loses its recipient exactly once, in the finishing
+  transaction, and is an ordinary queued item at its place: it starts next
+  after a turn that left the queue running, and waits in a paused queue until
+  Send now or Resume.
+- **Pausing.** The queue is paused by `stop_turn`, by a turn that ends
+  `interrupted` without a stop (Node shutdown, restart recovery) and by a turn
+  that ends before its own input reached history, which stays in the queue as
+  a retained item. A turn that fails after recording its input does not pause:
+  queued messages start and background results are delivered.
+- **Send now.** `send_queued_turn` during a running turn stops that turn and
+  resumes the queue with the chosen item first. Finishing a stopped turn never
+  pauses again, so the chosen item starts as soon as the stopped turn ends.
+
+- **Stop.** A turn the user stopped ends `cancelled`, with no error unless
+  its outcome is uncertain, and its pending approvals and questions close as
+  `cancelled`. `interrupted` is kept for a turn that lost its owner: Node
+  shutdown and restart recovery, which also close interactions as
+  `interrupted`. Any other ended turn closes its leftover interactions as
+  `cancelled`. Completion hooks run only for turns that ran to their end: the
+  hook binding is bound to the turn's stop and runs nothing once it is
+  stopped or the Node is stopping.
+- **Attention.** The session becomes unread when a main task turn ends
+  `completed`, `failed` or `interrupted`. Stopped turns, compaction runs and
+  child runs do not raise it.
+- **Durable end.** A turn keeps its owner until its end is stored. When the
+  finishing transaction fails, it is repeated every second, logged once
+  (`operation=finish`), until it succeeds or the Node stops; a stopped Node
+  leaves the run to restart recovery. Only the write is repeated: the model,
+  tools, hooks and cleanup have ended.
+- **Restart.** Running and stopping turns end `interrupted` with an uncertain
+  outcome and nothing is replayed. Queued delegated runs that never started
+  end the same way. Queued notice turns and plugin continuations are
+  cancelled without pausing the queue or raising attention; a queue that
+  still holds the user's input is paused.
+
+### Differences from the reference
+
+| Difference | Reason |
+|---|---|
+| A child whose owner cancelled it without a stop command (its parent turn ended) ends `interrupted`; the reference ends it `cancelled` | The label is delegation's; neither outcome is delivered automatically |
+| Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |
+| Guidance pending at a user Stop waits in the paused queue; the reference starts it as a successor turn at once | Stop means stop: nothing runs until the user sends or resumes, and the message stays visible and editable |
+| The ordinary claim skips guidance while its recipient runs, and every exit of the recipient releases it; the reference claims without looking at the recipient and repairs the tag on each exit path | One release point in `FinishTurn` and one in `RecoverRuns` cover Stop, failure, completion and restart |
+| A stopped turn whose input was not recorded keeps that input as a retained queue item; the reference writes it into history | Nothing is lost and the user decides whether to send it again |
+
 ## UI state vs backend data
 
 Canonical plugin cards append to the existing tool disclosure in their original

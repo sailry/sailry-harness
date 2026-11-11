@@ -259,10 +259,9 @@ func RecoverCommands(ctx context.Context, db *sql.Conn, now time.Time) ([]protoc
 				return nil, err
 			}
 			if run.Notice && run.Status == protocol.ConversationStatusQueued {
-				if _, _, err := FinishTurn(ctx, db, run.Turn, protocol.ConversationStatusCancelled, nil, now); err != nil {
-					return nil, err
-				}
-				if _, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", run.Turn.String()); err != nil {
+				// The unstarted notice turn leaves the queue without pausing it
+				// or raising attention: nothing of the user's was interrupted.
+				if _, err := cancelAutomaticInput(ctx, db, run, nil, now); err != nil {
 					return nil, err
 				}
 			}

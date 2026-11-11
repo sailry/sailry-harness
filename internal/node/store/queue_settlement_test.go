@@ -93,7 +93,7 @@ func TestQueueSettlement(t *testing.T) {
 		}
 		return *item, nil
 	}
-	for _, scenario := range []string{"guidance after stop waits for send now", "guidance after stop waits for resume", "guidance after completion starts", "guidance after failure starts", "guidance after restart waits for resume", "send now replaces the running turn", "failure keeps queued input running", "failure before input holds the queue"} {
+	for _, scenario := range []string{"guidance after stop waits for send now", "guidance after stop waits for resume", "guidance after completion starts", "guidance after failure starts", "guidance after restart waits for resume", "send now replaces the running turn", "failure keeps queued input running", "failure before input holds the queue", "stop ends cancelled without attention", "compaction raises no attention", "restart cancels a queued notice turn without pausing", "restart interrupts a queued child"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -214,6 +214,9 @@ func TestQueueSettlement(t *testing.T) {
 					if queue.Paused {
 						return errors.New("a failed turn paused the queue")
 					}
+					if activity, err := readActivity(ctx, db, session.ID); err != nil || !activity.Attention.Unread {
+						return fmt.Errorf("a failed task turn raised no attention: %v", err)
+					}
 					next, _, err := ClaimNext(ctx, db, now)
 					if err != nil {
 						return err
@@ -221,6 +224,125 @@ func TestQueueSettlement(t *testing.T) {
 					// The waiting result joins the user's next turn rather than a notice turn.
 					if next == nil || next.Run.Turn != output.Data.(protocol.QueuedTurn).ID || next.Run.Notice {
 						return errors.New("queued input did not start after a failed turn")
+					}
+					return nil
+				case "stop ends cancelled without attention":
+					if _, err := queueFixtureCommand(ctx, db, storage, node, "stop_turn", &protocol.CommandStopTurnPayload{Turn: turn}, now); err != nil {
+						return err
+					}
+					// A stop wins over whatever the turn reported at its end.
+					run, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusFailed, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "request was aborted"}, now)
+					if err != nil {
+						return err
+					}
+					activity, err := readActivity(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					queue, err := ReadQueue(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if run.Status != protocol.ConversationStatusCancelled || run.Error != nil || activity.Attention.Unread || !queue.Paused {
+						return fmt.Errorf("stopped turn settled as %s, error %v, unread %v, paused %v", run.Status, run.Error, activity.Attention.Unread, queue.Paused)
+					}
+					return nil
+				case "compaction raises no attention":
+					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if _, err := db.ExecContext(ctx, "UPDATE session_attention SET unread=0 WHERE session=?1", session.ID.String()); err != nil {
+						return err
+					}
+					output, err := queueFixtureCommand(ctx, db, storage, node, "compact_context", &protocol.CommandCompactContextPayload{Session: session.ID, ExpectedRevision: session.Revision}, now)
+					if err != nil {
+						return err
+					}
+					compaction := output.Data.(protocol.QueuedTurn).ID
+					if next, _, err := ClaimNext(ctx, db, now); err != nil || next == nil || next.Run.Turn != compaction {
+						return fmt.Errorf("compaction was not claimed: %v", err)
+					}
+					if _, _, err = FinishTurn(ctx, db, compaction, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if activity, err := readActivity(ctx, db, session.ID); err != nil || activity.Attention.Unread {
+						return fmt.Errorf("a compaction run raised attention: %v", err)
+					}
+					return nil
+				case "restart cancels a queued notice turn without pausing":
+					if _, err := backgroundFixtureRecord(ctx, db, session, turn, "before-restart", true, now); err != nil {
+						return err
+					}
+					// Finishing the turn admits the notice turn for the waiting result.
+					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					queue, err := ReadQueue(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if len(queue.Items) != 1 || !queue.Items[0].Notice {
+						return errors.New("the waiting result admitted no notice turn")
+					}
+					before, err := readActivity(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if _, err = RecoverCommands(ctx, db, now); err != nil {
+						return err
+					}
+					if _, err = RecoverRuns(ctx, db, now); err != nil {
+						return err
+					}
+					notice, err := ReadAgentRun(ctx, db, queue.Items[0].Turn)
+					if err != nil {
+						return err
+					}
+					queue, err = ReadQueue(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					after, err := readActivity(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if notice.Status != protocol.ConversationStatusCancelled || len(queue.Items) != 0 || queue.Paused || after.Attention.Revision != before.Attention.Revision {
+						return fmt.Errorf("recovered notice turn is %s, items %d, paused %v, attention %d to %d", notice.Status, len(queue.Items), queue.Paused, before.Attention.Revision, after.Attention.Revision)
+					}
+					return nil
+				case "restart interrupts a queued child":
+					call, err := delegationFixtureCall(ctx, db, turn, "spawn_agent", map[string]any{"task": "Orphaned child"}, now)
+					if err != nil {
+						return err
+					}
+					orphan, _, err := DelegateAgent(ctx, db, node, turn, call, nil, true, now)
+					if err != nil {
+						return err
+					}
+					if _, err = RecoverRuns(ctx, db, now); err != nil {
+						return err
+					}
+					run, err := ReadAgentRun(ctx, db, orphan.Run.Turn)
+					if err != nil {
+						return err
+					}
+					if run.Status != protocol.ConversationStatusInterrupted || run.FinishedMs == nil || run.Error == nil || run.Error.Code != protocol.ErrorCodeOutcomeUnknown {
+						return fmt.Errorf("queued child survived the restart as %s", run.Status)
+					}
+					// The orphan no longer holds the conversation's first child slot.
+					parent, err := delegationFixtureParent(ctx, db, node, session, now)
+					if err != nil {
+						return err
+					}
+					if call, err = delegationFixtureCall(ctx, db, parent, "spawn_agent", map[string]any{"task": "Later child"}, now); err != nil {
+						return err
+					}
+					later, _, err := DelegateAgent(ctx, db, node, parent, call, nil, true, now)
+					if err != nil {
+						return err
+					}
+					if next, _, err := ClaimChild(ctx, db, later.Run.Turn, now); err != nil || next == nil {
+						return fmt.Errorf("a later child stayed behind the orphan: %v", err)
 					}
 					return nil
 				default:

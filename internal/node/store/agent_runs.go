@@ -431,8 +431,13 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	// stop_turn already paused the queue; whatever resumed it since then, such
 	// as Send now, is the user's later decision and is not undone here.
 	stopped := run.Status == protocol.ConversationStatusStopping
-	if stopped && status == protocol.ConversationStatusCompleted {
-		status = protocol.ConversationStatusInterrupted
+	// A deliberate stop ends the turn cancelled whatever it was doing; only a
+	// lost owner (Node shutdown, restart recovery) is interrupted.
+	if stopped && status != protocol.ConversationStatusInterrupted {
+		status = protocol.ConversationStatusCancelled
+		if failure != nil && failure.Code != protocol.ErrorCodeOutcomeUnknown {
+			failure = nil
+		}
 	}
 	run.Status = status
 	run.Error = failure
@@ -444,7 +449,11 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err = putAgentRun(ctx, db, run); err != nil {
 		return run, nil, err
 	}
-	if err = closeInteractions(ctx, db, turn, "interrupted"); err != nil {
+	closed := "cancelled"
+	if status == protocol.ConversationStatusInterrupted {
+		closed = "interrupted"
+	}
+	if err = closeInteractions(ctx, db, turn, closed); err != nil {
 		return run, nil, err
 	}
 	pause := false
@@ -470,8 +479,12 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 			return run, nil, err
 		}
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO session_attention(session,revision,unread) VALUES(?1,1,1) ON CONFLICT(session) DO UPDATE SET revision=revision+1,unread=1", run.Session.String()); err != nil {
-		return run, nil, err
+	// Attention marks a main task turn that ended without the user: completed,
+	// failed or interrupted. Stopped turns, compaction and child runs do not.
+	if origin == nil && run.Kind == protocol.ConversationRunKindTask && status != protocol.ConversationStatusCancelled {
+		if _, err = db.ExecContext(ctx, "INSERT INTO session_attention(session,revision,unread) VALUES(?1,1,1) ON CONFLICT(session) DO UPDATE SET revision=revision+1,unread=1", run.Session.String()); err != nil {
+			return run, nil, err
+		}
 	}
 	events, err := activityEvent(ctx, db, run.Session)
 	if err != nil {
@@ -522,7 +535,10 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	return run, events, err
 }
 func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
-	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT body FROM agent_runs WHERE json_extract(body,'$.status') IN ('running','stopping')")
+	// A delegated run that never started is claimed only through its in-memory
+	// owner, which a restart loses; left queued it would block every later
+	// child of its conversation.
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status') IN ('queued','cancelled') AND json_extract(a.body,'$.finished_ms') IS NULL AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))")
 	if err != nil {
 		return nil, err
 	}
