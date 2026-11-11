@@ -44,6 +44,7 @@ func packageFixture(t *testing.T, directory, name, text string) {
 func TestPackageBoundaries(t *testing.T) {
 	t.Parallel()
 	t.Run("Status declarations", testStatusExtension)
+	t.Run("tool, host and model declarations", testToolDeclarations)
 	t.Run("unreferenced versions are collected", func(t *testing.T) {
 		manager := NewManager(t.TempDir())
 		if err := manager.Collect(nil); err != nil {

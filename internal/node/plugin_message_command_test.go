@@ -65,7 +65,7 @@ func testPluginMessageCommandOutputs(t *testing.T) {
 		entry := "dev.sailry.platform/host/main.js"
 		source := t.TempDir()
 		for name, content := range map[string]string{
-			"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"message-command-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","storage.write"],"tools":[{"name":"command","handler":{"name":"command","parameters":{"type":"object"}}}],"host":{"entry":"` + entry + `","resources":["` + entry + `"],"handlers":["command"],"commands":[{"name":"fixture","handler":"command"}]}}}}`,
+			"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"message-command-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","storage.write"],"tools":[{"name":"command","description":"Count a run","handler":{"name":"command","parameters":{"type":"object"}}}],"host":{"entry":"` + entry + `","resources":["` + entry + `"],"handlers":["command"],"commands":[{"name":"fixture","handler":"command"}]}}}}`,
 			entry: `import {getValue,setValue,completeRequest} from "sailry/sdk";
 export async function command(input){const current=await getValue("runs");const count=current.present?current.value+1:1;const saved=await completeRequest(setValue("runs",count,current.revision));if(saved.Err)throw new Error(saved.Err.message);return {count,arguments:input.arguments,message:input.message};}`,
 		} {

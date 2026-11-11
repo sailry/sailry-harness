@@ -444,6 +444,27 @@ empty so the text remains aligned.
   while an installed package declares a menu item of its own, every listed
   project keeps its registry mounted; the source mounts on the click and
   waits up to ten seconds before showing the menu.
+- Extension validation at install follows the source for the declarations
+  that cross-reference each other: every tool, handler and flow operation
+  needs its action declared; retired language-server operations and actions
+  are refused; a flow has one to eight distinct operations and none that
+  writes files, delegates, reports progress or reads settings; a handler tool
+  has a description and an object parameter schema of at most 16 KiB; an
+  `initial` tool stays inside package storage; host handlers are 1 to 64
+  exportable names, host resources are scripts, and `turn`, `commands` and UI
+  message commands name declared handlers and routes; model sign-ins,
+  resources, adapters and provider presets are distinct, reference each other
+  and carry their actions; `artifact_view` needs both artifact actions;
+  `enabled_service` is `code_index` on a host package with `code_index.read`;
+  `conversation_options` parses as an option schema. Three rules differ on
+  purpose: a handler may be bound to `agents.guide`
+  ([delegation](delegation.md)), which the source refuses; a `display` icon
+  is not checked, because the tile accepts `ailogo:` names the source's icon
+  list lacks; and a server tool's name may be 512 bytes, as in the source,
+  where this validator allowed 128. Not ported to install time: the field
+  rules inside one model sign-in, model resource, model adapter, provider
+  preset, connector, conversation mode, permissions contribution, artifact
+  view and tool `display`.
 - The `provider` slot validates and is not drawn. Settings shows a channel's
   5h and 7d quota from the Node's own `provider_quotas`
   ([settings](settings.md)); the bundled `provider-status` `provider_usage`
