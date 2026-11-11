@@ -32,7 +32,7 @@ MyGo bases.
 | `Ghost`, `GhostLook` | Own (ButtonBase) | Transparent text buttons; `GhostLook` styles a bare base (a `MenuButton` trigger, Deny) | The main action of a dialog (`Primary`) | composer, conversation, panel, settings, shell, sidebar, host, transfers |
 | `IconButton`, `IconButtonHint`, `IconLook` | Own (ButtonBase) | Every icon-only button; the label is its tooltip and accessible name, the hint a shortcut | Icons that are not buttons (`ui.Icon`) | everywhere |
 | `Primary` | Own | The one main action of a dialog, card or form | More than one per group | composer, host, panel, settings, sidebar |
-| `Secondary` | Own | Other actions beside a `Primary`; Cancel | Toolbars (`IconButton`) | everywhere but onboarding |
+| `Secondary`, `SecondaryLook` | Own | Other actions beside a `Primary`; Cancel. `SecondaryLook` styles a bare base whose content the caller builds (a plugin's menu button and model trigger) | Toolbars (`IconButton`) | everywhere but onboarding |
 | `Danger` | Own | Actions that remove something, after a confirmation | Deny on an approval (ghost) | conversation, settings |
 | `Tag`, `Badge` | Own | A short label; `Badge` in a `Tone` | Counts in a toolbar (`Toolbar` count) | composer, settings, shell |
 | `StatusDot`, `StatusRing` | Own | A state as an 8 DIP dot; `StatusRing` on a mark or avatar | State with words; prefer an icon in rows | settings, sidebar, shell |
@@ -46,10 +46,10 @@ MyGo bases.
 
 | Component | Origin | Use | Not for | Used in |
 |---|---|---|---|---|
-| `Segmented` | Lobe `pkg/action/segmented.go` (SegmentedBase) | In-page view switches and a few side-by-side choices; the active segment is inverted | Document tab strips, which stay tabs | panel, settings, sidebar |
+| `Segmented` | Lobe `pkg/action/segmented.go` (SegmentedBase) | In-page view switches and a few side-by-side choices; the active segment is inverted. `SegmentedProps.Icons` puts an icon before each label and `Disabled` dims the whole track | Document tab strips, which stay tabs | panel, settings, sidebar |
 | `MenuButton`, `Menu`, `Item`, `Submenu`, `OpenMenu` | Lobe `pkg/overlay/dropdown.go` motion (MenuBase) | Every left-click menu, ⋯ row menus, and pickers with a small, known set of choices (the composer's project, worktree, mode, permission); `Submenu` nests one (MenuBase's SubmenuItem), as the Git actions menu | Right-click menus (`Element.ContextMenu`, the system's); long searchable lists | composer, conversation, panel, settings, shell |
 | `SplitButton`, `SplitProps` | Own (ButtonBase, MenuButton) | Kit's DropdownButton: a main action joined to a caret menu of the others (Git's Stage and Commit) | A single action (`Secondary`) | panel |
-| `Select` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide | Toolbars and composer pickers (`MenuButton`) | settings, sidebar |
+| `Select`, `SelectField`, `SelectProps`, `SelectOption`, `SelectTrigger` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide. `SelectField` is the same control over options with a placeholder and disabled choices; `SelectTrigger` is its frame for a select with a popup of its own (the searchable header filter) | Toolbars and composer pickers (`MenuButton`) | settings, sidebar, plugins, live |
 | `InputOTP` | Lobe `pkg/field/otp.go` | One-time codes | Other text | settings |
 | `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard | Static lists | composer |
 
@@ -57,7 +57,7 @@ MyGo bases.
 
 | Component | Origin | Use | Used in |
 |---|---|---|---|
-| `Page`, `Group`, `Card`, `Row`, `WideRow` | Own | A settings page, its groups, the card of rows, a setting (`WideRow` for selects, inputs and sliders) | settings |
+| `Page`, `Group`, `Card`, `Row`, `WideRow` | Own | A settings page, its groups, the card of rows, a setting (`WideRow` for selects, inputs and sliders). `Page` returns its scroll root; a plugin's `SettingsPage` is this page | settings, plugins |
 | `SwitchRow`, `SegmentedRow` | Own | An on/off or few-labels setting | settings |
 | `SelectRow`, `TextRow`, `SecretRow`, `NumberRow`, `SliderRow`, `ButtonRow` | Own | The other one-control settings; prefer them over a hand-built `Row` | defined, not yet used |
 | `Entry`, `Record`, `Action`, `TextAction` | Own | A record in a group's card, its text and small ghost actions | settings, host, panel |
@@ -192,7 +192,8 @@ MyGo bases.
 - Colors that must be opaque use `kit.Opaque(c)`: `ui.Color.Alpha`
   multiplies the existing alpha, so `Alpha(1)` keeps a translucent token
   translucent.
-- Empty and unavailable states use `kit.Result`.
+- Empty and unavailable states use `kit.Result`, including the ones a
+  plugin declares (`EmptyState`, an empty `CardList` or `DataTable`).
 - Brand marks keep their own colors via `ui.Image`, never `ui.Icon`, which
   tints. Provider marks come from Lobe Icons.
 

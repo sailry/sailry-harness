@@ -517,6 +517,7 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 }
 
 func TestComposerSendRouting(t *testing.T) {
+	t.Run("first run without a provider", firstRun)
 	t.Run("revoked remote actions never target same-ID local resources", func(t *testing.T) {
 		localNode, remoteNode := protocol.NodeID{1}, protocol.NodeID{2}
 		project, worktree, session := protocol.ProjectID{3}, protocol.WorktreeID{4}, protocol.SessionID{5}
@@ -828,6 +829,23 @@ func TestComposerSendRouting(t *testing.T) {
 				r.saveComposerConfig(session, config, nil)
 				message.Mode = composer.Plan
 			}
+			creations := func() int {
+				transport.mu.Lock()
+				defer transport.mu.Unlock()
+				total := 0
+				for _, request := range transport.requests {
+					if request.Command.Kind == "create_session" {
+						total++
+					}
+				}
+				return total
+			}
+			if row.session != "existing" {
+				// Until its first send a draft is no session and no sidebar row.
+				if creations() != 0 || r.App.Data.Find(id) == nil || r.App.Sidebar.Data.Find(id) != nil || slices.Contains(r.App.Sidebar.Order(), id) {
+					t.Fatal("an unsent draft is a session or is listed in the sidebar")
+				}
+			}
 			if row.running {
 				actions.Guide(message)
 			} else {
@@ -848,6 +866,13 @@ func TestComposerSendRouting(t *testing.T) {
 			for range 4 {
 				r.workers.Wait()
 				tester.Frame()
+			}
+			if row.name == "new_session_after_navigation" {
+				// The first send created the one session, now listed; the
+				// draft opened meanwhile is still neither.
+				if created := (protocol.SessionID{9}).String(); creations() != 1 || r.App.Sidebar.Data.Find(created) == nil || r.App.Sidebar.Data.Find(elsewhere) != nil || r.App.Data.Find(id) != nil {
+					t.Fatal("the first send did not turn its draft into the one listed session")
+				}
 			}
 			if created := (protocol.SessionID{9}).String(); row.name == "new_project_session" && r.App.Sidebar.Selected != created {
 				t.Fatal("created session did not replace its selected draft")

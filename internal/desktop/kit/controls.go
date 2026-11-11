@@ -118,8 +118,14 @@ func Orb(c *ui.Context, size float32) ui.Element {
 // Secondary is Kit's outline button: a 1 DIP border over the
 // button.secondary fill, 32 high, its label 14.
 func Secondary(c *ui.Context, label string) ui.Element {
+	return SecondaryLook(c, ui.ButtonBase(c).Label(label)).Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+}
+
+// SecondaryLook gives a button base Secondary's look, for a trigger with
+// content of its own (a MenuButton's label and caret).
+func SecondaryLook(c *ui.Context, b ui.Element) ui.Element {
 	p := theme.Of(c)
-	b := ui.ButtonBase(c).Label(label).Radius(p.Radius).Center().Gap(6).PaddingX(12).Height(32).
+	b.Radius(p.Radius).Center().Gap(6).PaddingX(12).Height(32).
 		Border(1, p.Border).Background(p.ButtonSecondary).TextColor(p.ButtonSecondaryForeground).Cursor(ui.CursorPointer)
 	switch {
 	case b.Pressed():
@@ -127,7 +133,7 @@ func Secondary(c *ui.Context, label string) ui.Element {
 	case b.Hovered():
 		b.Background(p.ButtonSecondaryHover)
 	}
-	return b.Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+	return b
 }
 
 // Danger is Kit's danger button, for what removes something.

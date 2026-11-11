@@ -1,11 +1,14 @@
 package shell
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // TestSidebarSessions groups the cases of one behavior; each keeps its own fixture.
@@ -16,6 +19,150 @@ func TestSidebarSessions(t *testing.T) {
 	t.Run("SidebarRenameKeepsEmptyTitleOut", testSidebarRenameKeepsEmptyTitleOut)
 	t.Run("SidebarReordersPins", testSidebarReordersPins)
 	t.Run("SidebarDeleteConfirms", testSidebarDeleteConfirms)
+	t.Run("SidebarNewSession", testSidebarNewSession)
+}
+
+// newSession finds the sidebar's New session button and the Chats group's
+// "+", which do the same.
+func newSession(t *testing.T, tt *ui.Tester) (button, plus ui.AccessInfo) {
+	t.Helper()
+	var found, added bool
+	for _, info := range tt.AccessAll() {
+		if info.Role != ui.RoleButton || info.Bounds.X < RailWidth || info.Bounds.X >= RailWidth+NavWidth {
+			continue
+		}
+		switch info.Name {
+		case i18n.In("en", "conversation"):
+			if !found {
+				button, found = info, true
+			}
+		case i18n.In("en", "workspace_new_session"):
+			plus, added = info, true
+		}
+	}
+	if !found || !added {
+		t.Fatalf("no New session buttons (%v, %v): %q", found, added, tt.Texts())
+	}
+	return button, plus
+}
+
+// New session opens the one unsent chat and never stacks another. While the
+// page already shows that chat the button cannot act, so it is disabled;
+// everywhere else it is enabled and its click shows.
+func testSidebarNewSession(t *testing.T) {
+	a, tt := newTester(t)
+	press := func() {
+		t.Helper()
+		b, _ := newSession(t, tt)
+		tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		settle(tt)
+	}
+	disabled := func() (bool, bool) {
+		t.Helper()
+		b, plus := newSession(t, tt)
+		return b.Disabled, plus.Disabled
+	}
+	count := func() int { return len(a.Data.Unassigned) }
+	before, selected := count(), a.Sidebar.Selected
+	if b, plus := disabled(); b || plus {
+		t.Fatalf("New session starts disabled: %v %v", b, plus)
+	}
+	press()
+	draft := a.Sidebar.Selected
+	if draft == selected || count() != before+1 || !tt.HasText(i18n.In("en", "welcome_title")) {
+		t.Fatalf("New session opened %q among %d chats", draft, count())
+	}
+	if b, plus := disabled(); !b || !plus {
+		t.Fatalf("over the unsent chat New session is disabled %v, its + %v", b, plus)
+	}
+	snapshot(t, tt, "new-session-disabled")
+	press()
+	tt.Key(ui.Cmd, ui.KeyN)
+	settle(tt)
+	if a.Sidebar.Selected != draft || count() != before+1 {
+		t.Fatalf("a second New session stacked a chat: %q among %d", a.Sidebar.Selected, count())
+	}
+	// From another session it is enabled and goes back to the unsent chat.
+	click(t, tt, "Port the neutral theme tokens")
+	settle(tt)
+	if b, plus := disabled(); b || plus || a.Sidebar.Selected == draft {
+		t.Fatalf("over another session New session is disabled %v %v", b, plus)
+	}
+	press()
+	if a.Sidebar.Selected != draft || count() != before+1 {
+		t.Fatalf("New session did not reuse the unsent chat: %q among %d", a.Sidebar.Selected, count())
+	}
+	// Beside a host's page the sessions stay: New session and the selected
+	// session's own row both show the conversation.
+	for _, back := range []struct {
+		name string
+		do   func()
+	}{
+		{"New session", press},
+		{"the selected row", func() {
+			a.Sidebar.Selected = "sailry-go/theme"
+			a.openHost("remote", false)
+			settle(tt)
+			click(t, tt, "Port the neutral theme tokens")
+			settle(tt)
+		}},
+	} {
+		a.openHost("remote", false)
+		settle(tt)
+		if b, plus := disabled(); a.Page != HostPage || b || plus {
+			t.Fatalf("%s: beside the host page New session is disabled %v %v on page %d", back.name, b, plus, a.Page)
+		}
+		back.do()
+		if a.Page != ConversationPage {
+			t.Fatalf("%s left the host page %d showing", back.name, a.Page)
+		}
+	}
+	// Once something is sent in it, the chat is a session like the others
+	// and New session opens another.
+	a.Sidebar.Selected = draft
+	a.Data.Find(draft).Title = "Sent"
+	settle(tt)
+	if b, plus := disabled(); b || plus {
+		t.Fatalf("after sending New session is disabled %v %v", b, plus)
+	}
+	press()
+	if a.Sidebar.Selected == draft || count() != before+2 {
+		t.Fatalf("New session after sending opened %q among %d", a.Sidebar.Selected, count())
+	}
+
+	// Live: the runtime's draft is the unsent chat; a saved session without
+	// a title is not.
+	live := NewLive(&viewmodel.Data{
+		Unassigned: []*viewmodel.Conversation{{ID: "saved"}},
+		Workspace:  &viewmodel.Workspace{},
+	})
+	drafts := 0
+	live.Sidebar.Actions = &sidebar.Actions{NewDraft: func(*viewmodel.Project) {
+		drafts++
+		cv := &viewmodel.Conversation{ID: fmt.Sprintf("draft/%d", drafts)}
+		live.Data.Unassigned = append([]*viewmodel.Conversation{cv}, live.Data.Unassigned...)
+		live.Page, live.Sidebar.Selected = ConversationPage, cv.ID
+	}}
+	live.Sidebar.Selected = "saved"
+	a, tt = live, ui.NewTesterWith(live.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	if b, plus := disabled(); b || plus || a.Sidebar.Selected != "saved" {
+		t.Fatalf("over a saved untitled session New session is disabled %v %v", b, plus)
+	}
+	press()
+	if drafts != 1 || a.Sidebar.Selected != "draft/1" {
+		t.Fatalf("live New session made %d drafts, selected %q", drafts, a.Sidebar.Selected)
+	}
+	if b, plus := disabled(); !b || !plus {
+		t.Fatalf("over the live draft New session is disabled %v, its + %v", b, plus)
+	}
+	press()
+	a.Do("conversation.new")
+	settle(tt)
+	if drafts != 1 || count() != 2 {
+		t.Fatalf("live New session stacked drafts: %d, %d chats", drafts, count())
+	}
 }
 
 func testSidebarMenuPinsAndRenames(t *testing.T) {

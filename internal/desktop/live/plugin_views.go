@@ -49,6 +49,8 @@ type pluginViewState struct {
 	iconFailures map[string]bool
 	generation   uint64
 	closed       bool
+	// locale is the window's resolved catalog, which package text follows.
+	locale string
 }
 
 type pluginMountedView struct {
@@ -146,6 +148,7 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 	if state == nil || state.closed {
 		return
 	}
+	state.locale = i18n.Match(view.Locale())
 	for _, owner := range state.registries {
 		owner.seen = false
 		if !rootPluginRegistryCurrent(r, owner) {

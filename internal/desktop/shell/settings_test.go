@@ -122,12 +122,15 @@ func TestShortcutRecorder(t *testing.T) {
 	if a.Page == SettingsPage || a.Settings.Keys.Recording() {
 		t.Fatalf("left on page %d, recording %v", a.Page, a.Settings.Keys.Recording())
 	}
-	open := a.NavOpen
+	// Activity has no side column, so the window's key shown working is the
+	// panel's; ⌘B leaves the sidebar's saved choice there.
+	open, panel := a.NavOpen, a.PanelOpen
 	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
 	a.Do("page:files")
 	tt.Frame()
-	if a.NavOpen == open || a.Page != FilesPage {
-		t.Errorf("after leaving a recording: sidebar toggled %v, page %d", a.NavOpen != open, a.Page)
+	if a.PanelOpen == panel || a.NavOpen != open || a.Page != FilesPage {
+		t.Errorf("after leaving a recording: panel toggled %v, sidebar toggled %v, page %d", a.PanelOpen != panel, a.NavOpen != open, a.Page)
 	}
 	if s, ok := a.Settings.Keys.Bound(settings.Registry[0]); !ok || s.Mods != ui.Cmd|ui.Shift || s.Key != ui.KeyN {
 		t.Errorf("the abandoned recording changed the key: %+v %v", s, ok)

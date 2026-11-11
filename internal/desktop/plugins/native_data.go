@@ -203,9 +203,9 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	result := ui.Column(view).Fill().MinWidth(0).Children(func() {
 		if count == 0 {
 			if icon := nativeIcon(nativeProp(props, "empty_icon", "")); icon != nil {
-				ui.Column(view).Grow(1).FillWidth().AlignItems(ui.Center).Justify(ui.Center).Gap(12).Children(func() {
-					ui.Icon(view, icon).Size(32, 32).TextColor(theme.Of(view).MutedForeground)
-					nativeText(view, nativeProp(props, "empty", "")).TextColor(theme.Of(view).MutedForeground)
+				// Kit's empty state, as the reference's list_content.
+				ui.Column(view).Grow(1).FillWidth().AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+					kit.Result(view, kit.ResultProps{Title: nativeProp(props, "empty", ""), Icon: icon})
 				})
 			} else {
 				nativeText(view, nativeProp(props, "empty", "")).TextColor(theme.Of(view).MutedForeground).Padding(16)

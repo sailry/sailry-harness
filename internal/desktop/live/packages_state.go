@@ -360,7 +360,13 @@ func (r *Runtime) packageHostLabel() string {
 	return r.controller.Target().String()
 }
 
+// packageLocale is the locale package text is read in: the window's resolved
+// catalog, as the reference's rust_i18n::locale(), once a frame has reported
+// it.
 func (r *Runtime) packageLocale() string {
+	if root := r.localRuntime(); root.pluginViews != nil && root.pluginViews.locale != "" {
+		return root.pluginViews.locale
+	}
 	if r.Preferences.Data.Language != nil && *r.Preferences.Data.Language == "chinese" {
 		return "zh-CN"
 	}

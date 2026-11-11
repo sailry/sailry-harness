@@ -75,12 +75,17 @@ func (r *Runtime) pluginRegistry(scope protocol.PluginContext, presentation ...s
 		key.presentation = draft
 	}
 	owner := root.pluginViews.registries[key]
+	// Every frame synchronizes the registries it starts with. Only one made
+	// or rebound while a frame is built asks for the next frame; asking on
+	// each lookup would redraw an idle window forever.
+	changed := false
 	if owner == nil {
 		owner = &pluginContributionOwner{key: key, owner: r, scope: scope, draft: draft}
 		owner.registry = desktopplugins.NewRegistry(desktopplugins.RegistryOptions{
 			Node: r.controller.Target(), Context: scope, Invalidate: root.wake,
 		})
 		root.pluginViews.registries[key] = owner
+		changed = true
 	} else if owner.owner != r || owner.draft != draft {
 		for mountKey, mounted := range root.pluginViews.mounts {
 			if mountKey.role == "contribution" && mountKey.scope == key {
@@ -89,9 +94,10 @@ func (r *Runtime) pluginRegistry(scope protocol.PluginContext, presentation ...s
 			}
 		}
 		owner.owner, owner.scope, owner.draft = r, scope, draft
+		changed = true
 	}
 	owner.seen = true
-	if !owner.queued {
+	if changed && !owner.queued {
 		owner.queued = true
 		root.enqueue(func(current *ui.Context) {
 			owner.queued = false

@@ -53,9 +53,10 @@ type choice struct {
 }
 
 // subtle is crate::theme::subtle_button on a round trigger: a ghost
-// button 32 high with an icon and a label.
+// button of Kit's default size, 32 high, 10 at each end, with an icon 8
+// before its label.
 func subtle(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Color) ui.Element {
-	return kit.GhostLook(c, b, false).Label(label).Height(32).PaddingX(12).Gap(6).Radius(16).TextColor(color).
+	return kit.GhostLook(c, b, false).Label(label).Height(32).PaddingX(10).Gap(8).Radius(16).TextColor(color).
 		Children(func() {
 			ui.Icon(c, icon).FontSize(16)
 			ui.Text(c, label).FontSize(14).SingleLine()
@@ -134,31 +135,38 @@ func (s *State) OpenProjectPicker() {
 	s.projectPicker = true
 }
 
-// contextButton is a context bar button: round, ghost, muted, an icon and
-// a label (the label alone goes in a narrow composer), and a chevron for
-// a menu.
-func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, chevron, iconOnly bool) ui.Element {
+// controlForm is where a location control shows (contributions Form): on
+// the context bar, or as a row of the compact settings popover, which takes
+// them below the icon width.
+type controlForm int
+
+const (
+	toolbarForm controlForm = iota
+	menuForm
+)
+
+// contextButton is a location control. On the context bar it is Kit's small
+// round ghost button in the bar's muted color: 24 high, 8 at each end, a 14
+// icon, the label and the menu's caret 4 apart, at most 192 wide. In the
+// settings popover it is a menu row.
+func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form controlForm) ui.Element {
 	p := theme.Of(c)
-	kit.GhostLook(c, b, false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
-		TextColor(p.MutedForeground)
-	if iconOnly {
-		kit.Tooltip(c, b.Width(28).PaddingX(0), label)
+	kit.GhostLook(c, b, false).Label(label)
+	if form == menuForm {
+		return menuRow(c, b, icon, label, p.Foreground, icons.ChevronRight)
 	}
-	return b.Children(func() {
-		ui.Icon(c, icon).FontSize(14)
-		if !iconOnly {
+	return b.Height(24).PaddingX(8).Gap(4).Radius(12).MaxWidth(192).MinWidth(0).Shrink(1).TextColor(p.MutedForeground).
+		Children(func() {
+			ui.Icon(c, icon).FontSize(14).Shrink(0)
 			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-			if chevron {
-				ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0)
-			}
-		}
-	})
+			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0)
+		})
 }
 
 // projectButton is the location: the project's name, or Chats for none,
 // and a menu of Chats, the host's projects with a check on the current one,
 // then Add project.
-func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, iconOnly bool) {
+func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	icon, label := icons.Inbox, i18n.T(c, "composer_no_project")
 	if pr := s.project(ctx); pr != nil {
 		icon, label = icons.Folder, pr.Name
@@ -170,7 +178,7 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, icon
 		}
 	}
 	kit.MenuButton(c.Key("project"), s.menuID("project"), func(b ui.Element) {
-		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, false, iconOnly)
+		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, form)
 	}, func(m *kit.Menu) {
 		choose := func(id string) {
 			if id == s.Project {
@@ -213,7 +221,7 @@ func branchLabel(c *ui.Context, ctx *Context, worktree string) string {
 
 // worktreeMenu chooses the worktree of the project: its checkouts with a
 // check, then New worktree where the folder is a Git repository.
-func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, iconOnly bool) {
+func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	pr := s.project(ctx)
 	if pr == nil || ctx.Repository.Kind == Unavailable {
 		return
@@ -234,7 +242,7 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, iconO
 		disabled = ctx.Readonly || !s.ActivityCallbacks.WorktreeEnabled()
 	}
 	kit.MenuButton(c.Key("worktree"), s.menuID("worktree"), func(b ui.Element) {
-		contextButton(c, b.Disabled(disabled), icon, label, false, iconOnly)
+		contextButton(c, b.Disabled(disabled), icon, label, form)
 	}, func(m *kit.Menu) {
 		for _, w := range pr.Worktrees {
 			name := w.Branch
@@ -285,35 +293,35 @@ const (
 	settingsPermission
 )
 
-// settingsButton is a round settings button whose popover holds the mode and
-// permission, each a row opening its page, over the model controls.
+// settingsButton is a round settings button whose popover holds the model
+// controls over the mode and permission, each a row opening its page, and
+// below the icon width the project and the worktree (composer/compact.rs:
+// the model settings, then the composer's and the context's controls as
+// menu rows).
 func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
+	narrow := s.width > 0 && s.width < iconWidth
 	hint := i18n.T(c, "composer_settings") + " · " + i18n.T(c, Modes[s.Mode].label) + " · " + i18n.T(c, Permissions[s.Permission].label)
 	b := kit.IconButton(c.Key("settings"), icons.Settings2, hint, 32, s.settings).Radius(16).Disabled(ctx.Readonly)
 	b.HasPopup(ui.PopupDialog).Expanded(s.settings).OnClick(func() {
 		s.settings, s.page, s.layer = !s.settings, settingsMain, layerMain
 	})
 	panel := kit.Popover(c, b, &s.settings, func() {
+		// row_text: a 16 icon, the label, and a 16 chevron, 8 apart, in a
+		// small ghost button 32 high.
 		row := func(key string, icon *ui.SVG, label string, color ui.Color, page settingsPage) {
-			kit.Ghost(c.Key(key), label, false).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).TextColor(color).
-				Children(func() {
-					ui.Icon(c, icon).FontSize(16)
-					ui.Text(c, label).FontSize(14).SingleLine().Grow(1)
-					ui.Icon(c, icons.ChevronRight).FontSize(12).TextColor(p.MutedForeground)
-				}).OnClick(func() { s.page = page })
+			menuRow(c, kit.Ghost(c.Key(key), label, false), icon, label, color, icons.ChevronRight).
+				OnClick(func() { s.page = page })
 		}
 		back := func() {
-			kit.Ghost(c.Key("back"), i18n.T(c, "composer_back"), false).Height(28).PaddingX(8).Gap(6).Justify(ui.Start).
-				Children(func() {
-					ui.Icon(c, icons.ArrowLeft).FontSize(14)
-					ui.Text(c, i18n.T(c, "composer_back")).FontSize(14)
-				}).OnClick(func() { s.page = settingsMain })
+			label := i18n.T(c, "composer_back")
+			menuRow(c, kit.Ghost(c.Key("back"), label, false), icons.ChevronLeft, label, p.Foreground, nil).
+				OnClick(func() { s.page = settingsMain })
 		}
-		choices := func(list []choice, chosen int, pick func(int)) {
+		choices := func(list []choice, chosen int, color func(int) ui.Color, pick func(int)) {
 			for i, m := range list {
-				b := kit.Ghost(c.Key(m.label), i18n.T(c, m.label), i == chosen).FillWidth().Padding(8).Gap(8).
-					Justify(ui.Start).AccessSelected(i == chosen)
+				b := kit.Ghost(c.Key(m.label), i18n.T(c, m.label), i == chosen).FillWidth().Padding(8, 10).Gap(8).
+					Justify(ui.Start).AccessSelected(i == chosen).TextColor(color(i))
 				b.Children(func() {
 					ui.Icon(c, m.icon).FontSize(16).Shrink(0)
 					ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
@@ -323,22 +331,55 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 				}).OnClick(func() { pick(i); s.page = settingsMain })
 			}
 		}
+		// Full access is the danger color, on its row and its choice.
+		danger := func(m Permission) ui.Color {
+			if m == FullAccess {
+				return p.Danger
+			}
+			return p.Foreground
+		}
 		switch s.page {
 		case settingsMode:
 			back()
-			choices(Modes, int(s.Mode), func(i int) { s.Mode = Mode(i) })
+			choices(Modes, int(s.Mode), func(int) ui.Color { return p.Foreground }, func(i int) { s.Mode = Mode(i) })
 		case settingsPermission:
 			back()
-			choices(Permissions, int(s.Permission), func(i int) { s.Permission = Permission(i) })
+			choices(Permissions, int(s.Permission), func(i int) ui.Color { return danger(Permission(i)) },
+				func(i int) { s.Permission = Permission(i) })
 		default:
 			m, pm := Modes[s.Mode], Permissions[s.Permission]
+			if len(ctx.Models) == 0 {
+				// model_settings without a model: Select model, to the settings.
+				kit.Ghost(c.Key("select-model"), i18n.T(c, "composer_select_model"), false).FillWidth().Height(32).
+					Disabled(ctx.SelectModel == nil).
+					Children(func() { ui.Text(c, i18n.T(c, "composer_select_model")).FontSize(14).SingleLine() }).
+					OnClick(func() { ctx.SelectModel() })
+			} else {
+				s.controls(c, ctx, actions)
+			}
 			row("mode-page", m.icon, i18n.T(c, m.label), p.Foreground, settingsMode)
-			row("permission-page", pm.icon, i18n.T(c, pm.label), permissionColor(p, s.Permission), settingsPermission)
-			ui.Box(c).FillWidth().Height(1).Background(p.Border).Shrink(0)
-			s.controls(c, ctx, actions)
+			row("permission-page", pm.icon, i18n.T(c, pm.label), danger(s.Permission), settingsPermission)
+			if narrow {
+				s.projectButton(c, ctx, actions, menuForm)
+				s.worktreeMenu(c, ctx, actions, menuForm)
+			}
 		}
 	})
 	if panel != (ui.Element{}) {
 		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(312).Gap(4)
 	}
+}
+
+// menuRow is a control as a row of the settings popover (Form::Menu): a
+// small ghost button 32 high and as wide as the panel, a 16 icon, the label
+// and a 16 slot for the chevron, 8 apart.
+func menuRow(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Color, chevron *ui.SVG) ui.Element {
+	return b.FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Justify(ui.Start).TextColor(color).Children(func() {
+		ui.Icon(c, icon).FontSize(16).Shrink(0)
+		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0)
+		slot := ui.Box(c).Size(16, 16).Shrink(0)
+		if chevron != nil {
+			slot.Children(func() { ui.Icon(c, chevron).FontSize(16) })
+		}
+	})
 }

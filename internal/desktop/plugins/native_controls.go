@@ -76,8 +76,10 @@ func (binding *NativeBinding) renderControl(view *ui.Context, element NativeElem
 		return row, nil
 	case "SelectableText":
 		return kit.Markdown(view, nativeProp(props, "text", ""), kit.MarkdownProps{}), nil
-	case "SelectField", "MenuButton":
+	case "SelectField":
 		return binding.renderSelect(view, identity, props)
+	case "MenuButton":
+		return binding.renderMenuButton(view, identity, props)
 	case "Menu":
 		return binding.renderMenu(view, identity, props)
 	case "NativeContextMenu":
@@ -149,13 +151,14 @@ func (binding *NativeBinding) renderControl(view *ui.Context, element NativeElem
 		return region, nil
 	case "Appearance":
 		value := nativeProp(props, "value", map[string]json.RawMessage{})
-		result := ui.Box(view).Size(28, 28).Radius(6)
+		// The reference's project icon: the glyph alone at 14, in its color.
+		result := ui.Box(view).Size(14, 14).Shrink(0).Center()
 		if color, err := nativeColor(nativeProp(value, "color", "")); err == nil {
-			result.Background(color.Alpha(0.12)).TextColor(color)
+			result.TextColor(color)
 		}
 		return result.Children(func() {
 			if icon := nativeIcon(nativeProp(value, "icon", "")); icon != nil {
-				ui.Icon(view, icon).Size(18, 18)
+				ui.Icon(view, icon).Size(14, 14)
 			}
 		}), nil
 	case "AppearancePicker":

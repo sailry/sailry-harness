@@ -50,26 +50,59 @@ func (binding *NativeBinding) renderSelect(view *ui.Context, identity string, pr
 		return ui.Element{}, hostInvalid("plugin selection limit exceeded")
 	}
 	selected := nativeProp[*string](props, "selected", nil)
-	label := nativeProp(props, "label", "")
-	title := nativeProp(props, "placeholder", "")
-	for _, item := range items {
-		if selected != nil && item.ID == *selected {
-			title = item.Label
-			break
-		}
+	// The package owns the selection: the Kit select works on a copy and a
+	// new choice is reported, to come back in the next props.
+	chosen := ""
+	options := make([]kit.SelectOption, len(items))
+	for index, item := range items {
+		options[index] = kit.SelectOption{Value: item.ID, Label: item.Label, Disabled: item.Disabled}
 	}
+	placeholder := nativeProp(props, "placeholder", "")
+	if selected != nil {
+		chosen = *selected
+	} else if placeholder == "" {
+		// Kit shows the value itself without a placeholder; none is chosen.
+		placeholder = " "
+	}
+	field, changed := kit.SelectField(view, identity, &chosen, kit.SelectProps{
+		Label:       nativeProp(props, "label", placeholder),
+		Placeholder: placeholder,
+		Options:     options,
+		Disabled:    nativeProp(props, "disabled", false),
+	})
+	if changed {
+		binding.emit("control", map[string]any{"id": identity, "value": chosen})
+	}
+	// The reference's SelectField fills the width its package gives it.
+	return field.FillWidth(), nil
+}
+
+// renderMenuButton is the reference's MenuButton: a Kit button with its
+// label and a caret, opening a menu of checked and disabled items. It is not
+// a select: the label does not follow the choice.
+func (binding *NativeBinding) renderMenuButton(view *ui.Context, identity string, props map[string]json.RawMessage) (ui.Element, error) {
+	items := nativeProp(props, "items", []nativeMenuItem{})
+	if len(items) > 4096 {
+		return ui.Element{}, hostInvalid("plugin selection limit exceeded")
+	}
+	selected := nativeProp[*string](props, "selected", nil)
+	label := nativeProp(props, "label", "")
+	disabled := nativeProp(props, "disabled", false)
 	return kit.MenuButton(view, identity, func(button ui.Element) {
-		kit.GhostLook(view, button.Label(label).Disabled(nativeProp(props, "disabled", false)).Padding(6, 10).Gap(8), false).Children(func() {
-			nativeText(view, title).SingleLine()
-			ui.Icon(view, icons.ChevronDown).Size(12, 12)
+		kit.SecondaryLook(view, button.Label(label).Disabled(disabled)).Children(func() {
+			nativeText(view, label).SingleLine()
+			ui.Icon(view, icons.ChevronDown).FontSize(14).Shrink(0)
 		})
+		if disabled {
+			button.Opacity(0.5)
+		}
 	}, func(menu *kit.Menu) {
 		for _, item := range items {
 			if menu.Item(item.Label).Checked(selected != nil && item.ID == *selected).Disabled(item.Disabled).Chosen() {
 				binding.emit("control", map[string]any{"id": identity, "value": item.ID})
 			}
 		}
-	}, kit.MenuOptions{Match: true, CheckRight: true, MaxHeight: 320}), nil
+	}), nil
 }
 
 func (binding *NativeBinding) renderMenu(view *ui.Context, identity string, props map[string]json.RawMessage) (ui.Element, error) {
@@ -133,6 +166,22 @@ func (binding *NativeBinding) renderContextMenu(view *ui.Context, identity strin
 func (binding *NativeBinding) renderTabs(view *ui.Context, identity string, props map[string]json.RawMessage, navigation bool) ui.Element {
 	items := nativeProp(props, "items", []map[string]json.RawMessage{})
 	selected := nativeProp[*string](props, "selected", nil)
+	if !navigation {
+		// The reference's SegmentedTabs is Kit's segmented tab bar.
+		index, labels, glyphs := -1, make([]string, len(items)), make([]*ui.SVG, len(items))
+		for at, item := range items {
+			labels[at], glyphs[at] = nativeProp(item, "label", ""), nativeIcon(nativeProp(item, "icon", ""))
+			if selected != nil && nativeProp(item, "id", "") == *selected {
+				index = at
+			}
+		}
+		before, disabled := index, nativeProp(props, "disabled", false)
+		track := kit.Segmented(view, identity, &index, labels, kit.SegmentedProps{Block: nativeProp(props, "fill", false), Icons: glyphs, Disabled: disabled})
+		if index != before && !disabled && index >= 0 && index < len(items) {
+			binding.emit("control", map[string]any{"id": identity, "value": nativeProp(items[index], "id", "")})
+		}
+		return track
+	}
 	return ui.ScrollHorizontal(view).FillWidth().Children(func() {
 		ui.Row(view).Gap(4).Children(func() {
 			for _, item := range items {
@@ -203,7 +252,16 @@ func (binding *NativeBinding) renderModelPopup(view *ui.Context, identity string
 		}
 	}
 	return kit.MenuButton(view, identity, func(button ui.Element) {
-		kit.GhostLook(view, button.Label(label).Disabled(nativeProp(props, "disabled", false)).Padding(6, 10), false).Children(func() { nativeText(view, title) })
+		// The reference's trigger: a full-width outline button, its title
+		// taking the row before the chevron.
+		disabled := nativeProp(props, "disabled", false)
+		kit.SecondaryLook(view, button.Label(label).Disabled(disabled)).FillWidth().Gap(8).Children(func() {
+			nativeText(view, title).SingleLine().Grow(1).Basis(0).MinWidth(0)
+			ui.Icon(view, icons.ChevronDown).FontSize(14).Shrink(0)
+		})
+		if disabled {
+			button.Opacity(0.5)
+		}
 	}, func(menu *kit.Menu) {
 		for _, model := range models {
 			if nativeProp(model, "kind", "") != "provider" {

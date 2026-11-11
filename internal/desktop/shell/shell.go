@@ -43,6 +43,15 @@ const (
 	handle = 6
 )
 
+// The header's and the rail's icon buttons are Kit's IconButton at one size
+// each, 8 DIPs apart. Header contributions (Hooks.PluginHeader) use
+// HeaderButton too.
+const (
+	HeaderButton = 28
+	RailButton   = 36
+	buttonGap    = 8
+)
+
 // Motion is the columns' open and close: Kit's duration_normal along
 // easing_move. MyGo makes it instant with Reduce Motion.
 var Motion = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.CubicBezier(0.2, 0, 0, 1)}
@@ -81,8 +90,13 @@ type App struct {
 	// Surfaces are the window materials' opacities (Appearance).
 	Surfaces theme.Surfaces
 	Page     Page
+	// NavOpen and NavWidth are the side column's saved choice, shared by the
+	// pages that have one (HasNavigation); a page without one hides the
+	// column and leaves the choice as it is.
 	NavOpen  bool
 	NavWidth float32
+	// navigated is whether the last frame's page had a side column.
+	navigated bool
 	// PanelOpen is whether the user wants the right panel; a narrow window
 	// hides it without changing this.
 	PanelOpen  bool
@@ -229,6 +243,7 @@ func (a *App) View(c *ui.Context) {
 	a.shortcuts(c)
 	a.followSelection()
 	a.followPanes()
+	a.Sidebar.Showing = a.Page == ConversationPage
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color.
 	band, panel := p.TitleBar, p.Background
@@ -280,16 +295,50 @@ type frame struct {
 	showsPanel, fitted bool
 }
 
+// HasNavigation reports whether the page shown has a side column beside the
+// rail, as the reference's feature_navigation: the sessions on the
+// conversation and on the host and project pages opened from it, the
+// sections on Settings. Activity, Files, Git, Market, the notification
+// center and a plugin's page have none: a plugin lays out its own columns
+// inside its page.
+func (a *App) HasNavigation() bool {
+	switch a.Page {
+	case ConversationPage, HostPage, ProjectPage, SettingsPage:
+		return true
+	}
+	return false
+}
+
+// NavShown reports whether the side column shows: the page has one and the
+// user keeps it open.
+func (a *App) NavShown() bool { return a.NavOpen && a.HasNavigation() }
+
+// toggleNav opens or closes the side column (⌘B, the header button, the
+// menu). A page without one keeps the saved choice, as the reference's
+// toggle_sidebar returns when no navigation is available.
+func (a *App) toggleNav() {
+	if a.HasNavigation() {
+		a.NavOpen = !a.NavOpen
+	}
+}
+
 // frame animates the columns' openness on root, which stays from frame to
 // frame.
 func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	w, _ := c.Size()
 	f := frame{navWidth: ClampNav(a.NavWidth)}
 	navTarget := float32(0)
-	if a.NavOpen {
+	if a.NavShown() {
 		navTarget = 1
 	}
-	f.nav = root.AnimateTo("nav", navTarget, Motion)
+	if navigated := a.HasNavigation(); navigated && a.navigated {
+		f.nav = root.AnimateTo("nav", navTarget, Motion)
+	} else {
+		// The column belongs to the page: going to or from a page without
+		// one shows the destination settled, with no motion.
+		f.nav = root.Jump("nav", navTarget)
+		a.navigated = navigated
+	}
 	// Whether the panel fits is judged where the sidebar will end, so the
 	// sidebar's motion does not toggle it.
 	nav := f.navWidth * navTarget

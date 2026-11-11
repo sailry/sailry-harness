@@ -14,9 +14,9 @@ const PageWidth = 800
 // Page is a settings page: a scrolling column at most 800 wide, padded 24,
 // its title (18, semibold) and description (14, muted) over its groups 24
 // apart. key keeps each page's scroll place.
-func Page(c *ui.Context, key any, title, description string, body func()) {
+func Page(c *ui.Context, key any, title, description string, body func()) ui.Element {
 	p := theme.Of(c)
-	ui.Scroll(c.Key(key)).Fill().Children(func() {
+	return ui.Scroll(c.Key(key)).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(PageWidth).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
 			ui.Column(c).Gap(8).Children(func() {
 				ui.Text(c, title).FontSize(18).FontWeight(600).TextColor(p.Foreground)

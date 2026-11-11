@@ -71,6 +71,14 @@ func nativeIcon(name string) *ui.SVG {
 	return icon
 }
 
+// nativeIconOr is the named icon, or fallback for none or an unknown name.
+func nativeIconOr(name string, fallback *ui.SVG) *ui.SVG {
+	if icon := nativeIcon(name); icon != nil {
+		return icon
+	}
+	return fallback
+}
+
 func nativeText(view *ui.Context, text string) ui.Element {
 	return ui.Text(view, text).FontSize(14)
 }

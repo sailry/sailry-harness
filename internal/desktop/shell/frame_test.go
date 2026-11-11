@@ -2,6 +2,8 @@ package shell
 
 import (
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -152,7 +154,155 @@ func TestPanelLauncherStartsAtTop(t *testing.T) {
 	}
 }
 
+// sessionsShown reports whether the session sidebar shows: its New session
+// button and the "+" of its Chats group, in the column beside the rail.
+func sessionsShown(tt *ui.Tester) bool {
+	var button, plus bool
+	for _, info := range tt.AccessAll() {
+		if info.Role != ui.RoleButton || info.Bounds.X < RailWidth || info.Bounds.X >= RailWidth+NavMax {
+			continue
+		}
+		button = button || info.Name == i18n.In("en", "conversation")
+		plus = plus || info.Name == i18n.In("en", "workspace_new_session")
+	}
+	return button && plus
+}
+
+// headerButton finds a button of the header's band by its name, apart from
+// controls of the same name below it.
+func headerButton(tt *ui.Tester, name string) (ui.AccessInfo, bool) {
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleButton && info.Name == name && b.W > 0 && b.Y+b.H <= HeaderHeight {
+			return info, true
+		}
+	}
+	return ui.AccessInfo{}, false
+}
+
+// Each page owns its side column: the sessions beside the conversation and
+// the host and project pages opened from it, the sections beside Settings,
+// none beside the other pages, whose header has no toggle and where ⌘B
+// leaves the saved choice.
+func testSideColumns(t *testing.T) {
+	a, tt := newTester(t)
+	toggle := i18n.In("en", "sidebar_toggle")
+	pages := []struct {
+		name             string
+		open             func()
+		sessions, column bool
+	}{
+		{"files", func() { a.Navigate(FilesPage) }, false, false},
+		{"conversation", func() { a.Navigate(ConversationPage) }, true, true},
+		{"git", func() { a.Navigate(GitPage) }, false, false},
+		{"host", func() { a.openHost("remote", false) }, true, true},
+		{"activity", func() { a.Navigate(ActivityPage) }, false, false},
+		{"project", func() { a.OpenProject(a.Data.Projects[0], ProjectActions{}) }, true, true},
+		{"market", func() { a.Navigate(MarketPage) }, false, false},
+		{"settings", func() { a.Navigate(SettingsPage) }, false, true},
+		{"notifications", func() { a.Navigate(NotificationsPage) }, false, false},
+	}
+	for _, p := range pages {
+		p.open()
+		// One frame: the destination shows settled, with no motion.
+		tt.Frame()
+		button, shown := headerButton(tt, toggle)
+		if a.HasNavigation() != p.column || shown != p.column || a.NavShown() != p.column {
+			t.Errorf("%s: side column %v, toggle %v, want %v", p.name, a.HasNavigation(), shown, p.column)
+		}
+		if got := sessionsShown(tt); got != p.sessions {
+			t.Errorf("%s: session sidebar shown %v, want %v", p.name, got, p.sessions)
+		}
+		if shown && (button.Bounds.X < RailWidth+NavWidth+11 || button.Bounds.X > RailWidth+NavWidth+13) {
+			t.Errorf("%s: the page starts at %v on its first frame, want past the open column", p.name, button.Bounds.X)
+		}
+		if !a.NavOpen {
+			t.Fatalf("%s: the saved choice closed", p.name)
+		}
+		tt.Key(ui.Cmd, ui.KeyB)
+		settle(tt)
+		if a.NavOpen == p.column {
+			t.Errorf("%s: ⌘B left the choice open %v with a side column %v", p.name, a.NavOpen, p.column)
+		}
+		if p.column {
+			if sessionsShown(tt) || a.NavShown() {
+				t.Errorf("%s: ⌘B kept the column", p.name)
+			}
+			button, _ = headerButton(tt, toggle)
+			tt.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
+			settle(tt)
+			if !a.NavOpen || sessionsShown(tt) != p.sessions {
+				t.Errorf("%s: the toggle did not bring the column back", p.name)
+			}
+		}
+	}
+	// A closed choice stays closed across a page without a column, and the
+	// page's breadcrumb leads back to the conversation with the column open.
+	a.Navigate(ConversationPage)
+	a.NavOpen = false
+	settle(tt)
+	a.Navigate(FilesPage)
+	tt.Frame()
+	if a.NavOpen || a.Prefs().NavOpen || sessionsShown(tt) {
+		t.Errorf("Files changed the closed choice: %v", a.NavOpen)
+	}
+	a.Navigate(ConversationPage)
+	tt.Frame()
+	if button, ok := headerButton(tt, toggle); !ok || a.NavOpen || sessionsShown(tt) || button.Bounds.X > RailWidth+13 {
+		t.Errorf("the conversation came back with open %v, toggle %v", a.NavOpen, button.Bounds)
+	}
+	a.Navigate(FilesPage)
+	tt.Frame()
+	crumb := false
+	for _, info := range tt.AccessAll() {
+		if info.Name == "sailry-go" && info.Bounds.Y+info.Bounds.H <= HeaderHeight && info.Bounds.W > 0 {
+			tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+			crumb = true
+			break
+		}
+	}
+	settle(tt)
+	if !crumb || a.Page != ConversationPage || !a.NavOpen || !sessionsShown(tt) {
+		t.Errorf("the project crumb (found %v) left page %d, open %v", crumb, a.Page, a.NavOpen)
+	}
+	// The saved state is one choice and one width, as before: a page
+	// without a column saves and restores them untouched, and a file from
+	// before pages owned their columns loads.
+	a.NavWidth = 300
+	a.Navigate(MarketPage)
+	tt.Frame()
+	dir := t.TempDir()
+	if err := SavePrefs(dir, a.Prefs()); err != nil {
+		t.Fatal(err)
+	}
+	b := New(preview.Load())
+	b.SetPrefs(LoadPrefs(dir))
+	if !b.NavOpen || b.NavWidth != 300 {
+		t.Errorf("the choice did not come back from a page without a column: %+v", b.Prefs())
+	}
+	if err := os.WriteFile(filepath.Join(dir, PrefsFile), []byte(`{"navWidth":280,"navOpen":false,"panelWidth":420,"panelOpen":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b.SetPrefs(LoadPrefs(dir))
+	if b.NavOpen || b.NavWidth != 280 || !b.PanelOpen || b.PanelWidth != 420 {
+		t.Errorf("an earlier file did not load: %+v", b.Prefs())
+	}
+	bt := ui.NewTesterWith(b.View, 1280, 820, opaque)
+	bt.SetLocale("en")
+	b.Navigate(GitPage)
+	bt.Frame()
+	if _, ok := headerButton(bt, toggle); ok || sessionsShown(bt) {
+		t.Error("the restored app shows a column beside Git")
+	}
+	b.Navigate(ConversationPage)
+	b.toggleNav()
+	settle(bt)
+	if _, ok := headerButton(bt, toggle); !ok || !sessionsShown(bt) {
+		t.Error("the restored app has no sessions beside the conversation")
+	}
+}
+
 func TestSidebarToggleAndPrefs(t *testing.T) {
+	t.Run("side columns", testSideColumns)
 	a, tt := newTester(t)
 	tt.Key(ui.Cmd, ui.KeyB)
 	tt.Advance(time.Second)
@@ -473,5 +623,130 @@ func TestHeaderClearsTrafficLights(t *testing.T) {
 	tt.Frame()
 	if b, _ := tt.Access(i18n.In("en", "sidebar_toggle")); b.Bounds.X >= trafficLights {
 		t.Errorf("in full screen the toggle still starts at %v", b.Bounds.X)
+	}
+	t.Run("icon buttons", testIconButtons)
+}
+
+// The header's icon buttons are one Kit button: 28 square, centred in the
+// band, 8 from their neighbours, with one hover fill; the rail's are 36
+// square, 8 apart. A details toggle that cannot act is disabled.
+func testIconButtons(t *testing.T) {
+	a, tt := newTester(t)
+	toggle, _ := headerButton(tt, i18n.In("en", "sidebar_toggle"))
+	details, _ := headerButton(tt, i18n.In("en", "details"))
+	t.Logf("header buttons: toggle %v, details %v", toggle.Bounds, details.Bounds)
+	for name, b := range map[string]ui.Rect{"toggle": toggle.Bounds, "details": details.Bounds} {
+		if b.W != HeaderButton || b.H != HeaderButton || b.Y != (HeaderHeight-HeaderButton)/2 {
+			t.Errorf("%s is %v, want %v square centred in the %v band", name, b, HeaderButton, HeaderHeight)
+		}
+	}
+	if got := 1280 - (details.Bounds.X + details.Bounds.W); got != 12 {
+		t.Errorf("details ends %v from the edge, want 12", got)
+	}
+	// Their neighbours are one gap away: the title after the toggle, the
+	// preview tag before details.
+	var trail, tag ui.Rect
+	for _, info := range tt.AccessAll() {
+		b := info.Bounds
+		if b.Y+b.H > HeaderHeight || b.W == 0 {
+			continue
+		}
+		if b.X >= toggle.Bounds.X+toggle.Bounds.W && (trail.W == 0 || b.X < trail.X) {
+			trail = b
+		}
+		if end := b.X + b.W; end <= details.Bounds.X && end > tag.X+tag.W {
+			tag = b
+		}
+	}
+	if got := trail.X - (toggle.Bounds.X + toggle.Bounds.W); got != buttonGap {
+		t.Errorf("the title starts %v after the toggle, want %v", got, buttonGap)
+	}
+	if got := details.Bounds.X - (tag.X + tag.W); got != buttonGap {
+		t.Errorf("details starts %v after the preview tag, want %v", got, buttonGap)
+	}
+	// One hover fill: the same box, and so the same number of pixels, on
+	// each, and nothing outside it.
+	tt.Move(640, 400)
+	tt.Frame()
+	rest := tt.Image()
+	fills := map[string]int{}
+	for name, b := range map[string]ui.Rect{"toggle": toggle.Bounds, "details": details.Bounds} {
+		tt.Move(b.X+b.W/2, b.Y+b.H/2)
+		tt.Frame()
+		hovered := tt.Image()
+		fills[name] = changed(rest, hovered, b)
+		around := ui.Rect{X: b.X - 6, Y: b.Y - 6, W: b.W + 12, H: b.H + 12}
+		if outside := changed(rest, hovered, around) - fills[name]; outside != 0 {
+			t.Errorf("%s: its hover changes %d pixels outside its box", name, outside)
+		}
+		if name == "details" {
+			snapshot(t, tt, "header-hover")
+		}
+	}
+	t.Logf("hover fills: %v", fills)
+	scale := rest.Bounds().Dx() / 1280
+	full := HeaderButton * HeaderButton * scale * scale
+	if fills["toggle"] < full/2 || fills["details"] < full/2 {
+		t.Errorf("hover fills %v do not cover the %d pixel boxes", fills, full)
+	}
+	if d := fills["toggle"] - fills["details"]; d > full/10 || d < -full/10 {
+		t.Errorf("hover fills differ: %v", fills)
+	}
+	tt.Move(640, 400)
+	// The host page's metrics toggle is the same button in the same place.
+	a.openHost("remote", false)
+	settle(tt)
+	if metrics, ok := headerButton(tt, i18n.In("en", "details")); !ok || metrics.Bounds != details.Bounds {
+		t.Errorf("the host page's toggle is %v, want %v", metrics.Bounds, details.Bounds)
+	}
+	a.Navigate(ConversationPage)
+	settle(tt)
+	// The rail: every button 36 square in one column, the pinned features
+	// 8 apart from 8 under the band.
+	var rail []ui.Rect
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleButton && b.X+b.W <= RailWidth && b.Y >= HeaderHeight {
+			rail = append(rail, b)
+		}
+	}
+	slices.SortFunc(rail, func(x, y ui.Rect) int { return int(x.Y - y.Y) })
+	if len(rail) < 9 {
+		t.Fatalf("the rail has %d buttons: %v", len(rail), rail)
+	}
+	for i, b := range rail {
+		if b.W != RailButton || b.H != RailButton || b.X != (RailWidth-RailButton)/2 {
+			t.Errorf("rail button %d is %v, want %v square in the middle of the rail", i, b, RailButton)
+		}
+	}
+	for i := range 5 {
+		if want := float32(HeaderHeight + 8 + i*(RailButton+buttonGap)); rail[i].Y != want {
+			t.Errorf("rail button %d is at %v, want %v", i, rail[i].Y, want)
+		}
+	}
+	// Too narrow for the panel beside the conversation, the details toggle
+	// cannot act: it is disabled, not a dimmed button that takes clicks.
+	narrow := New(preview.Load())
+	nt := ui.NewTesterWith(narrow.View, RailWidth+NavWidth+MainMin+PanelMin-40, 820, opaque)
+	nt.SetLocale("en")
+	nt.Frame()
+	info, ok := headerButton(nt, i18n.In("en", "details"))
+	snapshot(t, nt, "details-disabled")
+	if !ok || !info.Disabled {
+		t.Fatalf("the details toggle without room is %+v", info)
+	}
+	nt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+	nt.Frame()
+	if narrow.PanelOpen {
+		t.Error("a disabled details toggle opened the panel")
+	}
+	narrow.NavOpen = false
+	settle(nt)
+	if info, _ := headerButton(nt, i18n.In("en", "details")); info.Disabled {
+		t.Error("the details toggle stays disabled with room for the panel")
+	}
+	clickButton(t, nt, i18n.In("en", "details"))
+	settle(nt)
+	if !narrow.PanelOpen {
+		t.Error("the details toggle did not open the panel")
 	}
 }

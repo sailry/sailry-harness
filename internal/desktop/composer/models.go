@@ -98,9 +98,13 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 		width = narrowChip
 	}
 	if len(ctx.Models) == 0 {
-		label := i18n.T(c, "composer_model_empty")
-		kit.GhostLook(c, ui.ButtonBase(c.Key("model")), false).Label(label).Height(32).PaddingX(12).Gap(8).Radius(16).
-			MaxWidth(width).MinWidth(0).Shrink(1).Disabled(true).Children(func() { ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0) })
+		// model_label without a configuration: the chip reads Select model
+		// and opens the Node's model settings.
+		label := i18n.T(c, "composer_select_model")
+		kit.GhostLook(c, ui.ButtonBase(c.Key("model")), false).Label(label).Height(32).PaddingX(10).Gap(8).Radius(16).
+			MaxWidth(width).MinWidth(0).Shrink(1).Disabled(ctx.Readonly || ctx.SelectModel == nil).
+			Children(func() { ui.Text(c, label).FontSize(14).LineHeight(20.0 / 14).SingleLine().Shrink(1).MinWidth(0) }).
+			OnClick(func() { ctx.SelectModel() })
 		return
 	}
 	team := s.team(ctx)
@@ -120,7 +124,7 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 	for _, f := range append(fast, other...) {
 		label += " · " + f.label
 	}
-	chip := kit.GhostLook(c, ui.ButtonBase(c.Key("model")), s.picker).Label(label).Height(32).PaddingX(12).Gap(8).Radius(16).
+	chip := kit.GhostLook(c, ui.ButtonBase(c.Key("model")), s.picker).Label(label).Height(32).PaddingX(10).Gap(8).Radius(16).
 		MaxWidth(width).MinWidth(0).Shrink(1).Disabled(ctx.Readonly)
 	if team != nil {
 		kit.Tooltip(c, chip, lead)

@@ -219,7 +219,43 @@ receipts and operation outcomes. Client owns observations, ordered projections
 and activity aggregation. Each asynchronous completion retains its original
 scope and generation; it cannot select a newly focused draft or another Node.
 
+## Native components
+
+Package text follows the window's resolved catalog, as the source's
+`rust_i18n::locale()`: the frame reports `i18n.Match(view.Locale())` and every
+mount, manifest label and `messages(locale)` call reads that locale. Packages
+ship their own translations; core adds none.
+
+A `sailry/ui` component is drawn by the control the application's own pages use
+for that concept, at the same sizes and tokens:
+
+| Component | Control |
+|---|---|
+| `SettingsPage` | `kit.Page`, the one centered page column |
+| `SelectField` | `kit.SelectField`, filling its slot |
+| `MenuButton` | `kit.MenuButton` with `kit.SecondaryLook` and a caret |
+| `SegmentedTabs` | `kit.Segmented` (`fill` is `Block`) |
+| `EmptyState`, empty `CardList`, empty `DataTable` | `kit.Result` (`Card` for the dashed list card) |
+| loading `CardList` | a card of `kit.Skeleton` lines |
+| `ModelPopup` trigger | `kit.SecondaryLook`, full width, title and caret |
+| `Button` | `kit.Secondary`; `primary`, `danger` and `ghost` variants are `kit.Primary`, `kit.Danger`, `kit.Ghost`; sizes 20, 24, 32, 36 |
+| searchable header filter | `kit.SelectTrigger` over a query popover |
+
+`CardColumn` and `CardSummary` keep the source widths (128, 192, 48; title from
+96) and text sizes.
+
 ## Deviations
+
+- MyGo does not resolve a child's percentage size along a scrolling axis. The
+  renderer resolves it against the scroll container's previous-frame bounds and
+  builds those children once the viewport is known.
+- `h_auto`, `w_auto`, `flex_initial` and an automatic `flex_basis` set nothing:
+  MyGo's `Auto` height and basis stretch an element to its limit. `truncate` on
+  a container reaches its text children, which MyGo's `SingleLine` does not.
+- `SelectField` is not searchable and `ModelPopup` opens a menu; the source
+  searches the select and opens the model picker popover.
+- `readBrowserSettings` reports an unsupported browser: the host keeps no
+  browser profile, so the Browser page shows the package's unavailable notice.
 
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.

@@ -23,18 +23,8 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	palette := theme.Of(view)
 	switch element.Export {
 	case "SettingsPage":
-		result := ui.Scroll(view).Fill().Children(func() {
-			ui.Column(view).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
-				ui.Column(view).Gap(8).Children(func() {
-					nativeText(view, nativeProp(props, "title", "")).FontSize(18).FontWeight(600)
-					if description := nativeProp(props, "description", ""); description != "" {
-						nativeText(view, description).TextColor(palette.MutedForeground)
-					}
-				})
-				children()
-			})
-		})
-		return result, nil
+		// The application's own settings page: one centered column.
+		return kit.Page(view, identity, nativeProp(props, "title", ""), nativeProp(props, "description", ""), children), nil
 	case "SettingsGroup":
 		var renderErr error
 		first := 0
@@ -74,43 +64,62 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 				return
 			}
 			if nativeProp(props, "loading", false) {
-				ui.Spinner(view)
+				// The reference's loading card: two skeleton lines.
+				kit.Frost(view, ui.Column(view).FillWidth().Padding(24, 16).Gap(12).Radius(palette.RadiusLg).Border(1, palette.Border), palette.Surface, kit.CardTint).Children(func() {
+					kit.Skeleton(view, kit.SkeletonProps{Width: 160, Height: 16})
+					kit.Skeleton(view, kit.SkeletonProps{Width: 256, Height: 16, Secondary: true})
+				})
 				return
 			}
-			if nativeProp(props, "loaded", true) {
-				nativeText(view, nativeProp(props, "empty_label", "")).TextColor(palette.MutedForeground)
+			if label := nativeProp(props, "empty_label", ""); label != "" && nativeProp(props, "loaded", true) {
+				kit.Result(view, kit.ResultProps{Title: label, Icon: nativeIconOr(nativeProp(props, "empty_icon", ""), icons.Inbox), Card: true}).FillWidth()
 			}
 		}), nil
 	case "CardRow":
 		return kit.Frost(view, ui.Row(view).FillWidth().MinWidth(0).Padding(12, 16).Gap(12).Radius(palette.RadiusLg).Border(1, palette.Border), palette.Surface, kit.CardTint).Children(children), nil
 	case "CardColumn":
-		column := ui.Column(view).MinWidth(0).Gap(4)
+		// The reference's column widths: w_32 and w_48 metadata, a w_12
+		// control, a title that takes the rest from min_w_24.
+		column := ui.Column(view).MinWidth(0).Gap(4).FontSize(14)
 		switch nativeProp(props, "variant", "content") {
 		case "leading":
-			column.Width(32).Shrink(0)
+			column.Shrink(0)
 		case "title":
-			column.Grow(1).MinWidth(160)
+			column.Grow(1).Basis(0).MinWidth(96)
 		case "metadata":
-			column.Width(120).Shrink(0)
+			column.Width(128).Shrink(0).TextColor(palette.MutedForeground)
 		case "wide_metadata":
-			column.Width(180).Shrink(0)
+			column.Width(192).Shrink(0).TextColor(palette.MutedForeground)
 		case "control":
-			column.Width(140).Shrink(0)
-		case "inline", "actions":
-			column = ui.Row(view).Shrink(0).Gap(8)
+			column.Width(48).Shrink(0).Center()
+		case "inline":
+			column = ui.Row(view).Shrink(0).Gap(8).FontSize(14).TextColor(palette.MutedForeground)
+		case "actions":
+			gap := float32(8)
+			if nativeProp(props, "spacing", "") == "regular" {
+				gap = 12
+			}
+			column = ui.Row(view).Shrink(0).Gap(gap)
 		default:
-			column.Grow(1)
+			column.Grow(1).Basis(0)
 		}
 		return column.Children(children), nil
 	case "CardSummary":
-		return ui.Row(view).MinWidth(0).Grow(1).Gap(8).Children(func() {
+		return ui.Row(view).MinWidth(0).Grow(1).Basis(0).Gap(12).Children(func() {
 			children()
-			if icon := nativeIcon(nativeProp(props, "icon", "")); icon != nil {
-				ui.Icon(view, icon).Size(20, 20)
-			}
-			ui.Column(view).Grow(1).MinWidth(0).Gap(4).Children(func() {
-				nativeText(view, nativeProp(props, "title", "")).FontWeight(600).SingleLine()
-				nativeText(view, nativeProp(props, "subtitle", "")).TextColor(palette.MutedForeground).MaxLines(2)
+			ui.Column(view).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
+				nativeText(view, nativeProp(props, "title", "")).FontSize(14).SingleLine()
+				subtitle := nativeProp(props, "subtitle", "")
+				icon := nativeIcon(nativeProp(props, "icon", ""))
+				if subtitle == "" && icon == nil {
+					return
+				}
+				ui.Row(view).MinWidth(0).Gap(8).TextColor(palette.MutedForeground).Children(func() {
+					if icon != nil {
+						ui.Icon(view, icon).FontSize(16).Shrink(0)
+					}
+					nativeText(view, subtitle).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
+				})
 			})
 		}), nil
 	case "PanelHeader":
@@ -120,18 +129,38 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 		}
 		return header, nil
 	case "EmptyState":
-		result := ui.Column(view).FillWidth().Center().Gap(16).Padding(24)
-		if nativeProp(props, "fill_height", false) || nativeProp(props, "variant", "panel") == "panel" {
-			result.Grow(1)
+		// Kit's empty state, placed as the reference places its variants: a
+		// panel centers it in the space it is given, a list keeps its own
+		// height, a card frames it.
+		variant := nativeProp(props, "variant", "panel")
+		result := ui.Column(view).FillWidth().MinWidth(0).AlignItems(ui.Center).Justify(ui.Center)
+		switch {
+		case variant == "panel":
+			// The reference's panel is size_full in whatever holds it.
+			result.Fill().Grow(1).MinHeight(0)
+		case nativeProp(props, "fill_height", false):
+			result.Grow(1).HeightPercent(100).MinHeight(0)
 		}
 		if nativeProp(props, "vertical_align", "") == "start" {
 			result.Justify(ui.Start)
 		}
+		if variant == "panel" {
+			// The reference pads the panel 24 and stacks the package's own
+			// children 16 under the state.
+			result.Padding(24).Gap(16)
+		}
 		return result.Children(func() {
-			if icon := nativeIcon(nativeProp(props, "icon", "")); icon != nil {
-				ui.Icon(view, icon).Size(32, 32).TextColor(palette.MutedForeground)
+			state := kit.Result(view, kit.ResultProps{
+				Title: nativeProp(props, "label", ""),
+				Icon:  nativeIconOr(nativeProp(props, "icon", ""), icons.Inbox),
+				Card:  variant == "card",
+			})
+			switch variant {
+			case "panel":
+				state.Padding(0)
+			case "card":
+				state.FillWidth()
 			}
-			nativeText(view, nativeProp(props, "label", "")).TextColor(palette.MutedForeground)
 			children()
 		}), nil
 	case "Loading":
@@ -320,7 +349,8 @@ func (binding *NativeBinding) renderModal(view *ui.Context, element NativeElemen
 						}
 					})
 					if len(element.Children) > 1 {
-						ui.Row(view).FillWidth().Shrink(0).PaddingX(24).Children(func() {
+						// Kit's dialog footer ends its actions at the right.
+						ui.Row(view).FillWidth().Shrink(0).PaddingX(24).Justify(ui.End).Children(func() {
 							if renderErr == nil {
 								renderErr = renderNativeChildren(view, element, element.Children[1:2])
 							}
@@ -388,7 +418,7 @@ func (binding *NativeBinding) renderCollapse(view *ui.Context, element NativeEle
 	result := ui.Column(view).FillWidth().MinWidth(0).Children(func() {
 		heading := ui.Row(view).FillWidth().MinWidth(0)
 		heading.Children(func() {
-			button := kit.Ghost(view, nativeProp(props, "label", ""), false).Grow(1).MinWidth(0).Justify(ui.Start).Height(36)
+			button := kit.Ghost(view, nativeProp(props, "label", ""), false).Grow(1).MinWidth(0).Justify(ui.Start).Height(36).Gap(6)
 			if plain {
 				button.Height(32).PaddingX(4)
 			}

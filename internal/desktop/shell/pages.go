@@ -60,12 +60,17 @@ func (a *App) closable() bool {
 // followSelection goes back to the conversation when the sidebar selects
 // another one over a project page, as selecting a session does in the
 // reference.
+//
+// The sidebar also shows beside a host and a project page, where a click on
+// the selected session's row, or New session reusing the unsent chat, leaves
+// the selection as it is: the sidebar marks those, so they go back too.
 func (a *App) followSelection() {
+	opened := a.Sidebar.TakeShown()
 	switch a.Page {
 	case ConversationPage, SettingsPage:
 		return
 	}
-	if a.Sidebar.Selected != a.shown {
+	if opened || a.Sidebar.Selected != a.shown {
 		a.Page = ConversationPage
 	}
 }

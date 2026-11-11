@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/png"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/MoeForge/moego/base64"
@@ -55,7 +56,22 @@ func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElemen
 	element.RenderChild = mounted.renderElement
 	var result ui.Element
 	var resultErr error
+	parent := mounted.scrollAxes(element)
 	children := func() {
+		mounted.scrolling = append(mounted.scrolling, parent)
+		truncating := mounted.truncating
+		mounted.truncating = truncating || slices.ContainsFunc(element.Styles, func(style ElementStyle) bool {
+			return style.Name == "truncate" || style.Name == "whitespace_nowrap" || style.Name == "text_ellipsis"
+		})
+		defer func() {
+			mounted.scrolling, mounted.truncating = mounted.scrolling[:len(mounted.scrolling)-1], truncating
+		}()
+		if box := mounted.scrollBoxes[parent.id]; (parent.x && box.W == 0 || parent.y && box.H == 0) &&
+			slices.ContainsFunc(element.Children, func(child *NativeElement) bool { return scrollPercentage(child, parent) }) {
+			// The viewport is known a frame after the container first
+			// shows: its content waits for it rather than move once laid out.
+			return
+		}
 		for _, child := range element.Children {
 			if _, err := mounted.renderElement(context, child); err != nil && resultErr == nil {
 				resultErr = err
@@ -106,6 +122,69 @@ func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElemen
 	return result, nil
 }
 
+// scrollAxes reports the axes a package's own container scrolls.
+func (mounted *Mounted) scrollAxes(element *NativeElement) scrollParent {
+	if element.Module != "gpui-kit" && element.Module != "gpui-base" && element.Module != "gpui-component" {
+		return scrollParent{}
+	}
+	var parent scrollParent
+	for _, style := range element.Styles {
+		switch style.Name {
+		case "overflow_scroll", "overflow_scrollbar":
+			parent.x, parent.y = true, true
+		case "overflow_x_scroll", "overflow_x_scrollbar":
+			parent.x = true
+		case "overflow_y_scroll", "overflow_y_scrollbar":
+			parent.y = true
+		}
+	}
+	if parent.x || parent.y {
+		parent.id = mounted.widgetID(element)
+	}
+	return parent
+}
+
+// scrollPercentage reports whether an element sizes itself by a percentage
+// of an axis its parent scrolls.
+func scrollPercentage(element *NativeElement, parent scrollParent) bool {
+	for _, style := range element.Styles {
+		name := style.Name
+		var argument any
+		if len(style.Arguments) > 0 && json.Unmarshal(style.Arguments[0], &argument) != nil {
+			continue
+		}
+		if tail, exists := runtimeScaleStyle(name); exists {
+			name, argument = tail.name, tail.value
+		}
+		horizontal, vertical := false, false
+		switch name {
+		case "w", "min_w", "max_w":
+			horizontal = true
+		case "h", "min_h", "max_h":
+			vertical = true
+		case "size":
+			horizontal, vertical = true, true
+		default:
+			continue
+		}
+		if _, percentage, _, err := runtimeLength(argument); err == nil && percentage && (horizontal && parent.x || vertical && parent.y) {
+			return true
+		}
+	}
+	return false
+}
+
+// scrollViewport is the box a percentage on a scrolling axis of the parent
+// being built resolves against, once that parent has been laid out.
+func (mounted *Mounted) scrollViewport() (box ui.Rect, x, y bool) {
+	if len(mounted.scrolling) == 0 {
+		return ui.Rect{}, false, false
+	}
+	parent := mounted.scrolling[len(mounted.scrolling)-1]
+	box = mounted.scrollBoxes[parent.id]
+	return box, parent.x && box.W > 0, parent.y && box.H > 0
+}
+
 func (mounted *Mounted) renderCapturedImage(context *ui.Context, element *NativeElement) (ui.Element, error) {
 	properties := runtimeProperties(element)
 	resource := runtimeString(properties["path"])
@@ -147,19 +226,39 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 	switch element.Export {
 	case "Text", "Label", "ShimmerText", "Kbd", "TableHead", "TableCell":
 		result = ui.Text(context, label)
+		if mounted.truncating {
+			// MyGo keeps a line to itself on the text, not on its container.
+			result.SingleLine().Shrink(1).MinWidth(0)
+		}
 		if element.Export == "ShimmerText" {
 			result = kit.Shimmer(context, label, 14, theme.Of(context).Foreground)
 		}
 	case "Div", "VFlex", "Form", "VForm", "Table", "TableBody", "AccordionItem", "AccordionPanel", "ResizablePanel":
+		axes := mounted.scrollAxes(element)
 		switch {
-		case runtimeBool(properties["overflow_x_scrollbar"]) || runtimeBool(properties["overflow_x_scroll"]):
-			result = ui.ScrollHorizontal(context)
-		case runtimeBool(properties["overflow_scrollbar"]) || runtimeBool(properties["overflow_scroll"]):
+		case axes.x && axes.y:
 			result = ui.ScrollBoth(context)
-		case runtimeBool(properties["overflow_y_scrollbar"]) || runtimeBool(properties["overflow_y_scroll"]):
+		case axes.x:
+			result = ui.ScrollHorizontal(context)
+		case axes.y:
 			result = ui.Scroll(context)
 		default:
 			result = ui.Column(context)
+		}
+		if axes.x || axes.y {
+			// MyGo leaves a percentage of a scrolling axis unresolved, where
+			// the reference resolves it against the scroll viewport: keep
+			// the viewport for the children to resolve theirs against.
+			box, known := result.LayoutBounds(), false
+			if mounted.scrollBoxes == nil {
+				mounted.scrollBoxes = map[uint64]ui.Rect{}
+			} else {
+				_, known = mounted.scrollBoxes[axes.id]
+			}
+			if !known || box != mounted.scrollBoxes[axes.id] {
+				mounted.scrollBoxes[axes.id] = box
+				context.Invalidate()
+			}
 		}
 	case "HFlex", "ToggleGroup", "TableHeader", "TableRow", "HResizable", "Resizable":
 		result = ui.Row(context)
@@ -181,24 +280,35 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 		result = ui.Column(context)
 	case "Button", "Link", "Tab", "AccordionTrigger":
 		variant := runtimeString(properties["variant"])
+		// labeled is whether the Kit button built its own label.
+		labeled := true
 		switch {
 		case variant == "primary" || runtimeBool(properties["primary"]):
 			result = kit.Primary(context, label, runtimeBool(properties["disabled"]))
+			labeled = false
 		case variant == "outline" || runtimeBool(properties["outline"]) || runtimeBool(properties["secondary"]):
 			result = kit.Secondary(context, label)
 		case variant == "danger" || runtimeBool(properties["danger"]):
 			result = kit.Danger(context, label)
 		case runtimeBool(properties["success"]):
 			result = kit.Primary(context, label, runtimeBool(properties["disabled"])).Background(theme.Of(context).Success)
+			labeled = false
 		case runtimeBool(properties["warning"]):
 			result = kit.Primary(context, label, runtimeBool(properties["disabled"])).Background(theme.Of(context).Warning)
+			labeled = false
 		case runtimeBool(properties["link"]):
 			result = kit.Ghost(context, label, false).TextColor(theme.Of(context).Link)
-		default:
+			labeled = false
+		case element.Export != "Button" || runtimeBool(properties["ghost"]) || runtimeBool(properties["text"]) || variant == "ghost":
 			result = kit.Ghost(context, label, runtimeBool(properties["selected"])).Padding(6, 10)
+			labeled = false
+		default:
+			// The reference's Button without a variant is Kit's default
+			// button, as the application's own secondary actions.
+			result = kit.Secondary(context, label)
 		}
-		if len(element.Children) == 0 && label != "" {
-			result.Children(func() { ui.Text(context, label).SingleLine() })
+		if !labeled && len(element.Children) == 0 && label != "" {
+			result.Children(func() { ui.Text(context, label).FontSize(14).SingleLine() })
 		}
 	case "Checkbox", "Radio", "Toggle", "Switch":
 		identifier := mounted.widgetID(element)

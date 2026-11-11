@@ -176,6 +176,9 @@ func (r *Runtime) session(id string) (protocol.Session, bool) {
 }
 
 func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *composer.State) (*composer.Context, shell.ConversationActions) {
+	if root := r.localRuntime(); unsentDraft(cv) && root.draftsShown != nil {
+		root.draftsShown[cv.ID] = true
+	}
 	if owner := r.conversationRuntime(cv, comp); owner == nil {
 		cv.Session.Connection = conversation.Offline
 		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue},
@@ -324,7 +327,16 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		selectedEffort = comp.EffortName(nil, chosen)
 	}
 	teamUnsettled := r.teams != nil && r.teams.composers[cv.ID] != nil && (r.teams.composers[cv.ID].saving || r.teams.composers[cv.ID].pending != nil)
-	if config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: selectedEffort}); err == nil && !ctx.Readonly && !teamUnsettled {
+	config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: selectedEffort})
+	// A new turn needs a configured model and no creation under way; the
+	// running reply's guidance uses that turn's.
+	ctx.SendBlocked = !comp.Running && (err != nil || r.conversationCreating[cv.ID])
+	ctx.SelectModel = func() {
+		root := r.localRuntime()
+		root.App.Settings.Open(settings.Providers)
+		root.App.Navigate(shell.SettingsPage)
+	}
+	if err == nil && !ctx.Readonly && !teamUnsettled {
 		encoded, _ := json.Marshal(config)
 		key := string(encoded)
 		if before, seen := r.composerObserved[cv.ID]; seen && before != key && !r.composerSaving[cv.ID] {

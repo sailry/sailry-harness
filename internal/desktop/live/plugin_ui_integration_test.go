@@ -271,6 +271,16 @@ func TestPluginUIIntegration(t *testing.T) {
 			t.Fatal("native Files/Git were also mounted through the plugin runtime")
 		}
 	}
+	t.Run("bundled plugin pages", func(t *testing.T) {
+		auditPluginPages(t, runtime, func(ctx context.Context, command protocol.Command) protocol.Output {
+			t.Helper()
+			output, err := controller.Do(ctx, command)
+			if err != nil {
+				t.Fatalf("%s: %v", command.Kind, err)
+			}
+			return output
+		})
+	})
 }
 
 type pluginUITransport struct {

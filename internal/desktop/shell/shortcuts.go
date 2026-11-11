@@ -196,7 +196,7 @@ func (a *App) run(c *ui.Context, id string) {
 			a.openSearch()
 		}
 	case "sidebar.toggle":
-		a.NavOpen = !a.NavOpen
+		a.toggleNav()
 	case "panel.toggle":
 		a.togglePanel()
 	case "conversation.previous", "conversation.next":

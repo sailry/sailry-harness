@@ -29,8 +29,8 @@ var Efforts = []string{"minimal", "low", "medium", "high", "xhigh"}
 const Width = theme.ContentWidth
 
 // Widths under which the toolbar folds: below compactWidth mode, permission
-// and the model go into the settings popover; below iconWidth the context bar
-// shows icons alone.
+// and the model go into the settings popover; below iconWidth the context
+// bar's project and worktree go there too.
 const (
 	compactWidth = 680
 	iconWidth    = 440
@@ -55,8 +55,9 @@ type State struct {
 	// UsageBar), nil for none: compact below compactWidth, its popover
 	// open while *open is true.
 	Metrics func(c *ui.Context, compact bool, open *bool)
-	// Indicator builds the context ring left of the model chip
-	// (conversation ContextRing), nil for none.
+	// Indicator builds the preview's context ring left of the model chip
+	// (conversation ContextRing), nil for none. A live session's rings are
+	// Context.Indicators.
 	Indicator func(c *ui.Context)
 
 	Mode         Mode
@@ -174,22 +175,32 @@ func (s *State) sendable() bool {
 	return true
 }
 
+// deliverable reports whether the draft may go now: it has input, its files
+// are on the host, and nothing holds it (send_blocked). A draft that would
+// start a turn needs a model to run it; one that joins the running reply
+// uses that turn's.
+func (s *State) deliverable(ctx *Context) bool {
+	return s.hasInput() && s.sendable() && !ctx.Readonly && !ctx.SendBlocked && (s.Running || len(ctx.Models) > 0)
+}
+
 // View builds the composer: the capsules of what the run waits on, the
 // queue strip, the input surface with its chips, draft and toolbar, and
 // the context bar. The page builds it under the transcript.
 func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 	// submit sends the draft, or guides the running reply with it
-	// (Delivery::enter).
-	submit := func() {
-		if s.hasInput() && s.sendable() && !ctx.Readonly {
-			msg := s.message(ctx)
-			s.clear()
-			if s.Running {
-				actions.Guide(msg)
-			} else {
-				actions.Send(msg)
-			}
+	// (Delivery::enter), and reports whether it went.
+	submit := func() bool {
+		if !s.deliverable(ctx) {
+			return false
 		}
+		msg := s.message(ctx)
+		s.clear()
+		if s.Running {
+			actions.Guide(msg)
+		} else {
+			actions.Send(msg)
+		}
+		return true
 	}
 	s.syncReferences()
 	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
@@ -210,7 +221,7 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 // surface is padding 12, radius_2xl, muted, the package's border width in the
 // input border color and its corner art; files dropped on it attach, tinting
 // it while they are over it (drop_target).
-func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit func()) ui.Element {
+func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit func() bool) ui.Element {
 	p := theme.Of(c)
 	surface := kit.Frost(c, ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), p.Muted, kit.SurfaceTint)
 	if v := p.Variant; v != nil {
@@ -245,7 +256,7 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 // breaks the line, Tab queues it while a reply runs, Up puts the last message
 // back in an empty draft or moves the picker, and the picker takes Down, Tab,
 // Enter and Escape while it shows.
-func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func()) {
+func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func() bool) {
 	p := theme.Of(c)
 	area := ui.TextAreaBase(c.Key("draft"), &s.Draft).Label(i18n.T(c, "composer")).Placeholder(i18n.T(c, "composer")).
 		PlaceholderColor(p.MutedForeground).Lines(2, 6).FontSize(14).LineHeight(1.5).TextColor(p.Foreground).
@@ -287,8 +298,7 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 				if id := promotable(ctx); id != "" {
 					actions.SendQueued(id)
 				}
-			case s.sendable() && !ctx.Readonly:
-				submit()
+			case submit():
 				k.SetText("")
 			}
 			return true
@@ -296,6 +306,9 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 			// Delivery::Queue: Tab sends the draft to the queue.
 			if !s.hasInput() || ctx.Readonly {
 				return false
+			}
+			if ctx.SendBlocked || !s.Running && len(ctx.Models) == 0 {
+				return true
 			}
 			msg := s.message(ctx)
 			k.SetText("")
@@ -322,9 +335,10 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 }
 
 // toolbar is attach, then the settings popover when compact, mode and
-// permission; at the end the context indicator, the model chip, dictation,
-// and send or stop (hidden while dictating, unless a reply runs).
-func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit func()) {
+// permission; at the end, which wraps under them when it does not fit, the
+// rings, the model chip unless compact, dictation, and send or stop (hidden
+// while dictating, unless a reply runs). Everything is 4 apart.
+func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit func() bool) {
 	compact := s.width > 0 && s.width < compactWidth
 	ui.Row(c.Key("toolbar")).FillWidth().MinWidth(0).MinHeight(32).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("start")).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
@@ -336,10 +350,11 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 				s.modeMenu(c, ctx)
 				s.permissionMenu(c, ctx)
 			}
+			s.indicators(c, ctx, true)
 			s.renderPluginControls(c, "composer")
 		})
-		ui.Spacer(c)
-		ui.Row(c.Key("end")).Gap(4).AlignItems(ui.Center).MinWidth(0).Shrink(1).Children(func() {
+		ui.Row(c.Key("end")).Gap(4).Wrap().Justify(ui.End).AlignItems(ui.Center).MinWidth(0).Shrink(1).Margin(0, 0, 0, ui.Auto).Children(func() {
+			s.indicators(c, ctx, false)
 			if s.Indicator != nil {
 				s.Indicator(c)
 			}
@@ -355,7 +370,10 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 	})
 }
 
-func (s *State) sendButton(c *ui.Context, ctx *Context, submit, stop func()) {
+// sendButton is the round primary action, 32 across: the arrow sends, the
+// square stops the running reply. Send looks disabled and does nothing while
+// the draft is not deliverable.
+func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop func()) {
 	v := theme.Of(c).Variant
 	if s.Running {
 		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), ctx.Readonly).Disabled(ctx.Readonly).Size(32, 32).PaddingX(0).Radius(16)
@@ -366,13 +384,13 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit, stop func()) {
 		b.Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
-	blocked := !s.hasInput() || !s.sendable() || ctx.Readonly
+	blocked := !s.deliverable(ctx)
 	b := kit.Primary(c.Key("send"), i18n.T(c, "send"), blocked).Size(32, 32).PaddingX(0).Radius(16)
 	if v != nil {
 		action(b, v.Composer.Send, blocked)
 	}
 	kit.Tooltip(c, b, i18n.T(c, "send"))
-	b.Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+	b.Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(func() { submit() })
 }
 
 // action paints send or stop in the package's colors; disabled, the button
@@ -394,13 +412,14 @@ func action(b ui.Element, a *theme.Action, disabled bool) {
 	}
 }
 
-// contextBar is under the surface: the host, the project and the worktree,
-// then the usage at its end. Wide, both wrap; compact, they stay on one line
-// and the usage is one button.
+// contextBar is under the surface: the project and the worktree, then the
+// usage at its end. Wide, both wrap; compact, they stay on one line and the
+// usage is one button; below the icon width the location is in the settings
+// popover and the bar keeps the usage alone.
 func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
 	compact := s.width > 0 && s.width < compactWidth
-	icon := s.width > 0 && s.width < iconWidth
+	narrow := s.width > 0 && s.width < iconWidth
 	bar := ui.Row(c.Key("context")).MinHeight(32).MinWidth(0).MarginX(12).Padding(4, 8).Gap(4).TextColor(p.MutedForeground).
 		AlignItems(ui.Center)
 	if !compact {
@@ -412,8 +431,10 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 			location.Wrap()
 		}
 		location.Children(func() {
-			s.projectButton(c, ctx, actions, icon)
-			s.worktreeMenu(c, ctx, actions, icon)
+			if !narrow {
+				s.projectButton(c, ctx, actions, toolbarForm)
+				s.worktreeMenu(c, ctx, actions, toolbarForm)
+			}
 			s.renderPluginControls(c, "context")
 		})
 		s.renderPluginControls(c, "statistics")

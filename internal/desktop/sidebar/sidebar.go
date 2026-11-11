@@ -5,6 +5,7 @@ package sidebar
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -34,9 +35,16 @@ type State struct {
 	Metrics  *Metrics
 	records  recordsState
 	Selected string // conversation ID
-	open     map[string]*bool
-	more     map[string]bool
-	created  int
+	// Showing is whether the page shown is the selected conversation, which
+	// the shell sets each frame. Over another page (a host, a project) the
+	// sidebar's rows and New session lead back to the conversation.
+	Showing bool
+	// shown is set when the sidebar opens a conversation, also the selected
+	// one; the shell takes it to go back to the conversation.
+	shown   bool
+	open    map[string]*bool
+	more    map[string]bool
+	created int
 
 	renaming         string // the conversation renamed in place
 	draft            string // its title as typed
@@ -183,7 +191,7 @@ func (s *State) Order() []string {
 func View(c *ui.Context, s *State) {
 	s.drawn = false
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
-		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
+		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), s.AtDraft()).FillWidth()
 		kit.NewSessionArt(c, b).Children(func() {
 			ui.Icon(c, icons.Plus).FontSize(16)
 			ui.Text(c, i18n.T(c, "conversation")).FontSize(14).SingleLine()
@@ -197,7 +205,7 @@ func View(c *ui.Context, s *State) {
 				})
 			})
 		}
-		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat}, func() {
+		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat, s.AtDraft()}, func() {
 			list := listed(s.Data.Unassigned)
 			if len(list) == 0 {
 				empty(c, "project_sessions_empty")
@@ -207,7 +215,7 @@ func View(c *ui.Context, s *State) {
 				s.conversation(c, cv, rowPlain)
 			})
 		})
-		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }}, func() {
+		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }, false}, func() {
 			if len(s.Data.Projects) == 0 {
 				empty(c, "connection_no_projects")
 				return
@@ -234,8 +242,9 @@ func empty(c *ui.Context, key string) {
 
 // add is a group header's "+" button.
 type add struct {
-	label string // i18n key
-	run   func()
+	label    string // i18n key
+	run      func()
+	disabled bool
 }
 
 // groupIcons are the theme's icon.group.* slots of the groups; pinned
@@ -270,7 +279,7 @@ func section(c *ui.Context, s *State, key, title string, plus *add, body func())
 			})
 			if plus != nil {
 				b := kit.IconButton(c.Key("add"), icons.Plus, i18n.T(c, plus.label), 20, false).TextColor(muted).
-					Margin(0, 4, 0, 0).OnClick(plus.run)
+					Margin(0, 4, 0, 0).Disabled(plus.disabled).OnClick(plus.run)
 				if !hovered && !b.Hovered() && !b.FocusVisible() {
 					b.Opacity(0)
 				}
@@ -414,7 +423,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			}
 			ui.Text(c, ageAt(c, cv.Updated, now)).FontSize(12).SingleLine().TextColor(p.MutedForeground.Alpha(0.6))
 		}
-	}).OnClick(func() { s.Selected = cv.ID })
+	}).OnClick(func() { s.show(cv.ID) })
 	if b.DoubleClicked() {
 		s.StartRename(cv)
 	}
@@ -557,8 +566,57 @@ func ageAt(c *ui.Context, t, now time.Time) string {
 	return i18n.T(c, "sidebar_age_days", "count", int(d.Hours()/24))
 }
 
-// NewChat starts an empty chat without a project, in memory only.
+// show opens a conversation from the sidebar: it selects it and, for the
+// shell, marks that the conversation is to show, also when it is the
+// selected one behind a host or project page.
+func (s *State) show(id string) {
+	s.Selected, s.shown = id, true
+}
+
+// TakeShown reports, once, whether the sidebar opened a conversation since
+// the last call.
+func (s *State) TakeShown() bool {
+	shown := s.shown
+	s.shown = false
+	return shown
+}
+
+// unsent reports whether a conversation is a new one nothing was sent in:
+// the reference's single draft. A live draft is the runtime's, under its
+// "draft/" ID; a saved session without a title is not one.
+func (s *State) unsent(cv *preview.Conversation) bool {
+	if cv.Title != "" || len(cv.Turns) != 0 || cv.Status != preview.Idle || cv.Archived {
+		return false
+	}
+	return s.Actions == nil || strings.HasPrefix(cv.ID, "draft/")
+}
+
+// unsentIn returns the unsent conversation of a list, nil for none.
+func (s *State) unsentIn(list []*preview.Conversation) *preview.Conversation {
+	for _, cv := range list {
+		if s.unsent(cv) {
+			return cv
+		}
+	}
+	return nil
+}
+
+// AtDraft reports whether the page shows the unsent chat New session would
+// open. New session cannot act then, so its buttons are disabled.
+func (s *State) AtDraft() bool {
+	cv := s.unsentIn(s.Data.Unassigned)
+	return s.Showing && cv != nil && cv.ID == s.Selected
+}
+
+// NewChat opens an empty chat without a project, in memory only: the unsent
+// one when there is one, as the reference keeps a single draft, otherwise a
+// new one.
 func (s *State) NewChat() {
+	if cv := s.unsentIn(s.Data.Unassigned); cv != nil {
+		s.show(cv.ID)
+		return
+	}
+	s.shown = true
 	if s.Actions != nil && s.Actions.NewDraft != nil {
 		s.Actions.NewDraft(nil)
 		return
@@ -569,8 +627,15 @@ func (s *State) NewChat() {
 	s.Selected = cv.ID
 }
 
-// newIn starts an empty conversation in a project, in memory only.
+// newIn opens an empty conversation in a project, in memory only: its
+// unsent one when it has one, otherwise a new one.
 func (s *State) newIn(pr *preview.Project) {
+	if cv := s.unsentIn(pr.Conversations); cv != nil {
+		*s.opened("project/" + pr.ID) = true
+		s.show(cv.ID)
+		return
+	}
+	s.shown = true
 	if s.Actions != nil && s.Actions.NewDraft != nil {
 		s.Actions.NewDraft(pr)
 		return

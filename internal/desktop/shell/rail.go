@@ -149,7 +149,7 @@ func (a *App) rail(c *ui.Context) {
 				continue
 			}
 			label := i18n.T(c, f.Label)
-			kit.IconButton(c.Key(f.ID), f.Icon, label, 36, a.selectedFeature() == f.ID).OnClick(func() { a.openFeature(c, f.ID) })
+			kit.IconButton(c.Key(f.ID), f.Icon, label, RailButton, a.selectedFeature() == f.ID).OnClick(func() { a.openFeature(c, f.ID) })
 		}
 		a.moreButton(c)
 		ui.Spacer(c)
@@ -158,9 +158,9 @@ func (a *App) rail(c *ui.Context) {
 			transfers.Button(c, a.installs, &a.installsOpen, func(transfers.Entry) { a.notice(c) })
 		}
 		a.hostPicker(c)
-		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), 36, a.search.open).
+		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open).
 			OnClick(func() { a.openSearch() })
-		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), 36, a.Page == SettingsPage).
+		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage).
 			OnClick(func() { a.Navigate(SettingsPage) })
 	})
 }
@@ -174,7 +174,7 @@ type featureDrag struct{ id string }
 func (a *App) moreButton(c *ui.Context) {
 	p := theme.Of(c)
 	label := i18n.T(c, "features_all")
-	b := kit.IconButton(c.Key("more"), icons.Ellipsis, label, 36, a.more).OnClick(func() { a.more = !a.more })
+	b := kit.IconButton(c.Key("more"), icons.Ellipsis, label, RailButton, a.more).OnClick(func() { a.more = !a.more })
 	b.HasPopup(ui.PopupMenu).Expanded(a.more)
 	panel := kit.Popover(c, b, &a.more, func() {
 		ui.Scroll(c.Key("features")).Gap(1).Children(func() {
@@ -275,7 +275,7 @@ func (a *App) hostPicker(c *ui.Context) {
 		update = update || h.Update
 	}
 	b := kit.MenuButton(c.Key("hosts"), "hosts", func(b ui.Element) {
-		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", 36, a.Page == HostPage)
+		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", RailButton, a.Page == HostPage)
 	}, func(m *kit.Menu) {
 		for _, h := range a.Data.Hosts {
 			// No trailing Update: the host's page offers it, and the

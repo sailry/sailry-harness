@@ -30,9 +30,16 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 			if label, ok := argument.(string); ok {
 				sizes := map[string]float32{"xsmall": 12, "small": 16, "medium": 20, "large": 24}
 				if size, exists := sizes[label]; exists {
-					if element.Export == "Icon" {
+					switch element.Export {
+					case "Icon":
 						target.Size(size, size)
-					} else {
+					case "Button":
+						// Kit's button heights: 20, 24, 32 and 36.
+						target.Height(map[string]float32{"xsmall": 20, "small": 24, "medium": 32, "large": 36}[label])
+						if size < 20 {
+							target.PaddingX(8)
+						}
+					default:
 						target.MinHeight(size + 12)
 					}
 					continue
@@ -52,7 +59,35 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 				return err
 			}
 			if automatic {
-				value = ui.Auto
+				// An automatic size is the element's own, as it is unset:
+				// MyGo's Auto on a size stretches it to its limit instead.
+				continue
+			}
+			if viewport, x, y := mounted.scrollViewport(); percentage && (x || y) {
+				// A percentage of a scrolling axis, which MyGo leaves
+				// unresolved, is that share of the scroll viewport.
+				horizontal := name == "w" || name == "min_w" || name == "max_w"
+				if name == "size" {
+					if x {
+						target.Width(viewport.W * value / 100)
+					} else {
+						target.WidthPercent(value)
+					}
+					if y {
+						target.Height(viewport.H * value / 100)
+					} else {
+						target.HeightPercent(value)
+					}
+					continue
+				}
+				if horizontal && x || !horizontal && y {
+					percentage = false
+					if horizontal {
+						value = viewport.W * value / 100
+					} else {
+						value = viewport.H * value / 100
+					}
+				}
 			}
 			if percentage {
 				switch name {
@@ -148,7 +183,9 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 		case "flex_none":
 			target.Grow(0).Shrink(0)
 		case "flex_initial":
-			target.Grow(0).Shrink(1).Basis(ui.Auto)
+			// The basis stays the element's own size: MyGo's Auto on a
+			// basis stretches it to its limit instead.
+			target.Grow(0).Shrink(1)
 		case "flex_grow":
 			if argument == nil {
 				value = 1
@@ -160,6 +197,9 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 			}
 			target.Shrink(value)
 		case "flex_basis":
+			if automatic {
+				continue
+			}
 			if percentage {
 				target.BasisPercent(value)
 			} else {

@@ -37,13 +37,17 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 		})
 		pad := max(lights-left, 0) + 12
-		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(8).Children(func() {
-			icon := icons.PanelLeftClose
-			if !a.NavOpen {
-				icon = icons.PanelLeftOpen
+		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(buttonGap).Children(func() {
+			// The toggle belongs to the side column: a page without one shows
+			// none, as the reference's module header.
+			if a.HasNavigation() {
+				icon := icons.PanelLeftClose
+				if !a.NavOpen {
+					icon = icons.PanelLeftOpen
+				}
+				kit.IconButtonHint(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), a.hint("sidebar.toggle"), HeaderButton, false).
+					OnClick(a.toggleNav)
 			}
-			kit.IconButtonHint(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), a.hint("sidebar.toggle"), 28, false).
-				OnClick(func() { a.NavOpen = !a.NavOpen })
 			a.trail(c)
 			ui.Spacer(c)
 			if a.Hooks.PluginHeader != nil {
@@ -63,11 +67,10 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 			if a.Page == ConversationPage || a.Page == HostPage {
 				label := i18n.T(c, "details")
-				b := kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), 28, f.showsPanel).OnClick(a.togglePanel)
-				if !f.fitted {
-					// Too narrow: the panel stays chosen and shows when there is room.
-					b.Opacity(0.5)
-				}
+				// Too narrow: the panel stays chosen and shows when there is room.
+				// Until then the button cannot act, so it is disabled.
+				kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), HeaderButton, f.showsPanel).
+					Disabled(!f.fitted).OnClick(a.togglePanel)
 			}
 		})
 	})
@@ -110,10 +113,12 @@ func (a *App) trail(c *ui.Context) {
 			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 			return
 		}
-		// A project page: the project, revealing its rows, and the page.
+		// A project page: the project and the page. The page has no side
+		// column, so the project goes back to the conversation with its rows
+		// revealed there.
 		chosen := -1
 		if ui.Breadcrumbs(c.Key("trail"), []string{pr.Name, label}, &chosen).Label(i18n.T(c, "projects")).Shrink(1).MinWidth(0).FontSize(14).Changed() && chosen == 0 {
-			a.NavOpen = true
+			a.Page, a.NavOpen = ConversationPage, true
 			a.Sidebar.Reveal(pr.ID)
 		}
 		return

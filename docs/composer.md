@@ -1,7 +1,8 @@
 # Composer
 
 B3 live construction permits an empty model catalog. `Chosen` returns an empty
-model and the existing model chip displays `composer_model_empty` while disabled.
+model, the model chip reads `composer_select_model` and opens the Node's model
+settings through `Context.SelectModel`, and Send is disabled.
 Live adapters supply models and submission actions from the execution Node;
 an unavailable catalog never seeds a fixture model or starts work.
 
@@ -33,6 +34,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `dictation.go` | Dictation button and level meter |
 | `interactions.go` | Interactions contract, `Actions`, approval and question capsules |
 | `activity.go` | The activity strip: Git changes, plugin Status badges, task progress, background commands and ports, running subagents |
+| `indicator.go` | `Indicator`, the toolbar's progress rings and the `Ring` drawing |
 
 ## Entry point
 
@@ -60,8 +62,11 @@ rebuilt each frame from backend data.
 | `Context.Files`, `Entry{Name, Path, Size, Modified, Mime, Children}` | The file picker's root folder; nil disables attaching |
 | `Context.Last` | Up in an empty draft recalls it |
 | `Context.Readonly` | Disables input and controls |
+| `Context.Indicators`, `Indicator{ID, Percent, Loading, Tone, Hint, Start, Panel, Open, Toggle, Disabled}` | The toolbar's progress rings in order (below); empty for a draft without a session |
+| `Context.SendBlocked` | Holds Send, Enter and Tab although the draft has input: the Node is away, the project or worktree is unavailable, a request is under way |
+| `Context.SelectModel` | Opens the Node's model settings from the Select model chip while `Models` is empty; nil disables that chip |
 | `Context.Interactions` | Approvals and the question (below) |
-| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame |
+| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame; `Indicator` builds the preview's ring, a live session's are `Context.Indicators` |
 | `State.Draft`, `Model`, `Effort`, `Mode`, `Permission`, `Features`, `Team`, `Host`, `Project`, `Worktree`, `References` | Choices, read through `Message` on send |
 | `State.Attachments`, `Attachment{ID, Name, Mime, Size, Image, Path, Data, Status, Progress, Error}` | Draft files; the backend moves `Status` (`Preparing`, `Sending`, `Publishing`, `Ready`, `Failed`, `Uncertain`, `Removing`) and `Progress`; send waits for all `Ready`; at most `MaxAttachments` (8) |
 | `State.Dictation{Phase, Levels}` | `Idle`, `PreparingSpeech`, `Recording` (levels 0…1), `Transcribing` |
@@ -90,6 +95,91 @@ rebuilt each frame from backend data.
 - Question: the prompt (medium), choices 12 apart, the free answer, then
   Decline (when `Declinable`), `interaction_cancel` and `interaction_submit`
   (disabled until there is an answer). A new question ID starts a new draft.
+
+## Toolbar and context bar
+
+The reference is `conversation/live/composer.rs`, `composer/compact.rs`,
+`context.rs`, `model_controls/mod.rs`, `theme.rs` (`subtle_button`,
+`send_button`) and `plugins/contributions/controls/indicator.rs`.
+
+The toolbar is one wrapping row, at least 32 high, its children 4 apart:
+
+| Group | Wide (680 and up) | Compact (under 680) |
+|---|---|---|
+| Start | Attach, mode, permission, start-aligned rings, the packages' composer controls | Attach, the settings button, start-aligned rings, the packages' composer controls |
+| End, pushed to the right and wrapping under the start when it does not fit | Rings, the model chip, dictation, send or stop | Rings, dictation, send or stop |
+
+- Attach, the settings button, dictation and send are round, 32 across, with a
+  16 icon. Mode, permission and the model chip are `subtle`: Kit's default
+  button, 32 high, 10 at each end, the icon 8 before the label, round, accent
+  on hover, `secondary_active` pressed. Permission is the warning color for
+  project access and the danger color for full access, and has its label as
+  tooltip; mode has none.
+- The model chip is at most 260 wide: the provider's initials tag, the Fast
+  bolt, the name, the effort in the muted color, the other chosen features,
+  8 apart. With a team it is the team's avatar and name, the lead's model and
+  effort its tooltip. While `Context.Models` is empty it reads
+  `composer_select_model` and calls `Context.SelectModel`
+  (`model_label` and `Event::Settings`); `composer_model_empty` is only the
+  picker's empty search result.
+- Send is Kit's primary button with the arrow; Stop, the square, replaces it
+  while a reply runs; while dictating without a running reply neither shows.
+  Send is disabled (light: `secondary_active` fill; dark: the primary fill at
+  15%; the icon the muted color at half) and does nothing, as Enter does
+  nothing, unless the draft is deliverable: it has text, a file or a
+  reference, its files are `Ready`, the conversation is not `Readonly`,
+  `Context.SendBlocked` is unset and, to start a turn, `Context.Models` is not
+  empty (`send_blocked`). Tab does not queue while `SendBlocked` is set or
+  when, idle, there is no model.
+- The settings popover opens over the settings button's start, 8 above, 8
+  inside, 4 between rows: the model controls (or a full-width Select model
+  button without a model), then the mode and the permission as rows (a small
+  ghost button 32 high: 16 icon, label, 16 chevron, 8 apart; full access in
+  the danger color), each opening its page under a Back row of the same shape;
+  under 440 the project and the worktree follow as rows opening their menus.
+- The context bar is 12 in from the surface, at least 32 high, 8 by 4 inside,
+  muted, its children 4 apart: the location, then the usage at its end
+  (12 apart, one button when compact). The project and the worktree are Kit's
+  small round ghost buttons: 24 high, 8 at each end, a 14 icon, the label and
+  the caret 4 apart, at most 192 wide. Wide, the bar wraps; compact, it is
+  one line; under 440 the location is in the settings popover.
+
+### Context ring
+
+A package's indicator (`ui::Indicator`, the statistics package's `context`:
+composer slot, end-aligned, order 90, no handler) is `Context.Indicators`.
+
+- Place: in the toolbar's end group in every layout, directly before the
+  model chip, or before dictation when the chip is folded away. It never
+  moves into the settings popover.
+- Geometry: Kit's `ProgressCircle` at 20 draws 15 across with a stroke of 15%
+  of that (2.25), inside a wrapper that adds 4 on each side and does not
+  shrink. With the toolbar's gap the ring ends 8 before the model chip.
+- Drawing: a full track at 20% of the color, and over it the arc of `Percent`
+  (0 to 100, clamped) clockwise from the top with flat ends. An unmeasured
+  value is 0: the track alone. `Loading` sweeps instead: the end eases round
+  in one second, the start follows through its second half; under Reduce
+  Motion it is a still quarter.
+- Tone: the package says it. Statistics sends muted below 80%, `warning` from
+  80% and `danger` from 100%, which are the muted text, warning and danger
+  colors (`kit.Neutral`, `kit.Caution`, `kit.Negative`).
+- Tooltip and accessible name: `Hint`, the package's text as it is.
+  Statistics sends `composer_context_usage` (`%{used} / %{limit}`, compact
+  counts as `50.0k / 200.0k`), `composer_context_estimate`
+  (`Estimated context %{used} / %{limit}`) for an estimate, `chat_compacting`
+  while a compaction runs and `0` while the usage is unknown. These keys are
+  the package's own, in its ten locales; there is no percentage, cost or
+  compaction hint in it.
+- Not a control: without a `Panel` the ring takes no clicks and has no
+  hover fill. An indicator with a handler has a `Panel` and is a small round
+  ghost button (24 high, 4 at each side) whose popover opens over its end;
+  `Toggle` reports the request and `Open` is the package's answer.
+- Hidden: a draft without a session has no indicators (the reference filters
+  them out until `session.is_some()`), and the toolbar keeps no place for
+  them. A session whose usage is unknown shows the empty ring with `0`.
+
+The preview's ring is `State.Indicator` (`conversation.ContextRing`, the
+reference's `usage/preview.rs`), with `composer_compression_hint`.
 
 ## Activity strip
 
@@ -145,7 +235,7 @@ type Actions interface {
 
 | Method | Fires | Expected outcome |
 |---|---|---|
-| `Send` | Send or Enter with input, not running, all files ready | Submit and scroll to the end; failure toasts and puts the text back in `Draft` |
+| `Send` | Send or Enter with a deliverable draft (above), not running | Submit and scroll to the end; failure toasts and puts the text back in `Draft` |
 | `Guide` | Enter with input while running (the button stays Stop), all files ready | `GuideTurn`: join the running turn at its next model boundary; failure toasts and puts the text back in `Draft` |
 | `Queue` | Tab with input | Queue behind the running reply (send at once when idle) |
 | `Stop` | Stop, or Escape while running | Cancel the run; uncertain outcomes toast |
@@ -394,6 +484,13 @@ focus without sending. Native callbacks are composed by `cmd/sailry-desktop`.
 (effort track, family rail, efforts submenu, non-reasoning model); the
 worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
+`internal/desktop/shell/footer_test.go` (`TestContextRingBesideModel`): the
+session ring's size, place before the chip and the microphone, that it is no
+control, its arc and tones by pixel, its tooltip, the rule without a session,
+the folds under 680 and 440, and Send without a model, blocked and with one.
+`SAILRY_UI_SHOTS=<directory>` saves those steps' frames for review.
+`TestUsageCompact`: the small location buttons before the usage button between
+the two widths, and no location on the bar below 440.
 `internal/desktop/conversation/bench_test.go` Scroll builds from scenes without
 pictures (`preview.PlainTurns`).
 `internal/desktop/live/dictation_test.go` (in `TestWorkspaceHookSettings`):
@@ -409,6 +506,10 @@ and every failure, over a fake microphone and recognizer.
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |
 | Chips are `TextRanges` (primary color, weight 500), deleted whole by Backspace; no click on a chip | A MyGo text area draws no inline elements |
 | The model score ring is a tooltip with axis bars | No ring component; the data is the same |
+| `composer.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. Kit takes the drawing, and `conversation.ContextRing` and the plugin indicator with it, when Kit is free to change |
+| A ring's value changes at once | Kit's `ProgressCircle` eases a changed value over its normal duration |
+| The preview's ring is 20 across and shows the scene's usage | The reference's preview ring is the same 15 and always empty; `conversation.ContextRing` is outside this package |
+| The model name truncates at its end | The reference truncates it in the middle and measures the chip to fold the effort into an icon (`model_controls/fit.rs`); a MyGo text has an end ellipsis only |
 | Member badges are initials; collision handling is left to the logic half | UI-first scope |
 | File picker: list view only, no grid, context menu or go-to address | Kept to the attach flow |
 | Drop target tint is `Muted` mixed 12% with `Primary` | No Kit drop-zone slot in the theme |

@@ -407,41 +407,80 @@ func end(a ui.Anchor) bool {
 // the user chose another option. id names it as MenuButton's; label
 // names the trigger for assistive technology.
 func Select(c *ui.Context, id, label string, chosen *string, options []string, disabled bool, values ...[]string) (ui.Element, bool) {
-	p, t := theme.Of(c), c.Theme()
-	changed := false
-	valueAt := func(index int) string {
-		if len(values) > 0 {
-			return values[0][index]
-		}
-		return options[index]
-	}
-	selectedLabel := *chosen
+	choices := make([]SelectOption, len(options))
 	for index, option := range options {
-		if valueAt(index) == *chosen {
-			selectedLabel = option
+		choices[index] = SelectOption{Value: option, Label: option}
+		if len(values) > 0 {
+			choices[index].Value = values[0][index]
+		}
+	}
+	return SelectField(c, id, chosen, SelectProps{Label: label, Options: choices, Disabled: disabled})
+}
+
+// SelectOption is one choice of a SelectField: the value chosen and the
+// label shown for it.
+type SelectOption struct {
+	Value, Label string
+	// Disabled keeps the option from being chosen.
+	Disabled bool
+}
+
+// SelectProps is what a SelectField shows.
+type SelectProps struct {
+	// Label names the trigger for assistive technology.
+	Label string
+	// Placeholder shows, muted, while *chosen is none of the options;
+	// without one the trigger shows *chosen itself.
+	Placeholder string
+	Options     []SelectOption
+	Disabled    bool
+}
+
+// SelectTrigger gives a button base the Select's trigger: the input's frame
+// around the shown choice (muted for a placeholder) and the chevron, turned
+// while open. A select with a popup of its own (a searchable one) uses it
+// for the same control.
+func SelectTrigger(c *ui.Context, b ui.Element, shown string, placeholder, open bool) ui.Element {
+	p, t := theme.Of(c), c.Theme()
+	b.Padding(t.Space(1.5), t.Space(2.5)).Gap(8).MinWidth(140).Radius(p.Radius).
+		Border(1, p.Input).Background(t.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
+	if b.IsDisabled() {
+		b.Opacity(0.5)
+	}
+	return b.Children(func() {
+		value := ui.Text(c, shown).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		if placeholder {
+			value.TextColor(p.MutedForeground)
+		}
+		turn := float32(0)
+		if open {
+			turn = 180
+		}
+		arrow := ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
+		arrow.Rotate(arrow.AnimateTo("turn", turn, chevronTurn))
+	})
+}
+
+// SelectField is Select over options with values, a placeholder and
+// disabled options: the same trigger and dropdown.
+func SelectField(c *ui.Context, id string, chosen *string, o SelectProps) (ui.Element, bool) {
+	changed := false
+	shown, placeholder := *chosen, false
+	if o.Placeholder != "" {
+		shown, placeholder = o.Placeholder, true
+	}
+	for _, option := range o.Options {
+		if option.Value == *chosen {
+			shown, placeholder = option.Label, false
 			break
 		}
 	}
 	b := MenuButton(c, id, func(b ui.Element) {
-		b.Label(label).Disabled(disabled).Padding(t.Space(1.5), t.Space(2.5)).Gap(8).MinWidth(140).Radius(p.Radius).
-			Border(1, p.Input).Background(t.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
-		if disabled {
-			b.Opacity(0.5)
-		}
-		b.Children(func() {
-			ui.Text(c, selectedLabel).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-			turn := float32(0)
-			if *menuState(c, id) {
-				turn = 180
-			}
-			arrow := ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
-			arrow.Rotate(arrow.AnimateTo("turn", turn, chevronTurn))
-		})
+		SelectTrigger(c, b.Label(o.Label).Disabled(o.Disabled), shown, placeholder, *menuState(c, id))
 	}, func(m *Menu) {
-		for index, option := range options {
-			value := valueAt(index)
-			if m.Item(option).Checked(value == *chosen).Chosen() && value != *chosen {
-				*chosen, changed = value, true
+		for _, option := range o.Options {
+			if m.Item(option.Label).Checked(option.Value == *chosen).Disabled(option.Disabled).Chosen() && option.Value != *chosen {
+				*chosen, changed = option.Value, true
 			}
 		}
 	}, MenuOptions{CheckRight: true, MaxHeight: 320, Match: true})

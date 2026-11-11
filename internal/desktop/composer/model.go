@@ -40,6 +40,17 @@ type Context struct {
 	Readonly bool
 	// LocationLocked keeps an admitted session on its captured project.
 	LocationLocked bool
+	// Indicators are the toolbar's progress rings in their order: a
+	// session's context usage. A draft without a session has none.
+	Indicators []Indicator
+	// SendBlocked keeps Send and Enter from starting a turn although the
+	// draft has input: the Node is away, its project or worktree is not
+	// available, or a request is under way. Stop is not held by it. An empty
+	// draft, files in transfer and an empty Models block Send by themselves.
+	SendBlocked bool
+	// SelectModel opens the Node's model settings from the chip that reads
+	// Select model while Models is empty; nil leaves that chip disabled.
+	SelectModel func()
 }
 
 // Model is a model the picker offers, as the backend lists it.

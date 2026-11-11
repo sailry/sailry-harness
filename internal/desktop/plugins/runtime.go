@@ -69,6 +69,20 @@ type Mounted struct {
 	viewport   map[string]float32
 	nativeText map[uint64]string
 	images     map[string]ui.ImageSource
+	// scrolling is the chain of elements being built, with the axes each
+	// scrolls; scrollBoxes holds the scrolling ones' last laid out boxes.
+	scrolling []scrollParent
+	// truncating is whether the text being built stays on one line, as its
+	// container's truncate or whitespace_nowrap asks.
+	truncating  bool
+	scrollBoxes map[uint64]ui.Rect
+}
+
+// scrollParent is an element whose children are being built: the axes it
+// scrolls and its identity among scrollBoxes.
+type scrollParent struct {
+	id   uint64
+	x, y bool
 }
 
 type desktopPromise struct {

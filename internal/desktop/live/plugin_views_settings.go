@@ -48,7 +48,7 @@ func (r *Runtime) renderPluginSettings(view *ui.Context, entry pluginSettingsEnt
 				r.renderPluginSchema(view, entry)
 			} else {
 				kit.Card(view, func() {
-					kit.Row(view, "plugin-node", i18n.T(view, "connections_device"), "", func() {
+					kit.Row(view, "plugin-node", i18n.T(view, "project_host"), "", func() {
 						ui.Text(view, i18n.T(view, entry.owner.packageHostLabel())).FontSize(14).TextColor(theme.Of(view).MutedForeground)
 					})
 				})

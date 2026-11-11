@@ -357,10 +357,10 @@ func (r *Runtime) renderPluginHeaderFilter(view *ui.Context, mounted *pluginMoun
 	if state.selected >= 0 {
 		label = labels[state.selected]
 	}
-	button := kit.Ghost(current, filter.Label, false).Width(112).MinWidth(0).Padding(6, 10).Disabled(filter.Disabled).Gap(6).Children(func() {
-		ui.Text(current, label).FontSize(14).SingleLine().Shrink(1)
-		ui.Icon(current, icons.ChevronDown).Size(12, 12)
-	}).OnClick(func() { state.open, state.query = !state.open, "" })
+	// The searchable filter is the same control as the plain one: Kit's
+	// select trigger over a popup that adds the query.
+	button := kit.SelectTrigger(current, ui.ButtonBase(current).Label(filter.Label).Disabled(filter.Disabled), label, false, state.open).
+		Width(112).MinWidth(0).OnClick(func() { state.open, state.query = !state.open, "" })
 	kit.Popover(current, button, &state.open, func() {
 		ui.Column(current).Width(240).Gap(4).Padding(4).Children(func() {
 			ui.TextInput(current.Key("query"), &state.query).Label(filter.Label).FillWidth()

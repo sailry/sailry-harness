@@ -422,6 +422,7 @@ export default class Example extends View {render(){return `+current.expression+
 			}
 		})
 	}
+	t.Run("kit controls", testKitMapping)
 	t.Run("plugin icon catalog", func(t *testing.T) {
 		for _, name := range []string{
 			"icons/chevron-down.svg", "icons/chevron-left.svg", "icons/chevron-right.svg",

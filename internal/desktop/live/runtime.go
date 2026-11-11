@@ -5,14 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -92,6 +90,8 @@ type Runtime struct {
 	busy                     map[string]bool
 	uncertain                map[string]protocol.Request
 	drafts                   uint64
+	openDrafts               map[string]bool // drafts New session opened, on the local Runtime
+	draftsShown              map[string]bool // those a pane showed this frame
 	lastPreferences          string
 	lastMaterials            [3]float32
 	lastFeatures             string
@@ -377,6 +377,8 @@ func (r *Runtime) drain(c *ui.Context) {
 	for _, f := range queue {
 		f(c)
 	}
+	r.draftsShown = map[string]bool{}
+	r.listSidebar()
 	owner := r.selectedRuntime()
 	if owner != nil {
 		owner.workspaceFrame(c)
@@ -416,6 +418,7 @@ func (r *Runtime) afterFrame() {
 	r.finishFrame()
 	r.conversationCopies = nil
 	r.pluginViewsAfterFrame()
+	r.pruneDrafts()
 	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.seenConversation(session) {
 		r.App.Messages.CloseSearch()
 	}
@@ -466,6 +469,7 @@ func (r *Runtime) project() {
 	r.projectHosts(d)
 	r.App.ApplyData(d)
 	r.selectPendingSession()
+	r.listSidebar()
 	r.projectConversations()
 	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
@@ -817,44 +821,6 @@ func (r *Runtime) browse(owner string, selected func(string)) {
 	})
 }
 func (r *Runtime) openFolder() { r.browse("", r.App.Sidebar.OpenFolder) }
-
-func (r *Runtime) newDraft(p *viewmodel.Project) {
-	r.drafts++
-	cv := &viewmodel.Conversation{Node: r.controller.Target().String(), ID: fmt.Sprintf("draft/%d", r.drafts), Updated: time.Now(), Created: int(^uint(0) >> 1)}
-	if p != nil {
-		cv.Node = p.Host
-	}
-	if p == nil {
-		r.App.Data.Unassigned = append([]*viewmodel.Conversation{cv}, r.App.Data.Unassigned...)
-	} else {
-		for _, current := range r.App.Data.Projects {
-			if current.ID == p.ID && current.Host == p.Host {
-				current.Conversations = append([]*viewmodel.Conversation{cv}, current.Conversations...)
-				r.App.Sidebar.Reveal(p.ID)
-				break
-			}
-		}
-	}
-	r.App.Page = shell.ConversationPage
-	r.App.Sidebar.Selected = cv.ID
-}
-
-func (r *Runtime) removeDraft(id string) {
-	remove := func(list []*viewmodel.Conversation) []*viewmodel.Conversation {
-		out := list[:0]
-		for _, cv := range list {
-			if cv.ID != id {
-				out = append(out, cv)
-			}
-		}
-		return out
-	}
-	r.App.Data.Unassigned = remove(r.App.Data.Unassigned)
-	for _, p := range r.App.Data.Projects {
-		p.Conversations = remove(p.Conversations)
-	}
-	r.App.ApplyData(r.App.Data)
-}
 
 func (r *Runtime) pin(cv *viewmodel.Conversation) {
 	if owner := r.conversationRuntime(cv, nil); owner == nil {

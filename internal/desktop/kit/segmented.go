@@ -56,6 +56,10 @@ type SegmentedProps struct {
 	// Block stretches the track across its parent and shares the width
 	// between the segments.
 	Block bool
+	// Icons, when set, puts Icons[i] (nil for none) before option i's label.
+	Icons []*ui.SVG
+	// Disabled keeps the choice from changing.
+	Disabled bool
 }
 
 // EaseOut is Lobe MyGo's motion.EaseOut.
@@ -88,11 +92,14 @@ func Segmented(c *ui.Context, key any, selected *int, options []string, o Segmen
 	if o.Block {
 		track.AlignSelf(ui.Stretch)
 	}
+	if o.Disabled {
+		track.Disabled(true).Opacity(0.5)
+	}
 	slide := ui.ElementTransition{Duration: 240 * time.Millisecond, Ease: EaseOut, Match: segmentedMatch{selected}}
 	track.Children(func() {
 		for i, option := range options {
 			seg := parts.Segment(i).PaddingY(py).PaddingX(px).Radius(p.Radius).FontSize(font).FontWeight(500).
-				Cursor(ui.CursorPointer).Center()
+				Cursor(ui.CursorPointer).Center().Gap(6)
 			if o.Block {
 				seg.Grow(1).Basis(0)
 			}
@@ -112,6 +119,9 @@ func Segmented(c *ui.Context, key any, selected *int, options []string, o Segmen
 				if i == *selected {
 					ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).
 						Radius(p.Radius).Background(p.Foreground).ZIndex(-1).Transition(slide)
+				}
+				if i < len(o.Icons) && o.Icons[i] != nil {
+					ui.Icon(c, o.Icons[i]).FontSize(font).Shrink(0)
 				}
 				ui.Text(c, option).SingleLine()
 			})

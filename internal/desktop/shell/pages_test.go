@@ -41,10 +41,15 @@ func TestRailOpensPages(t *testing.T) {
 			t.Errorf("%s opened page %d", f.label, a.Page)
 		}
 	}
-	// Selecting a conversation over a project page goes back to it.
+	// Selecting a conversation over a project page goes back to it. The
+	// page has no session sidebar, so the selection comes from elsewhere, as
+	// from search or a notification.
 	a.Navigate(FilesPage)
 	tt.Frame()
-	click(t, tt, "Port the neutral theme tokens")
+	if a.Sidebar.Selected == "sailry-go/theme" {
+		t.Fatal("the fixture already selects the session")
+	}
+	a.Sidebar.Selected = "sailry-go/theme"
 	tt.Frame()
 	if a.Page != ConversationPage {
 		t.Errorf("selecting a conversation kept page %d", a.Page)
@@ -131,9 +136,12 @@ func TestRailOpensPages(t *testing.T) {
 }
 
 func testLivePluginNavigation(t *testing.T) {
-	app := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+	app := NewLive(&viewmodel.Data{
+		Unassigned: []*viewmodel.Conversation{{ID: "session", Title: "Listed session"}},
+		Workspace:  &viewmodel.Workspace{},
+	})
 	features := []Feature{
-		{ID: "plugin/local/fixture", Label: "Local fixture", DefaultPinned: true},
+		{ID: "plugin/local/fixture", Label: "Scheduled tasks", DefaultPinned: true},
 		{ID: "plugin/remote/fixture", Label: "Remote fixture"},
 	}
 	app.SetPluginFeatures(features)
@@ -165,8 +173,27 @@ func testLivePluginNavigation(t *testing.T) {
 	}
 	clickButton(t, tester, features[0].Label)
 	tester.Frame()
+	snapshot(t, tester, "page-plugin")
 	if app.Page != PluginPage || selected != features[0].ID || !tester.HasText("Mounted "+features[0].ID) {
 		t.Fatal("the rail did not open its captured generic plugin page")
+	}
+	// A plugin's page has no side column: the sessions and the header's
+	// toggle are the conversation's, and ⌘B keeps the saved choice. The
+	// page starts at the rail on its first frame.
+	toggle := i18n.In("en", "sidebar_toggle")
+	if _, ok := headerButton(tester, toggle); ok || sessionsShown(tester) || tester.HasText("Listed session") || app.HasNavigation() {
+		t.Fatalf("the plugin page shows the session sidebar: %q", tester.Texts())
+	}
+	if title, ok := tester.Find(features[0].Label); !ok || title.X != RailWidth+12 {
+		t.Fatalf("the plugin page's header starts at %v, want the rail's edge", title)
+	}
+	if body, ok := tester.Find("Mounted " + features[0].ID); !ok || body.X > RailWidth+1 {
+		t.Fatalf("the plugin page starts at %v, want the rail's edge", body)
+	}
+	tester.Key(ui.Cmd, ui.KeyB)
+	settle(tester)
+	if !app.NavOpen || sessionsShown(tester) {
+		t.Fatal("⌘B changed the sidebar over a plugin page")
 	}
 	app.SetPluginFeatures(features)
 	if !app.unpinned[features[1].ID] {
@@ -176,6 +203,9 @@ func testLivePluginNavigation(t *testing.T) {
 	tester.Frame()
 	if app.Page != ConversationPage || app.PluginFeature() != "" {
 		t.Fatal("a withdrawn plugin retained its active page")
+	}
+	if _, ok := headerButton(tester, toggle); !ok || !sessionsShown(tester) || !tester.HasText("Listed session") {
+		t.Fatalf("the conversation came back without its sessions: %q", tester.Texts())
 	}
 }
 

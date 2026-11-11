@@ -83,9 +83,31 @@ anchored at the right edge. Content stays built until the column is
 closed, and the resize handle shows only when it is fully open. With
 Reduce Motion MyGo moves the columns at once. Whether the panel fits is
 judged where the sidebar will end, and a narrow window hides it without
-changing the choice; the details button then dims. The resize handles are
+changing the choice; the details button is then disabled, since it cannot
+act (⌥⌘B still changes the choice). The resize handles are
 6 DIP strips over the edges (custom: `ui.Split` keeps both panes 40 DIPs
 wide and cannot close one to nothing, which the motion needs).
+
+### Side column per page
+
+The column beside the rail belongs to the page (`App.HasNavigation`, the
+reference's `feature_navigation` in `shell/rail.rs`):
+
+| Page | Side column |
+|---|---|
+| Conversation, Host, Project | The session sidebar (`sidebar.View`) |
+| Settings | The settings sections (`settings.Nav`) |
+| Files, Git, Activity, Market, Notification center, a plugin's page | None; the page starts at the rail and lays out its own columns |
+
+`NavOpen` and `NavWidth` are one saved choice shared by the pages that
+have a column, as the reference's `layout.sidebar_open` and
+`sidebar_width`; `App.NavShown` is the choice on a page that has one. A
+page without a column hides it without changing the choice: its header
+has no sidebar toggle and no brand text, and ⌘B and the menu's Toggle
+Sidebar do nothing there (`toggleNav`, the reference's `toggle_sidebar`).
+Going to or from such a page shows the destination settled, with no
+column motion. The right column's openness and width are the
+conversation's and the host page's as before.
 
 ## Rail
 
@@ -114,14 +136,37 @@ a device named like a catalog key is not translated.
 
 ## Header
 
-The sidebar toggle (`PanelLeftClose`/`Open`), then the title: on a
+The sidebar toggle (`PanelLeftClose`/`Open`) on a page with a side
+column, then the title: on a
 conversation in a project, breadcrumbs (`ui.Breadcrumbs`) of the project
 and the conversation, the project revealing its rows in the sidebar; on
-Files and Git, the project and the page; on Activity and Market, its
+Files and Git, the project and the page, the project going back to the
+conversation with its rows revealed; on Activity and Market, its
 name. On
-the right the activity strip, the preview tag and the details toggle
+the right the plugins' header contributions (`Hooks.PluginHeader`), the
+activity strip, the preview tag and the details toggle
 (`PanelRight`, selected while the panel shows). Tooltips show the
 shortcut.
+
+### Icon buttons
+
+Every icon button of the header and the rail is `kit.IconButton`
+(`kit.IconLook` on a menu's trigger), with Kit's ghost look: the theme's
+radius, `Hover` under the pointer, `Active` while pressed or selected,
+MyGo's dimming while disabled. No button draws its own. The installations
+button (docs/transfers.md) wears the same `kit.GhostLook` at the rail's
+size around its badge.
+
+| Where | Size | Icon | Gap | Reference |
+|---|---|---|---|---|
+| Header (`HeaderButton`): sidebar toggle, details toggle, plugin contributions | 28 × 28, centred in the 48 band | 15 | 8, 12 from the window's edge | `Button::ghost().small()`: 24 × 24, icon 14, groups `gap_2` |
+| Rail (`RailButton`): features, More, bell, installations, hosts, Search, Settings | 36 × 36 | 15 | 8, 8 under the band | ghost `size_9`: 36 × 36, icon 16, `gap_2` |
+| Activity strip avatars | 28 × 28 | avatar | 4 in a group, 12 between groups | `.size_7()`, `gap_1`, `gap_3` |
+
+A control that cannot act is disabled or absent, never a normal button
+whose click does nothing: the details toggle without room for the panel
+is disabled, the sidebar toggle is absent without a side column, and New
+session is disabled over the unsent chat (docs/sidebar.md).
 
 ## Shortcuts
 
@@ -150,7 +195,7 @@ and a key one scope takes never reaches the next:
 | ⌥⌘N | window | Project editor |
 | ⌘O, ⇧⌘R | window | Open folder, Sync: preview toast |
 | ⌘K | window | Search |
-| ⌘B | window | Sidebar |
+| ⌘B | window | Sidebar, on a page with a side column |
 | ⌥⌘B | window | Right panel |
 | ⇧⌘[ / ⇧⌘] | window | Previous / next conversation (`sidebar.Adjacent` over `Order`) |
 | ⌘/ , ⌘, | window | Settings |
@@ -273,6 +318,9 @@ openness, tabs and active tab, the projects closed in the sidebar, and
 the rail's order and unpinned features, in `ui-state.json` in MyGo's user
 data folder (beside `window-state.json`, which `StateKey` keeps the
 bounds in). `LoadPrefs` falls back to the defaults and clamps widths.
+The sidebar's openness and width are one choice for every page with a side
+column; pages without one neither read nor change it, so the file's fields
+are unchanged and earlier files load.
 The file is one for the preview and every profile, so the rail's order and
 pins in it are the preview's: a live window keeps its own in the profile
 (`FeaturePreferences`), neither reads nor changes the file's, and writes
@@ -305,7 +353,11 @@ the popover; a text input keeping ⌘A and ⌘Z; the menu's items, keys and
 translations and rebound keys; menu commands scoped as their keys, behind
 the sidebar's dialogs too.
 `internal/desktop/shell/frame_test.go`: ⌘⌥B, ⌘P, ⌃⇧G and ⌘W on the panel;
-⌘B and preferences round-tripping; ⌘K search opening a conversation;
+⌘B and preferences round-tripping; the side column of every page, its
+toggle and ⌘B per page, no motion between pages, the saved choice across
+pages without a column and an earlier file (`testSideColumns`); the
+header's and the rail's icon buttons' boxes, gaps and hover fill and the
+disabled details toggle (`testIconButtons`); ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
 `internal/desktop/shell/knowledge_live_test.go` (`testLiveKnowledge`, run by
@@ -318,7 +370,8 @@ the request of a link, the answers accepted, the toast of each fault and
 paging by re-reading. `TestKnowledgeUIIntegration` (integration) publishes a
 real notification citing an indexed chunk, clicks it in the activity centre
 and finds it read on the Node with the viewer on that chunk.
-`internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; the
+`internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; a
+plugin's page has no session sidebar or toggle and starts at the rail; the
 Files and Git page and tab share a project's state, another project
 keeps its own.
 `internal/desktop/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
@@ -329,6 +382,8 @@ Phase 1–2 screens.
 | Deviation | Reason |
 |---|---|
 | Breadcrumbs in the header | The plan asks for them; the reference shows a title |
+| Header icon buttons are 28 with a 15 icon, the rail's icon is 15 | Kit's accepted small button (docs/components.md); the reference's header buttons are 24 with a 14 icon and its rail icon is 16 |
+| The details toggle is disabled while the window has no room for the panel | It cannot act then; it used to dim and still take clicks |
 | The resize handles are drawn strips | `ui.Split` cannot close a pane to nothing |
 | Preferences are a JSON file beside `window-state.json` | MyGo's `WindowState` has no fields for the app's own state |
 | The notification center page, Activity board and Market | Later phases; Activity and Market show `unavailable`, Market not yet in Settings |
