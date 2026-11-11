@@ -543,6 +543,14 @@ by hand while the mark shows is settled the same way as Reload. A file that chan
 again before Overwrite arrives is asked about again. A close that was waiting
 for the refused save is withdrawn.
 
+Save all in the window's close prompt (`live/closing.go`) saves the same way.
+The prompt leaves when its saves end and the editor may not be on screen, so
+the saves that files changed on disk refused tell one conflict toast together,
+titled `files_changed_on_disk` and naming the documents as the prompt listed
+them. The window stays open, each draft stays with its mark, and the question
+is asked as above; a project asks about one document at a time, so with
+several the others ask at their next save.
+
 The accepted toolbar uses native undo/redo, Find and Replace, soft wrap, Markdown
 block and inline formatting, lists, links and insert menus. Controls collapse in
 the source's group order into More. Keyboard formatting uses the same actions.

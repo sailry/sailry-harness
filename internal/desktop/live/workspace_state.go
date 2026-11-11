@@ -34,6 +34,9 @@ type workspaceState struct {
 	// savingAll is set from Save all in the close prompt until the frame
 	// that starts the saves (closing.go).
 	savingAll bool
+	// saveAll is that Save all while its frame starts the saves; each save
+	// keeps it until it ends.
+	saveAll *saveAllBatch
 }
 type workspaceClipboard struct {
 	worktree protocol.WorktreeID

@@ -1,6 +1,8 @@
 package live
 
 import (
+	"path"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -82,9 +84,15 @@ func (p *workspaceProject) checkDraft(reason, relative string, done func(*ui.Con
 func (p *workspaceProject) writeFile(relative, text string, expected *string) {
 	source := p.files[relative]
 	p.panel.SetFileStatus(relative, true, source.Truncated)
+	var batch *saveAllBatch
+	if workspace := p.runtime.localRuntime().workspace; workspace != nil && workspace.saveAll != nil {
+		batch = workspace.saveAll
+		batch.pending++
+	}
 	command := protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: p.owner.ID, Path: relative, Text: text, ExpectedRevision: expected}}
 	p.mutateNamed(fileSave, command, func(c *ui.Context, out protocol.Output) {
 		p.panel.SetFileStatus(relative, false, source.Truncated)
+		defer batch.finished(c)
 		written, ok := detail[protocol.FileWritten](out.Data)
 		if !ok {
 			return
@@ -96,6 +104,10 @@ func (p *workspaceProject) writeFile(relative, text string, expected *string) {
 		kit.Toast(c, kit.Done, i18n.T(c, "workspace_saved"))
 	}, func(c *ui.Context, err error) {
 		if fileSaveConflict(err) {
+			if batch != nil {
+				// The editor may not be on screen to ask.
+				batch.changed = append(batch.changed, path.Join(path.Base(p.owner.Path), relative))
+			}
 			p.saveConflict(relative)
 		}
 	})

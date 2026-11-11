@@ -3,6 +3,7 @@ package live
 import (
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -43,8 +44,29 @@ func (r *Runtime) UnsavedDocuments() []string {
 	return names
 }
 
+// saveAllBatch is the saves one Save all started. The close prompt leaves
+// once they end, so the documents whose file changed on disk are told in one
+// toast then; each keeps its draft and its own question.
+type saveAllBatch struct {
+	pending int
+	changed []string
+}
+
+func (batch *saveAllBatch) finished(c *ui.Context) {
+	if batch == nil {
+		return
+	}
+	if batch.pending--; batch.pending > 0 || len(batch.changed) == 0 {
+		return
+	}
+	slices.Sort(batch.changed)
+	c.AddToast(ui.Toast{Type: "warning", Title: i18n.T(c, "files_changed_on_disk"), Description: strings.Join(batch.changed, "\n"), Timeout: kit.ToastDuration(c)})
+	batch.changed = nil
+}
+
 // SaveDocuments starts saving every unsaved document in this window's next
-// frame. Each failed save tells its own toast and keeps its draft.
+// frame. A failed save tells its own toast and keeps its draft; the saves
+// that files changed on disk refused tell one toast together.
 func (r *Runtime) SaveDocuments() {
 	root := r.localRuntime()
 	if root.workspace == nil {
@@ -54,11 +76,13 @@ func (r *Runtime) SaveDocuments() {
 	root.enqueue(func(c *ui.Context) {
 		root.workspace.savingAll = false
 		started := true
+		root.workspace.saveAll = &saveAllBatch{}
 		root.workspaces(func(project *workspaceProject) {
 			if !project.panel.SaveUnsaved(c) {
 				started = false
 			}
 		})
+		root.workspace.saveAll = nil
 		if !started {
 			kit.Toast(c, kit.Failed, i18n.T(c, "workspace_action_failed"))
 		}
