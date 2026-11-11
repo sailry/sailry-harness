@@ -1,11 +1,11 @@
 package live
 
 import (
-	"github.com/sailry/sailry-harness/internal/client"
 	"path/filepath"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -71,9 +71,13 @@ func testSSHHostInstall(t *testing.T) {
 		revision := uint64(0)
 		answers := map[string]link.Response{}
 		var receipt protocol.RequestOutcome
+		var refused *link.Response
 		source.respond = func(request protocol.Request) link.Response {
 			switch request.Command.Kind {
 			case "save_ssh":
+				if refused != nil {
+					return *refused
+				}
 				payload, _ := detail[protocol.CommandSaveSshPayload](request.Command.Data)
 				if payload.ExpectedRevision != revision {
 					return fault(protocol.ErrorCodeRevisionConflict)
@@ -203,6 +207,33 @@ func testSSHHostInstall(t *testing.T) {
 		settle()
 		if count("install_host") != installs+1 || !results[len(results)-1] || root.connectionStatus().Recovery {
 			t.Fatalf("an unadmitted installation: %d installs, results %v", count("install_host")-installs, results)
+		}
+
+		// A save refused for a shared project that went away keeps the
+		// saved connection, which the next save updates instead of saving
+		// another.
+		draft.Host, local.install, revision = "sixth.example", nil, 0
+		answers["install_host"] = fault(protocol.ErrorCodeInternal)
+		root.addSSHHost(draft, completed)
+		settle()
+		saves = source.sent("save_ssh")
+		kept, _ := detail[protocol.CommandSaveSshPayload](saves[len(saves)-1].Data)
+		missing := fault(protocol.ErrorCodeNotFound)
+		refused = &missing
+		draft.Name = "Shared"
+		root.addSSHHost(draft, completed)
+		settle()
+		if status := root.connectionStatus(); status.Saved != settings.ByAgent || status.Recovery || root.App.Settings.ConnectionPending || results[len(results)-1] {
+			t.Fatalf("a refused save: saved method %d, recovery %v, results %v", status.Saved, status.Recovery, results)
+		}
+		refused = nil
+		draft.Name = "Shared again"
+		root.addSSHHost(draft, completed)
+		settle()
+		saves = source.sent("save_ssh")
+		again, _ := detail[protocol.CommandSaveSshPayload](saves[len(saves)-1].Data)
+		if again.Profile.Name != "Shared again" || again.Profile.ID != kept.Profile.ID || again.ExpectedRevision != 1 || again.Credential != nil {
+			t.Fatalf("after a refused save: id kept %v, revision %d, credential %+v", again.Profile.ID == kept.Profile.ID, again.ExpectedRevision, again.Credential)
 		}
 
 		// Closing the dialog abandons an installation left to check.

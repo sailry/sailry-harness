@@ -131,7 +131,9 @@ The dialog also offers the SSH agent, which has no secret. The Node reaches
 the agent through `SSH_AUTH_SOCK`, a Unix socket, so the method is not offered
 on Windows. One dialog saves one connection: a changed draft updates it at its
 revision with its trusted host key, and a secret left blank under the same
-authentication sends no credential, which keeps the saved one. The Host update
+authentication sends no credential, which keeps the saved one. A save refused
+with a conflict forgets the saved connection, so the next one saves anew; any
+other refusal, as of a shared project that went away, keeps it. The Host update
 form saves the same way. SSH methods choose the connection's sharing: private,
 global, or the local Node's projects checked in the list; project sharing needs
 at least one project.

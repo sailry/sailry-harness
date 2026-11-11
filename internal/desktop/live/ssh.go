@@ -110,7 +110,8 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 
 // checkSSHHost asks what became of the installation whose outcome is
 // uncertain: its receipt on the local Node, or the installed Host's network.
-// It never sends the installation again.
+// Admitted work is never sent again; a request the Node never admitted is
+// sent with its original identifier.
 func (r *Runtime) checkSSHHost(completed func(bool)) {
 	root := r.localRuntime()
 	local := root.hostState(root.controller.Target().String())
@@ -255,9 +256,11 @@ func (r *Runtime) completeSSH(c *ui.Context, operation *sshInstallation, output 
 	if err != nil {
 		uncertain := sshUncertain(operation.request, err)
 		if !uncertain {
-			// A saved connection that changed or went away is not updated again.
+			// A saved connection that changed or went away answers with a
+			// conflict and is not updated again. Any other refusal, as of a
+			// shared project that went away, leaves it as saved.
 			if code := faultCode(err); operation.request != nil && operation.request.Command.Kind == "save_ssh" &&
-				(code == protocol.ErrorCodeRevisionConflict || code == protocol.ErrorCodeConflict || code == protocol.ErrorCodeNotFound) {
+				(code == protocol.ErrorCodeRevisionConflict || code == protocol.ErrorCodeConflict) {
 				operation.profile, operation.retry = nil, protocol.Command{}
 			}
 			operation.request = nil
