@@ -162,8 +162,8 @@ func TestStalledDelivery(t *testing.T) {
 			return fmt.Errorf("next stall period started no notice turn: %v", err)
 		}
 		// Stall notice turns count toward the automatic chain limit.
-		if chain, err := noticeChain(ctx, db, session.ID); err != nil || chain != 2 {
-			return fmt.Errorf("automatic chain counts %d stall turns: %v", chain, err)
+		if chain, err := ReadAutomaticChain(ctx, db, session.ID); err != nil || chain.Count != 2 {
+			return fmt.Errorf("automatic chain counts %d stall turns: %v", chain.Count, err)
 		}
 		// The user stops the notice turn: later stalls wait for the user.
 		if _, err = queueFixtureCommand(ctx, db, storage, node, "stop_turn", &protocol.CommandStopTurnPayload{Turn: second.Run.Turn}, now); err != nil {

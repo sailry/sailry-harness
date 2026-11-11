@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"maps"
 
+	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -16,7 +18,38 @@ import (
 // main task turn. It is an ordinary plugin callback dispatched for the turn's
 // caller, so the callback runtime's budget, deadline and cancellation apply
 // and the handler holds exactly the package's declared authority.
-func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, status protocol.ConversationStatus) {
+//
+// The input states the turn's facts so a package loop need not page history
+// for them: how the turn ended, what started it, the tools the model called,
+// the interactions that expired, its usage and the session's, the background
+// work still running or waiting, and the automatic chain.
+func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run protocol.ConversationRun, observed engine.TurnObservation) {
+	var facts store.TurnFacts
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		facts, err = store.ReadTurnFacts(ctx, db, inv.Session.ID, run.Turn)
+		return err
+	}); err != nil {
+		logging.Emit(slog.LevelWarn, slog.String("area", "plugins"), slog.String("phase", logging.Failed), slog.String("operation", "after_turn"),
+			slog.String("session", inv.Session.ID.String()), slog.String("turn", run.Turn.String()), slog.String("exception", err.Error()))
+		return
+	}
+	tools := map[string]int{}
+	calls := 0
+	for name, count := range observed.Tools {
+		tools[name] = count
+		calls += count
+	}
+	base := map[string]any{
+		"turn": run.Turn, "status": run.Status, "automatic": run.Notice || run.Continuation != nil, "notice": run.Notice,
+		"mode": inv.Turn.Config.Mode, "tool_calls": calls, "tools": tools, "expired": observed.Expired,
+		"usage": facts.Usage, "session_usage": facts.SessionUsage,
+		"background": map[string]int{"running": facts.Running, "pending": facts.Pending},
+		"chain":      map[string]int{"count": facts.Chain.Count, "limit": facts.Chain.Limit},
+	}
+	if run.Error != nil {
+		base["error"] = run.Error.Code
+	}
 	for _, reference := range inv.Turn.Plugins {
 		var info protocol.PluginInfo
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -31,7 +64,14 @@ func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, sta
 		for _, tool := range info.Extension.Tools {
 			names = append(names, plugins.ToolAlias(info.Summary.Name, tool.Name))
 		}
-		input, err := json.Marshal(map[string]any{"turn": inv.Run.Turn, "status": status, "automatic": inv.Run.Continuation != nil, "names": names})
+		fields := maps.Clone(base)
+		fields["names"] = names
+		// A package sees only its own continuation; another package's is an
+		// automatic turn like any other.
+		if run.Continuation != nil && run.Continuation.Package.Name == info.Summary.Name {
+			fields["continuation"] = map[string]any{"marker": run.Continuation.Kind}
+		}
+		input, err := json.Marshal(fields)
 		if err != nil {
 			continue
 		}

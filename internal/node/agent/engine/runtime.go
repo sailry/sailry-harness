@@ -31,8 +31,9 @@ type Options struct {
 	Tools             []Tool
 	ToolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
 	HooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
-	// AfterTurn, when set, runs after a main task turn's end is stored.
-	AfterTurn func(context.Context, *store.AgentInvocation, protocol.ConversationStatus)
+	// AfterTurn, when set, runs after a main task turn's end is stored. It
+	// receives the settled run and what the execution observed.
+	AfterTurn func(context.Context, *store.AgentInvocation, protocol.ConversationRun, TurnObservation)
 	Telemetry *telemetry.Control
 	// Working, when set, brackets every running turn.
 	Working func() func()
@@ -48,7 +49,7 @@ type Runtime struct {
 	attachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
 	toolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
 	hooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
-	afterTurn         func(context.Context, *store.AgentInvocation, protocol.ConversationStatus)
+	afterTurn         func(context.Context, *store.AgentInvocation, protocol.ConversationRun, TurnObservation)
 	telemetry         *telemetry.Control
 	working           func() func()
 	stopCommands      func(protocol.SessionID)
@@ -78,7 +79,17 @@ type Runtime struct {
 	statisticsStopped bool
 }
 
+// TurnObservation is what one execution saw that storage does not keep apart:
+// the tool calls the model made, by the name it called, and the approvals and
+// questions that expired unanswered.
+type TurnObservation struct {
+	Tools   map[string]int
+	Expired int
+}
+
 type execution struct {
+	observed          TurnObservation
+	observedMu        sync.Mutex
 	python            []python.Access
 	resources         *operations.Resources
 	skillContext      string

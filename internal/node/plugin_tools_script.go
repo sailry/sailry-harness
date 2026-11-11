@@ -262,7 +262,8 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 
 func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo, names []string) map[string]any {
 	input := map[string]any{"tools": names, "project": invocation.Worktree.Project, "resources": invocation.Turn.Config.Assistant == nil,
-		"roles": []any{}, "options": invocation.Turn.Config.Options[info.Summary.Name], "session_revision": nil, "automatic": false,
+		"roles": []any{}, "options": invocation.Turn.Config.Options[info.Summary.Name], "session_revision": nil,
+		"automatic": invocation.Run.Notice || invocation.Run.Continuation != nil, "notice": invocation.Run.Notice,
 		"mode": invocation.Turn.Config.Mode, "config": nil, "execution": nil, "team": nil, "models": nil, "message": nil,
 		"connections": map[string]any{"bound": invocation.Turn.Config.Resource, "databases": []any{}, "ssh": []any{}}}
 	aliases := []string{}
@@ -270,10 +271,14 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 		aliases = append(aliases, plugins.ToolAlias(info.Summary.Name, name))
 	}
 	input["names"] = aliases
+	// A package sees only its own continuation and the marker it chose.
+	if continuation := invocation.Run.Continuation; continuation != nil && continuation.Package.Name == info.Summary.Name {
+		input["continuation"] = map[string]any{"marker": continuation.Kind}
+	}
 	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) {
 		input["config"], input["execution"], input["models"] = invocation.Turn.Config, invocation.Turn.Roles.Execution, invocation.Turn.Roles.Models
 	}
-	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && invocation.Session.Delegation == nil {
+	if slices.Contains(info.Extension.Actions, protocol.PluginActionReadMessage) && invocation.Session.Delegation == nil && invocation.Run.Continuation == nil {
 		message := invocation.Message.Text
 		if len(message) > 4096 {
 			for len(message) > 4096 {

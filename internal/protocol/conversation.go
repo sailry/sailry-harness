@@ -500,21 +500,31 @@ func (value ConversationSentInput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// ConversationContinuation marks a turn a package started with continue_turn.
+// Marker is the localized label controllers show in place of its input; Kind
+// is the declared marker's id when the package named one; Limit is the
+// automatic turn limit the package declared for the session.
 type ConversationContinuation struct {
 	Package PluginReference          `json:"package"`
 	Marker  *PluginDesktopNavigation `json:"marker"`
+	Kind    *string                  `json:"kind,omitempty"`
+	Limit   *uint32                  `json:"limit,omitempty"`
 }
 
 func DefaultConversationContinuation() ConversationContinuation {
 	return ConversationContinuation{
 		Package: DefaultPluginReference(),
 		Marker:  nil,
+		Kind:    nil,
+		Limit:   nil,
 	}
 }
 func (value *ConversationContinuation) UnmarshalJSON(data []byte) error { return Decode(data, value) }
 func (value *ConversationContinuation) DecodeJSON(decoder *Decoder) error {
 	type plain ConversationContinuation
 	decoded := plain{}
+	decoded.Kind = nil
+	decoded.Limit = nil
 	if err := decoder.Object(&decoded, []string{"package"}, false); err != nil {
 		return err
 	}

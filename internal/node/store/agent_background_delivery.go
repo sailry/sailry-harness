@@ -19,12 +19,15 @@ const backgroundPrefix = "Node background completion data follows as JSON. These
 const backgroundDeliverable = "state='pending' AND delivery IS NULL AND (kind='agent' OR json_extract(body,'$.follow_up')=1) AND json_extract(body,'$.task.suppressed')=0 AND json_extract(body,'$.task.recovered')=0 AND json_extract(body,'$.task.outcome') IN ('completed','failed','timed_out','unknown','stalled')"
 const backgroundEligible = "session=?1 AND " + backgroundDeliverable
 
-// noticeLimit bounds how many notice turns a session starts in a row without
-// user input. A notice turn carries up to 16 results, so the bound covers
-// independent results that finish apart as well as a chain where each notice
-// turn starts work whose result starts the next; eight leaves room for a
-// fan-out to report while keeping an unattended session finite.
-const noticeLimit = 8
+// automaticLimit bounds how many automatic turns, notice turns and package
+// continuations alike, a session starts in a row without user input. A notice
+// turn carries up to 16 results, so the bound covers independent results that
+// finish apart as well as a chain where each automatic turn starts work whose
+// result starts the next; eight leaves room for a fan-out to report while
+// keeping an unattended session finite. A continuing package may declare its
+// own limit, up to automaticLimitMax, for the chain it owns.
+const automaticLimit = 8
+const automaticLimitMax = 100
 
 // refusedDeliveries remembers the reason last logged for each session so a
 // delivery that stays refused is reported once, not on every claim pass.
@@ -41,30 +44,45 @@ func reportDelivery(session protocol.SessionID, reason string) {
 	logging.Emit(slog.LevelWarn, slog.String("event", "node.background"), slog.String("operation", "deliver"), slog.String("status", "refused"), slog.String("session", session.String()), slog.String("reason", reason))
 }
 
-// noticeChain counts the notice turns that ran since the session's last user
-// input. Plugin continuations and automatic turns that never started neither
-// count nor reset; joined guidance is user input.
-func noticeChain(ctx context.Context, db *sql.Conn, session protocol.SessionID) (int, error) {
-	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 ORDER BY t.rowid DESC LIMIT 64", session.String())
+// AutomaticChain is a session's run of automatic turns since its last user
+// input and the limit that run is held to.
+type AutomaticChain struct {
+	Count int
+	Limit int
+}
+
+// ReadAutomaticChain counts the notice turns and package continuations that
+// started since the session's last user input. Automatic turns that never
+// started neither count nor reset; joined guidance is user input. The limit
+// is the one the chain's latest continuation declared, or the default.
+func ReadAutomaticChain(ctx context.Context, db *sql.Conn, session protocol.SessionID) (AutomaticChain, error) {
+	chain := AutomaticChain{Limit: automaticLimit}
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 ORDER BY t.rowid DESC LIMIT 256", session.String())
 	if err != nil {
-		return 0, err
+		return chain, err
 	}
-	count := 0
+	declared := false
 	for _, run := range runs {
-		if run.Kind != protocol.ConversationRunKindTask || run.Continuation != nil || run.StartedMs == nil {
+		if run.Kind != protocol.ConversationRunKindTask || run.StartedMs == nil {
 			continue
 		}
-		if !run.Notice {
+		if !run.Notice && run.Continuation == nil {
 			break
 		}
-		count++
+		chain.Count++
+		if !declared && run.Continuation != nil {
+			declared = true
+			if run.Continuation.Limit != nil {
+				chain.Limit = int(*run.Continuation.Limit)
+			}
+		}
 	}
-	return count, nil
+	return chain, nil
 }
 
 // holdBackground leaves a session's deliverable results for the user's next
 // message once its automatic chain reached the limit.
-func holdBackground(ctx context.Context, db *sql.Conn, session protocol.SessionID) ([]protocol.Event, error) {
+func holdBackground(ctx context.Context, db *sql.Conn, session protocol.SessionID, limit int) ([]protocol.Event, error) {
 	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE "+backgroundEligible, session.String())
 	if err != nil {
 		return nil, err
@@ -75,7 +93,7 @@ func holdBackground(ctx context.Context, db *sql.Conn, session protocol.SessionI
 			return nil, err
 		}
 	}
-	logging.Emit(slog.LevelWarn, slog.String("event", "node.background"), slog.String("operation", "deliver"), slog.String("status", "held"), slog.String("session", session.String()), slog.String("reason", "automatic turn limit reached; results wait for user input"), slog.Int("limit", noticeLimit), slog.Int("results", len(records)))
+	logging.Emit(slog.LevelWarn, slog.String("event", "node.background"), slog.String("operation", "deliver"), slog.String("status", "held"), slog.String("session", session.String()), slog.String("reason", "automatic turn limit reached; results wait for user input"), slog.Int("limit", limit), slog.Int("results", len(records)))
 	return activityEvent(ctx, db, session)
 }
 
@@ -173,9 +191,11 @@ func BindBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (pr
 	if err != nil {
 		return run, nil, nil, err
 	}
-	if run.Kind != protocol.ConversationRunKindTask || run.Continuation != nil {
+	if run.Kind != protocol.ConversationRunKindTask {
 		return run, nil, nil, nil
 	}
+	// A continuation takes the session's waiting results as a user turn does,
+	// held ones included, so a package loop is never starved of them.
 	records := []BackgroundRecord{}
 	if run.Notice && len(run.Notices) > 0 {
 		for _, notice := range run.Notices {
@@ -296,31 +316,49 @@ func ConfirmBackground(ctx context.Context, db *sql.Conn, session protocol.Sessi
 	return activityEvent(ctx, db, session)
 }
 
-func backgroundBlocked(ctx context.Context, db *sql.Conn, id protocol.SessionID) (bool, error) {
+// automaticRefusal says why a session admits no automatic turn now, or nil
+// when it is free: not archived, not a child, worktree present, queue running
+// and empty, no running turn and no pending approval or question.
+func automaticRefusal(ctx context.Context, db *sql.Conn, id protocol.SessionID) (*protocol.ConversationContinuationRefusal, error) {
 	session, err := ReadSession(ctx, db, id)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	if session.Archived || session.Delegation != nil {
-		return true, nil
+	if session.Delegation != nil {
+		return new(protocol.ConversationContinuationRefusalChild), nil
+	}
+	if session.Archived {
+		return new(protocol.ConversationContinuationRefusalArchived), nil
 	}
 	var present bool
 	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM worktrees w WHERE w.id=?1 AND NOT EXISTS(SELECT 1 FROM removed_worktrees r WHERE r.worktree=w.id))", session.Worktree.String()).Scan(&present); err != nil {
-		return false, err
+		return nil, err
 	}
 	if !present {
-		return true, nil
+		return new(protocol.ConversationContinuationRefusalWorktree), nil
 	}
 	queue, err := ReadQueue(ctx, db, id)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	if queue.Paused || len(queue.Items) > 0 {
-		return true, nil
+	if queue.Paused {
+		return new(protocol.ConversationContinuationRefusalQueuePaused), nil
 	}
-	var blocked bool
-	err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping')) OR EXISTS(SELECT 1 FROM agent_questions q JOIN turns t ON t.id=q.turn WHERE t.session=?1 AND json_extract(q.body,'$.state.kind')='pending') OR EXISTS(SELECT 1 FROM agent_approvals q JOIN turns t ON t.id=q.turn WHERE t.session=?1 AND json_extract(q.body,'$.state')='pending')`, id.String()).Scan(&blocked)
-	return blocked, err
+	if len(queue.Items) > 0 {
+		return new(protocol.ConversationContinuationRefusalQueuedInput), nil
+	}
+	var running, waiting bool
+	err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping')),EXISTS(SELECT 1 FROM agent_questions q JOIN turns t ON t.id=q.turn WHERE t.session=?1 AND json_extract(q.body,'$.state.kind')='pending') OR EXISTS(SELECT 1 FROM agent_approvals q JOIN turns t ON t.id=q.turn WHERE t.session=?1 AND json_extract(q.body,'$.state')='pending')`, id.String()).Scan(&running, &waiting)
+	if err != nil {
+		return nil, err
+	}
+	if running {
+		return new(protocol.ConversationContinuationRefusalRunning), nil
+	}
+	if waiting {
+		return new(protocol.ConversationContinuationRefusalInteraction), nil
+	}
+	return nil, nil
 }
 
 func ScheduleBackground(ctx context.Context, db *sql.Conn, node protocol.NodeID, session protocol.SessionID, now time.Time) (*protocol.QueuedTurn, []protocol.Event, error) {
@@ -355,16 +393,16 @@ func admitBackground(ctx context.Context, db *sql.Conn, node protocol.NodeID, id
 	if !eligible {
 		return nil, nil, nil
 	}
-	blocked, err := backgroundBlocked(ctx, db, id)
-	if err != nil || blocked {
+	refusal, err := automaticRefusal(ctx, db, id)
+	if err != nil || refusal != nil {
 		return nil, nil, err
 	}
-	chain, err := noticeChain(ctx, db, id)
+	chain, err := ReadAutomaticChain(ctx, db, id)
 	if err != nil {
 		return nil, nil, err
 	}
-	if chain >= noticeLimit {
-		events, err := holdBackground(ctx, db, id)
+	if chain.Count >= chain.Limit {
+		events, err := holdBackground(ctx, db, id, chain.Limit)
 		return nil, events, err
 	}
 	session, err := ReadSession(ctx, db, id)

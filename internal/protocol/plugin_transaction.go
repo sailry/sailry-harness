@@ -211,6 +211,8 @@ type PluginTransactionOperationContinuePayload struct {
 	Key              string             `json:"key"`
 	ExpectedRevision uint64             `json:"expected_revision"`
 	Scope            PluginStorageScope `json:"scope"`
+	Marker           *string            `json:"marker,omitempty"`
+	Limit            *uint32            `json:"limit,omitempty"`
 }
 
 func DefaultPluginTransactionOperationContinuePayload() PluginTransactionOperationContinuePayload {
@@ -221,11 +223,15 @@ func DefaultPluginTransactionOperationContinuePayload() PluginTransactionOperati
 		Key:              "",
 		ExpectedRevision: 0,
 		Scope:            PluginStorageScope(""),
+		Marker:           nil,
+		Limit:            nil,
 	}
 }
 func (value *PluginTransactionOperationContinuePayload) UnmarshalJSON(data []byte) error {
 	type plain PluginTransactionOperationContinuePayload
 	decoded := plain{}
+	decoded.Marker = nil
+	decoded.Limit = nil
 	if err := DecodeObject(data, &decoded, []string{"session", "message", "key", "expected_revision", "scope"}, true); err != nil {
 		return err
 	}

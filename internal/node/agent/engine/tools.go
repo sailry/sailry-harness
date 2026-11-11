@@ -286,6 +286,14 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	executable := make([]bool, len(calls))
 	asks := make([]bool, len(calls))
 	var marks []canonical.Record
+	x.observedMu.Lock()
+	if x.observed.Tools == nil {
+		x.observed.Tools = map[string]int{}
+	}
+	for _, call := range calls {
+		x.observed.Tools[call.Name]++
+	}
+	x.observedMu.Unlock()
 	// Mark every allowed call before requesting the first approval.
 	for i, call := range calls {
 		tool := findTool(x.tools, call.Name)

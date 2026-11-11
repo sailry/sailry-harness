@@ -25,7 +25,33 @@ export type ConversationEntry = Entry & { restored: boolean };
 /** Turn initialization receives the admitted configuration, never live session defaults.
  * config is null unless the package declares conversation.read. message is the user's text,
  * capped at 4 KiB UTF-8, and null unless the package declares conversation.message.read. */
-export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; options: Record<string, Json>; session_revision: string | null; message: string | null };
+export type TurnInput = {
+  project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; options: Record<string, Json>; session_revision: string | null; message: string | null;
+  /** True when no user input started the turn: a notice turn or a package continuation. */
+  automatic: boolean; notice: boolean;
+  /** Present only for this package's own continuation; marker is the declared marker id it chose, or null. */
+  continuation?: {marker: string | null};
+};
+export type TurnTokens = { input: number; output: number; cached_input: number; reasoning: number };
+/** Why continue_turn was refused, in the fault's details ({kind: "continuation", data}). count and limit accompany "limit". */
+export type ContinuationRefusal = {
+  reason: "plan" | "child" | "archived" | "worktree" | "queue_paused" | "queued_input" | "running" | "interaction" | "limit" | "stale";
+  count?: number; limit?: number;
+};
+/** host.turn.after_turn input for an ended main task turn. status is completed, failed, cancelled (the user's
+ * Stop) or interrupted (the Node lost the turn); error is the stored fault code of a turn that did not complete.
+ * tools counts the model's tool calls by the name in names or the core tool name; expired counts approvals and
+ * questions that timed out unanswered. usage covers this turn and the children it delegated, session_usage every
+ * turn of the session. background.running is work that starts a notice turn when it ends; background.pending is
+ * ended results no turn has taken. chain is the run of automatic turns since the last user input and its limit. */
+export type TurnEnd = {
+  turn: string; status: "completed" | "failed" | "cancelled" | "interrupted"; error?: string;
+  mode: "plan" | "code"; automatic: boolean; notice: boolean; continuation?: {marker: string | null};
+  names: string[]; tool_calls: number; tools: Record<string, number>; expired: number;
+  usage: TurnTokens; session_usage: TurnTokens;
+  background: {running: number; pending: number};
+  chain: {count: number; limit: number};
+};
 /** Turn initialization result. instruction is per-turn context text. parts are separate context pieces,
  * at most 8 nonempty strings and 32 KiB UTF-8 in total. The Node adds a part only when no agent-visible
  * context of the conversation already holds that exact text, so unchanged parts are not repeated. */

@@ -216,35 +216,36 @@ func (value *PluginTint) UnmarshalText(data []byte) error {
 }
 
 type PluginExtension struct {
-	MinSailryVersion    *string                         `json:"min_sailry_version,omitempty"`
-	ApiVersion          string                          `json:"api_version"`
-	Permissions         []PermissionsContribution       `json:"permissions,omitempty"`
-	Connectors          []PluginConnectorDeclaration    `json:"connectors,omitempty"`
-	Category            *PluginCategory                 `json:"category,omitempty"`
-	Tint                *PluginTint                     `json:"tint,omitempty"`
-	Instructions        *string                         `json:"instructions,omitempty"`
-	ContinuationMarker  *PluginDesktopNavigation        `json:"continuation_marker,omitempty"`
-	ArtifactView        *ArtifactView                   `json:"artifact_view,omitempty"`
-	Display             *PluginDesktopNavigation        `json:"display"`
-	Icon                *string                         `json:"icon,omitempty"`
-	Description         *PluginDesktopNavigation        `json:"description,omitempty"`
-	Scope               PluginScope                     `json:"scope"`
-	Actions             []PluginAction                  `json:"actions"`
-	EnabledService      *PluginService                  `json:"enabled_service,omitempty"`
-	Desktop             *PluginDesktopManifest          `json:"desktop"`
-	Host                *PluginHostManifest             `json:"host"`
-	SettingsSchema      *string                         `json:"settings_schema"`
-	ConversationOptions *json.RawMessage                `json:"conversation_options,omitempty"`
-	ConversationModes   []PluginModesDeclaration        `json:"conversation_modes,omitempty"`
-	SettingsPage        *PluginDesktopSettings          `json:"settings_page"`
-	Storage             *PluginStorageDeclaration       `json:"storage,omitempty"`
-	Tools               []ToolDeclaration               `json:"tools"`
-	ModelProviders      []ConversationPresetsPreset     `json:"model_providers"`
-	ModelAuth           []PluginModelAuthDeclaration    `json:"model_auth"`
-	ModelResources      []PluginModelAuthResource       `json:"model_resources,omitempty"`
-	ModelAdapters       []PluginModelAdapterDeclaration `json:"model_adapters"`
-	Ui                  []PluginUiContribution          `json:"ui"`
-	Cards               []PluginCardDeclaration         `json:"cards,omitempty"`
+	MinSailryVersion    *string                            `json:"min_sailry_version,omitempty"`
+	ApiVersion          string                             `json:"api_version"`
+	Permissions         []PermissionsContribution          `json:"permissions,omitempty"`
+	Connectors          []PluginConnectorDeclaration       `json:"connectors,omitempty"`
+	Category            *PluginCategory                    `json:"category,omitempty"`
+	Tint                *PluginTint                        `json:"tint,omitempty"`
+	Instructions        *string                            `json:"instructions,omitempty"`
+	ContinuationMarker  *PluginDesktopNavigation           `json:"continuation_marker,omitempty"`
+	ContinuationMarkers map[string]PluginDesktopNavigation `json:"continuation_markers,omitempty"`
+	ArtifactView        *ArtifactView                      `json:"artifact_view,omitempty"`
+	Display             *PluginDesktopNavigation           `json:"display"`
+	Icon                *string                            `json:"icon,omitempty"`
+	Description         *PluginDesktopNavigation           `json:"description,omitempty"`
+	Scope               PluginScope                        `json:"scope"`
+	Actions             []PluginAction                     `json:"actions"`
+	EnabledService      *PluginService                     `json:"enabled_service,omitempty"`
+	Desktop             *PluginDesktopManifest             `json:"desktop"`
+	Host                *PluginHostManifest                `json:"host"`
+	SettingsSchema      *string                            `json:"settings_schema"`
+	ConversationOptions *json.RawMessage                   `json:"conversation_options,omitempty"`
+	ConversationModes   []PluginModesDeclaration           `json:"conversation_modes,omitempty"`
+	SettingsPage        *PluginDesktopSettings             `json:"settings_page"`
+	Storage             *PluginStorageDeclaration          `json:"storage,omitempty"`
+	Tools               []ToolDeclaration                  `json:"tools"`
+	ModelProviders      []ConversationPresetsPreset        `json:"model_providers"`
+	ModelAuth           []PluginModelAuthDeclaration       `json:"model_auth"`
+	ModelResources      []PluginModelAuthResource          `json:"model_resources,omitempty"`
+	ModelAdapters       []PluginModelAdapterDeclaration    `json:"model_adapters"`
+	Ui                  []PluginUiContribution             `json:"ui"`
+	Cards               []PluginCardDeclaration            `json:"cards,omitempty"`
 }
 
 func DefaultPluginExtension() PluginExtension {
@@ -257,6 +258,7 @@ func DefaultPluginExtension() PluginExtension {
 		Tint:                nil,
 		Instructions:        nil,
 		ContinuationMarker:  nil,
+		ContinuationMarkers: nil,
 		ArtifactView:        nil,
 		Display:             nil,
 		Icon:                nil,
@@ -290,6 +292,7 @@ func (value *PluginExtension) UnmarshalJSON(data []byte) error {
 	decoded.Tint = nil
 	decoded.Instructions = nil
 	decoded.ContinuationMarker = nil
+	decoded.ContinuationMarkers = nil
 	decoded.ArtifactView = nil
 	decoded.Icon = nil
 	decoded.Description = nil

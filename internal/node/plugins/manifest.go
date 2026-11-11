@@ -218,6 +218,15 @@ func validateExtension(extension protocol.PluginExtension) error {
 	if text := extension.Instructions; text != nil && (strings.TrimSpace(*text) == "" || len(*text) > 16*1024) {
 		return packageFault("invalid plugin instructions")
 	}
+	// A package names at most eight continuation markers besides its default.
+	if len(extension.ContinuationMarkers) > 8 {
+		return packageFault("too many continuation markers")
+	}
+	for id, marker := range extension.ContinuationMarkers {
+		if !ValidateName(id) || !marker.Valid() {
+			return packageFault("invalid continuation marker")
+		}
+	}
 	actions := map[protocol.PluginAction]bool{}
 	for _, action := range extension.Actions {
 		if actions[action] {
