@@ -91,6 +91,41 @@ func TestQueuePauseReason(t *testing.T) {
 	}
 }
 
+// A turn that resumes the queue leaves no reason in its row for a later pause
+// to show.
+func TestResumedQueueRow(t *testing.T) {
+	t.Parallel()
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := context.Background()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		if err := pauseQueue(ctx, db, session.ID, protocol.ConversationQueuePauseStopped); err != nil {
+			return err
+		}
+		current, err := ReadSession(ctx, db, session.ID)
+		if err != nil {
+			return err
+		}
+		if _, err = delegationFixtureParent(ctx, db, node, current, now); err != nil {
+			return err
+		}
+		var paused bool
+		var reason sql.NullString
+		if err = db.QueryRowContext(ctx, "SELECT paused,pause_reason FROM agent_queues WHERE session=?1", session.ID.String()).Scan(&paused, &reason); err != nil {
+			return err
+		}
+		if paused || reason.Valid {
+			return fmt.Errorf("resumed queue row: paused %v, reason %q", paused, reason.String)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestStalledDelivery covers stall evidence under the delivery rules: one
 // notice turn per stall period, counted in the automatic chain, and none for
 // a session the user stopped.
@@ -216,6 +251,16 @@ func TestStalledDelivery(t *testing.T) {
 		}
 		if record.Task.Hold != nil || record.Task.Delivery == nil || *record.Task.Delivery != user {
 			return fmt.Errorf("taken stall kept its hold: %+v", record.Task)
+		}
+		// A turn that ends without taking it leaves it held, and says why.
+		if _, _, err = FinishTurn(ctx, db, user, protocol.ConversationStatusFailed, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "model is unavailable"}, now); err != nil {
+			return err
+		}
+		if record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id); err != nil {
+			return err
+		}
+		if !record.Task.Suppressed || record.Task.Delivery != nil || record.Task.Hold == nil || *record.Task.Hold != protocol.ConversationBackgroundHoldFailed {
+			return fmt.Errorf("held stall after its turn failed: %+v", record.Task)
 		}
 		return nil
 	})

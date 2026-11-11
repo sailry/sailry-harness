@@ -103,29 +103,35 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 			return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalStale, "continuation source is no longer current", nil)
 		}
 	}
-	// The continuation's own declared limit bounds the chain it joins.
-	limit := automaticLimit
-	if input.Limit != nil {
-		if *input.Limit == 0 || *input.Limit > automaticLimitMax {
-			return protocol.Output{}, nil, invalid("continuation limit is out of range")
-		}
-		limit = int(*input.Limit)
-	}
 	chain, err := ReadAutomaticChain(ctx, db, session.ID)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
 	// A continuation the user asked for starts a new chain. The package says
 	// so, as it may also submit a turn in the user's name.
-	if !input.User && chain.Count >= limit {
-		chain.Limit = limit
+	if input.User {
+		chain = AutomaticChain{Limit: automaticLimit}
+	}
+	// The chain has one limit, the one ReadAutomaticChain reports: this
+	// continuation's own when it declares one, and the chain's otherwise,
+	// which it then carries as the chain's latest continuation.
+	declared := input.Limit
+	if declared != nil {
+		if *declared == 0 || *declared > automaticLimitMax {
+			return protocol.Output{}, nil, invalid("continuation limit is out of range")
+		}
+		chain.Limit = int(*declared)
+	} else if chain.Limit != automaticLimit {
+		declared = new(uint32(chain.Limit))
+	}
+	if chain.Count >= chain.Limit {
 		return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalLimit, "automatic turn limit reached", &chain)
 	}
 	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1", fence.Package.Name)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	continuation := &protocol.ConversationContinuation{Package: fence.Package, Limit: input.Limit, User: input.User}
+	continuation := &protocol.ConversationContinuation{Package: fence.Package, Limit: declared, User: input.User}
 	if info != nil && info.Extension != nil {
 		continuation.Marker = info.Extension.ContinuationMarker
 		if input.Marker != nil {
@@ -240,14 +246,11 @@ func cancelAutomaticInput(ctx context.Context, db *sql.Conn, run protocol.Conver
 	if _, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", run.Turn.String()); err != nil {
 		return nil, err
 	}
-	var hold *protocol.ConversationBackgroundHold
-	if run.Notice {
-		hold = new(protocol.ConversationBackgroundHoldOther)
-		if failure != nil && failure.Code == protocol.ErrorCodeOutcomeUnknown {
-			hold = new(protocol.ConversationBackgroundHoldInterrupted)
-		}
+	hold := new(protocol.ConversationBackgroundHoldOther)
+	if failure != nil && failure.Code == protocol.ErrorCodeOutcomeUnknown {
+		hold = new(protocol.ConversationBackgroundHoldInterrupted)
 	}
-	released, err := ReleaseBackground(ctx, db, run.Turn, hold)
+	released, err := ReleaseBackground(ctx, db, run.Turn, hold, run.Notice)
 	if err != nil {
 		return nil, err
 	}

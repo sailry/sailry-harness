@@ -169,9 +169,11 @@ func ConsumeChildBackground(ctx context.Context, db *sql.Conn, parent protocol.T
 }
 
 // ReleaseBackground returns the results reserved for a turn that did not take
-// them. With a hold they are suppressed: they start no notice turn and join
-// the user's next message, and the hold tells clients why.
-func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, hold *protocol.ConversationBackgroundHold) ([]protocol.Event, error) {
+// them. The hold is why the turn did not. With suppress they are suppressed:
+// they start no notice turn and join the user's next message, and the hold
+// tells clients why. Without it only the results that were already suppressed
+// take the hold, so none is left held without a reason.
+func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, hold *protocol.ConversationBackgroundHold, suppress bool) ([]protocol.Event, error) {
 	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE state='pending' AND delivery=?1", turn.String())
 	if err != nil {
 		return nil, err
@@ -179,7 +181,7 @@ func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	owners := map[protocol.SessionID]bool{}
 	for _, record := range records {
 		record.Task.Delivery = nil
-		if hold != nil {
+		if hold != nil && (suppress || record.Task.Suppressed) {
 			record.Task.Suppressed, record.Task.Hold = true, hold
 		}
 		if err = saveBackgroundRecord(ctx, db, &record); err != nil {

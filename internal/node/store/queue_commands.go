@@ -257,7 +257,7 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 		return run, err
 	}
 	if run.Status == protocol.ConversationStatusQueued || retained {
-		if _, err = ReleaseBackground(ctx, db, turn, new(protocol.ConversationBackgroundHoldStopped)); err != nil {
+		if _, err = ReleaseBackground(ctx, db, turn, new(protocol.ConversationBackgroundHoldStopped), true); err != nil {
 			return run, err
 		}
 		if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", turn.String()); err != nil {

@@ -20,6 +20,7 @@ func TestAutomaticChain(t *testing.T) {
 	for _, name := range []string{
 		"default refuses the ninth automatic turn",
 		"declared limit owns the chain",
+		"a continuation without a limit keeps the chain's",
 		"user input resets the chain",
 		"a continuation the user asked for starts a new chain",
 		"notice turns share the declared limit",
@@ -197,6 +198,19 @@ func TestAutomaticChain(t *testing.T) {
 						if _, err = admit(&bad, nil); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
 							return fmt.Errorf("limit %d was accepted: %v", bad, err)
 						}
+					}
+				case "a continuation without a limit keeps the chain's":
+					limit := uint32(25)
+					if err := continued(automaticLimit, &limit); err != nil {
+						return err
+					}
+					// Past the default and below the chain's declared limit.
+					if err := continued(2, nil); err != nil {
+						return fmt.Errorf("continuation without a limit in a chain of 25: %w", err)
+					}
+					chain, err := ReadAutomaticChain(ctx, db, session.ID)
+					if err != nil || chain.Count != automaticLimit+2 || chain.Limit != 25 {
+						return fmt.Errorf("chain after continuations without a limit: %+v: %v", chain, err)
 					}
 				case "user input resets the chain":
 					if err := continued(automaticLimit, nil); err != nil {

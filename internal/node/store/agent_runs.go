@@ -248,7 +248,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return value, err
 	}
 	if ready {
-		_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=0 WHERE session=?1", session.ID.String())
+		_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=0,pause_reason=NULL WHERE session=?1", session.ID.String())
 	}
 	return value, err
 }
@@ -546,19 +546,18 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		return run, nil, err
 	}
 	events = append(events, changed...)
+	// Results a notice turn ended without taking wait for the user. Held
+	// results another turn ended without taking stay held, for this reason.
 	var hold *protocol.ConversationBackgroundHold
-	if run.Notice {
-		// Results a notice turn ended without taking wait for the user.
-		switch status {
-		case protocol.ConversationStatusCancelled:
-			hold = new(protocol.ConversationBackgroundHoldStopped)
-		case protocol.ConversationStatusInterrupted:
-			hold = new(protocol.ConversationBackgroundHoldInterrupted)
-		default:
-			hold = new(protocol.ConversationBackgroundHoldFailed)
-		}
+	switch status {
+	case protocol.ConversationStatusCancelled:
+		hold = new(protocol.ConversationBackgroundHoldStopped)
+	case protocol.ConversationStatusInterrupted:
+		hold = new(protocol.ConversationBackgroundHoldInterrupted)
+	default:
+		hold = new(protocol.ConversationBackgroundHoldFailed)
 	}
-	changed, err = ReleaseBackground(ctx, db, turn, hold)
+	changed, err = ReleaseBackground(ctx, db, turn, hold, run.Notice)
 	if err != nil {
 		return run, nil, err
 	}
