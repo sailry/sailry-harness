@@ -111,7 +111,20 @@ func TestAgentManagementTools(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"roles-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["roles.read","roles.write"],"tools":[{"name":"roster","operation":"roles.list"},{"name":"keep","operation":"roles.save"},{"name":"drop","operation":"roles.remove"},{"name":"assign","operation":"roles.apply"}]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for name, source := range map[string]string{"roles-fixture": fixture} {
+	flows := t.TempDir()
+	for name, body := range map[string]string{
+		"plugin.json":                 `{"$schema":"` + plugins.ManifestSchema + `","name":"flow-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["files.write"],"host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["step"]},"tools":[{"name":"rewrite","description":"Rewrite a file in steps","handler":{"name":"step","flow":{"operations":["files.read","files.write"]},"parameters":{"type":"object"}}}]}}}`,
+		"dev.sailry.platform/main.js": `export function step(input){return input.step===0?{call:{operation:"files.write",arguments:{path:"note.txt",text:"flow",expected_revision:null}}}:{result:{done:true}};}`,
+	} {
+		filename := filepath.Join(flows, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, source := range map[string]string{"roles-fixture": fixture, "flow-fixture": flows} {
 		info, err := node.plugins.manager.Install(t.Context(), source, "", name)
 		if err != nil || len(info.Issues) != 0 || info.Extension == nil {
 			t.Fatalf("%s is invalid: %+v, %v", name, info.Issues, err)
@@ -530,6 +543,32 @@ func TestAgentManagementTools(t *testing.T) {
 			if last := approvals[2]; last.Source != protocol.ConversationApprovalSourceSandbox || last.Access == nil || *last.Access != protocol.ProcessAccessWorkspace {
 				t.Fatalf("command ignored the sandbox turned on during its turn: %+v", last)
 			}
+		}
+	})
+
+	// A flow step has no approval of its own: a flow that declares a workspace
+	// change is refused before the user is asked.
+	t.Run("flow with a workspace change", func(t *testing.T) {
+		rewrite := operations.Alias("flow-fixture", "rewrite")
+		var results map[string]string
+		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+			t.Errorf("flow asked for an approval it cannot use: %+v", approval)
+			return "deny"
+		}, func(step int, got map[string]string) [][3]string {
+			results = got
+			switch step {
+			case 1:
+				return [][3]string{{"discover", "tool_search", `{"query":"select:` + rewrite + `"}`}}
+			case 2:
+				return [][3]string{{"rewrite", declaredToolName(rewrite), `{}`}}
+			}
+			return nil
+		})
+		if len(approvals) != 0 || !strings.Contains(results["rewrite"], "plugin flows cannot run files.write") {
+			t.Fatalf("flow result = %q, approvals %+v", results["rewrite"], approvals)
+		}
+		if _, err := os.Stat(filepath.Join(root, "note.txt")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("flow changed the workspace: %v", err)
 		}
 	})
 

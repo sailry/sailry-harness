@@ -138,12 +138,23 @@ the write cannot leave its owner:
   admission. Plan mode refuses one that is not read-only.
 - Every other handler or flow that is not read-only asks the user under Ask and
   Project permission.
+- A read-only tool asks for the one call that also writes the project: a
+  browser capture with `save=true` (`engine.Tool.Confirm`).
+
+A flow step runs a read-only operation, the package's own storage
+(`storage.*`), `settings.read` or `http.request`. A step has no approval of its
+own, so a workspace change (`files.write`, `process.run` and the other writing
+operations) runs only as a handler's bound `operation`, under that tool's
+approval. A flow that declares one is refused before the user is asked, with
+`plugin flows cannot run <operation>: ...` (`pluginFlowRuns`).
 
 Deviations from Rust: a declared name that breaks the provider rule keeps its
 alias instead of being sent as declared; an MCP tool declared `initial` starts
 visible to the main agent, where Rust always defers MCP tools outside a selected
 mode; a child's MCP input request is refused, where Rust records a question the
-parent page never shows.
+parent page never shows; Rust runs every declared operation as a flow step under
+the flow's one approval, including commands and file writes, which no bundled
+package uses.
 
 The task supervisor bounds Node work. The installation queue permits eight
 pending preparations and serializes each resource through durable publication.

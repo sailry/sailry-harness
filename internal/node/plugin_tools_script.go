@@ -190,6 +190,11 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		}
 		if handler.Flow != nil {
 			tool.Flow = handler.Flow.Operations
+			// A flow that declares a step it can never run is refused before
+			// the user is asked to approve it.
+			if index := slices.IndexFunc(tool.Flow, func(operation protocol.ToolOperation) bool { return !pluginFlowRuns(operation) }); index >= 0 {
+				tool.Prepare = func(context.Context, canonical.ToolRequest) error { return pluginFlowLimit(tool.Flow[index]) }
+			}
 		}
 		if handler.Operation != nil {
 			_, tool.Concurrent = operations.Policy(*handler.Operation)
