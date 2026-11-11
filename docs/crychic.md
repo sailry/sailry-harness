@@ -300,8 +300,9 @@ What to use instead, with the surface Kit's:
 - `code.BranchPicker` is blocked by the fixed name on the clear button of the
   library's search field, shown once the query is not empty. Its adapter is
   kept and tested for when that is solved.
-- Adapters: `ShortcutSheet` (kept and tested, unused) drops actions without
-  keys and groups left empty. `ZoomControl` clamps a stored zoom; the range in `o` is the caller's.
+- `ShortcutSheet` has no adapter: its panel is not Kit's frost and nothing
+  else of it can be hosted, so no page may call it.
+- Adapters: `ZoomControl` clamps a stored zoom; the range in `o` is the caller's.
   `Waveform` clamps levels. `LogView` drops records without a message, shows a
   dash for a missing time, clamps levels and replaces blank or repeated IDs.
   `CommitGraph` shows the hash for a missing message, folds lanes onto eight

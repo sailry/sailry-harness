@@ -7,10 +7,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// enrichQueue gives the rows a user can edit their reader and writer. A
+// notice, a compaction and a continuation a package queued (a marker row)
+// are automatic rows the strip draws without an editor, and get neither.
 func (r *Runtime) enrichQueue(cv *viewmodel.Conversation, queue protocol.ConversationQueue) {
 	for i := range cv.Queue {
 		item := queue.Items[i]
-		if item.Notice || item.Kind == "compaction" {
+		if cv.Queue[i].Notice || cv.Queue[i].Compaction {
 			continue
 		}
 		cv.Queue[i].Load = func(done func(string, bool)) {

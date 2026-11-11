@@ -65,9 +65,6 @@ func (s *State) View(c *ui.Context) {
 				s.places(c, valid, title)
 				ui.Box(c.Key("rule")).Width(1).Shrink(0).Background(p.Border)
 			}
-			// The frost stays the sidebar's alone: the popover color covers it
-			// under the entries, so what is behind the dialog does not read
-			// through their text.
 			// Opaque, so nothing behind the dialog reads through the
 			// entries; the sidebar alone keeps the frost.
 			ui.Column(c.Key("content")).Grow(1).MinWidth(0).Background(kit.Opaque(p.Popover)).Children(func() {
