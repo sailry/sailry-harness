@@ -9,12 +9,20 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 const cleanupTimeout = 2 * time.Second
+
+// An interactive command has no view to size it, so it gets a fixed terminal.
+const (
+	ptyRows    = 24
+	ptyColumns = 120
+	ptyTerm    = "xterm-256color"
+)
 
 type nativeProcess struct {
 	stdout       io.ReadCloser
@@ -26,6 +34,8 @@ type nativeProcess struct {
 	settled      func() bool
 	close        func()
 	finishOutput func()
+	// group is the Unix process group the command leads.
+	group int
 }
 
 func commandDirectory(launch Launch) (string, error) {
@@ -67,6 +77,8 @@ func (s *Service) executeNative(ctx context.Context, launch Launch, emit func(pr
 		return completion, processFailure(err)
 	}
 	defer child.close()
+	// The record goes once the group has been killed.
+	defer recordGroup(s.options.Profile, launch.ID, child.group)()
 	defer child.kill()
 	type result struct {
 		outcome protocol.ProcessOutcome
@@ -76,16 +88,19 @@ func (s *Service) executeNative(ctx context.Context, launch Launch, emit func(pr
 	go func() { outcome, err := child.wait(); waited <- result{outcome, err} }()
 	var drains sync.WaitGroup
 	drainErrors := make(chan error, 2)
-	for _, stream := range []struct {
+	var drained [2]atomic.Bool
+	for index, stream := range []struct {
 		reader io.ReadCloser
 		kind   protocol.ProcessOutputOutputStream
 	}{{child.stdout, protocol.ProcessOutputOutputStreamStdout}, {child.stderr, protocol.ProcessOutputOutputStreamStderr}} {
 		if stream.reader == nil {
+			drained[index].Store(true)
 			continue
 		}
 		drains.Add(1)
 		go func() {
 			defer drains.Done()
+			defer drained[index].Store(true)
 			buffer := make([]byte, 32*1024)
 			for {
 				count, err := stream.reader.Read(buffer)
@@ -129,19 +144,31 @@ func (s *Service) executeNative(ctx context.Context, launch Launch, emit func(pr
 		timeout = timer.C
 	}
 	rootDone := false
-	select {
-	case <-s.ctx.Done():
-	case <-ctx.Done():
-	case <-timeout:
-		completion.Outcome.Kind = "timed_out"
-	case failure := <-inputErrors:
-		completion.Outcome = unknownOutcome("command input failed", failure)
-	case result := <-waited:
-		rootDone = true
-		completion.Outcome = result.outcome
-		if result.err != nil {
-			completion.Outcome = unknownOutcome("command wait failed", result.err)
+	promoted := launch.promoted
+running:
+	for {
+		select {
+		case <-promoted:
+			// A promoted command belongs to its session and has no timeout.
+			if timer != nil {
+				timer.Stop()
+			}
+			timeout, promoted = nil, nil
+			continue
+		case <-s.ctx.Done():
+		case <-ctx.Done():
+		case <-timeout:
+			completion.Outcome.Kind = "timed_out"
+		case failure := <-inputErrors:
+			completion.Outcome = unknownOutcome("command input failed", failure)
+		case result := <-waited:
+			rootDone = true
+			completion.Outcome = result.outcome
+			if result.err != nil {
+				completion.Outcome = unknownOutcome("command wait failed", result.err)
+			}
 		}
+		break running
 	}
 	stopInput()
 	// Stop permits the source grace period; Node closure immediately kills the group.
@@ -188,15 +215,17 @@ func (s *Service) executeNative(ctx context.Context, launch Launch, emit func(pr
 	if child.finishOutput != nil {
 		child.finishOutput()
 	}
-	drained := make(chan struct{})
-	go func() { drains.Wait(); close(drained) }()
+	closed := make(chan struct{})
+	go func() { drains.Wait(); close(closed) }()
 	deadline := time.NewTimer(cleanupTimeout)
 	select {
-	case <-drained:
+	case <-closed:
 	case <-deadline.C:
+		// A process outside the group still holds the stream. The command's
+		// own outcome stands; its output is marked as cut short.
+		completion.Stdout.Truncated, completion.Stderr.Truncated = !drained[0].Load(), !drained[1].Load()
 		child.close()
-		<-drained
-		completion.Outcome = protocol.ProcessOutcome{Kind: "unknown", Data: "command output cleanup timed out"}
+		<-closed
 	}
 	deadline.Stop()
 	child.close()

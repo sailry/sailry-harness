@@ -41,6 +41,9 @@ func launchNative(launch Launch, environment Environment, _ func(string) (string
 		}
 	}
 	values["PWD"] = directory
+	if launch.Pty {
+		values["TERM"] = ptyTerm
+	}
 	shell := environment.Shell()
 	if strings.EqualFold(shell, "cmd.exe") {
 		system, err := windows.GetSystemDirectory()
@@ -123,7 +126,7 @@ func launchNative(launch Launch, environment Environment, _ func(string) (string
 			return nil, err
 		}
 		owned = append(owned, outReader, outWriter)
-		if err = windows.CreatePseudoConsole(windows.Coord{X: 80, Y: 24}, windows.Handle(inReader.Fd()), windows.Handle(outWriter.Fd()), 0, &console); err != nil {
+		if err = windows.CreatePseudoConsole(windows.Coord{X: ptyColumns, Y: ptyRows}, windows.Handle(inReader.Fd()), windows.Handle(outWriter.Fd()), 0, &console); err != nil {
 			return nil, err
 		}
 		// This attribute's value is the console handle itself rather than

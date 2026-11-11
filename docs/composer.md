@@ -532,8 +532,12 @@ The strip shows one Globe capsule per distinct port, disables it while the
 connection is unavailable or a forward is being opened, and labels a listening
 forward as `remote → local`. `OpenService` freezes the session, command and
 service identity, asks that Client to forward the port, then opens the confirmed
-loopback URL through the window's native browser callback. A service removed
-from the observed running command closes its associated Forwarder.
+loopback URL through the window's native browser callback: the URL the command
+announced with only its host and port replaced by the local listener
+(`forwardURL`, the reference's `local_url`), so an `https` scheme, a path and a
+token query survive. A forward opened from the ports list has no announced URL
+and opens the listener's root over HTTP. A service removed from the observed
+running command closes its associated Forwarder.
 
 Forwarding state belongs to the window and is keyed by Node and remote port.
 Another Node's matching port cannot supply the label or browser address.

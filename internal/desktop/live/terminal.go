@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -22,6 +23,11 @@ type liveTerminal struct {
 	cancel   context.CancelFunc
 	reading  bool
 	failed   bool
+	// claiming holds while claim_terminal is unanswered; claimed is the
+	// revision an unowned terminal was last claimed at, so one refused
+	// automatic claim is not repeated every frame.
+	claiming bool
+	claimed  uint64
 	query    string
 	find     bool
 	selected int
@@ -91,7 +97,7 @@ func (r *Runtime) attachLiveTerminal(state *liveTerminal, info protocol.Terminal
 		var terminal *myterminal.Terminal
 		var connection *terminalConn
 		if err == nil {
-			connection = &terminalConn{owner: owner, ctx: ctx, cancel: cancel, stream: stream, ready: make(chan struct{}), info: info}
+			connection = &terminalConn{owner: owner, ctx: ctx, cancel: cancel, stream: stream, ready: make(chan struct{}), info: info, self: root.controller.Target()}
 			terminal, err = myterminal.New(myterminal.Options{Conn: connection, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk, Font: terminalFont(display),
 				OnClear: func(myterminal.Clear) bool { connection.clearScreen(); return true },
 				OnPaste: func(data transfer.Data) bool { return root.holdTerminalPaste(id, data) },
@@ -187,7 +193,13 @@ func (r *Runtime) terminalScreen(c *ui.Context, id string) {
 		return
 	}
 	if state == nil || state.failed || state.terminal == nil {
-		kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
+		props := kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "unavailable")}
+		if state != nil && state.failed {
+			props.Extra = func() {
+				kit.Secondary(c.Key("terminal-retry"), i18n.T(c, "chat_retry")).OnClick(func() { root.retryLiveTerminal(id, state) })
+			}
+		}
+		kit.Result(c, props).Grow(1).Justify(ui.Center)
 		return
 	}
 	screen := myterminal.View(c, state.terminal).Grow(1).MinHeight(0).FillWidth()
@@ -195,7 +207,77 @@ func (r *Runtime) terminalScreen(c *ui.Context, id string) {
 		screen.Focus()
 		inventory.focus = ""
 	}
+	root.terminalControl(c, id, state)
 	root.terminalPasteDialog(c, id, state)
+}
+
+// retryLiveTerminal attaches a terminal again after its attach failed, as a
+// saved tab's when its Node was unreachable.
+func (r *Runtime) retryLiveTerminal(id string, state *liveTerminal) {
+	root := r.localRuntime()
+	terminalID, err := protocol.ParseTerminalID(id)
+	if err != nil || root.packages.terminals[id] != state || !state.failed || state.reading {
+		return
+	}
+	owner, info, exists := root.terminalOwner(terminalID)
+	if !exists || info.Status.Kind == "closed" {
+		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "terminal is unavailable"))
+		return
+	}
+	state.owner, state.failed, state.reading = owner, false, true
+	root.attachLiveTerminal(state, info)
+}
+
+// terminalControl keeps this desktop the terminal's controller. A running
+// terminal nobody owns is claimed at once; one another controller owns is
+// covered, as its input is refused, until Take control claims it.
+func (r *Runtime) terminalControl(c *ui.Context, id string, state *liveTerminal) {
+	info := state.conn.current()
+	if state.conn.controlling() || info.Status.Kind != "running" || info.Ssh != nil {
+		return
+	}
+	if info.Owner == nil {
+		if !state.claiming && state.claimed != info.Revision {
+			r.claimLiveTerminal(id, state)
+		}
+		return
+	}
+	palette := theme.Of(c)
+	ui.Column(c.Key("terminal-control")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(palette.Background.Alpha(0.9)).Children(func() {
+		kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "terminal_other_controller"), Extra: func() {
+			kit.Primary(c.Key("terminal-take-control"), i18n.T(c, "terminal_take_control"), state.claiming).OnClick(func() { r.claimLiveTerminal(id, state) })
+		}})
+	})
+}
+
+// claimLiveTerminal sends claim_terminal at the revision this view holds. A
+// refusal leaves the terminal with its controller.
+func (r *Runtime) claimLiveTerminal(id string, state *liveTerminal) {
+	root, connection := r.localRuntime(), state.conn
+	if connection == nil || state.claiming {
+		return
+	}
+	info := connection.current()
+	state.claiming, state.claimed = true, info.Revision
+	if !state.owner.async(func() {
+		output, err := state.owner.controller.Do(connection.ctx, protocol.Command{Kind: "claim_terminal", Data: protocol.CommandClaimTerminalPayload{Terminal: info.ID, ExpectedRevision: info.Revision}})
+		claimed, valid := detail[protocol.TerminalInfo](output.Data)
+		if err == nil && valid {
+			connection.claimed(claimed)
+		}
+		root.enqueue(func(c *ui.Context) {
+			state.claiming = false
+			if root.packages.terminals[id] != state || state.conn != connection || connection.ctx.Err() != nil {
+				return
+			}
+			root.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+			if err == nil {
+				root.terminalInventory().focus = id
+			}
+		})
+	}) {
+		state.claiming = false
+	}
 }
 
 // closeLiveTerminal is Close terminal: the Node closes the shell, then the
@@ -270,7 +352,15 @@ type terminalConn struct {
 	terminal *myterminal.Terminal
 	close    sync.Once
 	read     sync.Mutex
-	mu       sync.Mutex
-	info     protocol.TerminalInfo
 	pending  []byte
+	// self is the identity this desktop's commands carry on every Node.
+	self protocol.NodeID
+	mu   sync.Mutex
+	info protocol.TerminalInfo
+	// rejected holds while a refused write has been reported and none has
+	// been accepted since.
+	rejected bool
+	// viewport and appearance are what the view last asked for.
+	viewport   *protocol.TerminalViewport
+	appearance *protocol.TerminalAppearance
 }

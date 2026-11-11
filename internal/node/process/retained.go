@@ -179,6 +179,13 @@ func (stream *retainedStream) finish() {
 	}
 }
 
+// cut marks output that ended before its stream closed.
+func (stream *retainedStream) cut() {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.capture.truncated = true
+}
+
 func (stream *retainedStream) evict() {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()

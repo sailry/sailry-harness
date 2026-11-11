@@ -2,7 +2,7 @@ package live
 
 import (
 	"encoding/json"
-	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -85,7 +85,7 @@ func (r *Runtime) portActions(node string) host.Actions {
 	return host.Actions{
 		OpenPort: func(port host.Port) {
 			if forward, _ := root.forward(node, port.Remote); forward != nil && forward.State().Kind == "listening" {
-				root.openForward(forward)
+				root.openForward(forward, nil)
 			}
 		},
 		ClosePort: func(port host.Port) { root.closeForward(node, uint16(port.Remote)) },
@@ -137,7 +137,7 @@ func (r *Runtime) startForward(node string, remote, local uint16, source *client
 	if existing != nil && existing.State().Kind == "listening" {
 		state.mu.Unlock()
 		if open {
-			r.openForward(existing)
+			r.openForward(existing, source)
 		} else {
 			r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "port_exists")) })
 		}
@@ -191,7 +191,7 @@ func (r *Runtime) startForward(node string, remote, local uint16, source *client
 			if err != nil {
 				r.report(c, err, "port_invalid")
 			} else if open {
-				r.openForward(forward)
+				r.openForward(forward, source)
 			}
 			if completed != nil {
 				completed(err == nil)
@@ -205,10 +205,28 @@ func (r *Runtime) startForward(node string, remote, local uint16, source *client
 	}
 }
 
-func (r *Runtime) openForward(forward *client.Forwarder) {
-	if r.openService != nil {
-		r.openService(fmt.Sprintf("http://127.0.0.1:%d", forward.LocalPort()))
+func (r *Runtime) openForward(forward *client.Forwarder, source *client.ServiceSource) {
+	if r.openService == nil {
+		return
 	}
+	announced := ""
+	if source != nil {
+		announced = source.Service.Url
+	}
+	r.openService(forwardURL(announced, forward.LocalPort()))
+}
+
+// forwardURL is the address a forwarded service opens at: the URL its
+// command announced with only the host and port replaced by the local
+// listener, so its scheme, path, query and fragment survive. A forward
+// without an announced URL opens the listener's root over HTTP.
+func forwardURL(announced string, port uint16) string {
+	host := "127.0.0.1:" + strconv.Itoa(int(port))
+	if target, err := url.Parse(announced); err == nil && (target.Scheme == "http" || target.Scheme == "https") {
+		target.Host, target.User = host, nil
+		return target.String()
+	}
+	return "http://" + host
 }
 
 func (x *conversationActions) forwardCommandService(port int) {
