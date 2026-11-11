@@ -1037,3 +1037,139 @@ func TestGuidanceBatch(t *testing.T) {
 		}
 	})
 }
+
+// TestGuidanceBatchOverflow covers a batch of guidance that overfills the
+// context: the turn compacts and retries like any other overflow, fails on a
+// context_overflow step when that cannot recover, and loses nothing. Joined inputs
+// stay whole in history under their own turns; input sent during the last
+// attempt goes back to the queue whole and starts its own turn.
+func TestGuidanceBatchOverflow(t *testing.T) {
+	one, two, three := strings.Repeat("one ", 500), strings.Repeat("two ", 500), strings.Repeat("three ", 500)
+	carried := func(request fantasy.Call) []string {
+		var out []string
+		for _, message := range request.Prompt {
+			if message.Role != fantasy.MessageRoleUser {
+				continue
+			}
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+					switch value.Text {
+					case one:
+						out = append(out, "one")
+					case two:
+						out = append(out, "two")
+					case three:
+						out = append(out, "three")
+					}
+				}
+			}
+		}
+		return out
+	}
+	guide := func(f *engineFixture, turn protocol.TurnID, value string) protocol.TurnID {
+		input := protocol.DefaultConversationInput()
+		input.Text = value
+		return f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
+	}
+	requests := make(chan fantasy.Call, 2)
+	first, second := make(chan struct{}), make(chan struct{})
+	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
+	// held reports its request and waits before it ends with part.
+	held := func(release <-chan struct{}, parts ...fantasy.StreamPart) script {
+		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			requests <- request
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return
+			}
+			for _, part := range parts {
+				if !yield(part) {
+					return
+				}
+			}
+		}
+	}
+	started := func(f *engineFixture) fantasy.Call {
+		t.Helper()
+		select {
+		case request := <-requests:
+			return request
+		case <-f.ctx.Done():
+			t.Fatal("model step did not start")
+			return fantasy.Call{}
+		}
+	}
+	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
+	m := &scriptedModel{scripts: []script{
+		held(first, text("Working"), finish()),
+		response(overflow), summary, response(overflow), summary, held(second, overflow),
+		response(text("Answered"), finish()),
+	}}
+	f := newFixture(t, m)
+	f.start()
+	turn := f.submit("Initial")
+	started(f)
+	joined := []protocol.TurnID{guide(f, turn, one), guide(f, turn, two)}
+	close(first)
+	// Both recoveries are spent; guidance sent during the last attempt has no
+	// boundary left to join at.
+	started(f)
+	late := guide(f, turn, three)
+	close(second)
+	failed := f.waitRun(turn, protocol.ConversationStatusFailed)
+	// The run's fault is a protocol code; the failed step's record names the
+	// overflow.
+	if failed.Error == nil || failed.Error.Code != protocol.ErrorCodeUnavailable {
+		t.Fatalf("turn error = %+v", failed.Error)
+	}
+	if n := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); n != 2 {
+		t.Fatalf("compactions=%d", n)
+	}
+	// Joined inputs are whole records of their own turns.
+	for _, id := range joined {
+		if run := f.waitRun(id, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != turn {
+			t.Fatal("guidance was not joined to its turn")
+		}
+	}
+	// The input that had not joined is an ordinary item again and runs whole.
+	if run := f.waitRun(late, protocol.ConversationStatusCompleted); run.Joined != nil {
+		t.Fatal("late guidance joined the failed turn")
+	}
+	if m.count() != 7 {
+		t.Fatalf("requests=%d", m.count())
+	}
+	m.mu.Lock()
+	batch, last := carried(m.calls[1]), carried(m.calls[6])
+	m.mu.Unlock()
+	// The whole batch reached the model: nothing was cut to make it fit.
+	if !reflect.DeepEqual(batch, []string{"one", "two"}) {
+		t.Fatalf("overflowing request carried %v", batch)
+	}
+	if len(last) == 0 || last[len(last)-1] != "three" {
+		t.Fatalf("late guidance request carried %v", last)
+	}
+	state := f.state()
+	owners := map[string]protocol.TurnID{}
+	for _, record := range state.Records {
+		if message := record.Message(); message != nil && record.Provenance.Author == "user" {
+			for _, block := range message.Content {
+				if value, ok := block.Data.(*canonical.TextContent); ok {
+					owners[value.Text] = record.Turn
+				}
+			}
+		}
+	}
+	if owners[one] != joined[0] || owners[two] != joined[1] || owners[three] != late {
+		t.Fatal("an input was shortened or recorded under another turn")
+	}
+	code := ""
+	for _, record := range state.Records {
+		if message := record.Message(); message != nil && record.Turn == turn && message.Error != nil && message.Error.Code != nil {
+			code = *message.Error.Code
+		}
+	}
+	if code != "context_overflow" {
+		t.Fatalf("failed step code = %q", code)
+	}
+}

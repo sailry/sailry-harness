@@ -553,8 +553,13 @@ without an owner.
   with its own attachments and references; the model then answers them in a
   single step. Input that arrives after the batch was taken waits for the
   next boundary. A batch that overfills the context goes through the turn's
-  ordinary compaction and, when that cannot recover, fails the turn with
-  `context_overflow`; nothing is truncated. `guide_turn` binds attachments
+  ordinary compaction (at most two recoveries) and, when that cannot recover,
+  fails the turn: the failed step's record carries `context_overflow` and the
+  run's fault is `unavailable`. Nothing is truncated: joined inputs stay whole
+  records of their own turns; input waiting during a recovery joins after the
+  compaction, before the retried step; input sent during the last attempt
+  returns to the queue whole and starts its own turn
+  (`engine.TestGuidanceBatchOverflow`). `guide_turn` binds attachments
   like `queue_turn`, so an attachment that is not stored yet refuses the
   message.
 - **Compatibility.** Guidance joins only a recipient that froze the same
