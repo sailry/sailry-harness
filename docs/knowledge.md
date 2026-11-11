@@ -180,6 +180,40 @@ semantic and hybrid fall back to keyword when no collection has vectors for
 the model. Limits default to 5 and are bounded at 100; hits are marked
 untrusted, and hits of a collection that is still indexing are marked stale.
 
+### Scale
+
+There is no vector index: a semantic or hybrid query reads, decodes and
+scores every vector of the admitted collections that was built with the
+query's model and dimension (`service/query.go`), and the keyword side ranks
+every chunk that contains the query's words. Both grow with the corpus.
+`BenchmarkSemanticScan` (`service/query_bench_test.go`) measures one query
+against one collection of 384-component vectors, the default model's
+dimension. On an Apple M4 Pro, darwin-arm64, 30 queries each:
+
+| Chunks | Semantic | Hybrid | Hybrid, words in every chunk |
+|---|---|---|---|
+| 10,000 | 19 ms | 20 ms | 52 ms |
+| 25,000 | 46 ms | 52 ms | 135 ms |
+| 50,000 | 110 ms | 100 ms | 269 ms |
+| 100,000 | 190 ms | 206 ms | 547 ms |
+| 200,000 | 367 ms | 379 ms | 1,076 ms |
+
+A query costs about 2 µs per vector and passes 100 ms at about 50,000 chunks
+across the collections it may read; a chunk is at most 256 tokens, so that is
+on the order of ten million tokens of text. Of the 2 µs, reading the rows
+takes about 0.7 µs (the same statement run alone); the rest is decoding,
+scoring and ranking. A query whose words occur in every chunk adds about
+3 µs per chunk for the keyword ranking and passes 100 ms at about 20,000
+chunks. The time excludes encoding the query text. Nothing caps a
+collection's size; beyond these sizes queries slow down, they do not fail.
+
+The limit is recorded, not removed. The standard next step, when corpora of
+that size matter, is an approximate nearest-neighbour index (HNSW) over the
+stored vectors, kept as derived data per collection binding like the vectors
+themselves, with the exact scan retained for small or heavily filtered
+candidate sets. It needs a dependency and a plan decision, so it is not part
+of this change.
+
 ## Citations
 
 `read_knowledge_citation` checks that the request may read the collection,
