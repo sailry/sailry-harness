@@ -163,7 +163,7 @@ func updates(c *ui.Context, m *Model) {
 		case UpdateReady:
 			iconButton(c, "install", nil, i18n.T(c, "updates_install"), true, false).OnClick(func() { u.confirm = true })
 		case UpdateInstalling, UpdateRestarting:
-			iconButton(c, "installing", nil, i18n.T(c, "updates_installing"), false, true)
+			kit.SecondaryBusy(c.Key("installing"), i18n.T(c, "updates_installing"), true)
 		case UpdateStopped:
 			// Relaunching leaves the preview.
 			kit.Secondary(c.Key("restart"), i18n.T(c, "updates_restart")).OnClick(run(func(a *UpdateActions) func() { return a.Restart }, func() { notice(c) }))

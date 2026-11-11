@@ -84,6 +84,10 @@ func hooks(c *ui.Context, m *Model) {
 		})
 	})
 	kit.Group(c, "scripts", i18n.T(c, "hooks_scripts"), "", func() {
+		if m.Live && h.Pending {
+			kit.BusyAction(c.Key("add"), i18n.T(c, "hooks_add")) // the hooks are being read or saved
+			return
+		}
 		kit.Action(c.Key("add"), icons.Plus, i18n.T(c, "hooks_add"), h.Pending).OnClick(func() {
 			m.hook = hookEditor{open: true, index: -1, script: preview.Hook{Phase: preview.BeforeTool}, timeout: "30000"}
 		})

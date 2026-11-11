@@ -179,7 +179,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 	switch {
 	case !pk.Installed && pk.Requires == "":
 		action = func() {
-			kit.Primary(c.Key("primary"), t("market_install"), false).Height(28).Children(func() { ui.Text(c, t("market_install")).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("primary"), t("market_install"), false, s.Busy[BusyPackage+pk.ID]).Height(28).OnClick(func() {
 				if s.PackageActions != nil && s.PackageActions.MarketPlugin != nil {
 					s.PackageActions.MarketPlugin(pk.ID)
 					return
@@ -189,7 +189,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 		}
 	case Update(pk) && pk.Requires == "":
 		action = func() {
-			kit.Primary(c.Key("primary"), t("market_update"), false).Height(28).Children(func() { ui.Text(c, t("market_update")).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("primary"), t("market_update"), false, s.Busy[BusyPackage+pk.ID]).Height(28).OnClick(func() {
 				if s.PackageActions != nil && s.PackageActions.Update != nil {
 					s.PackageActions.Update([]string{pk.ID})
 					return

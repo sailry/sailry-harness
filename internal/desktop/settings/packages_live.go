@@ -79,7 +79,14 @@ const (
 	BusySkillUpdates  = "skills"      // Skills: Check updates
 	BusyPermissions   = "permissions" // Permissions: Check
 	BusyTelemetry     = "telemetry"   // General: Reset
-	BusyDiagnostics   = "diagnostics" // General: Send
+	// BusyPackage followed by a package's, skill's or theme's ID is an
+	// install, update, switch or removal of it under way.
+	BusyPackage = "package/"
+	// BusyBackup followed by a backup action's name (export, now, archive,
+	// delete, and unarchive/ or delete/ with a session's ID) is that action
+	// under way.
+	BusyBackup      = "backup/"
+	BusyDiagnostics = "diagnostics" // General: Send
 )
 
 // SetBusy marks the operation op in flight, or over.

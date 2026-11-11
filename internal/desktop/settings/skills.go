@@ -121,8 +121,12 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 	if sk.Package != "" {
 		desc = skillSource(c, sk)
 	}
+	busy := m.Busy[BusyPackage+sk.ID]
 	kit.ResourceCard(c, sk.ID, sk.Name, desc, func() { kit.Tile(c, sk.Name, icons.Bot) }, func() { s.ShowDetails(DetailSkill, sk.ID) }, func(bool) {
-		if sk.Update {
+		if busy {
+			// Its update, import, switch or removal runs.
+			kit.BusyAction(c.Key("busy"), sk.Name)
+		} else if sk.Update {
 			kit.Action(c.Key("update"), icons.Download, t("settings_update"), false).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
 					m.PackageActions.Update([]string{sk.ID})
@@ -131,7 +135,7 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 				notice(c)
 			})
 		}
-		if ui.Switch(c.Key("enabled"), &sk.Enabled).Label(t("plugins_enabled")+" "+sk.Name).Disabled(sk.Package != "").Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
+		if ui.Switch(c.Key("enabled"), &sk.Enabled).Label(t("plugins_enabled")+" "+sk.Name).Disabled(sk.Package != "" || busy).Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
 			m.PackageActions.Toggle(sk.ID, sk.Enabled)
 		}
 		kit.MenuButton(c.Key("menu"), "skill-menu-"+sk.ID, func(b ui.Element) {
@@ -146,7 +150,7 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 				}
 				return
 			}
-			if menu.Item(t("skill_source_reimport")).Icon(icons.RotateCw).Chosen() {
+			if menu.Item(t("skill_source_reimport")).Icon(icons.RotateCw).Disabled(busy).Chosen() {
 				if m.PackageActions != nil && m.PackageActions.ReimportSkill != nil {
 					m.PackageActions.ReimportSkill(sk.ID)
 				} else {
@@ -154,7 +158,7 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 				}
 			}
 			menu.Separator()
-			if menu.Item(t("plugins_uninstall")).Icon(icons.Trash).Danger().Chosen() {
+			if menu.Item(t("plugins_uninstall")).Icon(icons.Trash).Danger().Disabled(busy).Chosen() {
 				m.skillRemoving = sk.ID
 			}
 		}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
@@ -232,7 +236,7 @@ func skillInstallDialog(c *ui.Context, m *Model) {
 			}
 			e.open = false
 			notice(c)
-		})
+		}, e.pending)
 	}).Width(min(560, width(c)-48)).Label(title)
 	if !e.open && e.pending && m.PackageActions != nil && m.PackageActions.CancelSkill != nil {
 		m.PackageActions.CancelSkill()

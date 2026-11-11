@@ -74,7 +74,7 @@ func terminal(c *ui.Context, m *Model) {
 	locked := h.Pending || m.Live && m.SaveTerminal == nil
 	kit.Group(c, "environment", i18n.T(c, "terminal_environment"), "", func() {
 		label := i18n.T(c, "settings_add")
-		kit.Primary(c.Key("add"), label, locked).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
+		kit.PrimaryBusy(c.Key("add"), label, locked, m.Live && h.Pending).OnClick(func() {
 			*e = envEditor{open: true, index: -1}
 		})
 	}, func() {

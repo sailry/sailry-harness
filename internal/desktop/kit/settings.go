@@ -221,6 +221,22 @@ func TextAction(c *ui.Context, label string, disabled bool) ui.Element {
 	return b
 }
 
+// TextActionBusy is TextAction, and while the operation it started runs the
+// spinner before its label and no press.
+func TextActionBusy(c *ui.Context, label string, disabled, busy bool) ui.Element {
+	b := GhostLook(c, ui.ButtonBase(c).Label(label).Disabled(disabled || busy).Busy(busy), false).Height(28).PaddingX(8).Gap(6).
+		Children(func() {
+			if busy {
+				ui.Spinner(c).Size(14, 14)
+			}
+			ui.Text(c, label).FontSize(14).SingleLine()
+		})
+	if disabled && !busy {
+		b.Opacity(0.5)
+	}
+	return b
+}
+
 // TitleGap is the space between a list row's title and its description
 // (settings rows, media rows).
 const TitleGap = 5

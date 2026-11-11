@@ -237,6 +237,13 @@ and Appearance, the Permissions check, and General's telemetry reset and
 diagnostics report. The live adapter sets a name with `SetBusy` as it sends the
 request and clears it when the request ends, whatever the outcome; the button
 is disabled and busy with a spinner meanwhile, and the outcome stays a toast.
+`BusyPackage` followed by a package's, skill's or theme's ID marks its install,
+update, switch, re-import or removal: its card shows the spinner in the
+action's place, its switch and menu removal wait, a Market card's button and
+Plugins' Update all are busy. `BusyBackup` followed by an action's name marks
+Back up now, the export, the archive and deletion of all sessions and of one
+archived session. A list row without an action is not a button and takes no
+hover style.
 
 ## Tests
 

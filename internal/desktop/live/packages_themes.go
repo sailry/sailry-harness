@@ -140,6 +140,7 @@ func (r *Runtime) installMarketTheme(id string) {
 		return
 	}
 	state.themeBusy[id] = true
+	root.App.Settings.SetBusy(settings.BusyPackage+id, true)
 	var expected *string
 	if installed, exists := state.themes[id]; exists {
 		value := installed.Digest
@@ -152,6 +153,7 @@ func (r *Runtime) installMarketTheme(id string) {
 		}
 		root.enqueue(func(c *ui.Context) {
 			delete(state.themeBusy, id)
+			root.App.Settings.SetBusy(settings.BusyPackage+id, false)
 			root.themeReport(c, err, "appearance_import_done", "appearance_save_failed", "appearance_save_uncertain")
 		})
 	})

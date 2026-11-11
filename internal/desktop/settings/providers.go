@@ -133,13 +133,7 @@ func catalog(c *ui.Context, m *Model) {
 		}
 	}
 	kit.Group(c, "catalog", i18n.T(c, "provider_catalog"), "", func() {
-		busy := m.Busy[BusyCatalog]
-		kit.Primary(c.Key("update"), i18n.T(c, "provider_catalog_update"), busy).Busy(busy).Children(func() {
-			if busy {
-				ui.Spinner(c).Size(14, 14)
-			}
-			ui.Text(c, i18n.T(c, "provider_catalog_update")).FontSize(14)
-		}).OnClick(func() {
+		kit.PrimaryBusy(c.Key("update"), i18n.T(c, "provider_catalog_update"), false, m.Busy[BusyCatalog]).OnClick(func() {
 			if m.Live && m.ProviderActions.RefreshCatalog != nil {
 				m.ProviderActions.RefreshCatalog()
 			} else {
@@ -166,6 +160,9 @@ func catalog(c *ui.Context, m *Model) {
 						} else {
 							report(c, m.Compaction.Commit(), compactionMessages)
 						}
+					}
+					if m.Live && m.Compaction.Pending {
+						ui.Spinner(c).Size(14, 14) // the threshold is being saved
 					}
 					ui.Textf(c, "%.0f%%", m.Compaction.Draft).FontSize(14).Width(40).TextAlign(ui.End)
 				})
@@ -438,6 +435,7 @@ type providerEditor struct {
 	removed             int // models taken out, part of a model row's identity (mcpEditor.removed)
 	def                 int
 	probing             bool
+	saving              bool // probing is the save's, not a discovery's
 	// returnTo reopens the welcome guide from the first step's Back, when
 	// the guide opened the editor; nil otherwise.
 	returnTo func()
@@ -601,7 +599,7 @@ func (e *providerEditor) save(m *Model) string {
 		if e.probing {
 			return ""
 		}
-		e.probing = true
+		e.probing, e.saving = true, true
 		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Method: e.method.ID, API: e.method.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
 		generation := e.generation
 		signIn := e.login() && e.editing == ""
@@ -610,7 +608,7 @@ func (e *providerEditor) save(m *Model) string {
 			if e.generation != generation || !e.open {
 				return
 			}
-			e.probing = false
+			e.probing, e.saving = false, false
 			if ok {
 				e.open = false
 				e.key = ""
@@ -679,7 +677,7 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 				if !m.Live {
 					e.open = false
 				}
-			})
+			}, e.saving)
 		}
 	}).Width(min(w, width(c)-48)).Label(t(title))
 	if !e.open {
@@ -831,7 +829,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			if e.probing {
 				label = t("provider_querying")
 			}
-			kit.Secondary(c.Key("discover"), label).Disabled(e.probing).OnClick(func() {
+			kit.SecondaryBusy(c.Key("discover"), label, e.probing && !e.saving).Disabled(e.probing).OnClick(func() {
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
 					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.method.API, Endpoint: e.endpoint, Method: e.method.ID}, Key: e.key, ExpectedRevision: e.revision}

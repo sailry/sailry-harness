@@ -200,7 +200,8 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 			}
 		})
 	}
-	kit.Primary(view.Key("save"), i18n.T(view, "settings_save"), disabled).OnClick(func() {
+	// PrimaryBusy also draws the label, which the bare Primary left out.
+	kit.PrimaryBusy(view.Key("save"), i18n.T(view, "settings_save"), !entry.owner.controller.Connected(), schema.pending).OnClick(func() {
 		if schema.pending || !entry.owner.controller.Connected() || !rootPluginSchemaCurrent(r.localRuntime(), entry.section, schema) {
 			return
 		}

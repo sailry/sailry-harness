@@ -76,13 +76,16 @@ func (r listRow) row(c *ui.Context, key any, title string) {
 		h = rowDouble
 	}
 	ui.Column(c.Key(key)).Children(func() {
-		b := kit.GhostLook(c, ui.ButtonBase(c.Key("row")).Label(title).Disabled(r.disabled), false).Radius(0).
-			Height(h).PaddingX(16).Gap(12).Justify(ui.Start).FillWidth()
+		// A row with no action is not a button: it takes no hover style.
+		var b ui.Element
+		if r.onClick != nil {
+			b = kit.GhostLook(c, ui.ButtonBase(c.Key("row")).Label(title).Disabled(r.disabled), false).Radius(0).OnClick(r.onClick)
+		} else {
+			b = ui.Row(c.Key("row")).Center().TextColor(p.Foreground)
+		}
+		b.Height(h).PaddingX(16).Gap(12).Justify(ui.Start).FillWidth()
 		if r.disabled {
 			b.Opacity(0.5)
-		}
-		if r.onClick != nil {
-			b.OnClick(r.onClick)
 		}
 		b.Children(func() {
 			if r.expanded != nil {

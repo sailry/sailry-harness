@@ -99,7 +99,7 @@ func (pr *Project) promptDialog(c *ui.Context) {
 			if form.action != "" {
 				label = i18n.T(c, form.action)
 			}
-			kit.Primary(c.Key("save"), label, form.pending).Disabled(form.pending).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(pr.submitPrompt)
+			kit.PrimaryBusy(c.Key("save"), label, false, form.pending).OnClick(pr.submitPrompt)
 		})
 	}).Width(480).Label(title)
 }

@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"slices"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -49,10 +51,10 @@ func draftDialog(c *ui.Context, key any, open *bool, title string, fields []fiel
 }
 
 // footer is a dialog's footer: Cancel and the primary action, at the end.
-func footer(c *ui.Context, action string, cancel, ok func()) {
+func footer(c *ui.Context, action string, cancel, ok func(), pending ...bool) {
 	ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(cancel)
-		kit.Primary(c.Key("ok"), action, false).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(ok)
+		kit.PrimaryBusy(c.Key("ok"), action, false, slices.Contains(pending, true)).OnClick(ok)
 	})
 }
 

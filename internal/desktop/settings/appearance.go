@@ -291,7 +291,7 @@ func details(c *ui.Context, d *themeDetails, chosen *string) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { d.open = false })
 			if d.importing != nil {
-				kit.Secondary(c.Key("install"), i18n.T(c, "plugins_install")).Disabled(d.importing.Pending).OnClick(func() {
+				kit.SecondaryBusy(c.Key("install"), i18n.T(c, "plugins_install"), d.importing.Pending).OnClick(func() {
 					d.importing.Pending = true
 					d.importing.Install(func(ok bool) {
 						d.importing.Pending = false

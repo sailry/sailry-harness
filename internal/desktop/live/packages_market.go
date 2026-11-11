@@ -254,90 +254,116 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 
 func (r *Runtime) updatePackages(ids []string) {
 	for _, id := range ids {
-		name := r.packageID(id)
-		report, exists := r.packages.updates[name]
-		if !exists || report.Available == nil && report.Blocked == nil {
-			for catalogID, entry := range r.packages.catalog {
-				current, installed := r.packages.infos[name]
-				candidate := r.catalogEntryMetadata(entry)
-				if installed && (catalogID == name || r.packages.catalogInfos[catalogID].Summary.Name == name) && plugins.IsNewer(current.Summary.Version, candidate.Version) && candidate.Compatibility.Kind == "compatible" {
-					r.installCatalogEntry(entry, r.packages.catalogSources[catalogID], current.Summary.Revision)
-					break
-				}
-			}
+		if r.App.Settings.Busy[settings.BusyPackage+id] {
 			continue
 		}
-		if report.Available == nil || report.Blocked != nil {
-			continue
-		}
-		if report.Available.Kind == "official" {
-			if entry, valid := detail[protocol.PluginCatalogEntry](report.Available.Data); valid {
-				r.installCatalogEntry(entry, protocol.PluginCatalogSourceOfficial, report.Current.Revision)
-			}
-			continue
-		}
-		candidate, valid := detail[protocol.PluginInfo](report.Available.Data)
-		if !valid || candidate.Origin == nil {
-			continue
-		}
-		var command protocol.Command
-		switch candidate.Origin.Kind {
-		case "bundled":
-			command = protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name, ExpectedRevision: report.Current.Revision}}
-		case "online":
-			if origin, ok := detail[protocol.PluginOriginOnlinePayload](candidate.Origin.Data); ok {
-				if candidate.Skill != nil {
-					command = protocol.Command{Kind: "install_skill", Data: protocol.CommandInstallSkillPayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
-				} else {
-					command = protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
-				}
-			}
-		case "registry":
-			if origin, ok := detail[protocol.PluginOriginRegistryPayload](candidate.Origin.Data); ok {
-				command = protocol.Command{Kind: "install_registry_skill", Data: protocol.CommandInstallRegistrySkillPayload{Source: origin.Source, Name: name, ExpectedRevision: report.Current.Revision}}
-			}
-		case "worktree":
-			if origin, ok := detail[protocol.PluginOriginWorktreePayload](candidate.Origin.Data); ok {
-				digest := candidate.Summary.Digest
-				command = protocol.Command{Kind: "install_plugin", Data: protocol.CommandInstallPluginPayload{Worktree: origin.Worktree, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision, ExpectedDigest: &digest}}
-			}
-		}
-		if command.Kind != "" {
-			r.packageCommand(command, func(_ protocol.Output, ok bool) {
-				if ok {
-					delete(r.packages.updates, name)
-				}
-			})
-		}
+		r.updatePackage(id, r.packageWork(id))
 	}
 }
 
+// updatePackage installs the package's newer version; finish runs once when
+// the update ends or when there is none to install.
+func (r *Runtime) updatePackage(id string, finish func()) {
+	name := r.packageID(id)
+	report, exists := r.packages.updates[name]
+	if !exists || report.Available == nil && report.Blocked == nil {
+		for catalogID, entry := range r.packages.catalog {
+			current, installed := r.packages.infos[name]
+			candidate := r.catalogEntryMetadata(entry)
+			if installed && (catalogID == name || r.packages.catalogInfos[catalogID].Summary.Name == name) && plugins.IsNewer(current.Summary.Version, candidate.Version) && candidate.Compatibility.Kind == "compatible" {
+				r.installCatalogEntry(entry, r.packages.catalogSources[catalogID], current.Summary.Revision, finish)
+				return
+			}
+		}
+		finish()
+		return
+	}
+	if report.Available == nil || report.Blocked != nil {
+		finish()
+		return
+	}
+	if report.Available.Kind == "official" {
+		if entry, valid := detail[protocol.PluginCatalogEntry](report.Available.Data); valid {
+			r.installCatalogEntry(entry, protocol.PluginCatalogSourceOfficial, report.Current.Revision, finish)
+		} else {
+			finish()
+		}
+		return
+	}
+	candidate, valid := detail[protocol.PluginInfo](report.Available.Data)
+	if !valid || candidate.Origin == nil {
+		finish()
+		return
+	}
+	var command protocol.Command
+	switch candidate.Origin.Kind {
+	case "bundled":
+		command = protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name, ExpectedRevision: report.Current.Revision}}
+	case "online":
+		if origin, ok := detail[protocol.PluginOriginOnlinePayload](candidate.Origin.Data); ok {
+			if candidate.Skill != nil {
+				command = protocol.Command{Kind: "install_skill", Data: protocol.CommandInstallSkillPayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
+			} else {
+				command = protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
+			}
+		}
+	case "registry":
+		if origin, ok := detail[protocol.PluginOriginRegistryPayload](candidate.Origin.Data); ok {
+			command = protocol.Command{Kind: "install_registry_skill", Data: protocol.CommandInstallRegistrySkillPayload{Source: origin.Source, Name: name, ExpectedRevision: report.Current.Revision}}
+		}
+	case "worktree":
+		if origin, ok := detail[protocol.PluginOriginWorktreePayload](candidate.Origin.Data); ok {
+			digest := candidate.Summary.Digest
+			command = protocol.Command{Kind: "install_plugin", Data: protocol.CommandInstallPluginPayload{Worktree: origin.Worktree, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision, ExpectedDigest: &digest}}
+		}
+	}
+	if command.Kind == "" {
+		finish()
+		return
+	}
+	r.packageCommand(command, func(_ protocol.Output, ok bool) {
+		finish()
+		if ok {
+			delete(r.packages.updates, name)
+		}
+	})
+}
+
 func (r *Runtime) installMarketPlugin(id string) {
+	if r.App.Settings.Busy[settings.BusyPackage+id] {
+		return
+	}
+	finish := r.packageWork(id)
 	name := id
 	if info, known := r.packages.catalogInfos[id]; known {
 		name = info.Summary.Name
 	}
 	if current, exists := r.packages.infos[name]; exists && current.Summary.Revision != 0 {
 		if entry, known := r.packages.catalog[id]; known {
-			r.installCatalogEntry(entry, r.packages.catalogSources[id], current.Summary.Revision)
+			r.installCatalogEntry(entry, r.packages.catalogSources[id], current.Summary.Revision, finish)
 		} else {
-			r.updatePackages([]string{name})
+			r.updatePackage(name, finish)
 		}
 		return
 	}
 	entry, exists := r.packages.catalog[id]
-	if exists {
-		r.installCatalogEntry(entry, packageCatalogSource(r.App.Settings.MarketSource), 0)
+	if !exists {
+		finish()
+		return
 	}
+	r.installCatalogEntry(entry, packageCatalogSource(r.App.Settings.MarketSource), 0, finish)
 }
 
-func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source protocol.PluginCatalogSource, revision uint64) {
+// installCatalogEntry installs the catalog's entry; finish runs once when the
+// installation ends or is not started.
+func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source protocol.PluginCatalogSource, revision uint64, finish func()) {
 	entry = r.catalogEntryMetadata(entry)
 	if entry.Compatibility.Kind == "requires_newer" {
+		finish()
 		return
 	}
 	if entry.Bundled && entry.Commit == nil {
-		r.packageCommand(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: entry.ID, ExpectedRevision: revision}}, nil)
+		r.packageCommand(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: entry.ID, ExpectedRevision: revision}}, func(protocol.Output, bool) { finish() })
 		return
 	}
 	r.async(func() {
@@ -359,20 +385,19 @@ func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source 
 		}
 		r.enqueue(func(c *ui.Context) {
 			if err != nil {
+				finish()
 				r.packageReport(c, err)
 				return
 			}
 			r.packages.catalogInfos[entry.ID] = selection.Info
 			r.projectPackages()
 			if current, installed := r.packages.infos[selection.Info.Summary.Name]; installed {
-				if !plugins.IsNewer(current.Summary.Version, selection.Info.Summary.Version) {
-					return
-				}
-				if revision == 0 {
+				if !plugins.IsNewer(current.Summary.Version, selection.Info.Summary.Version) || revision == 0 {
+					finish()
 					return
 				}
 			}
-			r.packageCommand(protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: selection.Source, Path: selection.Path, Name: selection.Info.Summary.Name, ExpectedRevision: revision}}, nil)
+			r.packageCommand(protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: selection.Source, Path: selection.Path, Name: selection.Info.Summary.Name, ExpectedRevision: revision}}, func(protocol.Output, bool) { finish() })
 		})
 	})
 }

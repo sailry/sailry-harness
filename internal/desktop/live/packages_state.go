@@ -22,6 +22,7 @@ import (
 )
 
 type packageState struct {
+	working            map[string]int // the packages worked on, by the view's ID
 	infos              map[string]protocol.PluginInfo
 	removed            map[string]uint64
 	reads              map[string]bool
@@ -553,13 +554,37 @@ func (r *Runtime) packageCommand(command protocol.Command, done func(protocol.Ou
 	})
 }
 
+// packageWork marks the package the view names id as worked on, so its
+// buttons are busy, until the returned release runs; operations on one
+// package may overlap.
+func (r *Runtime) packageWork(id string) (release func()) {
+	root := r.localRuntime()
+	if root.packages.working == nil {
+		root.packages.working = map[string]int{}
+	}
+	root.packages.working[id]++
+	root.App.Settings.SetBusy(settings.BusyPackage+id, true)
+	released := false
+	return func() {
+		if released {
+			return
+		}
+		released = true
+		if root.packages.working[id]--; root.packages.working[id] <= 0 {
+			delete(root.packages.working, id)
+			root.App.Settings.SetBusy(settings.BusyPackage+id, false)
+		}
+	}
+}
+
 func (r *Runtime) togglePackage(id string, enabled bool) {
 	name := r.packageID(id)
 	info, exists := r.packages.infos[name]
 	if !exists {
 		return
 	}
-	r.packageCommand(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: name, ExpectedRevision: info.Summary.Revision, Enabled: enabled}}, nil)
+	release := r.packageWork(id)
+	r.packageCommand(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: name, ExpectedRevision: info.Summary.Revision, Enabled: enabled}}, func(protocol.Output, bool) { release() })
 }
 
 func (r *Runtime) uninstallPackage(id string, done func(bool)) {
@@ -569,7 +594,9 @@ func (r *Runtime) uninstallPackage(id string, done func(bool)) {
 		done(false)
 		return
 	}
+	release := r.packageWork(id)
 	r.packageCommand(protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: name, ExpectedRevision: info.Summary.Revision}}, func(_ protocol.Output, ok bool) {
+		release()
 		if ok {
 			r.packages.removed[name] = info.Summary.Revision
 			if selected := r.App.Settings.Details; selected != nil && r.packageID(selected.ID) == name {

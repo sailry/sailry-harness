@@ -125,7 +125,11 @@ func plugins(c *ui.Context, s *State) {
 			}
 		})
 		if m.checked && updates > blocked {
-			kit.Secondary(c.Key("update-all"), t("plugins_update_all")).OnClick(func() {
+			updating := false
+			for _, index := range shown {
+				updating = updating || m.Busy[BusyPackage+m.Packages[index].ID]
+			}
+			kit.SecondaryBusy(c.Key("update-all"), t("plugins_update_all"), updating).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
 					var names []string
 					for _, index := range shown {
@@ -198,8 +202,12 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 	if msg := compatibility(c, p); msg != "" && Update(p) {
 		desc = msg
 	}
+	busy := m.Busy[BusyPackage+p.ID]
 	kit.ResourceCard(c, p.ID, p.Name, desc, func() { pluginTile(c, p, kit.TileSize) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
-		if Update(p) && p.Requires == "" {
+		if busy {
+			// Its update, switch or removal runs: the spinner, and no press.
+			kit.BusyAction(c.Key("busy"), p.Name)
+		} else if Update(p) && p.Requires == "" {
 			kit.Action(c.Key("update"), icons.Download, t("plugins_update_available"), false).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
 					m.PackageActions.Update([]string{p.ID})
@@ -208,7 +216,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 				notice(c)
 			})
 		}
-		if ui.Switch(c.Key("enabled"), &p.Enabled).Label(t("plugins_enabled")+" "+p.Name).Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
+		if ui.Switch(c.Key("enabled"), &p.Enabled).Label(t("plugins_enabled")+" "+p.Name).Disabled(busy).Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
 			m.PackageActions.Toggle(p.ID, p.Enabled)
 		}
 		kit.MenuButton(c.Key("menu"), "plugin-menu-"+p.ID, func(b ui.Element) {
@@ -221,7 +229,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 				m.openConfig(p)
 			}
 			menu.Separator()
-			if menu.Item(t("plugins_uninstall")).Icon(icons.Trash).Danger().Chosen() {
+			if menu.Item(t("plugins_uninstall")).Icon(icons.Trash).Danger().Disabled(busy).Chosen() {
 				m.uninstalling = p.ID
 			}
 		}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
@@ -351,7 +359,7 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 			p.Settings = saved.Saved
 			report(c, o, Messages{Failed: pluginSettingsMessages.Failed, Conflict: pluginSettingsMessages.Conflict, Uncertain: pluginSettingsMessages.Uncertain})
 			e.open = false
-		})
+		}, e.pending)
 	}).Width(min(560, width(c)-48)).Label(title)
 }
 
@@ -394,7 +402,7 @@ func pluginInstallDialog(c *ui.Context, m *Model) {
 						e.open = false
 					}
 				})
-			})
+			}, e.pending)
 		}).Width(min(520, width(c)-48)).Label(title)
 		return
 	}

@@ -208,7 +208,10 @@ MyGo bases.
   pages or dialogs and never replacing content or drafts.
 - A button whose operation runs is disabled and busy with `ui.Spinner`
   (14) before its label, from the press until the outcome's toast
-  (`kit.SecondaryBusy`; a `Primary` or icon button places the spinner itself).
+  (`kit.PrimaryBusy`, `kit.SecondaryBusy`, `kit.DangerBusy`,
+  `kit.TextActionBusy`; `kit.BusyAction` holds an icon button's place with the
+  spinner). An operation that already shows its own progress (a bar, a stage
+  line, a row state) gets no second indicator: its button is only disabled.
 - OS notifications go through MyGo native, not a toast or a kit component.
 
 ## Theming caveats

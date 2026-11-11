@@ -242,7 +242,8 @@ func addHost(c *ui.Context, m *Model) {
 		}
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pr.adding = false })
-			kit.Primary(c.Key("ok"), action, false).Disabled(m.ConnectionPending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
+			// The stage line above shows the progress: the button only looks disabled.
+			kit.Primary(c.Key("ok"), action, m.ConnectionPending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
 				if m.ConnectionActions != nil && m.ConnectionActions.Add != nil {
 					draft := m.ConnectionDraft()
 					generation := m.connectionGeneration

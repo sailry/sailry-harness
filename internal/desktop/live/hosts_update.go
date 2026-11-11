@@ -169,7 +169,8 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 			if recovery {
 				label = i18n.T(c, "live_update_retry")
 			}
-			kit.Primary(c.Key("apply"), label, false).Disabled(pending).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
+			// The stage and the bar above show the progress: the button only looks disabled.
+			kit.Primary(c.Key("apply"), label, pending).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
 				if recovery {
 					state.install.active = true
 					r.recoverSSH(state.install)

@@ -34,7 +34,7 @@ func (pr *Project) editorCloseDialog(c *ui.Context) {
 				item.dirty = false
 				pr.finishEditorClose(request)
 			})
-			kit.Primary(c.Key("save"), i18n.T(c, "files_save"), state.saving).Disabled(state.saving || !item.writable || pr.Actions.SaveFile == nil).Children(func() { ui.Text(c, i18n.T(c, "files_save")).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("save"), i18n.T(c, "files_save"), !item.writable || pr.Actions.SaveFile == nil, state.saving).OnClick(func() {
 				request.saving = true
 				pr.Actions.SaveFile(c, request.path, item.draft+item.suffix)
 			})

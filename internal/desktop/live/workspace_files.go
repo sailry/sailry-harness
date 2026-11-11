@@ -18,7 +18,16 @@ func (p *workspaceProject) workspaceError(c *ui.Context, code protocol.ErrorCode
 func (p *workspaceProject) mutate(command protocol.Command, done func(*ui.Context, protocol.Output), failed ...func(*ui.Context, error)) {
 	encoded, _ := json.Marshal(command)
 	key := string(encoded)
-	p.runtime.executeScoped("workspace-action/"+p.owner.ID.String(), command, func(c *ui.Context, out protocol.Output, err error) {
+	scope := "workspace-action/" + p.owner.ID.String()
+	// A Git action that is sent, not one already in flight, counts as running.
+	git := command.Kind == "run_git_action" && !p.runtime.busy[scope+"\x00"+key]
+	if git {
+		p.gitRunning++
+	}
+	p.runtime.executeScoped(scope, command, func(c *ui.Context, out protocol.Output, err error) {
+		if git {
+			p.gitRunning--
+		}
 		unknown := faultCode(err) == protocol.ErrorCodeOutcomeUnknown
 		p.panel.SetPromptUncertain(unknown)
 		if unknown {

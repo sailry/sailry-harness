@@ -13,18 +13,20 @@ import (
 
 func (r *Runtime) installMarketSkill(id string) {
 	entry, exists := r.packages.skillCatalog[id]
-	if !exists {
+	if !exists || r.App.Settings.Busy[settings.BusyPackage+id] {
 		return
 	}
+	finish := r.packageWork(id)
 	if name, _, installed := r.installedCatalogSkill(entry); installed {
-		r.updatePackages([]string{name})
+		r.updatePackage(name, finish)
 		return
 	}
 	if entry.Bundled && entry.Package != nil {
-		r.packageCommand(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: *entry.Package, ExpectedRevision: r.packages.infos[*entry.Package].Summary.Revision}}, nil)
+		r.packageCommand(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: *entry.Package, ExpectedRevision: r.packages.infos[*entry.Package].Summary.Revision}}, func(protocol.Output, bool) { finish() })
 		return
 	}
 	if entry.Source == nil {
+		finish()
 		return
 	}
 	draft := settings.SkillSourceDraft{}
@@ -32,11 +34,14 @@ func (r *Runtime) installMarketSkill(id string) {
 	case "git":
 		if source, valid := detail[protocol.PluginSkillsSource](entry.Source.Data); valid {
 			draft.Repository, draft.Revision, draft.Path = source.Repository, stringValue(source.GitRef), stringValue(source.Path)
-			r.installSkillSource(draft, func(bool) {})
+			r.installSkillSource(draft, func(bool) { finish() })
+		} else {
+			finish()
 		}
 	case "registry":
 		source, valid := detail[protocol.PluginSkillsRegistrySource](entry.Source.Data)
 		if !valid {
+			finish()
 			return
 		}
 		r.async(func() {
@@ -47,24 +52,28 @@ func (r *Runtime) installMarketSkill(id string) {
 			}
 			r.enqueue(func(c *ui.Context) {
 				if err != nil {
+					finish()
 					r.packageReport(c, err)
 					return
 				}
-				r.chooseDiscoveredSkills(skillInstallation{registry: &value.Source, candidates: value.Skills}, func(bool) {})
+				r.chooseDiscoveredSkills(skillInstallation{registry: &value.Source, candidates: value.Skills}, func(bool) { finish() })
 			})
 		})
+	default:
+		finish()
 	}
 }
 
 func (r *Runtime) reimportSkill(id string) {
 	info, exists := r.packages.infos[r.packageID(id)]
-	if !exists || info.Skill == nil || info.Origin == nil {
+	if !exists || info.Skill == nil || info.Origin == nil || r.App.Settings.Busy[settings.BusyPackage+id] {
 		return
 	}
 	switch info.Origin.Kind {
 	case "online":
 		if origin, valid := detail[protocol.PluginOriginOnlinePayload](info.Origin.Data); valid {
-			r.installSkillSource(settings.SkillSourceDraft{Repository: origin.Source.Repository, Revision: origin.Source.GitRef, Path: origin.Path}, func(bool) {})
+			finish := r.packageWork(id)
+			r.installSkillSource(settings.SkillSourceDraft{Repository: origin.Source.Repository, Revision: origin.Source.GitRef, Path: origin.Path}, func(bool) { finish() })
 		}
 	case "registry":
 		if origin, valid := detail[protocol.PluginOriginRegistryPayload](info.Origin.Data); valid {
@@ -74,7 +83,8 @@ func (r *Runtime) reimportSkill(id string) {
 		}
 	default:
 		r.chooseSkillSource(3, func(path string) {
-			r.installSkillSource(settings.SkillSourceDraft{Source: 3, Path: path}, func(bool) {})
+			finish := r.packageWork(id)
+			r.installSkillSource(settings.SkillSourceDraft{Source: 3, Path: path}, func(bool) { finish() })
 		})
 	}
 }

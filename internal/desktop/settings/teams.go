@@ -117,6 +117,9 @@ func teams(c *ui.Context, m *Model) {
 						report(c, m.Concurrency.Commit(), concurrencyMessages)
 					}
 				}
+				if m.Live && m.Concurrency.Pending {
+					ui.Spinner(c).Size(14, 14) // the limit is being saved
+				}
 				ui.Textf(c, "%.0f", m.Concurrency.Draft).FontSize(14).Width(24).TextAlign(ui.End)
 			})
 		})
@@ -389,7 +392,7 @@ func teamDialog(c *ui.Context, m *Model) {
 			if e.team.ID == "" {
 				action = t("team_create")
 			}
-			kit.Primary(c.Key("ok"), action, e.pending).Disabled(e.pending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("ok"), action, false, e.pending).OnClick(func() {
 				if m.Live && m.TeamActions != nil {
 					e.pending = true
 					token := new(bool)
@@ -557,6 +560,6 @@ func roleDialog(c *ui.Context, m *Model) {
 func teamFooter(c *ui.Context, action string, pending, locked bool, cancel, save func()) {
 	ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(pending || locked).OnClick(cancel)
-		kit.Primary(c.Key("ok"), action, pending).Disabled(pending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(save)
+		kit.PrimaryBusy(c.Key("ok"), action, false, pending).OnClick(save)
 	})
 }

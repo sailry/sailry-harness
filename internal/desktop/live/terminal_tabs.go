@@ -365,7 +365,7 @@ func (r *Runtime) terminalPasteDialog(c *ui.Context, id string, state *liveTermi
 		ui.Text(c, i18n.T(c, "terminal_paste_warning")).FontSize(14).MaxWidth(400).TextColor(palette.MutedForeground)
 		ui.Row(c.Key("actions")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { inventory.paste = nil })
-			kit.Primary(c.Key("paste"), i18n.T(c, "terminal_paste"), false).OnClick(func() {
+			kit.Primary(c.Key("paste"), i18n.T(c, "terminal_paste"), false).Children(func() { ui.Text(c, i18n.T(c, "terminal_paste")).FontSize(14) }).OnClick(func() {
 				inventory.paste = nil
 				state.terminal.PasteData(paste.data)
 			})

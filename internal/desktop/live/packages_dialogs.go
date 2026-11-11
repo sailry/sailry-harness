@@ -19,6 +19,7 @@ type cliLauncher struct {
 	worktree               protocol.Worktree
 	tools                  []protocol.TerminalToolsToolInfo
 	open, reading, pending bool
+	launching              protocol.TerminalToolsTool // the tool whose terminal is being opened
 }
 
 func (r *Runtime) packageDialogs(c *ui.Context) {
@@ -53,7 +54,7 @@ func (r *Runtime) skillSelectionDialog(c *ui.Context) {
 					indices = append(indices, index)
 				}
 			}
-			kit.Primary(c.Key("install"), i18n.T(c, "plugins_install"), selection.Pending || len(indices) == 0).Children(func() { ui.Text(c, i18n.T(c, "plugins_install")).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("install"), i18n.T(c, "plugins_install"), len(indices) == 0, selection.Pending).OnClick(func() {
 				selection.Pending = true
 				selection.Install(indices, func(ok bool) {
 					selection.Pending = false
@@ -117,7 +118,11 @@ func (r *Runtime) cliFrame(c *ui.Context) {
 				kit.Ghost(c.Key(label), label, false).FillWidth().Padding(12).Gap(12).Justify(ui.Start).Disabled(state.pending).Children(func() {
 					ui.Icon(c, icons.Terminal).FontSize(16)
 					ui.Text(c, label).FontSize(14).Grow(1)
-					ui.Icon(c, icons.ChevronRight).FontSize(16)
+					if state.pending && state.launching == candidate.Tool {
+						ui.Spinner(c).Size(14, 14)
+					} else {
+						ui.Icon(c, icons.ChevronRight).FontSize(16)
+					}
 				}).OnClick(func() { r.launchCLI(c, state, candidate.Tool) })
 			}
 			if state.reading {
@@ -134,7 +139,7 @@ func (r *Runtime) launchCLI(c *ui.Context, state *cliLauncher, tool protocol.Ter
 	if state.pending {
 		return
 	}
-	state.pending = true
+	state.pending, state.launching = true, tool
 	palette := theme.Of(c)
 	color := func(value ui.Color) protocol.TerminalRgb {
 		return protocol.TerminalRgb{Red: value.R, Green: value.G, Blue: value.B}

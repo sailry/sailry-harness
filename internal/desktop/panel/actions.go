@@ -34,6 +34,7 @@ type Actions struct {
 	Upload           func(string)
 	Pending          func() []PendingOperation
 	PendingGit       func() []PendingOperation
+	GitBusy          func() bool // a Git action is under way
 }
 type SearchQuery struct {
 	Query, Filter        string

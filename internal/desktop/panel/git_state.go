@@ -50,7 +50,15 @@ func (pr *Project) gitConflicted(path string) bool {
 func (pr *Project) gitWritable() bool {
 	return pr.Actions == nil || pr.Git.live.Known && pr.Git.live.Kind != "directory"
 }
-func (pr *Project) gitCanCommit() bool { return pr.gitWritable() && len(pr.Git.live.Conflicts) == 0 }
+func (pr *Project) gitCanCommit() bool {
+	return pr.gitWritable() && len(pr.Git.live.Conflicts) == 0 && !pr.gitBusy()
+}
+
+// gitBusy reports a Git action under way: the header shows the spinner and
+// Commit waits.
+func (pr *Project) gitBusy() bool {
+	return pr.Actions != nil && pr.Actions.GitBusy != nil && pr.Actions.GitBusy()
+}
 func (pr *Project) gitEmpty(c *ui.Context, details bool) bool {
 	state := pr.Git.live
 	if pr.Actions == nil {
