@@ -1,7 +1,6 @@
 plugins_market: Market
 plugins_market_description: Discover plugins
 plugins_public: Public
-plugins_actions: Plugin actions
 plugins_information: Information
 plugins_identifier: Identifier
 plugins_version: Version

@@ -136,10 +136,7 @@ session_new_window: Open in new window
 session_window_failed: Could not open window
 session_fork_busy: Session is running; fork when it finishes
 
-plugins_official: Official
-plugins_third_party: Third-party
 
-turn_tools_count: "%{count} tool calls"
 project_records_search: Search
 project_records_no_results: No matching results
 
@@ -197,7 +194,6 @@ activity_all_projects: All projects
 activity_no_project: Chats
 sessions_unassigned: Chats
 composer_no_project: Chats
-activity_idle: Idle
 activity_waiting: Needs attention
 activity_completed: Completed
 activity_failed: Failed
@@ -289,10 +285,7 @@ files_keep_editing: Keep editing
 files_reload: Reload
 files_overwrite: Overwrite
 workspace_completed: "Completed"
-workspace_native_unavailable: "File action unavailable"
-workspace_invalid: "Check the entered values"
 workspace_restore_confirm: "Restore the previous file versions for this turn"
-workspace_worktree_remove_confirm: "Remove this worktree and its files"
 background_stop_failed: "Stop failed; retry"
 background_stop_unknown: "Stop unconfirmed; check command status"
 subagent_stop: Stop subagent
@@ -339,7 +332,6 @@ files_wrap: "Soft wrap"
 refresh: "Refresh"
 git_initialize_nested_confirm: "The new repository will contain these repositories"
 git_repositories: "Contains %{count} Git repositories"
-git_repository: "Contains 1 Git repository"
 git_switch_confirm: "Switch to %{branch}"
 git_switch_confirm_action: "Switch"
 git_switch_confirm_detail: "Sessions, terminals and open files in this worktree all move to this branch."
@@ -368,6 +360,12 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_wait_held: Held
 queue_wait_paused: Paused

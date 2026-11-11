@@ -135,9 +135,17 @@ func (r *Runtime) saveCompaction() {
 	revision := s.Revision
 	s.Pending = true
 	r.execute(protocol.Command{Kind: "save_compaction_settings", Data: protocol.ConversationCompactionSettings{Revision: revision, Percent: uint8(draft)}}, func(c *ui.Context, out protocol.Output, err error) {
-		s.Pending = false
+		// The outcome is a toast wherever the pages are; the slider is this
+		// Node's only while they show it.
+		shown := r.showsSettings()
+		if shown {
+			s.Pending = false
+		}
 		if err != nil {
 			r.reportKeys(c, err, "compaction_settings_failed", "compaction_settings_conflict", "compaction_settings_unknown")
+			return
+		}
+		if !shown {
 			return
 		}
 		if value, ok := detail[protocol.ConversationCompactionSettings](out.Data); ok {

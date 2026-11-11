@@ -181,6 +181,39 @@ Checked against the reference desktop:
 
 The Node still serves all five for other controllers.
 
+Commands with no sender in the desktop's own pages, and who does send them:
+
+| Command | Reference | Here | Verdict |
+| --- | --- | --- | --- |
+| `read_code_index_settings`, `save_code_index_settings` | No controller sender; enabling the `code` package saves the setting | Settings › Conversation's Code index switch ([codeindex.md](codeindex.md)) | Keep |
+| `cancel_code_index_query` | Client sends it for an abandoned code search, outline or graph | The plugin host sends it when a view closes on `searchCode` or `outlineCode` ([plugins.md](plugins.md#desktop-wiring)) | Keep |
+| `graph_code`, `read_git_show`, `read_git_blame` | Agent tools `code.graph`, `git.show`, `git.blame` and Node plugin callbacks | The same; no controller sends them | Keep, Node-internal |
+| `read_turn_capture` | Client helper used by Node tests; allowed to Node plugin callbacks | Allowed to Node plugin callbacks; no bundled package calls it | Keep |
+| `report_diagnostic` | Sent for a failed plugin panel, a failed plugin metadata read and a failed Git head inspection | Not sent: those failures store no system notification | Sender missing (plugin views) |
+| `update_knowledge_collection`, `pause_knowledge_collection` | Node tests only; the plugin SDK prepares creation, rebuild and removal | The same | Keep; editing and pausing a collection has no page on either side |
+| `put_credential`, `revoke_credential` | Node tests only; a provider is saved with `save_provider` | Node tests only (`revoke_credential` none) | Dead for controllers |
+| `set_defaults` | Node and Mobile bridge tests only | Node and Link tests only | Dead for controllers |
+| `bind_connection_session` | Node tests only | No sender, no test | Dead for controllers |
+| `validate_provider` | The Client's `copy_provider` example only | Node tests only | Dead for controllers |
+| `read_catalog_status`, `read_file_checkpoint` | Node and Mobile bridge tests only | No sender, no test | Dead for controllers |
+
+"Dead for controllers" names a v1 contract command no shipped controller,
+package or tool sends on either side. Its handler stays until the contract
+drops it.
+
+### Updates and changes with one end missing
+
+Every topic, update kind and conversation change kind has both an emitter in
+the Node and a consumer in the Client or desktop, except these:
+
+| Kind | Reference | Here | Missing |
+|---|---|---|---|
+| Topic and update `python` | The Client's `watch_python` feeds the running `load_skill` row's preparation stage and the preparation list of Settings › Runtime | The Node emits it (`internal/node/python_service.go`); nothing subscribes | Consumer: a dependency being prepared shows no stage |
+| Event `python_settings_changed` | Settings › Runtime reads again | The Client drops it; the page reads once per host | Consumer: another controller's index choice shows after a relaunch |
+| Conversation change `artifact`, and `artifacts` of the conversation snapshot | Published after `artifact_written`; the snapshot lists the session's artifacts | The Client reduces it (`internal/client/conversation_projection.go`); the Node neither publishes the change nor fills the snapshot's page | Emitter: the panel lists a written document when a run's status next changes, which reads the list again |
+| Conversation change `revealed` | Published when a visibility operation shows a hidden message, which only the empty-response operation writes | The Client reduces it; the engine decides an empty response's visibility when it writes the record and writes no visibility operation | Nothing: no cause exists here |
+| Conversation change `statistics_failed` | The conversation toasts `usage_read_failed` | The Client keeps the fault for plugin observers; the conversation shows no toast | Consumer: the desktop toast |
+
 ## Deviations and validation
 
 The required MyGo PTY import trial failed because its implementation is internal;

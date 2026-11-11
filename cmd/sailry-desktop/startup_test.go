@@ -6,12 +6,42 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/link"
 )
+
+// TestStartupScope covers the network a Node without a saved selection
+// starts on: --relay, else the preferences' pinned relays, else public.
+func TestStartupScope(t *testing.T) {
+	t.Parallel()
+	options, err := parseOptions([]string{"--relay", "https://one.example.test", "--data-dir", "/profile", "--relay", "https://two.example.test"})
+	if err != nil || !reflect.DeepEqual(options.Relays, []string{"https://one.example.test", "https://two.example.test"}) || options.DataDir != "/profile" {
+		t.Fatalf("repeated --relay parsed as %+v, %v", options, err)
+	}
+	if _, err := parseOptions([]string{"--relay"}); err == nil {
+		t.Fatal("--relay without a URL was accepted")
+	}
+	stored := []string{"https://stored.example.test"}
+	for _, current := range []struct {
+		name     string
+		explicit []string
+		stored   *[]string
+		want     link.NetworkScope
+	}{
+		{"public relays by default", nil, nil, link.NetworkScope{Internet: true}},
+		{"the preferences' relays", nil, &stored, link.NetworkScope{Relays: stored}},
+		{"--relay over the preferences", options.Relays, &stored, link.NetworkScope{Relays: options.Relays}},
+	} {
+		if got := startupScope(current.explicit, current.stored); !reflect.DeepEqual(*got, current.want) {
+			t.Errorf("%s: %+v, want %+v", current.name, *got, current.want)
+		}
+	}
+}
 
 func TestPreviewFlagNoNode(t *testing.T) {
 	t.Parallel()

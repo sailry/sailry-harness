@@ -260,8 +260,12 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 	if err != nil {
 		return entry, nil, err
 	}
+	settled, err := toolsCompleted(ctx, db, session, record, sequence)
+	if err != nil {
+		return entry, nil, err
+	}
 	notice, err := compactionNotice(ctx, db, session, record, sequence)
-	return entry, append(append(events, delivery...), notice...), err
+	return entry, append(append(append(events, delivery...), settled...), notice...), err
 }
 
 func applyCanonicalState(ctx context.Context, db *sql.Conn, session protocol.SessionID, record canonical.Record) error {

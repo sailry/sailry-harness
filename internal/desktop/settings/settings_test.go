@@ -76,6 +76,39 @@ func TestDraftChecks(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a language choice has no toast", func(t *testing.T) {
+		m := New().Model
+		var toasts []string
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			general(c, m)
+			ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
+				toasts = toasts[:0]
+				for _, toast := range shown {
+					toasts = append(toasts, toast.Title)
+				}
+			})
+		}, 900, 1600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		click := func(role ui.Role, name string) {
+			t.Helper()
+			for _, x := range tt.AccessAll() {
+				if (x.Role == role || role == ui.RoleMenuItem && (x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox)) && x.Name == name {
+					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(time.Second)
+					return
+				}
+			}
+			t.Fatalf("no %q among %q", name, tt.Texts())
+		}
+		click(ui.RoleMenuButton, i18n.In("en", "settings_language"))
+		click(ui.RoleMenuItem, i18n.In("en", Languages[2]))
+		tt.Frame()
+		if m.Language != 2 || len(toasts) != 0 {
+			t.Fatalf("language %d, toasts %q", m.Language, toasts)
+		}
+	})
 	t.Run("hook consent reports the captured Node sandbox capability", func(t *testing.T) {
 		m := &Model{HooksSandboxed: func() bool { return false }}
 		if got := hookScope(m); got != "hooks_scope_workspace" {

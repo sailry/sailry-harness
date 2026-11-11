@@ -225,6 +225,9 @@ jobs. Host completions and timers return to that owner before the next render;
 closed generations reject callbacks and late results. Source loading, event
 tasks and rendering use the source's respective watchdogs. Desktop entries are
 trusted UI code and do not inherit the Node callback allocation ceiling.
+A `fetchWeb`, `searchCode` or `outlineCode` still running when its view closes
+sends `cancel_web_fetch` or `cancel_code_index_query` for that request under
+the view's scope, so the Node stops the work.
 
 Client supplies shared change cursors, observations and detail reads. Activity
 uses the captured Node's bounded catalog/previews and Client lane aggregation,

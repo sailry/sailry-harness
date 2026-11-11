@@ -1,5 +1,4 @@
 composer_execution_model: "单模型"
 composer_team_lead: "组长"
-composer_team_default: "默认团队"
 composer_team_manage: "管理团队"
 composer_team_unknown: "已删除的团队"

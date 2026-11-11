@@ -108,9 +108,6 @@ plugins_configure: Configurar
 plugins_uninstall: Desinstalar
 plugins_install: Instalar
 plugins_information: Información
-plugins_actions: Acciones del plugin
-plugins_official: Oficial
-plugins_third_party: Terceros
 plugins_none: No hay plugins
 composer: Describe lo que quieres lograr…
 composer_attachment: Añadir archivo adjunto
@@ -119,11 +116,8 @@ chat_stop: Detener
 composer_select_model: Selecciona el modelo
 composer_effort: Esfuerzo de razonamiento
 composer_effort_unavailable: Predeterminado
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: Entrada de voz
 turn_reasoning: Razonamiento
-turn_tools_count: '%{count} llamadas a herramientas'
 turn_latest: Ir a la última respuesta
 chat_navigation: Navegación de mensajes
 chat_new: Una nueva conversación
@@ -137,7 +131,6 @@ turn_thinking: Pensamiento
 tool_failed: Falló la ejecución de la herramienta
 approval_pending: En espera de aprobación
 content_copied: Copiado
-turn_work: Trabajo
 tool_copy: Copiar
 tool_interrupted: Resultado no confirmado
 tool_not_executed: Aprobación interrumpida; no ejecutada
@@ -195,9 +188,6 @@ tool_read_session: Leer conversación
 tool_search_session: Buscar en conversación
 tool_find_tools: Buscar herramientas
 tool_read_output: Leer salida de herramienta
-question_answered: Respondido
-interaction_cancelled: Cancelado
-question_url_accepted: Se permite la apertura
 approval_allow_prefix: Permitir el prefijo "%{prefix}"
 approval_preview_result: No se utilizaron archivos, comandos ni modelos en el proceso de creación.
 file_changes_shortened: Diff abreviado
@@ -228,7 +218,6 @@ connection_search_empty: No hay coincidencias
 connection_search: Buscar
 activity_completed: Completado
 activity_failed: Fallido
-activity_idle: Inactivo
 activity_approval: En espera de aprobación
 activity_input: A la espera de respuesta
 activity_no_project: Chats
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Diapositiva %{slide}
 recent_sessions: Reciente
 workspace_archive: Sesión de archivo
-session_unarchive: Desarchivar
 session_delete: Eliminar sesión
 session_delete_named: Eliminar sesión “%{name}” y sus sub-agentes permanentemente
 workspace_rename: Renombrar
@@ -275,7 +263,6 @@ session_fork_worktree: Bifurcación en nuevo árbol de trabajo
 files_open: Abrir el archivo
 session_new_window: Abrir en una nueva ventana
 session_window_failed: No se pudo abrir la ventana
-workspace_open_session: Sesión abierta
 project_edit: Editar el proyecto
 project_remove: Eliminar el proyecto
 workspace_new_terminal: Crear una terminal
@@ -379,7 +366,6 @@ connection_no_projects: No hay proyectos
 workspace_project: Resumen del proyecto
 resource_browser: Navegador
 terminal: Terminal
-resource_terminal_preview: Vista previa de la interfaz de usuario de terminal; no se iniciaron shells ni comandos
 resource_browser_preview: Vista previa del navegador; no se cargan páginas ni solicitudes de red
 file_tree: Archivos del proyecto
 file_empty: Abrir un archivo
@@ -517,11 +503,7 @@ git_untracked: Sin seguimiento
 git_view_changes: Cambios
 git_view_diff: Ver diferencias
 git_view_options: Ver las opciones
-hunks_reject: Rechazar
 hunks_stage: Preparar
-hunks_accept: Aceptar
-hunks_accepted: Bloque aceptado
-hunks_state_accepted: Aceptado
 navigation_tabs: Abrir pestañas
 market_category_documents: Documentos
 turn_changes_undo_all: Deshacer los cambios
@@ -624,7 +606,6 @@ chat_rewind: Rebobinar a este turno
 chat_rewind_action: Rebobinar
 chat_rewind_confirm: ¿Conservar este turno y quitar los mensajes posteriores? Los archivos no cambian
 chat_search: Buscar una conversación
-chat_search_query: Texto de búsqueda
 chat_search_result: Resultados de la búsqueda
 chat_status_unsynced: Estado no sincronizado
 compact_reason_unknown: No se registraron más detalles sobre este fallo
@@ -663,14 +644,12 @@ composer_permission_full: Acceso completo
 composer_permission_ask_description: Preguntar antes de editar archivos o ejecutar comandos
 composer_permission_project_description: Editar archivos de proyecto automáticamente; preguntar antes de ejecutar comandos
 composer_permission_full_description: Edite archivos y ejecute comandos automáticamente, incluso fuera del proyecto
-composer_permission_preview: Solo vista previa; no se otorgan permisos
 composer_host_local: Dispositivo local
 composer_host_remote: Remoto
 composer_no_project: Chats
 composer_branch_none: No hay sucursal
 composer_settings: Configuración de sesión
 composer_back: Atrás
-location_search: Seleccionar ubicación de trabajo
 location_create: Nuevo árbol de trabajo
 git_no_matches: No hay coincidencias
 composer_model_settings: Modelo y esfuerzo
@@ -682,7 +661,6 @@ composer_feature_fast: Rápido
 composer_feature_fast_unsupported: No compatible con este modelo
 composer_execution_model: Solo modelo
 composer_team_lead: Líder
-composer_team_default: Equipo predeterminado
 composer_team_manage: Administrar equipos
 model_score_overall: Puntuación global
 model_score_tested: 'Evaluado: %{effort}'
@@ -722,7 +700,6 @@ reference_context: Contexto del espacio de trabajo
 reference_databases: Base de datos
 reference_ssh: SSH conexiones
 reference_empty: No hay referencias coincidentes
-reference_remove: Eliminar la referencia
 reference_host: Host
 reference_project: Proyecto
 reference_worktree: Árbol de trabajo
@@ -989,7 +966,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: Restart to apply language
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: Seguir el sistema
@@ -1529,12 +1505,10 @@ update_download: Descargar vista previa
 update_apply: Aplicar vista previa
 update_retry: Vuelve a intentar vista previa
 update_unavailable: Actualización no disponible (vista previa)
-update_unavailable_note: Este host de vista previa no admite actualizaciones automáticas
 update_versions: '%{current} → %{target}'
 update_version: 'Versión actual: %{current}'
 update_preview: Solo vista previa de la interfaz de usuario; sin comprobación de red, descarga, instalación ni reinicio del host
 update_target_changed: Host no disponible; vuelva a abrir el editor
-update_error_preview: La solicitud de vista previa falló; no se realizó ninguna actualización real
 metrics_title: Métricas de host
 metrics_preview: Vista previa de la interfaz de usuario; no se recopilan métricas o procesos reales del host
 metrics_cpu: CPU
@@ -1633,20 +1607,15 @@ selection_title: Texto seleccionado
 selection_unavailable: No se pudo leer la selección
 selection_empty: No hay texto seleccionado
 terminal_search_placeholder: Terminal de búsqueda
-terminal_match_previous: El partido anterior
-terminal_match_next: Próximo partido
 workspace_no_terminal: No hay terminales en este árbol de trabajo
 workspace_close_terminal: Cerrar la terminal
 workspace_terminal_preview: Vista previa de la interfaz de usuario del terminal con propiedad del proyecto y del árbol de trabajo; no se inicia ningún PTY ni shell
 pane_drag: Arrastrar para dividir
 terminal_connecting: Conectando
-terminal_exited: Terminal salió
 terminal_take_control: Tome el control
 terminal_other_controller: Controlado por otro dispositivo
 terminal_unavailable: Terminal no disponible; compruebe la conexión del host
-cli_preview: 'Vista previa de la interfaz de usuario: crea solo una vista previa del terminal; sin detección de programas ni comandos'
 updates_network_failed: No se pudo descargar la actualización; inténtelo de nuevo
-updates_preview_unavailable: Las actualizaciones no están disponibles en la versión preliminar
 updates_completed: Sailry fue actualizado
 port_exists: Puerto ya añadido
 port_failed: No se pudo reenviar; compruebe el puerto y la conexión
@@ -1730,12 +1699,9 @@ files_keep_editing: Keep editing
 files_reload: Reload
 files_overwrite: Overwrite
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 'Cambios solicitados:'
 hooks_project_required: Selecciona un proyecto
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: Falló la detención; vuelva a intentarlo
 background_stop_unknown: Detener sin confirmar; comprobar el estado del comando
 subagent_stop: Stop subagent
@@ -1774,7 +1740,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: Solo se muestran los primeros 128 KiB de este gran archivo
 files_create: Crear
-files_directory_changed: La carpeta ha cambiado; recarguela
 files_directory_failed: No se pudo cargar la carpeta; vuelva a intentarlo
 files_discard: Descartar el borrador
 files_discard_description: ¿Descartar los cambios no guardados? El contenido que se está guardando todavía puede ser escrito
@@ -1822,7 +1787,6 @@ git_initialize: Inicializar el repositorio Git
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: Publicar la rama
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: Almacenar y cambiar
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -2227,12 +2191,17 @@ chat_provider_session: '%{name} · Sesión en curso'
 chat_provider_node: '%{name}'
 chat_config_desktop: Configuración de escritorio
 usage_read_failed: No se pudo cargar el uso, inténtelo de nuevo
-queue_draft_changed: La cola cambió; el borrador se mantuvo
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}

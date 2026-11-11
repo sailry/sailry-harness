@@ -24,12 +24,26 @@ Closing source discovery cancels its captured context and staged upload before
 admission. Selecting discovered skills transfers ownership to the durable
 installation queue. A later dialog close does not stop an admitted install.
 
+A plugin installed from a controller-local directory is one the Node cannot
+check for updates (`manual` in its report). The desktop remembers that
+directory in `plugin_directories` of its preferences, per Node and package,
+with the digest and revision the installation gave. Check updates reads the
+directory again while the Node still holds that digest, uploads it and offers
+a strictly newer version as the update, or reports the Sailry version it
+needs; Update installs that upload and remembers the directory for the new
+digest. A missing directory leaves the package without an update; another
+package found there is a check failure. Any other installation of the package
+and its removal drop the record.
+
 Market cards derive installed identity from the package or skill's recorded
 source, including registry namespace and Git repository/path. Catalog versions
 and release notes merge with the immutable installed manifest; a catalog slug
 does not replace the actual package name. Details show the captured execution
-Host. Enter in the existing search field explicitly refreshes a failed query;
-live fetches never reuse preview timers or add a controller retry loop.
+Host. The Market projection searches whenever the kind, source or query it last
+searched differs from the page's, which is the reference's search on every
+change of the field; the page has no search action of its own. Enter in the
+existing search field explicitly refreshes a failed query; live fetches never
+reuse preview timers or add a controller retry loop.
 
 The settings navigation and its pages, in the groups of the reference implementation
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
@@ -164,7 +178,7 @@ placeholder in an empty masked input.
 
 | Page | Action | Preview |
 |---|---|---|
-| General | language, switches, toast duration | in memory; language toasts settings_language_restart |
+| General | language, switches, toast duration | in memory. Live, a language applies in the frame that saves it (pages, menu and window title), without a toast; the reference applies it at restart and says so |
 | General | prevent sleep, telemetry switches | `Stored.Commit`, outcome toast (power_settings_*, telemetry_*) |
 | General | reset identity, send diagnostics | preview_notice |
 | Experimental | performance indicator, Demo mode | in memory; live: the controller's preferences. Demo mode swaps the window's conversations (docs/shell.md, Demo mode) |
@@ -214,6 +228,38 @@ The B3 live adapter, controller preferences and remaining phase boundaries are
 specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
 separate constructor and does not own backend facts. Later feature phases supply
 their owning Client actions and projections without changing the accepted UI.
+
+### The Node Settings edits
+
+Every page that configures a Node edits one Node: the host selected in the
+shell (`App.Host`, the local Node by default), as the reference binds its
+pages to `settings_target.unwrap_or(live.selected)`. `live/settings_target.go`
+holds the rule; `Runtime.settingsOwner` is the one lookup.
+
+| Owner | Pages and settings |
+| --- | --- |
+| The selected host's Node | General › Prevent sleep; Providers, the model catalog and the compaction threshold; Media models; Teams, roles and child concurrency; Connectors and MCP; Conversation › Command sandbox and Code index; Hooks; Terminal shell and environment; Backup; Knowledge, Decision and OCR models; Plugins, Skills and Python |
+| This desktop (`preferences.json`) | Language, notifications, toast duration, appearance, session order, message display, shortcuts, dictation, terminal font and paste protection, experimental switches, the update channel |
+| The local Node, whichever host is selected | Telemetry consent, identity reset and Send diagnostics (the reference's stated exception) |
+
+The pages share one view model, so only the Runtime of the Node shown writes
+it. Selecting another host ends a provider or connector sign-in under way on
+the Node left (`Model.CloseNodeDialogs` closes the provider, connector and team
+editors), drops the pages' values and drafts, and reads the new Node; the
+sandbox, the hooks and the terminal keep each Node's draft, as before. An
+answer for a Node the pages left is dropped, and a save sent before the turn
+still ends in its toast. A host without a connection has no Node to edit: its
+controls wait (`Pending`), its lists are empty, the sandbox switch is disabled
+and an action answers the `chat_action_failed` toast. Select model and Manage
+teams in a conversation select that conversation's host first, as the
+reference's `Event::Settings(node)` and `Event::TeamSettings(node)` do.
+
+Hooks are those of the conversation shown when it runs on the selected host;
+a conversation on another host shows `hooks_project_required`, as the
+reference passes a worktree only when the settings Node is the selected one.
+The host edited is named where the layout already names it: the hooks consent
+scope, the plugin details and the backup restore dialog. No page gained a host
+label.
 
 ## UI state vs backend data
 
@@ -287,6 +333,12 @@ hover style.
 
 ## Deviations
 
+- A remembered plugin directory offers only a strictly newer version. The
+  reference also offers changed content whose version is not semantic; the
+  packages list here marks an update by its version, and a same-version change
+  is not an update anywhere else. The reference's package editor, which reads
+  the remembered directory again for Update, has no counterpart: Check updates
+  is the one path.
 - Experimental is a section the reference does not have: the sidebar's
   performance indicator, moved from General, and Demo mode (user decision
   2026-11-11). It sorts after every page of the System group but About,
@@ -295,6 +347,21 @@ hover style.
 - The extension details have no title row and no close button; the title is
   in the header band and the details toggle closes them (user decision
   2026-11-11; docs/shell.md).
+
+- The settings Node is the host selected in the rail; the reference keeps a
+  separate `settings_target` that a conversation's Settings entry sets
+  without moving the rail's selection. Go has one selection (`App.Host`), so
+  those entries select the host.
+- Selecting another host drops the drafts of Prevent sleep, compaction, child
+  concurrency and media models instead of holding one per Node: each is a
+  single control that saves on change.
+- Conversation › Execution has a Code index switch the reference does not
+  have ([code index](codeindex.md)). After a save that did not take it shows
+  the Node's value again; the sandbox and Prevent sleep switches keep the
+  position chosen.
+- A Prevent sleep save the Node can never confirm reads the setting again
+  only while the pages still show that Node; after another host is selected
+  the outcome is a toast alone.
 
 - Preview pages show populated data where the reference shows
   "knowledge_host_required"/"hooks_project_required" without a host
@@ -466,7 +533,11 @@ selected default. Source catalog lookups fill missing metadata in batches of
 discovery capabilities take precedence. Provider saves preserve retained model
 capabilities and the selected default effort. Catalog refresh never inserts sample
 models. Compaction reads and saves use the Node revision; a failed save keeps its
-draft and never invents a new revision.
+draft and never invents a new revision. A `compaction_settings_changed` with a
+revision newer than the one shown, as another controller's save is, reads the
+threshold again once no save is under way and the slider holds no draft. A
+read answered with a revision older than the one shown, as a read that crossed
+a save is, is dropped.
 
 `ChannelModel` carries `Vision`, `Tools`, `Reasoning`, `Generates` and
 `CustomCapabilities`. The model form's capability boxes edit them, and the
@@ -845,7 +916,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
 | About | Version, Build | `link.ProductVersion`; `settings_build_release` when the build carries a revision, otherwise `settings_build_debug` |
-| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning) |
+| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning). A channel never saved is the running build's (`updater.InitialChannel`: a prerelease starts on Experience) and is written once About shows it |
 
 The updater verifies the signed `update-v1` catalog against the release-owned
 ed25519 keys, the archive's zipsign signature and digest, the bundle identifier

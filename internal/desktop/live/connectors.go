@@ -34,28 +34,10 @@ func connectorMethod(method protocol.PluginConnectorKind) string {
 	}
 }
 
+// initConnectorUI follows this Runtime's Node's connector types and
+// connections from the first time Settings turns to it. The page's actions
+// are the local Runtime's (settings_target.go) and run on the Node shown.
 func (r *Runtime) initConnectorUI() {
-	r.App.Settings.ConnectorActions = &settings.ConnectorActions{
-		Save: r.saveConnector, Enable: r.enableConnector, Remove: r.removeConnector, Confirm: r.confirmConnector,
-		Probe: r.probeConnection, Reconnect: r.reconnectMCP, InspectCLI: r.inspectConnectorCLI, SaveMCP: r.saveMCP,
-		AllowMCP: r.allowMCP, Submit: r.submitConnectorLogin, Cancel: r.cancelConnectorLogin,
-		Retry: func() {
-			if previous := r.authorizations.connector; previous != nil {
-				r.saveConnector(previous.connector, nil)
-			}
-		},
-		ConfigureMCP: r.configureConnectorMCP,
-		Busy:         func(id string) bool { return r.authorizations.connectorBusy[id] },
-		Help: func(id, name string) string {
-			for _, field := range r.authorizations.types[id].Declaration.Fields {
-				if field.Name == name && field.Help != nil {
-					return *field.Help
-				}
-			}
-			return ""
-		},
-	}
-	r.App.Settings.Services, r.App.Settings.ConnTypes, r.App.Settings.ConnAccounts = nil, nil, nil
 	r.observe(func() {
 		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "connections"})
 		if err != nil {
@@ -81,8 +63,12 @@ func (r *Runtime) initConnectorUI() {
 				for _, value := range value.Connections {
 					r.authorizations.connections[connectorTypeID(value.Package, value.Connector)] = value
 				}
-				r.projectConnectors()
-				r.readConnectorPackages()
+				// A Node the page does not show reads its packages when the
+				// page turns to it.
+				if r.showsSettings() {
+					r.projectConnectors()
+					r.readConnectorPackages()
+				}
 			})
 		}
 	})
@@ -140,7 +126,12 @@ func (r *Runtime) readConnectorPackages() {
 	})
 }
 
+// projectConnectors shows the Node's services and connector types on the
+// page that holds this Node.
 func (r *Runtime) projectConnectors() {
+	if !r.showsSettings() {
+		return
+	}
 	var types []viewmodel.ConnectorType
 	for _, id := range slices.Sorted(maps.Keys(r.authorizations.types)) {
 		value := r.authorizations.types[id]
