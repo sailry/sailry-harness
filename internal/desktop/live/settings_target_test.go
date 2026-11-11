@@ -29,6 +29,10 @@ func TestSettingsTarget(t *testing.T) {
 	// external is the compaction revision another controller saved on a
 	// Node, 0 for none; the Node's transport guards it.
 	external := make([]uint64, len(nodes))
+	// doubt, when set, holds the other host's next prevent sleep save until
+	// it is closed; the Node then answers that it can never tell what the
+	// save did.
+	var doubt chan struct{}
 	controllers := make([]*client.Client, len(nodes))
 	for index, node := range nodes {
 		snapshot := protocol.DefaultSnapshot()
@@ -47,6 +51,10 @@ func TestSettingsTarget(t *testing.T) {
 			case "read_power_settings":
 				return output("power_settings", protocol.PowerSettings{Revision: revision, PreventSleep: index == 1})
 			case "save_power_settings":
+				if index == 1 && doubt != nil {
+					<-doubt
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the save was not observed"}}, true
+				}
 				input, _ := detail[protocol.PowerSettings](request.Command.Data)
 				input.Revision++
 				return output("power_settings", input)
@@ -90,6 +98,10 @@ func TestSettingsTarget(t *testing.T) {
 				}
 				input.Settings.Revision++
 				return output("code_index_settings", input.Settings)
+			case "inspect_request":
+				if query, ok := detail[protocol.CommandInspectRequestPayload](request.Command.Data); ok && index == 1 && doubt != nil {
+					return output("request_outcome", protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: protocol.RequestOutcome{Kind: "unknown"}})
+				}
 			case "save_telemetry_settings":
 				input, _ := detail[protocol.TelemetryUpdate](request.Command.Data)
 				return output("telemetry_settings", protocol.TelemetrySettings{Revision: input.Revision + 1, Errors: input.Errors, Metrics: input.Metrics})
@@ -273,6 +285,32 @@ func TestSettingsTarget(t *testing.T) {
 		show(nodes[0].String())
 		settle()
 		held(t, 0)
+	})
+
+	t.Run("a save in doubt on a Node the pages left reads nothing into them", func(t *testing.T) {
+		show(nodes[1].String())
+		settle()
+		reads := count(1, "read_power_settings")
+		doubt = make(chan struct{})
+		m.Power.Draft = !m.Power.Draft
+		m.SavePower()
+		show(nodes[0].String())
+		// The local Node's values arrive while the other host's save waits.
+		for range 8 {
+			root.workers.Wait()
+			tester.Frame()
+		}
+		held(t, 0)
+		close(doubt)
+		settle()
+		doubt = nil
+		held(t, 0)
+		if count(1, "read_power_settings") != reads {
+			t.Error("the Node the pages left was read again for its save in doubt")
+		}
+		if !tester.HasText(i18n.In("en", settings.PowerMessages.Uncertain)) {
+			t.Errorf("the save in doubt was not reported: %q", tester.Texts())
+		}
 	})
 
 	t.Run("a host without a connection has no Node to edit", func(t *testing.T) {

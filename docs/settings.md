@@ -359,6 +359,9 @@ hover style.
   have ([code index](codeindex.md)). After a save that did not take it shows
   the Node's value again; the sandbox and Prevent sleep switches keep the
   position chosen.
+- A Prevent sleep save the Node can never confirm reads the setting again
+  only while the pages still show that Node; after another host is selected
+  the outcome is a toast alone.
 
 - Preview pages show populated data where the reference shows
   "knowledge_host_required"/"hooks_project_required" without a host

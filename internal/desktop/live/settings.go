@@ -86,7 +86,15 @@ func (r *Runtime) savePower() {
 	}
 	m.Pending = true
 	request := protocol.PowerSettings{Revision: m.Revision, PreventSleep: m.Draft}
-	r.saveSettingChecked(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, r.readPower, func(output protocol.Output, ok bool) {
+	// A save in doubt reads the section again only while the pages still
+	// hold this Node: they share one model, and a read for a Node they left
+	// would mark the shown Node's switch pending and never clear it.
+	reread := func() {
+		if r.showsSettings() {
+			r.readPower()
+		}
+	}
+	r.saveSettingChecked(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, func(output protocol.Output, ok bool) {
 		if !r.showsSettings() {
 			return
 		}
