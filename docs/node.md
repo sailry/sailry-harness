@@ -192,6 +192,14 @@ and `synthesize_speech` reads text aloud with the assigned speech model. The
 settings appear in the snapshot and are captured with each admitted turn.
 Capability tags, routing, channels and limits are in [media.md](media.md).
 
+`save_network_settings` checks the expected revision, makes the selection the
+Link's effective one and only then stores it, so a selection whose relays
+could not be reached changes nothing and is not the one the next start uses.
+A selection that was applied but could not be stored is taken back; when the
+commit itself could not be confirmed the effective selection stays. Rust
+stores the selection before applying it and keeps it when the relays fail
+(`store/network.rs`); this order is the deliberate difference.
+
 `count_feature {feature}` counts one use of a desktop feature in the usage
 window and answers `feature_counted`. It is a v1 extension, not durable,
 accepted only from the controller on the Node's own device and only for an
