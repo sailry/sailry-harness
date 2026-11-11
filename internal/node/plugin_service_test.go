@@ -140,6 +140,35 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 			t.Fatalf("completed callback replay required the removed package: %v", result.Fault)
 		}
 	})
+	t.Run("a command whose transaction fails is settled with its failure", func(t *testing.T) {
+		node := nodeFixture(t)
+		selected := snapshotFixture(t, node).Plugins[0]
+		exec := func(statement string) {
+			t.Helper()
+			err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+				_, err := db.ExecContext(t.Context(), statement)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The command's change and its event share one transaction; only the
+		// event cannot be written.
+		exec("CREATE TRIGGER fixture_events BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'fixture write failed'); END")
+		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: selected.Name, ExpectedRevision: selected.Revision, Enabled: !selected.Enabled}})
+		failed := dispatchFixture(t, node, node.ID(), request)
+		exec("DROP TRIGGER fixture_events")
+		if failed.Fault == nil || failed.Fault.Code == protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("failed transaction answered %+v", failed.Fault)
+		}
+		if replayed := dispatchFixture(t, node, node.ID(), request); replayed.Fault == nil || *replayed.Fault != *failed.Fault {
+			t.Fatalf("replay answered %+v, want %+v", replayed.Fault, failed.Fault)
+		}
+		if current := snapshotFixture(t, node).Plugins[0]; current.Revision != selected.Revision || current.Enabled != selected.Enabled {
+			t.Fatalf("failed transaction changed the package: %+v", current)
+		}
+	})
 	t.Run("bootstrap removal and settings survive restart", func(t *testing.T) {
 		node := nodeFixture(t)
 		initial := snapshotFixture(t, node).Plugins

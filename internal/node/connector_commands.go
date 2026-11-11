@@ -74,7 +74,20 @@ func (node *Node) prepareConnectorCommand(ctx context.Context, caller protocol.N
 	return protocol.Output{}, false, nil
 }
 
+// connectorMutation reports the connector commands whose change
+// mutateAuthCommand writes in the command's transaction.
+func connectorMutation(kind string) bool {
+	switch kind {
+	case "start_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent":
+		return true
+	}
+	return false
+}
+
 func (node *Node) mutateAuthCommand(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, bool, error) {
+	if !connectorMutation(request.Command.Kind) {
+		return protocol.Output{}, nil, false, nil
+	}
 	if request.Command.Kind == "start_connector_login" {
 		node.auth.mu.Lock()
 		entry, err := node.authEntry(caller, request.ID, "connector_login")
@@ -89,22 +102,18 @@ func (node *Node) mutateAuthCommand(ctx context.Context, db *sql.Conn, caller pr
 		err = store.StartConnectorLogin(ctx, db, *capture)
 		return protocol.Output{Kind: "connector_login", Data: capture.Attempt}, nil, true, err
 	}
-	switch request.Command.Kind {
-	case "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent":
-		if request.Plugin != nil {
-			return protocol.Output{}, nil, true, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "connection editing requires a controller"}
-		}
-		node.auth.mu.Lock()
-		consent, exists := node.auth.consents[request.ID]
-		node.auth.mu.Unlock()
-		var capture *store.ConnectorLoginCapture
-		if exists {
-			capture = &consent
-		}
-		output, err := store.ExecuteConnectorCommand(ctx, db, request.Command, capture)
-		return output, nil, true, err
+	if request.Plugin != nil {
+		return protocol.Output{}, nil, true, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "connection editing requires a controller"}
 	}
-	return protocol.Output{}, nil, false, nil
+	node.auth.mu.Lock()
+	consent, exists := node.auth.consents[request.ID]
+	node.auth.mu.Unlock()
+	var capture *store.ConnectorLoginCapture
+	if exists {
+		capture = &consent
+	}
+	output, err := store.ExecuteConnectorCommand(ctx, db, request.Command, capture)
+	return output, nil, true, err
 }
 
 func (node *Node) beginConnectorLogin(ctx context.Context, caller protocol.NodeID, attempt protocol.RequestID, input protocol.CommandStartConnectorLoginPayload) (protocol.Output, error) {
