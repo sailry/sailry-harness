@@ -61,7 +61,9 @@ func (s *State) View(c *ui.Context) {
 			// The frost stays the sidebar's alone: the popover color covers it
 			// under the entries, so what is behind the dialog does not read
 			// through their text.
-			ui.Column(c.Key("content")).Grow(1).MinWidth(0).Background(p.Popover).Children(func() {
+			// Opaque, so nothing behind the dialog reads through the
+			// entries; the sidebar alone keeps the frost.
+			ui.Column(c.Key("content")).Grow(1).MinWidth(0).Background(kit.Opaque(p.Popover)).Children(func() {
 				if !wide {
 					ui.Row(c.Key("title")).Height(44).Shrink(0).Padding(0, 48, 0, 16).Gap(8).AlignItems(ui.Center).Children(func() {
 						s.heading(c, title)

@@ -46,6 +46,9 @@ const (
 	push visit = iota
 	// first is the directory the picker opens at.
 	first
+	// fallback is the host's home, read in place of a first directory
+	// that cannot show.
+	fallback
 	goTo
 	history
 	refresh
@@ -71,6 +74,7 @@ type State struct {
 	reading    bool   // a directory is being read; navigating elsewhere replaces the read
 	target     string // the directory being read, else the one shown or the one that failed to show
 	problem    string // why target cannot show, an i18n key: set only while no directory shows
+	missed     notice // the first directory and why it cannot show, while the home is read in its place
 	loaded     bool
 	listing    Listing
 	history    []string
@@ -168,11 +172,12 @@ func (s *State) navigate(path string, how visit, cursor int) {
 			s.target = s.listing.Path
 			s.notices = append(s.notices, notice{outcome: kit.Failed, key: problem})
 		case how == first && path != "":
-			// The sample tree holds no caller's path: its home needs no excuse.
-			if !s.o.Preview {
-				s.notices = append(s.notices, notice{outcome: kit.Failed, key: "directory_fallback", path: path})
-			}
-			s.navigate("", push, 0)
+			s.missed = notice{key: problem, path: path}
+			s.navigate("", fallback, 0)
+		case how == fallback:
+			// The home fails as well: the directory asked for keeps the
+			// entries' place with its own reason, and Retry opens again.
+			s.problem, s.target, s.address, s.refocus = s.missed.key, s.missed.path, s.missed.path, true
 		default:
 			s.problem, s.address, s.refocus = problem, path, true
 		}
@@ -181,6 +186,13 @@ func (s *State) navigate(path string, how visit, cursor int) {
 
 func (s *State) arrive(l Listing, how visit, cursor int) {
 	switch how {
+	case fallback:
+		// The sample tree holds no caller's path, so the preview says
+		// nothing of it.
+		if !s.o.Preview {
+			s.notices = append(s.notices, notice{outcome: kit.Failed, key: "directory_fallback", path: s.missed.path})
+		}
+		fallthrough
 	case push, first, goTo:
 		if s.cursor >= len(s.history) || s.history[s.cursor] != l.Path {
 			s.history = append(s.history[:min(s.cursor+1, len(s.history))], l.Path)
@@ -226,6 +238,8 @@ func (s *State) up() {
 func (s *State) reload() {
 	if s.loaded {
 		s.navigate(s.listing.Path, refresh, 0)
+	} else if s.target == s.o.Initial {
+		s.navigate(s.target, first, 0)
 	} else {
 		s.navigate(s.target, push, 0)
 	}

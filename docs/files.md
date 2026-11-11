@@ -47,8 +47,8 @@ either, as in the reference.
 The dialog is Kit's with `DialogOptions{Bleed: true}`: the content runs edge
 to edge under the frosted panel, 1040 by 680 at most and 24 DIP clear of the
 window. The sidebar keeps the frost under its `Muted` wash; the header, the
-entries and the footer sit on the `Popover` color, so what is behind the
-dialog does not read through their text.
+entries and the footer sit on the `Popover` color at full opacity
+(`kit.Opaque`), so nothing behind the dialog reads through them.
 
 | Part | Behavior |
 |---|---|
@@ -58,7 +58,7 @@ dialog does not read through their text.
 | Directory mode | Files show dimmed and cannot be selected (`picker.Selectable`): a click, an arrow or a double click that lands on one leaves the selection where it was |
 | Empty | `files_directory_empty`, or `directory_no_matches` under a filter |
 | Reading | A read blocks nothing: navigating elsewhere replaces it and its late answer is dropped. Confirm waits for it. With nothing shown yet, a spinner takes the entries' place |
-| Failed read | Over a directory that shows: a failure toast with the reason, the directory and its choice staying. For the directory the picker opens at: the host's home instead, with `directory_fallback` naming the path (silent in the preview, whose sample tree holds no caller's path). With nothing to show: the reason and the path in the entries' place with Retry, while the address, Go to folder and the sidebar (the home, the projects) lead elsewhere. The live source tells `directory_missing` (`not_found`), `directory_denied` (`permission_denied`) and `directory_host_unavailable` (`unavailable`, or no answer) from `directory_failed` |
+| Failed read | Over a directory that shows: a failure toast with the reason, the directory and its choice staying. For the directory the picker opens at: the host's home instead, with `directory_fallback` naming the path (silent in the preview, whose sample tree holds no caller's path), or, the home failing as well, that directory's own reason. With nothing to show: the reason and the path in the entries' place with Retry, while the address, Go to folder and the sidebar (the home, the projects) lead elsewhere. The live source tells `directory_missing` (`not_found`), `directory_denied` (`permission_denied`) and `directory_host_unavailable` (`unavailable`, or no answer) from `directory_failed` |
 | Menus (native) | Entry: Open, Copy, Cut, Rename, Paste (stop, replace, keep both), New folder, Move to Trash after a confirmation naming the entry; background: New folder, Paste, Refresh. Outcomes are toasts naming the host |
 | Footer bar | What Confirm would choose: in Directory mode the path of the selected directory, otherwise of the one shown; in File mode the file's path or `directory_nothing_selected`; in Files mode one path, or `directory_selected_files` for several. Then the counts (`directory_counts`), Cancel and Confirm, which carries the choice as its description and tip. Confirm is disabled without a choice, while a directory is read, while the caller saves and once the caller's draft changed (`directory_stale`) |
 

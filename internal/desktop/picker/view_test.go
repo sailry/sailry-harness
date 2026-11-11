@@ -383,6 +383,20 @@ func views(t *testing.T) {
 			t.Fatal("Confirm stays disabled after the retry")
 		}
 
+		// A home that fails as well leaves the directory asked for with its
+		// own reason and no word of a home; Retry opens again.
+		host = newRemote()
+		host.fail["/gone"], host.fail[""] = "directory_missing", "directory_host_unavailable"
+		b = newBench(t, Options{Mode: Directory, Source: host.source(), Initial: "/gone"})
+		b.has(en("directory_missing"), "/gone")
+		b.lacks(en("directory_fallback", "path", "/gone"), en("directory_host_unavailable"))
+		delete(host.fail, "")
+		b.press(en("settings_retry"))
+		b.has(en("directory_fallback", "path", "/gone"), "scratch")
+		if b.s.listing.Path != "/preview" {
+			t.Fatalf("the retry shows %q", b.s.listing.Path)
+		}
+
 		// The path field takes another directory from the failed state.
 		host = newRemote()
 		host.fail[""] = "directory_failed"
