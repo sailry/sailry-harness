@@ -36,6 +36,7 @@ type pluginControls struct {
 	pythonWake    chan struct{}
 	preparations  []protocol.PythonPreparation
 	mcp           *mcp.Pool
+	warm          chan struct{}
 	installations *installations.Queue
 	mu            sync.Mutex
 	invocations   map[protocol.RequestID]*pluginInvocation
@@ -53,6 +54,9 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		invocations:   map[protocol.RequestID]*pluginInvocation{},
 	}
 	controls.installations.Working = node.power.Hold
+	if options.Warm {
+		controls.warm = make(chan struct{}, 1)
+	}
 	node.plugins = controls
 	node.collectPlugins(ctx)
 	for _, entry := range plugins.BundledDefaults() {

@@ -109,8 +109,17 @@ title, and a conflict and an uncertain outcome keep their own wording.
 
 ## Server status and row actions
 
-`read_plugin` reports each MCP server's availability and, once the pool holds a
-connection for it, its runtime. Availability follows the reviewed implementation:
+`read_plugin` reports each MCP server's availability and, once the server of the
+installed version was asked to connect, its runtime: `connecting`, `connected`
+with its tool count, or `failed` with the fault. The Node publishes
+`plugin_changed` for the package whenever a runtime changes, so a controller
+reads the new state without a turn or a manual check. An attempt that was
+cancelled or found the server busy returns to the runtime before it, and a
+server closed for being idle stays `connected`: it opens again on its next use.
+The Node connects the shared servers of enabled packages at start and when a
+package, its settings or its accounts change
+([details](plugins.md#mcp-servers-outside-a-turn)). Availability follows the
+reviewed implementation:
 an incompatible package is `unavailable`, a disabled one `package_disabled`, a
 withdrawn permission `server_disabled`, a missing required setting
 `configuration_required`; a server bound to a connector by its injection or its
@@ -136,9 +145,11 @@ Desktop shows that state, never a failure that did not happen:
 
 The reason of a failed or unavailable server is the tooltip of its status,
 followed by the time of the server's last report, and a line of its details.
-The details of a service with several servers give each server's own status. The pool keeps no state for a server that never connected,
-so Desktop keeps the reason of the last failed check for the package content and
-settings it checked, until a check succeeds.
+The details of a service with several servers give each server's own status. The
+pool reports a runtime only for an attempt that reached it, so a check that
+failed while its launch was prepared leaves none: Desktop keeps the reason of the
+last failed check for the package content and settings it checked, until a check
+succeeds.
 
 The row menu lists only the actions the row has now, and the button is disabled
 when it has none. A right click on the row opens the same actions as an

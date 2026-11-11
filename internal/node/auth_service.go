@@ -93,6 +93,8 @@ func (control *authControls) notify() {
 }
 
 func (node *Node) authChanged() {
+	// A changed package or account may let a server start.
+	node.wakeMCP()
 	if node.auth == nil {
 		return
 	}

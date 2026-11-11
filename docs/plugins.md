@@ -137,6 +137,29 @@ owner retains subprocess/Python resources until cleanup settles. Lost transport
 or unconfirmed cleanup returns `OutcomeUnknown`, without replay. Form and URL
 elicitation use canonical questions and pause only active elicitation time.
 
+### MCP servers outside a turn
+
+The pool owns three things a turn does not drive:
+
+- Idle servers. A shared connection without a lease for 30 minutes is closed by
+  the pool's one-minute timer, which ends a stdio server's process group. Node
+  shutdown closes every connection, leased or not.
+- Runtime. The pool keeps, per server of the installed package version, the
+  runtime its last attempt reached, and wakes the Node when it changes. The Node
+  records `plugin_changed` for that package. A changed version, a disabled or
+  removed package forgets the runtime.
+- Warm-up. `sailry-desktop` and `sailry-host` start the Node with
+  `mcp.Options.Warm`. The Node then connects, lists and releases every server
+  that is allowed, `available` and shared (`reuse`), at start and after a
+  package or account change. It remembers per package the version, the startable
+  servers and the accounts it last tried, so a server is tried once for each of
+  them and a failed one waits for a change. A Node started without the option
+  (every test that does not ask for it) contacts no server ahead of use.
+
+Opening is bounded to 20 seconds, a tool listing to 10, a call to 120 seconds of
+active time, and a stdio server's exit to 10 seconds of close, terminate and
+kill.
+
 Package behavior stays in the pinned plugin repository's tooling, which can use
 the production moejs test host. Core tests cover host boundaries and admission;
 tooling results do not substitute interactive account or platform acceptance.
@@ -389,6 +412,16 @@ empty so the text remains aligned.
   configuration here (the source starts a reinstalled package from no
   configuration). A version named by a saved provider's binding stays, so a
   provider saved before a package update still starts a turn.
+- MCP outside a turn is simpler than the source in four places. Warm-up is
+  chosen by what changed for the package (version, startable servers,
+  accounts) instead of the source's separate set of authorized targets, and a
+  server that is not `available` is not tried. A server that ends its own
+  session reports `failed` at once; the source notices at the next package
+  change. A package change retires the connections of its other versions
+  without the source's ten-second validation of the ones it keeps: a lease
+  already validates its authority before each call. A failure before the pool
+  is reached (launch preparation) records no runtime; the source records it
+  as failed.
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.
 - Cards with an embedded authorization browser use an isolated native MyGo page

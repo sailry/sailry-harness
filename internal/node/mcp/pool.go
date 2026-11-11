@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -23,6 +26,7 @@ const (
 	maxTools       = 64
 	maxToolBytes   = 256 * 1024
 	maxMessage     = 8 * 1024 * 1024
+	expiryInterval = time.Minute
 )
 
 type Configuration struct {
@@ -38,7 +42,10 @@ type Configuration struct {
 
 type Options struct {
 	Clock clockwork.Clock
-	Open  func(context.Context, Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error)
+	// Warm asks the pool's owner to connect the reusable servers of the
+	// current packages ahead of their first use.
+	Warm bool
+	Open func(context.Context, Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error)
 }
 
 type connectionKey struct {
@@ -57,9 +64,23 @@ type Pool struct {
 	owners   map[*connection]struct{}
 	current  map[string]protocol.PluginSummary
 	services map[string]*serviceLock
+	status   map[statusKey]*statusRecord
+	pending  map[string]struct{}
+	changed  chan struct{}
 	stopped  bool
 	known    bool
 	work     sync.WaitGroup
+}
+
+type statusKey struct{ Package, Server string }
+
+// statusRecord is what a server of the current package version last reported.
+// It outlives the connection, so a server closed for being idle is still the
+// one that connected. An interrupted attempt returns to the settled runtime.
+type statusRecord struct {
+	reference protocol.PluginReference
+	runtime   *protocol.PluginMcpRuntime
+	settled   *protocol.PluginMcpRuntime
 }
 
 type serviceLock struct {
@@ -70,6 +91,7 @@ type serviceLock struct {
 type connection struct {
 	pool        *Pool
 	key         connectionKey
+	reference   protocol.PluginReference
 	ready       chan struct{}
 	session     *sdk.ClientSession
 	fault       error
@@ -83,12 +105,12 @@ type connection struct {
 	mu          sync.Mutex
 	active      *activeCall
 	poisoned    bool
+	closing     bool
 	closeOnce   sync.Once
 	closeDone   chan struct{}
 	closeErr    error
 	release     func() error
 	descriptors []*sdk.Tool
-	status      protocol.PluginMcpRuntime
 }
 
 type Lease struct {
@@ -107,11 +129,31 @@ func New(ctx context.Context, options Options) *Pool {
 		options.Open = Open
 	}
 	lifetime, cancel := context.WithCancel(ctx)
-	return &Pool{
+	pool := &Pool{
 		ctx: lifetime, cancel: cancel, clock: options.Clock, open: options.Open,
 		entries: map[connectionKey]*connection{}, current: map[string]protocol.PluginSummary{},
 		services: map[string]*serviceLock{}, owners: map[*connection]struct{}{},
+		status: map[statusKey]*statusRecord{}, pending: map[string]struct{}{}, changed: make(chan struct{}, 1),
 	}
+	// Idle servers leave on the pool's own timer, not only when a later
+	// acquisition happens to scan them.
+	ticker := pool.clock.NewTicker(expiryInterval)
+	pool.work.Add(1)
+	go func() {
+		defer pool.work.Done()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-lifetime.Done():
+				return
+			case <-ticker.Chan():
+				if err := pool.Expire(); err != nil {
+					slog.Warn("MCP connection cleanup failed", "code", protocolFault(err).Code)
+				}
+			}
+		}
+	}()
+	return pool
 }
 
 func keyFor(config Configuration) (connectionKey, error) {
@@ -137,6 +179,10 @@ func (pool *Pool) Observe(summary protocol.PluginSummary) error {
 		return nil
 	}
 	pool.current[summary.Name] = summary
+	if !exists || previous.Digest != summary.Digest || previous.SettingsRevision != summary.SettingsRevision ||
+		(previous.Enabled && previous.Compatibility.Kind == "compatible") != (summary.Enabled && summary.Compatibility.Kind == "compatible") {
+		pool.forget(summary.Name)
+	}
 	var retired []*connection
 	for key, current := range pool.entries {
 		if key.Package == summary.Name && (!summary.Enabled || summary.Compatibility.Kind != "compatible" || key.Digest != summary.Digest || key.Settings != summary.SettingsRevision) {
@@ -249,11 +295,11 @@ func (pool *Pool) Acquire(ctx context.Context, config Configuration) (result *Le
 		service.refs++
 		opening, cancel := context.WithCancel(pool.ctx)
 		current = &connection{
-			pool: pool, key: key, ready: make(chan struct{}), closeDone: make(chan struct{}), cancel: cancel,
+			pool: pool, key: key, reference: config.Package, ready: make(chan struct{}), closeDone: make(chan struct{}), cancel: cancel,
 			used: pool.clock.Now(), reuse: reuse, exclusive: service, serial: make(chan struct{}, 1),
-			status:  protocol.PluginMcpRuntime{State: protocol.PluginMcpRuntimeStateConnecting, UpdatedAtMs: uint64(pool.clock.Now().UnixMilli())},
 			release: config.Release,
 		}
+		pool.report(current, protocol.PluginMcpRuntimeStateConnecting, 0, nil)
 		adopted = true
 		if reuse {
 			pool.entries[key] = current
@@ -289,9 +335,11 @@ func (connection *connection) open(ctx context.Context, launch Launch) {
 	defer connection.pool.work.Done()
 	finished := make(chan struct{})
 	timer := connection.pool.clock.NewTimer(20 * time.Second)
+	var expired atomic.Bool
 	go func() {
 		select {
 		case <-timer.Chan():
+			expired.Store(true)
 			connection.cancel()
 		case <-finished:
 		case <-ctx.Done():
@@ -300,6 +348,9 @@ func (connection *connection) open(ctx context.Context, launch Launch) {
 	session, err := connection.pool.open(ctx, launch, connection.elicit)
 	close(finished)
 	timer.Stop()
+	// A connection closed while it opened did not fail; one that ran out of
+	// time did.
+	interrupted := ctx.Err() != nil && !expired.Load()
 	if err == nil && ctx.Err() != nil {
 		err = unavailable()
 		if session != nil {
@@ -314,25 +365,117 @@ func (connection *connection) open(ctx context.Context, launch Launch) {
 			defer connection.pool.work.Done()
 			_ = session.Wait()
 			connection.mu.Lock()
+			ended := !connection.closing
 			connection.poisoned = true
 			connection.mu.Unlock()
+			if ended {
+				connection.pool.mu.Lock()
+				connection.pool.report(connection, protocol.PluginMcpRuntimeStateFailed, 0, unavailable())
+				connection.pool.mu.Unlock()
+			}
 		}()
 	}
 	connection.mu.Lock()
 	connection.session = session
 	connection.fault = err
-	if err != nil {
-		connection.status.State = protocol.PluginMcpRuntimeStateFailed
-		connection.status.Fault = protocolFault(err)
-	} else {
-		connection.status.State = protocol.PluginMcpRuntimeStateConnected
-	}
-	connection.status.UpdatedAtMs = uint64(connection.pool.clock.Now().UnixMilli())
 	connection.mu.Unlock()
+	// A connected server reports once its tools are listed.
+	if err != nil {
+		failure := err
+		if interrupted {
+			failure = cancelled()
+		}
+		connection.pool.mu.Lock()
+		connection.pool.report(connection, protocol.PluginMcpRuntimeStateFailed, 0, failure)
+		connection.pool.mu.Unlock()
+	}
 	close(connection.ready)
 }
 
+// report records what a server of the current package version did and marks
+// the package changed when its state, tool count or fault differs. A busy or
+// cancelled attempt returns the server to the runtime it last settled on. The
+// caller holds the pool lock.
+func (pool *Pool) report(current *connection, state protocol.PluginMcpRuntimeState, tools int, failure error) {
+	if !pool.reusable(current.reference) {
+		return
+	}
+	key := statusKey{current.reference.Name, current.key.Server}
+	record := pool.status[key]
+	if record == nil || record.reference != current.reference {
+		record = &statusRecord{reference: current.reference}
+		pool.status[key] = record
+	}
+	next := &protocol.PluginMcpRuntime{State: state, Tools: uint32(tools), UpdatedAtMs: uint64(pool.clock.Now().UnixMilli())}
+	interrupted := false
+	if failure != nil {
+		fault := protocolFault(failure)
+		interrupted = fault.Code == protocol.ErrorCodeBusy || fault.Code == protocol.ErrorCodeCancelled
+		next.State, next.Tools, next.Fault = protocol.PluginMcpRuntimeStateFailed, 0, fault
+	}
+	if interrupted {
+		next = record.settled
+	}
+	same := record.runtime == nil && next == nil || record.runtime != nil && next != nil &&
+		record.runtime.State == next.State && record.runtime.Tools == next.Tools &&
+		(record.runtime.Fault == nil) == (next.Fault == nil) &&
+		(next.Fault == nil || record.runtime.Fault.Code == next.Fault.Code && record.runtime.Fault.Message == next.Fault.Message)
+	if !same {
+		record.runtime = next
+	}
+	if state != protocol.PluginMcpRuntimeStateConnecting && !interrupted {
+		record.settled = record.runtime
+	}
+	if !same {
+		pool.pending[current.reference.Name] = struct{}{}
+		select {
+		case pool.changed <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// forget drops what the servers of a package reported. The caller holds the
+// pool lock.
+func (pool *Pool) forget(packageName string) {
+	for key := range pool.status {
+		if packageName == "" || key.Package == packageName {
+			delete(pool.status, key)
+		}
+	}
+}
+
+// Changed wakes when a server's runtime differs from the one last reported.
+func (pool *Pool) Changed() <-chan struct{} { return pool.changed }
+
+// Changes takes the names of the packages whose servers changed.
+func (pool *Pool) Changes() []string {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	names := make([]string, 0, len(pool.pending))
+	for name := range pool.pending {
+		names = append(names, name)
+	}
+	clear(pool.pending)
+	slices.Sort(names)
+	return names
+}
+
+// List reads the server's tools. Its outcome is what the server reports as
+// its runtime, except for a caller that gave up.
 func (lease *Lease) List(ctx context.Context) ([]*sdk.Tool, error) {
+	tools, err := lease.list(ctx)
+	failure := err
+	if err != nil && ctx.Err() != nil {
+		failure = cancelled()
+	}
+	lease.pool.mu.Lock()
+	lease.pool.report(lease.connection, protocol.PluginMcpRuntimeStateConnected, len(tools), failure)
+	lease.pool.mu.Unlock()
+	return tools, err
+}
+
+func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
 	connection := lease.connection
 	if err := connection.lock(ctx, connection.serial); err != nil {
 		return nil, err
@@ -401,8 +544,6 @@ func (lease *Lease) List(ctx context.Context) ([]*sdk.Tool, error) {
 	}
 	connection.mu.Lock()
 	connection.descriptors = tools
-	connection.status.Tools = uint32(len(tools))
-	connection.status.UpdatedAtMs = uint64(lease.pool.clock.Now().UnixMilli())
 	connection.mu.Unlock()
 	return tools, nil
 }
@@ -444,6 +585,7 @@ func (pool *Pool) Invalidate(packageName string) error {
 		summary.Enabled = false
 		pool.current[packageName] = summary
 	}
+	pool.forget(packageName)
 	pool.mu.Unlock()
 	return closeConnections(retired)
 }
@@ -465,15 +607,12 @@ func (pool *Pool) Expire() error {
 func (pool *Pool) Status(reference protocol.PluginReference, server string) *protocol.PluginMcpRuntime {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	for key, current := range pool.entries {
-		if key.Package == reference.Name && key.Digest == reference.Digest && key.Settings == reference.SettingsRevision && key.Server == server {
-			current.mu.Lock()
-			status := current.status
-			current.mu.Unlock()
-			return &status
-		}
+	record := pool.status[statusKey{reference.Name, server}]
+	if record == nil || record.reference != reference || record.runtime == nil {
+		return nil
 	}
-	return nil
+	status := *record.runtime
+	return &status
 }
 
 func (pool *Pool) Close() error {
@@ -502,6 +641,7 @@ func (connection *connection) close() error {
 		}
 		connection.mu.Lock()
 		connection.poisoned = true
+		connection.closing = true
 		session := connection.session
 		connection.mu.Unlock()
 		if session != nil {

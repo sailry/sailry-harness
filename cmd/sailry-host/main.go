@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 )
 
@@ -63,6 +64,7 @@ func run(args []string) (int, error) {
 		defer closeLogs()
 	}
 	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{
+		MCP:         &mcp.Options{Warm: true},
 		Network:     &options.Network,
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 		Telemetry:   telemetry.Options{Application: "host", Lookup: options.Environment},
