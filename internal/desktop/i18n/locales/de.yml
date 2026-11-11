@@ -1941,3 +1941,55 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+directory_action_failed: Vorgang fehlgeschlagen; Pfad und Berechtigungen überprüfen
+directory_address: Pfad eingeben
+directory_count_hidden: '%{count} ausgeblendet'
+directory_create: Neuer Ordner
+directory_denied: Zugriffsverweigerte Vorschau; wählen Sie ein anderes Verzeichnis
+directory_devices: Geräte
+directory_extension_kind: '%{extension}-Datei'
+directory_go_to: Zum Ordner
+directory_grid: Raster
+directory_hidden: Versteckte Dateien
+directory_image_kind: Bild
+directory_invalid_name: Geben Sie einen gültigen Namen ein
+directory_json_kind: JSON-Datei
+directory_keep_both: Behalten Sie beide
+directory_list: Liste
+directory_markdown_kind: Markdown-Dokument
+directory_missing: Pfad nicht in der Vorschau dieses Hosts; zu einem Vorschauspeicherort zurückkehren
+directory_refresh: Aktualisieren
+directory_root: Wurzel
+directory_stale: Formularpfad geändert; Selektor neu öffnen
+directory_stop: Stopp bei Namenskonflikt
+directory_text_kind: Textdokument
+directory_toml_kind: TOML-Datei
+directory_volume: Datenträger
+directory_yaml_kind: YAML-Datei
+files_entry_name: Name
+files_paste_conflict: Das Ziel existiert oder der Pfad ist nicht verfügbar
+files_trash_confirm: Streichen „%{name}“
+live_request_failed: Anforderung unvollständig; Überprüfen Sie Node Verbindung und Verzeichnis. Wiederholter Versuch behält die ursprüngliche Anforderungs-ID.
+plugins_loading: Wird geladen
+project_appearance: Auftritt des Projekts
+project_clone_failed: Klonen unvollständig; Ziel überprüfen
+project_grant: Vertrauen und weitermachen
+project_grant_description: Projektanweisungen und Werkzeuge können Code in allen Arbeitsbäumen ausführen
+project_grant_title: Vertrauen Sie diesem Projekt
+project_outcome_unknown: Ergebnis nicht bestätigt; Ziel überprüfen. Wiederholen überprüft die ursprüngliche Anforderung.
+project_path_in_use: Dieser Pfad wird von einer Sitzung oder einem Arbeitsbaum verwendet
+project_remove_busy: Projekt wird verwendet; erneut versuchen
+project_remove_changed_partial: Projekt geändert; vor dem erneuten Versuch wieder öffnen. Einige Terminals sind möglicherweise bereits geschlossen
+project_remove_failed: Projekt bleibt erhalten; einige Terminals sind möglicherweise bereits geschlossen
+project_remove_sample: Vorschauprojekt „%{name}“ entfernen
+project_remove_sessions: Sitzungen, einschließlich archivierter, verweisen immer noch auf dieses Projekt
+project_remove_tasks: Aktive Aufgaben vor dem Entfernen des Projekts stoppen
+project_remove_tasks_partial: Projekt bleibt erhalten; Aufgaben vor dem erneuten Versuch stoppen. Einige Terminals sind möglicherweise bereits geschlossen
+project_remove_unknown: Entfernen nicht bestätigt; Projekt und Terminals prüfen
+project_removed: Projekt entfernt
+project_revoke: Vertrauen widerrufen
+project_revoke_description: Projektaufgaben stoppen; Verlauf und Entwürfe aufbewahren
+project_revoke_title: Projektvertrauensstellung widerrufen
+project_trust: Verwalten von Projektvertrauensstellungen
+project_trust_preview: Nur Vorschau der Änderungen
+task_completed: Abgeschlossen

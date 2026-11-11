@@ -1,0 +1,555 @@
+package picker
+
+import (
+	"slices"
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
+)
+
+// View builds the picker over the window's other dialogs: the toolbar, the
+// host's locations beside the directory's entries, the counts, and the
+// selection with Cancel and Confirm. It must be built after the dialog that
+// opened it.
+func (s *State) View(c *ui.Context) {
+	for _, n := range s.notices {
+		text := i18n.T(c, n.key)
+		if n.host && s.o.Host != "" {
+			text += " · " + i18n.T(c, "project_host") + ": " + s.o.Host
+		}
+		kit.Toast(c, n.outcome, text)
+	}
+	s.notices = nil
+	if s.dismiss != "" {
+		kit.OpenMenu(c, "picker-crumb/"+s.dismiss, false)
+		s.dismiss = ""
+	}
+	if !s.open {
+		return
+	}
+	p := theme.Of(c)
+	w, h := c.Size()
+	valid := s.valid()
+	title := i18n.T(c, s.o.Title)
+	s.arrange(c)
+	shown := true
+	panel := kit.Dialog(c.Key("picker"), &shown, func() {
+		ui.Column(c.Key("head")).Gap(6).Children(func() {
+			ui.Text(c, title).FontSize(16).FontWeight(600)
+			switch {
+			case !valid:
+				ui.Text(c, i18n.T(c, "directory_stale")).FontSize(14).TextColor(p.MutedForeground)
+			case s.o.Preview:
+				ui.Text(c, i18n.T(c, "directory_preview")).FontSize(14).TextColor(p.MutedForeground)
+			}
+		})
+		s.toolbar(c, valid)
+		ui.Row(c.Key("body")).FillWidth().Height(min(max(h-300, 120), 480)).Radius(p.RadiusLg).Border(1, p.Border).Clip().
+			AlignItems(ui.Stretch).Children(func() {
+			s.sidebar(c, valid)
+			ui.Column(c.Key("content")).Grow(1).MinWidth(0).Children(func() {
+				s.entries(c, valid)
+				// A key or a click in the entries may have shown another directory.
+				s.arrange(c)
+				s.status(c)
+			})
+		})
+		s.footer(c, valid)
+	}).Width(min(w-48, 900)).Label(title)
+	if valid && !s.busy {
+		if panel.Shortcut(ui.Cmd, ui.KeyL) {
+			s.editing = true
+		}
+		if panel.Shortcut(0, ui.KeyF5) {
+			s.reload()
+		}
+	}
+	if !shown {
+		s.Close()
+	}
+	s.nameDialog(c)
+	s.trashDialog(c)
+	s.jumpDialog(c)
+}
+
+// kind is an entry's kind as the table shows and sorts it.
+func kind(c *ui.Context, e Entry) string {
+	key, extension := KindKey(e)
+	if extension != "" {
+		return i18n.T(c, key, "extension", extension)
+	}
+	return i18n.T(c, key)
+}
+
+// arrange filters and orders the entries shown, and keeps the row of the
+// selected one. The files chosen in Files mode stay chosen only while they
+// show.
+func (s *State) arrange(c *ui.Context) {
+	s.rows = Visible(s.listing.Entries, s.Hidden, s.filter)
+	Order(s.listing.Entries, s.rows, s.sort.Column, s.sort.Descending, func(e Entry) string { return kind(c, e) })
+	s.row = slices.IndexFunc(s.rows, func(i int) bool { return s.listing.Entries[i].Name == s.current })
+	if s.row < 0 {
+		s.current = ""
+	}
+	if s.chosen.Len() > 0 {
+		shown := make(map[string]bool, len(s.rows))
+		for _, i := range s.rows {
+			shown[s.listing.Entries[i].Name] = true
+		}
+		for name := range s.chosen.All() {
+			if !shown[name] {
+				s.chosen.Remove(name)
+			}
+		}
+	}
+}
+
+// toolbar is Back, Forward and Up, the address, the filter, the list and
+// grid switch, the hidden-files toggle, Refresh and Go to folder.
+func (s *State) toolbar(c *ui.Context, valid bool) {
+	p := theme.Of(c)
+	off := s.busy || !valid
+	ui.Row(c.Key("toolbar")).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {
+		kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "directory_back"), 28, false).
+			Disabled(off || s.cursor == 0).OnClick(func() { s.step(false) })
+		kit.IconButton(c.Key("forward"), icons.ArrowRight, i18n.T(c, "directory_forward"), 28, false).
+			Disabled(off || s.cursor+1 >= len(s.history)).OnClick(func() { s.step(true) })
+		kit.IconButton(c.Key("up"), icons.ArrowUp, i18n.T(c, "directory_up"), 28, false).
+			Disabled(off || s.listing.Parent == "").OnClick(s.up)
+		s.addressBar(c, off)
+		ui.Row(c.Key("filter")).Width(168).Height(28).PaddingX(8).Gap(6).Radius(p.Radius).Border(1, p.Input).Shrink(0).
+			AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, icons.Search).FontSize(14).TextColor(p.MutedForeground)
+			ui.TextInputBase(c.Key("input"), &s.filter).Grow(1).FontSize(13).Placeholder(i18n.T(c, "directory_filter")).
+				Label(i18n.T(c, "directory_filter")).PlaceholderColor(p.MutedForeground).Disabled(!valid)
+			if s.filter != "" {
+				kit.IconButton(c.Key("clear"), icons.Close, i18n.T(c, "directory_filter"), 20, false).OnClick(func() { s.filter = "" })
+			}
+		})
+		for _, grid := range []bool{false, true} {
+			icon, key := icons.List, "directory_list"
+			if grid {
+				icon, key = icons.Grid, "directory_grid"
+			}
+			kit.IconButton(c.Key(key), icon, i18n.T(c, key), 28, s.Grid == grid).Selected(s.Grid == grid).OnClick(func() {
+				if s.Grid != grid {
+					s.Grid = grid
+					s.changed()
+				}
+			})
+		}
+		eye := icons.EyeOff
+		if s.Hidden {
+			eye = icons.Eye
+		}
+		kit.IconButton(c.Key("hidden"), eye, i18n.T(c, "directory_hidden"), 28, s.Hidden).Selected(s.Hidden).OnClick(func() {
+			s.Hidden = !s.Hidden
+			s.changed()
+		})
+		kit.IconButtonHint(c.Key("refresh"), icons.RotateCw, i18n.T(c, "directory_refresh"), "F5", 28, false).
+			Disabled(off || !s.loaded).OnClick(s.reload)
+		kit.IconButton(c.Key("go"), icons.FolderOpen, i18n.T(c, "directory_go_to"), 28, false).
+			Disabled(off || !s.loaded).OnClick(func() {
+			s.jump.open, s.jump.query, s.jump.row = true, s.listing.Path, 0
+		})
+	})
+}
+
+func (s *State) changed() {
+	if s.Changed != nil {
+		s.Changed()
+	}
+}
+
+// addressBar is the directory's path: its crumbs, each opening the
+// directories under it, or, once clicked beside them, a field taking a path.
+func (s *State) addressBar(c *ui.Context, off bool) {
+	p := theme.Of(c)
+	bar := ui.Row(c.Key("address")).Grow(1).MinWidth(0).Height(28).PaddingX(6).Gap(6).Radius(p.Radius).AlignItems(ui.Center).Clip()
+	if s.editing {
+		bar.Border(1, p.Ring).Children(func() {
+			input := ui.TextInputBase(c.Key("input"), &s.address).Grow(1).FontSize(13).Label(i18n.T(c, "directory_address")).
+				Disabled(off).AutoFocus()
+			if input.Submitted() && strings.TrimSpace(s.address) != "" {
+				s.navigate(strings.TrimSpace(s.address), push, 0)
+			}
+			if bar.Shortcut(0, ui.KeyEscape) {
+				s.editing, s.address = false, s.listing.Path
+			}
+		})
+		return
+	}
+	bar.Children(func() {
+		ui.Icon(c, icons.HardDrive).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
+		if !s.loaded {
+			return
+		}
+		// A long path scrolls, showing its end: the directory itself.
+		crumbs := Crumbs(s.listing)
+		ui.ScrollHorizontal(c.Key("crumbs")).TrackScroll(&s.crumbs).Shrink(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+			for i, crumb := range crumbs {
+				if i > 0 {
+					ui.Icon(c.Key([2]any{"sep", i}), icons.ChevronRight).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+				}
+				id := "picker-crumb/" + crumb.Path
+				kit.MenuButton(c.Key([2]any{"crumb", i}), id, func(b ui.Element) {
+					kit.GhostLook(c, b.Label(crumb.Path), false).Height(24).PaddingX(6).MaxWidth(160).Shrink(0).Disabled(off)
+					kit.Tooltip(c, b, crumb.Path)
+					b.Children(func() {
+						text := ui.Text(c, crumb.Label).FontSize(13).SingleLine()
+						if i == len(crumbs)-1 {
+							text.FontWeight(600)
+						}
+					})
+				}, func(m *kit.Menu) {
+					list, ok := s.children[crumb.Path]
+					switch {
+					case !ok:
+						s.loadChildren(crumb.Path)
+						m.Item(i18n.T(c, "plugins_loading")).Disabled(true)
+					case len(list) == 0:
+						m.Item(i18n.T(c, "directory_no_matches")).Disabled(true)
+					}
+					for _, child := range list {
+						if m.Item(child.Label).Icon(icons.Folder).Chosen() {
+							s.navigate(child.Path, push, 0)
+						}
+					}
+				}, kit.MenuOptions{MaxHeight: 320})
+			}
+		})
+		// The rest of the bar takes a click to type a path.
+		ui.ButtonBase(c.Key("edit")).Label(i18n.T(c, "directory_address")).Grow(1).MinWidth(16).Height(24).
+			Disabled(off).OnClick(func() { s.editing = true })
+	})
+}
+
+// sidebar is the host's locations and devices, 188 wide.
+func (s *State) sidebar(c *ui.Context, valid bool) {
+	p := theme.Of(c)
+	glyphs := map[string]*ui.SVG{"home": icons.House, "desktop": icons.Monitor, "documents": icons.FileText,
+		"downloads": icons.Download, "volume": icons.HardDrive, "root": icons.HardDrive}
+	ui.Scroll(c.Key("locations")).Width(188).Shrink(0).Padding(8).Gap(2).Background(p.Sidebar).
+		BorderWidth(0, 1, 0, 0).BorderColor(p.Border).Children(func() {
+		group := func(key string, device bool) {
+			shown := false
+			for i, loc := range s.listing.Locations {
+				if (loc.Kind == "volume" || loc.Kind == "root") != device {
+					continue
+				}
+				if !shown {
+					shown = true
+					ui.Text(c.Key(key), i18n.T(c, key)).FontSize(12).Padding(4, 8).TextColor(p.MutedForeground)
+				}
+				label := loc.Name
+				if label == "" {
+					label = i18n.T(c, "directory_"+loc.Kind)
+				}
+				kit.Ghost(c.Key([2]any{key, i}), label, loc.Path == s.listing.Path).FillWidth().Height(28).PaddingX(8).Gap(8).
+					Justify(ui.Start).Disabled(s.busy || !valid).Children(func() {
+					ui.Icon(c, glyphs[loc.Kind]).FontSize(14).Shrink(0)
+					ui.Text(c, label).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+				}).OnClick(func() { s.navigate(loc.Path, push, 0) })
+			}
+		}
+		group("directory_locations", false)
+		group("directory_devices", true)
+	})
+}
+
+// entries is the directory in the table or the grid, with its native
+// right-click menus and its keys.
+func (s *State) entries(c *ui.Context, valid bool) {
+	p := theme.Of(c)
+	entries, rows := s.listing.Entries, s.rows
+	off := s.busy || !valid
+	area := ui.Column(c.Key("entries")).Grow(1).MinHeight(0).Focusable().ContextMenu(func(m *ui.Menu) {
+		if off || !s.loaded {
+			return
+		}
+		if m.Item(i18n.T(c, "directory_create")).Chosen() {
+			s.naming.open, s.naming.from, s.naming.value = true, "", ""
+		}
+		s.pasteMenu(c, m)
+		m.Separator()
+		if m.Item(i18n.T(c, "directory_refresh")).Chosen() {
+			s.reload()
+		}
+	})
+	menu := func(m *ui.Menu, row int) {
+		if off || row < 0 || row >= len(rows) {
+			return
+		}
+		e := entries[rows[row]]
+		s.current = e.Name
+		if m.Item(i18n.T(c, "directory_open")).Disabled(!e.Dir() && s.o.Mode == Directory).Chosen() {
+			s.activate(rows[row])
+		}
+		m.Separator()
+		if m.Item(i18n.T(c, "files_copy")).Chosen() {
+			s.copy(false)
+		}
+		if m.Item(i18n.T(c, "files_cut")).Chosen() {
+			s.copy(true)
+		}
+		if m.Item(i18n.T(c, "files_rename")).Chosen() {
+			s.naming.open, s.naming.from, s.naming.value = true, e.Name, e.Name
+		}
+		s.pasteMenu(c, m)
+		m.Separator()
+		if m.Item(i18n.T(c, "files_trash")).Chosen() {
+			s.trashing.open, s.trashing.path, s.trashing.label = true, s.listing.Join(e.Name), e.Name
+		}
+	}
+	area.Children(func() {
+		switch {
+		case !s.loaded:
+			if s.busy {
+				ui.Row(c.Key("loading")).Grow(1).Center().Children(func() { ui.Spinner(c).Label(i18n.T(c, "plugins_loading")) })
+			}
+			return
+		case len(rows) == 0:
+			key := "files_directory_empty"
+			if s.filter != "" {
+				key = "directory_no_matches"
+			}
+			kit.Result(c.Key("empty"), kit.ResultProps{Icon: icons.FolderOpen, Title: i18n.T(c, key)}).Grow(1)
+			if s.refocus {
+				s.refocus = false
+				area.Focus()
+			}
+			return
+		}
+		var view ui.Element
+		label := func(i int) string { return entries[rows[i]].Name }
+		key := func(i int) any { return entries[rows[i]].Name }
+		// Files mode chooses several entries, by their names; the other modes
+		// one, the row the list holds.
+		var chosen ui.Selector
+		if s.o.Mode == Files {
+			chosen = &s.chosen
+		}
+		// A chosen row is filled with the primary color, so its tile and
+		// details take the row's own foreground.
+		on := func(i int) bool {
+			if s.o.Mode == Files {
+				return s.chosen.Has(entries[rows[i]].Name)
+			}
+			return i == s.row
+		}
+		detail := func(text string, selected bool) {
+			el := ui.Text(c, text).FontSize(13).SingleLine()
+			if !selected {
+				el.TextColor(p.MutedForeground)
+			}
+		}
+		dim := func(e Entry, el ui.Element) {
+			if strings.HasPrefix(e.Name, ".") {
+				el.Opacity(0.55)
+			}
+		}
+		if s.Grid {
+			s.grid.Key, s.grid.Label, s.grid.Selected, s.grid.Selection = key, label, &s.row, chosen
+			view = ui.GridView(c.Key("grid/"+s.listing.Path), &s.grid, len(rows), 108, 104, func(i int) {
+				e := entries[rows[i]]
+				cell := ui.Column(c).Fill().Padding(8).Gap(6).AlignItems(ui.Center).ContextMenu(func(m *ui.Menu) { menu(m, i) })
+				dim(e, cell)
+				cell.Children(func() {
+					tile(c, e, 44, on(i))
+					ui.Text(c, e.Name).FontSize(12).MaxLines(2).TextAlign(ui.Center)
+				})
+			}).Grow(1).Padding(8)
+		} else {
+			s.list.Key, s.list.Label, s.list.Selected, s.list.Selection, s.list.Sort = key, label, &s.row, chosen, &s.sort
+			s.list.CellMenu = func(m *ui.Menu, row, _ int) { menu(m, row) }
+			cols := []ui.TableColumn{
+				{Title: i18n.T(c, "files_entry_name"), ID: "name", Sortable: true},
+				{Title: i18n.T(c, "directory_kind"), ID: "kind", Width: 120, Sortable: true},
+				{Title: i18n.T(c, "directory_size"), ID: "size", Width: 72, Align: ui.End, Sortable: true},
+			}
+			view = ui.Table(c.Key("list/"+s.listing.Path), &s.list, cols, len(rows), func(row, col int) {
+				e := entries[rows[row]]
+				switch col {
+				case 0:
+					// The row of CrychicUI's file list: a tinted tile of
+					// the entry's type before its name, bold once chosen.
+					cell := ui.Row(c).Gap(10).Padding(3, 0).MinWidth(0).AlignItems(ui.Center)
+					dim(e, cell)
+					cell.Children(func() {
+						tile(c, e, 28, on(row))
+						name := ui.Text(c, e.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+						if on(row) {
+							name.FontWeight(600)
+						}
+					})
+				case 1:
+					detail(kind(c, e), on(row))
+				case 2:
+					detail(Bytes(e), on(row))
+				}
+			}).Grow(1).Padding(0, 12)
+		}
+		view.Disabled(off)
+		// The directory that arrived takes the keys, as the one before it did.
+		if s.refocus {
+			s.refocus = false
+			if s.Grid {
+				s.grid.Focus(c)
+			} else {
+				s.list.Focus(c)
+			}
+		}
+		if s.row >= 0 && s.row < len(rows) {
+			s.current = entries[rows[s.row]].Name
+		} else {
+			s.current = ""
+		}
+		if !off && view.Submitted() && s.row >= 0 && s.row < len(rows) {
+			s.activate(rows[s.row])
+		}
+	})
+	if off {
+		return
+	}
+	if area.Shortcut(0, ui.KeyBackspace) {
+		s.up()
+	}
+	if area.Shortcut(ui.Cmd, ui.KeyC) {
+		s.copy(false)
+	}
+	if area.Shortcut(ui.Cmd, ui.KeyX) {
+		s.copy(true)
+	}
+	if area.Shortcut(ui.Cmd, ui.KeyV) {
+		s.paste("stop")
+	}
+}
+
+// pasteMenu is the Paste submenu: what to do when a name is taken.
+func (s *State) pasteMenu(c *ui.Context, m *ui.Menu) {
+	m.Submenu(i18n.T(c, "files_paste"), func(m *ui.Menu) {
+		for _, choice := range [][2]string{{"directory_stop", "stop"}, {"files_upload_replace", "replace"}, {"directory_keep_both", "keep_both"}} {
+			if m.Item(i18n.T(c, choice[0])).Chosen() {
+				s.paste(choice[1])
+			}
+		}
+	}).Disabled(len(s.clipboard) == 0)
+}
+
+// status counts the directories and files shown, and the hidden entries
+// while they are not.
+func (s *State) status(c *ui.Context) {
+	p := theme.Of(c)
+	dirs, files, hidden := 0, 0, 0
+	for _, i := range s.rows {
+		switch s.listing.Entries[i].Kind {
+		case "directory":
+			dirs++
+		case "file":
+			files++
+		}
+	}
+	if !s.Hidden {
+		for _, e := range s.listing.Entries {
+			if strings.HasPrefix(e.Name, ".") {
+				hidden++
+			}
+		}
+	}
+	ui.Row(c.Key("status")).Height(28).Shrink(0).PaddingX(12).Gap(12).AlignItems(ui.Center).
+		BorderWidth(1, 0, 0, 0).BorderColor(p.Border).TextColor(p.MutedForeground).Children(func() {
+		ui.Text(c, i18n.T(c, "directory_count_directories", "count", dirs)).FontSize(12)
+		ui.Text(c, i18n.T(c, "directory_count_files", "count", files)).FontSize(12)
+		if hidden > 0 {
+			ui.Text(c, i18n.T(c, "directory_count_hidden", "count", hidden)).FontSize(12)
+		}
+	})
+}
+
+// footer is the path Confirm would choose, Cancel and Confirm.
+func (s *State) footer(c *ui.Context, valid bool) {
+	p := theme.Of(c)
+	text := strings.Join(s.selection(), ", ")
+	pending := s.pending()
+	ui.Row(c.Key("footer")).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c.Key("selection")).Grow(1).Shrink(1).MinWidth(0).Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
+			ui.Icon(c, icons.Folder).FontSize(14).Shrink(0)
+			kit.Tooltip(c, ui.Text(c, text).Font("monospace").FontSize(12).SingleLine().Shrink(1).MinWidth(0), text)
+		})
+		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(s.Close)
+		confirm := i18n.T(c, s.o.Confirm)
+		kit.Primary(c.Key("confirm"), confirm, s.busy || pending || !valid || s.failed || text == "").Children(func() {
+			if pending {
+				ui.Spinner(c).Size(14, 14)
+			}
+			ui.Text(c, confirm).FontSize(14)
+		}).OnClick(s.confirm)
+	})
+}
+
+// nameDialog names a new folder or renames an entry.
+func (s *State) nameDialog(c *ui.Context) {
+	n := &s.naming
+	if !n.open {
+		return
+	}
+	title := i18n.T(c, "directory_create")
+	if n.from != "" {
+		title = i18n.T(c, "files_rename")
+	}
+	kit.Dialog(c.Key("picker-name"), &n.open, func() {
+		ui.Text(c, title).FontSize(16).FontWeight(600)
+		input := ui.TextInput(c.Key("input"), &n.value).Placeholder(i18n.T(c, "directory_name")).Label(i18n.T(c, "directory_name")).
+			FillWidth().AutoFocus()
+		if input.Submitted() {
+			s.saveName()
+		}
+		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { n.open = false })
+			save := i18n.T(c, "settings_save")
+			kit.Primary(c.Key("save"), save, false).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(s.saveName)
+		})
+	}).Width(400).Label(title)
+}
+
+// trashDialog asks before moving an entry to the host's trash.
+func (s *State) trashDialog(c *ui.Context) {
+	t := &s.trashing
+	if !t.open {
+		return
+	}
+	label := i18n.T(c, "files_trash")
+	if kit.AlertDialog(c.Key("picker-trash"), &t.open, label, i18n.T(c, "files_trash_confirm", "name", t.label),
+		i18n.T(c, "settings_cancel"), label) == 1 {
+		s.manage(Action{Kind: "trash", Paths: []string{t.path}})
+	}
+}
+
+// jumpDialog is Go to folder: the command dialog taking a path, its one row
+// the path's parts.
+func (s *State) jumpDialog(c *ui.Context) {
+	j := &s.jump
+	if !j.open {
+		return
+	}
+	var items []kit.CommandItem
+	if query := strings.TrimSpace(j.query); query != "" {
+		var parts []string
+		for _, part := range strings.Split(query, s.listing.Separator) {
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
+		label := query
+		if len(parts) > 0 {
+			label = strings.Join(parts, " › ")
+		}
+		items = append(items, kit.CommandItem{ID: "target", Label: label, Icon: icons.Folder, Disabled: s.busy})
+	}
+	kit.Command(c, "picker-go", &j.open, &j.query, &j.row, items, kit.CommandProps{Placeholder: i18n.T(c, "directory_address")},
+		func(int) { s.navigate(strings.TrimSpace(j.query), goTo, 0) })
+}

@@ -1941,3 +1941,55 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+directory_action_failed: Операция не удалась; проверьте путь и разрешения
+directory_address: Введите путь
+directory_count_hidden: '%{count} скрыто'
+directory_create: Новая папка
+directory_denied: Предварительный просмотр с отказом доступа; выберите другой каталог
+directory_devices: Устройства
+directory_extension_kind: Файл %{extension}
+directory_go_to: Перейти к папке
+directory_grid: Сетка
+directory_hidden: Скрытые файлы
+directory_image_kind: Изображение
+directory_invalid_name: Введите правильное имя
+directory_json_kind: Файл JSON
+directory_keep_both: Держите оба
+directory_list: Список
+directory_markdown_kind: Документ Markdown
+directory_missing: Путь отсутствует в предварительном просмотре этого узла; вернитесь в расположение предварительного просмотра
+directory_refresh: Обновить
+directory_root: Корень
+directory_stale: Путь формы изменен; переоткройте выборщик
+directory_stop: Конфликт названий
+directory_text_kind: Текстовый документ
+directory_toml_kind: Файл TOML
+directory_volume: Диск
+directory_yaml_kind: Файл YAML
+files_entry_name: Имя
+files_paste_conflict: Конечный объект существует или путь недоступен
+files_trash_confirm: Исключить &quot; %{name} &quot;
+live_request_failed: Запрос неполный; проверьте Node подключение и каталог. Повторная попытка сохраняет исходный ID запроса.
+plugins_loading: Загрузка
+project_appearance: Внешний вид проекта
+project_clone_failed: Клонирование не завершено; проверьте место назначения
+project_grant: Доверяй и продолжай
+project_grant_description: Инструкции и инструменты проекта могут выполнять код во всех рабочих деревьях
+project_grant_title: Доверьтесь этому проекту
+project_outcome_unknown: Результат не подтвержден; проверьте назначение. Повторная попытка проверяет первоначальный запрос.
+project_path_in_use: Этот путь используется сессией или рабочим деревом
+project_remove_busy: Проект занят; повторите попытку
+project_remove_changed_partial: Проект изменился; откройте его заново перед повторной попыткой. Некоторые терминалы уже могут быть закрыты
+project_remove_failed: Проект сохранён; некоторые терминалы уже могут быть закрыты
+project_remove_sample: Удалить предварительный просмотр проекта “%{name}”
+project_remove_sessions: Сеансы, включая архивированные, по-прежнему ссылаются на этот проект
+project_remove_tasks: Остановите активные задачи перед удалением проекта
+project_remove_tasks_partial: Проект сохранён; остановите задачи перед повторной попыткой. Некоторые терминалы уже могут быть закрыты
+project_remove_unknown: Удаление не подтверждено; проверьте проект и его терминалы
+project_removed: Проект удалён
+project_revoke: Отзыв доверия
+project_revoke_description: Остановить задачи проекта; сохранить историю и черновики
+project_revoke_title: Отзыв доверия к проекту
+project_trust: Управление доверием проекта
+project_trust_preview: Только предварительный просмотр изменений
+task_completed: Завершено

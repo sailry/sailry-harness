@@ -203,3 +203,13 @@ func parseThemeBackground(value string) (ui.Color, error) {
 	}
 	return first, nil
 }
+
+// Named returns a color of the named palette at scale, as "blue" at 600.
+func Named(name string, scale uint64) (ui.Color, bool) {
+	hex := namedColors[name][scale]
+	if hex == "" {
+		return ui.Color{}, false
+	}
+	color, err := parseHex(hex)
+	return color, err == nil
+}

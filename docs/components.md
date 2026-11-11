@@ -52,6 +52,7 @@ MyGo bases.
 | `SplitButton`, `SplitProps` | Own (ButtonBase, MenuButton) | Kit's DropdownButton: a main action joined to a caret menu of the others (Git's Stage and Commit) | A single action (`Secondary`) | panel |
 | `Select`, `SelectField`, `SelectProps`, `SelectOption`, `SelectTrigger` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide. `SelectField` is the same control over options with a placeholder and disabled choices; `SelectTrigger` is its frame for a select with a popup of its own (the searchable header filter) | Toolbars and composer pickers (`MenuButton`) | settings, sidebar, plugins, live |
 | `InputOTP` | Lobe `pkg/field/otp.go` | One-time codes | Other text | settings |
+| `AppearancePicker`, `ProjectGlyph`, `ProjectColor`, `ProjectColors` | Own (`Popover`, `Ghost`) | A project's icon and color: the glyph button with its popover of swatches and icons, and the glyph itself wherever a project shows | Other icons or colors | sidebar |
 | `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard | Static lists | composer |
 
 ### Settings and records

@@ -1941,3 +1941,55 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+directory_action_failed: Operación fallida; compruebe ruta y permisos
+directory_address: Introduzca la ruta
+directory_count_hidden: '%{count} ocultos'
+directory_create: Una nueva carpeta
+directory_denied: Vista previa de acceso denegado; elija otro directorio
+directory_devices: Dispositivos
+directory_extension_kind: Archivo %{extension}
+directory_go_to: Ir a la carpeta
+directory_grid: Cuadrícula
+directory_hidden: Archivos ocultos
+directory_image_kind: Imagen
+directory_invalid_name: Ingrese un nombre válido
+directory_json_kind: Archivo JSON
+directory_keep_both: Mantener ambos
+directory_list: Lista
+directory_markdown_kind: Documento Markdown
+directory_missing: La ruta no está en la vista previa de este host; vuelve a una ubicación de vista previa
+directory_refresh: Actualizar
+directory_root: Raíz
+directory_stale: Ruta del formulario cambiada; vuelva a abrir el selector
+directory_stop: Detener en conflicto de nombres
+directory_text_kind: Documento de texto
+directory_toml_kind: Archivo TOML
+directory_volume: Disco
+directory_yaml_kind: Archivo YAML
+files_entry_name: Nombre
+files_paste_conflict: El destino existe o la ruta no está disponible
+files_trash_confirm: Suprímase “%{name}”
+live_request_failed: Solicitud incompleta; compruebe Node conexión y directorio. Reintentar mantiene el ID de solicitud original.
+plugins_loading: Cargando
+project_appearance: Apariencia del proyecto
+project_clone_failed: Clonar incompleto; comprobar el destino
+project_grant: Confía y continúa
+project_grant_description: Las instrucciones y herramientas del proyecto pueden ejecutar código en todos los árboles de trabajo
+project_grant_title: Confiar en este proyecto
+project_outcome_unknown: Resultado no confirmado; comprueba el destino. Reintentar comprueba la solicitud original.
+project_path_in_use: Esta ruta es utilizada por una sesión o un árbol de trabajo
+project_remove_busy: El proyecto está ocupado; inténtalo de nuevo
+project_remove_changed_partial: El proyecto cambió; vuelve a abrirlo antes de reintentar. Algunos terminales pueden estar cerrados
+project_remove_failed: Proyecto conservado; algunos terminales pueden estar cerrados
+project_remove_sample: Eliminar vista previa del proyecto “%{name}”
+project_remove_sessions: Las sesiones, incluidas las archivadas, siguen haciendo referencia a este proyecto
+project_remove_tasks: Detén las tareas activas antes de eliminar el proyecto
+project_remove_tasks_partial: Proyecto conservado; detén las tareas antes de reintentar. Algunos terminales pueden estar cerrados
+project_remove_unknown: Eliminación sin confirmar; revisa el proyecto y sus terminales
+project_removed: Proyecto eliminado
+project_revoke: Revocar la confianza
+project_revoke_description: Detener las tareas del proyecto; mantener el historial y los borradores
+project_revoke_title: Revocar la confianza del proyecto
+project_trust: Administrar la confianza del proyecto
+project_trust_preview: Vista previa de cambios solamente
+task_completed: Completado

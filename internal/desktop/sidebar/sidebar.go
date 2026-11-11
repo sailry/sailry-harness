@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
+	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -59,7 +60,11 @@ type State struct {
 
 	editor           Editor
 	editorGeneration uint64
-	confirm          confirm
+	// Picker is the window's file and directory picker, which the project
+	// editor and Open folder use; the shell builds it over the dialogs.
+	Picker   *picker.State
+	catalogs map[string]*picker.Catalog // the preview's sample directories, by host
+	confirm  confirm
 }
 
 // confirm is the one confirmation the sidebar shows at a time: archive in
@@ -72,7 +77,7 @@ type confirm struct {
 
 func New(d *viewmodel.Data, selected string) *State {
 	order := int(SortUpdated)
-	return &State{Data: d, Selected: selected, Sort: &order, open: map[string]*bool{}, more: map[string]bool{}}
+	return &State{Data: d, Selected: selected, Sort: &order, open: map[string]*bool{}, more: map[string]bool{}, Picker: &picker.State{}}
 }
 
 // opened returns the expansion flag of a group or project, open at first.
@@ -343,7 +348,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 		hovered := parts.Trigger.Hovered()
 		parts.Trigger.Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).TextColor(p.SidebarForeground).
 			Cursor(ui.CursorPointer).ContextMenu(func(m *ui.Menu) { s.projectMenu(c, m, pr) }).Children(func() {
-			ui.Icon(c, icons.Folder).FontSize(14).TextColor(p.MutedForeground)
+			kit.ProjectGlyph(c, pr.Icon, pr.Color, 14).Label(i18n.T(c, "project_icon_"+appearanceIcon(pr.Icon)))
 			ui.Text(c, pr.Name).FontSize(14).SingleLine().Grow(1).Shrink(1)
 			label := i18n.T(c, "workspace_collapse")
 			if !*s.opened("project/" + pr.ID) {

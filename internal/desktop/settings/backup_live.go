@@ -38,7 +38,7 @@ type BackupActions struct {
 	// Save saves the storage dialog's draft with its typed secrets. The
 	// schedule's draft is saved as it changes.
 	Save         func(target BackupTarget, done func(bool))
-	ChooseFolder func(selected func(string))
+	ChooseFolder func(initial string, selected func(string))
 	Export, Now  func()
 	// Import chooses a local archive.
 	Import func(selected func(string))

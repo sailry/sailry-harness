@@ -1941,3 +1941,55 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+directory_action_failed: Operação falhou; verifique caminho e permissões
+directory_address: Digite o caminho
+directory_count_hidden: '%{count} ocultos'
+directory_create: Nova pasta
+directory_denied: Pré-visualização de acesso negado; escolha outro diretório
+directory_devices: Dispositivos
+directory_extension_kind: Arquivo %{extension}
+directory_go_to: Ir para a pasta
+directory_grid: Grade
+directory_hidden: Arquivos ocultos
+directory_image_kind: Imagem
+directory_invalid_name: Digite um nome válido
+directory_json_kind: Arquivo JSON
+directory_keep_both: Mantenha os dois
+directory_list: Lista
+directory_markdown_kind: Documento Markdown
+directory_missing: O caminho não está na visualização deste host; retorne a um local de visualização
+directory_refresh: Atualizar
+directory_root: Raiz
+directory_stale: Caminho do formulário alterado; reabrir o seletor
+directory_stop: Parar em conflito de nome
+directory_text_kind: Documento de texto
+directory_toml_kind: Arquivo TOML
+directory_volume: Disco
+directory_yaml_kind: Arquivo YAML
+files_entry_name: Nome
+files_paste_conflict: O destino existe ou o caminho está indisponível
+files_trash_confirm: Suprimir «%{name}»
+live_request_failed: Solicitação incompleta; verifique a conexão e o diretório Node. Repetir mantém o ID da solicitação original.
+plugins_loading: Carregando
+project_appearance: Aparência do projeto
+project_clone_failed: Clonar incompleto; verifique o destino
+project_grant: Confie e continue
+project_grant_description: As instruções e ferramentas do projeto podem executar código em todas as árvores de trabalho
+project_grant_title: Confie neste projeto
+project_outcome_unknown: Resultado não confirmado; verifique o destino. Retentar verifica a solicitação original.
+project_path_in_use: Este caminho é usado por uma sessão ou árvore de trabalho
+project_remove_busy: O projeto está em uso; tente novamente
+project_remove_changed_partial: O projeto mudou; reabra antes de tentar novamente. Alguns terminais podem estar fechados
+project_remove_failed: Projeto mantido; alguns terminais podem estar fechados
+project_remove_sample: Remover visualização do projeto “%{name}”
+project_remove_sessions: As sessões, incluindo as arquivadas, ainda fazem referência a este projeto
+project_remove_tasks: Pare as tarefas ativas antes de remover o projeto
+project_remove_tasks_partial: Projeto mantido; pare as tarefas antes de tentar novamente. Alguns terminais podem estar fechados
+project_remove_unknown: Remoção não confirmada; confira o projeto e seus terminais
+project_removed: Projeto removido
+project_revoke: Revogar a confiança
+project_revoke_description: Parar tarefas de projeto; manter histórico e rascunhos
+project_revoke_title: Revogar confiança de projeto
+project_trust: Gerenciar confiança do projeto
+project_trust_preview: Apenas pré-visualização de alterações
+task_completed: Concluído

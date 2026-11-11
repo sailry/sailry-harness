@@ -146,6 +146,9 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	if m.Item(t("project_edit")).Chosen() {
 		s.OpenEditor(pr)
 	}
+	if s.Actions == nil && m.Item(t("project_trust")).Chosen() {
+		s.trust(c, pr)
+	}
 	if m.Item(t("workspace_copy_path")).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}
@@ -180,8 +183,7 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	})
 	m.Separator()
 	if m.Item(t("project_remove")).Chosen() {
-		s.confirm = confirm{open: true, title: t("project_remove"), message: i18n.T(c, "project_remove_named", "name", pr.Path),
-			action: t(s.removeLabel()), run: func() { s.remove(pr) }}
+		s.AskRemove(c, pr)
 	}
 	if m.Item(t("cli_launch")).Chosen() {
 		if s.Actions != nil && s.Actions.CLI != nil {
@@ -232,7 +234,40 @@ func (s *State) delete(cv *preview.Conversation) {
 	}
 }
 
-// remove takes a project out of the preview's memory.
+// AskRemove confirms a project's removal, naming it and what follows. The
+// preview keeps a project its sessions still use, and says so instead.
+func (s *State) AskRemove(c *ui.Context, pr *preview.Project) {
+	message := i18n.T(c, "project_remove_named", "name", pr.Path)
+	if s.Actions == nil {
+		if len(pr.Conversations) > 0 {
+			kit.Toast(c, kit.Failed, i18n.T(c, "project_remove_sessions"))
+			return
+		}
+		message = i18n.T(c, "project_remove_sample", "name", pr.Path)
+	}
+	s.confirm = confirm{open: true, title: i18n.T(c, "project_remove"), message: message, action: i18n.T(c, s.removeLabel()),
+		run: func() { s.remove(pr) }}
+}
+
+// trust asks before granting or revoking a sample project's trust, which
+// the preview only records.
+func (s *State) trust(c *ui.Context, pr *preview.Project) {
+	title, detail, action := "project_grant_title", "project_grant_description", "project_grant"
+	if pr.Trusted {
+		title, detail, action = "project_revoke_title", "project_revoke_description", "project_revoke"
+	}
+	trusted, path := pr.Trusted, pr.Path
+	s.confirm = confirm{open: true, title: i18n.T(c, title),
+		message: pr.Name + "\n" + pr.Path + "\n" + i18n.T(c, detail) + "\n" + i18n.T(c, "project_trust_preview"),
+		action:  i18n.T(c, action), run: func() {
+			if pr.Path == path && pr.Trusted == trusted {
+				pr.Trusted = !trusted
+			}
+		}}
+}
+
+// remove takes a project out of its Node's inventory through the live
+// adapter, or out of the preview's memory.
 func (s *State) remove(pr *preview.Project) {
 	if s.Actions != nil && s.Actions.RemoveProject != nil {
 		s.Actions.RemoveProject(pr)

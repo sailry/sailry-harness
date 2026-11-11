@@ -201,7 +201,7 @@ func storageDialog(c *ui.Context, m *Model) {
 						// The folder picker browses the host's disk.
 						kit.Secondary(c.Key("choose"), t("backup_choose_directory")).OnClick(func() {
 							if a := m.BackupActions; a != nil {
-								a.ChooseFolder(func(path string) { x.Directory = path })
+								a.ChooseFolder(x.Directory, func(path string) { x.Directory = path })
 								return
 							}
 							notice(c)

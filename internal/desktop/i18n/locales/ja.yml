@@ -1941,3 +1941,55 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+directory_action_failed: 操作に失敗しました。パスと権限を確認してください
+directory_address: パスを入力
+directory_count_hidden: 非表示 %{count} 件
+directory_create: 新しいフォルダ
+directory_denied: プレビューへのアクセスが拒否されました。他のディレクトリを選択してください
+directory_devices: デバイス
+directory_extension_kind: '%{extension} ファイル'
+directory_go_to: フォルダへ移動
+directory_grid: グリッド
+directory_hidden: 隠しファイル
+directory_image_kind: 画像
+directory_invalid_name: 有効な名前を入力
+directory_json_kind: JSON ファイル
+directory_keep_both: 両方持ってて
+directory_list: 一覧
+directory_markdown_kind: Markdown 文書
+directory_missing: パスはこのホストのプレビューにありません。プレビューの場所に戻ります
+directory_refresh: 更新
+directory_root: ルート
+directory_stale: フォームのパスが変更されました。ピックアップを再開してください
+directory_stop: 名前の衝突で停止
+directory_text_kind: テキスト文書
+directory_toml_kind: TOML ファイル
+directory_volume: ディスク
+directory_yaml_kind: YAML ファイル
+files_entry_name: 名前
+files_paste_conflict: ターゲットは存在しますか、またはパスは利用できません
+files_trash_confirm: “%{name}”を削除
+live_request_failed: 要求が不完全です。ノードの接続とディレクトリを確認してください。 再試行は元の要求IDを保持します。
+plugins_loading: 読み込み中
+project_appearance: プロジェクトの外観
+project_clone_failed: クローンは完了していません。目的地をチェックしてください
+project_grant: 信頼し続ける
+project_grant_description: プロジェクトの指示とツールはすべてのワークトリーでコードを実行できます
+project_grant_title: このプロジェクトを信頼
+project_outcome_unknown: 結果が確認されていません。目的地をチェックしてください。再試行して元の要求をチェックします。
+project_path_in_use: このパスはセッションまたはワークツリーで使用されます
+project_remove_busy: プロジェクトは使用中です。再試行してください
+project_remove_changed_partial: プロジェクトが変更されました。開き直して再試行してください。一部のターミナルは閉じられた可能性があります
+project_remove_failed: プロジェクトは保持されています。一部のターミナルは閉じられた可能性があります
+project_remove_sample: プレビュープロジェクト “%{name}” を削除
+project_remove_sessions: アーカイブされたものを含むセッションは、このプロジェクトを参照しています
+project_remove_tasks: 実行中のタスクを停止してからプロジェクトを削除してください
+project_remove_tasks_partial: プロジェクトは保持されています。タスクを停止して再試行してください。一部のターミナルは閉じられた可能性があります
+project_remove_unknown: 削除結果は未確認です。プロジェクトとターミナルを確認してください
+project_removed: プロジェクトを削除しました
+project_revoke: 信頼を取り消す
+project_revoke_description: プロジェクトタスクを停止し、履歴と草稿を保持します
+project_revoke_title: プロジェクトの信頼を取り消す
+project_trust: プロジェクトの信頼を管理
+project_trust_preview: プレビューのみを変更
+task_completed: 完了
