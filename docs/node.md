@@ -294,8 +294,13 @@ keeps up to eight idle.
   needs a restart.
 - Startup accepts an empty database or owned storage at generation 1. Any other
   state is refused with "existing data was not changed" and left untouched; no
-  path removes or resets a database. Every start checks each owned table with
-  `PRAGMA foreign_key_check` and refuses storage with an orphaned row.
+  path removes or resets a database. A database that was just created, updated
+  or restored is checked table by table with `PRAGMA foreign_key_check` and
+  refused with an orphaned row. A start on a current database does not repeat
+  the scan: every connection enforces foreign keys, so the scan could only find
+  a row written behind them, it would lock the user out for it, and it reads
+  every child row (measured: 0.38 s per million rows with the file cached),
+  which grows with history.
 - File checkpoints draw their row number from the `file_checkpoints` counter. A
   profile written before this rule has checkpoints above its counter; startup
   raises the counter through the in-place update (rehearsal, backup, apply).

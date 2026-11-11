@@ -82,6 +82,11 @@ func prepareRestored(ctx context.Context, handle *Handle, node protocol.NodeID, 
 		if err := definition.initialize(ctx, connection, node); err != nil {
 			return err
 		}
+		if definition.state == schemaCurrent {
+			if err := auditReferences(ctx, connection); err != nil {
+				return err
+			}
+		}
 		return relocateRestored(ctx, connection, original, target)
 	})
 }

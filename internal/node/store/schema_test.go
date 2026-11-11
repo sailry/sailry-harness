@@ -231,10 +231,21 @@ func TestGenerationUnknownFails(t *testing.T) {
 		if err = errors.Join(err, unchecked.Close()); err != nil {
 			t.Fatal(err)
 		}
+		// A current database is not scanned at each start: foreign keys are
+		// enforced on every connection of ours, and one row written behind
+		// them must not lock its user out.
 		opened, err := Open(context.Background(), profile, node)
-		if opened != nil {
-			_ = opened.Close()
+		if err != nil {
+			t.Fatalf("start with an orphaned reference: %v", err)
 		}
+		if err := opened.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if got := readOnlySchemaInteger(t, path, "SELECT count(*) FROM session_attention"); got != 1 {
+			t.Fatalf("the start changed its records: %d", got)
+		}
+		// A restore audits what it publishes.
+		_, err = PrepareRestored(context.Background(), profile, node, profile, filepath.Join(t.TempDir(), "target"))
 		if err == nil || !strings.Contains(err.Error(), "invalid stored reference in session_attention; existing data was not changed") {
 			t.Fatalf("orphaned reference error: %v", err)
 		}

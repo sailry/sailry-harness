@@ -314,6 +314,12 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 	if err := validate(ctx, connection); err != nil {
 		return err
 	}
+	// Every connection enforces foreign keys, so a database this build left
+	// current holds no orphan and is not scanned again at each start. One
+	// that was just created, updated or restored is audited.
+	if definition.state == schemaCurrent {
+		return nil
+	}
 	return auditReferences(ctx, connection)
 }
 
