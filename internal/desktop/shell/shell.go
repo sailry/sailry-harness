@@ -825,10 +825,30 @@ func (x *actions) Rewind(string)                            { x.notice() }
 func (x *actions) Worktree(string)                          { x.notice() }
 func (x *actions) Export(string, conversation.ExportFormat) { x.notice() }
 func (x *actions) Read(string, string)                      { x.notice() }
-func (x *actions) Edit(string)                              { x.notice() }
-func (x *actions) Undo(string, string)                      { x.notice() }
-func (x *actions) Review(string, string)                    { x.notice() }
-func (x *actions) Reconnect()                               { x.notice() }
+
+// Edit opens the message's editor in its bubble; the preview's Save only says
+// it changes nothing, and Cancel restores the bubble.
+func (x *actions) Edit(turn string) {
+	for i := range x.cv.Turns {
+		t := &x.cv.Turns[i]
+		t.Editing = nil
+		if t.ID == turn {
+			t.Editing = &conversation.Editing{Text: t.User}
+		}
+	}
+}
+func (x *actions) SaveEdit(string, string) { x.notice() }
+func (x *actions) CancelEdit(turn string) {
+	for i := range x.cv.Turns {
+		if x.cv.Turns[i].ID == turn {
+			x.cv.Turns[i].Editing = nil
+		}
+	}
+}
+func (x *actions) Start(string)          { x.notice() }
+func (x *actions) Undo(string, string)   { x.notice() }
+func (x *actions) Review(string, string) { x.notice() }
+func (x *actions) Reconnect()            { x.notice() }
 
 // ImageAction is the image viewer's Copy, Save or Open, which would write
 // the clipboard, a file or leave the window: the preview only says so.

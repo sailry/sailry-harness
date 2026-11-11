@@ -1,8 +1,6 @@
 package live
 
 import (
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -186,14 +184,4 @@ func knowledgeLink(text string) bool {
 	}
 	_, valid := knowledgeRequest(source)
 	return valid
-}
-
-// openChatLink takes the knowledge links of a reply.
-func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
-	scheme, _, found := strings.Cut(link, ":")
-	if !found || !strings.EqualFold(scheme, "sailry-knowledge") {
-		return false
-	}
-	r.App.OpenKnowledge(c, session, link)
-	return true
 }

@@ -279,7 +279,7 @@ func (s *State) row(c *ui.Context, call Call) {
 	s.disclosure(c, "tools-"+call.ID, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func() {
-		output(c, call.Output)
+		s.output(c, call.Output)
 		if render := s.toolCards[s.renderSession][call.ID]; render != nil {
 			render(c)
 		}
@@ -300,7 +300,7 @@ func notice(c *ui.Context, text string, tone ui.Color) {
 
 // output builds a call's result: failure, table, diff, text, notices, with
 // a copy button showing while the pointer is over it.
-func output(c *ui.Context, o *Output) {
+func (s *State) output(c *ui.Context, o *Output) {
 	p := theme.Of(c)
 	box := ui.Column(c).Gap(4)
 	hovered := box.Hovered()
@@ -327,6 +327,9 @@ func output(c *ui.Context, o *Output) {
 				ui.Text(c, text).Font("monospace").FontSize(14).LineHeight(20.0 / 14).NoWrap().
 					Selectable().TextColor(p.MutedForeground).PaddingEnd(28)
 			})
+		}
+		if len(o.Images) > 0 {
+			s.thumbnails(c, "output-images", o.Images, false)
 		}
 		for _, n := range o.Notices {
 			notice(c, n, p.MutedForeground)

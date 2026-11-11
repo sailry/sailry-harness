@@ -62,6 +62,29 @@ type Turn struct {
 	// or failure, and no reply frame.
 	Compaction *Compaction
 	Reply      Reply
+	// Editing turns the bubble into an editor of the message; nil shows it.
+	Editing *Editing
+	// Controls says which of the message's actions apply.
+	Controls Controls
+}
+
+// Editing is a sent message being edited in its bubble: the text the editor
+// opens with, and Pending while its replacement is in flight.
+type Editing struct {
+	Text    string
+	Pending bool
+}
+
+// Controls is which actions of a turn apply; the zero value enables them
+// all. ReadOnly, a delegated or unowned session, hides Edit and the fork
+// menu; the rest disable their control. Busy is a fork or rewind of the turn
+// in flight: the fork menu shows a loader and is disabled.
+type Controls struct {
+	ReadOnly                             bool
+	NoEdit, NoFork, NoRewind, NoWorktree bool
+	// NoExport disables the export menu: the Node does not answer.
+	NoExport bool
+	Busy     bool
 }
 
 // Reply is the assistant's part of a turn: blocks in order.
@@ -70,7 +93,9 @@ type Reply struct {
 	Elapsed time.Duration
 	Phase   Phase
 	Waiting int // children waited for, with WaitingChildren
-	Blocks  []Block
+	// PhaseElapsed is how long the Compacting phase has run; 0 shows none.
+	PhaseElapsed time.Duration
+	Blocks       []Block
 	// Finished is when the run ended; the footer shows it on hover.
 	Finished time.Time
 	// Citations are the answer's sources, numbered links placed at their End (a
@@ -115,16 +140,31 @@ type Block struct {
 	Images   []Image
 	Files    []File
 	Sources  []Citation
-	Retry    *Retry
-	Visual   *Visual
+	// Suggestions are the links of the search provider's own suggestions.
+	Suggestions []Citation
+	Retry       *Retry
+	Visual      *Visual
 }
 
 // Image is a picture of a message: its name, size in pixels and the decoded
-// source, nil while it loads.
+// source, nil while it loads. Missing is a picture that cannot show (removed,
+// or past the size limits): a line of text takes its place.
 type Image struct {
 	ID, Name      string
 	Width, Height int
 	Source        ui.ImageSource
+	Missing       bool
+	// Reference is how a reply's Markdown names a tool result's picture
+	// (sailry-image:<Reference>): the result's ID and the picture's index.
+	Reference string
+}
+
+// Embed is what a link or an image standing alone in a reply's Markdown
+// shows as: a file card, a picture, or the line that its picture is gone.
+type Embed struct {
+	File    *File
+	Image   *Image
+	Missing bool
 }
 
 // FileKind is how the file preview shows a file (content/files).
@@ -163,6 +203,11 @@ type File struct {
 	State PreviewState
 	// Editable lets Request edit act on the file.
 	Editable bool
+	// Document is a document the turn published: its menu exports it as HTML
+	// and as an image; Exportable is whether its content can export now.
+	Document, Exportable bool
+	// Interactive is a published preview, which exports as HTML alone.
+	Interactive bool
 }
 
 // Name is the file's label: the last element of its path.
@@ -181,12 +226,14 @@ type Citation struct {
 }
 
 // Retry is a model request retried: the attempt of Limit, its reason (an i18n
-// key, chat_model_*) and whether it gave up.
+// key, chat_model_*) and whether it gave up. Stopped is a retry the provider
+// ended for Reason before the attempts ran out.
 type Retry struct {
 	Attempt, Limit int
 	Reason         string
 	Detail         string // the provider's message, shown when opened
 	Exhausted      bool
+	Stopped        bool
 }
 
 // Visual is a diagram or chart the model drew, as Mermaid source, shown
@@ -227,6 +274,7 @@ const (
 	CompactionFailed
 	CompactionCancelled
 	CompactionUnneeded
+	CompactionInterrupted
 )
 
 // Compaction is a compaction turn: its state, the summary it wrote and,
@@ -235,6 +283,8 @@ type Compaction struct {
 	State   CompactionState
 	Summary string
 	Cause   string
+	// Elapsed is how long the compaction ran, shown after its state.
+	Elapsed time.Duration
 }
 
 // Changes is the files a turn edited, and which the user undid.
@@ -309,6 +359,9 @@ type Output struct {
 	ToolFailure bool
 	Notices     []string
 	Partial     bool // a table or diff was cut short
+	// Images are the pictures the tool returned, as thumbnails that open the
+	// image viewer.
+	Images []Image
 }
 
 // Diff is a file change preview.
@@ -427,8 +480,12 @@ type Actions interface {
 	Export(turn string, format ExportFormat)
 	// Read reads the answer aloud, or stops it (reader).
 	Read(turn, text string)
-	// Edit edits a sent message.
+	// Edit opens a sent message's editor in its bubble: the backend marks
+	// the turn Editing. SaveEdit replaces the turn with text; CancelEdit
+	// closes the editor and restores the bubble.
 	Edit(turn string)
+	SaveEdit(turn, text string)
+	CancelEdit(turn string)
 	// OpenFile shows a file in the right panel's preview.
 	OpenFile(f File)
 	// FileAction is a file card's menu: open it in another app, save it,
@@ -446,6 +503,8 @@ type Actions interface {
 	Reconnect()
 	// Quote adds a selection to the draft, quoted.
 	Quote(text string)
+	// Start begins a new conversation whose draft quotes a selection.
+	Start(text string)
 }
 
 // ExportFormat is what a turn or conversation exports to.
@@ -464,6 +523,8 @@ const (
 	OpenExternal FileAction = iota
 	Download
 	RequestEdit
+	ExportDocumentHTML  // a published document as an HTML file
+	ExportDocumentImage // a published document as a picture
 )
 
 // Session is the conversation around its turns: its history paging, its
@@ -477,7 +538,9 @@ type Session struct {
 	LoadingOlder bool
 	OlderFailed  bool
 	// Loading is the first page loading: no turns to show yet.
-	Loading    bool
+	Loading bool
+	// ReadOnly is a session the user cannot write to: Quote is disabled.
+	ReadOnly   bool
 	Connection Connection
 	Diagnostic *Diagnostic
 	Usage      *Usage

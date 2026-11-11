@@ -1941,3 +1941,33 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+artifact_export_failed: エクスポートできませんでした
+chat_compact_incomplete: 要約不完全
+chat_compact_interrupted: 圧縮中断
+chat_compact_no_reduction: 要約はコンテキストを縮小しませんでした
+chat_compact_timeout: 要約要求のタイムアウト
+chat_compact_too_large: 要約の長さが制限を超えています
+chat_history_changed: 履歴が変更されました。もう一度選択してください
+chat_image_missing: 画像を利用できません
+chat_model_context_exceeded: モデルのコンテキスト上限を超えました
+chat_model_failed: モデル要求に失敗しました
+chat_model_flex_unavailable: Flex サービスを利用できません
+chat_model_policy_rejected: サービスのポリシーによりリクエストが拒否されました
+chat_model_request_rejected: リクエストが拒否されました
+chat_model_request_unavailable: モデルリクエストを準備できませんでした
+chat_model_response_incomplete: モデルの応答が未完了です
+chat_model_unauthorized: モデルの認証情報が拒否されました
+chat_model_usage_exhausted: 利用上限に達しました
+chat_model_usage_not_included: この利用はアカウントに含まれていません
+chat_response_invalid: モデル応答を解析できませんでした
+chat_response_timeout: 応答のタイムアウト
+chat_restore_draft: 下書きを復元
+chat_restore_unavailable: ここでは下書きを復元できません
+chat_rewind_backup: バックアップを開く
+chat_rewound: ヒストリー・リワンド
+chat_subscription_limit: ChatGPTの共有利用上限に達しました
+chat_subscription_unavailable: ChatGPTの共有利用は利用できません
+files_remote_path: このパスはリモートワークスペースの外です
+queue_draft_present: 入力欄に下書きがあります
+tool_read_skill_resource: スキルリソースを読み込む
+tool_session_title: セッションのタイトルを設定

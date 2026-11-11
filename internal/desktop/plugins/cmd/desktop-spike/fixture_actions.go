@@ -39,3 +39,8 @@ func (actions *fixtureConversationActions) Review(string, string) { actions.reje
 func (actions *fixtureConversationActions) LoadOlder()            { actions.reject() }
 func (actions *fixtureConversationActions) Reconnect()            { actions.reject() }
 func (actions *fixtureConversationActions) Quote(string)          { actions.reject() }
+func (actions *fixtureConversationActions) SaveEdit(string, string) {
+	actions.reject()
+}
+func (actions *fixtureConversationActions) CancelEdit(string) { actions.reject() }
+func (actions *fixtureConversationActions) Start(string)      { actions.reject() }

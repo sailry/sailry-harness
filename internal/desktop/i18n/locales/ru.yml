@@ -1941,3 +1941,33 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+artifact_export_failed: Не удалось экспортировать
+chat_compact_incomplete: Резюме неполное
+chat_compact_interrupted: Уплотнение прервано
+chat_compact_no_reduction: Резюме не уменьшает контекста
+chat_compact_timeout: Срок подачи сводного запроса истек
+chat_compact_too_large: Объем резюме превышает установленный предел
+chat_history_changed: История изменилась; выберите снова
+chat_image_missing: Изображение недоступно
+chat_model_context_exceeded: Превышен предел контекста модели
+chat_model_failed: Неудачный запрос модели
+chat_model_flex_unavailable: Сервис Flex недоступен
+chat_model_policy_rejected: Запрос отклонён политикой сервиса
+chat_model_request_rejected: Запрос отклонён
+chat_model_request_unavailable: Не удалось подготовить запрос к модели
+chat_model_response_incomplete: Ответ модели не завершён
+chat_model_unauthorized: Учётные данные модели отклонены
+chat_model_usage_exhausted: Достигнут лимит использования
+chat_model_usage_not_included: Это использование не включено в аккаунт
+chat_response_invalid: Не удалось проанализировать ответ модели
+chat_response_timeout: Срок ответа истек
+chat_restore_draft: Восстановить черновик
+chat_restore_unavailable: Здесь нельзя восстановить черновик
+chat_rewind_backup: Открыть резервную копию
+chat_rewound: Переворачивание истории
+chat_subscription_limit: Достигнут лимит совместного использования ChatGPT
+chat_subscription_unavailable: Совместное использование ChatGPT недоступно
+files_remote_path: Этот путь находится за пределами удаленной рабочей области
+queue_draft_present: В поле ввода есть черновик
+tool_read_skill_resource: Навыки чтения
+tool_session_title: Установить название сессии

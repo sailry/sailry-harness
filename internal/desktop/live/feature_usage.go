@@ -227,9 +227,6 @@ func (x *conversationActions) countSubmit(m composer.Message, guide, queue bool)
 	if guide {
 		features = append(features, protocol.FeatureUseComposerGuided)
 	}
-	if edit, editing := x.r.conversationEdits[x.cv.ID]; editing && edit.comp == x.comp {
-		features = append(features, protocol.FeatureUseComposerEdited)
-	}
 	if feature, known := modeFeatures[m.Mode]; known {
 		features = append(features, feature)
 	}

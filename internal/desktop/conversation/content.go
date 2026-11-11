@@ -2,11 +2,14 @@ package conversation
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/firede/limu"
 	"github.com/firede/limu/layout"
 	"github.com/firede/limu/limumygo"
@@ -109,6 +112,14 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 				if m.Item(i18n.T(c, "files_download")).Chosen() {
 					actions.FileAction(f, Download)
 				}
+				if f.Document {
+					if m.Item(i18n.T(c, "conversation_export_html")).Disabled(!f.Exportable).Chosen() {
+						actions.FileAction(f, ExportDocumentHTML)
+					}
+					if !f.Interactive && m.Item(i18n.T(c, "conversation_export_image")).Disabled(!f.Exportable).Chosen() {
+						actions.FileAction(f, ExportDocumentImage)
+					}
+				}
 				if m.Item(i18n.T(c, "artifact_request_edit")).Disabled(!f.Editable).Chosen() {
 					actions.FileAction(f, RequestEdit)
 				}
@@ -130,24 +141,38 @@ func files(c *ui.Context, key string, list []File, actions Actions) {
 // DIPs, wrapping, a Skeleton while one loads; one opens the image viewer
 // on the gallery of them all.
 func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
+	// A picture that cannot show is a line of text, not an empty frame.
+	shown := make([]Image, 0, len(list))
+	missing := 0
+	for _, im := range list {
+		if im.Missing && im.Source == nil {
+			missing++
+			continue
+		}
+		shown = append(shown, im)
+	}
 	row := ui.Row(c.Key(key)).Wrap().Gap(8)
 	if end {
 		row.Justify(ui.End)
 	}
-	kit.ImageGroup(c, row, &s.view, list, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
-		w, h := float32(im.Width), float32(im.Height)
-		if w <= 0 || h <= 0 {
-			w, h = thumbMax, thumbMax
-		}
-		k := min(1, thumbMax/max(w, h))
-		return im.Source, kit.ImageProps{Width: w * k, Height: h * k, Alt: im.Name}
-	})
+	if len(shown) > 0 {
+		kit.ImageGroup(c, row, &s.view, shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
+			w, h := float32(im.Width), float32(im.Height)
+			if w <= 0 || h <= 0 {
+				w, h = thumbMax, thumbMax
+			}
+			k := min(1, thumbMax/max(w, h))
+			return im.Source, kit.ImageProps{Width: w * k, Height: h * k, Alt: im.Name}
+		})
+	}
+	for i := range missing {
+		ui.Text(c.Key(struct {
+			Key   string
+			Index int
+		}{key, i}), i18n.T(c, "chat_image_missing")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+	}
 }
 
-// visual is a chart or diagram the model drew, from its Mermaid source:
-// limu lays it out to the card's width in the app's fonts, and limumygo
-// paints it in the theme's colors on the group box. A source limu cannot
-// read shows as code.
 func visual(c *ui.Context, key string, v *Visual) {
 	p := theme.Of(c)
 	if v == nil || v.Mermaid == "" {
@@ -265,23 +290,84 @@ func outcomeTone(p *theme.Palette, o NoticeOutcome) ui.Color {
 	return p.MutedForeground
 }
 
-// grounding is a search the model grounded its answer on: a Globe row opening
-// the sources, each a link.
+// grounding is a web search's row: it opens the result over the window,
+// the answer, its numbered sources and the provider's suggestions.
 func (s *State) grounding(c *ui.Context, key string, b Block) {
-	p := theme.Of(c)
 	head := Call{Label: i18n.T(c, "chat_search_result"), Icon: "globe"}
-	s.disclosure(c, "search-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-		for i, src := range b.Sources {
-			title := src.Title
-			if title == "" {
-				title = src.URI
-			}
-			ui.Row(c.Key(i)).Gap(8).MinWidth(0).Children(func() {
-				ui.Text(c, fmt.Sprint(i+1)).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
-				ui.Link(c, title, src.URI).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-			})
-		}
+	t := rowSize(ui.ButtonBase(c.Key("search-"+key)), false).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
+		Justify(ui.Start).Cursor(ui.CursorPointer)
+	hovered := t.Hovered() || t.FocusVisible()
+	sw := &kit.Sweep{}
+	t.Children(func() { summary(c, head, hovered, false, false, sw) }).OnClick(func() {
+		result := b
+		s.result = &result
 	})
+	sw.Frame(t)
+}
+
+// webLink reports an http or https address with a host and no credentials:
+// the only destinations a search result opens, in the system browser.
+func webLink(link string) bool {
+	u, err := url.Parse(link)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil
+}
+
+// searchResult is the open search result: a dialog in place of the
+// reference's window, since the transcript has no second window.
+func (s *State) searchResult(c *ui.Context) {
+	if s.result == nil {
+		return
+	}
+	p := theme.Of(c)
+	b := s.result
+	open := true
+	options := markdown.Options{Theme: s.md.Theme, OnLink: func(link string) {
+		if webLink(link) {
+			c.OpenURL(link)
+		}
+	}}
+	if s.resultMD == nil {
+		s.resultMD = &options
+	} else {
+		s.resultMD.Theme, s.resultMD.OnLink = options.Theme, options.OnLink
+	}
+	kit.Dialog(c, &open, func() {
+		ui.Text(c, i18n.T(c, "chat_search_result")).FontSize(16).FontWeight(600)
+		ui.Scroll(c.Key("search-answer")).Width(640).MaxWidthPercent(100).MaxHeight(480).Children(func() {
+			ui.Column(c).FillWidth().Gap(12).Children(func() {
+				if strings.TrimSpace(b.Text) != "" {
+					kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Options: s.resultMD})
+				}
+				links := func(key string, list []Citation, numbered bool) {
+					ui.Column(c.Key(key)).FillWidth().Gap(4).Children(func() {
+						for i, src := range list {
+							if !webLink(src.URI) {
+								continue
+							}
+							title := src.Title
+							if title == "" {
+								title = src.URI
+							}
+							ui.Row(c.Key(i)).Gap(8).MinWidth(0).Children(func() {
+								if numbered {
+									ui.Text(c, fmt.Sprint(i+1)).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
+								}
+								ui.Link(c, title, src.URI).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+							})
+						}
+					})
+				}
+				links("sources", b.Sources, true)
+				if len(b.Suggestions) > 0 {
+					ui.Box(c).Height(1).FillWidth().Background(p.Border)
+					links("suggestions", b.Suggestions, false)
+				}
+			})
+		})
+	})
+	if !open {
+		s.result = nil
+	}
 }
 
 // retry is a model request retried: a Network row, shimmering while it
@@ -301,8 +387,9 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 	default:
 		label = i18n.T(c, "chat_model_connection_retried")
 	}
-	head := Call{Label: label, Icon: "network", Running: active, Warning: r.Exhausted}
-	if r.Reason != "" {
+	head := Call{Label: label, Icon: "network", Running: active && !r.Stopped, Warning: r.Exhausted || r.Stopped}
+	// The reason a retry stopped for; exhausted attempts are the label itself.
+	if r.Reason != "" && !r.Exhausted {
 		head.Detail = i18n.T(c, r.Reason)
 	}
 	if r.Detail == "" {
@@ -325,10 +412,16 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 	key := map[CompactionState]string{
 		Compacted: "chat_compacted", CompactionRunning: "chat_compacting", CompactionQueued: "chat_compact_queued",
 		CompactionFailed: "chat_compact_failed", CompactionCancelled: "chat_compact_cancelled", CompactionUnneeded: "chat_compact_unneeded",
+		CompactionInterrupted: "chat_compact_interrupted",
 	}[k.State]
 	label := i18n.T(c, key)
+	// The state and how long the compaction ran, as a run's header.
+	if k.Elapsed >= time.Second {
+		label += " " + Elapsed(k.Elapsed)
+	}
+	stopped := k.State == CompactionFailed || k.State == CompactionInterrupted
 	switch {
-	case k.State == CompactionFailed:
+	case k.State == CompactionFailed || k.State == CompactionInterrupted && strings.TrimSpace(k.Cause) != "":
 		head := Call{Label: label, Icon: "triangle-alert", Failed: true}
 		cause := k.Cause
 		if strings.TrimSpace(cause) == "" {
@@ -345,7 +438,11 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 			})
 		})
 	default:
-		ui.Row(c.Key("compaction")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
+		tone := p.MutedForeground
+		if stopped {
+			tone = p.Danger
+		}
+		ui.Row(c.Key("compaction")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(tone).Children(func() {
 			ui.Box(c).Height(1).Grow(1).Background(p.Border)
 			if k.State == CompactionRunning || k.State == CompactionQueued {
 				kit.Shimmer(c, label, 14, p.MutedForeground)
@@ -357,7 +454,6 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 	}
 }
 
-// diffBadge is +N −M in mono 12, success and danger.
 func diffBadge(c *ui.Context, added, removed int) {
 	p := theme.Of(c)
 	ui.Row(c).Gap(6).Shrink(0).Children(func() {

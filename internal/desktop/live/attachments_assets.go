@@ -206,7 +206,7 @@ func projectPublishedItems(ref protocol.ToolDetailReference, worktree protocol.W
 			if path.Ext(name) == "" {
 				name += ".html"
 			}
-			items = append(items, attachmentPublishedItem{file: conversation.File{ID: id, Path: name, Mime: "text/html", Kind: conversation.MarkdownFile, Size: int64(min(artifact.Size, math.MaxInt64))}, descriptor: attachmentDescriptor{session: ref.Session, worktree: worktree, name: name, mime: "text/html", artifact: &artifact}})
+			items = append(items, attachmentPublishedItem{file: conversation.File{ID: id, Path: name, Mime: "text/html", Kind: conversation.MarkdownFile, Size: int64(min(artifact.Size, math.MaxInt64)), Document: true, Interactive: artifact.Kind != protocol.ArtifactKindDocument}, descriptor: attachmentDescriptor{session: ref.Session, worktree: worktree, name: name, mime: "text/html", artifact: &artifact}})
 		}
 	}
 	return items

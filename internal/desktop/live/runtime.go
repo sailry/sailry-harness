@@ -109,6 +109,7 @@ type Runtime struct {
 	readAloud                func(string, string, string)
 	exportConversation       func(string, string, conversation.ExportFormat)
 	conversationEdits        map[string]conversationEdit
+	conversationPending      map[string]protocol.TurnID // the turn a fork or rewind in flight acts on
 	turnRetries              map[string]turnRetry
 	conversationCreations    map[string]conversationCreation
 	conversationCreating     map[string]bool
@@ -198,6 +199,8 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge,
 		CaptureSelection: func() { r.CaptureSelection(nil) }}
 	r.App.Messages.OpenLink = r.openChatLink
+	r.App.Messages.Embed = r.chatEmbed
+	r.App.Messages.SessionLink = func(link string) bool { return client.SessionLink(normalizeLink(link)) != nil }
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
 		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
 			if r.openWindow != nil {
@@ -227,6 +230,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.sessionBases = map[*composer.State]*sessionBaseStart{}
 	r.admittedSessions = map[string]protocol.Session{}
 	r.conversationEdits = map[string]conversationEdit{}
+	r.conversationPending = map[string]protocol.TurnID{}
 	r.conversationCreations = map[string]conversationCreation{}
 	r.conversationCreating = map[string]bool{}
 	if ids := r.App.Sidebar.Order(); len(ids) > 0 {

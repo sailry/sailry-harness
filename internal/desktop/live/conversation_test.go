@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -170,6 +171,16 @@ func TestConversationProjection(t *testing.T) {
 		if !found {
 			t.Fatal("provider grounding did not reach Globe disclosure")
 		}
+		// The provider's suggestions keep only their web links.
+		linked := `<style>a{}</style><div><a href="https://example.com/q?a=1"> Go  iterators </a><a href="javascript:alert(1)">x</a><script>bad()</script></div>`
+		page.Entries[0].SearchSuggestions = &linked
+		state.Snapshot.Page = page
+		suggested, _, _, _ := Conversation(state)
+		for _, block := range suggested[0].Reply.Blocks {
+			if block.Kind == conversation.SearchBlock && (len(block.Suggestions) != 1 || block.Suggestions[0].URI != "https://example.com/q?a=1" || block.Suggestions[0].Title != "Go iterators") {
+				t.Fatalf("search suggestions = %+v", block.Suggestions)
+			}
+		}
 		if from := conversation.AnswerFrom(conversation.Compact(turns[0].Reply.Blocks)); from != 1 || turns[0].Reply.Blocks[from].Kind != conversation.TextBlock {
 			t.Fatal("grounding hid the answer in folded work", turns[0].Reply.Blocks)
 		}
@@ -262,6 +273,10 @@ func TestConversationProjection(t *testing.T) {
 			if turns[0].Reply.Phase != row.phase {
 				t.Fatalf("%s phase=%v, want %v", row.name, turns[0].Reply.Phase, row.phase)
 			}
+			// The compacting phase carries how long it has run.
+			if (turns[0].Reply.PhaseElapsed > 0) != (row.name == "compacting") {
+				t.Fatalf("%s phase elapsed = %v", row.name, turns[0].Reply.PhaseElapsed)
+			}
 		}
 		page := protocol.DefaultConversationPage()
 		page.Session = protocol.SessionID{1}
@@ -269,6 +284,52 @@ func TestConversationProjection(t *testing.T) {
 		_, session, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
 		if session.Diagnostic == nil || session.Diagnostic.Detail != "Provider rejected the request" || len(session.Diagnostic.Fields) != 1 || session.Diagnostic.Fields[0][1] != string(protocol.ErrorCodeUnavailable) {
 			t.Fatal("latest failed-run diagnostic was not projected")
+		}
+		// A recovery that gave up names its reason on the last retry row and as the failure's title.
+		turn := protocol.TurnID{1}
+		page.Runs[0].Error = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "429", Details: &protocol.FaultDetails{Kind: "model_recovery", Data: protocol.FaultDetailsModelRecoveryPayload{Reason: protocol.ConversationRecoveryStopRateLimited}}}
+		denied, missing, call := protocol.ErrorCodePermissionDenied, protocol.ErrorCodeNotFound, "call-1"
+		page.Entries = []protocol.ConversationEntry{{ID: "work", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{
+			{Kind: "resource", Data: json.RawMessage(`{"type":"model_retry","attempt":1,"limit":5,"error":"slow down"}`)},
+			{Kind: "resource", Data: json.RawMessage(`{"type":"model_retry","attempt":2,"limit":5,"error":"hidden","fallback":true}`)},
+			{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "load_skill", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Code: &denied, Origin: "runtime"}}}},
+			{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "read_session", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Code: &missing, Origin: "runtime"}}}},
+			{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{ID: &call, Name: "screenshot", Images: []protocol.ConversationImage{{Index: 2, Attachment: protocol.Attachment{ID: protocol.AttachmentID{9}, Spec: protocol.AttachmentSpec{Name: "screen.png"}}}}}},
+		}}}
+		stopped, failed, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}}, "zh-CN")
+		var retries []*conversation.Retry
+		var calls []conversation.Call
+		title := ""
+		for _, block := range stopped[0].Reply.Blocks {
+			switch block.Kind {
+			case conversation.RetryBlock:
+				retries = append(retries, block.Retry)
+			case conversation.ToolsBlock:
+				calls = append(calls, block.Calls...)
+			case conversation.ErrorBlock:
+				title = block.Label
+			}
+		}
+		if len(retries) != 2 || retries[0].Stopped || retries[0].Detail != "slow down" || !retries[1].Stopped || retries[1].Reason != "chat_model_rate_limited" || retries[1].Detail != "" {
+			t.Fatalf("stopped retries = %+v", retries)
+		}
+		if title != "chat_model_rate_limited" || failed.Diagnostic == nil || failed.Diagnostic.Title != "chat_model_rate_limited" || i18n.In("zh-CN", title) == title {
+			t.Fatal("the stop reason is not the failure's title", title, failed.Diagnostic)
+		}
+		// Built-in tools carry their label key and the kind of a failure without a message, in the user's language.
+		if len(calls) != 3 || calls[0].Label != "" || calls[0].LabelKey != "tool_load_skill" || calls[0].Error != i18n.In("zh-CN", "tool_denied") ||
+			calls[1].LabelKey != "tool_read_session" || calls[1].Error != i18n.In("zh-CN", "tool_not_found") || calls[0].Error == i18n.In("en", "tool_denied") {
+			t.Fatalf("core tool labels = %+v", calls)
+		}
+		// A picture a tool returned shows under its output, named as a reply refers to it.
+		if out := calls[2].Output; out == nil || len(out.Images) != 1 || out.Images[0].ID != (protocol.AttachmentID{9}).String() || out.Images[0].Reference != "call-1/2" || out.Images[0].Name != "screen.png" {
+			t.Fatalf("tool result images = %+v", calls[2].Output)
+		}
+		if key, ok := imageReference("sailry-image:call-1/2"); !ok || key != "call-1/2" {
+			t.Fatal("image reference", key, ok)
+		}
+		if _, ok := imageReference("sailry-image:call-1/02"); ok {
+			t.Fatal("a padded image index was accepted")
 		}
 	})
 	t.Run("connection references", testConnectionReferences)
@@ -716,6 +777,22 @@ func TestComposerSendRouting(t *testing.T) {
 				sent := protocol.DefaultAttachment()
 				sent.ID = protocol.AttachmentID{7}
 				transport.conversation.Page.Entries = []protocol.ConversationEntry{{ID: "sent", Sequence: 1, Turn: turn, Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Captured draft @Host"}, {Kind: "reference", Data: protocol.ConversationReference{Target: protocol.ConversationReferenceTarget{Kind: "host"}, Label: "Host"}}, {Kind: "attachment", Data: sent}}}}
+				// A reply with one link of each kind, a later turn to rewind before, and the rewind's backup session.
+				backup := protocol.SessionID{10}
+				later := protocol.TurnID{7}
+				transport.conversation.Page.Runs = append(transport.conversation.Page.Runs, protocol.ConversationRun{Session: session, Turn: later, Worktree: worktree, Sequence: 2, Revision: 1, Kind: "task", Status: "completed"})
+				transport.conversation.Page.Entries = append(transport.conversation.Page.Entries,
+					protocol.ConversationEntry{ID: "reply", Sequence: 2, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Open [website](https://example.com/page), [backup](sailry://session/" + backup.String() + ") or [source](src/main.go#L12)."}}},
+					protocol.ConversationEntry{ID: "later", Sequence: 3, Turn: later, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Later answer"}}})
+				transport.snapshot.Sessions = append(transport.snapshot.Sessions, protocol.Session{ID: backup, Revision: 1, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()})
+				transport.handle = func(request protocol.Request) (link.Response, bool) {
+					if request.Command.Kind != "rewind_conversation" {
+						return link.Response{}, false
+					}
+					input := request.Command.Data.(protocol.CommandRewindConversationPayload)
+					saved := transport.snapshot.Sessions[1]
+					return link.Response{Output: protocol.Output{Kind: "rewound", Data: protocol.ConversationRewind{Session: session, Revision: 2, Through: input.Through, Backup: &saved}}}, true
+				}
 			}
 			controller := client.New(transport)
 			if err := controller.Start(t.Context()); err != nil {
@@ -783,9 +860,12 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			var context *ui.Context
 			var frame func(*ui.Context)
+			hold := false // keeps queued work, as a page load no headless window can make
 			tester := ui.NewTester(func(c *ui.Context) {
 				context = c
-				r.drain(c)
+				if !hold {
+					r.drain(c)
+				}
 				if frame != nil {
 					frame(c)
 				}
@@ -815,12 +895,23 @@ func TestComposerSendRouting(t *testing.T) {
 				return sent
 			}
 			message := composer.Message{Text: "Captured draft", Model: comp.Model, Mode: composer.Code, Permission: composer.AskFirst}
-			if row.name == "replace_references" {
-				actions.Edit((protocol.TurnID{6}).String())
-				if comp.Draft != "Captured draft @Host" || len(comp.References) != 1 || comp.References[0].ID != "host" {
-					t.Fatal("editing a sent reference did not restore the bound draft")
+			// view draws the transcript as the shell does, so its controls take the pointer.
+			view := func(c *ui.Context) {
+				_, act := r.conversation(c, cv, comp)
+				ui.Column(c).Fill().Children(func() { conversation.View(c, r.App.Messages, id, cv.Turns, &cv.Session, act) })
+				r.finishFrame()
+			}
+			settle := func() {
+				for range 4 {
+					r.workers.Wait()
+					tester.Frame()
 				}
-				message.Text, message.References = comp.Draft, comp.References
+			}
+			if row.running {
+				// A running conversation offers no edit, rewind or fork of its turn.
+				if got := actions.controls(protocol.TurnID{6}); got.ReadOnly || !got.NoEdit || !got.NoRewind || !got.NoFork || !got.NoWorktree {
+					t.Fatalf("running turn controls = %+v", got)
+				}
 			}
 			if row.configure {
 				session, _ := r.session(id)
@@ -846,7 +937,64 @@ func TestComposerSendRouting(t *testing.T) {
 					t.Fatal("an unsent draft is a session or is listed in the sidebar")
 				}
 			}
-			if row.running {
+			if row.name == "replace_references" {
+				// The message is edited in its bubble; the composer's draft is not involved.
+				comp.Draft = "Unsent draft"
+				frame = view
+				tester.Frame()
+				editing := func() bool { return len(r.conversationEdits) == 1 && cv.Turns[0].Editing != nil }
+				open := func() {
+					t.Helper()
+					tester.Click("Edit")
+					tester.Frame()
+					if !editing() || cv.Turns[0].Editing.Text != "Captured draft @Host" || !tester.HasText("Save") || comp.Draft != "Unsent draft" {
+						t.Fatal("Edit did not open the sent message in its bubble", len(r.conversationEdits), comp.Draft)
+					}
+				}
+				closed := func(how string) {
+					t.Helper()
+					tester.Frame()
+					tester.Frame()
+					if editing() || len(r.conversationEdits) != 0 || tester.HasText("Save") || len(turns()) != 0 || comp.Draft != "Unsent draft" {
+						t.Fatal(how+" did not restore the bubble", len(r.conversationEdits), len(turns()))
+					}
+				}
+				open()
+				tester.Key(0, ui.KeyEscape)
+				closed("Escape")
+				open()
+				tester.Click("Cancel")
+				closed("Cancel")
+				open()
+				tester.ClickAt(8, 392) // the focus leaves the editor
+				closed("blur")
+				// An abandoned editor never turns a composer send into a replacement.
+				open()
+				actions.Send(message)
+				settle()
+				if sent := turns(); len(sent) != 1 || sent[0].Command.Kind != "submit_turn" {
+					t.Fatal("an open editor changed what the composer sends")
+				}
+				comp.Draft = "Unsent draft"
+				if !editing() {
+					open()
+				}
+				// The transport holds the request while the editor is looked at.
+				transport.mu.Lock()
+				tester.Click("Save")
+				tester.Frame()
+				tester.Frame()
+				flying := cv.Turns[0].Editing
+				transport.mu.Unlock()
+				if flying == nil || !flying.Pending {
+					t.Fatal("a replacement in flight showed no pending editor")
+				}
+				settle()
+				if len(r.conversationEdits) != 0 || cv.Turns[0].Editing != nil || tester.HasText("Save") || comp.Draft != "Unsent draft" {
+					t.Fatal("an accepted replacement left its editor open or touched the draft")
+				}
+				comp.Draft = ""
+			} else if row.running {
 				actions.Guide(message)
 			} else {
 				actions.Send(message)
@@ -991,51 +1139,125 @@ func TestComposerSendRouting(t *testing.T) {
 				if len(p.Message.Attachments) != 1 || p.Message.Attachments[0] != (protocol.AttachmentID{7}) {
 					t.Fatal("ReplaceTurn dropped the attachment of the edited message")
 				}
-				turn := (protocol.TurnID{6}).String()
-				send := func(text string) protocol.Request {
-					message.Text, message.References = text, comp.References
-					actions.Send(message)
-					for range 4 {
-						r.workers.Wait()
-						tester.Frame()
-					}
+				// A rejected replacement keeps the editor and its text, and toasts once.
+				for _, failure := range []protocol.ErrorCode{protocol.ErrorCodeConflict, protocol.ErrorCodeUnavailable, protocol.ErrorCodeOutcomeUnknown} {
+					tester.Click("Edit")
+					tester.Frame()
+					tester.Type(" more")
+					transport.mu.Lock()
+					transport.failure = failure
+					transport.mu.Unlock()
+					before := len(turns())
+					tester.Click("Save")
+					settle()
 					sent := turns()
-					return sent[len(sent)-1]
+					if len(sent) != before+1 || sent[len(sent)-1].Command.Kind != "replace_turn" {
+						t.Fatal("Save did not send the replacement", failure)
+					}
+					if got := sent[len(sent)-1].Command.Data.(protocol.CommandReplaceTurnPayload); got.Message.Text != "Captured draft @Host more" || len(got.Message.References) != 1 || len(got.Message.Attachments) != 1 {
+						t.Fatalf("edited replacement = %#v", got.Message)
+					}
+					if edit := cv.Turns[0].Editing; edit == nil || edit.Pending || !tester.HasText("Save") || comp.Draft != "" {
+						t.Fatal("a rejected replacement closed its editor or touched the draft", failure)
+					}
+					transport.mu.Lock()
+					transport.failure = ""
+					transport.mu.Unlock()
+					tester.Click("Cancel")
+					tester.Frame()
+					tester.Frame()
 				}
-				comp.Draft = "Unsent draft"
-				render(func(c *ui.Context) { actions.c = c; actions.Edit(turn) })
-				if comp.Draft != "Unsent draft" || len(r.conversationEdits) != 0 {
-					t.Fatal("editing a sent message replaced the draft in the composer")
+				// A message of a conversation that left the screen is no longer edited.
+				tester.Click("Edit")
+				tester.Frame()
+				render(absent)
+				if len(r.conversationEdits) != 0 {
+					t.Fatal("an edit survived leaving its conversation")
 				}
 				comp.Draft = ""
-				actions.Edit(turn)
-				render(shown)
-				if comp.Draft != "Captured draft @Host" || len(r.conversationEdits) != 1 {
-					t.Fatal("an edit shown in its composer did not stay active")
+				frame = view
+				tester.Frame()
+				// Each link of a reply goes where its kind belongs.
+				backup := (protocol.SessionID{10}).String()
+				tabs := len(r.App.Panel.Tabs)
+				hold = true
+				if err := tester.Click("website"); err != nil {
+					t.Fatal(err)
 				}
-				comp.Draft, comp.References = "", nil
-				render(shown)
-				if last := send("Unrelated message"); len(r.conversationEdits) != 0 || last.Command.Kind != "submit_turn" || comp.Draft != "" {
-					t.Fatal("an edit abandoned by clearing the composer replaced a turn with a later message", last.Command.Kind)
+				tester.Frame()
+				r.mu.Lock()
+				loads := len(r.queue)
+				r.queue = nil
+				r.mu.Unlock()
+				hold = false
+				if len(r.App.Panel.Tabs) != tabs+1 || r.App.Panel.Active.Kind != panel.Browser || !r.App.PanelOpen || loads != 1 || len(tester.OpenedURLs()) != 0 {
+					t.Fatal("a web link did not open in a browser tab", len(r.App.Panel.Tabs), loads, tester.OpenedURLs())
 				}
-				actions.Edit(turn)
-				render(absent)
-				if last := send(comp.Draft); len(r.conversationEdits) != 0 || last.Command.Kind != "submit_turn" {
-					t.Fatal("an edit survived leaving its conversation", last.Command.Kind)
+				if err := tester.ClickWith(ui.Cmd, "website"); err != nil {
+					t.Fatal(err)
 				}
-				actions.Edit(turn)
-				transport.mu.Lock()
-				transport.failure = protocol.ErrorCodeConflict
-				transport.mu.Unlock()
-				if last := send(comp.Draft); last.Command.Kind != "replace_turn" || len(r.conversationEdits) != 0 || comp.Draft != "Captured draft @Host" {
-					t.Fatal("an edit rejected after the history moved stayed active or lost its text", last.Command.Kind)
+				tester.Frame()
+				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 1 || opened[0] != "https://example.com/page" {
+					t.Fatal("a modifier click did not open the system browser", opened)
 				}
-				transport.mu.Lock()
-				transport.failure = ""
-				transport.mu.Unlock()
-				if last := send(comp.Draft); last.Command.Kind != "submit_turn" || comp.Draft != "" {
-					t.Fatal("a stale edit kept later sends failing", last.Command.Kind)
+				for link, want := range map[string]fileTarget{
+					"src/main.go#L12":                   {workspace: true, path: "src/main.go", line: 12},
+					"src/main.go:7:3":                   {workspace: true, path: "src/main.go", line: 7},
+					"file:///fixture/worktree/a%20b.md": {workspace: true, path: "a b.md"},
+					"/etc/hosts":                        {path: "/etc/hosts"},
+					"./":                                {workspace: true},
+				} {
+					if got, ok := resolveFileLink(normalizeLink(link), "/fixture/worktree"); !ok || got != want {
+						t.Fatalf("file link %q = %+v, %v", link, got, ok)
+					}
 				}
+				// A workspace file link shows the session's workspace and opens the file there at its line.
+				if err := tester.Click("source"); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				if tab := r.App.Panel.Active; r.workspace == nil || r.workspace.projects[worktree] == nil || tab.Kind != panel.Files || tab.ID != "src/main.go" {
+					t.Fatalf("a workspace file link opened %+v", tab)
+				}
+				// A session link carries the agent's icon before its text.
+				if err := tester.Click("\uFFFC\u2060backup"); err != nil {
+					t.Fatal(err, tester.Texts())
+				}
+				tester.Frame()
+				if r.App.Sidebar.Selected != backup {
+					t.Fatal("a session link did not open its session", r.App.Sidebar.Selected)
+				}
+				r.OpenSession(id)
+				tester.Frame()
+				// Rewinding to the first turn reports once, and its toast opens the backup session.
+				if got := actions.controls(protocol.TurnID{7}); !got.NoRewind || got.NoFork || got.ReadOnly {
+					t.Fatalf("head turn controls = %+v", got)
+				}
+				if err := tester.Click(i18n.In("en", "chat_fork")); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				if err := tester.Click(i18n.In("en", "chat_rewind")); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				tester.Frame()
+				if err := tester.Click(i18n.In("en", "chat_rewind_action")); err != nil {
+					t.Fatal(err)
+				}
+				settle()
+				if !tester.HasText(i18n.In("en", "chat_rewound")) {
+					t.Fatal("a rewind showed no outcome", tester.Texts())
+				}
+				if err := tester.Click(i18n.In("en", "chat_rewind_backup")); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				if r.App.Sidebar.Selected != backup {
+					t.Fatal("the rewind toast did not open the backup session", r.App.Sidebar.Selected)
+				}
+				r.OpenSession(id)
+				tester.Frame()
 				// A change in the shown conversation redraws it; only a Client change projects the Node snapshot.
 				render(shown)
 				r.mu.Lock()
@@ -1055,6 +1277,34 @@ func TestComposerSendRouting(t *testing.T) {
 				if p.ExpectedRevision != 7 {
 					t.Fatal("admission did not use the confirmed config revision")
 				}
+			}
+			if row.name == "replace_references" {
+				frame = nil
+			}
+			if row.name == "failure_retains_draft" {
+				// A send that fails after its text left the composer offers it back from the toast.
+				transport.mu.Lock()
+				actions.Send(message)
+				comp.Draft = ""
+				transport.mu.Unlock()
+				settle()
+				if err := tester.Click(i18n.In("en", "chat_restore_draft")); err != nil {
+					t.Fatal(err, tester.Texts())
+				}
+				tester.Frame()
+				tester.Frame()
+				if comp.Draft != "Captured draft" {
+					t.Fatal("Restore draft did not put the failed submission back", comp.Draft)
+				}
+			}
+			if row.name == "replace_references" {
+				// The selection's New conversation opens a draft quoting it; this conversation keeps its own.
+				actions.Start(conversation.Quote("Later answer"))
+				if started := r.App.Sidebar.Selected; started == id || r.App.Composer(started).Draft != "> Later answer\n\n" || comp.Draft != "" {
+					t.Fatal("New conversation did not start a draft with the quote", started)
+				}
+				r.OpenSession(id)
+				tester.Frame()
 			}
 			if row.failure != "" && comp.Draft != "Captured draft" {
 				t.Fatal("failed request discarded the draft")

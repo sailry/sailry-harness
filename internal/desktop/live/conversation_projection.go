@@ -135,14 +135,17 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				t.Compaction.State = conversation.CompactionQueued
 			case "running", "stopping":
 				t.Compaction.State = conversation.CompactionRunning
-			case "failed", "interrupted":
+			case "failed":
 				t.Compaction.State = conversation.CompactionFailed
+			case "interrupted":
+				t.Compaction.State = conversation.CompactionInterrupted
 			case "cancelled":
 				t.Compaction.State = conversation.CompactionCancelled
 			}
 			if r.Error != nil {
 				t.Compaction.Cause = r.Error.Message
 			}
+			t.Compaction.Elapsed = t.Reply.Elapsed
 		}
 		positions[r.Turn] = len(turns)
 		turns = append(turns, t)
@@ -215,9 +218,9 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				sources = append(sources, value)
 			}
 			// Search is work in the accepted layout, so it precedes the answer.
-			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources})
+			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources, Suggestions: searchSuggestions(*entry.SearchSuggestions)})
 		}
-		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations)
+		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, language)
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
@@ -244,7 +247,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	for _, draft := range snapshot.Drafts {
 		if position, ok := positions[owners[draft.Turn]]; ok {
 			t := &turns[position]
-			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations)
+			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, language)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
 			}
@@ -253,9 +256,20 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	for _, r := range runs {
 		if position, ok := positions[owners[r.Turn]]; ok && r.Error != nil {
 			t := &turns[position]
-			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: "chat_action_failed", Text: r.Error.Message})
+			// The recovery that stopped says why on its last retry row.
+			if reason, stopped := recoveryStop(r.Error); stopped {
+				for index := len(t.Reply.Blocks) - 1; index >= 0; index-- {
+					if retry := t.Reply.Blocks[index].Retry; retry != nil {
+						retry.Stopped, retry.Reason = true, stopKey(reason)
+						retry.Exhausted = reason == protocol.ConversationRecoveryStopAttemptsExhausted
+						break
+					}
+				}
+			}
+			title := failureKey(*r.Error)
+			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
 			if position == len(turns)-1 && session.Diagnostic == nil {
-				session.Diagnostic = &conversation.Diagnostic{Title: "chat_action_failed", Fields: [][2]string{{"code", string(r.Error.Code)}}, Detail: r.Error.Message}
+				session.Diagnostic = &conversation.Diagnostic{Title: title, Fields: [][2]string{{"code", string(r.Error.Code)}}, Detail: r.Error.Message}
 			}
 		}
 	}
@@ -579,7 +593,7 @@ func projectedCall(reply *conversation.Reply, id string) *conversation.Call {
 	return nil
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation) {
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, language string) {
 	for index, part := range parts {
 		switch part.Kind {
 		case "thinking":
@@ -619,7 +633,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*source.Summary.Progress)})
 					continue
 				}
-				call := projectCall(source.Name, source.Summary)
+				call := projectCall(source.Name, source.Summary, language)
 				call.ID = id
 				call.Standalone = source.Grouping == "standalone"
 				call.Terminal = terminalInteraction(source.Name)
@@ -654,16 +668,27 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*result.Summary.Progress)})
 						continue
 					}
-					value := projectCall(result.Name, result.Summary)
+					value := projectCall(result.Name, result.Summary, language)
 					value.ID = toolCallKey(entry, uint64(index))
 					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ToolsBlock, Calls: []conversation.Call{value}})
 					call = &reply.Blocks[len(reply.Blocks)-1].Calls[0]
 				}
-				projected := projectCall(result.Name, result.Summary)
+				projected := projectCall(result.Name, result.Summary, language)
 				projected.ID = call.ID
 				projected.Standalone, projected.Terminal = call.Standalone, terminalInteraction(result.Name)
 				*call = projected
 				call.Running = false
+				// The pictures a tool returned show under its output.
+				for _, image := range result.Images {
+					if call.Output == nil {
+						call.Output = &conversation.Output{}
+					}
+					picture := conversation.Image{ID: image.Attachment.ID.String(), Name: image.Attachment.Spec.Name}
+					if result.ID != nil {
+						picture.Reference = *result.ID + "/" + strconv.FormatUint(image.Index, 10)
+					}
+					call.Output.Images = append(call.Output.Images, picture)
+				}
 			}
 		case "resource":
 			if raw, ok := detail[json.RawMessage](part.Data); ok {
@@ -758,8 +783,13 @@ func projectQuestion(q protocol.ConversationQuestion, spec protocol.Conversation
 	return v
 }
 
-func projectCall(name string, summary *protocol.ToolDetailSummary) conversation.Call {
+func projectCall(name string, summary *protocol.ToolDetailSummary, language string) conversation.Call {
 	call := conversation.Call{Name: name, Label: name}
+	// A built-in tool has no declaration: its label and icon are the
+	// application's until a captured title or resolved label replaces them.
+	if key, icon := coreTool(name); key != "" {
+		call.Label, call.LabelKey, call.Icon = "", key, icon
+	}
 	if summary == nil {
 		return call
 	}
@@ -769,9 +799,7 @@ func projectCall(name string, summary *protocol.ToolDetailSummary) conversation.
 	if summary.Path != nil {
 		call.Detail = *summary.Path
 	}
-	if summary.Error != nil {
-		call.Error = *summary.Error
-	}
+	call.Error = toolFailure(language, summary)
 	if summary.Failure != nil {
 		call.Failed = summary.Failure.Origin == "runtime"
 		call.Warning = summary.Failure.Origin == "tool"
@@ -852,13 +880,20 @@ func projectResource(reply *conversation.Reply, data any) {
 			if r.Limit != nil {
 				v.Limit = int(*r.Limit)
 			}
-			if r.Error != nil {
+			// A fallback's retry shows no provider message.
+			if r.Error != nil && !r.Fallback && strings.TrimSpace(*r.Error) != "" {
 				v.Detail = *r.Error
 			}
 			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.RetryBlock, Retry: v})
 		}
 	case "compacting":
 		reply.Phase = conversation.Compacting
+		var started struct {
+			Started int64 `json:"started_ms"`
+		}
+		if json.Unmarshal(raw, &started) == nil && started.Started > 0 {
+			reply.PhaseElapsed = max(0, time.Since(time.UnixMilli(started.Started)))
+		}
 	case "compaction_failure":
 		var v struct {
 			Failure protocol.ConversationCompactionFailure `json:"failure"`

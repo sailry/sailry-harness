@@ -29,6 +29,9 @@ func (noActions) Review(string, string)                                 {}
 func (noActions) LoadOlder()                                            {}
 func (noActions) Reconnect()                                            {}
 func (noActions) Quote(string)                                          {}
+func (noActions) SaveEdit(string, string)                               {}
+func (noActions) CancelEdit(string)                                     {}
+func (noActions) Start(string)                                          {}
 
 // bigTester shows the 1000-turn conversation at the window's default
 // size, scrolled to its end as it opens.
