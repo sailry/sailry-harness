@@ -92,6 +92,7 @@ func workspaceFailures(t *testing.T) {
 		{worktreeRemove, fault(protocol.ErrorCodeNotFound, ""), kit.Failed, "worktree_remove_missing"},
 		{worktreeRemove, fault(protocol.ErrorCodeOutcomeUnknown, ""), kit.Uncertain, "worktree_outcome_unknown"},
 		{worktreePrune, fault(protocol.ErrorCodeBusy, git.WorktreeLocked), kit.Failed, "worktree_remove_locked"},
+		{worktreePrune, fault(protocol.ErrorCodeBusy, "Git index is locked"), kit.Failed, "git_index_busy"},
 		{worktreePrune, fault(protocol.ErrorCodeConflict, git.WorktreePathExists), kit.Conflict, "worktree_prune_exists"},
 		{worktreePrune, fault(protocol.ErrorCodeRevisionConflict, ""), kit.Conflict, "git_index_conflict"},
 		{worktreePrune, fault(protocol.ErrorCodeInvalidRequest, ""), kit.Failed, "worktree_invalid"},

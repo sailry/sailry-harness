@@ -61,8 +61,10 @@ func workspaceFailure(kind string, err error) (kit.Outcome, string) {
 		return outcome, worktreeFailureKey(code, "worktree_remove_conflict", "worktree_remove_missing", "worktree_request_failed")
 	case worktreePrune:
 		switch {
-		case code == protocol.ErrorCodeBusy:
+		case code == protocol.ErrorCodeBusy && message == git.WorktreeLocked:
 			return outcome, "worktree_remove_locked"
+		case code == protocol.ErrorCodeBusy:
+			return outcome, "git_index_busy"
 		case conflict && message == git.WorktreePathExists:
 			return outcome, "worktree_prune_exists"
 		}
