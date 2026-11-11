@@ -22,8 +22,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+const fixturePassphrase = "correct horse battery"
+
 // fixtureProfile writes the content one snapshot covers. The databases are
-// opaque bytes: this package copies closed file families and never opens them.
+// opaque bytes: the storage owner writes the copies and this package never
+// opens them.
 func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	t.Helper()
 	profile := filepath.Join(t.TempDir(), "profile")
@@ -34,7 +37,6 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	files := map[string][]byte{
 		"link.key":                      bytes.Repeat([]byte{7}, 32),
 		"storage/node.sqlite":           []byte("node database"),
-		"storage/node.sqlite-wal":       {},
 		"storage/knowledge.sqlite":      []byte("knowledge database"),
 		"attachments/one":               large,
 		"plugins/packages/digest/run":   []byte("#!/bin/sh\n"),
@@ -42,6 +44,9 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 		"artifacts/session/item/1.html": []byte("<p>artifact</p>"),
 	}
 	for name, body := range files {
+		if strings.HasPrefix(name, "storage/") {
+			continue
+		}
 		path := filepath.Join(profile, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -61,7 +66,8 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	return profile, files
 }
 
-func fixturePacked(t *testing.T, profile string) *Packed {
+// fixtureSnapshot captures the listed roots after both database copies.
+func fixtureSnapshot(t *testing.T, profile string, files map[string][]byte, roots []string) *Snapshot {
 	t.Helper()
 	snapshot, err := NewSnapshot(profile, protocol.NodeID{1, 2, 3})
 	if err != nil {
@@ -69,29 +75,40 @@ func fixturePacked(t *testing.T, profile string) *Packed {
 	}
 	t.Cleanup(func() { _ = snapshot.Close() })
 	for _, name := range databaseNames {
-		if err := snapshot.Freeze(t.Context(), filepath.Join(profile, "storage", name)); err != nil {
+		write := func(_ context.Context, target string) error {
+			return os.WriteFile(target, files["storage/"+name], 0o600)
+		}
+		if err := snapshot.Freeze(t.Context(), name, write); err != nil {
 			t.Fatal(err)
 		}
 	}
-	roots := []string{"artifacts/session/item", "attachments/one", "link.key", "plugins/packages/digest"}
 	if err := snapshot.Capture(t.Context(), roots); err != nil {
 		t.Fatal(err)
 	}
-	packed, err := snapshot.Pack(t.Context())
+	return snapshot
+}
+
+func fixturePack(t *testing.T, snapshot *Snapshot) *Packed {
+	t.Helper()
+	packed, err := snapshot.Pack(t.Context(), protocol.NewSecret(fixturePassphrase))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return packed
 }
 
+var fixtureRoots = []string{"artifacts/session/item", "attachments/one", "link.key", "plugins/packages/digest"}
+
 // Over 1 s: sealing and opening run scrypt at the production work factor.
 func TestBackupArchiveLayout(t *testing.T) {
 	profile, files := fixtureProfile(t)
-	packed := fixturePacked(t, profile)
-	plain, err := os.ReadFile(packed.Path)
-	if err != nil {
+	snapshot := fixtureSnapshot(t, profile, files, fixtureRoots)
+	var buffer bytes.Buffer
+	if err := snapshot.archive(t.Context(), &buffer); err != nil {
 		t.Fatal(err)
 	}
+	plain := buffer.Bytes()
+	packed := fixturePack(t, snapshot)
 
 	t.Run("container", func(t *testing.T) {
 		compressed, err := gzip.NewReader(bytes.NewReader(plain))
@@ -180,6 +197,26 @@ func TestBackupArchiveLayout(t *testing.T) {
 			}},
 			{"duplicate", func(manifest *Manifest) { manifest.Files = append(manifest.Files, manifest.Files[0]) }},
 			{"digest", func(manifest *Manifest) { manifest.Files[0].SHA256 = "abc" }},
+			{"link in place of the identity", func(manifest *Manifest) {
+				manifest.Files = manifest.Files[1:]
+				manifest.Links = []Link{{Path: "link.key", Target: "/etc/passwd"}}
+			}},
+			{"link in storage", func(manifest *Manifest) { manifest.Links = []Link{{Path: "storage/backups", Target: "/tmp"}} }},
+			{"link with a file of the same name", func(manifest *Manifest) {
+				manifest.Files = append(manifest.Files, File{Path: "attachments/a", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+				manifest.Links = []Link{{Path: "attachments/a", Target: "b"}}
+			}},
+			{"file written through a link", func(manifest *Manifest) {
+				manifest.Files = append(manifest.Files, File{Path: "attachments/a/b", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+				manifest.Links = []Link{{Path: "attachments/a", Target: "/tmp"}}
+			}},
+			{"link created through a link", func(manifest *Manifest) {
+				manifest.Links = []Link{{Path: "attachments/a", Target: "/tmp"}, {Path: "attachments/a/b", Target: "c"}}
+			}},
+			{"empty link target", func(manifest *Manifest) { manifest.Links = []Link{{Path: "attachments/a", Target: ""}} }},
+			{"skip count below the list", func(manifest *Manifest) {
+				manifest.Skipped = []Skipped{{Path: "attachments/a", Reason: skipChanged}}
+			}},
 		} {
 			manifest := valid()
 			if err := manifest.Validate(); err != nil {
@@ -283,6 +320,10 @@ func TestBackupArchiveLayout(t *testing.T) {
 		directory := filepath.Join(t.TempDir(), "backups")
 		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}, Auth: Auth{Passphrase: &passphrase}}
 		id := uuid.NewString()
+		// The archive is sealed as it is written: the snapshot holds no plain archive.
+		if leftovers, err := filepath.Glob(filepath.Join(snapshot.Directory, "archive-*")); err != nil || len(leftovers) != 0 {
+			t.Fatalf("plain archive on disk: %v %v", leftovers, err)
+		}
 		record, err := Export(t.Context(), plan, packed, id)
 		if err != nil {
 			t.Fatal(err)
@@ -348,18 +389,41 @@ func TestBackupArchiveLayout(t *testing.T) {
 			t.Fatalf("fetch = %#v %v", fetched, err)
 		}
 		defer file.Close()
+		// A wrong passphrase, an input that is no archive and a damaged
+		// archive are told apart.
 		wrong := protocol.NewSecret("incorrect horse battery")
-		if _, err := Open(t.Context(), file, t.TempDir(), wrong); code(err) != protocol.ErrorCodeInvalidRequest || strings.Contains(err.Error(), wrong.Expose()) {
+		if _, err := Open(t.Context(), file, wrong); code(err) != protocol.ErrorCodeInvalidRequest ||
+			!strings.Contains(err.Error(), "passphrase is incorrect") || strings.Contains(err.Error(), wrong.Expose()) {
 			t.Fatalf("wrong passphrase: %v", err)
+		}
+		if _, err := Open(t.Context(), strings.NewReader("not an archive"), passphrase); code(err) != protocol.ErrorCodeInvalidRequest ||
+			!strings.Contains(err.Error(), "not a Sailry backup") {
+			t.Fatalf("foreign file: %v", err)
+		}
+		opened, err := Open(t.Context(), bytes.NewReader(sealed[:len(sealed)-1024]), passphrase)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Stage(t.Context(), opened, t.TempDir(), &record, "", 0, ""); code(err) != protocol.ErrorCodeInvalidRequest ||
+			!strings.Contains(err.Error(), "damaged or incomplete") {
+			t.Fatalf("truncated archive: %v", err)
+		}
+		// A destination that cannot be written is not a passphrase problem.
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			t.Fatal(err)
+		}
+		if opened, err = Open(t.Context(), file, passphrase); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Stage(t.Context(), opened, filepath.Join(t.TempDir(), "missing"), &record, "", 0, ""); code(err) != protocol.ErrorCodeUnavailable {
+			t.Fatalf("unwritable staging: %v", err)
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			t.Fatal(err)
 		}
-		opened, err := Open(t.Context(), file, t.TempDir(), passphrase)
-		if err != nil {
+		if opened, err = Open(t.Context(), file, passphrase); err != nil {
 			t.Fatal(err)
 		}
-		defer opened.Close()
 		restored, err := io.ReadAll(opened)
 		if err != nil || !bytes.Equal(restored, plain) {
 			t.Fatalf("decrypted archive differs: %v", err)

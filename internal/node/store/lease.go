@@ -55,6 +55,8 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 type Exclusive struct {
 	handle *Handle
 	writer *writer
+	// pinned counts the read transactions that outlive this lease.
+	pinned int64
 	close  sync.Once
 }
 
@@ -76,7 +78,7 @@ func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
 func (exclusive *Exclusive) Connection() *sql.Conn { return exclusive.writer.connection }
 
 func (exclusive *Exclusive) Close() error {
-	exclusive.close.Do(func() { exclusive.handle.leases.Release(allLeases) })
+	exclusive.close.Do(func() { exclusive.handle.leases.Release(allLeases - exclusive.pinned) })
 	return nil
 }
 

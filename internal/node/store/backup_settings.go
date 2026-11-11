@@ -279,7 +279,8 @@ func PrepareBackup(ctx context.Context, db *sql.Conn, profile string, command pr
 }
 
 // BackupSource reads the plan and the profile-relative content roots of one
-// snapshot. The caller holds the exclusive lease of the Node database.
+// snapshot, on the connection that pins the state the database copy is made
+// from.
 func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, revision uint64) (backup.Plan, []string, error) {
 	var identity []byte
 	if err := db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {

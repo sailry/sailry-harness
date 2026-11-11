@@ -56,12 +56,11 @@ func (node *Node) changeBackup(ctx context.Context, caller protocol.NodeID, requ
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		archive, err := backup.Open(ctx, sealed, temporary, passphrase)
+		archive, err := backup.Open(ctx, sealed, passphrase)
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		defer discard(archive)
-		staged, err := backup.Stage(ctx, archive, &record, "", 0, "")
+		staged, err := backup.Stage(ctx, archive, temporary, &record, "", 0, "")
 		if err != nil {
 			return protocol.Output{}, err
 		}
@@ -97,12 +96,11 @@ func (node *Node) changeBackup(ctx context.Context, caller protocol.NodeID, requ
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		archive, err := backup.Open(ctx, uploaded, temporary, passphrase)
+		archive, err := backup.Open(ctx, uploaded, passphrase)
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		defer discard(archive)
-		staged, err := backup.Stage(ctx, archive, nil, request.ID.String(), size, sum)
+		staged, err := backup.Stage(ctx, archive, temporary, nil, request.ID.String(), size, sum)
 		if err != nil {
 			return protocol.Output{}, err
 		}
@@ -137,18 +135,11 @@ func (node *Node) publishRestored(ctx context.Context, staged *backup.Staged, ta
 }
 
 func (node *Node) downloadBackup(ctx context.Context, caller protocol.NodeID, id protocol.RequestID, revision uint64) (protocol.BackupDownload, error) {
-	plan, packed, err := node.captureBackup(ctx, revision)
+	_, packed, err := node.captureBackup(ctx, revision)
 	if err != nil {
 		return protocol.BackupDownload{}, err
 	}
 	defer packed.Snapshot.Close()
-	passphrase, err := backup.Passphrase(plan.Auth.Passphrase)
-	if err != nil {
-		return protocol.BackupDownload{}, err
-	}
-	if err := backup.Seal(ctx, packed, passphrase); err != nil {
-		return protocol.BackupDownload{}, err
-	}
 	record := backup.NewRecord(packed, id.String())
 	sealed, err := os.Open(packed.Path)
 	if err != nil {

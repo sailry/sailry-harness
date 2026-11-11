@@ -41,15 +41,8 @@ type Plan struct {
 	Transport     http.RoundTripper
 }
 
-// Export seals the packed snapshot and publishes it to every enabled location.
+// Export publishes the sealed snapshot to every enabled location.
 func Export(ctx context.Context, plan Plan, packed *Packed, id string) (protocol.BackupRecord, error) {
-	passphrase, err := Passphrase(plan.Auth.Passphrase)
-	if err != nil {
-		return protocol.BackupRecord{}, err
-	}
-	if err := Seal(ctx, packed, passphrase); err != nil {
-		return protocol.BackupRecord{}, err
-	}
 	record := NewRecord(packed, id)
 	exported := false
 	for _, location := range []protocol.BackupLocation{protocol.BackupLocationLocal, protocol.BackupLocationOnline} {
