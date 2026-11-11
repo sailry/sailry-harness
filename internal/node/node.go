@@ -87,6 +87,7 @@ type Node struct {
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
 	forward           func(context.Context, protocol.Request) (link.Admission, error) // sends an import to its paired target
 	forwards          atomic.Int32
+	forwarding        sync.Map      // request IDs whose forward is in flight
 	mediaPoll         time.Duration // interval between video job reads
 	feed              *feed.Hub
 	providerDirectory providers.Directory
