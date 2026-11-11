@@ -57,8 +57,9 @@ const processGroupPrefix = "command-group-"
 
 // sweepProfile removes what an earlier run left in the profile's scratch
 // space: everything in tmp, which holds database copies and unpacked
-// archives while a backup or restore runs, and the scratch directories of a
-// schema check or update beside the databases. It runs with the profile lock
+// archives while a backup or restore runs, the scratch directories of a
+// schema check or update beside the databases, and the staging directories of
+// a plugin package or Python environment that was never published. It runs with the profile lock
 // held and before anything of this process uses those directories, so
 // nothing it removes is in use. A leftover that cannot be removed is logged
 // and does not stop the start.
@@ -73,6 +74,13 @@ func sweepProfile(profile string) {
 	// The kept pre-update copies beside them are node-before-upgrade-*.
 	sweep(filepath.Join(storage, "backups"), func(entry os.DirEntry) bool {
 		return entry.IsDir() && strings.HasPrefix(entry.Name(), ".upgrade-")
+	})
+	// An installation that was killed before it published its directory.
+	sweep(filepath.Join(profile, "plugins", "packages"), func(entry os.DirEntry) bool {
+		return entry.IsDir() && strings.HasPrefix(entry.Name(), ".staging-")
+	})
+	sweep(filepath.Join(profile, "python", "staging"), func(entry os.DirEntry) bool {
+		return entry.IsDir() && strings.HasPrefix(entry.Name(), "environment-")
 	})
 }
 

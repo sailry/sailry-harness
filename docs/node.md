@@ -257,6 +257,9 @@ profile:
 - `storage/.upgrade-*`, `storage/.schema-reference-*` and
   `storage/backups/.upgrade-*`, the scratch of a schema check or update. The
   kept pre-update copies (`storage/backups/node-before-upgrade-*`) stay
+- `plugins/packages/.staging-*` and `python/staging/environment-*`, a plugin
+  package or Python environment whose installation ended before it was
+  published. Published packages and environments stay
 
 A link is removed, never followed; a read-only tree is made writable first. A
 leftover that cannot be removed is logged and does not stop the start.

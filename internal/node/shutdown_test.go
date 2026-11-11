@@ -181,6 +181,8 @@ func TestProfileLeftovers(t *testing.T) {
 		filepath.Dir(write("storage/.upgrade-1/storage/node.sqlite", 0o600)),
 		filepath.Dir(write("storage/.schema-reference-1/reference.sqlite", 0o600)),
 		filepath.Dir(filepath.Dir(write("storage/backups/.upgrade-1/storage/node.sqlite", 0o600))),
+		filepath.Dir(write("plugins/packages/.staging-1/plugin.json", 0o600)),
+		filepath.Dir(write("python/staging/environment-1/pyvenv.cfg", 0o600)),
 	}
 	// Staged inputs are read-only all the way down.
 	staged := filepath.Dir(write("tmp/sailry-inputs-1/nested/input", 0o400))
@@ -201,6 +203,8 @@ func TestProfileLeftovers(t *testing.T) {
 		write("tmp/command-group-1", 0o600),
 		write("storage/backups/node-before-upgrade-1/node.sqlite", 0o600),
 		write("storage/.upgraded", 0o600),
+		write("plugins/packages/published/plugin.json", 0o600),
+		write("python/environments/published/pyvenv.cfg", 0o600),
 		filepath.Join(path, "storage", "node.sqlite"),
 		filepath.Join(path, "link.key"),
 		outside,
