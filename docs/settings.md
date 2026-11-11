@@ -240,7 +240,8 @@ save is pending, as its Cancel is disabled then.
 - `internal/desktop/settings/settings_test.go`: shortcut capture (invalid,
   conflict with another shortcut and with a fixed key, clear, reset,
   idle), environment variable validation, hook and backup checks,
-  `Stored.Commit`; `TestProviderEditor` (steps, back, checks, save,
+  `Stored.Commit`; `TestProviderEditor` (steps, back, sign-in, route
+  switches and what they keep, the edited channel's fixed route, checks, save,
   statuses, capability boxes) with the Media models rows, `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
   statuses, capability boxes, media rows), `TestConnectors` (statuses, menus per state, the disabled menu button, MCP check), `TestTeams`,
   `TestExtensions` (classification, configuration checks, market actions,
@@ -296,11 +297,14 @@ save is pending, as its Cancel is disabled then.
   reads "UI preview".
 - Kit's row description is 12 DIP; `kit.Row` keeps the 14 DIP accepted in
   phase 2.
-- Providers: brand tiles use the four bundled provider icons, others the
-  name's initial; the API protocol is shown as text (the reference's
-  protocol segments and region/product route fields, cloud credentials
-  form, partner suggestions and provider-contributed plugins are not
-  built). Usage shows the 5h/7d quota bars, not the metrics popover.
+- Providers: marks come from the AI Logo module (the reference bundles its
+  own files); a brand the collection lacks shows its name's initial. The
+  editor's protocol, product and region are `kit.Segmented` controls (the
+  reference's are dropdowns), and a single choice is not shown. Switching
+  one keeps an endpoint the user typed (the reference overwrites it). The
+  cloud credentials form, partner suggestions and provider-contributed
+  plugins are not built. Usage shows the 5h/7d quota bars, not the metrics
+  popover.
   Default effort per model is a check per effort.
 - The authorization dialog's countdown is static text, and Open/Reopen
   are preview_notice; the code is shown in cells without a live clock.
@@ -382,9 +386,44 @@ invalidates retained text geometry when typography changes.
 `provider_catalog.go` adapt the Node's presets, public providers, catalog status
 and compaction settings to the existing Providers page. Neutral provider DTOs
 live in `viewmodel`; preview aliases keep their fixture constructors isolated.
-API-key choices come from offered Node presets and their captured route keys.
 A provider saved without a route shows its preset's first route.
 OAuth package workflows remain in B8.
+
+### Brands, methods and routes
+
+`applyPresets` projects the Node's preset listing. A preset's `brand` (else its
+`id`, prefixed by its source for partner and package presets) is its family: a
+`viewmodel.Brand`, named by the `brand_display` of its first offered preset,
+else by the preset the brand is named after (brand `openai` is preset `openai`,
+whichever of its presets the listing has first), else by that first preset.
+Each offered preset is one `Method` of its brand, and the preset's routes
+(protocol, product, region) are that method's `Routes`, switched inside the
+form and never listed as methods. A channel saves the route as
+`<source>:<preset>/<index>`. Presets that are not offered stay known, so a
+channel saved with one keeps its brand and mark; a channel without a preset
+belongs to the family of its wire protocol.
+
+The Add provider dialog has two headed groups. Account sign-in lists every
+sign-in method by the account's product (ChatGPT, Claude) and opens its form.
+API key lists each brand that has a method other than a sign-in, once; a brand
+with one such method opens its form, and a brand with several asks which,
+each row naming the method and how it is accessed (API key, Custom endpoint).
+Back returns from the form to the methods when the choice offered several,
+else to the brands; from the welcome guide the brands' Back returns to the
+guide.
+
+The form is the same for a new and a saved channel. Protocol, service and
+region are each a segmented control where the method's routes differ in them.
+A switch keeps the name, key, typed endpoint and the models the user added or
+changed, and replaces what the form filled in: the route's endpoint and the
+models the previous route came with. A sign-in method has no key field and
+its action is Save and sign in. Editing keeps the channel's route: the three
+controls are disabled, as in the reference; name, endpoint (custom routes),
+key, OAuth fields and models stay editable.
+
+The family filter lists All, the offered brands and the brands only a saved
+channel has, each with its mark in the menu; the closed control shows the
+label alone. Channel tiles use the channel's preset mark, else its brand's.
 
 Editor identity and its captured provider base are stable across failed or
 uncertain saves. Every save, enable

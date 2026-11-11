@@ -22,9 +22,9 @@ import (
 
 // Families are the model picker's rail (settings/providers families).
 var Families = []composer.Family{
-	{ID: "anthropic", Label: "provider_anthropic", Icon: icons.Providers["anthropic"]},
-	{ID: "openai", Label: "provider_openai", Icon: icons.Providers["openai"]},
-	{ID: "gemini", Label: "provider_gemini", Icon: icons.Providers["google"]},
+	{ID: "anthropic", Label: "provider_anthropic", Icon: icons.Brand("anthropic")},
+	{ID: "openai", Label: "provider_openai", Icon: icons.Brand("openai")},
+	{ID: "gemini", Label: "provider_gemini", Icon: icons.Brand("gemini")},
 	{ID: "other", Label: "provider_other", Icon: icons.Settings2},
 }
 

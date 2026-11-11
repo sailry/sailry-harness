@@ -19,7 +19,7 @@ task_notices() {
     task_relative="${task_license#"$1/"}"
     mkdir -p "$(dirname "$2/$task_relative")"
     cp "$task_license" "$2/$task_relative"
-  done < <(find "$1" -type f \( -name 'LICENSE*' -o -name 'LICENCE*' -o -name 'COPYING*' -o -name 'NOTICE*' \))
+  done < <(find "$1" -type f \( -name 'LICENSE*' -o -name 'LICENCE*' -o -name 'COPYING*' -o -name 'NOTICE*' -o -name 'THIRD_PARTY_NOTICES*' \))
 }
 
 # Go modules linked into the command for this platform. Go module metadata

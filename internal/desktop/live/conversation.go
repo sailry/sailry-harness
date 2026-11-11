@@ -282,7 +282,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			model.Score = r.measuredScore(model.ID, parseEffort(comp.EffortName(nil, *model)))
 		}
 	}
-	for _, family := range []composer.Family{{ID: "anthropic", Label: "provider_anthropic", Icon: icons.Providers["anthropic"]}, {ID: "openai", Label: "provider_openai", Icon: icons.Providers["openai"]}, {ID: "gemini", Label: "provider_gemini", Icon: icons.Providers["google"]}, {ID: "other", Label: "provider_other", Icon: icons.Settings2}} {
+	for _, family := range []composer.Family{{ID: "anthropic", Label: "provider_anthropic", Icon: icons.Brand("anthropic")}, {ID: "openai", Label: "provider_openai", Icon: icons.Brand("openai")}, {ID: "gemini", Label: "provider_gemini", Icon: icons.Brand("gemini")}, {ID: "other", Label: "provider_other", Icon: icons.Settings2}} {
 		if slices.ContainsFunc(ctx.Models, func(m composer.Model) bool { return m.Family == family.ID }) {
 			ctx.Families = append(ctx.Families, family)
 		}

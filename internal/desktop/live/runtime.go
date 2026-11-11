@@ -113,6 +113,7 @@ type Runtime struct {
 	conversationCreations    map[string]conversationCreation
 	conversationCreating     map[string]bool
 	providerPresets          map[string]protocol.ConversationPresetsEntry
+	providerBrands           map[string]string // brand names by presetBrand, offered or not
 	providerModels           map[string]map[string]protocol.ConversationModel
 	providerDraftBases       map[string]protocol.ConversationProvider
 	modelScores              map[string][]protocol.ConversationCatalogScoresEffortScore

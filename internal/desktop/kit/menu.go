@@ -68,6 +68,7 @@ type Item struct {
 	label, trailing, shortcut string
 	description               string
 	icon                      *ui.SVG
+	image                     bool
 	checked, danger, disabled bool
 	separator                 bool
 	action                    string
@@ -204,6 +205,10 @@ func (m *Menu) Separator() {
 // Icon shows icon in the item's left slot.
 func (it *Item) Icon(icon *ui.SVG) *Item { it.icon = icon; return it }
 
+// Image shows mark in the item's left slot in its own colors, as a brand
+// mark (icons.BrandColor); a nil mark leaves the slot empty.
+func (it *Item) Image(mark *ui.SVG) *Item { it.icon, it.image = mark, mark != nil; return it }
+
 // Checked marks the item with a check: in the left slot where it has no
 // icon, or after the label in a menu with CheckRight.
 func (it *Item) Checked(on bool) *Item { it.checked = on; return it }
@@ -328,6 +333,8 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 			if slot {
 				box := ui.Box(c).Size(12, 12).Shrink(0)
 				switch {
+				case it.image:
+					box.Size(14, 14).Children(func() { ui.Image(c, it.icon).Size(14, 14) })
 				case it.icon != nil:
 					box.Children(func() { ui.Icon(c, it.icon).FontSize(12) })
 				case it.checked && !o.CheckRight:
@@ -421,6 +428,9 @@ func Select(c *ui.Context, id, label string, chosen *string, options []string, d
 // label shown for it.
 type SelectOption struct {
 	Value, Label string
+	// Image, when an option has one, shows before the labels in the menu
+	// in its own colors, as a brand's mark.
+	Image *ui.SVG
 	// Disabled keeps the option from being chosen.
 	Disabled bool
 }
@@ -479,7 +489,7 @@ func SelectField(c *ui.Context, id string, chosen *string, o SelectProps) (ui.El
 		SelectTrigger(c, b.Label(o.Label).Disabled(o.Disabled), shown, placeholder, *menuState(c, id))
 	}, func(m *Menu) {
 		for _, option := range o.Options {
-			if m.Item(option.Label).Checked(option.Value == *chosen).Disabled(option.Disabled).Chosen() && option.Value != *chosen {
+			if m.Item(option.Label).Image(option.Image).Checked(option.Value == *chosen).Disabled(option.Disabled).Chosen() && option.Value != *chosen {
 				*chosen, changed = option.Value, true
 			}
 		}

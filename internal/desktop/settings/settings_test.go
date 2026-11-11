@@ -238,7 +238,7 @@ func TestProviderEditor(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	e := &m.provider
 	e.add(m)
-	e.choose(&m.Brands[0]) // Anthropic: several methods
+	e.choose(&m.Brands[0], apiMethods(&m.Brands[0])) // Anthropic: several API methods
 	if e.step != stepMethod {
 		t.Fatalf("several methods went to step %d", e.step)
 	}
@@ -263,7 +263,7 @@ func TestProviderEditor(t *testing.T) {
 	if e.step != stepMethod {
 		t.Errorf("back went to %d", e.step)
 	}
-	e.choose(&m.Brands[2]) // Google: one method
+	e.choose(&m.Brands[2], apiMethods(&m.Brands[2])) // Google: one method
 	if e.step != stepConfigure {
 		t.Errorf("one method went to %d", e.step)
 	}
@@ -274,6 +274,88 @@ func TestProviderEditor(t *testing.T) {
 	if ProviderStatus(&m.Channels[2]) != "provider_status_missing_key" || ProviderStatus(&m.Channels[5]) != "provider_status_signed_out" {
 		t.Error("statuses")
 	}
+	// A sign-in opens its form alone: Back returns to the brand step, not to
+	// the brand's API methods.
+	e.choose(&m.Brands[0], m.Brands[0].Methods[:1])
+	if e.step != stepConfigure || !e.login() || e.usesKey() {
+		t.Errorf("sign-in went to step %d, login %v, key %v", e.step, e.login(), e.usesKey())
+	}
+	if e.back(); e.step != stepBrand {
+		t.Errorf("back from a sign-in went to %d", e.step)
+	}
+	// A method's routes are one entry: the form switches its protocol,
+	// product and region, keeping what was typed and following the route's
+	// own defaults.
+	t.Run("routes", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		hosted := preview.Method{ID: "hosted", Name: "Hosted", Access: "provider_access_key", Routes: []preview.Route{
+			{ID: "hosted/0", API: "chat_completions", Endpoint: "https://cn.example/v1", Region: "china", Product: "metered"},
+			{ID: "hosted/1", API: "chat_completions", Endpoint: "https://global.example/v1", Region: "global", Product: "metered"},
+			{ID: "hosted/2", API: "chat_completions", Endpoint: "https://cn.example/coding", Region: "china", Product: "coding", ProductName: "Hosted Code", Models: []string{"coder"}},
+			{ID: "hosted/3", API: "chat_completions", Endpoint: "https://global.example/coding", Region: "global", Product: "coding", ProductName: "Hosted Code", Models: []string{"coder"}},
+		}}
+		compatible := preview.Method{ID: "compatible", Name: "Compatible", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{
+			{ID: "compatible/0", API: "responses", Custom: true}, {ID: "compatible/1", API: "chat_completions", Custom: true},
+		}}
+		brand := &preview.Brand{ID: "fixture", Name: "Fixture", Methods: []preview.Method{hosted, compatible}}
+		e := &m.provider
+		e.add(m)
+		e.choose(brand, apiMethods(brand))
+		if e.step != stepMethod || len(e.methods) != 2 {
+			t.Fatalf("two methods went to step %d with %d rows", e.step, len(e.methods))
+		}
+		e.configure(compatible)
+		if got := e.choices(axisProtocol); !slices.Equal(got, []int{0, 1}) || len(e.choices(axisProduct)) != 1 || len(e.choices(axisRegion)) != 1 {
+			t.Fatalf("compatible protocols %v, products %v, regions %v", got, e.choices(axisProduct), e.choices(axisRegion))
+		}
+		e.name, e.endpoint, e.key = "Mine", "https://mine.example/v1", "sk-typed"
+		e.models = []modelDraft{{id: "typed", context: "128000"}}
+		e.switchRoute(1)
+		if e.current().API != "chat_completions" || e.name != "Mine" || e.endpoint != "https://mine.example/v1" || e.key != "sk-typed" || len(e.models) != 1 || e.models[0].id != "typed" {
+			t.Fatalf("switched protocol left route %+v, name %q, endpoint %q, key %q, models %+v", e.current(), e.name, e.endpoint, e.key, e.models)
+		}
+		if !e.usesKey() || e.Check() != "" {
+			t.Errorf("a keyed custom endpoint: key %v, check %q", e.usesKey(), e.Check())
+		}
+		n := len(m.Channels)
+		if got := e.save(m); got != "" || m.Channels[n].Method != "compatible/1" || m.Channels[n].API != "chat_completions" {
+			t.Fatalf("save %q kept %+v", got, m.Channels[n])
+		}
+		// One protocol has no control; products and regions each have two.
+		e.configure(hosted)
+		if len(e.choices(axisProtocol)) != 1 || !slices.Equal(e.choices(axisProduct), []int{0, 2}) || !slices.Equal(e.choices(axisRegion), []int{0, 1}) {
+			t.Fatalf("hosted protocols %v, products %v, regions %v", e.choices(axisProtocol), e.choices(axisProduct), e.choices(axisRegion))
+		}
+		e.switchRoute(1) // Global
+		if e.endpoint != "https://global.example/v1" || len(e.models) != 0 {
+			t.Fatalf("region left endpoint %q, models %+v", e.endpoint, e.models)
+		}
+		e.switchRoute(e.choices(axisProduct)[1]) // the coding product keeps the region
+		if e.current().ID != "hosted/3" || e.endpoint != "https://global.example/coding" || len(e.models) != 1 || e.models[0].id != "coder" {
+			t.Fatalf("product went to %+v, endpoint %q, models %+v", e.current(), e.endpoint, e.models)
+		}
+		e.switchRoute(e.choices(axisProduct)[0]) // back: the model the product came with goes
+		if e.current().ID != "hosted/1" || len(e.models) != 0 {
+			t.Fatalf("product back went to %+v, models %+v", e.current(), e.models)
+		}
+		// A model the user added keeps every model through a switch.
+		e.switchRoute(3)
+		e.models = append(e.models, modelDraft{id: "mine", context: "128000"})
+		e.switchRoute(1)
+		if len(e.models) != 2 {
+			t.Fatalf("a switch dropped the user's models: %+v", e.models)
+		}
+		// An edited channel opens on its route, which stays.
+		m.Brands = append(m.Brands, *brand)
+		ch := preview.Channel{ID: "saved", Name: "Saved", Brand: "fixture", Method: "hosted/2", API: "chat_completions", KeySet: true}
+		e.edit(m, &ch)
+		if e.method.ID != "hosted" || e.current().ID != "hosted/2" || e.step != stepConfigure {
+			t.Fatalf("edit opened %q on %+v at step %d", e.method.ID, e.current(), e.step)
+		}
+		if e.switchRoute(0); e.current().ID != "hosted/2" {
+			t.Errorf("an edited channel changed its route to %+v", e.current())
+		}
+	})
 	t.Run("removed model row", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true,

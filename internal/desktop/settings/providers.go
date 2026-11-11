@@ -17,9 +17,11 @@ import (
 
 // The Providers page (settings/providers): the model catalog with the
 // compaction threshold, the channels filtered by family and search, each
-// expanding to its models, and the editor that adds or edits one: brand,
-// method, then its configuration and models. Account logins sign in in
-// the authorization dialog.
+// expanding to its models, and the editor that adds or edits one: the
+// brand step (account sign-ins, then brands with API methods), the method
+// step where a brand has several, then the configuration and models. A
+// method's wire protocol, product and region are switched in the form.
+// Account logins sign in in the authorization dialog.
 
 var compactionMessages = Messages{"", "compaction_settings_failed", "compaction_settings_conflict", "compaction_settings_unknown"}
 
@@ -175,22 +177,50 @@ func capabilityMarks(c *ui.Context, x *preview.ChannelModel) {
 	}
 }
 
-// families is All, then each brand, the list's filter.
-func families(c *ui.Context, m *Model) {
-	labels := []string{i18n.T(c, "provider_all")}
-	ids := []string{""}
+// family is a choice of the list's filter: a brand, by its ID.
+type family struct{ id, name string }
+
+// families are the offered brands, then the brands only a channel has (one
+// no longer offered), named by the channel.
+func (m *Model) families() []family {
+	var out []family
 	for _, b := range m.Brands {
-		labels = append(labels, b.Name)
-		ids = append(ids, b.ID)
+		out = append(out, family{b.ID, b.Name})
 	}
-	chosen := slices.Index(ids, m.Family)
-	if pick(c, "families", i18n.T(c, "provider_type"), &chosen, labels, false).Changed() {
-		m.Family = ids[chosen]
+	for _, ch := range m.Channels {
+		if ch.Brand == "" || slices.ContainsFunc(out, func(f family) bool { return f.id == ch.Brand }) {
+			continue
+		}
+		name := ch.BrandName
+		if name == "" {
+			name = ch.Brand[strings.LastIndex(ch.Brand, ":")+1:]
+		}
+		out = append(out, family{ch.Brand, name})
 	}
+	return out
+}
+
+// families is All, then each brand with its mark, the list's filter.
+func families(c *ui.Context, m *Model) {
+	title := i18n.T(c, "provider_type")
+	options := []kit.SelectOption{{Label: i18n.T(c, "provider_all"), Image: icons.Settings2}}
+	for _, f := range m.families() {
+		options = append(options, kit.SelectOption{Value: f.id, Label: f.name, Image: icons.BrandColor(f.id)})
+	}
+	kit.SelectField(c.Key("families"), "setting-"+title, &m.Family, kit.SelectProps{Label: title, Options: options})
+}
+
+// channelMark is the channel's mark for its tile: its own, else its
+// brand's; nil shows the name's initial.
+func channelMark(ch *preview.Channel) *ui.SVG {
+	if mark := icons.Brand(ch.Icon); mark != nil {
+		return mark
+	}
+	return icons.Brand(ch.Brand)
 }
 
 func channelTile(c *ui.Context, ch *preview.Channel, size float32) {
-	ui.Row(c).Size(size, size).Center().Children(func() { kit.Tile(c, ch.Name, icons.Providers[ch.Brand]) })
+	ui.Row(c).Size(size, size).Center().Children(func() { kit.Tile(c, ch.Name, channelMark(ch)) })
 }
 
 // channelRow is the channel, its quota, what it lacks, its switch and menu;
@@ -212,7 +242,7 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 				}
 			})
 			b.Children(func() {
-				kit.MediaRow(c, ch.Name, desc, func() { kit.Tile(c, ch.Name, icons.Providers[ch.Brand]) }, nil)
+				kit.MediaRow(c, ch.Name, desc, func() { kit.Tile(c, ch.Name, channelMark(ch)) }, nil)
 			})
 			if ch.Quota != nil && ch.Auth == preview.AuthOAuth {
 				ui.Column(c.Key("usage")).Shrink(0).Gap(2).Opacity(enabledOpacity(ch.Enabled)).Children(func() {
@@ -353,6 +383,9 @@ const (
 // efforts as typed, and whether its form shows.
 type modelDraft struct {
 	pending bool
+	// seeded marks a model the route came with, which another route
+	// replaces while its ID is as it came.
+	seeded  bool
 	model   preview.ChannelModel
 	id      string
 	context string
@@ -368,8 +401,9 @@ type modelDraft struct {
 	catalog *preview.ChannelModel
 }
 
-// providerEditor is the step, the brand and method chosen, the fields and the
-// models. editing is the channel edited, "" for a new one.
+// providerEditor is the step, the brand, the methods its choice offered and
+// the method and route chosen, the fields and the models. editing is the
+// channel edited, "" for a new one.
 type providerEditor struct {
 	generation          uint64
 	id                  string
@@ -378,7 +412,9 @@ type providerEditor struct {
 	step                providerStep
 	editing             string
 	brand               *preview.Brand
+	methods             []preview.Method
 	method              preview.Method
+	route               int
 	name, endpoint, key string
 	keySet              bool
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
@@ -434,34 +470,127 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	for i := range m.Brands {
 		b := &m.Brands[i]
 		for _, x := range b.Methods {
-			if x.ID == ch.Method {
-				e.brand, e.method = b, x
+			for j, route := range methodRoutes(x) {
+				if route.ID == ch.Method {
+					e.brand, e.method, e.route = b, x, j
+				}
 			}
 		}
 	}
 	if e.brand == nil {
-		e.method = preview.Method{ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key"}
+		e.method = preview.Method{ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key", Custom: ch.Endpoint != ""}
 	}
 }
 
-// choose takes a brand: one method configures it at once, several ask which.
-func (e *providerEditor) choose(b *preview.Brand) {
-	e.brand = b
-	if len(b.Methods) == 1 {
-		e.configure(b.Methods[0])
+// methodRoutes are a method's routes: its own, or the method as its only
+// one.
+func methodRoutes(x preview.Method) []preview.Route {
+	if len(x.Routes) > 0 {
+		return x.Routes
+	}
+	return []preview.Route{{ID: x.ID, API: x.API, Endpoint: x.Endpoint, Custom: x.Custom}}
+}
+
+// current is the route chosen.
+func (e *providerEditor) current() preview.Route {
+	routes := methodRoutes(e.method)
+	return routes[min(max(e.route, 0), len(routes)-1)]
+}
+
+// routeAxis is what a form control switches a route by.
+type routeAxis int
+
+const (
+	axisProtocol routeAxis = iota
+	axisProduct
+	axisRegion
+)
+
+// choices are the routes an axis's control offers, by index: those that
+// differ from the current one in the axis alone (a product keeps the
+// protocol, as its region follows in switchRoute), one for each value.
+func (e *providerEditor) choices(axis routeAxis) []int {
+	routes, cur := methodRoutes(e.method), e.current()
+	var out []int
+	for i, r := range routes {
+		ok, same := false, func(o preview.Route) bool { return false }
+		switch axis {
+		case axisProtocol:
+			ok, same = r.Region == cur.Region && r.Product == cur.Product, func(o preview.Route) bool { return o.API == r.API }
+		case axisProduct:
+			ok, same = r.API == cur.API, func(o preview.Route) bool { return o.Product == r.Product }
+		case axisRegion:
+			ok, same = r.API == cur.API && r.Product == cur.Product, func(o preview.Route) bool { return o.Region == r.Region }
+		}
+		if ok && !slices.ContainsFunc(out, func(j int) bool { return same(routes[j]) }) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// switchRoute takes another route of the method. Another product keeps the
+// region where it has one. The name, the key and what the user typed stay:
+// the endpoint follows only while it is the route's own, and the models the
+// route came with are replaced only while none was added or renamed.
+func (e *providerEditor) switchRoute(i int) {
+	routes, cur := methodRoutes(e.method), e.current()
+	if i < 0 || i >= len(routes) || e.editing != "" {
+		return
+	}
+	if want := routes[i]; want.Product != cur.Product {
+		if j := slices.IndexFunc(routes, func(r preview.Route) bool {
+			return r.API == want.API && r.Product == want.Product && r.Region == cur.Region
+		}); j >= 0 {
+			i = j
+		}
+	}
+	if e.endpoint == cur.Endpoint {
+		e.endpoint = routes[i].Endpoint
+	}
+	e.route = i
+	if !slices.ContainsFunc(e.models, func(d modelDraft) bool { return !d.seeded || d.id != d.model.ID }) {
+		e.models, e.def = nil, 0
+		e.seed()
+	}
+}
+
+// seed starts a new channel without models on the ones its route comes
+// with, at the limits and tags a save gives a model typed in.
+func (e *providerEditor) seed() {
+	if len(e.models) > 0 || e.editing != "" {
+		return
+	}
+	for _, id := range e.current().Models {
+		d := draftsOf([]preview.ChannelModel{{ID: id, Name: id, Context: 128000, Vision: true, Tools: true}})[0]
+		d.seeded = true
+		e.models = append(e.models, d)
+	}
+}
+
+// choose takes a choice of the brand step, a brand and the methods it
+// offers: one method configures it at once, several ask which.
+func (e *providerEditor) choose(b *preview.Brand, methods []preview.Method) {
+	e.brand, e.methods = b, methods
+	if len(methods) == 1 {
+		e.configure(methods[0])
 		return
 	}
 	e.step = stepMethod
 }
 
+// configure opens the form on a method's first route.
 func (e *providerEditor) configure(x preview.Method) {
-	e.method, e.step = x, stepConfigure
-	e.name, e.endpoint = x.Name, x.Endpoint
+	e.method, e.route, e.step = x, 0, stepConfigure
+	e.name, e.endpoint = x.Name, e.current().Endpoint
+	e.models, e.def = nil, 0
+	e.seed()
 }
 
-// back is Configure goes to Method when the brand has several, else to Brand.
+// back is Configure goes to Method when the choice offered several, else
+// to Brand.
 func (e *providerEditor) back() {
-	if e.step == stepConfigure && e.brand != nil && len(e.brand.Methods) > 1 {
+	if e.step == stepConfigure && len(e.methods) > 1 {
 		e.step = stepMethod
 		return
 	}
@@ -476,7 +605,7 @@ func (e *providerEditor) back() {
 }
 
 func (e *providerEditor) usesKey() bool {
-	return e.method.Access == "provider_access_key" || e.method.Access == "provider_access_cloud"
+	return e.method.Keyed || e.method.Access == "provider_access_key" || e.method.Access == "provider_access_cloud"
 }
 
 func (e *providerEditor) login() bool { return e.method.Login != "" }
@@ -487,7 +616,7 @@ func (e *providerEditor) Check() string {
 	if strings.TrimSpace(e.name) == "" {
 		return "provider_name_required"
 	}
-	if e.method.Custom && !strings.HasPrefix(e.endpoint, "http://") && !strings.HasPrefix(e.endpoint, "https://") {
+	if e.current().Custom && !strings.HasPrefix(e.endpoint, "http://") && !strings.HasPrefix(e.endpoint, "https://") {
 		return "provider_endpoint_required"
 	}
 	if e.usesKey() && !e.keySet && strings.TrimSpace(e.key) == "" {
@@ -539,19 +668,20 @@ func (e *providerEditor) save(m *Model) string {
 	switch {
 	case e.login():
 		auth = preview.AuthOAuth
-	case e.method.Access == "provider_access_endpoint":
+	case !e.usesKey():
 		auth = preview.AuthNone
 	}
 	brand := ""
 	if e.brand != nil {
 		brand = e.brand.ID
 	}
+	route := e.current()
 	if m.Live && m.ProviderActions.Save != nil {
 		if e.probing {
 			return ""
 		}
 		e.probing = true
-		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Method: e.method.ID, API: e.method.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
+		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
 		generation := e.generation
 		signIn := e.login() && e.editing == ""
 		id := e.id
@@ -576,8 +706,8 @@ func (e *providerEditor) save(m *Model) string {
 		return ""
 	}
 	id := fmt.Sprintf("%s-%d", e.method.ID, len(m.Channels)+1)
-	m.Channels = append(m.Channels, preview.Channel{ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Method: e.method.ID,
-		API: e.method.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def})
+	m.Channels = append(m.Channels, preview.Channel{ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID,
+		API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def})
 	if e.login() {
 		m.signIn(id)
 	}
@@ -636,12 +766,29 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 	}
 }
 
-// brandPicker is account logins, then the brands with API keys, as outlined
-// pills. before runs ahead of a choice and after it, as the welcome guide
-// opens the editor (nil for none).
+// loginLabel names an account sign-in: the account's product (ChatGPT,
+// Claude), else the method.
+func loginLabel(c *ui.Context, x preview.Method) string {
+	if x.Login != "" && x.Login != "provider_access_login" {
+		return i18n.T(c, x.Login)
+	}
+	return x.Name
+}
+
+// apiMethods are a brand's methods that are not account sign-ins.
+func apiMethods(b *preview.Brand) []preview.Method {
+	return slices.DeleteFunc(slices.Clone(b.Methods), func(x preview.Method) bool { return x.Login != "" })
+}
+
+// brandPicker is two groups of outlined pills, each with its heading and
+// its marks: the account sign-ins by name, one for each sign-in method,
+// then the brands that have API methods. A sign-in opens its form; a brand
+// opens its only API method's form or asks which. before runs ahead of a
+// choice and after it, as the welcome guide opens the editor (nil for
+// none).
 func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	p := theme.Of(c)
-	chip := func(key, label string, brand string, pick func()) {
+	chip := func(key, label, mark string, pick func()) {
 		b := ui.ButtonBase(c.Key(key)).Label(label).Height(32).Padding(0, 14, 0, 10).Gap(8).Radius(999).
 			Border(1, p.Border).Background(p.ButtonSecondary).Cursor(ui.CursorPointer).OnClick(func() {
 			if m.Live && m.ProviderActions.Available != nil && !m.ProviderActions.Available() {
@@ -660,69 +807,127 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 			b.Background(p.ButtonSecondaryHover)
 		}
 		b.Children(func() {
-			ui.Row(c).Size(16, 16).Center().Children(func() {
-				if ic := icons.Providers[brand]; ic != nil {
-					// In the mark's own brand colors (Lobe Icons').
-					ui.Image(c, ic).Size(16, 16)
-				} else {
-					ui.Text(c, string([]rune(label)[:1])).FontSize(12).FontWeight(600)
-				}
-			})
+			kit.Logo(c, mark, label, 16)
 			ui.Text(c, label).FontSize(14).SingleLine()
 		})
 	}
-	group := func(key string, fill func()) {
+	group := func(key string, n int, fill func()) {
+		if n == 0 {
+			return
+		}
 		ui.Column(c.Key(key)).Gap(8).FillWidth().Children(func() {
 			ui.Text(c, i18n.T(c, key)).FontSize(12).TextColor(p.MutedForeground)
 			ui.Row(c).Wrap().Gap(8).Children(fill)
 		})
 	}
+	type login struct {
+		brand  *preview.Brand
+		method preview.Method
+		label  string
+	}
+	var logins []login
+	var brands []*preview.Brand
+	for i := range m.Brands {
+		b := &m.Brands[i]
+		for _, x := range b.Methods {
+			if x.Login != "" {
+				logins = append(logins, login{b, x, loginLabel(c, x)})
+			}
+		}
+		if len(apiMethods(b)) > 0 {
+			brands = append(brands, b)
+		}
+	}
+	slices.SortStableFunc(logins, func(a, b login) int { return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label)) })
 	e := &m.provider
 	ui.Column(c.Key("picker")).Gap(20).Padding(10, 12, 28, 12).Children(func() {
-		if !m.Live {
-			group("provider_access_login", func() {
-				for i := range m.Brands {
-					b := &m.Brands[i]
-					for _, x := range b.Methods {
-						if x.Login != "" {
-							chip("login-"+x.ID, i18n.T(c, x.Login), b.ID, func() { e.brand = b; e.configure(x) })
-						}
-					}
+		group("provider_access_login", len(logins), func() {
+			for _, x := range logins {
+				mark := x.method.Icon
+				if mark == "" {
+					mark = x.brand.ID
 				}
-			})
-		}
-		group("provider_access_key", func() {
-			for i := range m.Brands {
-				b := &m.Brands[i]
-				if slices.ContainsFunc(b.Methods, func(x preview.Method) bool { return x.Login == "" }) {
-					chip("api-"+b.ID, b.Name, b.ID, func() {
-						api := *b
-						api.Methods = slices.DeleteFunc(slices.Clone(b.Methods), func(x preview.Method) bool { return x.Login != "" })
-						e.choose(&api)
-					})
-				}
+				chip("login-"+x.method.ID, x.label, mark, func() { e.choose(x.brand, []preview.Method{x.method}) })
+			}
+		})
+		group("provider_access_key", len(brands), func() {
+			for _, b := range brands {
+				chip("api-"+b.ID, b.Name, b.ID, func() { e.choose(b, apiMethods(b)) })
 			}
 		})
 	})
 }
 
-// methodList is the brand over its methods, each a row with how it is
-// accessed and a chevron.
+// methodList is the brand over the methods its choice offered, each a row
+// with how it is accessed and a chevron.
 func methodList(c *ui.Context, e *providerEditor) {
 	if e.brand == nil {
 		return
 	}
 	ui.Column(c.Key("methods")).Padding(15, 12, 30, 12).Children(func() {
 		ui.Row(c).Gap(12).Padding(0, 0, 22, 0).Children(func() {
-			ui.Row(c).Size(29, 29).Center().Children(func() { kit.Tile(c, e.brand.Name, icons.Providers[e.brand.ID]) })
+			ui.Row(c).Size(29, 29).Center().Children(func() { kit.Tile(c, e.brand.Name, icons.Brand(e.brand.ID)) })
 			ui.Text(c, e.brand.Name).FontSize(18).FontWeight(500).SingleLine()
 		})
-		modalList(c, "list", "", "", "", len(e.brand.Methods), func() {
-			for _, x := range e.brand.Methods {
+		modalList(c, "list", "", "", "", len(e.methods), func() {
+			for _, x := range e.methods {
 				listRow{subtitle: i18n.T(c, x.Access), chevron: true, onClick: func() { e.configure(x) }}.row(c, x.ID, x.Name)
 			}
 		}, nil)
 	})
+}
+
+// protocolName names a wire protocol: the two OpenAI ones by their i18n
+// keys, another as it is written.
+func protocolName(c *ui.Context, api string) string {
+	switch api {
+	case "responses":
+		return i18n.T(c, "provider_api_responses")
+	case "chat_completions":
+		return i18n.T(c, "provider_api_chat_completions")
+	}
+	return api
+}
+
+// routeName names a route in an axis's control.
+func routeName(c *ui.Context, r preview.Route, axis routeAxis) string {
+	switch {
+	case axis == axisProtocol:
+		return protocolName(c, r.API)
+	case axis == axisRegion && r.Region == "china":
+		return i18n.T(c, "provider_region_china")
+	case axis == axisRegion:
+		return i18n.T(c, "provider_region_global")
+	case r.ProductName != "":
+		return r.ProductName
+	case r.Product == "coding":
+		return i18n.T(c, "provider_coding")
+	}
+	return i18n.T(c, "provider_metered")
+}
+
+// routeField is an axis's segmented control where the method has several
+// routes along it; an edited channel keeps its route, so it is disabled.
+func routeField(c *ui.Context, e *providerEditor, key, label string, axis routeAxis) bool {
+	choices := e.choices(axis)
+	if len(choices) < 2 {
+		return false
+	}
+	names := make([]string, len(choices))
+	for i, j := range choices {
+		names[i] = routeName(c, methodRoutes(e.method)[j], axis)
+	}
+	cur := e.current()
+	chosen := max(0, slices.IndexFunc(choices, func(j int) bool {
+		r := methodRoutes(e.method)[j]
+		return map[routeAxis]bool{axisProtocol: r.API == cur.API, axisProduct: r.Product == cur.Product, axisRegion: r.Region == cur.Region}[axis]
+	}))
+	kit.Field(c, key, label, "", func() {
+		if kit.Segmented(c, "segments", &chosen, names, kit.SegmentedProps{Block: true, Disabled: e.editing != "" || e.probing}).Label(label).Changed() {
+			e.switchRoute(choices[chosen])
+		}
+	})
+	return true
 }
 
 // providerForm is the preview note, the fields the method needs, Get API key,
@@ -740,15 +945,18 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 	}
 	ui.Column(c.Key("form")).Gap(16).Children(func() {
 		input("name", t("settings_name"), t("provider_name_hint"), &e.name, false)
-		if e.method.API != "" {
+		// The protocol is a choice where the method has several, and the
+		// plain name of a method that names its only one.
+		if !routeField(c, e, "api", t("provider_api"), axisProtocol) && len(e.method.Routes) == 0 && e.method.API != "" {
 			kit.Field(c, "api", t("provider_api"), "", func() {
-				ui.Text(c, e.method.API).FontSize(14).Height(32).Padding(6, 12).FillWidth().Border(1, p.Input).Radius(p.Radius).
-					TextColor(p.MutedForeground)
+				ui.Text(c, protocolName(c, e.method.API)).FontSize(14).Height(32).Padding(6, 0).FillWidth().TextColor(p.MutedForeground)
 			})
 		}
-		if e.method.Custom {
+		if e.current().Custom {
 			input("endpoint", t("provider_endpoint"), t("provider_endpoint_hint"), &e.endpoint, false)
 		}
+		routeField(c, e, "product", t("provider_product"), axisProduct)
+		routeField(c, e, "region", t("provider_region"), axisRegion)
 		if e.usesKey() {
 			hint := t("provider_key_hint")
 			if e.keySet {
@@ -783,7 +991,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			kit.Secondary(c.Key("discover"), label).Disabled(e.probing).OnClick(func() {
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
-					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.method.API, Endpoint: e.endpoint, Method: e.method.ID}, Key: e.key, ExpectedRevision: e.revision}
+					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID}, Key: e.key, ExpectedRevision: e.revision}
 					generation := e.generation
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {

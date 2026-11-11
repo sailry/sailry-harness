@@ -71,51 +71,142 @@ func (r *Runtime) readProviders() {
 	r.projectProviderSnapshot()
 }
 
+// presetBrand is the family an entry belongs to: its declared brand, else
+// itself, apart for each source.
+func presetBrand(entry protocol.ConversationPresetsEntry) string {
+	name := entry.Preset.ID
+	if entry.Preset.Brand != nil {
+		name = *entry.Preset.Brand
+	}
+	switch entry.Source.Kind {
+	case "partner":
+		return "partner:" + name
+	case "package":
+		if entry.Package != nil {
+			return "package:" + entry.Package.Name + ":" + name
+		}
+	}
+	return name
+}
+
+// applyPresets projects the Node's preset directory as the brands the
+// editor and the family filter offer. An entry is one method of its brand,
+// and its routes (protocol, product, region) are that method's variants,
+// not methods of their own. A brand is named by the display its first
+// offered entry declares, else by the entry the brand is named after
+// (brand "openai" is the "openai" entry, whatever sign-in or compatible
+// entry is listed first), else by that first entry. Brands are in name
+// order. Every entry, offered or not, stays known for the channels saved
+// with it.
 func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
+	r.providerPresets = map[string]protocol.ConversationPresetsEntry{}
+	r.providerBrands = map[string]string{}
+	bases := map[string]string{}
+	for _, entry := range listing.Entries {
+		p := entry.Preset
+		key := presetBrand(entry)
+		if base := key[strings.LastIndex(key, ":")+1:]; p.ID == base {
+			bases[key] = p.Name
+			if p.BrandDisplay != nil {
+				bases[key] = p.BrandDisplay.Label
+			}
+		}
+	}
 	var brands []viewmodel.Brand
 	for _, entry := range listing.Entries {
 		p := entry.Preset
+		source := entry.Source.Kind
+		if entry.Package != nil {
+			source += ":" + entry.Package.Name
+		}
+		for i := range p.Routes {
+			r.providerPresets[fmt.Sprintf("%s:%s/%d", source, p.ID, i)] = entry
+		}
+		key := presetBrand(entry)
+		if _, named := r.providerBrands[key]; !named || p.Offered && !slices.ContainsFunc(brands, func(v viewmodel.Brand) bool { return v.ID == key }) {
+			name := p.Name
+			if p.BrandDisplay != nil {
+				name = p.BrandDisplay.Label
+			} else if base, ok := bases[key]; ok {
+				name = base
+			}
+			r.providerBrands[key] = name
+		}
 		if !p.Offered {
 			continue
 		}
-		brand := p.ID
-		if p.Brand != nil {
-			brand = *p.Brand
-		}
-		index := slices.IndexFunc(brands, func(v viewmodel.Brand) bool { return v.ID == brand })
+		index := slices.IndexFunc(brands, func(v viewmodel.Brand) bool { return v.ID == key })
 		if index < 0 {
-			brands = append(brands, viewmodel.Brand{ID: brand, Name: p.Name})
+			brands = append(brands, viewmodel.Brand{ID: key, Name: r.providerBrands[key]})
 			index = len(brands) - 1
 		}
-		for i, route := range p.Routes {
-			source := entry.Source.Kind
-			if entry.Package != nil {
-				source += ":" + entry.Package.Name
+		method := viewmodel.Method{ID: source + ":" + p.ID, Name: p.Name, Icon: p.ID, Access: "provider_access_key"}
+		switch p.Auth.Kind {
+		case "builtin":
+			method.Access, method.Login, method.OAuthFields = "provider_access_login", "provider_access_login", true
+			auth, _ := detail[protocol.ConversationPresetsAuthBuiltinPayload](p.Auth.Data)
+			if auth.Authentication == protocol.AuthenticationClaudeOAuth {
+				method.Login = "provider_login_claude"
+			} else if auth.Authentication == protocol.AuthenticationChatGpt || auth.Authentication == protocol.AuthenticationChatGptOAuth {
+				method.Login = "provider_login_chat_gpt"
 			}
-			id := fmt.Sprintf("%s:%s/%d", source, p.ID, i)
-			method := viewmodel.Method{ID: id, Name: p.Name, Access: "provider_access_key", API: string(apiForProtocol(route.Protocol)), Endpoint: route.Endpoint, Custom: route.Endpoint == ""}
-			switch p.Auth.Kind {
-			case "builtin":
-				method.Access, method.Login, method.OAuthFields = "provider_access_login", "provider_access_login", true
-				auth, _ := detail[protocol.ConversationPresetsAuthBuiltinPayload](p.Auth.Data)
-				if auth.Authentication == protocol.AuthenticationClaudeOAuth {
-					method.Login = "provider_login_claude"
-				} else if auth.Authentication == protocol.AuthenticationChatGpt || auth.Authentication == protocol.AuthenticationChatGptOAuth {
-					method.Login = "provider_login_chat_gpt"
-				}
-			case "plugin":
-				method.Access, method.Login = "provider_access_login", "provider_access_login"
-			case "none":
-				method.Access = "provider_access_endpoint"
+		case "plugin":
+			method.Access, method.Login = "provider_access_login", "provider_access_login"
+		case "none":
+			method.Access = "provider_access_endpoint"
+		default:
+			// An API key for an address the user gives.
+			if len(p.Routes) > 0 && p.Routes[0].Endpoint == "" {
+				method.Access, method.Keyed = "provider_access_endpoint", true
 			}
-			if p.KeyUrl != nil {
-				method.KeyURL = *p.KeyUrl
-			}
-			brands[index].Methods = append(brands[index].Methods, method)
-			r.providerPresets[id] = entry
 		}
+		if p.KeyUrl != nil {
+			method.KeyURL = *p.KeyUrl
+		}
+		var static []string
+		if p.Models.Kind == "static" {
+			if models, ok := detail[protocol.ConversationPresetsModelsStaticPayload](p.Models.Data); ok {
+				static = models.IDs
+			}
+		}
+		for i, route := range p.Routes {
+			v := viewmodel.Route{ID: fmt.Sprintf("%s/%d", method.ID, i), API: string(apiForProtocol(route.Protocol)), Endpoint: route.Endpoint, Custom: route.Endpoint == "", Models: static}
+			if route.Region != nil {
+				v.Region = string(*route.Region)
+			}
+			if route.Product != nil {
+				v.Product = string(*route.Product)
+				for _, product := range p.Products {
+					if product.Kind != *route.Product {
+						continue
+					}
+					if product.Display != nil {
+						v.ProductName = product.Display.Label
+					}
+					// The product's own model first, then the preset's.
+					if product.DefaultModel != nil {
+						v.Models = append([]string{*product.DefaultModel}, slices.DeleteFunc(slices.Clone(static), func(id string) bool { return id == *product.DefaultModel })...)
+					}
+				}
+			}
+			method.Routes = append(method.Routes, v)
+		}
+		brands[index].Methods = append(brands[index].Methods, method)
 	}
+	slices.SortStableFunc(brands, func(a, b viewmodel.Brand) int {
+		if order := strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 	r.App.Settings.Brands = brands
+}
+
+// apiBrands are the families of channels saved without a preset, by their
+// wire protocol.
+var apiBrands = map[protocol.ConversationModelApi]string{
+	"responses": "openai", "chat_completions": "openai", "anthropic": "anthropic", "gemini": "gemini",
+	"deepseek": "deepseek", "open_code_go": "opencode", "open_code_zen": "opencode", "azure_open_ai": "azure-openai", "azure_ai": "azure-ai",
 }
 
 func apiForProtocol(p protocol.ConversationPresetsProtocol) protocol.ConversationModelApi {
@@ -192,14 +283,14 @@ func (r *Runtime) projectProviderSnapshot() {
 					if entry.Preset.Auth.Kind == "none" {
 						ch.Auth = viewmodel.AuthNone
 					}
-					if entry.Preset.Brand != nil {
-						ch.Brand = *entry.Preset.Brand
-					} else {
-						ch.Brand = entry.Preset.ID
-					}
+					ch.Brand, ch.Icon = presetBrand(entry), entry.Preset.ID
 				}
 			}
 		}
+		if ch.Brand == "" {
+			ch.Brand = apiBrands[p.Api]
+		}
+		ch.BrandName = r.providerBrands[ch.Brand]
 		for i, m := range p.Models {
 			ch.Models = append(ch.Models, channelModel(m))
 			if m.ID == p.DefaultModel {
@@ -264,6 +355,10 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			if route, err := strconv.Atoi(index); err == nil && route >= 0 && route < len(entry.Preset.Routes) {
 				value := presetRouteKey(entry.Preset.Routes[route])
 				ref.Route = &value
+				// A hosted service's product travels with the provider.
+				if product := value.Product; product != nil && (p.Api == protocol.ConversationModelApiChatCompletions || p.Api == protocol.ConversationModelApiAnthropic || p.Api == protocol.ConversationModelApiDeepSeek) {
+					p.Options = &protocol.ConversationConnectionOptions{Kind: "hosted", Data: protocol.ConversationConnectionOptionsHostedPayload{Product: *product}}
+				}
 			}
 		}
 		p.Preset = &ref
