@@ -36,8 +36,8 @@ func (a *App) header(c *ui.Context, f frame) {
 				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground).Opacity(f.nav)
 				// A short divider over the sidebar's edge, apart from the
 				// edge's own line below the band.
-				ui.Box(c.Key("divider")).Absolute().Right(0).Top((HeaderHeight-16)/2).Size(1, 16).
-					Background(p.Border).Opacity(f.nav)
+				ui.Box(c.Key("divider")).Absolute().Right(0).Top((HeaderHeight-dividerHeight)/2).Size(1, dividerHeight).
+					Background(p.TitleBarBorder).Opacity(f.nav)
 			}
 		})
 		pad := max(lights-left, 0) + 12
@@ -88,9 +88,10 @@ func (a *App) headerSide(c *ui.Context, f frame, end float32) {
 	shown := f.panelW * f.details
 	ui.Row(c.Key("side")).Height(HeaderHeight).Shrink(0).MinWidth(shown).PaddingEnd(end).Gap(ButtonGap).Children(func() {
 		if f.details > 0.001 {
-			// The column divider, continued through the band: the panel
-			// column's own left border is at the same place.
-			ui.Box(c.Key("split")).Absolute().Right(shown-1).Top(0).Size(1, HeaderHeight).Background(p.Border)
+			// A short divider over the panel column's left border, as the
+			// one over the sidebar's edge: same height and colour.
+			ui.Box(c.Key("split")).Absolute().Right(shown-1).Top((HeaderHeight-dividerHeight)/2).Size(1, dividerHeight).
+				Background(p.TitleBarBorder)
 			// The segment asks for no width of its own and takes what the
 			// column's width leaves beside the cluster, so the side is never
 			// wider than the column for its tabs.
@@ -212,3 +213,7 @@ func (a *App) trail(c *ui.Context) {
 		a.Sidebar.Reveal(pr.ID)
 	}
 }
+
+// dividerHeight is the height of the band's two short dividers, over the
+// sidebar's edge and over the panel's: both in the title bar's border colour.
+const dividerHeight = 16

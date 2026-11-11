@@ -660,11 +660,13 @@ func TestHeaderClearsTrafficLights(t *testing.T) {
 	t.Run("header split", testHeaderSplit)
 }
 
-// headerLine is the x of the 1 DIP line the header's band shows between
-// from and to, -1 without exactly one: a column of pixels unlike those 2
-// DIPs on either side of it, at the band's top and bottom alike.
-func headerLine(tt *ui.Tester, from, to float32) float32 {
-	return lineAt(tt, from, to, 4, HeaderHeight-4)
+// headerLine reports the band's short divider at x: a one-DIP line there at
+// the band's middle, and none at its top, where a full-height line would be.
+func headerLine(tt *ui.Tester, x float32) float32 {
+	if lineAt(tt, x-2, x+3, HeaderHeight/2-6, HeaderHeight/2+6) == x && lineAt(tt, x-2, x+3, 3, 3) < 0 {
+		return x
+	}
+	return -1
 }
 
 // lineAt finds the one vertical line between from and to that shows on both
@@ -808,7 +810,7 @@ func testHeaderSplit(t *testing.T) {
 					cluster = st.X
 				}
 				g := tag()
-				line := headerLine(tt, RailWidth+NavWidth, 1280-inset-12)
+				line := headerLine(tt, split)
 				if !open {
 					if end(g) != cluster-ButtonGap {
 						t.Errorf("%s: the page's actions end at %v, the cluster starts at %v", name, end(g), cluster)
@@ -832,7 +834,7 @@ func testHeaderSplit(t *testing.T) {
 	// The divider follows the column as it is resized.
 	a.PanelOpen, a.PanelWidth = true, 480
 	still(tt)
-	if line, col := headerLine(tt, RailWidth+NavWidth, 1200), lineAt(tt, 700, 900, HeaderHeight+40, 700); line != 800 || col != 800 {
+	if line, col := headerLine(tt, 800), lineAt(tt, 700, 900, HeaderHeight+40, 700); line != 800 || col != 800 {
 		t.Errorf("resized: the band's divider is at %v, the column's at %v, want 800", line, col)
 	}
 	a.PanelWidth = PanelWidth
@@ -902,7 +904,7 @@ func testHeaderSplit(t *testing.T) {
 	// The toggle is the panel's close control.
 	clickButton(t, tt, en("details"))
 	still(tt)
-	if a.PanelOpen || headerLine(tt, RailWidth+NavWidth, 1200) >= 0 {
+	if a.PanelOpen || headerLine(tt, split) >= 0 {
 		t.Error("the fold toggle did not close the panel")
 	}
 	shot(t, tt, "en-conversation-panel-closed")
@@ -917,7 +919,7 @@ func testHeaderSplit(t *testing.T) {
 	if f := fold(); f.Disabled {
 		t.Errorf("the host page's toggle is %+v", f)
 	}
-	if headerLine(tt, RailWidth+NavWidth, 1200) != split {
+	if headerLine(tt, split) != split {
 		t.Error("the host page's band has no divider at the split")
 	}
 
