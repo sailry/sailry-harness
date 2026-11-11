@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginSettingsSchema struct {
@@ -91,14 +90,7 @@ const (
 	PluginSettingsObjectObject PluginSettingsObject = "object"
 )
 
-func (value PluginSettingsObject) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginSettingsObjectObject:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginSettingsObject %q", value)
-	}
-}
+func (value PluginSettingsObject) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginSettingsObject) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -109,7 +101,7 @@ func (value *PluginSettingsObject) UnmarshalJSON(data []byte) error {
 		*value = PluginSettingsObject(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginSettingsObject %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginSettingsObject) MarshalText() ([]byte, error) {
@@ -194,14 +186,7 @@ const (
 	PluginSettingsKindBoolean PluginSettingsKind = "boolean"
 )
 
-func (value PluginSettingsKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginSettingsKindString, PluginSettingsKindInteger, PluginSettingsKindNumber, PluginSettingsKindBoolean:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginSettingsKind %q", value)
-	}
-}
+func (value PluginSettingsKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginSettingsKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -212,7 +197,7 @@ func (value *PluginSettingsKind) UnmarshalJSON(data []byte) error {
 		*value = PluginSettingsKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginSettingsKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginSettingsKind) MarshalText() ([]byte, error) {

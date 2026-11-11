@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type UsageQuery struct {
@@ -167,14 +166,7 @@ const (
 	UsageDimensionWorktree UsageDimension = "worktree"
 )
 
-func (value UsageDimension) MarshalJSON() ([]byte, error) {
-	switch value {
-	case UsageDimensionProvider, UsageDimensionModel, UsageDimensionProject, UsageDimensionWorktree:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown UsageDimension %q", value)
-	}
-}
+func (value UsageDimension) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *UsageDimension) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -185,7 +177,7 @@ func (value *UsageDimension) UnmarshalJSON(data []byte) error {
 		*value = UsageDimension(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown UsageDimension %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value UsageDimension) MarshalText() ([]byte, error) {

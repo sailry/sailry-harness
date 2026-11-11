@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ToolFailureOrigin string
@@ -14,14 +13,7 @@ const (
 	ToolFailureOriginTool    ToolFailureOrigin = "tool"
 )
 
-func (value ToolFailureOrigin) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolFailureOriginRuntime, ToolFailureOriginTool:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolFailureOrigin %q", value)
-	}
-}
+func (value ToolFailureOrigin) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolFailureOrigin) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ToolFailureOrigin) UnmarshalJSON(data []byte) error {
 		*value = ToolFailureOrigin(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolFailureOrigin %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolFailureOrigin) MarshalText() ([]byte, error) {

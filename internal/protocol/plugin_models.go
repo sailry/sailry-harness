@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginModelsKind string
@@ -13,14 +12,7 @@ const (
 	PluginModelsKindProvider PluginModelsKind = "provider"
 )
 
-func (value PluginModelsKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelsKindProvider:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelsKind %q", value)
-	}
-}
+func (value PluginModelsKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelsKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -31,7 +23,7 @@ func (value *PluginModelsKind) UnmarshalJSON(data []byte) error {
 		*value = PluginModelsKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelsKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelsKind) MarshalText() ([]byte, error) {

@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationCheckpointHunk struct {
@@ -84,12 +83,7 @@ const (
 )
 
 func (value ConversationCheckpointHunkOperation) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationCheckpointHunkOperationReject, ConversationCheckpointHunkOperationStage:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationCheckpointHunkOperation %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *ConversationCheckpointHunkOperation) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -101,7 +95,7 @@ func (value *ConversationCheckpointHunkOperation) UnmarshalJSON(data []byte) err
 		*value = ConversationCheckpointHunkOperation(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationCheckpointHunkOperation %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationCheckpointHunkOperation) MarshalText() ([]byte, error) {

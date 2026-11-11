@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type CodeIndexSearch struct {
@@ -126,14 +125,7 @@ const (
 	CodeIndexStatusFailed      CodeIndexStatus = "failed"
 )
 
-func (value CodeIndexStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case CodeIndexStatusParsed, CodeIndexStatusUnsupported, CodeIndexStatusTooLarge, CodeIndexStatusInvalid, CodeIndexStatusFailed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown CodeIndexStatus %q", value)
-	}
-}
+func (value CodeIndexStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *CodeIndexStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -144,7 +136,7 @@ func (value *CodeIndexStatus) UnmarshalJSON(data []byte) error {
 		*value = CodeIndexStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown CodeIndexStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value CodeIndexStatus) MarshalText() ([]byte, error) {

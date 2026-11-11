@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type Effort struct {
@@ -50,14 +49,7 @@ const (
 	PermissionFull    Permission = "full"
 )
 
-func (value Permission) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PermissionAsk, PermissionProject, PermissionFull:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown Permission %q", value)
-	}
-}
+func (value Permission) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *Permission) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *Permission) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -69,7 +61,7 @@ func (value *Permission) DecodeJSON(decoder *Decoder) error {
 		*value = Permission(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown Permission %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value Permission) MarshalText() ([]byte, error) {
@@ -94,14 +86,7 @@ const (
 	WorkModeFlagship WorkMode = "flagship"
 )
 
-func (value WorkMode) MarshalJSON() ([]byte, error) {
-	switch value {
-	case WorkModePlan, WorkModeCode, WorkModeFlagship:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown WorkMode %q", value)
-	}
-}
+func (value WorkMode) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *WorkMode) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *WorkMode) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -113,7 +98,7 @@ func (value *WorkMode) DecodeJSON(decoder *Decoder) error {
 		*value = WorkMode(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown WorkMode %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value WorkMode) MarshalText() ([]byte, error) {

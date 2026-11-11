@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ToolPresentation string
@@ -17,14 +16,7 @@ const (
 	ToolPresentationDetails  ToolPresentation = "details"
 )
 
-func (value ToolPresentation) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolPresentationSummary, ToolPresentationHidden, ToolPresentationProgress, ToolPresentationContent, ToolPresentationDetails:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolPresentation %q", value)
-	}
-}
+func (value ToolPresentation) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ToolPresentation) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ToolPresentation) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -36,7 +28,7 @@ func (value *ToolPresentation) DecodeJSON(decoder *Decoder) error {
 		*value = ToolPresentation(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolPresentation %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ToolPresentation) MarshalText() ([]byte, error) {
@@ -60,14 +52,7 @@ const (
 	ToolGroupingStandalone ToolGrouping = "standalone"
 )
 
-func (value ToolGrouping) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolGroupingSequence, ToolGroupingStandalone:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolGrouping %q", value)
-	}
-}
+func (value ToolGrouping) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ToolGrouping) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ToolGrouping) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -79,7 +64,7 @@ func (value *ToolGrouping) DecodeJSON(decoder *Decoder) error {
 		*value = ToolGrouping(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolGrouping %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ToolGrouping) MarshalText() ([]byte, error) {
@@ -317,14 +302,7 @@ const (
 	ToolOperationWriteCommand            ToolOperation = "process.write"
 )
 
-func (value ToolOperation) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolOperationInstallModel, ToolOperationRemoveModel, ToolOperationListRoles, ToolOperationSaveRole, ToolOperationRemoveRole, ToolOperationApplyRoles, ToolOperationReadArtifact, ToolOperationListArtifacts, ToolOperationListArtifactRevisions, ToolOperationWriteArtifact, ToolOperationSearchCode, ToolOperationOutlineCode, ToolOperationGraphCode, ToolOperationCodePackages, ToolOperationCodeCatalog, ToolOperationCodeServers, ToolOperationStartCodeServer, ToolOperationStopCodeServer, ToolOperationInstallCodeServer, ToolOperationUninstallCodeServer, ToolOperationCodeDiagnostics, ToolOperationCodeDefinition, ToolOperationCodeReferences, ToolOperationCodeHover, ToolOperationCodeSymbols, ToolOperationInspectGit, ToolOperationReadGitDiff, ToolOperationReadGitLog, ToolOperationReadGitShow, ToolOperationReadGitBlame, ToolOperationListGitChanges, ToolOperationReadGitChange, ToolOperationListWorktrees, ToolOperationCreateManagedWorktree, ToolOperationRegisterWorktree, ToolOperationRemoveWorktree, ToolOperationListDatabaseConnections, ToolOperationSaveDatabaseConnection, ToolOperationListSshConnections, ToolOperationSaveSshConnection, ToolOperationBrowseDatabase, ToolOperationQueryDatabase, ToolOperationExecuteDatabase, ToolOperationRunSsh, ToolOperationTransferSsh, ToolOperationDelegateAgent, ToolOperationGuideAgent, ToolOperationWaitAgent, ToolOperationListDirectory, ToolOperationReadFile, ToolOperationReadFileLines, ToolOperationWriteFile, ToolOperationEditFile, ToolOperationDeleteFile, ToolOperationMoveFile, ToolOperationApplyChanges, ToolOperationCreateDirectory, ToolOperationFindFiles, ToolOperationSearchFiles, ToolOperationReadOffice, ToolOperationReadNotebook, ToolOperationEditNotebook, ToolOperationInspectMedia, ToolOperationGenerateImage, ToolOperationGenerateVideo, ToolOperationReadComputer, ToolOperationControlComputer, ToolOperationReadBrowser, ToolOperationControlBrowser, ToolOperationReadExternalBrowser, ToolOperationControlExternalBrowser, ToolOperationHttp, ToolOperationFetchWeb, ToolOperationSearchWeb, ToolOperationProgress, ToolOperationGetValue, ToolOperationListKeys, ToolOperationSetValue, ToolOperationDeleteValue, ToolOperationStorageTransaction, ToolOperationKnowledgeQuery, ToolOperationKnowledgeRead, ToolOperationKnowledgeCollections, ToolOperationKnowledgeCreate, ToolOperationKnowledgeRebuild, ToolOperationKnowledgeRemove, ToolOperationReadSettings, ToolOperationRunCommand, ToolOperationReadCommand, ToolOperationStopCommand, ToolOperationWriteCommand:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolOperation %q", value)
-	}
-}
+func (value ToolOperation) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolOperation) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -335,7 +313,7 @@ func (value *ToolOperation) UnmarshalJSON(data []byte) error {
 		*value = ToolOperation(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolOperation %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolOperation) MarshalText() ([]byte, error) {

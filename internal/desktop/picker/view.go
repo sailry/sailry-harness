@@ -195,12 +195,17 @@ func (s *State) ask() {
 	s.jump.open, s.jump.query, s.jump.row = true, s.target, 0
 }
 
-// placeName is a location's label: its own, or its kind's.
+// placeName is a location's label: its own, or its kind's. A kind this build
+// does not declare has no label, so its path stands for it.
 func placeName(c *ui.Context, loc Location) string {
 	if loc.Name != "" {
 		return loc.Name
 	}
-	return i18n.T(c, "directory_"+loc.Kind)
+	switch loc.Kind {
+	case "home", "desktop", "documents", "downloads", "applications", "volume", "root":
+		return i18n.T(c, "directory_"+loc.Kind)
+	}
+	return loc.Path
 }
 
 // places is the sidebar: the dialog's title, level with the header bar,

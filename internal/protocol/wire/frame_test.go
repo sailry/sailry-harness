@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"reflect"
@@ -468,4 +469,90 @@ func snapshotFixture(t *testing.T, batch string) protocol.Snapshot {
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+// TestFrameTolerance reads frames from a build of the same protocol version
+// that declares more than this one. A reply is a peer's report: its
+// undeclared members, enum values and variants do not fail the frame. An
+// envelope is a peer's request: an undeclared member is ignored and an
+// undeclared command or value is refused. A frame of any other kind is
+// checked exactly.
+func TestFrameTolerance(t *testing.T) {
+	t.Parallel()
+	node := "[" + strings.Repeat("1,", 31) + "1]"
+	read := func(t *testing.T, data string, value any) error {
+		t.Helper()
+		var stream bytes.Buffer
+		if err := Write(&stream, json.RawMessage(data), false); err != nil {
+			t.Fatalf("write frame: %v", err)
+		}
+		return Read(&stream, value, false)
+	}
+	t.Run("reply with an undeclared fault detail", func(t *testing.T) {
+		t.Parallel()
+		var reply Reply
+		err := read(t, `{"kind":"completed","data":{"Err":{"code":"conflict","message":"refused","future_hint":1,"details":{"kind":"future_details","count":3}}},"future_trace":"t"}`, &reply)
+		if err != nil {
+			t.Fatalf("reply refused: %v", err)
+		}
+		fault := reply.Completed.Fault
+		if fault == nil || fault.Code != protocol.ErrorCodeConflict || fault.Message != "refused" || fault.Details == nil || fault.Details.Kind != "future_details" {
+			t.Fatalf("fault = %+v", fault)
+		}
+	})
+	t.Run("reply with an undeclared enum value and member", func(t *testing.T) {
+		t.Parallel()
+		var reply Reply
+		err := read(t, `{"kind":"completed","data":{"Ok":{"kind":"backup","data":{"id":"b","node":`+node+`,"created_ms":1,"size_bytes":2,"files":3,"sha256":"00","future_verified":true}}}}`, &reply)
+		if err != nil {
+			t.Fatalf("reply refused: %v", err)
+		}
+		if record, ok := reply.Completed.Output.Data.(*protocol.BackupRecord); !ok || record.ID != "b" {
+			t.Fatalf("output = %+v", reply.Completed.Output)
+		}
+		err = read(t, `{"kind":"rejected","data":{"code":"future_code","message":"new"}}`, &reply)
+		if err != nil || reply.Rejected == nil || reply.Rejected.Code != "future_code" {
+			t.Fatalf("fault with an undeclared code: %+v, %v", reply.Rejected, err)
+		}
+	})
+	t.Run("reply of an undeclared kind", func(t *testing.T) {
+		t.Parallel()
+		var reply Reply
+		if err := read(t, `{"kind":"future_reply","data":{}}`, &reply); err != nil || reply.Kind != "future_reply" {
+			t.Fatalf("reply = %+v, %v", reply, err)
+		}
+		if err := read(t, `{"kind":"completed","data":{"Later":{}}}`, &reply); err == nil {
+			t.Fatal("a result that is neither an output nor a fault was delivered")
+		}
+	})
+	t.Run("envelope", func(t *testing.T) {
+		t.Parallel()
+		request := `{"version":1,"id":"00000000-0000-0000-0000-000000000001","target":` + node + `,"command":%s,"future_priority":1}`
+		for name, item := range map[string]struct {
+			command  string
+			accepted bool
+		}{
+			"declared command":  {`{"kind":"restore_backup","data":{"id":"b","expected_revision":1,"target":"/tmp/x","passphrase":null,"location":"local"}}`, true},
+			"undeclared member": {`{"kind":"restore_backup","data":{"id":"b","expected_revision":1,"target":"/tmp/x","passphrase":null,"location":"local","future_verify":true}}`, true},
+			"undeclared value":  {`{"kind":"restore_backup","data":{"id":"b","expected_revision":1,"target":"/tmp/x","passphrase":null,"location":"future_location"}}`, false},
+			"undeclared kind":   {`{"kind":"future_command","data":{}}`, false},
+		} {
+			var envelope Envelope
+			data := `{"software_version":null,"protocol":1,"zstd":false,"future_flag":true,"kind":"command","data":` + fmt.Sprintf(request, item.command) + `}`
+			if err := read(t, data, &envelope); (err == nil) != item.accepted {
+				t.Errorf("%s: %v, want accepted = %v", name, err, item.accepted)
+			}
+		}
+	})
+	t.Run("other frames stay exact", func(t *testing.T) {
+		t.Parallel()
+		var record protocol.BackupRecord
+		data := `{"id":"b","node":` + node + `,"created_ms":1,"size_bytes":2,"files":3,"sha256":"00"`
+		if err := read(t, data+`}`, &record); err != nil {
+			t.Fatalf("declared frame: %v", err)
+		}
+		if err := read(t, data+`,"future_verified":true}`, &record); err == nil {
+			t.Fatal("an undeclared member was accepted outside a reply or an envelope")
+		}
+	})
 }

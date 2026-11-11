@@ -26,6 +26,21 @@ func TestModel(t *testing.T) {
 	}
 	kind := func(e Entry) string { key, extension := KindKey(e); return key + extension }
 
+	// A place of a kind a newer Node declares has no label of its own here.
+	t.Run("a place of an undeclared kind", func(t *testing.T) {
+		place := Location{Kind: "title", Path: "/srv/shared"}
+		if got := placeName(nil, place); got != "/srv/shared" {
+			t.Errorf("label = %q, want its path", got)
+		}
+		place.Name = "Shared"
+		if got := placeName(nil, place); got != "Shared" {
+			t.Errorf("label = %q, want its own name", got)
+		}
+		if glyph(place) == nil {
+			t.Error("the place has no icon")
+		}
+	})
+
 	if got := names(Visible(entries, false, "")); !slices.Equal(got, []string{"zeta.txt", "Beta", "alpha.md", "alpha"}) {
 		t.Errorf("without hidden entries: %q", got)
 	}

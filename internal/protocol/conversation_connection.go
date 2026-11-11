@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationConnectionOptions struct {
@@ -81,14 +80,7 @@ const (
 	ConversationConnectionProductCoding  ConversationConnectionProduct = "coding"
 )
 
-func (value ConversationConnectionProduct) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationConnectionProductMetered, ConversationConnectionProductCoding:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationConnectionProduct %q", value)
-	}
-}
+func (value ConversationConnectionProduct) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationConnectionProduct) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -99,7 +91,7 @@ func (value *ConversationConnectionProduct) UnmarshalJSON(data []byte) error {
 		*value = ConversationConnectionProduct(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationConnectionProduct %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationConnectionProduct) MarshalText() ([]byte, error) {

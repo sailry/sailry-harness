@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginCardReceipt struct {
@@ -218,14 +217,7 @@ const (
 	PluginCardModeExternal PluginCardMode = "external"
 )
 
-func (value PluginCardMode) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginCardModeEmbedded, PluginCardModeExternal:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginCardMode %q", value)
-	}
-}
+func (value PluginCardMode) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginCardMode) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -236,7 +228,7 @@ func (value *PluginCardMode) UnmarshalJSON(data []byte) error {
 		*value = PluginCardMode(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginCardMode %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginCardMode) MarshalText() ([]byte, error) {

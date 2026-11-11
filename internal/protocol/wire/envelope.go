@@ -100,7 +100,7 @@ func (envelope *Envelope) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var call Call
-	if err := json.Unmarshal(data, &call); err != nil {
+	if err := call.UnmarshalJSON(data); err != nil {
 		return err
 	}
 	*envelope = Envelope{metadata.SoftwareVersion, metadata.Protocol, metadata.Zstd, call}
@@ -166,10 +166,14 @@ func (response *Response) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	decoded := Response{}
-	if kind == "Ok" {
+	switch kind {
+	case "Ok":
 		decoded.Output = payload.(*protocol.Output)
-	} else {
+	case "Err":
 		decoded.Fault = payload.(*protocol.Fault)
+	default:
+		// A result that is neither is not one this build can deliver.
+		return invalid()
 	}
 	*response = decoded
 	return nil

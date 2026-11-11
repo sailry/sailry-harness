@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginUiSlot string
@@ -23,14 +22,7 @@ const (
 	PluginUiSlotCommands    PluginUiSlot = "commands"
 )
 
-func (value PluginUiSlot) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiSlotHeader, PluginUiSlotComposer, PluginUiSlotModel, PluginUiSlotContext, PluginUiSlotStatistics, PluginUiSlotFooter, PluginUiSlotProvider, PluginUiSlotStatus, PluginUiSlotProject, PluginUiSlotProjectMenu, PluginUiSlotCommands:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiSlot %q", value)
-	}
-}
+func (value PluginUiSlot) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiSlot) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -41,7 +33,7 @@ func (value *PluginUiSlot) UnmarshalJSON(data []byte) error {
 		*value = PluginUiSlot(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiSlot %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiSlot) MarshalText() ([]byte, error) {
@@ -71,14 +63,7 @@ const (
 	PluginUiKindIndicator PluginUiKind = "indicator"
 )
 
-func (value PluginUiKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiKindButton, PluginUiKindPopover, PluginUiKindToggle, PluginUiKindSelect, PluginUiKindMenu, PluginUiKindPicker, PluginUiKindMetric, PluginUiKindIndicator:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiKind %q", value)
-	}
-}
+func (value PluginUiKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -89,7 +74,7 @@ func (value *PluginUiKind) UnmarshalJSON(data []byte) error {
 		*value = PluginUiKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiKind) MarshalText() ([]byte, error) {
@@ -113,14 +98,7 @@ const (
 	PluginUiOverflowMenu PluginUiOverflow = "menu"
 )
 
-func (value PluginUiOverflow) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiOverflowAuto, PluginUiOverflowMenu:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiOverflow %q", value)
-	}
-}
+func (value PluginUiOverflow) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiOverflow) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -131,7 +109,7 @@ func (value *PluginUiOverflow) UnmarshalJSON(data []byte) error {
 		*value = PluginUiOverflow(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiOverflow %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiOverflow) MarshalText() ([]byte, error) {
@@ -155,14 +133,7 @@ const (
 	PluginUiAlignEnd   PluginUiAlign = "end"
 )
 
-func (value PluginUiAlign) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiAlignStart, PluginUiAlignEnd:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiAlign %q", value)
-	}
-}
+func (value PluginUiAlign) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiAlign) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -173,7 +144,7 @@ func (value *PluginUiAlign) UnmarshalJSON(data []byte) error {
 		*value = PluginUiAlign(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiAlign %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiAlign) MarshalText() ([]byte, error) {
@@ -199,14 +170,7 @@ const (
 	PluginUiIntentForkWorktree   PluginUiIntent = "fork_worktree"
 )
 
-func (value PluginUiIntent) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiIntentGitBranches, PluginUiIntentWorktrees, PluginUiIntentCreateWorktree, PluginUiIntentForkWorktree:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiIntent %q", value)
-	}
-}
+func (value PluginUiIntent) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiIntent) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -217,7 +181,7 @@ func (value *PluginUiIntent) UnmarshalJSON(data []byte) error {
 		*value = PluginUiIntent(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiIntent %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiIntent) MarshalText() ([]byte, error) {
@@ -351,14 +315,7 @@ const (
 	PluginUiCommandKindMessage PluginUiCommandKind = "message"
 )
 
-func (value PluginUiCommandKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiCommandKindInvoke, PluginUiCommandKindMessage:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiCommandKind %q", value)
-	}
-}
+func (value PluginUiCommandKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiCommandKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -369,7 +326,7 @@ func (value *PluginUiCommandKind) UnmarshalJSON(data []byte) error {
 		*value = PluginUiCommandKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiCommandKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiCommandKind) MarshalText() ([]byte, error) {
@@ -550,14 +507,7 @@ const (
 	PluginUiEventKindSearch PluginUiEventKind = "search"
 )
 
-func (value PluginUiEventKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiEventKindInvoke, PluginUiEventKindChange, PluginUiEventKindSearch:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiEventKind %q", value)
-	}
-}
+func (value PluginUiEventKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiEventKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -568,7 +518,7 @@ func (value *PluginUiEventKind) UnmarshalJSON(data []byte) error {
 		*value = PluginUiEventKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiEventKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiEventKind) MarshalText() ([]byte, error) {
@@ -659,14 +609,7 @@ const (
 	PluginUiToneDanger  PluginUiTone = "danger"
 )
 
-func (value PluginUiTone) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiToneMuted, PluginUiToneWarning, PluginUiToneDanger:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiTone %q", value)
-	}
-}
+func (value PluginUiTone) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiTone) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -677,7 +620,7 @@ func (value *PluginUiTone) UnmarshalJSON(data []byte) error {
 		*value = PluginUiTone(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiTone %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiTone) MarshalText() ([]byte, error) {
@@ -730,14 +673,7 @@ const (
 	PluginUiSegmentToneDanger  PluginUiSegmentTone = "danger"
 )
 
-func (value PluginUiSegmentTone) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUiSegmentToneAccent, PluginUiSegmentToneMuted, PluginUiSegmentToneSuccess, PluginUiSegmentToneWarning, PluginUiSegmentToneDanger:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUiSegmentTone %q", value)
-	}
-}
+func (value PluginUiSegmentTone) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUiSegmentTone) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -748,7 +684,7 @@ func (value *PluginUiSegmentTone) UnmarshalJSON(data []byte) error {
 		*value = PluginUiSegmentTone(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUiSegmentTone %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUiSegmentTone) MarshalText() ([]byte, error) {

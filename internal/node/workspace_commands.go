@@ -217,6 +217,9 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 			// only, so that a transfer with a remote does not hold it.
 		case "run_command", "stop_command", "stop_commands", "write_command":
 		case "create_worktree", "create_managed_worktree", "remove_worktree":
+			// Held from Git's local work to the row. A project command
+			// takes only the registration, so the root locks alone would
+			// let it move or remove the project between the two.
 			effect.release = node.locks.registration()
 		default:
 			effect.release = node.locks.effect(source, root)

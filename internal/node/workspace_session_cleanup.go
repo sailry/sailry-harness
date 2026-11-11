@@ -61,7 +61,9 @@ func (node *Node) removePrivateWorkspace(session protocol.SessionID, path string
 
 func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 	ctx := node.ctx
-	// Removing a worktree changes which roots exist, as remove_worktree does.
+	// Removing a worktree changes which roots exist, as remove_worktree does,
+	// and like it holds the registration across Git's local work: the root
+	// goes on disk before its row, and no effect may resolve it in between.
 	release := node.locks.registration()
 	defer release()
 	var capture store.WorkspaceGitCapture
@@ -84,6 +86,8 @@ func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 		return
 	}
 	node.watches.remove(path)
+	// The commit and its frame are ordered with every other publication.
+	unlock := node.agent.LockPublication()
 	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		changes, err := store.FinishRemovedWorktree(ctx, db, tree.ID)
 		if err == nil {
@@ -91,6 +95,10 @@ func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 		}
 		return err
 	})
+	if err == nil {
+		node.publish()
+	}
+	unlock()
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Error("removed worktree was not recorded", "worktree", tree.ID.String(), "error", err)
@@ -98,7 +106,6 @@ func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 		return
 	}
 	node.removeCodeIndexes(tree.ID)
-	node.publish()
 }
 
 // sweepSessionWorkspaces removes the private workspaces of removed sessions

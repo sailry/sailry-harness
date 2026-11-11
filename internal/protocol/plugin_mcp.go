@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginMcpAvailability string
@@ -21,14 +20,7 @@ const (
 	PluginMcpAvailabilityUnavailable           PluginMcpAvailability = "unavailable"
 )
 
-func (value PluginMcpAvailability) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginMcpAvailabilityAvailable, PluginMcpAvailabilityPackageDisabled, PluginMcpAvailabilityServerDisabled, PluginMcpAvailabilityConfigurationRequired, PluginMcpAvailabilityConnectionRequired, PluginMcpAvailabilityConnectionDisabled, PluginMcpAvailabilityAuthorizationExpired, PluginMcpAvailabilityConsentRequired, PluginMcpAvailabilityUnavailable:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginMcpAvailability %q", value)
-	}
-}
+func (value PluginMcpAvailability) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginMcpAvailability) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -39,7 +31,7 @@ func (value *PluginMcpAvailability) UnmarshalJSON(data []byte) error {
 		*value = PluginMcpAvailability(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginMcpAvailability %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginMcpAvailability) MarshalText() ([]byte, error) {
@@ -95,14 +87,7 @@ const (
 	PluginMcpRuntimeStateFailed     PluginMcpRuntimeState = "failed"
 )
 
-func (value PluginMcpRuntimeState) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginMcpRuntimeStateConnecting, PluginMcpRuntimeStateConnected, PluginMcpRuntimeStateFailed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginMcpRuntimeState %q", value)
-	}
-}
+func (value PluginMcpRuntimeState) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginMcpRuntimeState) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -113,7 +98,7 @@ func (value *PluginMcpRuntimeState) UnmarshalJSON(data []byte) error {
 		*value = PluginMcpRuntimeState(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginMcpRuntimeState %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginMcpRuntimeState) MarshalText() ([]byte, error) {

@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationConsentScopes struct {
@@ -195,14 +194,7 @@ const (
 	ConversationConsentScopeCredentials ConversationConsentScope = "Credentials"
 )
 
-func (value ConversationConsentScope) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationConsentScopeMessages, ConversationConsentScopeCredentials:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationConsentScope %q", value)
-	}
-}
+func (value ConversationConsentScope) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationConsentScope) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -213,7 +205,7 @@ func (value *ConversationConsentScope) UnmarshalJSON(data []byte) error {
 		*value = ConversationConsentScope(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationConsentScope %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationConsentScope) MarshalText() ([]byte, error) {

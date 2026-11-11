@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationPresetsCatalog struct {
@@ -208,14 +207,7 @@ const (
 	ConversationPresetsRegionGlobal ConversationPresetsRegion = "global"
 )
 
-func (value ConversationPresetsRegion) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationPresetsRegionChina, ConversationPresetsRegionGlobal:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationPresetsRegion %q", value)
-	}
-}
+func (value ConversationPresetsRegion) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationPresetsRegion) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -226,7 +218,7 @@ func (value *ConversationPresetsRegion) UnmarshalJSON(data []byte) error {
 		*value = ConversationPresetsRegion(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationPresetsRegion %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationPresetsRegion) MarshalText() ([]byte, error) {
@@ -258,14 +250,7 @@ const (
 	ConversationPresetsProtocolPlugin                ConversationPresetsProtocol = "plugin"
 )
 
-func (value ConversationPresetsProtocol) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationPresetsProtocolOpenAiResponses, ConversationPresetsProtocolOpenAiChatCompletions, ConversationPresetsProtocolAnthropic, ConversationPresetsProtocolGemini, ConversationPresetsProtocolDeepSeek, ConversationPresetsProtocolOpenCodeGo, ConversationPresetsProtocolOpenCodeZen, ConversationPresetsProtocolAzureOpenAi, ConversationPresetsProtocolAzureAi, ConversationPresetsProtocolPlugin:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationPresetsProtocol %q", value)
-	}
-}
+func (value ConversationPresetsProtocol) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationPresetsProtocol) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -276,7 +261,7 @@ func (value *ConversationPresetsProtocol) UnmarshalJSON(data []byte) error {
 		*value = ConversationPresetsProtocol(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationPresetsProtocol %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationPresetsProtocol) MarshalText() ([]byte, error) {
@@ -470,14 +455,7 @@ const (
 	ConversationPresetsReplayFieldReasoningContent ConversationPresetsReplayField = "reasoning_content"
 )
 
-func (value ConversationPresetsReplayField) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationPresetsReplayFieldReasoningContent:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationPresetsReplayField %q", value)
-	}
-}
+func (value ConversationPresetsReplayField) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationPresetsReplayField) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -488,7 +466,7 @@ func (value *ConversationPresetsReplayField) UnmarshalJSON(data []byte) error {
 		*value = ConversationPresetsReplayField(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationPresetsReplayField %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationPresetsReplayField) MarshalText() ([]byte, error) {
@@ -694,14 +672,7 @@ const (
 	ConversationPresetsProvenanceThirdParty ConversationPresetsProvenance = "third_party"
 )
 
-func (value ConversationPresetsProvenance) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationPresetsProvenanceOfficial, ConversationPresetsProvenanceBundled, ConversationPresetsProvenanceThirdParty:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationPresetsProvenance %q", value)
-	}
-}
+func (value ConversationPresetsProvenance) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationPresetsProvenance) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -712,7 +683,7 @@ func (value *ConversationPresetsProvenance) UnmarshalJSON(data []byte) error {
 		*value = ConversationPresetsProvenance(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationPresetsProvenance %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationPresetsProvenance) MarshalText() ([]byte, error) {

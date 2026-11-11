@@ -92,7 +92,7 @@ func (reader *Reader) read(stream io.Reader, value any, maximum int) error {
 	if err != nil {
 		return err
 	}
-	err = json.Unmarshal(data, value)
+	err = protocol.DecodeAs(tolerance(value), data, value)
 	clear(data)
 	reader.prefixRead = 0
 	reader.payloadRead = 0
@@ -101,6 +101,20 @@ func (reader *Reader) read(stream io.Reader, value any, maximum int) error {
 		return invalid()
 	}
 	return nil
+}
+
+// tolerance is what reading a frame does with input this build does not
+// declare. A reply is a peer's report and an envelope is a peer's request;
+// both come from a build of the same protocol version that may declare more.
+// Every other frame, such as a pairing claim, is checked exactly.
+func tolerance(value any) protocol.Tolerance {
+	switch value.(type) {
+	case *Reply:
+		return protocol.PeerData
+	case *Envelope:
+		return protocol.PeerCommand
+	}
+	return protocol.Authored
 }
 
 func (reader *Reader) Reply(stream io.Reader) (Reply, error) {

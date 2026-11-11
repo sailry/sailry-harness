@@ -56,6 +56,13 @@ One notification is published per event, for the session, with a localized
 heading ("Goal paused · Turn limit reached"), the objective's first line as
 title and the detail as message.
 
+These are the goal's only notifications for its states. The Node's own task
+notification (`store.runNoticed`) is raised for the turn the user started and
+not for a goal turn that completed, so a loop reports its end once, here. A
+goal turn that ended `failed` or `interrupted` also raises the Node's task
+notification with the run's fault: it tells of the run, where `error` above
+tells of the goal, and `restart` raises none of its own.
+
 A goal whose loop cannot be running is never shown as running. The package's
 reads derive `paused` when the stored status is `active` but the session's
 latest turn ended `interrupted`, `failed` or `cancelled`, or the value was

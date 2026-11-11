@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginModelAuthBinding struct {
@@ -427,14 +426,7 @@ const (
 	PluginModelAuthRedirectPaste    PluginModelAuthRedirect = "paste"
 )
 
-func (value PluginModelAuthRedirect) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelAuthRedirectLoopback, PluginModelAuthRedirectPaste:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelAuthRedirect %q", value)
-	}
-}
+func (value PluginModelAuthRedirect) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelAuthRedirect) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -445,7 +437,7 @@ func (value *PluginModelAuthRedirect) UnmarshalJSON(data []byte) error {
 		*value = PluginModelAuthRedirect(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelAuthRedirect %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelAuthRedirect) MarshalText() ([]byte, error) {
@@ -651,14 +643,7 @@ const (
 	PluginModelAuthMethodPost PluginModelAuthMethod = "POST"
 )
 
-func (value PluginModelAuthMethod) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelAuthMethodGet, PluginModelAuthMethodPost:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelAuthMethod %q", value)
-	}
-}
+func (value PluginModelAuthMethod) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelAuthMethod) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -669,7 +654,7 @@ func (value *PluginModelAuthMethod) UnmarshalJSON(data []byte) error {
 		*value = PluginModelAuthMethod(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelAuthMethod %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelAuthMethod) MarshalText() ([]byte, error) {

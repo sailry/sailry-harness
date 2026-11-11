@@ -109,6 +109,11 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		projection.snapshot.Cursor = envelope.Cursor
 		return Applied, nil
 	default:
+		// A kind of update this build does not declare carries nothing it
+		// projects.
+		if _, undeclared := update.Data.(protocol.UnknownVariant); undeclared {
+			return Ignored, nil
+		}
 		return Ignored, fault(protocol.ErrorCodeInvalidRequest, "resource update on Node subscription")
 	}
 }
@@ -433,7 +438,12 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		"plugin_values_changed", "dispatch_changed", "retained_record", "tools_completed":
 		// These invalidate feature reads; they do not replace a Snapshot field.
 	default:
-		return false, fault(protocol.ErrorCodeInvalidRequest, "unknown Node event")
+		// An event a newer Node of this protocol version declares and this
+		// build does not belongs to a feature this build does not project.
+		// It still takes its place in the sequence.
+		if _, undeclared := event.Data.(protocol.UnknownVariant); !undeclared {
+			return false, fault(protocol.ErrorCodeInvalidRequest, "unknown Node event")
+		}
 	}
 	return false, nil
 }

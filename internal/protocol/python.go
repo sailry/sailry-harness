@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PythonPreparation struct {
@@ -41,14 +40,7 @@ const (
 	PythonStageValidating PythonStage = "validating"
 )
 
-func (value PythonStage) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PythonStageCreating, PythonStageInstalling, PythonStageValidating:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PythonStage %q", value)
-	}
-}
+func (value PythonStage) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PythonStage) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -59,7 +51,7 @@ func (value *PythonStage) UnmarshalJSON(data []byte) error {
 		*value = PythonStage(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PythonStage %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PythonStage) MarshalText() ([]byte, error) {

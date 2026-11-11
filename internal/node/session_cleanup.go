@@ -63,6 +63,9 @@ func (node *Node) removedSessionFiles(changes []protocol.Event) {
 		ctx := context.WithoutCancel(node.ctx)
 		node.stored.mu.Lock()
 		defer node.stored.mu.Unlock()
+		if node.abandoned.Load() {
+			return
+		}
 		var owners []protocol.SessionID
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
@@ -82,6 +85,9 @@ func (node *Node) removedSessionFiles(changes []protocol.Event) {
 // collectAttachmentsLocked is collectAttachments for a caller that excludes
 // the publications already.
 func (node *Node) collectAttachmentsLocked(ctx context.Context) {
+	if node.abandoned.Load() {
+		return
+	}
 	var retained map[protocol.AttachmentID]bool
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error

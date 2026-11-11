@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type TerminalScreenTextStyle struct {
@@ -64,14 +63,7 @@ const (
 	TerminalScreenUnderlineStyleDashed TerminalScreenUnderlineStyle = "dashed"
 )
 
-func (value TerminalScreenUnderlineStyle) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalScreenUnderlineStyleNone, TerminalScreenUnderlineStyleSingle, TerminalScreenUnderlineStyleDouble, TerminalScreenUnderlineStyleCurly, TerminalScreenUnderlineStyleDotted, TerminalScreenUnderlineStyleDashed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalScreenUnderlineStyle %q", value)
-	}
-}
+func (value TerminalScreenUnderlineStyle) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalScreenUnderlineStyle) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -82,7 +74,7 @@ func (value *TerminalScreenUnderlineStyle) UnmarshalJSON(data []byte) error {
 		*value = TerminalScreenUnderlineStyle(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalScreenUnderlineStyle %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalScreenUnderlineStyle) MarshalText() ([]byte, error) {
@@ -167,14 +159,7 @@ const (
 	TerminalScreenCursorStyleBlockHollow TerminalScreenCursorStyle = "block_hollow"
 )
 
-func (value TerminalScreenCursorStyle) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalScreenCursorStyleBar, TerminalScreenCursorStyleBlock, TerminalScreenCursorStyleUnderline, TerminalScreenCursorStyleBlockHollow:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalScreenCursorStyle %q", value)
-	}
-}
+func (value TerminalScreenCursorStyle) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalScreenCursorStyle) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -185,7 +170,7 @@ func (value *TerminalScreenCursorStyle) UnmarshalJSON(data []byte) error {
 		*value = TerminalScreenCursorStyle(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalScreenCursorStyle %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalScreenCursorStyle) MarshalText() ([]byte, error) {

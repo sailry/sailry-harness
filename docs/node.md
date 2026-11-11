@@ -132,6 +132,61 @@ and storage format and the accepted inputs are unchanged. A raw JSON value kept
 from inside a decoded object is still stored compact with `<`, `>`, `&`, U+2028
 and U+2029 escaped, so digests computed over retained values do not change.
 
+### Values from another build
+
+The rule is in [ARCHITECTURE.md](../ARCHITECTURE.md#contract-and-storage-versions).
+A decode is exact unless the caller names its source with `protocol.DecodeAs`:
+
+| Level | Caller | Unknown member | Unknown enum value | Unknown variant |
+| --- | --- | --- | --- | --- |
+| `Authored` | every plain `json.Unmarshal`, the default | refused where the type refuses it | refused | refused |
+| `PeerCommand` | `wire.Reader` for an `Envelope` | ignored | refused | refused |
+| `PeerData` | `wire.Reader` for a `Reply`, snapshot assembly, the Client's decode of a value a Node sent | ignored | kept | kept as `protocol.UnknownVariant` |
+
+A missing optional member takes its declared default and a missing required
+member is refused at every level.
+
+- The level follows a value through nested types: the decoder lends the level
+  to the exact bytes it hands a nested `UnmarshalJSON`, for the length of that
+  call. Four shapes are not followed and stay exact, which is the behavior
+  before this rule: a fixed-size array of protocol types, an interface-typed
+  field, a struct with embedded fields, and a map whose key is neither a string
+  nor text. An externally tagged union still admits exactly one member.
+- An enum encodes any non-empty value, so a kept value survives a relay or an
+  edit-and-save, and refuses the unset value. `MarshalUnion` writes an
+  `UnknownVariant` back unchanged.
+- Strictness stays, deliberately, for: commands (`PeerCommand`), a response
+  that is neither `Ok` nor `Err`, pairing and rendezvous frames, package
+  manifests (`plugins.ValidateManifest`), plugin transaction operations and
+  script input, tool arguments, settings and stored rows, and required members.
+- Consumers: `client.Projection` and the conversation reducer skip an event or
+  frame change of an undeclared kind and advance its sequence; a draft part of
+  an undeclared kind is valid and not drawn; `live` reads an undeclared queue
+  pause reason as no halt and skips a resource part of an undeclared type; no
+  controller reads a background task's `hold` yet; the file picker names a
+  place of an undeclared kind by its path.
+
+A build made before this rule cannot be changed. With the same protocol version
+it fails to decode these values, all added on November 12, 2026:
+
+| Value | Sent by | What the earlier build does |
+| --- | --- | --- |
+| `PluginExtension.continuation_markers`, `ToolHandler.approval` | Node, in any plugin list containing the bundled `goals` package | controller fails the plugin read |
+| `ConversationBackgroundTask.hold` | Node | controller fails the conversation frame |
+| `BackupSettings.keep`, `BackupSettings.last`, `BackupRecord.skipped` | Node | controller fails the backup read |
+| `BackupSettings.keep` inside `save_backup_settings` | controller | Node refuses the save |
+| `FaultDetails` kind `continuation` | Node | controller fails the reply instead of showing the fault |
+| `FileBrowserLocationKind` `applications`, `FileBrowserLocation.medium` values | Node | controller fails the location list |
+| a `ConversationQueue.pause_reason` value added later | Node | controller fails the frame; the member itself is ignored |
+| `PluginTransactionOperation` `continue` members `marker`, `limit`, `user` | a package | Node refuses the operation; a package needing them sets `min_sailry_version` |
+| any Node event or conversation frame change of a new kind | Node | controller faults its projection |
+
+An earlier build already accepts `ConversationContinuation.kind`, `limit` and
+`user`, `KnowledgeProgress.failed` and `failures`, `KnowledgeFailure`, the
+`output_limit` resource part and `CommandContinueTurnPayload`. The protocol
+version is unchanged: from this build on, each of the values above decodes.
+The Flutter controller's Dart mirror is separate and still exact.
+
 Each database mutation uses a command savepoint. Business failure rolls back its
 partial SQL while the completed fault remains durable. Successful business SQL,
 outcome and event records commit together. Filesystem preparation occurs outside
@@ -374,6 +429,7 @@ installation, because the profile is released.
 | The deadline covers the whole shutdown, not only supervised tasks | Rust aborts its tasks at the deadline and then closes the rest; a goroutine cannot be aborted, so every wait needs the bound or one worker that ignores cancellation keeps a windowless process holding the profile lock |
 | Stages after the one that did not stop are not run | They would wait for the same worker. What they would have released is what a crash leaves, and the next start clears it: terminals end with their pseudo-terminal, recorded command groups are killed, external browsers are closed, temporary files are removed |
 | A database still in use at the deadline is left open | Closing it would wait for the worker; SQLite recovers its log at the next start |
+| No collection starts after the deadline | The abandoned sequence goes on in its goroutine if the stage ends before the process does. A collection of package versions, attachments or artifacts deletes the files no row names, and the released profile may already have its next owner, so `Node.abandoned` stops each of them; the next owner's own collections do the work |
 
 ### Leftovers of an earlier run
 

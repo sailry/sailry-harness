@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type NotificationKind string
@@ -16,14 +15,7 @@ const (
 	NotificationKindError   NotificationKind = "error"
 )
 
-func (value NotificationKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotificationKindInfo, NotificationKindSuccess, NotificationKindWarning, NotificationKindError:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotificationKind %q", value)
-	}
-}
+func (value NotificationKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *NotificationKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -34,7 +26,7 @@ func (value *NotificationKind) UnmarshalJSON(data []byte) error {
 		*value = NotificationKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotificationKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotificationKind) MarshalText() ([]byte, error) {

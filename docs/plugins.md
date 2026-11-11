@@ -262,7 +262,10 @@ The pool owns three things a turn does not drive:
   that is allowed, `available` and shared (`reuse`), at start and after a
   package or account change. It remembers per package the version, the startable
   servers and the accounts it last tried, so a server is tried once for each of
-  them and a failed one waits for a change. A Node started without the option
+  them and a failed one waits for a change. A server that did not start is
+  logged as a warning; one that only waits for its user's account or settings
+  (`not_configured`, such as a bundled server nobody connected) is logged at
+  debug level, because it has not failed. A Node started without the option
   (every test that does not ask for it) contacts no server ahead of use.
 
 Opening is bounded to 20 seconds, a tool listing to 10, a call to 120 seconds of

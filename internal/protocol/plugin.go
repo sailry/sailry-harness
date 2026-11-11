@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginUploadSpec struct {
@@ -135,14 +134,7 @@ const (
 	PluginCategoryEntertainment PluginCategory = "entertainment"
 )
 
-func (value PluginCategory) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginCategoryDevelopment, PluginCategoryDocuments, PluginCategoryData, PluginCategoryAutomation, PluginCategoryEntertainment:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginCategory %q", value)
-	}
-}
+func (value PluginCategory) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginCategory) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -153,7 +145,7 @@ func (value *PluginCategory) UnmarshalJSON(data []byte) error {
 		*value = PluginCategory(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginCategory %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginCategory) MarshalText() ([]byte, error) {
@@ -180,14 +172,7 @@ const (
 	PluginTintGray   PluginTint = "gray"
 )
 
-func (value PluginTint) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginTintBlue, PluginTintViolet, PluginTintTeal, PluginTintAmber, PluginTintGray:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginTint %q", value)
-	}
-}
+func (value PluginTint) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginTint) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -198,7 +183,7 @@ func (value *PluginTint) UnmarshalJSON(data []byte) error {
 		*value = PluginTint(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginTint %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginTint) MarshalText() ([]byte, error) {
@@ -339,14 +324,7 @@ const (
 	PluginServiceLanguage  PluginService = "language"
 )
 
-func (value PluginService) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginServiceCodeIndex, PluginServiceLanguage:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginService %q", value)
-	}
-}
+func (value PluginService) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginService) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -357,7 +335,7 @@ func (value *PluginService) UnmarshalJSON(data []byte) error {
 		*value = PluginService(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginService %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginService) MarshalText() ([]byte, error) {
@@ -381,14 +359,7 @@ const (
 	PluginScopeDesktop PluginScope = "desktop"
 )
 
-func (value PluginScope) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginScopeHost, PluginScopeDesktop:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginScope %q", value)
-	}
-}
+func (value PluginScope) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginScope) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -399,7 +370,7 @@ func (value *PluginScope) UnmarshalJSON(data []byte) error {
 		*value = PluginScope(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginScope %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginScope) MarshalText() ([]byte, error) {
@@ -604,14 +575,7 @@ const (
 	PluginUploadSourceArchive   PluginUploadSource = "archive"
 )
 
-func (value PluginUploadSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginUploadSourceDirectory, PluginUploadSourceArchive:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginUploadSource %q", value)
-	}
-}
+func (value PluginUploadSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginUploadSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -622,7 +586,7 @@ func (value *PluginUploadSource) UnmarshalJSON(data []byte) error {
 		*value = PluginUploadSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginUploadSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginUploadSource) MarshalText() ([]byte, error) {
@@ -823,14 +787,7 @@ const (
 	PluginMcpTransportSse            PluginMcpTransport = "sse"
 )
 
-func (value PluginMcpTransport) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginMcpTransportStdio, PluginMcpTransportStreamableHttp, PluginMcpTransportSse:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginMcpTransport %q", value)
-	}
-}
+func (value PluginMcpTransport) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginMcpTransport) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -841,7 +798,7 @@ func (value *PluginMcpTransport) UnmarshalJSON(data []byte) error {
 		*value = PluginMcpTransport(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginMcpTransport %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginMcpTransport) MarshalText() ([]byte, error) {
@@ -871,14 +828,7 @@ const (
 	PluginIssueKindInvalidMcpServer     PluginIssueKind = "invalid_mcp_server"
 )
 
-func (value PluginIssueKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginIssueKindIgnoredManifestField, PluginIssueKindInvalidExtensions, PluginIssueKindUnsupportedExtension, PluginIssueKindUnavailablePath, PluginIssueKindInvalidSkills, PluginIssueKindInvalidSkill, PluginIssueKindInvalidMcp, PluginIssueKindInvalidMcpServer:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginIssueKind %q", value)
-	}
-}
+func (value PluginIssueKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginIssueKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -889,7 +839,7 @@ func (value *PluginIssueKind) UnmarshalJSON(data []byte) error {
 		*value = PluginIssueKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginIssueKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginIssueKind) MarshalText() ([]byte, error) {

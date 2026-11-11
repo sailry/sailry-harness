@@ -459,27 +459,39 @@ func (node *Node) recordMediaUsage(ctx context.Context, inv *store.AgentInvocati
 	return nodeFault(node.agent.RecordMediaUsage(ctx, inv.Session.ID, inv.Run.Turn, binding.Provider, binding.Config.Model, kind, usage))
 }
 
-// publishGenerated writes a generated file below the worktree through the
-// confined file service, without replacing a file, and tells its watchers.
-func (node *Node) publishGenerated(ctx context.Context, root, target string, data []byte, limit uint64) error {
+// generatedTarget takes the target of a generated file below the worktree
+// through the confined file service, with its directories and without
+// replacing a file. The returned function closes it.
+func generatedTarget(ctx context.Context, root, target string, limit uint64) (*core.FileTarget, func(), error) {
 	confined, err := core.OpenFiles(root, core.RestrictedFiles)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	defer confined.Close()
 	parents := strings.Split(path.Dir(target), "/")
 	for index := range parents {
 		if directory := strings.Join(parents[:index+1], "/"); directory != "." {
 			if err := confined.CreateDirectory(directory); err != nil {
-				return err
+				confined.Close()
+				return nil, nil, err
 			}
 		}
 	}
 	file, err := confined.PrepareFileTarget(context.WithoutCancel(ctx), target, nil, limit)
 	if err != nil {
+		confined.Close()
+		return nil, nil, err
+	}
+	return file, func() { file.Close(); confined.Close() }, nil
+}
+
+// publishGenerated writes a generated file below the worktree and tells its
+// watchers.
+func (node *Node) publishGenerated(ctx context.Context, root, target string, data []byte, limit uint64) error {
+	file, done, err := generatedTarget(ctx, root, target, limit)
+	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer done()
 	sum := blake3.Sum256(data)
 	if _, err := file.Write(bytes.NewReader(data), uint64(len(data)), hex.EncodeToString(sum[:])); err != nil {
 		return err
@@ -517,20 +529,7 @@ func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation,
 	}
 	// The target is taken before the provider is asked, so a call that cannot
 	// save its file is refused before it is paid for.
-	confined, err := core.OpenFiles(inv.Worktree.Path, core.RestrictedFiles)
-	if err != nil {
-		return engine.ToolResult{}, err
-	}
-	defer confined.Close()
-	parents := strings.Split(path.Dir(target), "/")
-	for index := range parents {
-		if directory := strings.Join(parents[:index+1], "/"); directory != "." {
-			if err := confined.CreateDirectory(directory); err != nil {
-				return engine.ToolResult{}, err
-			}
-		}
-	}
-	file, err := confined.PrepareFileTarget(context.WithoutCancel(ctx), target, nil, limit)
+	file, done, err := generatedTarget(ctx, inv.Worktree.Path, target, limit)
 	if err != nil {
 		var fault *protocol.Fault
 		if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeRevisionConflict {
@@ -539,7 +538,7 @@ func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation,
 		}
 		return engine.ToolResult{}, err
 	}
-	defer file.Close()
+	defer done()
 	var output model.MediaOutput
 	switch {
 	case kind != protocol.MediaKindVideo:

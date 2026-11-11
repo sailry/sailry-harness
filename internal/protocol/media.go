@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type MediaKind string
@@ -16,14 +15,7 @@ const (
 	MediaKindSpeech MediaKind = "speech"
 )
 
-func (value MediaKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case MediaKindVision, MediaKindImage, MediaKindVideo, MediaKindSpeech:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown MediaKind %q", value)
-	}
-}
+func (value MediaKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *MediaKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -34,7 +26,7 @@ func (value *MediaKind) UnmarshalJSON(data []byte) error {
 		*value = MediaKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown MediaKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value MediaKind) MarshalText() ([]byte, error) {
@@ -60,14 +52,7 @@ const (
 	MediaGenerationSpeech    MediaGeneration = "speech"
 )
 
-func (value MediaGeneration) MarshalJSON() ([]byte, error) {
-	switch value {
-	case MediaGenerationImage, MediaGenerationImageTool, MediaGenerationVideo, MediaGenerationSpeech:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown MediaGeneration %q", value)
-	}
-}
+func (value MediaGeneration) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *MediaGeneration) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -78,7 +63,7 @@ func (value *MediaGeneration) UnmarshalJSON(data []byte) error {
 		*value = MediaGeneration(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown MediaGeneration %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value MediaGeneration) MarshalText() ([]byte, error) {

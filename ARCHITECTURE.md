@@ -226,6 +226,48 @@ There are no legacy wire branches, fallback decoders or versioned migration
 framework. Third-party dependency versions, data revisions and event sequences are
 independent of this policy.
 
+A controller and a Host are compatible when their protocol versions are equal;
+the software version is never compared. Changing a contract in place therefore
+means two builds with the same protocol version exchange values the older one
+does not declare, and the older one must keep working. One decoding rule covers
+all of `internal/protocol`. It depends on who produced the bytes, not on the
+type:
+
+| The bytes carry | from a peer, as data (reply, event, snapshot) | from a peer, as a command | from an author |
+| --- | --- | --- | --- |
+| an unknown object member | ignored | ignored | refused |
+| an unknown enum value | kept as sent | refused | refused |
+| an unknown union variant | kept whole as `protocol.UnknownVariant` | refused | refused |
+| no value for an optional member | the declared default | the declared default | the declared default |
+| no value for a required member | refused | refused | refused |
+
+- A peer is the other end of an authenticated Link running the same protocol
+  version. The wire reader is the only place that asks for tolerance:
+  `protocol.DecodeAs` with `PeerData` for a reply and a snapshot, `PeerCommand`
+  for a request. Every other decode, including plain `json.Unmarshal`, is
+  `Authored` and exact.
+- Authored input is everything else: a package manifest and its validation, a
+  plugin's script input and transaction operations, model tool arguments,
+  settings files, stored rows, the pairing frames exchanged before a peer is
+  authenticated, and the Dart command JSON of the mobile adapter. A value there
+  that this build does not declare is a mistake or an attack, never a newer
+  contract.
+- A Node acts on a command, so it never acts on a value it does not understand:
+  it ignores a member it does not declare and refuses an undeclared enum value
+  or variant with a fault the sender can show. A controller only displays data,
+  so an undeclared value reaches it intact, re-encodes byte for byte, and each
+  consumer treats it as no information: an unknown event or frame change is
+  skipped while its sequence still advances, an unknown part or kind is not
+  drawn.
+- Digests and signatures are computed over retained raw JSON, which no
+  tolerance level changes.
+- The consequence for a contract change: a new member is optional with a
+  default that means "as before", a new enum value or variant is sent only
+  where its receiver is data, and a required member is never added. A change
+  that cannot follow this needs a new protocol version.
+
+`docs/node.md` lists the values an earlier `v1` build cannot decode.
+
 - Startup adds missing schema objects and fills missing storage fields with their
   defaults.
 - An update is validated on an isolated snapshot, saved as a private backup, then

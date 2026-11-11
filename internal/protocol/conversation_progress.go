@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationProgress struct {
@@ -70,14 +69,7 @@ const (
 	ConversationProgressStateSkipped    ConversationProgressState = "skipped"
 )
 
-func (value ConversationProgressState) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationProgressStatePending, ConversationProgressStateInProgress, ConversationProgressStateCompleted, ConversationProgressStateSkipped:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationProgressState %q", value)
-	}
-}
+func (value ConversationProgressState) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationProgressState) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -88,7 +80,7 @@ func (value *ConversationProgressState) UnmarshalJSON(data []byte) error {
 		*value = ConversationProgressState(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationProgressState %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationProgressState) MarshalText() ([]byte, error) {

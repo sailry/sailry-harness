@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type DispatchSource struct {
@@ -131,14 +130,7 @@ const (
 	DispatchCompletionTurn    DispatchCompletion = "turn"
 )
 
-func (value DispatchCompletion) MarshalJSON() ([]byte, error) {
-	switch value {
-	case DispatchCompletionCommand, DispatchCompletionTurn:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown DispatchCompletion %q", value)
-	}
-}
+func (value DispatchCompletion) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *DispatchCompletion) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -149,7 +141,7 @@ func (value *DispatchCompletion) UnmarshalJSON(data []byte) error {
 		*value = DispatchCompletion(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown DispatchCompletion %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value DispatchCompletion) MarshalText() ([]byte, error) {
@@ -348,14 +340,7 @@ const (
 	DispatchStatusUnknown   DispatchStatus = "unknown"
 )
 
-func (value DispatchStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case DispatchStatusQueued, DispatchStatusRunning, DispatchStatusCompleted, DispatchStatusFailed, DispatchStatusCancelled, DispatchStatusUnknown:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown DispatchStatus %q", value)
-	}
-}
+func (value DispatchStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *DispatchStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -366,7 +351,7 @@ func (value *DispatchStatus) UnmarshalJSON(data []byte) error {
 		*value = DispatchStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown DispatchStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value DispatchStatus) MarshalText() ([]byte, error) {

@@ -356,7 +356,12 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		v.Artifacts.Items = upsertConversation(v.Artifacts.Items, x, func(v protocol.ArtifactSummary) protocol.ArtifactID { return v.ID }, false)
 		p.artifactCursor++
 	default:
-		return Ignored, fault(protocol.ErrorCodeInvalidRequest, "unknown conversation frame change")
+		// A change a newer Node declares belongs to a part of the
+		// conversation this build does not hold; the frame still takes its
+		// place in the sequence.
+		if _, undeclared := f.Change.Data.(protocol.UnknownVariant); !undeclared {
+			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "unknown conversation frame change")
+		}
 	}
 	v.Sequence = f.Sequence
 	p.settle()

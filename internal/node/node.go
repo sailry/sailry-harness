@@ -88,6 +88,7 @@ type Node struct {
 	closed            chan struct{}
 	stopDone          chan struct{}
 	stopErr           error
+	abandoned         atomic.Bool   // shutdown released the profile at its deadline: no collection starts
 	grace             time.Duration // replaces shutdownGrace in tests
 	agent             *engine.Runtime
 	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
@@ -385,9 +386,13 @@ func (node *Node) shutdown(grace time.Duration) {
 			skipped = append(skipped, stage.name)
 		}
 		slog.Error("Node shutdown deadline elapsed", "waiting", stages[index].name, "skipped", strings.Join(skipped, ", "))
-		// The stages above keep running until the process exits. Releasing
-		// the profile here lets the next launch start; what they leave behind
-		// is what a crash leaves, and startup recovery clears it.
+		// The stages above keep running until the process exits, except the
+		// collections. Releasing the profile here lets the next launch start;
+		// what they leave behind is what a crash leaves, and startup recovery
+		// clears it.
+		// A collection deletes the files no row names, and the profile's next
+		// owner writes files and rows this process does not read together.
+		node.abandoned.Store(true)
 		err = errors.Join(fmt.Errorf("%w: %s did not stop", core.ErrShutdownTimeout, stages[index].name), node.profile.Abandon())
 	}
 	node.mu.Lock()
@@ -750,8 +755,10 @@ func (node *Node) run(lane *commandLane) {
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
 		}
-		// A clone and the checks above run unlocked. Only recording which
-		// roots exist excludes workspace effects.
+		// A clone and the checks above run unlocked; recording which roots
+		// exist excludes workspace effects. Creating or removing a worktree
+		// is the one registration that also runs Git under that exclusion
+		// (workspaceIO): the root appears on disk apart from its row.
 		registered := func() {}
 		if projectEffect {
 			registered = node.locks.registration()

@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginModelAdapterBinding struct {
@@ -110,14 +109,7 @@ const (
 	PluginModelAdapterFramingJson   PluginModelAdapterFraming = "json"
 )
 
-func (value PluginModelAdapterFraming) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelAdapterFramingSse, PluginModelAdapterFramingNdjson, PluginModelAdapterFramingJson:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelAdapterFraming %q", value)
-	}
-}
+func (value PluginModelAdapterFraming) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelAdapterFraming) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -128,7 +120,7 @@ func (value *PluginModelAdapterFraming) UnmarshalJSON(data []byte) error {
 		*value = PluginModelAdapterFraming(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelAdapterFraming %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelAdapterFraming) MarshalText() ([]byte, error) {
@@ -153,14 +145,7 @@ const (
 	PluginModelAdapterDialectGemini  PluginModelAdapterDialect = "gemini"
 )
 
-func (value PluginModelAdapterDialect) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelAdapterDialectGeneric, PluginModelAdapterDialectOpenAi, PluginModelAdapterDialectGemini:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelAdapterDialect %q", value)
-	}
-}
+func (value PluginModelAdapterDialect) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelAdapterDialect) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -171,7 +156,7 @@ func (value *PluginModelAdapterDialect) UnmarshalJSON(data []byte) error {
 		*value = PluginModelAdapterDialect(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelAdapterDialect %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelAdapterDialect) MarshalText() ([]byte, error) {

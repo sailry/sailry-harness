@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ActivityCatalog struct {
@@ -113,14 +112,7 @@ const (
 	ActivityWaitingInput    ActivityWaiting = "input"
 )
 
-func (value ActivityWaiting) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ActivityWaitingApproval, ActivityWaitingInput:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ActivityWaiting %q", value)
-	}
-}
+func (value ActivityWaiting) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ActivityWaiting) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ActivityWaiting) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -132,7 +124,7 @@ func (value *ActivityWaiting) DecodeJSON(decoder *Decoder) error {
 		*value = ActivityWaiting(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ActivityWaiting %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ActivityWaiting) MarshalText() ([]byte, error) {

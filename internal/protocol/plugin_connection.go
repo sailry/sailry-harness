@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginConnectionStatus struct {
@@ -50,14 +49,7 @@ const (
 	PluginConnectionConfigurationUnsupported PluginConnectionConfiguration = "unsupported"
 )
 
-func (value PluginConnectionConfiguration) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectionConfigurationReady, PluginConnectionConfigurationMissing, PluginConnectionConfigurationChanged, PluginConnectionConfigurationUnsupported:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectionConfiguration %q", value)
-	}
-}
+func (value PluginConnectionConfiguration) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectionConfiguration) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -68,7 +60,7 @@ func (value *PluginConnectionConfiguration) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectionConfiguration(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectionConfiguration %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectionConfiguration) MarshalText() ([]byte, error) {
@@ -93,14 +85,7 @@ const (
 	PluginConnectionAuthorizationConfigured  PluginConnectionAuthorization = "configured"
 )
 
-func (value PluginConnectionAuthorization) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectionAuthorizationNotDeclared, PluginConnectionAuthorizationMissing, PluginConnectionAuthorizationConfigured:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectionAuthorization %q", value)
-	}
-}
+func (value PluginConnectionAuthorization) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectionAuthorization) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -111,7 +96,7 @@ func (value *PluginConnectionAuthorization) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectionAuthorization(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectionAuthorization %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectionAuthorization) MarshalText() ([]byte, error) {
@@ -136,14 +121,7 @@ const (
 	PluginConnectionCredentialPresent     PluginConnectionCredential = "present"
 )
 
-func (value PluginConnectionCredential) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectionCredentialNotDeclared, PluginConnectionCredentialAbsent, PluginConnectionCredentialPresent:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectionCredential %q", value)
-	}
-}
+func (value PluginConnectionCredential) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectionCredential) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -154,7 +132,7 @@ func (value *PluginConnectionCredential) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectionCredential(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectionCredential %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectionCredential) MarshalText() ([]byte, error) {

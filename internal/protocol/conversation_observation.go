@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationObservationSummary struct {
@@ -201,14 +200,7 @@ const (
 	ConversationObservationOutcomeCancelled ConversationObservationOutcome = "cancelled"
 )
 
-func (value ConversationObservationOutcome) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationObservationOutcomeSucceeded, ConversationObservationOutcomeFailed, ConversationObservationOutcomeCancelled:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationObservationOutcome %q", value)
-	}
-}
+func (value ConversationObservationOutcome) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationObservationOutcome) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -219,7 +211,7 @@ func (value *ConversationObservationOutcome) UnmarshalJSON(data []byte) error {
 		*value = ConversationObservationOutcome(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationObservationOutcome %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationObservationOutcome) MarshalText() ([]byte, error) {
@@ -279,12 +271,7 @@ const (
 )
 
 func (value ConversationObservationCategoryKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationObservationCategoryKindSystem, ConversationObservationCategoryKindTools, ConversationObservationCategoryKindUser, ConversationObservationCategoryKindSkills, ConversationObservationCategoryKindInjected, ConversationObservationCategoryKindAssistant, ConversationObservationCategoryKindResults:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationObservationCategoryKind %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *ConversationObservationCategoryKind) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -296,7 +283,7 @@ func (value *ConversationObservationCategoryKind) UnmarshalJSON(data []byte) err
 		*value = ConversationObservationCategoryKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationObservationCategoryKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationObservationCategoryKind) MarshalText() ([]byte, error) {

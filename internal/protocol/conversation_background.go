@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationBackgroundKind struct {
@@ -89,14 +88,7 @@ const (
 	ConversationBackgroundOutcomeStalled     ConversationBackgroundOutcome = "stalled"
 )
 
-func (value ConversationBackgroundOutcome) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationBackgroundOutcomeCompleted, ConversationBackgroundOutcomeFailed, ConversationBackgroundOutcomeCancelled, ConversationBackgroundOutcomeStopped, ConversationBackgroundOutcomeTimedOut, ConversationBackgroundOutcomeInterrupted, ConversationBackgroundOutcomeUnknown, ConversationBackgroundOutcomeStalled:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationBackgroundOutcome %q", value)
-	}
-}
+func (value ConversationBackgroundOutcome) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationBackgroundOutcome) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -107,7 +99,7 @@ func (value *ConversationBackgroundOutcome) UnmarshalJSON(data []byte) error {
 		*value = ConversationBackgroundOutcome(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationBackgroundOutcome %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationBackgroundOutcome) MarshalText() ([]byte, error) {
@@ -134,14 +126,7 @@ const (
 	ConversationBackgroundStateDismissed ConversationBackgroundState = "dismissed"
 )
 
-func (value ConversationBackgroundState) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationBackgroundStateRunning, ConversationBackgroundStatePending, ConversationBackgroundStateDelivered, ConversationBackgroundStateConsumed, ConversationBackgroundStateDismissed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationBackgroundState %q", value)
-	}
-}
+func (value ConversationBackgroundState) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationBackgroundState) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -152,7 +137,7 @@ func (value *ConversationBackgroundState) UnmarshalJSON(data []byte) error {
 		*value = ConversationBackgroundState(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationBackgroundState %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationBackgroundState) MarshalText() ([]byte, error) {
@@ -181,14 +166,7 @@ const (
 	ConversationBackgroundHoldOther       ConversationBackgroundHold = "other"
 )
 
-func (value ConversationBackgroundHold) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationBackgroundHoldLimit, ConversationBackgroundHoldStopped, ConversationBackgroundHoldInterrupted, ConversationBackgroundHoldFailed, ConversationBackgroundHoldOther:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationBackgroundHold %q", value)
-	}
-}
+func (value ConversationBackgroundHold) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationBackgroundHold) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -199,8 +177,21 @@ func (value *ConversationBackgroundHold) UnmarshalJSON(data []byte) error {
 		*value = ConversationBackgroundHold(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationBackgroundHold %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
+}
+func (value ConversationBackgroundHold) MarshalText() ([]byte, error) {
+	if _, err := value.MarshalJSON(); err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+func (value *ConversationBackgroundHold) UnmarshalText(data []byte) error {
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return err
+	}
+	return value.UnmarshalJSON(encoded)
 }
 
 type ConversationBackgroundTask struct {

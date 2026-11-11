@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type GitChangeTarget struct {
@@ -328,14 +327,7 @@ const (
 	GitChangeLineKindContext GitChangeLineKind = "context"
 )
 
-func (value GitChangeLineKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitChangeLineKindAdded, GitChangeLineKindDeleted, GitChangeLineKindContext:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitChangeLineKind %q", value)
-	}
-}
+func (value GitChangeLineKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitChangeLineKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -346,7 +338,7 @@ func (value *GitChangeLineKind) UnmarshalJSON(data []byte) error {
 		*value = GitChangeLineKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitChangeLineKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitChangeLineKind) MarshalText() ([]byte, error) {
@@ -445,14 +437,7 @@ const (
 	GitContextSideNew GitContextSide = "new"
 )
 
-func (value GitContextSide) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitContextSideOld, GitContextSideNew:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitContextSide %q", value)
-	}
-}
+func (value GitContextSide) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitContextSide) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -463,7 +448,7 @@ func (value *GitContextSide) UnmarshalJSON(data []byte) error {
 		*value = GitContextSide(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitContextSide %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitContextSide) MarshalText() ([]byte, error) {
@@ -777,14 +762,7 @@ const (
 	GitMergeKindMergeCommit GitMergeKind = "merge_commit"
 )
 
-func (value GitMergeKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitMergeKindUpToDate, GitMergeKindFastForward, GitMergeKindMergeCommit:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitMergeKind %q", value)
-	}
-}
+func (value GitMergeKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitMergeKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -795,7 +773,7 @@ func (value *GitMergeKind) UnmarshalJSON(data []byte) error {
 		*value = GitMergeKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitMergeKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitMergeKind) MarshalText() ([]byte, error) {
@@ -986,14 +964,7 @@ const (
 	RepositoryKindReady     RepositoryKind = "ready"
 )
 
-func (value RepositoryKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case RepositoryKindDirectory, RepositoryKindUnborn, RepositoryKindReady:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown RepositoryKind %q", value)
-	}
-}
+func (value RepositoryKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *RepositoryKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -1004,7 +975,7 @@ func (value *RepositoryKind) UnmarshalJSON(data []byte) error {
 		*value = RepositoryKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown RepositoryKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value RepositoryKind) MarshalText() ([]byte, error) {
@@ -1031,14 +1002,7 @@ const (
 	GitChangeKindTypeChanged GitChangeKind = "type_changed"
 )
 
-func (value GitChangeKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitChangeKindAdded, GitChangeKindModified, GitChangeKindDeleted, GitChangeKindRenamed, GitChangeKindTypeChanged:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitChangeKind %q", value)
-	}
-}
+func (value GitChangeKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitChangeKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -1049,7 +1013,7 @@ func (value *GitChangeKind) UnmarshalJSON(data []byte) error {
 		*value = GitChangeKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitChangeKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitChangeKind) MarshalText() ([]byte, error) {
@@ -1182,14 +1146,7 @@ const (
 	GitDiffScopeUnstaged GitDiffScope = "unstaged"
 )
 
-func (value GitDiffScope) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitDiffScopeAll, GitDiffScopeStaged, GitDiffScopeUnstaged:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitDiffScope %q", value)
-	}
-}
+func (value GitDiffScope) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitDiffScope) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -1200,7 +1157,7 @@ func (value *GitDiffScope) UnmarshalJSON(data []byte) error {
 		*value = GitDiffScope(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitDiffScope %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitDiffScope) MarshalText() ([]byte, error) {
@@ -1260,14 +1217,7 @@ const (
 	GitIndexChangeUnstage GitIndexChange = "unstage"
 )
 
-func (value GitIndexChange) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitIndexChangeStage, GitIndexChangeUnstage:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitIndexChange %q", value)
-	}
-}
+func (value GitIndexChange) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitIndexChange) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -1278,7 +1228,7 @@ func (value *GitIndexChange) UnmarshalJSON(data []byte) error {
 		*value = GitIndexChange(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitIndexChange %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitIndexChange) MarshalText() ([]byte, error) {
@@ -2174,14 +2124,7 @@ const (
 	GitStashModeStaged  GitStashMode = "staged"
 )
 
-func (value GitStashMode) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitStashModeAll, GitStashModeTracked, GitStashModeStaged:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitStashMode %q", value)
-	}
-}
+func (value GitStashMode) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitStashMode) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -2192,7 +2135,7 @@ func (value *GitStashMode) UnmarshalJSON(data []byte) error {
 		*value = GitStashMode(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitStashMode %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitStashMode) MarshalText() ([]byte, error) {
@@ -2243,14 +2186,7 @@ const (
 	GitAfterCommitSync GitAfterCommit = "sync"
 )
 
-func (value GitAfterCommit) MarshalJSON() ([]byte, error) {
-	switch value {
-	case GitAfterCommitNone, GitAfterCommitPush, GitAfterCommitSync:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown GitAfterCommit %q", value)
-	}
-}
+func (value GitAfterCommit) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *GitAfterCommit) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -2261,7 +2197,7 @@ func (value *GitAfterCommit) UnmarshalJSON(data []byte) error {
 		*value = GitAfterCommit(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown GitAfterCommit %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value GitAfterCommit) MarshalText() ([]byte, error) {

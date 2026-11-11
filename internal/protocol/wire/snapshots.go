@@ -156,7 +156,7 @@ func (assembly *Assembly) Accept(reply Reply) (*Reply, error) {
 		assembly.pending = nil
 		defer clear(pending.data)
 		var snapshot protocol.Snapshot
-		if err := json.Unmarshal(pending.data, &snapshot); err != nil {
+		if err := protocol.DecodeAs(protocol.PeerData, pending.data, &snapshot); err != nil {
 			return nil, invalid()
 		}
 		if snapshot.Node != pending.header.Node || snapshot.Cursor != pending.header.Cursor {

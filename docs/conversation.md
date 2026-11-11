@@ -679,6 +679,17 @@ without an owner.
   a package keeps working is therefore unread once, at the end, not after
   every turn (`store.TestAutomaticChain/automatic turn takes back the unread
   mark`).
+- **Outcome notice.** One rule, `store.runNoticed`, decides which finished run
+  raises a durable task notification. A turn the user started, including a
+  continuation the user asked for, and a turn a dispatch job admitted report
+  `completed`, `failed` and `interrupted`. An automatic turn (a notice turn or
+  a package continuation the user did not ask for) reports only `failed` and
+  `interrupted`, so a broken chain is not silent and a chain of up to 100
+  successful turns does not evict the 200 kept notifications. A stopped turn
+  and a child run report nothing. The Node cannot know at a turn's end whether
+  another automatic turn follows, so every failed or interrupted automatic
+  turn is reported, not only the last; the success that ends a chain is its
+  package's to report (`store.TestAutomaticRunNotices`).
 - **Durable end.** A turn keeps its owner until its end is stored. When the
   finishing transaction fails, it is repeated every second, logged once
   (`operation=finish`), until it succeeds or the Node stops; a stopped Node
@@ -710,7 +721,9 @@ without an owner.
   that owns a loop declares its own limit, 1 to 100, on each continuation:
   the continuation is admitted while the count is below it, and notice turns
   of the same chain follow the limit its latest continuation declared, so
-  one counter bounds the loop. A continuation the user asked for (a Resume
+  one counter bounds the loop. A continuation that declares none keeps the
+  chain's limit and carries it on, so the chain has one limit whoever reads
+  it (`store.ReadAutomaticChain`). A continuation the user asked for (a Resume
   control) is the first turn of a new chain. At the limit a continuation is
   refused with the reason `limit`, and the remaining results are marked
   suppressed, logged (`status=held`), stay visible as pending background
@@ -729,7 +742,9 @@ without an owner.
   turn or the Node's restart lost it), `failed` (its notice turn failed
   before taking it) or `other` (the notice turn was withdrawn at claim, for
   example because user input was queued). The hold is cleared when a turn
-  reserves the result. A result that is pending without `suppressed` and not
+  reserves the result; when that turn ends without taking it, a result that
+  was held stays held for the way the turn ended (`stopped`, `interrupted`,
+  `failed` or `other`), so no result is suppressed without a reason. A result that is pending without `suppressed` and not
   delivered is waiting only for the session to be free; the queue's
   `pause_reason` says why when the queue is paused.
   The desktop draws nothing for a held result: a background agent's state is

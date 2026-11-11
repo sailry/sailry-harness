@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationRecoveryTransport string
@@ -13,14 +12,7 @@ const (
 	ConversationRecoveryTransportHttp ConversationRecoveryTransport = "http"
 )
 
-func (value ConversationRecoveryTransport) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationRecoveryTransportHttp:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationRecoveryTransport %q", value)
-	}
-}
+func (value ConversationRecoveryTransport) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationRecoveryTransport) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -31,7 +23,7 @@ func (value *ConversationRecoveryTransport) UnmarshalJSON(data []byte) error {
 		*value = ConversationRecoveryTransport(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationRecoveryTransport %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationRecoveryTransport) MarshalText() ([]byte, error) {
@@ -66,14 +58,7 @@ const (
 	ConversationRecoveryStopLocalFailure          ConversationRecoveryStop = "local_failure"
 )
 
-func (value ConversationRecoveryStop) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationRecoveryStopAttemptsExhausted, ConversationRecoveryStopRateLimited, ConversationRecoveryStopServerOverloaded, ConversationRecoveryStopInvalidRequest, ConversationRecoveryStopInvalidPrompt, ConversationRecoveryStopContextWindowExceeded, ConversationRecoveryStopQuotaExceeded, ConversationRecoveryStopUsageNotIncluded, ConversationRecoveryStopUsageLimitReached, ConversationRecoveryStopResponseIncomplete, ConversationRecoveryStopFlexUnavailable, ConversationRecoveryStopPolicyViolation, ConversationRecoveryStopLocalFailure:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationRecoveryStop %q", value)
-	}
-}
+func (value ConversationRecoveryStop) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationRecoveryStop) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -84,7 +69,7 @@ func (value *ConversationRecoveryStop) UnmarshalJSON(data []byte) error {
 		*value = ConversationRecoveryStop(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationRecoveryStop %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationRecoveryStop) MarshalText() ([]byte, error) {

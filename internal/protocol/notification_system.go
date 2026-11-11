@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type NotificationSystemSystemSource string
@@ -16,14 +15,7 @@ const (
 	NotificationSystemSystemSourcePluginCallback       NotificationSystemSystemSource = "plugin_callback"
 )
 
-func (value NotificationSystemSystemSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotificationSystemSystemSourcePluginMetadata, NotificationSystemSystemSourcePluginInitialization, NotificationSystemSystemSourceGitInspection, NotificationSystemSystemSourcePluginCallback:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotificationSystemSystemSource %q", value)
-	}
-}
+func (value NotificationSystemSystemSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *NotificationSystemSystemSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -34,7 +26,7 @@ func (value *NotificationSystemSystemSource) UnmarshalJSON(data []byte) error {
 		*value = NotificationSystemSystemSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotificationSystemSystemSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotificationSystemSystemSource) MarshalText() ([]byte, error) {
@@ -62,12 +54,7 @@ const (
 )
 
 func (value NotificationSystemDiagnosticPhase) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotificationSystemDiagnosticPhaseMetadata, NotificationSystemDiagnosticPhaseInitialization, NotificationSystemDiagnosticPhaseInspection, NotificationSystemDiagnosticPhaseCallback, NotificationSystemDiagnosticPhaseSdk:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotificationSystemDiagnosticPhase %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *NotificationSystemDiagnosticPhase) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -79,7 +66,7 @@ func (value *NotificationSystemDiagnosticPhase) UnmarshalJSON(data []byte) error
 		*value = NotificationSystemDiagnosticPhase(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotificationSystemDiagnosticPhase %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotificationSystemDiagnosticPhase) MarshalText() ([]byte, error) {
@@ -105,12 +92,7 @@ const (
 )
 
 func (value NotificationSystemDiagnosticReason) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotificationSystemDiagnosticReasonFailure, NotificationSystemDiagnosticReasonTimeout, NotificationSystemDiagnosticReasonCancelled:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotificationSystemDiagnosticReason %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *NotificationSystemDiagnosticReason) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -122,7 +104,7 @@ func (value *NotificationSystemDiagnosticReason) UnmarshalJSON(data []byte) erro
 		*value = NotificationSystemDiagnosticReason(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotificationSystemDiagnosticReason %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotificationSystemDiagnosticReason) MarshalText() ([]byte, error) {
@@ -148,12 +130,7 @@ const (
 )
 
 func (value NotificationSystemDiagnosticCause) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotificationSystemDiagnosticCauseGitQueueTimeout, NotificationSystemDiagnosticCauseGitReadTimeout, NotificationSystemDiagnosticCauseGitLocked:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotificationSystemDiagnosticCause %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *NotificationSystemDiagnosticCause) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -165,7 +142,7 @@ func (value *NotificationSystemDiagnosticCause) UnmarshalJSON(data []byte) error
 		*value = NotificationSystemDiagnosticCause(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotificationSystemDiagnosticCause %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotificationSystemDiagnosticCause) MarshalText() ([]byte, error) {
@@ -198,12 +175,7 @@ const (
 )
 
 func (value NotificationSystemScriptException) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotificationSystemScriptExceptionError, NotificationSystemScriptExceptionTypeError, NotificationSystemScriptExceptionRangeError, NotificationSystemScriptExceptionReferenceError, NotificationSystemScriptExceptionSyntaxError, NotificationSystemScriptExceptionUriError, NotificationSystemScriptExceptionEvalError, NotificationSystemScriptExceptionAggregateError, NotificationSystemScriptExceptionThrownValue, NotificationSystemScriptExceptionUnknown:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotificationSystemScriptException %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *NotificationSystemScriptException) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -215,7 +187,7 @@ func (value *NotificationSystemScriptException) UnmarshalJSON(data []byte) error
 		*value = NotificationSystemScriptException(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotificationSystemScriptException %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotificationSystemScriptException) MarshalText() ([]byte, error) {

@@ -86,6 +86,17 @@ func (node *Node) publishMCP(names []string) {
 	}
 }
 
+// warmFailureLevel is the level of a server the warm-up could not start. A
+// server that waits for its user's account or settings, such as a bundled one
+// nobody connected, has not failed: only a configured server that does not
+// start is a warning.
+func warmFailureLevel(code protocol.ErrorCode) slog.Level {
+	if code == protocol.ErrorCodeNotConfigured {
+		return slog.LevelDebug
+	}
+	return slog.LevelWarn
+}
+
 // warmMCP connects the servers that became startable since the last pass.
 // warmed keeps, per package, the version, startable servers and accounts the
 // last pass saw, so a server is tried once for each of them and a failed one
@@ -148,7 +159,8 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 					}
 				}
 				if err != nil && ctx.Err() == nil {
-					slog.Warn("MCP server did not start", "package", reference.Name, "server", name, "code", nodeFault(err).(*protocol.Fault).Code)
+					code := nodeFault(err).(*protocol.Fault).Code
+					slog.Log(ctx, warmFailureLevel(code), "MCP server did not start", "package", reference.Name, "server", name, "code", code)
 				}
 			})
 		}

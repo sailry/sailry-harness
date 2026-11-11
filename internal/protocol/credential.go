@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type Authentication string
@@ -18,14 +17,7 @@ const (
 	AuthenticationPlugin       Authentication = "plugin"
 )
 
-func (value Authentication) MarshalJSON() ([]byte, error) {
-	switch value {
-	case AuthenticationApiKey, AuthenticationChatGpt, AuthenticationChatGptOAuth, AuthenticationClaudeOAuth, AuthenticationCopilot, AuthenticationPlugin:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown Authentication %q", value)
-	}
-}
+func (value Authentication) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *Authentication) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -36,7 +28,7 @@ func (value *Authentication) UnmarshalJSON(data []byte) error {
 		*value = Authentication(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown Authentication %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value Authentication) MarshalText() ([]byte, error) {

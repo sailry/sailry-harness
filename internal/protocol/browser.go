@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type BrowserAction struct {
@@ -613,14 +612,7 @@ const (
 	BrowserScaleDevice BrowserScale = "device"
 )
 
-func (value BrowserScale) MarshalJSON() ([]byte, error) {
-	switch value {
-	case BrowserScaleCss, BrowserScaleDevice:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown BrowserScale %q", value)
-	}
-}
+func (value BrowserScale) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *BrowserScale) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -631,7 +623,7 @@ func (value *BrowserScale) UnmarshalJSON(data []byte) error {
 		*value = BrowserScale(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown BrowserScale %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value BrowserScale) MarshalText() ([]byte, error) {
@@ -655,14 +647,7 @@ const (
 	BrowserFormatPng  BrowserFormat = "png"
 )
 
-func (value BrowserFormat) MarshalJSON() ([]byte, error) {
-	switch value {
-	case BrowserFormatJpeg, BrowserFormatPng:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown BrowserFormat %q", value)
-	}
-}
+func (value BrowserFormat) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *BrowserFormat) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -673,7 +658,7 @@ func (value *BrowserFormat) UnmarshalJSON(data []byte) error {
 		*value = BrowserFormat(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown BrowserFormat %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value BrowserFormat) MarshalText() ([]byte, error) {
@@ -703,14 +688,7 @@ const (
 	BrowserKeyArrowRight BrowserKey = "ArrowRight"
 )
 
-func (value BrowserKey) MarshalJSON() ([]byte, error) {
-	switch value {
-	case BrowserKeyEnter, BrowserKeyEscape, BrowserKeyTab, BrowserKeyBackspace, BrowserKeyArrowUp, BrowserKeyArrowDown, BrowserKeyArrowLeft, BrowserKeyArrowRight:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown BrowserKey %q", value)
-	}
-}
+func (value BrowserKey) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *BrowserKey) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -721,7 +699,7 @@ func (value *BrowserKey) UnmarshalJSON(data []byte) error {
 		*value = BrowserKey(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown BrowserKey %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value BrowserKey) MarshalText() ([]byte, error) {
@@ -837,14 +815,7 @@ const (
 	BrowserDirectionDown BrowserDirection = "down"
 )
 
-func (value BrowserDirection) MarshalJSON() ([]byte, error) {
-	switch value {
-	case BrowserDirectionUp, BrowserDirectionDown:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown BrowserDirection %q", value)
-	}
-}
+func (value BrowserDirection) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *BrowserDirection) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -855,7 +826,7 @@ func (value *BrowserDirection) UnmarshalJSON(data []byte) error {
 		*value = BrowserDirection(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown BrowserDirection %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value BrowserDirection) MarshalText() ([]byte, error) {

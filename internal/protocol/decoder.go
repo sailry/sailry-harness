@@ -26,7 +26,7 @@ import (
 // helpers this replaces: required members, no duplicate known member, unknown
 // members rejected only where denied, null only for optional, raw and unit
 // values, and raw values retained in the compact HTML-escaped form produced by
-// encoding/json.
+// encoding/json. A decode of a peer's bytes relaxes this by its Tolerance.
 type Decoder struct {
 	current *source
 	parents []*source
@@ -37,8 +37,10 @@ type Decoder struct {
 	normalized bool
 	// strict rejects unknown members of nested structs without a decoder.
 	strict bool
-	large  bool
-	resume resumption
+	// tolerance is what this decode does with undeclared input.
+	tolerance Tolerance
+	large     bool
+	resume    resumption
 }
 
 // source is one byte slice being tokenized. Reading from a bytes.Buffer makes
@@ -157,6 +159,7 @@ func UnmarshalUnion(data []byte, tag, content string, variants map[string]func()
 func newDecoder(data []byte) *Decoder {
 	decoder := decoders.Get().(*Decoder)
 	decoder.push(data)
+	decoder.tolerance = lent(data)
 	return decoder
 }
 
@@ -168,7 +171,7 @@ func (d *Decoder) release() {
 		// A tokenizer keeps its last input until it is reset.
 		d.spare, d.large = nil, false
 	}
-	d.normalized, d.strict, d.resume = false, false, resumption{}
+	d.normalized, d.strict, d.tolerance, d.resume = false, false, Authored, resumption{}
 	decoders.Put(d)
 }
 
@@ -402,6 +405,7 @@ func (d *Decoder) Object(target any, required []string, denyUnknown bool) error 
 	plan := planOf(value.Type())
 	resume := d.resume
 	d.resume = resumption{}
+	denyUnknown = denyUnknown && d.tolerance == Authored
 	normalized, strict := d.normalized, d.strict
 	d.normalized, d.strict = true, denyUnknown
 	err := d.object(value, plan, plan.need(required), denyUnknown, resume)
@@ -561,6 +565,7 @@ func (d *Decoder) Union(tag, content string, variants map[string]func() any, den
 	if err := d.settle(); err != nil {
 		return "", nil, err
 	}
+	denyUnknown = denyUnknown && d.tolerance == Authored
 	switch {
 	case tag == "":
 		return d.external(variants)
@@ -579,6 +584,9 @@ func (d *Decoder) external(variants map[string]func() any) (string, any, error) 
 		kind := unquote(raw)
 		factory, exists := variants[kind]
 		if !exists {
+			if d.tolerance == PeerData {
+				return kind, UnknownVariant(bytes.Clone(raw)), nil
+			}
 			return "", nil, fmt.Errorf("unknown variant %q", kind)
 		}
 		if factory != nil {
@@ -589,6 +597,7 @@ func (d *Decoder) external(variants map[string]func() any) (string, any, error) 
 	if err := d.expect('{', "object"); err != nil {
 		return "", nil, err
 	}
+	start := d.opened()
 	if d.kind() == '}' {
 		return "", nil, fmt.Errorf("expected one external variant")
 	}
@@ -599,7 +608,7 @@ func (d *Decoder) external(variants map[string]func() any) (string, any, error) 
 	kind := unquote(raw)
 	factory, exists := variants[kind]
 	if !exists {
-		return "", nil, fmt.Errorf("unknown variant %q", kind)
+		return d.unknown(kind, start)
 	}
 	var value any
 	if factory == nil {
@@ -623,6 +632,26 @@ func (d *Decoder) external(variants map[string]func() any) (string, any, error) 
 		return "", nil, err
 	}
 	return kind, value, nil
+}
+
+// opened returns the offset of the object whose opening brace was just read.
+func (d *Decoder) opened() int { return int(d.current.text.InputOffset()) - 1 }
+
+// unknown settles a variant the union does not declare, inside the union's
+// object, which starts at start. A peer's report keeps the whole object as the
+// variant's content; any other input is refused.
+func (d *Decoder) unknown(kind string, start int) (string, any, error) {
+	if d.tolerance != PeerData {
+		return "", nil, fmt.Errorf("unknown variant %q", kind)
+	}
+	source := d.current
+	for depth := source.text.StackDepth(); source.text.StackDepth() >= depth; {
+		if _, err := source.text.ReadToken(); err != nil {
+			return "", nil, err
+		}
+	}
+	whole := source.data[start:int(source.text.InputOffset())]
+	return kind, UnknownVariant(bytes.Clone(d.normal(whole))), nil
 }
 
 // unit accepts the null content of a unit variant.
@@ -657,6 +686,7 @@ func (d *Decoder) adjacent(tag, content string, variants map[string]func() any, 
 	if err := d.expect('{', "object"); err != nil {
 		return "", nil, err
 	}
+	start := d.opened()
 	var (
 		kind                string
 		value               any
@@ -682,7 +712,7 @@ func (d *Decoder) adjacent(tag, content string, variants map[string]func() any, 
 			}
 			exists := false
 			if factory, exists = variants[kind]; !exists {
-				return "", nil, fmt.Errorf("unknown variant %q", kind)
+				return d.unknown(kind, start)
 			}
 		case content:
 			if carried {
@@ -772,7 +802,7 @@ func (d *Decoder) internal(tag string, variants map[string]func() any, denyUnkno
 	}
 	factory, exists := variants[kind]
 	if !exists {
-		return "", nil, fmt.Errorf("unknown variant %q", kind)
+		return d.unknown(kind, resume.start)
 	}
 	if factory == nil {
 		if denyUnknown && resume.members > 0 {
@@ -1209,7 +1239,7 @@ func buildCodec(target reflect.Type, building map[reflect.Type]*codec) *codec {
 			if err := checkJSONNulls(raw, target); err != nil {
 				return err
 			}
-			return value.Addr().Interface().(json.Unmarshaler).UnmarshalJSON(d.normal(raw))
+			return d.hand(d.normal(raw), value.Addr().Interface().(json.Unmarshaler))
 		}
 	case pointer.Implements(unmarshalerType) || pointer.Implements(streamerType) || pointer.Implements(textType):
 		// encoding/json has its own rules for types such as time.Time.
@@ -1321,6 +1351,24 @@ func kindCodec(target reflect.Type, building map[reflect.Type]*codec) func(*Deco
 			}
 			return nil
 		}
+	case reflect.Struct:
+		for index := range target.NumField() {
+			if target.Field(index).Anonymous {
+				return decodeChecked
+			}
+		}
+		// A struct without a decoder of its own goes to encoding/json, which
+		// cannot carry a tolerance to the values nested in it. A tolerant
+		// decode reads its members here instead.
+		return func(d *Decoder, value reflect.Value) error {
+			if d.tolerance == Authored {
+				return decodeChecked(d, value)
+			}
+			if d.kind() == 'n' {
+				return errNull
+			}
+			return d.Object(value.Addr().Interface(), nil, false)
+		}
 	case reflect.Map:
 		key := target.Key()
 		text := reflect.PointerTo(key).Implements(textType)
@@ -1380,7 +1428,11 @@ func (d *Decoder) entries(value reflect.Value, target, key reflect.Type, text bo
 		if text {
 			name = reflect.New(key)
 			if err := name.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(unquote(raw))); err != nil {
-				return err
+				if d.tolerance != PeerData || key.Kind() != reflect.String {
+					return err
+				}
+				// An enum value the peer knows and this build does not.
+				name.Elem().SetString(unquote(raw))
 			}
 			name = name.Elem()
 		} else {

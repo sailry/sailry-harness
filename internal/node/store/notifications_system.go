@@ -32,21 +32,50 @@ func insertNotice(ctx context.Context, db *sql.Conn, packageName string, content
 	return value, err
 }
 
-// runNotice reports a finished main run: completed, failed or interrupted. A
-// cancelled run was stopped by its user and a delegated run reports to its
-// parent, so neither has a notice. A failure that a diagnostic of the same
-// turn already explains is not reported twice.
-func runNotice(ctx context.Context, db *sql.Conn, run protocol.ConversationRun) ([]protocol.Event, error) {
+// runNoticed is the one rule for which finished run raises an outcome
+// notice. A cancelled run was stopped by its user and a delegated run reports
+// to its parent, so neither has one. A turn the user started reports every
+// other outcome, and so does the turn a dispatch job admitted, whose user may
+// be away. An automatic turn, one the Node started to deliver a background
+// result or a package started as a continuation the user did not ask for,
+// reports only a failure or an interruption: its success is a step of a chain
+// whose owner reports the outcome, and a chain that broke is not silent.
+func runNoticed(run protocol.ConversationRun, delegated, scheduled bool) bool {
 	switch run.Status {
-	case protocol.ConversationStatusCompleted, protocol.ConversationStatusFailed, protocol.ConversationStatusInterrupted:
-	default:
+	case protocol.ConversationStatusCompleted:
+		return !delegated && (scheduled || !automaticRun(run))
+	case protocol.ConversationStatusFailed, protocol.ConversationStatusInterrupted:
+		return !delegated
+	}
+	return false
+}
+
+// automaticRun reports whether nobody asked for the run's turn: a notice turn
+// or a package continuation other than one the user asked for.
+func automaticRun(run protocol.ConversationRun) bool {
+	return run.Notice || run.Continuation != nil && !run.Continuation.User
+}
+
+// runNotice stores the outcome notice of a finished run that runNoticed
+// admits. A failure that a diagnostic of the same turn already explains is
+// not reported twice.
+func runNotice(ctx context.Context, db *sql.Conn, run protocol.ConversationRun) ([]protocol.Event, error) {
+	if !runNoticed(run, false, true) {
 		return nil, nil
 	}
 	session, err := ReadSession(ctx, db, run.Session)
 	if err != nil {
 		return nil, err
 	}
-	if session.Delegation != nil {
+	scheduled := false
+	if automaticRun(run) && run.Status == protocol.ConversationStatusCompleted {
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM dispatch_jobs j JOIN requests r ON r.id=json_extract(j.body,'$.request')
+			WHERE r.status='completed' AND json_extract(r.result,'$.Ok.kind')='queued_turn'
+			AND json_extract(r.result,'$.Ok.data.id')=?1)`, run.Turn.String()).Scan(&scheduled); err != nil {
+			return nil, err
+		}
+	}
+	if !runNoticed(run, session.Delegation != nil, scheduled) {
 		return nil, nil
 	}
 	kind := protocol.NotificationKindSuccess

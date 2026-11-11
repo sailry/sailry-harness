@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationExecution string
@@ -14,14 +13,7 @@ const (
 	ConversationExecutionTeam  ConversationExecution = "team"
 )
 
-func (value ConversationExecution) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationExecutionModel, ConversationExecutionTeam:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationExecution %q", value)
-	}
-}
+func (value ConversationExecution) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ConversationExecution) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ConversationExecution) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -33,7 +25,7 @@ func (value *ConversationExecution) DecodeJSON(decoder *Decoder) error {
 		*value = ConversationExecution(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationExecution %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ConversationExecution) MarshalText() ([]byte, error) {
@@ -152,14 +144,7 @@ const (
 	ConversationModelApiPlugin          ConversationModelApi = "plugin"
 )
 
-func (value ConversationModelApi) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationModelApiChatCompletions, ConversationModelApiResponses, ConversationModelApiAnthropic, ConversationModelApiGemini, ConversationModelApiDeepSeek, ConversationModelApiOpenCodeGo, ConversationModelApiOpenCodeZen, ConversationModelApiAzureOpenAi, ConversationModelApiAzureAi, ConversationModelApiPlugin:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationModelApi %q", value)
-	}
-}
+func (value ConversationModelApi) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationModelApi) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -170,7 +155,7 @@ func (value *ConversationModelApi) UnmarshalJSON(data []byte) error {
 		*value = ConversationModelApi(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationModelApi %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationModelApi) MarshalText() ([]byte, error) {
@@ -329,14 +314,7 @@ const (
 	ConversationStatusFailed      ConversationStatus = "failed"
 )
 
-func (value ConversationStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationStatusQueued, ConversationStatusRunning, ConversationStatusStopping, ConversationStatusCompleted, ConversationStatusContinued, ConversationStatusCancelled, ConversationStatusInterrupted, ConversationStatusFailed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationStatus %q", value)
-	}
-}
+func (value ConversationStatus) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ConversationStatus) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ConversationStatus) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -348,7 +326,7 @@ func (value *ConversationStatus) DecodeJSON(decoder *Decoder) error {
 		*value = ConversationStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationStatus %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ConversationStatus) MarshalText() ([]byte, error) {
@@ -372,14 +350,7 @@ const (
 	ConversationRunKindCompaction ConversationRunKind = "compaction"
 )
 
-func (value ConversationRunKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationRunKindTask, ConversationRunKindCompaction:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationRunKind %q", value)
-	}
-}
+func (value ConversationRunKind) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ConversationRunKind) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ConversationRunKind) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -391,7 +362,7 @@ func (value *ConversationRunKind) DecodeJSON(decoder *Decoder) error {
 		*value = ConversationRunKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationRunKind %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ConversationRunKind) MarshalText() ([]byte, error) {
@@ -639,14 +610,7 @@ const (
 	ConversationQueuePauseUnrecorded  ConversationQueuePause = "unrecorded"
 )
 
-func (value ConversationQueuePause) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationQueuePauseUser, ConversationQueuePauseStopped, ConversationQueuePauseInterrupted, ConversationQueuePauseUnrecorded:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationQueuePause %q", value)
-	}
-}
+func (value ConversationQueuePause) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationQueuePause) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -657,8 +621,21 @@ func (value *ConversationQueuePause) UnmarshalJSON(data []byte) error {
 		*value = ConversationQueuePause(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationQueuePause %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
+}
+func (value ConversationQueuePause) MarshalText() ([]byte, error) {
+	if _, err := value.MarshalJSON(); err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+func (value *ConversationQueuePause) UnmarshalText(data []byte) error {
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return err
+	}
+	return value.UnmarshalJSON(encoded)
 }
 
 type ConversationQueue struct {
@@ -851,14 +828,7 @@ const (
 	ConversationApprovalStateInterrupted ConversationApprovalState = "interrupted"
 )
 
-func (value ConversationApprovalState) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationApprovalStatePending, ConversationApprovalStateApproved, ConversationApprovalStateDenied, ConversationApprovalStateCancelled, ConversationApprovalStateInterrupted:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationApprovalState %q", value)
-	}
-}
+func (value ConversationApprovalState) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationApprovalState) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -869,7 +839,7 @@ func (value *ConversationApprovalState) UnmarshalJSON(data []byte) error {
 		*value = ConversationApprovalState(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationApprovalState %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationApprovalState) MarshalText() ([]byte, error) {
@@ -899,14 +869,7 @@ const (
 	ConversationApprovalSourceCodeRule    ConversationApprovalSource = "code_rule"
 )
 
-func (value ConversationApprovalSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationApprovalSourceStorage, ConversationApprovalSourceSandbox, ConversationApprovalSourceUser, ConversationApprovalSourceProject, ConversationApprovalSourceFull, ConversationApprovalSourceSessionRule, ConversationApprovalSourcePrefixRule, ConversationApprovalSourceCodeRule:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationApprovalSource %q", value)
-	}
-}
+func (value ConversationApprovalSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationApprovalSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -917,7 +880,7 @@ func (value *ConversationApprovalSource) UnmarshalJSON(data []byte) error {
 		*value = ConversationApprovalSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationApprovalSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationApprovalSource) MarshalText() ([]byte, error) {

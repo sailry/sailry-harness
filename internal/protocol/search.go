@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type SearchDriver string
@@ -21,14 +20,7 @@ const (
 	SearchDriverModel      SearchDriver = "model"
 )
 
-func (value SearchDriver) MarshalJSON() ([]byte, error) {
-	switch value {
-	case SearchDriverExa, SearchDriverTinyfish, SearchDriverTavily, SearchDriverBrave, SearchDriverSearxng, SearchDriverBocha, SearchDriverVolcengine, SearchDriverDeepseek, SearchDriverModel:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown SearchDriver %q", value)
-	}
-}
+func (value SearchDriver) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *SearchDriver) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -39,7 +31,7 @@ func (value *SearchDriver) UnmarshalJSON(data []byte) error {
 		*value = SearchDriver(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown SearchDriver %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value SearchDriver) MarshalText() ([]byte, error) {
@@ -65,14 +57,7 @@ const (
 	SearchQuotaPaid           SearchQuota = "paid"
 )
 
-func (value SearchQuota) MarshalJSON() ([]byte, error) {
-	switch value {
-	case SearchQuotaKeyless, SearchQuotaAnonymousQuota, SearchQuotaFreeQuota, SearchQuotaPaid:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown SearchQuota %q", value)
-	}
-}
+func (value SearchQuota) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *SearchQuota) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -83,7 +68,7 @@ func (value *SearchQuota) UnmarshalJSON(data []byte) error {
 		*value = SearchQuota(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown SearchQuota %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value SearchQuota) MarshalText() ([]byte, error) {
@@ -307,14 +292,7 @@ const (
 	SearchFreshnessYear  SearchFreshness = "year"
 )
 
-func (value SearchFreshness) MarshalJSON() ([]byte, error) {
-	switch value {
-	case SearchFreshnessHour, SearchFreshnessDay, SearchFreshnessWeek, SearchFreshnessMonth, SearchFreshnessYear:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown SearchFreshness %q", value)
-	}
-}
+func (value SearchFreshness) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *SearchFreshness) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -325,7 +303,7 @@ func (value *SearchFreshness) UnmarshalJSON(data []byte) error {
 		*value = SearchFreshness(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown SearchFreshness %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value SearchFreshness) MarshalText() ([]byte, error) {

@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type KnowledgeSource struct {
@@ -327,14 +326,7 @@ const (
 	KnowledgeStatusPaused   KnowledgeStatus = "paused"
 )
 
-func (value KnowledgeStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case KnowledgeStatusPending, KnowledgeStatusIndexing, KnowledgeStatusReady, KnowledgeStatusPaused:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown KnowledgeStatus %q", value)
-	}
-}
+func (value KnowledgeStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *KnowledgeStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -345,7 +337,7 @@ func (value *KnowledgeStatus) UnmarshalJSON(data []byte) error {
 		*value = KnowledgeStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown KnowledgeStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value KnowledgeStatus) MarshalText() ([]byte, error) {
@@ -481,14 +473,7 @@ const (
 	KnowledgeModeHybrid   KnowledgeMode = "hybrid"
 )
 
-func (value KnowledgeMode) MarshalJSON() ([]byte, error) {
-	switch value {
-	case KnowledgeModeKeyword, KnowledgeModeSemantic, KnowledgeModeHybrid:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown KnowledgeMode %q", value)
-	}
-}
+func (value KnowledgeMode) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *KnowledgeMode) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -499,7 +484,7 @@ func (value *KnowledgeMode) UnmarshalJSON(data []byte) error {
 		*value = KnowledgeMode(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown KnowledgeMode %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value KnowledgeMode) MarshalText() ([]byte, error) {

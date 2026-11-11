@@ -63,14 +63,7 @@ const (
 	PluginConnectorAccountsSingle PluginConnectorAccounts = "single"
 )
 
-func (value PluginConnectorAccounts) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectorAccountsSingle:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectorAccounts %q", value)
-	}
-}
+func (value PluginConnectorAccounts) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectorAccounts) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -81,7 +74,7 @@ func (value *PluginConnectorAccounts) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectorAccounts(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectorAccounts %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectorAccounts) MarshalText() ([]byte, error) {
@@ -150,14 +143,7 @@ const (
 	PluginConnectorKindLocalCli    PluginConnectorKind = "local_cli"
 )
 
-func (value PluginConnectorKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectorKindOauth2, PluginConnectorKindApplication, PluginConnectorKindSecret, PluginConnectorKindMcpOauth, PluginConnectorKindLocalCli:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectorKind %q", value)
-	}
-}
+func (value PluginConnectorKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectorKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -168,7 +154,7 @@ func (value *PluginConnectorKind) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectorKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectorKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectorKind) MarshalText() ([]byte, error) {
@@ -371,14 +357,7 @@ const (
 	PluginConnectorFlowDeviceCode PluginConnectorFlow = "device_code"
 )
 
-func (value PluginConnectorFlow) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectorFlowPkce, PluginConnectorFlowDeviceCode:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectorFlow %q", value)
-	}
-}
+func (value PluginConnectorFlow) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectorFlow) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -389,7 +368,7 @@ func (value *PluginConnectorFlow) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectorFlow(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectorFlow %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectorFlow) MarshalText() ([]byte, error) {
@@ -848,14 +827,7 @@ const (
 	PluginConnectorStateFailed            PluginConnectorState = "failed"
 )
 
-func (value PluginConnectorState) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConnectorStateConnected, PluginConnectorStateNotConnected, PluginConnectorStateConnecting, PluginConnectorStateExpired, PluginConnectorStateNeedsConfirmation, PluginConnectorStateFailed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConnectorState %q", value)
-	}
-}
+func (value PluginConnectorState) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConnectorState) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -866,7 +838,7 @@ func (value *PluginConnectorState) UnmarshalJSON(data []byte) error {
 		*value = PluginConnectorState(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConnectorState %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConnectorState) MarshalText() ([]byte, error) {

@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PermissionsKind string
@@ -16,14 +15,7 @@ const (
 	PermissionsKindMicrophone      PermissionsKind = "microphone"
 )
 
-func (value PermissionsKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PermissionsKindFullDisk, PermissionsKindScreenRecording, PermissionsKindAccessibility, PermissionsKindMicrophone:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PermissionsKind %q", value)
-	}
-}
+func (value PermissionsKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PermissionsKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -34,7 +26,7 @@ func (value *PermissionsKind) UnmarshalJSON(data []byte) error {
 		*value = PermissionsKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PermissionsKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PermissionsKind) MarshalText() ([]byte, error) {

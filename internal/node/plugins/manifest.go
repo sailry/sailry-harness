@@ -127,6 +127,8 @@ func ValidateManifest(data []byte) (Manifest, error) {
 			result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
 		} else if raw, exists := extensions["dev.sailry.platform"]; exists {
 			issuePath += ".dev.sailry.platform"
+			// A manifest is authored input: decoding it refuses every member,
+			// enum value and variant this build does not declare.
 			var extension protocol.PluginExtension
 			if json.Unmarshal(raw, &extension) != nil {
 				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})

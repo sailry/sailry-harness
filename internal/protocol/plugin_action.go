@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginAction string
@@ -76,14 +75,7 @@ const (
 	PluginActionWriteKnowledge         PluginAction = "knowledge.write"
 )
 
-func (value PluginAction) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginActionReadArtifacts, PluginActionWriteArtifacts, PluginActionReadCodeIndex, PluginActionReadCodeIndexSettings, PluginActionSaveCodeIndexSettings, PluginActionReadCode, PluginActionManageCode, PluginActionReadCodeSettings, PluginActionSaveCodeSettings, PluginActionReadSearchSettings, PluginActionSaveSearchSettings, PluginActionReadActivity, PluginActionReadUsage, PluginActionReadDatabases, PluginActionControlDatabases, PluginActionManageDatabases, PluginActionReadSsh, PluginActionControlSsh, PluginActionManageSsh, PluginActionDelegateAgents, PluginActionReadRoles, PluginActionReadTeams, PluginActionWriteRoles, PluginActionReadModels, PluginActionRunDecisions, PluginActionProvideModels, PluginActionAuthenticateModels, PluginActionInspectCredentials, PluginActionInstallModels, PluginActionInspectMedia, PluginActionGenerateImage, PluginActionGenerateVideo, PluginActionReadMediaSettings, PluginActionSaveMediaSettings, PluginActionReadComputer, PluginActionControlComputer, PluginActionReadBrowser, PluginActionControlBrowser, PluginActionReadExternalBrowser, PluginActionControlExternalBrowser, PluginActionNotify, PluginActionDispatch, PluginActionReadFiles, PluginActionWriteFiles, PluginActionReadGit, PluginActionWriteGit, PluginActionReadWorktrees, PluginActionWriteWorktrees, PluginActionReadCommands, PluginActionControlCommands, PluginActionReadTerminals, PluginActionControlTerminals, PluginActionReadConversation, PluginActionControlConversation, PluginActionReadMessage, PluginActionStartSessions, PluginActionReadProjects, PluginActionHttp, PluginActionReadWeb, PluginActionGenerateText, PluginActionReadStorage, PluginActionWriteStorage, PluginActionReadKnowledge, PluginActionWriteKnowledge:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginAction %q", value)
-	}
-}
+func (value PluginAction) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginAction) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -94,7 +86,7 @@ func (value *PluginAction) UnmarshalJSON(data []byte) error {
 		*value = PluginAction(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginAction %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginAction) MarshalText() ([]byte, error) {
@@ -119,14 +111,7 @@ const (
 	PluginActionAccessOperate PluginActionAccess = "operate"
 )
 
-func (value PluginActionAccess) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginActionAccessRead, PluginActionAccessModify, PluginActionAccessOperate:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginActionAccess %q", value)
-	}
-}
+func (value PluginActionAccess) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginActionAccess) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -137,7 +122,7 @@ func (value *PluginActionAccess) UnmarshalJSON(data []byte) error {
 		*value = PluginActionAccess(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginActionAccess %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginActionAccess) MarshalText() ([]byte, error) {

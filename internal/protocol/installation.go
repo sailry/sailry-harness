@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type InstallationTarget string
@@ -14,14 +13,7 @@ const (
 	InstallationTargetController InstallationTarget = "controller"
 )
 
-func (value InstallationTarget) MarshalJSON() ([]byte, error) {
-	switch value {
-	case InstallationTargetNode, InstallationTargetController:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown InstallationTarget %q", value)
-	}
-}
+func (value InstallationTarget) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *InstallationTarget) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *InstallationTarget) UnmarshalJSON(data []byte) error {
 		*value = InstallationTarget(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown InstallationTarget %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value InstallationTarget) MarshalText() ([]byte, error) {
@@ -377,14 +369,7 @@ const (
 	InstallationPhaseValidating  InstallationPhase = "validating"
 )
 
-func (value InstallationPhase) MarshalJSON() ([]byte, error) {
-	switch value {
-	case InstallationPhaseDownloading, InstallationPhaseInspecting, InstallationPhasePreparing, InstallationPhaseInstalling, InstallationPhaseValidating:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown InstallationPhase %q", value)
-	}
-}
+func (value InstallationPhase) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *InstallationPhase) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -395,7 +380,7 @@ func (value *InstallationPhase) UnmarshalJSON(data []byte) error {
 		*value = InstallationPhase(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown InstallationPhase %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value InstallationPhase) MarshalText() ([]byte, error) {
