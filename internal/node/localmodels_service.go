@@ -68,7 +68,10 @@ func (node *Node) initLocalModels(ctx context.Context, options localmodels.Optio
 	}
 	node.localModels = controls
 	previous, changed := controls.registry.Updates()
-	node.initKnowledge()
+	if err := node.initKnowledge(ctx); err != nil {
+		controls.registry.Shutdown()
+		return err
+	}
 	go node.followLocalModels(previous, changed)
 	return nil
 }

@@ -193,8 +193,31 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 		}
 		capture.Worktree, capture.Session = nil, nil
 	case "storage":
-		// Plugin storage sources are not indexed by this build.
-		return fault(protocol.ErrorCodeNotConfigured, "knowledge storage sources are unavailable")
+		if capture.Package == nil {
+			return knowledgeDenied("knowledge storage sources require a real plugin owner")
+		}
+		if info != nil && (!knowledgeDeclares(*info, protocol.PluginActionReadStorage) ||
+			source.Scope == protocol.PluginStorageScopeConversation && !knowledgeDeclares(*info, protocol.PluginActionReadConversation)) {
+			return knowledgeDenied("plugin does not declare the captured storage access")
+		}
+		if source.Scope != protocol.PluginStorageScopeConversation {
+			capture.Worktree, capture.Session = nil, nil
+			break
+		}
+		if capture.Session == nil {
+			return knowledgeDenied("conversation storage requires a captured session")
+		}
+		var worktree string
+		err := db.QueryRowContext(ctx, "SELECT worktree FROM sessions WHERE id=?1 AND state!='removed'", capture.Session.String()).Scan(&worktree)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fault(protocol.ErrorCodeNotFound, "knowledge conversation is unavailable")
+		}
+		if err != nil {
+			return err
+		}
+		if capture.Worktree == nil || capture.Worktree.String() != worktree {
+			return knowledgeDenied("conversation storage is outside the captured worktree")
+		}
 	}
 	for _, name := range definition.SharedWith {
 		if _, err := currentKnowledgePlugin(ctx, db, name); err != nil {
@@ -218,7 +241,7 @@ func checkKnowledge(stored KnowledgeStored) error {
 		collection.Progress.Generation == 0 || collection.Progress.Generation > math.MaxInt64 || collection.Progress.Completed > collection.Progress.Sources {
 		return invalid("invalid stored knowledge collection")
 	}
-	if stored.Automatic {
+	if stored.Automatic && !knowledgeAutomatic(stored) {
 		return invalid("invalid automatic knowledge collection")
 	}
 	source := ReadKnowledgeSource(collection.Definition.Source)

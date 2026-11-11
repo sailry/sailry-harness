@@ -68,7 +68,12 @@ func (service *Service) Citation(ctx context.Context, request protocol.Request, 
 		}
 		worktree = &selected.Worktree
 	}
-	text, err := service.context(ctx, definition, selected, root, indexed.citation, input.Context)
+	var text string
+	if selected.Kind == "storage" {
+		text, err = service.value(ctx, stored, indexed.citation)
+	} else {
+		text, err = service.context(ctx, definition, selected, root, indexed.citation, input.Context)
+	}
 	if err != nil {
 		if code(err) == protocol.ErrorCodeRevisionConflict {
 			service.Refresh()

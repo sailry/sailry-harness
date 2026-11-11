@@ -279,6 +279,9 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 		if operationErr == nil {
 			output, changes, operationErr = node.mutatePluginCommand(recording, db, caller, request, prepared)
 		}
+		if operationErr == nil {
+			changes, operationErr = node.followKnowledgeStorage(recording, db, request, changes)
+		}
 		if operationErr != nil {
 			changes = nil
 			if _, err := db.ExecContext(recording, "ROLLBACK TO sailry_plugin_command"); err != nil {
@@ -299,6 +302,9 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 	}
 	node.authCommitted(caller, request, operationErr)
 	node.pluginCommitted(changes)
+	if operationErr == nil {
+		node.refreshKnowledgeStorage(request.Command, changes)
+	}
 	if output.Kind == "python_settings" && operationErr == nil {
 		if value, ok := dispatchPayload[protocol.PythonInfo](output.Data); ok {
 			_ = node.plugins.python.Configure(value.Settings.Index)
@@ -404,6 +410,10 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 	}
 	if request.Command.Kind == "list_plugin_models" || request.Command.Kind == "resolve_plugin_model" {
 		return node.pluginModelCatalog(ctx, request)
+	}
+	if request.Command.Kind == "search_plugin_values" {
+		page, err := node.knowledge.SearchStorage(ctx, request)
+		return protocol.Output{Kind: "plugin_search", Data: page}, err
 	}
 	if output, handled, err := node.prepareAuthCommand(ctx, caller, request); handled {
 		return output, err

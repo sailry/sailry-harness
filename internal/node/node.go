@@ -62,6 +62,7 @@ type Node struct {
 	telemetry         *telemetry.Control
 	logs              bool
 	knowledge         *knowledgeservice.Service
+	knowledgeAdjust   func(*knowledgeservice.Options) // replaces model capabilities in tests
 	cancel            context.CancelFunc
 	web               *workspaceWeb
 	transfers         *files.Transfers
@@ -138,6 +139,7 @@ type Options struct {
 	LocalModels    localmodels.Options
 	Power          power.Backend
 	Telemetry      telemetry.Options
+	knowledge      func(*knowledgeservice.Options)
 }
 
 func Start(ctx context.Context, path string) (*Node, error) {
@@ -154,7 +156,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, knowledgeAdjust: options.knowledge, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
 	for index := range value.lanes {
 		value.lanes[index] = commandLane{wake: make(chan struct{}, 1), done: make(chan struct{})}
 	}
@@ -723,6 +725,9 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 				output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}
 		}
+		if operationErr == nil && job.request.Command.Kind == "continue_turn" {
+			changes, operationErr = node.followKnowledgeStorage(node.ctx, db, job.request, changes)
+		}
 		if operationErr == nil {
 			var reviewEvents []protocol.Event
 			reviewChanges, reviewEvents, operationErr = store.ApplyReviewCommand(node.ctx, db, job.request, output, time.Now())
@@ -752,6 +757,9 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 		node.conversationEvents(changes)
 		node.systemEvents(changes)
+		if operationErr == nil {
+			node.refreshKnowledgeStorage(job.request.Command, nil)
+		}
 	}
 	return response(output, operationErr), err
 }

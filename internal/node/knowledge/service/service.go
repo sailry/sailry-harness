@@ -40,6 +40,18 @@ type Options struct {
 	Encode func(ctx context.Context, model string, choice protocol.ModelsLocalChoice, texts []string, query bool) ([][]float32, error)
 	// Offsets returns the byte range of every model token of a text.
 	Offsets func(ctx context.Context, model string, choice protocol.ModelsLocalChoice, text string) ([][2]int, error)
+	// Sources reads the next page of the plugin values a storage collection
+	// indexes; after continues a scan.
+	Sources func(ctx context.Context, stored store.KnowledgeStored, after *string) (store.KnowledgeStoragePage, error)
+	// Source captures one plugin value of a storage collection, or nil.
+	Source func(ctx context.Context, stored store.KnowledgeStored, key string) (*store.KnowledgeStorageRecord, error)
+	// SourceCurrent reports whether a captured plugin value is unchanged.
+	SourceCurrent func(ctx context.Context, stored store.KnowledgeStored, record store.KnowledgeStorageRecord) (bool, error)
+	// Plan captures what one plugin storage search may rank.
+	Plan func(ctx context.Context, request protocol.Request) (store.SemanticPlan, error)
+	// Materialize reads the values a plugin storage search selected and
+	// reports a selection that went stale.
+	Materialize func(ctx context.Context, request protocol.Request, plan store.SemanticPlan, selection store.SemanticSelection) (protocol.PluginStorageSearchPage, bool, error)
 	// OCR reads images and scanned PDF pages.
 	OCR   *source.OCR
 	Clock clockwork.Clock
@@ -143,49 +155,64 @@ func nonzero(vector []float32) bool {
 	return slices.ContainsFunc(vector, func(value float32) bool { return value != 0 })
 }
 
-// Query answers a search with the collections the request may read.
-func (service *Service) Query(ctx context.Context, request protocol.Request, query protocol.KnowledgeQuery) (protocol.KnowledgePage, error) {
+// prepared is what one search may read: the admitted bindings, the query
+// vector of each of their models and whether any of them is still indexing.
+type prepared struct {
+	bindings   []Binding
+	embeddings []Embedding
+	indexing   bool
+}
+
+func (service *Service) prepare(ctx context.Context, request protocol.Request, query protocol.KnowledgeQuery) (prepared, error) {
+	var result prepared
 	if err := knowledge.ValidateQuery(query); err != nil {
-		return protocol.DefaultKnowledgePage(), err
+		return result, err
 	}
 	allowed, err := service.options.Allowed(ctx, request)
 	if err != nil {
-		return protocol.DefaultKnowledgePage(), err
+		return result, err
 	}
 	choice := service.options.Choice()
-	var bindings []Binding
 	var models []string
-	indexing := false
 	for _, stored := range allowed {
 		if len(query.Collections) != 0 && !slices.Contains(query.Collections, stored.Collection.ID) {
 			continue
 		}
 		binding := service.binding(stored, choice)
-		bindings = append(bindings, binding)
+		result.bindings = append(result.bindings, binding)
 		status := stored.Collection.Progress.Status
-		indexing = indexing || status == protocol.KnowledgeStatusPending || status == protocol.KnowledgeStatusIndexing
+		result.indexing = result.indexing || status == protocol.KnowledgeStatusPending || status == protocol.KnowledgeStatusIndexing
 		if !stored.Collection.Paused && binding.Model != "" && !slices.Contains(models, binding.Model) {
 			models = append(models, binding.Model)
 		}
 	}
 	slices.Sort(models)
-	var embeddings []Embedding
-	if query.Mode != protocol.KnowledgeModeKeyword {
-		for _, model := range models {
-			vectors, err := service.options.Encode(ctx, model, choice, []string{query.Query}, true)
-			if err != nil {
-				if code(err) == protocol.ErrorCodeNotConfigured {
-					continue
-				}
-				return protocol.DefaultKnowledgePage(), err
+	if query.Mode == protocol.KnowledgeModeKeyword {
+		return result, nil
+	}
+	for _, model := range models {
+		vectors, err := service.options.Encode(ctx, model, choice, []string{query.Query}, true)
+		if err != nil {
+			if code(err) == protocol.ErrorCodeNotConfigured {
+				continue
 			}
-			if len(vectors) != 1 {
-				return protocol.DefaultKnowledgePage(), newFault(protocol.ErrorCodeInternal, "embedding query count differs")
-			}
-			if nonzero(vectors[0]) {
-				embeddings = append(embeddings, Embedding{Model: model, Values: vectors[0]})
-			}
+			return result, err
+		}
+		if len(vectors) != 1 {
+			return result, newFault(protocol.ErrorCodeInternal, "embedding query count differs")
+		}
+		if nonzero(vectors[0]) {
+			result.embeddings = append(result.embeddings, Embedding{Model: model, Values: vectors[0]})
 		}
 	}
-	return service.index.Search(ctx, query, bindings, embeddings, indexing)
+	return result, nil
+}
+
+// Query answers a search with the collections the request may read.
+func (service *Service) Query(ctx context.Context, request protocol.Request, query protocol.KnowledgeQuery) (protocol.KnowledgePage, error) {
+	prepared, err := service.prepare(ctx, request, query)
+	if err != nil {
+		return protocol.DefaultKnowledgePage(), err
+	}
+	return service.index.Search(ctx, query, prepared.bindings, prepared.embeddings, prepared.indexing)
 }

@@ -49,6 +49,16 @@ fallback's FTS5 corpus in the same transaction. Conversation values follow
 canonical branch history, fork and rewind. Transactions admitting a turn anchor
 preceding state writes to that turn.
 
+Storage writes feed knowledge. A `node` collection declared with
+`index.semantic: true` becomes an automatic knowledge collection once it
+holds an indexed value with a text `source`, and `search_plugin_values` in
+`semantic` or `hybrid` mode ranks those values by meaning as well as by
+keyword. A package may also create a knowledge collection over a prefix of
+its own values. Every storage write, removal and plugin transaction requests
+an indexing pass after it commits and never waits for it
+([knowledge.md](knowledge.md#plugin-storage)). Of the bundled packages only
+`memory` declares a semantic collection (`memory/entry/`).
+
 A tool declared with `storage.get`, `storage.list`, `storage.set` or
 `storage.delete` is offered to the model with the source's schema and bound by
 `internal/node/plugin_tools_storage.go`. Each call is dispatched under the
