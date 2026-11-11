@@ -62,7 +62,8 @@ operation that needs it and is reused until it closes. It closes when:
   browser call interrupted; effects may have occurred; browser session closed;
   verify before retrying" for a control action;
 - a stopped turn ends, whichever tool it was in;
-- the conversation is removed (`sessions_removed`);
+- the conversation is archived (`session_changed` with `archived`) or removed
+  (`sessions_removed`, which also deletes its profile);
 - Node stops (`Browsers.Shutdown`, before the Node waits for its work).
 
 A wait that runs out is not an interruption. `wait`, `wait_for_element`,
@@ -77,7 +78,12 @@ when the conversation's next call starts a browser again. Open pages are not:
 the first result from a browser started over an existing profile carries
 `"notice": "a new browser was started for this call; pages opened earlier are
 closed and cookies are kept"`. `Browsers.Remove` closes the browser and deletes
-`<profile>/browser/sessions/<session>`; nothing else deletes a profile.
+`<profile>/browser/sessions/<session>`. `Node.externalBrowserEvents` calls it
+for every removed conversation, delegated ones included, and
+`Node.removeExternalBrowserProfiles` calls it at Node start for every profile
+whose conversation no longer exists, which covers a Node that stopped between
+the removal and the deletion. Archiving and removing a project keep the
+profiles of the conversations that remain.
 
 Closing asks the browser to exit, which lets it write its profile, then kills
 its process group (a job object on Windows, the parent-death signal on Linux as
@@ -155,6 +161,12 @@ action, must be enabled as installed now, and the call must name the session
 and worktree of its scope. A plan-mode turn may use only read actions. The
 decision is repeated before and after the browser starts.
 
+A turn's tool is bound to the package the turn captured, so its call repeats
+the part that can change during the turn: `Node.pluginEnabled` reads the
+package as installed now, before and after the browser starts, and answers
+`not_configured` "plugin is disabled" for a package that was disabled or
+removed since.
+
 Read actions are `extract_text`, `extract_attribute`, `extract_links`,
 `page_info`, `page_source`, the three frame switches, `navigate`, `back`,
 `forward`, `refresh`, the four waits, `list_windows`, `switch_window` and
@@ -231,8 +243,12 @@ ask through the existing approval prompt.
   the limit under concurrent starts, a wait cut at 30 s with the browser kept,
   `Close` against `Remove`, staged uploads kept and bounded, and Node stop.
 - `node.TestExternalBrowserRouting`: the public command's checks and admission,
-  plugin authority, all 49 tools offered in a real turn, approval and plan
-  mode. No browser starts; it skips without an installed browser.
+  plugin authority, all 49 tools offered in a real turn, approval, plan mode
+  and a package disabled during its turn. No browser starts; it skips without
+  an installed browser.
+- `node.TestBrowserToolBinding`: a removed conversation loses its profile, an
+  archived and an open one keep theirs, and a Node start deletes the profile
+  of a conversation that no longer exists.
 - `//go:build integration` `externalbrowser.TestManagedBrowserIntegration` and
   `node.TestExternalBrowserNodeIntegration` launch a local Chrome or Chromium
   against loopback pages and skip without one. They cover every operation

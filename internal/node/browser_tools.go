@@ -26,6 +26,12 @@ var browserToolSchema = json.RawMessage(`{"type":"object","properties":{"action"
 // initiating controller's browser. The package's host script prepares each
 // call and formats its result around these native tools.
 func (node *Node) browserTools(ctx context.Context, inv *store.AgentInvocation) ([]engine.Tool, error) {
+	// Only the controller that started the turn has a browser to drive. A
+	// turn started by Mobile, a Host or a schedule has none, and tools that
+	// could only answer "disconnected" are not offered.
+	if !node.browsers.available(inv.Caller) {
+		return nil, nil
+	}
 	var infos []protocol.PluginInfo
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		for _, reference := range inv.Turn.Plugins {
@@ -124,6 +130,11 @@ func (node *Node) browserTool(inv *store.AgentInvocation, owner protocol.PluginR
 		mu.Unlock()
 		if current == nil {
 			return workspaceToolFault(errors.New("native tool was not prepared"))
+		}
+		// A turn keeps the package it started with, but browser authority
+		// follows the package as it is now.
+		if err := node.pluginEnabled(ctx, owner.Name); err != nil {
+			return workspaceToolFault(err)
 		}
 		// The call goes to the controller that started the turn, never through
 		// this Node's own dispatch identity.
