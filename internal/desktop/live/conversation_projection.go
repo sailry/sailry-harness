@@ -420,66 +420,13 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	}
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
-		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil, Wait: queueWait(page, item)}
+		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
 		for _, file := range item.Attachments {
 			q.Attachments = append(q.Attachments, &composer.Attachment{ID: file.ID.String(), Name: file.Spec.Name, Mime: file.Spec.MediaType, Size: int64(file.Spec.Size), Status: composer.Ready})
 		}
 		queue = append(queue, q)
 	}
 	return turns, session, interactions, queue
-}
-
-// queueWait is why a queued item is not starting: its own turn ended before
-// its input was recorded, it is held until it is started, or the queue is
-// paused, by the reason the Node gave. Guidance waits for its recipient.
-func queueWait(page protocol.ConversationPage, item protocol.ConversationPending) composer.Wait {
-	if item.Guidance != nil {
-		return composer.WaitNone
-	}
-	if slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
-		return run.Turn == item.Turn && (run.Status == "failed" || run.Status == "cancelled" || run.Status == "interrupted")
-	}) {
-		return composer.WaitUnsent
-	}
-	if !page.Queue.Paused {
-		if !item.Ready {
-			return composer.WaitHeld
-		}
-		return composer.WaitNone
-	}
-	if page.Queue.PauseReason != nil {
-		switch *page.Queue.PauseReason {
-		case protocol.ConversationQueuePauseStopped:
-			return composer.WaitStopped
-		case protocol.ConversationQueuePauseInterrupted:
-			return composer.WaitInterrupted
-		}
-	}
-	return composer.WaitPaused
-}
-
-// heldResults are the finished background results the Node keeps back from
-// automatic delivery, with its reason; the user's next turn takes them.
-func heldResults(page protocol.ConversationPage) []composer.HeldResult {
-	var held []composer.HeldResult
-	for _, task := range page.Background {
-		if task.State != protocol.ConversationBackgroundStatePending || task.Hold == nil || task.Delivery != nil {
-			continue
-		}
-		wait := composer.WaitHeld
-		switch *task.Hold {
-		case protocol.ConversationBackgroundHoldLimit:
-			wait = composer.WaitLimit
-		case protocol.ConversationBackgroundHoldStopped:
-			wait = composer.WaitStopped
-		case protocol.ConversationBackgroundHoldInterrupted:
-			wait = composer.WaitInterrupted
-		case protocol.ConversationBackgroundHoldFailed:
-			wait = composer.WaitFailed
-		}
-		held = append(held, composer.HeldResult{ID: task.ID, Title: task.Title, Wait: wait})
-	}
-	return held
 }
 
 func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn protocol.TurnID) int {

@@ -713,6 +713,9 @@ without an owner.
   reserves the result. A result that is pending without `suppressed` and not
   delivered is waiting only for the session to be free; the queue's
   `pause_reason` says why when the queue is paused.
+  The desktop draws nothing for a held result: a background agent's state is
+  on its row under the turn that started it, and a result shows as the
+  Background results bubble of the turn that takes it.
 - **Stalled commands.** A background command that asked for a follow-up and
   stays silent writes `stall:<id>` evidence with the outcome `stalled`
   ([process](process.md)). It is delivered by the same rules as any result:
@@ -755,17 +758,20 @@ without an owner.
 
 An item is a row of `agent_pending`; `ready`, the recipient and the queue's
 `paused` flag decide what it does. Every transition is one store transaction
-and bumps the item or queue revision that its command checks.
+and bumps the item or queue revision that its command checks. The Desktop
+column is what the composer's queue strip shows: rows never say why they wait
+and held background results are not rows ([removed-ui.md](removed-ui.md),
+[composer.md](composer.md)).
 
-| State | Stored as | Leaves by |
-|---|---|---|
-| Held | queued run, `ready=0` | `start_queued_turn`, `send_queued_turn`, `guide_queued_turn`, `remove_queued_turn` |
-| Queued | queued run, `ready=1`, no recipient | claim when the session has no running turn and the queue runs; `remove_queued_turn`; `guide_queued_turn` |
-| Guiding | `ready=1`, recipient is the running turn | join at the boundary; `withdraw_guidance` (held); `edit_queued_turn` or `set_queue_paused` (queued); recipient ends or restart (queued); `remove_queued_turn` |
-| Joined | run `completed` with `joined`, row deleted | terminal; shown under the joining turn |
-| Running | run `running`; row kept until its input is recorded | turn end |
-| Retained | run `failed`, `cancelled` or `interrupted` before its input was recorded, row kept, queue paused | `start_queued_turn` or `send_queued_turn` (queued again), `remove_queued_turn` |
-| Removed | run `cancelled`, row deleted | terminal |
+| State | Stored as | Leaves by | Desktop |
+|---|---|---|---|
+| Held | queued run, `ready=0` | `start_queued_turn`, `send_queued_turn`, `guide_queued_turn`, `remove_queued_turn` | A plain row |
+| Queued | queued run, `ready=1`, no recipient | claim when the session has no running turn and the queue runs; `remove_queued_turn`; `guide_queued_turn` | A plain row; with the queue paused it stays until Send now or a new message. A pause the Node made after a turn lost its owner (`interrupted`) is one warning toast, `queue_halt_interrupted`; the user's own Stop or pause is not reported |
+| Guiding | `ready=1`, recipient is the running turn | join at the boundary; `withdraw_guidance` (held); `edit_queued_turn` or `set_queue_paused` (queued); recipient ends or restart (queued); `remove_queued_turn` | The row shows the loader and Withdraw; guidance that runs as its own turn is one toast (`queue_guidance_separate`, `queue_guidance_outlived`) |
+| Joined | run `completed` with `joined`, row deleted | terminal; shown under the joining turn | No row; the message is under the joining turn |
+| Running | run `running`; row kept until its input is recorded | turn end | Its turn in the transcript |
+| Retained | run `failed`, `cancelled` or `interrupted` before its input was recorded, row kept, queue paused | `start_queued_turn` or `send_queued_turn` (queued again), `remove_queued_turn` | A plain row again, and one error toast, `queue_halt_unsent` (`unrecorded`), or the warning above when the turn also lost its owner |
+| Removed | run `cancelled`, row deleted | terminal | No row |
 
 | Trigger | Effect | Test |
 |---|---|---|

@@ -53,6 +53,8 @@ func TestCatalogKeys(t *testing.T) {
 			"question_pending", "question_accepted", "question_unconsumed", "question_declined", "question_interrupted", // question row state text
 			"telemetry_welcome",       // the welcome guide's diagnostics note
 			"provider_editor_preview", // the provider editor's preview note
+			// the queue rows' wait reasons and the held background results
+			"queue_wait_held", "queue_wait_paused", "queue_wait_stopped", "queue_wait_interrupted", "queue_wait_unsent", "queue_wait_limit", "queue_wait_failed",
 		} {
 			if _, listed := catalogs["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see docs/removed-ui.md", key)

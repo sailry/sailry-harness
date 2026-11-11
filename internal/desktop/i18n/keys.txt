@@ -2258,13 +2258,8 @@ directory_fallback
 directory_trash
 directory_trash_confirm
 queue_guidance_outlived
-queue_wait_held
-queue_wait_paused
-queue_wait_stopped
-queue_wait_interrupted
-queue_wait_unsent
-queue_wait_limit
-queue_wait_failed
+queue_halt_interrupted
+queue_halt_unsent
 chat_output_limit
 start_failed
 start_profile_in_use

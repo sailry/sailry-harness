@@ -40,12 +40,8 @@ type stream struct {
 	turn  int
 }
 
-// Send adds a turn for text and starts playing its reply at now. The user's
-// turn takes the background results that were held and lets a paused queue
-// run again.
+// Send adds a turn for text and starts playing its reply at now.
 func Send(c *Conversation, text string, now time.Time) {
-	c.Held = nil
-	resume(c)
 	id := fmt.Sprintf("%s/sent-%d", c.ID, len(c.Turns))
 	c.Turns = append(c.Turns, cv.Turn{ID: id, User: text, Reply: cv.Reply{Status: cv.Queued}})
 	c.Animating = true
@@ -100,12 +96,6 @@ func Stop(c *Conversation) {
 	r.Status, r.Phase = cv.Cancelled, cv.PhaseNone
 	simulation(c).stream, c.Status, c.Waiting, c.Animating = nil, Idle, composer.Interactions{}, false
 	release(c)
-	// Stop pauses the queue: what waited in order waits for the user.
-	for i := range c.Queue {
-		if c.Queue[i].Wait == composer.WaitNone {
-			c.Queue[i].Wait = composer.WaitStopped
-		}
-	}
 }
 
 // release returns the guidance the ended reply did not take to the queue.

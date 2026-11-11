@@ -2800,13 +2800,8 @@ settings_experimental_description: 开发与调试设置
 settings_demo_mode: 演示模式
 settings_demo_mode_description: 显示示例会话，用于验收与截图
 queue_guidance_outlived: 回复已结束，已排队为新消息
-queue_wait_held: 暂缓
-queue_wait_paused: 已暂停
-queue_wait_stopped: 停止后暂停
-queue_wait_interrupted: 中断后暂停
-queue_wait_unsent: 未发送
-queue_wait_limit: 已达自动续接上限
-queue_wait_failed: 失败后暂缓
+queue_halt_interrupted: 回复已中断，排队消息已保留
+queue_halt_unsent: 消息未发送，已保留在队列中
 chat_output_limit: 回复已达输出上限
 knowledge_collections: 集合
 knowledge_collection_pending: 等待索引

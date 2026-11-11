@@ -78,30 +78,6 @@ type Context struct {
 	// Outgoing is the message being sent to the queue, shown as a disabled
 	// row until the Node lists it; nil for none.
 	Outgoing *Queued
-	// Held are the background results kept back from automatic delivery,
-	// listed after the queue's rows.
-	Held []HeldResult
-}
-
-// Wait is why a queue row is not starting, said after its label.
-type Wait int
-
-const (
-	WaitNone        Wait = iota
-	WaitHeld             // held until it is started
-	WaitPaused           // the user paused the queue
-	WaitStopped          // the user stopped the turn
-	WaitInterrupted      // a turn lost its owner
-	WaitUnsent           // its own turn ended before its input was recorded
-	WaitLimit            // the automatic-chain limit was reached
-	WaitFailed           // the turn that would have taken it failed
-)
-
-// HeldResult is a finished background result waiting for the user's next
-// turn: its task's title and why it is held.
-type HeldResult struct {
-	ID, Title string
-	Wait      Wait
 }
 
 // PluginMode is a package's conversation mode (live/mode.rs PluginMode).
@@ -206,8 +182,6 @@ type Queued struct {
 	// now stays enabled on it, as on a row not guiding. Guidance aimed at
 	// another turn has it disabled.
 	Joining bool
-	// Wait is why it is not starting; WaitNone while it runs in order.
-	Wait Wait
 }
 
 // Host is a computer the conversation can run on: execution-owner metadata.

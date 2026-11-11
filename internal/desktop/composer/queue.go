@@ -21,10 +21,9 @@ import (
 // its way to the queue is a last row whose actions are all disabled. A child
 // session's strip is read-only: Read opens the text with Copy, Close and
 // Remove, and nothing is sent ahead or dragged (live/queue/render.rs). Rows
-// come in and go out collapsing, as the strip does. A row that is not
-// starting says why in muted text after its label, and the background
-// results held back from automatic delivery are rows without actions after
-// the messages.
+// come in and go out collapsing, as the strip does. The strip lists queued
+// input only: a row says nothing about why it waits, and background results
+// held back from delivery are not rows (docs/removed-ui.md).
 
 // queueState is the strip's: the message edited and its draft.
 type queueState struct {
@@ -59,23 +58,6 @@ func queueLabel(c *ui.Context, q Queued) string {
 	return q.Text
 }
 
-// waitText is why a row is not starting, "" while it runs in order.
-func waitText(c *ui.Context, wait Wait) string {
-	key := [...]string{"", "queue_wait_held", "queue_wait_paused", "queue_wait_stopped", "queue_wait_interrupted",
-		"queue_wait_unsent", "queue_wait_limit", "queue_wait_failed"}[wait]
-	if key == "" {
-		return ""
-	}
-	return i18n.T(c, key)
-}
-
-// queueWait is the row's reason: muted, 12, after the label.
-func queueWait(c *ui.Context, wait Wait) {
-	if text := waitText(c, wait); text != "" {
-		ui.Text(c, text).FontSize(12).SingleLine().Shrink(0).TextColor(theme.Of(c).MutedForeground)
-	}
-}
-
 // queueTray is 12 in from the surface's sides, padding 4, the top corners
 // rounded 2xl, in the secondary color, the rows scrolling past 132 DIPs; or
 // the editor of one of them.
@@ -85,7 +67,7 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 		q.editing = "" // sent or removed meanwhile
 	}
 	ui.Column(c.Key("queue-slot")).FillWidth().Children(func() {
-		if len(ctx.Queue) == 0 && q.editing == "" && ctx.Outgoing == nil && len(ctx.Held) == 0 {
+		if len(ctx.Queue) == 0 && q.editing == "" && ctx.Outgoing == nil {
 			return
 		}
 		p := theme.Of(c)
@@ -119,9 +101,6 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 				}
 				if ctx.Outgoing != nil {
 					s.outgoingRow(c, *ctx.Outgoing)
-				}
-				for _, held := range ctx.Held {
-					heldRow(c, held)
 				}
 			})
 		})
@@ -188,7 +167,6 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 			handle()
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-		queueWait(c, item.Wait)
 		if len(item.Attachments) > 0 {
 			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
 		}
@@ -230,22 +208,6 @@ func (s *State) outgoingRow(c *ui.Context, item Queued) {
 		queueSmall(c, "edit", icons.Replace, i18n.T(c, "queue_edit"), true, func() {})
 		queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), true, func() {})
 		queueSmall(c, "delete", icons.Delete, i18n.T(c, "queue_delete"), true, func() {})
-	})
-}
-
-// heldRow is a background result held back from automatic delivery: its
-// task's title, muted, and why it is held. It has no actions: the user's next
-// turn takes it.
-func heldRow(c *ui.Context, item HeldResult) {
-	p := theme.Of(c)
-	label := item.Title
-	if label == "" {
-		label = i18n.T(c, "background_notice_title")
-	}
-	ui.Row(c.Key("held/" + item.ID)).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
-		AlignItems(ui.Center).Shrink(0).Label(label + ", " + waitText(c, item.Wait)).Transition(queueMotion).Children(func() {
-		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
-		queueWait(c, item.Wait)
 	})
 }
 

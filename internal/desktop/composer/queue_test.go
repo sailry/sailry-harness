@@ -1,6 +1,7 @@
 package composer_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -21,16 +22,29 @@ func (o *owner) RemoveQueued(string)          { o.asked++ }
 func (o *owner) WithdrawGuidance(string)      { o.asked++ }
 func (o *owner) Discard(*composer.Attachment) {}
 
-// The queue tray says why each row waits and lists the held background
-// results with their reasons, for the demo's conversations as for a live
-// session's: every reason is drawn in the window's language.
-func TestQueueTrayReasons(t *testing.T) {
-	keys := map[composer.Wait]string{
-		composer.WaitHeld: "queue_wait_held", composer.WaitPaused: "queue_wait_paused", composer.WaitStopped: "queue_wait_stopped",
-		composer.WaitInterrupted: "queue_wait_interrupted", composer.WaitUnsent: "queue_wait_unsent",
-		composer.WaitLimit: "queue_wait_limit", composer.WaitFailed: "queue_wait_failed",
-	}
-	drawn := map[composer.Wait]bool{}
+// removedCopy is the copy the queue strip dropped (docs/removed-ui.md): the
+// reasons a row or a held background result waited on.
+var removedCopy = []string{"Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent",
+	"Held at automatic limit", "Held after failure", "暂缓", "已暂停", "停止后暂停", "中断后暂停", "未发送", "已达自动续接上限", "失败后暂缓"}
+
+// tray draws the composer over ctx in an 760 by 640 window.
+func tray(locale string, ctx func() *composer.Context) *ui.Tester {
+	state := composer.New(preview.DemoModel)
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		kit.SetPreferences(c, kit.Preferences{})
+		ui.Column(c).Fill().Justify(ui.End).Children(func() { composer.View(c, state, ctx(), &owner{}) })
+	}, 760, 640, ui.TesterOptions{})
+	tt.SetLocale(locale)
+	tt.Frame()
+	tt.Frame()
+	return tt
+}
+
+// The queue tray lists queued input only, for the demo's conversations as
+// for a live session's: each row is its text, with no word on why it waits,
+// and a conversation without queued input draws no tray, whatever
+// background work it holds.
+func TestQueueTray(t *testing.T) {
 	for _, locale := range []string{"en", "zh-CN"} {
 		d := preview.Demo(locale, "local")
 		for _, id := range []string{preview.DemoStart, "harbor-api/deploy", "harbor-api/flaky-test", "harbor-api/invoices",
@@ -40,42 +54,38 @@ func TestQueueTrayReasons(t *testing.T) {
 				if cv == nil {
 					t.Fatal("not a demo conversation")
 				}
-				state := composer.New(preview.DemoModel)
-				tt := ui.NewTesterWith(func(c *ui.Context) {
-					kit.SetPreferences(c, kit.Preferences{})
+				tt := tray(locale, func() *composer.Context {
 					ctx := preview.DemoComposer(d, cv, cv.Worktree)
-					ctx.Activity = composer.Activity{Connected: true}
-					ui.Column(c).Fill().Justify(ui.End).Children(func() { composer.View(c, state, ctx, &owner{}) })
-				}, 760, 640, ui.TesterOptions{})
-				tt.SetLocale(locale)
-				tt.Frame()
-				tt.Frame()
-				want := func(text string) {
-					t.Helper()
-					if !tt.HasText(text) {
-						t.Errorf("the tray does not show %q: %q", text, tt.Texts())
-					}
-				}
+					ctx.Activity.Connected = true
+					return ctx
+				})
 				for _, q := range cv.Queue {
-					if q.Text != "" && !q.Notice {
-						want(q.Text)
-					}
-					if q.Wait != composer.WaitNone {
-						want(i18n.In(locale, keys[q.Wait]))
-						drawn[q.Wait] = true
+					if q.Text != "" && !q.Notice && !tt.HasText(q.Text) {
+						t.Errorf("the tray does not show %q: %q", q.Text, tt.Texts())
 					}
 				}
-				for _, h := range cv.Held {
-					want(h.Title)
-					want(i18n.In(locale, keys[h.Wait]))
-					drawn[h.Wait] = true
+				for _, text := range tt.Texts() {
+					if slices.Contains(removedCopy, text) {
+						t.Errorf("the tray says why a row waits: %q", text)
+					}
+				}
+				_, drawn := tt.Find(i18n.In(locale, "queue_count", "count", len(cv.Queue)))
+				if drawn != (len(cv.Queue) > 0) {
+					t.Errorf("tray drawn %v for %d queued", drawn, len(cv.Queue))
 				}
 			})
 		}
 	}
-	for wait, key := range keys {
-		if !drawn[wait] {
-			t.Errorf("no tray drew %s", key)
+	// Background commands, running or finished, are the activity strip's:
+	// they never open the tray.
+	t.Run("background work alone draws no tray", func(t *testing.T) {
+		tt := tray("en", func() *composer.Context {
+			return &composer.Context{Activity: composer.Activity{Connected: true, Commands: []composer.Command{
+				{ID: "soak", Command: "go test ./internal/booking -race -count=500"},
+			}}}
+		})
+		if _, drawn := tt.Find(i18n.In("en", "queue_count", "count", 0)); drawn {
+			t.Fatalf("a tray without queued input: %q", tt.Texts())
 		}
-	}
+	})
 }

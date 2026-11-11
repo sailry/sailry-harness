@@ -34,6 +34,7 @@ Commits are in this repository. Dates are the removal's.
 | 14 | The capability filters (vision, image and the others) and the line over them | The model picker's rail, under the families (`composer/models.go` `modelPicker`) | The rail is Back and a tile for each family. The capability marks at the end of a model's row stay, with their tooltips; `Model.Capabilities` and the Providers page's capability boxes stay ([composer.md](composer.md), [media.md](media.md#desktop)) | User decision, 2026-11-12 |
 | 15 | A check mark on the chosen row | The model picker's effort rows, model rows and family tiles (`composer/models.go`) | The neutral fill `Palette.Selected` alone marks the choice; each is still selected for assistive technology. The mode and permission menus keep their checks | User decision, 2026-11-12 |
 | 16 | The score card or any tooltip over a score | The model picker's model rows and effort rows (`composer/models.go` `modelRow`, `effortColumn`) | The score is text at the row's end. The controls page keeps the card over its effort label (`scoreTip`), with the `model_score_*` copy | User decision, 2026-11-12 |
+| 17 | A wait reason on a queued row ("Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent"), and held background results as rows in the queue ("Held at automatic limit", "Held after failure") | The composer's queue strip (`composer/queue.go`) | The strip lists queued input only, as plain rows. A queue the Node stopped sending is one toast when it happens (`queue_halt_interrupted`, `queue_halt_unsent`); the user's own Stop or pause is not reported. The Node and the protocol keep `pause_reason` and `hold`; a held result joins the user's next message and shows in the transcript with the turn that takes it ([composer.md](composer.md), [conversation.md](conversation.md)) | User decision, 2026-11-12 |
 
 ## Guards
 
@@ -50,6 +51,7 @@ subtests of the feature's existing tests.
 | The model picker's rail has no capability filter and no line under the families | `shell` `composerParity/model picker/rail` (`composerModels`) |
 | The model picker's chosen rows draw no check | `shell` `composerParity/model picker/selection dark` and `selection light` |
 | A score in the model picker opens no tooltip | `shell` `composerParity/model picker/scores open nothing` |
+| The queue strip draws no wait reason, and no strip without queued input | `composer` `TestQueueTray`; `live` `TestQueueStates/held results are not rows`; the `queue_wait_*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
 
 A key on the guard's list cannot be added to `keys.txt` without editing the
 test, which points here.
