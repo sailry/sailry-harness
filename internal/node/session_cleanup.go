@@ -16,8 +16,7 @@ import (
 // no file is taken between the two. A failure leaves the files for the next
 // collection.
 func (node *Node) collectAttachments(ctx context.Context) {
-	node.effects.Lock()
-	defer node.effects.Unlock()
+	defer node.locks.registration()()
 	node.collectAttachmentsHeld(ctx)
 }
 
@@ -38,8 +37,7 @@ func (node *Node) removedSessionFiles(changes []protocol.Event) {
 	go func() {
 		defer node.work.Done()
 		ctx := context.WithoutCancel(node.ctx)
-		node.effects.Lock()
-		defer node.effects.Unlock()
+		defer node.locks.registration()()
 		var owners []protocol.SessionID
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
