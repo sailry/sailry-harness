@@ -257,6 +257,11 @@ type Model struct {
 	skillRemoving string
 	library       library
 
+	// Busy names the operations in flight (BusyCatalog and the like): each
+	// one's button shows Kit's pending look and takes no press until the
+	// live adapter clears it.
+	Busy map[string]bool
+
 	// Terminal.
 	Host            Stored[TerminalHost]
 	Shells          []preview.Shell

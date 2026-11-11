@@ -4,6 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -35,9 +36,11 @@ func (r *Runtime) resetTelemetry() {
 		return
 	}
 	m.Pending = true
+	r.App.Settings.SetBusy(settings.BusyTelemetry, true)
 	command := protocol.Command{Kind: "reset_telemetry_identity", Data: protocol.CommandResetTelemetryIdentityPayload{ExpectedRevision: m.Revision}}
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		m.Pending = false
+		r.App.Settings.SetBusy(settings.BusyTelemetry, false)
 		outcome, key := telemetryOutcome(err, false)
 		kit.Toast(c, outcome, i18n.T(c, key))
 		if value, valid := detail[protocol.TelemetrySettings](output.Data); err == nil && valid && output.Kind == "telemetry_settings" {
@@ -52,8 +55,10 @@ func (r *Runtime) sendDiagnostics() {
 		return
 	}
 	m.Pending = true
+	r.App.Settings.SetBusy(settings.BusyDiagnostics, true)
 	r.execute(protocol.Command{Kind: "send_diagnostics"}, func(c *ui.Context, output protocol.Output, err error) {
 		m.Pending = false
+		r.App.Settings.SetBusy(settings.BusyDiagnostics, false)
 		if err == nil && output.Kind != "diagnostics_sent" {
 			err = &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected diagnostics response"}
 		}

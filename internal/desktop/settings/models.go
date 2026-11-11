@@ -227,7 +227,7 @@ func modelDetails(c *ui.Context, info **modelInfo) {
 			})
 		}
 		ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { open = false })
+			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { *info = nil })
 		})
 	}).Width(480).Label(i18n.T(c, "knowledge_model_details"))
 	if !open {

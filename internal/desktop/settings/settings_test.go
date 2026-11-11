@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -750,6 +751,121 @@ func TestExtensions(t *testing.T) {
 			t.Error("the first download closed the second's dialog")
 		}
 	})
+	// A details dialog's Close, pressed with the pointer, closes it.
+	t.Run("details close", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			dictation(c, m)
+			libraryDialogs(c, m)
+		}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		clickButton(t, tt, i18n.In("en", "knowledge_model_details"))
+		if m.info == nil {
+			t.Fatal("a model's Details did not open its dialog")
+		}
+		tt.Advance(time.Second)
+		clickButton(t, tt, i18n.In("en", "close"))
+		if m.info != nil {
+			t.Error("Close left the model's details open")
+		}
+		tt.Advance(time.Second)
+		m.library.info = m.Library[0].ID
+		tt.Frame()
+		tt.Advance(time.Second)
+		clickButton(t, tt, i18n.In("en", "close"))
+		if m.library.info != "" {
+			t.Error("Close left the library model's details open")
+		}
+	})
+	// A button whose operation runs is busy and takes no second press; the
+	// operation's end gives it back.
+	t.Run("pending buttons", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		s := &State{Model: m}
+		sent := map[string]int{}
+		start := func(op string) { sent[op]++; m.SetBusy(op, true) }
+		m.ProviderActions = ProviderActions{RefreshCatalog: func() { start(BusyCatalog) }}
+		m.PackageActions = &PackageActions{CheckUpdates: func(kind viewmodel.PackageKind) {
+			if kind == preview.KindSkill {
+				start(BusySkillUpdates)
+			} else {
+				start(BusyPluginUpdates)
+			}
+		}}
+		m.AppearanceActions = &AppearanceActions{CheckUpdates: func() { start(BusyThemes) }}
+		m.PermissionActions = &PermissionActions{Check: func() { start(BusyPermissions) }}
+		m.ResetTelemetry = func() { m.Telemetry.Pending = true; start(BusyTelemetry) }
+		m.SendDiagnostics = func() { m.Telemetry.Pending = true; start(BusyDiagnostics) }
+		var dark theme.Mode
+		var name string
+		var effects bool
+		var surfaces theme.Surfaces
+		data := preview.Load()
+		for _, x := range []struct {
+			section   Section
+			label, op string
+		}{
+			{Providers, "provider_catalog_update", BusyCatalog},
+			{Plugins, "plugins_check_updates", BusyPluginUpdates},
+			{Skills, "plugins_check_updates", BusySkillUpdates},
+			{Appearance, "plugins_check_updates", BusyThemes},
+			{Permissions, "permission_check", BusyPermissions},
+			{General, "telemetry_reset_action", BusyTelemetry},
+			{General, "telemetry_send_action", BusyDiagnostics},
+		} {
+			s.Section = x.section
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				ui.Scroll(c).Fill().Children(func() { Page(c, s, data, Look{Theme: &name, Mode: &dark, Effects: &effects, Surfaces: &surfaces}) })
+			}, 1100, 2400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+			tt.SetLocale("en")
+			tt.Frame()
+			label := i18n.In("en", x.label)
+			if b := pressButton(t, tt, label); !b.Busy || !b.Disabled || sent[x.op] != 1 {
+				t.Errorf("%s: the pressed %s is busy %v, disabled %v after %d requests", x.section, label, b.Busy, b.Disabled, sent[x.op])
+			}
+			if pressButton(t, tt, label); sent[x.op] != 1 {
+				t.Errorf("%s: the busy %s started %d operations", x.section, label, sent[x.op])
+			}
+			m.SetBusy(x.op, false)
+			m.Telemetry.Pending = false
+			tt.Frame()
+			if b := findButton(t, tt, label); b.Busy || b.Disabled {
+				t.Errorf("%s: the finished %s stayed busy %v, disabled %v", x.section, label, b.Busy, b.Disabled)
+			}
+		}
+	})
+}
+
+// findButton is the lowest button of that name.
+func findButton(t *testing.T, tt *ui.Tester, name string) (found ui.AccessInfo) {
+	t.Helper()
+	for _, x := range tt.AccessAll() {
+		if x.Role == ui.RoleButton && x.Name == name && x.Bounds.Y >= found.Bounds.Y {
+			found = x
+		}
+	}
+	if found.Name == "" {
+		t.Fatalf("no %q button: %q", name, tt.Texts())
+	}
+	return found
+}
+
+// clickButton presses that button with the pointer.
+func clickButton(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	b := findButton(t, tt, name)
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+}
+
+// pressButton presses that button with the pointer and returns it as the
+// next frame shows it.
+func pressButton(t *testing.T, tt *ui.Tester, name string) ui.AccessInfo {
+	t.Helper()
+	clickButton(t, tt, name)
+	return findButton(t, tt, name)
 }
 
 // The CLI method's account list shows its skeleton row while the host

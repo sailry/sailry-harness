@@ -121,6 +121,18 @@ func Secondary(c *ui.Context, label string) ui.Element {
 	return SecondaryLook(c, ui.ButtonBase(c).Label(label)).Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
 }
 
+// SecondaryBusy is Secondary while the operation it started runs: MyGo's
+// spinner before the label, as a plugin control shows its loading, and no
+// press until the operation ends.
+func SecondaryBusy(c *ui.Context, label string, busy bool) ui.Element {
+	return SecondaryLook(c, ui.ButtonBase(c).Label(label).Disabled(busy).Busy(busy)).Children(func() {
+		if busy {
+			ui.Spinner(c).Size(14, 14)
+		}
+		ui.Text(c, label).FontSize(14).SingleLine()
+	})
+}
+
 // SecondaryLook gives a button base Secondary's look, for a trigger with
 // content of its own (a MenuButton's label and caret).
 func SecondaryLook(c *ui.Context, b ui.Element) ui.Element {

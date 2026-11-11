@@ -134,7 +134,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			return
 		}
 	}
-	look.Live = s.Live
+	look.Live, look.Busy = s.Live, s.Busy[BusyThemes]
 	look.Actions = s.AppearanceActions
 	desc := string(s.Section) + "_description"
 	if i18n.In("en", desc) == desc {

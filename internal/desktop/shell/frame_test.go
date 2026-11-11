@@ -482,6 +482,26 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 		t.Error("Next did not page")
 	}
 	t.Run("live knowledge viewer", testLiveKnowledge)
+	// The notification center's own buttons act in the preview as the bell's.
+	t.Run("center buttons", func(t *testing.T) {
+		a, tt := newTester(t)
+		a.Navigate(NotificationsPage)
+		tt.Frame()
+		total := len(a.Data.Notices)
+		if total == 0 || len(a.noticeIDs(false)) == 0 {
+			t.Fatalf("%d notices, %d unread", total, len(a.noticeIDs(false)))
+		}
+		clickButton(t, tt, i18n.In("en", "notifications_read_all"))
+		tt.Frame()
+		if left := len(a.noticeIDs(false)); left != 0 {
+			t.Fatalf("Mark all as read left %d unread", left)
+		}
+		clickButton(t, tt, i18n.In("en", "notification_delete_read"))
+		tt.Frame()
+		if len(a.Data.Notices) != 0 {
+			t.Errorf("Delete read left %d of %d notices", len(a.Data.Notices), total)
+		}
+	})
 }
 
 // The shell's pure rules: a knowledge link's parts, and a feature's move in

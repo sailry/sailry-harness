@@ -74,7 +74,7 @@ func telemetry(c *ui.Context, m *Model) {
 				}
 			}
 			kit.Row(c, "identity", i18n.T(c, "telemetry_identity"), "", func() {
-				small(c, "reset", i18n.T(c, "telemetry_reset_action")).Disabled(m.Live && (m.ResetTelemetry == nil || t.Pending)).OnClick(func() {
+				kit.SecondaryBusy(c.Key("reset"), i18n.T(c, "telemetry_reset_action"), m.Busy[BusyTelemetry]).Height(28).PaddingX(10).Disabled(m.Live && (m.ResetTelemetry == nil || t.Pending)).OnClick(func() {
 					if m.ResetTelemetry != nil {
 						m.ResetTelemetry()
 					} else {
@@ -83,7 +83,7 @@ func telemetry(c *ui.Context, m *Model) {
 				})
 			})
 			kit.Row(c, "support", i18n.T(c, "telemetry_support"), "", func() {
-				small(c, "send", i18n.T(c, "telemetry_send_action")).Disabled(m.Live && (m.SendDiagnostics == nil || t.Pending)).OnClick(func() {
+				kit.SecondaryBusy(c.Key("send"), i18n.T(c, "telemetry_send_action"), m.Busy[BusyDiagnostics]).Height(28).PaddingX(10).Disabled(m.Live && (m.SendDiagnostics == nil || t.Pending)).OnClick(func() {
 					if m.SendDiagnostics != nil {
 						m.SendDiagnostics()
 					} else {

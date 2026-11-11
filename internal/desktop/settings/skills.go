@@ -70,7 +70,7 @@ func skills(c *ui.Context, s *State) {
 	ui.Column(c.Key("skills")).Gap(16).Children(func() {
 		ui.Row(c.Key("toolbar")).Gap(8).Children(func() {
 			ui.SearchField(c.Key("search"), &m.SkillQuery).Placeholder(t("skills_search")).Label(t("skills_search")).Grow(1)
-			kit.Secondary(c.Key("check"), t("plugins_check_updates")).OnClick(func() {
+			kit.SecondaryBusy(c.Key("check"), t("plugins_check_updates"), m.Busy[BusySkillUpdates]).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.CheckUpdates != nil {
 					m.PackageActions.CheckUpdates(preview.KindSkill)
 					return

@@ -212,12 +212,18 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 			requests = append(requests, protocol.PluginUpdatesRequest{Name: name, ExpectedRevision: info.Summary.Revision})
 		}
 	}
-	if len(requests) == 0 {
+	busy := settings.BusyPluginUpdates
+	if kind == viewmodel.KindSkill {
+		busy = settings.BusySkillUpdates
+	}
+	if len(requests) == 0 || r.App.Settings.Busy[busy] {
 		return
 	}
+	r.App.Settings.SetBusy(busy, true)
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "check_plugin_updates", Data: protocol.CommandCheckPluginUpdatesPayload{Packages: requests, Force: true}})
 		r.enqueue(func(c *ui.Context) {
+			r.App.Settings.SetBusy(busy, false)
 			batch, valid := detail[protocol.PluginUpdatesBatch](out.Data)
 			if err == nil && (!valid || out.Kind != "plugin_updates") {
 				err = errors.New("unexpected plugin updates response")

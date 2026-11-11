@@ -231,6 +231,13 @@ an SSH host key leaves `ConnectionPending` set, as the installation goes on;
 any other way out of the prompt clears it. The network editor stays while its
 save is pending, as its Cancel is disabled then.
 
+`Model.Busy` names the operations in flight whose buttons had no pending state
+of their own: Providers' catalog Update, the update checks of Plugins, Skills
+and Appearance, the Permissions check, and General's telemetry reset and
+diagnostics report. The live adapter sets a name with `SetBusy` as it sends the
+request and clears it when the request ends, whatever the outcome; the button
+is disabled and busy with a spinner meanwhile, and the outcome stays a toast.
+
 ## Tests
 
 - `internal/desktop/settings/settings_test.go`: shortcut capture (invalid,

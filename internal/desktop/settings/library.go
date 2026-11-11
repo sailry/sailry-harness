@@ -182,7 +182,7 @@ func libraryDialogs(c *ui.Context, m *Model) {
 			}
 			facts(c, rows)
 			ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
-				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { open = false })
+				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { e.info = "" })
 			})
 		}).Width(min(480, width(c)-48)).Label(x.Name)
 		if !open {

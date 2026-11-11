@@ -111,7 +111,7 @@ func plugins(c *ui.Context, s *State) {
 	// updates, Update all, and Review updates for the ones a newer Sailry
 	// blocks.
 	kit.Group(c, "installed", t("plugins_installed"), "", func() {
-		kit.Secondary(c.Key("check"), t("plugins_check_updates")).Disabled(len(shown) == 0).OnClick(func() {
+		kit.SecondaryBusy(c.Key("check"), t("plugins_check_updates"), m.Busy[BusyPluginUpdates]).Disabled(len(shown) == 0 || m.Busy[BusyPluginUpdates]).OnClick(func() {
 			if m.PackageActions != nil && m.PackageActions.CheckUpdates != nil {
 				m.PackageActions.CheckUpdates(preview.KindPlugin)
 				return

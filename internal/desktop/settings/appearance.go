@@ -14,6 +14,7 @@ import (
 // which a backend would persist as the reference's preferences.
 type Look struct {
 	Live    bool
+	Busy    bool // the update check is running
 	Actions *AppearanceActions
 	Theme   *string // the theme package's ID; empty is the built-in theme
 	Mode    *theme.Mode
@@ -43,7 +44,7 @@ func appearance(c *ui.Context, look Look) {
 	transparency(c, look.Surfaces)
 	kit.Group(c, "packages", i18n.T(c, "appearance_packages"), "", func() {
 		// Checking for updates asks the network; importing reads a file.
-		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() {
+		kit.SecondaryBusy(c.Key("updates"), i18n.T(c, "plugins_check_updates"), look.Busy).OnClick(func() {
 			if look.Actions != nil && look.Actions.CheckUpdates != nil {
 				look.Actions.CheckUpdates()
 				return

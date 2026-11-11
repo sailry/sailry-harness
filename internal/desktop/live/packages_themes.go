@@ -47,6 +47,7 @@ func (r *Runtime) readThemeCatalog(force bool) {
 		return
 	}
 	state.themeBusy["catalog"] = true
+	root.App.Settings.SetBusy(settings.BusyThemes, true)
 	state.themeRead = true
 	if root.App.Settings.MarketKind == 2 {
 		root.App.Settings.MarketLoad.Loading, root.App.Settings.MarketLoad.Loaded = true, false
@@ -55,6 +56,7 @@ func (r *Runtime) readThemeCatalog(force bool) {
 		listing, err := state.market.List(r.ctx, force)
 		r.enqueue(func(c *ui.Context) {
 			delete(state.themeBusy, "catalog")
+			root.App.Settings.SetBusy(settings.BusyThemes, false)
 			if root.App.Settings.MarketKind == 2 {
 				root.App.Settings.MarketLoad.Loading, root.App.Settings.MarketLoad.Loaded = false, true
 			}

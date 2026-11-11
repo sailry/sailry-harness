@@ -133,8 +133,13 @@ func catalog(c *ui.Context, m *Model) {
 		}
 	}
 	kit.Group(c, "catalog", i18n.T(c, "provider_catalog"), "", func() {
-		kit.Primary(c.Key("update"), i18n.T(c, "provider_catalog_update"), false).
-			Children(func() { ui.Text(c, i18n.T(c, "provider_catalog_update")).FontSize(14) }).OnClick(func() {
+		busy := m.Busy[BusyCatalog]
+		kit.Primary(c.Key("update"), i18n.T(c, "provider_catalog_update"), busy).Busy(busy).Children(func() {
+			if busy {
+				ui.Spinner(c).Size(14, 14)
+			}
+			ui.Text(c, i18n.T(c, "provider_catalog_update")).FontSize(14)
+		}).OnClick(func() {
 			if m.Live && m.ProviderActions.RefreshCatalog != nil {
 				m.ProviderActions.RefreshCatalog()
 			} else {
