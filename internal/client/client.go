@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -27,7 +28,6 @@ type Client struct {
 	workspaceMu             sync.Mutex
 	workspaces              map[workspaceKey]*workspaceWatch
 	workspaceOwners         sync.WaitGroup
-	transferClock           transferClock
 	conversationDetails     map[string]conversationDetail
 	conversationDetailReads map[string]*conversationDetailRead
 	conversationDetailOrder []string
@@ -35,6 +35,7 @@ type Client struct {
 	transport               link.Transport
 	mu                      sync.RWMutex
 	project                 *Projection
+	revision                uint64
 	feed                    activityFeed
 	connected               bool
 	connection              link.ConnectionInfo
@@ -44,6 +45,8 @@ type Client struct {
 	callback                uint64
 
 	lifecycle          sync.Mutex
+	closing            context.Context
+	abort              context.CancelFunc
 	context            context.Context
 	stop               context.CancelFunc
 	watch              *observation
@@ -54,7 +57,8 @@ type Client struct {
 }
 
 func New(transport link.Transport) *Client {
-	return &Client{pluginStatusObservers: newPluginStatusObservers(), detailSlots: make(chan struct{}, 4), transferClock: systemTransferClock{}, transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func())}
+	closing, abort := context.WithCancel(context.Background())
+	return &Client{pluginStatusObservers: newPluginStatusObservers(), detailSlots: make(chan struct{}, 4), transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func()), closing: closing, abort: abort}
 }
 
 func (client *Client) Target() protocol.NodeID { return client.transport.Target() }
@@ -87,6 +91,10 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) (pr
 		}
 		return response.Output, nil
 	case <-ctx.Done():
+		// Only a durable request has a stored outcome to query afterwards.
+		if !request.Command.Durable() {
+			return protocol.Output{}, fault(protocol.ErrorCodeCancelled, "request was cancelled before its completion")
+		}
 		return protocol.Output{}, unknownCompletion()
 	}
 }
@@ -129,6 +137,24 @@ func (client *Client) Snapshot() protocol.Snapshot {
 		return state
 	}
 	return copyValue(*client.project.snapshot)
+}
+
+// Revision counts changes to the value Snapshot returns. It starts at zero and
+// advances under the Snapshot lock whenever an update changes the Node
+// projection, so equal revisions mean equal snapshots; connection, error and
+// resource changes do not advance it. Read it before Snapshot: that snapshot is
+// then at least as new, and a later change is announced through OnChange.
+func (client *Client) Revision() uint64 {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	return client.revision
+}
+
+// sessionKnown reads the Node projection in place; conversationMu may be held.
+func (client *Client) sessionKnown(id protocol.SessionID) bool {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	return client.project.snapshot != nil && slices.ContainsFunc(client.project.snapshot.Sessions, func(session protocol.Session) bool { return session.ID == id })
 }
 
 func (client *Client) Connected() bool {

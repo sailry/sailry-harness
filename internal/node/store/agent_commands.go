@@ -76,6 +76,9 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err = validateAgentInput(message); err != nil {
 			return protocol.Output{}, nil, err
 		}
+		if err = validateAgentReferences(ctx, db, session, message, nil); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, request.Command.Kind == "submit_turn")
 		if err != nil {
 			return protocol.Output{}, nil, err
@@ -118,6 +121,9 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 			return protocol.Output{}, nil, err
 		}
 		if err = validateAgentInput(v.Message); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if err = validateAgentReferences(ctx, db, session, v.Message, nil); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, true)
@@ -207,6 +213,18 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		}
 		if captured {
 			return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "admitted input is immutable; submit an edited message")
+		}
+		queued, err := readTurnCapture(ctx, db, v.Turn)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		owner, err := ReadSession(ctx, db, queued.Session)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		owner.Config, owner.Roles = queued.Config, queued.Roles
+		if err = validateAgentReferences(ctx, db, owner, v.Message, queued.Plugins); err != nil {
+			return protocol.Output{}, nil, err
 		}
 		if run.Notice || run.Kind != protocol.ConversationRunKindTask {
 			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "queued maintenance input is read-only")
@@ -393,12 +411,8 @@ func ReadAgentCommandForCaller(ctx context.Context, db *sql.Conn, node, caller p
 		value, err := readAgentToolDetail(ctx, db, *v)
 		return protocol.Output{Kind: "tool_detail", Data: value}, err
 	case *protocol.CommandReadToolOutputPayload:
-		var owner []byte
-		if err := db.QueryRowContext(ctx, "SELECT caller FROM turns WHERE id=?1", v.Turn.String()).Scan(&owner); err != nil {
+		if err := checkToolOutputCaller(ctx, db, caller, v.Turn); err != nil {
 			return protocol.Output{}, err
-		}
-		if string(owner) != string(caller[:]) {
-			return protocol.Output{}, fault(protocol.ErrorCodePermissionDenied, "tool output read belongs to another invocation")
 		}
 		value, err := readAgentToolOutput(ctx, db, *v)
 		return protocol.Output{Kind: "tool_output", Data: value}, err

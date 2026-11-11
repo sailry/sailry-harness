@@ -74,7 +74,7 @@ func (location *pluginNativeLocation) current() (map[string]any, error) {
 	if err := state.native.Context.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := state.runtime.controller.Snapshot()
+	snapshot := state.runtime.snapshot()
 	value := map[string]any{
 		"surface": "project", "node": state.runtime.controller.Target().String(),
 		"project": nil, "worktree": state.scope.Worktree, "session": nil, "revision": nil,

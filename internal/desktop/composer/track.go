@@ -41,9 +41,11 @@ func track(c *ui.Context, value *float64, steps int, highest, disabled bool) {
 						pt.AnimationFrameRate(kit.FPS)
 						phase := float32(pt.Now().UnixMilli()%1600) / 1600
 						x := fill.X - fill.W*0.4 + fill.W*1.4*phase
+						// The sheen is white light over the gradient in both modes
+						// (channels are 0..255, the alpha 0..1).
 						pt.Clip(fill, 0, func() {
 							pt.FillGradient(ui.Rect{X: x, Y: fill.Y, W: fill.W * 0.4, H: fill.H}, ui.LinearGradient{
-								Angle: 90, Stops: []ui.GradientStop{{Color: ui.RGBA(1, 1, 1, 0)}, {Color: ui.RGBA(1, 1, 1, 0.28), At: 0.5}, {Color: ui.RGBA(1, 1, 1, 0), At: 1}},
+								Angle: 90, Stops: []ui.GradientStop{{Color: ui.RGBA(255, 255, 255, 0)}, {Color: ui.RGBA(255, 255, 255, 0.28), At: 0.5}, {Color: ui.RGBA(255, 255, 255, 0), At: 1}},
 							}, 0)
 						})
 					}

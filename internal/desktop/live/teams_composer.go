@@ -164,7 +164,7 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 	if r.teams == nil {
 		return
 	}
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	session, exists := r.session(cv.ID)
 	ctx.Teams = teamCatalog(snapshot, session.Roles)
 	language := "en"
@@ -503,7 +503,7 @@ func (r *Runtime) teamSelectionCommand(session protocol.Session, comp *composer.
 
 func (r *Runtime) teamReferences(cv *viewmodel.Conversation, _ *composer.State) []composer.Reference {
 	var agents []composer.Reference
-	roles := r.controller.Snapshot().Roles
+	roles := r.snapshot().Roles
 	if session, ok := r.session(cv.ID); ok {
 		roles = session.Roles.Profiles
 	}

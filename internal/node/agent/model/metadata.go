@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -9,6 +8,7 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 )
 

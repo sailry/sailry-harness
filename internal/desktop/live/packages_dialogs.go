@@ -166,7 +166,7 @@ func (r *Runtime) pluginReferences() []composer.Reference {
 		r.packages = newPackageState()
 	}
 	var rows []composer.Reference
-	for _, summary := range r.controller.Snapshot().Plugins {
+	for _, summary := range r.snapshot().Plugins {
 		if !summary.Enabled || summary.Compatibility.Kind != "compatible" {
 			continue
 		}

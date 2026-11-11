@@ -23,13 +23,13 @@ func TestRecording(t *testing.T) {
 	if directory == "" {
 		t.Skip("SAILRY_CAPTURE_DIR is not set")
 	}
-	if err := Load(directory); err != nil {
+	if err := Load(directory, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := Load(directory); err != nil {
+	if err := Load(directory, false); err != nil {
 		t.Fatalf("loading the same library again: %v", err)
 	}
-	if err := Load(t.TempDir()); err == nil {
+	if err := Load(t.TempDir(), false); err == nil {
 		t.Fatal("a second library directory was accepted")
 	}
 	devices, err := Devices()

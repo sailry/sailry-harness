@@ -130,3 +130,4 @@ paired or continued a conversation.
 | The native implementation is Go with a C ABI instead of the preserved Rust bridge | Both Mobile platforms reuse the same shared Client and Link behavior |
 | Root pure rules have an immediate result path | Their existing Dart signatures are synchronous; waiting on a listener would block the Dart isolate |
 | Speech operations may report unavailable until the speech phase | The adapter preserves operation names without adding another speech implementation |
+| `watch_terminal`, `watch_login` and `watch_connector_login` deliver a single disconnected view with an `unavailable` error, and `watch_connections` fails with `unavailable` | The shared Client does not observe terminals, authorization attempts or plugin connections; the adapter preserves the names the Dart API calls |

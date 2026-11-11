@@ -60,7 +60,7 @@ func (r *Runtime) terminalSettingsFrame() {
 		s.failed = false
 	}
 	if visible && !s.reading && !s.model.Pending {
-		revision := owner.controller.Snapshot().TerminalSettingsRevision
+		revision := owner.snapshot().TerminalSettingsRevision
 		if (!s.known || s.stale) && !s.failed || s.known && revision > max(s.observed, s.saved.Revision) {
 			owner.readTerminalSettings()
 		}
@@ -90,7 +90,7 @@ func (r *Runtime) readTerminalSettings() {
 		return
 	}
 	state.reading, state.stale = true, false
-	state.observed = r.controller.Snapshot().TerminalSettingsRevision
+	state.observed = r.snapshot().TerminalSettingsRevision
 	state.reading = r.async(func() {
 		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_terminal_settings"})
 		value, ok := detail[protocol.TerminalSettings](output.Data)

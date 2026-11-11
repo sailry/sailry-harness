@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"slices"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/store"
 )
 
 func builtinMatches(tools []Tool, query string, limit int) []Tool {
@@ -93,12 +95,17 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 		if arguments.Limit != nil {
 			limit = max(1, min(int(*arguments.Limit), 8))
 		}
-		state, err := r.load(ctx, x.inv.Session.ID)
-		if err != nil {
+		// Discovery needs the materialized context, not the history.
+		var captured canonical.Context
+		var loaded []string
+		if err := r.db.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			captured, loaded, err = store.LoadAgentContext(ctx, db, x.inv.Session.ID)
+			return err
+		}); err != nil {
 			return toolFault(err)
 		}
 		matched := builtinMatches(x.tools, arguments.Query, limit)
-		loaded := append([]string{}, state.LoadedTools...)
 		contexts := func(name string) []string {
 			values := []string{}
 			for _, instruction := range x.inv.Instructions {
@@ -134,10 +141,10 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 		addition := strings.Join(additions, "\n\n")
 		delta := canonical.Context{LoadedTools: &loaded}
 		if addition != "" {
-			if state.Context.Policy == nil {
+			if captured.Policy == nil {
 				return invalidTool("captured policy is unavailable")
 			}
-			policy := *state.Context.Policy + "\n\n" + addition
+			policy := *captured.Policy + "\n\n" + addition
 			delta.Policy = &policy
 		}
 		return ToolResult{Value: map[string]any{"tools": tools, "sailry_context": addition}, Context: &delta}

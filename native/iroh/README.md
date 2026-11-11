@@ -7,7 +7,10 @@ reconnection ownership remain in `internal/link`.
 Run `sh native/iroh/build.sh` from the repository to build the native library.
 `--fixtures` also builds the isolated relay fixture. Artifacts are written to
 `.runtime/native/<goos>-<goarch>/`; none belong in Git. The coordinating agent
-owns native builds and executable validation.
+owns native builds and executable validation. On Windows the same script runs
+in Git Bash with the MSVC toolchain and writes `sailry_iroh.dll`. On Linux
+`SAILRY_GLIBC=<version>` links the library against that GNU libc through
+`cargo zigbuild`; CI sets 2.34, the floor of the Host installer preflight.
 
 The application explicitly calls `iroh.Load` with its bundled native library
 path before creating an endpoint. The binding registers one process lifetime

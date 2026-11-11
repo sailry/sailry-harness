@@ -29,6 +29,16 @@ type ServiceOptions struct {
 	Telemetry      *bool
 }
 
+// Environment reads the process environment for the Node's telemetry. The
+// `--telemetry off` choice answers as the environment opt-out; `on` adds
+// nothing, so an environment opt-out and the saved preference keep precedence.
+func (options ServiceOptions) Environment(name string) string {
+	if name == "SAILRY_TELEMETRY" && options.Telemetry != nil && !*options.Telemetry {
+		return "off"
+	}
+	return os.Getenv(name)
+}
+
 func ParseService(args []string) (ServiceOptions, bool, error) {
 	options := ServiceOptions{Network: link.NetworkScope{Bind: "127.0.0.1:0"}}
 	if len(args) != 0 && (args[0] == "--help" || args[0] == "-h") {
@@ -125,7 +135,9 @@ func validateOrigin(origin string) error {
 
 func validateRelay(value string) error {
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
+	// The Link refuses the same forms when the endpoint binds.
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Opaque != "" ||
+		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(value, "#") {
 		return errors.New("relay requires an HTTPS URL")
 	}
 	return nil

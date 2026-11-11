@@ -6,48 +6,51 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-func TestBuiltinPackagesParse(t *testing.T) {
-	want := []string{BuiltinID, "great-sage", "holographic-rhythm", "ink-dragon"}
-	if len(Packages()) != len(want) {
-		t.Fatalf("packages = %d, want %d", len(Packages()), len(want))
-	}
-	ids := map[string]bool{}
-	for _, p := range Packages() {
-		ids[p.ID] = true
-	}
-	for _, id := range want {
-		if !ids[id] {
-			t.Errorf("missing package %s", id)
+// Parse reads the built-in packages whole and refuses a package without both
+// variants, malformed JSON and a color that is not a hex value.
+func TestPackagesParse(t *testing.T) {
+	t.Run("Builtin", func(t *testing.T) {
+		want := []string{BuiltinID, "great-sage", "holographic-rhythm", "ink-dragon"}
+		if len(Packages()) != len(want) {
+			t.Fatalf("packages = %d, want %d", len(Packages()), len(want))
 		}
-	}
-	for _, p := range Packages()[1:] {
-		if p.Name == "" || p.Release == "" || p.License.Author == "" || p.License.Text == "" {
-			t.Errorf("%s: incomplete manifest", p.ID)
+		ids := map[string]bool{}
+		for _, p := range Packages() {
+			ids[p.ID] = true
 		}
-		for _, dark := range []bool{false, true} {
-			v := p.Variant(dark)
-			if len(v.Theme.Colors) == 0 {
-				t.Errorf("%s dark=%v: no colors", p.ID, dark)
+		for _, id := range want {
+			if !ids[id] {
+				t.Errorf("missing package %s", id)
 			}
-			for slot, d := range v.Assets {
-				if d.Bitmap() == nil {
-					t.Errorf("%s dark=%v: asset %s (%s) does not decode", p.ID, dark, slot, d.Path)
+		}
+		for _, p := range Packages()[1:] {
+			if p.Name == "" || p.Release == "" || p.License.Author == "" || p.License.Text == "" {
+				t.Errorf("%s: incomplete manifest", p.ID)
+			}
+			for _, dark := range []bool{false, true} {
+				v := p.Variant(dark)
+				if len(v.Theme.Colors) == 0 {
+					t.Errorf("%s dark=%v: no colors", p.ID, dark)
+				}
+				for slot, d := range v.Assets {
+					if d.Bitmap() == nil {
+						t.Errorf("%s dark=%v: asset %s (%s) does not decode", p.ID, dark, slot, d.Path)
+					}
 				}
 			}
 		}
-	}
-}
-
-func TestParseRequiresBothVariants(t *testing.T) {
-	if _, err := Parse([]byte(`{"version":1,"id":"x","light":{"theme":{"colors":{}}}}`), nil); err == nil {
-		t.Error("missing dark: want an error")
-	}
-	if _, err := Parse([]byte(`{"version":1,`), nil); err == nil {
-		t.Error("malformed JSON: want an error")
-	}
-	if _, err := Parse([]byte(`{"version":1,"id":"x","light":{"theme":{"colors":{"background":"blue"}}},"dark":{}}`), nil); err == nil {
-		t.Error("named color: want an error")
-	}
+	})
+	t.Run("RequiresBothVariants", func(t *testing.T) {
+		if _, err := Parse([]byte(`{"version":1,"id":"x","light":{"theme":{"colors":{}}}}`), nil); err == nil {
+			t.Error("missing dark: want an error")
+		}
+		if _, err := Parse([]byte(`{"version":1,`), nil); err == nil {
+			t.Error("malformed JSON: want an error")
+		}
+		if _, err := Parse([]byte(`{"version":1,"id":"x","light":{"theme":{"colors":{"background":"blue"}}},"dark":{}}`), nil); err == nil {
+			t.Error("named color: want an error")
+		}
+	})
 }
 
 func TestPaletteOverlaysNeutral(t *testing.T) {

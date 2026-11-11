@@ -13,7 +13,7 @@ import (
 func (r *Runtime) watchChild(id protocol.SessionID) {
 	r.conversationSeen[id] = true
 	if _, ok := r.conversationWatches[id]; !ok {
-		if release, err := r.controller.WatchConversation(r.ctx, id, r.changed); err == nil {
+		if release, err := r.controller.WatchConversation(r.ctx, id, r.conversationChanged); err == nil {
 			r.conversationWatches[id] = release
 		}
 	}
@@ -34,7 +34,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		ctx.Activity.Children = nil
 		return
 	}
-	state, ok := r.controller.Conversation(session.ID)
+	state, ok := r.conversationState(session.ID)
 	if !ok {
 		return
 	}
@@ -47,7 +47,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 	}
 	runs := map[string]protocol.ConversationRun{}
 	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
-		childSession, valid := client.ConversationChildSession(r.controller.Snapshot(), session.ID, child)
+		childSession, valid := client.ConversationChildSession(r.snapshot(), session.ID, child)
 		if !valid {
 			continue
 		}
@@ -57,7 +57,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 			if child.Run.Status == protocol.ConversationStatusRunning {
 				ctx.Activity.Children = append(ctx.Activity.Children, childView(&state.Snapshot.Page, child, childSession, language))
 			}
-			if details, ready := r.controller.Conversation(childSession.ID); ready {
+			if details, ready := r.conversationState(childSession.ID); ready {
 				for _, approval := range details.Snapshot.Page.Approvals {
 					if approval.State != "pending" || approval.Startup != nil || approval.Ssh != nil || approval.Session != childSession.ID {
 						continue
@@ -79,7 +79,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		}
 		return childElapsed(run, now)
 	}
-	enrichChildModels(cv, state.Snapshot.Page, r.controller.Snapshot(), language)
+	enrichChildModels(cv, state.Snapshot.Page, r.snapshot(), language)
 }
 
 func childElapsed(run protocol.ConversationRun, now time.Time) string {
@@ -150,7 +150,7 @@ func (r *Runtime) resolveChildApproval(x *conversationActions, id string, decisi
 		return false
 	}
 	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
-		session, valid := client.ConversationChildSession(r.controller.Snapshot(), parent.ID, child)
+		session, valid := client.ConversationChildSession(r.snapshot(), parent.ID, child)
 		if !valid {
 			continue
 		}

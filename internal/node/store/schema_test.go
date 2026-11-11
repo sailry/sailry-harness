@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,30 +66,6 @@ func reopenSchemaFixture(t *testing.T, profile string, node protocol.NodeID) *St
 		}
 	})
 	return storage
-}
-
-func TestGenerationMissingResets(t *testing.T) {
-	t.Parallel()
-	profile, node, original := schemaFixture(t)
-	schemaExecute(t, original.Node, "UPDATE node SET plugin_defaults=1; ALTER TABLE node DROP COLUMN storage_generation")
-	schemaExecute(t, original.Knowledge, "UPDATE metadata SET version=7")
-	if err := original.Close(); err != nil {
-		t.Fatal(err)
-	}
-	current := reopenSchemaFixture(t, profile, node)
-	if got := schemaInteger(t, current.Node, "SELECT storage_generation FROM node"); got != 1 {
-		t.Fatalf("generation after reset: %d", got)
-	}
-	if got := schemaInteger(t, current.Node, "SELECT plugin_defaults FROM node"); got != 0 {
-		t.Fatalf("development records survived reset: %d", got)
-	}
-	if got := schemaInteger(t, current.Knowledge, "SELECT version FROM metadata"); got != 1 {
-		t.Fatalf("derived database survived reset: %d", got)
-	}
-	backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "*"))
-	if err != nil || len(backups) != 0 {
-		t.Fatalf("missing generation created a backup: %v, %v", backups, err)
-	}
 }
 
 func TestGenerationOneKeeps(t *testing.T) {
@@ -192,11 +169,17 @@ func TestGenerationOneKeeps(t *testing.T) {
 
 func TestGenerationUnknownFails(t *testing.T) {
 	t.Parallel()
-	for _, literal := range []string{"NULL", "0", "-1", "2", "'1'", "1.0", "X'01'"} {
+	// "missing" is storage without the column; every other name is its value.
+	for _, literal := range []string{"missing", "NULL", "0", "-1", "2", "'1'", "1.0", "X'01'"} {
 		t.Run(literal, func(t *testing.T) {
 			t.Parallel()
 			profile, node, original := schemaFixture(t)
-			schemaExecute(t, original.Node, "ALTER TABLE node DROP COLUMN storage_generation; ALTER TABLE node ADD COLUMN storage_generation; UPDATE node SET plugin_defaults=1,storage_generation="+literal)
+			alteration, generation := "ALTER TABLE node DROP COLUMN storage_generation; ALTER TABLE node ADD COLUMN storage_generation; UPDATE node SET plugin_defaults=1,storage_generation="+literal, "SELECT quote(storage_generation) FROM node"
+			if literal == "missing" {
+				alteration, generation = "ALTER TABLE node DROP COLUMN storage_generation; UPDATE node SET plugin_defaults=1", "SELECT CASE count(*) WHEN 0 THEN 'missing' ELSE 'declared' END FROM pragma_table_info('node') WHERE name='storage_generation'"
+			}
+			schemaExecute(t, original.Node, alteration)
+			schemaExecute(t, original.Knowledge, "UPDATE metadata SET version=7")
 			if err := original.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -217,15 +200,48 @@ func TestGenerationUnknownFails(t *testing.T) {
 			}
 			var actual string
 			if err := raw.Read(context.Background(), func(connection *sql.Conn) error {
-				return connection.QueryRowContext(context.Background(), "SELECT quote(storage_generation) FROM node").Scan(&actual)
+				return connection.QueryRowContext(context.Background(), generation).Scan(&actual)
 			}); err != nil {
 				t.Fatal(err)
 			}
 			if actual != literal {
 				t.Fatalf("generation changed: got %q, want %q", actual, literal)
 			}
+			if got := readOnlySchemaInteger(t, filepath.Join(profile, "storage", "knowledge.sqlite"), "SELECT version FROM metadata"); got != 7 {
+				t.Fatalf("refused storage changed its derived database: %d", got)
+			}
+			if backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "*")); err != nil || len(backups) != 0 {
+				t.Fatalf("refused storage created a backup: %v, %v", backups, err)
+			}
 		})
 	}
+	t.Run("orphaned reference", func(t *testing.T) {
+		t.Parallel()
+		profile, node, original := schemaFixture(t)
+		if err := original.Close(); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(profile, "storage", "node.sqlite")
+		unchecked, err := sql.Open("sqlite", databaseDSN(path, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		unchecked.SetMaxOpenConns(1)
+		_, err = unchecked.ExecContext(context.Background(), "PRAGMA foreign_keys=OFF; INSERT INTO session_attention(session,revision,unread) VALUES('orphan',1,0)")
+		if err = errors.Join(err, unchecked.Close()); err != nil {
+			t.Fatal(err)
+		}
+		opened, err := Open(context.Background(), profile, node)
+		if opened != nil {
+			_ = opened.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "invalid stored reference in session_attention; existing data was not changed") {
+			t.Fatalf("orphaned reference error: %v", err)
+		}
+		if got := readOnlySchemaInteger(t, path, "SELECT count(*) FROM session_attention"); got != 1 {
+			t.Fatalf("refused storage changed its records: %d", got)
+		}
+	})
 	t.Run("foreign storage engine", func(t *testing.T) {
 		t.Parallel()
 		profile := t.TempDir()
@@ -233,19 +249,46 @@ func TestGenerationUnknownFails(t *testing.T) {
 		if err := core.PrivateDirectory(storage); err != nil {
 			t.Fatal(err)
 		}
-		foreign := filepath.Join(storage, "node.turso")
-		if err := os.WriteFile(foreign, []byte("foreign storage"), 0o600); err != nil {
+		names := []string{"node.turso", "node.turso-wal", "node.db-log", "node.sqlite3", "knowledge.turso", "knowledge.db"}
+		for _, name := range names {
+			if err := os.WriteFile(filepath.Join(storage, name), []byte(name), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The release profile is the directory the Rust Node used: its
+		// databases move to the archive, unopened and unchanged.
+		for range 2 {
+			opened, err := Open(context.Background(), profile, protocol.NodeID{})
+			if err != nil {
+				t.Fatalf("a profile with Rust databases did not open: %v", err)
+			}
+			if err := opened.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(storage, "node.sqlite")); err != nil {
+			t.Fatalf("SQLite storage: %v", err)
+		}
+		for _, name := range names {
+			if _, err := os.Lstat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("%s stayed in storage: %v", name, err)
+			}
+			if body, err := os.ReadFile(filepath.Join(storage, RustArchive, name)); err != nil || string(body) != name {
+				t.Fatalf("archived %s changed: %q, %v", name, body, err)
+			}
+		}
+		// A later Rust run leaves a new database; the archived one is kept.
+		if err := os.WriteFile(filepath.Join(storage, "node.turso"), []byte("later"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if opened, err := Open(context.Background(), profile, protocol.NodeID{}); err == nil {
-			_ = opened.Close()
-			t.Fatal("opened a Turso profile as an empty SQLite profile")
+		if _, err := Open(context.Background(), profile, protocol.NodeID{}); err == nil || !strings.Contains(err.Error(), RustArchive) {
+			t.Fatalf("a second Rust database replaced the archive: %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(storage, "node.sqlite")); !os.IsNotExist(err) {
-			t.Fatalf("created parallel storage: %v", err)
+		if body, _ := os.ReadFile(filepath.Join(storage, RustArchive, "node.turso")); string(body) != "node.turso" {
+			t.Fatalf("archived database replaced: %q", body)
 		}
-		if body, err := os.ReadFile(foreign); err != nil || string(body) != "foreign storage" {
-			t.Fatalf("foreign storage changed: %q, %v", body, err)
+		if body, _ := os.ReadFile(filepath.Join(storage, "node.turso")); string(body) != "later" {
+			t.Fatalf("later database changed: %q", body)
 		}
 	})
 }

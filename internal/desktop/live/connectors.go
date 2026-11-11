@@ -88,21 +88,44 @@ func (r *Runtime) connectorError(c *ui.Context, err error) {
 	r.reportKeys(c, err, "connector_failed", "connector_conflict", "connector_unknown")
 }
 
+// readConnectorPackages reads every installed package once per pass. A call
+// during a pass asks for one more pass instead of a concurrent one.
 func (r *Runtime) readConnectorPackages() {
-	summaries := r.controller.Snapshot().Plugins
+	state := r.authorizations
+	if state.packagesReading {
+		state.packagesStale = true
+		return
+	}
+	state.packagesReading = true
+	summaries, known := r.snapshot().Plugins, maps.Clone(state.packages)
 	r.async(func() {
 		infos := map[string]protocol.PluginInfo{}
+		var failed error
 		for _, summary := range summaries {
 			output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: summary.Name}})
-			if err == nil {
-				if info, ok := detail[protocol.PluginInfo](output.Data); ok {
+			if info, ok := detail[protocol.PluginInfo](output.Data); err == nil && ok {
+				infos[summary.Name] = info
+			} else if err != nil {
+				// A failed read keeps what was shown; a package removed meanwhile is gone.
+				if info, shown := known[summary.Name]; shown && faultCode(err) != protocol.ErrorCodeNotFound {
 					infos[summary.Name] = info
+				}
+				if failed == nil && faultCode(err) != protocol.ErrorCodeNotFound {
+					failed = err
 				}
 			}
 		}
-		r.enqueue(func(*ui.Context) {
-			r.authorizations.packages = infos
+		r.enqueue(func(c *ui.Context) {
+			state.packagesReading = false
+			state.packages = infos
 			r.projectConnectors()
+			if failed != nil {
+				r.connectorError(c, failed)
+			}
+			if state.packagesStale {
+				state.packagesStale = false
+				r.readConnectorPackages()
+			}
 		})
 	})
 }

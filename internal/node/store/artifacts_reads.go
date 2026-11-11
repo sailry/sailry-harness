@@ -50,7 +50,7 @@ func artifactScope(ctx context.Context, db *sql.Conn, request protocol.Request, 
 		}
 		session = &latest.Session
 	}
-	if _, err := ReadSession(ctx, db, *session); err != nil {
+	if err := requireSession(ctx, db, *session); err != nil {
 		return protocol.SessionID{}, err
 	}
 	return *session, nil
@@ -120,7 +120,7 @@ func artifactLimit(limit uint16) error {
 }
 func ListArtifacts(ctx context.Context, db *sql.Conn, session protocol.SessionID, after *protocol.ArtifactID, limit uint16) (protocol.ArtifactPage, error) {
 	out := protocol.DefaultArtifactPage()
-	if _, err := ReadSession(ctx, db, session); err != nil {
+	if err := requireSession(ctx, db, session); err != nil {
 		return out, err
 	}
 	if err := artifactLimit(limit); err != nil {

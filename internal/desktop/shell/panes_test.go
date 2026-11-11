@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
@@ -42,6 +43,41 @@ func buttons(tt *ui.Tester, name string) int {
 
 func TestPanesRender(t *testing.T) {
 	t.Run("live terminal pane", testLiveTerminalPane)
+	// Kit keeps a menu's open state by ID for the window: each composer of
+	// a split names its own menus, so one opens alone.
+	t.Run("a composer's menu opens in its pane alone", func(t *testing.T) {
+		a, tt := newTester(t)
+		if !a.panes.Drop(session(preview.Big), session(themeChat), panes.Bottom) {
+			t.Fatal("drop")
+		}
+		tt.Frame()
+		tt.Frame()
+		named := func(name string, roles ...ui.Role) (found []ui.Rect) {
+			for _, e := range tt.AccessAll() {
+				if e.Name == name && slices.Contains(roles, e.Role) {
+					found = append(found, e.Bounds)
+				}
+			}
+			return found
+		}
+		for _, menu := range []struct{ button, item string }{
+			{i18n.In("en", "composer_mode_code"), i18n.In("en", "composer_mode_plan")},
+			{i18n.In("en", "composer_permission_ask"), i18n.In("en", "composer_permission_full")},
+		} {
+			triggers := named(menu.button, ui.RoleMenuButton)
+			if len(triggers) != 2 {
+				t.Fatalf("%d %q buttons, want one a composer", len(triggers), menu.button)
+			}
+			b := triggers[0]
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			settle(tt)
+			if n := len(named(menu.item, ui.RoleMenuItem, ui.RoleMenuItemCheckBox, ui.RoleMenuItemRadio)); n != 1 {
+				t.Errorf("one click on %q shows %d %q items, want 1", menu.button, n, menu.item)
+			}
+			tt.Key(0, ui.KeyEscape)
+			settle(tt)
+		}
+	})
 	a, tt := newTester(t)
 	splitThree(t, a, tt)
 	snapshot(t, tt, "panes-split")
@@ -74,51 +110,54 @@ func TestPanesRender(t *testing.T) {
 	}
 }
 
-func TestPaneFocusFollowsClick(t *testing.T) {
-	a, tt := newTester(t)
-	splitThree(t, a, tt)
-	// The first pane's drag handle, at its header's right.
-	r, ok := tt.AccessByRole(ui.RoleButton, "Drag to split")
-	if !ok {
-		t.Fatal("no header")
-	}
-	// A click in the pane's body, under its header.
-	tt.ClickAt(r.Bounds.X-200, r.Bounds.Y+200)
-	tt.Frame()
-	if a.panes.Active != session(preview.Big) || a.Sidebar.Selected != preview.Big {
-		t.Fatalf("active %v, selected %q", a.panes.Active, a.Sidebar.Selected)
-	}
-}
-
-func TestPaneResize(t *testing.T) {
-	a, tt := newTester(t)
-	splitThree(t, a, tt)
-	g := a.panes.Displayed()
-	before := g.Sizes[0]
-	var handle ui.AccessInfo
-	for _, e := range tt.AccessAll() {
-		// The row's handle is the tallest splitter.
-		if e.Role == ui.RoleSplitter && e.Bounds.H > handle.Bounds.H {
-			handle = e
+// The pointer on shown panes: a click focuses one, a drag on the divider
+// resizes two. Each case on its own App.
+func TestPanePointer(t *testing.T) {
+	t.Run("FocusFollowsClick", func(t *testing.T) {
+		a, tt := newTester(t)
+		splitThree(t, a, tt)
+		// The first pane's drag handle, at its header's right.
+		r, ok := tt.AccessByRole(ui.RoleButton, "Drag to split")
+		if !ok {
+			t.Fatal("no header")
 		}
-	}
-	if handle.Bounds.H == 0 {
-		t.Fatal("no split handle")
-	}
-	x, y := handle.Bounds.X+handle.Bounds.W/2, handle.Bounds.Y+handle.Bounds.H/2
-	tt.Move(x, y)
-	tt.Frame()
-	snapshot(t, tt, "panes-handle-hover")
-	tt.Press(x, y)
-	for i := 1; i <= 10; i++ {
-		tt.Move(x+float32(i)*10, y)
+		// A click in the pane's body, under its header.
+		tt.ClickAt(r.Bounds.X-200, r.Bounds.Y+200)
 		tt.Frame()
-	}
-	tt.Release(x+100, y)
-	tt.Frame()
-	if g.Sizes[0] <= before || g.Sizes[0]+g.Sizes[1] < 0.999 || g.Sizes[0]+g.Sizes[1] > 1.001 {
-		t.Fatalf("sizes %v from %v", g.Sizes, before)
-	}
+		if a.panes.Active != session(preview.Big) || a.Sidebar.Selected != preview.Big {
+			t.Fatalf("active %v, selected %q", a.panes.Active, a.Sidebar.Selected)
+		}
+	})
+	t.Run("Resize", func(t *testing.T) {
+		a, tt := newTester(t)
+		splitThree(t, a, tt)
+		g := a.panes.Displayed()
+		before := g.Sizes[0]
+		var handle ui.AccessInfo
+		for _, e := range tt.AccessAll() {
+			// The row's handle is the tallest splitter.
+			if e.Role == ui.RoleSplitter && e.Bounds.H > handle.Bounds.H {
+				handle = e
+			}
+		}
+		if handle.Bounds.H == 0 {
+			t.Fatal("no split handle")
+		}
+		x, y := handle.Bounds.X+handle.Bounds.W/2, handle.Bounds.Y+handle.Bounds.H/2
+		tt.Move(x, y)
+		tt.Frame()
+		snapshot(t, tt, "panes-handle-hover")
+		tt.Press(x, y)
+		for i := 1; i <= 10; i++ {
+			tt.Move(x+float32(i)*10, y)
+			tt.Frame()
+		}
+		tt.Release(x+100, y)
+		tt.Frame()
+		if g.Sizes[0] <= before || g.Sizes[0]+g.Sizes[1] < 0.999 || g.Sizes[0]+g.Sizes[1] > 1.001 {
+			t.Fatalf("sizes %v from %v", g.Sizes, before)
+		}
+	})
 }
 
 func TestPaneClose(t *testing.T) {
@@ -178,6 +217,23 @@ func TestPaneClose(t *testing.T) {
 	if a.Sidebar.Selected != themeChat {
 		t.Fatalf("selected %q", a.Sidebar.Selected)
 	}
+	// ⌘W in the first of two panes closes it while the panes build; the tree the
+	// build walks keeps both children, so it does not index past one, and the
+	// focus goes to the other pane.
+	t.Run("EarlierPaneByKey", func(t *testing.T) {
+		a, tt := newTester(t)
+		r := splitTwo(t, a, tt)
+		tt.ClickAt(r.X+r.W/2, r.Y+200)
+		tt.Frame()
+		if a.panes.Active != session(preview.Big) {
+			t.Fatalf("active %v", a.panes.Active)
+		}
+		tt.Key(ui.Cmd, ui.KeyW)
+		tt.Frame()
+		if len(a.panes.Groups) != 0 || a.panes.Active != session(themeChat) || a.Sidebar.Selected != themeChat {
+			t.Fatalf("groups %v, active %v, selected %q", a.panes.Groups, a.panes.Active, a.Sidebar.Selected)
+		}
+	})
 }
 
 // dragTo drags from the centre of the element named from to (x, y) in
@@ -308,6 +364,50 @@ func TestPanesPersist(t *testing.T) {
 	if got := c.panes.Members(session(themeChat)); len(got) != 2 {
 		t.Fatalf("pruned: %v", got)
 	}
+	// A session that is not there yet, as a remote host's before it
+	// connects, keeps its pane for when it is: the layout is saved whole
+	// meanwhile and comes back with the session.
+	full := preview.Load()
+	var later *preview.Conversation
+	for _, pr := range full.Projects {
+		for i, cv := range pr.Conversations {
+			if cv.ID == themeChat {
+				later, pr.Conversations = cv, slices.Delete(slices.Clone(pr.Conversations), i, i+1)
+			}
+		}
+	}
+	if later == nil {
+		t.Fatal("no theme chat in the preview")
+	}
+	d := New(full)
+	d.SetPrefs(LoadPrefs(dir))
+	td := ui.NewTesterWith(d.View, 1280, 820, opaque)
+	td.SetLocale("en")
+	td.Frame()
+	if got := d.panes.Members(session(preview.Big)); len(got) != 2 || slices.Contains(got, session(themeChat)) {
+		t.Fatalf("panes without the absent session: %v", got)
+	}
+	if saved := d.Prefs().Panes; len(saved) != 1 || !slices.Equal(saved[0].Targets(), []panes.Target{session(preview.Big), session(themeChat), term}) {
+		t.Fatalf("saved without the absent session's pane: %+v", saved)
+	}
+	pr := full.ProjectOf(preview.Big)
+	pr.Conversations = append(pr.Conversations, later)
+	td.Frame()
+	if g := d.panes.Displayed(); g == nil || !slices.Equal(g.Targets(), []panes.Target{session(preview.Big), session(themeChat), term}) || g.Sizes[0] != 0.3 {
+		t.Fatalf("the session's pane did not come back: %+v", d.panes.Groups)
+	}
+	// A layout the user changed meanwhile is the one kept.
+	pr.Conversations = pr.Conversations[:len(pr.Conversations)-1]
+	td.Frame()
+	if !d.panes.Detach(term) {
+		t.Fatal("detach")
+	}
+	td.Frame()
+	pr.Conversations = append(pr.Conversations, later)
+	td.Frame()
+	if len(d.panes.Groups) != 0 || len(d.Prefs().Panes) != 0 {
+		t.Fatalf("a changed layout was replaced: %+v", d.panes.Groups)
+	}
 }
 
 func TestTerminalSplitKeys(t *testing.T) {
@@ -409,23 +509,5 @@ func testDragPaneIntoEarlierPane(t *testing.T) {
 			}
 			tt.Frame()
 		})
-	}
-}
-
-// ⌘W in the first of two panes closes it while the panes build; the tree the
-// build walks keeps both children, so it does not index past one, and the
-// focus goes to the other pane.
-func TestCloseEarlierPaneByKey(t *testing.T) {
-	a, tt := newTester(t)
-	r := splitTwo(t, a, tt)
-	tt.ClickAt(r.X+r.W/2, r.Y+200)
-	tt.Frame()
-	if a.panes.Active != session(preview.Big) {
-		t.Fatalf("active %v", a.panes.Active)
-	}
-	tt.Key(ui.Cmd, ui.KeyW)
-	tt.Frame()
-	if len(a.panes.Groups) != 0 || a.panes.Active != session(themeChat) || a.Sidebar.Selected != themeChat {
-		t.Fatalf("groups %v, active %v, selected %q", a.panes.Groups, a.panes.Active, a.Sidebar.Selected)
 	}
 }

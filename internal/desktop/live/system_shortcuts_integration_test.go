@@ -200,13 +200,53 @@ func TestSystemShortcutsUI(t *testing.T) {
 	if reads.Load() != 4 || activations.Load() != 4 {
 		t.Fatalf("four captures read %d times and activated %d times", reads.Load(), activations.Load())
 	}
+	// SHELL-036: Read aloud hands the dialog's text to the reader the entry
+	// point binds, shows Stop reading while it reads and stops on the next
+	// press. The reader here records; the system's speech is not started.
+	type spoken struct{ session, id, text string }
+	var speech []spoken
+	reading := ""
+	window.runtime.SetReadAloud(func(session, id, text string) {
+		speech = append(speech, spoken{session, id, text})
+		// As reader.Service.Toggle: the same ID stops, another starts.
+		if reading == id {
+			reading = ""
+		} else {
+			reading = id
+		}
+	})
+	window.runtime.SetReaderActive(func(id string) bool { return reading == id })
+	pressIn(window, "Read aloud")
+	settle(window, "Read aloud becomes Stop reading", systemUIWait, func() bool {
+		return len(window.buttons("Stop reading")) == 1 && len(window.buttons("Read aloud")) == 0
+	})
+	if want := (spoken{session.ID.String(), "selection/" + session.ID.String(), quoted}); len(speech) != 1 || speech[0] != want {
+		t.Fatalf("Read aloud handed %+v to the reader", speech)
+	}
+	pressIn(window, "Stop reading")
+	settle(window, "Stop reading becomes Read aloud", systemUIWait, func() bool {
+		return len(window.buttons("Read aloud")) == 1 && len(window.buttons("Stop reading")) == 0
+	})
+	if len(speech) != 2 || speech[1] != speech[0] || reading != "" {
+		t.Fatalf("the second press handed %+v to the reader, reading %q", speech, reading)
+	}
 	pressIn(window, "Quote")
 	settle(window, "the quote reaches the composer", systemUIWait, func() bool {
 		return app.Composer(session.ID.String()).Draft == "> "+quoted && shown(window, "Selected text") == 0
 	})
-	// Help › Selected text and the window's own command take the same path.
+	// SHELL-070: Help › Selected text sends the window's own command, which
+	// takes the same path.
 	selected.Store([2]string{"Second selection", ""})
-	app.Do("system.selection")
+	var sent []string
+	item := menuItem(app.Menu("en", func(id string) { sent = append(sent, id) }), "system.selection")
+	if item == nil || item.Disabled || item.Click == nil || item.Label != "Selected text" {
+		t.Fatalf("Help › Selected text: %+v", item)
+	}
+	item.Click(item, nil)
+	if len(sent) != 1 || sent[0] != "system.selection" {
+		t.Fatalf("Help › Selected text sent %v", sent)
+	}
+	app.Do(sent[0])
 	settle(window, "the command's selection dialog", systemUIWait, func() bool { return shown(window, "Second selection") == 1 })
 	pressIn(window, "Quote")
 	settle(window, "the second quote follows the first", systemUIWait, func() bool {
@@ -215,7 +255,7 @@ func TestSystemShortcutsUI(t *testing.T) {
 	if reads.Load() != 5 {
 		t.Fatalf("the reader ran %d times", reads.Load())
 	}
-	t.Logf("step 6 passed: with the injected reader an empty selection, a missing permission and an oversized text each showed their toast and no dialog; a text showed in the Selected text dialog after the window's activation callback ran once per capture, and Quote put %q into the conversation's composer; the system.selection command quoted a second text after it", fmt.Sprintf("> %s", quoted))
+	t.Logf("step 6 passed: with the injected reader an empty selection, a missing permission and an oversized text each showed their toast and no dialog; a text showed in the Selected text dialog after the window's activation callback ran once per capture, Read aloud handed the text to the bound reader and turned into Stop reading until pressed again, and Quote put %q into the conversation's composer; Help › Selected text sent system.selection, which quoted a second text after it", fmt.Sprintf("> %s", quoted))
 
 	// Step 7: the new-conversation command, a window shortcut and menu item.
 	app.Do("conversation.new")

@@ -27,7 +27,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		if !h.Live {
 			ui.Text(c, i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
 		}
-		ui.Text(c, i18n.T(c, h.Name)).FontSize(14).SingleLine()
+		ui.Text(c, h.label(c, h.Name)).FontSize(14).SingleLine()
 		m := h.Metrics
 		if h.Live && h.MetricsError != "" {
 			m = nil
@@ -105,7 +105,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 			}
 			for i, x := range m.Processes {
 				ui.Column(c.Key("process-" + strconv.Itoa(i))).Gap(4).Children(func() {
-					ui.Text(c, i18n.T(c, x.Name)).FontSize(14).SingleLine()
+					ui.Text(c, h.label(c, x.Name)).FontSize(14).SingleLine()
 					ui.Row(c).Gap(12).Children(func() {
 						ui.Text(c, or(Percent(x.CPU))).FontSize(12).TextColor(p.MutedForeground)
 						ui.Text(c, or(Bytes(float64(x.Memory)))).FontSize(12).TextColor(p.MutedForeground)

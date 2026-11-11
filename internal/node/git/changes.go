@@ -16,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	fdiff "github.com/go-git/go-git/v5/plumbing/format/diff"
+	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -117,7 +118,7 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 		if err != nil {
 			return nil, mapError(err)
 		}
-		staged := map[string]*resource{}
+		staged, recorded := map[string]*resource{}, map[string]*idxfmt.Entry{}
 		for _, entry := range idx.Entries {
 			if entry.Stage != 0 {
 				return nil, fault(protocol.ErrorCodeConflict, "resolve index conflicts before reviewing changes")
@@ -127,6 +128,7 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 				continue
 			}
 			staged[entry.Name] = &resource{Hash: entry.Hash.String(), Mode: uint32(entry.Mode)}
+			recorded[entry.Name] = entry
 		}
 		if v.Scope == protocol.GitDiffScopeUnstaged {
 			old = staged
@@ -216,8 +218,11 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 				}
 				new[path] = &resource{Mode: mode, Working: true, Size: info.Size(), Modified: info.ModTime().UnixNano(), Identity: fileIdentity(info)}
 				if before := old[path]; before != nil && before.Mode == mode && info.Mode().IsRegular() && info.Size() <= maxFile {
-					value, e := workingContent(root, path, maxFile)
-					if e == nil && value.hash.String() == before.Hash {
+					// Like Git, trust the stat data of an index entry that was recorded
+					// before the index was written instead of hashing the file again.
+					if entry := recorded[path]; entry != nil && *staged[path] == *before && entry.ModifiedAt.Before(idx.ModTime) && indexStat(entry, info) {
+						new[path] = before
+					} else if value, e := workingContent(root, path, maxFile); e == nil && value.hash.String() == before.Hash {
 						new[path] = before
 					}
 				}

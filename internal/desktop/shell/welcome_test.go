@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
@@ -70,9 +71,36 @@ func TestSelection(t *testing.T) {
 	if !tt.HasText(i18n.In("en", "selection_title")) {
 		t.Fatalf("no dialog: %q", tt.Texts())
 	}
+	// SHELL-036: with a reader bound, Read aloud hands it the dialog's text,
+	// shows Stop reading while it reads and stops on the next press.
+	var read []string
+	reading := false
+	a.Hooks.ReadSelection = func(chat, text string) { read, reading = append(read, chat+"\x00"+text), !reading }
+	a.Hooks.ReaderActive = func(id string) bool { return reading && id == "selection/"+a.selected.chat }
+	a.Preview = false
+	clickButton(t, tt, i18n.In("en", "reader_read"))
+	tt.Frame()
+	if _, stop := tt.AccessByRole(ui.RoleButton, i18n.In("en", "reader_stop")); !stop || len(read) != 1 || read[0] != a.Sidebar.Selected+"\x00"+a.selected.text || a.selected.text == "" {
+		t.Fatalf("Read aloud read %q; texts %q", read, tt.Texts())
+	}
+	clickButton(t, tt, i18n.In("en", "reader_stop"))
+	tt.Frame()
+	if _, start := tt.AccessByRole(ui.RoleButton, i18n.In("en", "reader_read")); !start || len(read) != 2 || reading {
+		t.Fatalf("the second press read %q, reading %v", read, reading)
+	}
+	a.Preview = true
 	clickButton(t, tt, i18n.In("en", "message_quote"))
 	tt.Frame()
 	if a.selected.open || !strings.Contains(a.Composer(a.Sidebar.Selected).Draft, "Preview selection") {
 		t.Error("Quote did not reach the draft")
+	}
+	// Every line of a selection is quoted, after the draft.
+	a.Composer(a.Sidebar.Selected).Draft = "Before"
+	a.selected = selection{open: true, text: "one\ntwo\n", chat: a.Sidebar.Selected}
+	tt.Frame()
+	clickButton(t, tt, i18n.In("en", "message_quote"))
+	tt.Frame()
+	if got, want := a.Composer(a.Sidebar.Selected).Draft, "Before\n\n> one\n> two\n\n"; got != want {
+		t.Errorf("quoted draft %q, want %q", got, want)
 	}
 }

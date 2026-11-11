@@ -1,9 +1,9 @@
 package model
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -12,6 +12,7 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 )
@@ -35,58 +36,10 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	for _, tool := range request.Tools {
 		call.Tools = append(call.Tools, tool)
 	}
-	visibility := map[string]bool{}
-	for _, record := range request.Records {
-		if record.Kind != "operation" {
-			continue
-		}
-		var op *canonical.Operation
-		switch v := record.Data.(type) {
-		case *canonical.Operation:
-			op = v
-		case canonical.Operation:
-			op = &v
-		}
-		if op != nil && op.Kind == "visibility" {
-			switch v := op.Data.(type) {
-			case *canonical.Visibility:
-				visibility[v.Message] = v.AgentVisible
-			case canonical.Visibility:
-				visibility[v.Message] = v.AgentVisible
-			}
-		}
-	}
-	records := request.Records
-	// The latest summary replaces only records through its captured boundary.
-	boundary := -1
-	summary := -1
-	for i, record := range records {
-		if record.Kind == "compaction" {
-			var c *canonical.Compaction
-			switch v := record.Data.(type) {
-			case *canonical.Compaction:
-				c = v
-			case canonical.Compaction:
-				c = &v
-			}
-			if c != nil {
-				for n := 0; n < i; n++ {
-					if records[n].ID == c.Boundary {
-						boundary, summary = n, i
-						break
-					}
-				}
-			}
-		}
-	}
+	records := visibleRecords(request.Records)
 	active := -1
 	for i := range records {
-		record := records[i]
-		if i <= boundary {
-			continue
-		}
-		message := record.Message()
-		if message != nil && message.Role == canonical.User && agentVisible(record, visibility) {
+		if message := records[i].Message(); message != nil && message.Role == canonical.User {
 			for _, block := range message.Content {
 				if block.Kind != "tool_response" {
 					active = i
@@ -96,9 +49,6 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		}
 	}
 	for i, record := range records {
-		if i <= boundary || record.Kind == "compaction" && i != summary || !agentVisible(record, visibility) {
-			continue
-		}
 		record = output.Audience(record)
 		message := record.MutableMessage()
 		if message == nil {
@@ -260,6 +210,99 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		}
 	}
 	return call, nil
+}
+
+// visibleRecords selects what a request carries: agent-visible records after
+// the boundary of the latest summary, with that summary in place of the rest.
+func visibleRecords(records []canonical.Record) []canonical.Record {
+	visibility := map[string]bool{}
+	boundary, summary := -1, -1
+	for index, record := range records {
+		var operation *canonical.Operation
+		var compaction *canonical.Compaction
+		switch value := record.Data.(type) {
+		case *canonical.Operation:
+			operation = value
+		case canonical.Operation:
+			operation = &value
+		case *canonical.Compaction:
+			compaction = value
+		case canonical.Compaction:
+			compaction = &value
+		}
+		if record.Kind == "operation" && operation != nil && operation.Kind == "visibility" {
+			switch change := operation.Data.(type) {
+			case *canonical.Visibility:
+				visibility[change.Message] = change.AgentVisible
+			case canonical.Visibility:
+				visibility[change.Message] = change.AgentVisible
+			}
+		}
+		if record.Kind == "compaction" && compaction != nil {
+			for earlier := range index {
+				if records[earlier].ID == compaction.Boundary {
+					boundary, summary = earlier, index
+					break
+				}
+			}
+		}
+	}
+	result := []canonical.Record{}
+	for index, record := range records {
+		if index > boundary && (record.Kind != "compaction" || index == summary) && agentVisible(record, visibility) {
+			result = append(result, record)
+		}
+	}
+	return result
+}
+
+// Answered applies the source request repair to the records a request carries:
+// a tool result is kept only after its unanswered call, and a call that never
+// received a result is removed. A turn that ended before recording a result
+// therefore cannot make every later request invalid.
+func Answered(records []canonical.Record) []canonical.Record {
+	pending := map[string]bool{}
+	orphans := map[string]bool{}
+	for _, record := range visibleRecords(records) {
+		message := record.Message()
+		if message == nil {
+			continue
+		}
+		for _, block := range message.Content {
+			switch value := block.Data.(type) {
+			case *canonical.ToolRequest:
+				pending[value.ID] = true
+			case *canonical.ToolResponse:
+				if !pending[value.ID] {
+					orphans[record.ID+"\x00"+value.ID] = true
+				}
+				delete(pending, value.ID)
+			}
+		}
+	}
+	if len(pending) == 0 && len(orphans) == 0 {
+		return records
+	}
+	repaired := slices.Clone(records)
+	for index := range repaired {
+		record := &repaired[index]
+		message := record.Message()
+		if message == nil {
+			continue
+		}
+		kept := *message
+		kept.Content = slices.DeleteFunc(slices.Clone(message.Content), func(block canonical.Block) bool {
+			switch value := block.Data.(type) {
+			case *canonical.ToolRequest:
+				return pending[value.ID]
+			case *canonical.ToolResponse:
+				return orphans[record.ID+"\x00"+value.ID]
+			}
+			return false
+		})
+		record.Data = &kept
+	}
+	return repaired
 }
 func decodeBlock(value any, target any) error {
 	raw, err := json.Marshal(value)

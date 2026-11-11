@@ -5,7 +5,11 @@ package live
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,9 +39,10 @@ func topButton(w *terminalUI, name string, count int) (ui.AccessInfo, bool) {
 // the updater's own feed integration test; the service's installed
 // application is an unsigned fixture bundle under t.TempDir(), its relaunch
 // only records, and the system's code-signature check is replaced because
-// the fixture bundles are unsigned. The test stops at the install
-// confirmation: nothing is installed, replaced or relaunched, so SABOUT-006
-// past the confirmation, SABOUT-008 and SABOUT-009 are not exercised here.
+// the fixture bundles are unsigned. Step 8 accepts the confirmation, so
+// SABOUT-006, SABOUT-008 and SABOUT-009 run as far as the fixture goes: the
+// fixture bundle is replaced and the relaunch is recorded. Installing over a
+// signed application and starting it again remain a manual acceptance.
 func TestSystemAboutUI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
 	defer cancel()
@@ -61,10 +66,40 @@ func TestSystemAboutUI(t *testing.T) {
 
 	window := openTerminalWindow(t, ctx, desk.owner, profile, session, nil)
 	defer window.close()
+	// The service stops the Node, relaunches and quits on its own
+	// goroutine; halt, when set, is what stopping the Node does.
+	var effects sync.Mutex
 	var stops, quits int
 	var launched []string
-	updates := NewUpdates(window.runtime.Preferences, profile, func() error { stops++; return nil }, func() { quits++ })
-	t.Cleanup(feed.Bind(updates.Service, installed, func(executable string) { launched = append(launched, executable) }))
+	var halt func() error
+	stop := func() error {
+		effects.Lock()
+		stops++
+		held := halt
+		effects.Unlock()
+		if held != nil {
+			return held()
+		}
+		return nil
+	}
+	quit := func() {
+		effects.Lock()
+		quits++
+		effects.Unlock()
+	}
+	relaunched := func(executable string) {
+		effects.Lock()
+		launched = append(launched, executable)
+		effects.Unlock()
+	}
+	// done reports the Node stops, the quits and the relaunches so far.
+	done := func() (int, int, []string) {
+		effects.Lock()
+		defer effects.Unlock()
+		return stops, quits, slices.Clone(launched)
+	}
+	updates := NewUpdates(window.runtime.Preferences, profile, stop, quit)
+	t.Cleanup(feed.Bind(updates.Service, installed, relaunched))
 	t.Cleanup(updates.Service.Close)
 	window.runtime.SetUpdates(updates, func() bool { return true })
 	showSection(window, settings.About)
@@ -72,7 +107,7 @@ func TestSystemAboutUI(t *testing.T) {
 	untouched := func(label string) {
 		t.Helper()
 		version, err := updater.FixtureBundleVersion(installed)
-		if err != nil || version != link.ProductVersion || stops != 0 || quits != 0 || len(launched) != 0 {
+		if stops, quits, launched := done(); err != nil || version != link.ProductVersion || stops != 0 || quits != 0 || len(launched) != 0 {
 			t.Fatalf("%s: the installed bundle is %q (%v), %d Node stops, %d quits, relaunched %v", label, version, err, stops, quits, launched)
 		}
 	}
@@ -243,6 +278,103 @@ func TestSystemAboutUI(t *testing.T) {
 	press(window, "Details")
 	settle(window, "the page's Details opens the failure's detail", systemUIWait, func() bool { return visible(window, detail) })
 	window.tester.Key(0, ui.KeyEscape)
+	settle(window, "the details close again", systemUIWait, func() bool { return !visible(window, detail) })
 	untouched("after a failed download")
 	t.Logf("step 7 passed: the damaged archive of %s failed with the persistent toast The update package is damaged; the toast's Details and the page's Details show %q; the installed bundle is still %s", damaged, detail, link.ProductVersion)
+
+	// (8) SABOUT-006, SABOUT-008, SABOUT-009 as far as a fixture bundle
+	// goes: the confirmation installs; while it runs the page shows the
+	// disabled Installing button; an installation that stopped the Node but
+	// could not finish offers Restart, which relaunches.
+	busy := func(status string) func() bool {
+		return func() bool {
+			found := window.buttons("Installing")
+			return len(found) == 1 && found[0].Disabled && shown(window, status) >= 1 && channel().Disabled &&
+				len(window.buttons("Check for updates"))+len(window.buttons("Cancel"))+len(window.buttons("Download"))+len(window.buttons("Install and restart"))+len(window.buttons("Restart")) == 0
+		}
+	}
+	stage := func(service string) {
+		t.Helper()
+		settle(window, "the stable version is offered to "+service, systemUIWait, func() bool {
+			return u.State == settings.UpdateAvailable && u.Version == stable && len(window.buttons("Download")) == 1
+		})
+		press(window, "Download")
+		toast(window, ready)
+		settle(window, "the staged stable version of "+service, systemUIWait, func() bool {
+			return u.State == settings.UpdateReady && len(window.buttons("Install and restart")) == 1
+		})
+		press(window, "Install and restart")
+		settle(window, "the confirmation of "+service, systemUIWait, func() bool { return shown(window, consequence) == 1 })
+	}
+	pickOption(window, "Update channel", "Stable")
+	stage("the first service")
+	untouched("before the confirmation is accepted")
+	entered, proceed := make(chan struct{}, 1), make(chan error)
+	effects.Lock()
+	halt = func() error { entered <- struct{}{}; return <-proceed }
+	effects.Unlock()
+	footerAction(window, "Cancel", "Install and restart")
+	await("the installation stops the Node", entered)
+	settle(window, "the Installing state", systemUIWait, func() bool { return u.State == settings.UpdateInstalling && busy("Installing")() })
+	// The disabled button installs nothing more.
+	window.clickOn(window.buttons("Installing")[0])
+	for range 10 {
+		window.frame()
+	}
+	if stops, quits, launched := done(); stops != 1 || quits != 0 || len(launched) != 0 || u.State != settings.UpdateInstalling {
+		t.Fatalf("while installing: %d Node stops, %d quits, relaunched %v, state %v", stops, quits, launched, u.State)
+	}
+	proceed <- fmt.Errorf("the fixture Node did not stop")
+	settle(window, "the stopped installation offers Restart", systemUIWait, func() bool {
+		return u.State == settings.UpdateStopped && shown(window, "Restart required") == 1 && len(window.buttons("Restart")) == 1 && len(window.buttons("Installing")) == 0 &&
+			shown(window, "Could not stop the local Node; restart Sailry") == 1 && channel().Disabled
+	})
+	if version, err := updater.FixtureBundleVersion(installed); err != nil || version != link.ProductVersion {
+		t.Fatalf("an installation whose Node did not stop left the bundle at %q (%v)", version, err)
+	}
+	press(window, "Restart")
+	await("Restart stops the Node", entered)
+	settle(window, "the Restarting state", systemUIWait, func() bool { return u.State == settings.UpdateRestarting && busy("Restarting")() })
+	proceed <- nil
+	settle(window, "Restart relaunches and quits", systemUIWait, func() bool {
+		stops, quits, launched := done()
+		return stops == 2 && quits == 1 && len(launched) == 1
+	})
+	_, _, launches := done()
+	if !strings.HasPrefix(launches[0], installed+string(filepath.Separator)) || u.State != settings.UpdateRestarting || !busy("Restarting")() {
+		t.Fatalf("Restart relaunched %v and left the page in state %v", launches, u.State)
+	}
+	t.Logf("step 8a passed: the confirmed installation showed the disabled Installing button while the Node stopped; the Node's refusal left %s installed, toasted Could not stop the local Node and offered Restart, which showed Restarting, relaunched %s and quit once", link.ProductVersion, launches[0])
+
+	// A new process's service installs for real into the fixture bundle.
+	effects.Lock()
+	halt = nil
+	effects.Unlock()
+	second := NewUpdates(window.runtime.Preferences, profile, stop, quit)
+	t.Cleanup(feed.Bind(second.Service, installed, relaunched))
+	t.Cleanup(second.Service.Close)
+	window.runtime.SetUpdates(second, func() bool { return true })
+	settle(window, "the new service is idle", systemUIWait, func() bool { return u.State == settings.UpdateIdle && len(window.buttons("Check for updates")) == 1 })
+	press(window, "Check for updates")
+	stage("the second service")
+	footerAction(window, "Cancel", "Install and restart")
+	settle(window, "the installation replaces the bundle, relaunches and quits", systemUIWait, func() bool {
+		stops, quits, launched := done()
+		return stops == 3 && quits == 2 && len(launched) == 2
+	})
+	version, err := updater.FixtureBundleVersion(installed)
+	if _, _, launches = done(); err != nil || version != stable || launches[1] != launches[0] {
+		t.Fatalf("the installation left the bundle at %q (%v) and relaunched %v", version, err, launches)
+	}
+	if _, err := os.Stat(filepath.Join(profile, "desktop", "updater", "receipt.json")); err != nil {
+		t.Fatalf("the installation left no receipt: %v", err)
+	}
+	// The quitting process keeps the disabled Installing button to its end.
+	for range 30 {
+		window.frame()
+	}
+	if u.State != settings.UpdateInstalling || !busy("Installing")() {
+		t.Fatalf("after the installation the page is in state %v; visible text: %q", u.State, window.tester.Texts())
+	}
+	t.Logf("step 8b passed: a second service staged %s again; its confirmation stopped the Node once, replaced the fixture bundle (now %s), wrote receipt.json, relaunched %s and quit, the page staying on the disabled Installing button", stable, version, launches[1])
 }

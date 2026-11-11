@@ -1,13 +1,17 @@
 package shell
 
 import (
+	"maps"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
@@ -66,13 +70,31 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	if _, ok := tt.Access(i18n.In("en", "navigation_tabs")); !ok {
 		t.Error("eight tabs show no overflow menu")
 	}
+	// KEY-013: ⌘F from the conversation's input opens the conversation's
+	// find bar.
+	input, found := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+	if !found {
+		t.Fatalf("no composer input: %q", tt.Texts())
+	}
+	tt.ClickAt(input.Bounds.X+input.Bounds.W/2, input.Bounds.Y+input.Bounds.H/2)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if !a.Messages.SearchOpen() {
+		t.Fatalf("⌘F outside the terminal opened no conversation find bar: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.Messages.SearchOpen() {
+		t.Fatal("Escape left the conversation's find bar open")
+	}
 	// ⌘F in the terminal opens its find bar, not the conversation's.
 	click(t, tt, i18n.In("en", "workspace_terminal_preview"))
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.KeyF)
 	tt.Frame()
-	if !tt.HasText(i18n.In("en", "terminal_search_placeholder")) {
-		t.Errorf("no terminal find bar: %q", tt.Texts())
+	if !tt.HasText(i18n.In("en", "terminal_search_placeholder")) || a.Messages.SearchOpen() {
+		t.Errorf("no terminal find bar, or the conversation's opened: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-terminal")
 	// ⌘W in the panel closes the active tab, then the others, then the
@@ -154,6 +176,60 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	if got := b.Sidebar.Collapsed(); len(got) != 1 || got[0] != "notes" {
 		t.Errorf("collapsed projects %v", got)
 	}
+	// A file's preview and a subagent's session are their conversation's:
+	// their tabs are not kept, neither from a file that has them.
+	t.Run("conversation tabs", func(t *testing.T) {
+		a := New(preview.Load())
+		a.Panel.Open(panel.Changes)
+		a.Panel.ShowChild("child", "Child")
+		a.Panel.ShowArtifact(conversation.File{ID: "file", Path: "notes.md"})
+		p := a.Prefs()
+		if want := []panel.Tab{{Kind: panel.Changes}}; !slices.Equal(p.PanelTabs, want) || p.PanelTab != want[0] {
+			t.Errorf("saved tabs %v active %v, want %v", p.PanelTabs, p.PanelTab, want)
+		}
+		p.PanelTabs = append(p.PanelTabs, panel.Tab{Kind: panel.Artifact, ID: "file"}, panel.Tab{Kind: panel.Subagent, ID: "child"})
+		p.PanelTab = panel.Tab{Kind: panel.Artifact, ID: "file"}
+		b := New(preview.Load())
+		b.SetPrefs(p)
+		if want := []panel.Tab{{Kind: panel.Changes}}; !slices.Equal(b.Panel.Tabs, want) || b.Panel.Active != want[0] {
+			t.Errorf("restored tabs %v active %v, want %v", b.Panel.Tabs, b.Panel.Active, want)
+		}
+	})
+	// The file is one for the preview and every profile. The preview's rail
+	// comes back from it, merged with the features of now; a profile's rail
+	// is its own preferences', which the file neither replaces nor loses.
+	t.Run("rail", func(t *testing.T) {
+		a := New(preview.Load())
+		a.features = MoveFeature(a.features, "page:git", "page:activity", false)
+		a.unpinned["page:files"] = true
+		saved := a.Prefs()
+		if err := SavePrefs(dir, saved); err != nil {
+			t.Fatal(err)
+		}
+		b := New(preview.Load())
+		b.SetPrefs(LoadPrefs(dir))
+		if !slices.Equal(b.features, a.features) || !b.unpinned["page:files"] {
+			t.Errorf("preview rail %v unpinned %v, want %v", b.features, b.unpinned, a.features)
+		}
+		stale := saved
+		stale.Features = []string{"page:git", "page:gone", "page:conversation"}
+		b = New(preview.Load())
+		b.SetPrefs(stale)
+		if want := []string{"page:conversation", "page:git", "page:gone", "page:activity", "page:files", "page:settings_plugins"}; !slices.Equal(b.features, want) {
+			t.Errorf("stale order merged to %v, want %v", b.features, want)
+		}
+
+		live := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+		live.SetFeaturePreferences([]string{"page:conversation", "page:files", "page:activity", "page:git", "page:settings_plugins"}, map[string]bool{"page:git": false})
+		order, pins := live.FeaturePreferences()
+		live.SetPrefs(LoadPrefs(dir))
+		if after, afterPins := live.FeaturePreferences(); !slices.Equal(after, order) || !maps.Equal(afterPins, pins) {
+			t.Errorf("the UI state file changed a profile's rail: %v %v, want %v %v", after, afterPins, order, pins)
+		}
+		if p := live.Prefs(); !slices.Equal(p.Features, saved.Features) || !slices.Equal(p.Unpinned, saved.Unpinned) {
+			t.Errorf("a live window rewrote the preview's rail: %v %v, want %v %v", p.Features, p.Unpinned, saved.Features, saved.Unpinned)
+		}
+	})
 }
 
 // TestSearch groups the cases of one behavior; each keeps its own fixture.
@@ -177,6 +253,12 @@ func testSearchOpensConversation(t *testing.T) {
 	tt.Frame()
 	if a.Sidebar.Selected != "chat/recipe" || a.search.open {
 		t.Errorf("search chose %q, open %v", a.Sidebar.Selected, a.search.open)
+	}
+	// The search opens anew: not in the folder and query it closed with.
+	tt.Key(ui.Cmd, ui.KeyK)
+	tt.Frame()
+	if !a.search.open || a.search.folder != "" || a.search.query != "" {
+		t.Errorf("reopened search: %+v", a.search)
 	}
 }
 
@@ -259,23 +341,40 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 	t.Run("live knowledge viewer", testLiveKnowledge)
 }
 
-func TestParseSource(t *testing.T) {
-	if s, ok := ParseSource("sailry-knowledge://docs/frame?revision=3"); !ok || s.Collection != "docs" || s.Chunk != "frame" || s.Revision != "3" {
-		t.Errorf("valid link: %+v %v", s, ok)
-	}
-	for _, bad := range []string{
-		"sailry-knowledge://docs/frame?revision=3&path=x",
-		"sailry-knowledge://docs/frame?revision=3#L9",
-		"sailry-knowledge://docs/frame/more?revision=3",
-		"sailry-knowledge://docs/frame?revision=3&revision=4",
-		"https://docs/frame?revision=3",
-		"sailry-knowledge://user@docs/frame?revision=3",
-		"sailry-knowledge://docs:80/frame?revision=3",
-	} {
-		if _, ok := ParseSource(bad); ok {
-			t.Errorf("%q passed", bad)
+// The shell's pure rules: a knowledge link's parts, and a feature's move in
+// the rail's order.
+func TestShellRules(t *testing.T) {
+	t.Run("ParseSource", func(t *testing.T) {
+		if s, ok := ParseSource("sailry-knowledge://docs/frame?revision=3"); !ok || s.Collection != "docs" || s.Chunk != "frame" || s.Revision != "3" {
+			t.Errorf("valid link: %+v %v", s, ok)
 		}
-	}
+		for _, bad := range []string{
+			"sailry-knowledge://docs/frame?revision=3&path=x",
+			"sailry-knowledge://docs/frame?revision=3#L9",
+			"sailry-knowledge://docs/frame/more?revision=3",
+			"sailry-knowledge://docs/frame?revision=3&revision=4",
+			"https://docs/frame?revision=3",
+			"sailry-knowledge://user@docs/frame?revision=3",
+			"sailry-knowledge://docs:80/frame?revision=3",
+		} {
+			if _, ok := ParseSource(bad); ok {
+				t.Errorf("%q passed", bad)
+			}
+		}
+	})
+	t.Run("MoveFeature", func(t *testing.T) {
+		order := []string{"page:conversation", "page:activity", "page:files", "page:git", "page:settings_plugins"}
+		got := MoveFeature(order, "page:git", "page:activity", false)
+		if got[1] != "page:git" {
+			t.Errorf("move: %v", got)
+		}
+		if got := MoveFeature(order, "page:activity", "page:settings_plugins", true); got[len(got)-1] != "page:settings_plugins" {
+			t.Errorf("something went after Market: %v", got)
+		}
+		if got := MoveFeature(order, "page:conversation", "page:git", true); got[0] != "page:conversation" {
+			t.Errorf("Conversation moved: %v", got)
+		}
+	})
 }
 
 func testSearchRules(t *testing.T) {
@@ -294,20 +393,6 @@ func testSearchRules(t *testing.T) {
 		if got := Next(c.n, c.sel, c.rev); got != c.want {
 			t.Errorf("Next(%d, %d, %v) = %d", c.n, c.sel, c.rev, got)
 		}
-	}
-}
-
-func TestMoveFeature(t *testing.T) {
-	order := []string{"page:conversation", "page:activity", "page:files", "page:git", "page:settings_plugins"}
-	got := MoveFeature(order, "page:git", "page:activity", false)
-	if got[1] != "page:git" {
-		t.Errorf("move: %v", got)
-	}
-	if got := MoveFeature(order, "page:activity", "page:settings_plugins", true); got[len(got)-1] != "page:settings_plugins" {
-		t.Errorf("something went after Market: %v", got)
-	}
-	if got := MoveFeature(order, "page:conversation", "page:git", true); got[0] != "page:conversation" {
-		t.Errorf("Conversation moved: %v", got)
 	}
 }
 

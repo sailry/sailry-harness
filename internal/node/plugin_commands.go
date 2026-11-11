@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -18,7 +19,7 @@ import (
 
 func pluginCommand(kind string) bool {
 	switch kind {
-	case "list_plugins", "read_plugin", "read_plugin_version", "read_plugin_settings", "save_plugin_settings", "set_plugin_enabled", "remove_plugin",
+	case "list_plugins", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_secret", "save_plugin_settings", "set_plugin_enabled", "remove_plugin",
 		"install_plugin", "install_plugin_source", "install_bundled_plugin", "install_plugin_upload", "upload_plugin", "inspect_plugin_upload",
 		"search_plugin_catalog", "search_skill_catalog", "read_catalog_plugin", "read_catalog_plugin_info", "inspect_plugin_source", "check_plugin_update", "check_plugin_updates",
 		"discover_skills", "discover_registry_skill", "install_registry_skill", "install_skill", "read_skill_document", "discover_skill_upload", "discover_local_skills", "install_skill_upload",
@@ -429,6 +430,8 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 			return err
 		})
 		return protocol.Output{Kind: "plugin_settings", Data: value}, err
+	case *protocol.CommandReadPluginSecretPayload:
+		return node.readPluginSecret(ctx, request, *input)
 	case *protocol.PluginUploadSpec:
 		value, err := node.transfers.UploadPlugin(ctx, caller, *input)
 		return protocol.Output{Kind: "plugin_upload", Data: value}, err
@@ -568,6 +571,50 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 		}
 	}
 	return output, err
+}
+
+// readPluginSecret returns one saved secret slot to a controller's settings
+// form. A slot whose declared binding or MCP destination changed since it was
+// saved stays hidden.
+func (node *Node) readPluginSecret(ctx context.Context, request protocol.Request, input protocol.CommandReadPluginSecretPayload) (protocol.Output, error) {
+	if request.Plugin != nil {
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "credential contents are not exposed to plugin actions"}
+	}
+	targets, err := node.pluginMCPTargets(ctx, input.Package)
+	if err != nil {
+		return protocol.Output{}, err
+	}
+	var secret *protocol.Secret
+	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		state, err := store.ReadPluginSettings(ctx, db, input.Package, targets)
+		if err != nil {
+			return err
+		}
+		info, err := store.ReadPlugin(ctx, db, input.Package.Name)
+		if err != nil {
+			return err
+		}
+		if info == nil || info.Settings == nil || info.Settings.Properties[input.Field].Secret == nil {
+			return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "setting is not a declared secret slot"}
+		}
+		if !slices.Contains(state.Configured, input.Field) {
+			if !slices.Contains(state.Keepable, input.Field) {
+				return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "setting binding changed"}
+			}
+			return nil
+		}
+		resolved, err := store.ResolvePluginSettings(ctx, db, input.Package)
+		if err != nil {
+			return err
+		}
+		value, saved := resolved.Secrets[input.Field]
+		if !saved {
+			return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "setting binding changed"}
+		}
+		secret = &value
+		return nil
+	})
+	return protocol.Output{Kind: "plugin_secret", Data: secret}, err
 }
 
 func (node *Node) checkPluginUpdate(ctx context.Context, name string, expected uint64, force bool) (protocol.PluginUpdatesReport, error) {

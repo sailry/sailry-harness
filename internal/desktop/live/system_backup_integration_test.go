@@ -24,7 +24,9 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -613,18 +615,45 @@ func TestSystemBackupUI(t *testing.T) {
 	if now := saved(); now.Revision > revision+5 || !now.Schedule.Enabled || now.Schedule.Timezone != "Asia/Shanghai" {
 		t.Fatalf("the Node after the time: %+v, %d saves since the timezone", now.Schedule, now.Revision-revision-2)
 	}
+	// SBAK-011: the time is changed again by typing its digits, 09:15 PM,
+	// and that change is saved too.
+	stepped := saved().Revision
+	for index, digits := range [][]ui.Key{{ui.Key0, ui.Key9}, {ui.Key1, ui.Key5}} {
+		window.clickOn(segments[index])
+		for _, digit := range digits {
+			window.tester.Key(0, digit)
+			window.frame()
+		}
+	}
+	if at := window.runtime.App.Settings.Backup.Draft.Time; at.Hour() != 21 || at.Minute() != 15 {
+		t.Fatalf("the time input holds %s after typing 09:15; visible text: %q", at.Format("15:04"), window.tester.Texts())
+	}
+	settle(window, "the typed time is saved", systemUIWait, func() bool {
+		now := saved().Schedule
+		return now.Hour == 21 && now.Minute == 15
+	})
+	idle("the page after the typed time")
+	if now := saved(); now.Revision == stepped || now.Revision > stepped+2 || !now.Schedule.Enabled || now.Schedule.Timezone != "Asia/Shanghai" {
+		t.Fatalf("the Node after the typed time: %+v, %d saves", now.Schedule, now.Revision-stepped)
+	}
 	window.close()
 	open()
 	if toggle, found := toggled(window, "Automatic backup"); !found || !toggle.Checked || labelled(window, "Time zone").Value != "Asia/Shanghai" {
 		t.Fatalf("a new Runtime shows the schedule as %+v, timezone %q", toggle, labelled(window, "Time zone").Value)
 	}
-	if at := window.runtime.App.Settings.Backup.Saved.Time; at.Hour() != 20 || at.Minute() != 30 {
+	if at := window.runtime.App.Settings.Backup.Saved.Time; at.Hour() != 21 || at.Minute() != 15 {
 		t.Fatalf("a new Runtime shows the time %s", at.Format("15:04"))
 	}
-	// 20:30 in Asia/Shanghai is 12:30 UTC; the Node's clock stands at 12:00.
-	clock.Advance(29 * time.Minute)
+	// 21:15 in Asia/Shanghai is 13:15 UTC; the Node's clock stands at 12:00.
+	// The times saved before, 03:00 and 20:30 (12:30 UTC), no longer run:
+	// the clock passes 12:30 in steps and nothing is backed up until 13:15.
+	for range 74 {
+		clock.Advance(time.Minute)
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
 	if page := backups(); len(page.Records) != 1 {
-		t.Fatalf("backups before the scheduled time: %+v", page)
+		t.Fatalf("backups at 13:14 UTC, before the saved time: %+v", page)
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for len(backups().Records) != 2 {
@@ -635,7 +664,10 @@ func TestSystemBackupUI(t *testing.T) {
 		clock.Advance(time.Second)
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Log("step 5 passed: the switch saved the schedule at once and the timezone and time once they rested; a new Runtime shows them; the Node ran one backup at 20:30 Asia/Shanghai on its clock")
+	if at := clock.Now().UTC(); at.Hour() != 13 || at.Minute() < 14 || at.Minute() > 16 {
+		t.Fatalf("the scheduled backup ran at %s on the Node's clock", at.Format("15:04:05"))
+	}
+	t.Logf("step 5 passed: the switch saved the schedule at once and the timezone and time once they rested; the time stepped to 20:30 and then typed as 21:15 was saved each time; a new Runtime shows 21:15; the Node's clock passed 20:30 Asia/Shanghai without a backup and ran one at 21:15 (%s UTC)", clock.Now().UTC().Format("15:04:05"))
 
 	// (6) SBAK-013: Export writes the sealed archive where the save panel
 	// said.
@@ -916,14 +948,86 @@ func TestSystemBackupUI(t *testing.T) {
 	if len(desk.setup.Snapshot().Projects) != 1 || len(desk.setup.Snapshot().Providers) != 1 {
 		t.Fatal("deleting the sessions removed a project or a provider")
 	}
+	// SBAK-021: the sidebar is empty at once and after a relaunch. The
+	// relaunch stops the Node and starts another on the same profile, with
+	// a new Client, Runtime and window.
+	empty := func(label string, app *shell.App, texts []string) {
+		t.Helper()
+		// A window that opens without a session starts on an unsent new
+		// conversation draft; it is no session and holds no title.
+		conversations := 0
+		for _, cv := range app.Data.Unassigned {
+			if !strings.HasPrefix(cv.ID, "draft/") {
+				conversations++
+			}
+		}
+		for _, project := range app.Data.Projects {
+			for _, cv := range project.Conversations {
+				if !strings.HasPrefix(cv.ID, "draft/") {
+					conversations++
+				}
+			}
+		}
+		if conversations != 0 || len(app.Data.Projects) != 1 || app.Data.Projects[0].Name != "Backup workspace" {
+			t.Fatalf("%s: the sidebar holds %d conversations in %d projects", label, conversations, len(app.Data.Projects))
+		}
+		for _, title := range []string{"Alpha notes", "Beta notes", "Gamma notes"} {
+			if slices.Contains(texts, title) {
+				t.Fatalf("%s: the window still shows %q", label, title)
+			}
+		}
+		if !slices.Contains(texts, "Backup workspace") {
+			t.Fatalf("%s: the sidebar lost the project; visible text: %q", label, texts)
+		}
+	}
+	settle(window, "the window's sidebar empties", systemUIWait, func() bool {
+		return len(window.runtime.App.Data.Unassigned) == 0 && len(window.runtime.App.Data.Projects) == 1 && len(window.runtime.App.Data.Projects[0].Conversations) == 0
+	})
+	window.runtime.App.Navigate(shell.ConversationPage)
+	window.frame()
+	empty("after Delete all", window.runtime.App, window.tester.Texts())
 	window.close()
-	relaunched := client.New(link.NewLocal(desk.owner.ID(), desk.owner.ID(), desk.owner))
+	if err := desk.setup.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := desk.owner.Stop(ctx); err != nil {
+		t.Fatalf("the Node did not stop for the relaunch: %v", err)
+	}
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
+	if err != nil {
+		t.Fatalf("the profile does not start again: %v", err)
+	}
+	defer owner.Stop(context.Background())
+	relaunched := client.New(link.NewLocal(owner.ID(), owner.ID(), owner))
 	if err := relaunched.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer relaunched.Close()
-	if sessions := relaunched.Snapshot().Sessions; len(sessions) != 0 {
-		t.Fatalf("a relaunched Client lists %d sessions", len(sessions))
+	if snapshot := relaunched.Snapshot(); len(snapshot.Sessions) != 0 || len(snapshot.Projects) != 1 || len(snapshot.Providers) != 1 {
+		t.Fatalf("the relaunched Node lists %d sessions, %d projects and %d providers", len(snapshot.Sessions), len(snapshot.Projects), len(snapshot.Providers))
 	}
-	t.Log("step 11 passed: Manage listed the archived session; Unarchive returned it; Archive all archived every session and disabled itself; Delete asked once naming the session and its consequence; Delete all asked once naming the consequence and left no session for a relaunched Client")
+	again, err := NewWithPreferences(ctx, relaunched, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	again.App.NavOpen = true
+	tester := ui.NewTester(again.App.View, 1440, 1000)
+	tester.SetLocale("en")
+	for deadline := time.Now().Add(systemUIWait); ; time.Sleep(10 * time.Millisecond) {
+		tester.Advance(16 * time.Millisecond)
+		tester.Frame()
+		if len(again.App.Data.Projects) == 1 && slices.Contains(tester.Texts(), "Backup workspace") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the relaunched window did not show the project; visible text: %q", tester.Texts())
+		}
+	}
+	for range 20 {
+		tester.Advance(16 * time.Millisecond)
+		tester.Frame()
+	}
+	empty("after the relaunch", again.App, tester.Texts())
+	t.Log("step 11 passed: Manage listed the archived session; Unarchive returned it; Archive all archived every session and disabled itself; Delete asked once naming the session and its consequence; Delete all asked once naming the consequence and emptied the sidebar; a Node started again on the same profile lists no session and its new window's sidebar shows the project with no session, only the unsent new conversation draft a window opens on")
 }

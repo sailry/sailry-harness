@@ -3,8 +3,8 @@ package files
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/binary"
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	_ "golang.org/x/image/bmp"

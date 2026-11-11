@@ -9,6 +9,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 	"slices"
@@ -41,6 +42,8 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 	if err != nil {
 		return err
 	}
+	// Installed packages declare their tools in the captured version.
+	installed := map[protocol.PluginReference]*protocol.PluginExtension{}
 	for _, block := range message.Content {
 		name := ""
 		switch value := block.Data.(type) {
@@ -49,29 +52,65 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 		case *canonical.ToolResponse:
 			name = value.Name
 		}
+		if name == "" {
+			continue
+		}
+		var presentation protocol.ToolPresentation
+		var grouping protocol.ToolGrouping
+		var display *protocol.ToolDisplay
+		declared := false
 		for _, tool := range catalog.Tools {
-			if tool.Name != name || !slices.Contains(capture.Plugins, tool.Owner) {
+			if tool.Name == name && slices.Contains(capture.Plugins, tool.Owner) {
+				presentation, grouping, display, declared = tool.Presentation, tool.Grouping, tool.Display, true
+				break
+			}
+		}
+		for _, reference := range capture.Plugins {
+			if declared || !strings.HasPrefix(name, "plugin_") && !strings.HasPrefix(name, "mcp_") {
+				break
+			}
+			extension, read := installed[reference]
+			if !read {
+				// A version that is no longer readable keeps the default presentation.
+				if info, err := ReadPluginVersion(ctx, db, reference); err == nil {
+					extension = info.Extension
+				}
+				installed[reference] = extension
+			}
+			if extension == nil {
 				continue
 			}
-			if record.Metadata.Presentation == nil {
-				record.Metadata.Presentation = &canonical.Presentation{}
-			}
-			p := record.Metadata.Presentation
-			if p.Tools == nil {
-				p.Tools = map[string]protocol.ToolPresentation{}
-			}
-			if p.Groupings == nil {
-				p.Groupings = map[string]protocol.ToolGrouping{}
-			}
-			p.Tools[name] = tool.Presentation
-			p.Groupings[name] = tool.Grouping
-			if tool.Display != nil {
-				if p.Displays == nil {
-					p.Displays = map[string]protocol.ToolDisplay{}
+			for _, tool := range extension.Tools {
+				alias := operations.Alias(reference.Name, tool.Name)
+				if tool.Server != nil {
+					alias = mcp.Alias(reference.Name, *tool.Server, tool.Name)
 				}
-				p.Displays[name] = *tool.Display
+				if alias == name {
+					presentation, grouping, display, declared = tool.Presentation, tool.Grouping, tool.Display, true
+					break
+				}
 			}
-			break
+		}
+		if !declared {
+			continue
+		}
+		if record.Metadata.Presentation == nil {
+			record.Metadata.Presentation = &canonical.Presentation{}
+		}
+		p := record.Metadata.Presentation
+		if p.Tools == nil {
+			p.Tools = map[string]protocol.ToolPresentation{}
+		}
+		if p.Groupings == nil {
+			p.Groupings = map[string]protocol.ToolGrouping{}
+		}
+		p.Tools[name] = presentation
+		p.Groupings[name] = grouping
+		if display != nil {
+			if p.Displays == nil {
+				p.Displays = map[string]protocol.ToolDisplay{}
+			}
+			p.Displays[name] = *display
 		}
 	}
 	denials, err := readBodies[protocol.ConversationApproval](ctx, db, "SELECT body FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state')='denied' AND json_type(body,'$.reason')='text' ORDER BY rowid", record.Turn.String())

@@ -246,6 +246,9 @@ func configureSessionTeam(ctx context.Context, db *sql.Conn, config protocol.Ses
 	if err != nil {
 		return config, err
 	}
+	if team == nil {
+		return config, fault(protocol.ErrorCodeNotFound, "team does not exist")
+	}
 	if team.Model == nil {
 		return config, nil
 	}

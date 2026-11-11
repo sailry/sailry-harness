@@ -69,11 +69,13 @@ func (files *Files) CopyEntryTo(ctx context.Context, target *Files, from, to str
 	}
 	stage, e := destination.OpenRoot(temporary)
 	if e != nil {
+		_ = destination.Remove(temporary)
 		return fileIOFault(e)
 	}
 	defer stage.Close()
 	stageIdentity, e := stage.Stat(".")
 	if e != nil {
+		_ = destination.Remove(temporary)
 		return fileIOFault(e)
 	}
 	defer func() {

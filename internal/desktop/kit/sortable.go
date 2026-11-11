@@ -31,6 +31,7 @@
 package kit
 
 import (
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -50,6 +51,7 @@ type SortableListProps struct {
 
 type sortState struct {
 	active, over int
+	lifted       string // the key of the row at active
 	keyboard     bool
 	dy           float32
 	bounds       []ui.Rect
@@ -78,8 +80,17 @@ func SortableList[T any](c *ui.Context, items *[]T, key func(T) string, o Sortab
 	list := ui.Column(c).Gap(gap).AlignSelf(ui.Stretch)
 	st := ui.Local(list, "sortable", func() sortState { return sortState{active: -1} })
 	n := len(*items)
-	if st.active >= n {
-		st.active = -1
+	if st.active >= 0 {
+		// The caller may have changed the list under the lifted row: it is
+		// followed by its key with its target as far from it as before, or
+		// put back when it is gone, so no index outlives the list it was
+		// taken from.
+		at := slices.IndexFunc(*items, func(it T) bool { return key(it) == st.lifted })
+		if at < 0 {
+			st.active, st.keyboard, st.dy = -1, false, 0
+		} else {
+			st.active, st.over = at, min(max(st.over+at-st.active, 0), n-1)
+		}
 	}
 	if st.active >= 0 && !st.keyboard && len(st.bounds) == n {
 		st.over = sortOver(st.bounds, st.active, st.dy)
@@ -104,7 +115,7 @@ func SortableList[T any](c *ui.Context, items *[]T, key func(T) string, o Sortab
 			bounds[i] = r.LayoutBounds()
 			r.Children(func() {
 				row(it, func() {
-					if sortHandle(c, st, i, n, o.Handle) {
+					if sortHandle(c, st, i, n, k, o.Handle) {
 						released = true
 					}
 				})
@@ -162,12 +173,12 @@ func sortShiftOf(st *sortState, i int, gap float32) float32 {
 }
 
 // sortHandle is a row's handle; it reports a drop.
-func sortHandle(c *ui.Context, st *sortState, i, n int, label string) bool {
+func sortHandle(c *ui.Context, st *sortState, i, n int, key, label string) bool {
 	h := IconButton(c.Key("sort-handle"), icons.EllipsisVertical, label, 24, false).Radius(12).Cursor(ui.CursorGrab)
 	_, dy, held := h.Dragged()
 	switch {
 	case held && st.active != i:
-		st.active, st.over, st.keyboard, st.dy = i, i, false, 0
+		st.active, st.over, st.lifted, st.keyboard, st.dy = i, i, key, false, 0
 		fallthrough
 	case held:
 		st.dy += dy
@@ -187,7 +198,7 @@ func sortHandle(c *ui.Context, st *sortState, i, n int, label string) bool {
 			return true
 		}
 		if st.active < 0 {
-			st.active, st.over, st.keyboard, st.dy = i, i, true, 0
+			st.active, st.over, st.lifted, st.keyboard, st.dy = i, i, key, true, 0
 		}
 	case lifted && h.Shortcut(0, ui.KeyDown):
 		st.over = min(st.over+1, n-1)
@@ -240,6 +251,11 @@ func sortOverlay[T any](c *ui.Context, list ui.Element, st *sortState, items *[]
 
 func sortDrop[T any](c *ui.Context, st *sortState, items *[]T, key func(T) string, moved func(from, to int)) {
 	from, to := st.active, st.over
+	if from < 0 || from >= len(*items) || to < 0 || to >= len(*items) {
+		// A row's own action changed the list in the frame of the drop.
+		st.active, st.keyboard, st.dy = -1, false, 0
+		return
+	}
 	if len(st.bounds) > max(from, to) {
 		st.dropTop = sortSlotTop(st)
 	}

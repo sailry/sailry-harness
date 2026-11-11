@@ -105,6 +105,10 @@ type mcpEditor struct {
 	slots     []preview.EnvVar
 	saved     []bool // the slot has a saved value
 	revision  uint64
+	// removed counts the rows taken out of args and slots. It is part of a
+	// row's identity: a row that moves into a removed one's place does not
+	// take its text state (undo history, selection) with the place.
+	removed int
 }
 
 func connectors(c *ui.Context, m *Model) {
@@ -159,7 +163,7 @@ func connectors(c *ui.Context, m *Model) {
 			for _, change := range consent.Changes {
 				lines = append(lines, t("connector_changed_"+change))
 			}
-			if ui.AlertDialog(c.Key("connector-consent"), &consent.Open, t("connector_confirm")+" "+consent.Target, strings.Join(lines, "\n"), t("settings_cancel"), t("connector_confirm")) == 1 {
+			if kit.AlertDialog(c.Key("connector-consent"), &consent.Open, t("connector_confirm")+" "+consent.Target, strings.Join(lines, "\n"), t("settings_cancel"), t("connector_confirm")) == 1 {
 				consent.Apply(true)
 			}
 		}
@@ -657,9 +661,12 @@ func mcpDialog(c *ui.Context, m *Model) {
 				kit.Field(c, "args", t("mcp_arguments"), "", func() {
 					ui.Column(c).Gap(6).Children(func() {
 						for i := range e.args {
-							ui.Row(c.Key(i)).Gap(4).Children(func() {
+							ui.Row(c.Key([2]int{e.removed, i})).Gap(4).Children(func() {
 								ui.TextInput(c.Key("input"), &e.args[i]).Label(t("mcp_argument")).Grow(1).Font("monospace")
-								kit.Action(c.Key("remove"), icons.Close, t("mcp_remove_argument"), false).OnClick(func() { e.args = slices.Delete(e.args, i, i+1) })
+								kit.Action(c.Key("remove"), icons.Close, t("mcp_remove_argument"), false).OnClick(func() {
+									e.args = slices.Delete(e.args, i, i+1)
+									e.removed++
+								})
 							})
 						}
 						kit.Secondary(c.Key("add"), t("mcp_add_argument")).Height(28).AlignSelf(ui.Start).OnClick(func() { e.args = append(e.args, "") })
@@ -677,7 +684,7 @@ func mcpDialog(c *ui.Context, m *Model) {
 			kit.Field(c, "slots", t(slots), "", func() {
 				ui.Column(c).Gap(6).Children(func() {
 					for i := range e.slots {
-						ui.Row(c.Key(i)).Gap(4).Children(func() {
+						ui.Row(c.Key([2]int{e.removed, i})).Gap(4).Children(func() {
 							ui.TextInput(c.Key("name"), &e.slots[i].Key).Label(t("mcp_slot_name")).Placeholder(t("mcp_slot_name")).Width(160)
 							hint := t("form_secret_hint")
 							if i < len(e.saved) && e.saved[i] {
@@ -689,6 +696,7 @@ func mcpDialog(c *ui.Context, m *Model) {
 								if i < len(e.saved) {
 									e.saved = slices.Delete(e.saved, i, i+1)
 								}
+								e.removed++
 							})
 						})
 					}

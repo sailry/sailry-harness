@@ -88,7 +88,7 @@ type State struct {
 	page     settingsPage
 	width    float32 // the toolbar's width last frame
 
-	projectMenu   string
+	menus         map[string]string // this composer's menu IDs (menuID)
 	projectPicker bool
 
 	in         interaction

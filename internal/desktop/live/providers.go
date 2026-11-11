@@ -138,7 +138,7 @@ func apiForProtocol(p protocol.ConversationPresetsProtocol) protocol.Conversatio
 
 func (r *Runtime) projectProviderSnapshot() {
 	r.readProviderCredentials()
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	now := uint64(time.Now().UnixMilli())
 	r.refreshQuotaReset(now, snapshot.ProviderQuotas)
 	var channels []viewmodel.Channel
@@ -181,11 +181,13 @@ func (r *Runtime) projectProviderSnapshot() {
 			}
 		}
 		if p.Preset != nil {
+			// Without a saved route every route of the preset matches; the first one is shown.
+			route := -1
 			for id, entry := range r.providerPresets {
 				_, index, _ := strings.Cut(id, "/")
 				i, _ := strconv.Atoi(index)
-				if entry.Preset.ID == p.Preset.ID && reflect.DeepEqual(entry.Source, p.Preset.Source) && i < len(entry.Preset.Routes) && (p.Preset.Route == nil || reflect.DeepEqual(*p.Preset.Route, presetRouteKey(entry.Preset.Routes[i]))) {
-					ch.Method = id
+				if (route < 0 || i < route) && entry.Preset.ID == p.Preset.ID && reflect.DeepEqual(entry.Source, p.Preset.Source) && i < len(entry.Preset.Routes) && (p.Preset.Route == nil || reflect.DeepEqual(*p.Preset.Route, presetRouteKey(entry.Preset.Routes[i]))) {
+					route, ch.Method = i, id
 					if entry.Preset.Auth.Kind == "none" {
 						ch.Auth = viewmodel.AuthNone
 					}
@@ -194,7 +196,6 @@ func (r *Runtime) projectProviderSnapshot() {
 					} else {
 						ch.Brand = entry.Preset.ID
 					}
-					break
 				}
 			}
 		}

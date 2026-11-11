@@ -109,7 +109,12 @@ func (s *State) editorDialog(c *ui.Context) {
 	hosts := make([]string, len(s.Data.Hosts))
 	hostIDs := make([]string, len(s.Data.Hosts))
 	for i, h := range s.Data.Hosts {
-		hosts[i] = i18n.T(c, h.Name)
+		// The preview's hosts and the local one are named by i18n keys; a
+		// device's own name shows as it is.
+		hosts[i] = h.Name
+		if s.Actions == nil || h.Name == "local_host_name" {
+			hosts[i] = i18n.T(c, h.Name)
+		}
 		hostIDs[i] = h.ID
 		if e.host == "" && i == 0 {
 			e.host = h.ID

@@ -8,8 +8,10 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 source="$root/native/capture"
 case "$(uname -s)" in
-    Darwin) platform=darwin; suffix=dylib ;;
-    Linux) platform=linux; suffix=so ;;
+    Darwin) platform=darwin; name=libsailry-capture.dylib ;;
+    Linux) platform=linux; name=libsailry-capture.so ;;
+    # Git Bash on Windows; the library is compiled with MSVC.
+    MINGW*|MSYS*) platform=windows; name=sailry-capture.dll ;;
     *) printf '%s\n' 'Unsupported native build platform; see native/capture/README.md' >&2; exit 1 ;;
 esac
 case "$(uname -m)" in
@@ -53,8 +55,31 @@ fi
 
 output="$root/.runtime/native/$platform-$architecture"
 mkdir -p "$output"
-library="$output/libsailry-capture.$suffix"
-if [ "$platform" = darwin ]; then
+library="$output/$name"
+if [ "$platform" = windows ]; then
+    # cl runs inside the MSVC developer environment, which Git Bash does not
+    # carry: a batch file enters it for this architecture and compiles there.
+    case "$architecture" in
+        arm64) tools=arm64 ;;
+        *) tools=x64 ;;
+    esac
+    vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+    studio=$("$vswhere" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | tr -d '\r')
+    if [ -z "$studio" ]; then
+        printf '%s\n' 'MSVC build tools are unavailable' >&2
+        exit 1
+    fi
+    objects="$output/capture-objects"
+    mkdir -p "$objects"
+    batch="$objects/build.cmd"
+    {
+        printf '@echo off\r\n'
+        printf 'call "%s\\VC\\Auxiliary\\Build\\vcvarsall.bat" %s >nul || exit /b 1\r\n' "$studio" "$tools"
+        printf 'cl /nologo /O2 /LD /I"%s" "%s" /Fo"%s\\\\" /Fe:"%s" || exit /b 1\r\n' \
+            "$(cygpath -w "$include")" "$(cygpath -w "$source/sailry_capture.c")" "$(cygpath -w "$objects")" "$(cygpath -w "$library")"
+    } > "$batch"
+    cmd.exe //d //c "$(cygpath -w "$batch")"
+elif [ "$platform" = darwin ]; then
     case "$architecture" in
         arm64) target=arm64 ;;
         *) target=x86_64 ;;

@@ -183,6 +183,9 @@ func replaceConversationTurn(ctx context.Context, db *sql.Conn, node, caller pro
 	if err = validateAgentInput(input.Message); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if err = validateAgentReferences(ctx, db, current, input.Message, nil); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	target, err := visibleAgentRun(ctx, db, input.Session, input.Turn)
 	if err != nil {
 		return protocol.Output{}, nil, err

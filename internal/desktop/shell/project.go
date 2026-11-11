@@ -90,7 +90,7 @@ func (a *App) projectView(c *ui.Context) {
 				ui.Text(c, project.Name).FontSize(20).FontWeight(600).SingleLine().Shrink(1).MinWidth(0)
 				for _, host := range a.Data.Hosts {
 					if host.ID == project.Host {
-						ui.Text(c, i18n.T(c, host.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(palette.MutedForeground)
+						ui.Text(c, a.hostName(c, host.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(palette.MutedForeground)
 						break
 					}
 				}

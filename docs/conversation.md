@@ -490,6 +490,50 @@ existing child execution owner. MCP tools use the official Go SDK pool and retai
 their original content, structured result and error status in canonical history.
 An unavailable server contributes a bounded safe startup instruction and leaves
 the remaining tools available; cancellation and uncertain cleanup remain terminal.
+A reusable connection whose server ended is closed and replaced on its next use.
+
+A stopped, failed or panicked turn settles every unanswered tool call with an
+interrupted response before its foreground cancellation notes. A call left
+unanswered by a process crash stays in history without a result row; the model
+request omits calls without results and results without calls, so such a
+session continues. A response whose stream failed keeps its text and its error;
+its tool calls are neither saved nor run, and the turn fails without another
+request. A panic in a tool becomes that call's failed result, and a panic in a
+turn fails the turn with an uncertain outcome; both log their stack and leave
+the Node running.
+
+Declared plugin storage and progress tools run under the declaring package of
+the frozen turn; storage writes record an approved `storage` approval rather
+than a prompt (docs/plugins.md). A tool call records the presentation, grouping
+and display its package declares: bundled packages from the embedded catalog,
+installed packages from the turn's captured version, including declared MCP
+tools. A `progress` presentation therefore projects its snapshot for installed
+packages too.
+
+Node validates every reference of an input before the turn is admitted
+(`validateAgentReferences`), for submit, queue, guide, replace, continue, start
+coding, task start, queued edits and child guidance. Queued edits and child
+guidance use the turn's captured config, roster and packages. A rejected input
+creates no turn; the composer keeps its draft, references and attachments and
+shows the `chat_action_failed` toast.
+
+| Rule | Fault |
+|---|---|
+| Blank label, label over 512 bytes or a repeated target | `InvalidRequest`: references require distinct targets and bounded labels |
+| Connection conversation with a target other than database, SSH, session or attachment | `PermissionDenied`: connection conversations only accept connection references |
+| Plugin or skill whose package the turn does not freeze (an assistant freezes only its own package) | `InvalidRequest`: referenced plugin is disabled or unavailable |
+| Plugin or skill of a desktop-scope package | `InvalidRequest`: desktop-only plugins cannot be referenced by an agent |
+| Skill absent from the frozen package version | `InvalidRequest`: referenced skill is unavailable in this plugin version |
+| SSH connection the conversation cannot reach | `PermissionDenied`: referenced SSH connection is not available to this conversation |
+| Database the conversation cannot reach | `PermissionDenied`: referenced database is not available to this conversation |
+| Empty or over 256-byte database, schema or table name, or a table without a database | `InvalidRequest`: invalid database reference |
+| File or directory path that is not a normalized relative path | `InvalidRequest`: expected a normalized worktree-relative path |
+| File or directory under a managed worktree | `PermissionDenied`: managed worktrees require their own file scope |
+| Agent in an assistant conversation without delegation | `PermissionDenied`: plugin assistant does not allow delegation |
+| Second agent, or a role outside the session roster | `InvalidRequest`: select one role from the frozen session roster |
+| Session that does not exist | `NotFound`: session does not exist on this Node |
+| Session of another project | `WrongTarget`: conversation belongs to another project |
+| Attachment that the same input does not carry | `InvalidRequest`: attachment references require an attachment of the same input |
 
 MCP form and URL elicitation uses the canonical question owner. Concurrent
 questions keep distinct parent identities and decision wakes. Only active

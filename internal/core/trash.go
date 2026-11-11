@@ -52,11 +52,12 @@ func (files *Files) relocateTrash(relative string, operation func(string) error)
 		return err
 	}
 	validate := func() error {
-		current, err := OpenFiles(files.path, files.access)
+		root, err := acquireFileRoot(files.path)
 		if err != nil {
 			return err
 		}
-		defer current.Close()
+		defer root.Close()
+		current := Files{root: root, access: files.access}
 		currentRoot, err := trashDirectoryIdentity(current.root)
 		if err != nil {
 			return err

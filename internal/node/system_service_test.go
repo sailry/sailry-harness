@@ -240,10 +240,15 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 				_ = node.Stop(context.Background())
 			}
 		})
+		var saved protocol.RequestID
 		save := func(errors, metrics bool) {
 			t.Helper()
 			settings := commandFixture(t, node, protocol.Command{Kind: "read_telemetry_settings"}).Data.(protocol.TelemetrySettings)
-			commandFixture(t, node, protocol.Command{Kind: "save_telemetry_settings", Data: protocol.TelemetryUpdate{Revision: settings.Revision, Errors: errors, Metrics: metrics}})
+			request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_telemetry_settings", Data: protocol.TelemetryUpdate{Revision: settings.Revision, Errors: errors, Metrics: metrics}})
+			if fault := dispatchFixture(t, node, node.ID(), request).Fault; fault != nil {
+				t.Fatal(fault)
+			}
+			saved = request.ID
 		}
 		failure := func() {
 			logging.Emit(slog.LevelWarn, slog.String("area", "command"), slog.String("phase", "failed"), slog.String("operation", "read_session"), slog.String("code", "not_found"),
@@ -276,6 +281,33 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		if refused.Fault == nil {
 			t.Fatal("a turn was queued in a missing session")
 		}
+		// Every change is recorded, a credential-bearing one by its kind
+		// and typed identifiers alone, whether it is accepted or refused.
+		changes := map[string]protocol.RequestID{}
+		change := func(command protocol.Command) {
+			request := protocol.NewRequest(node.ID(), command)
+			changes[command.Kind] = request.ID
+			if accepted, err := node.Dispatch(context.Background(), node.ID(), request); err == nil {
+				<-accepted.Completion
+			}
+		}
+		secret := protocol.NewSecret("SECRET-credential")
+		provider := protocol.DefaultConversationProvider()
+		provider.ID, provider.Name, provider.Api = protocol.NewProviderID(), "SECRET provider", protocol.ConversationModelApiChatCompletions
+		provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "https://SECRET.test/v1"
+		worktree := protocol.NewWorktreeID()
+		change(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
+		change(protocol.Command{Kind: "put_credential", Data: protocol.CommandPutCredentialPayload{ID: protocol.NewCredentialID(), Provider: provider.ID, Secret: secret}})
+		change(protocol.Command{Kind: "save_database", Data: protocol.CommandSaveDatabasePayload{Password: &secret, Profile: protocol.DatabaseProfile{
+			ID: protocol.NewDatabaseID(), Name: "SECRET database", ReadOnly: true, Connection: protocol.DatabaseConnection{Kind: "network", Data: &protocol.DatabaseConnectionNetworkPayload{
+				Engine: protocol.DatabaseEnginePostgres, Host: "SECRET.test", Port: 5432, Database: "SECRET", Username: "SECRET", Tls: protocol.DatabaseTlsRequire}}}}})
+		change(protocol.Command{Kind: "save_ssh", Data: protocol.CommandSaveSshPayload{
+			Profile:    protocol.SshProfile{ID: protocol.NewSshID(), Name: "SECRET host", Host: "SECRET.test", Port: 22, Username: "SECRET", Authentication: protocol.SshAuthenticationPassword},
+			Credential: &protocol.SshCredential{Kind: "password", Data: &protocol.SshCredentialPasswordPayload{Password: secret}}}})
+		backup := protocol.BackupUpdate{Settings: commandFixture(t, node, protocol.Command{Kind: "read_backup_settings"}).Data.(protocol.BackupSettings),
+			Identity: backupFixtureKeep(), Secret: backupFixtureKeep(), SessionToken: backupFixtureKeep(), Passphrase: protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: &secret}}
+		change(protocol.Command{Kind: "save_backup_settings", Data: backup})
+		change(protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: worktree, Path: "SECRET/notes.txt", Text: "SECRET contents"}})
 		// A read whose caller has gone is cancelled, not failed.
 		gone, leave := context.WithCancel(context.Background())
 		leave()
@@ -302,7 +334,28 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		}
 		if !bytes.Contains(written, []byte(" desktop area=command phase=begin node="+node.ID().String()+" caller="+node.ID().String()+" request="+request.ID.String()+" session="+session.String()+" command=submit_turn operation=submit_turn")) ||
 			!bytes.Contains(written, []byte(" WARN desktop area=command phase=failed ")) || bytes.Contains(written, []byte("SECRET")) ||
-			bytes.Contains(written, []byte("save_telemetry_settings")) {
+			!bytes.Contains(written, []byte(" INFO desktop area=command phase=completed node="+node.ID().String()+" caller="+node.ID().String()+" request="+saved.String()+" command=save_telemetry_settings operation=save_telemetry_settings duration_us=")) ||
+			bytes.Contains(written, []byte("read_telemetry_settings")) || bytes.Contains(written, []byte("read_backup_settings")) {
+			t.Fatalf("log = %s", written)
+		}
+		for kind, id := range changes {
+			begun, finished := false, false
+			for _, line := range bytes.Split(written, []byte("\n")) {
+				if !bytes.Contains(line, []byte(" request="+id.String()+" ")) {
+					continue
+				}
+				if !bytes.Contains(line, []byte(" command="+kind+" operation="+kind)) || !bytes.Contains(line, []byte(" node="+node.ID().String()+" caller="+node.ID().String()+" ")) {
+					t.Fatalf("%s logged as %s", kind, line)
+				}
+				begun = begun || bytes.Contains(line, []byte(" phase=begin "))
+				finished = finished || bytes.Contains(line, []byte(" duration_us=")) && (bytes.Contains(line, []byte(" phase=completed ")) || bytes.Contains(line, []byte(" phase=failed ")))
+			}
+			if !begun || !finished {
+				t.Fatalf("%s has no complete record (begin %v, outcome %v): %s", kind, begun, finished, written)
+			}
+		}
+		if !bytes.Contains(written, []byte(" request="+changes["put_credential"].String()+" provider="+provider.ID.String()+" command=put_credential ")) ||
+			!bytes.Contains(written, []byte(" request="+changes["write_file"].String()+" worktree="+worktree.String()+" command=write_file ")) {
 			t.Fatalf("log = %s", written)
 		}
 		observed := 0

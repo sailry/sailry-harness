@@ -119,7 +119,11 @@ func CaptureFileCheckpointsRequest(ctx context.Context, db *sql.Conn, turn proto
 			return err
 		}
 		if position == 0 {
-			_, err = db.ExecContext(ctx, "INSERT INTO file_checkpoints(id,turn,approval,body,before_text,after_text) VALUES(?1,?2,?3,?4,?5,?6)", parent.String(), turn.String(), approval.String(), body, entry.Before, *entry.After)
+			var row uint64
+			if row, err = NextCounter(ctx, db, CounterCheckpoints); err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "INSERT INTO file_checkpoints(rowid,id,turn,approval,body,before_text,after_text) VALUES(?1,?2,?3,?4,?5,?6,?7)", row, parent.String(), turn.String(), approval.String(), body, entry.Before, *entry.After)
 		} else {
 			_, err = db.ExecContext(ctx, "INSERT INTO file_checkpoint_entries(id,checkpoint,position,body,before_text,after_text) VALUES(?1,?2,?3,?4,?5,?6)", protocol.NewCheckpointID().String(), parent.String(), position, body, entry.Before, *entry.After)
 		}
@@ -131,6 +135,17 @@ func CaptureFileCheckpointsRequest(ctx context.Context, db *sql.Conn, turn proto
 	return nil
 }
 func checkpointFile(ctx context.Context, db *sql.Conn, session protocol.SessionID, id protocol.CheckpointID) (protocol.ConversationCheckpointFile, error) {
+	out, err := readCheckpointFile(ctx, db, id)
+	if err != nil {
+		return out, err
+	}
+	_, err = visibleAgentRun(ctx, db, session, out.Turn)
+	return out, err
+}
+
+// readCheckpointFile loads a checkpoint without checking that its turn is
+// visible in a session; the caller has checked the turn.
+func readCheckpointFile(ctx context.Context, db *sql.Conn, id protocol.CheckpointID) (protocol.ConversationCheckpointFile, error) {
 	out := protocol.DefaultConversationCheckpointFile()
 	var body, caller []byte
 	var turn, request string
@@ -147,9 +162,6 @@ func checkpointFile(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	}
 	turnID, err := protocol.ParseTurnID(turn)
 	if err != nil {
-		return out, err
-	}
-	if _, err = visibleAgentRun(ctx, db, session, turnID); err != nil {
 		return out, err
 	}
 	if len(caller) != 32 {
@@ -210,7 +222,7 @@ func ListFileCheckpoints(ctx context.Context, db *sql.Conn, session protocol.Ses
 	}
 	more := len(ids) > int(limit)
 	for _, id := range ids[:min(len(ids), int(limit))] {
-		file, err := checkpointFile(ctx, db, session, id)
+		file, err := readCheckpointFile(ctx, db, id)
 		if err != nil {
 			return out, err
 		}
@@ -223,12 +235,16 @@ func ListFileCheckpoints(ctx context.Context, db *sql.Conn, session protocol.Ses
 }
 func CheckpointContent(ctx context.Context, db *sql.Conn, session protocol.SessionID, id protocol.CheckpointID) (protocol.ConversationCheckpointContent, error) {
 	file, err := checkpointFile(ctx, db, session, id)
-	out := protocol.ConversationCheckpointContent{Session: session, File: file}
 	if err != nil {
-		return out, err
+		return protocol.ConversationCheckpointContent{Session: session, File: file}, err
 	}
+	return checkpointContent(ctx, db, session, file)
+}
+func checkpointContent(ctx context.Context, db *sql.Conn, session protocol.SessionID, file protocol.ConversationCheckpointFile) (protocol.ConversationCheckpointContent, error) {
+	out := protocol.ConversationCheckpointContent{Session: session, File: file}
+	id := file.ID
 	var before sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT before_text,after_text FROM file_checkpoints WHERE id=?1 UNION ALL SELECT before_text,after_text FROM file_checkpoint_entries WHERE id=?1", id.String()).Scan(&before, &out.After)
+	err := db.QueryRowContext(ctx, "SELECT before_text,after_text FROM file_checkpoints WHERE id=?1 UNION ALL SELECT before_text,after_text FROM file_checkpoint_entries WHERE id=?1", id.String()).Scan(&before, &out.After)
 	if err != nil {
 		return out, err
 	}
@@ -252,7 +268,7 @@ func ReadFileCheckpoint(ctx context.Context, db *sql.Conn, session protocol.Sess
 	if size > protocol.MAX_FRAME_BYTES/8 {
 		return protocol.ConversationCheckpointContent{}, invalid("checkpoint content exceeds the response limit; use the turn diff or restore the checkpoint")
 	}
-	return CheckpointContent(ctx, db, session, id)
+	return checkpointContent(ctx, db, session, file)
 }
 func PrepareCheckpointRestore(ctx context.Context, db *sql.Conn, session protocol.SessionID, id protocol.CheckpointID, worktree protocol.WorktreeID, root string) (protocol.ConversationCheckpointContent, error) {
 	content, err := CheckpointContent(ctx, db, session, id)

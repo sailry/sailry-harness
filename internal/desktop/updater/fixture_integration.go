@@ -9,7 +9,6 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/MoeForge/moego/base64"
 )
 
 // FixtureTarget is the release target the fixture feed publishes for.

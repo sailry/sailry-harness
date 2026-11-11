@@ -19,7 +19,10 @@ The complete parent tool batch settles before its children become executable.
 Children from that response form one concurrent wave. Their durable final
 responses arrive as separate canonical messages with delivered or cancelled
 operation notes before the parent requests another model response. Actual main
-guidance can interrupt collection at the existing guidance boundary.
+guidance can interrupt collection at the existing guidance boundary: the step
+restarts, the guidance joins the next model request, and collection resumes
+after that response. Stopping the parent during collection settles its
+unanswered calls before the cancellation notes.
 
 Running guidance receipts identify the new queued turn and the active recipient
 separately. Guidance admitted after a child's last input boundary passes to a

@@ -81,6 +81,8 @@ type execution struct {
 	rolePolicy        string
 	foreground        []*delegatedChild
 	foregroundSteered bool
+	renewedModel      fantasy.LanguageModel
+	renewedSecret     protocol.Secret
 	childBudget       uint64
 	finishing         bool
 	operations        uint64

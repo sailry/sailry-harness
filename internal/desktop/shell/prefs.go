@@ -14,8 +14,13 @@ import (
 
 // Prefs are the window's UI preferences that come back after a relaunch:
 // the columns' widths and openness, the panel's tabs, the projects closed
-// in the sidebar, and the rail's features. They are UI state, not user
+// in the sidebar, and the preview's rail. They are UI state, not user
 // data; the preview's conversations are never written.
+//
+// The file is one for the preview and every profile. A profile keeps its
+// rail's order and pins in its own preferences (FeaturePreferences), so a
+// live window neither reads Features and Unpinned nor changes them: it
+// writes back the ones it loaded.
 type Prefs struct {
 	NavWidth   float32     `json:"navWidth"`
 	NavOpen    bool        `json:"navOpen"`
@@ -81,11 +86,17 @@ func SavePrefs(dir string, p Prefs) error {
 func (a *App) Prefs() Prefs {
 	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
-		PanelTabs: a.Panel.Tabs, PanelTab: a.Panel.Active, Collapsed: a.Sidebar.Collapsed(),
-		Features: a.features, Unpinned: a.unpinnedList(),
-		Panes: a.panes.Groups,
+		PanelTabs: kept(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
+		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned,
+		Panes: a.panes.Saved(),
+	}
+	if keeps(a.Panel.Active) {
+		p.PanelTab = a.Panel.Active
+	} else if len(p.PanelTabs) > 0 {
+		p.PanelTab = p.PanelTabs[len(p.PanelTabs)-1]
 	}
 	if a.Preview {
+		p.Features, p.Unpinned = a.features, a.unpinnedList()
 		p.WelcomeSeen = &a.Welcome.Seen
 	}
 	return p
@@ -95,26 +106,47 @@ func (a *App) Prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
-	for _, t := range p.PanelTabs {
+	for _, t := range kept(p.PanelTabs) {
 		a.Panel.Show(t)
 	}
-	if p.PanelTab != (panel.Tab{}) {
+	if p.PanelTab != (panel.Tab{}) && keeps(p.PanelTab) {
 		a.Panel.Show(p.PanelTab)
 	}
 	a.Sidebar.SetCollapsed(p.Collapsed)
-	if len(p.Features) > 0 {
-		a.features = p.Features
-	}
-	for _, f := range p.Unpinned {
-		a.unpinned[f] = true
+	if a.Preview {
+		// Merged as a profile's are: a saved order keeps the fixed features
+		// in place and gains the ones added since.
+		pins := map[string]bool{}
+		for _, f := range p.Unpinned {
+			pins[f] = false
+		}
+		a.SetFeaturePreferences(p.Features, pins)
+	} else {
+		a.previewRail.features, a.previewRail.unpinned = p.Features, p.Unpinned
 	}
 	// After the panel's tabs, which a terminal pane needs: a pane whose
-	// session or terminal is gone leaves its group.
+	// terminal is gone leaves its group, and one whose session is not there
+	// waits for it (prunePanes).
 	a.panes.Restore(p.Panes)
-	a.panes.Prune(a.paneExists)
+	a.prunePanes()
 	if a.Preview && p.WelcomeSeen != nil && !*p.WelcomeSeen {
 		a.Welcome = onboarding.Guide{Open: true}
 	}
+}
+
+// keeps reports whether a panel tab comes back after a relaunch. A file's
+// preview and a subagent's session show what their conversation loaded, which
+// a new window does not have: their tabs would come back empty.
+func keeps(t panel.Tab) bool { return t.Kind != panel.Artifact && t.Kind != panel.Subagent }
+
+func kept(tabs []panel.Tab) []panel.Tab {
+	var out []panel.Tab
+	for _, t := range tabs {
+		if keeps(t) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Shell width rules.

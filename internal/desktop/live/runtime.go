@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -103,6 +106,7 @@ type Runtime struct {
 	readAloud                func(string, string, string)
 	exportConversation       func(string, string, conversation.ExportFormat)
 	conversationEdits        map[string]conversationEdit
+	turnRetries              map[string]turnRetry
 	conversationCreations    map[string]conversationCreation
 	conversationCreating     map[string]bool
 	providerPresets          map[string]protocol.ConversationPresetsEntry
@@ -110,6 +114,62 @@ type Runtime struct {
 	providerDraftBases       map[string]protocol.ConversationProvider
 	modelScores              map[string][]protocol.ConversationCatalogScoresEffortScore
 	modelScoreKey            string
+	snapshotMu               sync.Mutex
+	snapshotCopy             protocol.Snapshot
+	snapshotRevision         uint64
+	snapshotRead             bool
+	conversationCopies       map[protocol.SessionID]conversationCopy
+	conversationsStale       atomic.Bool
+}
+
+type conversationCopy struct {
+	state client.ConversationState
+	ok    bool
+}
+
+// snapshot returns the Client's Node snapshot, copied once per Client
+// revision. Every reader shares the value and must not modify it; code that
+// edits a snapshot reads its own from the Client.
+func (r *Runtime) snapshot() protocol.Snapshot {
+	snapshot, _ := r.snapshotAt()
+	return snapshot
+}
+
+// snapshotAt also returns the Client revision the copy was taken for, which
+// identifies it to whatever is derived from it.
+func (r *Runtime) snapshotAt() (protocol.Snapshot, uint64) {
+	revision := r.controller.Revision()
+	r.snapshotMu.Lock()
+	defer r.snapshotMu.Unlock()
+	if !r.snapshotRead || revision != r.snapshotRevision {
+		r.snapshotCopy, r.snapshotRevision, r.snapshotRead = r.controller.Snapshot(), revision, true
+	}
+	return r.snapshotCopy, revision
+}
+
+// conversationState returns one shared, read-only copy of a conversation per
+// frame, taken again after an observed conversation changes. It is for the UI
+// thread; outside a frame it reads the Client.
+func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationState, bool) {
+	if r.conversationCopies == nil {
+		return r.controller.Conversation(id)
+	}
+	if r.conversationsStale.Swap(false) {
+		clear(r.conversationCopies)
+	}
+	copied, ok := r.conversationCopies[id]
+	if !ok {
+		copied.state, copied.ok = r.controller.Conversation(id)
+		r.conversationCopies[id] = copied
+	}
+	return copied.state, copied.ok
+}
+
+// conversationChanged redraws after an observed conversation changed. The frame reads that state itself, so the Node snapshot is not
+// projected again.
+func (r *Runtime) conversationChanged() {
+	r.conversationsStale.Store(true)
+	r.localRuntime().wake()
 }
 
 // New composes a window over an already started Client. Startup code should use
@@ -293,10 +353,10 @@ func (r *Runtime) enqueue(f func(*ui.Context)) {
 // drain is called only by App.View on MyGo's UI thread. Background callbacks
 // touch the mutex-protected queue, never presentation fields.
 func (r *Runtime) drain(c *ui.Context) {
-	r.conversationSeen = map[protocol.SessionID]bool{}
+	r.conversationSeen, r.conversationCopies = map[protocol.SessionID]bool{}, map[protocol.SessionID]conversationCopy{}
 	r.syncNetwork()
 	for _, bound := range r.bindings {
-		bound.conversationSeen = map[protocol.SessionID]bool{}
+		bound.conversationSeen, bound.conversationCopies = map[protocol.SessionID]bool{}, map[protocol.SessionID]conversationCopy{}
 	}
 	if revision := r.Preferences.Revision(); revision != r.prefsRevision {
 		r.applyPreferences()
@@ -341,7 +401,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.networkFrame(c)
 	r.browserFrame()
 	r.aboutFrame(c)
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
 		r.readPower()
 	}
@@ -350,8 +410,10 @@ func (r *Runtime) drain(c *ui.Context) {
 func (r *Runtime) afterFrame() {
 	for _, bound := range r.bindings {
 		bound.finishFrame()
+		bound.conversationCopies = nil
 	}
 	r.finishFrame()
+	r.conversationCopies = nil
 	r.pluginViewsAfterFrame()
 	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.seenConversation(session) {
 		r.App.Messages.CloseSearch()
@@ -371,6 +433,12 @@ func (r *Runtime) finishFrame() {
 			delete(r.conversationWatches, id)
 		}
 	}
+	// Leaving a conversation abandons its edit.
+	for id := range r.conversationEdits {
+		if session, err := protocol.ParseSessionID(id); err != nil || !r.conversationSeen[session] {
+			delete(r.conversationEdits, id)
+		}
+	}
 }
 
 func (r *Runtime) project() {
@@ -378,12 +446,12 @@ func (r *Runtime) project() {
 		r.parent.project()
 		return
 	}
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	r.projectAdmission(&snapshot)
 	d := Sidebar(snapshot, r.Preferences.Data)
 	d.Notices = Notices(r.controller.Notices())
 	for _, bound := range r.bindings {
-		peerSnapshot := bound.controller.Snapshot()
+		peerSnapshot := bound.snapshot()
 		bound.projectAdmission(&peerSnapshot)
 		peerData := Sidebar(peerSnapshot, r.Preferences.Data)
 		peerData.Notices = Notices(bound.controller.Notices())
@@ -392,6 +460,7 @@ func (r *Runtime) project() {
 		d.Notices = append(d.Notices, peerData.Notices...)
 		bound.projectModels()
 		bound.prunePins(peerSnapshot)
+		bound.pruneSessions(peerSnapshot)
 	}
 	r.projectHosts(d)
 	r.App.ApplyData(d)
@@ -399,9 +468,15 @@ func (r *Runtime) project() {
 	r.projectConversations()
 	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
+	r.pruneSessions(snapshot)
 }
 
 func (r *Runtime) projectAdmission(snapshot *protocol.Snapshot) {
+	if len(r.admittedSessions) == 0 {
+		return
+	}
+	// The snapshot is shared, so admitted sessions go into this projection's own list.
+	snapshot.Sessions = slices.Clone(snapshot.Sessions)
 	for id, session := range r.admittedSessions {
 		present := false
 		for i, current := range snapshot.Sessions {
@@ -418,6 +493,32 @@ func (r *Runtime) projectAdmission(snapshot *protocol.Snapshot) {
 		if !present {
 			snapshot.Sessions = append(snapshot.Sessions, session)
 		}
+	}
+}
+
+// pruneSessions forgets what was kept for sessions the Node no longer has. A
+// draft is not a session yet and keeps its state.
+func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
+	known := make(map[protocol.SessionID]bool, len(snapshot.Sessions))
+	for _, session := range snapshot.Sessions {
+		known[session.ID] = true
+	}
+	gone := func(id string) bool {
+		session, err := protocol.ParseSessionID(id)
+		return err == nil && !known[session]
+	}
+	maps.DeleteFunc(r.composerInitialized, func(id string, _ bool) bool { return gone(id) })
+	maps.DeleteFunc(r.composerObserved, func(id string, _ string) bool { return gone(id) })
+	maps.DeleteFunc(r.composerRevisions, func(id string, _ uint64) bool { return gone(id) })
+	maps.DeleteFunc(r.composerSaving, func(id string, saving bool) bool { return !saving && gone(id) })
+	maps.DeleteFunc(r.conversationEdits, func(id string, _ conversationEdit) bool { return gone(id) })
+	for id, retry := range r.turnRetries {
+		if !r.busy[retry.key] && gone(id) {
+			r.forgetTurnRetry(id)
+		}
+	}
+	if r.teams != nil {
+		maps.DeleteFunc(r.teams.childParents, func(id string, _ protocol.SessionID) bool { return gone(id) })
 	}
 }
 

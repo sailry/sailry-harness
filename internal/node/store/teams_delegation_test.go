@@ -220,6 +220,13 @@ func TestTeamRevisionFrozen(t *testing.T) {
 		if len(captured.Roles.Profiles) != 1 {
 			return errors.New("role deletion removed a historical capture")
 		}
+		// A controller may still name a team another device removed.
+		removed := protocol.DefaultConversationStart()
+		removed.Config, removed.Execution, removed.Team = &base.Config, protocol.ConversationExecutionTeam, &protocol.TeamSelection{ID: protocol.NewTeamID()}
+		var absent *protocol.Fault
+		if _, err = StartSessionProvider(ctx, db, removed); !errors.As(err, &absent) || absent.Code != protocol.ErrorCodeNotFound || absent.Message != "team does not exist" {
+			return fmt.Errorf("removed team selection: %v", err)
+		}
 		return nil
 	})
 	if err != nil {

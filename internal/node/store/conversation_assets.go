@@ -17,7 +17,7 @@ import (
 func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.SessionID, query protocol.ConversationAssetsQuery) (protocol.ConversationAssetsPage, error) {
 	page := protocol.DefaultConversationAssetsPage()
 	page.Session = session
-	if _, err := ReadSession(ctx, db, session); err != nil {
+	if err := requireSession(ctx, db, session); err != nil {
 		return page, err
 	}
 	if query.Limit < 1 || query.Limit > 50 || query.Before != nil && (*query.Before == 0 || *query.Before > math.MaxInt64) {

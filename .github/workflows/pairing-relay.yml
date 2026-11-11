@@ -1,0 +1,55 @@
+name: Pairing relay
+
+# Changes to the service are tested. Deployments are explicit: a manual run
+# tests, then deploys to the chosen EdgeOne environment.
+on:
+  pull_request:
+    paths: ['services/pairing-relay/**', '.github/workflows/pairing-relay.yml']
+  push:
+    branches: [main]
+    paths: ['services/pairing-relay/**', '.github/workflows/pairing-relay.yml']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: EdgeOne environment
+        type: choice
+        options: [preview, production]
+        default: preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pairing-relay-${{ inputs.environment || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/pairing-relay
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22.22.1'
+      - name: Test
+        run: |
+          npm install --global pnpm@10.31.0
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm typecheck
+          pnpm test
+          pnpm build:edgeone
+      # Without a directory argument the CLI builds this project from
+      # edgeone.json and uploads that output.
+      - name: Deploy
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+          EDGEONE_RELAY_PROJECT: ${{ vars.EDGEONE_RELAY_PROJECT || 'sailry-pairing-relay' }}
+          DEPLOY_ENV: ${{ inputs.environment }}
+        run: |
+          test -n "$EDGEONE_API_TOKEN" || { echo 'EDGEONE_API_TOKEN is not configured' >&2; exit 1; }
+          pnpm dlx edgeone@1.6.46 makers deploy --name "$EDGEONE_RELAY_PROJECT" --token "$EDGEONE_API_TOKEN" \
+            --env "$DEPLOY_ENV" --area global --skip-ai-gateway-sync

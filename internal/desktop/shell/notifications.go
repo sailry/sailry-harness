@@ -108,7 +108,7 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 				ui.Text(c, text).FontSize(14).Selectable()
 			}
 		}
-		facts := [][2]string{{i18n.T(c, "notification_source"), i18n.T(c, n.Host)}}
+		facts := [][2]string{{i18n.T(c, "notification_source"), a.hostName(c, n.Host)}}
 		if !n.Time.IsZero() {
 			facts = append(facts, [2]string{i18n.T(c, "notification_time"), n.Time.Local().Format("2006-01-02 15:04:05")})
 		}

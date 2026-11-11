@@ -48,7 +48,7 @@ func (r *Runtime) projectOverviewRuntime(project *viewmodel.Project) *Runtime {
 	if owner == nil {
 		return nil
 	}
-	for _, current := range owner.controller.Snapshot().Projects {
+	for _, current := range owner.snapshot().Projects {
 		if current.ID.String() == project.ID {
 			return owner
 		}

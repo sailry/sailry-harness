@@ -152,7 +152,8 @@ func (s *Service) command(ctx context.Context, root string, args []string, input
 		code := protocol.ErrorCodeInvalidRequest
 		message := strings.ToLower(string(result.Stderr))
 		switch {
-		case strings.Contains(message, ".lock"):
+		// Git's own lock failure, not any message naming a file such as Cargo.lock.
+		case strings.Contains(message, ".lock': file exists"):
 			code = protocol.ErrorCodeBusy
 		case strings.Contains(message, "gpg") || strings.Contains(message, "signing failed"):
 			code = protocol.ErrorCodeUnavailable

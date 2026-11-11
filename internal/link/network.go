@@ -454,9 +454,27 @@ func mergeAddress(address, remembered EndpointAddress) EndpointAddress {
 }
 
 func addressIncludes(address, subset EndpointAddress) bool {
-	merged := mergeAddress(address, subset)
-	normalized := mergeAddress(address, EndpointAddress{ID: address.ID})
-	return address.ID == subset.ID && len(merged.Addrs) == len(normalized.Addrs)
+	if address.ID != subset.ID {
+		return false
+	}
+	known := make(map[string]struct{}, len(address.Addrs))
+	var compact bytes.Buffer
+	for _, value := range address.Addrs {
+		compact.Reset()
+		if json.Compact(&compact, value) == nil {
+			known[compact.String()] = struct{}{}
+		}
+	}
+	for _, value := range subset.Addrs {
+		compact.Reset()
+		if json.Compact(&compact, value) != nil {
+			continue
+		}
+		if _, ok := known[compact.String()]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func invalidLink(message string) error {

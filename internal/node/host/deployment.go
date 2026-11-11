@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/mod/semver"
@@ -121,65 +123,20 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	if err != nil {
 		return protocol.SshOutcome{}, err
 	}
-	binary, err := openArtifact(root, "sailry-host")
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	defer binary.file.Close()
-	library, err := openArtifact(root, native)
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	defer library.file.Close()
 	paths, err := owner.remotePaths(ctx, connection)
 	if err != nil {
 		return protocol.SshOutcome{}, err
 	}
-	if expected != nil {
-		identity, err := inspectInstalled(ctx, connection, paths)
-		if err != nil {
-			return protocol.SshOutcome{}, err
-		}
-		if err := validateUpdate(identity, *expected, link.ProductVersion); err != nil {
-			return protocol.SshOutcome{}, err
-		}
+	// A build that carries locally built artifacts for the target uploads
+	// them; every other build installs its own version from the release feed.
+	if _, missing := os.Lstat(filepath.Join(root, "sailry-host")); errors.Is(missing, fs.ErrNotExist) {
+		err = owner.installRelease(ctx, connection, caller, request, expected, selection)
+	} else {
+		err = owner.installLocal(ctx, connection, caller, request, root, native, paths, expected, selection)
 	}
-	stage, err := commandSSH(ctx, connection, "umask 077; command -v python3 >/dev/null; mktemp -d /tmp/sailry-bootstrap-XXXXXX", nil)
 	if err != nil {
 		return protocol.SshOutcome{}, err
 	}
-	stage = strings.TrimSpace(stage)
-	if !stagingPath.MatchString(stage) {
-		return protocol.SshOutcome{}, unavailable("Host installer staging directory could not be verified")
-	}
-	quotedStage, _ := shellQuote(stage)
-	cleanupStage := true
-	defer func() {
-		if cleanupStage && ctx.Err() == nil {
-			_, _ = commandSSH(ctx, connection, "rm -rf -- "+quotedStage, nil)
-		}
-	}()
-	owner.Progress(caller, request, "installing")
-	for _, input := range []*artifact{binary, library} {
-		destination, _ := shellQuote(stage + "/" + input.name)
-		if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, input.file); err != nil {
-			return protocol.SshOutcome{}, err
-		}
-	}
-	service, _ := deploymentSources.ReadFile("deployment/service.sh")
-	destination, _ := shellQuote(stage + "/service.sh")
-	if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	script, err := deploymentScript(stage, native, binary.digest, library.digest, paths, expected != nil, selection)
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	cleanupStage = false
-	if _, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(script)); err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	cleanupStage = true
 	owner.Progress(caller, request, "pairing")
 	if expected != nil {
 		if err := confirmUpdate(ctx, endpoint, *expected); err != nil {
@@ -197,6 +154,118 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 		}
 	}
 	return protocol.SshOutcome{Kind: "host_installed", Data: protocol.SshOutcomeHostInstalledPayload{Node: address.ID}}, nil
+}
+
+// installLocal verifies and uploads the locally built Host artifacts of the
+// target, then activates them with the embedded deployment scripts.
+func (owner *Installations) installLocal(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, root, native string, paths DeploymentOptions, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
+	binary, err := openArtifact(root, "sailry-host")
+	if err != nil {
+		return err
+	}
+	defer binary.file.Close()
+	library, err := openArtifact(root, native)
+	if err != nil {
+		return err
+	}
+	defer library.file.Close()
+	if expected != nil {
+		identity, err := inspectInstalled(ctx, connection, paths)
+		if err != nil {
+			return err
+		}
+		if err := validateUpdate(identity, *expected, link.ProductVersion); err != nil {
+			return err
+		}
+	}
+	stage, err := commandSSH(ctx, connection, "umask 077; command -v python3 >/dev/null; mktemp -d /tmp/sailry-bootstrap-XXXXXX", nil)
+	if err != nil {
+		return err
+	}
+	stage = strings.TrimSpace(stage)
+	if !stagingPath.MatchString(stage) {
+		return unavailable("Host installer staging directory could not be verified")
+	}
+	quotedStage, _ := shellQuote(stage)
+	cleanupStage := true
+	defer func() {
+		if cleanupStage && ctx.Err() == nil {
+			_, _ = commandSSH(ctx, connection, "rm -rf -- "+quotedStage, nil)
+		}
+	}()
+	owner.Progress(caller, request, "installing")
+	for _, input := range []*artifact{binary, library} {
+		destination, _ := shellQuote(stage + "/" + input.name)
+		if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, input.file); err != nil {
+			return err
+		}
+	}
+	service, _ := deploymentSources.ReadFile("deployment/service.sh")
+	destination, _ := shellQuote(stage + "/service.sh")
+	if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
+		return err
+	}
+	script, err := deploymentScript(stage, native, binary.digest, library.digest, paths, expected != nil, selection)
+	if err != nil {
+		return err
+	}
+	cleanupStage = false
+	if _, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(script)); err != nil {
+		return err
+	}
+	cleanupStage = true
+	return nil
+}
+
+// releaseIdentity finds the managed program files of an installed release
+// Host and asks its bundled Python for the identity of the running Node.
+const releaseIdentity = `install_root="$HOME/.local/lib/sailry"
+if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
+  if test -e /usr/local/libexec/sailry; then install_root=/usr/local/libexec/sailry
+  elif ! test -L /usr/local/bin/sailry || test "$(readlink /usr/local/bin/sailry)" != "$install_root/sailry"; then
+    echo 'Managed Host program files are unavailable' >&2; exit 1
+  fi
+fi
+"$install_root/python/bin/python3.12" -I - "$install_root" "$HOME/.sailry-host" <<'SAILRY_IDENTITY'
+`
+
+// installRelease installs or updates this application version from the
+// published release feed. The bootstrap verifies install-host.sh against
+// SHA256SUMS-installer; the installer verifies the target's archive against
+// SHA256SUMS-<triple>. WSL installation runs the same bootstrap.
+func (owner *Installations) installRelease(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
+	if owner.options != (DeploymentOptions{}) {
+		return invalid("isolated Host deployment requires locally built Host artifacts")
+	}
+	if expected != nil {
+		source, _ := deploymentSources.ReadFile("deployment/identity.py")
+		body, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(releaseIdentity+strings.ReplaceAll(string(source), "\r\n", "\n")+"\nSAILRY_IDENTITY\n"))
+		if err != nil {
+			return err
+		}
+		var identity installedIdentity
+		if json.Unmarshal([]byte(body), &identity) != nil {
+			return unavailable("managed Host identity could not be verified")
+		}
+		if err := validateUpdate(identity, *expected, link.ProductVersion); err != nil {
+			return err
+		}
+	}
+	if selection != nil && selection.Kind == "custom" {
+		var custom protocol.NetworkSelectionCustomPayload
+		body, err := json.Marshal(selection.Data)
+		if err != nil || json.Unmarshal(body, &custom) != nil || len(custom.Relays) == 0 {
+			return invalid("invalid relay network selection")
+		}
+		selection = &protocol.NetworkSelection{Kind: "custom", Data: custom}
+	}
+	script, err := wsl.ReleaseScript(link.ProductVersion, expected != nil, selection)
+	if err != nil {
+		return err
+	}
+	owner.Progress(caller, request, "installing")
+	_, err = commandSSH(ctx, connection, "sh -s", strings.NewReader(script))
+	return err
 }
 
 func (owner *Installations) remotePaths(ctx context.Context, connection *cryptossh.Client) (DeploymentOptions, error) {

@@ -106,7 +106,7 @@ func TestApprovalDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.State == protocol.ConversationApprovalStateApproved || after.State == protocol.ConversationApprovalStatePending {
+	if after.State != protocol.ConversationApprovalStateCancelled {
 		t.Fatalf("deadline state=%s", after.State)
 	}
 }

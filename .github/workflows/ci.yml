@@ -1,10 +1,11 @@
 name: CI
 
+# Checks only. release.yml calls this workflow on a version tag and owns
+# every packaging and publishing step.
 on:
   pull_request:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [main, sailry-go]
   workflow_dispatch:
     inputs:
       integration:
@@ -12,9 +13,17 @@ on:
         type: boolean
         default: false
       integration_packages:
-        description: Packages for the integration run
+        description: Packages for the integration run; empty selects the release set
         type: string
-        default: ./...
+        default: ''
+  workflow_call:
+    inputs:
+      integration:
+        type: boolean
+        default: false
+      integration_packages:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -43,7 +52,8 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          # Releases and manual runs build and check everything. A push whose
+          # Releases (a tag, through release.yml) and manual runs build and
+          # check everything. A push whose
           # previous commit is unavailable is treated the same way.
           native=true
           mobile=true
@@ -85,6 +95,12 @@ jobs:
       run:
         shell: bash
     steps:
+      # The default tests load no native library, so this job does not wait
+      # for the native job's artifacts.
+      - name: Repository line endings
+        # Git for Windows otherwise checks out CRLF, so fixtures and embedded text would differ from other platforms.
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
@@ -151,26 +167,84 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, target: linux-amd64 }
-          - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-15, target: darwin-arm64 }
-          - { os: macos-15-intel, target: darwin-amd64 }
+          - { os: ubuntu-24.04, target: linux-amd64, triple: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, triple: aarch64-unknown-linux-gnu }
+          - { os: macos-15, target: darwin-arm64, triple: aarch64-apple-darwin }
+          - { os: macos-15-intel, target: darwin-amd64, triple: x86_64-apple-darwin }
+          # Windows is built for x64 only, like the Rust repository's releases.
+          - { os: windows-2025, target: windows-amd64, triple: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Repository line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - name: Pinned Rust toolchain
         working-directory: native/iroh
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = '${{ matrix.triple }}'
+      # The Linux iroh library ships in the Host archive, whose installer
+      # preflight admits GNU libc 2.34: it is linked against that version
+      # instead of the runner's.
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: runner.os == 'Linux'
+        with:
+          version: 0.16.0
+          use-cache: false
+      - name: cargo-zigbuild
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-zigbuild --version 0.23.4 --locked
+          echo 'SAILRY_GLIBC=2.34' >> "$GITHUB_ENV"
+      # Windows runs the same scripts in Git Bash: cargo builds sailry_iroh.dll
+      # for the MSVC target and cl builds sailry-capture.dll.
       - name: Build
         run: |
           sh native/iroh/build.sh
           sh native/capture/build.sh
+      - name: GNU libc floor
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          # The build and the preflight must name the same version, and the
+          # library must need nothing newer.
+          grep -q "requires GNU libc $SAILRY_GLIBC or later" internal/node/wsl/preflight.sh
+          needed=$(objdump -T ".runtime/native/${{ matrix.target }}/libsailry_iroh.so" |
+            grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+          echo "libsailry_iroh.so needs GNU libc $needed"
+          test "$(printf '%s\n%s\n' "$needed" "$SAILRY_GLIBC" | sort -V | tail -n 1)" = "$SAILRY_GLIBC"
+      # The artifact is the directory `go run ./native/fetch -artifacts` reads:
+      # the two libraries and their SHA256SUMS at its root.
+      - name: Checksums
+        working-directory: .runtime/native/${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) set -- sailry_iroh.dll sailry-capture.dll ;;
+            macOS) set -- libsailry_iroh.dylib libsailry-capture.dylib ;;
+            *) set -- libsailry_iroh.so libsailry-capture.so ;;
+          esac
+          mkdir artifact
+          for name in "$@"; do
+            cp "$name" "artifact/$name"
+            if command -v sha256sum >/dev/null; then
+              sum=$(sha256sum "$name")
+            else
+              sum=$(shasum -a 256 "$name")
+            fi
+            printf '%s  %s\n' "${sum%% *}" "$name"
+          done > artifact/SHA256SUMS
+          cat artifact/SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
-          path: |
-            .runtime/native/${{ matrix.target }}/libsailry_iroh.*
-            .runtime/native/${{ matrix.target }}/libsailry-capture.*
+          path: .runtime/native/${{ matrix.target }}/artifact/
+          # .runtime is a hidden directory.
+          include-hidden-files: true
           if-no-files-found: error
 
   mobile:
@@ -190,9 +264,11 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+  # Integration tests never run on pull requests or main. A manual run chooses
+  # its packages; a release runs RELEASE_PACKAGES.
   integration:
     needs: native
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.integration)
+    if: inputs.integration
     strategy:
       fail-fast: false
       matrix:
@@ -204,20 +280,66 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # The release set: packages whose integration tests build every fixture
+      # themselves (temporary directories, loopback listeners, in-process
+      # servers, the runner's Git and shell) and the capture library from this
+      # run's native artifact. Left out because a runner does not provide what
+      # they need:
+      #   internal/node, internal/desktop/live, internal/localmodels/...,
+      #   internal/speech: downloaded models and ONNX Runtime (SAILRY_* paths)
+      #   internal/databases: external database servers
+      #   internal/node/web: the public internet
+      #   internal/node/process: a sandbox wrapper (bubblewrap) on Linux
+      #   cmd/sailry-desktop: runs only beside a packaged executable
+      RELEASE_PACKAGES: >-
+        ./internal/core
+        ./internal/desktop/updater
+        ./internal/link
+        ./internal/node/backup
+        ./internal/node/computer
+        ./internal/node/git
+        ./internal/node/store
+        ./internal/node/terminal
+        ./internal/node/wsl
+        ./internal/speech/capture
+        ./internal/ssh
     steps:
+      - name: Repository line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
-      # The native build scripts cover macOS and Linux; Windows has no artifact.
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        if: runner.os != 'Windows'
         with:
           name: native-${{ matrix.target }}
           path: .runtime/native/${{ matrix.target }}
+      # Loads this run's iroh library through the Go binding and opens and
+      # closes a loopback endpoint: no relay and no external service.
+      - name: Native libraries
+        working-directory: .runtime/native/${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) library=sailry_iroh.dll ;;
+            macOS) library=libsailry_iroh.dylib ;;
+            *) library=libsailry_iroh.so ;;
+          esac
+          if command -v sha256sum >/dev/null; then
+            sha256sum --check SHA256SUMS
+          else
+            shasum -a 256 --check SHA256SUMS
+          fi
+          printf '{"op":"close"}\n' |
+            go run -tags integration github.com/sailry/sailry-harness/internal/link/iroh/cmd/iroh-spike --library "$library" |
+            tee "$RUNNER_TEMP/iroh.txt"
+          grep -q '"closed":true' "$RUNNER_TEMP/iroh.txt"
       - name: Integration tests
         env:
-          PACKAGES: ${{ inputs.integration_packages || './...' }}
-        run: go test -tags integration $PACKAGES
+          PACKAGES: ${{ inputs.integration_packages }}
+          SAILRY_CAPTURE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
+        run: go test -tags integration ${PACKAGES:-$RELEASE_PACKAGES}

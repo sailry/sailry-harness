@@ -1,7 +1,10 @@
 package shell
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -100,11 +103,13 @@ func (a *App) selectionDialog(c *ui.Context) {
 				quote.Disabled(true).Opacity(0.5)
 			}
 			quote.OnClick(func() {
+				// As the conversation's Quote: every line of the selection
+				// is quoted, not its first.
 				comp := a.Composer(s.chat)
-				if comp.Draft != "" {
+				if comp.Draft != "" && !strings.HasSuffix(comp.Draft, "\n\n") {
 					comp.Draft += "\n\n"
 				}
-				comp.Draft += "> " + s.text
+				comp.Draft += conversation.Quote(s.text)
 				s.open = false
 			})
 		})

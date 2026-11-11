@@ -17,10 +17,19 @@ inventory, configuration and enable choice.
 Bundled defaults are initialized once. Startup refreshes an existing bundled
 package only for strictly newer SemVer precedence and respects removal records.
 Same versions, build metadata changes and older versions do not replace an
-installed package. Application version 0.1.5 matches the reviewed Desktop/Host
-source and pinned packages; the protocol remains v1.
+installed package. Application version 0.1.6 is the first Go release; its ported
+sources and pinned packages match the reviewed 0.1.5 Desktop/Host; the protocol remains v1.
 
 Repository discovery freezes a Git commit before inspecting or installing files.
+One acquisition fetches a single revision at depth 1 into a temporary bare
+repository that is removed afterwards. A captured commit is fetched by its
+identifier and a moving reference is never resolved again; a server that does
+not serve commits by identifier has its branches and tags fetched instead and
+the commit looked up there. Every transfer is limited to 512 MiB of pack data
+(`invalid_request`, "Git transfer exceeds its size limit") and 120 seconds
+(`unavailable`, "Git transfer timed out"). The newest inspected package is kept
+in memory only until it is installed or another repository is inspected; skill
+catalog pages are kept for the 32 most recently used queries.
 Catalogs, signed registry skills and authenticated one-use uploads share package
 validation. Local sources stay inside their captured worktree and outside the
 profile. Symlinks, traversal, conflicting archive paths and oversized captures
@@ -35,6 +44,25 @@ Private KV writes check key revisions. Indexed values update KV and the SQLite
 fallback's FTS5 corpus in the same transaction. Conversation values follow
 canonical branch history, fork and rewind. Transactions admitting a turn anchor
 preceding state writes to that turn.
+
+A tool declared with `storage.get`, `storage.list`, `storage.set` or
+`storage.delete` is offered to the model with the source's schema and bound by
+`internal/node/plugin_tools_storage.go`. Each call is dispatched under the
+declaring package of the frozen turn, so the store applies that package's
+namespace, declared `storage.read`/`storage.write` action, key and namespace
+quotas and revision check; another package cannot read the value. Writes are
+authorized by the storage scope (approval source `storage`) and refused in Plan
+mode. Lists accept a positive safe integer limit and return at most 100 keys.
+The model receives the entry or page itself. These tools are found through tool
+search unless declared `initial`. A `progress.update` tool with the progress
+presentation is offered on the first request, validates the snapshot against
+the 64 KiB text budget and returns it as `progress`. Handler tools keep their
+script binding.
+
+The store records each tool call with the presentation, grouping and display
+its package declares. Installed packages are resolved from the version the turn
+captured, by operation or handler alias and by MCP alias for server tools, so
+an installed `progress` tool is recorded and projected as progress.
 
 The task supervisor bounds Node work. The installation queue permits eight
 pending preparations and serializes each resource through durable publication.
@@ -113,6 +141,17 @@ Each turn freezes the owner and only the packages whose tools the declaration
 imports. The model receives the declared native, owner and imported package
 tools plus tool-output reads, all on the first request, and the declaration's
 context. Imported packages contribute no other tool, skill or MCP server.
+
+An agent reference in an assistant conversation is checked by Node before the
+turn is admitted, for submit, queue, guide, replace, continue, start coding,
+task start and queued edits. The assistant must select the native `spawn_agent`
+tool or a package tool bound to `agents.delegate`; otherwise the command
+returns `PermissionDenied` with `plugin assistant does not allow delegation`
+and no turn is created. The desktop keeps the draft and shows its existing
+failure toast.
+A plugin or skill reference in an assistant conversation
+must name the assistant's own package. The full submit-time reference rules are
+listed in docs/conversation.md.
 
 The location SDK's session base is retained with its draft. The first send or
 attachment creates a managed worktree on the chosen branch from the chosen

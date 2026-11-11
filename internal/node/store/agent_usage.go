@@ -91,6 +91,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	groups := map[string]*protocol.UsageGroup{}
 	resources := map[string]protocol.UsageKey{}
 	requests := []protocol.UsageRequest{}
+	prices := modelPrices{}
 	for _, row := range captured {
 		created, e := time.Parse(time.RFC3339Nano, row.time)
 		if e != nil {
@@ -186,7 +187,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		}
 		var cost *protocol.UsageCost
 		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
-			cost, e = estimateAgentCost(ctx, db, row.api.String, row.model, usage)
+			cost, e = estimateAgentCost(ctx, db, prices, row.api.String, row.model, usage)
 			if e != nil {
 				return report, e
 			}
@@ -249,13 +250,19 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		report.Requests.HasMore = true
 		requests = requests[:20]
 	}
+	titles := map[protocol.SessionID]string{}
 	for i := range requests {
-		summary, e := readActivity(ctx, db, requests[i].Session)
-		if e != nil {
-			return report, e
+		title, known := titles[requests[i].Session]
+		if !known {
+			full, e := activityTitle(ctx, db, requests[i].Session)
+			if e != nil {
+				return report, e
+			}
+			title = shortTitle(full)
+			titles[requests[i].Session] = title
 		}
-		if strings.TrimSpace(summary.Title) != "" {
-			requests[i].SessionTitle = &summary.Title
+		if strings.TrimSpace(title) != "" {
+			requests[i].SessionTitle = &title
 		}
 	}
 	report.Requests.Items = requests
@@ -276,7 +283,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		report.Resources = append(report.Resources, resources[k])
 	}
 	var updated sql.NullInt64
-	err = db.QueryRowContext(ctx, "SELECT json_extract(body,'$.updated_at_ms') FROM model_catalog_status WHERE singleton=1").Scan(&updated)
+	err = db.QueryRowContext(ctx, "SELECT json_extract(body,'$.updated_at_ms') FROM model_catalog_status WHERE id=1").Scan(&updated)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return report, err
 	}
@@ -373,7 +380,12 @@ func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.Conversation
 	}
 	return nil
 }
-func estimateAgentCost(ctx context.Context, db *sql.Conn, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
+
+// modelPrices holds the catalog entries one report has read, keyed by supplier
+// and model. An entry the catalog lacks is kept as nil.
+type modelPrices map[[2]string][]byte
+
+func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
 	supplier := ""
 	switch api {
 	case "responses", "chat_completions":
@@ -386,13 +398,16 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, api, model string, usa
 	if supplier == "" || usage.Input == nil || usage.Output == nil {
 		return nil, nil
 	}
-	var body []byte
-	err := db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+	body, known := prices[[2]string{supplier, model}]
+	if !known {
+		err := db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		prices[[2]string{supplier, model}] = body
 	}
-	if err != nil {
-		return nil, err
+	if body == nil {
+		return nil, nil
 	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(body, &object) != nil {

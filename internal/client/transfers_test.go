@@ -5,26 +5,14 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
-	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
-
-type transferTestClock struct {
-	mu        sync.Mutex
-	durations []time.Duration
-}
-
-func (c *transferTestClock) AfterFunc(d time.Duration, _ func()) func() bool {
-	c.mu.Lock()
-	c.durations = append(c.durations, d)
-	c.mu.Unlock()
-	return func() bool { return true }
-}
 
 type transferBuffer struct{ bytes.Buffer }
 
@@ -53,8 +41,6 @@ func TestTransferStream(t *testing.T) {
 					return local, nil
 				}}
 				controller := New(transport)
-				timing := &transferTestClock{}
-				controller.transferClock = timing
 				expected := revision
 				if changed {
 					expected = hex.EncodeToString(make([]byte, 32))
@@ -123,16 +109,26 @@ func TestTransferStream(t *testing.T) {
 				} else if len(requests) != 0 {
 					t.Fatal("stream unexpectedly dispatched a publication command")
 				}
-				timing.mu.Lock()
-				defer timing.mu.Unlock()
-				for _, d := range timing.durations {
-					if d != 30*time.Second && !(changed && d == 2*time.Second) {
-						t.Fatalf("unported transfer timeout %s", d)
-					}
-				}
 			})
 		}
 	}
+	t.Run("stalled", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			local, server := link.StreamPair()
+			defer local.Close()
+			defer server.Close()
+			transport := &clientTransport{open: func(context.Context, protocol.StreamID) (link.Stream, error) { return local, nil }}
+			transport.dispatch = func(actual protocol.Request) (link.Admission, error) {
+				return link.Admission{Receipt: protocol.Receipt{ID: actual.ID}, Completion: make(chan link.Response)}, nil
+			}
+			started := time.Now()
+			err := New(transport).Download(t.Context(), protocol.NewStreamID(), uint64(len(payload)), revision, &transferBuffer{}, nil)
+			// Thirty seconds without progress, then two for the unanswered cleanup.
+			if faultCode(err) != protocol.ErrorCodeUnavailable || time.Since(started) != 32*time.Second {
+				t.Fatalf("stalled download = %v after %s", err, time.Since(started))
+			}
+		})
+	})
 	t.Run("cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
@@ -141,7 +137,6 @@ func TestTransferStream(t *testing.T) {
 			return nil, nil
 		}}
 		controller := New(transport)
-		controller.transferClock = &transferTestClock{}
 		err := controller.Upload(ctx, protocol.NewStreamID(), 0, revision, io.NopCloser(bytes.NewReader(nil)), nil)
 		if faultCode(err) != protocol.ErrorCodeCancelled {
 			t.Fatalf("cancelled upload = %v", err)

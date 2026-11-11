@@ -68,6 +68,9 @@ func (c *Client) ObserveCommandOutput(ctx context.Context, session protocol.Sess
 			delete(w.callbacks, token)
 			if len(w.callbacks) == 0 {
 				w.cancel()
+				if c.commandOutputs[key] == w {
+					delete(c.commandOutputs, key)
+				}
 			}
 			c.commandsMu.Unlock()
 		})

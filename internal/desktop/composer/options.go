@@ -62,11 +62,26 @@ func subtle(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Co
 		})
 }
 
+// menuID names one of this composer's menus. Kit keeps a menu's open state
+// by its ID for the whole window, and a split shows several composers: a
+// name shared by them would open the menu in each.
+func (s *State) menuID(name string) string {
+	id, ok := s.menus[name]
+	if !ok {
+		if s.menus == nil {
+			s.menus = map[string]string{}
+		}
+		id = fmt.Sprintf("composer-%p-%s", s, name)
+		s.menus[name] = id
+	}
+	return id
+}
+
 // modeMenu is the mode's icon and label, a menu of the modes with their
 // descriptions, the check on the right.
 func (s *State) modeMenu(c *ui.Context, ctx *Context) {
 	m := Modes[s.Mode]
-	kit.MenuButton(c.Key("mode"), "composer-mode", func(b ui.Element) {
+	kit.MenuButton(c.Key("mode"), s.menuID("mode"), func(b ui.Element) {
 		subtle(c, b.Disabled(ctx.Readonly), m.icon, i18n.T(c, m.label), theme.Of(c).Foreground)
 	}, func(menu *kit.Menu) {
 		for i, m := range Modes {
@@ -83,7 +98,7 @@ func (s *State) modeMenu(c *ui.Context, ctx *Context) {
 func (s *State) permissionMenu(c *ui.Context, ctx *Context) {
 	m := Permissions[s.Permission]
 	label := i18n.T(c, m.label)
-	kit.MenuButton(c.Key("permission"), "composer-permission", func(b ui.Element) {
+	kit.MenuButton(c.Key("permission"), s.menuID("permission"), func(b ui.Element) {
 		kit.Tooltip(c, subtle(c, b.Disabled(ctx.Readonly), m.icon, label, permissionColor(theme.Of(c), s.Permission)), label)
 	}, func(menu *kit.Menu) {
 		for i, m := range Permissions {
@@ -148,16 +163,13 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, icon
 	if pr := s.project(ctx); pr != nil {
 		icon, label = icons.Folder, pr.Name
 	}
-	if s.projectMenu == "" {
-		s.projectMenu = fmt.Sprintf("composer-project-%p", s)
-	}
 	if s.projectPicker {
 		s.projectPicker = false
 		if !ctx.Readonly && !ctx.LocationLocked {
-			kit.OpenMenu(c, s.projectMenu, true)
+			kit.OpenMenu(c, s.menuID("project"), true)
 		}
 	}
-	kit.MenuButton(c.Key("project"), s.projectMenu, func(b ui.Element) {
+	kit.MenuButton(c.Key("project"), s.menuID("project"), func(b ui.Element) {
 		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, false, iconOnly)
 	}, func(m *kit.Menu) {
 		choose := func(id string) {
@@ -221,7 +233,7 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, iconO
 	if s.ActivityCallbacks != nil && s.ActivityCallbacks.WorktreeEnabled != nil {
 		disabled = ctx.Readonly || !s.ActivityCallbacks.WorktreeEnabled()
 	}
-	kit.MenuButton(c.Key("worktree"), "composer-worktree", func(b ui.Element) {
+	kit.MenuButton(c.Key("worktree"), s.menuID("worktree"), func(b ui.Element) {
 		contextButton(c, b.Disabled(disabled), icon, label, false, iconOnly)
 	}, func(m *kit.Menu) {
 		for _, w := range pr.Worktrees {

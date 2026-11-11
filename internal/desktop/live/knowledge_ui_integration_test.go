@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -305,6 +306,62 @@ func TestKnowledgeUIIntegration(t *testing.T) {
 	}
 	click("Close")
 	wait("the viewer closes again", func() bool { return runtime.App.Reading() == nil })
+
+	// ACT-008: a notification whose text details are the citation link shows
+	// in the activity centre; its click marks it read on the Node and opens
+	// the viewer on the cited chunk.
+	if !slices.ContainsFunc(controller.Snapshot().Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == "files" }) {
+		do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "files"}})
+	}
+	publisher, valid := detail[protocol.PluginInfo](do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "files"}}).Data)
+	if !valid {
+		t.Fatal("the bundled files package was not returned")
+	}
+	if !publisher.Summary.Enabled {
+		do(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "files", ExpectedRevision: publisher.Summary.Revision, Enabled: true}})
+		publisher, _ = detail[protocol.PluginInfo](do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "files"}}).Data)
+	}
+	do(protocol.Command{Kind: "publish_notification", Data: protocol.CommandPublishNotificationPayload{
+		Package: protocol.PluginReference{Name: publisher.Summary.Name, Digest: publisher.Summary.Digest, SettingsRevision: publisher.Summary.SettingsRevision},
+		Content: protocol.NotificationDraft{Title: "Descaling note indexed", Message: "guide.md", Kind: protocol.NotificationKindInfo,
+			Details: &protocol.NotificationDetails{Kind: "text", Data: protocol.NotificationDetailsTextPayload{Body: short.Citation.Link}}},
+	}})
+	unread := func() (found, read bool) {
+		for _, notice := range controller.Notices() {
+			if notice.Title == "Descaling note indexed" {
+				return true, notice.Read
+			}
+		}
+		return false, false
+	}
+	wait("the published notice", func() bool { found, _ := unread(); return found })
+	if _, read := unread(); read {
+		t.Fatal("the published notice starts read")
+	}
+	before = reads.Load()
+	click(i18n.In("en", "notifications"))
+	var row ui.AccessInfo
+	wait("the notice row", func() bool {
+		for _, entry := range tester.AccessAll() {
+			if entry.Role == ui.RoleButton && strings.HasPrefix(entry.Name, "Descaling note indexed · ") && entry.Bounds.H > 0 {
+				row = entry
+				return true
+			}
+		}
+		return false
+	})
+	tester.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+	wait("the viewer on the notice's citation", func() bool { return runtime.App.Reading() != nil })
+	shown = runtime.App.Reading()
+	if shown.Title != "Espresso machine" || shown.Path != filepath.Join(folder, "guide.md") || shown.Position != lines || shown.Text != strings.TrimSuffix(guide, "\n") {
+		t.Fatalf("the notice opened %+v", shown)
+	}
+	if reads.Load() != before+1 {
+		t.Fatalf("the notice sent %d reads", reads.Load()-before)
+	}
+	wait("the notice read on the Node", func() bool { _, read := unread(); return read })
+	click("Close")
+	wait("the notice's viewer closes", func() bool { return runtime.App.Reading() == nil })
 
 	// An invalid link toasts without asking the Node.
 	before = reads.Load()

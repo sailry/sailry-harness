@@ -25,6 +25,20 @@ type rawAgentTool struct {
 	Failure      *protocol.ToolFailure
 	Error        *string
 	Delegation   bool
+	// parsed is the decoded Result, kept because a summary reads it several
+	// times. The tree is read-only.
+	parsed     any
+	parsedFrom *json.RawMessage
+}
+
+func (raw *rawAgentTool) result() any {
+	if raw.Result == nil {
+		return nil
+	}
+	if raw.parsedFrom != raw.Result {
+		raw.parsed, raw.parsedFrom = agentJSON(*raw.Result), raw.Result
+	}
+	return raw.parsed
 }
 
 func rawTool(record canonical.Record, block canonical.Block) *rawAgentTool {
@@ -69,11 +83,7 @@ func rawTool(record canonical.Record, block canonical.Block) *rawAgentTool {
 	return raw
 }
 func (raw *rawAgentTool) revision() (string, error) {
-	var result any
-	if raw.Result != nil {
-		result = agentJSON(*raw.Result)
-	}
-	body, err := encode([]any{raw.ID, raw.Name, agentJSON(raw.Arguments), result, raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
+	body, err := encode([]any{raw.ID, raw.Name, agentJSON(raw.Arguments), raw.result(), raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
 	if err != nil {
 		return "", err
 	}
@@ -222,9 +232,9 @@ func resourcePart(v any) protocol.ConversationPart {
 	b, _ := encode(v)
 	return protocol.ConversationPart{Kind: "resource", Data: json.RawMessage(b)}
 }
-func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Record, sequence uint64) (protocol.ConversationEntry, error) {
+func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Record, sequence uint64, requests toolRequests) (protocol.ConversationEntry, error) {
 	entry, err := canonicalEntry(record, sequence, func(block canonical.Block) (*rawAgentTool, error) {
-		return storedAgentTool(ctx, db, record, sequence, block)
+		return storedAgentTool(ctx, db, record, sequence, block, requests)
 	})
 	if err != nil {
 		return entry, err

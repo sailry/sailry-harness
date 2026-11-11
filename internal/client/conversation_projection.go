@@ -2,7 +2,6 @@ package client
 
 import (
 	"cmp"
-	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -150,11 +149,11 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		p.recovering = true
 		return Recover, nil
 	}
-	// Apply atomically: an invalid frame never partially changes a retained view.
+	// Apply atomically without copying the loaded conversation: every check of a
+	// change precedes its first write, so an invalid frame changes nothing. The
+	// retained snapshot never leaves this projection; readers receive copies.
 	f = copyValue(f)
-	v := copyValue(*p.snapshot)
-	hidden, revealed := maps.Clone(p.hidden), maps.Clone(p.revealed)
-	liveStart, artifactCursor, statisticsErr := p.liveStart, p.artifactCursor, p.statisticsErr
+	v := p.snapshot
 	page := &v.Page
 	switch f.Change.Kind {
 	case "entry", "revealed":
@@ -171,8 +170,8 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			}
 		} else {
 			if f.Change.Kind == "revealed" {
-				revealed[x.ID] = x
-				delete(hidden, x.ID)
+				p.revealed[x.ID] = x
+				delete(p.hidden, x.ID)
 				break
 			}
 			if f.Change.Kind == "entry" && len(page.Entries) > 0 && x.Sequence <= page.Entries[len(page.Entries)-1].Sequence {
@@ -180,11 +179,11 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			}
 			page.Entries = append(page.Entries, x)
 			slices.SortFunc(page.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
-			if liveStart == nil {
-				liveStart = new(x.Sequence)
+			if p.liveStart == nil {
+				p.liveStart = new(x.Sequence)
 			}
 		}
-		delete(hidden, x.ID)
+		delete(p.hidden, x.ID)
 		v.Drafts = slices.DeleteFunc(v.Drafts, func(d protocol.ConversationDraft) bool { return d.Turn == x.Turn && d.ID == x.ID })
 		if x.Author == "user" {
 			for i := range page.Runs {
@@ -198,8 +197,8 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		if e != nil {
 			return Ignored, e
 		}
-		hidden[x.ID] = true
-		delete(revealed, x.ID)
+		p.hidden[x.ID] = true
+		delete(p.revealed, x.ID)
 		page.Entries = slices.DeleteFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.ID == x.ID && e.Turn == x.Turn })
 		v.Drafts = slices.DeleteFunc(v.Drafts, func(d protocol.ConversationDraft) bool { return d.ID == x.ID && d.Turn == x.Turn })
 	case "run":
@@ -241,18 +240,20 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			if d.Author != x.Author || d.Branch != x.Branch {
 				return Ignored, fault(protocol.ErrorCodeInvalidRequest, "streaming identity changed")
 			}
+			parts := slices.Clone(d.Parts)
 			for _, part := range x.Parts {
-				if n := len(d.Parts); n > 0 && (part.Kind == "text" || part.Kind == "thinking") && d.Parts[n-1].Kind == part.Kind {
-					a, ae := payload[string](d.Parts[n-1].Data)
+				if n := len(parts); n > 0 && (part.Kind == "text" || part.Kind == "thinking") && parts[n-1].Kind == part.Kind {
+					a, ae := payload[string](parts[n-1].Data)
 					b, be := payload[string](part.Data)
 					if ae != nil || be != nil {
 						return Ignored, fault(protocol.ErrorCodeInvalidRequest, "invalid streaming text")
 					}
-					d.Parts[n-1].Data = a + b
+					parts[n-1].Data = a + b
 				} else {
-					d.Parts = append(d.Parts, part)
+					parts = append(parts, part)
 				}
 			}
+			d.Parts = parts
 		} else {
 			v.Drafts = append(v.Drafts, x)
 		}
@@ -336,31 +337,28 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			return Ignored, e
 		}
 		v.Statistics = &x
-		statisticsErr = nil
+		p.statisticsErr = nil
 	case "statistics_failed":
 		x, e := payload[protocol.Fault](f.Change.Data)
 		if e != nil {
 			return Ignored, e
 		}
 		v.Statistics = nil
-		statisticsErr = &x
+		p.statisticsErr = &x
 	case "artifact":
 		x, e := payload[protocol.ArtifactSummary](f.Change.Data)
 		if e != nil {
 			return Ignored, e
 		}
-		if artifactCursor == ^uint64(0) {
+		if p.artifactCursor == ^uint64(0) {
 			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "artifact cursor exhausted")
 		}
 		v.Artifacts.Items = upsertConversation(v.Artifacts.Items, x, func(v protocol.ArtifactSummary) protocol.ArtifactID { return v.ID }, false)
-		artifactCursor++
+		p.artifactCursor++
 	default:
 		return Ignored, fault(protocol.ErrorCodeInvalidRequest, "unknown conversation frame change")
 	}
 	v.Sequence = f.Sequence
-	p.snapshot = &v
-	p.hidden, p.revealed = hidden, revealed
-	p.liveStart, p.artifactCursor, p.statisticsErr = liveStart, artifactCursor, statisticsErr
 	p.settle()
 	return Applied, nil
 }
@@ -425,14 +423,15 @@ func validateConversationPage(p protocol.ConversationPage) error {
 	if err := validateConversationQueue(p.Queue); err != nil {
 		return err
 	}
-	children := copyValue(p)
+	// The merges below write only the list they rebuild.
+	children := p
 	children.Children = nil
 	for _, child := range p.Children {
 		if err := mergeConversationChild(&children, child, false); err != nil {
 			return err
 		}
 	}
-	background := copyValue(p)
+	background := p
 	background.Background = nil
 	for _, task := range p.Background {
 		if slices.ContainsFunc(background.Background, func(t protocol.ConversationBackgroundTask) bool { return t.ID == task.ID }) {

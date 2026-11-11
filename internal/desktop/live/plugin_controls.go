@@ -43,7 +43,7 @@ func composerPluginScope(r *Runtime, cv *viewmodel.Conversation, comp *composer.
 		scope.Worktree, scope.Session = &session.Worktree, &session.ID
 		return scope
 	}
-	for _, tree := range r.controller.Snapshot().Worktrees {
+	for _, tree := range r.snapshot().Worktrees {
 		if tree.Path == comp.Worktree && (tree.Project == nil && comp.Project == "" || tree.Project != nil && tree.Project.String() == comp.Project) {
 			scope.Worktree = &tree.ID
 			return scope

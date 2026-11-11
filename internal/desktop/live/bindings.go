@@ -200,7 +200,7 @@ func (r *Runtime) workspaceRuntime(worktree protocol.WorktreeID) *Runtime {
 				return true
 			}
 		}
-		for _, tree := range owner.controller.Snapshot().Worktrees {
+		for _, tree := range owner.snapshot().Worktrees {
 			if tree.ID == worktree {
 				return true
 			}

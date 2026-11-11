@@ -419,6 +419,34 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if targets := window.paneTargets(); !slices.Contains(targets, panes.Target{Kind: panes.Session, ID: session.ID.String()}) {
 		t.Fatalf("the split does not hold the session beside the terminal: %v", targets)
 	}
+	// PANE-007: each pane's header shows its live title, the session's or
+	// the terminal tab's, and a rename on the Node updates the session's.
+	headed := func(title string) int {
+		count := 0
+		for _, handle := range window.buttons("Drag to split") {
+			_, y := center(handle.Bounds)
+			for _, text := range window.named(ui.RoleText, title) {
+				if _, ty := center(text.Bounds); ty > y-14 && ty < y+14 && text.Bounds.X < handle.Bounds.X && handle.Bounds.X-text.Bounds.X < 2000 {
+					count++
+					break
+				}
+			}
+		}
+		return count
+	}
+	for _, title := range []string{"Pane title one", "Pane title two"} {
+		var current protocol.Session
+		for _, candidate := range setup.Snapshot().Sessions {
+			if candidate.ID == session.ID {
+				current = candidate
+			}
+		}
+		do(protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{Session: session.ID, ExpectedRevision: current.Revision, Title: title}})
+		window.wait("the session pane's header shows "+title, func() bool {
+			return headed(title) == 1 && headed("Terminal") == 1 && (title == "Pane title one" || headed("Pane title one") == 0)
+		})
+	}
+	t.Log("step 4 also passed: the session pane's header followed two Node renames and the terminal pane's header shows its tab title Terminal")
 	handles := window.buttons("Drag to split")
 	header := handles[len(handles)-1]
 	window.tester.ClickAt(header.Bounds.X-160, header.Bounds.Y+header.Bounds.H+60)

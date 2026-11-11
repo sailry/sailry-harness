@@ -93,16 +93,15 @@ func TestNavigation(t *testing.T) {
 	if _, last := l.Visible(); last != 999 {
 		t.Errorf("End showed turn %d last", last)
 	}
-}
-
-// The rail hides where the transcript is narrower than the content and a
-// rail on each side (900 DIPs).
-func TestNavigationHidesNarrow(t *testing.T) {
-	_, _, tt := bigTester(t)
-	tt.SetLocale("en")
-	tt.SetSize(880, 760)
-	tt.Frame()
-	if _, ok := tt.AccessByRole(ui.RoleSlider, "Message navigation"); ok {
-		t.Error("the rail shows at 880 DIPs")
-	}
+	// The rail hides where the transcript is narrower than the content and a
+	// rail on each side (900 DIPs).
+	t.Run("HidesNarrow", func(t *testing.T) {
+		_, _, tt := bigTester(t)
+		tt.SetLocale("en")
+		tt.SetSize(880, 760)
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleSlider, "Message navigation"); ok {
+			t.Error("the rail shows at 880 DIPs")
+		}
+	})
 }

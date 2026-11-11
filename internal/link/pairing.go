@@ -104,6 +104,7 @@ type pairingOffer struct {
 	stop     chan struct{}
 	paired   chan struct{}
 	peer     *protocol.NodeID
+	claims   int // connections being served for this offer; guarded by offerMu
 	close    sync.Once
 	accept   sync.Once
 }
@@ -201,14 +202,6 @@ func (link *Link) Pair(ctx context.Context, encoded string) (EndpointAddress, er
 	return link.pairSelected(ctx, encoded, nil)
 }
 
-func (link *Link) PairOnNetwork(ctx context.Context, encoded string, selection protocol.NetworkSelection) (EndpointAddress, error) {
-	relays, err := NetworkRelayURLs(ctx, selection)
-	if err != nil {
-		return EndpointAddress{}, err
-	}
-	return link.pairSelected(ctx, encoded, relays)
-}
-
 func (link *Link) pairSelected(ctx context.Context, encoded string, relays []string) (EndpointAddress, error) {
 	address, err := link.Address(ctx)
 	if err != nil {
@@ -289,7 +282,36 @@ func pairingAddressOnNetwork(address EndpointAddress, relays []string) (Endpoint
 	return filtered, nil
 }
 
+// maxPairings bounds the accept workers one invitation's claimants occupy, so
+// silent claimants leave the remaining workers to paired peers.
+const maxPairings = 4
+
+// admitPairing reserves one of the open invitation's claimant places. It
+// returns nil when no invitation is open or its places are taken.
+func (link *Link) admitPairing() *pairingOffer {
+	link.offerMu.Lock()
+	defer link.offerMu.Unlock()
+	offer := link.offer
+	if offer == nil || channelClosed(offer.stop) || !link.now().Before(offer.deadline) || offer.claims >= maxPairings {
+		return nil
+	}
+	offer.claims++
+	return offer
+}
+
 func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID) {
+	// A connection that no invitation can answer is closed before it holds an
+	// accept worker for the stream and claim deadlines.
+	offer := link.admitPairing()
+	if offer == nil {
+		_ = connection.Close(1, "pairing invitation is unavailable")
+		return
+	}
+	defer func() {
+		link.offerMu.Lock()
+		offer.claims--
+		link.offerMu.Unlock()
+	}()
 	defer connection.Close(0, "pairing finished")
 	scoped, cancel := link.operation(link.ctx, true)
 	stream, err := connection.AcceptBi(scoped)

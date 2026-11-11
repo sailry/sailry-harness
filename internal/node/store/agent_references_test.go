@@ -142,6 +142,14 @@ func TestAgentHistoryAndReview(t *testing.T) {
 			if _, _, err = ResolveToolCommandStream(ctx, db, node, input); err == nil {
 				return errors.New("unrelated business identifiers became retained command authority")
 			}
+			input.Turn = protocol.NewTurnID()
+			var absent *protocol.Fault
+			if _, _, err = ResolveToolCommandStream(ctx, db, node, input); !errors.As(err, &absent) || absent.Code != protocol.ErrorCodeNotFound {
+				return fmt.Errorf("unknown turn stream: %v", err)
+			}
+			if _, err = ReadAgentCommand(ctx, db, node, protocol.Command{Kind: "read_tool_output", Data: &input}); !errors.As(err, &absent) || absent.Code != protocol.ErrorCodeNotFound {
+				return fmt.Errorf("unknown turn output: %v", err)
+			}
 			return nil
 		})
 		if err != nil {

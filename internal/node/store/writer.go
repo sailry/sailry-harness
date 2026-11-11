@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -13,6 +16,18 @@ type writeJob struct {
 	callback func(*sql.Conn) error
 	done     chan error
 	result   error
+}
+
+// run reports a panicking callback as an internal fault, so that the batch
+// rolls its savepoint back and the writer, and with it the Node, continues.
+func (job *writeJob) run(connection *sql.Conn) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			slog.Error("storage write panicked", "panic", fmt.Sprint(value), "stack", string(debug.Stack()))
+			err = &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "storage write failed unexpectedly"}
+		}
+	}()
+	return job.callback(connection)
 }
 
 type writer struct {
@@ -25,6 +40,8 @@ type writer struct {
 
 // Write submits related SQL without external effects or transaction controls.
 // An admitted callback is not replayed, and its caller waits for the commit result.
+// A callback returns its first SQL error: SQLite ends the transaction itself
+// when a write statement is interrupted or cannot complete.
 func (handle *Handle) Write(ctx context.Context, callback func(*sql.Conn) error) error {
 	state, err := handle.acquire(ctx)
 	if err != nil {
@@ -52,6 +69,10 @@ func (writer *writer) run() {
 	}
 }
 
+// batch commits the queued jobs together. Its jobs end in one of three ways:
+// committed; known to be uncommitted, with the job's own error or a retryable
+// busy fault for work another job's failure rolled back; or, only when COMMIT
+// itself failed and could not be undone, an unknown outcome that stops the writer.
 func (writer *writer) batch(first *writeJob) {
 	if writer.failed != nil {
 		first.done <- writer.failed
@@ -70,7 +91,7 @@ func (writer *writer) batch(first *writeJob) {
 		if job.result == nil {
 			_, failure = writer.connection.ExecContext(ctx, "SAVEPOINT sailry_job")
 			if failure == nil {
-				job.result = job.callback(writer.connection)
+				job.result = job.run(writer.connection)
 				if job.result == nil {
 					job.result = job.context.Err()
 				}
@@ -84,7 +105,6 @@ func (writer *writer) batch(first *writeJob) {
 		}
 		completed = append(completed, job)
 		if failure != nil {
-			job.result = nil
 			break
 		}
 		select {
@@ -94,11 +114,21 @@ func (writer *writer) batch(first *writeJob) {
 		}
 		break
 	}
-	if failure == nil {
+	committing := failure == nil
+	if committing {
 		_, failure = writer.connection.ExecContext(ctx, "COMMIT")
 	}
 	if failure != nil {
-		if _, cleanup := writer.connection.ExecContext(ctx, "ROLLBACK"); cleanup != nil {
+		_, cleanup := writer.connection.ExecContext(ctx, "ROLLBACK")
+		switch {
+		case !committing:
+			// No commit was attempted, so none of this batch is durable. An
+			// interrupted or failed write statement makes SQLite roll back the
+			// whole transaction; its savepoint is then gone and this ROLLBACK
+			// only reports that no transaction is active. Callbacks are not
+			// replayed, so the jobs that had succeeded are asked to retry.
+			failure = errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage transaction was rolled back; retry the operation"}, failure)
+		case cleanup != nil:
 			writer.failed = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "storage commit could not be confirmed"}
 			failure = errors.Join(writer.failed, failure, cleanup)
 		}

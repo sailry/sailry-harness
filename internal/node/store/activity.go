@@ -14,14 +14,24 @@ func readActivity(ctx context.Context, db *sql.Conn, session protocol.SessionID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
 	}
+	// An active run is found through the status index; a turn appends while one exists.
+	run, err := readBody[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_runs a
+		CROSS JOIN conversation_turns h ON h.session=?1 AND h.turn=a.turn JOIN turns t ON t.id=a.turn
+		WHERE json_extract(a.body,'$.status') IN ('running','stopping') AND json_extract(a.body,'$.joined') IS NULL
+		ORDER BY t.rowid DESC LIMIT 1`, session.String())
+	if err != nil {
+		return value, err
+	}
 	// Keep the finishing outcome visible until the next queued turn starts.
-	run, err := readBody[protocol.ConversationRun](ctx, db, `SELECT a.body FROM conversation_turns h
+	if run == nil {
+		run, err = readBody[protocol.ConversationRun](ctx, db, `SELECT a.body FROM conversation_turns h
 		JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=t.id
 		WHERE h.session=?1 AND json_extract(a.body,'$.joined') IS NULL
 		ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,
 		(json_extract(a.body,'$.status')='queued'),t.rowid DESC LIMIT 1`, session.String())
-	if err != nil {
-		return value, err
+		if err != nil {
+			return value, err
+		}
 	}
 	title, err := activityTitle(ctx, db, session)
 	if err != nil {

@@ -10,21 +10,24 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// executeOwned finishes the run even when its finishing code panics, so a
+// defect in one run never ends the Node or strands the durable slot.
 func (r *Runtime) executeOwned(x *execution) {
-	if x.inv.Session.Delegation == nil {
-		r.execute(x)
-		return
-	}
 	defer func() {
-		if recover() == nil {
+		value := recover()
+		if value == nil {
 			return
 		}
+		logPanic(x, "run", "", value)
 		x.cancel()
 		r.drainOperations(x)
 		r.cancelForeground(x)
 		_ = r.closeTools(x)
 		ctx := context.WithoutCancel(r.ctx)
-		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "child execution failed unexpectedly; calls were not replayed"}
+		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "execution failed unexpectedly; calls were not replayed"}
+		if x.inv.Session.Delegation != nil {
+			failure.Message = "child " + failure.Message
+		}
 		unlock := r.LockPublication()
 		defer unlock()
 		var run protocol.ConversationRun
@@ -41,10 +44,25 @@ func (r *Runtime) executeOwned(x *execution) {
 		if err == nil {
 			r.publish()
 			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
-			r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+			r.RefreshCommitted(run.Session)
+			if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+				r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+			}
 		}
 	}()
 	r.execute(x)
+}
+
+// recoveredTurn runs the turn body. Its panic becomes an ordinary failed turn:
+// calls are settled, children cancelled and the run finished by execute.
+func (r *Runtime) recoveredTurn(x *execution) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			logPanic(x, "turn", "", value)
+			err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "turn failed unexpectedly; calls were not replayed"}
+		}
+	}()
+	return r.turn(x)
 }
 
 func usedChildTurns(x *execution, state store.AgentState) uint32 {

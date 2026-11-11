@@ -2,6 +2,7 @@ package operations
 
 import (
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +15,10 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 	var values map[string]any
 	if err := json.Unmarshal(arguments, &values); err != nil {
 		return protocol.Command{}, err
+	}
+	if values == nil {
+		// A plugin script can return null where the model schema cannot.
+		return protocol.Command{}, invalidCommand("native operation arguments must be an object")
 	}
 	set := func(key string, value any) { values[key] = value }
 	defaultValue := func(key string, value any) {
@@ -193,6 +198,19 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 		defaultValue("summary", "")
 		defaultValue("id", nil)
 		defaultValue("expected_revision", nil)
+	case "storage.get":
+		kind = "read_plugin_value"
+	case "storage.list":
+		kind = "list_plugin_keys"
+		limit, ok := values["limit"].(float64)
+		if !ok || limit < 1 || limit > 9007199254740991 || limit != math.Trunc(limit) {
+			return protocol.Command{}, invalidCommand("limit must be a positive safe integer")
+		}
+		set("limit", min(limit, 100))
+	case "storage.set":
+		kind = "write_plugin_value"
+	case "storage.delete":
+		kind = "remove_plugin_value"
 	default:
 		return protocol.Command{}, invalidCommand("native operation is unavailable")
 	}

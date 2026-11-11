@@ -2,10 +2,10 @@ package plugins
 
 import (
 	"context"
-	"encoding/base64"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 

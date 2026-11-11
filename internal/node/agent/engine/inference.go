@@ -26,16 +26,45 @@ type streamOutput struct {
 	calls    map[string]bool
 	finished bool
 	limited  bool
-	usage    canonical.Usage
 }
 
-func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fantasy.LanguageModel, state store.AgentState) error {
+// credential resolves an account credential for one model call, as the source
+// does per request. The Node renews it only near expiry; an API key is fixed.
+func (r *Runtime) credential(x *execution, binding model.Binding) (model.Binding, error) {
+	if r.authorizeProvider == nil || binding.Provider.Authentication == protocol.AuthenticationApiKey {
+		return binding, nil
+	}
+	if err := r.authorizeProvider(x.ctx, x.inv); err != nil {
+		return binding, err
+	}
+	if x.inv.Secret != nil {
+		secret := protocol.NewSecret(x.inv.Secret.Expose())
+		binding.Secret = &secret
+	}
+	return binding, nil
+}
+
+func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fantasy.LanguageModel, state store.AgentState) error {
+	binding, err := r.credential(x, captured)
+	if err != nil {
+		return err
+	}
+	if binding.Secret != nil && (captured.Secret == nil || binding.Secret.Expose() != captured.Secret.Expose()) {
+		// The transport holds the credential it was built with.
+		if x.renewedModel == nil || x.renewedSecret.Expose() != binding.Secret.Expose() {
+			if x.renewedModel, err = r.model(x.ctx, binding); err != nil {
+				return err
+			}
+			x.renewedSecret = *binding.Secret
+		}
+		languageModel = x.renewedModel
+	}
 	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)}
 	parts = append(parts, r.delegationContext(x, state), x.skillContext, childBudgetContext(x, state))
 	if state.Context.Environment != nil {
 		parts = append(parts, *state.Context.Environment)
 	}
-	if title := prompt.TitleInstruction(state.Context.Title, toolCapable(binding), x.inv.Session.Delegation != nil); title != nil {
+	if title := prompt.TitleInstruction(state.Context.Title, capturedModel(binding).Tools, x.inv.Session.Delegation != nil); title != nil {
 		parts = append(parts, *title)
 	}
 	for _, instruction := range x.inv.Instructions {
@@ -61,14 +90,14 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 	}
 	instruction := prompt.Instruction(x.inv.Session.Delegation != nil)
 	system := prompt.System(instruction, state.Context, nil)
-	tools := r.declarations(x, state)
+	tools := r.declarations(x, binding, state)
 	schemas := map[string]json.RawMessage{}
 	for _, tool := range tools {
 		if captured := findTool(x.tools, tool.Name); captured != nil && len(captured.SchemaJSON) > 0 {
 			schemas[tool.Name] = captured.SchemaJSON
 		}
 	}
-	projected := x.output.Project(state.Records)
+	projected := model.Answered(x.output.Project(state.Records))
 	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
 	if err != nil {
 		return err
@@ -116,7 +145,6 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 		metric := r.telemetry.Capture()
 		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			r.observeModel(metric, binding, attempt)
-			out.usage = attempt.Usage
 			if attempt.Failure != nil && attempt.Failure.Retryable() && !escaped && attempt.Index < 5 {
 				record := r.observationRecord(x, binding, purpose, attempt)
 				limit, delay := uint64(5), uint64(60000)
@@ -166,7 +194,9 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 			message.Sources = out.sources
 			message.PartCount = uint64(len(out.blocks))
 			for _, block := range out.blocks {
-				if block.Data != nil {
+				// A response whose stream failed never requested its tools: the
+				// source reader emits calls only after a completed stream.
+				if block.Data != nil && (err == nil || block.Kind != "tool_request") {
 					message.Content = append(message.Content, block)
 				}
 			}
@@ -317,14 +347,6 @@ func (out *streamOutput) empty() bool {
 	}
 	return true
 }
-func toolCapable(binding model.Binding) bool {
-	for _, m := range binding.Provider.Models {
-		if m.ID == binding.Config.Model {
-			return m.Tools
-		}
-	}
-	return false
-}
 func successfulTool(records []canonical.Record) bool {
 	last := lastMessage(records)
 	if last == nil {
@@ -406,9 +428,10 @@ func (r *Runtime) observationRecord(x *execution, binding model.Binding, purpose
 
 func (out *streamOutput) order() {
 	type slot struct {
-		block canonical.Block
-		index uint64
-		kind  int
+		block    canonical.Block
+		index    uint64
+		kind     int
+		position int
 	}
 	var slots []slot
 	for key, position := range out.slots {
@@ -429,13 +452,11 @@ func (out *streamOutput) order() {
 		case "tool_request":
 			kind = 3
 		}
-		slots = append(slots, slot{block, index, kind})
+		slots = append(slots, slot{block, index, kind, position})
 	}
-	slices.SortStableFunc(slots, func(a, b slot) int {
-		if n := cmp.Compare(a.index, b.index); n != 0 {
-			return n
-		}
-		return cmp.Compare(a.kind, b.kind)
+	// Arrival order settles ties; map iteration above has none.
+	slices.SortFunc(slots, func(a, b slot) int {
+		return cmp.Or(cmp.Compare(a.index, b.index), cmp.Compare(a.kind, b.kind), cmp.Compare(a.position, b.position))
 	})
 	out.blocks = nil
 	for _, slot := range slots {

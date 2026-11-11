@@ -164,3 +164,77 @@ func assistantPackages(ctx context.Context, db *sql.Conn, binding protocol.Plugi
 	}
 	return packages, nil
 }
+
+// validateAssistantDelegation rejects an agent reference before its turn is
+// admitted unless the assistant selects the delegation tool or a package tool
+// bound to the delegation operation. captured names the packages of an already
+// admitted turn; a new turn resolves the assistant's current packages.
+func validateAssistantDelegation(ctx context.Context, db *sql.Conn, binding *protocol.PluginConversationBinding, message protocol.ConversationInput, captured []protocol.PluginReference) error {
+	if binding == nil || !slices.ContainsFunc(message.References, func(reference protocol.ConversationReference) bool { return reference.Target.Kind == "agent" }) {
+		return nil
+	}
+	denied := fault(protocol.ErrorCodePermissionDenied, "plugin assistant does not allow delegation")
+	var packages []protocol.PluginInfo
+	var owner *protocol.PluginInfo
+	if captured == nil {
+		current, err := assistantPackages(ctx, db, *binding)
+		if err != nil {
+			return err
+		}
+		packages, owner = current, &current[0]
+	} else {
+		for _, reference := range captured {
+			info, err := ReadPluginVersion(ctx, db, reference)
+			if err != nil {
+				return err
+			}
+			packages = append(packages, info)
+			if reference == binding.Package {
+				owner = &packages[len(packages)-1]
+			}
+		}
+	}
+	if owner == nil {
+		return denied
+	}
+	declaration, err := assistantDeclaration(*binding, *owner)
+	if err != nil {
+		return denied
+	}
+	for _, tool := range declaration.Tools {
+		provider, name := binding.Package.Name, ""
+		switch tool.Kind {
+		case "builtin":
+			if builtin, _ := dispatchValue[protocol.PluginConversationToolBuiltinPayload](tool.Data); builtin.Name == "spawn_agent" {
+				return nil
+			}
+			continue
+		case "plugin":
+			selected, _ := dispatchValue[protocol.PluginConversationToolPluginPayload](tool.Data)
+			if selected.Server != nil {
+				continue
+			}
+			name = selected.Name
+		case "package":
+			selected, _ := dispatchValue[protocol.PluginConversationToolPackagePayload](tool.Data)
+			provider, name = selected.Package, selected.Name
+		default:
+			continue
+		}
+		for _, info := range packages {
+			if info.Summary.Name != provider || info.Extension == nil {
+				continue
+			}
+			for _, candidate := range info.Extension.Tools {
+				operation := candidate.Operation
+				if operation == nil && candidate.Handler != nil {
+					operation = candidate.Handler.Operation
+				}
+				if candidate.Name == name && operation != nil && *operation == protocol.ToolOperationDelegateAgent {
+					return nil
+				}
+			}
+		}
+	}
+	return denied
+}

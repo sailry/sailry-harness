@@ -77,6 +77,10 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		progress, _ := json.Marshal(map[string]any{"type": "compacting", "started_ms": r.clock.Now().UnixMilli()})
 		_ = r.feed.Delta(x.inv.Session.ID, protocol.ConversationDraft{ID: summaryID, Turn: x.inv.Run.Turn, Author: "sailry", Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(progress)}}})
 	}
+	binding, err := r.credential(x, binding)
+	if err != nil {
+		return err
+	}
 	selected := capturedModel(binding)
 	summaryBinding := model.Summary(binding)
 	output := model.OutputLimit(summaryBinding, true)

@@ -362,6 +362,7 @@ type providerEditor struct {
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
 	advanced            bool
 	models              []modelDraft
+	removed             int // models taken out, part of a model row's identity (mcpEditor.removed)
 	def                 int
 	probing             bool
 	// returnTo reopens the welcome guide from the first step's Back, when
@@ -826,6 +827,7 @@ func providerModel(c *ui.Context, e *providerEditor, i int) {
 				return
 			}
 			e.models = slices.Delete(e.models, i, i+1)
+			e.removed++
 			switch {
 			case e.def == i:
 				e.def = 0
@@ -834,7 +836,7 @@ func providerModel(c *ui.Context, e *providerEditor, i int) {
 			}
 		}, removeLabel: t("settings_delete"),
 		content: func() { modelForm(c, d) },
-	}.row(c, i, title)
+	}.row(c, [2]int{e.removed, i}, title)
 }
 
 // modelForm is the model ID, the context limit with its common sizes, and the

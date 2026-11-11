@@ -71,7 +71,7 @@ func (state *pluginNativeState) navigationOperations() {
 				if _, available := state.packageInfo(); !available {
 					return
 				}
-				for _, info := range state.runtime.controller.Snapshot().Terminals {
+				for _, info := range state.runtime.snapshot().Terminals {
 					if info.ID == id && info.Status.Kind != "closed" {
 						root := state.runtime.localRuntime()
 						if existing := root.packages.terminals[id.String()]; existing != nil && existing.owner != state.runtime {

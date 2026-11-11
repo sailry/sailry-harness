@@ -56,6 +56,9 @@ func startSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 	if err = validateAgentInput(draft.Message); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if err = validateAgentReferences(ctx, db, session, draft.Message, nil); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, true)
 	if err != nil {
 		return protocol.Output{}, nil, err
@@ -85,6 +88,9 @@ func submitTask(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID,
 		}
 	}
 	if err = validateAgentInput(input.Message); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if err = validateAgentReferences(ctx, db, session, input.Message, nil); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, true)

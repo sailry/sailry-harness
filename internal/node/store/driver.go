@@ -132,6 +132,9 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	if err != nil {
 		return nil, err
 	}
+	// A reader beyond the idle set is reopened with its pragmas on every read;
+	// database/sql keeps only two by default.
+	readDB.SetMaxIdleConns(8)
 	if err := readDB.PingContext(ctx); err != nil {
 		_ = readDB.Close()
 		return nil, err

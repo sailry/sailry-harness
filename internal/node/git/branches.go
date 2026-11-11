@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -167,34 +168,113 @@ func (s *Service) sync(ctx context.Context, root string, r *gogit.Repository, h 
 	}
 	return result, checkContext(ctx)
 }
+
+// aheadBehind counts the commits reachable from only a and from only b. It
+// ports libgit2's graph_ahead_behind, which the Rust service called without a
+// further limit: both histories are painted newest first until every queued
+// commit descends from a shared one, then each tip is counted down to the first
+// shared commit. The walk is bounded by the distance to the merge base rather
+// than by the length of the history, and shares Git's reliance on commit dates.
 func aheadBehind(ctx context.Context, r *gogit.Repository, a, b plumbing.Hash) (uint64, uint64, error) {
-	reachable := func(hash plumbing.Hash) (map[plumbing.Hash]bool, error) {
-		result := map[plumbing.Hash]bool{}
-		iter, err := r.Log(&gogit.LogOptions{From: hash})
+	if a == b {
+		return 0, 0, nil
+	}
+	const (
+		left = 1 << iota
+		right
+		stale
+		counted
+	)
+	type node struct {
+		commit *object.Commit
+		flags  uint8
+	}
+	nodes := map[plumbing.Hash]*node{}
+	load := func(hash plumbing.Hash) (*node, error) {
+		if found := nodes[hash]; found != nil {
+			return found, nil
+		}
+		commit, err := r.CommitObject(hash)
 		if err != nil {
 			return nil, mapError(err)
 		}
-		defer iter.Close()
-		err = iter.ForEach(func(c *object.Commit) error { result[c.Hash] = true; return checkContext(ctx) })
-		return result, err
+		nodes[hash] = &node{commit: commit}
+		return nodes[hash], nil
 	}
-	left, err := reachable(a)
+	// The queue is ordered oldest first, so the newest commit is popped from its end.
+	var queue []*node
+	push := func(value *node) {
+		when := value.commit.Committer.When
+		i := sort.Search(len(queue), func(i int) bool { return queue[i].commit.Committer.When.After(when) })
+		queue = slices.Insert(queue, i, value)
+	}
+	pop := func() *node {
+		value := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		return value
+	}
+	one, err := load(a)
 	if err != nil {
 		return 0, 0, err
 	}
-	right, err := reachable(b)
+	two, err := load(b)
 	if err != nil {
 		return 0, 0, err
 	}
-	var ahead, behind uint64
-	for h := range left {
-		if !right[h] {
-			ahead++
+	one.flags, two.flags = left, right
+	push(one)
+	push(two)
+	var roots []*node
+	fresh := func(value *node) bool { return value.flags&stale == 0 }
+	for len(queue) > 0 && (slices.ContainsFunc(queue, fresh) || slices.ContainsFunc(roots, fresh)) {
+		if err := checkContext(ctx); err != nil {
+			return 0, 0, err
+		}
+		current := pop()
+		flags := current.flags & (left | right | stale)
+		if flags == left|right {
+			// Everything below a shared commit is shared.
+			flags |= stale
+		}
+		for _, hash := range current.commit.ParentHashes {
+			parent, err := load(hash)
+			if err != nil {
+				return 0, 0, err
+			}
+			if parent.flags&flags != flags {
+				parent.flags |= flags
+				push(parent)
+			}
+		}
+		if len(current.commit.ParentHashes) == 0 {
+			// A root reached from one side keeps the walk going until the other side passes it.
+			roots = append(roots, current)
 		}
 	}
-	for h := range right {
-		if !left[h] {
+	var ahead, behind uint64
+	queue = queue[:0]
+	push(one)
+	push(two)
+	for len(queue) > 0 {
+		if err := checkContext(ctx); err != nil {
+			return 0, 0, err
+		}
+		current := pop()
+		if current.flags&counted != 0 || current.flags&(left|right) == left|right {
+			continue
+		}
+		current.flags |= counted
+		if current.flags&left != 0 {
+			ahead++
+		} else {
 			behind++
+		}
+		for _, hash := range current.commit.ParentHashes {
+			parent, err := load(hash)
+			if err != nil {
+				return 0, 0, err
+			}
+			push(parent)
 		}
 	}
 	return ahead, behind, nil

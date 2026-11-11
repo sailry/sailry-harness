@@ -3,15 +3,17 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
 
@@ -106,13 +108,18 @@ func validateCanonicalAssets(ctx context.Context, db *sql.Conn, record canonical
 	if message == nil {
 		return nil
 	}
+	// Blobs are stored under the digest of their bytes, so a reference is
+	// checked against the stored length without reading the bytes again.
 	check := func(asset canonical.AssetRef) error {
-		data, err := GetBlob(ctx, db, asset.Digest)
+		var size uint64
+		err := db.QueryRowContext(ctx, "SELECT length(bytes) FROM agent_blobs WHERE digest=?1", asset.Digest).Scan(&size)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fault(protocol.ErrorCodeNotFound, "conversation asset is unavailable")
+		}
 		if err != nil {
 			return err
 		}
-		sum := blake3.Sum256(data)
-		if uint64(len(data)) != asset.Size || hex.EncodeToString(sum[:]) != asset.Digest {
+		if size != asset.Size {
 			return invalid("conversation asset is invalid")
 		}
 		return nil
@@ -129,8 +136,12 @@ func validateCanonicalAssets(ctx context.Context, db *sql.Conn, record canonical
 					return err
 				}
 			}
+			var result any
+			if len(value.Result.Assets) > 0 {
+				result = agentJSON(value.Result.Value)
+			}
 			for _, slot := range value.Result.Assets {
-				if agentPointer(agentJSON(value.Result.Value), slot.Pointer) != nil {
+				if agentPointer(result, slot.Pointer) != nil {
 					return invalid("conversation asset slot is invalid")
 				}
 				if err := check(slot.Asset); err != nil {
@@ -141,9 +152,12 @@ func validateCanonicalAssets(ctx context.Context, db *sql.Conn, record canonical
 			if err != nil {
 				return err
 			}
-			body, err := encode(agentJSON(hydrated))
-			if err != nil {
-				return err
+			// A hydrated payload with assets is already in its encoded form.
+			body := []byte(hydrated)
+			if len(value.Result.Assets) == 0 {
+				if body, err = encode(agentJSON(hydrated)); err != nil {
+					return err
+				}
 			}
 			sum := blake3.Sum256(body)
 			if hex.EncodeToString(sum[:]) != value.Revision {

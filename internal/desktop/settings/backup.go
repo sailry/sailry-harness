@@ -142,7 +142,7 @@ func backup(c *ui.Context, m *Model) {
 	archivesDialog(c, m)
 	if d.deleting {
 		// Destructive: named and its consequence said once.
-		if ui.AlertDialog(c.Key("delete-all"), &d.deleting, t("backup_delete_all")+"?", t("backup_delete_all_consequence"),
+		if kit.AlertDialog(c.Key("delete-all"), &d.deleting, t("backup_delete_all")+"?", t("backup_delete_all_consequence"),
 			t("settings_cancel"), t("backup_delete_all_action")) == 1 {
 			if a == nil {
 				notice(c)
@@ -155,7 +155,7 @@ func backup(c *ui.Context, m *Model) {
 	restoreDialog(c, m)
 	if d.removing && a != nil {
 		// Destructive: the session is named and its consequence said once.
-		if ui.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", t("backup_delete_session_consequence"),
+		if kit.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", t("backup_delete_session_consequence"),
 			t("settings_cancel"), t("backup_delete")) == 1 {
 			a.Delete(d.removed)
 		}

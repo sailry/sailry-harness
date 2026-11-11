@@ -1,0 +1,18 @@
+Host installer files ported from the Rust implementation of Sailry at commit
+eaad1b7f18e448c8c4e9e9286e19560c8a351ae1.
+
+package/install-host.sh   scripts/install-host.sh, unchanged
+package/sailry            scripts/host-command.sh, unchanged
+package/service.sh        crates/node-runtime/src/ssh/install/service.sh, unchanged
+dependencies.jq           scripts/package/dependencies.jq, unchanged
+licenses.sh               scripts/package/licenses.sh, adapted: Go modules of
+                          the named command (cmd/sailry-host by default) and
+                          the crates of native/iroh replace the Rust
+                          workspace's dependency graph
+archive.sh                new: assembles the Host archive that
+                          scripts/build-host.sh produced
+../../wsl/release.sh      crates/node-runtime/src/host/deployment/release.sh, unchanged
+
+The files in package/ are the archive's own files under their archive names.
+release.sh, service.sh and identity.py in this directory belong to the
+local-artifact installation and are not part of the archive.

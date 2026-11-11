@@ -231,6 +231,9 @@ activity centre's knowledge notice opens it.
 Live wiring (`internal/desktop/live/knowledge.go`, contract in
 [knowledge.md](knowledge.md#desktop)): `Hooks.OpenKnowledge` receives the
 parsed `Source` and the Node of the notice or conversation that named it. A
+live notice names a citation when its `text` details are exactly one such
+link (`knowledgeLink`, set by `Notices` in `live/projection.go`); its click
+marks it read (`mark_notification_read`) and opens the viewer. A
 link `ParseSource` rejects, or whose collection is not an identifier or whose
 chunk or revision is not a 64-digit hash, toasts `knowledge_citation_invalid`
 and sends nothing. Otherwise the controller reads `read_knowledge_citation`
@@ -283,11 +286,14 @@ the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
 `internal/desktop/shell/knowledge_live_test.go` (`testLiveKnowledge`, run by
 `TestActivityCentreReadsAndOpens`): an invalid link never reaches the hook, a
-notice hands over its citation, the live page's texts, and Previous and Next
+notice is marked read and hands over its citation, the live page's texts, and Previous and Next
 at the ends and while loading.
 `internal/desktop/live/knowledge_test.go` (`testKnowledgeViewer`, run by
-`TestNoticesProjection`): the request of a link, the answers accepted, the
-toast of each fault and paging by re-reading.
+`TestNoticesProjection`): which notification text becomes a notice's link,
+the request of a link, the answers accepted, the toast of each fault and
+paging by re-reading. `TestKnowledgeUIIntegration` (integration) publishes a
+real notification citing an indexed chunk, clicks it in the activity centre
+and finds it read on the Node with the viewer on that chunk.
 `internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; the
 Files and Git page and tab share a project's state, another project
 keeps its own.
@@ -313,7 +319,7 @@ Phase 1–2 screens.
 | The View menu's features are those at launch | The menu is set once; rail reordering does not rebuild it |
 | A live citation always opens in the knowledge viewer | The reference opens a worktree citation with a line position in the conversation's file panel; the coverage rows name the viewer |
 | The knowledge viewer shows no spinner while a page loads | The accepted layout has none; Previous and Next are disabled instead |
-| Live notices carry no knowledge link | The protocol's notifications have no link field; the notice path is wired through the same hook and exercised with the preview's notice |
+| A live notice opens the knowledge viewer when its text details are one citation link | The protocol's notifications have no link field and the reference opens citations only from chat links. `live.Notices` sets `Notice.Link` when a notification's `text` details, trimmed, are exactly one `sailry-knowledge://` link the Node can read; any other text stays details only. No bundled package publishes such a notice yet |
 | With the live `OpenLink` set, `#heading` links in replies no longer scroll | MyGo hands every link to `OnLink` once it is set; knowledge links need it |
 
 ## B3 live wiring

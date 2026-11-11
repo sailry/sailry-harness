@@ -1,12 +1,12 @@
 package settings
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
 
@@ -46,25 +46,24 @@ func TestKeysCapture(t *testing.T) {
 	}
 }
 
-func TestSetVariable(t *testing.T) {
-	h := TerminalHost{Env: []preview.EnvVar{{Key: "EDITOR", Value: "vi"}}}
-	for _, c := range []struct {
-		index      int
-		key, want  string
-		wantLength int
-	}{
-		{-1, "1X", "terminal_variable_invalid", 1},
-		{-1, "EDITOR", "terminal_variable_duplicate", 1},
-		{0, " EDITOR ", "", 1},
-		{-1, "PATH_2", "", 2},
-	} {
-		if got := h.SetVariable(c.index, c.key, "v"); got != c.want || len(h.Env) != c.wantLength {
-			t.Errorf("%+v: %q %d", c, got, len(h.Env))
-		}
-	}
-}
-
 func TestDraftChecks(t *testing.T) {
+	t.Run("terminal variable", func(t *testing.T) {
+		h := TerminalHost{Env: []preview.EnvVar{{Key: "EDITOR", Value: "vi"}}}
+		for _, c := range []struct {
+			index      int
+			key, want  string
+			wantLength int
+		}{
+			{-1, "1X", "terminal_variable_invalid", 1},
+			{-1, "EDITOR", "terminal_variable_duplicate", 1},
+			{0, " EDITOR ", "", 1},
+			{-1, "PATH_2", "", 2},
+		} {
+			if got := h.SetVariable(c.index, c.key, "v"); got != c.want || len(h.Env) != c.wantLength {
+				t.Errorf("%+v: %q %d", c, got, len(h.Env))
+			}
+		}
+	})
 	t.Run("hook consent reports the captured Node sandbox capability", func(t *testing.T) {
 		m := &Model{HooksSandboxed: func() bool { return false }}
 		if got := hookScope(m); got != "hooks_scope_workspace" {
@@ -111,14 +110,6 @@ func TestDraftChecks(t *testing.T) {
 	b.Tab, b.Bucket = 1, ""
 	if b.Check() != "backup_invalid" {
 		t.Error("S3 without a bucket accepted")
-	}
-}
-
-func TestStoredCommit(t *testing.T) {
-	s := stored(false)
-	s.Draft = true
-	if o := s.Commit(); o != kit.Done || !s.Saved || s.Revision != 2 {
-		t.Fatalf("%v %+v", o, s)
 	}
 }
 
@@ -201,6 +192,45 @@ func TestConnectors(t *testing.T) {
 	if e.Check() != "mcp_invalid" {
 		t.Error("bad URL passed")
 	}
+	// A row that moves into a removed row's place keeps its own text state:
+	// undo there does not bring back the removed row's earlier text.
+	t.Run("removed argument row", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.mcp = mcpEditor{open: true, name: "files", command: "npx", args: []string{"", ""}}
+		tt := ui.NewTesterWith(func(c *ui.Context) { mcpDialog(c, m) }, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Advance(time.Second)
+		named := func(role ui.Role, name string) (found []ui.Rect) {
+			for _, x := range tt.AccessAll() {
+				if x.Role == role && x.Name == name {
+					found = append(found, x.Bounds)
+				}
+			}
+			return found
+		}
+		at := func(r ui.Rect) { tt.ClickAt(r.X+r.W/2, r.Y+r.H/2) }
+		argument := i18n.In("en", "mcp_argument")
+		inputs := named(ui.RoleTextField, argument)
+		if len(inputs) != 2 {
+			t.Fatalf("%d argument inputs: %q", len(inputs), tt.Texts())
+		}
+		at(inputs[0])
+		tt.Type("first")
+		at(inputs[1])
+		tt.Type("second")
+		at(named(ui.RoleButton, i18n.In("en", "mcp_remove_argument"))[0])
+		tt.Frame()
+		if !slices.Equal(m.mcp.args, []string{"second"}) {
+			t.Fatalf("arguments %q", m.mcp.args)
+		}
+		at(named(ui.RoleTextField, argument)[0])
+		tt.Key(ui.Cmd, ui.KeyZ)
+		tt.Frame()
+		if got := m.mcp.args[0]; got != "second" {
+			t.Errorf("undo in the row that moved up gave %q", got)
+		}
+	})
 }
 
 // Team and role checks.

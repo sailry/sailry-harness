@@ -134,7 +134,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	key, count := NoticeAge(now.Sub(n.Time))
 	age := i18n.T(c, key, "count", count)
 	row := ui.ButtonBase(c.Key(n.ID)).Padding(8).Gap(8).Radius(p.Radius).Cursor(ui.CursorPointer).
-		Label(title + " · " + i18n.T(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
+		Label(title + " · " + a.hostName(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
 	text := p.PopoverForeground
 	if n.Read {
 		text = p.MutedForeground

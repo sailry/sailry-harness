@@ -1,0 +1,35 @@
+name: Website docs
+
+# The website repository rebuilds from the documents it reads here.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'assets/catalogs/**'
+      - 'docs/**'
+      - 'sdk/plugins.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: website-docs
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Request website rebuild
+        env:
+          GH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo 'WEBSITE_DISPATCH_TOKEN is not set; skipping'
+            exit 0
+          fi
+          gh api --method POST repos/sailry/sailry-website/dispatches \
+            -f event_type=harness-docs-updated \
+            -f "client_payload[sha]=$SOURCE_SHA"

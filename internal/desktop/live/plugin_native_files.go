@@ -139,7 +139,7 @@ func (state *pluginNativeState) fileOperations() {
 			return nil, err
 		}
 		var root string
-		for _, worktree := range state.runtime.controller.Snapshot().Worktrees {
+		for _, worktree := range state.runtime.snapshot().Worktrees {
 			if worktree.ID == *state.scope.Worktree {
 				root = worktree.Path
 				break

@@ -3,7 +3,6 @@ package live
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"image"
 	"image/jpeg"
@@ -11,6 +10,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/image/draw"
 )

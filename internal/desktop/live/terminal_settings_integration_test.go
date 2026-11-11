@@ -31,8 +31,25 @@ import (
 // them go, so a state that lasts one round trip can be observed.
 type terminalGate struct {
 	link.Transport
-	mu   sync.Mutex
-	held map[string]chan struct{}
+	mu      sync.Mutex
+	held    map[string]chan struct{}
+	refused map[string]error
+}
+
+// refuse answers the commands of kind with err, without reaching the Node,
+// until the returned release is called.
+func (gate *terminalGate) refuse(kind string, err error) func() {
+	gate.mu.Lock()
+	if gate.refused == nil {
+		gate.refused = map[string]error{}
+	}
+	gate.refused[kind] = err
+	gate.mu.Unlock()
+	return func() {
+		gate.mu.Lock()
+		delete(gate.refused, kind)
+		gate.mu.Unlock()
+	}
 }
 
 // hold stops the commands of kind until the returned release is called.
@@ -54,7 +71,11 @@ func (gate *terminalGate) hold(kind string) func() {
 func (gate *terminalGate) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
 	gate.mu.Lock()
 	wait := gate.held[request.Command.Kind]
+	refused := gate.refused[request.Command.Kind]
 	gate.mu.Unlock()
+	if refused != nil {
+		return link.Admission{}, refused
+	}
 	if wait != nil {
 		select {
 		case <-wait:
@@ -291,7 +312,18 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	})
 	window.tester.Key(0, ui.KeyEscape)
 	window.wait("the find bar closes a third time", func() bool { return !attached().find })
-	t.Log("step 10 passed: ⌘F, the toolbar and the native menu's command opened the find bar; 3 scrollback matches were counted and stepped through round both ends, the bar's count following the terminal's selection")
+	// KEY-013: from the conversation's input ⌘F opens the conversation's
+	// find bar instead.
+	window.clickOn(window.one(ui.RoleTextField, "Describe what you want to accomplish…"))
+	window.tester.Key(ui.Cmd, ui.KeyF)
+	window.wait("⌘F in the conversation's input opens the conversation's find bar", func() bool {
+		return app.Messages.SearchSession() == session.ID.String() && !attached().find
+	})
+	// The session has no turn, so the bar has nothing to draw; it is closed
+	// as its Done does.
+	app.Messages.CloseSearch()
+	window.frame()
+	t.Log("step 10 passed: ⌘F, the toolbar and the native menu's command opened the find bar; 3 scrollback matches were counted and stepped through round both ends, the bar's count following the terminal's selection; ⌘F from the conversation's input opened the conversation's find instead")
 
 	// (11) Paste protection is on in a new profile: a paste of several
 	// lines asks first, Cancel sends nothing and Paste sends the lines.

@@ -11,6 +11,12 @@ import (
 
 const conversationDetailLimit = 64 * 1024 * 1024
 
+// The observer classifies these two size failures by their exact message.
+const (
+	detailTransferLimit = "tool detail exceeds the transfer limit"
+	detailMemoryLimit   = "tool detail exceeds the display memory budget"
+)
+
 type conversationDetail struct {
 	reference protocol.ToolDetailReference
 	value     protocol.ToolDetail
@@ -93,7 +99,7 @@ func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDe
 		}
 		end := p.Offset + uint64(len(p.Text))
 		if p.TotalBytes > conversationDetailLimit {
-			return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, "tool detail exceeds the transfer limit")
+			return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, detailTransferLimit)
 		}
 		if !reflect.DeepEqual(ref, p.Reference) || p.Offset != uint64(len(data)) || len(p.Text) > 64*1024 || end > p.TotalBytes || total != nil && *total != p.TotalBytes || p.NextOffset != nil && (*p.NextOffset != end || len(p.Text) == 0 || end >= p.TotalBytes) || p.NextOffset == nil && end != p.TotalBytes {
 			return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, "tool detail page is inconsistent")
@@ -110,7 +116,7 @@ func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDe
 	}
 	allocation := retainedDetailBytes(reflect.ValueOf(value)) + retainedDetailBytes(reflect.ValueOf(ref))
 	if allocation > conversationDetailLimit {
-		return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, "tool detail exceeds the display memory budget")
+		return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, detailMemoryLimit)
 	}
 	key := detailKey(ref)
 	c.conversationMu.Lock()

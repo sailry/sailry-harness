@@ -86,6 +86,14 @@ func guideDelegatedTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeI
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
+	child, err := ReadSession(ctx, db, capture.Session)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	child.Config, child.Roles = capture.Config, capture.Roles
+	if err = validateAgentReferences(ctx, db, child, input.Message, capture.Plugins); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	turn := capture
 	turn.ID, turn.Request = protocol.NewTurnID(), request.ID
 	sequence, err := NextCounter(ctx, db, CounterTurns)

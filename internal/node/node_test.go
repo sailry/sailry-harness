@@ -331,6 +331,38 @@ func TestReceiptAfterDurableAdmission(t *testing.T) {
 	if snapshotFixture(t, node).PowerSettingsRevision != 1 {
 		t.Fatal("observer cancellation cancelled admitted work")
 	}
+	// A busy project worker delays neither the admission of later commands,
+	// nor reads, nor the commands of the other lane.
+	node.effects.Lock()
+	held := true
+	defer func() {
+		if held {
+			node.effects.Unlock()
+		}
+	}()
+	var pending []link.Admission
+	for range 2 {
+		draft := protocol.ProjectsDraft{Name: "Project", Path: t.TempDir(), Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"}}
+		accepted, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "create_project", Data: draft}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pending = append(pending, accepted)
+	}
+	if len(snapshotFixture(t, node).Projects) != 0 {
+		t.Fatal("a project was created while the worker was held")
+	}
+	sessionFixture(t, node)
+	held = false
+	node.effects.Unlock()
+	for _, accepted := range pending {
+		if result := <-accepted.Completion; result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
+	}
+	if len(snapshotFixture(t, node).Projects) != 2 {
+		t.Fatal("queued commands did not run")
+	}
 }
 
 // Over 1 s: each Node start installs and verifies the bundled packages.

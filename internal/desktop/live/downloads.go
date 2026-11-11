@@ -306,7 +306,7 @@ func (r *Runtime) RevealWorkspaceFile(worktree protocol.WorktreeID, path string)
 			r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeUnavailable, "the execution host cannot be revealed on this controller"))
 			return
 		}
-		for _, value := range r.controller.Snapshot().Worktrees {
+		for _, value := range r.snapshot().Worktrees {
 			if value.ID == worktree {
 				if !validWorkspaceRelative(path) {
 					r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeInvalidRequest, "invalid workspace file path"))

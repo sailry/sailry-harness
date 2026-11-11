@@ -42,13 +42,13 @@ func TestCapture(t *testing.T) {
 
 	// Only an ordinary file in the given directory is opened.
 	directory := t.TempDir()
-	if err := Load(directory); !errors.Is(err, ErrUnavailable) {
+	if err := Load(directory, false); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("empty directory: %v", err)
 	}
 	if err := os.Mkdir(filepath.Join(directory, LibraryName()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := Load(directory); !errors.Is(err, ErrUnavailable) {
+	if err := Load(directory, false); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("a directory in the library's place: %v", err)
 	}
 	if PermissionDenied.Allowed() || PermissionRestricted.Allowed() || PermissionNotDetermined.Allowed() || !PermissionGranted.Allowed() {

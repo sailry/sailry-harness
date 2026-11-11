@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -247,6 +248,43 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 		currentGrant, decodeErr := providers.DecodeAccount(currentSecret, provider.Authentication)
 		if err != nil || decodeErr != nil || currentGrant.Access != "selected-access" {
 			t.Fatal("queued renewal wrote another account's credential")
+		}
+	})
+	t.Run("renewal tells a refused connection from a delivered request", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		address := listener.Addr().String()
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
+		exchange := func(base http.RoundTripper) bool {
+			transport := &renewalTransport{base: base}
+			request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+"/token", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, err := transport.RoundTrip(request); err == nil {
+				response.Body.Close()
+			}
+			return transport.sent.Load()
+		}
+		if exchange(&http.Transport{}) {
+			t.Fatal("a refused connection counted as a delivered request")
+		}
+		for name, base := range map[string]accountHTTP{
+			"answered": func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusBadGateway, Body: io.NopCloser(strings.NewReader(""))}, nil
+			},
+			"reset after writing": func(*http.Request) (*http.Response, error) {
+				return nil, &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset")}
+			},
+			"cancelled": func(*http.Request) (*http.Response, error) { return nil, context.Canceled },
+		} {
+			if !exchange(base) {
+				t.Errorf("%s: an exchange that may have been delivered counted as undelivered", name)
+			}
 		}
 	})
 	block.Store(true)

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/egoist/mygo"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/protocol"

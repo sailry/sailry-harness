@@ -1,7 +1,6 @@
 package wire
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"io"
@@ -33,12 +32,11 @@ func Write(stream io.Writer, value any, compressed bool) error {
 		return err
 	}
 	defer clear(payload)
-	var header [4]byte
-	binary.BigEndian.PutUint32(header[:], prefix)
-	if _, err := io.Copy(stream, bytes.NewReader(header[:])); err != nil {
-		return network()
-	}
-	if _, err := io.Copy(stream, bytes.NewReader(payload)); err != nil {
+	frame := make([]byte, 4+len(payload))
+	defer clear(frame)
+	binary.BigEndian.PutUint32(frame, prefix)
+	copy(frame[4:], payload)
+	if _, err := stream.Write(frame); err != nil {
 		return network()
 	}
 	return nil

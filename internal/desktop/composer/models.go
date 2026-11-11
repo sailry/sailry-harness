@@ -362,7 +362,7 @@ func (s *State) features(c *ui.Context, m Model) {
 			})
 			continue
 		}
-		kit.MenuButton(c.Key(f.ID), "feature-"+f.ID, func(b ui.Element) {
+		kit.MenuButton(c.Key(f.ID), s.menuID("feature-"+f.ID), func(b ui.Element) {
 			kit.Tooltip(c, kit.IconLook(c, b, icon, label, "", 28, set).Radius(14), tip)
 		}, func(menu *kit.Menu) {
 			if menu.Item(i18n.T(c, "composer_feature_off")).Checked(!set).Chosen() {
@@ -593,7 +593,7 @@ func (s *State) modelRow(c *ui.Context, m Model) {
 		b.OnClick(func() { s.pick(m, 0) })
 		return
 	}
-	id := "efforts-" + m.ID
+	id := s.menuID("efforts-" + m.ID)
 	b := kit.MenuButton(c.Key(m.ID), id, look, func(menu *kit.Menu) {
 		current := defaultEffort(m)
 		if selected {
@@ -615,7 +615,7 @@ func (s *State) modelRow(c *ui.Context, m Model) {
 	}, kit.MenuOptions{At: ui.AnchorStart, Self: ui.AnchorEnd})
 	if b.Hovered() && s.efforts != m.ID {
 		if s.efforts != "" {
-			kit.OpenMenu(c, "efforts-"+s.efforts, false)
+			kit.OpenMenu(c, s.menuID("efforts-"+s.efforts), false)
 		}
 		s.efforts = m.ID
 		kit.OpenMenu(c, id, true)

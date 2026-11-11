@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,6 +9,8 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
+
+	"github.com/MoeForge/moego/base64"
 )
 
 func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, error) {
@@ -361,7 +362,7 @@ func genericTools(call fantasy.Call, responses bool) []any {
 			function["type"] = "function"
 			tools = append(tools, function)
 		} else {
-			chatSchema(schema)
+			// The wire encoder adapts the chat schema from its declaration bytes.
 			tools = append(tools, map[string]any{"type": "function", "function": function})
 		}
 	}

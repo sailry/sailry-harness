@@ -2,13 +2,13 @@ package model
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 
 	"charm.land/fantasy"
 	fantasygoogle "charm.land/fantasy/providers/google"
+	"github.com/MoeForge/moego/base64"
 	"github.com/google/uuid"
 	"google.golang.org/genai"
 )

@@ -34,11 +34,14 @@ type AgentInvocation struct {
 	Assistant *protocol.PluginConversationDeclaration
 }
 type AgentState struct {
-	Session     protocol.Session
+	Session protocol.Session
+	// Records are shared with every state extended from this one: read-only.
 	Records     []canonical.Record
 	Context     canonical.Context
 	LoadedTools []string
 	Reviewed    bool
+	// sequence is the last loaded record of history revision history.
+	sequence, history uint64
 }
 type AgentGuidance struct {
 	Turn    protocol.QueuedTurn
@@ -46,80 +49,102 @@ type AgentGuidance struct {
 }
 
 func LoadAgentState(ctx context.Context, db *sql.Conn, session protocol.SessionID) (AgentState, error) {
+	value, _, err := ExtendAgentState(ctx, db, session, AgentState{})
+	return value, err
+}
+
+// ExtendAgentState loads a session's state, decoding only the records appended
+// after previous, and reports how many leading records it shares with it.
+// History only grows within one history revision; after a rewind, or for
+// another session, everything is loaded again.
+func ExtendAgentState(ctx context.Context, db *sql.Conn, session protocol.SessionID, previous AgentState) (AgentState, int, error) {
 	value := AgentState{Records: []canonical.Record{}, LoadedTools: []string{}}
 	var err error
 	value.Session, err = ReadSession(ctx, db, session)
 	if err != nil {
-		return value, err
+		return value, 0, err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence", session.String())
+	if value.history, err = historyRevision(ctx, db, session); err != nil {
+		return value, 0, err
+	}
+	reused, captured := 0, false
+	if previous.Session.ID == session && previous.history == value.history {
+		value.Records, value.sequence = slices.Clip(previous.Records), previous.sequence
+		reused, captured = len(previous.Records), previous.Context.Captured
+	}
+	rows, err := db.QueryContext(ctx, "SELECT h.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence>?2 ORDER BY h.sequence", session.String(), value.sequence)
 	if err != nil {
-		return value, err
+		return value, 0, err
 	}
 	for rows.Next() {
 		var body []byte
-		if err = rows.Scan(&body); err != nil {
+		if err = rows.Scan(&value.sequence, &body); err != nil {
 			rows.Close()
-			return value, err
+			return value, 0, err
 		}
 		var record canonical.Record
 		if err = json.Unmarshal(body, &record); err != nil {
 			rows.Close()
-			return value, err
+			return value, 0, err
+		}
+		if record.Metadata.Context != nil && record.Metadata.Context.Captured {
+			captured = true
+		}
+		if record.Kind == "configuration" {
+			if c, ok := record.Data.(*canonical.Configuration); ok && c.Context.Captured {
+				captured = true
+			}
 		}
 		value.Records = append(value.Records, record)
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return value, err
+		return value, 0, err
 	}
-	rows, err = db.QueryContext(ctx, "SELECT key,body FROM agent_state WHERE owner=?1", session.String())
+	value.Context, value.LoadedTools, err = LoadAgentContext(ctx, db, session)
+	value.Context.Captured = captured
+	return value, reused, err
+}
+
+// LoadAgentContext reads a session's materialized context and loaded tools
+// without its history. Captured is derived from history and stays unset.
+func LoadAgentContext(ctx context.Context, db *sql.Conn, session protocol.SessionID) (canonical.Context, []string, error) {
+	value, loaded := canonical.Context{Guides: map[string]canonical.Guide{}}, []string{}
+	rows, err := db.QueryContext(ctx, "SELECT key,body FROM agent_state WHERE owner=?1", session.String())
 	if err != nil {
-		return value, err
+		return value, loaded, err
 	}
-	value.Context.Guides = map[string]canonical.Guide{}
 	for rows.Next() {
 		var key string
 		var body []byte
 		if err = rows.Scan(&key, &body); err != nil {
 			rows.Close()
-			return value, err
+			return value, loaded, err
 		}
 		switch key {
 		case sessionTitleKey:
-			err = json.Unmarshal(body, &value.Context.Title)
+			err = json.Unmarshal(body, &value.Title)
 		case "sailry.context.policy":
-			err = json.Unmarshal(body, &value.Context.Policy)
+			err = json.Unmarshal(body, &value.Policy)
 		case "sailry.context.environment":
-			err = json.Unmarshal(body, &value.Context.Environment)
+			err = json.Unmarshal(body, &value.Environment)
 		case "sailry.context.personal":
-			err = json.Unmarshal(body, &value.Context.Personal)
+			err = json.Unmarshal(body, &value.Personal)
 		case "sailry.context.loaded_tools":
-			err = json.Unmarshal(body, &value.LoadedTools)
+			err = json.Unmarshal(body, &loaded)
 		default:
 			if strings.HasPrefix(key, "sailry.context.guide:") {
 				var guide canonical.Guide
 				err = json.Unmarshal(body, &guide)
-				value.Context.Guides[key] = guide
+				value.Guides[key] = guide
 			}
 		}
 		if err != nil {
 			rows.Close()
-			return value, err
+			return value, loaded, err
 		}
 	}
-	err = errors.Join(rows.Err(), rows.Close())
-	value.Context.LoadedTools = &value.LoadedTools
-	for _, record := range value.Records {
-		if record.Metadata.Context != nil && record.Metadata.Context.Captured {
-			value.Context.Captured = true
-		}
-		if record.Kind == "configuration" {
-			if c, ok := record.Data.(*canonical.Configuration); ok && c.Context.Captured {
-				value.Context.Captured = true
-			}
-		}
-	}
-	return value, err
+	value.LoadedTools = &loaded
+	return value, loaded, errors.Join(rows.Err(), rows.Close())
 }
 
 func activityEvent(ctx context.Context, db *sql.Conn, session protocol.SessionID) ([]protocol.Event, error) {
@@ -175,7 +200,7 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 		if !bytes.Equal(aa, bb) {
 			return protocol.ConversationEntry{}, nil, fault(protocol.ErrorCodeConflict, "event identifier already has different content")
 		}
-		entry, err := projectStoredEntry(ctx, db, record, sequence)
+		entry, err := projectStoredEntry(ctx, db, record, sequence, nil)
 		return entry, nil, err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -216,7 +241,7 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 	if err != nil {
 		return protocol.ConversationEntry{}, nil, err
 	}
-	entry, err := projectStoredEntry(ctx, db, record, sequence)
+	entry, err := projectStoredEntry(ctx, db, record, sequence, nil)
 	if err != nil {
 		return entry, nil, err
 	}

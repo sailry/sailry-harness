@@ -18,7 +18,7 @@ func (r *Runtime) readPower() {
 		return
 	}
 	m.Pending = true
-	r.powerObservedRevision = r.controller.Snapshot().PowerSettingsRevision
+	r.powerObservedRevision = r.snapshot().PowerSettingsRevision
 	r.async(func() {
 		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_power_settings"})
 		r.enqueue(func(c *ui.Context) {

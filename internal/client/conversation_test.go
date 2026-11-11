@@ -63,6 +63,12 @@ func testConversationProjectionOrder(t *testing.T) {
 			v.Revision++
 			*u = conversationFrame(*s, "run", v)
 		}, Ignored, protocol.ErrorCodeInvalidRequest},
+		{"streaming_identity", func(s *protocol.ConversationSnapshot, u *protocol.Update) {
+			d := protocol.ConversationDraft{ID: "stream", Turn: s.Page.Runs[0].Turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "First"}}}
+			s.Drafts = []protocol.ConversationDraft{d}
+			d.Author = "user"
+			*u = conversationFrame(*s, "delta", d)
+		}, Ignored, protocol.ErrorCodeInvalidRequest},
 		{"queue_revision", func(s *protocol.ConversationSnapshot, u *protocol.Update) {
 			s.Page.Queue = protocol.ConversationQueue{Revision: 2}
 			*u = conversationFrame(*s, "queue", protocol.ConversationQueue{Revision: 1})
@@ -120,7 +126,8 @@ func testConversationProjectionOrder(t *testing.T) {
 				t.Fatal(got, err)
 			}
 		}
-		draft := p.Snapshot().Drafts[0]
+		held := p.Snapshot()
+		draft := held.Drafts[0]
 		if draft.Parts[0].Data != "First second" {
 			t.Fatal(draft)
 		}
@@ -162,6 +169,9 @@ func testConversationProjectionOrder(t *testing.T) {
 		}
 		if len(p.Snapshot().Drafts) != 0 {
 			t.Fatal("closed run retained stream")
+		}
+		if len(held.Drafts) != 1 || held.Drafts[0].Parts[0].Data != "First second" || len(held.Page.Entries) != len(s.Page.Entries) || held.Page.Runs[0].Status != s.Page.Runs[0].Status {
+			t.Fatal("later frames changed a snapshot a reader holds")
 		}
 		if err := p.Reconnect(2); err != nil {
 			t.Fatal(err)

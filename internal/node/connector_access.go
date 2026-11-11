@@ -96,6 +96,10 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if err != nil {
 		return nil, err
 	}
+	if record.Method == protocol.PluginConnectorKindOauth2 && (declarationAuth.Refresh == nil || record.Grant.Refresh == nil) {
+		// No exchange is sent, so the grant keeps no uncertain marker.
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization cannot be refreshed"}
+	}
 	previous := record
 	pending := *record.Grant
 	pending.Extra = maps.Clone(pending.Extra)
@@ -116,9 +120,6 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	defer cancel()
 	var issued authorization.Issued
 	if record.Method == protocol.PluginConnectorKindOauth2 {
-		if declarationAuth.Refresh == nil || previous.Grant.Refresh == nil {
-			return nil, connectorUnavailable()
-		}
 		for name, value := range previous.Grant.Fields() {
 			fields[name] = value
 		}

@@ -229,6 +229,9 @@ func resolveQuestion(ctx context.Context, db *sql.Conn, node, caller protocol.No
 		if e = validateAgentInput(response.Message); e != nil {
 			return protocol.Output{}, nil, e
 		}
+		if e = validateAgentReferences(ctx, db, session, response.Message, nil); e != nil {
+			return protocol.Output{}, nil, e
+		}
 		events := []protocol.Event{}
 		if session.Config.Mode != protocol.WorkModeCode {
 			session.Config.Mode = protocol.WorkModeCode

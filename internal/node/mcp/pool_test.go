@@ -155,6 +155,48 @@ func TestMCPCleanupUnknown(t *testing.T) {
 			t.Fatalf("acquisition discarded a resource owner: lease=%v error=%v", lease, err)
 		}
 	})
+	t.Run("dead reusable server is replaced", func(t *testing.T) {
+		var servers []*sdk.ServerSession
+		pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+			server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+			sdk.AddTool(server, &sdk.Tool{Name: "echo"}, func(ctx context.Context, request *sdk.CallToolRequest, input struct{}) (*sdk.CallToolResult, any, error) {
+				return &sdk.CallToolResult{}, nil, nil
+			})
+			clientWire, serverWire := sdk.NewInMemoryTransports()
+			session, err := server.Connect(t.Context(), serverWire, nil)
+			if err != nil {
+				return nil, err
+			}
+			servers = append(servers, session)
+			return sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, &sdk.ClientOptions{ElicitationHandler: elicit}).Connect(ctx, clientWire, nil)
+		}})
+		defer pool.Close()
+		options := protocol.DefaultPluginMcpOptions()
+		options.Reuse = true
+		config := Configuration{Package: protocol.PluginReference{Name: "dead", Digest: "capture"}, Server: "echo", Options: options, Authorization: 1}
+		list := func() error {
+			lease, err := pool.Acquire(t.Context(), config)
+			if err != nil {
+				return err
+			}
+			_, err = lease.List(t.Context())
+			return errors.Join(err, lease.Close())
+		}
+		if err := list(); err != nil {
+			t.Fatal(err)
+		}
+		_ = servers[0].Close()
+		_ = servers[0].Wait()
+		// The closed transport is noticed either before or by the first use.
+		if err := list(); err != nil {
+			if err = list(); err != nil {
+				t.Fatalf("dead connection stayed in the pool: %v", err)
+			}
+		}
+		if len(servers) != 2 {
+			t.Fatalf("connections opened=%d", len(servers))
+		}
+	})
 	for _, fail := range []bool{false, true} {
 		t.Run(map[bool]string{false: "confirmed", true: "unconfirmed"}[fail], func(t *testing.T) {
 			pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {

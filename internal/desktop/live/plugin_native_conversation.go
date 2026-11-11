@@ -148,7 +148,7 @@ func (state *pluginNativeState) newAssistantDraft(identity string, session proto
 	comp.Host, comp.Permission = target.Node, composer.AskFirst
 	if session.Project != nil {
 		comp.Project = session.Project.String()
-		for _, worktree := range state.runtime.controller.Snapshot().Worktrees {
+		for _, worktree := range state.runtime.snapshot().Worktrees {
 			if worktree.ID == session.Worktree {
 				comp.Worktree = worktree.Path
 				break
@@ -189,7 +189,7 @@ func (state *pluginNativeState) conversationSession(request pluginNativeConversa
 	if !available {
 		return protocol.Session{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin conversation scope is unavailable")
 	}
-	snapshot := state.runtime.controller.Snapshot()
+	snapshot := state.runtime.snapshot()
 	if request.Assistant == nil {
 		id := request.Session
 		if id == nil {

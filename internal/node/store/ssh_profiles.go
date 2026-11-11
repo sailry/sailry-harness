@@ -3,12 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"strings"
 	"unicode"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 

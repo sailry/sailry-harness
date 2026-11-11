@@ -147,10 +147,6 @@ func (r *Runtime) delegationContext(x *execution, state store.AgentState) string
 	return text + fmt.Sprintf("\nConcurrency budget: up to %d children run at once in this conversation; later children queue in FIFO order.", x.childBudget)
 }
 
-func identity(call canonical.ToolRequest) canonical.ToolIdentity {
-	return canonical.ToolIdentity{ID: &call.ID, Name: call.Name, Arguments: call.Arguments}
-}
-
 func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest) ToolResult {
 	var args struct {
 		Role       *string `json:"role"`
@@ -172,7 +168,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest) ToolResul
 		selected = &copy
 	}
 	return r.admitChild(x, call, args.Background, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
-		inv, events, err := store.DelegateAgent(ctx, db, r.node, x.inv.Run.Turn, identity(call), selected, args.Background, r.clock.Now())
+		inv, events, err := store.DelegateAgent(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), selected, args.Background, r.clock.Now())
 		return &inv, events, err
 	})
 }
@@ -183,7 +179,7 @@ func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest) ToolResul
 		var inv *store.AgentInvocation
 		var events []protocol.Event
 		var err error
-		state, inv, events, err = store.GuideChild(ctx, db, r.node, x.inv.Run.Turn, identity(call), r.clock.Now())
+		state, inv, events, err = store.GuideChild(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), r.clock.Now())
 		return inv, events, err
 	})
 	if result.Value == nil && result.Failure == nil {

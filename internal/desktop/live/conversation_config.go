@@ -24,7 +24,7 @@ func (r *Runtime) composerKey(c *composer.State) string {
 }
 
 func (r *Runtime) defaultComposer(c *composer.State) {
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	if config := snapshot.Defaults.Config; config != nil {
 		for _, p := range snapshot.Providers {
 			if p.Enabled && p.ID == config.Provider && slices.ContainsFunc(p.Models, func(m protocol.ConversationModel) bool { return m.ID == config.Model }) {

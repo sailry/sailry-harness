@@ -85,6 +85,38 @@ func TestSharedWorkspaceAndCommandOwners(t *testing.T) {
 			}
 			releaseTwo()
 			<-subscription.closed
+			if kind == "commands" {
+				if _, ok := controller.Commands(session); ok {
+					t.Fatal("unobserved command watch was retained")
+				}
+			} else if _, ok := controller.Workspace(worktree, kind == "repository"); ok {
+				t.Fatal("unobserved workspace watch was retained")
+			}
 		})
 	}
+	t.Run("command_output", func(t *testing.T) {
+		session, command := protocol.NewSessionID(), protocol.NewRequestID()
+		transport := &clientTransport{dispatch: func(request protocol.Request) (link.Admission, error) {
+			snapshot := protocol.DefaultProcessSnapshot()
+			snapshot.Info.ID, snapshot.Info.Session, snapshot.Info.Status.Kind = command, session, "exited"
+			completion := make(chan link.Response, 1)
+			completion <- link.Response{Output: protocol.Output{Kind: "command_output", Data: snapshot}}
+			return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
+		}}
+		controller := New(transport)
+		defer controller.Close()
+		changed := make(chan struct{}, 4)
+		release, err := controller.ObserveCommandOutput(context.Background(), session, command, func() { changed <- struct{}{} })
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-changed
+		if state, ok := controller.CommandOutput(session, command); !ok || !state.Known || state.Err != nil {
+			t.Fatal("finished command output is unavailable to its observer", state.Err)
+		}
+		release()
+		if _, ok := controller.CommandOutput(session, command); ok {
+			t.Fatal("unobserved command output was retained")
+		}
+	})
 }

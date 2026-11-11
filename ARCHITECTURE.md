@@ -231,18 +231,24 @@ independent of this policy.
 - An update is validated on an isolated snapshot, saved as a private backup, then
   applied with current-format validation in one transaction. Invalid current-format
   changes fail without applying the update.
-- The current development baseline stores `node.storage_generation=1`. Owned Node
-  storage without that column is development data: startup removes the Node and
-  knowledge databases and creates an empty current database, without migration or
-  backup. Generation 1 keeps its data. Unknown generations and other invalid
-  current definitions fail without resetting storage.
+- The current baseline stores `node.storage_generation=1`. Owned Node storage at
+  generation 1 keeps its data. Any other state, including a missing or unknown
+  generation, a foreign application or another Node's identity, fails without
+  changing storage; no startup path deletes a database.
 - A validation failure never authorizes rebuilding a current database.
 - Startup validates current configuration and recovery records. Historical
   captures and history are validated when their readers load them.
-- The selected SQLite fallback cancels release option A. It refuses Turso
-  profiles and performs no import. A release profile decision is required before
-  packaging; source builds still default to `~/.sailry-go`. Implementer runs use
+- The selected SQLite fallback performs no import. By the user's November 11,
+  2026 decision a release build opens `~/.sailry` in place: `core.Default` is
+  set at link time and `core.Release` reports it. An earlier release's
+  database files move, unopened and unchanged, to `storage/rust-archive/`.
+  Source builds still default to `~/.sailry-go`. Implementer runs use
   `--data-dir .runtime/profiles/<fixed-name>`.
+- `internal/shipped` locates packaged files and verifies native libraries
+  against the package seal that `go run ./native/fetch -seal` writes after
+  signing. Inside a signed macOS bundle the seal replaces the upstream pins; a
+  release build loads the iroh and capture libraries only from its package and
+  only when the seal records them.
 - Schema objects, stored JSON shapes and profile files follow the Rust source;
   the SQLite fallback supplies FTS5 external-content indexes and native SQLite
   file families in place of Turso's index methods and file families.

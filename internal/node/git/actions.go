@@ -217,7 +217,7 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 			return nil, err
 		}
 		ref := "refs/heads/" + local
-		return []string{"push", "--force-with-lease=" + ref + ":" + v.Commit, remote, ":" + ref}, nil
+		return []string{"push", "--force-with-lease=" + ref + ":" + v.Commit, remote, ":" + ref}, name(remote)
 	case "push_tags":
 		v := data[protocol.GitActionPushTagsPayload](action.Data)
 		return []string{"push", "--tags", v.Remote}, name(v.Remote)
@@ -450,6 +450,10 @@ func actionRemotes(action protocol.GitAction) []string {
 		return []string{data[protocol.GitActionRemoveRemotePayload](action.Data).Name}
 	case "delete_tag":
 		value = data[protocol.GitActionDeleteTagPayload](action.Data).Remote
+	case "delete_remote_branch":
+		if remote, _, ok := strings.Cut(data[protocol.GitActionDeleteRemoteBranchPayload](action.Data).Branch, "/"); ok {
+			return []string{remote}
+		}
 	}
 	if value != nil {
 		return []string{*value}

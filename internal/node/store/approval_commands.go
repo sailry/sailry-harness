@@ -32,7 +32,13 @@ func locateAgentCall(ctx context.Context, db *sql.Conn, turn protocol.TurnID, id
 	if identity.ID == nil || *identity.ID == "" {
 		return "", 0, nil, invalid("tool call identity is missing")
 	}
-	records, err := readBodies[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence", turn.String())
+	token, err := encode(*identity.ID)
+	if err != nil {
+		return "", 0, nil, err
+	}
+	// Only the records that request this call are decoded; a stored body that
+	// lacks the encoded call identifier is skipped before it is parsed.
+	records, err := readBodies[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 AND (typeof(body)!='blob' OR instr(body,?3)>0) AND json_extract(body,'$.kind')='message' AND EXISTS(SELECT 1 FROM json_each(body,'$.content') b WHERE json_extract(b.value,'$.type')='tool_request' AND json_extract(b.value,'$.id')=?2) ORDER BY sequence", turn.String(), *identity.ID, token)
 	if err != nil {
 		return "", 0, nil, err
 	}

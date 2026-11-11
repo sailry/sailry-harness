@@ -91,7 +91,7 @@ func (a *App) trail(c *ui.Context) {
 	}
 	if a.Page == HostPage {
 		h, _ := a.hostPage()
-		ui.Text(c, i18n.T(c, h.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+		ui.Text(c, a.hostName(c, h.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}
 	if a.Page == ProjectPage {

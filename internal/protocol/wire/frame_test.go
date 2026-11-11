@@ -194,7 +194,9 @@ func TestFramePlain(t *testing.T) {
 		for _, compressed := range []bool{false, true} {
 			output := protocol.Output{Kind: "snapshot", Data: &snapshot}
 			var stream bytes.Buffer
-			if err := WriteReply(&stream, Reply{Kind: ReplyCompleted, Completed: &Response{Output: &output}}, compressed); err != nil {
+			if err := WriteReply(Reply{Kind: ReplyCompleted, Completed: &Response{Output: &output}}, func(frame Reply) error {
+				return Write(&stream, frame, compressed)
+			}); err != nil {
 				t.Fatal(err)
 			}
 			reader := NewReader(compressed)
@@ -375,7 +377,7 @@ func TestFrameOversizeBeforeAlloc(t *testing.T) {
 	if output.Len() != 0 {
 		t.Fatal("wrote an oversized frame")
 	}
-	header := SnapshotHeader{DeliveryUpdate, protocol.NodeID{1}, 7, math.MaxUint64}
+	header := SnapshotHeader{DeliveryUpdate, protocol.NodeID{1}, 7, MaxSnapshotBytes}
 	assembly := Assembly{}
 	if _, err := assembly.Accept(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header}); err != nil {
 		t.Fatal(err)
@@ -386,10 +388,15 @@ func TestFrameOversizeBeforeAlloc(t *testing.T) {
 	if reply, err := assembly.Accept(snapshotPage(0, "x")); err != nil || reply != nil || string(assembly.pending.data) != "x" {
 		t.Fatalf("bounded snapshot page = %#v, %v", reply, err)
 	}
-	header.Bytes = 0
-	assembly = Assembly{}
-	_, err := assembly.Accept(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header})
-	assertFault(t, err, "invalid_request")
+	for _, declared := range []uint64{0, MaxSnapshotBytes + 1, math.MaxUint64} {
+		header.Bytes = declared
+		assembly = Assembly{}
+		_, err := assembly.Accept(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header})
+		assertFault(t, err, "invalid_request")
+		if assembly.pending != nil {
+			t.Fatalf("retained a snapshot header declaring %d bytes", declared)
+		}
+	}
 	page, err := json.Marshal(snapshotPage(0, strings.Repeat("\x00", PageBytes)))
 	if err != nil || len(page) >= protocol.MAX_FRAME_BYTES {
 		t.Fatalf("escaped page exceeds frame limit: %d bytes, %v", len(page), err)

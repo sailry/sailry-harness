@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -88,6 +89,12 @@ func (f *workspaceUploadTransport) Dispatch(ctx context.Context, request protoco
 		response.Output = protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: input.ID, Outcome: protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &output}}}}
 	case "cancel_file_transfer":
 		response.Output = protocol.Output{Kind: "file_transfer_cancelled"}
+	case "trash_entry":
+		if input, _ := detail[protocol.CommandTrashEntryPayload](request.Command.Data); input.Path == "denied" {
+			response.Fault = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "entry is protected"}
+		} else {
+			response.Output = protocol.Output{Kind: "entry_trashed"}
+		}
 	default:
 		response.Fault = &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "unexpected fixture command"}
 	}
@@ -243,4 +250,46 @@ func testWorkspaceUploads(t *testing.T) {
 			transport.mu.Unlock()
 		})
 	}
+	t.Run("file batch restarts after a failed entry", func(t *testing.T) {
+		transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
+		r := &Runtime{ctx: t.Context(), controller: client.New(transport), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		worktree := protocol.NewWorktreeID()
+		p := &workspaceProject{runtime: r, owner: protocol.Worktree{ID: worktree}}
+		p.panel = panel.NewLiveProject("fixture", &viewmodel.Workspace{Files: &viewmodel.FileNode{}}, &panel.Actions{})
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			r.mu.Lock()
+			queue := r.queue
+			r.queue = nil
+			r.mu.Unlock()
+			for _, complete := range queue {
+				complete(c)
+			}
+		}, 600, 400)
+		commands := []protocol.Command{
+			{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: worktree, Path: "first"}},
+			{Kind: "trash_entry", Data: protocol.CommandTrashEntryPayload{Worktree: worktree, Path: "denied"}},
+		}
+		var results []bool
+		for attempt := range 2 {
+			p.fileCommandsFinish(commands, func(ok bool) { results = append(results, ok) }, nil)
+			for range 4 {
+				r.workers.Wait()
+				tester.Frame()
+			}
+			if len(results) != attempt+1 || results[attempt] {
+				t.Fatal("failed batch did not report its failure", results)
+			}
+		}
+		transport.mu.Lock()
+		defer transport.mu.Unlock()
+		var paths []string
+		for _, request := range transport.requests {
+			input, _ := detail[protocol.CommandTrashEntryPayload](request.Command.Data)
+			paths = append(paths, input.Path)
+		}
+		if strings.Join(paths, ",") != "first,denied,first,denied" {
+			t.Fatal("repeated batch skipped the entries before its earlier failure", paths)
+		}
+	})
 }

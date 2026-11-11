@@ -3,9 +3,11 @@ package model
 import (
 	_ "embed"
 	"encoding/json"
-	"github.com/sailry/sailry-harness/internal/protocol"
 	"strings"
 	"sync"
+
+	"github.com/sailry/sailry-harness/internal/node/providers"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // The pinned source catalog supplies request capabilities, not model-name tables.
@@ -13,23 +15,10 @@ import (
 //go:embed data/model-catalog.json
 var catalogJSON []byte
 
-//go:embed data/model-presets.json
-var presetJSON []byte
-var presetPolicies []protocol.ConversationPresetsRequestPolicy
-var presetOnce sync.Once
-
-func bundledPolicies() []protocol.ConversationPresetsRequestPolicy {
-	presetOnce.Do(func() {
-		var document struct {
-			Policies []protocol.ConversationPresetsRequestPolicy `json:"policies"`
-		}
-		if err := json.Unmarshal(presetJSON, &document); err != nil {
-			panic("bundled request policies are invalid")
-		}
-		presetPolicies = document.Policies
-	})
-	return presetPolicies
-}
+// Request policies come from the one bundled preset catalog.
+var bundledPolicies = sync.OnceValue(func() []protocol.ConversationPresetsRequestPolicy {
+	return providers.Bundled().Policies
+})
 
 var catalogOnce sync.Once
 var catalog map[string]struct {

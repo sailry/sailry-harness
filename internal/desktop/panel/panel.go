@@ -620,7 +620,7 @@ func (s *State) history(c *ui.Context) {
 		}
 	})
 	if confirmation := &s.historyConfirm; confirmation.open {
-		if ui.AlertDialog(c.Key("checkpoint-confirm"), &confirmation.open, confirmation.title, confirmation.message+"\n"+confirmation.target, i18n.T(c, "settings_cancel"), confirmation.title) == 1 && confirmation.run != nil {
+		if kit.AlertDialog(c.Key("checkpoint-confirm"), &confirmation.open, confirmation.title, confirmation.message+"\n"+confirmation.target, i18n.T(c, "settings_cancel"), confirmation.title) == 1 && confirmation.run != nil {
 			confirmation.run(c)
 		}
 	}

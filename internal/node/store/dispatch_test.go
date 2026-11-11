@@ -251,9 +251,23 @@ func TestDispatchContracts(test *testing.T) {
 		fixture := newDispatchFixture(test, "retained")
 		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
 			old := fixture.reference
-			current, err := dispatchCurrent(ctx, db, old.Name)
+			// The stored compatibility records the installing build; the
+			// running build decides whether the package dispatches.
+			stored, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1", old.Name)
 			if err != nil {
 				return err
+			}
+			stored.Summary.Compatibility = protocol.PluginCompatibility{Kind: "requires_newer", Data: protocol.PluginCompatibilityRequiresNewerPayload{Required: "0.0.1"}}
+			stale, err := encode(stored)
+			if err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, "UPDATE plugins SET body=?1 WHERE name=?2", stale, old.Name); err != nil {
+				return err
+			}
+			current, err := dispatchCurrent(ctx, db, old.Name)
+			if err != nil {
+				return fmt.Errorf("stale stored compatibility: %w", err)
 			}
 			current.Summary.Digest = "dispatch-fixture-v2"
 			body, err := encode(current)

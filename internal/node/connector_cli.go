@@ -125,15 +125,20 @@ func (node *Node) runConnectorCLI(ctx context.Context, declaration protocol.Plug
 	if declaration.TimeoutMs == 0 || declaration.TimeoutMs > 60_000 || declaration.MaxOutput == 0 || declaration.MaxOutput > 1024*1024 {
 		return nil, connectorUnavailable()
 	}
+	// The search path and account directories come from the Node alone: a
+	// package's declaration must not choose the executable or its home.
+	owned := []string{"PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "SystemDrive", "PATHEXT"}
 	environment := map[string]string{}
-	for _, entry := range node.environment.TerminalValues() {
-		name, value, _ := strings.Cut(entry, "=")
-		if slices.Contains([]string{"PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "SystemDrive", "PATHEXT"}, name) {
+	for name, value := range declaration.Env {
+		if !slices.ContainsFunc(owned, func(reserved string) bool { return strings.EqualFold(reserved, name) }) {
 			environment[name] = value
 		}
 	}
-	for name, value := range declaration.Env {
-		environment[name] = value
+	for _, entry := range node.environment.TerminalValues() {
+		name, value, _ := strings.Cut(entry, "=")
+		if slices.Contains(owned, name) {
+			environment[name] = value
+		}
 	}
 	executable, err := connectorExecutable(declaration.Command, environment)
 	if err != nil {

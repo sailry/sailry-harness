@@ -156,7 +156,7 @@ func confirm(c *ui.Context, key any, open *bool, title, consequence, action stri
 	if !*open {
 		return false
 	}
-	return ui.AlertDialog(c.Key(key), open, title, consequence, i18n.T(c, "settings_cancel"), action) == 1
+	return kit.AlertDialog(c.Key(key), open, title, consequence, i18n.T(c, "settings_cancel"), action) == 1
 }
 
 // Flow is an account authorization's state.

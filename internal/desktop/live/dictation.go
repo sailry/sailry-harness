@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -77,7 +78,7 @@ func speechRuntime() error {
 	if err != nil {
 		return err
 	}
-	return capture.Load(directory)
+	return capture.Load(directory, core.Release())
 }
 
 func systemDictation() dictationBackend {

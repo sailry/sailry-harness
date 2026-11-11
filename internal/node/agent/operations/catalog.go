@@ -74,13 +74,9 @@ type manifestTool struct {
 var Bundled = sync.OnceValues(load)
 
 func load() (*Catalog, error) {
-	var specs []Spec
-	if err := json.Unmarshal(specification, &specs); err != nil {
+	byOperation, err := operationPolicies()
+	if err != nil {
 		return nil, err
-	}
-	byOperation := map[protocol.ToolOperation]Spec{}
-	for _, spec := range specs {
-		byOperation[spec.Operation] = spec
 	}
 	paths, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
 	if err != nil {

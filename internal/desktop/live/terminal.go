@@ -47,7 +47,7 @@ func (r *Runtime) terminalOwners() []*Runtime {
 
 func (r *Runtime) terminalOwner(id protocol.TerminalID) (*Runtime, protocol.TerminalInfo, bool) {
 	for _, owner := range r.terminalOwners() {
-		for _, info := range owner.controller.Snapshot().Terminals {
+		for _, info := range owner.snapshot().Terminals {
 			if info.ID == id {
 				return owner, info, true
 			}

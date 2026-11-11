@@ -338,7 +338,7 @@ func (p *workspaceProject) manageWorktrees() {
 			}
 			choices = append(choices, panel.Choice{Label: tree.Path, Detail: workspaceString(tree.Branch), Run: func(c *ui.Context) {
 				var registered *protocol.Worktree
-				for _, candidate := range p.runtime.controller.Snapshot().Worktrees {
+				for _, candidate := range p.runtime.snapshot().Worktrees {
 					if candidate.Path == tree.Path {
 						copy := candidate
 						registered = &copy

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/sailry/sailry-harness/internal/shipped"
 )
 
 // file is one packaged runtime file pinned by size and SHA-256.
@@ -52,6 +54,28 @@ func locked() ([]file, error) {
 		return nil, errors.New("ONNX Runtime is unavailable on this platform")
 	}
 	return files, nil
+}
+
+// pins returns what the runtime files in directory must match: the upstream
+// lock, or the package seal inside a signed application bundle, whose
+// signing rewrote them.
+func pins(directory string, files []file) ([]file, error) {
+	seal, err := shipped.Sealed(directory)
+	if err != nil {
+		return nil, fmt.Errorf("ONNX Runtime is invalid: %w", err)
+	}
+	if seal == nil {
+		return files, nil
+	}
+	sealed := make([]file, len(files))
+	for index, pinned := range files {
+		record, listed := seal.File(pinned.name)
+		if !listed {
+			return nil, fmt.Errorf("ONNX Runtime is invalid: %s is not in the package seal", pinned.name)
+		}
+		sealed[index] = file{pinned.name, record.Size, record.SHA256}
+	}
+	return sealed, nil
 }
 
 // Directory is the only place the runtime is loaded from: the directory of

@@ -7,15 +7,18 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -406,6 +409,57 @@ func TestPackageSchemasAndSkills(t *testing.T) {
 		if body, err := os.ReadFile(filepath.Join(root, "skills/review/SKILL.md")); err != nil || !bytes.Contains(body, []byte("First body")) {
 			t.Fatalf("inspection changed the installed capture: %v", err)
 		}
+		// The captured commit stays readable after its branch moved on.
+		selected, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: source, Path: &path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, entries, _, err := acquireRepository(t.Context(), selected, discovery.Source.Commit)
+		if err != nil || resolved.Commit != discovery.Source.Commit {
+			t.Fatalf("captured commit: %#v %v", resolved, err)
+		}
+		if index := slices.IndexFunc(entries, func(entry packageEntry) bool { return entry.name == "SKILL.md" }); index < 0 || !bytes.Contains(entries[index].data, []byte("First body")) {
+			t.Fatalf("captured commit followed its branch: %v", entries)
+		}
+		missing := "missing"
+		unknown, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: source, GitRef: &missing})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fault *protocol.Fault
+		if _, _, _, err := acquireRepository(t.Context(), unknown, ""); !errors.As(err, &fault) || fault.Message != "plugin repository revision is unavailable" {
+			t.Fatalf("unknown revision: %v", err)
+		}
+		// One revision is transferred within a byte allowance: a large file in
+		// the newest commit exceeds it, the same file left in history does not.
+		large := make([]byte, 64*1024)
+		_, _ = rand.NewChaCha8([32]byte{1}).Read(large)
+		packageFixture(t, source, "history.bin", string(large))
+		packageFixture(t, source, "pack/plugin.json", `{"$schema":"`+ManifestSchema+`","name":"repository-fixture","version":"0.1.0"}`)
+		commit("Add history")
+		bounded := repositoryCaptureOptions{maximum: MaxPackageEntries, transfer: 16 * 1024}
+		if _, _, _, err := acquireRepository(t.Context(), selected, "", bounded); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest || fault.Message != "Git transfer exceeds its size limit" {
+			t.Fatalf("oversized transfer: %v", err)
+		}
+		if _, err := worktree.Remove("history.bin"); err != nil {
+			t.Fatal(err)
+		}
+		commit("Drop history")
+		if _, _, _, err := acquireRepository(t.Context(), selected, "", bounded); err != nil {
+			t.Fatalf("history was transferred with the newest revision: %v", err)
+		}
+		// An inspected package is held only until it is installed.
+		pack := "pack"
+		selection, err := manager.InspectRepository(t.Context(), protocol.PluginSkillsSource{Repository: source, Path: &pack})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.InspectRepository(t.Context(), protocol.PluginSkillsSource{Repository: source, Path: &pack}); err != nil || len(manager.repositories) != 1 {
+			t.Fatalf("inspections retained: %d %v", len(manager.repositories), err)
+		}
+		if info, err := manager.InstallRepository(t.Context(), selection); err != nil || info.Summary.Name != "repository-fixture" || len(manager.repositories) != 0 {
+			t.Fatalf("repository install: %#v %d %v", info.Summary, len(manager.repositories), err)
+		}
 	})
 }
 
@@ -514,6 +568,26 @@ func TestPackageCatalogAndSources(t *testing.T) {
 	page, err := manager.Catalog(context.Background(), protocol.PluginCatalogSourceOfficial, "catalog-fixture", 1, true)
 	if err != nil || len(page.Entries) != 1 || page.Entries[0].Commit == nil {
 		t.Fatalf("official captured selection missing: %#v %v", page, err)
+	}
+	// Skill catalog pages are bounded: the least recently used page gives way.
+	key := func(index int) string {
+		return fmt.Sprintf("%s\x00query-%d\x00%d", protocol.PluginSkillcatalogSourceOfficial, index, 1)
+	}
+	for index := range maxSkillPages + 1 {
+		if index == maxSkillPages {
+			if _, err := manager.SkillCatalog(t.Context(), protocol.PluginSkillcatalogSourceOfficial, "query-0", 1, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := manager.SkillCatalog(t.Context(), protocol.PluginSkillcatalogSourceOfficial, fmt.Sprintf("query-%d", index), 1, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, reused := manager.skillPages[key(0)]
+	_, evicted := manager.skillPages[key(1)]
+	_, newest := manager.skillPages[key(maxSkillPages)]
+	if len(manager.skillPages) != maxSkillPages || !reused || evicted || !newest {
+		t.Fatalf("skill catalog pages: %d %v %v %v", len(manager.skillPages), reused, evicted, newest)
 	}
 	manager.OfficialURL = server.URL + "/unavailable"
 	if entries, err := manager.OfficialEntries(t.Context(), false); err != nil || len(entries) == 0 {

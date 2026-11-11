@@ -196,6 +196,11 @@ func TestRootRejectsEscape(t *testing.T) {
 				t.Fatalf("unconfined mutation accepted: %s", name)
 			}
 		}
+		for name, protected := range map[string]bool{".git/config": true, "sub/.GIT": true, "GIT~1/config": true, "sub/.g\u200cit/config": true, ".gitignore": false, "git~10/file": false} {
+			if _, err := fileComponents(name, false, ManualFiles, true); isFileFault(err, protocol.ErrorCodePermissionDenied) != protected {
+				t.Fatalf("Git metadata alias %q: %v", name, err)
+			}
+		}
 		if err := os.Symlink(outside, filepath.Join(directory, "linked")); err != nil {
 			t.Skipf("symlink fixture unavailable: %v", err)
 		}

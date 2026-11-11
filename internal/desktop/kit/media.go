@@ -46,7 +46,9 @@ func Tile(c *ui.Context, name string, glyph *ui.SVG) {
 			ui.Icon(c, glyph).FontSize(TileSize * 5 / 9)
 			return
 		}
-		r := []rune(name)
-		ui.Text(c, string(r[:1])).FontSize(TileSize * 5 / 9).FontWeight(600)
+		// A name not given yet has no initial: the tile shows its tint alone.
+		if r := []rune(name); len(r) > 0 {
+			ui.Text(c, string(r[:1])).FontSize(TileSize * 5 / 9).FontWeight(600)
+		}
 	})
 }

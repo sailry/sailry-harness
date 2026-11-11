@@ -2,7 +2,6 @@ package wire
 
 import (
 	"encoding/json"
-	"io"
 	"math"
 	"unicode/utf8"
 
@@ -10,6 +9,10 @@ import (
 )
 
 const PageBytes = protocol.MAX_FRAME_BYTES / 16
+
+// MaxSnapshotBytes bounds what a receiver buffers for one paged snapshot: 256
+// pages, twice the protocol's largest single payload (MAX_CHANGE_BYTES).
+const MaxSnapshotBytes = 16 * protocol.MAX_FRAME_BYTES
 
 type Delivery string
 
@@ -62,18 +65,21 @@ func (page *SnapshotPage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func WriteReply(stream io.Writer, reply Reply, compressed bool) error {
+// WriteReply passes each frame of a reply to write: the reply itself, or the
+// header and bounded pages of a snapshot. The caller bounds each frame, so a
+// complete snapshot may take longer than one frame deadline.
+func WriteReply(reply Reply, write func(Reply) error) error {
 	snapshot, delivery := replySnapshot(reply)
 	if snapshot == nil {
-		return Write(stream, reply, compressed)
+		return write(reply)
 	}
 	data, err := json.Marshal(snapshot)
-	if err != nil {
+	if err != nil || len(data) > MaxSnapshotBytes {
 		return invalid()
 	}
 	defer clear(data)
 	header := SnapshotHeader{delivery, snapshot.Node, snapshot.Cursor, uint64(len(data))}
-	if err := Write(stream, Reply{Kind: ReplySnapshotStart, SnapshotStart: &header}, compressed); err != nil {
+	if err := write(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header}); err != nil {
 		return err
 	}
 	var index uint64
@@ -83,7 +89,7 @@ func WriteReply(stream io.Writer, reply Reply, compressed bool) error {
 			end--
 		}
 		page := SnapshotPage{index, string(data[start:end])}
-		if err := Write(stream, Reply{Kind: ReplySnapshotPage, SnapshotPage: &page}, compressed); err != nil {
+		if err := write(Reply{Kind: ReplySnapshotPage, SnapshotPage: &page}); err != nil {
 			return err
 		}
 		start = end
@@ -125,7 +131,7 @@ type pendingSnapshot struct {
 func (assembly *Assembly) Accept(reply Reply) (*Reply, error) {
 	switch reply.Kind {
 	case ReplySnapshotStart:
-		if assembly.pending != nil || reply.SnapshotStart == nil || reply.SnapshotStart.Bytes == 0 {
+		if assembly.pending != nil || reply.SnapshotStart == nil || reply.SnapshotStart.Bytes == 0 || reply.SnapshotStart.Bytes > MaxSnapshotBytes {
 			return nil, invalid()
 		}
 		assembly.pending = &pendingSnapshot{header: *reply.SnapshotStart}

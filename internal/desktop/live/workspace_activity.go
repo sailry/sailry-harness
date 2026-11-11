@@ -29,7 +29,7 @@ func (r *Runtime) draftWorkspaceSession(id string) (protocol.Session, bool) {
 		return protocol.Session{}, false
 	}
 	var selected *protocol.Worktree
-	for _, tree := range r.controller.Snapshot().Worktrees {
+	for _, tree := range r.snapshot().Worktrees {
 		if tree.Project == nil || tree.Project.String() != project {
 			continue
 		}
@@ -159,7 +159,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 	}
 }
 func (r *Runtime) projectWorkspaceLocations() {
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	for _, tree := range snapshot.Worktrees {
 		delete(r.workspace.admitted, tree.ID)
 	}
@@ -373,7 +373,7 @@ func (r *Runtime) chooseComposerWorktree(x *conversationActions, relative string
 	r.selectDraftWorktree(x.comp, relative)
 }
 func (r *Runtime) selectDraftWorktree(comp *composer.State, relative string) {
-	for _, tree := range r.controller.Snapshot().Worktrees {
+	for _, tree := range r.snapshot().Worktrees {
 		if tree.Path == relative && tree.Project != nil && tree.Project.String() == comp.Project {
 			comp.Worktree = relative
 			return
@@ -464,7 +464,7 @@ func (r *Runtime) projectWorktree(project *viewmodel.Project, relative string) (
 		return worktree.Project != nil && worktree.Project.String() == project.ID &&
 			(relative == "" && worktree.Main || relative != "" && worktree.Path == relative)
 	}
-	for _, worktree := range r.controller.Snapshot().Worktrees {
+	for _, worktree := range r.snapshot().Worktrees {
 		if matches(worktree) {
 			return worktree, true
 		}

@@ -315,7 +315,7 @@ func (s *State) dialogs(c *ui.Context) {
 	s.editorDialog(c)
 	s.recordsDialog(c)
 	if s.confirm.open {
-		if ui.AlertDialog(c.Key("confirm"), &s.confirm.open, s.confirm.title, s.confirm.message, i18n.T(c, "settings_cancel"),
+		if kit.AlertDialog(c.Key("confirm"), &s.confirm.open, s.confirm.title, s.confirm.message, i18n.T(c, "settings_cancel"),
 			s.confirm.action) == 1 {
 			s.confirm.run()
 		}

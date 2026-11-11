@@ -5,8 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"runtime"
 	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -17,6 +20,7 @@ type clientSubscription struct {
 	updates chan protocol.Update
 	closed  chan struct{}
 	once    sync.Once
+	failure error
 }
 
 func testSubscription(initial protocol.Snapshot) *clientSubscription {
@@ -26,6 +30,9 @@ func testSubscription(initial protocol.Snapshot) *clientSubscription {
 }
 
 func (subscription *clientSubscription) Next(ctx context.Context) (protocol.Update, error) {
+	if subscription.failure != nil {
+		return protocol.Update{}, subscription.failure
+	}
 	select {
 	case update := <-subscription.updates:
 		return update, nil
@@ -169,6 +176,77 @@ func TestRecoverAfterReset(t *testing.T) {
 			t.Fatal("closed Client remained connected")
 		}
 	})
+	t.Run("refresh_failure_keeps_an_observation_owner", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			lost := &clientSubscription{closed: make(chan struct{}), failure: fault(protocol.ErrorCodeUnavailable, "link dropped")}
+			restored := testSubscription(projectionSnapshot(2))
+			transport := &clientTransport{subscriptions: []*clientSubscription{testSubscription(projectionSnapshot(0)), lost, restored}}
+			controller := New(transport)
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			// The first read of the replacement fails after the old owner joined.
+			if err := controller.Refresh(t.Context()); faultCode(err) != protocol.ErrorCodeUnavailable || controller.Connected() || controller.Revision() != 1 {
+				t.Fatalf("failed refresh = %v, connected %v, revision %d", err, controller.Connected(), controller.Revision())
+			}
+			time.Sleep(250 * time.Millisecond)
+			synctest.Wait()
+			if !controller.Connected() || controller.Err() != nil || controller.Snapshot().Cursor != 2 || controller.Revision() != 2 {
+				t.Fatalf("failed refresh was not retried: %v, revision %d", controller.Err(), controller.Revision())
+			}
+			// A replacement that cannot be opened leaves the current owner in place.
+			if err := controller.Refresh(t.Context()); faultCode(err) != protocol.ErrorCodeUnavailable || !controller.Connected() {
+				t.Fatalf("unopened refresh = %v, connected %v", err, controller.Connected())
+			}
+			restored.updates <- projectionEvent(3, "defaults_changed", protocol.Defaults{Revision: 3})
+			synctest.Wait()
+			if controller.Snapshot().Cursor != 3 || controller.Revision() != 3 {
+				t.Fatal("unopened refresh retired the current observation")
+			}
+			// A permanent failure ends observation, as it does while observing.
+			transport.mu.Lock()
+			transport.subscriptions = []*clientSubscription{{closed: make(chan struct{}), failure: fault(protocol.ErrorCodePermissionDenied, "peer revoked access")}, testSubscription(projectionSnapshot(9))}
+			transport.mu.Unlock()
+			if err := controller.Refresh(t.Context()); faultCode(err) != protocol.ErrorCodePermissionDenied {
+				t.Fatalf("revoked refresh = %v", err)
+			}
+			time.Sleep(time.Minute)
+			synctest.Wait()
+			// Only projection changes advance the revision, never connection state.
+			if controller.Connected() || faultCode(controller.Err()) != protocol.ErrorCodePermissionDenied || controller.Snapshot().Cursor != 3 || controller.Revision() != 3 {
+				t.Fatal("permanent refresh failure was retried")
+			}
+			if err := controller.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+	t.Run("close_interrupts_startup", func(t *testing.T) {
+		stalled := &clientSubscription{updates: make(chan protocol.Update), closed: make(chan struct{})}
+		transport := &clientTransport{subscriptions: []*clientSubscription{stalled}}
+		controller := New(transport)
+		started := make(chan error, 1)
+		go func() { started <- controller.Start(context.Background()) }()
+		for pending := 1; pending > 0; runtime.Gosched() {
+			transport.mu.Lock()
+			pending = len(transport.subscriptions)
+			transport.mu.Unlock()
+		}
+		closed := make(chan error, 1)
+		go func() { closed <- controller.Close() }()
+		select {
+		case err := <-closed:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("Close waited for the initial read")
+		}
+		if err := <-started; err == nil {
+			t.Fatal("startup outlived Close")
+		}
+		<-stalled.closed
+	})
 	t.Run("captured_request_outcome_without_replay", func(t *testing.T) {
 		transport := &clientTransport{}
 		controller := New(transport)
@@ -219,6 +297,19 @@ func TestRecoverAfterReset(t *testing.T) {
 		}
 		if _, err := controller.Outcome(context.Background(), controller.Prepare(protocol.Command{Kind: "snapshot"})); faultCode(err) != protocol.ErrorCodeInvalidRequest {
 			t.Fatalf("non-durable outcome: %v", err)
+		}
+		// An abandoned wait is uncertain only for a request with a stored outcome.
+		transport.dispatch = func(actual protocol.Request) (link.Admission, error) {
+			return link.Admission{Receipt: protocol.Receipt{ID: actual.ID}, Completion: make(chan link.Response)}, nil
+		}
+		abandoned, abandon := context.WithCancel(context.Background())
+		abandon()
+		if _, err := controller.Do(abandoned, protocol.Command{Kind: "snapshot"}); faultCode(err) != protocol.ErrorCodeCancelled {
+			t.Fatalf("abandoned read: %v", err)
+		}
+		request.Target = controller.Target()
+		if _, err := controller.Execute(abandoned, request); faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("abandoned mutation: %v", err)
 		}
 	})
 	t.Run("activity_before_invalidations_coalesce", func(t *testing.T) {

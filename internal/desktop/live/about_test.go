@@ -18,11 +18,19 @@ func checkSystemHelpers(t *testing.T) {
 	if u.State != settings.UpdateDownloading || u.Version != "0.2.0" || u.Copied != 5 || u.Total != 10 || u.Failure != nil {
 		t.Fatalf("download view = %+v", u)
 	}
+	// SABOUT-005: progress is bytes copied of the total, then verifying at 100.
+	if u.Percent() != 50 || u.Verifying {
+		t.Fatalf("download percent = %v, verifying %v", u.Percent(), u.Verifying)
+	}
+	updateView(&u, updater.State{Kind: updater.Downloading, Version: "0.2.0", Progress: updater.Progress{Copied: 10, Total: 10, Verifying: true}}, nil)
+	if u.State != settings.UpdateDownloading || !u.Verifying || u.Percent() != 100 || !u.Locked() {
+		t.Fatalf("verifying view = %+v", u)
+	}
 	failure := &updater.Failure{Key: "updates_signature_invalid", Detail: "bad signature"}
 	updateView(&u, updater.State{Kind: updater.Idle}, failure)
 	first := u.Failure
 	updateView(&u, updater.State{Kind: updater.Idle}, &updater.Failure{Key: failure.Key, Detail: failure.Detail})
-	if u.State != settings.UpdateIdle || u.Copied != 0 || first == nil || u.Failure != first || *first != (settings.UpdateFailure{Key: failure.Key, Detail: failure.Detail}) {
+	if u.State != settings.UpdateIdle || u.Copied != 0 || u.Verifying || first == nil || u.Failure != first || *first != (settings.UpdateFailure{Key: failure.Key, Detail: failure.Detail}) {
 		t.Fatalf("failure view = %+v", u)
 	}
 	for kind, want := range map[updater.Kind]settings.UpdateState{updater.Checking: settings.UpdateChecking, updater.Available: settings.UpdateAvailable, updater.Ready: settings.UpdateReady,

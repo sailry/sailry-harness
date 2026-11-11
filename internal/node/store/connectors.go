@@ -187,7 +187,7 @@ func ConnectionProjection(ctx context.Context, db *sql.Conn, record ConnectorRec
 	if record.Bound != nil && bound != nil {
 		bound.Targets = record.Bound.Targets
 	}
-	if value.Consent = connectorConsent(record.Plugin, record.Bound, bound); value.Consent != nil {
+	if value.Consent = connectorConsent(record.Bound, bound); value.Consent != nil {
 		value.State = protocol.PluginConnectorStateNeedsConfirmation
 	}
 	return value, nil
@@ -236,7 +236,7 @@ func PrepareConnectorConsent(ctx context.Context, db *sql.Conn, id protocol.Plug
 }
 
 func ProjectConnectorConsent(value protocol.PluginConnectorConnection, previous, current *ConnectorBound) protocol.PluginConnectorConnection {
-	value.Consent = connectorConsent(value.Package.Name, previous, current)
+	value.Consent = connectorConsent(previous, current)
 	if value.Consent != nil {
 		value.State = protocol.PluginConnectorStateNeedsConfirmation
 	}
@@ -486,7 +486,7 @@ func ConnectorAuthorization(ctx context.Context, db *sql.Conn, reference protoco
 	if capturedBound != nil && record.Bound != nil {
 		capturedBound.Targets = record.Bound.Targets
 	}
-	if connectorConsent(record.Plugin, record.Bound, capturedBound) != nil {
+	if connectorConsent(record.Bound, capturedBound) != nil {
 		return record, declaration, fault(protocol.ErrorCodePermissionDenied, "connector permissions changed; confirm the connection")
 	}
 	if turn != nil {

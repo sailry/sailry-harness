@@ -213,7 +213,7 @@ func dispatchData(value any) error {
 }
 
 func dispatchCurrent(ctx context.Context, db *sql.Conn, name string) (protocol.PluginInfo, error) {
-	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1 AND installed=1", name)
+	info, err := ReadPlugin(ctx, db, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}

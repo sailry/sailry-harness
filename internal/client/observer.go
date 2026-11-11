@@ -228,7 +228,7 @@ func (client *Client) watchView(ctx context.Context) *Observer {
 		return map[string]any{
 			"snapshot": snapshot, "connected": connected, "connection": telemetry,
 			"error": observerFault(failure), "notifications": client.Notices(),
-			"child_targets": targets, "package_cursors": map[string]uint64{}, "credential_cursor": uint64(0),
+			"child_targets": targets,
 		}, nil
 	}
 	observer.release = client.OnChange(observer.notify)

@@ -25,7 +25,7 @@ func putNotice(ctx context.Context, db *sql.Conn, value protocol.NotificationNot
 func notificationCommand(ctx context.Context, db *sql.Conn, command protocol.Command) (protocol.Output, []protocol.Event, error) {
 	switch input := command.Data.(type) {
 	case *protocol.CommandPublishNotificationPayload:
-		info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1 AND installed=1", input.Package.Name)
+		info, err := ReadPlugin(ctx, db, input.Package.Name)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -60,7 +60,7 @@ func notificationCommand(ctx context.Context, db *sql.Conn, command protocol.Com
 			}
 		}
 		if content.Session != nil {
-			if _, err := ReadSession(ctx, db, *content.Session); err != nil {
+			if err := requireSession(ctx, db, *content.Session); err != nil {
 				return protocol.Output{}, nil, err
 			}
 		}

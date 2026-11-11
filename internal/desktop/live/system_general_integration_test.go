@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,7 +34,10 @@ import (
 type systemReports struct {
 	mu     sync.Mutex
 	bodies [][]byte
-	server *httptest.Server
+	// refuse answers 500 and counts the request instead of keeping it.
+	refuse  bool
+	refused int
+	server  *httptest.Server
 }
 
 func newSystemReports(t *testing.T) *systemReports {
@@ -41,8 +45,17 @@ func newSystemReports(t *testing.T) *systemReports {
 	reports.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, _ := io.ReadAll(request.Body)
 		reports.mu.Lock()
-		reports.bodies = append(reports.bodies, body)
+		refuse := reports.refuse
+		if refuse {
+			reports.refused++
+		} else {
+			reports.bodies = append(reports.bodies, body)
+		}
 		reports.mu.Unlock()
+		if refuse {
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		writer.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(reports.server.Close)
@@ -51,6 +64,15 @@ func newSystemReports(t *testing.T) *systemReports {
 
 func (r *systemReports) dsn() string {
 	return strings.Replace(r.server.URL, "http://", "http://public@", 1) + "/42"
+}
+
+// refusing switches the endpoint's refusal and reports how many requests
+// it has refused.
+func (r *systemReports) refusing(refuse bool) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.refuse = refuse
+	return r.refused
 }
 
 func (r *systemReports) sent() [][]byte {
@@ -516,6 +538,56 @@ func TestSystemGeneralUI(t *testing.T) {
 	}
 	t.Logf("step 2 passed: Prevent sleep off saved on the Node and a new Runtime showed it off, during which no request was taken; switched on again, the idle Node holds none")
 
+	// SGEN-002: a save that fails, one whose outcome is unknown and one that
+	// lost its revision each toast their own outcome, keep the switch as the
+	// user left it and leave the Node's setting alone.
+	stored := sleep()
+	refusal := func(label, outcome string, want bool) {
+		t.Helper()
+		window.clickOn(bring(window, ui.RoleSwitch, "Prevent sleep"))
+		toast(window, outcome)
+		for _, other := range []string{"Saved", "Could not load or save power settings", "Save outcome is unknown; reload to check", "Settings changed; reload to continue"} {
+			if other != outcome {
+				noToast(window, other)
+			}
+		}
+		if now, found := toggled(window, "Prevent sleep"); !found || now.Checked != want || window.runtime.App.Settings.Power.Draft != want {
+			t.Fatalf("%s: the switch did not keep the draft %v", label, want)
+		}
+	}
+	release := window.gate.refuse("save_power_settings", errors.New("the link closed"))
+	refusal("a failed save", "Could not load or save power settings", false)
+	release()
+	release = window.gate.refuse("save_power_settings", &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the save may have been stored"})
+	refusal("an unknown outcome", "Save outcome is unknown; reload to check", true)
+	release()
+	if now := sleep(); now != stored {
+		t.Fatalf("the refused saves changed the Node: %+v from %+v", now, stored)
+	}
+	// Another controller saves while the window's save is on its way.
+	release = window.gate.hold("save_power_settings")
+	window.clickOn(bring(window, ui.RoleSwitch, "Prevent sleep"))
+	settle(window, "the held save is pending", systemUIWait, func() bool { return window.runtime.App.Settings.Power.Pending })
+	desk.do(protocol.Command{Kind: "save_power_settings", Data: stored})
+	release()
+	toast(window, "Settings changed; reload to continue")
+	noToast(window, "Saved")
+	if now, found := toggled(window, "Prevent sleep"); !found || now.Checked || window.runtime.App.Settings.Power.Draft {
+		t.Fatal("the conflict replaced the draft")
+	}
+	if now := sleep(); !now.PreventSleep || now.Revision != stored.Revision+1 {
+		t.Fatalf("the conflicting save changed the Node: %+v from %+v", now, stored)
+	}
+	settle(window, "the window reads the newer revision", systemUIWait, func() bool {
+		m := window.runtime.App.Settings.Power
+		return !m.Pending && m.Revision == stored.Revision+1 && m.Saved && !m.Draft
+	})
+	flip(window, "Prevent sleep", "Saved")
+	if now := sleep(); !now.PreventSleep || now.Revision != stored.Revision+2 {
+		t.Fatalf("the save after the conflict: %+v", now)
+	}
+	t.Logf("step 2a passed: a failed save, an unknown outcome and a revision conflict each showed their own toast and no other, kept the switch as the user left it and left the Node at prevent sleep on; the next save stored the draft over the reloaded revision %d", stored.Revision+1)
+
 	// Step 3: both telemetry switches off survive a new Runtime.
 	flip(window, "Send error reports", "Privacy settings saved")
 	flip(window, "Share anonymous usage", "Privacy settings saved")
@@ -619,6 +691,20 @@ func TestSystemGeneralUI(t *testing.T) {
 		t.Fatalf("the attachment has %d records and %d stale-turn failures; failed records: %v; the log file names the session: %v", records, failures, failed, bytes.Contains(written, []byte("session="+session.ID.String())))
 	}
 	t.Logf("step 5 passed: Send diagnostics showed Diagnostics sent and delivered one envelope whose diagnostics.jsonl attachment holds %d records of %s reduced to public fields, the refused stale turn among them, while the file itself names the session", records, current)
+
+	// SGEN-012: an endpoint that refuses the report is the failure toast,
+	// after one request, and the next press sends again.
+	reports.refusing(true)
+	window.clickOn(bring(window, ui.RoleButton, "Send diagnostics"))
+	toast(window, "Could not confirm diagnostic delivery")
+	noToast(window, "Diagnostics sent")
+	if refused := reports.refusing(false); refused != 1 || len(reports.sent()) != base+1 {
+		t.Fatalf("the refused diagnostics made %d requests and delivered %d reports", refused, len(reports.sent())-base-1)
+	}
+	settle(window, "Send diagnostics is enabled again", systemUIWait, func() bool {
+		return !window.runtime.App.Settings.Telemetry.Pending && !bring(window, ui.RoleButton, "Send diagnostics").Disabled
+	})
+	t.Logf("step 5 also passed: with the endpoint answering 500 Send diagnostics made one request and showed Could not confirm diagnostic delivery")
 
 	// Step 6: Reset gives a new anonymous identity.
 	before := consent()

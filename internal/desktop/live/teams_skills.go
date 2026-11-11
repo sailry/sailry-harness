@@ -63,7 +63,7 @@ func (r *Runtime) bindSkillReferences(cv *viewmodel.Conversation, comp *composer
 		if session, ok := r.session(cv.ID); ok {
 			assistant = session.Config.Assistant
 		}
-		r.teams.retrySkillReads(skillPackages(r.controller.Snapshot(), assistant))
+		r.teams.retrySkillReads(skillPackages(r.snapshot(), assistant))
 		r.skillReferences(cv)
 	})
 }
@@ -77,7 +77,7 @@ func (r *Runtime) skillReferences(cv *viewmodel.Conversation) []composer.Referen
 		assistant = session.Config.Assistant
 	}
 	var rows []composer.Reference
-	for _, reference := range skillPackages(r.controller.Snapshot(), assistant) {
+	for _, reference := range skillPackages(r.snapshot(), assistant) {
 		if info, ok := r.teams.skills[reference]; ok {
 			rows = append(rows, skillRows(reference, info, r.teams.locale)...)
 			continue

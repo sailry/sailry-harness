@@ -140,6 +140,7 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		Package  *protocol.PluginReference `json:"package"`
 		Worktree *protocol.WorktreeID      `json:"worktree"`
 		Session  *protocol.SessionID       `json:"session"`
+		Turn     *protocol.TurnID          `json:"turn"`
 	}
 	body, err := json.Marshal(request.Command.Data)
 	if err != nil {
@@ -148,6 +149,31 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if len(body) > 0 && body[0] == '{' {
 		if err := json.Unmarshal(body, &target); err != nil {
 			return err
+		}
+	}
+	// A command addressed by turn names no session, so its turn is confined
+	// to the captured session, or to the captured turn for tool output.
+	switch request.Command.Kind {
+	case "read_tool_output":
+		if target.Turn == nil || scope.Turn == nil || *scope.Turn != *target.Turn {
+			return fault(protocol.ErrorCodePermissionDenied, "tool output read is outside the captured turn")
+		}
+	case "run_command", "stop_turn", "start_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "send_queued_turn", "read_queued_turn":
+		if scope.Session == nil {
+			return fault(protocol.ErrorCodePermissionDenied, "plugin has no session scope")
+		}
+		if target.Turn == nil {
+			return invalid("plugin command names no turn")
+		}
+		if request.Command.Kind == "run_command" && scope.Turn != nil && *scope.Turn != *target.Turn {
+			return fault(protocol.ErrorCodePermissionDenied, "command is outside the captured turn")
+		}
+		run, err := visibleAgentRun(ctx, db, *scope.Session, *target.Turn)
+		if err != nil {
+			return err
+		}
+		if run.Origin != nil {
+			return fault(protocol.ErrorCodePermissionDenied, "plugin turn belongs to another session")
 		}
 	}
 	if target.Package != nil && *target.Package != scope.Package || target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) || target.Session != nil && !reflect.DeepEqual(target.Session, scope.Session) {

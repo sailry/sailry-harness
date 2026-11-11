@@ -201,7 +201,7 @@ func (state *pluginNativeState) nextComposer(model bool) plugins.HostOperation {
 
 func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, comp *composer.State, config protocol.SessionConfig, info protocol.PluginInfo) (map[string]any, error) {
 	runtime := state.runtime
-	snapshot := runtime.controller.Snapshot()
+	snapshot := runtime.snapshot()
 	var statistics json.RawMessage = json.RawMessage("null")
 	compacting, hasMessages := false, len(view.Turns) > 0
 	var contextLimit *uint32
@@ -385,7 +385,7 @@ func (state *pluginNativeState) composerRegistry() *plugins.Registry {
 
 func (state *pluginNativeState) projectModelContext(config protocol.SessionConfig, info protocol.PluginInfo) map[string]any {
 	value := map[string]any{"connected": state.runtime.controller.Connected(), "provider": nil}
-	for _, provider := range state.runtime.controller.Snapshot().Providers {
+	for _, provider := range state.runtime.snapshot().Providers {
 		if !provider.Enabled || provider.ID != config.Provider {
 			continue
 		}

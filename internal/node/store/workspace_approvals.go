@@ -35,6 +35,13 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 			value.CanRemember = false
 			value.Prefix = nil
 		}
+	} else if operation == protocol.ToolOperationSetValue || operation == protocol.ToolOperationDeleteValue {
+		// A plugin writes only its own namespace, so the write is authorized
+		// by the storage scope instead of a user prompt.
+		value.Source = protocol.ConversationApprovalSourceStorage
+		value.State = protocol.ConversationApprovalStateApproved
+		value.CanRemember = false
+		value.Prefix = nil
 	} else if capture.Config.Permission == protocol.PermissionProject {
 		switch operation {
 		case protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationEditNotebook, protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationApplyChanges, protocol.ToolOperationCreateDirectory:

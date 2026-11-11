@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -306,6 +307,17 @@ func (connection *connection) open(ctx context.Context, launch Launch) {
 			session = nil
 		}
 	}
+	if session != nil {
+		// A server that closed its side is replaced at the next acquisition.
+		connection.pool.work.Add(1)
+		go func() {
+			defer connection.pool.work.Done()
+			_ = session.Wait()
+			connection.mu.Lock()
+			connection.poisoned = true
+			connection.mu.Unlock()
+		}()
+	}
 	connection.mu.Lock()
 	connection.session = session
 	connection.fault = err
@@ -347,6 +359,14 @@ func (lease *Lease) List(ctx context.Context) ([]*sdk.Tool, error) {
 	for {
 		page, err := connection.session.ListTools(listing, &sdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
+			// A transport failure, unlike a rejection or a cancelled listing,
+			// ends the connection.
+			var remote *jsonrpc.Error
+			if !errors.As(err, &remote) && listing.Err() == nil {
+				connection.mu.Lock()
+				connection.poisoned = true
+				connection.mu.Unlock()
+			}
 			return nil, unavailable()
 		}
 		for _, tool := range page.Tools {

@@ -49,7 +49,7 @@ func OpenIdentity(directory string) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	if !metadata.Mode().IsRegular() || metadata.Mode()&os.ModeSymlink != 0 {
+	if !metadata.Mode().IsRegular() {
 		return Identity{}, errors.New("identity must be a regular private file")
 	}
 	if runtime.GOOS != "windows" && metadata.Mode().Perm()&0o077 != 0 {

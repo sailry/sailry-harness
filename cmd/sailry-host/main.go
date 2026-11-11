@@ -65,12 +65,14 @@ func run(args []string) (int, error) {
 	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{
 		Network:     &options.Network,
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
-		Telemetry:   telemetry.Options{Application: "host"},
+		Telemetry:   telemetry.Options{Application: "host", Lookup: options.Environment},
 	})
 	if err != nil {
 		return 1, err
 	}
 	result := serve(ctx, execution, options)
+	// Restore default signals so another interrupt ends a stuck shutdown.
+	cancel()
 	shutdown := execution.Stop(context.Background())
 	if result != nil {
 		if shutdown != nil {

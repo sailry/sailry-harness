@@ -90,20 +90,18 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 				out.UnsupportedNames++
 				continue
 			}
-			m, e := dir.Lstat(name)
-			if e != nil {
-				return out, fileConflict()
-			}
+			// The listing orders by its own entry types; only a returned page is
+			// inspected for sizes.
 			kind := protocol.EntryKindOther
-			switch {
-			case m.Mode()&os.ModeSymlink != 0:
+			switch mode := entry.Type(); {
+			case mode&os.ModeSymlink != 0:
 				kind = protocol.EntryKindSymlink
-			case m.IsDir():
+			case mode.IsDir():
 				kind = protocol.EntryKindDirectory
-			case m.Mode().IsRegular():
+			case mode.IsRegular():
 				kind = protocol.EntryKindFile
 			}
-			item := protocol.FileEntry{Name: name, Kind: kind, Size: uint64(m.Size())}
+			item := protocol.FileEntry{Name: name, Kind: kind}
 			if after != nil {
 				cursor := protocol.FileEntry{Name: after.Name, Kind: protocol.EntryKindFile}
 				if after.Directory {
@@ -138,6 +136,13 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 		out.Entries = out.Entries[:protocol.MAX_DIRECTORY_ENTRIES]
 		last := out.Entries[len(out.Entries)-1]
 		out.Next = &protocol.DirectoryCursor{Revision: out.Revision, Directory: last.Kind == protocol.EntryKindDirectory, Name: last.Name}
+	}
+	for index := range out.Entries {
+		m, e := dir.Lstat(out.Entries[index].Name)
+		if e != nil {
+			return out, fileConflict()
+		}
+		out.Entries[index].Size = uint64(m.Size())
 	}
 	return out, nil
 }

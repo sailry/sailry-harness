@@ -196,7 +196,7 @@ func (r *Runtime) projectConnectionReferences(cv *viewmodel.Conversation, comp *
 		if page.Source != connectionReferenceSource || page.Kind != composer.Page {
 			return nil, false
 		}
-		snapshot := r.controller.Snapshot()
+		snapshot := r.snapshot()
 		switch page.ID {
 		case "databases":
 			return databasePageRows(referenceDatabases(snapshot, scope)), true
@@ -237,7 +237,7 @@ func (r *Runtime) databaseReferences(session string, scope connectionScope, prof
 				return
 			}
 			entry.loading = false
-			if !slices.ContainsFunc(referenceDatabases(r.controller.Snapshot(), scope), func(current protocol.DatabaseProfile) bool { return current.ID == profile.ID }) {
+			if !slices.ContainsFunc(referenceDatabases(r.snapshot(), scope), func(current protocol.DatabaseProfile) bool { return current.ID == profile.ID }) {
 				return
 			}
 			catalog, valid := databaseCatalogOutput(out)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -20,9 +22,24 @@ import (
 )
 
 func TestOneRequestPerStep(t *testing.T) {
-	for _, scenario := range []string{"tool then response", "bounded empty responses", "output limit prevents empty retry", "partial failure", "redacted before text"} {
+	for _, scenario := range []string{"tool then response", "bounded empty responses", "output limit prevents empty retry", "partial failure", "redacted before text",
+		"failed stream with a tool call", "tool panic", "turn panic", "credential renewed mid-turn"} {
 		t.Run(scenario, func(t *testing.T) {
 			m := &scriptedModel{}
+			var executed atomic.Int32
+			var expire func()
+			probe := objectTool("probe", true, true, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+				if call.ID == "boom" {
+					panic("fixture tool panic")
+				}
+				if call.ID == "first" && expire != nil {
+					expire()
+				}
+				executed.Add(1)
+				return ToolResult{Value: map[string]bool{"ok": true}}
+			})
+			prepared := objectTool("prepared", true, true, func(context.Context, canonical.ToolRequest) ToolResult { return ToolResult{} })
+			prepared.Prepare = func(context.Context, canonical.ToolRequest) error { panic("fixture turn panic") }
 			switch scenario {
 			case "tool then response":
 				m.scripts = []script{response(call("title", "set_session_title", `{"title":" Current task "}`), finish()), response(text("Done"), finish())}
@@ -34,29 +51,115 @@ func TestOneRequestPerStep(t *testing.T) {
 				m.scripts = []script{response(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonLength})}
 			case "partial failure":
 				m.scripts = []script{response(text("Partial"), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})}
+			case "failed stream with a tool call":
+				m.scripts = []script{response(text("Partial"), call("partial", "probe", `{}`), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "fixture failure"}})}
+			case "tool panic":
+				m.scripts = []script{response(call("boom", "probe", `{}`), call("fine", "probe", `{}`), finish()), response(text("Done"), finish())}
+			case "turn panic":
+				m.scripts = []script{response(call("stuck", "prepared", `{}`), finish()), response(text("Recovered"), finish())}
+			case "credential renewed mid-turn":
+				m.scripts = []script{response(call("first", "probe", `{}`), finish()), response(call("second", "probe", `{}`), finish()), response(text("Done"), finish())}
 			case "redacted before text":
 				m.scripts = []script{response(fantasy.StreamPart{Type: fantasy.StreamPartTypeReasoningEnd, ID: "redacted", ProviderMetadata: fantasy.ProviderMetadata{anthropic.Name: &anthropic.ReasoningOptionMetadata{RedactedData: "opaque"}}}, text("Answer"), finish())}
 			}
-			f := newFixture(t, m)
+			f := newFixture(t, m, probe, prepared)
+			var guard sync.Mutex
+			var built []string
+			authorizations, minted := 0, 0
+			if scenario == "credential renewed mid-turn" {
+				// An account token is minted for one hour and expires while the
+				// first tool runs; an unexpired token costs no provider request.
+				timer := f.r.clock.(*manualClock)
+				token, expires := "", time.Time{}
+				expire = func() {
+					timer.mu.Lock()
+					timer.now = timer.now.Add(2 * time.Hour)
+					timer.mu.Unlock()
+				}
+				f.r.authorizeProvider = func(_ context.Context, inv *store.AgentInvocation) error {
+					guard.Lock()
+					defer guard.Unlock()
+					authorizations++
+					if now := timer.Now(); !now.Before(expires) {
+						minted++
+						token, expires = "token-"+string(rune('0'+minted)), now.Add(time.Hour)
+					}
+					secret := protocol.NewSecret(`{"kind":"copilot","access":"` + token + `","endpoint":"https://api.githubcopilot.com","renewal_pending":false}`)
+					inv.Provider.Authentication, inv.Provider.Endpoint, inv.Secret = protocol.AuthenticationCopilot, "https://api.githubcopilot.com", &secret
+					return nil
+				}
+				f.r.model = func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+					guard.Lock()
+					var grant struct{ Access string }
+					if err := json.Unmarshal([]byte(binding.Secret.Expose()), &grant); err != nil {
+						return nil, err
+					}
+					built = append(built, grant.Access)
+					guard.Unlock()
+					return m, nil
+				}
+			}
 			f.start()
 			turn := f.submit("Task")
 			status := protocol.ConversationStatusCompleted
-			if scenario == "partial failure" {
+			if scenario == "partial failure" || scenario == "failed stream with a tool call" || scenario == "turn panic" {
 				status = protocol.ConversationStatusFailed
 			}
-			f.waitRun(turn, status)
-			expected := 1
-			if scenario == "tool then response" {
-				expected = 2
+			run := f.waitRun(turn, status)
+			if scenario == "turn panic" {
+				if run.Error == nil || run.Error.Code != protocol.ErrorCodeOutcomeUnknown {
+					t.Fatalf("panicked turn failure=%+v", run.Error)
+				}
+				// The worker survives and the settled call does not poison the next request.
+				f.waitRun(f.submit("Again"), protocol.ConversationStatusCompleted)
 			}
-			if scenario == "bounded empty responses" {
-				expected = 4
+			expected := map[string]int{"tool then response": 2, "bounded empty responses": 4, "tool panic": 2, "turn panic": 2, "credential renewed mid-turn": 3}[scenario]
+			if expected == 0 {
+				expected = 1
 			}
 			if m.count() != expected {
 				t.Fatalf("requests=%d, want %d", m.count(), expected)
 			}
 			state := f.state()
+			responses := map[string]string{}
+			requests := 0
+			for _, record := range state.Records {
+				if message := record.Message(); message != nil {
+					for _, block := range message.Content {
+						switch value := block.Data.(type) {
+						case *canonical.ToolRequest:
+							requests++
+						case *canonical.ToolResponse:
+							responses[value.ID] = string(value.Status) + " " + string(value.Result.Value)
+						}
+					}
+				}
+			}
 			switch scenario {
+			case "failed stream with a tool call":
+				mustHaveText(t, state.Records, "Partial")
+				if requests != 0 || len(responses) != 0 || executed.Load() != 0 {
+					t.Fatalf("failed response ran its call: requests=%d responses=%v executed=%d", requests, responses, executed.Load())
+				}
+				if failure, _ := json.Marshal(run.Error); !strings.Contains(string(failure), `"`+string(protocol.ModelFailureRateLimited)+`"`) {
+					t.Fatalf("failure lost its kind: %s", failure)
+				}
+			case "tool panic":
+				mustHaveText(t, state.Records, "Done")
+				if executed.Load() != 1 || !strings.HasPrefix(responses["boom"], string(canonical.ToolErrorStatus)) || !strings.Contains(responses["boom"], "failed unexpectedly") || strings.Contains(responses["boom"], "fixture tool panic") {
+					t.Fatalf("panicked call result=%q executed=%d", responses["boom"], executed.Load())
+				}
+			case "turn panic":
+				mustHaveText(t, state.Records, "Recovered")
+				if !strings.Contains(responses["stuck"], "interrupted before completing") {
+					t.Fatalf("failed turn left its call unsettled: %v", responses)
+				}
+			case "credential renewed mid-turn":
+				guard.Lock()
+				defer guard.Unlock()
+				if !reflect.DeepEqual(built, []string{"token-1", "token-2"}) || minted != 2 || authorizations < 4 {
+					t.Fatalf("transports=%v minted=%d authorizations=%d", built, minted, authorizations)
+				}
 			case "tool then response":
 				mustHaveText(t, state.Records, "Done")
 				if state.Context.Title == nil || *state.Context.Title != "Current task" {
@@ -271,6 +374,78 @@ func TestStopSealsInterrupted(t *testing.T) {
 	if m.count() != 1 {
 		t.Fatal("stopped model was replayed")
 	}
+	t.Run("steered foreground wait with a pending call", func(t *testing.T) {
+		childStarted := make(chan struct{})
+		var once sync.Once
+		gated := objectTool("gated", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			return ToolResult{Value: map[string]bool{"ok": true}}
+		})
+		gated.Approval = true
+		steered := make(chan bool, 1)
+		step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			prompt, results := "", 0
+			for _, message := range request.Prompt {
+				for _, part := range message.Content {
+					if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+						prompt += value.Text + "\n"
+					}
+					if part.GetType() == fantasy.ContentTypeToolResult {
+						results++
+					}
+				}
+			}
+			switch {
+			case !strings.Contains(prompt, "Parent task"):
+				once.Do(func() { close(childStarted) })
+				<-ctx.Done()
+			case results == 0:
+				_ = yield(call("spawn", "spawn_agent", `{"task":"Inspect the child scope"}`)) && yield(finish())
+			default:
+				steered <- strings.Contains(prompt, "New direction")
+				_ = yield(call("gated", "gated", `{}`)) && yield(finish())
+			}
+		}
+		fixture := newFixture(t, &scriptedModel{scripts: []script{step, step, step}}, gated)
+		fixture.start()
+		turn := fixture.submit("Parent task")
+		select {
+		case <-childStarted:
+		case <-fixture.ctx.Done():
+			t.Fatal("foreground child did not start")
+		}
+		input := protocol.DefaultConversationInput()
+		input.Text = "New direction"
+		fixture.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: fixture.session.Revision, Message: input})
+		select {
+		case joined := <-steered:
+			if !joined {
+				t.Fatal("request after guidance carried neither the guidance nor the child result")
+			}
+		case <-fixture.ctx.Done():
+			t.Fatal("guidance did not continue the waiting turn")
+		}
+		fixture.waitingApproval()
+		fixture.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+		fixture.waitRun(turn, protocol.ConversationStatusInterrupted)
+		var order []string
+		for _, record := range fixture.state().Records {
+			if message := record.Message(); message != nil {
+				for _, block := range message.Content {
+					switch value := block.Data.(type) {
+					case *canonical.ToolResponse:
+						order = append(order, "response "+value.ID)
+					case *canonical.TextContent:
+						if strings.Contains(value.Text, "was cancelled before it finished") {
+							order = append(order, "cancellation note")
+						}
+					}
+				}
+			}
+		}
+		if !reflect.DeepEqual(order, []string{"response spawn", "response gated", "cancellation note"}) {
+			t.Fatalf("stopped turn settlement=%v", order)
+		}
+	})
 	t.Run("stop before worker registration", func(t *testing.T) {
 		model := &scriptedModel{}
 		fixture := newFixture(t, model)
@@ -331,6 +506,44 @@ func TestRestartNoReplay(t *testing.T) {
 	if m.count() != 0 {
 		t.Fatal("recovery replayed model")
 	}
+	t.Run("unanswered call does not reach the next request", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(text("Second answer"), finish())}}
+		f := newFixture(t, m)
+		first := f.submit("First")
+		// The process ended after the model's tool request committed and
+		// before its result did.
+		err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			inv, _, err := store.ClaimNext(f.ctx, db, f.r.clock.Now())
+			if err != nil || inv == nil {
+				return errors.Join(err, context.Canceled)
+			}
+			for _, record := range []canonical.Record{
+				inputRecord(first, inv.Message, f.r),
+				canonical.NewRecord(first, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &canonical.ToolRequest{ID: "crashed", Name: "probe", Arguments: json.RawMessage(`{}`)}}), f.r.clock.Now()),
+			} {
+				if _, _, err = store.AppendCanonical(f.ctx, db, f.session.ID, record); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = f.r.Recover(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+		f.start()
+		f.waitRun(first, protocol.ConversationStatusInterrupted)
+		f.waitRun(f.submit("Second"), protocol.ConversationStatusCompleted)
+		for _, message := range m.calls[0].Prompt {
+			for _, part := range message.Content {
+				if part.GetType() == fantasy.ContentTypeToolCall || part.GetType() == fantasy.ContentTypeToolResult {
+					t.Fatalf("request carried an unanswered call: %#v", part)
+				}
+			}
+		}
+	})
 }
 func TestCompactionAtThreshold(t *testing.T) {
 	configured := uint32(700)
@@ -340,17 +553,17 @@ func TestCompactionAtThreshold(t *testing.T) {
 		configured *uint32
 		want       bool
 	}{{800, 80, nil, false}, {801, 80, nil, true}, {0, 80, nil, false}, {1000, 100, nil, false}, {1000, 0, nil, false}, {700, 80, &configured, false}, {701, 80, &configured, true}} {
-		t.Run(string(rune(row.tokens%26+'a')), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%d tokens at %d%% configured %t", row.tokens, row.percent, row.configured != nil), func(t *testing.T) {
 			binding := model.Binding{Config: protocol.SessionConfig{Model: "fixture"}, Provider: protocol.ConversationProvider{Models: []protocol.ConversationModel{{ID: "fixture", Context: 1000, CompactionTokens: row.configured}}}}
 			usage := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.Assistant), manualNow())
 			usage.Message().Usage = &canonical.Usage{Total: &row.tokens}
-			input := canonical.NewRecord(usage.Turn, "message", canonical.NewMessage(canonical.User), manualNow())
+			input := canonical.NewRecord(usage.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Hidden pending input")), manualNow())
 			input.Metadata.Runtime = &canonical.Runtime{AgentVisible: false}
-			// A hidden pending message contributes no tokens and cannot change the exact boundary.
-			state := store.AgentState{Records: []canonical.Record{usage, input}}
-			input.Metadata.Runtime.AgentVisible = true
-			state.Records = []canonical.Record{usage}
+			// The reported total must belong to the last visible, non-assistant
+			// message for the threshold to apply. A hidden pending message after
+			// it contributes no tokens and cannot change the exact boundary.
 			usage.Message().Role = canonical.User
+			state := store.AgentState{Records: []canonical.Record{usage, input}}
 			if got := shouldCompact(binding, state, row.percent); got != row.want {
 				t.Fatalf("threshold=%v, want %v", got, row.want)
 			}

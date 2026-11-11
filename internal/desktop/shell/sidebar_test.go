@@ -10,6 +10,8 @@ import (
 
 // TestSidebarSessions groups the cases of one behavior; each keeps its own fixture.
 func TestSidebarSessions(t *testing.T) {
+	t.Run("SidebarOpensConversation", testSidebarOpensConversation)
+	t.Run("SidebarShowMore", testSidebarShowMore)
 	t.Run("SidebarMenuPinsAndRenames", testSidebarMenuPinsAndRenames)
 	t.Run("SidebarRenameKeepsEmptyTitleOut", testSidebarRenameKeepsEmptyTitleOut)
 	t.Run("SidebarReordersPins", testSidebarReordersPins)

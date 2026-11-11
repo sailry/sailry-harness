@@ -88,16 +88,6 @@ func putDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string, 
 }
 
 func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([]string, error) {
-	plugins, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
-	if err != nil {
-		return nil, err
-	}
-	enabled := map[string]bool{}
-	for _, info := range plugins {
-		if info.Summary.Enabled {
-			enabled[info.Summary.Name] = true
-		}
-	}
 	type record struct{ packageName, identity string }
 	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_schedules WHERE next_ms<=?1 ORDER BY next_ms", timestamp)
 	if err != nil {
@@ -109,9 +99,7 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 		if err = rows.Scan(&item.packageName, &item.identity); err != nil {
 			break
 		}
-		if item.packageName == dispatchNativeOwner || enabled[item.packageName] {
-			records = append(records, item)
-		}
+		records = append(records, item)
 	}
 	readErr := rows.Err()
 	closeErr := rows.Close()
@@ -119,6 +107,23 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 		return nil, err
 	}
 	changed := []string{}
+	// Most ticks find nothing due and read no plugin.
+	if len(records) == 0 {
+		return changed, nil
+	}
+	plugins, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	enabled := map[string]bool{}
+	for _, info := range plugins {
+		if info.Summary.Enabled {
+			enabled[info.Summary.Name] = true
+		}
+	}
+	records = slices.DeleteFunc(records, func(item record) bool {
+		return item.packageName != dispatchNativeOwner && !enabled[item.packageName]
+	})
 	attempted := 0
 	for _, item := range records {
 		if attempted == 64 {
@@ -195,7 +200,7 @@ func nextDispatchSchedule(ctx context.Context, db *sql.Conn, timestamp int64) (*
 	var next *int64
 	for _, item := range records {
 		if item.packageName != dispatchNativeOwner {
-			info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1 AND installed=1", item.packageName)
+			info, err := ReadPlugin(ctx, db, item.packageName)
 			if err != nil {
 				return nil, err
 			}

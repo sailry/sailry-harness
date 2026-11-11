@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"net"
@@ -10,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 

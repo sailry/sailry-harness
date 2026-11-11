@@ -194,7 +194,7 @@ func (r *Runtime) projectTerminals(project *viewmodel.Project) []shell.ProjectTe
 	if owner == nil {
 		return nil
 	}
-	snapshot := owner.controller.Snapshot()
+	snapshot := owner.snapshot()
 	worktrees := map[protocol.WorktreeID]bool{}
 	for _, worktree := range snapshot.Worktrees {
 		if worktree.Project != nil && worktree.Project.String() == project.ID {
@@ -294,7 +294,7 @@ func (r *Runtime) terminalTabCurrent(owners []*Runtime, settled bool, id string)
 		return false
 	}
 	for _, owner := range owners {
-		for _, info := range owner.controller.Snapshot().Terminals {
+		for _, info := range owner.snapshot().Terminals {
 			if info.ID != terminalID {
 				continue
 			}
@@ -389,7 +389,7 @@ func (r *Runtime) closeExitedTerminal(owners []*Runtime, id string) {
 		return
 	}
 	for _, owner := range owners {
-		for _, info := range owner.controller.Snapshot().Terminals {
+		for _, info := range owner.snapshot().Terminals {
 			if info.ID == terminalID && info.Status.Kind == "exited" {
 				if inventory.exited == nil {
 					inventory.exited = map[string]bool{}

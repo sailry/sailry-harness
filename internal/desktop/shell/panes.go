@@ -62,9 +62,21 @@ func (a *App) followPanes() {
 		w.seen = a.Sidebar.Selected
 		w.Active = session(w.seen)
 	}
+	a.prunePanes()
+	if len(w.Groups) > 0 {
+		a.standAlone()
+	}
+}
+
+// prunePanes takes the panes that are not there out of their groups. A
+// terminal without its tab was closed. A session that is not there may not be
+// loaded yet, as a remote host's before it connects: its pane is held and
+// comes back with it (panes.Follow).
+func (a *App) prunePanes() {
+	w := &a.panes
+	w.Follow(func(t panes.Target) bool { return t.Kind != panes.Session || a.paneExists(t) })
 	if len(w.Groups) > 0 {
 		w.Prune(a.paneExists)
-		a.standAlone()
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/sailry/sailry-harness/internal/node/host"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/ssh"
@@ -12,6 +13,10 @@ import (
 func (node *Node) runHost(caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
 	if handled, output, err := node.dispatchResource(node.ctx, caller, request); handled {
 		return output, err
+	}
+	if input, ok := request.Command.Data.(*protocol.CommandStopHostProcessPayload); ok {
+		err := host.StopProcess(node.ctx, input.Pid, input.StartedAtSecs, input.Force)
+		return protocol.Output{Kind: "host_process_signalled", Data: protocol.OutputHostProcessSignalledPayload{Pid: input.Pid, StartedAtSecs: input.StartedAtSecs}}, err
 	}
 	if input, ok := request.Command.Data.(*protocol.CommandCancelSshPayload); ok {
 		err := node.hostInstalls.Cancel(caller, input.Request, request.Plugin)

@@ -160,7 +160,7 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 	return state, err
 }
 func childResponse(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*string, error) {
-	records, err := readBodies[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence DESC", turn.String())
+	records, err := readBodies[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.kind')='message' AND json_extract(body,'$.role')='assistant' ORDER BY sequence DESC", turn.String())
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	recipient := state.Run.Turn
 	state.Recipient = &recipient
 	if state.Run.Status == protocol.ConversationStatusRunning {
-		inv, events, err := admitChildGuidance(ctx, db, node, parent, identity, state.Run, args.Message, now)
+		inv, events, err := delegateAgent(ctx, db, node, parent, identity, nil, true, now, &state.Run)
 		if err == nil {
 			state.Run = inv.Run
 		}
@@ -226,8 +226,4 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	}
 	state.Run = inv.Run
 	return state, &inv, events, nil
-}
-
-func admitChildGuidance(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, target protocol.ConversationRun, task string, now time.Time) (AgentInvocation, []protocol.Event, error) {
-	return delegateAgent(ctx, db, node, parent, identity, nil, true, now, &target)
 }

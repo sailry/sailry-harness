@@ -3,6 +3,7 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-git/go-billy/v5/osfs"
@@ -15,6 +16,7 @@ type WatchFilter struct {
 	repository *gogit.Repository
 	metadata   []string
 	tracked    map[string]bool
+	names      []string // tracked paths in byte order, for directory lookups
 	matcher    gitignore.Matcher
 }
 
@@ -57,6 +59,7 @@ func (f *WatchFilter) refresh() error {
 	}
 	f.metadata = metadata
 	f.tracked = map[string]bool{}
+	f.names = nil
 	f.repository = nil
 	f.matcher = nil
 	if len(metadata) == 0 {
@@ -73,7 +76,9 @@ func (f *WatchFilter) refresh() error {
 	}
 	for _, entry := range idx.Entries {
 		f.tracked[entry.Name] = true
+		f.names = append(f.names, entry.Name)
 	}
+	sort.Strings(f.names)
 	worktree, err := r.Worktree()
 	if err != nil {
 		return mapError(err)
@@ -148,10 +153,12 @@ func (f *WatchFilter) Changed(paths []string) bool {
 		if isMetadata {
 			continue
 		}
-		for tracked := range f.tracked {
-			if tracked == relative || strings.HasPrefix(tracked, relative+"/") {
-				return true
-			}
+		if f.tracked[relative] {
+			return true
+		}
+		// Paths below a directory are contiguous from the first name at or after "directory/".
+		if i := sort.SearchStrings(f.names, relative+"/"); i < len(f.names) && strings.HasPrefix(f.names[i], relative+"/") {
+			return true
 		}
 		if f.repository != nil && (f.matcher == nil || !f.matcher.Match(parts, false)) {
 			return true

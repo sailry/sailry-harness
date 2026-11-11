@@ -3,10 +3,12 @@ package link
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -197,7 +199,7 @@ func fixtureFrames(t *testing.T, replies ...wire.Reply) []byte {
 	t.Helper()
 	var encoded bytes.Buffer
 	for _, reply := range replies {
-		if err := wire.WriteReply(&encoded, reply, false); err != nil {
+		if err := wire.WriteReply(reply, func(frame wire.Reply) error { return wire.Write(&encoded, frame, false) }); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -394,6 +396,55 @@ func TestServerUsesCertifiedCallerAndOrdersReceipt(t *testing.T) {
 	if err != nil || second.Kind != wire.ReplyCompleted || second.Completed.Output.Kind != "notifications_updated" {
 		t.Fatalf("completion response: %#v, %v", second, err)
 	}
+	t.Run("snapshot_pages_have_separate_deadlines", func(t *testing.T) {
+		link := newFixtureLink(t)
+		// Each deadline lasts for exactly one complete frame.
+		var mu sync.Mutex
+		var expire context.CancelFunc
+		deadlines, frames := 0, 0
+		link.timeout = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+			scoped, cancel := context.WithCancel(ctx)
+			mu.Lock()
+			expire = cancel
+			deadlines++
+			mu.Unlock()
+			return scoped, cancel
+		}
+		stream := newFixtureStream(nil)
+		stream.afterWrite = func(written []byte) {
+			complete := 0
+			for len(written) >= 4 {
+				size := int(binary.BigEndian.Uint32(written))
+				if len(written) < 4+size {
+					break
+				}
+				written = written[4+size:]
+				complete++
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if complete > frames {
+				frames = complete
+				expire()
+			}
+		}
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node, snapshot.Cursor = target, 7
+		batch := strings.Repeat("x", 2*wire.PageBytes+1)
+		snapshot.ModelCatalog.Scores.Batch = &batch
+		update := protocol.Update{Kind: "snapshot", Data: &snapshot}
+		if err := link.writeReply(t.Context(), stream, wire.Reply{Kind: wire.ReplyUpdate, Update: &update}, false); err != nil {
+			t.Fatalf("paged snapshot shared one frame deadline: %v", err)
+		}
+		reply, err := wire.NewReader(false).Reply(bytes.NewReader(stream.written()))
+		if err != nil || reply.Kind != wire.ReplyUpdate || reply.Update.Kind != "snapshot" {
+			t.Fatalf("paged snapshot: %#v, %v", reply.Kind, err)
+		}
+		received := reply.Update.Data.(*protocol.Snapshot)
+		if received.Cursor != 7 || *received.ModelCatalog.Scores.Batch != batch || frames != 4 || deadlines != frames {
+			t.Fatalf("snapshot used %d deadlines for %d frames", deadlines, frames)
+		}
+	})
 }
 
 func TestServerCancelsAbandonedSubscriptionPreparation(t *testing.T) {

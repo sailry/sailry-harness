@@ -54,7 +54,7 @@ func (r *Runtime) bindReferences(session string, page protocol.ConversationPage)
 
 func (r *Runtime) openReference(session string, turn protocol.TurnID, ref protocol.ConversationReference) {
 	r.enqueue(func(c *ui.Context) {
-		snapshot := r.controller.Snapshot()
+		snapshot := r.snapshot()
 		switch ref.Target.Kind {
 		case "plugin":
 			if name, ok := detail[string](ref.Target.Data); ok {

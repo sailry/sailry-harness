@@ -89,6 +89,9 @@ func Load(directory string) error {
 		}
 		return errors.New("ONNX Runtime is invalid: another runtime is already active")
 	}
+	if files, err = pins(directory, files); err != nil {
+		return err
+	}
 	path, err := verify(directory, files)
 	if err != nil {
 		return err

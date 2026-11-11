@@ -2,7 +2,7 @@
   "name": "Sailry",
   "slug": "sailry",
   "identifier": "ai.sailry.desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "copyright": "Copyright © 2026 Sailry",
   "icon": "../../assets/branding/sailry.png",
   "main": ".",
@@ -10,11 +10,14 @@
   "macos": {
     "minimumSystemVersion": "13.0",
     "entitlements": "macos/app.entitlements.plist",
-    "infoPlist": {
-      "NSMicrophoneUsageDescription": "Use the microphone for voice input"
+    "helperEntitlements": {
+      "python/bin/python3.12": "macos/python.entitlements.plist"
     },
-    "notarize": {
-      "keychainProfile": "sailry-notary"
+    "infoPlist": {
+      "NSAppTransportSecurity": {
+        "NSAllowsArbitraryLoadsInWebContent": true
+      },
+      "NSMicrophoneUsageDescription": "Use the microphone for voice input"
     }
   }
 }

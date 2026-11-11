@@ -70,6 +70,18 @@ func Platform(os string) *ui.SVG {
 	return icons.Cpu
 }
 
+// label is a name of the host's as it shows. The preview's host names itself
+// and its processes by i18n keys, and a live host is local_host_name until its
+// Node names it. Any other name of a live host (its own and its processes')
+// is the device's: it shows as it is, not as the catalog's text for a key it
+// happens to spell.
+func (h *Host) label(c *ui.Context, text string) string {
+	if !h.Live || text == "local_host_name" {
+		return i18n.T(c, text)
+	}
+	return text
+}
+
 // header is the host's name, status and platform beside its logo, then its
 // port forwards and Update for a host updated from here.
 func header(c *ui.Context, s *State, h *Host, act Actions) {
@@ -77,7 +89,7 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 	ui.Row(c.Key("header")).Gap(16).Padding(16, 0).Wrap().Children(func() {
 		ui.Icon(c, Platform(h.OS)).FontSize(40).Shrink(0)
 		ui.Column(c.Key("name")).Grow(1).Shrink(1).MinWidth(220).Gap(4).Children(func() {
-			ui.Text(c, i18n.T(c, h.Name)).FontSize(20).FontWeight(600).SingleLine()
+			ui.Text(c, h.label(c, h.Name)).FontSize(20).FontWeight(600).SingleLine()
 			status := "workspace_host_status"
 			if h.Live {
 				status = "live_connected"

@@ -41,7 +41,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	}
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
-		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) {
+		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) {
 			continue
 		}
 		// A connection conversation without an assistant offers only tools that name a context.
@@ -224,6 +224,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		return nil, err
 	}
 	tools = append(tools, indexed...)
+	stored, err := node.storageTools(inv, catalog)
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, stored...)
 	browsers, err := node.browserTools(ctx, inv)
 	if err != nil {
 		return nil, err

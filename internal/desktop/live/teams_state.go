@@ -44,7 +44,7 @@ func (r *Runtime) teamsFrame() {
 	if r.teams == nil {
 		return
 	}
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	r.App.Settings.Roles = nil
 	for _, role := range snapshot.Roles {
 		r.teams.roles[profileKey(role.ID.String(), role.Revision)] = role
@@ -90,7 +90,7 @@ func (r *Runtime) readTeamSettings() {
 		return
 	}
 	r.teams.reading = true
-	r.teams.observed = r.controller.Snapshot().TeamSettingsRevision
+	r.teams.observed = r.snapshot().TeamSettingsRevision
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_team_settings"})
 		r.enqueue(func(c *ui.Context) {

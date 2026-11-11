@@ -1,11 +1,11 @@
 package live
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"

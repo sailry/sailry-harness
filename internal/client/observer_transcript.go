@@ -2,11 +2,8 @@ package client
 
 import (
 	"cmp"
-	"net/url"
 	"slices"
-	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -365,7 +362,7 @@ func collectTranscriptRows(snapshot protocol.ConversationSnapshot, calls []proje
 					}
 				}
 			}
-			row.Work = transcriptWork(part, call)
+			row.Work = workPart(part)
 			rows = append(rows, row)
 		}
 	}
@@ -388,19 +385,6 @@ func equalOptionalUint(left, right *uint64) bool {
 
 func equalOptionalString(left, right *string) bool {
 	return left == nil && right == nil || left != nil && right != nil && *left == *right
-}
-
-func transcriptWork(part protocol.ConversationPart, call projectedToolCall) bool {
-	switch part.Kind {
-	case "text", "image", "attachment", "reference":
-		return false
-	case "tool_call", "tool_result":
-		return !terminalInteraction(call.Name)
-	case "resource":
-		value := resourceValue(part.Data)
-		return value.Type != "tool_started" && value.Type != "provider_context"
-	}
-	return true
 }
 
 func waitingChildren(snapshot protocol.ConversationSnapshot, calls []projectedToolCall, guidance map[string]string, turn protocol.TurnID, rows []transcriptRow) *int {
@@ -546,37 +530,8 @@ func referencedImages(snapshot protocol.ConversationSnapshot) []referencedImage 
 
 func imageReferences(text string) []protocol.ConversationImagesReference {
 	value := []protocol.ConversationImagesReference{}
-	for start := 0; start < len(text); {
-		colon := strings.IndexByte(text[start:], ':')
-		if colon < 0 {
-			break
-		}
-		colon += start
-		start = colon + 1
-		const scheme = "sailry-image"
-		if colon < len(scheme) || !strings.EqualFold(text[colon-len(scheme):colon], scheme) {
-			continue
-		}
-		end := len(text)
-		for offset, char := range text[colon:] {
-			if unicode.IsSpace(char) || strings.ContainsRune("()<>[]\"'", char) {
-				end = colon + offset
-				break
-			}
-		}
-		destination := text[colon+1 : end]
-		start = end
-		slash := strings.LastIndexByte(destination, '/')
-		if slash < 0 {
-			continue
-		}
-		call, err := url.PathUnescape(destination[:slash])
-		index := destination[slash+1:]
-		sequence, sequenceErr := strconv.ParseUint(index, 10, 64)
-		if err != nil || call == "" || len(call) > 512 || !utf8.ValidString(call) || sequenceErr != nil || strconv.FormatUint(sequence, 10) != index {
-			continue
-		}
-		value = append(value, protocol.ConversationImagesReference{Call: call, Index: sequence})
+	for _, span := range exportImageSpans(text) {
+		value = append(value, protocol.ConversationImagesReference{Call: span.key.call, Index: span.key.index})
 	}
 	return value
 }

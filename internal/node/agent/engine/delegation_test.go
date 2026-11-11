@@ -321,7 +321,7 @@ func TestDelegationHandoff(t *testing.T) {
 		returned := make(chan ToolResult, 1)
 		go func() {
 			returned <- f.r.admitChild(x, call, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
-				inv, events, err := store.DelegateAgent(ctx, db, f.node, x.inv.Run.Turn, identity(call), nil, false, f.r.clock.Now())
+				inv, events, err := store.DelegateAgent(ctx, db, f.node, x.inv.Run.Turn, toolIdentity(call), nil, false, f.r.clock.Now())
 				if err != nil {
 					return nil, nil, err
 				}

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -16,7 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 )
 
-func stageContent(ctx context.Context, root string, r *gogit.Repository, idx *idxfmt.Index, path string) (content, error) {
+func stageContent(ctx context.Context, root string, idx *idxfmt.Index, path string, ignored func(string, bool) (bool, error)) (content, error) {
 	target, err := safePath(root, path)
 	if err != nil {
 		return content{}, err
@@ -29,11 +28,11 @@ func stageContent(ctx context.Context, root string, r *gogit.Repository, idx *id
 		return content{}, mapError(err)
 	}
 	if _, err := idx.Entry(path); err != nil {
-		filter, e := NewWatchFilter(root)
+		skip, e := ignored(path, info.IsDir())
 		if e != nil {
 			return content{}, e
 		}
-		if filter.matcher != nil && filter.matcher.Match(strings.Split(path, "/"), info.IsDir()) {
+		if skip {
 			return content{}, invalid("ignored files cannot be staged by this operation")
 		}
 	}
@@ -59,7 +58,9 @@ func stageContent(ctx context.Context, root string, r *gogit.Repository, idx *id
 	return workingContent(root, path, maxFile)
 }
 
-func stageIndexContent(ctx context.Context, root string, r *gogit.Repository, idx *idxfmt.Index, path string) error {
+// stageIndexContent stages one worktree path. ignored reports whether an
+// untracked path is excluded; the caller builds its filter once per update.
+func stageIndexContent(ctx context.Context, root string, r *gogit.Repository, idx *idxfmt.Index, path string, ignored func(string, bool) (bool, error)) error {
 	target, err := safePath(root, path)
 	if err != nil {
 		return err
@@ -72,7 +73,7 @@ func stageIndexContent(ctx context.Context, root string, r *gogit.Repository, id
 		return mapError(err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		value, err := stageContent(ctx, root, r, idx, path)
+		value, err := stageContent(ctx, root, idx, path, ignored)
 		if err != nil {
 			return err
 		}
@@ -82,11 +83,11 @@ func stageIndexContent(ctx context.Context, root string, r *gogit.Repository, id
 		return invalid("expected a regular Git resource")
 	}
 	if _, err := idx.Entry(path); err != nil {
-		filter, e := NewWatchFilter(root)
+		skip, e := ignored(path, false)
 		if e != nil {
 			return e
 		}
-		if filter.matcher != nil && filter.matcher.Match(strings.Split(path, "/"), false) {
+		if skip {
 			return invalid("ignored files cannot be staged by this operation")
 		}
 	}
@@ -157,15 +158,10 @@ func stageIndexContent(ctx context.Context, root string, r *gogit.Repository, id
 	if before.Mode()&0111 != 0 {
 		mode = filemode.Executable
 	}
-	kept := idx.Entries[:0]
-	for _, entry := range idx.Entries {
-		if entry.Name != path {
-			kept = append(kept, entry)
-		}
-	}
 	if err := syncBlob(r, hash.Sum()); err != nil {
 		return err
 	}
-	idx.Entries = append(kept, &idxfmt.Entry{Name: path, Hash: hash.Sum(), Mode: mode, Size: uint32(before.Size())})
+	dropIndexEntries(idx, path, true)
+	idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash.Sum(), Mode: mode, Size: uint32(before.Size())})
 	return nil
 }

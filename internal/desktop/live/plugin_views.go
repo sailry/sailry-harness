@@ -219,7 +219,7 @@ func pluginViewScopeExists(owner *Runtime, scope protocol.PluginContext) bool {
 		}
 	}
 	if scope.Worktree != nil {
-		for _, worktree := range owner.controller.Snapshot().Worktrees {
+		for _, worktree := range owner.snapshot().Worktrees {
 			if worktree.ID == *scope.Worktree {
 				return true
 			}
@@ -251,7 +251,7 @@ func (r *Runtime) pluginViewCurrent(mounted *pluginMountedView) bool {
 			return false
 		}
 	}
-	snapshot := mounted.owner.controller.Snapshot()
+	snapshot := mounted.owner.snapshot()
 	if mounted.host != nil {
 		mounted.host.ObserveSettings(snapshot.Plugins, true)
 	}
@@ -544,15 +544,15 @@ func (r *Runtime) pluginViewCatalog(owner *Runtime) []protocol.PluginInfo {
 		owner.packages = newPackageState()
 	}
 	var entries []protocol.PluginInfo
-	for _, summary := range owner.controller.Snapshot().Plugins {
+	for _, summary := range owner.snapshot().Plugins {
 		if removed, exists := owner.packages.removed[summary.Name]; exists && summary.Revision <= removed {
 			continue
 		}
 		info, exists := owner.packages.infos[summary.Name]
-		version := packageVersion(summary)
-		if (!exists || packageVersion(info.Summary) != version) && owner.controller.Connected() &&
-			!owner.packages.reads[summary.Name] && owner.packages.failures[summary.Name] != version {
-			owner.readPackage(summary.Name, version, nil)
+		if (!exists || !samePackageVersion(info.Summary, summary)) && owner.controller.Connected() && !owner.packages.reads[summary.Name] {
+			if version := packageVersion(summary); owner.packages.failures[summary.Name] != version {
+				owner.readPackage(summary.Name, version, nil)
+			}
 		}
 		if !exists || info.Summary.Digest != summary.Digest {
 			continue

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -54,7 +55,7 @@ func StartWithNetwork(ctx context.Context, path string, scope link.NetworkScope)
 func (node *Node) Link() *link.Link { return node.network }
 
 func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) error {
-	if err := iroh.LoadDefault(); err != nil {
+	if err := iroh.LoadDefault(!core.Release()); err != nil {
 		return err
 	}
 	if scope.Internet || len(scope.Relays) != 0 {

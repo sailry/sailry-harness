@@ -57,29 +57,9 @@ func encoded(value any) string {
 	}
 	return string(bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'}))
 }
-func object(value any) map[string]any { result, _ := value.(map[string]any); return result }
-func array(value any) []any           { result, _ := value.([]any); return result }
-func text(value any) string           { result, _ := value.(string); return result }
-func number(value any) uint64 {
-	switch value := value.(type) {
-	case json.Number:
-		n, _ := value.Int64()
-		if n > 0 {
-			return uint64(n)
-		}
-	case float64:
-		if value > 0 {
-			return uint64(value)
-		}
-	case uint64:
-		return value
-	case int:
-		if value > 0 {
-			return uint64(value)
-		}
-	}
-	return 0
-}
+func object(value any) map[string]any                     { result, _ := value.(map[string]any); return result }
+func array(value any) []any                               { result, _ := value.([]any); return result }
+func text(value any) string                               { result, _ := value.(string); return result }
 func message(record *canonical.Record) *canonical.Message { return record.MutableMessage() }
 func response(block *canonical.Block) *canonical.ToolResponse {
 	if block.Kind != "tool_response" {

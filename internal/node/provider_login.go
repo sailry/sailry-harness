@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"maps"
+	"net"
+	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -376,6 +380,9 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 	}
 	target := renewal.Capture.Target
 	bundle, err := node.providerBundle(ctx, target)
+	transport := &renewalTransport{base: node.auth.client.Transport}
+	client := *node.auth.client
+	client.Transport = transport
 	var grant providers.AccountGrant
 	if err == nil && target.Declaration.Flow.Kind == "script" {
 		var previous any
@@ -383,7 +390,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		_ = json.Unmarshal(body, &previous)
 		result, operationErr := authorization.Run(ctx, authorization.Input{
 			Declaration: target.Declaration, Fields: target.Fields, Bundle: bundle, Previous: previous, HostID: node.auth.host,
-			Client: node.auth.client,
+			Client: &client,
 		})
 		err = operationErr
 		if err == nil {
@@ -394,7 +401,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		for name, value := range renewal.Grant.Record.Issued.Fields() {
 			fields[name] = value
 		}
-		status, document, operationErr := authorization.Response(ctx, node.auth.client, target.Declaration.Refresh.Request, fields, false)
+		status, document, operationErr := authorization.Response(ctx, &client, target.Declaration.Refresh.Request, fields, false)
 		err = operationErr
 		if err == nil && (status < 200 || status >= 300) {
 			err = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider authorization renewal was rejected"}
@@ -414,8 +421,16 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 			}
 		}
 	}
+	var failure error
 	if err != nil {
-		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider authorization renewal did not complete; sign in again"}
+		var fault *protocol.Fault
+		if renewal.Grant.Kind != protocol.AuthenticationPlugin || transport.sent.Load() ||
+			!errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
+			return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider authorization renewal did not complete; sign in again"}
+		}
+		// No request left this Node, so the grant was not consumed. It returns
+		// without its uncertain marker and a later use renews it again.
+		grant, failure = renewal.Grant, err
 	}
 	var changes []protocol.Event
 	recording := context.WithoutCancel(node.ctx)
@@ -429,6 +444,27 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 	})
 	if err == nil {
 		node.pluginCommitted(changes)
+		err = failure
 	}
 	return err
+}
+
+// renewalTransport records whether any request of one renewal got past
+// connection setup.
+type renewalTransport struct {
+	base http.RoundTripper
+	sent atomic.Bool
+}
+
+func (transport *renewalTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	response, err := base.RoundTrip(request)
+	var dial *net.OpError
+	if err == nil || !errors.As(err, &dial) || dial.Op != "dial" {
+		transport.sent.Store(true)
+	}
+	return response, err
 }

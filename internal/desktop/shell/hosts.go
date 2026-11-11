@@ -3,6 +3,7 @@ package shell
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
@@ -112,4 +113,15 @@ func (a *App) selectConversation(id string) {
 	if pr := a.Data.ProjectOf(id); pr != nil {
 		a.Sidebar.Reveal(pr.ID)
 	}
+}
+
+// hostName is a host's name as it shows. The preview names its hosts by i18n
+// keys, and the local host is local_host_name until its Node names it. Any
+// other name is a device's own: it shows as it is, not as the catalog's text
+// for a key it happens to spell.
+func (a *App) hostName(c *ui.Context, name string) string {
+	if a.Preview || name == "local_host_name" {
+		return i18n.T(c, name)
+	}
+	return name
 }

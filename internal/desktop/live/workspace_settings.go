@@ -97,7 +97,7 @@ func (r *Runtime) refreshWorkspaceSettings() {
 	}
 	r.initWorkspaceSettings()
 	state := &r.workspaceSettings
-	if (!state.sandboxKnown || r.controller.Snapshot().SandboxSettingsRevision != state.sandboxRevision) && !state.sandboxModel.Pending {
+	if (!state.sandboxKnown || r.snapshot().SandboxSettingsRevision != state.sandboxRevision) && !state.sandboxModel.Pending {
 		r.readSandbox()
 	}
 	session, ok := r.session(r.App.Sidebar.Selected)
@@ -126,7 +126,7 @@ func (r *Runtime) hookContext() (string, bool) {
 	}
 	var tree protocol.Worktree
 	found := false
-	for _, candidate := range r.controller.Snapshot().Worktrees {
+	for _, candidate := range r.snapshot().Worktrees {
 		if candidate.ID == id {
 			tree, found = candidate, true
 			break
@@ -267,7 +267,7 @@ func (r *Runtime) readSandbox() {
 		return
 	}
 	m.Pending = true
-	r.workspaceSettings.sandboxRevision = r.controller.Snapshot().SandboxSettingsRevision
+	r.workspaceSettings.sandboxRevision = r.snapshot().SandboxSettingsRevision
 	r.workspaceSettings.sandboxKnown = true
 	r.publishWorkspaceSettings()
 	r.execute(protocol.Command{Kind: "read_sandbox_settings"}, func(c *ui.Context, out protocol.Output, err error) {

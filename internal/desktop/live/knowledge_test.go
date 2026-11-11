@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -37,6 +38,17 @@ func testKnowledgeViewer(t *testing.T) {
 	} {
 		if got := knowledgeErrorKey(code); got != key {
 			t.Errorf("%s shows %s", code, got)
+		}
+	}
+	// ACT-008: a notification whose text details are one citation link
+	// carries it to the notice; any other text does not.
+	cited := knowledge.CitationURL(protocol.KnowledgeCitation{Collection: collection, Chunk: chunk, Revision: revision})
+	for body, want := range map[string]string{" " + cited + "\n": cited, "See " + cited: "", "sailry-knowledge://docs/frame?revision=3": "", "": ""} {
+		notice := Notices([]client.Notice{{ID: client.NoticeID{Node: protocol.NodeID{1}, Cursor: 1, Target: client.NoticeTarget{Kind: "notification", Notification: protocol.NotificationID{1}}},
+			Kind: "notification", NotificationKind: protocol.NotificationKindInfo, Title: "Frame notes",
+			Details: &protocol.NotificationDetails{Kind: "text", Data: &protocol.NotificationDetailsTextPayload{Body: body}}}})[0]
+		if notice.Link != want || notice.DetailText != body || notice.Node != (protocol.NodeID{1}).String() {
+			t.Errorf("a notice with the text %q opens %q on %s, want %q", body, notice.Link, notice.Node, want)
 		}
 	}
 	texts := []string{"first page ", "second page ", "third page"}

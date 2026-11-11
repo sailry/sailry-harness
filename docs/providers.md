@@ -116,6 +116,13 @@ summary, preserves explicit tool call/result identities and skips capability-onl
 or diagnostic content. Signed, redacted and encrypted reasoning stays within its
 captured provider/model scope. Provider metadata conversion is owned by
 `ApplyStreamMetadata`; `PartIndex` keeps canonical content slot identity.
+Tool calls without a result and results without a call are omitted from the
+request, for SDK and plugin transports alike.
+
+Account credentials are authorized before every inference and before compaction.
+A credential that is still valid is read locally; an expired one is renewed
+through its provider flow, and the transport is rebuilt only when the secret
+changed. API-key providers keep the secret captured with the turn.
 
 Main transport attempts have at most five additional transient retries, 60 seconds
 apart, before any output event escapes. Summary output stays buffered and has one

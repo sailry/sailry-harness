@@ -149,7 +149,7 @@ func pluginConnectionRow(ctx context.Context, db *sql.Conn, profile string, reco
 	switch {
 	case declaration == nil || !info.Summary.Enabled:
 		state = protocol.PluginConnectorStateNotConnected
-	case connectorConsent(record.Plugin, record.Bound, bound) != nil:
+	case connectorConsent(record.Bound, bound) != nil:
 		state = protocol.PluginConnectorStateNeedsConfirmation
 	case !slices.ContainsFunc(declaration.Auth, func(auth protocol.PluginConnectorAuth) bool { return auth.Kind == string(record.Method) }):
 		state = protocol.PluginConnectorStateNotConnected

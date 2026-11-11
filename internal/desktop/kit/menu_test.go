@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -67,50 +68,131 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	if got != "Beta" || tt.HasText("Alpha") {
 		t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
 	}
+	// A window that sweeps its menus each frame keeps the clicks of the frame
+	// before, and a menu whose button left does not come back open with it.
+	t.Run("swept", func(t *testing.T) {
+		shown := true
+		var states int
+		tt := ui.NewTester(func(c *ui.Context) {
+			SweepMenus(c)
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Padding(20).Children(func() {
+				if shown {
+					MenuButton(c, "swept", func(b ui.Element) {
+						GhostLook(c, b.Label("Open"), false).Children(func() { ui.Text(c, "Open") })
+					}, func(m *Menu) { m.Item("Alpha") })
+				}
+			})
+			states = len(*ui.Local(c.Root(), menuOpen{}, func() map[string]*menuEntry { return nil }))
+		}, 400, 300)
+		tt.Frame()
+		if err := tt.Click("Open"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(200 * time.Millisecond)
+		if !tt.HasText("Alpha") {
+			t.Fatal("the click did not open a swept menu")
+		}
+		shown = false
+		tt.Frame()
+		tt.Frame()
+		if states != 0 {
+			t.Errorf("%d menu states kept without a button", states)
+		}
+		shown = true
+		tt.Advance(200 * time.Millisecond)
+		if tt.HasText("Alpha") {
+			t.Error("the menu came back open with its button")
+		}
+	})
+	// A submenu opens from its item and its items are chosen as the menu's.
+	t.Run("Submenu", func(t *testing.T) {
+		got := ""
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Padding(20).Children(func() {
+				MenuButton(c, "test", func(b ui.Element) {
+					GhostLook(c, b.Label("Open"), false).Children(func() { ui.Text(c, "Open") })
+				}, func(m *Menu) {
+					if m.Item("Alpha").Chosen() {
+						got = "Alpha"
+					}
+					m.Submenu("More", func(m *Menu) {
+						for _, o := range []string{"Beta", "Gamma"} {
+							if m.Item(o).Chosen() {
+								got = o
+							}
+						}
+					})
+				})
+			})
+		}, 400, 300)
+		tt.Frame()
+		if err := tt.Click("Open"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(200 * time.Millisecond)
+		r, ok := tt.Find("More")
+		if !ok {
+			t.Fatal("no submenu item")
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		tt.Frame()
+		tt.Advance(200 * time.Millisecond)
+		if err := tt.Click("Gamma"); err != nil {
+			t.Fatalf("the submenu does not open: %v %q", err, tt.Texts())
+		}
+		tt.Advance(200 * time.Millisecond)
+		if got != "Gamma" || tt.HasText("Alpha") {
+			t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
+		}
+	})
 }
 
-// A select has a text input's height, and its dropdown is as wide as it.
-func TestSelectMatchesInput(t *testing.T) {
-	chosen, text := "Alpha", ""
-	tt := ui.NewTester(func(c *ui.Context) {
-		theme.Apply(c, "", theme.Dark)
-		ui.Column(c).Fill().Padding(20).Gap(8).Children(func() {
-			ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
-			b, _ := Select(c.Key("select"), "test-select", "Pick", &chosen, []string{"Alpha", "Beta"}, false)
-			b.Width(240)
-		})
-	}, 400, 400)
-	tt.Frame()
-	in, _ := tt.Access("Name")
-	sel, ok := tt.Access("Pick")
-	if !ok || in.Bounds.H != sel.Bounds.H {
-		t.Fatalf("input %v, select %v", in.Bounds, sel.Bounds)
-	}
-	tt.ClickAt(sel.Bounds.X+10, sel.Bounds.Y+5)
-	tt.Frame()
-	tt.Advance(200 * time.Millisecond) // the panel's popup motion
-	menu, ok := tt.AccessByRole(ui.RoleMenu, "")
-	if !ok || menu.Bounds.W != sel.Bounds.W {
-		t.Errorf("dropdown %v, select %v", menu.Bounds, sel.Bounds)
-	}
-}
-
-// A Segmented is as high as a text input.
-func TestSegmentedMatchesInput(t *testing.T) {
-	chosen, text := 0, ""
-	tt := ui.NewTester(func(c *ui.Context) {
-		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Padding(20).Gap(8).AlignItems(ui.Start).Children(func() {
-			ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
-			Segmented(c, "seg", &chosen, []string{"One", "Two"}, SegmentedProps{}).Label("Pick")
-		})
-	}, 400, 300)
-	tt.Frame()
-	in, _ := tt.Access("Name")
-	seg, ok := tt.Access("Pick")
-	if d := in.Bounds.H - seg.Bounds.H; !ok || d > 1 || d < -1 {
-		t.Errorf("input %v, segmented %v", in.Bounds, seg.Bounds)
-	}
+// The form controls line up with a text input.
+func TestControlsMatchInput(t *testing.T) {
+	// A select has a text input's height, and its dropdown is as wide as it.
+	t.Run("Select", func(t *testing.T) {
+		chosen, text := "Alpha", ""
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			ui.Column(c).Fill().Padding(20).Gap(8).Children(func() {
+				ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
+				b, _ := Select(c.Key("select"), "test-select", "Pick", &chosen, []string{"Alpha", "Beta"}, false)
+				b.Width(240)
+			})
+		}, 400, 400)
+		tt.Frame()
+		in, _ := tt.Access("Name")
+		sel, ok := tt.Access("Pick")
+		if !ok || in.Bounds.H != sel.Bounds.H {
+			t.Fatalf("input %v, select %v", in.Bounds, sel.Bounds)
+		}
+		tt.ClickAt(sel.Bounds.X+10, sel.Bounds.Y+5)
+		tt.Frame()
+		tt.Advance(200 * time.Millisecond) // the panel's popup motion
+		menu, ok := tt.AccessByRole(ui.RoleMenu, "")
+		if !ok || menu.Bounds.W != sel.Bounds.W {
+			t.Errorf("dropdown %v, select %v", menu.Bounds, sel.Bounds)
+		}
+	})
+	// A Segmented is as high as a text input.
+	t.Run("Segmented", func(t *testing.T) {
+		chosen, text := 0, ""
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Padding(20).Gap(8).AlignItems(ui.Start).Children(func() {
+				ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
+				Segmented(c, "seg", &chosen, []string{"One", "Two"}, SegmentedProps{}).Label("Pick")
+			})
+		}, 400, 300)
+		tt.Frame()
+		in, _ := tt.Access("Name")
+		seg, ok := tt.Access("Pick")
+		if d := in.Bounds.H - seg.Bounds.H; !ok || d > 1 || d < -1 {
+			t.Errorf("input %v, segmented %v", in.Bounds, seg.Bounds)
+		}
+	})
 }
 
 // InputOTP keeps digits only, up to its length, and reports the full code.
@@ -162,6 +244,103 @@ func TestSortableListKeyboard(t *testing.T) {
 	if items[0] != "b" || items[1] != "a" || moved != [2]int{0, 1} {
 		t.Errorf("items %v, moved %v", items, moved)
 	}
+	// The caller changes the list under a lifted row (a queued message is
+	// sent while another is being moved): the row is followed by its key,
+	// or put back when it left, and no index outlives the list.
+	lifted := func(t *testing.T) (*[]string, *ui.Tester) {
+		items := []string{"a", "b", "c"}
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Padding(20).Children(func() {
+				SortableList(c, &items, func(s string) string { return s }, SortableListProps{Handle: "Drag"}, func(s string, handle func()) {
+					handle()
+					ui.Text(c, s)
+				})
+			})
+		}, 300, 300)
+		tt.Frame()
+		var handles []ui.AccessInfo
+		for _, e := range tt.AccessAll() {
+			if e.Name == "Drag" {
+				handles = append(handles, e)
+			}
+		}
+		if len(handles) != 3 {
+			t.Fatalf("%d handles", len(handles))
+		}
+		b := handles[1].Bounds // b's
+		tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+		for _, k := range []ui.Key{ui.KeySpace, ui.KeyDown} {
+			tt.Key(0, k)
+			tt.Frame()
+		}
+		return &items, tt
+	}
+	drop := func(tt *ui.Tester) {
+		tt.Frame()
+		tt.Key(0, ui.KeySpace)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+	}
+	t.Run("list shrinks before the lifted row", func(t *testing.T) {
+		items, tt := lifted(t)
+		*items = (*items)[1:]
+		drop(tt)
+		if !slices.Equal(*items, []string{"c", "b"}) {
+			t.Errorf("items %v", *items)
+		}
+	})
+	t.Run("list grows before the lifted row", func(t *testing.T) {
+		items, tt := lifted(t)
+		*items = append([]string{"x"}, *items...)
+		drop(tt)
+		if !slices.Equal(*items, []string{"x", "a", "c", "b"}) {
+			t.Errorf("items %v", *items)
+		}
+	})
+	t.Run("lifted row leaves", func(t *testing.T) {
+		items, tt := lifted(t)
+		*items = []string{"a", "c"}
+		drop(tt)
+		if !slices.Equal(*items, []string{"a", "c"}) {
+			t.Errorf("items %v", *items)
+		}
+	})
+	t.Run("list shrinks under a dragged row", func(t *testing.T) {
+		items := []string{"a", "b", "c"}
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Padding(20).Children(func() {
+				SortableList(c, &items, func(s string) string { return s }, SortableListProps{Handle: "Drag"}, func(s string, handle func()) {
+					handle()
+					ui.Text(c, s)
+				})
+			})
+		}, 300, 300)
+		tt.Frame()
+		var last ui.Rect
+		for _, e := range tt.AccessAll() {
+			if e.Name == "Drag" {
+				last = e.Bounds // c's
+			}
+		}
+		x, y := last.X+last.W/2, last.Y+last.H/2
+		tt.Press(x, y)
+		for i := 1; i <= 4; i++ {
+			tt.Move(x, y+float32(i)*4)
+			tt.Frame()
+		}
+		items = items[:1] // the dragged row and the one before it leave
+		tt.Frame()
+		tt.Release(x, y+16)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !slices.Equal(items, []string{"a"}) {
+			t.Errorf("items %v", items)
+		}
+	})
 }
 
 // A Tooltip describes its anchor and shows, on its side, once the pointer
@@ -184,48 +363,5 @@ func TestTooltipShowsAndDescribes(t *testing.T) {
 	r, ok := tt.Find("Share the session")
 	if !ok || r.Y < b.Bounds.Y+b.Bounds.H || !tt.HasText("⌘S") {
 		t.Errorf("tip %v below %v, shows %v", r, b.Bounds, ok)
-	}
-}
-
-// A submenu opens from its item and its items are chosen as the menu's.
-func TestMenuSubmenu(t *testing.T) {
-	got := ""
-	tt := ui.NewTester(func(c *ui.Context) {
-		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Padding(20).Children(func() {
-			MenuButton(c, "test", func(b ui.Element) {
-				GhostLook(c, b.Label("Open"), false).Children(func() { ui.Text(c, "Open") })
-			}, func(m *Menu) {
-				if m.Item("Alpha").Chosen() {
-					got = "Alpha"
-				}
-				m.Submenu("More", func(m *Menu) {
-					for _, o := range []string{"Beta", "Gamma"} {
-						if m.Item(o).Chosen() {
-							got = o
-						}
-					}
-				})
-			})
-		})
-	}, 400, 300)
-	tt.Frame()
-	if err := tt.Click("Open"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Advance(200 * time.Millisecond)
-	r, ok := tt.Find("More")
-	if !ok {
-		t.Fatal("no submenu item")
-	}
-	tt.Move(r.X+r.W/2, r.Y+r.H/2)
-	tt.Frame()
-	tt.Advance(200 * time.Millisecond)
-	if err := tt.Click("Gamma"); err != nil {
-		t.Fatalf("the submenu does not open: %v %q", err, tt.Texts())
-	}
-	tt.Advance(200 * time.Millisecond)
-	if got != "Gamma" || tt.HasText("Alpha") {
-		t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
 	}
 }

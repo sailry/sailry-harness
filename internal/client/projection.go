@@ -104,7 +104,7 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		}
 		if err := projection.changes.observe(envelope.Event, envelope.Cursor, settled, removed); err != nil {
 			projection.recovery = true
-			return Recover, err
+			return Ignored, err
 		}
 		projection.snapshot.Cursor = envelope.Cursor
 		return Applied, nil

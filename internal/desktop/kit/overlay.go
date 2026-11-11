@@ -83,3 +83,34 @@ func TipsHidden(c *ui.Context) bool {
 	}
 	return false
 }
+
+// modalKey keys the window's record of a modal dialog on its root.
+type modalKey struct{}
+
+// NoteModal notes that a modal dialog is built in this frame, for one built
+// outside Kit on Element.Modal. MyGo holds the window's shortcuts behind one
+// but does not say that one shows, and the native menu's commands reach the
+// app outside its keys.
+func NoteModal(c *ui.Context) {
+	*ui.Local(c.Root(), modalKey{}, func() bool { return false }) = true
+}
+
+// TakeModal reports whether a modal dialog of Kit's (Dialog, BareDialog,
+// AlertDialog, ImageViewer) was built since the last call, and clears the
+// record. The window calls it once a frame, before it builds its dialogs,
+// to hold the commands the native menu sent while one showed.
+func TakeModal(c *ui.Context) bool {
+	shown := ui.Local(c.Root(), modalKey{}, func() bool { return false })
+	was := *shown
+	*shown = false
+	return was
+}
+
+// AlertDialog is MyGo's AlertDialog, noted as a modal dialog of the window
+// (TakeModal).
+func AlertDialog(c *ui.Context, open *bool, title, message string, buttons ...string) int {
+	if *open {
+		NoteModal(c)
+	}
+	return ui.AlertDialog(c, open, title, message, buttons...)
+}

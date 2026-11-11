@@ -63,9 +63,9 @@ func (a *App) hint(id string) string {
 //
 // The native menu takes its items' keys before the window does (menu.go),
 // so their commands come back through Do and run here in the next frame,
-// scoped as the key would have been: Close Tab by where the focus is
-// (closeFocused), the window's commands not while a dialog of the window
-// shows (dialog). This is the scoping MyGo's menus lack.
+// scoped as the key would have been: none while a modal dialog of the
+// window shows (dialog), then Close Tab by where the focus is
+// (closeFocused). This is the scoping MyGo's menus lack.
 
 // shortcuts runs the window's shortcuts and the commands the menu sent.
 // While the Shortcuts page records a key, the window takes none, so every
@@ -74,6 +74,14 @@ func (a *App) hint(id string) string {
 func (a *App) shortcuts(c *ui.Context) {
 	sent := a.sent
 	a.sent = nil
+	a.modal = kit.TakeModal(c)
+	kit.SweepMenus(c)
+	a.syncMenuKeys()
+	if a.Settings.Keys.Recording() && (a.Page != SettingsPage || a.Settings.Section != settings.Shortcuts) {
+		// The recorder is not in the window: however the page was left, the
+		// recording ends with it rather than taking the window's keys.
+		a.Settings.Keys.Cancel()
+	}
 	if a.Settings.Keys.Recording() {
 		for _, id := range sent {
 			if s, ok := shortcutOf(id); ok {
@@ -91,9 +99,10 @@ func (a *App) shortcuts(c *ui.Context) {
 	}
 	for _, id := range sent {
 		switch {
+		case a.dialog():
 		case id == CloseFocused.ID:
 			a.closeFocused(c)
-		case !a.dialog():
+		default:
 			a.run(c, id)
 		}
 	}
@@ -115,9 +124,11 @@ func (a *App) Do(id string) {
 }
 
 // dialog reports whether one of the window's dialogs shows, which holds
-// the window's commands as Element.Modal holds its shortcuts.
+// the window's commands as Element.Modal holds its shortcuts: one this
+// file opens, known the frame it opens in, or any modal dialog Kit built
+// in the last frame (a.modal), wherever in the window it was opened.
 func (a *App) dialog() bool {
-	return a.search.open || a.reading != nil && a.reading.open || a.Sidebar.Editing() || a.Welcome.Open || a.selected.open
+	return a.modal || a.search.open || a.reading != nil && a.reading.open || a.Sidebar.Editing() || a.Welcome.Open || a.selected.open
 }
 
 // closeFocused is Close Tab of the menu: ⌘W of the pane the focus is in
@@ -179,7 +190,11 @@ func (a *App) run(c *ui.Context, id string) {
 			kit.Message(c, i18n.T(c, "preview_notice"))
 		}
 	case "app.search":
-		a.search.open = !a.search.open
+		if a.search.open {
+			a.search.open = false
+		} else {
+			a.openSearch()
+		}
 	case "sidebar.toggle":
 		a.NavOpen = !a.NavOpen
 	case "panel.toggle":
@@ -196,7 +211,7 @@ func (a *App) run(c *ui.Context, id string) {
 		a.Page = SettingsPage
 		a.Settings.Open(settings.About)
 	case "app.settings":
-		a.Page = SettingsPage
+		a.Navigate(SettingsPage)
 	case "help.website":
 		c.OpenURL(Website)
 	case "help.feedback":
@@ -206,7 +221,7 @@ func (a *App) run(c *ui.Context, id string) {
 	case "system.activate":
 		// The system's activate shortcut: the window comes forward
 		// with the search.
-		a.search.open = true
+		a.openSearch()
 	case "system.selection":
 		a.captureSelection()
 	}

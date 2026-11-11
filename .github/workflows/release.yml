@@ -1,0 +1,532 @@
+name: Release
+
+# A version tag runs every check, builds every package and gathers them in
+# the tag's draft GitHub release. Publishing the draft is a manual step.
+# Secrets and variables keep the names of the existing release settings.
+on:
+  push:
+    tags: ['v*']
+  # A manual run must select the version tag as its ref.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: go1.27.3
+  CGO_ENABLED: '0'
+  SAILRY_REVISION: ${{ github.sha }}
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - name: Tag, product versions and changelog entry agree
+        id: version
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = tag
+          version=${GITHUB_REF_NAME#v}
+          product=$(sed -n 's/^var ProductVersion = "\(.*\)"$/\1/p' internal/link/compatibility.go)
+          desktop=$(jq -r .version cmd/sailry-desktop/mygo.json)
+          mobile=$(sed -n 's/^version: //p' apps/mobile/pubspec.yaml)
+          build=${mobile#*+}
+          printf 'tag %s, product %s, desktop %s, mobile %s\n' "$version" "$product" "$desktop" "$mobile"
+          if test "$product" != "$version" || test "$desktop" != "$version" || test "${mobile%%+*}" != "$version"; then
+            echo 'The tag and the product versions differ' >&2
+            exit 1
+          fi
+          case "$build" in '' | *[!0-9]*) echo 'pubspec.yaml has no build number' >&2; exit 1 ;; esac
+          grep -Fq "## [$version](" CHANGELOG.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
+          printf 'version=%s\nbuild=%s\n' "$version" "$build" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      integration: true
+
+  # The signed, sealed and notarized Desktop and the signed Host archive of
+  # one macOS architecture.
+  macos:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, target: darwin-arm64, triple: aarch64-apple-darwin }
+          - { os: macos-15-intel, target: darwin-amd64, triple: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      SAILRY_SIGNING: developer-id
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+      SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+      SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      # The license collection reads the crate metadata with the pinned cargo.
+      - name: Pinned Rust toolchain
+        working-directory: native/iroh
+        run: rustup toolchain install
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native
+      # A temporary keychain holds the Developer ID certificate; the App Store
+      # Connect key stays a file outside the checkout.
+      - name: Signing credentials
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if test -z "$APPLE_CERTIFICATE_P12" || test -z "$APPLE_CERTIFICATE_PASSWORD" || test -z "$APPLE_API_PRIVATE_KEY"; then
+            echo 'The macOS signing secrets are not configured' >&2
+            exit 1
+          fi
+          umask 077
+          certificate=$RUNNER_TEMP/sailry-signing.p12
+          key=$RUNNER_TEMP/sailry-notary.p8
+          keychain=$RUNNER_TEMP/sailry-signing.keychain-db
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$certificate"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key"
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          rm -f -- "$certificate"
+          printf 'APPLE_SIGNING_KEYCHAIN=%s\nAPPLE_API_KEY_PATH=%s\n' "$keychain" "$key" >> "$GITHUB_ENV"
+      - name: Desktop
+        env:
+          SAILRY_NOTARIZE: '1'
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+        run: bash cmd/sailry-desktop/macos/package.sh -artifacts "$RUNNER_TEMP/native"
+      - name: Host
+        run: bash internal/node/host/deployment/archive.sh -artifacts "$RUNNER_TEMP/native"
+      - name: Gather
+        env:
+          TARGET: ${{ matrix.target }}
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          mkdir -p .runtime/release
+          cp ".runtime/b14/out/$TARGET/Sailry-$TRIPLE.dmg" ".runtime/b14/out/$TARGET/Sailry-$TRIPLE-unsigned.zip" \
+            ".runtime/host/$TRIPLE/sailry-host-$TRIPLE.tar.gz" ".runtime/host/$TRIPLE/SHA256SUMS-$TRIPLE" .runtime/release/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos-${{ matrix.triple }}
+          path: .runtime/release/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          keychain=$RUNNER_TEMP/sailry-signing.keychain-db
+          if test -e "$keychain"; then security delete-keychain "$keychain"; fi
+          rm -f -- "$RUNNER_TEMP/sailry-signing.p12" "$RUNNER_TEMP/sailry-notary.p8"
+
+  # The Windows x64 Desktop installer and portable archive, cross-compiled
+  # around the libraries the Windows native leg built. Nothing is code signed.
+  windows:
+    needs: checks
+    runs-on: ubuntu-24.04
+    env:
+      SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+      SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Pinned Rust toolchain and NSIS
+        run: |
+          (cd native/iroh && rustup toolchain install)
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes nsis
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: native-windows-amd64
+          path: ${{ runner.temp }}/native
+      - name: Desktop
+        run: |
+          bash cmd/sailry-desktop/windows/package.sh -artifacts "$RUNNER_TEMP/native"
+          mkdir -p .runtime/release
+          cp .runtime/b14/out/windows-amd64/Sailry-x86_64-pc-windows-msvc-setup.exe \
+            .runtime/b14/out/windows-amd64/Sailry-x86_64-pc-windows-msvc.zip .runtime/release/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows
+          path: .runtime/release/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+
+  # The Linux Host archive of each architecture, around the iroh library the
+  # native leg linked against GNU libc 2.34.
+  host-linux:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-amd64, triple: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, triple: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    env:
+      SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+      SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Pinned Rust toolchain
+        working-directory: native/iroh
+        run: rustup toolchain install
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native
+      - name: Host
+        env:
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          bash internal/node/host/deployment/archive.sh -artifacts "$RUNNER_TEMP/native"
+          mkdir -p .runtime/release
+          cp ".runtime/host/$TRIPLE/sailry-host-$TRIPLE.tar.gz" ".runtime/host/$TRIPLE/SHA256SUMS-$TRIPLE" .runtime/release/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-host-${{ matrix.triple }}
+          path: .runtime/release/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+
+  # The signed ARM64 APK. Gradle builds the Go mobile library and the iroh
+  # library through cmd/sailry-mobile/build.sh.
+  android:
+    needs: [version, checks]
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: ''
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD: ${{ needs.version.outputs.build }}
+      ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
+        with:
+          cmdline-tools-version: '15859902'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
+      - name: Native prerequisites
+        run: |
+          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+          cd native/iroh
+          rustup toolchain install
+          rustup target add aarch64-linux-android
+      - name: Distribution keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if test -z "$ANDROID_KEYSTORE_BASE64" || test -z "$ANDROID_SIGNING_SHA256"; then
+            echo 'The Android signing settings are not configured' >&2
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$RUNNER_TEMP/sailry-android"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sailry-android/release.jks"
+          printf 'ANDROID_KEYSTORE_PATH=%s\nSAILRY_ANDROID_RELEASE=1\n' "$RUNNER_TEMP/sailry-android/release.jks" >> "$GITHUB_ENV"
+      - name: Build
+        working-directory: apps/mobile
+        env:
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter build apk --release --no-pub --target-platform android-arm64
+          git diff --exit-code -- pubspec.lock
+      - name: Verify and describe
+        run: |
+          set -euo pipefail
+          apk=apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          tools=$ANDROID_HOME/build-tools/36.0.0
+          badging=$("$tools/aapt2" dump badging "$apk")
+          printf '%s\n' "$badging" | grep -Fq "package: name='com.sailry.sailry_mobile' versionCode='$BUILD' versionName='$VERSION'"
+          printf '%s\n' "$badging" | grep -Fxq "minSdkVersion:'24'"
+          printf '%s\n' "$badging" | grep -Fxq "targetSdkVersion:'36'"
+          signer=$("$tools/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          expected=$(printf '%s' "$ANDROID_SIGNING_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')
+          test -n "$signer" && test "$signer" = "$expected" || { echo 'The APK is not signed by the distribution key' >&2; exit 1; }
+          mkdir -p .runtime/release
+          cd .runtime/release
+          cp "$GITHUB_WORKSPACE/$apk" Sailry-android-arm64.apk
+          jq -n --arg version "$VERSION" --arg build "$BUILD" --arg tag "$GITHUB_REF_NAME" --arg revision "$GITHUB_SHA" \
+            --arg workflow "$GITHUB_WORKFLOW_SHA" \
+            '{version:$version,build_number:$build,tag:$tag,source_revision:$revision,workflow_revision:$workflow,platform:"android",asset:"Sailry-android-arm64.apk"}' \
+            > Sailry-android-arm64.json
+          sha256sum Sailry-android-arm64.apk Sailry-android-arm64.json > Sailry-android-arm64.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-android
+          path: .runtime/release/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+      - name: Remove the keystore
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/sailry-android"
+
+  # The App Store IPA, kept as a workflow artifact and uploaded to TestFlight.
+  # Xcode builds the Go mobile library and the iroh framework through
+  # cmd/sailry-mobile/build.sh.
+  ios:
+    needs: [version, checks]
+    runs-on: macos-15
+    env:
+      CGO_ENABLED: ''
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD: ${{ needs.version.outputs.build }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Native prerequisites
+        working-directory: native/iroh
+        run: |
+          printf 'SIGNING=%s/sailry-ios\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          xcodebuild -version
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+      - name: Configure
+        working-directory: apps/mobile
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter build ios --release --config-only --no-pub --build-name "${VERSION%%-*}" --build-number "$BUILD"
+          git diff --exit-code -- pubspec.lock
+      # Manual signing for the Runner target only: its three build
+      # configurations are the ones that name the development team.
+      - name: Distribution signing
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          if test -z "$IOS_CERTIFICATE_P12" || test -z "$IOS_CERTIFICATE_PASSWORD" || test -z "$IOS_PROVISIONING_PROFILE" || test -z "$APPLE_TEAM_ID"; then
+            echo 'The iOS distribution signing settings are not configured' >&2
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$SIGNING"
+          printf '%s' "$IOS_CERTIFICATE_P12" | base64 --decode > "$SIGNING/distribution.p12"
+          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$SIGNING/distribution.mobileprovision"
+          security cms -D -i "$SIGNING/distribution.mobileprovision" > "$SIGNING/profile.plist"
+          profile=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$SIGNING/profile.plist")
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$SIGNING/profile.plist")" = "$APPLE_TEAM_ID"
+          keychain=$SIGNING/distribution.keychain-db
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$SIGNING/distribution.p12" -k "$keychain" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          rm -f -- "$SIGNING/distribution.p12"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          identity=$(security find-identity -v -p codesigning "$keychain" | sed -n 's/^ *1) \([0-9A-F]\{40\}\) "Apple Distribution:.*/\1/p')
+          test -n "$identity" || { echo 'The certificate is not one Apple Distribution identity' >&2; exit 1; }
+          profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$profiles"
+          cp "$SIGNING/distribution.mobileprovision" "$profiles/$profile.mobileprovision"
+          printf '%s' "$profile" > "$SIGNING/installed-profile"
+          project=apps/mobile/ios/Runner.xcodeproj/project.pbxproj
+          test "$(grep -c 'DEVELOPMENT_TEAM = ' "$project")" = 3
+          sed -i '' "s/^\([[:space:]]*\)DEVELOPMENT_TEAM = .*;\$/\1CODE_SIGN_STYLE = Manual; \"CODE_SIGN_IDENTITY[sdk=iphoneos*]\" = \"$identity\"; DEVELOPMENT_TEAM = $APPLE_TEAM_ID; PROVISIONING_PROFILE_SPECIFIER = \"$profile\";/" "$project"
+          plutil -lint "$project"
+          cat > "$SIGNING/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>$identity</string>
+            <key>provisioningProfiles</key><dict><key>com.sailry.sailryMobile</key><string>$profile</string></dict>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          plutil -lint "$SIGNING/ExportOptions.plist"
+      - name: Archive and export
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace apps/mobile/ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$PWD/apps/mobile/build/ios/archive/Runner.xcarchive" archive
+          xcodebuild -exportArchive -archivePath "$PWD/apps/mobile/build/ios/archive/Runner.xcarchive" \
+            -exportPath "$PWD/apps/mobile/build/ios/ipa" -exportOptionsPlist "$SIGNING/ExportOptions.plist"
+          mkdir -p .runtime/release
+          cd .runtime/release
+          cp "$GITHUB_WORKSPACE"/apps/mobile/build/ios/ipa/*.ipa Sailry-ios.ipa
+          jq -n --arg version "$VERSION" --arg build "$BUILD" --arg tag "$GITHUB_REF_NAME" --arg revision "$GITHUB_SHA" \
+            --arg workflow "$GITHUB_WORKFLOW_SHA" \
+            '{version:$version,build_number:$build,tag:$tag,source_revision:$revision,workflow_revision:$workflow,platform:"ios",asset:"Sailry-ios.ipa"}' \
+            > Sailry-ios.json
+          shasum -a 256 Sailry-ios.ipa Sailry-ios.json > Sailry-ios.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mobile-ios
+          path: .runtime/release/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload to TestFlight
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if test -z "$APPLE_API_PRIVATE_KEY" || test -z "$APPLE_API_KEY_ID" || test -z "$APPLE_API_ISSUER_ID"; then
+            echo 'The App Store Connect upload settings are not configured' >&2
+            exit 1
+          fi
+          umask 077
+          export API_PRIVATE_KEYS_DIR=$SIGNING/private_keys
+          mkdir -p "$API_PRIVATE_KEYS_DIR"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$API_PRIVATE_KEYS_DIR/AuthKey_$APPLE_API_KEY_ID.p8"
+          unset APPLE_API_PRIVATE_KEY
+          # Xcode's altool has either the package command or the older spelling.
+          if xcrun altool --help 2>&1 | grep -q -- '--upload-package'; then
+            xcrun altool --upload-package .runtime/release/Sailry-ios.ipa --wait \
+              --api-key "$APPLE_API_KEY_ID" --api-issuer "$APPLE_API_ISSUER_ID"
+          else
+            xcrun altool --upload-app -f .runtime/release/Sailry-ios.ipa -t ios \
+              --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER_ID"
+          fi
+      - name: Remove signing files
+        if: always()
+        run: |
+          if test -f "$SIGNING/installed-profile"; then
+            rm -f -- "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$(cat "$SIGNING/installed-profile").mobileprovision"
+          fi
+          if test -e "$SIGNING/distribution.keychain-db"; then security delete-keychain "$SIGNING/distribution.keychain-db"; fi
+          rm -rf -- "$SIGNING"
+
+  # The only job that may write to the repository's releases. It adds the
+  # signed update feed and the checksum files, then uploads what the tag's
+  # draft release does not hold yet. An existing asset is never replaced.
+  publish:
+    needs: [version, macos, windows, host-linux, android, ios]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+      - name: Update feed
+        working-directory: ${{ runner.temp }}/assets
+        env:
+          SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir ../unsigned
+          mv Sailry-aarch64-apple-darwin-unsigned.zip Sailry-x86_64-apple-darwin-unsigned.zip ../unsigned/
+          go -C "$GITHUB_WORKSPACE" run ./internal/desktop/updater/cmd/update-feed -version "$VERSION" -output "$PWD" \
+            "aarch64-apple-darwin=$RUNNER_TEMP/unsigned/Sailry-aarch64-apple-darwin-unsigned.zip" \
+            "x86_64-apple-darwin=$RUNNER_TEMP/unsigned/Sailry-x86_64-apple-darwin-unsigned.zip"
+      - name: Checksums
+        working-directory: ${{ runner.temp }}/assets
+        run: |
+          set -euo pipefail
+          cp "$GITHUB_WORKSPACE/internal/node/host/deployment/package/install-host.sh" install-host.sh
+          sha256sum install-host.sh > SHA256SUMS-installer
+          for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+            sha256sum "Sailry-$triple.dmg" "Sailry-$triple.zip" "Sailry-$triple.zip.update.json" > "SHA256SUMS-desktop-$triple"
+          done
+          sha256sum Sailry-x86_64-pc-windows-msvc-setup.exe Sailry-x86_64-pc-windows-msvc.zip > SHA256SUMS-desktop-x86_64-pc-windows-msvc
+          sha256sum --check SHA256SUMS-aarch64-apple-darwin SHA256SUMS-x86_64-apple-darwin \
+            SHA256SUMS-aarch64-unknown-linux-gnu SHA256SUMS-x86_64-unknown-linux-gnu Sailry-android-arm64.sha256
+          ls -l
+      - name: Draft release
+        working-directory: ${{ runner.temp }}/assets
+        run: |
+          set -euo pipefail
+          tag=$GITHUB_REF_NAME
+          awk -v heading="## [$VERSION](" 'index($0, heading) == 1 { found = 1; next } found && /^## \[/ { exit } found' \
+            "$GITHUB_WORKSPACE/CHANGELOG.md" > ../notes.md
+          grep -q '[^[:space:]]' ../notes.md || { echo "CHANGELOG.md has no notes for $VERSION" >&2; exit 1; }
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            options=(--draft --verify-tag --title "$tag" --notes-file ../notes.md)
+            case "$VERSION" in *-*) options+=(--prerelease) ;; esac
+            gh release create "$tag" "${options[@]}"
+          fi
+          release=$(gh release view "$tag" --json databaseId,isDraft)
+          test "$(jq -r .isDraft <<<"$release")" = true || { echo "$tag is already published; its assets stay as they are" >&2; exit 1; }
+          gh api --paginate "repos/$GH_REPO/releases/$(jq -r .databaseId <<<"$release")/assets" \
+            --jq '.[] | [.name, .state, (.digest // "")] | @tsv' > ../existing.tsv
+          upload=()
+          for file in *; do
+            row=$(awk -F '\t' -v name="$file" '$1 == name' ../existing.tsv)
+            if test -z "$row"; then
+              upload+=("$file")
+              continue
+            fi
+            sum=$(sha256sum "$file")
+            test "$row" = "$(printf '%s\tuploaded\tsha256:%s' "$file" "${sum%% *}")" ||
+              { echo "$file already exists in the release with other content" >&2; exit 1; }
+          done
+          if test ${#upload[@]} -gt 0; then gh release upload "$tag" "${upload[@]}"; fi
+          printf 'Uploaded %s of %s assets to the draft release %s\n' "${#upload[@]}" "$(find . -type f | wc -l)" "$tag"

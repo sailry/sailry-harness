@@ -36,13 +36,54 @@ func (storage *Store) Close() error {
 	return errors.Join(knowledge, node)
 }
 
+// rustDatabases are the database files the Rust Node kept in storage. Each
+// name also covers its side files (name-wal, name-log and the like).
+var rustDatabases = [...]string{
+	"node.turso", "knowledge.turso", "node.db", "knowledge.db", "node.sqlite3", "knowledge.sqlite3",
+}
+
+// RustArchive is the storage subdirectory that receives the Rust databases.
+const RustArchive = "rust-archive"
+
+// archiveRustDatabases moves the Rust Node's databases into the archive
+// directory, unopened and unchanged; nothing is imported or deleted. A name
+// the archive already holds is never replaced.
+func archiveRustDatabases(storage string) error {
+	entries, err := os.ReadDir(storage)
+	if err != nil {
+		return err
+	}
+	archive := filepath.Join(storage, RustArchive)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !slices.ContainsFunc(rustDatabases[:], func(database string) bool {
+			return name == database || strings.HasPrefix(name, database+"-")
+		}) {
+			continue
+		}
+		if err := core.PrivateDirectory(archive); err != nil {
+			return err
+		}
+		target := filepath.Join(archive, name)
+		if _, err := os.Lstat(target); err == nil {
+			return fmt.Errorf("archive Rust database %q: %q already holds that name; move the archive directory away and start again", name, archive)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.Rename(filepath.Join(storage, name), target); err != nil {
+			return fmt.Errorf("archive Rust database %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // Open is called only by the owner of the profile's advisory lock.
 func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, failure error) {
 	storage := filepath.Join(profile, "storage")
-	if err := refuseTursoProfile(storage); err != nil {
+	if err := core.PrivateDirectory(storage); err != nil {
 		return nil, err
 	}
-	if err := core.PrivateDirectory(storage); err != nil {
+	if err := archiveRustDatabases(storage); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(storage, "node.sqlite")
@@ -58,32 +99,6 @@ func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, 
 	definition, err := prepareSchema(ctx, handle, node)
 	if err != nil {
 		return nil, err
-	}
-	if definition.state == schemaRebuild {
-		closed, err := handle.Pause(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := closed.Close(); err != nil {
-			return nil, err
-		}
-		if err := handle.Close(); err != nil {
-			return nil, err
-		}
-		if err := clearDatabase(filepath.Join(storage, "knowledge.sqlite")); err != nil {
-			return nil, err
-		}
-		if err := clearDatabase(path); err != nil {
-			return nil, err
-		}
-		handle, err = OpenHandle(ctx, path)
-		if err != nil {
-			return nil, err
-		}
-		definition, err = prepareSchema(ctx, handle, node)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if definition.state == schemaUpdate {
 		if err := rehearseSchemaUpdate(ctx, handle, definition, node); err != nil {
@@ -118,27 +133,12 @@ func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, 
 	return &Store{Node: handle, Knowledge: knowledge, NodeID: node, Profile: profile}, nil
 }
 
-func refuseTursoProfile(storage string) error {
-	for _, name := range []string{"node", "knowledge"} {
-		path := filepath.Join(storage, name+".turso")
-		for _, member := range []string{path, filepath.Join(storage, name+".db-log"), path + "-wal", path + "-tshm"} {
-			if _, err := os.Lstat(member); err == nil {
-				return incompatibleDatabase(member, "this profile uses the Turso storage engine; the SQLite fallback requires a separate data directory")
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 type schemaState uint8
 
 const (
 	schemaFresh schemaState = iota
 	schemaCurrent
 	schemaUpdate
-	schemaRebuild
 )
 
 type currentSchema struct {
@@ -159,13 +159,8 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 			if err := verifyNodeIdentity(ctx, connection, definition.path, node); err != nil {
 				return err
 			}
-			current, err := currentGeneration(ctx, connection, definition.path)
-			if err != nil {
+			if err := verifyGeneration(ctx, connection, definition.path); err != nil {
 				return err
-			}
-			if !current {
-				definition.state = schemaRebuild
-				return nil
 			}
 		}
 		var pluginIndexes []string
@@ -225,8 +220,6 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 		if err := applyUpgrades(ctx, connection); err != nil {
 			return err
 		}
-	case schemaRebuild:
-		return errors.New("Node storage without a generation requires a development reset")
 	}
 	if definition.state == schemaUpdate && definition.plan.added[schemaObject{"database_profiles", "password_target"}] {
 		if err := reconcileDatabaseTargets(ctx, connection); err != nil {
@@ -340,38 +333,23 @@ func verifyNodeIdentity(ctx context.Context, connection *sql.Conn, path string, 
 	return nil
 }
 
-func currentGeneration(ctx context.Context, connection *sql.Conn, path string) (bool, error) {
-	rows, err := connection.QueryContext(ctx, "PRAGMA table_info(node)")
-	if err != nil {
-		return false, err
-	}
-	declared := false
-	for rows.Next() {
-		var position, notNull, primary int64
-		var name, kind string
-		var defaultValue any
-		if err := rows.Scan(&position, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
-			_ = rows.Close()
-			return false, err
-		}
-		if name == "storage_generation" {
-			declared = true
-		}
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return false, err
+// verifyGeneration accepts only generation 1. Storage in any other state is
+// refused and left untouched; nothing here removes or resets a database.
+func verifyGeneration(ctx context.Context, connection *sql.Conn, path string) error {
+	var declared, current bool
+	if err := connection.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('node') WHERE name='storage_generation'").Scan(&declared); err != nil {
+		return err
 	}
 	if !declared {
-		return false, nil
+		return incompatibleDatabase(path, "node.storage_generation is missing")
 	}
-	var current bool
 	if err := connection.QueryRowContext(ctx, "SELECT CASE WHEN typeof(storage_generation)='integer' AND storage_generation=1 THEN 1 ELSE 0 END FROM node WHERE singleton=1").Scan(&current); err != nil {
-		return false, err
+		return err
 	}
 	if !current {
-		return false, incompatibleDatabase(path, "node.storage_generation is invalid or unsupported")
+		return incompatibleDatabase(path, "node.storage_generation is invalid or unsupported")
 	}
-	return true, nil
+	return nil
 }
 
 func referenceSchema(ctx context.Context, parent string, additional ...string) (schemaObjects, error) {
@@ -508,73 +486,19 @@ func verifySchemaObjects(ctx context.Context, connection *sql.Conn, path string,
 	return nil
 }
 
+// auditReferences refuses storage in which a row names a missing parent.
 func auditReferences(ctx context.Context, connection *sql.Conn) error {
 	tables, err := schemaTableNames(NodeSchema)
 	if err != nil {
 		return err
 	}
 	for _, table := range tables {
-		if err := auditTableReferences(ctx, connection, table); err != nil {
+		rows, err := connection.QueryContext(ctx, "PRAGMA foreign_key_check("+quoteIdentifier(table)+")")
+		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func auditTableReferences(ctx context.Context, connection *sql.Conn, table string) error {
-	rows, err := connection.QueryContext(ctx, "PRAGMA foreign_key_list("+quoteIdentifier(table)+")")
-	if err != nil {
-		return err
-	}
-	type columns struct {
-		child, parent string
-	}
-	type foreignKey struct {
-		parent string
-		fields map[int64]columns
-	}
-	keys := make(map[int64]*foreignKey)
-	for rows.Next() {
-		var id, position int64
-		var parent, childColumn, parentColumn, update, deleteAction, match string
-		if err := rows.Scan(&id, &position, &parent, &childColumn, &parentColumn, &update, &deleteAction, &match); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if keys[id] == nil {
-			keys[id] = &foreignKey{parent: parent, fields: make(map[int64]columns)}
-		}
-		key := keys[id]
-		if _, duplicate := key.fields[position]; duplicate || key.parent != parent {
-			_ = rows.Close()
-			return errors.New("invalid stored foreign key declaration")
-		}
-		key.fields[position] = columns{childColumn, parentColumn}
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return err
-	}
-	identities := make([]int64, 0, len(keys))
-	for identity := range keys {
-		identities = append(identities, identity)
-	}
-	slices.Sort(identities)
-	for _, identity := range identities {
-		key := keys[identity]
-		positions := make([]int64, 0, len(key.fields))
-		for position := range key.fields {
-			positions = append(positions, position)
-		}
-		slices.Sort(positions)
-		var present, matching []string
-		for _, position := range positions {
-			field := key.fields[position]
-			present = append(present, "c."+quoteIdentifier(field.child)+" IS NOT NULL")
-			matching = append(matching, "p."+quoteIdentifier(field.parent)+"=c."+quoteIdentifier(field.child))
-		}
-		query := "SELECT EXISTS(SELECT 1 FROM " + quoteIdentifier(table) + " c WHERE " + strings.Join(present, " AND ") + " AND NOT EXISTS(SELECT 1 FROM " + quoteIdentifier(key.parent) + " p WHERE " + strings.Join(matching, " AND ") + "))"
-		var invalid bool
-		if err := connection.QueryRowContext(ctx, query).Scan(&invalid); err != nil {
+		invalid := rows.Next()
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return err
 		}
 		if invalid {

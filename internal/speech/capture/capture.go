@@ -6,6 +6,7 @@ package capture
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"sync"
 
 	"github.com/ebitengine/purego"
+
+	"github.com/sailry/sailry-harness/internal/shipped"
 )
 
 // Version is the pinned miniaudio release compiled into the library.
@@ -53,7 +56,7 @@ func LibraryName() string {
 
 // Load opens the capture library in directory by its absolute path. The
 // process keeps one library; a second directory is an error.
-func Load(directory string) error {
+func Load(directory string, release bool) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 	path, err := filepath.Abs(filepath.Join(directory, LibraryName()))
@@ -68,6 +71,23 @@ func Load(directory string) error {
 	}
 	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("%w: %s is not an ordinary file", ErrUnavailable, LibraryName())
+	}
+	// The library is built with the release and has no upstream pin. A
+	// signed application bundle records it in the package seal, and a
+	// release build loads it only when a seal records it.
+	seal, err := shipped.Sealed(directory)
+	if err == nil && seal == nil && release {
+		if seal, err = shipped.Read(directory, runtime.GOOS+"/"+runtime.GOARCH); errors.Is(err, fs.ErrNotExist) {
+			err = errors.New("the package has no seal; reinstall the application")
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	if seal != nil {
+		if err := seal.Check(directory, LibraryName()); err != nil {
+			return fmt.Errorf("%w: %v", ErrUnavailable, err)
+		}
 	}
 	handle, err := openLibrary(path)
 	if err != nil {

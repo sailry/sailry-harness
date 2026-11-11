@@ -60,7 +60,7 @@ func prepareRestored(ctx context.Context, handle *Handle, node protocol.NodeID, 
 	if err != nil {
 		return err
 	}
-	if definition.state == schemaFresh || definition.state == schemaRebuild {
+	if definition.state == schemaFresh {
 		return invalid("restored database is not a current Node database")
 	}
 	if definition.state == schemaUpdate {

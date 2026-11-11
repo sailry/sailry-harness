@@ -3,7 +3,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -123,10 +122,14 @@ func (files *Files) baseIgnoreRules(control fileControl, report *FileWalkReport)
 		return nil
 	}
 	configuration := fileIgnoreConfiguration{control: control, active: make(map[string]bool), gitdir: filepath.ToSlash(gitdir), discovery: true}
-	if head, err := os.ReadFile(filepath.Join(gitdir, "HEAD")); err == nil {
-		configuration.branch, _ = strings.CutPrefix(strings.TrimSpace(string(head)), "ref: refs/heads/")
-		if configuration.branch == strings.TrimSpace(string(head)) {
-			configuration.branch = ""
+	if file, err := os.Open(filepath.Join(gitdir, "HEAD")); err == nil {
+		head, err := readFileBytes(file, maxFileIgnoreBytes, control)
+		file.Close()
+		if err == nil {
+			configuration.branch, _ = strings.CutPrefix(strings.TrimSpace(string(head)), "ref: refs/heads/")
+			if configuration.branch == strings.TrimSpace(string(head)) {
+				configuration.branch = ""
+			}
 		}
 	}
 	sources := append(append([]string{}, files.globalConfigs...), filepath.Join(common, "config"))
@@ -230,10 +233,10 @@ func (files *Files) gitIgnoreDirectories(control fileControl) (string, string, e
 		if err != nil {
 			return "", "", err
 		}
-		data, err := io.ReadAll(file)
+		data, err := readFileBytes(file, maxFileIgnoreBytes, control)
 		file.Close()
 		if err != nil {
-			return "", "", fileIOFault(err)
+			return "", "", err
 		}
 		value, valid := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
 		if !valid || strings.TrimSpace(value) == "" {
@@ -252,10 +255,10 @@ func (files *Files) gitIgnoreDirectories(control fileControl) (string, string, e
 	common := gitdir
 	file, err := openRegularFile(root, "commondir")
 	if err == nil {
-		data, readErr := io.ReadAll(file)
+		data, readErr := readFileBytes(file, maxFileIgnoreBytes, control)
 		file.Close()
 		if readErr != nil {
-			return "", "", fileIOFault(readErr)
+			return "", "", readErr
 		}
 		common, err = expandFileIgnorePath(strings.TrimSpace(string(data)), gitdir)
 		if err != nil {

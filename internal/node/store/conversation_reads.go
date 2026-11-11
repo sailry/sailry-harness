@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"math"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -141,7 +141,7 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 	if message != nil {
 		for _, block := range message.Content {
 			if block.Index == input.Index {
-				raw, err = storedAgentTool(ctx, db, record, seq, block)
+				raw, err = storedAgentTool(ctx, db, record, seq, block, nil)
 				if err != nil {
 					return value, err
 				}
@@ -202,7 +202,13 @@ func resolveAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.Co
 	if _, err = visibleAgentRun(ctx, db, run.Session, input.Turn); err != nil {
 		return value, err
 	}
-	records, err := readBodies[canonical.Record](ctx, db, "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence DESC", run.Session.String())
+	token, err := encode(input.Output.Call)
+	if err != nil {
+		return value, err
+	}
+	// Only the records that answer this call are decoded; a stored body that
+	// lacks the encoded call identifier is skipped before it is parsed.
+	records, err := readBodies[canonical.Record](ctx, db, "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND (typeof(e.body)!='blob' OR instr(e.body,?3)>0) AND json_extract(e.body,'$.kind')='message' AND EXISTS(SELECT 1 FROM json_each(e.body,'$.content') b WHERE json_extract(b.value,'$.type')='tool_response' AND json_extract(b.value,'$.id')=?2) ORDER BY h.sequence DESC", run.Session.String(), input.Output.Call, token)
 	if err != nil {
 		return value, err
 	}
@@ -246,15 +252,28 @@ func readAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.Comma
 	return page, err
 }
 
+// checkToolOutputCaller confines a tool output read to the invocation that
+// admitted its turn.
+func checkToolOutputCaller(ctx context.Context, db *sql.Conn, caller protocol.NodeID, turn protocol.TurnID) error {
+	var owner []byte
+	err := db.QueryRowContext(ctx, "SELECT caller FROM turns WHERE id=?1", turn.String()).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fault(protocol.ErrorCodeNotFound, "turn does not exist")
+	}
+	if err != nil {
+		return err
+	}
+	if string(owner) != string(caller[:]) {
+		return fault(protocol.ErrorCodePermissionDenied, "tool output read belongs to another invocation")
+	}
+	return nil
+}
+
 // ResolveToolCommandStream verifies the current invocation and exact visible
 // canonical result. The Node pages the existing Process owner after this read.
 func ResolveToolCommandStream(ctx context.Context, db *sql.Conn, caller protocol.NodeID, input protocol.CommandReadToolOutputPayload) (protocol.SessionID, protocol.RequestID, error) {
-	var owner []byte
-	if err := db.QueryRowContext(ctx, "SELECT caller FROM turns WHERE id=?1", input.Turn.String()).Scan(&owner); err != nil {
+	if err := checkToolOutputCaller(ctx, db, caller, input.Turn); err != nil {
 		return protocol.SessionID{}, protocol.RequestID{}, err
-	}
-	if string(owner) != string(caller[:]) {
-		return protocol.SessionID{}, protocol.RequestID{}, fault(protocol.ErrorCodePermissionDenied, "tool output read belongs to another invocation")
 	}
 	resolved, err := resolveAgentToolOutput(ctx, db, input)
 	if err != nil {

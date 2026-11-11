@@ -59,7 +59,7 @@ func connectorClientShape(client protocol.PluginConnectorClient) string {
 	return result
 }
 
-func connectorConsent(_ string, previous, current *ConnectorBound) *protocol.PluginConnectorConsent {
+func connectorConsent(previous, current *ConnectorBound) *protocol.PluginConnectorConsent {
 	if reflect.DeepEqual(previous, current) {
 		return nil
 	}

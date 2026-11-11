@@ -3,6 +3,9 @@ package host
 import (
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 )
 
 func TestFormats(t *testing.T) {
@@ -32,6 +35,19 @@ func TestFormats(t *testing.T) {
 	}
 	if v, _ := Usage(20, 10); v != 100 {
 		t.Error("usage clamps")
+	}
+	// A live host's names are its own; the preview's are i18n keys.
+	var live, local, preview, process string
+	tt := ui.NewTester(func(c *ui.Context) {
+		live = (&Host{Live: true, Name: "git"}).label(c, "git")
+		local = (&Host{Live: true}).label(c, "local_host_name")
+		preview = (&Host{}).label(c, "remote_host_name")
+		process = (&Host{}).label(c, "metrics_worker")
+	}, 100, 100)
+	tt.SetLocale("en")
+	tt.Frame()
+	if live != "git" || local != i18n.In("en", "local_host_name") || preview != i18n.In("en", "remote_host_name") || process != i18n.In("en", "metrics_worker") {
+		t.Errorf("labels: live %q, local %q, preview %q, process %q", live, local, preview, process)
 	}
 }
 

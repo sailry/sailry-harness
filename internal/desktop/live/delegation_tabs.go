@@ -24,7 +24,7 @@ func (r *Runtime) childSession(parent protocol.SessionID, id string) (protocol.C
 	}
 	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
 		if child.Run.Session.String() == id {
-			session, valid := client.ConversationChildSession(r.controller.Snapshot(), parent, child)
+			session, valid := client.ConversationChildSession(r.snapshot(), parent, child)
 			return child, session, valid
 		}
 	}
@@ -117,7 +117,7 @@ func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
 	}
 	r.conversationSeen[parent] = true
 	var page *protocol.ConversationPage
-	if state, ready := r.controller.Conversation(parent); ready {
+	if state, ready := r.conversationState(parent); ready {
 		page = &state.Snapshot.Page
 	}
 	cv := &viewmodel.Conversation{Node: r.controller.Target().String(), ID: id, Title: childTitle(page, child, c.Locale())}

@@ -220,6 +220,11 @@ func (p *workspaceProject) fileCommandsFinish(commands []protocol.Command, finis
 		}
 		p.mutate(commands[index], func(c *ui.Context, out protocol.Output) {
 			if out.Kind == "" {
+				// Only an uncertain entry keeps the batch's place for its retry.
+				stopped, _ := json.Marshal(commands[index])
+				if _, uncertain := p.uncertainOperations[string(stopped)]; !uncertain {
+					delete(p.fileBatches, key)
+				}
 				if finish != nil {
 					finish(false)
 				}

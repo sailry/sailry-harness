@@ -8,37 +8,30 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const Capacity = 64
-
 type Supervisor struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	mu      sync.Mutex
 	stopped bool
-	permits chan struct{}
 	work    sync.WaitGroup
 }
 
 func New(ctx context.Context) *Supervisor {
 	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	return &Supervisor{ctx: lifetime, cancel: cancel, permits: make(chan struct{}, Capacity)}
+	return &Supervisor{ctx: lifetime, cancel: cancel}
 }
 
+// Submit starts work on its own goroutine. The supervisor bounds nothing:
+// it exists so that Close can wait for, then cancel, the work it started.
 func (owner *Supervisor) Submit(work func(context.Context)) error {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	if owner.stopped {
 		return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "task supervisor is stopped"}
 	}
-	select {
-	case owner.permits <- struct{}{}:
-	default:
-		return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "task supervisor is busy"}
-	}
 	owner.work.Add(1)
 	go func() {
 		defer owner.work.Done()
-		defer func() { <-owner.permits }()
 		work(owner.ctx)
 	}()
 	return nil

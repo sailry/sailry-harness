@@ -261,7 +261,7 @@ func (state *pluginNativeState) sshTransferAccess(profile protocol.SshProfile, w
 		if err != nil {
 			return sshTransferAccess{}, sshTransferUnavailable()
 		}
-		if !slices.ContainsFunc(state.runtime.controller.Snapshot().Ssh, func(saved protocol.SshProfile) bool {
+		if !slices.ContainsFunc(state.runtime.snapshot().Ssh, func(saved protocol.SshProfile) bool {
 			have, err := json.Marshal(saved)
 			return err == nil && bytes.Equal(have, want)
 		}) {

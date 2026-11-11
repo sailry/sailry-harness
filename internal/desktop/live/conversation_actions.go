@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -110,7 +111,7 @@ func (x *conversationActions) Compact() {
 		return
 	}
 	if s, ok := x.r.session(x.cv.ID); ok {
-		x.r.command(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: s.ID, ExpectedRevision: s.Revision}}, "session_changed", nil)
+		x.turn(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: s.ID, ExpectedRevision: s.Revision}}, nil)
 	}
 }
 func (x *conversationActions) Decide(id string, decision composer.Decision, reason string) {
@@ -248,18 +249,21 @@ func sentInput(page protocol.ConversationPage, turn protocol.TurnID) protocol.Co
 	}
 	return input
 }
+
+// pageBusy reports a queued or unfinished turn; Retry and Edit wait for it.
+func pageBusy(page protocol.ConversationPage) bool {
+	return len(page.Queue.Items) > 0 || slices.ContainsFunc(page.Runs, func(r protocol.ConversationRun) bool {
+		return r.Status == "running" || r.Status == "queued" || r.Status == "stopping"
+	})
+}
+
 func (x *conversationActions) Retry(turn string) {
 	s, state, ok := x.state()
 	if !ok {
 		return
 	}
 	id, err := protocol.ParseTurnID(turn)
-	if err != nil {
-		return
-	}
-	if len(state.Page.Queue.Items) > 0 || slices.ContainsFunc(state.Page.Runs, func(r protocol.ConversationRun) bool {
-		return r.Status == "running" || r.Status == "queued" || r.Status == "stopping"
-	}) {
+	if err != nil || pageBusy(state.Page) {
 		return
 	}
 	if !slices.ContainsFunc(state.Page.Runs, func(r protocol.ConversationRun) bool {
@@ -267,54 +271,136 @@ func (x *conversationActions) Retry(turn string) {
 	}) {
 		return
 	}
-	x.r.command(protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: s.ID, ExpectedRevision: s.Revision, Message: sentInput(state.Page, id)}}, "session_changed", nil)
+	x.turn(protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: s.ID, ExpectedRevision: s.Revision, Message: sentInput(state.Page, id)}}, nil)
 }
 
+// conversationEdit marks a composer that holds a sent message for ReplaceTurn.
+// The accepted UI has no inline editor or cancel control, so the marker ends
+// when that composer empties, its conversation leaves the screen, the message
+// is guided or queued instead, or the Node settles the replacement.
 type conversationEdit struct {
-	Turn, Head      protocol.TurnID
-	History, Config uint64
+	Turn, Head protocol.TurnID
+	History    uint64
+	Input      protocol.ConversationInput
+	comp       *composer.State
 }
 
 func (x *conversationActions) Edit(turn string) {
-	s, state, ok := x.state()
-	if !ok || len(state.Page.Runs) == 0 {
-		return
-	}
+	_, state, ok := x.state()
 	id, err := protocol.ParseTurnID(turn)
-	if err != nil {
+	if !ok || err != nil || len(state.Page.Runs) == 0 {
 		return
 	}
 	input := sentInput(state.Page, id)
-	x.comp.Draft = input.Text
-	x.comp.References = nil
+	var references []composer.Reference
 	for _, ref := range input.References {
 		if value, ok := composerReference(ref); ok {
-			x.comp.References = append(x.comp.References, value)
+			references = append(references, value)
 		}
 	}
+	// A draft already in the composer is kept, and a message the composer
+	// cannot show has nothing to edit there.
+	if x.readonly() || pageBusy(state.Page) || x.comp.Draft != "" || len(x.comp.References) > 0 || len(x.comp.Attachments) > 0 || input.Text == "" && len(references) == 0 {
+		x.unavailable()
+		return
+	}
+	x.comp.Draft, x.comp.References = input.Text, references
 	if x.r.conversationEdits == nil {
 		x.r.conversationEdits = map[string]conversationEdit{}
 	}
-	x.r.conversationEdits[x.cv.ID] = conversationEdit{Turn: id, Head: state.Page.Runs[len(state.Page.Runs)-1].Turn, History: state.Page.Revision, Config: s.Revision}
+	x.r.conversationEdits[x.cv.ID] = conversationEdit{Turn: id, Head: state.Page.Runs[len(state.Page.Runs)-1].Turn, History: state.Page.Revision, Input: input, comp: x.comp}
 }
 
-func (x *conversationActions) replace(m composer.Message, finish func(protocol.Output, bool)) bool {
-	edit, ok := x.r.conversationEdits[x.cv.ID]
-	if !ok {
-		return false
-	}
-	s, exists := x.r.session(x.cv.ID)
-	if !exists {
-		return false
-	}
-	x.r.command(protocol.Command{Kind: "replace_turn", Data: protocol.CommandReplaceTurnPayload{Session: s.ID, Turn: edit.Turn, ExpectedHead: edit.Head, ExpectedHistoryRevision: edit.History, ExpectedRevision: edit.Config, Message: conversationInput(m)}}, "session_changed", func(out protocol.Output, ok bool) {
-		if ok {
-			delete(x.r.conversationEdits, x.cv.ID)
-			_ = x.r.controller.RefreshConversation(x.r.ctx, s.ID)
+// editedInput keeps what the composer cannot show: the sent attachments and
+// the references it has no chip for.
+func editedInput(sent, input protocol.ConversationInput) protocol.ConversationInput {
+	for _, ref := range sent.References {
+		if _, shown := composerReference(ref); !shown {
+			input.References = append(input.References, ref)
 		}
-		finish(out, ok)
+	}
+	input.Attachments = append(slices.Clone(sent.Attachments), input.Attachments...)
+	return input
+}
+
+// turnRetry is the one request a conversation retains after an unknown
+// outcome. Sending again reuses it only while the composer and the observed
+// runs and queue are what they were, so a later message with the same text is
+// a new request.
+type turnRetry struct {
+	key, observed, draft string
+	request              protocol.RequestID
+	comp                 *composer.State
+	done                 func(protocol.Output, bool)
+}
+
+func turnObserved(page protocol.ConversationPage) string {
+	last := protocol.ConversationRun{}
+	if len(page.Runs) > 0 {
+		last = page.Runs[len(page.Runs)-1]
+	}
+	return fmt.Sprint(page.Revision, len(page.Runs), last.Turn, last.Status, page.Queue.Revision, len(page.Queue.Items))
+}
+
+// turn sends a command that adds to or replaces the session's turns.
+func (x *conversationActions) turn(command protocol.Command, done func(protocol.Output, bool)) {
+	id := x.cv.ID
+	encoded, _ := json.Marshal(command)
+	key := "turn/" + id + "\x00" + string(encoded)
+	observed, draft := "", composerFingerprint(x.comp)
+	if _, state, ok := x.state(); ok {
+		observed = turnObserved(state.Page)
+	}
+	if retry, ok := x.r.turnRetries[id]; ok && (retry.key != key || retry.observed != "" && retry.observed != observed) {
+		x.r.forgetTurnRetry(id)
+	}
+	x.r.executeScoped("turn/"+id, command, func(c *ui.Context, output protocol.Output, err error) {
+		if request, uncertain := x.r.uncertain[key]; uncertain {
+			if x.r.turnRetries == nil {
+				x.r.turnRetries = map[string]turnRetry{}
+			}
+			x.r.turnRetries[id] = turnRetry{key: key, observed: observed, draft: draft, request: request.ID, comp: x.comp, done: done}
+		} else {
+			delete(x.r.turnRetries, id)
+		}
+		x.r.report(c, err, "session_changed")
+		if done != nil {
+			done(output, err == nil)
+		}
 	})
-	return true
+}
+
+func (r *Runtime) forgetTurnRetry(id string) {
+	if retry, ok := r.turnRetries[id]; ok {
+		delete(r.uncertain, retry.key)
+		delete(r.turnRetries, id)
+	}
+}
+
+// settleTurnRetry ends a retained request that can no longer be a retry: its
+// turn was admitted, the history or queue moved, or the draft was changed. An
+// admitted turn completes the send that lost its result.
+func (r *Runtime) settleTurnRetry(id string, comp *composer.State, turns []protocol.TurnSummary, page protocol.ConversationPage) {
+	retry, ok := r.turnRetries[id]
+	if !ok || r.busy[retry.key] {
+		return
+	}
+	landed := slices.ContainsFunc(turns, func(turn protocol.TurnSummary) bool { return turn.Request == retry.request }) ||
+		slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool {
+			return item.Request != nil && *item.Request == retry.request
+		})
+	if retry.observed == "" {
+		// The request was sent before its new session's history was read.
+		retry.observed = turnObserved(page)
+		r.turnRetries[id] = retry
+	}
+	if !landed && retry.observed == turnObserved(page) && (retry.comp != comp || retry.draft == composerFingerprint(comp)) {
+		return
+	}
+	r.forgetTurnRetry(id)
+	if landed && retry.done != nil {
+		retry.done(protocol.Output{}, true)
+	}
 }
 
 func composerFingerprint(s *composer.State) string {

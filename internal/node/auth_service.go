@@ -121,6 +121,14 @@ func (node *Node) authCommitted(_ protocol.NodeID, request protocol.Request, err
 		case "start_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent":
 			node.authChanged()
 		}
+		// A removed connection never returns; its cached token and renewal
+		// lock leave with it.
+		if input, ok := dispatchPayload[protocol.CommandRemoveConnectionPayload](request.Command.Data); ok {
+			node.auth.mu.Lock()
+			delete(node.auth.cli, input.Connection)
+			node.auth.mu.Unlock()
+			node.auth.connectorLocks.Delete(input.Connection)
+		}
 	}
 }
 

@@ -255,6 +255,10 @@ func readThemeArchive(ctx context.Context, selected string) (Snapshot, error) {
 	return snapshotFiles(files)
 }
 
+// Installed reads the profile's themes. A directory that does not read as its
+// theme does not hide the others: the valid ones come back together with an
+// error naming each one left out. A nil list is a profile that could not be
+// read at all.
 func (profile *Profile) Installed(ctx context.Context) ([]Snapshot, error) {
 	profile.mu.Lock()
 	defer profile.mu.Unlock()
@@ -265,21 +269,26 @@ func (profile *Profile) Installed(ctx context.Context) ([]Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	var snapshots []Snapshot
+	snapshots := []Snapshot{}
+	var invalid []error
 	for _, entry := range entries {
 		if !validThemeID(entry.Name()) {
 			continue
 		}
 		snapshot, err := ReadSnapshot(ctx, filepath.Join(profile.Root, entry.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("installed theme %s: %w", entry.Name(), err)
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		if snapshot.Package.ID != entry.Name() {
-			return nil, errors.New("installed theme ID does not match its directory")
+		if err == nil && snapshot.Package.ID != entry.Name() {
+			err = errors.New("ID does not match its directory")
+		}
+		if err != nil {
+			invalid = append(invalid, fmt.Errorf("installed theme %s: %w", entry.Name(), err))
+			continue
 		}
 		snapshots = append(snapshots, snapshot)
 	}
-	return snapshots, nil
+	return snapshots, errors.Join(invalid...)
 }
 
 func (profile *Profile) Install(ctx context.Context, snapshot Snapshot, expected *string) error {

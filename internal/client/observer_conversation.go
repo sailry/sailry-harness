@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -209,9 +208,9 @@ func (owner *conversationObserver) view() (any, error) {
 				}
 				display["approval_view"] = toolApprovalView(call, detail.Resolved)
 			} else if failure := owner.failures[key]; failure != nil {
-				if strings.Contains(failure.Message, "exceeds the transfer limit") {
+				if failure.Message == detailTransferLimit {
 					display["detail_state"] = map[string]any{"kind": "too_large", "limit": "transfer"}
-				} else if strings.Contains(failure.Message, "memory budget") {
+				} else if failure.Message == detailMemoryLimit {
 					display["detail_state"] = map[string]any{"kind": "too_large", "limit": "memory"}
 				} else {
 					display["detail_state"] = map[string]any{"kind": "failed", "fault": failure, "retrying": false}

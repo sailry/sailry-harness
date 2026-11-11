@@ -184,7 +184,12 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 	if current.Revision != incoming.Revision {
 		return fault(protocol.ErrorCodeRevisionConflict, "conversation changed during pagination")
 	}
-	merged := copyValue(*current)
+	// Merge into private lists so a rejected page leaves current unchanged.
+	// Entries and their payloads stay shared and are never written.
+	merged := *current
+	merged.Entries, merged.Runs = slices.Clone(current.Entries), slices.Clone(current.Runs)
+	merged.Approvals, merged.Questions = slices.Clone(current.Approvals), slices.Clone(current.Questions)
+	merged.Children, merged.Background = slices.Clone(current.Children), slices.Clone(current.Background)
 	for _, e := range incoming.Entries {
 		if hidden[e.ID] {
 			continue

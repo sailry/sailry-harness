@@ -168,12 +168,9 @@ func (client *Client) ForwardPort(ctx context.Context, remotePort, localPort uin
 	if err != nil {
 		return nil, err
 	}
-	projection := NewProjection(client.Target(), 1)
-	update, err := subscription.Next(ctx)
-	if err == nil {
-		_, err = projection.Apply(1, update)
-	}
-	if err != nil {
+	// The subscription only proves the route is alive; the Client owns the
+	// Node projection.
+	if _, err = subscription.Next(ctx); err != nil {
 		_ = subscription.Close()
 		return nil, err
 	}
@@ -218,11 +215,11 @@ func (client *Client) ForwardPort(ctx context.Context, remotePort, localPort uin
 		delete(client.forwarders, forwarder)
 		client.forwardMu.Unlock()
 	}
-	go forwarder.run(client, subscription, projection)
+	go forwarder.run(client, subscription)
 	return forwarder, nil
 }
 
-func (forwarder *Forwarder) run(client *Client, subscription link.Subscription, projection *Projection) {
+func (forwarder *Forwarder) run(client *Client, subscription link.Subscription) {
 	defer close(forwarder.done)
 	defer forwarder.release()
 	stopListener := context.AfterFunc(forwarder.ctx, func() { _ = forwarder.listener.Close() })
@@ -232,19 +229,7 @@ func (forwarder *Forwarder) run(client *Client, subscription link.Subscription, 
 	go func() {
 		defer close(observed)
 		for {
-			update, err := subscription.Next(forwarder.ctx)
-			if err == nil {
-				var applied Apply
-				applied, err = projection.Apply(1, update)
-				if err == nil && applied == Recover {
-					var output protocol.Output
-					output, err = client.Do(forwarder.ctx, protocol.Command{Kind: "snapshot"})
-					if err == nil {
-						_, err = projection.Apply(1, protocol.Update{Kind: "snapshot", Data: output.Data})
-					}
-				}
-			}
-			if err != nil {
+			if _, err := subscription.Next(forwarder.ctx); err != nil {
 				if forwarder.ctx.Err() == nil {
 					failures <- err
 				}

@@ -67,7 +67,7 @@ func pluginAssistantAcceptance(t *testing.T) {
 	source := t.TempDir()
 	entry := "dev.sailry.platform/desktop/main.js"
 	for name, body := range map[string]string{
-		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"assistant-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["files.read"],"tools":[{"name":"read_note","operation":"files.read"},{"name":"list_notes","operation":"files.list"}],"desktop":{"entry":"` + entry + `","resources":["` + entry + `"],"conversations":[{"id":"notes","resource":"plugin","context":"Fixture assistant context","tools":[{"kind":"plugin","name":"read_note"},{"kind":"package","package":"native-approval-fixture","name":"write"},{"kind":"builtin","name":"ask_user"}]},{"id":"project","resource":"workspace","context":"","tools":[]}]}}}}`,
+		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"assistant-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["files.read"],"tools":[{"name":"read_note","operation":"files.read"},{"name":"list_notes","operation":"files.list"}],"desktop":{"entry":"` + entry + `","resources":["` + entry + `"],"conversations":[{"id":"notes","resource":"plugin","context":"Fixture assistant context","tools":[{"kind":"plugin","name":"read_note"},{"kind":"package","package":"native-approval-fixture","name":"write"},{"kind":"builtin","name":"ask_user"}]},{"id":"project","resource":"workspace","context":"","tools":[]},{"id":"delegating","resource":"plugin","context":"","tools":[{"kind":"builtin","name":"spawn_agent"}]}]}}}}`,
 		entry:         `export default function main(){return null;}`,
 	} {
 		filename := filepath.Join(source, filepath.FromSlash(name))
@@ -208,5 +208,52 @@ func pluginAssistantAcceptance(t *testing.T) {
 	}
 	if info, err := os.Stat(expected); path != expected || err != nil || !info.IsDir() {
 		t.Fatalf("assistant workspace is not its private profile directory: %s, %v", path, err)
+	}
+
+	// An agent reference is admitted only when the assistant declares delegation.
+	delegating := config
+	delegating.Assistant = &protocol.PluginConversationBinding{Package: binding.Package, ID: "delegating"}
+	delegated, failure := create(delegating, nil)
+	if failure != nil || len(delegated.Roles.Profiles) == 0 {
+		t.Fatalf("delegating assistant conversation has no roster: %+v, %+v", delegated.Roles, failure)
+	}
+	for _, target := range []protocol.Session{session, delegated} {
+		var current protocol.Session
+		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			var err error
+			current, err = store.ReadSession(t.Context(), db, target.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		role := current.Roles.Profiles[0]
+		response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
+			Session: current.ID, ExpectedRevision: current.Revision, Message: protocol.ConversationInput{Text: "Delegate this", References: []protocol.ConversationReference{{
+				Target: protocol.ConversationReferenceTarget{Kind: "agent", Data: &protocol.RoleReference{ID: role.ID, Revision: role.Revision}}, Label: role.Name,
+			}}},
+		}}))
+		var runs int
+		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			return db.QueryRowContext(t.Context(), "SELECT count(*) FROM turns WHERE session=?1", current.ID.String()).Scan(&runs)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if target.ID == session.ID {
+			if response.Fault == nil || response.Fault.Code != protocol.ErrorCodePermissionDenied || response.Fault.Message != "plugin assistant does not allow delegation" || runs != 1 {
+				t.Fatalf("assistant without delegation admitted an agent reference: %+v, %d turns", response.Fault, runs)
+			}
+		} else if response.Fault != nil || runs != 1 {
+			t.Fatalf("delegating assistant rejected an agent reference: %+v, %d turns", response.Fault, runs)
+		}
+	}
+	// An assistant conversation references only its own package.
+	foreign := imported.Summary.Name
+	response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{
+		Session: second.ID, ExpectedRevision: second.Revision, Message: protocol.ConversationInput{Text: "Use this", References: []protocol.ConversationReference{{
+			Target: protocol.ConversationReferenceTarget{Kind: "plugin", Data: &foreign}, Label: foreign,
+		}}},
+	}}))
+	if response.Fault == nil || response.Fault.Code != protocol.ErrorCodeInvalidRequest || response.Fault.Message != "referenced plugin is disabled or unavailable" {
+		t.Fatalf("assistant conversation admitted another package's reference: %+v", response.Fault)
 	}
 }

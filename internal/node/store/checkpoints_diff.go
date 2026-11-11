@@ -20,7 +20,9 @@ type checkpointVersions struct {
 	segments []checkpointSegment
 }
 
-func turnCheckpointVersions(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID) (map[string]*checkpointVersions, bool, error) {
+// turnCheckpointVersions loads the written versions of a turn's files. A
+// non-nil path loads the text of that file only.
+func turnCheckpointVersions(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID, path *string) (map[string]*checkpointVersions, bool, error) {
 	run, err := visibleAgentRun(ctx, db, session, turn)
 	if err != nil {
 		return nil, false, err
@@ -52,7 +54,10 @@ func turnCheckpointVersions(ctx context.Context, db *sql.Conn, session protocol.
 			partial = true
 			continue
 		}
-		content, err := CheckpointContent(ctx, db, session, file.ID)
+		if path != nil && file.Path != *path {
+			continue
+		}
+		content, err := checkpointContent(ctx, db, session, file)
 		if err != nil {
 			return nil, false, err
 		}
@@ -74,7 +79,7 @@ func turnCheckpointVersions(ctx context.Context, db *sql.Conn, session protocol.
 }
 func ReadTurnDiff(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID) (protocol.ConversationCheckpointTurnDiff, error) {
 	out := protocol.ConversationCheckpointTurnDiff{Session: session, Turn: turn, Files: []protocol.GitDiff{}}
-	versions, partial, err := turnCheckpointVersions(ctx, db, session, turn)
+	versions, partial, err := turnCheckpointVersions(ctx, db, session, turn, nil)
 	if err != nil {
 		return out, err
 	}
@@ -114,7 +119,7 @@ func ReadTurnDiff(ctx context.Context, db *sql.Conn, session protocol.SessionID,
 }
 func ReadTurnHunks(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID, path string) (protocol.ConversationCheckpointHunkReview, error) {
 	out := protocol.ConversationCheckpointHunkReview{Session: session, Turn: turn, Path: path, Hunks: []protocol.ConversationCheckpointHunk{}}
-	versions, partial, err := turnCheckpointVersions(ctx, db, session, turn)
+	versions, partial, err := turnCheckpointVersions(ctx, db, session, turn, &path)
 	if err != nil {
 		return out, err
 	}
@@ -154,7 +159,7 @@ func PrepareTurnHunk(ctx context.Context, db *sql.Conn, selection protocol.Conve
 	if selection.Operation != protocol.ConversationCheckpointHunkOperationStage && selection.Operation != protocol.ConversationCheckpointHunkOperationReject {
 		return empty, invalid("invalid turn hunk operation")
 	}
-	versions, _, err := turnCheckpointVersions(ctx, db, selection.Session, selection.Turn)
+	versions, _, err := turnCheckpointVersions(ctx, db, selection.Session, selection.Turn, &selection.Path)
 	if err != nil {
 		return empty, err
 	}

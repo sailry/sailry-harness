@@ -182,6 +182,7 @@ page.
 | Port forwards show on the preview page | The reference shows them only on a live host |
 | The rail's Add host opens Settings › Connections | The add dialog lives with the Connections page |
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
-| B7 update Download prepares a local-artifact update instead of acquiring a release | B7 installs locally built Go Host artifacts; the frozen protocol has a single install/update command and B14 owns release acquisition |
+| Update Download prepares the update instead of acquiring a release | The frozen protocol has a single install/update command. Apply runs it: the remote machine downloads and verifies the release feed's installer and archive, or the execution Node uploads `host-artifacts/<goos>-<goarch>/` when that directory holds a locally built `sailry-host` |
+| A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends |
 | Remote timezone remains unknown | HostInfo and the Link handshake do not expose it; the controller does not substitute its own timezone |
 | Live metrics keep the accepted column and sidebar footer | B7 supplies real samples without restoring the Rust monitor's additional gauges, trends or process actions |

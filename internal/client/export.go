@@ -184,16 +184,19 @@ func safeExportURL(text string) bool {
 	u, e := url.Parse(text)
 	return e == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") && u.User == nil
 }
-func exportWork(part protocol.ConversationPart) bool {
+
+// workPart marks the parts before a turn's final reply; closing interactions
+// leave the preceding prose visible. Exports and transcripts share it.
+func workPart(part protocol.ConversationPart) bool {
 	switch part.Kind {
 	case "text", "image", "attachment", "reference":
 		return false
 	case "tool_call":
 		v, e := payload[protocol.ConversationPartToolCallPayload](part.Data)
-		return e != nil || !slices.Contains([]string{"plan_review", "ask_user", "mcp_elicitation"}, v.Name)
+		return e != nil || !terminalInteraction(v.Name)
 	case "tool_result":
 		v, e := payload[protocol.ConversationPartToolResultPayload](part.Data)
-		return e != nil || !slices.Contains([]string{"plan_review", "ask_user", "mcp_elicitation"}, v.Name)
+		return e != nil || !terminalInteraction(v.Name)
 	case "resource":
 		var v map[string]json.RawMessage
 		body, e := json.Marshal(part.Data)
@@ -313,7 +316,7 @@ func composeExport(page protocol.ConversationPage, referenced map[exportImageKey
 		conversation = conversation || entry.Author == "user"
 		if entry.Author != "user" {
 			for i, part := range entry.Parts {
-				if exportWork(part) {
+				if workPart(part) {
 					boundaries[entry.Turn] = boundary{entry.Sequence, i}
 				}
 			}

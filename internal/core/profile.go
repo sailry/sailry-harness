@@ -11,8 +11,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// sourceDefault is the profile of builds made from a checkout.
+const sourceDefault = "~/.sailry-go"
+
 // Default is set to the release profile by packaging through -ldflags -X.
-var Default = "~/.sailry-go"
+var Default = sourceDefault
+
+// Release reports a build whose profile default packaging replaced. Release
+// builds load native code only from their package.
+func Release() bool { return Default != sourceDefault }
 
 // DefaultDataDir resolves the profile location without creating or opening it.
 func DefaultDataDir() (string, error) {
@@ -57,7 +64,7 @@ func AcquireProfile(path string) (*Profile, error) {
 	}
 	lockPath := filepath.Join(canonical, "node.lock")
 	if info, err := os.Lstat(lockPath); err == nil {
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		if !info.Mode().IsRegular() {
 			return nil, invalidProfile(lockPath, "lock must be a regular file")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {

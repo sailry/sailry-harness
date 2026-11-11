@@ -6,13 +6,13 @@ package updater
 import (
 	"crypto/ed25519"
 	_ "embed"
-	"encoding/base64"
 	"net/url"
 	"runtime"
 	"strings"
 
 	"filippo.io/edwards25519"
 	"github.com/Masterminds/semver/v3"
+	"github.com/MoeForge/moego/base64"
 )
 
 const (

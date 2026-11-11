@@ -174,4 +174,25 @@ func TestFileCheckpointAndAttachmentOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A checkpoint draws its row from the watermark, so its profile reopens.
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := reopenSchemaFixture(t, storage.Profile, node)
+	if got := schemaInteger(t, reopened.Node, "SELECT value FROM counters WHERE namespace='file_checkpoints'"); got != 1 {
+		t.Fatalf("checkpoint watermark: %d", got)
+	}
+	// Checkpoints recorded before that took SQLite's own rows; startup
+	// raises the watermark over them instead of refusing the profile.
+	schemaExecute(t, reopened.Node, "DELETE FROM counters WHERE namespace='file_checkpoints'")
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	repaired := reopenSchemaFixture(t, storage.Profile, node)
+	if got := schemaInteger(t, repaired.Node, "SELECT value FROM counters WHERE namespace='file_checkpoints'"); got != 1 {
+		t.Fatalf("repaired checkpoint watermark: %d", got)
+	}
+	if backups, err := filepath.Glob(filepath.Join(storage.Profile, "storage", "backups", "node-before-upgrade-*")); err != nil || len(backups) != 1 {
+		t.Fatalf("watermark repair backups: %v, %v", backups, err)
+	}
 }

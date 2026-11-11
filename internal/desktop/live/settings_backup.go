@@ -102,7 +102,7 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 			state.actions.Host = host.view.Name
 		}
 	}
-	m.Archived, m.Sessions = backupSessions(owner.controller.Snapshot().Sessions, i18n.T(c, "conversation"))
+	m.Archived, m.Sessions = backupSessions(owner.snapshot().Sessions, i18n.T(c, "conversation"))
 	owner.saveBackupSchedule(time.Now())
 }
 

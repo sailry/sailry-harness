@@ -74,9 +74,8 @@ type Node struct {
 	ctx               context.Context
 	mu                sync.Mutex
 	stopped           bool
-	jobs              chan commandJob
+	lanes             [2]commandLane
 	work              sync.WaitGroup
-	workerDone        chan struct{}
 	closed            chan struct{}
 	stopDone          chan struct{}
 	stopErr           error
@@ -86,6 +85,24 @@ type Node struct {
 	providerDirectory providers.Directory
 	subscribersMu     sync.Mutex
 	subscribers       map[*events]struct{}
+}
+
+// commandLane is one ordered queue of admitted jobs and its worker. Project
+// effects, which may clone a repository, have their own lane so that they do
+// not delay turns and provider commands.
+type commandLane struct {
+	queue []commandJob
+	wake  chan struct{}
+	done  chan struct{}
+}
+
+const (
+	generalLane = iota
+	projectLane
+)
+
+func projectEffect(kind string) bool {
+	return kind == "create_project" || kind == "update_project" || kind == "register_worktree" || kind == "remove_project"
 }
 
 type commandJob struct {
@@ -131,7 +148,10 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, jobs: make(chan commandJob), workerDone: make(chan struct{}), closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	for index := range value.lanes {
+		value.lanes[index] = commandLane{wake: make(chan struct{}, 1), done: make(chan struct{})}
+	}
 	// The keep-awake owner precedes every source of work it counts.
 	if err := value.initPower(ctx, options.Power); err != nil {
 		cancel()
@@ -218,7 +238,9 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	value.agent.Start()
-	go value.run()
+	for index := range value.lanes {
+		go value.run(&value.lanes[index])
+	}
 	value.initDispatch(options.DispatchClock)
 	value.initPluginStatus()
 	if options.Network != nil {
@@ -237,10 +259,14 @@ func (node *Node) Stop(ctx context.Context) error {
 	if !node.stopped {
 		node.stopped = true
 		close(node.closed)
-		close(node.jobs)
+		for index := range node.lanes {
+			node.signal(&node.lanes[index])
+		}
 		node.cancel()
 		go func() {
-			<-node.workerDone
+			for index := range node.lanes {
+				<-node.lanes[index].done
+			}
 			node.closePluginStatus()
 			node.agent.Stop()
 			node.closeAuth()
@@ -407,9 +433,43 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		close(completion)
 		return accepted, nil
 	}
-	// Admission is durable. Cancellation of its observer cannot cancel this job.
-	node.jobs <- commandJob{caller: caller, request: request, admitted: true, completion: completion}
+	// Admission is durable. Cancellation of its observer cannot cancel this
+	// job, and a busy worker cannot hold up the admission of the next one.
+	lane := &node.lanes[generalLane]
+	if projectEffect(request.Command.Kind) {
+		lane = &node.lanes[projectLane]
+	}
+	lane.queue = append(lane.queue, commandJob{caller: caller, request: request, admitted: true, completion: completion})
+	node.signal(lane)
 	return accepted, nil
+}
+
+func (node *Node) signal(lane *commandLane) {
+	select {
+	case lane.wake <- struct{}{}:
+	default:
+	}
+}
+
+// next returns the lane's oldest admitted job. After Stop it still returns
+// the jobs admitted before it, which then fail on the cancelled Node context.
+func (node *Node) next(lane *commandLane) (commandJob, bool) {
+	for {
+		node.mu.Lock()
+		if len(lane.queue) > 0 {
+			job := lane.queue[0]
+			lane.queue[0] = commandJob{}
+			lane.queue = lane.queue[1:]
+			node.mu.Unlock()
+			return job, true
+		}
+		stopped := node.stopped
+		node.mu.Unlock()
+		if stopped {
+			return commandJob{}, false
+		}
+		<-lane.wake
+	}
 }
 
 func externalCommand(command protocol.Command) bool {
@@ -555,10 +615,10 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 	return response(output, err)
 }
 
-func (node *Node) run() {
-	defer close(node.workerDone)
-	for job := range node.jobs {
-		projectEffect := job.request.Command.Kind == "create_project" || job.request.Command.Kind == "update_project" || job.request.Command.Kind == "register_worktree" || job.request.Command.Kind == "remove_project"
+func (node *Node) run(lane *commandLane) {
+	defer close(lane.done)
+	for job, ok := node.next(lane); ok; job, ok = node.next(lane) {
+		projectEffect := projectEffect(job.request.Command.Kind)
 		if projectEffect {
 			node.effects.Lock()
 		}

@@ -81,6 +81,13 @@ func acquireFileRoot(directory string) (*os.Root, error) {
 
 func (files *Files) Close() error { return files.root.Close() }
 
+// CheckFilePath reports whether value is a normalized worktree-relative path
+// that restricted file access may name.
+func CheckFilePath(value string) error {
+	_, err := fileComponents(value, false, RestrictedFiles, false)
+	return err
+}
+
 func fileComponents(value string, allowRoot bool, access FileAccess, mutation bool) ([]string, error) {
 	if allowRoot && (value == "" || value == ".") {
 		return nil, nil
@@ -103,12 +110,24 @@ func fileComponents(value string, allowRoot bool, access FileAccess, mutation bo
 	}
 	if mutation {
 		for _, part := range parts {
-			if strings.EqualFold(part, ".git") {
+			if gitMetadataName(part) {
 				return nil, fileFault(protocol.ErrorCodePermissionDenied, "Git metadata cannot be changed through file operations")
 			}
 		}
 	}
 	return parts, nil
+}
+
+// gitMetadataName reports a name that a file system may resolve to .git: any
+// letter case, the NTFS short name, or one with HFS+ ignorable code points.
+func gitMetadataName(name string) bool {
+	name = strings.Map(func(character rune) rune {
+		if character >= 0x200c && character <= 0x200f || character >= 0x202a && character <= 0x202e || character >= 0x206a && character <= 0x206f || character == 0xfeff {
+			return -1
+		}
+		return character
+	}, name)
+	return strings.EqualFold(name, ".git") || strings.EqualFold(name, "git~1")
 }
 
 func managedFileDirectory(parent, name string) bool {

@@ -50,6 +50,10 @@ func matchesUpgradeDefault(table, name string, value []byte) bool {
 	}
 }
 
+// Checkpoints recorded before they drew from the watermark took SQLite's own
+// rowids. Nothing deletes a checkpoint, so none of those rowids was reused.
+const checkpointWatermarkPending = "SELECT coalesce((SELECT max(rowid) FROM file_checkpoints),0)>coalesce((SELECT value FROM counters WHERE namespace='file_checkpoints'),0)"
+
 const missingArtifactKind = "CASE WHEN json_valid(body) THEN json_type(body)='object' AND json_type(body,'$.kind') IS NULL ELSE 0 END"
 
 func upgradesNeeded(ctx context.Context, connection *sql.Conn) (bool, error) {
@@ -66,6 +70,9 @@ func upgradesNeeded(ctx context.Context, connection *sql.Conn) (bool, error) {
 	if err := connection.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM node WHERE singleton=1 AND (tool_metadata_names=0 OR tool_defaults=0))").Scan(&pending); err != nil || pending {
 		return pending, err
 	}
+	if err := connection.QueryRowContext(ctx, checkpointWatermarkPending).Scan(&pending); err != nil || pending {
+		return pending, err
+	}
 	return defaultsPending(ctx, connection)
 }
 
@@ -73,12 +80,20 @@ func applyUpgrades(ctx context.Context, connection *sql.Conn) error {
 	if err := upgradeToolMetadata(ctx, connection); err != nil {
 		return err
 	}
+	var pending bool
+	if err := connection.QueryRowContext(ctx, checkpointWatermarkPending).Scan(&pending); err != nil {
+		return err
+	}
+	if pending {
+		if _, err := connection.ExecContext(ctx, "INSERT INTO counters(namespace,value) SELECT 'file_checkpoints',max(rowid) FROM file_checkpoints WHERE true ON CONFLICT(namespace) DO UPDATE SET value=excluded.value"); err != nil {
+			return err
+		}
+	}
 	for _, table := range []string{"artifacts", "artifact_revisions"} {
 		if _, err := connection.ExecContext(ctx, "UPDATE "+table+" SET body=CAST(json_set(body,'$.kind',?1) AS BLOB) WHERE "+missingArtifactKind, protocol.ArtifactKindDocument); err != nil {
 			return err
 		}
 	}
-	var pending bool
 	if err := connection.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM node WHERE singleton=1 AND tool_defaults=0)").Scan(&pending); err != nil {
 		return err
 	}

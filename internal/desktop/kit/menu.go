@@ -90,6 +90,10 @@ type MenuOptions struct {
 // menuOpen keys the open state of the menus, by their id, on the root.
 type menuOpen struct{}
 
+// menuEntry is a menu's state: whether it shows, and whether it was asked
+// for since the last SweepMenus.
+type menuEntry struct{ open, used bool }
+
 // MenuButton makes a menu button whose trigger look styles, with a Menu
 // that build fills while it shows. id names the menu among the window's,
 // keeping whether it shows across frames.
@@ -129,13 +133,28 @@ func OpenMenu(c *ui.Context, id string, open bool) {
 
 // menuState is whether the menu named id shows.
 func menuState(c *ui.Context, id string) *bool {
-	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*bool { return map[string]*bool{} })
-	open := (*states)[id]
-	if open == nil {
-		open = new(bool)
-		(*states)[id] = open
+	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*menuEntry { return map[string]*menuEntry{} })
+	entry := (*states)[id]
+	if entry == nil {
+		entry = &menuEntry{}
+		(*states)[id] = entry
 	}
-	return open
+	entry.used = true
+	return &entry.open
+}
+
+// SweepMenus forgets the menus that no frame asked for since the last call:
+// a menu whose button is gone neither stays in the window's state nor comes
+// back open with its button. The window calls it once a frame, before it
+// builds; the menus of the frame before are kept, with the clicks they took.
+func SweepMenus(c *ui.Context) {
+	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*menuEntry { return map[string]*menuEntry{} })
+	for id, entry := range *states {
+		if !entry.used {
+			delete(*states, id)
+		}
+		entry.used = false
+	}
 }
 
 var (

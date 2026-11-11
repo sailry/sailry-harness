@@ -45,7 +45,7 @@ func (installation *Installation) Execute(environment []string, endpoint *link.L
 		return protocol.HostInstallationOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "WSL Host installation was cancelled"}
 	}
 	version := link.ProductVersion
-	release, err := releaseScript(version, network)
+	release, err := ReleaseScript(version, false, network)
 	if err != nil {
 		return protocol.HostInstallationOutcome{}, err
 	}
@@ -121,9 +121,10 @@ func launchArguments(distribution string) []string {
 	return []string{"--distribution", distribution, "--cd", "~", "--exec", "/bin/sh", "-s"}
 }
 
-// releaseScript prefixes the official release bootstrap with its version and
-// the network arguments forwarded to the Host installer.
-func releaseScript(version string, network *protocol.NetworkSelection) (string, error) {
+// ReleaseScript prefixes the official release bootstrap with its version,
+// whether it updates an installed Host, and the network arguments forwarded
+// to the Host installer. SSH Add Host runs the same script.
+func ReleaseScript(version string, update bool, network *protocol.NetworkSelection) (string, error) {
 	arguments := []string{}
 	if network != nil {
 		switch network.Kind {
@@ -149,7 +150,11 @@ func releaseScript(version string, network *protocol.NetworkSelection) (string, 
 			return "", invalid("invalid Host network selection")
 		}
 	}
-	return "install_version='" + version + "'\ninstall_update=0\nset -- " + strings.Join(arguments, " ") + "\n" + normalize(releaseSource), nil
+	mode := "0"
+	if update {
+		mode = "1"
+	}
+	return "install_version='" + version + "'\ninstall_update=" + mode + "\nset -- " + strings.Join(arguments, " ") + "\n" + normalize(releaseSource), nil
 }
 
 // normalize undoes checkout line-ending conversion of an embedded script and

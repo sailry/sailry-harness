@@ -172,7 +172,6 @@ func sourceRawTools(t *testing.T, kind string) []any {
 	case "responses":
 		return []any{map[string]any{"type": "function", "name": "read", "description": "Read a file", "parameters": schema, "strict": false}}
 	default:
-		chatSchema(schema)
 		return []any{map[string]any{"type": "function", "function": map[string]any{"name": "read", "description": "Read a file", "parameters": schema, "strict": false}}}
 	}
 }

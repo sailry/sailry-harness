@@ -123,4 +123,11 @@ func TestModeMapping(t *testing.T) {
 			}
 		})
 	}
+	t.Run("native arguments must be an object", func(t *testing.T) {
+		for _, operation := range []protocol.ToolOperation{"git.status", "files.search", "process.read"} {
+			if _, err := Command(operation, json.RawMessage(`null`), protocol.WorktreeID{}, protocol.SessionID{}, protocol.TurnID{}, nil, true); err == nil {
+				t.Fatalf("%s accepted null arguments", operation)
+			}
+		}
+	})
 }

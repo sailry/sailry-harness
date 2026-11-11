@@ -22,7 +22,7 @@ func modelFamily(api protocol.ConversationModelApi) string {
 }
 
 func (r *Runtime) readModelScores() {
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	var refs []protocol.ConversationCatalogScoresModelRef
 	for _, p := range snapshot.Providers {
 		if p.Enabled {

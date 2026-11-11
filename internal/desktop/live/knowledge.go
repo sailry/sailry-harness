@@ -178,6 +178,16 @@ func (r *Runtime) readKnowledge(node string, input protocol.KnowledgeCitationReq
 	})
 }
 
+// knowledgeLink reports whether text is one citation link a Node can read.
+func knowledgeLink(text string) bool {
+	source, parsed := shell.ParseSource(text)
+	if !parsed {
+		return false
+	}
+	_, valid := knowledgeRequest(source)
+	return valid
+}
+
 // openChatLink takes the knowledge links of a reply.
 func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
 	scheme, _, found := strings.Cut(link, ":")

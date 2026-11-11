@@ -77,7 +77,7 @@ func (location *pluginNativeLocation) selectLocation(ctx context.Context, argume
 			if json.Unmarshal(selection.Project, &id) != nil {
 				return nil, pluginNativeFault(protocol.ErrorCodeInvalidRequest, "invalid location selection")
 			}
-			for _, entry := range location.state.runtime.controller.Snapshot().Projects {
+			for _, entry := range location.state.runtime.snapshot().Projects {
 				if entry.ID == id {
 					project = &id
 					break
@@ -151,7 +151,7 @@ func (location *pluginNativeLocation) selectComposer(view *ui.Context, selection
 		comp.Project, comp.Worktree = "", ""
 		if project != nil {
 			comp.Project = project.String()
-			for _, tree := range state.runtime.controller.Snapshot().Worktrees {
+			for _, tree := range state.runtime.snapshot().Worktrees {
 				if tree.Project != nil && *tree.Project == *project && tree.Main {
 					comp.Worktree = tree.Path
 					break

@@ -45,7 +45,7 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 			continue
 		}
 		if reference != nil {
-			info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1 AND installed=1", reference.Name)
+			info, err := ReadPlugin(ctx, db, reference.Name)
 			if err != nil {
 				return nil, nil, err
 			}

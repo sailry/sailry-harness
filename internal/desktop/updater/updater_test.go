@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 )
 
@@ -64,7 +66,16 @@ func TestUpdaterStateMapping(t *testing.T) {
 			}
 			source.status = test.status
 			root := filepath.Join(t.TempDir(), "updater")
-			service := New(Options{Version: test.current, Directory: root, Channel: func() Channel { return test.channel }})
+			// Every change the interface is woken for, as it would read it.
+			var watch sync.Mutex
+			var seen []State
+			var service *Service
+			service = New(Options{Version: test.current, Directory: root, Channel: func() Channel { return test.channel }, Changed: func() {
+				state, _ := service.Snapshot()
+				watch.Lock()
+				seen = append(seen, state)
+				watch.Unlock()
+			}})
 			service.release = func(channel Channel, version string) (Config, error) { return source.config(channel, version), nil }
 			t.Cleanup(service.Close)
 			expect := func(step string, want expectation) {
@@ -108,6 +119,29 @@ func TestUpdaterStateMapping(t *testing.T) {
 			}
 			if test.download.kind != Ready {
 				return
+			}
+			// SABOUT-005: the download reports the bytes copied up to the
+			// signed size, then verifies, before it is ready.
+			watch.Lock()
+			var progress []Progress
+			for _, state := range seen {
+				if state.Kind == Downloading {
+					progress = append(progress, state.Progress)
+				}
+			}
+			final := seen[len(seen)-1]
+			watch.Unlock()
+			if len(progress) < 2 || final.Kind != Ready {
+				t.Fatalf("download reported %+v and ended in %+v", progress, final)
+			}
+			for index, step := range progress {
+				if step.Total == 0 || step.Copied > step.Total || index > 0 && (step.Copied < progress[index-1].Copied || progress[index-1].Verifying && !step.Verifying) {
+					t.Fatalf("download progress %d of %+v", index, progress)
+				}
+			}
+			if last := progress[len(progress)-1]; !last.Verifying || last.Copied != last.Total ||
+				!slices.ContainsFunc(progress, func(step Progress) bool { return !step.Verifying && step.Copied == step.Total }) {
+				t.Fatalf("download ended without the full size or without verifying: %+v", progress)
 			}
 			// A channel change abandons the staged release and asks for a new check.
 			if !service.ChannelChanged() {

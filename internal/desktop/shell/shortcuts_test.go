@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
 // settle lets the columns' motion end.
@@ -208,6 +209,38 @@ func TestMenu(t *testing.T) {
 	if !slices.Equal(names, []string{"Sailry", "File", "Edit", "View", "Window", "Help"}) {
 		t.Errorf("menus %q", names)
 	}
+	// The items show the keys of now: a rebound one moves with the next
+	// frame, one turned off shows none, and a menu built later starts there.
+	t.Run("rebound keys", func(t *testing.T) {
+		a, tt := newTester(t)
+		menu := a.Menu("en", func(string) {})
+		keys := func(menu []*mygo.MenuItem) map[string]string {
+			out := map[string]string{}
+			for _, m := range menu {
+				for _, it := range m.Submenu {
+					out[it.ID] = it.Accelerator
+				}
+			}
+			return out
+		}
+		a.Settings.Keys.Record("conversation.new")
+		a.Settings.Keys.Take(settings.Chord{Mods: ui.Cmd | ui.Shift, Key: ui.KeyN})
+		a.Settings.Keys.Record("sidebar.toggle")
+		a.Settings.Keys.Clear()
+		tt.Frame()
+		for _, menu := range [][]*mygo.MenuItem{menu, a.Menu("en", func(string) {})} {
+			got := keys(menu)
+			if got["conversation.new"] != cmd(ui.Cmd|ui.Shift, ui.KeyN) || got["sidebar.toggle"] != "" || got["app.search"] != cmd(ui.Cmd, ui.KeyK) || got[CloseFocused.ID] != cmd(ui.Cmd, ui.KeyW) {
+				t.Errorf("menu keys after rebinding: %q", got)
+			}
+		}
+		a.Settings.Keys.Record("conversation.new")
+		a.Settings.Keys.Reset()
+		tt.Frame()
+		if got := keys(a.Menu("en", func(string) {})); got["conversation.new"] != cmd(ui.Cmd, ui.KeyN) {
+			t.Errorf("a key reset to its default shows %q", got["conversation.new"])
+		}
+	})
 	// Every entry but the features' names (Git) is translated in Chinese.
 	zh := a.Menu("zh-CN", nil)
 	for i, m := range menu {
@@ -289,4 +322,43 @@ func TestMenuCommandsScoped(t *testing.T) {
 	if !a.NavOpen {
 		t.Error("Toggle Sidebar ran under the search")
 	}
+	// KEY-002: any modal dialog holds the menu's commands, also one the shell
+	// does not open itself, and they run again once it closed.
+	t.Run("session records dialog", func(t *testing.T) {
+		a, tt := newTester(t)
+		a.Sidebar.ShowRecords(a.Data.Projects[0].ID, nil)
+		tt.Frame()
+		if !tt.HasText(i18n.In("en", "workspace_records")) {
+			t.Fatalf("no records dialog: %q", tt.Texts())
+		}
+		a.Do("app.settings")
+		a.Do(CloseFocused.ID)
+		tt.Frame()
+		if a.Page != ConversationPage {
+			t.Fatalf("Settings opened behind the records dialog: page %d", a.Page)
+		}
+		tt.Key(0, ui.KeyEscape)
+		settle(tt)
+		a.Do("app.settings")
+		tt.Frame()
+		if a.Page != SettingsPage {
+			t.Fatalf("Settings stayed held after the dialog closed: page %d", a.Page)
+		}
+	})
+	t.Run("delete confirmation", func(t *testing.T) {
+		a, tt := newTester(t)
+		if err := tt.RightClick("Port the neutral theme tokens"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem(i18n.In("en", "session_delete")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		a.Do("conversation.new")
+		a.Do("app.settings")
+		tt.Frame()
+		if a.Page != ConversationPage || a.Sidebar.Selected == "" || a.Data.Find("sailry-go/theme") == nil {
+			t.Fatalf("a menu command ran behind the confirmation: page %d, selected %q", a.Page, a.Sidebar.Selected)
+		}
+	})
 }

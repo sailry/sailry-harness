@@ -19,19 +19,20 @@ import (
 )
 
 type authorizationState struct {
-	provider       *liveAuthorization
-	connector      *liveAuthorization
-	credentials    map[protocol.CredentialID]protocol.Credential
-	credentialKey  string
-	credentialLoad bool
-	savedProviders map[string]protocol.ConversationProvider
-	types          map[string]protocol.PluginConnectorType
-	connections    map[string]protocol.PluginConnectorConnection
-	packages       map[string]protocol.PluginInfo
-	quotaReset     uint64
-	quotaCancel    context.CancelFunc
-	mcpDrafts      map[string]protocol.PluginMcpState
-	mcpConfiguring string
+	provider                       *liveAuthorization
+	connector                      *liveAuthorization
+	credentials                    map[protocol.CredentialID]protocol.Credential
+	credentialKey                  string
+	credentialLoad                 bool
+	savedProviders                 map[string]protocol.ConversationProvider
+	types                          map[string]protocol.PluginConnectorType
+	connections                    map[string]protocol.PluginConnectorConnection
+	packages                       map[string]protocol.PluginInfo
+	packagesReading, packagesStale bool
+	quotaReset                     uint64
+	quotaCancel                    context.CancelFunc
+	mcpDrafts                      map[string]protocol.PluginMcpState
+	mcpConfiguring                 string
 }
 
 type liveAuthorization struct {
@@ -350,7 +351,7 @@ func (r *Runtime) readProviderCredentials() {
 		return
 	}
 	var key strings.Builder
-	for _, provider := range r.controller.Snapshot().Providers {
+	for _, provider := range r.snapshot().Providers {
 		if provider.Credential != nil {
 			key.WriteString(provider.Credential.ID.String())
 			key.WriteString(strconv.FormatUint(provider.Revision, 10))

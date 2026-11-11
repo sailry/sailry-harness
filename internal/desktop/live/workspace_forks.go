@@ -203,7 +203,7 @@ func (r *Runtime) canMoveWorkspace(cv *viewmodel.Conversation, comp *composer.St
 	if session.Delegation != nil || len(comp.Attachments) > 0 {
 		return false
 	}
-	state, ok := r.controller.Conversation(session.ID)
+	state, ok := r.conversationState(session.ID)
 	if !ok {
 		return false
 	}
@@ -246,7 +246,7 @@ func (r *Runtime) selectConversationWorktree(cv *viewmodel.Conversation, comp *c
 			}
 		})
 	}
-	for _, tree := range r.controller.Snapshot().Worktrees {
+	for _, tree := range r.snapshot().Worktrees {
 		if tree.Path == relative && tree.Project != nil && *tree.Project == *session.Project {
 			move(tree)
 			return

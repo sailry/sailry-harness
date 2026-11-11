@@ -32,6 +32,7 @@
 package kit
 
 import (
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -74,6 +75,14 @@ func ToastHost(c *ui.Context) ui.Element {
 		heights := *ui.Local(stack, "heights", func() map[string]float32 { return map[string]float32{} })
 		expanded := stack.Hovered()
 		n := len(toasts)
+		if len(heights) > n {
+			// The heights of the toasts that left.
+			for id := range heights {
+				if !slices.ContainsFunc(toasts, func(t ui.Toast) bool { return t.ID == id }) {
+					delete(heights, id)
+				}
+			}
+		}
 		front := float32(0)
 		if n > 0 {
 			front = heights[toasts[n-1].ID]

@@ -110,18 +110,23 @@ type App struct {
 	pluginFeatures map[string]Feature
 	pluginPage     string
 	unpinned       map[string]bool // features off the rail
-	more           bool            // the rail's More popover
-	search         search
-	activity       bool // the activity centre's popover
-	reading        *reading
-	shown          string // the conversation selected when a project page opened
-	overview       *projectOverview
+	// previewRail is the preview's rail in the shared UI state file, which a
+	// live window writes back as it found it (Prefs).
+	previewRail struct{ features, unpinned []string }
+	more        bool // the rail's More popover
+	search      search
+	activity    bool // the activity centre's popover
+	reading     *reading
+	shown       string // the conversation selected when a project page opened
+	overview    *projectOverview
 	// The panes that take the focus: the main column, where the
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
 	sent                []string // the native menu's commands (Do)
+	modal               bool     // a modal dialog of Kit's showed in the last frame
 	fileSaveEnabled     bool
 	fileSaveMenu        func(bool)
+	menuKeys            []menuKey // the native menu's items with a key (syncMenuKeys)
 	// children are the subagent sessions opened in the panel, by ID.
 	children map[string][]conversation.Turn
 

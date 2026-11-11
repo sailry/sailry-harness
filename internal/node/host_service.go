@@ -20,7 +20,7 @@ func (node *Node) initHost() {
 
 func hostCommand(kind string) bool {
 	switch kind {
-	case "inspect_host", "read_host_metrics", "list_ssh", "save_ssh", "remove_ssh", "trust_ssh", "check_ssh", "install_host", "update_ssh_host", "read_host_install", "cancel_ssh":
+	case "inspect_host", "read_host_metrics", "stop_host_process", "list_ssh", "save_ssh", "remove_ssh", "trust_ssh", "check_ssh", "install_host", "update_ssh_host", "read_host_install", "cancel_ssh":
 		return true
 	}
 	return sshResourceCommand(kind) || databaseCommand(kind) || wslCommand(kind)
@@ -41,8 +41,9 @@ func (node *Node) dispatchResource(ctx context.Context, caller protocol.NodeID, 
 
 func (node *Node) dispatchHost(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, error) {
 	// Plugin scopes reach only the connection commands their declared database
-	// and SSH actions admit; Node inspection stays with controllers.
-	if request.Plugin != nil && (request.Command.Kind == "inspect_host" || request.Command.Kind == "read_host_metrics") {
+	// and SSH actions admit; Node inspection and process signals stay with
+	// controllers.
+	if request.Plugin != nil && (request.Command.Kind == "inspect_host" || request.Command.Kind == "read_host_metrics" || request.Command.Kind == "stop_host_process") {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
 	}
 	if err := node.begin(); err != nil {

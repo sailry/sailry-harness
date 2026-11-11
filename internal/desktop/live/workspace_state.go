@@ -65,6 +65,8 @@ type workspaceProject struct {
 	diffContents             map[string][]viewmodel.Hunk
 	manualDiffs              map[string]workspaceGitDiff
 	resourceSignature        string
+	resourceRuns             map[protocol.TurnID]protocol.ConversationStatus
+	resourceOlder            bool
 	fileBatches              map[string]int
 	uncertainOperations      map[string]protocol.Command
 	uncertainCallbacks       map[string]func(*ui.Context, protocol.Output)
@@ -132,7 +134,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	}
 	var worktree protocol.Worktree
 	found := false
-	for _, candidate := range r.controller.Snapshot().Worktrees {
+	for _, candidate := range r.snapshot().Worktrees {
 		if candidate.ID == session.Worktree {
 			worktree = candidate
 			found = true

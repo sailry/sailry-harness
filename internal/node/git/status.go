@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -138,6 +141,22 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		return protocol.GitStatus{}, fault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection")
 	}
 	result.IndexRevision = ptr(revision)
+	// Line statistics read the HEAD tree and the index once for the whole status.
+	var tree *object.Tree
+	var staged map[string]*idxfmt.Entry
+	var treeErr, indexErr error
+	if slices.ContainsFunc(result.Entries, func(entry protocol.GitEntry) bool { return !entry.Conflicted }) {
+		tree, treeErr = headTree(r)
+		var idx *idxfmt.Index
+		if idx, indexErr = r.Storer.Index(); indexErr == nil {
+			staged = make(map[string]*idxfmt.Entry, len(idx.Entries))
+			for _, item := range idx.Entries {
+				if staged[item.Name] == nil {
+					staged[item.Name] = item
+				}
+			}
+		}
+	}
 	times := map[string]int64{}
 	filtered := result.Entries[:0]
 	for _, entry := range result.Entries {
@@ -156,21 +175,18 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 			}
 		}
 		if !entry.Conflicted {
-			for _, scope := range []protocol.GitDiffScope{protocol.GitDiffScopeStaged, protocol.GitDiffScopeUnstaged, protocol.GitDiffScopeAll} {
-				diff, e := s.Diff(limited, root, entry.Path, scope)
-				stats := protocol.GitLineStats{Truncated: e != nil}
-				if e == nil {
-					stats.Additions, stats.Deletions, stats.Truncated = diff.Additions, diff.Deletions, diff.Truncated
-				}
-				switch scope {
-				case protocol.GitDiffScopeStaged:
-					entry.StagedDiff = stats
-				case protocol.GitDiffScopeUnstaged:
-					entry.UnstagedDiff = stats
-				default:
-					entry.Diff = stats
-				}
+			committed, committedErr := content{}, treeErr
+			if committedErr == nil {
+				committed, committedErr = treeContent(r, tree, entry.Path, 1024*1024)
 			}
+			indexed, indexedErr := content{}, indexErr
+			if item := staged[entry.Path]; indexedErr == nil && item != nil {
+				indexed, indexedErr = blobContent(r, item.Hash, item.Mode, 1024*1024)
+			}
+			working, workingErr := workingContent(root, entry.Path, 1024*1024)
+			entry.StagedDiff = lineStats(entry.Path, protocol.GitDiffScopeStaged, committed, indexed, committedErr, indexedErr)
+			entry.UnstagedDiff = lineStats(entry.Path, protocol.GitDiffScopeUnstaged, indexed, working, indexedErr, workingErr)
+			entry.Diff = lineStats(entry.Path, protocol.GitDiffScopeAll, committed, working, committedErr, workingErr)
 		}
 		filtered = append(filtered, entry)
 	}
@@ -179,6 +195,19 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	s.times[root] = times
 	s.mu.Unlock()
 	return result, nil
+}
+
+// lineStats counts one scope of a status entry from sides that were already
+// read. A side that could not be read leaves the scope uncounted.
+func lineStats(path string, scope protocol.GitDiffScope, before, after content, beforeErr, afterErr error) protocol.GitLineStats {
+	if beforeErr != nil || afterErr != nil {
+		return protocol.GitLineStats{Truncated: true}
+	}
+	diff, err := renderDiff(path, scope, before, after)
+	if err != nil {
+		return protocol.GitLineStats{Truncated: true}
+	}
+	return protocol.GitLineStats{Additions: diff.Additions, Deletions: diff.Deletions, Truncated: diff.Truncated}
 }
 
 // ParseStatus reads source-native porcelain v2, including its NUL-framed paths.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ebitengine/purego"
 	"github.com/sailry/sailry-harness/internal/localmodels/onnx"
+	"github.com/sailry/sailry-harness/internal/shipped"
 )
 
 // The structures below are the sherpa-onnx v1.13.8 c-api.h layouts of the
@@ -127,6 +128,19 @@ func Load(directory string) error {
 	}
 	if err := onnx.Load(directory); err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	// Signing a macOS application rewrites the library; the package seal
+	// then records it instead of the upstream lock.
+	seal, err := shipped.Sealed(directory)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	if seal != nil {
+		record, listed := seal.File(expected.name)
+		if !listed {
+			return fmt.Errorf("%w: %s is not in the package seal", ErrUnavailable, expected.name)
+		}
+		expected.size, expected.sha256 = record.Size, record.SHA256
 	}
 	if err := verify(path, expected); err != nil {
 		return err

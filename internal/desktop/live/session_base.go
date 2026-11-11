@@ -91,7 +91,7 @@ func (r *Runtime) draftWorktree(comp *composer.State, project *protocol.ProjectI
 		return (project == nil && tree.Project == nil || project != nil && tree.Project != nil && *project == *tree.Project) &&
 			(tree.Path == comp.Worktree || comp.Worktree == "" && tree.Main)
 	}
-	for _, tree := range r.controller.Snapshot().Worktrees {
+	for _, tree := range r.snapshot().Worktrees {
 		if matches(tree) {
 			return &tree.ID
 		}

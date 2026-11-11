@@ -111,7 +111,7 @@ func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.S
 				if m := record.Message(); m != nil {
 					for _, block := range m.Content {
 						if block.Index == uint64(index) {
-							raw, err = storedAgentTool(ctx, db, *record, sequence, block)
+							raw, err = storedAgentTool(ctx, db, *record, sequence, block, nil)
 							break
 						}
 					}

@@ -34,6 +34,15 @@ type liveHost struct {
 	sample         *protocol.HostMetricsSample
 	install        *sshInstallation
 	update         *hostUpdate
+	active         []hostActivity
+	activeOwner    *Runtime
+	activeRevision uint64
+}
+
+// hostActivity is a session that runs or waits in its Node snapshot.
+type hostActivity struct {
+	session protocol.Session
+	waiting bool
 }
 
 func (r *Runtime) initHosts() {
@@ -207,7 +216,7 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	if state.owner == nil {
 		return
 	}
-	snapshot := state.owner.controller.Snapshot()
+	snapshot, revision := state.owner.snapshotAt()
 	view.Worktrees = len(snapshot.Worktrees)
 	view.Sessions = len(snapshot.Sessions)
 	for _, terminal := range snapshot.Terminals {
@@ -220,15 +229,21 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 			view.Projects = append(view.Projects, host.Project{ID: project.ID, Name: project.Name})
 		}
 	}
-	for _, session := range snapshot.Sessions {
-		if session.Delegation != nil || session.Archived {
-			continue
+	// The lanes follow from the Node snapshot alone and are found once for each.
+	if state.activeOwner != state.owner || state.activeRevision != revision {
+		state.active, state.activeOwner, state.activeRevision = nil, state.owner, revision
+		for _, session := range snapshot.Sessions {
+			if session.Delegation != nil || session.Archived {
+				continue
+			}
+			if lane := client.AggregateLane(session, snapshot.Sessions); lane == client.LaneRunning || lane == client.LaneWaiting {
+				state.active = append(state.active, hostActivity{session: session, waiting: lane == client.LaneWaiting})
+			}
 		}
-		lane := client.AggregateLane(session, snapshot.Sessions)
-		if lane != client.LaneRunning && lane != client.LaneWaiting {
-			continue
-		}
-		row := host.Activity{Session: session.ID.String(), Title: session.Activity.Title, Model: session.Config.Model, Waiting: lane == client.LaneWaiting, Status: "activity_running"}
+	}
+	for _, active := range state.active {
+		session := active.session
+		row := host.Activity{Session: session.ID.String(), Title: session.Activity.Title, Model: session.Config.Model, Waiting: active.waiting, Status: "activity_running"}
 		if row.Waiting {
 			row.Status = "activity_waiting"
 		}

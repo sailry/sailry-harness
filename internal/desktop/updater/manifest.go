@@ -3,13 +3,13 @@ package updater
 import (
 	"bytes"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"strconv"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/MoeForge/moego/base64"
 )
 
 // Authenticated v1 metadata; an asset digest is never treated as publisher

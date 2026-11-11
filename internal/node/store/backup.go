@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -120,16 +119,6 @@ func saveBeforeUpgrade(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(target, filepath.Base(path)), nil
-}
-
-// clearDatabase is called only for the owned missing-generation reset.
-func clearDatabase(path string) error {
-	for _, member := range core.DatabaseFiles(path) {
-		if err := os.Remove(member); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("clear development database: %w", err)
-		}
-	}
-	return nil
 }
 
 func snapshotUnavailable() error {

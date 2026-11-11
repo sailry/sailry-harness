@@ -148,6 +148,10 @@ func Notices(list []client.Notice) []*viewmodel.Notice {
 			if n.Details.Kind == "text" {
 				if p, ok := detail[protocol.NotificationDetailsTextPayload](n.Details.Data); ok {
 					v.DetailText = p.Body
+					// A notice whose text is one knowledge citation opens it.
+					if link := strings.TrimSpace(p.Body); knowledgeLink(link) {
+						v.Link = link
+					}
 				}
 			} else {
 				report := struct {

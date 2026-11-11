@@ -7,7 +7,6 @@ import (
 	"crypto/ed25519"
 	"crypto/md5"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"go.yaml.in/yaml/v3"
 )
@@ -348,9 +348,6 @@ func (manager *Manager) acquireRegistry(ctx context.Context, source protocol.Plu
 	if expected != nil && *expected != resolved {
 		return resolved, nil, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "Skillhub package changed; discover it again"}
 	}
-	manager.repositoryMu.Lock()
-	manager.registryArchives[resolved.ArchiveSha256] = data
-	manager.repositoryMu.Unlock()
 	return resolved, files, nil
 }
 

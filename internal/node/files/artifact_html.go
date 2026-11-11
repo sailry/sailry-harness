@@ -2,7 +2,6 @@ package files
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"image"
 	"math"
@@ -11,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/net/html"

@@ -138,6 +138,39 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 	if err := link.acceptPairing(t.Context(), offer.token, winner, EndpointAddress{ID: winner}); err == nil {
 		t.Fatal("revoked peer reused its completed invitation")
 	}
+	t.Run("connections_need_an_open_invitation_with_a_free_place", func(t *testing.T) {
+		link := newFixtureLink(t)
+		if link.admitPairing() != nil {
+			t.Fatal("pairing connection admitted without an invitation")
+		}
+		offer := &pairingOffer{
+			token: pairingToken{7}, deadline: link.now().Add(invitationLifetime),
+			stop: make(chan struct{}), paired: make(chan struct{}),
+		}
+		link.offer = offer
+		for index := range maxPairings {
+			if link.admitPairing() != offer {
+				t.Fatalf("open invitation refused claimant %d", index)
+			}
+		}
+		if link.admitPairing() != nil {
+			t.Fatal("one invitation occupied more than its accept workers")
+		}
+		offer.claims--
+		if link.admitPairing() != offer {
+			t.Fatal("released place was not reusable")
+		}
+		offer.claims = 0
+		link.now = func() time.Time { return offer.deadline }
+		if link.admitPairing() != nil {
+			t.Fatal("expired invitation admitted a pairing connection")
+		}
+		link.now = func() time.Time { return offer.deadline.Add(-time.Second) }
+		offer.cancel()
+		if link.admitPairing() != nil || offer.claims != 0 {
+			t.Fatal("closed invitation admitted a pairing connection")
+		}
+	})
 	t.Run("uncertain_persistence_reconciles_live_peer", func(t *testing.T) {
 		link := newFixtureLink(t)
 		store := link.store.(*fixturePeerStore)

@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"math/big"
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moego/base64"
 	"github.com/golang-jwt/jwt/v5"
 )
 

@@ -11,8 +11,10 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func driverFixture(t *testing.T) (*Handle, context.Context) {
@@ -120,6 +122,81 @@ func TestConcurrentWritersCommit(t *testing.T) {
 	}
 	if count != 22 || rejectedCount != 0 {
 		t.Fatalf("savepoint isolation changed: count=%d rejected=%d", count, rejectedCount)
+	}
+
+	// SQLite ends the whole transaction when a write statement is interrupted.
+	// The batch is then known to be uncommitted and the writer stays usable.
+	earlier := job(func(connection *sql.Conn) error {
+		_, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(200,200)")
+		return err
+	})
+	interrupted := job(nil)
+	statement, cancelStatement := context.WithCancel(ctx)
+	defer cancelStatement()
+	interrupted.context = statement
+	interrupted.callback = func(connection *sql.Conn) error {
+		if _, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(201,201)"); err != nil {
+			return err
+		}
+		timer := time.AfterFunc(50*time.Millisecond, cancelStatement)
+		defer timer.Stop()
+		_, err := connection.ExecContext(statement, "WITH RECURSIVE spin(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM spin WHERE x<4000000000) UPDATE fixture SET value=(SELECT count(*) FROM spin) WHERE id=201")
+		return err
+	}
+	later := job(func(connection *sql.Conn) error {
+		_, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(202,202)")
+		return err
+	})
+	batch.jobs <- interrupted
+	batch.batch(earlier)
+	var rolledBack *protocol.Fault
+	if err := <-earlier.done; !errors.As(err, &rolledBack) || rolledBack.Code != protocol.ErrorCodeBusy {
+		t.Fatalf("rolled-back job result: %v", err)
+	}
+	if err := <-interrupted.done; !errors.Is(err, context.Canceled) || errors.As(err, &rolledBack) && rolledBack.Code == protocol.ErrorCodeOutcomeUnknown {
+		t.Fatalf("cancelled job result: %v", err)
+	}
+	if batch.failed != nil {
+		t.Fatalf("a known rollback stopped the writer: %v", batch.failed)
+	}
+	batch.batch(later)
+	if err := <-later.done; err != nil {
+		t.Fatalf("write after a cancelled statement: %v", err)
+	}
+	if err := handle.state.readDB.QueryRowContext(ctx, "SELECT count(*),sum(id IN (200,201)) FROM fixture").Scan(&count, &rejectedCount); err != nil {
+		t.Fatal(err)
+	}
+	if count != 23 || rejectedCount != 0 {
+		t.Fatalf("interrupted batch: count=%d rolled back=%d", count, rejectedCount)
+	}
+
+	// A panicking callback fails alone: its savepoint is rolled back, the job
+	// queued with it commits and the writer stays usable.
+	panicking := job(func(connection *sql.Conn) error {
+		if _, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(300,300)"); err != nil {
+			return err
+		}
+		var missing *writeJob
+		return missing.result
+	})
+	sibling := job(func(connection *sql.Conn) error {
+		_, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(301,301)")
+		return err
+	})
+	batch.jobs <- sibling
+	batch.batch(panicking)
+	var internal *protocol.Fault
+	if err := <-panicking.done; !errors.As(err, &internal) || internal.Code != protocol.ErrorCodeInternal {
+		t.Fatalf("panicking job result: %v", err)
+	}
+	if err := <-sibling.done; err != nil || batch.failed != nil {
+		t.Fatalf("job after a panic: %v, writer: %v", err, batch.failed)
+	}
+	if err := handle.state.readDB.QueryRowContext(ctx, "SELECT count(*),sum(id=300) FROM fixture").Scan(&count, &rejectedCount); err != nil {
+		t.Fatal(err)
+	}
+	if count != 24 || rejectedCount != 0 {
+		t.Fatalf("panicking batch: count=%d kept=%d", count, rejectedCount)
 	}
 }
 

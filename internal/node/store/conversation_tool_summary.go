@@ -97,10 +97,7 @@ func agentLiteral(value any, arrays bool) *string {
 	return &text
 }
 func (raw *rawAgentTool) value() any {
-	if raw.Result == nil {
-		return nil
-	}
-	value := agentJSON(*raw.Result)
+	value := raw.result()
 	if raw.Format == canonical.MCP {
 		if x, ok := agentObject(value)["structuredContent"]; ok {
 			return x
@@ -160,7 +157,7 @@ func (raw *rawAgentTool) errorText(metadata *protocol.ToolResultResultDisplay) *
 	case canonical.MCPError:
 		return agentString(object["message"])
 	case canonical.MCP:
-		contents, _ := agentObject(agentJSON(*raw.Result))["content"].([]any)
+		contents, _ := agentObject(raw.result())["content"].([]any)
 		texts := []string{}
 		for _, v := range contents {
 			o := agentObject(v)
@@ -193,7 +190,7 @@ func (raw *rawAgentTool) progress() *protocol.ConversationProgress {
 		return nil
 	}
 	var expected protocol.ConversationProgress
-	if json.Unmarshal(raw.Arguments, &expected) != nil || !validAgentProgress(expected) {
+	if json.Unmarshal(raw.Arguments, &expected) != nil || !ValidAgentProgress(expected) {
 		return nil
 	}
 	value := agentObject(raw.value())
@@ -207,7 +204,10 @@ func (raw *rawAgentTool) progress() *protocol.ConversationProgress {
 	}
 	return &actual
 }
-func validAgentProgress(value protocol.ConversationProgress) bool {
+
+// ValidAgentProgress reports whether a progress snapshot is non-empty and
+// within the 64 KiB text budget.
+func ValidAgentProgress(value protocol.ConversationProgress) bool {
 	size := 0
 	if value.Title != nil {
 		if strings.TrimSpace(*value.Title) == "" {
@@ -308,7 +308,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 	}
 	value.Images = uint64(len(raw.Images))
 	if raw.Result != nil {
-		body, _ := json.Marshal(agentJSON(*raw.Result))
+		body, _ := json.Marshal(raw.result())
 		n := uint64(len(body))
 		value.Bytes = &n
 	}

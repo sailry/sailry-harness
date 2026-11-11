@@ -14,7 +14,7 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 			project = session.Project
 		}
 	} else if state.scope.Worktree != nil {
-		for _, worktree := range state.runtime.controller.Snapshot().Worktrees {
+		for _, worktree := range state.runtime.snapshot().Worktrees {
 			if worktree.ID == *state.scope.Worktree {
 				project = worktree.Project
 				break

@@ -111,7 +111,7 @@ func connectionDialogs(c *ui.Context, m *Model) {
 			title = i18n.T(c, "ssh_key_changed")
 		}
 		body := trust.Host + "\n" + trust.Algorithm + "\n" + trust.Fingerprint
-		if ui.AlertDialog(c.Key("host-key"), &open, title, body, i18n.T(c, "settings_cancel"), i18n.T(c, "ssh_trust")) == 1 {
+		if kit.AlertDialog(c.Key("host-key"), &open, title, body, i18n.T(c, "settings_cancel"), i18n.T(c, "ssh_trust")) == 1 {
 			m.HostTrust = nil
 			trust.Confirm()
 		}

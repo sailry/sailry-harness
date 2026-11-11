@@ -210,21 +210,25 @@ func TestWSLDiscovery(t *testing.T) {
 		}
 		relay := "https://relay.example/it's\r\nnext"
 		custom := protocol.NetworkSelection{Kind: "custom", Data: &protocol.NetworkSelectionCustomPayload{Relays: []string{relay}}}
-		script, err := releaseScript("0.1.0", &custom)
+		script, err := ReleaseScript("0.1.0", false, &custom)
 		prefix := "install_version='0.1.0'\ninstall_update=0\nset -- '--relay' 'https://relay.example/it'\"'\"'s\r\nnext'\n"
 		if err != nil || script != prefix+normalize(releaseSource) {
 			t.Fatalf("custom script %q, error %v", script, err)
 		}
-		script, err = releaseScript("0.1.0", &protocol.NetworkSelection{Kind: "iroh"})
+		script, err = ReleaseScript("0.1.0", false, &protocol.NetworkSelection{Kind: "iroh"})
 		if err != nil || !strings.HasPrefix(script, "install_version='0.1.0'\ninstall_update=0\nset -- '--internet'\n") {
 			t.Fatalf("iroh script %q, error %v", script, err)
 		}
-		script, err = releaseScript("0.1.0", nil)
+		script, err = ReleaseScript("0.1.0", false, nil)
 		if err != nil || !strings.HasPrefix(script, "install_version='0.1.0'\ninstall_update=0\nset -- \nset -eu\n") {
 			t.Fatalf("default script %q, error %v", script, err)
 		}
+		script, err = ReleaseScript("0.1.0", true, nil)
+		if err != nil || !strings.HasPrefix(script, "install_version='0.1.0'\ninstall_update=1\nset -- \nset -eu\n") {
+			t.Fatalf("update script %q, error %v", script, err)
+		}
 		custom.Data = &protocol.NetworkSelectionCustomPayload{Relays: []string{"https://relay.example/\x00"}}
-		if _, err := releaseScript("0.1.0", &custom); faultCode(err) != protocol.ErrorCodeInvalidRequest {
+		if _, err := ReleaseScript("0.1.0", false, &custom); faultCode(err) != protocol.ErrorCodeInvalidRequest {
 			t.Fatalf("null byte relay: %v", err)
 		}
 	})

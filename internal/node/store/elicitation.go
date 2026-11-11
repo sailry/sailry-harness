@@ -73,9 +73,7 @@ func BeginMCPElicitation(ctx context.Context, db *sql.Conn, record canonical.Rec
 	if elicitationInput(record) == nil {
 		return protocol.ConversationEntry{}, value, nil, invalid("MCP input has no canonical request")
 	}
-	if err := ValidateMCPElicitation(ctx, db, record); err != nil {
-		return protocol.ConversationEntry{}, value, nil, err
-	}
+	// AppendCanonical validates the request.
 	run, err := activeAgentRun(ctx, db, record.Turn)
 	if err != nil {
 		return protocol.ConversationEntry{}, value, nil, err

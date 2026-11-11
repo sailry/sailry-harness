@@ -29,6 +29,17 @@ func (s *Service) UpdateIndex(ctx context.Context, root string, input protocol.C
 			return protocol.GitIndex{}, err
 		}
 	}
+	// One ignore filter serves every untracked path of the update.
+	var filter *WatchFilter
+	ignored := func(path string, directory bool) (bool, error) {
+		if filter == nil {
+			var err error
+			if filter, err = NewWatchFilter(root); err != nil {
+				return false, err
+			}
+		}
+		return filter.matcher != nil && filter.matcher.Match(strings.Split(path, "/"), directory), nil
+	}
 	return s.publishIndex(ctx, root, input.ExpectedIndex, input.ExpectedHead, func(r *gogit.Repository, idx *idxfmt.Index, tree *object.Tree) error {
 		for _, path := range input.Paths {
 			if err := checkContext(ctx); err != nil {
@@ -36,7 +47,7 @@ func (s *Service) UpdateIndex(ctx context.Context, root string, input protocol.C
 			}
 			switch input.Operation {
 			case protocol.GitIndexChangeStage:
-				if err := stageIndexContent(ctx, root, r, idx, path); err != nil {
+				if err := stageIndexContent(ctx, root, r, idx, path, ignored); err != nil {
 					return err
 				}
 			case protocol.GitIndexChangeUnstage:
@@ -50,15 +61,23 @@ func (s *Service) UpdateIndex(ctx context.Context, root string, input protocol.C
 		return nil
 	}, nil)
 }
-func setIndexContent(r *gogit.Repository, idx *idxfmt.Index, path string, value content) error {
+
+// dropIndexEntries removes path from the index. An entry about to be added
+// also displaces what cannot coexist with it, as git add does: the entries
+// below path and the entries that are one of its parent directories.
+func dropIndexEntries(idx *idxfmt.Index, path string, adding bool) {
 	kept := idx.Entries[:0]
 	for _, entry := range idx.Entries {
-		if entry.Name != path {
-			kept = append(kept, entry)
+		if entry.Name == path || adding && (strings.HasPrefix(entry.Name, path+"/") || strings.HasPrefix(path, entry.Name+"/")) {
+			continue
 		}
+		kept = append(kept, entry)
 	}
 	idx.Entries = kept
+}
+func setIndexContent(r *gogit.Repository, idx *idxfmt.Index, path string, value content) error {
 	if !value.exists {
+		dropIndexEntries(idx, path, false)
 		return nil
 	}
 	obj := r.Storer.NewEncodedObject()
@@ -82,6 +101,7 @@ func setIndexContent(r *gogit.Repository, idx *idxfmt.Index, path string, value 
 	if err := syncBlob(r, hash); err != nil {
 		return err
 	}
+	dropIndexEntries(idx, path, true)
 	idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash, Mode: value.mode, Size: uint32(len(value.data))})
 	return nil
 }
@@ -252,23 +272,20 @@ func (s *Service) EditIndex(ctx context.Context, root, path, expectedIndex strin
 }
 
 func setIndexReference(idx *idxfmt.Index, tree *object.Tree, path string) error {
-	kept := idx.Entries[:0]
-	for _, entry := range idx.Entries {
-		if entry.Name != path {
-			kept = append(kept, entry)
-		}
-	}
-	idx.Entries = kept
 	if tree == nil {
+		dropIndexEntries(idx, path, false)
 		return nil
 	}
 	entry, err := tree.FindEntry(path)
-	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) {
+	// A directory in HEAD is not a file to restore; its files are unstaged by their own paths.
+	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) || err == nil && entry.Mode == filemode.Dir {
+		dropIndexEntries(idx, path, false)
 		return nil
 	}
 	if err != nil {
 		return mapError(err)
 	}
+	dropIndexEntries(idx, path, true)
 	idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: entry.Hash, Mode: entry.Mode})
 	return nil
 }

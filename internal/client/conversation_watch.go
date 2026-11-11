@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"slices"
 	"sync"
 	"time"
 
@@ -73,11 +72,7 @@ func (c *Client) WatchConversation(ctx context.Context, session protocol.Session
 			next.projection.statisticsErr = w.projection.statisticsErr
 			next.extent = w.extent
 		}
-		for _, s := range c.Snapshot().Sessions {
-			if s.ID == session {
-				next.known = true
-			}
-		}
+		next.known = c.sessionKnown(session)
 		w = next
 		c.conversations[session] = w
 		c.conversationOwners.Add(1)
@@ -155,12 +150,10 @@ func (c *Client) closeConversations() {
 
 // A resource read miss is not removal; the authoritative Node snapshot confirms it.
 func (c *Client) reconcileConversations() {
-	snapshot := c.Snapshot()
 	c.conversationMu.Lock()
 	var removed []*conversationWatch
 	for id, w := range c.conversations {
-		exists := slices.ContainsFunc(snapshot.Sessions, func(s protocol.Session) bool { return s.ID == id })
-		if exists {
+		if c.sessionKnown(id) {
 			w.known = true
 		} else if w.known && !w.state.Removed {
 			w.state.Removed = true

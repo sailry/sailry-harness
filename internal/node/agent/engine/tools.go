@@ -6,12 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -117,9 +123,9 @@ func (r *Runtime) closeTools(x *execution) error {
 	}
 	return nil
 }
-func (r *Runtime) declarations(x *execution, state store.AgentState) []modelTool {
-	var values []modelTool
-	if !toolCapableFromInvocation(x) {
+func (r *Runtime) declarations(x *execution, binding model.Binding, state store.AgentState) []fantasy.FunctionTool {
+	var values []fantasy.FunctionTool
+	if !capturedModel(binding).Tools {
 		return values
 	}
 	for _, tool := range x.tools {
@@ -128,19 +134,6 @@ func (r *Runtime) declarations(x *execution, state store.AgentState) []modelTool
 		}
 	}
 	return values
-}
-
-type modelTool = fantasy.FunctionTool
-
-func toolCapableFromInvocation(x *execution) bool {
-	if x.inv.Provider != nil {
-		for _, m := range x.inv.Provider.Models {
-			if m.ID == x.inv.Turn.Config.Model {
-				return m.Tools
-			}
-		}
-	}
-	return false
 }
 func findTool(tools []Tool, name string) *Tool {
 	for i := range tools {
@@ -237,6 +230,13 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					defer workers.Done()
 					metric, started := r.telemetry.Capture(), time.Now()
 					defer func() { observeTool(metric, x.ctx, calls[i].Name, results[i], started) }()
+					// A panicking tool fails its own call; the turn and the Node continue.
+					defer func() {
+						if value := recover(); value != nil {
+							logPanic(x, "tool", calls[i].ID, value)
+							results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call failed unexpectedly"}}
+						}
+					}()
 					if err := x.hooks.Before(x.ctx, calls[i].Name); err != nil {
 						results[i] = toolFault(err)
 						return
@@ -271,7 +271,11 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					names := []string{}
 					contextDelta.LoadedTools = &names
 				}
-				*contextDelta.LoadedTools = append(*contextDelta.LoadedTools, *delta.LoadedTools...)
+				for _, name := range *delta.LoadedTools {
+					if !slices.Contains(*contextDelta.LoadedTools, name) {
+						*contextDelta.LoadedTools = append(*contextDelta.LoadedTools, name)
+					}
+				}
 			}
 		}
 	}
@@ -333,6 +337,49 @@ func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) 
 	sum := blake3.Sum256(raw)
 	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider, Meta: result.Meta}}
 }
+
+// settleCalls records an interrupted result for every call the stopped or
+// failed turn left unanswered, as the source finalization does.
+func (r *Runtime) settleCalls(ctx context.Context, x *execution) error {
+	state, err := r.load(ctx, x.inv.Session.ID)
+	if err != nil {
+		return err
+	}
+	calls := pending(state.Records)
+	if len(calls) == 0 {
+		return nil
+	}
+	blocks := make([]canonical.Block, 0, len(calls))
+	for _, call := range calls {
+		blocks = append(blocks, responseBlock(uint64(len(blocks)), call, ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call was interrupted before completing"}}))
+	}
+	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
+	record.Provenance.Author = "tool"
+	return r.save(ctx, x.inv.Session.ID, record)
+}
+
+// logPanic records a recovered panic. A log field is one bounded line, so the
+// stack is reduced to its innermost frames.
+func logPanic(x *execution, operation, call string, value any) {
+	var frames []string
+	counters := make([]uintptr, 32)
+	trace := runtime.CallersFrames(counters[:runtime.Callers(2, counters)])
+	for {
+		frame, more := trace.Next()
+		if strings.HasPrefix(frame.Function, "runtime.") {
+			frames = frames[:0]
+		} else if len(frames) < 6 {
+			frames = append(frames, frame.Function[strings.LastIndexByte(frame.Function, '/')+1:]+":"+strconv.Itoa(frame.Line))
+		}
+		if !more {
+			break
+		}
+	}
+	logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed), slog.String("operation", operation),
+		slog.String("session", x.inv.Session.ID.String()), slog.String("turn", x.inv.Run.Turn.String()), slog.String("call", call),
+		slog.String("exception", fmt.Sprint(value)), slog.String("detail", strings.Join(frames, " < ")))
+}
+
 func invalidTool(message string) ToolResult {
 	return ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: message}}
 }

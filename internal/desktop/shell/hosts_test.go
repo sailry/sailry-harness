@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The rail's host menu opens the host's page with its metrics in the right
@@ -41,5 +43,19 @@ func TestHostPage(t *testing.T) {
 	tt.Frame()
 	if a.Page != ConversationPage {
 		t.Errorf("page %d", a.Page)
+	}
+	// A device's own name is not a key of the catalog: a live host named
+	// like one shows its name; the preview's hosts and the local one are
+	// keys.
+	live := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{
+		{ID: "local", Name: "local_host_name", Local: true}, {ID: "peer", Name: "settings"},
+	}}})
+	lt := ui.NewTesterWith(live.View, 1280, 820, opaque)
+	lt.SetLocale("zh-CN")
+	lt.Frame()
+	clickItem(t, lt, i18n.In("zh-CN", "hosts"))
+	lt.Frame()
+	if !lt.HasText("settings") || !lt.HasText(i18n.In("zh-CN", "local_host_name")) {
+		t.Errorf("live host menu: %q", lt.Texts())
 	}
 }

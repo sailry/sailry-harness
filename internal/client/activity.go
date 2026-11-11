@@ -219,7 +219,9 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 	if feed.sessions == nil {
 		feed.sessions = make(map[protocol.SessionID]protocol.ActivitySummary)
 	}
+	present := make(map[protocol.SessionID]struct{}, len(snapshot.Sessions))
 	for _, session := range snapshot.Sessions {
+		present[session.ID] = struct{}{}
 		if session.Delegation != nil {
 			continue
 		}
@@ -244,7 +246,7 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		feed.notices = append([]Notice{notice}, feed.notices...)
 	}
 	for id := range feed.sessions {
-		if !slices.ContainsFunc(snapshot.Sessions, func(session protocol.Session) bool { return session.ID == id }) {
+		if _, exists := present[id]; !exists {
 			delete(feed.sessions, id)
 		}
 	}

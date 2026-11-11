@@ -116,4 +116,8 @@ func TestSSHInstallationContracts(t *testing.T) {
 	if err != nil || !strings.Contains(script, "set -- '--relay' 'https://relay.example/a'\"'\"'\"$x'") || strings.Contains(script, "curl ") || strings.Contains(script, "releases/latest") {
 		t.Fatal("local deployment changed network arguments or fetched a mutable release")
 	}
+	// The release feed installs only into the installer's own managed paths.
+	if err := NewInstallations(paths).installRelease(context.Background(), nil, node, request.ID, nil, nil); err == nil {
+		t.Fatal("release installation accepted isolated managed paths")
+	}
 }

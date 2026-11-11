@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"encoding/json"
 	"runtime"
 	"slices"
 
@@ -15,8 +14,8 @@ func CaptureCatalog(ctx context.Context, profile string, references []protocol.P
 	if err != nil {
 		return nil, err
 	}
-	var specifications []Spec
-	if err := json.Unmarshal(specification, &specifications); err != nil {
+	specifications, err := operationPolicies()
+	if err != nil {
 		return nil, err
 	}
 	manager := plugins.NewManager(profile)
@@ -48,11 +47,10 @@ func CaptureCatalog(ctx context.Context, profile string, references []protocol.P
 			if operation == nil || len(tool.Platforms) != 0 && !slices.Contains(tool.Platforms, runtime.GOOS) {
 				continue
 			}
-			index := slices.IndexFunc(specifications, func(value Spec) bool { return value.Operation == *operation })
-			if index < 0 {
+			spec, exists := specifications[*operation]
+			if !exists {
 				continue
 			}
-			spec := specifications[index]
 			if description := tool.PlatformDescriptions[runtime.GOOS]; description != "" {
 				spec.Description = description
 			} else if tool.Description != nil {

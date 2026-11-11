@@ -164,12 +164,12 @@ func (r *Runtime) savePreferences() {
 		d.Shortcuts = &all
 		r.lastKeys = encoded(keys)
 	}
-	bytes, err := json.MarshalIndent(d, "", "  ")
-	if err != nil {
-		return
-	}
 	current := encoded(d)
 	if current == r.lastPreferences {
+		return
+	}
+	bytes, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return
 	}
 	r.lastPreferences = current

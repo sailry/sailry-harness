@@ -155,7 +155,7 @@ func (r *Runtime) pluginCardEligible(card *pluginCardInstance) bool {
 	if !exists || history.Removed {
 		return false
 	}
-	for _, summary := range card.owner.controller.Snapshot().Plugins {
+	for _, summary := range card.owner.snapshot().Plugins {
 		if summary.Name == card.summary.Package.Name && summary.Digest == card.summary.Package.Digest {
 			card.updateReference(packageReference(summary))
 			break

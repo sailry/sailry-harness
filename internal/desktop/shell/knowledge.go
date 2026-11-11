@@ -106,7 +106,7 @@ func (a *App) knowledge(c *ui.Context) {
 	p := theme.Of(c)
 	w, h := c.Size()
 	ct := r.cite
-	name, path, text := i18n.T(c, ct.Host), ct.Path, ""
+	name, path, text := a.hostName(c, ct.Host), ct.Path, ""
 	first, last := r.page == 0, r.page >= len(ct.Pages)-1
 	previous, next := func() { r.page-- }, func() { r.page++ }
 	lines := ""

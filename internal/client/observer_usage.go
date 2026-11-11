@@ -69,7 +69,7 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 			case forced = <-requested:
 			}
 			connected := client.Connected()
-			snapshot := client.Snapshot()
+			cursor := client.PluginCursors("", nil, nil).Cursor
 			observer.mu.Lock()
 			forced = forced || forcedRefresh
 			forcedRefresh = false
@@ -81,7 +81,7 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 				observer.notify()
 				continue
 			}
-			if !forced && wasConnected && state.Report != nil && state.Report.Cursor >= snapshot.Cursor {
+			if !forced && wasConnected && state.Report != nil && state.Report.Cursor >= cursor {
 				observer.mu.Unlock()
 				observer.notify()
 				continue

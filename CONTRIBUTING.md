@@ -86,6 +86,11 @@ application shutdown closes Network before the local Client and Node. MyGo keeps
 window bounds and `shell.Prefs` in its application-data folder. For implementer
 UI checks, isolate that folder with MyGo's path override in a disposable harness.
 
+With [just](https://just.systems) installed, `just --list` shows recipes for these
+commands with the same environment: `just preview`, `just desktop <name>` and
+`just host <name>` (profiles under `.runtime/profiles/<name>`), `just check` for
+the complete gate, and the test, plugin, pairing-service and Mobile recipes.
+
 Implementer runs use `--data-dir .runtime/profiles/<fixed-name>`. Development defaults to
 `~/.sailry-go` only for user acceptance. Never run against `~/.sailry`; it is the
 installed release profile. Tests use `t.TempDir()`.
@@ -101,6 +106,10 @@ installed release profile. Tests use `t.TempDir()`.
 | `bundled.go` | Root embedded themes and plugin snapshot from pinned submodules |
 | `locales/` | Source catalogs for local i18n generation |
 | `docs/*.md` | Feature contracts, ownership, backend wiring and deviations |
+| `docs/guides/` | Public user guides linked from the README |
+| `schemas/` | Published v1 plugin contract schemas and the Agent Plugins manifest schema |
+| `third_party_licenses/` | Index of third-party notices, shared license texts and the Go module list |
+| `justfile` | Local recipes for the commands in this document and `docs/mobile.md` |
 | `sdk/` | Preserved v1 plugin contract and declarations; Go runtimes arrive in B8/B9 |
 | `internal/{protocol,link,client,core,node,...}` | Backend packages added only by their assigned phases |
 | `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries added in B7 |
@@ -196,28 +205,64 @@ does not prove live or cross-platform acceptance.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` is the only workflow. It runs only after the user
-pushes:
+Workflows run only after the user pushes. There are four:
+
+`ci.yml` holds every check and nothing that packages or publishes. It runs on
+pull requests, on main, manually, and when `release.yml` calls it:
 
 - `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
 - `test`: `go test ./...` with cgo disabled on macOS, Windows and Linux,
   using only Go module/build caches. Pull requests select affected packages;
   main and release runs test everything. Use one macOS job per run.
-- `native`: build `native/iroh` and `native/capture` for the macOS and Linux
-  targets of their `build.sh` when either changes, and upload
-  `native-<goos>-<goarch>` artifacts. Release and manual runs always build them.
+- `native`: build `native/iroh` and `native/capture` with their `build.sh` for
+  Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
+  when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
+  libraries and their `SHA256SUMS`, the directory `native/fetch -artifacts`
+  reads. Release and manual runs always build them. The Linux legs set
+  `SAILRY_GLIBC=2.34`, so `native/iroh/build.sh` links the iroh library against
+  that GNU libc through cargo-zigbuild, then check that the library needs
+  nothing newer and that `internal/node/wsl/preflight.sh` names the same
+  version.
 - `apps/mobile`: Flutter analysis and tests only for `apps/mobile` or
   `internal/mobile` changes.
-- `integration`: `go test -tags integration` on a `v*` tag, or manually with the
-  `integration` input; it stages that run's native artifacts.
+- `integration`: never on pull requests or main. Manually with the
+  `integration` input it tests `integration_packages`; left empty, and in a
+  release, it tests the release set named in the workflow: packages that need
+  no downloaded model and no external service. Each leg first verifies that
+  run's native artifact and loads its iroh library.
 
-Do not add extra workflows, nightly fuzzing, coverage gates, per-test matrices
-or retry-on-flake wrappers.
+`release.yml` runs on a `v*` tag. Every job has read-only repository access
+except `publish`:
+
+- `version`: the tag must equal `link.ProductVersion`, the `mygo.json` version
+  and the `pubspec.yaml` version, and `CHANGELOG.md` must hold the entry.
+- `checks`: all of `ci.yml`, with the integration tests.
+- `macos` (arm64 and Intel): `cmd/sailry-desktop/macos/package.sh` and the
+  macOS Host archive, signed with the Developer ID certificate.
+- `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the
+  libraries of the Windows native leg.
+- `host-linux` (x64 and arm64): `internal/node/host/deployment/archive.sh`.
+- `android`, `ios`: the signed APK and the App Store IPA; the IPA goes to
+  TestFlight and stays a workflow artifact.
+- `publish`: signs the Desktop update feed, writes the checksum files, takes
+  the release notes from the tag's `CHANGELOG.md` entry and uploads to the
+  tag's draft release only what it does not hold yet. An existing asset with
+  other content, or a release that is already published, fails the job.
+  Publishing the draft is manual.
+
+`pairing-relay.yml` tests `services/pairing-relay` when it changes; a manual
+run tests and then deploys to the chosen EdgeOne environment. `website.yml`
+asks the website repository to rebuild when the documents it reads change on
+main.
+
+Actions are pinned by commit. Do not add nightly fuzzing, coverage gates,
+per-test matrices or retry-on-flake wrappers.
 
 ## Release packages
 
 Release work is B14. Allowed packaging tools are `mygo build`, `flutter build`,
-the specified `native/*/build.sh` scripts and the ported Host `release.sh`.
+the specified `native/*/build.sh` scripts and the ported Host installer files
+under `internal/node/host/deployment/`.
 Signing credentials, profiles, binaries and native artifacts never enter Git.
 
 `go run ./native/fetch` stages one target's pinned native artifacts in
@@ -228,30 +273,105 @@ libraries come from `native/*/build.sh` on the target, or from the CI native
 job with `-artifacts <dir>`; `-bundle <dir>` copies the shipped set and `-host`
 leaves out the speech and capture libraries.
 
-```sh
-unset GOROOT
-export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
-go run ./native/fetch -bundle cmd/sailry-desktop/resources/darwin-arm64
-go build -o .runtime/b14/bin/mygo github.com/egoist/mygo/cmd/mygo
-MYGO_LDFLAGS="-X github.com/sailry/sailry-harness/internal/node/telemetry.BuildRevision=<revision>" \
-    .runtime/b14/bin/mygo build -platform darwin/arm64 -skip-notarize cmd/sailry-desktop
-```
-
 The Desktop package is described by `cmd/sailry-desktop/mygo.json`; its version
 equals `link.ProductVersion`. Shipped files sit beside the executable, or in
 `Contents/Resources` of the macOS bundle, where every loader reads them.
-`-sign <identity>` and the `sailry-notary` notarytool keychain profile are
-supplied by the release machine. `telemetry.BuildDSN`, `telemetry.BuildKey` and
-`core.Default` are set the same way through `MYGO_LDFLAGS`.
+
+A release build is one linked with
+`-X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry`
+(`MYGO_LDFLAGS` for `cmd/sailry-desktop`, `go build -ldflags` for
+`cmd/sailry-host`). It opens the release profile `~/.sailry` by default and
+loads the iroh and capture libraries only from its package, against the
+package seal: `SAILRY_IROH_LIB` and `.runtime/native` are read by source
+builds only. Source builds keep `~/.sailry-go`.
+
+`cmd/sailry-desktop/macos/package.sh` packages the macOS Desktop on the target
+architecture: it stages the natives, the dependency notices (`licenses/`) and
+`build.json`, runs `mygo build -sign <identity> -skip-notarize -skip-dmg` with
+the release flags, renames the executable to `sailry-desktop`, which is the
+name the updater requires, seals, notarizes and creates the disk image
+`Sailry-<triple>.dmg` and `Sailry-<triple>-unsigned.zip`, the archive of the
+finished application for the update feed.
+`cmd/sailry-desktop/windows/package.sh -artifacts <dir>` cross-compiles the
+Windows x64 Desktop on Linux or macOS with NSIS installed: the installer
+`Sailry-x86_64-pc-windows-msvc-setup.exe` (mygo's per-user NSIS installer) and
+the portable `Sailry-x86_64-pc-windows-msvc.zip`.
+
+```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+bash cmd/sailry-desktop/macos/package.sh                    # ad hoc, not notarized
+go run ./native/fetch -seal .runtime/b14/out/darwin-arm64/Sailry.app   # the seal step alone
+```
+
+`go run ./native/fetch -seal <path> [-sign <identity>] [-host]` is the step
+after signing. Signing a macOS application rewrites its libraries, so the
+upstream pins no longer describe them. The step writes `native-seal.json` (size
+and SHA-256 of the ONNX Runtime, sherpa-onnx, capture and iroh libraries as
+shipped), rewrites `llama-runtime.json` and the file list of
+`python/python-runtime.json` from the signed files, and signs the bundle again
+without `--deep` so the code signature covers these records. The loaders use
+the seal in place of the upstream pins only in `Contents/Resources` of the
+running bundle; an invalid seal there is an error. Unsigned and source builds
+keep the upstream pins. For a plain directory (the Host archive, Linux,
+Windows) the step only writes `native-seal.json` for the iroh and capture
+libraries, which have no upstream pin. The loaders compare hashes; the code
+signature itself is enforced by macOS, not by Sailry.
 `cmd/sailry-desktop/package_integration_test.go` checks a built package's
-loaders from inside it.
+loaders from inside it: compile it with the release `-ldflags`, copy it beside
+the packaged executable and seal the bundle again.
+
+Signing uses the settings of the existing release repository unchanged.
+`SAILRY_SIGNING=developer-id` needs the variables `APPLE_SIGNING_IDENTITY` and
+`APPLE_TEAM_ID`; `SAILRY_NOTARIZE=1` needs `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER_ID` and the key file `APPLE_API_KEY_PATH`. The release
+workflow's `macos` job imports the secrets `APPLE_CERTIFICATE_P12`,
+`APPLE_CERTIFICATE_PASSWORD` and `APPLE_API_PRIVATE_KEY` into a temporary
+keychain (`APPLE_SIGNING_KEYCHAIN`). The bundle identifier is
+`ai.sailry.desktop`, the disk image identifier `ai.sailry.disk-image`. Every
+Mach-O file must carry the team, the hardened runtime and a secure timestamp;
+notarization submits with `notarytool --key` and staples the application and
+the disk image. The application keeps the microphone entitlement and the
+bundled Python interpreter keeps `disable-library-validation`. Windows packages
+are not signed: the existing release settings hold no Windows certificate, and
+`windows.certificate` and `windows.signCommand` stay unset in `mygo.json`.
 
 B2 selected the prescribed SQLite fallback after the Turso contention load
-failed. It refuses Turso profiles, performs no import and cancels release option A.
-Source builds keep `~/.sailry-go`. Release packaging must preserve a separate
-profile rather than opening `~/.sailry`; the user delegated unresolved
-implementation decisions to the coordinator. Updater feed compatibility, bundle identity
-and signing acceptance remain later-phase work.
+failed. On November 11, 2026 the user decided that releases open `~/.sailry` in
+place. The Go Node creates `storage/node.sqlite` and `storage/knowledge.sqlite`
+and moves an earlier release's database files into `storage/rust-archive/`
+without opening, importing, changing or removing them; sessions and settings
+stored in them do not appear. It keeps the
+Node identity (`link.key`), `desktop/preferences.json`, installed themes and
+the profile's file trees. `cmd/sailry-desktop/upgrade_integration_test.go`
+checks this on a synthetic profile.
+
+The Desktop update feed is written by
+`go run ./internal/desktop/updater/cmd/update-feed -version <version> -output
+<dir> <target>=<unsigned zip>...` with the publisher key in
+`SAILRY_UPDATE_SIGNING_KEY`, which must belong to
+`internal/desktop/updater/update-public-keys.txt`. For both macOS targets it
+writes the signed `Sailry-<triple>.zip`, its `.zip.update.json` and the signed
+catalog `update-v1.json`, then checks them with the updater's own
+verification. `TestPublishedRelease` proves the format with a throwaway key.
+The updater has no Windows installer, so the feed covers macOS only.
+
+`internal/node/host/deployment/archive.sh [-artifacts <dir>]` assembles the
+Host archive of the machine it runs on. Each archive
+`sailry-host-<triple>.tar.gz` (`x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`)
+holds `sailry-host`, the iroh library, the pinned runtimes of
+`native/fetch -host`, the files of `internal/node/host/deployment/package/`,
+`build.json`, the dependency lock files and `licenses/` from
+`internal/node/host/deployment/licenses.sh`, whose optional fourth argument
+names the command package. On macOS only `sailry-host` and the iroh library
+are signed: the pinned runtimes keep the bytes their locks record, so the
+archive is not notarized. The release carries `install-host.sh`,
+`SHA256SUMS-installer`, the archives and one `SHA256SUMS-<triple>` each. SSH
+Add Host, its update and the WSL installation download exactly those names
+from `https://github.com/sailry/sailry-harness/releases/download/v<version>/`,
+so they work once the draft release is published.
+`internal/node/host/deployment/SOURCE` records where the ported files come from.
 
 ## Host automation
 
@@ -290,13 +410,17 @@ Both commands emit one JSON result. Exit codes are 0 for admitted/completed, 1
 for failed/stopped, 3 for approval/input/paused, 4 for uncertain, 124 for timeout
 and 130 for cancelled observation.
 
-For B7 Add Host, place the locally built `sailry-host` and its iroh library under
+Add Host installs the published release of `link.ProductVersion` on the remote
+machine: the bootstrap downloads `install-host.sh` and the target's archive from
+the release feed and verifies both against their checksum files. To install a
+locally built Host instead, place `sailry-host` and its iroh library under
 `host-artifacts/<goos>-<goarch>/` beside the controller executable, or set
-`internal/node/host.ArtifactRoot` at build time. The execution Node verifies and
-uploads those artifacts through authenticated SSH after exact host-key trust.
-Updates preserve the managed profile and paired Node identity. Release feed
-acquisition belongs to B14; an uncertain install or update must be inspected
-with its original request before any new operation.
+`internal/node/host.ArtifactRoot` at build time; when that directory holds
+`sailry-host` the execution Node verifies and uploads those artifacts through
+authenticated SSH after exact host-key trust. Isolated deployments need local
+artifacts. Updates preserve the managed profile and paired Node identity. An
+uncertain install or update must be inspected with its original request before
+any new operation.
 
 ## Licensing
 

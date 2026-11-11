@@ -72,6 +72,9 @@ func (c *Client) ObserveWorkspace(ctx context.Context, id protocol.WorktreeID, r
 			delete(w.callbacks, token)
 			if len(w.callbacks) == 0 {
 				w.cancel()
+				if c.workspaces[key] == w {
+					delete(c.workspaces, key)
+				}
 			}
 			c.workspaceMu.Unlock()
 		})
@@ -151,10 +154,10 @@ func (c *Client) observeWorkspace(w *workspaceWatch) {
 			return
 		}
 		wait := make(chan struct{})
-		stop := c.transferClock.AfterFunc(delay, func() { close(wait) })
+		timer := time.AfterFunc(delay, func() { close(wait) })
 		select {
 		case <-w.ctx.Done():
-			stop()
+			timer.Stop()
 			return
 		case <-wait:
 		}

@@ -22,8 +22,16 @@ func (r *Runtime) execute(x *execution) {
 	if r.hooksForTurn != nil {
 		x.hooks = r.hooksForTurn(x.ctx, x.inv)
 	}
-	err := r.turn(x)
+	err := r.recoveredTurn(x)
 	r.drainOperations(x)
+	// Final effects use the Node lifetime, independently of the stopped request.
+	ctx := context.WithoutCancel(x.ctx)
+	// A stopped or failed turn settles its unanswered calls before the
+	// foreground cancellation notes, in the source order.
+	var settleErr error
+	if err != nil || x.ctx.Err() != nil {
+		settleErr = r.settleCalls(ctx, x)
+	}
 	r.cancelForeground(x)
 	cleanupErr := r.closeTools(x)
 	status := protocol.ConversationStatusCompleted
@@ -38,23 +46,10 @@ func (r *Runtime) execute(x *execution) {
 		status = protocol.ConversationStatusFailed
 		failure = model.Fault(cleanupErr)
 	}
-	// Final effects use the Node lifetime, independently of the stopped request.
-	ctx := context.WithoutCancel(x.ctx)
 	if status == protocol.ConversationStatusInterrupted {
 		r.feed.Seal(x.inv.Session.ID, x.inv.Run.Turn)
-		if state, e := r.load(ctx, x.inv.Session.ID); e == nil {
-			calls := pending(state.Records)
-			if len(calls) > 0 {
-				blocks := make([]canonical.Block, 0, len(calls))
-				for _, call := range calls {
-					blocks = append(blocks, responseBlock(uint64(len(blocks)), call, ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call was interrupted before completing"}}))
-				}
-				record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
-				record.Provenance.Author = "tool"
-				if e = r.save(ctx, x.inv.Session.ID, record); e != nil {
-					failure = model.Fault(e)
-				}
-			}
+		if settleErr != nil {
+			failure = model.Fault(settleErr)
 		}
 	}
 	hookStatus := "succeeded"
@@ -237,7 +232,7 @@ func (r *Runtime) turn(x *execution) error {
 		if err = x.ctx.Err(); err != nil {
 			return err
 		}
-		state, err = r.load(x.ctx, inv.Session.ID)
+		state, err = r.reload(x.ctx, inv.Session.ID, state)
 		if err != nil {
 			return err
 		}
@@ -293,7 +288,11 @@ func (r *Runtime) turn(x *execution) error {
 				recoveries++
 				continue
 			}
-			return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: last.Error.Message}
+			failure := &model.Failure{Kind: model.Other, Message: last.Error.Message}
+			if last.Error.Code != nil {
+				failure.Kind = model.FailureKind(*last.Error.Code)
+			}
+			return failure
 		}
 		if shouldCompact(binding, state, inv.CompactionPercent) {
 			if err = r.compact(x, binding, state, false); err != nil {
@@ -333,14 +332,21 @@ func (r *Runtime) turn(x *execution) error {
 }
 
 func (r *Runtime) load(ctx context.Context, session protocol.SessionID) (store.AgentState, error) {
+	return r.reload(ctx, session, store.AgentState{})
+}
+
+// reload decodes and hydrates only the records appended since previous. The
+// earlier records are shared with previous and are read-only for every step.
+func (r *Runtime) reload(ctx context.Context, session protocol.SessionID, previous store.AgentState) (store.AgentState, error) {
 	var state store.AgentState
 	err := r.db.Read(ctx, func(db *sql.Conn) error {
+		var reused int
 		var err error
-		state, err = store.LoadAgentState(ctx, db, session)
+		state, reused, err = store.ExtendAgentState(ctx, db, session, previous)
 		if err != nil {
 			return err
 		}
-		for i := range state.Records {
+		for i := reused; i < len(state.Records); i++ {
 			if message := state.Records[i].MutableMessage(); message != nil {
 				for _, block := range message.Content {
 					if result, ok := block.Data.(*canonical.ToolResponse); ok {

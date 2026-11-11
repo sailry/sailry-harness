@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"maps"
 	"net/url"
@@ -9,6 +8,7 @@ import (
 	"sort"
 
 	"charm.land/fantasy"
+	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -138,7 +138,7 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 		}
 		delete(input.Options, "stop")
 	}
-	records := pluginVisibleRecords(request.Records)
+	records := visibleRecords(request.Records)
 	calls := map[string]string{}
 	for _, record := range records {
 		record = output.Audience(record)
@@ -266,36 +266,6 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 		flush()
 	}
 	return input, nil
-}
-
-func pluginVisibleRecords(records []canonical.Record) []canonical.Record {
-	visibility := map[string]bool{}
-	boundary, summary := -1, -1
-	for index, record := range records {
-		if record.Kind == "operation" {
-			if operation, ok := record.Data.(*canonical.Operation); ok && operation.Kind == "visibility" {
-				if value, ok := operation.Data.(*canonical.Visibility); ok {
-					visibility[value.Message] = value.AgentVisible
-				}
-			}
-		}
-		if record.Kind == "compaction" {
-			if compaction, ok := record.Data.(*canonical.Compaction); ok {
-				for earlier := 0; earlier < index; earlier++ {
-					if records[earlier].ID == compaction.Boundary {
-						boundary, summary = earlier, index
-					}
-				}
-			}
-		}
-	}
-	result := []canonical.Record{}
-	for index, record := range records {
-		if index > boundary && (record.Kind != "compaction" || index == summary) && agentVisible(record, visibility) {
-			result = append(result, record)
-		}
-	}
-	return result
 }
 
 func validatePluginCapabilities(request protocol.PluginModelAdapterWireRequest, capabilities protocol.PluginModelAdapterCapabilities) error {

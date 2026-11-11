@@ -19,8 +19,12 @@ Git. The coordinating agent owns native builds.
 | Target | Command | Output |
 | --- | --- | --- |
 | macOS, Linux (host architecture) | `sh native/capture/build.sh` | `libsailry-capture.dylib`, `libsailry-capture.so` |
+| Windows (Git Bash, host architecture) | `sh native/capture/build.sh` | `sailry-capture.dll` |
 | macOS, other architecture | `cc -O2 -fPIC -shared -arch x86_64 -mmacosx-version-min=11.0 -I<miniaudio> native/capture/sailry_capture.c -install_name @rpath/libsailry-capture.dylib -o libsailry-capture.dylib` | `libsailry-capture.dylib` |
 | Windows (MSVC developer prompt) | `cl /O2 /LD /I<miniaudio> native\capture\sailry_capture.c /Fe:sailry-capture.dll` | `sailry-capture.dll` |
+
+On Windows `build.sh` finds the Visual Studio C++ tools with `vswhere` and runs
+`cl` through `vcvarsall.bat`; the last row is the same compilation by hand.
 
 `<miniaudio>` is the directory holding the pinned `miniaudio.h`. Linux links
 `-lpthread -lm -ldl`; miniaudio opens ALSA or PulseAudio at run time. macOS

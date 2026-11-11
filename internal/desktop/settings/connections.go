@@ -59,7 +59,7 @@ func connections(c *ui.Context, m *Model) {
 	if d := pr.revoking; d != nil {
 		open := true
 		// Removing the pairing tells the device to forget this one.
-		if ui.AlertDialog(c.Key("revoke"), &open, i18n.T(c, "live_revoke")+" "+deviceName(c, *d),
+		if kit.AlertDialog(c.Key("revoke"), &open, i18n.T(c, "live_revoke")+" "+deviceName(c, *d),
 			i18n.T(c, "connections_revoke_confirm"), i18n.T(c, "settings_cancel"), i18n.T(c, "live_revoke")) == 1 {
 			if m.ConnectionActions != nil && m.ConnectionActions.Revoke != nil {
 				m.ConnectionActions.Revoke(*d)

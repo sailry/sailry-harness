@@ -65,6 +65,10 @@ func (c *Client) ObserveCommands(ctx context.Context, session protocol.SessionID
 			delete(w.callbacks, token)
 			if len(w.callbacks) == 0 {
 				w.cancel()
+				// An unobserved watch retains nothing; a later observer starts a new owner.
+				if c.commands[session] == w {
+					delete(c.commands, session)
+				}
 			}
 			c.commandsMu.Unlock()
 		})
@@ -136,10 +140,10 @@ func (c *Client) observeCommands(w *commandsWatch) {
 			return
 		}
 		wait := make(chan struct{})
-		stop := c.transferClock.AfterFunc(delay, func() { close(wait) })
+		timer := time.AfterFunc(delay, func() { close(wait) })
 		select {
 		case <-w.ctx.Done():
-			stop()
+			timer.Stop()
 			return
 		case <-wait:
 		}

@@ -11,7 +11,7 @@ import (
 )
 
 func testPluginControllerAuthority(t *testing.T) {
-	storage, _, session, _, _ := agentHistoryFixture(t, protocol.WorkModeCode)
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		info := pluginTestInfo("controller-fixture", 'a')
@@ -117,6 +117,72 @@ func testPluginControllerAuthority(t *testing.T) {
 			var rejected *protocol.Fault
 			if !scenario.denied && err != nil || scenario.denied && (!errors.As(err, &rejected) || rejected.Code != protocol.ErrorCodePermissionDenied) {
 				return fmt.Errorf("%s: unexpected terminal authority result: %v", scenario.name, err)
+			}
+		}
+		// A command addressed by turn stays inside the captured session and turn.
+		out, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &session.Config})
+		if err != nil {
+			return err
+		}
+		foreign, err := delegationFixtureParent(ctx, db, node, out.Data.(protocol.Session), now)
+		if err != nil {
+			return err
+		}
+		if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		fork, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: session.ID, Through: turn, ExpectedRevision: session.Revision})
+		if err != nil {
+			return err
+		}
+		info.Extension.Actions = append(info.Extension.Actions, protocol.PluginActionReadConversation, protocol.PluginActionControlConversation, protocol.PluginActionReadCommands, protocol.PluginActionControlCommands)
+		scope.Session = &session.ID
+		payloads := map[string]func(protocol.TurnID) any{
+			"stop_turn":          func(id protocol.TurnID) any { return &protocol.CommandStopTurnPayload{Turn: id} },
+			"start_queued_turn":  func(id protocol.TurnID) any { return &protocol.CommandStartQueuedTurnPayload{Turn: id} },
+			"edit_queued_turn":   func(id protocol.TurnID) any { return &protocol.CommandEditQueuedTurnPayload{Turn: id} },
+			"remove_queued_turn": func(id protocol.TurnID) any { return &protocol.CommandRemoveQueuedTurnPayload{Turn: id} },
+			"withdraw_guidance":  func(id protocol.TurnID) any { return &protocol.CommandWithdrawGuidancePayload{Turn: id} },
+			"send_queued_turn":   func(id protocol.TurnID) any { return &protocol.CommandSendQueuedTurnPayload{Turn: id} },
+			"read_queued_turn":   func(id protocol.TurnID) any { return &protocol.CommandReadQueuedTurnPayload{Turn: id} },
+			"read_tool_output":   func(id protocol.TurnID) any { return &protocol.CommandReadToolOutputPayload{Turn: id} },
+			"run_command": func(id protocol.TurnID) any {
+				value := protocol.DefaultCommandRunCommandPayload()
+				value.Turn = id
+				return &value
+			},
+		}
+		type turnScenario struct {
+			name    string
+			kind    string
+			target  protocol.TurnID
+			change  func(*protocol.PluginContext)
+			code    protocol.ErrorCode
+			message string
+		}
+		scenarios := []turnScenario{
+			{"captured tool output", "read_tool_output", turn, func(scope *protocol.PluginContext) { scope.Turn = &turn }, "", ""},
+			{"tool output without a turn", "read_tool_output", turn, nil, protocol.ErrorCodePermissionDenied, "tool output read is outside the captured turn"},
+			{"tool output of another turn", "read_tool_output", foreign, func(scope *protocol.PluginContext) { scope.Turn = &turn }, protocol.ErrorCodePermissionDenied, "tool output read is outside the captured turn"},
+			{"command of another turn", "run_command", foreign, func(scope *protocol.PluginContext) { scope.Turn = &turn }, protocol.ErrorCodePermissionDenied, "command is outside the captured turn"},
+		}
+		for _, kind := range []string{"stop_turn", "start_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "send_queued_turn", "read_queued_turn", "run_command"} {
+			scenarios = append(scenarios,
+				turnScenario{"own turn", kind, turn, nil, "", ""},
+				turnScenario{"another session", kind, foreign, nil, protocol.ErrorCodeWrongTarget, "turn is not in this conversation"},
+				turnScenario{"no session scope", kind, turn, func(scope *protocol.PluginContext) { scope.Session = nil }, protocol.ErrorCodePermissionDenied, "plugin has no session scope"},
+				turnScenario{"inherited turn", kind, turn, func(scope *protocol.PluginContext) { scope.Session, scope.Worktree = &fork.ID, &fork.Worktree }, protocol.ErrorCodePermissionDenied, "plugin turn belongs to another session"},
+			)
+		}
+		for _, scenario := range scenarios {
+			captured := scope
+			if scenario.change != nil {
+				scenario.change(&captured)
+			}
+			err := CheckPluginRequest(ctx, db, protocol.Request{Plugin: &captured, Command: protocol.Command{Kind: scenario.kind, Data: payloads[scenario.kind](scenario.target)}}, info)
+			var rejected *protocol.Fault
+			if scenario.code == "" && err != nil || scenario.code != "" && (!errors.As(err, &rejected) || rejected.Code != scenario.code || rejected.Message != scenario.message) {
+				return fmt.Errorf("%s %s: unexpected turn authority result: %v", scenario.kind, scenario.name, err)
 			}
 		}
 		return nil

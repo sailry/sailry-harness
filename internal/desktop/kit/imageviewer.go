@@ -187,6 +187,7 @@ func ImageViewer[T any](c *ui.Context, v *Viewer[T], item func(T) ViewerItem, ac
 	v.Index = min(max(v.Index, 0), len(v.Images)-1)
 	it := item(v.Images[v.Index])
 	w, h := c.Size()
+	NoteModal(c)
 	ui.DialogBase(c, &v.Open, func(back, panel ui.Element) {
 		fade := panel.AnimateTo("viewer-fade", 1, viewerFade)
 		back.Background(p.Backdrop().Alpha(0.85 * fade))

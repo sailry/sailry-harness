@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/MoeForge/moego/base64"
 	"github.com/gabriel-vasile/mimetype"
 	"strings"
 	"unicode/utf8"

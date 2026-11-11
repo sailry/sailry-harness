@@ -102,6 +102,9 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if err = validateAgentInput(input.Message); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if err = validateAgentReferences(ctx, db, session, input.Message, nil); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, true)
 	if err != nil {
 		return protocol.Output{}, nil, err

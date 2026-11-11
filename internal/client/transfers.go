@@ -13,15 +13,6 @@ import (
 	"lukechampine.com/blake3"
 )
 
-type transferClock interface {
-	AfterFunc(time.Duration, func()) func() bool
-}
-type systemTransferClock struct{}
-
-func (systemTransferClock) AfterFunc(d time.Duration, call func()) func() bool {
-	return time.AfterFunc(d, call).Stop
-}
-
 // Upload stages source bytes. The caller retains the durable finish request to
 // publish them. Cancellation or stalled IO closes the borrowed source to stop IO;
 // successful transfers leave its ownership with the caller.
@@ -179,9 +170,9 @@ func (client *Client) transferStep(ctx context.Context, closeIO func(), operatio
 	}
 	var expired atomic.Bool
 	done := make(chan struct{})
-	stop := client.transferClock.AfterFunc(30*time.Second, func() { defer close(done); expired.Store(true); closeIO() })
+	timer := time.AfterFunc(30*time.Second, func() { defer close(done); expired.Store(true); closeIO() })
 	err := operation()
-	if !stop() {
+	if !timer.Stop() {
 		<-done
 	}
 	if ctx.Err() != nil {
@@ -199,8 +190,7 @@ func (client *Client) transferStep(ctx context.Context, closeIO func(), operatio
 func (client *Client) cancelTransfer(id protocol.StreamID) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop := client.transferClock.AfterFunc(2*time.Second, cancel)
-	defer stop()
+	defer time.AfterFunc(2*time.Second, cancel).Stop()
 	_, _ = client.Do(ctx, protocol.Command{Kind: "cancel_file_transfer", Data: &protocol.CommandCancelFileTransferPayload{Stream: id}})
 }
 func transferDigest(revision string) ([]byte, error) {

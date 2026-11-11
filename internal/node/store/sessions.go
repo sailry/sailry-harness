@@ -84,6 +84,16 @@ func ReadSession(ctx context.Context, db *sql.Conn, id protocol.SessionID) (prot
 	return value, err
 }
 
+// requireSession reports whether a session exists without loading it.
+func requireSession(ctx context.Context, db *sql.Conn, id protocol.SessionID) error {
+	var present bool
+	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND state!='removed')", id.String()).Scan(&present)
+	if err == nil && !present {
+		err = fault(protocol.ErrorCodeNotFound, "session does not exist on this Node")
+	}
+	return err
+}
+
 func sessionOrder(ctx context.Context, db *sql.Conn) ([]protocol.SessionID, error) {
 	rows, err := db.QueryContext(ctx, "SELECT id FROM sessions WHERE state!='removed' ORDER BY rowid DESC")
 	if err != nil {
@@ -449,18 +459,33 @@ func batchSessions(ctx context.Context, db *sql.Conn, expected []protocol.Sessio
 }
 
 func reorderSessions(ctx context.Context, db *sql.Conn, input protocol.CommandSetSessionOrderPayload) (protocol.Output, []protocol.Event, error) {
-	values, err := ReadSessions(ctx, db)
+	order, err := sessionOrder(ctx, db)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	order := make([]protocol.SessionID, 0, len(values))
-	current := []protocol.SessionID{}
+	rows, err := db.QueryContext(ctx, "SELECT id FROM sessions WHERE project=?1 AND state!='removed'", input.Project.String())
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
 	members := map[protocol.SessionID]bool{}
-	for _, value := range values {
-		order = append(order, value.ID)
-		if value.Project != nil && *value.Project == input.Project {
-			current = append(current, value.ID)
-			members[value.ID] = true
+	for rows.Next() {
+		var text string
+		if err = rows.Scan(&text); err != nil {
+			break
+		}
+		var id protocol.SessionID
+		if id, err = protocol.ParseSessionID(text); err != nil {
+			break
+		}
+		members[id] = true
+	}
+	if err = errors.Join(err, rows.Err(), rows.Close()); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	current := []protocol.SessionID{}
+	for _, id := range order {
+		if members[id] {
+			current = append(current, id)
 		}
 	}
 	if len(members) == 0 {

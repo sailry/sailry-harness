@@ -303,7 +303,8 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 			return false, err
 		}
 		if guidance {
-			return false, nil
+			// The loop continues so the guidance joins before the next request.
+			return true, nil
 		}
 		pending := false
 		for _, child := range children {

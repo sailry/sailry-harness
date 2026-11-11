@@ -3,6 +3,7 @@
 // beside the executable. Run it from the repository root:
 //
 //	go run ./native/fetch [-target goos/goarch] [-artifacts dir] [-bundle dir] [-host]
+//	go run ./native/fetch -seal path [-target goos/goarch] [-host] [-sign identity]
 //
 // Downloads come only from the official release URLs in the lock files under
 // native/ and internal/localmodels/decision, are checked against their pinned
@@ -11,6 +12,13 @@
 // job's artifacts (-artifacts, checked against its SHA256SUMS), or from an
 // earlier local build already in the output directory. libghostty-vt is not
 // handled here; `mygo build` downloads it from the terminal plugin's manifest.
+//
+// -seal is the step after packaging and signing. It records the shipped
+// native libraries in native-seal.json, the lock of the libraries that have
+// no upstream pin and, inside a signed macOS application, of the ones
+// signing rewrote. For a macOS .app it also rewrites the llama.cpp and
+// Python manifests from the signed files and signs the bundle again, so the
+// code signature covers the new records. Nested code is not signed again.
 package main
 
 import (
@@ -29,11 +37,14 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/sailry/sailry-harness/internal/shipped"
 )
 
 // lockFile is the shared shape of the four runtime locks.
@@ -93,6 +104,9 @@ func main() {
 	artifacts := flag.String("artifacts", "", "directory of the CI native job's libraries and their SHA256SUMS")
 	bundle := flag.String("bundle", "", "directory that receives a copy of the shipped files")
 	host := flag.Bool("host", false, "stage what sailry-host ships: no speech or capture library")
+	sealed := flag.String("seal", "", "packaged directory or signed macOS .app to seal instead of staging")
+	identity := flag.String("sign", "-", "with -seal of a macOS .app: the identity that signed it")
+	entitlements := flag.String("entitlements", "cmd/sailry-desktop/macos/app.entitlements.plist", "with -seal of a macOS .app: its entitlements")
 	flag.Parse()
 	triple, supported := triples[*platform]
 	if !supported {
@@ -103,18 +117,16 @@ func main() {
 	}
 	goos, goarch, _ := strings.Cut(*platform, "/")
 	run := &stage{goos: goos, triple: triple, output: filepath.Join(".runtime", "native", goos+"-"+goarch)}
+	if *sealed != "" {
+		fail(run.seal(*sealed, *platform, *host, *identity, *entitlements))
+		return
+	}
 	fail(os.MkdirAll(run.output, 0o755))
+	names := built(goos)
 	fail(run.onnx(*host))
 	fail(run.llama())
 	fail(run.helper())
 	fail(run.python())
-	names := []string{"libsailry_iroh.so", "libsailry-capture.so"}
-	switch goos {
-	case "darwin":
-		names = []string{"libsailry_iroh.dylib", "libsailry-capture.dylib"}
-	case "windows":
-		names = []string{"sailry_iroh.dll", "sailry-capture.dll"}
-	}
 	fail(run.built(names[0], "sh native/iroh/build.sh", *artifacts))
 	if !*host {
 		fail(run.built(names[1], "sh native/capture/build.sh, on Windows see native/capture/README.md", *artifacts))
@@ -136,6 +148,17 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+// built names the iroh and capture libraries Sailry builds itself.
+func built(goos string) []string {
+	switch goos {
+	case "darwin":
+		return []string{"libsailry_iroh.dylib", "libsailry-capture.dylib"}
+	case "windows":
+		return []string{"sailry_iroh.dll", "sailry-capture.dll"}
+	}
+	return []string{"libsailry_iroh.so", "libsailry-capture.so"}
 }
 
 func fail(err error) {
@@ -412,6 +435,14 @@ func (run *stage) helper() error {
 	return run.write(resources+"agent-desktop-LICENSE", license, 0o644)
 }
 
+// listed is one entry of the Python receipt: a file or a link.
+type listed struct {
+	Path   string `json:"path"`
+	Size   *int   `json:"size,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
+	Link   string `json:"link,omitempty"`
+}
+
 // python extracts the standalone runtime, marks it externally managed and
 // writes the receipt internal/node/python verifies.
 func (run *stage) python() error {
@@ -440,12 +471,6 @@ func (run *stage) python() error {
 	list = slices.DeleteFunc(list, func(item entry) bool { return strings.Contains(item.name, "__pycache__") })
 	// Links are published after regular files, so extraction never writes through one.
 	slices.SortStableFunc(list, func(a, b entry) int { return len(a.link) - len(b.link) })
-	type listed struct {
-		Path   string `json:"path"`
-		Size   *int   `json:"size,omitempty"`
-		SHA256 string `json:"sha256,omitempty"`
-		Link   string `json:"link,omitempty"`
-	}
 	files := []listed{}
 	for _, item := range list {
 		if !strings.HasPrefix(item.name, "python/") || !filepath.IsLocal(item.name) || strings.Contains(item.name, `\`) {
@@ -566,4 +591,169 @@ func copyTree(source, destination string) error {
 		}
 		return os.WriteFile(output, body, info.Mode().Perm())
 	})
+}
+
+// seal records the shipped native libraries of a packaged directory or a
+// signed macOS application in the package seal.
+func (run *stage) seal(location, platform string, host bool, identity, entitlements string) error {
+	directory, app := location, run.goos == "darwin" && strings.HasSuffix(filepath.Clean(location), ".app")
+	if app {
+		if runtime.GOOS != "darwin" {
+			return errors.New("sealing a macOS application needs macOS")
+		}
+		directory = filepath.Join(location, "Contents", "Resources")
+	}
+	_, asset, err := run.load("native/onnxruntime.lock.json")
+	if err != nil {
+		return err
+	}
+	names := built(run.goos)
+	if host {
+		names = names[:1]
+	}
+	for _, file := range asset.Files {
+		if !host || file.Role != "speech" {
+			names = append(names, file.Name)
+		}
+	}
+	slices.Sort(names)
+	record := func() (shipped.Seal, error) {
+		seal := shipped.Seal{Version: 1, Target: platform}
+		for _, name := range names {
+			file, err := shipped.Record(directory, name)
+			if err != nil {
+				return seal, err
+			}
+			seal.Files = append(seal.Files, file)
+		}
+		return seal, nil
+	}
+	seal, err := record()
+	if err != nil {
+		return err
+	}
+	// Only signing a macOS application rewrites shipped files; elsewhere
+	// both manifests keep their staged content and the loaders keep the
+	// upstream lock.
+	if app {
+		if err := run.sealLlama(directory); err != nil {
+			return err
+		}
+		if err := sealPython(filepath.Join(directory, "python")); err != nil {
+			return err
+		}
+	}
+	if err := writeJSON(filepath.Join(directory, shipped.SealName), seal); err != nil {
+		return err
+	}
+	for _, file := range seal.Files {
+		fmt.Printf("%-34s %-10s %s\n", file.Name, "sealed", file.SHA256)
+	}
+	if !app {
+		return nil
+	}
+	// The bundle is signed again so its signature covers the new records.
+	// Nested code keeps the signatures the records describe.
+	arguments := []string{"--force", "--sign", identity}
+	if identity != "-" {
+		arguments = append(arguments, "--options", "runtime", "--timestamp")
+	}
+	arguments = append(arguments, "--entitlements", entitlements, location)
+	for _, arguments := range [][]string{arguments, {"--verify", "--deep", "--strict", location}} {
+		if output, err := exec.Command("codesign", arguments...).CombinedOutput(); err != nil {
+			return fmt.Errorf("codesign %s: %v\n%s", arguments[0], err, output)
+		}
+	}
+	signed, err := record()
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(signed.Files, seal.Files) {
+		return errors.New("signing the bundle changed a sealed library")
+	}
+	fmt.Printf("sealed  %s\n", location)
+	return nil
+}
+
+// sealLlama rewrites the llama.cpp manifest from the files as shipped.
+func (run *stage) sealLlama(directory string) error {
+	lock, asset, err := run.load("internal/localmodels/decision/llama-runtime.lock.json")
+	if err != nil {
+		return err
+	}
+	installed := []shipped.File{}
+	for _, file := range asset.Files {
+		record, err := shipped.Record(directory, file.Name)
+		if err != nil {
+			return err
+		}
+		installed = append(installed, record)
+	}
+	return writeJSON(filepath.Join(directory, "llama-runtime.json"),
+		map[string]any{"version": 1, "target": run.triple, "build": lock.Build, "files": installed})
+}
+
+// sealPython rewrites the file list of the Python receipt from the runtime
+// as shipped, keeping its provenance.
+func sealPython(root string) error {
+	receipt := filepath.Join(root, "python-runtime.json")
+	source, err := os.ReadFile(receipt)
+	if err != nil {
+		return err
+	}
+	var content map[string]any
+	if err := json.Unmarshal(source, &content); err != nil {
+		return fmt.Errorf("%s: %w", receipt, err)
+	}
+	files := []listed{}
+	err = filepath.WalkDir(root, func(current string, item fs.DirEntry, err error) error {
+		if err != nil || item.IsDir() || current == receipt {
+			return err
+		}
+		relative, err := filepath.Rel(root, current)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if strings.Contains(relative, "__pycache__") {
+			return fmt.Errorf("%s: bytecode cannot be shipped", relative)
+		}
+		if item.Type()&fs.ModeSymlink != 0 {
+			link, err := os.Readlink(current)
+			if err != nil {
+				return err
+			}
+			resolved, err := filepath.EvalSymlinks(current)
+			if inside, _ := filepath.Rel(root, resolved); err != nil || !filepath.IsLocal(inside) {
+				return fmt.Errorf("link %s leaves the runtime", relative)
+			}
+			files = append(files, listed{Path: relative, Link: link})
+			return nil
+		}
+		record, err := shipped.Record(root, filepath.FromSlash(relative))
+		if err != nil {
+			return err
+		}
+		size := int(record.Size)
+		files = append(files, listed{Path: relative, Size: &size, SHA256: record.SHA256})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	slices.SortFunc(files, func(a, b listed) int { return strings.Compare(a.Path, b.Path) })
+	content["files"] = files
+	return writeJSON(receipt, content)
+}
+
+// writeJSON publishes a new inode, like write.
+func writeJSON(path string, value any) error {
+	body, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(path, append(body, '\n'), 0o644)
 }

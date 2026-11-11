@@ -118,28 +118,36 @@ func (p *workspaceProject) showDocument(id, title, documentPath, text string) {
 	p.runtime.App.PanelOpen = true
 	p.runtime.App.Panel.Show(panel.Tab{Kind: panel.Documents, ID: id})
 }
+
+// readSessionResources reloads every session resource after a session change
+// or a refresh.
 func (p *workspaceProject) readSessionResources() {
-	session := p.session
-	if session == (protocol.SessionID{}) {
+	if p.session == (protocol.SessionID{}) {
 		return
 	}
-	p.readArtifacts(session, nil, nil)
-	state, ok := p.runtime.controller.Conversation(session)
-	if !ok {
-		return
+	p.resourceRuns, p.resourceOlder = map[protocol.TurnID]protocol.ConversationStatus{}, false
+	p.readArtifacts(p.session, nil, nil)
+	if state, ok := p.runtime.controller.Conversation(p.session); ok {
+		p.readPageResources(state.Snapshot.Page)
 	}
-	for _, run := range state.Snapshot.Page.Runs {
-		p.readRunResources(session, run)
+}
+
+// readPageResources reads what the page shows for the first time: each
+// finished run once, and the history before the page once per reload.
+func (p *workspaceProject) readPageResources(page protocol.ConversationPage) {
+	for _, run := range page.Runs {
+		p.readRunResources(p.session, run)
 	}
-	if state.Snapshot.Page.NextBefore != nil {
-		p.readOlderResources(session, state.Snapshot.Page.NextBefore)
+	if page.NextBefore != nil && !p.resourceOlder {
+		p.resourceOlder = true
+		p.readOlderResources(p.session, page.NextBefore)
 	}
 }
 func (p *workspaceProject) sessionResourcesFrame() {
 	if p.session == (protocol.SessionID{}) {
 		return
 	}
-	state, ok := p.runtime.controller.Conversation(p.session)
+	state, ok := p.runtime.conversationState(p.session)
 	if !ok {
 		return
 	}
@@ -154,7 +162,8 @@ func (p *workspaceProject) sessionResourcesFrame() {
 	value := signature.String()
 	if value != p.resourceSignature {
 		p.resourceSignature = value
-		p.readSessionResources()
+		p.readArtifacts(p.session, nil, nil)
+		p.readPageResources(state.Snapshot.Page)
 	}
 }
 func (p *workspaceProject) readOlderResources(session protocol.SessionID, before *protocol.TurnID) {
@@ -182,6 +191,13 @@ func (p *workspaceProject) readRunResources(session protocol.SessionID, run prot
 	if run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping {
 		return
 	}
+	if p.resourceRuns[run.Turn] == run.Status {
+		return
+	}
+	if p.resourceRuns == nil {
+		p.resourceRuns = map[protocol.TurnID]protocol.ConversationStatus{}
+	}
+	p.resourceRuns[run.Turn] = run.Status
 	title := run.Turn.String()
 	if run.Input != nil && strings.TrimSpace(run.Input.Message.Text) != "" {
 		title = strings.SplitN(run.Input.Message.Text, "\n", 2)[0]

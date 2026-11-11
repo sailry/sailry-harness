@@ -15,69 +15,50 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-func TestCite(t *testing.T) {
-	got := conversation.Cite("Go adds iterators.", []conversation.Citation{{URI: "https://go.dev/a", End: 2}, {URI: "https://x/<b>"}})
-	want := "Go [1](<https://go.dev/a>) adds iterators. [2](<https://x/%3Cb%3E>)"
-	if got != want {
-		t.Errorf("Cite = %q, want %q", got, want)
-	}
-	if conversation.Cite("plain", nil) != "plain" {
-		t.Error("text without citations changed")
-	}
-}
-
-func TestMarkSkipsCode(t *testing.T) {
-	src := "Find the list.\n\n```go\nlist := 1\n```\nUse `list` and List."
-	got := conversation.Mark(src, "list")
-	want := "Find the <mark>list</mark>.\n\n```go\nlist := 1\n```\nUse `list` and <mark>List</mark>."
-	if got != want {
-		t.Errorf("Mark =\n%q\nwant\n%q", got, want)
-	}
-}
-
-func TestFind(t *testing.T) {
-	turns := []conversation.Turn{
-		{User: "Port the theme", Reply: conversation.Reply{Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: "Theme ported; the theme loads."}}}},
-		{User: "nothing here"},
-	}
-	m := conversation.Find(turns, "THEME")
-	if len(m) != 3 || !m[0].User || m[1].User || m[2].N != 1 {
-		t.Errorf("Find = %+v", m)
-	}
-	if conversation.Find(turns, "  ") != nil {
-		t.Error("an empty query matched")
-	}
-}
-
-func TestViewer(t *testing.T) {
-	v := conversation.Viewer{Images: make([]conversation.Image, 3), Zoom: 1}
-	for range 20 {
-		v.ZoomBy(1.25)
-	}
-	if v.Zoom != conversation.MaxZoom {
-		t.Errorf("zoom %v past the limit", v.Zoom)
-	}
-	v.Turns, v.FlipH = 1, true
-	v.Step(true)
-	if v.Index != 1 || v.Zoom != 1 || v.Turns != 0 || v.FlipH {
-		t.Errorf("step kept the view: %+v", v)
-	}
-	v.Step(true)
-	v.Step(true)
-	if v.Index != 2 {
-		t.Errorf("stepped past the end: %d", v.Index)
-	}
-}
-
-func TestQuoteAndCount(t *testing.T) {
-	if q := conversation.Quote("a\nb\n"); q != "> a\n> b\n\n" {
-		t.Errorf("Quote = %q", q)
-	}
-	for n, want := range map[int]string{950: "950", 1200: "1.2k", 3000: "3k", 3_400_000: "3.4M"} {
-		if got := conversation.Count(n); got != want {
-			t.Errorf("Count(%d) = %q, want %q", n, got, want)
+// The pure text rules of the transcript: citations, search marks, search
+// matches, quoting and counts.
+func TestTextRules(t *testing.T) {
+	t.Run("Cite", func(t *testing.T) {
+		got := conversation.Cite("Go adds iterators.", []conversation.Citation{{URI: "https://go.dev/a", End: 2}, {URI: "https://x/<b>"}})
+		want := "Go [1](<https://go.dev/a>) adds iterators. [2](<https://x/%3Cb%3E>)"
+		if got != want {
+			t.Errorf("Cite = %q, want %q", got, want)
 		}
-	}
+		if conversation.Cite("plain", nil) != "plain" {
+			t.Error("text without citations changed")
+		}
+	})
+	t.Run("MarkSkipsCode", func(t *testing.T) {
+		src := "Find the list.\n\n```go\nlist := 1\n```\nUse `list` and List."
+		got := conversation.Mark(src, "list")
+		want := "Find the <mark>list</mark>.\n\n```go\nlist := 1\n```\nUse `list` and <mark>List</mark>."
+		if got != want {
+			t.Errorf("Mark =\n%q\nwant\n%q", got, want)
+		}
+	})
+	t.Run("Find", func(t *testing.T) {
+		turns := []conversation.Turn{
+			{User: "Port the theme", Reply: conversation.Reply{Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: "Theme ported; the theme loads."}}}},
+			{User: "nothing here"},
+		}
+		m := conversation.Find(turns, "THEME")
+		if len(m) != 3 || !m[0].User || m[1].User || m[2].N != 1 {
+			t.Errorf("Find = %+v", m)
+		}
+		if conversation.Find(turns, "  ") != nil {
+			t.Error("an empty query matched")
+		}
+	})
+	t.Run("QuoteAndCount", func(t *testing.T) {
+		if q := conversation.Quote("a\nb\n"); q != "> a\n> b\n\n" {
+			t.Errorf("Quote = %q", q)
+		}
+		for n, want := range map[int]string{950: "950", 1200: "1.2k", 3000: "3k", 3_400_000: "3.4M"} {
+			if got := conversation.Count(n); got != want {
+				t.Errorf("Count(%d) = %q, want %q", n, got, want)
+			}
+		}
+	})
 }
 
 // recorder keeps the transcript's actions.

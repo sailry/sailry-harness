@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
@@ -29,16 +30,23 @@ type desktopWindow struct {
 }
 
 func main() {
+	// Exiting here lets run's deferred shutdown finish first.
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	computer.Trampoline()
 	options, err := parseOptions(os.Args[1:])
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend, err := openBackend(ctx, options)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer func() {
 		if err := backend.Close(); err != nil {
@@ -226,12 +234,16 @@ func main() {
 		applyPreferences()
 		return nil
 	}
+	var composition error
 	mygo.App.WhenReady(func() {
 		if backend.Preferences != nil {
 			mygo.App.SetLocale(preferenceLocale(backend.Preferences.Data.Language))
 		}
 		if err := openWindow(""); err != nil {
-			log.Printf("desktop composition: %v", err)
+			// Without its first window nothing could quit the application.
+			composition = fmt.Errorf("desktop composition: %w", err)
+			mygo.App.Quit()
+			return
 		}
 		if updates != nil {
 			updates.Service.Startup()
@@ -272,13 +284,14 @@ func main() {
 		})
 	})
 	if err := mygo.App.Run(); err != nil {
-		log.Fatal(err)
+		return err
 	}
+	return composition
 }
 
 func preferenceLocale(language *string) string {
 	if language == nil || *language == "system" {
 		return i18n.MatchPreferred(mygo.App.PreferredLanguages()...)
 	}
-	return map[string]string{"system": "", "english": "en", "chinese": "zh-CN", "traditional_chinese": "zh-TW", "japanese": "ja", "korean": "ko", "french": "fr", "german": "de", "spanish": "es", "portuguese_brazil": "pt-BR", "russian": "ru"}[*language]
+	return map[string]string{"english": "en", "chinese": "zh-CN", "traditional_chinese": "zh-TW", "japanese": "ja", "korean": "ko", "french": "fr", "german": "de", "spanish": "es", "portuguese_brazil": "pt-BR", "russian": "ru"}[*language]
 }

@@ -110,7 +110,7 @@ func (r *Runtime) pluginCatalogSettled() bool {
 	if r.packages == nil {
 		return false
 	}
-	for _, summary := range r.controller.Snapshot().Plugins {
+	for _, summary := range r.snapshot().Plugins {
 		version := packageVersion(summary)
 		info, exists := r.packages.infos[summary.Name]
 		if (!exists || packageVersion(info.Summary) != version) && r.packages.failures[summary.Name] != version {

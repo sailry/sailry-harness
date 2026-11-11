@@ -82,8 +82,6 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 			r.project()
 			if x.created != nil {
 				x.created(session)
-			} else {
-				r.OpenSession(session.ID.String())
 			}
 		}
 		for _, waiter := range waiters {

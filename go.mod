@@ -9,6 +9,7 @@ require (
 	github.com/Bios-Marcel/wastebasket/v2 v2.0.3
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/MoeForge/moego v0.1.0-alpha.1
 	github.com/MoeForge/moejs v0.1.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
@@ -79,7 +80,6 @@ require (
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/MoeForge/moego v0.1.0-alpha.1 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.5 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.25 // indirect

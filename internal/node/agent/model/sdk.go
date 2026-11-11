@@ -79,6 +79,10 @@ type responseFacts struct {
 	observer *usageObserverBody
 }
 type factsKey struct{}
+
+// maxFailureBody bounds the diagnostic body retained from a failed response.
+const maxFailureBody = 1024 * 1024
+
 type sourceBodyKey struct{}
 type responseTransport struct{ base http.RoundTripper }
 
@@ -109,7 +113,8 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 		if facts, ok := request.Context().Value(factsKey{}).(*responseFacts); ok {
 			facts.status, facts.headers = response.StatusCode, response.Header.Clone()
 			if response.StatusCode >= 400 {
-				facts.body, err = io.ReadAll(response.Body)
+				// A failure body is a bounded diagnostic; its read error is not the transport's.
+				facts.body, _ = io.ReadAll(io.LimitReader(response.Body, maxFailureBody))
 				response.Body.Close()
 				response.Body = io.NopCloser(bytes.NewReader(facts.body))
 			} else if (facts.family == "google" || facts.family == "anthropic") && strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
@@ -210,6 +215,7 @@ type sdkEmitter struct {
 	nextIndex    uint64
 	sources      canonical.Sources
 	sourcesKnown bool
+	response     *responseMetadata
 }
 
 func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
@@ -250,12 +256,12 @@ func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
 		}
 	}
 	part.Usage = emitter.usage.scalar()
-	if part.ProviderMetadata == nil {
-		part.ProviderMetadata = fantasy.ProviderMetadata{}
-	}
 	if emitter.facts.status > 0 && emitter.facts.status <= 65535 {
-		status := uint16(emitter.facts.status)
-		part.ProviderMetadata[responseMetadataKey] = &responseMetadata{Status: &status}
+		// The status is fixed once the response starts; its parts share it.
+		if status := uint16(emitter.facts.status); emitter.response == nil || *emitter.response.Status != status {
+			emitter.response = &responseMetadata{Status: &status}
+		}
+		part.ProviderMetadata[responseMetadataKey] = emitter.response
 	}
 	snapshot := emitter.usage
 	part.ProviderMetadata[UsageMetadataKey] = &snapshot

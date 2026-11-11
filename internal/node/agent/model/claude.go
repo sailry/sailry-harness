@@ -245,7 +245,10 @@ func encodeClaude(body map[string]any) ([]byte, error) {
 		body["context_management"] = map[string]any{"edits": []any{map[string]any{"type": "clear_thinking_20251015", "keep": "all"}}}
 	}
 	claudeCache(body)
-	encoded := orderedClaude(body)
+	encoded, err := orderedClaude(body)
+	if err != nil {
+		return nil, err
+	}
 	marker := []byte(`"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=`)
 	start := bytes.Index(encoded, marker)
 	if start < 0 {
@@ -272,7 +275,7 @@ func claudeJSON(value any) []byte {
 	return bytes.TrimSuffix(encoded.Bytes(), []byte{'\n'})
 }
 
-func orderedClaude(body map[string]any) []byte {
+func orderedClaude(body map[string]any) ([]byte, error) {
 	order := []string{"model", "messages", "system", "tools", "metadata", "max_tokens", "thinking", "context_management", "compaction", "output_config", "fallbacks", "anthropic_beta", "stream", "temperature", "top_p", "top_k", "stop_sequences", "speed", "tool_choice"}
 	remaining := []string{}
 	for key := range body {
@@ -299,10 +302,10 @@ func orderedClaude(body map[string]any) []byte {
 		encoded.WriteByte(':')
 		prepared, err := sourceValue("anthropic", key, value, fantasy.Call{})
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		encoded.Write(claudeJSON(prepared))
 	}
 	encoded.WriteByte('}')
-	return encoded.Bytes()
+	return encoded.Bytes(), nil
 }

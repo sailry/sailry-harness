@@ -84,6 +84,7 @@ func dialog(c *ui.Context, open *bool, closer bool, fn func()) ui.Element {
 	}
 	gone := false
 	var out ui.Element
+	NoteModal(c)
 	ui.DialogBase(c, &st.shown, func(back, panel ui.Element) {
 		out = panel
 		if !st.entered {

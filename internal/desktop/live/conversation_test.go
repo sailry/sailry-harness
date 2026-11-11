@@ -646,6 +646,7 @@ func TestComposerSendRouting(t *testing.T) {
 		{"new_team_before_admission", "draft/1", "submit_turn", false, "", false},
 		{"uncertain_team_before_admission", "existing", "submit_turn", false, "", false},
 		{"replace_references", "existing", "replace_turn", false, "", false},
+		{"new_session_after_navigation", "draft/1", "submit_turn", false, "", false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
@@ -687,7 +688,9 @@ func TestComposerSendRouting(t *testing.T) {
 			if row.name == "replace_references" {
 				turn := protocol.TurnID{6}
 				transport.conversation.Page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Worktree: worktree, Sequence: 1, Revision: 1, Kind: "task", Status: "completed"}}
-				transport.conversation.Page.Entries = []protocol.ConversationEntry{{ID: "sent", Sequence: 1, Turn: turn, Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Captured draft @Host"}, {Kind: "reference", Data: protocol.ConversationReference{Target: protocol.ConversationReferenceTarget{Kind: "host"}, Label: "Host"}}}}}
+				sent := protocol.DefaultAttachment()
+				sent.ID = protocol.AttachmentID{7}
+				transport.conversation.Page.Entries = []protocol.ConversationEntry{{ID: "sent", Sequence: 1, Turn: turn, Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Captured draft @Host"}, {Kind: "reference", Data: protocol.ConversationReference{Target: protocol.ConversationReferenceTarget{Kind: "host"}, Label: "Host"}}, {Kind: "attachment", Data: sent}}}}
 			}
 			controller := client.New(transport)
 			if err := controller.Start(t.Context()); err != nil {
@@ -717,7 +720,7 @@ func TestComposerSendRouting(t *testing.T) {
 			comp.Project = project.String()
 			comp.Worktree = "/fixture/worktree"
 			comp.Host = node.String()
-			if row.running || row.name == "replace_references" {
+			if row.running || row.name == "replace_references" || row.failure == protocol.ErrorCodeOutcomeUnknown {
 				changes := make(chan struct{}, 1)
 				release, err := controller.WatchConversation(t.Context(), session, func() {
 					select {
@@ -742,12 +745,38 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 			}
 			var context *ui.Context
-			tester := ui.NewTester(func(c *ui.Context) { context = c; r.drain(c) }, 640, 400)
+			var frame func(*ui.Context)
+			tester := ui.NewTester(func(c *ui.Context) {
+				context = c
+				r.drain(c)
+				if frame != nil {
+					frame(c)
+				}
+			}, 640, 400)
 			tester.SetLocale("en")
 			tester.Frame()
 			r.workers.Wait()
 			tester.Frame()
 			actions := &conversationActions{r: r, c: context, cv: cv, comp: comp}
+			// shown renders one frame with the conversation on screen, absent one without it.
+			shown := func(c *ui.Context) { r.conversation(c, cv, comp); r.finishFrame() }
+			absent := func(*ui.Context) { r.finishFrame() }
+			render := func(step func(*ui.Context)) {
+				frame = step
+				tester.Frame()
+				frame = nil
+			}
+			turns := func() []protocol.Request {
+				transport.mu.Lock()
+				defer transport.mu.Unlock()
+				var sent []protocol.Request
+				for _, request := range transport.requests {
+					if request.Command.Kind == "submit_turn" || request.Command.Kind == "replace_turn" {
+						sent = append(sent, request)
+					}
+				}
+				return sent
+			}
 			message := composer.Message{Text: "Captured draft", Model: comp.Model, Mode: composer.Code, Permission: composer.AskFirst}
 			if row.name == "replace_references" {
 				actions.Edit((protocol.TurnID{6}).String())
@@ -768,9 +797,20 @@ func TestComposerSendRouting(t *testing.T) {
 			} else {
 				actions.Send(message)
 			}
+			elsewhere := ""
+			if row.name == "new_session_after_navigation" {
+				// The user leaves the draft while its session is being created.
+				r.newDraft(nil)
+				elsewhere = r.App.Sidebar.Selected
+			}
 			for range 4 {
 				r.workers.Wait()
 				tester.Frame()
+			}
+			if created := (protocol.SessionID{9}).String(); row.name == "new_project_session" && r.App.Sidebar.Selected != created {
+				t.Fatal("created session did not replace its selected draft")
+			} else if elsewhere != "" && (r.App.Sidebar.Selected != elsewhere || r.App.Data.Find(created) == nil) {
+				t.Fatal("finished session creation took the selection from the conversation opened meanwhile")
 			}
 			if row.name == "uncertain_team_before_admission" {
 				transport.mu.Lock()
@@ -858,6 +898,67 @@ func TestComposerSendRouting(t *testing.T) {
 				if len(p.Message.References) != 1 || p.Message.References[0].Target.Kind != "host" {
 					t.Fatal("ReplaceTurn dropped the original reference target")
 				}
+				if len(p.Message.Attachments) != 1 || p.Message.Attachments[0] != (protocol.AttachmentID{7}) {
+					t.Fatal("ReplaceTurn dropped the attachment of the edited message")
+				}
+				turn := (protocol.TurnID{6}).String()
+				send := func(text string) protocol.Request {
+					message.Text, message.References = text, comp.References
+					actions.Send(message)
+					for range 4 {
+						r.workers.Wait()
+						tester.Frame()
+					}
+					sent := turns()
+					return sent[len(sent)-1]
+				}
+				comp.Draft = "Unsent draft"
+				render(func(c *ui.Context) { actions.c = c; actions.Edit(turn) })
+				if comp.Draft != "Unsent draft" || len(r.conversationEdits) != 0 {
+					t.Fatal("editing a sent message replaced the draft in the composer")
+				}
+				comp.Draft = ""
+				actions.Edit(turn)
+				render(shown)
+				if comp.Draft != "Captured draft @Host" || len(r.conversationEdits) != 1 {
+					t.Fatal("an edit shown in its composer did not stay active")
+				}
+				comp.Draft, comp.References = "", nil
+				render(shown)
+				if last := send("Unrelated message"); len(r.conversationEdits) != 0 || last.Command.Kind != "submit_turn" || comp.Draft != "" {
+					t.Fatal("an edit abandoned by clearing the composer replaced a turn with a later message", last.Command.Kind)
+				}
+				actions.Edit(turn)
+				render(absent)
+				if last := send(comp.Draft); len(r.conversationEdits) != 0 || last.Command.Kind != "submit_turn" {
+					t.Fatal("an edit survived leaving its conversation", last.Command.Kind)
+				}
+				actions.Edit(turn)
+				transport.mu.Lock()
+				transport.failure = protocol.ErrorCodeConflict
+				transport.mu.Unlock()
+				if last := send(comp.Draft); last.Command.Kind != "replace_turn" || len(r.conversationEdits) != 0 || comp.Draft != "Captured draft @Host" {
+					t.Fatal("an edit rejected after the history moved stayed active or lost its text", last.Command.Kind)
+				}
+				transport.mu.Lock()
+				transport.failure = ""
+				transport.mu.Unlock()
+				if last := send(comp.Draft); last.Command.Kind != "submit_turn" || comp.Draft != "" {
+					t.Fatal("a stale edit kept later sends failing", last.Command.Kind)
+				}
+				// A change in the shown conversation redraws it; only a Client change projects the Node snapshot.
+				render(shown)
+				r.mu.Lock()
+				r.dirty = false
+				r.mu.Unlock()
+				r.conversationsStale.Store(false)
+				_ = controller.LoadOlderConversation(t.Context(), session)
+				r.mu.Lock()
+				dirty := r.dirty
+				r.mu.Unlock()
+				if !r.conversationsStale.Load() || dirty {
+					t.Fatal("a change in the shown conversation projected the Node snapshot again", dirty)
+				}
 			}
 			if row.configure {
 				p := commands[len(commands)-1].Command.Data.(protocol.CommandSubmitTurnPayload)
@@ -882,9 +983,65 @@ func TestComposerSendRouting(t *testing.T) {
 				if last.ID != first {
 					t.Fatal("explicit retry changed uncertain request identity")
 				}
+				again := func() protocol.RequestID {
+					actions.Send(message)
+					r.workers.Wait()
+					tester.Frame()
+					sent := turns()
+					return sent[len(sent)-1].ID
+				}
+				render(shown)
+				if again() != first {
+					t.Fatal("an unchanged draft and history lost the uncertain request")
+				}
+				comp.Draft = "Captured draft, edited"
+				render(shown)
+				comp.Draft = "Captured draft"
+				second := again()
+				if second == first {
+					t.Fatal("the uncertain request survived a changed draft")
+				}
+				state, _ := controller.Conversation(session)
+				moved := state.Snapshot.Page
+				moved.Runs = append(moved.Runs, protocol.ConversationRun{Session: session, Turn: protocol.TurnID{7}, Status: "completed"})
+				r.settleTurnRetry(id, comp, nil, moved)
+				third := again()
+				if third == second {
+					t.Fatal("a later send with the same text reused the uncertain request after the history moved")
+				}
+				r.settleTurnRetry(id, comp, []protocol.TurnSummary{{ID: protocol.TurnID{8}, Session: session, Request: third}}, state.Snapshot.Page)
+				if comp.Draft != "" || len(r.turnRetries) != 0 || len(r.uncertain) != 0 {
+					t.Fatal("an admitted turn left its uncertain request or draft behind")
+				}
 			}
 			if slices.ContainsFunc(r.App.Data.Models, func(m composer.Model) bool { return m.Name == "" }) {
 				t.Fatal("live model projection contains an empty sample")
+			}
+			// An identical package command in flight is not sent again, and its second caller is told so.
+			remove := protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: "fixture"}}
+			r.busy["packages/"+packageCommandKey(remove)] = true
+			refused := 0
+			r.packageCommand(remove, func(_ protocol.Output, ok bool) {
+				if !ok {
+					refused++
+				}
+			})
+			delete(r.busy, "packages/"+packageCommandKey(remove))
+			if refused != 1 {
+				t.Fatal("a package command dropped as a duplicate left its caller waiting")
+			}
+			if row.session == "existing" {
+				// A session the Node no longer has leaves nothing behind; a draft keeps its state.
+				r.composerInitialized[session.String()], r.composerInitialized["draft/9"] = true, true
+				r.composerRevisions[session.String()], r.conversationEdits[session.String()] = 7, conversationEdit{}
+				r.pruneSessions(r.snapshot())
+				if !r.composerInitialized[session.String()] || len(r.conversationEdits) != 1 {
+					t.Fatal("a session the Node still has lost its state")
+				}
+				r.pruneSessions(protocol.Snapshot{})
+				if len(r.composerInitialized) != 1 || !r.composerInitialized["draft/9"] || len(r.composerRevisions) != 0 || len(r.composerObserved) != 0 || len(r.conversationEdits) != 0 {
+					t.Fatal("a removed session left its state behind", r.composerInitialized, r.composerRevisions)
+				}
 			}
 		})
 	}
@@ -892,7 +1049,8 @@ func TestComposerSendRouting(t *testing.T) {
 		provider := protocol.ProviderID{1}
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = protocol.NodeID{1}
-		snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Models: []protocol.ConversationModel{{ID: "reasoning", Reasoning: true, Efforts: []protocol.Effort{{Kind: "low"}, {Kind: "high"}}, DefaultEffort: protocol.Effort{Kind: "medium"}}}}}
+		source := protocol.ConversationPresetsSource{Kind: "builtin"}
+		snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Preset: &protocol.ConversationPresetsPresetRef{Source: source, ID: "fixture"}, Models: []protocol.ConversationModel{{ID: "reasoning", Reasoning: true, Efforts: []protocol.Effort{{Kind: "low"}, {Kind: "high"}}, DefaultEffort: protocol.Effort{Kind: "medium"}}}}}
 		controller := client.New(&conversationTestTransport{snapshot: snapshot})
 		if err := controller.Start(t.Context()); err != nil {
 			t.Fatal(err)
@@ -908,6 +1066,15 @@ func TestComposerSendRouting(t *testing.T) {
 		r.defaultComposer(comp)
 		if comp.Model != modelKey(provider, "reasoning") || comp.EffortName(nil, comp.Chosen(r.App.Data.Models)) != "medium" || comp.Mode != composer.Plan || comp.Permission != composer.FullAccess {
 			t.Fatalf("projected model default = %#v", comp)
+		}
+		// A provider saved without a route shows the first route of its preset in every projection.
+		entry := protocol.ConversationPresetsEntry{Source: source, Preset: protocol.ConversationPresetsPreset{ID: "fixture", Routes: make([]protocol.ConversationPresetsRoute, 4)}}
+		r.providerPresets = map[string]protocol.ConversationPresetsEntry{"builtin:fixture/3": entry, "builtin:fixture/0": entry, "builtin:fixture/2": entry, "builtin:fixture/1": entry}
+		for range 20 {
+			r.projectProviderSnapshot()
+			if channels := r.App.Settings.Channels; len(channels) != 1 || channels[0].Method != "builtin:fixture/0" {
+				t.Fatalf("provider without a saved route = %#v", channels)
+			}
 		}
 	})
 }

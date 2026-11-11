@@ -13,9 +13,6 @@ import (
 //go:embed prompt.md
 var promptText string
 
-//go:embed render.md
-var renderTemplate string
-
 const Request = "Please summarize the conversation history provided in the system prompt."
 
 func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, request ...string) (string, error) {
@@ -65,20 +62,25 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 		}
 		history[i] = transcript(turn, detail)
 	}
-	if tokens.Text(history[len(history)-1]) > budget {
+	// Each turn is measured once and again only when it is shortened.
+	sizes := make([]uint64, len(history))
+	var count uint64
+	for i, part := range history {
+		sizes[i] = tokens.Text(part) + 2
+		count += sizes[i]
+	}
+	if sizes[len(sizes)-1]-2 > budget {
 		return "", fmt.Errorf("latest turn exceeds the summary context limit")
 	}
 	fit := func() (string, bool) {
-		var count uint64
+		if count > budget {
+			return "", false
+		}
 		var nonempty []string
 		for _, part := range history {
-			count += tokens.Text(part) + 2
 			if part != "" {
 				nonempty = append(nonempty, part)
 			}
-		}
-		if count > budget {
-			return "", false
 		}
 		body := strings.Join(nonempty, "\n")
 		if tokens.Text(body) > budget {
@@ -90,6 +92,9 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	for detail := 1; !ok && detail <= 3; detail++ {
 		for i := 0; i < len(turns)-1; i++ {
 			history[i] = transcript(turns[i], detail)
+			count -= sizes[i]
+			sizes[i] = tokens.Text(history[i]) + 2
+			count += sizes[i]
 			body, ok = fit()
 			if ok {
 				break

@@ -12,6 +12,33 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// captureTurnPlugins names the packages a new turn freezes: the enabled
+// compatible inventory, or the bundled packages before the first inventory.
+func captureTurnPlugins(ctx context.Context, db *sql.Conn) ([]protocol.PluginReference, error) {
+	catalog, err := operations.Bundled()
+	if err != nil {
+		return nil, err
+	}
+	references := append([]protocol.PluginReference(nil), catalog.References...)
+	var initialized bool
+	if err := db.QueryRowContext(ctx, "SELECT plugin_defaults FROM node WHERE singleton=1").Scan(&initialized); err != nil {
+		return nil, err
+	}
+	if initialized {
+		infos, err := ReadPluginInfos(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		references = []protocol.PluginReference{}
+		for _, info := range infos {
+			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" {
+				references = append(references, protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision})
+			}
+		}
+	}
+	return references, nil
+}
+
 func ReadAgentRun(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationRun, error) {
 	v, e := readBody[protocol.ConversationRun](ctx, db, "SELECT body FROM agent_runs WHERE turn=?1", turn.String())
 	if e != nil {
@@ -94,26 +121,9 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return value, err
 	}
 	value.Kind = kind
-	catalog, err := operations.Bundled()
-	if err != nil {
+	var err error
+	if value.Plugins, err = captureTurnPlugins(ctx, db); err != nil {
 		return value, err
-	}
-	value.Plugins = append([]protocol.PluginReference(nil), catalog.References...)
-	var initialized bool
-	if err := db.QueryRowContext(ctx, "SELECT plugin_defaults FROM node WHERE singleton=1").Scan(&initialized); err != nil {
-		return value, err
-	}
-	if initialized {
-		infos, err := ReadPluginInfos(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		value.Plugins = []protocol.PluginReference{}
-		for _, info := range infos {
-			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" {
-				value.Plugins = append(value.Plugins, protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision})
-			}
-		}
 	}
 	if session.Delegation != nil {
 		return value, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")

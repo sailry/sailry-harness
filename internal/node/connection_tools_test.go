@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -214,6 +216,81 @@ func testConnectionTools(t *testing.T) {
 	case <-held.started:
 	case <-time.After(time.Minute):
 		t.Fatal("the held turn never reached its model")
+	}
+
+	// Every reference is validated before a turn is admitted.
+	desktop := t.TempDir()
+	if err := os.WriteFile(filepath.Join(desktop, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"desktop-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"desktop"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := node.plugins.manager.Install(ctx, desktop, "", "desktop-fixture")
+	if err != nil || len(fixture.Issues) != 0 {
+		t.Fatalf("desktop fixture is invalid: %+v, %v", fixture.Issues, err)
+	}
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := store.InstallPlugin(ctx, db, fixture, 0, true)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bound := config
+	bound.Resource = &protocol.ConnectionResource{Kind: "database", Data: shared.ID}
+	connection := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &bound}}).Data.(protocol.Session)
+	detached := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}).Data.(protocol.Session)
+	if len(session.Roles.Profiles) < 2 {
+		t.Fatalf("session roster = %+v", session.Roles)
+	}
+	target := func(kind string, data any) protocol.ConversationReference {
+		return protocol.ConversationReference{Target: protocol.ConversationReferenceTarget{Kind: kind, Data: data}, Label: kind}
+	}
+	text := func(value string) *string { return &value }
+	role := func(index int) *protocol.RoleReference {
+		return &protocol.RoleReference{ID: session.Roles.Profiles[index].ID, Revision: session.Roles.Profiles[index].Revision}
+	}
+	unknownSsh, unknownSession, unknownAttachment := protocol.NewSshID(), protocol.NewSessionID(), protocol.NewAttachmentID()
+	blank, long := target("file", text("note.txt")), target("file", text("note.txt"))
+	blank.Label, long.Label = " ", strings.Repeat("a", 513)
+	labels, roster := "references require distinct targets and bounded labels", "select one role from the frozen session roster"
+	for _, rejected := range []struct {
+		name       string
+		session    protocol.Session
+		references []protocol.ConversationReference
+		code       protocol.ErrorCode
+		message    string
+	}{
+		{"blank label", session, []protocol.ConversationReference{blank}, protocol.ErrorCodeInvalidRequest, labels},
+		{"long label", session, []protocol.ConversationReference{long}, protocol.ErrorCodeInvalidRequest, labels},
+		{"repeated target", session, []protocol.ConversationReference{target("file", text("note.txt")), target("file", text("note.txt"))}, protocol.ErrorCodeInvalidRequest, labels},
+		{"connection conversation", connection, []protocol.ConversationReference{target("file", text("note.txt"))}, protocol.ErrorCodePermissionDenied, "connection conversations only accept connection references"},
+		{"missing plugin", session, []protocol.ConversationReference{target("plugin", text("missing-plugin"))}, protocol.ErrorCodeInvalidRequest, "referenced plugin is disabled or unavailable"},
+		{"desktop plugin", session, []protocol.ConversationReference{target("plugin", text("desktop-fixture"))}, protocol.ErrorCodeInvalidRequest, "desktop-only plugins cannot be referenced by an agent"},
+		{"missing skill", session, []protocol.ConversationReference{target("skill", &protocol.ConversationReferenceTargetSkillPayload{Package: "code-review", Name: "missing"})}, protocol.ErrorCodeInvalidRequest, "referenced skill is unavailable in this plugin version"},
+		{"unreachable SSH", session, []protocol.ConversationReference{target("ssh", &unknownSsh)}, protocol.ErrorCodePermissionDenied, "referenced SSH connection is not available to this conversation"},
+		{"unreachable database", session, []protocol.ConversationReference{target("database", &protocol.ConversationReferenceTargetDatabasePayload{Connection: private.ID})}, protocol.ErrorCodePermissionDenied, "referenced database is not available to this conversation"},
+		{"table without database", session, []protocol.ConversationReference{target("database", &protocol.ConversationReferenceTargetDatabasePayload{Connection: shared.ID, Table: &protocol.DatabaseTable{Schema: "public", Name: "users"}})}, protocol.ErrorCodeInvalidRequest, "invalid database reference"},
+		{"parent path", session, []protocol.ConversationReference{target("file", text("../note.txt"))}, protocol.ErrorCodeInvalidRequest, "expected a normalized worktree-relative path"},
+		{"managed worktree path", session, []protocol.ConversationReference{target("directory", text(".sailry/worktrees/other"))}, protocol.ErrorCodePermissionDenied, "managed worktrees require their own file scope"},
+		{"role outside the roster", session, []protocol.ConversationReference{target("agent", &protocol.RoleReference{ID: protocol.NewRoleID(), Revision: 1})}, protocol.ErrorCodeInvalidRequest, roster},
+		{"two roles", session, []protocol.ConversationReference{target("agent", role(0)), target("agent", role(1))}, protocol.ErrorCodeInvalidRequest, roster},
+		{"missing session", session, []protocol.ConversationReference{target("session", &unknownSession)}, protocol.ErrorCodeNotFound, "session does not exist on this Node"},
+		{"session of another project", session, []protocol.ConversationReference{target("session", &detached.ID)}, protocol.ErrorCodeWrongTarget, "conversation belongs to another project"},
+		{"foreign attachment", session, []protocol.ConversationReference{target("attachment", &unknownAttachment)}, protocol.ErrorCodeInvalidRequest, "attachment references require an attachment of the same input"},
+	} {
+		turns := func() (count int) {
+			if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				return db.QueryRowContext(ctx, "SELECT count(*) FROM turns WHERE session=?1", rejected.session.ID.String()).Scan(&count)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			return count
+		}
+		before := turns()
+		response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{
+			Session: rejected.session.ID, ExpectedRevision: rejected.session.Revision, Message: protocol.ConversationInput{Text: "Use this", References: rejected.references},
+		}}))
+		if response.Fault == nil || response.Fault.Code != rejected.code || response.Fault.Message != rejected.message || turns() != before {
+			t.Fatalf("%s: fault %+v, %d turns before and %d after", rejected.name, response.Fault, before, turns())
+		}
 	}
 
 	inv := &store.AgentInvocation{Caller: node.ID()}

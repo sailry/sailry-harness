@@ -50,10 +50,14 @@ func (link *Link) writeFrame(ctx context.Context, stream contextStream, value an
 	return wire.Write(scopedWriter{scoped, stream}, value, false)
 }
 
+// writeReply bounds each frame separately, so a paged snapshot may take longer
+// than one frame deadline.
 func (link *Link) writeReply(ctx context.Context, stream contextStream, reply wire.Reply, compressed bool) error {
-	scoped, cancel := link.operation(ctx, true)
-	defer cancel()
-	return wire.WriteReply(scopedWriter{scoped, stream}, reply, compressed)
+	return wire.WriteReply(reply, func(frame wire.Reply) error {
+		scoped, cancel := link.operation(ctx, true)
+		defer cancel()
+		return wire.Write(scopedWriter{scoped, stream}, frame, compressed)
+	})
 }
 
 func copyDuplex(ctx context.Context, first, second Stream) error {

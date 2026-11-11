@@ -37,7 +37,6 @@ type Manager struct {
 	SkillsDirectoryURL string
 	repositoryMu       sync.Mutex
 	repositories       map[string][]packageEntry
-	registryArchives   map[string][]byte
 	skillPages         map[string]cachedSkillCatalog
 }
 
@@ -52,7 +51,7 @@ func NewManager(profile string) *Manager {
 	if resolved, err := filepath.EvalSymlinks(profile); err == nil {
 		profile = resolved
 	}
-	return &Manager{profile: profile, repositories: map[string][]packageEntry{}, registryArchives: map[string][]byte{}, skillPages: map[string]cachedSkillCatalog{}}
+	return &Manager{profile: profile, repositories: map[string][]packageEntry{}, skillPages: map[string]cachedSkillCatalog{}}
 }
 
 func (manager *Manager) source(directory, workingDirectory string) (string, error) {

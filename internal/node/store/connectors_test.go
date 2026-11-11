@@ -77,7 +77,7 @@ func TestConnectorLifecycleAndConsent(t *testing.T) {
 		current := &ConnectorBound{Origins: []string{"https://new.example.test"}, Targets: map[string]protocol.PluginMcpDefinition{
 			"server": {Kind: "streamable-http", Data: protocol.PluginMcpDefinitionStreamableHttpPayload{Url: "https://new.example.test/mcp", Headers: []string{"Authorization"}}},
 		}}
-		consent := connectorConsent(info.Summary.Name, previous, current)
+		consent := connectorConsent(previous, current)
 		if consent == nil || len(consent.Changes) != 2 || consent.Changes[0].Kind != "origins" || consent.Changes[1].Kind != "mcp" {
 			return fmt.Errorf("changed origins and MCP destinations did not require consent: %#v", consent)
 		}

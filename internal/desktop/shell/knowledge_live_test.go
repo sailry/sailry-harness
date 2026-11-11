@@ -8,12 +8,15 @@ import (
 )
 
 // testLiveKnowledge covers the viewer over pages a controller reads: the
-// notice hands over its citation, an invalid link never reaches the hook, and
-// Previous and Next are disabled at the ends and while a page loads.
+// notice is marked read and hands over its citation, an invalid link never
+// reaches the hook, and Previous and Next are disabled at the ends and while
+// a page loads.
 func testLiveKnowledge(t *testing.T) {
 	a, tt := newTester(t)
 	var opened []Source
 	var turns []bool
+	var read []string
+	a.Hooks.ReadNotice = func(id string) { read = append(read, id) }
 	page := &Reading{Title: "Frame notes", Host: "Studio", Path: "docs/frame.md", Position: i18n.In("en", "knowledge_page", "page", 2), Text: "first page", First: true}
 	page.Turn = func(forward bool) { turns = append(turns, forward) }
 	link := ""
@@ -39,6 +42,10 @@ func testLiveKnowledge(t *testing.T) {
 	tt.Frame()
 	if len(opened) != 1 || opened[0] != (Source{Collection: "docs", Chunk: "frame-motion", Revision: "3"}) || a.Reading() != page {
 		t.Fatalf("notice opened %v", opened)
+	}
+	// ACT-008: the click marks the notice read and closes the popover.
+	if len(read) != 1 || read[0] != "n5" || a.activity {
+		t.Fatalf("the notice click read %v, popover open %v", read, a.activity)
 	}
 	for _, text := range []string{"Frame notes", "Studio · docs/frame.md · Page 2", "first page"} {
 		if !tt.HasText(text) {

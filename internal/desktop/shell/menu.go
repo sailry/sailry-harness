@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
 // Website and Feedback are the Help menu's pages.
@@ -16,8 +17,8 @@ const (
 )
 
 // Menu is the native app menu in lang: App, File, Edit, View, Window and
-// Help, with the reference's items and keys, then the rail's features in
-// View. The app's items send their command's ID through send, which
+// Help, with the reference's items on the keys they have now (syncMenuKeys
+// follows a rebound one), then the rail's features in View. The app's items send their command's ID through send, which
 // cmd/sailry-desktop passes to Do: the menu takes their keys before the
 // window does. The system's items are MyGo's roles under the reference's
 // labels and keys: the menu binds Close Window, Hide, Hide Others, Minimize
@@ -28,10 +29,13 @@ const (
 // other way.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 	t := func(key string) string { return i18n.In(lang, key) }
+	a.menuKeys = nil
 	item := func(label, id string) *mygo.MenuItem {
 		it := &mygo.MenuItem{ID: id, Label: t(label), Click: func(*mygo.MenuItem, *mygo.Window) { send(id) }}
 		if s, ok := shortcutOf(id); ok {
-			it.Accelerator = Accelerator(s.Mods, s.Key)
+			key := menuKey{item: it, shortcut: s, chord: a.Settings.Keys.Chord(s)}
+			it.Accelerator = key.accelerator()
+			a.menuKeys = append(a.menuKeys, key)
 		}
 		return it
 	}
@@ -131,6 +135,34 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 			item("onboarding_title", "app.welcome"),
 			item("selection_title", "system.selection"),
 		}},
+	}
+}
+
+// menuKey is a menu item that shows its command's key: the user's, none
+// when it is off.
+type menuKey struct {
+	item     *mygo.MenuItem
+	shortcut Shortcut
+	chord    settings.Chord // the key the item shows
+}
+
+func (k menuKey) accelerator() string {
+	if k.chord.Key == 0 {
+		return ""
+	}
+	return Accelerator(k.chord.Mods, k.chord.Key)
+}
+
+// syncMenuKeys moves the menu's items to their commands' keys of now, each
+// frame: a rebound key leaves the menu with the old one otherwise, which the
+// menu takes before the window does.
+func (a *App) syncMenuKeys() {
+	for i := range a.menuKeys {
+		k := &a.menuKeys[i]
+		if now := a.Settings.Keys.Chord(k.shortcut); now != k.chord {
+			k.chord = now
+			k.item.SetAccelerator(k.accelerator())
+		}
 	}
 }
 

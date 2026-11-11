@@ -51,7 +51,7 @@ func (r *Runtime) projectConversations() {
 				continue
 			}
 			if id, err := protocol.ParseSessionID(cv.ID); err == nil {
-				if state, ok := owner.controller.Conversation(id); ok {
+				if state, ok := owner.conversationState(id); ok {
 					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
 					owner.enrichDetails(cv, state)
 					owner.enrichQueue(cv, state.Snapshot.Page.Queue)
@@ -68,7 +68,7 @@ func (r *Runtime) projectConversations() {
 		project(p.Conversations)
 	}
 	for id, release := range r.conversationWatches {
-		if state, ok := r.controller.Conversation(id); ok && state.Removed {
+		if state, ok := r.conversationState(id); ok && state.Removed {
 			release()
 			delete(r.conversationWatches, id)
 		}
@@ -83,7 +83,7 @@ func modelKey(provider protocol.ProviderID, model string) string {
 func (r *Runtime) projectModels() {
 	var models []composer.Model
 	var providers []viewmodel.Provider
-	for _, p := range r.controller.Snapshot().Providers {
+	for _, p := range r.snapshot().Providers {
 		providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name, Enabled: p.Enabled})
 		if !p.Enabled {
 			continue
@@ -153,7 +153,7 @@ func parseEffort(s string) protocol.Effort {
 
 func (r *Runtime) session(id string) (protocol.Session, bool) {
 	pending, admitted := r.admittedSessions[id]
-	for _, s := range r.controller.Snapshot().Sessions {
+	for _, s := range r.snapshot().Sessions {
 		if s.ID.String() == id {
 			if admitted && pending.Revision > s.Revision {
 				return pending, true
@@ -173,19 +173,20 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	} else if owner != r {
 		return owner.conversation(c, cv, comp)
 	}
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 		r.conversationSeen[id] = true
 		if _, ok := r.conversationWatches[id]; !ok {
-			release, err := r.controller.WatchConversation(r.ctx, id, r.changed)
+			release, err := r.controller.WatchConversation(r.ctx, id, r.conversationChanged)
 			if err == nil {
 				r.conversationWatches[id] = release
 			} else {
 				r.report(c, err, "session_changed")
 			}
 		}
-		if state, ok := r.controller.Conversation(id); ok {
+		if state, ok := r.conversationState(id); ok {
 			cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state, c.Locale())
+			cv.Animating = len(state.Snapshot.Drafts) > 0
 			r.bindReferences(cv.ID, state.Snapshot.Page)
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
 			r.enrichDetails(cv, state)
@@ -193,7 +194,11 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.projectConversationAssets(cv, state)
 			r.bindAttachmentSources(cv.ID, state.Snapshot.Page)
 			r.projectAttachmentImages(cv)
+			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
+	}
+	if edit, ok := r.conversationEdits[cv.ID]; ok && edit.comp == comp && comp.Draft == "" && len(comp.References) == 0 {
+		delete(r.conversationEdits, cv.ID)
 	}
 	for ti := range cv.Turns {
 		for bi := range cv.Turns[ti].Reply.Blocks {
@@ -372,7 +377,7 @@ func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig
 }
 
 func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (protocol.SessionConfig, uint64, error) {
-	for _, p := range r.controller.Snapshot().Providers {
+	for _, p := range r.snapshot().Providers {
 		if !p.Enabled {
 			continue
 		}
@@ -412,7 +417,7 @@ func (r *Runtime) rememberConfig(config protocol.SessionConfig) {
 }
 
 func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) ([]composer.Reference, []composer.Reference) {
-	snapshot := r.controller.Snapshot()
+	snapshot := r.snapshot()
 	locations := []composer.Reference{{ID: "host", Kind: composer.Location, Label: "local_host_name", Key: true, Icon: icons.Monitor}}
 	for _, project := range snapshot.Projects {
 		if project.ID.String() == comp.Project {
@@ -655,18 +660,32 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 		return
 	}
 	x.r.rememberConfig(config)
-	if !queue && x.replace(m, finish) {
-		return
-	}
 	if s, ok := x.r.session(x.cv.ID); ok {
+		edit, editing := x.r.conversationEdits[x.cv.ID]
+		if editing = editing && edit.comp == x.comp && !guide && !queue; !editing {
+			delete(x.r.conversationEdits, x.cv.ID)
+		}
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
 			if guide {
 				if run, ok := x.activeRun(); ok {
-					x.r.command(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, "session_changed", finish)
+					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, finish)
 				} else {
 					x.unavailable()
 				}
+				return
+			}
+			if editing {
+				x.turn(protocol.Command{Kind: "replace_turn", Data: protocol.CommandReplaceTurnPayload{Session: session.ID, Turn: edit.Turn, ExpectedHead: edit.Head, ExpectedHistoryRevision: edit.History, ExpectedRevision: session.Revision, Message: editedInput(edit.Input, input)}}, func(out protocol.Output, ok bool) {
+					// Only an unknown outcome keeps the edit for its retry.
+					if _, uncertain := x.r.turnRetries[x.cv.ID]; !uncertain {
+						delete(x.r.conversationEdits, x.cv.ID)
+					}
+					if ok {
+						_ = x.r.controller.RefreshConversation(x.r.ctx, session.ID)
+					}
+					finish(out, ok)
+				})
 				return
 			}
 			kind := "submit_turn"
@@ -675,7 +694,7 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 				kind = "queue_turn"
 				data = protocol.CommandQueueTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input}
 			}
-			x.r.command(protocol.Command{Kind: kind, Data: data}, "session_changed", finish)
+			x.turn(protocol.Command{Kind: kind, Data: data}, finish)
 		}
 		x.r.withComposerConfig(s, config, func(session protocol.Session) {
 			x.r.withComposerTeam(session, x.comp, submit)

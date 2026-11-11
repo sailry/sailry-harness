@@ -63,6 +63,8 @@ const (
 
 	modelsUIJuliaRepository = "ggml-org/Julia-1-GGUF"
 	modelsUIJuliaRevision   = "1e6b48a6983d7467f8eedc2cb0d21267b5fc052d"
+	// modelsUIScopeRepository is what the fixture's ModelScope search finds.
+	modelsUIScopeRepository = "sailry-fixture/Julia-1-GGUF"
 
 	modelsUISpeechRepository = "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
 	modelsUISpeechRevision   = "2365baeacb507f821a0c8120fcee3d484dba7a07"
@@ -197,6 +199,41 @@ func (hub *modelsUIHub) serve(writer http.ResponseWriter, request *http.Request)
 		hub.record(request, "search:"+query)
 		hub.mu.Unlock()
 		json.NewEncoder(writer).Encode(rows)
+	case path == "/openapi/v1/models":
+		// ModelScope's catalog search: one page with one repository of its own.
+		query := strings.ToLower(request.URL.Query().Get("search"))
+		hub.mu.Lock()
+		hub.record(request, "scope:"+query)
+		hub.mu.Unlock()
+		json.NewEncoder(writer).Encode(map[string]any{"success": true, "data": map[string]any{
+			"models": []map[string]string{{"id": modelsUIScopeRepository, "display_name": "Julia on ModelScope"}}, "total_count": 1, "page_number": 1, "page_size": 20}})
+	case path == "/openapi/v1/models/"+modelsUIScopeRepository:
+		json.NewEncoder(writer).Encode(map[string]any{"success": true, "data": map[string]any{
+			"default_branch": "master", "display_name": "Julia on ModelScope", "license": "apache-2.0"}})
+	case path == "/"+modelsUIScopeRepository+".git/info/refs":
+		// The Git ref advertisement pins the default branch to a commit.
+		hub.mu.Lock()
+		commit := hub.repositories[modelsUIJuliaRepository].commit
+		hub.mu.Unlock()
+		for _, line := range []string{"# service=git-upload-pack\n", "", commit + " refs/heads/master\x00multi_ack\n", ""} {
+			if line == "" {
+				fmt.Fprint(writer, "0000")
+			} else {
+				fmt.Fprintf(writer, "%04x%s", len(line)+4, line)
+			}
+		}
+	case path == "/api/v1/models/"+modelsUIScopeRepository+"/repo/files":
+		// The same GGUF file as the Hugging Face fixture, pinned per file.
+		hub.mu.Lock()
+		repository := hub.repositories[modelsUIJuliaRepository]
+		hub.mu.Unlock()
+		info, err := os.Stat(repository.local)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(writer).Encode(map[string]any{"Success": true, "Data": map[string]any{"Files": []map[string]any{
+			{"Type": "blob", "Path": repository.path, "Size": info.Size(), "Sha256": repository.sha256, "Revision": repository.commit}}}})
 	case strings.HasPrefix(path, "/api/v1/models/") && strings.HasSuffix(path, "/repo"):
 		name := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/models/"), "/repo")
 		query := request.URL.Query()
@@ -831,6 +868,29 @@ func TestModelSettingsUI(t *testing.T) {
 	})
 	if requests := hub.seen("search:julia"); len(requests) == 0 || requests[0].host != "huggingface.co" {
 		t.Fatalf("the library search asked %+v", requests)
+	}
+	// SLIB-005: the hub picker switches the search source. ModelScope is
+	// asked for the same query and its result replaces Hugging Face's;
+	// picking Hugging Face asks it again.
+	pickOption(window, "Source", "ModelScope")
+	settle(window, "ModelScope's result", modelsUIWait, func() bool {
+		row, _, visible := libraryRow(window, modelsUIScopeRepository)
+		return visible && row.Name == "Julia on ModelScope" && len(app.Settings.Library) == 1 && app.Settings.LibraryLoad.Loaded
+	})
+	if requests := hub.seen("scope:julia"); len(requests) != 1 || requests[0].host != "modelscope.cn" && requests[0].host != "www.modelscope.cn" {
+		t.Fatalf("the ModelScope search asked %+v", requests)
+	}
+	if _, _, visible := libraryRow(window, modelsUIJuliaRepository); visible {
+		t.Fatal("the Hugging Face result still shows under ModelScope")
+	}
+	searches := len(hub.seen("search:julia"))
+	pickOption(window, "Source", "Hugging Face")
+	settle(window, "Hugging Face's result again", modelsUIWait, func() bool {
+		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
+		return visible && row.Status == viewmodel.ModelMissing && len(app.Settings.Library) == 1 && app.Settings.LibraryLoad.Loaded
+	})
+	if requests := hub.seen("search:julia"); len(requests) != searches+1 || requests[searches].host != "huggingface.co" || len(hub.seen("scope:julia")) != 1 {
+		t.Fatalf("switching back to Hugging Face asked %+v", requests)
 	}
 	hub.stall(juliaKey, juliaInfo.Size()/2)
 	clickLibraryRow(window, modelsUIJuliaRepository, "Install")

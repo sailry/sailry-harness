@@ -58,7 +58,7 @@ func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int)
 		return content{}, nil
 	}
 	entry, err := tree.FindEntry(path)
-	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) {
+	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
 		return content{}, nil
 	}
 	if err != nil {

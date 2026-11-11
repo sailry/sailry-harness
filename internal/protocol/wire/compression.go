@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/binary"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -10,18 +11,32 @@ import (
 const compressedFlag uint32 = 1 << 31
 const minimumCompressedBytes = 1024
 
+// One codec serves every frame: EncodeAll and DecodeAll are safe for concurrent
+// use and neither starts a goroutine, so the codecs are never closed.
+var frameEncoder = sync.OnceValues(func() (*zstd.Encoder, error) {
+	return zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(1)))
+})
+
+var frameDecoder = sync.OnceValues(func() (*zstd.Decoder, error) {
+	return zstd.NewReader(nil,
+		zstd.WithDecoderConcurrency(0),
+		zstd.WithDecoderMaxMemory(uint64(protocol.MAX_FRAME_BYTES)),
+		zstd.WithDecoderMaxWindow(uint64(protocol.MAX_FRAME_BYTES)),
+		zstd.WithDecodeAllCapLimit(true),
+	)
+})
+
 func encode(data []byte, enabled bool) (uint32, []byte, error) {
 	if !validLength(len(data)) {
 		return 0, nil, invalid()
 	}
 	if enabled && len(data) >= minimumCompressedBytes {
-		encoder, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(1)), zstd.WithEncoderConcurrency(1))
+		encoder, err := frameEncoder()
 		if err != nil {
 			return 0, nil, invalid()
 		}
 		packed := encoder.EncodeAll(data, nil)
 		defer clear(packed)
-		encoder.Close()
 		if len(packed)+4 < len(data) {
 			payload := make([]byte, len(packed)+4)
 			binary.BigEndian.PutUint32(payload, uint32(len(data)))
@@ -58,16 +73,10 @@ func decode(prefix uint32, payload []byte, enabled bool, maximum int) ([]byte, e
 	if !validLength(declared) || declared > maximum {
 		return nil, invalid()
 	}
-	decoder, err := zstd.NewReader(nil,
-		zstd.WithDecoderConcurrency(1),
-		zstd.WithDecoderMaxMemory(uint64(protocol.MAX_FRAME_BYTES)),
-		zstd.WithDecoderMaxWindow(uint64(protocol.MAX_FRAME_BYTES)),
-		zstd.WithDecodeAllCapLimit(true),
-	)
+	decoder, err := frameDecoder()
 	if err != nil {
 		return nil, invalid()
 	}
-	defer decoder.Close()
 	decoded, err := decoder.DecodeAll(payload[4:], make([]byte, 0, declared))
 	if err != nil || len(decoded) != declared {
 		clear(decoded)

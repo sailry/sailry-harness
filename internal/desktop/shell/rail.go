@@ -161,7 +161,7 @@ func (a *App) rail(c *ui.Context) {
 		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), 36, a.search.open).
 			OnClick(func() { a.openSearch() })
 		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), 36, a.Page == SettingsPage).
-			OnClick(func() { a.Page = SettingsPage })
+			OnClick(func() { a.Navigate(SettingsPage) })
 	})
 }
 
@@ -280,7 +280,7 @@ func (a *App) hostPicker(c *ui.Context) {
 		for _, h := range a.Data.Hosts {
 			// No trailing Update: the host's page offers it, and the
 			// button's dot tells one is ready.
-			if m.Item(i18n.T(c, h.Name)).Checked(h.ID == a.Host).Chosen() {
+			if m.Item(a.hostName(c, h.Name)).Checked(h.ID == a.Host).Chosen() {
 				a.openHost(h.ID, false)
 			}
 		}

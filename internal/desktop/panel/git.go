@@ -527,7 +527,7 @@ func (pr *Project) gitDialogs(c *ui.Context) {
 	}
 	if cf := &v.confirm; cf.open {
 		// Destructive: the target named and the consequence said once.
-		if ui.AlertDialog(c.Key("git-confirm"), &cf.open, cf.title, cf.message+"\n"+cf.target,
+		if kit.AlertDialog(c.Key("git-confirm"), &cf.open, cf.title, cf.message+"\n"+cf.target,
 			i18n.T(c, "settings_cancel"), cf.title) == 1 {
 			if cf.run != nil {
 				cf.run(c)

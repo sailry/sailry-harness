@@ -94,46 +94,6 @@ func (files *Files) fileTarget(ctx context.Context, relative string, limit uint6
 
 func (target *FileTarget) Close() error { return target.parent.Close() }
 
-func (files *Files) ReadFileTarget(ctx context.Context, relative, expected string) (*FileTarget, string, error) {
-	if !validFileRevision(expected) {
-		return nil, "", fileFault(protocol.ErrorCodeInvalidRequest, "invalid file revision")
-	}
-	target, err := files.fileTarget(ctx, relative, protocol.MAX_EDIT_BYTES)
-	if err != nil {
-		return nil, "", err
-	}
-	file, err := openRegularFile(target.parent, baseFileName(relative))
-	if err != nil {
-		target.Close()
-		return nil, "", err
-	}
-	defer file.Close()
-	metadata, err := file.Stat()
-	if err != nil {
-		target.Close()
-		return nil, "", fileIOFault(err)
-	}
-	if fileReadonly(metadata) {
-		target.Close()
-		return nil, "", fileFault(protocol.ErrorCodePermissionDenied, "file is read-only")
-	}
-	text, err := boundedFileText(file, protocol.MAX_EDIT_BYTES, newFileControl(ctx))
-	if err != nil {
-		target.Close()
-		return nil, "", err
-	}
-	if text == nil {
-		target.Close()
-		return nil, "", fileFault(protocol.ErrorCodeInvalidRequest, "text file exceeds the inspection limit")
-	}
-	if contentRevision([]byte(*text)) != expected {
-		target.Close()
-		return nil, "", fileConflict()
-	}
-	target.original = &originalFile{revision: expected, identity: metadata, permissions: metadata.Mode()}
-	return target, *text, nil
-}
-
 func (files *Files) Save(ctx context.Context, relative, text string, expected *string) (protocol.FileWritten, error) {
 	if len(text) > protocol.MAX_FILE_BYTES || strings.IndexByte(text, 0) >= 0 || expected != nil && !validFileRevision(*expected) {
 		return protocol.FileWritten{}, fileFault(protocol.ErrorCodeInvalidRequest, "invalid file content or revision")
@@ -267,11 +227,12 @@ func (target *FileTarget) Write(source io.Reader, size uint64, revision string) 
 }
 
 func (target *FileTarget) validateParent() error {
-	current, err := OpenFiles(target.files.path, target.files.access)
+	root, err := acquireFileRoot(target.files.path)
 	if err != nil {
 		return err
 	}
-	defer current.Close()
+	defer root.Close()
+	current := Files{root: root, access: target.files.access}
 	rootID, err := current.root.Stat(".")
 	if err != nil {
 		return fileIOFault(err)

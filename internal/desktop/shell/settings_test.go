@@ -93,6 +93,24 @@ func TestShortcutRecorder(t *testing.T) {
 	if a.Settings.Keys.Recording() {
 		t.Fatalf("Escape did not cancel")
 	}
+	// SNAV-002: leaving the page by the rail ends the recording, so the
+	// window's keys and the menu's commands work again and the key is kept.
+	click(t, tt, kit.KeyText(ui.Cmd|ui.Shift, ui.KeyN))
+	clickButton(t, tt, i18n.In("en", "activity"))
+	tt.Frame()
+	if a.Page == SettingsPage || a.Settings.Keys.Recording() {
+		t.Fatalf("left on page %d, recording %v", a.Page, a.Settings.Keys.Recording())
+	}
+	open := a.NavOpen
+	tt.Key(ui.Cmd, ui.KeyB)
+	a.Do("page:files")
+	tt.Frame()
+	if a.NavOpen == open || a.Page != FilesPage {
+		t.Errorf("after leaving a recording: sidebar toggled %v, page %d", a.NavOpen != open, a.Page)
+	}
+	if s, ok := a.Settings.Keys.Bound(settings.Registry[0]); !ok || s.Mods != ui.Cmd|ui.Shift || s.Key != ui.KeyN {
+		t.Errorf("the abandoned recording changed the key: %+v %v", s, ok)
+	}
 }
 
 // A Node setting's save reports its outcome as a toast.
@@ -104,8 +122,9 @@ func TestSettingsSaveToasts(t *testing.T) {
 		t.Fatalf("no power switch: %q", tt.Texts())
 	}
 	tt.ClickAt(sw.Bounds.X+sw.Bounds.W/2, sw.Bounds.Y+sw.Bounds.H/2)
-	if !a.Settings.Power.Saved || !tt.HasText(i18n.In("en", "power_settings_saved")) {
-		t.Errorf("save not reported: %v %q", a.Settings.Power.Saved, tt.Texts())
+	// The preview's save commits the draft as the next revision and is Done.
+	if power := a.Settings.Power; !power.Saved || !power.Draft || power.Revision != 2 || !tt.HasText(i18n.In("en", "power_settings_saved")) {
+		t.Errorf("save not reported: %+v %q", power, tt.Texts())
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/localmodels/decision"
 	"github.com/sailry/sailry-harness/internal/localmodels/onnx"
@@ -31,19 +32,25 @@ func TestPackagedNativeLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("native directory: %s", directory)
+	// A probe linked like a release (-X …/internal/core.Default) takes the
+	// packaged-only path: sealed libraries, no SAILRY_IROH_LIB.
+	t.Logf("release build: %v", core.Release())
 	if err := onnx.Initialize(); err != nil {
 		t.Errorf("onnxruntime: %v", err)
 	}
 	if err := speech.Initialize(); err != nil {
 		t.Errorf("sherpa-onnx: %v", err)
 	}
-	if err := capture.Load(directory); err != nil {
+	if err := capture.Load(directory, core.Release()); err != nil {
 		t.Errorf("capture: %v", err)
 	}
 	if err := decision.Available(); err != nil {
 		t.Errorf("llama.cpp runtime: %v", err)
 	}
-	if err := iroh.LoadDefault(); err != nil {
+	if core.Release() {
+		t.Setenv("SAILRY_IROH_LIB", filepath.Join(t.TempDir(), "ignored"))
+	}
+	if err := iroh.LoadDefault(!core.Release()); err != nil {
 		t.Errorf("iroh: %v", err)
 	}
 	if helper, err := computer.Executable(); err != nil {

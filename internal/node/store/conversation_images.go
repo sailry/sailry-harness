@@ -63,13 +63,17 @@ func describeAgentImage(turn protocol.TurnID, worktree protocol.WorktreeID, entr
 }
 func projectAgentImages(ctx context.Context, db *sql.Conn, record canonical.Record, block canonical.Block, response *canonical.ToolResponse) ([]protocol.ConversationImage, error) {
 	values := []protocol.ConversationImage{}
-	run, err := ReadAgentRun(ctx, db, record.Turn)
-	if err != nil {
-		return nil, err
-	}
+	var worktree *protocol.WorktreeID
 	for i, asset := range agentImageAssets(response) {
 		if supportedAgentImage(asset) {
-			value, e := describeAgentImage(record.Turn, run.Worktree, record.ID, block.Index, uint64(i), asset)
+			if worktree == nil {
+				run, err := ReadAgentRun(ctx, db, record.Turn)
+				if err != nil {
+					return nil, err
+				}
+				worktree = &run.Worktree
+			}
+			value, e := describeAgentImage(record.Turn, *worktree, record.ID, block.Index, uint64(i), asset)
 			if e != nil {
 				return nil, e
 			}

@@ -130,6 +130,9 @@ type Workspace struct {
 	Groups []*Node `json:"groups,omitempty"`
 	// Active is the focused pane, whose group the main column shows.
 	Active Target `json:"-"`
+	// held are the groups as they were before Follow took out the panes
+	// that were not there, and shown is what that left (Follow).
+	held, shown []*Node
 }
 
 // Group returns the index of the group holding t, or -1 when t stands
@@ -248,6 +251,65 @@ func (w *Workspace) Prune(keep func(Target) bool) {
 			}
 		}
 	}
+}
+
+// Follow drops the panes keep refuses for now: one may come back, as the
+// session of a host that connects after the window opened, or of a profile
+// other than the one in use. The groups are held as they were, and while the
+// layout stays as Follow left it a pane that is there again returns to its
+// place and share. Any other change of the layout makes it the one to keep:
+// the held groups go.
+func (w *Workspace) Follow(keep func(Target) bool) {
+	if w.held != nil && !same(w.Groups, w.shown) {
+		w.held, w.shown = nil, nil
+	}
+	if w.held == nil {
+		away := false
+		for _, g := range w.Groups {
+			g.walk(func(t Target) { away = away || !keep(t) })
+		}
+		if !away {
+			return
+		}
+		w.held = copies(w.Groups)
+	}
+	next := Workspace{Groups: copies(w.held)}
+	next.Prune(keep)
+	if same(next.Groups, w.held) {
+		w.Groups, w.held, w.shown = next.Groups, nil, nil
+		return
+	}
+	if !same(next.Groups, w.Groups) {
+		w.Groups = next.Groups
+	}
+	w.shown = copies(w.Groups)
+}
+
+// Saved are the groups to keep for the next launch: the held ones while
+// Follow's layout stands, with the panes that are away.
+func (w *Workspace) Saved() []*Node {
+	if w.held != nil && same(w.Groups, w.shown) {
+		return w.held
+	}
+	return w.Groups
+}
+
+func copies(groups []*Node) []*Node {
+	out := make([]*Node, len(groups))
+	for i, g := range groups {
+		out[i] = clone(g)
+	}
+	return out
+}
+
+// same reports whether two lists of groups are the same trees with the same
+// shares.
+func same(a, b []*Node) bool {
+	return slices.EqualFunc(a, b, sameTree)
+}
+
+func sameTree(a, b *Node) bool {
+	return a.Target == b.Target && a.Axis == b.Axis && slices.Equal(a.Sizes, b.Sizes) && slices.EqualFunc(a.Children, b.Children, sameTree)
 }
 
 // remove takes t out of its group, normalizing it and dissolving a group
@@ -389,7 +451,7 @@ func Valid(n *Node) bool {
 // does a group sharing a target with an earlier one, and shares are made
 // to sum to 1.
 func (w *Workspace) Restore(groups []*Node) {
-	w.Groups = nil
+	w.Groups, w.held, w.shown = nil, nil, nil
 	for _, g := range groups {
 		if !Valid(g) || slices.ContainsFunc(g.Targets(), func(t Target) bool { return w.Group(t) >= 0 }) {
 			continue

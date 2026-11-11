@@ -93,7 +93,7 @@ func workspaceTransferDestination(command protocol.Command, destination string) 
 func (t *workspaceTransfer) prepare() {
 	source, from, to, move := workspaceTransferEntry(t.commands[t.index])
 	label := source.String()
-	for _, tree := range t.project.runtime.controller.Snapshot().Worktrees {
+	for _, tree := range t.project.runtime.snapshot().Worktrees {
 		if tree.ID == source {
 			label = path.Base(tree.Path)
 			break

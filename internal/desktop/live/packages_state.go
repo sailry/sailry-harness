@@ -254,6 +254,11 @@ func packageVersion(summary protocol.PluginSummary) string {
 	return fmt.Sprintf("%d/%s/%d", summary.Revision, summary.Digest, summary.SettingsRevision)
 }
 
+// samePackageVersion compares what packageVersion formats, for the per-frame checks.
+func samePackageVersion(first, second protocol.PluginSummary) bool {
+	return first.Revision == second.Revision && first.Digest == second.Digest && first.SettingsRevision == second.SettingsRevision
+}
+
 func (r *Runtime) projectPackages() {
 	state := r.packages
 	if r.localRuntime().packageOwner() != r {
@@ -261,7 +266,7 @@ func (r *Runtime) projectPackages() {
 	}
 	var packages []viewmodel.Package
 	var skills []viewmodel.Skill
-	for _, summary := range r.controller.Snapshot().Plugins {
+	for _, summary := range r.snapshot().Plugins {
 		if removed, exists := state.removed[summary.Name]; exists {
 			if summary.Revision <= removed {
 				continue
@@ -272,9 +277,8 @@ func (r *Runtime) projectPackages() {
 		if exists && (info.Summary.Revision > summary.Revision || info.Summary.Revision == summary.Revision && info.Summary.SettingsRevision > summary.SettingsRevision) {
 			summary = info.Summary
 		}
-		key := packageVersion(summary)
-		if !exists || packageVersion(info.Summary) != key {
-			if !state.reads[summary.Name] && state.failures[summary.Name] != key {
+		if !exists || !samePackageVersion(info.Summary, summary) {
+			if key := packageVersion(summary); !state.reads[summary.Name] && state.failures[summary.Name] != key {
 				r.readPackage(summary.Name, key, nil)
 			}
 			info = protocol.PluginInfo{Summary: summary}
@@ -503,6 +507,10 @@ func packageCommandKey(command protocol.Command) string {
 func (r *Runtime) packageCommand(command protocol.Command, done func(protocol.Output, bool)) {
 	key := packageCommandKey(command)
 	if r.busy["packages/"+key] {
+		// The command in flight answers its own caller; this one was not sent.
+		if done != nil {
+			done(protocol.Output{}, false)
+		}
 		return
 	}
 	r.busy["packages/"+key] = true

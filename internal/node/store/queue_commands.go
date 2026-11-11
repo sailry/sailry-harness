@@ -108,7 +108,7 @@ func readQueuedMessage(ctx context.Context, db *sql.Conn, turn protocol.TurnID) 
 }
 func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.ConversationQueue, error) {
 	value := protocol.DefaultConversationQueue()
-	if _, err := ReadSession(ctx, db, session); err != nil {
+	if err := requireSession(ctx, db, session); err != nil {
 		return value, err
 	}
 	err := db.QueryRowContext(ctx, "SELECT revision,paused FROM agent_queues WHERE session=?1", session.String()).Scan(&value.Revision, &value.Paused)

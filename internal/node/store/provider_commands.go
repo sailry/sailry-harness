@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"reflect"
 	"strings"
 	"time"
@@ -21,12 +20,19 @@ func SupportsProviderCommand(kind string) bool {
 }
 func providerPayload[T any](command protocol.Command) (T, error) {
 	var value T
-	raw, err := json.Marshal(command.Data)
-	if err != nil {
-		return value, err
-	}
-	err = json.Unmarshal(raw, &value)
+	err := decodeProviderData(command.Data, &value)
 	return value, err
+}
+
+func draftProvider(input protocol.ConversationDiscoveryDraft) protocol.ConversationProvider {
+	provider := protocol.DefaultConversationProvider()
+	provider.ID = input.Provider
+	provider.Api = input.Api
+	provider.Authentication = protocol.AuthenticationApiKey
+	provider.Endpoint = input.Endpoint
+	provider.Preset = input.Preset
+	provider.Credential = input.Credential
+	return provider
 }
 func currentProvider(ctx context.Context, db *sql.Conn, id protocol.ProviderID, revision *uint64) (*providerConfiguration, error) {
 	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", id.String())
@@ -110,8 +116,7 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 		switch source.Kind {
 		case "saved":
 			var input protocol.ConversationDiscoverySourceSavedPayload
-			raw, _ := json.Marshal(source.Data)
-			if err = json.Unmarshal(raw, &input); err != nil {
+			if err = decodeProviderData(source.Data, &input); err != nil {
 				return nil, err
 			}
 			saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
@@ -129,17 +134,10 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			}
 		case "draft":
 			var input protocol.ConversationDiscoveryDraft
-			raw, _ := json.Marshal(source.Data)
-			if err = json.Unmarshal(raw, &input); err != nil {
+			if err = decodeProviderData(source.Data, &input); err != nil {
 				return nil, err
 			}
-			provider := protocol.DefaultConversationProvider()
-			provider.ID = input.Provider
-			provider.Api = input.Api
-			provider.Authentication = protocol.AuthenticationApiKey
-			provider.Endpoint = input.Endpoint
-			provider.Preset = input.Preset
-			provider.Credential = input.Credential
+			provider := draftProvider(input)
 			work.Provider = &provider
 			work.Secret = input.Secret
 		default:
@@ -318,13 +316,7 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 				if err := decodeProviderData(source.Data, &input); err != nil {
 					return protocol.Output{}, nil, err
 				}
-				draft := protocol.DefaultConversationProvider()
-				draft.ID = input.Provider
-				draft.Api = input.Api
-				draft.Authentication = protocol.AuthenticationApiKey
-				draft.Endpoint = input.Endpoint
-				draft.Preset = input.Preset
-				draft.Credential = input.Credential
+				draft := draftProvider(input)
 				if err := bindProviderPreset(ctx, db, &draft, nil, true); err != nil {
 					return protocol.Output{}, nil, err
 				}
@@ -339,8 +331,7 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			}
 			if source.Kind == "saved" {
 				var input protocol.ConversationDiscoverySourceSavedPayload
-				raw, _ := json.Marshal(source.Data)
-				if err := json.Unmarshal(raw, &input); err != nil {
+				if err := decodeProviderData(source.Data, &input); err != nil {
 					return protocol.Output{}, nil, err
 				}
 				saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
@@ -358,8 +349,7 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 	case "list_channel_presets":
 		if prepared != nil && prepared.Output != nil {
 			var listing protocol.ConversationPresetsListing
-			raw, _ := json.Marshal(prepared.Output.Data)
-			if err := json.Unmarshal(raw, &listing); err != nil {
+			if err := decodeProviderData(prepared.Output.Data, &listing); err != nil {
 				return protocol.Output{}, nil, err
 			}
 			if listing.PartnersUnavailable {

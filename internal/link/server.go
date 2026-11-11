@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -26,7 +27,8 @@ func (link *Link) acceptWorker() {
 		}
 		connection, err := link.endpoint.Accept(link.ctx)
 		if err != nil {
-			if link.ctx.Err() != nil {
+			// A closed endpoint accepts nothing more, so its workers end.
+			if link.ctx.Err() != nil || errors.Is(err, iroh.ErrClosed) {
 				return
 			}
 			continue

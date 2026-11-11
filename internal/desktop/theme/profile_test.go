@@ -75,6 +75,29 @@ func TestThemeProfilePublication(t *testing.T) {
 	if err != nil || len(installed) != 1 || installed[0].Package.ID != "forest" {
 		t.Fatalf("uninstall affected another package: %v", err)
 	}
+	// A directory that is not its theme is left out and named; the valid
+	// theme beside it still comes back.
+	if err := os.Mkdir(filepath.Join(profile.Root, "broken"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := profile.Install(ctx, first, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(profile.Root, "coast"), filepath.Join(profile.Root, "renamed")); err != nil {
+		t.Fatal(err)
+	}
+	installed, err = profile.Installed(ctx)
+	if len(installed) != 1 || installed[0].Package.ID != "forest" {
+		t.Fatalf("an invalid theme changed the installed list: %d themes, %v", len(installed), err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "installed theme broken") || !strings.Contains(err.Error(), "installed theme renamed") {
+		t.Fatalf("invalid themes not named: %v", err)
+	}
+	for _, name := range []string{"broken", "renamed"} {
+		if err := os.RemoveAll(filepath.Join(profile.Root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if runtime.GOOS != "windows" {
 		outside := filepath.Join(t.TempDir(), "outside")
 		if err := os.Mkdir(outside, 0700); err != nil {

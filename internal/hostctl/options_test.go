@@ -2,6 +2,7 @@ package hostctl
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -96,6 +97,9 @@ func TestHostTaskOptions(t *testing.T) {
 		{[]string{"--internet", "--relay", "https://relay.example"}, false, false},
 		{[]string{"--bootstrap", "--pairing-service", "https://pair.example"}, false, false},
 		{[]string{"--relay", "https://one.example", "--relay", "https://two.example"}, true, false},
+		{[]string{"--relay", "https://relay.example/?token=1"}, false, false},
+		{[]string{"--relay", "https://relay.example/?"}, false, false},
+		{[]string{"--relay", "https://relay.example/#"}, false, false},
 		{[]string{"--pairing-service", "http://127.0.0.1:8080", "--telemetry", "off"}, true, false},
 		{[]string{"--pairing-service", "http://pair.example"}, false, false},
 		{[]string{"--pairing-service", "https://pair.example/path"}, false, false},
@@ -107,6 +111,19 @@ func TestHostTaskOptions(t *testing.T) {
 		}
 		if err == nil && !help && options.Profile == "" {
 			t.Fatal("service lost the shared default profile")
+		}
+	}
+	for _, row := range []struct {
+		args []string
+		want string
+	}{
+		{nil, os.Getenv("SAILRY_TELEMETRY")},
+		{[]string{"--telemetry", "on"}, os.Getenv("SAILRY_TELEMETRY")},
+		{[]string{"--telemetry", "off"}, "off"},
+	} {
+		options, _, err := ParseService(row.args)
+		if err != nil || options.Environment("SAILRY_TELEMETRY") != row.want || options.Environment("PATH") != os.Getenv("PATH") {
+			t.Fatalf("telemetry choice args=%v err=%v lookup=%q", row.args, err, options.Environment("SAILRY_TELEMETRY"))
 		}
 	}
 }

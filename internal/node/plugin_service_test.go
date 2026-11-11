@@ -4,14 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // Over 1 s: each Node start installs and verifies the bundled packages.
@@ -160,5 +165,162 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 				t.Fatalf("bootstrap changed preserved inventory: %#v", value)
 			}
 		}
+		// The installed package's settings scope, for the controller-only checks.
+		var scope protocol.PluginContext
+		t.Run("controller reads a saved secret slot", func(t *testing.T) {
+			source := t.TempDir()
+			for name, content := range map[string]string{
+				"plugin.json":                       `{"$schema":"` + plugins.ManifestSchema + `","name":"secret-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read"],"settings_schema":"dev.sailry.platform/settings.json","settings_page":{"navigation":{"label":"Settings"}}}}}`,
+				"dev.sailry.platform/settings.json": `{"$schema":"` + plugins.SettingsSchema + `","type":"object","properties":{"label":{"type":"string"},"token":{"type":"string","x-sailry-secret":{"origin":"https://api.example.test","header":"Authorization"}}},"additionalProperties":false}`,
+			} {
+				filename := filepath.Join(source, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filename, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			info, err := reopened.plugins.manager.Install(t.Context(), source, "", "secret-fixture")
+			if err != nil || info.Settings == nil {
+				t.Fatalf("secret package: %#v %v", info.Issues, err)
+			}
+			if err := reopened.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+				var err error
+				info, err = store.InstallPlugin(t.Context(), db, info, 0, true)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			read := func(reference protocol.PluginReference, field string, scope *protocol.PluginContext) (string, *protocol.Fault) {
+				request := protocol.NewRequest(reopened.ID(), protocol.Command{Kind: "read_plugin_secret", Data: protocol.CommandReadPluginSecretPayload{Package: reference, Field: field}})
+				request.Plugin = scope
+				accepted, err := reopened.Dispatch(t.Context(), reopened.ID(), request)
+				if err != nil {
+					return "", nodeFault(err).(*protocol.Fault)
+				}
+				result := <-accepted.Completion
+				if result.Fault != nil {
+					return "", result.Fault
+				}
+				if accepted.Receipt.Durable || result.Output.Kind != "plugin_secret" {
+					t.Fatalf("secret read: durable=%v output=%s", accepted.Receipt.Durable, result.Output.Kind)
+				}
+				raw, _ := json.Marshal(result.Output.Data)
+				return string(raw), nil
+			}
+			reference := plugins.PackageReference(info)
+			if value, fault := read(reference, "token", nil); fault != nil || value != "null" {
+				t.Fatalf("unsaved secret slot: %s %v", value, fault)
+			}
+			saved := commandFixture(t, reopened, protocol.Command{Kind: "save_plugin_settings", Data: protocol.CommandSavePluginSettingsPayload{
+				Package: reference, Values: map[string]json.RawMessage{},
+				Secrets: map[string]protocol.PluginSettingsSecretUpdate{"token": {Kind: "replace", Data: protocol.NewSecret("fixture-token")}},
+			}})
+			state, ok := dispatchPayload[protocol.PluginSettingsState](saved.Data)
+			if !ok || !slices.Contains(state.Configured, "token") {
+				t.Fatalf("saved settings: %#v", saved.Data)
+			}
+			if _, fault := read(reference, "token", nil); fault == nil || fault.Code != protocol.ErrorCodeRevisionConflict {
+				t.Fatalf("stale package reference read a secret: %v", fault)
+			}
+			if value, fault := read(state.Package, "token", nil); fault != nil || value != `"fixture-token"` {
+				t.Fatalf("saved secret slot: %s %v", value, fault)
+			}
+			for _, field := range []string{"label", "missing"} {
+				if _, fault := read(state.Package, field, nil); fault == nil || fault.Code != protocol.ErrorCodeInvalidRequest {
+					t.Fatalf("undeclared secret slot %q: %v", field, fault)
+				}
+			}
+			scope = protocol.DefaultPluginContext()
+			scope.Package = state.Package
+			scope.Surface.Kind = "settings"
+			if _, fault := read(state.Package, "token", &scope); fault == nil || fault.Code != protocol.ErrorCodePermissionDenied {
+				t.Fatalf("plugin action read credential contents: %v", fault)
+			}
+		})
+		t.Run("Host process signal keeps the listed identity", func(t *testing.T) {
+			signal := func(pid uint32, started uint64, scope *protocol.PluginContext) *protocol.Fault {
+				request := protocol.NewRequest(reopened.ID(), protocol.Command{Kind: "stop_host_process", Data: protocol.CommandStopHostProcessPayload{Pid: pid, StartedAtSecs: started}})
+				request.Plugin = scope
+				accepted, err := reopened.Dispatch(t.Context(), reopened.ID(), request)
+				if err != nil {
+					return nodeFault(err).(*protocol.Fault)
+				}
+				if !accepted.Receipt.Durable {
+					t.Fatal("process signal was not admitted durably")
+				}
+				return (<-accepted.Completion).Fault
+			}
+			for name, row := range map[string]struct {
+				pid  uint32
+				code protocol.ErrorCode
+			}{
+				"system":         {1, protocol.ErrorCodePermissionDenied},
+				"execution Node": {uint32(os.Getpid()), protocol.ErrorCodePermissionDenied},
+				"reused ID":      {uint32(os.Getppid()), protocol.ErrorCodeConflict},
+			} {
+				if fault := signal(row.pid, 0, nil); fault == nil || fault.Code != row.code {
+					t.Fatalf("%s: %v", name, fault)
+				}
+			}
+			if fault := signal(uint32(os.Getppid()), 0, &scope); fault == nil || fault.Code != protocol.ErrorCodePermissionDenied {
+				t.Fatalf("plugin action signalled a Host process: %v", fault)
+			}
+			sleep, err := exec.LookPath("sleep")
+			if err != nil || runtime.GOOS == "windows" {
+				return // Windows has no termination request.
+			}
+			child := exec.Command(sleep, "60")
+			if err := child.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer child.Process.Kill()
+			listed, err := process.NewProcess(int32(child.Process.Pid))
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := listed.CreateTime()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fault := signal(uint32(child.Process.Pid), uint64(created/1000)+1, nil); fault == nil || fault.Code != protocol.ErrorCodeConflict {
+				t.Fatalf("another start time signalled the process: %v", fault)
+			}
+			if fault := signal(uint32(child.Process.Pid), uint64(created/1000), nil); fault != nil {
+				t.Fatal(fault)
+			}
+			var exit *exec.ExitError
+			if err := child.Wait(); !errors.As(err, &exit) || exit.ExitCode() != -1 {
+				t.Fatalf("listed process was not terminated: %v", err)
+			}
+		})
+		t.Run("connector CLI keeps the Node's search path and home", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("the fixture commands are shell scripts")
+			}
+			declared := t.TempDir()
+			for _, name := range []string{"sh", "sailry-fixture-cli"} {
+				if err := os.WriteFile(filepath.Join(declared, name), []byte("#!/bin/sh\nprintf declared\n"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			home := ""
+			for _, entry := range reopened.environment.TerminalValues() {
+				if value, found := strings.CutPrefix(entry, "HOME="); found {
+					home = value
+				}
+			}
+			declaration := protocol.PluginConnectorAuthLocalCliPayload{Command: "sh", TimeoutMs: 5_000, MaxOutput: 1024,
+				Env: map[string]string{"PATH": declared, "HOME": declared, "FIXTURE": "kept"}}
+			output, err := reopened.runConnectorCLI(t.Context(), declaration, []string{"-c", `printf '%s|%s' "$HOME" "$FIXTURE"`})
+			if err != nil || string(output) != home+"|kept" {
+				t.Fatalf("declared search path or home reached the command: %q, %v", output, err)
+			}
+			declaration.Command = "sailry-fixture-cli"
+			if output, err := reopened.runConnectorCLI(t.Context(), declaration, nil); err == nil {
+				t.Fatalf("a command on the declared search path alone ran: %q", output)
+			}
+		})
 	})
 }

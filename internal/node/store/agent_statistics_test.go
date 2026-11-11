@@ -3,9 +3,11 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -16,7 +18,7 @@ func TestAgentStatistics(t *testing.T) {
 	for _, scenario := range []string{"membership_and_pricing", "unmetered_resets_context", "explicit_reset_estimates_growth", "summary_resets_context", "captured_budget", "observation_snapshots"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
-			storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 			ctx := t.Context()
 			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 				empty, err := ReadAgentStatistics(ctx, db, session.ID)
@@ -143,6 +145,26 @@ func TestAgentStatistics(t *testing.T) {
 				if scenario == "membership_and_pricing" {
 					if result.Cost == nil || result.Cost.UsdMicros != 357 || result.Cost.Responses != 1 || result.Observations.CacheRead == nil || *result.Observations.CacheRead != 2 {
 						t.Fatalf("session pricing = %#v", result)
+					}
+					status := protocol.DefaultConversationCatalogStatus()
+					status.Revision, status.UpdatedAtMs = 1, ptr(uint64(1234))
+					body, err := encode(status)
+					if err != nil {
+						return err
+					}
+					if _, err = db.ExecContext(ctx, "INSERT INTO model_catalog_status(id,body) VALUES(1,?1)", body); err != nil {
+						return err
+					}
+					query := protocol.DefaultUsageQuery()
+					query.StartMs, query.EndMs, query.Dimension = now.Add(-time.Hour).UnixMilli(), now.Add(time.Hour).UnixMilli(), protocol.UsageDimensionModel
+					output, err := ReadAgentCommand(ctx, db, node, protocol.Command{Kind: "read_usage", Data: &query})
+					if err != nil {
+						return fmt.Errorf("read_usage: %w", err)
+					}
+					usage, ok := output.Data.(protocol.UsageReport)
+					if !ok || output.Kind != "usage" || usage.Node != node || usage.Totals.Responses != 1 || usage.Totals.Tokens == nil || usage.Totals.Tokens.Input != 100 || usage.Totals.Tokens.Output != 20 ||
+						usage.Totals.Cost == nil || usage.Totals.Cost.UsdMicros != 357 || len(usage.Groups) != 1 || len(usage.Requests.Items) != 1 || usage.PricingUpdatedAtMs == nil || *usage.PricingUpdatedAtMs != 1234 {
+						t.Fatalf("usage report = %#v", output)
 					}
 					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
 						return err

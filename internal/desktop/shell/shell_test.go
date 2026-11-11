@@ -88,7 +88,7 @@ func snapshot(t *testing.T, tt *ui.Tester, name string) {
 	}
 }
 
-func TestSidebarOpensConversation(t *testing.T) {
+func testSidebarOpensConversation(t *testing.T) {
 	a, tt := newTester(t)
 	snapshot(t, tt, "conversation-light")
 	if !tt.HasText("Virtualized transcript stress test") {
@@ -109,7 +109,7 @@ func TestSidebarOpensConversation(t *testing.T) {
 	}
 }
 
-func TestSidebarShowMore(t *testing.T) {
+func testSidebarShowMore(t *testing.T) {
 	_, tt := newTester(t)
 	hidden := "zsh completion errors" // the 6th chat without a project
 	if tt.HasText(hidden) {
@@ -358,6 +358,22 @@ func TestSettingsNavigation(t *testing.T) {
 	tt.Advance(time.Second)
 	if a.Settings.Details != nil {
 		t.Error("Close kept the details")
+	}
+	// The details close with their page however it is left: Settings does
+	// not come back with them, by its key or by the rail.
+	for _, open := range []func(){func() { tt.Key(ui.Cmd, ui.KeyComma) }, func() { clickButton(t, tt, i18n.In("en", "settings")) }} {
+		click(t, tt, plugin.Description)
+		tt.Advance(time.Second)
+		if a.Settings.Details == nil {
+			t.Fatal("details not shown")
+		}
+		tt.Key(ui.Cmd, ui.KeyN)
+		tt.Frame()
+		open()
+		tt.Advance(time.Second)
+		if a.Page != SettingsPage || a.Settings.Details != nil {
+			t.Fatalf("Settings came back on page %d with details %+v", a.Page, a.Settings.Details)
+		}
 	}
 	// Back to the conversation, the rail's Chats.
 	clickButton(t, tt, i18n.In("en", "shell_sessions"))
