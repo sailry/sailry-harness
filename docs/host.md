@@ -51,9 +51,10 @@ host.MetricsPanel(c, st, h)          // right column
 The overview is 800 wide at most, centered, padded 24 with 24 between
 sections: the platform logo (40), name (20 semibold), `workspace_host_status`
 and the platform line; the first three forwards and Port forwarding, then
-Update host on a host updated from here and Remove pairing on a paired host
-(`Actions.Revoke`; `menu.go`): its confirmation names the host and the
-consequence once (`live_revoke_confirm`), and the button is disabled while
+Update host on a host updated from here. The page has no Remove pairing
+button ([removed-ui.md](removed-ui.md)): the rail menu's item opens its
+confirmation here (`Actions.Revoke`; `menu.go`), which names the host and
+the consequence once (`live_revoke_confirm`); the item is disabled while
 the removal runs (`Host.Revoking`). The live window binds it for every
 paired host (`Runtime.revokeHost`, the `SetTrust` Settings › Connections
 uses); a failure toasts, and a host whose pairing is removed leaves the
