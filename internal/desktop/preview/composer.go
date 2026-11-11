@@ -68,7 +68,7 @@ func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 		Files: entries(d), Readonly: false,
 	}
 	for _, h := range d.Hosts {
-		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Key: true, Local: h.Local})
+		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
 	}
 	for _, p := range d.Projects {
 		pr := composer.Project{ID: p.ID, Name: p.Name, Host: p.Host}

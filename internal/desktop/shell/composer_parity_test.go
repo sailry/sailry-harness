@@ -95,7 +95,7 @@ func control(tt *ui.Tester, name string) (ui.AccessInfo, bool) {
 }
 
 // composerParity are the composer's controls that follow the reference: the
-// packages' modes, the host control, a child session's tray, the queue row
+// packages' modes, the absent host choice, a child session's tray, the queue row
 // states, pasted and dropped files, /compact's focus and a stale reference.
 func composerParity(t *testing.T) {
 	t.Run("plugin modes", func(t *testing.T) {
@@ -175,35 +175,33 @@ func composerParity(t *testing.T) {
 		}
 	})
 
-	t.Run("host control", func(t *testing.T) {
-		draft := func(s *composer.State, ctx *composer.Context) { ctx.LocationLocked = false }
-		tt, comp, _ := composerWith(t, 960, draft)
-		local, remote := zh("local_host_name"), zh("remote_host_name")
-		if _, ok := control(tt, local); !ok {
-			t.Fatalf("no host control with two hosts: %q", tt.Texts())
-		}
-		settled(t, tt, "parity-host-control")
-		comp.Project, comp.Model = "sailry-go", "preview/model"
-		pressButton(t, tt, local)
-		settled(t, tt, "parity-host-menu")
-		click(t, tt, remote)
-		tt.Frame()
-		tt.Frame()
-		if comp.Host != "remote" || comp.Project != "" || comp.Model != "" {
-			t.Fatalf("choosing the remote host left host %q, project %q, model %q", comp.Host, comp.Project, comp.Model)
-		}
-		if _, ok := control(tt, remote); !ok {
-			t.Errorf("the control does not name the chosen host: %q", tt.Texts())
-		}
-		// A session stays on its host: the control names it and is disabled.
-		tt, _, _ = composerWith(t, 960, func(s *composer.State, ctx *composer.Context) { ctx.LocationLocked = true })
-		if b, ok := control(tt, local); !ok || !b.Disabled {
-			t.Errorf("a session's host control: %+v, found %v", b, ok)
-		}
-		// One host offers no choice: no control.
-		tt, _, _ = composerWith(t, 960, func(s *composer.State, ctx *composer.Context) { ctx.Hosts = ctx.Hosts[:1] })
-		if _, ok := control(tt, local); ok {
-			t.Error("a host control shows with one host")
+	// The composer has no host choice (docs/removed-ui.md): with two hosts
+	// offered, neither the context bar nor, below the icon width, the
+	// compact settings popover has a control named after one.
+	t.Run("no host control", func(t *testing.T) {
+		for _, width := range []int{960, 440} {
+			tt, _, _ := composerWith(t, width, func(s *composer.State, ctx *composer.Context) {
+				ctx.LocationLocked = false
+				if len(ctx.Hosts) < 2 {
+					t.Fatalf("the preview offers %d hosts, want two", len(ctx.Hosts))
+				}
+			})
+			if width == 440 {
+				for _, e := range tt.AccessAll() {
+					if e.Role == ui.RoleButton && strings.HasPrefix(e.Name, zh("composer_settings")) {
+						tt.ClickAt(e.Bounds.X+e.Bounds.W/2, e.Bounds.Y+e.Bounds.H/2)
+						break
+					}
+				}
+				tt.Frame()
+				tt.Advance(300 * time.Millisecond)
+				tt.Frame()
+			}
+			for _, name := range []string{zh("local_host_name"), zh("remote_host_name")} {
+				if _, ok := control(tt, name); ok || tt.HasText(name) {
+					t.Errorf("%d: the composer names the host %q: %q", width, name, tt.Texts())
+				}
+			}
 		}
 	})
 

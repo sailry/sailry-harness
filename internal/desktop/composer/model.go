@@ -184,12 +184,11 @@ type Queued struct {
 	Joining bool
 }
 
-// Host is a computer the conversation can run on.
+// Host is a computer the conversation can run on: execution-owner metadata.
+// The composer draws no host choice (docs/removed-ui.md).
 type Host struct {
-	ID   string
-	Name string
-	// Key says Name is an i18n key: the local host's and the preview's.
-	Key   bool
+	ID    string
+	Name  string
 	Local bool
 }
 

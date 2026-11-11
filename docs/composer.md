@@ -25,7 +25,7 @@ permission, model controls, dictation, send/stop) and the context bar
 |---|---|
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
-| `options.go` | Mode and permission menus (with the packages' modes), host, project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
+| `options.go` | Mode and permission menus (with the packages' modes), project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray |
@@ -59,7 +59,7 @@ rebuilt each frame from backend data.
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
 | `Context.Outgoing` | A queued or guiding message still on its way to the Host: the tray's last row, its actions disabled |
 | `Context.Child` | A subagent's session: no composer, a read-only queue tray |
-| `Context.Hosts`, `Host{ID, Name, Key, Local}` | The Hosts a draft can run on; with two or more the context bar shows the host control. `Key` marks `Name` as an i18n key |
+| `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker ([removed-ui.md](removed-ui.md)). The live window leaves it empty |
 | `Context.PluginModes`, `PluginMode{Key, Label, Description, Icon, Disabled, Selected}`, `Context.SelectMode` | The packages' conversation modes after the built-in ones; `SelectMode` takes a package mode's key or `code`, `plan`, `flagship` |
 | `Context.Compact(focus)` | `/compact` with the text after it; nil falls back to `Actions.Compact` |
 | `Context.Stale(reference)` | Whether a chosen command or skill is offered no more |
@@ -505,19 +505,14 @@ that project's first entry and reads that Node's available models and teams.
 Display names are labels, not routing identities. Existing admitted sessions
 keep their captured Node and location.
 
-The host control (`options.go` `hostMenu`, the reference's `host_control`)
-is the first control of the context bar and a row of the compact settings
-popover. It shows only when the draft can run on more than one Host:
-this computer and the paired Hosts whose connection is bound
-(`live/composer_context.go` `composerHosts`). Choosing a Host clears the
-project, worktree, model and team, so the draft goes to that Host's chats with
-its default model; the project menu then lists that Host's projects. A
-session's control names its Host and is disabled. A draft on another Host is
-offered that Host's providers and this desktop's, which the session is
-forwarded with (below); the model list names each provider's source
-(`chat_provider_source`: the Host's name, or `chat_config_desktop`), and a
-forwarded session's names its private provider `chat_provider_session` beside
-the Host's `chat_provider_node`.
+The composer has no Host selector and no location dialog
+([removed-ui.md](removed-ui.md)): a draft runs on its project's Node, and a
+chat without a project on the Host the shell opened it for (`App.Host`). A
+draft on another Host is offered that Host's providers and this desktop's,
+which the session is forwarded with (below); the model list names each
+provider's source (`chat_provider_source`: the Host's name, or
+`chat_config_desktop`), and a forwarded session's names its private provider
+`chat_provider_session` beside the Host's `chat_provider_node`.
 
 ### Modes of packages
 
@@ -686,7 +681,7 @@ worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
 `internal/desktop/shell/composer_parity_test.go`, run as steps of
 `TestComposerGuidesRunningTurn` and `TestCloseShortcut`: the packages' modes
-in the menu, the cycle and the compact popover; the host control; the queue
+in the menu, the cycle and the compact popover; the absent host choice; the queue
 row states and the outgoing row; a child session's tray; pasted files,
 pictures and text, dropped files and folders and the limit; `/compact` with a
 focus; the stale toast; the header's Search and overview buttons and the
@@ -696,7 +691,7 @@ they send (`compact_context` with its focus, `set_session_config` with the
 package's option, `guide_queued_turn`, the retried `remove_queued_turn`,
 `list_conversation_assets` and its paging, `stop_turn`, a child's
 `read_queued_turn` and `remove_queued_turn`); `testSessionForwarding` the
-host control and the provider source names; `testNativeAssistantSessions`
+provider source names and the absent host choice; `testNativeAssistantSessions`
 (`plugin_native_test.go`) an assistant panel's New and history.
 `auditSessionOverview` (`composer_parity_integration_test.go`, a step of
 `TestPluginUIIntegration`) opens the overview on a session of the real Node.

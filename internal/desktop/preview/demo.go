@@ -134,10 +134,6 @@ func DemoModels() []Model {
 func DemoComposer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := Composer(d, c, worktree)
 	ctx.Families, ctx.Teams = DemoFamilies, nil
-	// The hosts are the window's own: only the local one is named by a key.
-	for i := range ctx.Hosts {
-		ctx.Hosts[i].Key = ctx.Hosts[i].Name == "local_host_name"
-	}
 	if c.Session.ReadOnly {
 		// A subagent's session has no composer, only its queue's tray.
 		ctx.Readonly, ctx.Child = true, true

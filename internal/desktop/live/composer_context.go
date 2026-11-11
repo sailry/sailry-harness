@@ -77,20 +77,6 @@ func (r *Runtime) projectComposerModes(c *ui.Context, cv *viewmodel.Conversation
 	}
 }
 
-// composerHosts are the Hosts a draft can run on: this computer and the
-// paired ones whose connection is bound, with the draft's own even while it
-// is away so the control still names it.
-func (r *Runtime) composerHosts(comp *composer.State) []composer.Host {
-	root := r.localRuntime()
-	var hosts []composer.Host
-	for _, h := range root.App.Data.Hosts {
-		if h.Local || h.ID == comp.Host || root.runtimeFor(h.ID) != nil {
-			hosts = append(hosts, composer.Host{ID: h.ID, Name: h.Name, Key: h.Name == "local_host_name", Local: h.Local})
-		}
-	}
-	return hosts
-}
-
 func (r *Runtime) composerProjects() []composer.Project {
 	var projects []composer.Project
 	for _, p := range r.localRuntime().App.Data.Projects {
