@@ -326,7 +326,7 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 			// The overview's own secondary button, as New terminal beside it.
 			kit.SecondaryLook(view, button.Label(label)).Children(func() {
 				if entry.State.Loading {
-					ui.Spinner(view).Size(16, 16)
+					kit.Busy(view)
 				} else {
 					ui.Icon(view, icon).FontSize(16)
 				}
