@@ -121,6 +121,36 @@ func Secondary(c *ui.Context, label string) ui.Element {
 	return SecondaryLook(c, ui.ButtonBase(c).Label(label)).Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
 }
 
+// PrimaryBusy is Primary with its label, and while the operation it started
+// runs MyGo's spinner before the label and no press.
+func PrimaryBusy(c *ui.Context, label string, disabled, busy bool) ui.Element {
+	return Primary(c, label, disabled || busy).Busy(busy).Children(func() {
+		if busy {
+			ui.Spinner(c).Size(14, 14)
+		}
+		ui.Text(c, label).FontSize(14).SingleLine()
+	})
+}
+
+// BusyAction holds an Action's place while its operation runs: the spinner
+// for the icon, named by label, and no press.
+func BusyAction(c *ui.Context, label string) ui.Element {
+	return ui.ButtonBase(c).Label(label).Disabled(true).Busy(true).Size(28, 28).Shrink(0).Center().
+		Children(func() { ui.Spinner(c).Size(14, 14) })
+}
+
+// SecondaryBusy is Secondary while the operation it started runs: MyGo's
+// spinner before the label, as a plugin control shows its loading, and no
+// press until the operation ends.
+func SecondaryBusy(c *ui.Context, label string, busy bool) ui.Element {
+	return SecondaryLook(c, ui.ButtonBase(c).Label(label).Disabled(busy).Busy(busy)).Children(func() {
+		if busy {
+			ui.Spinner(c).Size(14, 14)
+		}
+		ui.Text(c, label).FontSize(14).SingleLine()
+	})
+}
+
 // SecondaryLook gives a button base Secondary's look, for a trigger with
 // content of its own (a MenuButton's label and caret).
 func SecondaryLook(c *ui.Context, b ui.Element) ui.Element {
@@ -145,6 +175,17 @@ func Danger(c *ui.Context, label string) ui.Element {
 		b.Background(p.Danger.Mix(p.Foreground, 0.12))
 	}
 	return b.Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+}
+
+// DangerBusy is Danger, and while the removal it started runs the spinner
+// before its label and no press.
+func DangerBusy(c *ui.Context, label string, busy bool) ui.Element {
+	return Danger(c, label).Disabled(busy).Busy(busy).Children(func() {
+		if busy {
+			ui.Spinner(c).Size(14, 14)
+		}
+		ui.Text(c, label).FontSize(14).SingleLine()
+	})
 }
 
 // Tone colors a badge or a status dot.

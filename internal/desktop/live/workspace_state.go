@@ -87,6 +87,7 @@ type workspaceProject struct {
 	release                  func()
 	initialized              bool
 	pendingFiles, pendingGit bool
+	gitRunning               int // Git actions sent and not yet answered
 }
 
 func (r *Runtime) initWorkspace() {
@@ -256,6 +257,7 @@ func (p *workspaceProject) actions() *panel.Actions {
 		GitHistory: p.gitHistoryPage,
 		PendingGit: p.pendingGitOperations,
 		Loading:    p.resourcesLoading,
+		GitBusy:    func() bool { return p.gitRunning > 0 },
 		Upload:     func(directory string) { p.runtime.UploadWorkspaceFiles(p.owner.ID, directory) },
 		PasteReady: func() bool { return len(p.runtime.workspace.clipboard.paths) > 0 },
 	}

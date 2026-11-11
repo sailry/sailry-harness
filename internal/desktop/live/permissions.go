@@ -272,6 +272,7 @@ func (r *Runtime) permissionsFrame() {
 	if root.App.Page != shell.SettingsPage || m.Section != settings.Permissions {
 		if state.visible {
 			state.visible, state.checking, state.pending = false, false, false
+			m.SetBusy(settings.BusyPermissions, false)
 			state.generation++
 			state.failed = false
 		}
@@ -313,6 +314,7 @@ func (r *Runtime) permissionsFrame() {
 		root.checkPermissions()
 	}
 	m.Permissions, m.PermissionActions = permissionRows(state.cards), &state.actions
+	m.SetBusy(settings.BusyPermissions, state.checking)
 }
 
 func (state *permissionState) apply(owner permissionCard, changes []permissionChange) {

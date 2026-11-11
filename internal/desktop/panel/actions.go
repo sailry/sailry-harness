@@ -37,6 +37,7 @@ type Actions struct {
 	// Loading reports whether the session's checkpoints (History) or
 	// documents (Documents) are being read.
 	Loading func(Kind) bool
+	GitBusy func() bool // a Git action is under way
 }
 type SearchQuery struct {
 	Query, Filter        string

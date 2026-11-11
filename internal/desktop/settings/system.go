@@ -27,6 +27,11 @@ func permissions(c *ui.Context, m *Model) {
 		}
 	}
 	kit.Group(c, "permissions", i18n.T(c, "permission_title"), "", func() {
+		if m.Busy[BusyPermissions] {
+			// Checking: the spinner in the icon's place, and no press.
+			kit.BusyAction(c.Key("check"), i18n.T(c, "permission_check"))
+			return
+		}
 		kit.Action(c.Key("check"), icons.Reload, i18n.T(c, "permission_check"), false).OnClick(act(func(a *PermissionActions) { a.Check() }))
 	}, func() {
 		kit.Card(c, func() {

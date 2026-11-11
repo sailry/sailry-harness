@@ -348,8 +348,11 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 				}
 				if it.action != "" {
 					fn := it.act
-					GhostLook(c, ui.ButtonBase(c).Label(it.action), false).Height(20).PaddingX(6).Shrink(0).
-						Children(func() { ui.Text(c, it.action).FontSize(12) }).OnClick(func() { ch.act = fn })
+					// Clicked, not OnClick: the menu reads ch in this build.
+					if GhostLook(c, ui.ButtonBase(c).Label(it.action), false).Height(20).PaddingX(6).Shrink(0).
+						Children(func() { ui.Text(c, it.action).FontSize(12) }).Clicked() {
+						ch.act = fn
+					}
 				}
 				if it.checked && o.CheckRight {
 					ui.Icon(c, icons.Check).FontSize(12).Shrink(0)

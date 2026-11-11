@@ -43,7 +43,11 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 			b.Disabled(!pr.gitWritable())
 			kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "git_actions"), "", 28, false)
 		}, func(m *kit.Menu) { fill(c, m, g.root()) }, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
-		kit.IconButton(c.Key("refresh"), icons.RotateCw, i18n.T(c, "git_refresh"), 28, false).OnClick(func() { pr.refresh(c) })
+		if pr.gitBusy() {
+			kit.BusyAction(c.Key("refresh"), i18n.T(c, "git_refresh"))
+		} else {
+			kit.IconButton(c.Key("refresh"), icons.RotateCw, i18n.T(c, "git_refresh"), 28, false).OnClick(func() { pr.refresh(c) })
+		}
 	})
 	if pr.gitEmpty(c, true) {
 		pr.gitDialogs(c)

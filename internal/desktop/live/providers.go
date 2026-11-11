@@ -25,7 +25,9 @@ func (r *Runtime) initProviders() {
 		Available: r.controller.Connected,
 		SignIn:    r.beginProviderLogin, SubmitLogin: r.submitProviderLogin, CancelLogin: r.cancelProviderLogin,
 		RefreshCatalog: func() {
+			r.App.Settings.SetBusy(settings.BusyCatalog, true)
 			r.command(protocol.Command{Kind: "refresh_model_catalog"}, "provider_catalog_failed", func(_ protocol.Output, ok bool) {
+				r.App.Settings.SetBusy(settings.BusyCatalog, false)
 				if ok {
 					r.readProviders()
 				}

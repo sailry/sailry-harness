@@ -137,7 +137,7 @@ func portDialogs(c *ui.Context, s *State, h *Host, actions Actions) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pk.adding = false })
 			create := i18n.T(c, "port_create")
-			kit.Primary(c.Key("create"), create, false).Disabled(pk.pending).Children(func() { ui.Text(c, create).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("create"), create, false, pk.pending).OnClick(func() {
 				x, problem := AddPort(h.Ports, pk.remote, pk.local)
 				if problem != "" {
 					kit.Toast(c, kit.Failed, i18n.T(c, problem))

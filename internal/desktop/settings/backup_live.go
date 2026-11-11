@@ -163,6 +163,6 @@ func restoreDialog(c *ui.Context, m *Model) {
 					d.restoring, d.records, d.restore = false, false, BackupRestore{}
 				}
 			})
-		})
+		}, m.Backup.Pending)
 	}).Width(min(560, width(c)-48)).Label(title)
 }

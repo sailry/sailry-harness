@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"errors"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -30,11 +31,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// firstRunTransport records the kind of every command the desktop sends.
+// firstRunTransport records the kind of every command the desktop sends. A
+// kind in hold is not forwarded: it waits for its gate and then fails.
 type firstRunTransport struct {
 	link.Transport
 	mu    *sync.Mutex
 	kinds *[]string
+	hold  map[string]chan struct{}
 }
 
 func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
@@ -45,6 +48,13 @@ func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Reques
 	t.mu.Lock()
 	*t.kinds = append(*t.kinds, name)
 	t.mu.Unlock()
+	if gate := t.hold[name]; gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+		return link.Admission{}, errors.New("held command released")
+	}
 	return t.Transport.Dispatch(ctx, request)
 }
 
@@ -61,7 +71,10 @@ func firstRun(t *testing.T) {
 	defer owner.Stop(context.Background())
 	var mu sync.Mutex
 	var kinds []string
-	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds})
+	// The catalog refresh would ask the network: it is held, then fails.
+	refresh := make(chan struct{})
+	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds,
+		hold: map[string]chan struct{}{"refresh_model_catalog": refresh}})
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +265,39 @@ func firstRun(t *testing.T) {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
 	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent)
+
+	// Model data's Update is busy from the press until the Node answers: a
+	// second press sends nothing, and the answer gives the button back.
+	update := func() ui.AccessInfo {
+		t.Helper()
+		info, ok := tester.AccessByRole(ui.RoleButton, i18n.In("zh-CN", "provider_catalog_update"))
+		if !ok {
+			t.Fatalf("no Update button: %q", tester.Texts())
+		}
+		return info
+	}
+	press := func() {
+		info := update()
+		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		tester.Frame()
+		run(200 * time.Millisecond)
+	}
+	if info := update(); info.Busy || info.Disabled {
+		t.Fatalf("Update is busy before a press: %+v", info)
+	}
+	press()
+	if info := update(); !info.Busy || !info.Disabled || count("refresh_model_catalog") != 1 {
+		t.Fatalf("the pressed Update is %+v after %d refreshes", info, count("refresh_model_catalog"))
+	}
+	press()
+	if count("refresh_model_catalog") != 1 {
+		t.Fatalf("the busy Update sent %d refreshes", count("refresh_model_catalog"))
+	}
+	close(refresh)
+	settle()
+	if info := update(); info.Busy || info.Disabled || count("refresh_model_catalog") != 1 {
+		t.Fatalf("the finished Update is %+v after %d refreshes", info, count("refresh_model_catalog"))
+	}
 }
 
 // firstRunChinese shows the first-run window in Chinese: the draft without a

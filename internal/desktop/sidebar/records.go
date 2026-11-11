@@ -11,6 +11,7 @@ import (
 
 type recordsState struct {
 	open, pending bool
+	opening       string // the record being opened
 	project       string
 	choose        func(*viewmodel.Conversation, func(bool))
 }
@@ -41,12 +42,16 @@ func (s *State) recordsDialog(c *ui.Context) {
 					kit.Ghost(c.Key(cv.ID), Title(c, cv), false).FillWidth().Height(40).PaddingX(12).Gap(8).Disabled(records.pending).Children(func() {
 						ui.Icon(c, icon).FontSize(16).TextColor(palette.MutedForeground)
 						ui.Text(c, Title(c, cv)).FontSize(14).Grow(1).Shrink(1).SingleLine()
-						ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(palette.MutedForeground)
+						if records.pending && records.opening == cv.ID {
+							ui.Spinner(c).Size(14, 14)
+						} else {
+							ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(palette.MutedForeground)
+						}
 					}).OnClick(func() {
 						if records.choose == nil {
 							return
 						}
-						records.pending = true
+						records.pending, records.opening = true, cv.ID
 						records.choose(cv, func(ok bool) {
 							records.pending = false
 							if ok {

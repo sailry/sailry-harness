@@ -419,6 +419,12 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 		}
 		return protocol.Session{}, false
 	}
+	// working marks the action name as under way until the returned func,
+	// a submission's finished, runs.
+	working := func(name string) func(error) {
+		r.App.Settings.SetBusy(settings.BusyBackup+name, true)
+		return func(error) { r.App.Settings.SetBusy(settings.BusyBackup+name, false) }
+	}
 	picker := func(key string) {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
 	}
@@ -463,7 +469,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 		Now: func() {
 			if owner := ready(); owner != nil {
 				command := protocol.Command{Kind: "export_backup", Data: protocol.CommandExportBackupPayload{ExpectedRevision: owner.backupSettings.saved.Revision}}
-				owner.submitBackup(command, "backup_exported", backupFailure, nil)
+				owner.submitBackup(command, "backup_exported", backupFailure, working("now"))
 			}
 		},
 		Import: func(selected func(string)) {
@@ -515,7 +521,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			if owner := ready(); owner != nil {
 				if session, found := session(id); found {
 					command := protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: session.Revision, Archived: false}}
-					owner.submitBackup(command, "backup_unarchived", backupSessionFailure, nil)
+					owner.submitBackup(command, "backup_unarchived", backupSessionFailure, working("unarchive/"+id))
 				}
 			}
 		},
@@ -523,7 +529,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			if owner := ready(); owner != nil {
 				if session, found := session(id); found {
 					command := protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: session.Revision}}
-					owner.submitBackup(command, "backup_deleted", backupSessionFailure, nil)
+					owner.submitBackup(command, "backup_deleted", backupSessionFailure, working("delete/"+id))
 				}
 			}
 		},
@@ -531,7 +537,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			if owner := ready(); owner != nil {
 				if expected := backupRevisions(owner.controller.Snapshot().Sessions, false); len(expected) != 0 {
 					command := protocol.Command{Kind: "archive_sessions", Data: protocol.CommandArchiveSessionsPayload{Expected: expected}}
-					owner.submitBackup(command, "backup_archived", backupSessionFailure, nil)
+					owner.submitBackup(command, "backup_archived", backupSessionFailure, working("archive"))
 				}
 			}
 		},
@@ -539,7 +545,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			if owner := ready(); owner != nil {
 				if expected := backupRevisions(owner.controller.Snapshot().Sessions, true); len(expected) != 0 {
 					command := protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: expected}}
-					owner.submitBackup(command, "backup_deleted", backupSessionFailure, nil)
+					owner.submitBackup(command, "backup_deleted", backupSessionFailure, working("delete"))
 				}
 			}
 		},
@@ -606,10 +612,12 @@ func (r *Runtime) downloadBackup(path string) {
 	s.busy = r.async(func() {
 		err := r.exportBackup(r.ctx, path, revision)
 		r.enqueue(func(c *ui.Context) {
+			r.App.Settings.SetBusy(settings.BusyBackup+"export", false)
 			s.busy, s.stale = false, true
 			r.backupTransferEnded(c, err, "backup_exported")
 		})
 	})
+	r.App.Settings.SetBusy(settings.BusyBackup+"export", s.busy)
 }
 
 func (r *Runtime) exportBackup(ctx context.Context, path string, revision uint64) error {

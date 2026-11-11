@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"image"
 	"image/png"
@@ -1814,6 +1815,246 @@ func TestExtensions(t *testing.T) {
 			tt.SetPreferences(ui.Preferences{ReduceTransparency: true})
 		}
 	})
+	// A details dialog's Close, pressed with the pointer, closes it.
+	t.Run("details close", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			dictation(c, m)
+			libraryDialogs(c, m)
+		}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		clickButton(t, tt, i18n.In("en", "knowledge_model_details"))
+		if m.info == nil {
+			t.Fatal("a model's Details did not open its dialog")
+		}
+		tt.Advance(time.Second)
+		clickButton(t, tt, i18n.In("en", "close"))
+		if m.info != nil {
+			t.Error("Close left the model's details open")
+		}
+		tt.Advance(time.Second)
+		m.library.info = m.Library[0].ID
+		tt.Frame()
+		tt.Advance(time.Second)
+		clickButton(t, tt, i18n.In("en", "close"))
+		if m.library.info != "" {
+			t.Error("Close left the library model's details open")
+		}
+	})
+	// A button whose operation runs is busy and takes no second press; the
+	// operation's end gives it back.
+	t.Run("pending buttons", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		s := &State{Model: m}
+		sent := map[string]int{}
+		start := func(op string) { sent[op]++; m.SetBusy(op, true) }
+		m.ProviderActions = ProviderActions{RefreshCatalog: func() { start(BusyCatalog) }}
+		m.PackageActions = &PackageActions{CheckUpdates: func(kind viewmodel.PackageKind) {
+			if kind == preview.KindSkill {
+				start(BusySkillUpdates)
+			} else {
+				start(BusyPluginUpdates)
+			}
+		}}
+		m.AppearanceActions = &AppearanceActions{CheckUpdates: func() { start(BusyThemes) }}
+		m.PermissionActions = &PermissionActions{Check: func() { start(BusyPermissions) }}
+		m.ResetTelemetry = func() { m.Telemetry.Pending = true; start(BusyTelemetry) }
+		m.SendDiagnostics = func() { m.Telemetry.Pending = true; start(BusyDiagnostics) }
+		var dark theme.Mode
+		var name string
+		var effects bool
+		var surfaces theme.Surfaces
+		data := preview.Load()
+		for _, x := range []struct {
+			section   Section
+			label, op string
+		}{
+			{Providers, "provider_catalog_update", BusyCatalog},
+			{Plugins, "plugins_check_updates", BusyPluginUpdates},
+			{Skills, "plugins_check_updates", BusySkillUpdates},
+			{Appearance, "plugins_check_updates", BusyThemes},
+			{Permissions, "permission_check", BusyPermissions},
+			{General, "telemetry_reset_action", BusyTelemetry},
+			{General, "telemetry_send_action", BusyDiagnostics},
+		} {
+			s.Section = x.section
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				ui.Scroll(c).Fill().Children(func() { Page(c, s, data, Look{Theme: &name, Mode: &dark, Effects: &effects, Surfaces: &surfaces}) })
+			}, 1100, 2400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+			tt.SetLocale("en")
+			tt.Frame()
+			label := i18n.In("en", x.label)
+			if b := pressButton(t, tt, label); !b.Busy || !b.Disabled || sent[x.op] != 1 {
+				t.Errorf("%s: the pressed %s is busy %v, disabled %v after %d requests", x.section, label, b.Busy, b.Disabled, sent[x.op])
+			}
+			if pressButton(t, tt, label); sent[x.op] != 1 {
+				t.Errorf("%s: the busy %s started %d operations", x.section, label, sent[x.op])
+			}
+			m.SetBusy(x.op, false)
+			m.Telemetry.Pending = false
+			tt.Frame()
+			if b := findButton(t, tt, label); b.Busy || b.Disabled {
+				t.Errorf("%s: the finished %s stayed busy %v, disabled %v", x.section, label, b.Busy, b.Disabled)
+			}
+		}
+		page := func(section Section) *ui.Tester {
+			s.Section = section
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				ui.Scroll(c).Fill().Children(func() { Page(c, s, data, Look{Theme: &name, Mode: &dark, Effects: &effects, Surfaces: &surfaces}) })
+			}, 1100, 2400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+			tt.SetLocale("en")
+			tt.Frame()
+			return tt
+		}
+		count := func(tt *ui.Tester, match func(ui.AccessInfo) bool) (n int) {
+			for _, x := range tt.AccessAll() {
+				if match(x) {
+					n++
+				}
+			}
+			return n
+		}
+		// A plugin's update under way puts the spinner in its card's action,
+		// holds its switch and makes Update all busy; nothing is sent twice.
+		var updated []string
+		m.PackageActions.Update = func(ids []string) {
+			for _, id := range ids {
+				updated = append(updated, id)
+				m.SetBusy(BusyPackage+id, true)
+			}
+		}
+		m.checked = true
+		tt := page(Plugins)
+		update, all := i18n.In("en", "plugins_update_available"), i18n.In("en", "plugins_update_all")
+		offered := func(x ui.AccessInfo) bool { return x.Role == ui.RoleButton && x.Name == update }
+		before := count(tt, offered)
+		if before == 0 {
+			t.Fatalf("no plugin offers an update: %q", tt.Texts())
+		}
+		clickButton(t, tt, update)
+		if len(updated) != 1 || count(tt, offered) != before-1 {
+			t.Fatalf("a card's update sent %q and left %d of %d update buttons", updated, count(tt, offered), before)
+		}
+		var plugin string
+		for _, x := range m.Packages {
+			if x.ID == updated[0] {
+				plugin = x.Name
+			}
+		}
+		if count(tt, func(x ui.AccessInfo) bool { return x.Role == ui.RoleButton && x.Name == plugin && x.Busy && x.Disabled }) != 1 {
+			t.Errorf("the updating %s shows no busy action", plugin)
+		}
+		if count(tt, func(x ui.AccessInfo) bool {
+			return x.Name == i18n.In("en", "plugins_enabled")+" "+plugin && x.Disabled
+		}) != 1 {
+			t.Errorf("the updating %s kept its switch", plugin)
+		}
+		if b := pressButton(t, tt, all); !b.Busy || !b.Disabled || len(updated) != 1 {
+			t.Errorf("Update all beside a running update is busy %v, disabled %v and sent %q", b.Busy, b.Disabled, updated)
+		}
+		m.SetBusy(BusyPackage+updated[0], false)
+		tt.Frame()
+		if b := findButton(t, tt, all); b.Busy || b.Disabled || count(tt, offered) != before {
+			t.Errorf("the finished update left Update all busy %v, disabled %v, %d update buttons", b.Busy, b.Disabled, count(tt, offered))
+		}
+		// A backup that runs: its action is busy and takes no second press.
+		m.Backup.Saved = BackupTarget{Tab: 2, Directory: "/backups", PassphraseSet: true}
+		m.BackupActions = &BackupActions{Now: func() { start(BusyBackup + "now"); m.Backup.Pending = true }}
+		tt = page(Backup)
+		now := i18n.In("en", "backup_now")
+		if b := pressButton(t, tt, now); !b.Busy || !b.Disabled || sent[BusyBackup+"now"] != 1 {
+			t.Errorf("the pressed backup is busy %v, disabled %v after %d requests", b.Busy, b.Disabled, sent[BusyBackup+"now"])
+		}
+		if pressButton(t, tt, now); sent[BusyBackup+"now"] != 1 {
+			t.Errorf("the busy backup started %d operations", sent[BusyBackup+"now"])
+		}
+		m.SetBusy(BusyBackup+"now", false)
+		m.Backup.Pending = false
+		tt.Frame()
+		if b := findButton(t, tt, now); b.Busy || b.Disabled {
+			t.Errorf("the finished backup stayed busy %v, disabled %v", b.Busy, b.Disabled)
+		}
+	})
+	// A list row with no action is not a button and takes no hover style;
+	// one with an action is, and does.
+	t.Run("plain rows", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		role := m.Roles[0]
+		m.teamEdit = teamEditor{open: true, def: true, team: preview.Team{Name: "Default", Members: []string{role.ID}}}
+		var clicked bool
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			ui.Column(c).Width(400).Children(func() { listRow{onClick: func() { clicked = true }}.row(c, "action", "Action") })
+			teamDialog(c, m)
+		}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == role.Name {
+				t.Errorf("the Default team's member row is a button: %+v", x)
+			}
+		}
+		box, ok := tt.Find(role.Name)
+		if !ok {
+			t.Fatalf("no member row: %q", tt.Texts())
+		}
+		tt.Move(2, 890)
+		tt.Frame()
+		idle := bytes.Clone(tt.Image().Pix)
+		tt.Move(box.X+box.W+40, box.Y+box.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+		if !bytes.Equal(idle, tt.Image().Pix) {
+			t.Error("a member row with no action changed under the pointer")
+		}
+		m.teamEdit = teamEditor{}
+		tt.Move(2, 890)
+		tt.Frame()
+		tt.Advance(time.Second)
+		idle = bytes.Clone(tt.Image().Pix)
+		b := findButton(t, tt, "Action")
+		tt.Move(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+		if bytes.Equal(idle, tt.Image().Pix) {
+			t.Error("a row with an action shows no hover style")
+		}
+		if clickButton(t, tt, "Action"); !clicked {
+			t.Error("a row's action did not run")
+		}
+	})
+}
+
+// findButton is the lowest button of that name.
+func findButton(t *testing.T, tt *ui.Tester, name string) (found ui.AccessInfo) {
+	t.Helper()
+	for _, x := range tt.AccessAll() {
+		if x.Role == ui.RoleButton && x.Name == name && x.Bounds.Y >= found.Bounds.Y {
+			found = x
+		}
+	}
+	if found.Name == "" {
+		t.Fatalf("no %q button: %q", name, tt.Texts())
+	}
+	return found
+}
+
+// clickButton presses that button with the pointer.
+func clickButton(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	b := findButton(t, tt, name)
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+}
+
+// pressButton presses that button with the pointer and returns it as the
+// next frame shows it.
+func pressButton(t *testing.T, tt *ui.Tester, name string) ui.AccessInfo {
+	t.Helper()
+	clickButton(t, tt, name)
+	return findButton(t, tt, name)
 }
 
 // The CLI method's account list shows its skeleton row while the host

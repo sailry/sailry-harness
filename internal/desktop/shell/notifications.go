@@ -2,12 +2,14 @@ package shell
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -39,12 +41,18 @@ func (a *App) notificationCenter(c *ui.Context) {
 			kit.Secondary(c.Key("read"), i18n.T(c, "notifications_read_all")).Disabled(len(a.noticeIDs(false)) == 0).OnClick(func() {
 				if a.Hooks.ReadNotices != nil {
 					a.Hooks.ReadNotices(a.noticeIDs(false))
+					return
+				}
+				for _, n := range a.Data.Notices { // the preview, as the bell's
+					n.Read = true
 				}
 			})
 			kit.Secondary(c.Key("delete"), i18n.T(c, "notification_delete_read")).Disabled(len(a.noticeIDs(true)) == 0).OnClick(func() {
 				if a.Hooks.DismissRead != nil {
 					a.Hooks.DismissRead(a.noticeIDs(true))
+					return
 				}
+				a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
 			})
 		})
 		shown := 0

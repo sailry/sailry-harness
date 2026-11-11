@@ -135,7 +135,7 @@ func marketMatch(q, text string) bool {
 }
 
 // marketCard is a 76 DIP bordered card of the item's summary and its action.
-func marketCard(c *ui.Context, key, title, desc string, tile func(hovered bool), action string, open, act func()) {
+func marketCard(c *ui.Context, key, title, desc string, tile func(hovered bool), action string, busy bool, open, act func()) {
 	p := theme.Of(c)
 	card := kit.Frost(c, ui.Row(c.Key(key)).Height(76).MinWidth(0).PaddingX(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint)
 	hovered := card.Hovered()
@@ -156,9 +156,9 @@ func marketCard(c *ui.Context, key, title, desc string, tile func(hovered bool),
 		case "market_installed", "market_theme_current":
 			ui.Text(c, label).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
 		case "market_install":
-			kit.Primary(c.Key("action"), label, act == nil).Height(28).Shrink(0).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(act)
+			kit.PrimaryBusy(c.Key("action"), label, act == nil, busy).Height(28).Shrink(0).OnClick(act)
 		default:
-			kit.Secondary(c.Key("action"), label).Height(28).Shrink(0).Disabled(act == nil).OnClick(act)
+			kit.SecondaryBusy(c.Key("action"), label, busy).Height(28).Shrink(0).Disabled(act == nil || busy).OnClick(act)
 		}
 	})
 }
@@ -212,7 +212,7 @@ func marketPlugins(c *ui.Context, s *State) {
 					notice(c)
 				}
 			}
-			marketCard(c, x.ID, x.Name, desc, func(hovered bool) { pluginTile(c, x, kit.TileSize, hovered) }, action,
+			marketCard(c, x.ID, x.Name, desc, func(hovered bool) { pluginTile(c, x, kit.TileSize, hovered) }, action, m.Busy[BusyPackage+x.ID],
 				func() { s.ShowDetails(DetailPlugin, x.ID) }, install)
 		}
 	})
@@ -237,7 +237,7 @@ func marketSkills(c *ui.Context, s *State) {
 				installed = installed || y.ID == x.ID
 			}
 			marketCard(c, x.ID, x.Name, x.Origin+" · "+x.Description, func(bool) { kit.Tile(c, x.Name, icons.Bot) },
-				MarketAction(installed, x.Update), func() { s.ShowDetails(DetailSkill, x.ID) }, func() {
+				MarketAction(installed, x.Update), m.Busy[BusyPackage+x.ID], func() { s.ShowDetails(DetailSkill, x.ID) }, func() {
 					if m.PackageActions != nil && m.PackageActions.MarketSkill != nil {
 						m.PackageActions.MarketSkill(x.ID)
 						return
@@ -263,7 +263,7 @@ func themeAction(c *ui.Context, m *Model, th *preview.MarketTheme) {
 		ui.Text(c, label).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 		return
 	}
-	kit.Secondary(c.Key("theme-action"), label).Height(28).OnClick(func() {
+	kit.SecondaryBusy(c.Key("theme-action"), label, m.Busy[BusyPackage+th.ID]).Height(28).OnClick(func() {
 		if m.PackageActions != nil && m.PackageActions.Theme != nil {
 			m.PackageActions.Theme(th.ID)
 			return
@@ -300,7 +300,7 @@ func marketThemes(c *ui.Context, s *State) {
 			if x.Builtin {
 				desc = i18n.T(c, "market_theme_builtin") + " · " + desc
 			}
-			marketCard(c, x.ID, x.Name, desc, func(bool) { kit.Tile(c, x.Name, icons.Palette) }, action,
+			marketCard(c, x.ID, x.Name, desc, func(bool) { kit.Tile(c, x.Name, icons.Palette) }, action, m.Busy[BusyPackage+x.ID],
 				func() { s.ShowDetails(DetailTheme, x.ID) }, func() {
 					if m.PackageActions != nil && m.PackageActions.Theme != nil {
 						m.PackageActions.Theme(x.ID)

@@ -98,7 +98,7 @@ func connectionDialogs(c *ui.Context, m *Model) {
 				if editor.Retry {
 					label = i18n.T(c, "settings_retry")
 				}
-				kit.Primary(c.Key("save"), label, false).Disabled(editor.Loading || editor.Pending || editor.Unavailable).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
+				kit.PrimaryBusy(c.Key("save"), label, editor.Loading || editor.Unavailable, editor.Pending).OnClick(func() {
 					if m.ConnectionActions != nil && m.ConnectionActions.SaveNetwork != nil {
 						m.ConnectionActions.SaveNetwork(editor)
 					}

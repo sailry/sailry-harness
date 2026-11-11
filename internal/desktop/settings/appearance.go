@@ -14,6 +14,7 @@ import (
 // which a backend would persist as the reference's preferences.
 type Look struct {
 	Live    bool
+	Busy    bool // the update check is running
 	Actions *AppearanceActions
 	Theme   *string // the theme package's ID; empty is the built-in theme
 	Mode    *theme.Mode
@@ -43,7 +44,7 @@ func appearance(c *ui.Context, look Look) {
 	transparency(c, look.Surfaces)
 	kit.Group(c, "packages", i18n.T(c, "appearance_packages"), "", func() {
 		// Checking for updates asks the network; importing reads a file.
-		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() {
+		kit.SecondaryBusy(c.Key("updates"), i18n.T(c, "plugins_check_updates"), look.Busy).OnClick(func() {
 			if look.Actions != nil && look.Actions.CheckUpdates != nil {
 				look.Actions.CheckUpdates()
 				return
@@ -290,7 +291,7 @@ func details(c *ui.Context, d *themeDetails, chosen *string) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { d.open = false })
 			if d.importing != nil {
-				kit.Secondary(c.Key("install"), i18n.T(c, "plugins_install")).Disabled(d.importing.Pending).OnClick(func() {
+				kit.SecondaryBusy(c.Key("install"), i18n.T(c, "plugins_install"), d.importing.Pending).OnClick(func() {
 					d.importing.Pending = true
 					d.importing.Install(func(ok bool) {
 						d.importing.Pending = false

@@ -201,7 +201,7 @@ func (s *State) editorDialog(c *ui.Context) {
 				saveKey = "settings_save"
 			}
 			save := i18n.T(c, saveKey)
-			kit.Primary(c.Key("save"), save, false).Disabled(e.Pending).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(func() {
+			kit.PrimaryBusy(c.Key("save"), save, false, e.Pending).OnClick(func() {
 				problem := CheckProject(e.Name, e.Path, hostID, s.Data.Projects, e.Project)
 				if e.Clone == 1 && e.Project == nil {
 					problem = CheckClone(e.Name, e.Repo, e.Path)

@@ -235,6 +235,20 @@ an SSH host key leaves `ConnectionPending` set, as the installation goes on;
 any other way out of the prompt clears it. The network editor stays while its
 save is pending, as its Cancel is disabled then.
 
+`Model.Busy` names the operations in flight whose buttons had no pending state
+of their own: Providers' catalog Update, the update checks of Plugins, Skills
+and Appearance, the Permissions check, and General's telemetry reset and
+diagnostics report. The live adapter sets a name with `SetBusy` as it sends the
+request and clears it when the request ends, whatever the outcome; the button
+is disabled and busy with a spinner meanwhile, and the outcome stays a toast.
+`BusyPackage` followed by a package's, skill's or theme's ID marks its install,
+update, switch, re-import or removal: its card shows the spinner in the
+action's place, its switch and menu removal wait, a Market card's button and
+Plugins' Update all are busy. `BusyBackup` followed by an action's name marks
+Back up now, the export, the archive and deletion of all sessions and of one
+archived session. A list row without an action is not a button and takes no
+hover style.
+
 ## Tests
 
 - `internal/desktop/settings/settings_test.go`: shortcut capture (invalid,

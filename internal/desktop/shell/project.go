@@ -43,6 +43,7 @@ type projectOverview struct {
 	tab           int
 	search        string
 	pending       bool
+	opening       string // the session row whose opening is pending
 	initialize    bool
 	repositories  []string
 	actions       ProjectActions
@@ -105,7 +106,11 @@ func (a *App) projectView(c *ui.Context) {
 					label := i18n.T(c, "git_initialize")
 					kit.Ghost(c.Key("initialize"), label, false).Height(28).PaddingX(8).Gap(6).
 						Disabled(state.pending || state.actions.Initialize == nil).Children(func() {
-						ui.Icon(c, icons.Network).FontSize(16)
+						if state.pending && state.opening == "" && !state.initialize {
+							ui.Spinner(c).Size(14, 14)
+						} else {
+							ui.Icon(c, icons.Network).FontSize(16)
+						}
 						ui.Text(c, label).FontSize(14)
 					}).OnClick(func() {
 						if len(repository.Repositories) > 0 {
@@ -207,14 +212,18 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 				shown++
 				kit.Ghost(c.Key(session.Node+"/"+session.ID), title, false).FillWidth().Padding(12).Gap(12).Justify(ui.Start).
 					Disabled(state.pending || state.actions.OpenSession == nil).Children(func() {
-					ui.Icon(c, icons.Bot).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
+					if state.pending && state.opening == session.Node+"/"+session.ID {
+						ui.Spinner(c).Size(14, 14).Shrink(0)
+					} else {
+						ui.Icon(c, icons.Bot).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
+					}
 					ui.Column(c.Key("details")).Grow(1).MinWidth(0).Gap(4).Children(func() {
 						ui.Text(c, title).FontSize(14).SingleLine()
 						ui.Text(c, path).FontSize(12).SingleLine().TextColor(palette.MutedForeground)
 					})
 				}).OnClick(func() {
-					state.pending = true
-					state.actions.OpenSession(session, func(bool) { state.pending = false })
+					state.pending, state.opening = true, session.Node+"/"+session.ID
+					state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
 				})
 			}
 			if shown == 0 {
@@ -253,9 +262,7 @@ func (state *projectOverview) initializeDialog(c *ui.Context) {
 		ui.Text(c, strings.Join(state.repositories, "\n")).FontSize(14).Selectable()
 		ui.Row(c.Key("actions")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(state.pending).OnClick(func() { state.initialize = false })
-			kit.Primary(c.Key("initialize"), label, state.pending).Children(func() {
-				ui.Text(c, label).FontSize(14)
-			}).OnClick(state.initializeGit)
+			kit.PrimaryBusy(c.Key("initialize"), label, false, state.pending).OnClick(state.initializeGit)
 		})
 	}).Width(560).Label(label)
 }

@@ -53,7 +53,7 @@ func backup(c *ui.Context, m *Model) {
 	target := b.Saved.PassphraseSet && (b.Saved.Tab == 2 && b.Saved.Directory != "" || b.Saved.Tab < 2 && b.Saved.Endpoint != "")
 	entry := func(key, title, action string, run func()) {
 		kit.Entry(c, key, func() { ui.Text(c, title).FontSize(14) }, nil, func() {
-			kit.TextAction(c.Key("action"), action, b.Pending).OnClick(run)
+			kit.TextActionBusy(c.Key("action"), action, b.Pending, m.Busy[BusyBackup+key]).OnClick(run)
 		})
 	}
 	configure := func() {
@@ -125,7 +125,7 @@ func backup(c *ui.Context, m *Model) {
 			})
 			entry("archives", t("backup_archived_sessions"), t("backup_manage"), func() { d.archives = true })
 			kit.Entry(c, "archive-all", func() { ui.Text(c, t("backup_archive_all")).FontSize(14) }, nil, func() {
-				kit.TextAction(c.Key("action"), t("backup_archive_all_action"), b.Pending || m.Sessions == 0).OnClick(func() {
+				kit.TextActionBusy(c.Key("action"), t("backup_archive_all_action"), b.Pending || m.Sessions == 0, m.Busy[BusyBackup+"archive"]).OnClick(func() {
 					if a == nil {
 						notice(c)
 						return
@@ -134,7 +134,7 @@ func backup(c *ui.Context, m *Model) {
 				})
 			})
 			kit.Entry(c, "delete-all", func() { ui.Text(c, t("backup_delete_all")).FontSize(14) }, func() {
-				kit.Danger(c.Key("action"), t("backup_delete_all_action")).Height(28).Disabled(b.Pending).OnClick(func() { d.deleting = true })
+				kit.DangerBusy(c.Key("action"), t("backup_delete_all_action"), m.Busy[BusyBackup+"delete"]).Height(28).Disabled(b.Pending || m.Busy[BusyBackup+"delete"]).OnClick(func() { d.deleting = true })
 			}, nil)
 		})
 	})
@@ -256,7 +256,7 @@ func storageDialog(c *ui.Context, m *Model) {
 			o := m.Backup.Commit()
 			report(c, o, backupMessages)
 			d.editing = o != kit.Done
-		})
+		}, m.BackupActions != nil && m.Backup.Pending)
 	}).Width(min(600, width(c)-48)).Label(title)
 }
 
@@ -282,14 +282,14 @@ func archivesDialog(c *ui.Context, m *Model) {
 						at = a.At.Format(time.DateOnly)
 					}
 					kit.Entry(c, a.ID, func() { kit.Record(c, a.Title, at) }, nil, func() {
-						kit.TextAction(c.Key("unarchive"), t("backup_unarchive"), m.Backup.Pending).OnClick(func() {
+						kit.TextActionBusy(c.Key("unarchive"), t("backup_unarchive"), m.Backup.Pending, m.Busy[BusyBackup+"unarchive/"+a.ID]).OnClick(func() {
 							if x := m.BackupActions; x != nil {
 								x.Unarchive(a.ID)
 								return
 							}
 							notice(c)
 						})
-						kit.TextAction(c.Key("delete"), t("backup_delete"), m.Backup.Pending).TextColor(p.Danger).OnClick(func() {
+						kit.TextActionBusy(c.Key("delete"), t("backup_delete"), m.Backup.Pending, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
 							if m.BackupActions != nil {
 								d.removed, d.removedTitle, d.removing = a.ID, a.Title, true
 								return

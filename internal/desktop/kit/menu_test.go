@@ -147,6 +147,38 @@ func TestMenuLooksAndChooses(t *testing.T) {
 			t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
 		}
 	})
+	// An item's own button runs its action and closes the menu without
+	// choosing the item.
+	t.Run("item action", func(t *testing.T) {
+		chosen, acted := false, 0
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Padding(20).Children(func() {
+				MenuButton(c, "test", func(b ui.Element) {
+					GhostLook(c, b.Label("Open"), false).Children(func() { ui.Text(c, "Open") })
+				}, func(m *Menu) {
+					if m.Item("Host").Action("Update", func() { acted++ }).Chosen() {
+						chosen = true
+					}
+				})
+			})
+		}, 400, 300)
+		tt.Frame()
+		if err := tt.Click("Open"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(200 * time.Millisecond)
+		b, ok := tt.Find("Update")
+		if !ok {
+			t.Fatalf("no action button: %q", tt.Texts())
+		}
+		tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+		tt.Frame()
+		tt.Advance(200 * time.Millisecond)
+		if acted != 1 || chosen || tt.HasText("Host") {
+			t.Errorf("the action ran %d times, chose the item %v, menu open %v", acted, chosen, tt.HasText("Host"))
+		}
+	})
 }
 
 // The form controls line up with a text input.

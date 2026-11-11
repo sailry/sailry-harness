@@ -248,8 +248,7 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 				})
 			}
 			button("cancel", i18n.T(c, "settings_cancel")).OnClick(func() { *q = queueState{generation: q.generation + 1} })
-			kit.Primary(c.Key("save"), i18n.T(c, "queue_save"), changed || empty || q.loading || q.saving).Height(28).Radius(14).
-				Children(func() { ui.Text(c, i18n.T(c, "queue_save")).FontSize(14) }).OnClick(save)
+			kit.PrimaryBusy(c.Key("save"), i18n.T(c, "queue_save"), changed || empty || q.loading, q.saving).Height(28).Radius(14).OnClick(save)
 		})
 	})
 }
