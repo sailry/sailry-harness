@@ -303,7 +303,8 @@ CREATE TABLE IF NOT EXISTS session_forks (
 CREATE TABLE IF NOT EXISTS agent_queues (
     session TEXT PRIMARY KEY REFERENCES sessions(id),
     revision INTEGER NOT NULL,
-    paused INTEGER NOT NULL CHECK(paused IN (0,1))
+    paused INTEGER NOT NULL CHECK(paused IN (0,1)),
+    pause_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS agent_pending (
     turn TEXT PRIMARY KEY REFERENCES turns(id),

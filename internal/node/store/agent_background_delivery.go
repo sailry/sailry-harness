@@ -70,7 +70,7 @@ func holdBackground(ctx context.Context, db *sql.Conn, session protocol.SessionI
 		return nil, err
 	}
 	for _, record := range records {
-		record.Task.Suppressed = true
+		record.Task.Suppressed, record.Task.Hold = true, new(protocol.ConversationBackgroundHoldLimit)
 		if err = saveBackgroundRecord(ctx, db, &record); err != nil {
 			return nil, err
 		}
@@ -220,7 +220,7 @@ func BindBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (pr
 	}
 	for _, record := range selected {
 		if record.Task.Delivery == nil {
-			record.Task.Delivery = &turn
+			record.Task.Delivery, record.Task.Hold = &turn, nil
 			if err = saveBackgroundRecord(ctx, db, &record); err != nil {
 				return run, nil, nil, err
 			}

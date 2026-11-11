@@ -568,6 +568,13 @@ without an owner.
   that ends before its own input reached history, which stays in the queue as
   a retained item. A turn that fails after recording its input does not pause:
   queued messages start and background results are delivered.
+- **Pause reason.** A paused queue carries `pause_reason` in the snapshot
+  and in every queue update: `user` (`set_queue_paused`), `stopped`
+  (`stop_turn`), `interrupted` (a turn lost its owner at shutdown or restart)
+  or `unrecorded` (a turn ended before its input reached history; when it also
+  lost its owner the reason is `interrupted`). The field is optional: it is
+  absent while the queue runs, for queues paused before the field existed and
+  for a child session whose turn failed. Any resume clears it.
 - **Send now.** `send_queued_turn` during a running turn stops that turn and
   resumes the queue with the chosen item first. Finishing a stopped turn never
   pauses again, so the chosen item starts as soon as the stopped turn ends.
@@ -614,6 +621,25 @@ without an owner.
   turns that never started neither count nor reset it. At the limit the
   remaining results are marked suppressed, logged (`status=held`), stay
   visible as pending background tasks and join the user's next message.
+- **Held results.** A pending result that is `suppressed` starts no notice
+  turn and carries the optional `hold` on its background task, in the
+  snapshot and activity events: `limit` (automatic chain limit), `stopped`
+  (the user stopped the turn that was to receive it), `interrupted` (that
+  turn or the Node's restart lost it), `failed` (its notice turn failed
+  before taking it) or `other` (the notice turn was withdrawn at claim, for
+  example because user input was queued). The hold is cleared when a turn
+  reserves the result. A result that is pending without `suppressed` and not
+  delivered is waiting only for the session to be free; the queue's
+  `pause_reason` says why when the queue is paused.
+- **Stalled commands.** A background command that asked for a follow-up and
+  stays silent writes `stall:<id>` evidence with the outcome `stalled`
+  ([process](process.md)). It is delivered by the same rules as any result:
+  one notice turn per stall period, because evidence reserved for a turn is
+  not rewritten and only delivered evidence is renewed by the next period;
+  each such turn counts toward the automatic chain limit; and a session the
+  user stopped receives none, because its queue is paused and evidence
+  released by a stopped notice turn stays held across later periods until
+  the user's next message takes it (`store.TestStalledDelivery`).
 - **Turn callbacks.** After a main task turn ends, whatever its status, and
   once that end is stored and published, the Node calls the `after_turn`
   handler of every package the turn captured, as in the reference. Child
@@ -692,7 +718,6 @@ and bumps the item or queue revision that its command checks.
 | A joined guidance run ends `completed` with `joined` set; the reference uses `continued` | Existing Go behaviour that the desktop projection reads |
 | A paused queue cannot hold guiding items, so a boundary needs no pause check; the reference checks at the boundary | Pausing already returns guidance to the queue in both |
 | Notice turns are bounded per session by a flat count of eight; the plan described a chain depth of four | A flat count needs no lineage between results and also bounds independent results arriving apart; eight leaves room for a fan-out, and each notice turn carries up to 16 results |
-| Held results reuse the `suppressed` task flag instead of a dedicated reason | No protocol change; the log names the reason. A visible reason needs a new field on the background task |
 | Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |
 | Guidance pending at a user Stop waits in the paused queue; the reference starts it as a successor turn at once | Stop means stop: nothing runs until the user sends or resumes, and the message stays visible and editable |
 | The ordinary claim skips guidance while its recipient runs, and every exit of the recipient releases it; the reference claims without looking at the recipient and repairs the tag on each exit path | One release point in `FinishTurn` and one in `RecoverRuns` cover Stop, failure, completion and restart |

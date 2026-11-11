@@ -349,7 +349,12 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		if err = checkRevision(queue.Revision, v.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err = setQueuePaused(ctx, db, session, v.Paused); err != nil {
+		if v.Paused {
+			err = pauseQueue(ctx, db, session, protocol.ConversationQueuePauseUser)
+		} else {
+			err = setQueuePaused(ctx, db, session, false)
+		}
+		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		if v.Paused {

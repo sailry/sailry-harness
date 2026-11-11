@@ -197,7 +197,14 @@ func cancelAutomaticInput(ctx context.Context, db *sql.Conn, run protocol.Conver
 	if _, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", run.Turn.String()); err != nil {
 		return nil, err
 	}
-	released, err := ReleaseBackground(ctx, db, run.Turn, run.Notice)
+	var hold *protocol.ConversationBackgroundHold
+	if run.Notice {
+		hold = new(protocol.ConversationBackgroundHoldOther)
+		if failure != nil && failure.Code == protocol.ErrorCodeOutcomeUnknown {
+			hold = new(protocol.ConversationBackgroundHoldInterrupted)
+		}
+	}
+	released, err := ReleaseBackground(ctx, db, run.Turn, hold)
 	if err != nil {
 		return nil, err
 	}

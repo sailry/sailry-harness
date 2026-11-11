@@ -628,7 +628,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 			if _, _, err = AppendCanonical(ctx, db, session.ID, event); err != nil {
 				return err
 			}
-			if _, err = ReleaseBackground(ctx, db, turn, false); err != nil {
+			if _, err = ReleaseBackground(ctx, db, turn, nil); err != nil {
 				return err
 			}
 			record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='fixture-completion'")
@@ -738,7 +738,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 					if len(run.Notices) != 1 || run.Notices[0].ID != "released-evidence" || text == nil {
 						return errors.New("suppressed completion was unavailable to explicit user input")
 					}
-					if _, err = ReleaseBackground(ctx, db, explicit, false); err != nil {
+					if _, err = ReleaseBackground(ctx, db, explicit, nil); err != nil {
 						return err
 					}
 					record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='released-evidence'")
@@ -772,7 +772,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 			if len(run.Notices) != 16 || text == nil || len(*text) > 32*1024 || run.Notices[0].ID != "notice-00" {
 				return errors.New("notice bounds or sequence changed")
 			}
-			if _, err = ReleaseBackground(ctx, db, turn, false); err != nil {
+			if _, err = ReleaseBackground(ctx, db, turn, nil); err != nil {
 				return err
 			}
 			var pending int

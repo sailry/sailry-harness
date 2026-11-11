@@ -614,17 +614,53 @@ func (value ConversationRewind) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// ConversationQueuePause says why a queue is paused: the user paused it,
+// the user stopped a turn, a turn lost its owner, or a turn ended before its
+// input reached history.
+type ConversationQueuePause string
+
+const (
+	ConversationQueuePauseUser        ConversationQueuePause = "user"
+	ConversationQueuePauseStopped     ConversationQueuePause = "stopped"
+	ConversationQueuePauseInterrupted ConversationQueuePause = "interrupted"
+	ConversationQueuePauseUnrecorded  ConversationQueuePause = "unrecorded"
+)
+
+func (value ConversationQueuePause) MarshalJSON() ([]byte, error) {
+	switch value {
+	case ConversationQueuePauseUser, ConversationQueuePauseStopped, ConversationQueuePauseInterrupted, ConversationQueuePauseUnrecorded:
+		return json.Marshal(string(value))
+	default:
+		return nil, fmt.Errorf("unknown ConversationQueuePause %q", value)
+	}
+}
+func (value *ConversationQueuePause) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	switch ConversationQueuePause(decoded) {
+	case ConversationQueuePauseUser, ConversationQueuePauseStopped, ConversationQueuePauseInterrupted, ConversationQueuePauseUnrecorded:
+		*value = ConversationQueuePause(decoded)
+		return nil
+	default:
+		return fmt.Errorf("unknown ConversationQueuePause %q", decoded)
+	}
+}
+
 type ConversationQueue struct {
-	Revision uint64                `json:"revision"`
-	Paused   bool                  `json:"paused"`
-	Items    []ConversationPending `json:"items"`
+	Revision    uint64                  `json:"revision"`
+	Paused      bool                    `json:"paused"`
+	PauseReason *ConversationQueuePause `json:"pause_reason,omitempty"`
+	Items       []ConversationPending   `json:"items"`
 }
 
 func DefaultConversationQueue() ConversationQueue {
 	return ConversationQueue{
-		Revision: 0,
-		Paused:   false,
-		Items:    []ConversationPending{},
+		Revision:    0,
+		Paused:      false,
+		PauseReason: nil,
+		Items:       []ConversationPending{},
 	}
 }
 func (value *ConversationQueue) UnmarshalJSON(data []byte) error { return Decode(data, value) }

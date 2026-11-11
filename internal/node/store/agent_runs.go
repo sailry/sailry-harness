@@ -471,7 +471,7 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err = closeInteractions(ctx, db, turn, closed); err != nil {
 		return run, nil, err
 	}
-	pause := false
+	pause, retained := false, false
 	if origin != nil {
 		pause = failure != nil || status != protocol.ConversationStatusCompleted
 	} else {
@@ -482,15 +482,25 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		if !stopped {
 			// A failed turn keeps the queue and automatic delivery running.
 			// Only a lost owner or input that never reached history holds them.
-			retained, e := retainedTurn(ctx, db, turn)
-			if e != nil {
-				return run, nil, e
+			if retained, err = retainedTurn(ctx, db, turn); err != nil {
+				return run, nil, err
 			}
 			pause = status == protocol.ConversationStatusInterrupted || retained
 		}
 	}
 	if pause {
-		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
+		switch {
+		case status == protocol.ConversationStatusInterrupted:
+			err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseInterrupted)
+		case retained:
+			err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseUnrecorded)
+		case status == protocol.ConversationStatusCancelled:
+			err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseStopped)
+		default:
+			// A failed child holds its own queue; no reason is shown for it.
+			err = setQueuePaused(ctx, db, run.Session, true)
+		}
+		if err != nil {
 			return run, nil, err
 		}
 	}
@@ -522,7 +532,19 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		return run, nil, err
 	}
 	events = append(events, changed...)
-	changed, err = ReleaseBackground(ctx, db, turn, run.Notice)
+	var hold *protocol.ConversationBackgroundHold
+	if run.Notice {
+		// Results a notice turn ended without taking wait for the user.
+		switch status {
+		case protocol.ConversationStatusCancelled:
+			hold = new(protocol.ConversationBackgroundHoldStopped)
+		case protocol.ConversationStatusInterrupted:
+			hold = new(protocol.ConversationBackgroundHoldInterrupted)
+		default:
+			hold = new(protocol.ConversationBackgroundHoldFailed)
+		}
+	}
+	changed, err = ReleaseBackground(ctx, db, turn, hold)
 	if err != nil {
 		return run, nil, err
 	}
@@ -584,6 +606,6 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient IS NOT NULL"); err != nil {
 		return nil, err
 	}
-	_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)")
+	_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,pause_reason='interrupted',revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)")
 	return events, err
 }

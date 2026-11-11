@@ -82,7 +82,16 @@ func setQueuePaused(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	if err := bumpQueue(ctx, db, session); err != nil {
 		return err
 	}
-	_, err := db.ExecContext(ctx, "UPDATE agent_queues SET paused=?2 WHERE session=?1", session.String(), paused)
+	_, err := db.ExecContext(ctx, "UPDATE agent_queues SET paused=?2,pause_reason=NULL WHERE session=?1", session.String(), paused)
+	return err
+}
+
+// pauseQueue pauses a session's queue and records why, for its clients.
+func pauseQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID, reason protocol.ConversationQueuePause) error {
+	if err := bumpQueue(ctx, db, session); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,pause_reason=?2 WHERE session=?1", session.String(), string(reason))
 	return err
 }
 func readQueuedMessage(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationQueuedMessage, error) {
@@ -111,9 +120,14 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 	if err := requireSession(ctx, db, session); err != nil {
 		return value, err
 	}
-	err := db.QueryRowContext(ctx, "SELECT revision,paused FROM agent_queues WHERE session=?1", session.String()).Scan(&value.Revision, &value.Paused)
+	var reason sql.NullString
+	err := db.QueryRowContext(ctx, "SELECT revision,paused,pause_reason FROM agent_queues WHERE session=?1", session.String()).Scan(&value.Revision, &value.Paused, &reason)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
+	}
+	// The reason is read only while paused, so every resume clears it.
+	if value.Paused && reason.Valid {
+		value.PauseReason = new(protocol.ConversationQueuePause(reason.String))
 	}
 	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient,a.input,p.request FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
 	if err != nil {
@@ -243,7 +257,7 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 		return run, err
 	}
 	if run.Status == protocol.ConversationStatusQueued || retained {
-		if _, err = ReleaseBackground(ctx, db, turn, true); err != nil {
+		if _, err = ReleaseBackground(ctx, db, turn, new(protocol.ConversationBackgroundHoldStopped)); err != nil {
 			return run, err
 		}
 		if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", turn.String()); err != nil {
@@ -264,7 +278,7 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 		}
 	case protocol.ConversationStatusRunning:
 		run.Status = protocol.ConversationStatusStopping
-		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
+		if err = pauseQueue(ctx, db, run.Session, protocol.ConversationQueuePauseStopped); err != nil {
 			return run, err
 		}
 	}

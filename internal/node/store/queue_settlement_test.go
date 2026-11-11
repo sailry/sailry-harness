@@ -531,7 +531,7 @@ func TestBackgroundDelivery(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					if held == nil || !held.Task.Suppressed || held.Task.State != protocol.ConversationBackgroundStatePending || held.Task.Delivery != nil {
+					if held == nil || !held.Task.Suppressed || held.Task.State != protocol.ConversationBackgroundStatePending || held.Task.Delivery != nil || held.Task.Hold == nil || *held.Task.Hold != protocol.ConversationBackgroundHoldLimit {
 						return errors.New("held result does not wait for user input")
 					}
 					current, err := ReadSession(ctx, db, session.ID)
