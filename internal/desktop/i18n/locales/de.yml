@@ -2008,6 +2008,7 @@ knowledge_saved: Gespeichert
 knowledge_cancel_requested: Abbruch angefordert
 model_library_failed: Modelle konnten nicht geladen werden
 model_library_partial: Einige Ergebnisse sind nicht verfügbar
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: Nicht verfügbar
 dictation_unavailable: Lokale Spracheingabe nicht verfügbar
 dictation_model_missing: Zuerst ein Sprachmodell herunterladen

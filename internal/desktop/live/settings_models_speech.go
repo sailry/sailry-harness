@@ -135,9 +135,12 @@ func (r *Runtime) cancelSpeechModel(id string) {
 }
 
 // speechUnavailable reports that a speech model cannot be taken from the
-// model library, whose results a Node resolves for itself.
+// model library, whose results a Node resolves for itself. The message names
+// that reason: dictation itself may well be available.
 func (r *Runtime) speechUnavailable() {
-	r.localRuntime().enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "dictation_unavailable")) })
+	r.localRuntime().enqueue(func(c *ui.Context) {
+		kit.Toast(c, kit.Failed, i18n.T(c, "model_library_speech_unsupported"))
+	})
 }
 
 // requestMicrophone asks the system for the microphone. The system shows

@@ -2008,6 +2008,7 @@ knowledge_saved: Сохранено
 knowledge_cancel_requested: Запрошена отмена
 model_library_failed: Не удалось загрузить модели
 model_library_partial: Некоторые результаты недоступны
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: Недоступно
 dictation_unavailable: Локальный голосовой ввод недоступен
 dictation_model_missing: Сначала загрузите модель речи

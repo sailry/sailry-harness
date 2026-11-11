@@ -2008,6 +2008,7 @@ knowledge_saved: Guardado
 knowledge_cancel_requested: Cancelación solicitada
 model_library_failed: No se pudieron cargar los modelos
 model_library_partial: Algunos resultados no están disponibles
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: No disponible
 dictation_unavailable: Entrada de voz local no disponible
 dictation_model_missing: Descargar primero un modelo de discurso

@@ -2020,6 +2020,7 @@ knowledge_saved
 knowledge_cancel_requested
 model_library_failed
 model_library_partial
+model_library_speech_unsupported
 local_models_unavailable
 dictation_unavailable
 dictation_model_missing

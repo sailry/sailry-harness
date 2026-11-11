@@ -745,8 +745,13 @@ manager, not `ReadLocalModels`.
   speech kind reach a Node in the reference, from its model library. The
   accepted Dictation page has no library, so nothing registers a speech model:
   `Manager.Register` and `Manager.Remove` exist and are tested but have no
-  control, and the library dialog still answers a speech result with
-  `dictation_unavailable`.
+  control. The library dialog opens only from the OCR, Knowledge and Decision
+  pages and searches that page's kind, so it lists no speech model; were a
+  result of the speech kind to appear, its Install answers
+  `model_library_speech_unsupported` instead of sending it to a Node, which
+  refuses the kind. Adding, deleting and updating a speech model from a hub
+  (settings audit D4, D7, D8) need a library entry on the Dictation page,
+  which is a layout decision and not part of the wiring.
 
 Deviations from the reference:
 

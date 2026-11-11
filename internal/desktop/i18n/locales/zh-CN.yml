@@ -2008,6 +2008,7 @@ knowledge_saved: 已保存
 knowledge_cancel_requested: 已请求取消
 model_library_failed: 无法加载模型
 model_library_partial: 部分结果不可用
+model_library_speech_unsupported: 模型库不支持添加语音模型
 local_models_unavailable: 不可用
 dictation_unavailable: 本地语音输入不可用
 dictation_model_missing: 请先下载语音模型

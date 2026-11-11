@@ -2008,6 +2008,7 @@ knowledge_saved: 保存しました
 knowledge_cancel_requested: キャンセルを要求しました
 model_library_failed: モデルを読み込めません
 model_library_partial: 一部の結果を取得できません
+model_library_speech_unsupported: Speech models cannot be added from the library
 local_models_unavailable: 利用不可
 dictation_unavailable: ローカル音声入力が利用できません
 dictation_model_missing: まず音声モデルをダウンロード
