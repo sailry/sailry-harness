@@ -6,10 +6,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // Notifier observes one controller for the application lifetime, independently
 // of frames and windows. It owns delivery cursors, never a business projection.
+// Each new notice goes to one channel: the active window's toasts when a
+// window takes it, otherwise a system notification.
 type Notifier struct {
 	controller  *client.Client
 	prefs       *preferences.Store
@@ -19,6 +22,7 @@ type Notifier struct {
 	seen        map[client.NoticeID]bool
 	update      func(func())
 	deliver     func(id, title, body, session string)
+	present     func(*viewmodel.Notice) bool
 	locale      func() string
 	closed      bool
 }
@@ -41,6 +45,14 @@ func (n *Notifier) SetNotify(f func(id, title, body, session string)) {
 	n.deliver = f
 	n.mu.Unlock()
 	n.schedule()
+}
+
+// SetPresent binds the in-app channel. It reports whether an active window
+// took the notice; a notice it took gets no system notification.
+func (n *Notifier) SetPresent(f func(*viewmodel.Notice) bool) {
+	n.mu.Lock()
+	n.present = f
+	n.mu.Unlock()
 }
 func (n *Notifier) SetLocale(f func() string) { n.mu.Lock(); n.locale = f; n.mu.Unlock() }
 func (n *Notifier) Close() {
@@ -86,14 +98,11 @@ func (n *Notifier) flush() {
 		n.mu.Unlock()
 		return
 	}
-	list, deliver, locale := n.pending, n.deliver, n.locale
+	list, deliver, present, locale := n.pending, n.deliver, n.present, n.locale
 	n.pending = nil
 	n.mu.Unlock()
 	for _, notice := range list {
 		flags := n.prefs.Data.Notifications
-		if !flags[0] {
-			continue
-		}
 		projected := Notices([]client.Notice{notice})[0]
 		enabled := true
 		switch notice.Kind {
@@ -103,6 +112,16 @@ func (n *Notifier) flush() {
 			enabled = flags[2]
 		case "failed":
 			enabled = flags[3]
+		}
+		if !enabled {
+			continue
+		}
+		if present != nil && present(projected) {
+			continue
+		}
+		// The first flag is the system channel's own switch.
+		if !flags[0] {
+			continue
 		}
 		if projected.TitleKey != "" {
 			language := "en"
@@ -114,8 +133,6 @@ func (n *Notifier) flush() {
 			}
 			projected.Title = i18n.In(language, projected.TitleKey)
 		}
-		if enabled {
-			deliver(projected.ID, projected.Title, projected.Message, projected.Session)
-		}
+		deliver(projected.ID, projected.Title, projected.Message, projected.Session)
 	}
 }

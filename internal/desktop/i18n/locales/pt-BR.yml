@@ -1941,3 +1941,12 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+files_unsaved: Alterações não salvas
+files_unsaved_description: Closing without saving discards the changes to these documents
+files_unsaved_discard: Discard changes
+files_save_all: Save all
+app_exit: Sair
+app_exit_confirm: Sair do Sailry
+app_exit_description: Tarefas e terminais locais em execução serão interrompidos
+updates_save_first: Salvar documentos abertos antes de atualizar
+notification_details: Detalhes

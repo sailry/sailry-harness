@@ -1941,3 +1941,12 @@ media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
+files_unsaved: 有未保存的修改
+files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
+files_unsaved_discard: 放弃修改
+files_save_all: 全部保存
+app_exit: 退出
+app_exit_confirm: 退出 Sailry
+app_exit_description: 本机正在运行的任务和终端将停止
+updates_save_first: 请先保存打开的文档
+notification_details: 详情

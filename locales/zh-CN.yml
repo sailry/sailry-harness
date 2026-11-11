@@ -2772,3 +2772,6 @@ media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
+files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
+files_unsaved_discard: 放弃修改
+files_save_all: 全部保存

@@ -78,7 +78,23 @@ func (r *Runtime) SetUpdates(updates *Updates, focused func() bool) {
 		m.Build = "settings_build_release"
 	}
 	service := updates.Service
-	m.UpdateActions = &settings.UpdateActions{Check: service.Check, Download: service.Download, Cancel: service.Cancel, Install: service.Install, Restart: service.Restart}
+	m.UpdateActions = &settings.UpdateActions{Check: service.Check, Download: service.Download, Cancel: service.Cancel, Install: func() {
+		// An installation stops the Node and ends the process, so unsaved
+		// documents in any window are saved first.
+		updates.mu.Lock()
+		windows := slices.Clone(updates.windows)
+		updates.mu.Unlock()
+		for _, window := range windows {
+			window.mu.Lock()
+			closed := window.closed
+			window.mu.Unlock()
+			if !closed && len(window.UnsavedDocuments()) > 0 {
+				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "updates_save_first")) })
+				return
+			}
+		}
+		service.Install()
+	}, Restart: service.Restart}
 }
 
 // updateView is the service's state as the About page shows it. The failure

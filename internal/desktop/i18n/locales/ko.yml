@@ -1941,3 +1941,12 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+files_unsaved: 저장되지 않은 변경 사항
+files_unsaved_description: Closing without saving discards the changes to these documents
+files_unsaved_discard: Discard changes
+files_save_all: Save all
+app_exit: 종료
+app_exit_confirm: Sailry 종료
+app_exit_description: 실행 중인 로컬 작업과 터미널이 중지됩니다
+updates_save_first: 열린 문서를 업데이트하기 전에 저장하기
+notification_details: 세부 정보

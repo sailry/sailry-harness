@@ -1941,3 +1941,12 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+files_unsaved: Unsaved changes
+files_unsaved_description: Closing without saving discards the changes to these documents
+files_unsaved_discard: Discard changes
+files_save_all: Save all
+app_exit: Quit
+app_exit_confirm: Quit Sailry
+app_exit_description: Local running tasks and terminals will stop
+updates_save_first: Save open documents before updating
+notification_details: Details

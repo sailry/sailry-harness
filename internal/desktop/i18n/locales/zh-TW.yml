@@ -1941,3 +1941,12 @@ media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
+files_unsaved: 有未儲存的修改
+files_unsaved_description: Closing without saving discards the changes to these documents
+files_unsaved_discard: Discard changes
+files_save_all: Save all
+app_exit: 退出
+app_exit_confirm: 退出 Sailry
+app_exit_description: 本機正在執行的任務和終端將停止
+updates_save_first: 請先儲存開啟的文件
+notification_details: 詳情
