@@ -14,7 +14,7 @@ import (
 
 func TestPluginContinuationAdmission(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"direct", "transaction", "changed private revision", "disabled owner", "undeclared action", "restart"} {
+	for _, scenario := range []string{"direct", "transaction", "changed private revision", "disabled owner", "undeclared action", "restart", "disabled while running", "replaced while running", "removed while running"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			storage, node, session, previous, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -106,6 +106,31 @@ func TestPluginContinuationAdmission(t *testing.T) {
 				invocation, _, err := ClaimNext(ctx, db, now)
 				if err != nil {
 					return err
+				}
+				if stopped, running := map[string]func() error{
+					"disabled while running": func() error {
+						_, err := SetPluginEnabled(ctx, db, info.Summary.Name, info.Summary.Revision, false)
+						return err
+					},
+					"replaced while running": func() error {
+						_, err := InstallPlugin(ctx, db, pluginTestInfo("continuation-fixture", 'd'), info.Summary.Revision, true)
+						return err
+					},
+					"removed while running": func() error {
+						_, err := RemovePlugin(ctx, db, info.Summary.Name, info.Summary.Revision)
+						return err
+					},
+				}[scenario]; running {
+					if invocation == nil || invocation.Run.Turn != queued.ID {
+						return errors.New("continuation was not claimed")
+					}
+					if err := stopped(); err != nil {
+						return err
+					}
+					if run, err = ReadAgentRun(ctx, db, queued.ID); err != nil || run.Status != protocol.ConversationStatusStopping {
+						return fmt.Errorf("a running automatic turn outlived its package: %s %v", run.Status, err)
+					}
+					return nil
 				}
 				if scenario == "direct" || scenario == "transaction" {
 					if invocation == nil || invocation.Run.Turn != queued.ID || invocation.Message.Text != input.Message.Text || invocation.Run.Continuation == nil {

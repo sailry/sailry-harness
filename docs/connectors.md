@@ -203,3 +203,7 @@ remain manual acceptance boundaries; source fixtures do not claim those results.
 results carry transport and credential slot names only, never values; an update
 must keep the transport and slots and may clear named slots. Approval and Plan
 behavior are in [Plugin packages](plugins.md#agent-management-tools).
+
+Removing a standalone MCP package deletes its connection records with their
+grants, since nothing else can use them; a package with declared connectors
+keeps its records for a later install.

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -129,7 +130,23 @@ func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 	if err := savePluginInventory(ctx, db, info, true); err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	return info, nil
+	return info, stopPluginContinuations(ctx, db, info.Summary.Name)
+}
+
+// stopPluginContinuations stops the running automatic turns a package admitted
+// once the package is replaced, disabled or removed. A queued one needs no
+// stop: claiming it checks its package again and cancels it.
+func stopPluginContinuations(ctx context.Context, db *sql.Conn, name string) error {
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_continuations c JOIN agent_runs a ON a.turn=c.turn WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status')='running'", name)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if _, err := stopAgentTurn(ctx, db, run.Turn, time.Now()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRevision uint64, enabled bool) (protocol.PluginInfo, error) {
@@ -154,6 +171,11 @@ func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRe
 	if err := savePluginInventory(ctx, db, *info, true); err != nil {
 		return protocol.PluginInfo{}, err
 	}
+	if !enabled {
+		if err := stopPluginContinuations(ctx, db, name); err != nil {
+			return protocol.PluginInfo{}, err
+		}
+	}
 	return *info, nil
 }
 
@@ -173,10 +195,18 @@ func RemovePlugin(ctx context.Context, db *sql.Conn, name string, expectedRevisi
 		return protocol.PluginSummary{}, err
 	}
 	info.Summary.Enabled = false
+	// A standalone MCP package owns its connection records, and nothing else
+	// can reach them once it is gone. A package with declared connectors keeps
+	// its records for a later install.
+	if info.McpSource != nil {
+		if _, err := db.ExecContext(ctx, "DELETE FROM plugin_connections WHERE plugin=?1", name); err != nil {
+			return protocol.PluginSummary{}, err
+		}
+	}
 	if err := savePluginInventory(ctx, db, *info, false); err != nil {
 		return protocol.PluginSummary{}, err
 	}
-	return info.Summary, nil
+	return info.Summary, stopPluginContinuations(ctx, db, name)
 }
 
 func ResolvePluginInfo(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (protocol.PluginInfo, error) {

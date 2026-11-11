@@ -92,7 +92,9 @@ Store reserves background notices in sequence order, at most 16 notices and
 its notice part and identities. Store confirms delivery in the canonical append
 transaction. Optional automatic continuation reuses ordinary admission and
 preserves real completion when scheduling fails. Package callback execution is
-owned by its later runtime phase.
+owned by its later runtime phase. Replacing, disabling or removing the package
+stops its running automatic turn as a user stop does; a queued one is cancelled
+when it is claimed, where the source cancels it with the package change.
 
 Conversation statistics total a session's own usage and, apart from it in
 `delegated`, the tokens, cost and generation time of the child turns its turns
