@@ -1,5 +1,3 @@
-//go:build postmerge
-
 package store
 
 import (
@@ -17,13 +15,9 @@ import (
 )
 
 // TestScheduledRunsAfterMerge describes, from the scheduling side, behaviour
-// that the plugin and stop-status branches own. It is excluded from the
-// ordinary build because parts of it fail until those branches are merged:
-//
-//	go test -tags postmerge ./internal/node/store -run TestScheduledRunsAfterMerge
-//
-// Each scenario fires a task the way the scheduled-tasks package registers
-// it: one handler with a Node-wide scope whose callback is start_session.
+// that the plugin authority and the stop status own. Each scenario fires a
+// task the way the scheduled-tasks package registers it: one handler with a
+// Node-wide scope whose callback is start_session.
 func TestScheduledRunsAfterMerge(t *testing.T) {
 	t.Parallel()
 	type task struct {
@@ -47,6 +41,23 @@ func TestScheduledRunsAfterMerge(t *testing.T) {
 		item.draft.Execution = protocol.ConversationExecutionModel
 		item.draft.Message.Text = "Write the daily report"
 		item.draft.Association = &protocol.ConversationAssociation{Namespace: item.info.Summary.Name, Kind: "task", ID: "daily"}
+		// The package stores a worktree only together with its project, so
+		// the fixture's worktree belongs to one.
+		err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
+			appearance, err := encode(protocol.DefaultProjectsAppearance())
+			if err != nil {
+				return err
+			}
+			project := protocol.NewProjectID()
+			if _, err := db.ExecContext(t.Context(), "INSERT INTO projects(id,name,path,appearance) VALUES(?1,'Fixture','/fixture-project',?2)", project.String(), appearance); err != nil {
+				return err
+			}
+			_, err = db.ExecContext(t.Context(), "UPDATE worktrees SET project=?2 WHERE id=?1", base.Worktree.String(), project.String())
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 		return item
 	}
 	// fire registers the task, lets its schedule come due and returns the
@@ -124,8 +135,8 @@ func TestScheduledRunsAfterMerge(t *testing.T) {
 		return protocol.Worktree{}, errors.New("fixture worktree is missing")
 	}
 
-	// Fails until plugin_authority.go gives start_session its own rule: the
-	// generic comparison refuses a draft worktree under a Node-wide scope.
+	// start_session has its own rule in plugin_authority.go: the generic
+	// comparison would refuse a draft worktree under a Node-wide scope.
 	t.Run("task_bound_to_a_worktree_starts_its_session_at_fire", func(t *testing.T) {
 		t.Parallel()
 		item := prepare(t)
@@ -157,8 +168,8 @@ func TestScheduledRunsAfterMerge(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	// The control: a task without a worktree fires today, so a failure of
-	// the scenario above is the worktree rule and not this fixture.
+	// The control: a failure of the scenario above alone is the worktree
+	// rule and not this fixture.
 	t.Run("task_without_a_worktree_starts_its_session_at_fire", func(t *testing.T) {
 		t.Parallel()
 		item := prepare(t)
@@ -252,9 +263,8 @@ func TestScheduledRunsAfterMerge(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	// Fails until a user's stop finishes the run as cancelled: today it
-	// finishes interrupted and so raises an error notice for a run its user
-	// ended on purpose.
+	// A user's stop finishes the run as cancelled; finished interrupted it
+	// would raise an error notice for a run its user ended on purpose.
 	t.Run("run_its_user_stopped_raises_no_notice", func(t *testing.T) {
 		t.Parallel()
 		storage, _, _, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)

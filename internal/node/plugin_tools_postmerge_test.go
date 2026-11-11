@@ -1,5 +1,3 @@
-//go:build postmerge
-
 package node
 
 import (
@@ -11,11 +9,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// TestScheduledTaskTurnInput describes, from the scheduling side, what the
-// plugin branch owns in pluginTurnInput. It is excluded from the ordinary
-// build because it fails until that branch is merged:
-//
-//	go test -tags postmerge ./internal/node -run TestScheduledTaskTurnInput
+// TestScheduledTaskTurnInput describes, from the scheduling side, what
+// pluginTurnInput hands the scheduled-tasks package.
 //
 // The scheduled-tasks tool stores what its initialize handler staged, and
 // the fire starts the session with that team. A conversation that runs a
@@ -34,7 +29,11 @@ func TestScheduledTaskTurnInput(t *testing.T) {
 	invocation.Turn.Roles.Execution, invocation.Turn.Roles.Team = protocol.ConversationExecutionTeam, &team
 	staged := func(t *testing.T) map[string]json.RawMessage {
 		t.Helper()
-		body, err := json.Marshal(pluginTurnInput(invocation, info, nil))
+		value, err := pluginTurnInput(invocation, info, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(value)
 		if err != nil {
 			t.Fatal(err)
 		}
