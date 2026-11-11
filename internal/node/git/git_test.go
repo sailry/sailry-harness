@@ -238,6 +238,64 @@ func TestGitReadMapping(t *testing.T) {
 			}
 		}
 	})
+	t.Run("status_line_statistics_are_bounded", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		// One byte over the limit: such a file is marked, not read and hashed.
+		huge, err := os.Create(filepath.Join(root, "huge.bin"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := errors.Join(huge.Truncate(statLimit+1), huge.Close()); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range map[string]string{"file.txt": "one\ntwo\nthree\nfour\n", "binary.dat": "a\x00b\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		body := "# branch.oid " + commit + "\x00# branch.head main\x001 .M N... 100644 100644 100644 abc def file.txt\x00? binary.dat\x00? huge.bin\x00"
+		s := New(Options{Run: func(context.Context, string, []string, []byte) (CommandResult, error) {
+			return CommandResult{Stdout: []byte(body)}, nil
+		}})
+		statistics := func() map[string][3]protocol.GitLineStats {
+			t.Helper()
+			s.Invalidate(root)
+			status, err := s.Status(ctx, root)
+			if err != nil || len(status.Entries) != 3 {
+				t.Fatal(status, err)
+			}
+			got := map[string][3]protocol.GitLineStats{}
+			for _, entry := range status.Entries {
+				got[entry.Path] = [3]protocol.GitLineStats{entry.StagedDiff, entry.UnstagedDiff, entry.Diff}
+			}
+			return got
+		}
+		uncounted := protocol.GitLineStats{Truncated: true}
+		if got, want := statistics(), map[string][3]protocol.GitLineStats{
+			"file.txt":   {{}, {Additions: 1}, {Additions: 1}},
+			"binary.dat": {{}, {}, {}},
+			"huge.bin":   {{}, uncounted, uncounted},
+		}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("statistics = %+v, want %+v", got, want)
+		}
+		// Out of time, a status still answers: the entries stay uncounted.
+		s.stats = 0
+		if got, want := statistics(), map[string][3]protocol.GitLineStats{
+			"file.txt":   {{}, uncounted, uncounted},
+			"binary.dat": {{}, uncounted, uncounted},
+			"huge.bin":   {{}, uncounted, uncounted},
+		}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("statistics without time = %+v, want %+v", got, want)
+		}
+		// A comparison cut short reports its coarse counts as uncounted.
+		before, after := content{data: []byte("a\nb\n"), exists: true, hash: plumbing.NewHash("01")}, content{data: []byte("a\nc\n"), exists: true, hash: plumbing.NewHash("02")}
+		if got := lineStats(before, after, nil, nil, time.Nanosecond); !got.Truncated {
+			t.Fatalf("cut comparison = %+v", got)
+		}
+		if got := lineStats(before, after, nil, nil, time.Minute); got != (protocol.GitLineStats{Additions: 1, Deletions: 1}) {
+			t.Fatalf("comparison = %+v", got)
+		}
+	})
 	t.Run("ahead_behind_matches_reachable_sets", func(t *testing.T) {
 		_, r, root := fixture(t)
 		base, err := r.CommitObject(plumbing.NewHash(root))

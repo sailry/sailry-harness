@@ -14,7 +14,16 @@ watcher events invalidate that cache. Other mapped reads retain go-git.
 
 Status includes per-file staged, unstaged and total line counts. One status
 reads the HEAD tree and the index once and loads each side of an entry once for
-its three counts. The optional
+its three counts. An entry changed on one side only is compared once. A side
+over 1 MiB is neither read nor hashed and its counts are marked `truncated`,
+as the reference marks them; binary content counts no lines. Counting takes at
+most one second of the five-second status deadline: entries past it, and a
+comparison cut short, are marked `truncated` and the status still answers. The
+reference has no such share because libgit2's line diff is fast enough; the
+go-git line diff is not, and ran without a usable limit, so several regenerated
+lock files failed every status with a deadline. Its other callers (diff, hunk,
+blame, history, change review) now stop refining at the five-second read
+deadline and return the coarser, still correct diff. The optional
 `GitEntry.modified_ms` field carries an observed modification time for the
 activity badge across local and remote Client projections. Missing or deleted
 paths omit the field. This additive v1 field implements the Go backend plan's

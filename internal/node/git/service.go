@@ -25,6 +25,10 @@ const (
 	maxDiff     = 48 * 1024
 	maxFile     = 32 * 1024 * 1024
 	readTimeout = 5 * time.Second
+	// statLimit is the largest side whose changed lines a status counts.
+	statLimit = 1024 * 1024
+	// statBudget is the share of the status deadline spent counting lines.
+	statBudget = time.Second
 	// mutationTimeout is the total time of a local native mutation.
 	mutationTimeout = 120 * time.Second
 	// networkIdle is how long a transfer with a remote may stay silent.
@@ -60,10 +64,11 @@ type Service struct {
 	times    map[string]map[string]int64
 	changes  []*changeCapture
 	idle     time.Duration // silence limit of a network operation
+	stats    time.Duration // line statistics share of a status
 }
 
 func New(options Options) *Service {
-	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, times: map[string]map[string]int64{}, idle: networkIdle}
+	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, times: map[string]map[string]int64{}, idle: networkIdle, stats: statBudget}
 	if s.now == nil {
 		s.now = time.Now
 	}
