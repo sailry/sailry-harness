@@ -210,9 +210,53 @@ func (r *Runtime) browserAdopt(draft, session string) {
 // which the app's transport security then refuses.
 func browserAgent() string { return "Safari/605.1.15 Sailry/" + mygo.App.Version() }
 
+// browserPopupTabs bounds the browser tabs of one conversation that pages
+// may add to without a user's gesture.
+const browserPopupTabs = 8
+
+// browserPopup makes the tab for a window a page asked for, by a link with a
+// target or by window.open: a tab of the same conversation's panel, under
+// the address rules of every tab. The tab comes forward when its source is
+// in front and stays behind one the agent keeps in the background. A request
+// without a user's gesture, as the agent's click or a script's own, adds no
+// tab once the conversation has browserPopupTabs. Main thread only.
+func (r *Runtime) browserPopup(source *browserTab, address string, gesture bool) *browserTab {
+	origin := panel.Tab{Kind: panel.Browser, ID: strconv.FormatUint(source.id, 10)}
+	if !browserAddress(address) || r.browser.tabs[origin.ID] != source || !r.App.HasPanelTab(origin) {
+		return nil
+	}
+	shown := slices.Contains(r.App.Panel.Tabs, origin)
+	siblings := r.App.Panel.Tabs
+	if !shown {
+		siblings = r.App.ConversationTabs(source.conversation)
+		if !slices.Contains(siblings, origin) {
+			return nil
+		}
+	}
+	if !gesture {
+		pages := 0
+		for _, sibling := range siblings {
+			if sibling.Kind == panel.Browser {
+				pages++
+			}
+		}
+		if pages >= browserPopupTabs {
+			return nil
+		}
+	}
+	open := r.App.Panel.AddBrowser(shown && !source.background)
+	tab := r.browserTabFor(open.ID)
+	tab.node, tab.conversation, tab.background = source.node, source.conversation, source.background
+	if !shown {
+		r.App.MovePanelTab(open, source.conversation)
+	}
+	return tab
+}
+
 // browserLoad shows an address in a tab, making its WebView on the first one.
 // The page is untrusted: it calls nothing of the app, gets no permission,
-// opens no window, downloads nothing and stays on HTTP(S).
+// opens no window, downloads nothing and stays on HTTP(S). A window it asks
+// for is a new tab.
 func (r *Runtime) browserLoad(tab *browserTab, address string) error {
 	tab.endPick()
 	tab.url, tab.title = address, ""
@@ -232,7 +276,16 @@ func (r *Runtime) browserLoad(tab *browserTab, address string) error {
 	}
 	tab.view = view
 	page := view.Page()
-	page.SetWindowOpenHandler(func(mygo.WindowOpenRequest) *mygo.WindowOptions { return nil })
+	page.SetWindowOpenHandler(func(request mygo.WindowOpenRequest) *mygo.WindowOptions {
+		// The WebView of the new tab is made before the next frame builds.
+		r.enqueue(func(*ui.Context) {
+			if opened := r.browserPopup(tab, request.URL, request.UserInitiated); opened != nil {
+				// A page that cannot be made is the tab's failed state.
+				_ = r.browserLoad(opened, request.URL)
+			}
+		})
+		return nil
+	})
 	page.OnWillNavigate(func(event *mygo.NavigateEvent) {
 		if !browserAddress(event.URL) {
 			event.PreventDefault()

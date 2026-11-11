@@ -379,7 +379,14 @@ A live Browser tab is a pinned MyGo `WebView` under the accepted chrome
 page's history, Reload and ⌘R reload it and stay disabled before a first
 address, and ⌘T and the strip's "+" open another tab, whose address field
 takes the keyboard. The page is untrusted: it has no host function, opens no
-window and stays on HTTP(S) addresses without embedded credentials. A
+window and stays on HTTP(S) addresses without embedded credentials. A window
+the page asks for, by a link with a target or by `window.open`, becomes a tab
+of the same conversation's panel under the same address rules
+(`Runtime.browserPopup`): in front when its source tab is, behind when the
+agent keeps the source in the background, and in the hidden panel for a page
+of a conversation that is not on screen. A request without a user's gesture,
+which the agent's click is as well, adds no tab once the conversation has 8
+browser tabs. The new page has no `window.opener`. A
 workspace plugin that declares a browser resource still creates it; the core
 tab is the fallback. The WebView is created before the next frame builds and
 is destroyed with its tab. Where the system has no WebView the tab shows
@@ -612,7 +619,9 @@ state and the loading spinner; tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file
 and diff its own tab shared with the project (closing on either side,
 another project swapping them), a browser tab's history (going drops the
-forward part).
+forward part). `panel_tabs_test.go` also covers a page's window request: the
+refused addresses, the tab in front, behind and in a hidden conversation's
+panel, the bound without a gesture and a closed tab's request.
 `internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
 confirmation, Commit's menu and amending, the history, All changes; the
@@ -650,6 +659,8 @@ at its width.
 | Browser tabs belong to the conversation they were opened in and show in its panel only | The strip is the conversation's ([Tabs per conversation](#tabs-per-conversation)); the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
 | Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
+| Windows a page asks for without a user's gesture stop at 8 browser tabs per conversation, and the new tab has no `window.opener` | The reference opens every request as a tab. An untrusted page must not fill the panel with pages; the request is refused and its address loaded in a tab's own WebView |
+| A page cannot take its own tab to `about:blank` or `about:srcdoc` | The reference allows both in every frame. Pinned MyGo asks only for navigations of the main frame, so frames are not restricted; a blank main frame has no address for the tab to show |
 | A controller that subscribes to browser calls after its turn started gets no browser tools in that turn | As in the reference, the turn's tools are fixed when it starts. The Desktop subscribes from its first frame, so only a reconnect within that second is affected |
 | The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |
 | The in-memory browser store empties when its last tab closes | MyGo's ephemeral session ends with its last page; the reference keeps it until the app quits |
