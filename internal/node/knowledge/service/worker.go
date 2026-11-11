@@ -163,6 +163,9 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 		filters[position] = glob
 	}
 	selected := store.ReadKnowledgeSource(definition.Source)
+	if selected.Kind == "storage" {
+		return service.storage(ctx, stored, binding, model, choice, progress, report)
+	}
 	var root, watched string
 	var err error
 	switch selected.Kind {
@@ -180,8 +183,6 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 			return err
 		}
 		watched = filepath.Dir(watched)
-	default:
-		return newFault(protocol.ErrorCodeNotConfigured, "knowledge storage sources are unavailable")
 	}
 	scan, err := service.scan(ctx, selected, root)
 	if err != nil {

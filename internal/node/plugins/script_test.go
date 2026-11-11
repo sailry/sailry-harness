@@ -265,6 +265,29 @@ export async function run(){const old=await getValue('counter');const id=setValu
 			t.Fatalf("read-only outcome = %s", value)
 		}
 	})
+	t.Run("knowledge drafts name plugin storage sources", func(t *testing.T) {
+		source := `import {prepareKnowledgeCollection,completeRequest} from 'sailry/sdk';export async function run(){return await completeRequest(prepareKnowledgeCollection({name:'Notes',source:{kind:'storage',scope:'node',prefix:'note/'},model:null,globs:[],tags:['notes']}))}`
+		var sent []protocol.Request
+		_, err := RunCallback(context.Background(), scriptTestBundle(source), "run", nil, scriptTestEnvironment(), false, func(_ context.Context, request protocol.Request) (protocol.Output, error) {
+			sent = append(sent, request)
+			return protocol.Output{Kind: "knowledge_collection", Data: protocol.DefaultKnowledgeCollection()}, nil
+		})
+		if err != nil || len(sent) != 1 || sent[0].Plugin == nil || sent[0].Command.Kind != "create_knowledge_collection" {
+			t.Fatalf("requests = %+v, %v", sent, err)
+		}
+		command, err := json.Marshal(sent[0].Command.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var created protocol.CommandCreateKnowledgeCollectionPayload
+		if err := json.Unmarshal(command, &created); err != nil {
+			t.Fatal(err)
+		}
+		storage, found := created.Definition.Source.Data.(*protocol.KnowledgeSourceStoragePayload)
+		if !found || created.Plugin != nil || created.Definition.Name != "Notes" || storage.Scope != protocol.PluginStorageScopeNode || storage.Prefix != "note/" {
+			t.Fatalf("command = %s", command)
+		}
+	})
 	t.Run("revision adapters preserve dispatch list shapes", func(t *testing.T) {
 		command, _ := scriptDecodeJSON([]byte(`{"kind":"dispatch","data":{"action":{"kind":"save_handler","data":{"callback":{"command":{"kind":"start_session","data":{"team":{"revision":"9007199254740993"}}}}}}}}`))
 		if err := scriptCommandRevisions(command); err != nil {

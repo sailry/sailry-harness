@@ -70,27 +70,28 @@ ON CONFLICT(key) DO UPDATE SET field0=excluded.field0,field1=excluded.field1,cjk
 	return err
 }
 
-func SearchPluginValues(ctx context.Context, db *sql.Conn, reference protocol.PluginReference, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
-	page := protocol.DefaultPluginStorageSearchPage()
-	page.Mode, page.NowMs = protocol.KnowledgeModeKeyword, uint64(time.Now().UnixMilli())
+func validatePluginSearch(query protocol.PluginStorageSearch) error {
 	if query.Limit == 0 || query.Weights[0] == 0 || query.Weights[1] == 0 ||
 		query.Query != nil && strings.ContainsRune(*query.Query, 0) {
-		return page, invalid("invalid plugin search query")
+		return invalid("invalid plugin search query")
 	}
 	for _, values := range [][]string{query.Terms, query.All, query.Any} {
 		for _, value := range values {
 			if value == "" || strings.ContainsRune(value, 0) {
-				return page, invalid("invalid plugin search query")
+				return invalid("invalid plugin search query")
 			}
 		}
 	}
-	info, err := ResolvePluginInfo(ctx, db, reference)
-	if err != nil {
-		return page, err
-	}
-	exists, err := pluginSearchExists(ctx, db, reference.Name)
+	return nil
+}
+
+// pluginSearchRows runs the keyword search of one package's indexed values.
+// It returns no rows when the package has no index or the terms match
+// nothing.
+func pluginSearchRows(ctx context.Context, db *sql.Conn, name string, query protocol.PluginStorageSearch, columns string, limit, offset int) (*sql.Rows, error) {
+	exists, err := pluginSearchExists(ctx, db, name)
 	if err != nil || !exists {
-		return page, err
+		return nil, err
 	}
 	expressions := []string{}
 	for _, term := range query.Terms {
@@ -105,11 +106,11 @@ func SearchPluginValues(ctx context.Context, db *sql.Conn, reference protocol.Pl
 	}
 	expression := strings.Join(expressions, " OR ")
 	if len(query.Terms) != 0 && expression == "" {
-		return page, nil
+		return nil, nil
 	}
-	table := pluginSearchTable(reference.Name)
+	table := pluginSearchTable(name)
 	index := table + "_fts"
-	parameters := []any{reference.Name}
+	parameters := []any{name}
 	parameter := func(value any) string {
 		parameters = append(parameters, value)
 		return fmt.Sprintf("?%d", len(parameters))
@@ -132,11 +133,56 @@ func SearchPluginValues(ctx context.Context, db *sql.Conn, reference protocol.Pl
 		}
 		where = append(where, "EXISTS(SELECT 1 FROM json_each(f.tags) WHERE value IN("+strings.Join(choices, ",")+"))")
 	}
-	limit := min(query.Limit, 100)
-	sqlText := "SELECT v.key,v.revision,v.value FROM " + join + " WHERE " + strings.Join(where, " AND ") +
-		" ORDER BY " + order + " LIMIT " + parameter(int(limit)+1) + " OFFSET " + parameter(query.Offset)
-	rows, err := db.QueryContext(ctx, sqlText, parameters...)
+	sqlText := "SELECT " + columns + " FROM " + join + " WHERE " + strings.Join(where, " AND ") +
+		" ORDER BY " + order + " LIMIT " + parameter(limit) + " OFFSET " + parameter(offset)
+	return db.QueryContext(ctx, sqlText, parameters...)
+}
+
+// PluginValueRank is one keyword hit of a semantic plan: the key and the
+// revision it was ranked at.
+type PluginValueRank struct {
+	Key      string
+	Revision uint64
+}
+
+// rankedPluginValues ranks every keyword match of a package. Semantic fusion
+// receives keys and revisions only, not the values.
+func rankedPluginValues(ctx context.Context, db *sql.Conn, name string, query protocol.PluginStorageSearch) ([]PluginValueRank, error) {
+	if err := validatePluginSearch(query); err != nil {
+		return nil, err
+	}
+	rows, err := pluginSearchRows(ctx, db, name, query, "v.key,v.revision", maxPluginKeys, 0)
+	if err != nil || rows == nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ranked []PluginValueRank
+	for rows.Next() {
+		var rank PluginValueRank
+		if err := rows.Scan(&rank.Key, &rank.Revision); err != nil {
+			return nil, err
+		}
+		if rank.Revision == 0 {
+			return nil, invalid("invalid stored plugin search value")
+		}
+		ranked = append(ranked, rank)
+	}
+	return ranked, rows.Err()
+}
+
+func SearchPluginValues(ctx context.Context, db *sql.Conn, reference protocol.PluginReference, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
+	page := protocol.DefaultPluginStorageSearchPage()
+	page.Mode, page.NowMs = protocol.KnowledgeModeKeyword, uint64(time.Now().UnixMilli())
+	if err := validatePluginSearch(query); err != nil {
+		return page, err
+	}
+	info, err := ResolvePluginInfo(ctx, db, reference)
 	if err != nil {
+		return page, err
+	}
+	limit := min(query.Limit, 100)
+	rows, err := pluginSearchRows(ctx, db, reference.Name, query, "v.key,v.revision,v.value", int(limit)+1, int(query.Offset))
+	if err != nil || rows == nil {
 		return page, err
 	}
 	defer rows.Close()

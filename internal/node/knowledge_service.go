@@ -29,11 +29,76 @@ func knowledgeCommand(kind string) bool {
 	return false
 }
 
-// initKnowledge starts the retrieval service over the profile's knowledge
-// database. Embedding and OCR run through the local model scheduler.
-func (node *Node) initKnowledge() {
+// initKnowledge registers the semantic storage collections of the enabled
+// packages and starts the retrieval service.
+func (node *Node) initKnowledge(ctx context.Context) error {
+	changed := false
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		if changed, err = store.RegisterKnowledgeSemantic(ctx, db); err != nil || !changed {
+			return err
+		}
+		_, err = store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "knowledge_collections_changed"}})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	options := node.knowledgeOptions()
+	if node.knowledgeAdjust != nil {
+		node.knowledgeAdjust(&options)
+	}
+	node.knowledge = knowledgeservice.New(options)
+	node.knowledge.Start()
+	return nil
+}
+
+// followKnowledgeStorage keeps the semantic storage collections current in
+// the transaction of a plugin command: a changed package registers its
+// declared collections, and a storage write restarts the indexing of the
+// writer's collections.
+func (node *Node) followKnowledgeStorage(ctx context.Context, db *sql.Conn, request protocol.Request, changes []protocol.Event) ([]protocol.Event, error) {
+	changed := false
+	if slices.ContainsFunc(changes, func(change protocol.Event) bool { return change.Kind == "plugin_changed" }) {
+		registered, err := store.RegisterKnowledgeSemantic(ctx, db)
+		if err != nil {
+			return changes, err
+		}
+		changed = registered
+	}
+	if store.KnowledgeStorageCommand(request.Command) {
+		advanced, err := store.KnowledgeStorageChanged(ctx, db, request)
+		if err != nil {
+			return changes, err
+		}
+		changed = changed || advanced
+	}
+	if changed {
+		changes = append(changes, protocol.Event{Kind: "knowledge_collections_changed"})
+	}
+	return changes, nil
+}
+
+// refreshKnowledgeStorage asks for an indexing pass after a committed
+// command that may change what storage collections index, or that
+// registered one. The pass runs on the knowledge worker and never delays the
+// command.
+func (node *Node) refreshKnowledgeStorage(command protocol.Command, changes []protocol.Event) {
+	switch command.Kind {
+	case "install_plugin", "install_plugin_source", "install_plugin_upload", "set_plugin_enabled", "save_plugin_settings":
+	default:
+		if !store.KnowledgeStorageCommand(command) && !slices.ContainsFunc(changes, func(change protocol.Event) bool { return change.Kind == "knowledge_collections_changed" }) {
+			return
+		}
+	}
+	node.knowledge.Refresh()
+}
+
+// knowledgeOptions connects the retrieval service to the profile. Embedding
+// and OCR run through the local model scheduler.
+func (node *Node) knowledgeOptions() knowledgeservice.Options {
 	registry := node.localModels.registry
-	node.knowledge = knowledgeservice.New(knowledgeservice.Options{
+	return knowledgeservice.Options{
 		Working: node.power.Hold,
 		Index:   node.profile.Store.Knowledge,
 		Catalog: func(ctx context.Context) (catalog []store.KnowledgeStored, err error) {
@@ -128,9 +193,43 @@ func (node *Node) initKnowledge() {
 				return node.documentParts(ctx, name, data, localmodels.Background)
 			},
 		},
+		Sources: func(ctx context.Context, stored store.KnowledgeStored, after *string) (page store.KnowledgeStoragePage, err error) {
+			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				page, err = store.ReadKnowledgeStoragePage(ctx, db, stored, after, store.KnowledgeStoragePageLimit)
+				return err
+			})
+			return page, nodeFault(err)
+		},
+		Source: func(ctx context.Context, stored store.KnowledgeStored, key string) (record *store.KnowledgeStorageRecord, err error) {
+			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				record, err = store.ReadKnowledgeStorageRecord(ctx, db, stored, key)
+				return err
+			})
+			return record, nodeFault(err)
+		},
+		SourceCurrent: func(ctx context.Context, stored store.KnowledgeStored, record store.KnowledgeStorageRecord) (current bool, err error) {
+			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				current, err = store.KnowledgeStorageUnchanged(ctx, db, stored, record)
+				return err
+			})
+			return current, nodeFault(err)
+		},
+		Plan: func(ctx context.Context, request protocol.Request) (plan store.SemanticPlan, err error) {
+			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				plan, err = store.PrepareSemanticSearch(ctx, db, request)
+				return err
+			})
+			return plan, nodeFault(err)
+		},
+		Materialize: func(ctx context.Context, request protocol.Request, plan store.SemanticPlan, selection store.SemanticSelection) (page protocol.PluginStorageSearchPage, stale bool, err error) {
+			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				page, stale, err = store.MaterializeSemanticSearch(ctx, db, request, plan, selection)
+				return err
+			})
+			return page, stale, nodeFault(err)
+		},
 		Clock: clockwork.NewRealClock(),
-	})
-	node.knowledge.Start()
+	}
 }
 
 func embeddingFailure(err error) error {

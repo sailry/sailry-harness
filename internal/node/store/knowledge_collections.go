@@ -64,10 +64,22 @@ func loadKnowledge(ctx context.Context, db *sql.Conn) ([]KnowledgeStored, error)
 		}
 		entries = append(entries, stored)
 	}
-	if len(entries) > MaxKnowledgeCollections {
+	if knowledgeManual(entries) > MaxKnowledgeCollections {
 		return nil, errors.New("knowledge collection capacity exceeded")
 	}
 	return entries, nil
+}
+
+// knowledgeManual counts the collections bounded by the capacity. Automatic
+// registrations follow package manifests and are not counted.
+func knowledgeManual(entries []KnowledgeStored) int {
+	count := 0
+	for _, stored := range entries {
+		if !stored.Automatic {
+			count++
+		}
+	}
+	return count
 }
 
 func persistKnowledge(ctx context.Context, db *sql.Conn, stored KnowledgeStored) error {
@@ -142,7 +154,7 @@ func createKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if len(entries) >= MaxKnowledgeCollections {
+	if knowledgeManual(entries) >= MaxKnowledgeCollections {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "knowledge collection capacity exhausted")
 	}
 	owner, capture, err := knowledgeOwnership(ctx, db, request, selected)
