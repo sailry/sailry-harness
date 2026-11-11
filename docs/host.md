@@ -223,6 +223,13 @@ port stream that fails to open is released on the Node with `cancel_port` even
 when the caller's cancellation caused the failure; that cleanup waits at most
 two seconds.
 
+A forward fails when its Host's connection is lost, and its row shows it as
+not listening. When the Host is connected again the window creates the forward
+again on the same local port, from the same announced service when it had
+one, at most three times for each return of the Host; a forward that cannot
+be created (the service ended, the local port was taken) stays not listening.
+A forward the user or its service closed is not created again.
+
 A session on a remote Host can use a provider configured only on this Desktop:
 the local Node forwards the provider, a transferable secret and the roles over
 the paired Link, and the Host keeps them private to that session
@@ -281,7 +288,7 @@ confirmation, cancel and busy state.
 | The rail's Add host opens Settings › Connections | The add dialog lives with the Connections page |
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
 | Update Download prepares the update instead of acquiring a release | The frozen protocol has a single install/update command. Apply runs it: the remote machine downloads and verifies the release feed's installer and archive, or the execution Node uploads `host-artifacts/<goos>-<goarch>/` when that directory holds a locally built `sailry-host` |
-| A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends |
+| A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends. Rust leaves a failed forward to the user; the window creates it again when the Host returns |
 | Compatibility also requires the same release | Rust compares only the protocol number (`link/src/compatibility.rs`), which it bumps with its contracts. Here contracts change in place at v1, and mismatched builds failed as "unknown Node event" and reconnected every ten seconds |
 | The joining side does not check a pairing ticket's expiry | Rust rejects a ticket that its own clock finds expired or more than 60 seconds from expiry (`link/src/network/pairing.rs`, `rendezvous.rs`), so a correct ticket from a Host whose clock was 7.4 seconds ahead was refused. The sharing side enforces the lifetime and the token |
 | Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
