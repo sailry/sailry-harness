@@ -581,9 +581,11 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	}
 	clickButton(t, tt, en("directory_title"))
 	settle(tt)
+	// Each is a whole label: the counts line is asserted exactly, with every
+	// argument, so a changed wording or count fails here.
 	for _, text := range []string{en("directory_preview"), "sailry", "scratch", "many", en("directory_locations"), en("directory_devices"),
-		en("directory_count_directories", "count", 8), "/Users/alex"} {
-		if !tt.HasText(text) {
+		en("directory_counts_hidden", "directories", 8, "files", 11, "hidden", 1), "/Users/alex"} {
+		if !slices.Contains(tt.Texts(), text) {
 			t.Fatalf("the picker does not show %q: %q", text, tt.Texts())
 		}
 	}
@@ -628,7 +630,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	settle(tt)
 	a.Sidebar.Picker.Create(".cache")
 	settle(tt)
-	if tt.HasText(".cache") || !tt.HasText(en("directory_count_hidden", "count", 1)) {
+	if tt.HasText(".cache") || !slices.Contains(tt.Texts(), en("directory_counts_hidden", "directories", 1, "files", 1, "hidden", 1)) {
 		t.Fatalf("a hidden entry shows before the toggle: %q", tt.Texts())
 	}
 	// The hidden-files toggle is an item of the header's More menu.

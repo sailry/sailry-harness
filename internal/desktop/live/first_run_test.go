@@ -606,8 +606,8 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 	if count("browse_files") == before || !r.App.Sidebar.Picker.Showing() {
 		t.Fatal("the folder button did not browse the Node")
 	}
-	for _, name := range []string{"alpha", "beta", "notes.md", zh("directory_count_directories", "count", 2), zh("directory_count_hidden", "count", 1)} {
-		if !tester.HasText(name) {
+	for _, name := range []string{"alpha", "beta", "notes.md", zh("directory_counts_hidden", "directories", 2, "files", 1, "hidden", 1)} {
+		if !slices.Contains(tester.Texts(), name) {
 			t.Fatalf("the picker does not list %q of %s: %q", name, root, tester.Texts())
 		}
 	}
