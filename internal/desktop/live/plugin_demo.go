@@ -18,7 +18,7 @@ import (
 // in the header. The package's view is mounted for each demo conversation
 // shown, without a session, under the presentation "demo/<id>", and reads
 // the composer state the host gives it (readComposer), which is built from
-// the conversation's own usage. No other package is mounted there: theirs
+// the conversation's own usage and transcript. No other package is mounted there: theirs
 // would ask the Node. Nothing of the demo is sent to a Node; the package's
 // bundle is the one another of its mounts read, and is read from the Node
 // only where none has it yet.
@@ -68,9 +68,12 @@ func (state *pluginNativeState) refreshDemoComposer() bool {
 
 // demoComposer is the composer state of a demo conversation in the shape
 // projectComposer gives a session's: connected, idle, with the statistics
-// of the conversation's own usage.
+// of the conversation's own usage and the tool calls its transcript shows.
 func demoComposer(view *viewmodel.Conversation, sidebar bool) (map[string]any, error) {
 	recorded := demoStatistics(view.Session.Usage)
+	if recorded != nil {
+		recorded.Observations.Tools = demoTools(view.Turns)
+	}
 	statistics, err := plugins.ComposerStatistics(recorded)
 	if err != nil {
 		return nil, err
@@ -121,6 +124,22 @@ func demoStatistics(usage *conversation.Usage) *protocol.ConversationStatistics 
 		statistics.ContextTokens, statistics.ContextLimit = &used, &window
 	}
 	return &statistics
+}
+
+// demoTools counts a transcript's tool calls by name, as a session's
+// observations do. A question or a plan review is an interaction, not a call.
+func demoTools(turns []conversation.Turn) map[string]uint64 {
+	tools := map[string]uint64{}
+	for _, turn := range turns {
+		for _, block := range turn.Reply.Blocks {
+			for _, call := range block.Calls {
+				if call.Name != "" && !call.Terminal {
+					tools[call.Name]++
+				}
+			}
+		}
+	}
+	return tools
 }
 
 // demoOutputShare is the part of a sample usage's tokens that is output: one

@@ -332,7 +332,7 @@ func testPluginViewOwnership(t *testing.T) {
 			{"id":"quota","value":"64%","details":[{"label":{"label":"Five hours"},"value":"64% left","progress":64},{"label":{"label":"Resets"},"value":"18:00"}]},
 			{"id":"idle","value":"—","enabled":false},
 			{"id":"panel"},
-			{"id":"ring","value":{"percent":24,"hint":"11.6k / 48k"}}]`)); err != nil {
+			{"id":"ring","value":{"percent":24,"tone":"muted","hint":"11.6k / 48k"}}]`)); err != nil {
 			t.Fatal(err)
 		}
 		if err := registry.SetActivity(mounted.scope.Package, true, false); err != nil {
