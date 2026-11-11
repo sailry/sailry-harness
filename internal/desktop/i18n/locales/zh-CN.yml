@@ -1180,6 +1180,16 @@ search_driver_auto: 自动
 knowledge_settings: 默认设置
 knowledge_default_model: 向量模型
 knowledge_keyword_only: 仅关键词
+knowledge_collections: 集合
+knowledge_collection_pending: 等待索引
+knowledge_collection_indexing: 索引中 · %{count} 项
+knowledge_collection_ready: 已是最新 · %{count} 项
+knowledge_collection_paused: 已暂停
+knowledge_collection_failed: 失败 · %{reason}
+knowledge_collection_failures: '%{count} 项未索引 · %{reason}'
+knowledge_pause: 暂停
+knowledge_resume: 继续
+knowledge_update: 更新
 runtime_decision: 决策
 runtime_decision_model: 模型
 runtime_decision_enable: 启用决策

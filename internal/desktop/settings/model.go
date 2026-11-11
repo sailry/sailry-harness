@@ -297,7 +297,10 @@ type Model struct {
 	Python        Stored[Python]
 	OCR           LocalModels
 	Knowledge     LocalModels // embedding models (knowledge-settings)
-	Decision      LocalModels // decision models
+	// Collections are the selected host's knowledge collections; the
+	// preview has none.
+	Collections []viewmodel.KnowledgeCollection
+	Decision    LocalModels // decision models
 
 	// Permissions.
 	Permissions []preview.Permission

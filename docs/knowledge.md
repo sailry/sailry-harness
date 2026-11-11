@@ -205,7 +205,9 @@ package declares its operation.
 ## Desktop
 
 The shell's knowledge viewer and its live wiring are specified in
-[shell.md](shell.md#knowledge).
+[shell.md](shell.md#knowledge). Settings › Knowledge lists the selected
+host's collections with their state and pauses, resumes and updates them
+([settings.md](settings.md#b11-local-model-wiring)).
 
 ## Ownership
 

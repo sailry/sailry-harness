@@ -1180,6 +1180,16 @@ search_driver_auto: 自動
 knowledge_settings: 既定の設定
 knowledge_default_model: ベクトルモデル
 knowledge_keyword_only: キーワードのみ
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: 判断
 runtime_decision_model: モデル
 runtime_decision_enable: 判断を有効にする

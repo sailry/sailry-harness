@@ -17,6 +17,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("terminal settings projection", checkTerminalSettingsHelpers)
 	t.Run("backup settings projection", checkBackupSettingsHelpers)
 	t.Run("local model projection", checkLocalModelHelpers)
+	t.Run("knowledge collections projection", checkKnowledgeViews)
 	t.Run("dictation", checkDictation)
 	t.Run("system settings projection", checkSystemHelpers)
 	t.Run("feature usage", testFeatureUsage)

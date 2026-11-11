@@ -1180,6 +1180,16 @@ search_driver_auto: Automático
 knowledge_settings: Valores predeterminados
 knowledge_default_model: Modelo vectorial
 knowledge_keyword_only: Solo palabras clave
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: Indexing · %{count} items
+knowledge_collection_ready: Up to date · %{count} items
+knowledge_collection_paused: Paused
+knowledge_collection_failed: Failed · %{reason}
+knowledge_collection_failures: '%{count} not indexed · %{reason}'
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
 runtime_decision: Decisiones
 runtime_decision_model: Modelo
 runtime_decision_enable: Activar decisiones

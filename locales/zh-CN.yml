@@ -2794,3 +2794,13 @@ settings_experimental: 实验
 settings_experimental_description: 开发与调试设置
 settings_demo_mode: 演示模式
 settings_demo_mode_description: 显示示例会话，用于验收与截图
+knowledge_collections: 集合
+knowledge_collection_pending: 等待索引
+knowledge_collection_indexing: "索引中 · %{count} 项"
+knowledge_collection_ready: "已是最新 · %{count} 项"
+knowledge_collection_paused: 已暂停
+knowledge_collection_failed: "失败 · %{reason}"
+knowledge_collection_failures: "%{count} 项未索引 · %{reason}"
+knowledge_pause: 暂停
+knowledge_resume: 继续
+knowledge_update: 更新

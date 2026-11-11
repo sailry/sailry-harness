@@ -1199,6 +1199,16 @@ search_driver_auto
 knowledge_settings
 knowledge_default_model
 knowledge_keyword_only
+knowledge_collections
+knowledge_collection_pending
+knowledge_collection_indexing
+knowledge_collection_ready
+knowledge_collection_paused
+knowledge_collection_failed
+knowledge_collection_failures
+knowledge_pause
+knowledge_resume
+knowledge_update
 runtime_decision
 runtime_decision_model
 runtime_decision_enable

@@ -121,7 +121,8 @@ AI group fields: `Channels`, `Brands`, `Catalog`, `Compaction`
 `ConnQuery`, `ConnMethod`; `Teams`, `Roles`, `Concurrency` (Stored),
 `TeamTab`; `Packages`, `MarketPlugins`, `SkillList`, `MarketSkills`,
 `Themes`, `Library`, `SkillQuery`, the `Market*` filters; `Knowledge`
-and `Decision` (`LocalModels`).
+and `Decision` (`LocalModels`), `Collections`
+(`[]viewmodel.KnowledgeCollection`, live only).
 
 Loading states (`preview.Fetch`, played on the frame clock for
 `preview.LoadAfter`; nothing is fetched): `MarketLoad` shows six card
@@ -645,6 +646,22 @@ repeat, so an older answer never replaces the event's registry.
   picker's last choice (`Missing`) instead of being cleared silently.
 - **Knowledge.** There is no switch: Keyword only saves `enabled: false`, a
   model saves `enabled: true`.
+- **Collections.** The Knowledge page lists the host's knowledge collections
+  (`Model.Collections`, `settings/collections.go`) below the models, in a
+  group that is absent while the host has none. `live/settings_knowledge.go`
+  reads `list_knowledge_collections` when the page is entered and again
+  after each `knowledge_collections_changed` on the same `node`
+  subscription; the event carries no data, so the client projection keeps
+  no copy. A row is the collection's name over its state:
+  waiting, indexing with the sources read so far, up to date with the
+  sources indexed, paused, the number of sources that could not be indexed
+  with the first one's path and reason, or the reason the whole collection
+  failed. Its actions are Pause or Resume (`pause_knowledge_collection`)
+  and Update (`update_knowledge_collection` with the definition unchanged,
+  which reads the sources again and retries failed ones). Both are sent at
+  the revision read, lock the row while under way and report only failure,
+  conflict and an unknown outcome (`CollectionMessages`); the collections
+  are then read again. The preview has no collections.
 - **Library.** `LibraryRequest` (kind, hub, searched query, search serial)
   drives `search_models`; a search is abandoned when the request changes or
   the dialog closes. Install is `resolve_model` → `register_local_model` →
@@ -663,6 +680,9 @@ Deviations from the Rust reference:
 - `refresh_local_model` is not called: the accepted details dialogs have no
   Update control.
 - Only the save locks the page; a running download does not.
+- The Knowledge page lists the collections with their state and Pause,
+  Resume and Update; the reference shows no collection anywhere, so a paused
+  or failing one was invisible.
 
 ### Dictation (controller-local)
 

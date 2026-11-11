@@ -362,3 +362,13 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+knowledge_collections: Collections
+knowledge_collection_pending: Waiting to index
+knowledge_collection_indexing: "Indexing · %{count} items"
+knowledge_collection_ready: "Up to date · %{count} items"
+knowledge_collection_paused: Paused
+knowledge_collection_failed: "Failed · %{reason}"
+knowledge_collection_failures: "%{count} not indexed · %{reason}"
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update
