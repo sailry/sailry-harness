@@ -900,7 +900,6 @@ message_display_compact: Компактно
 message_display_detailed: Подробная информация
 message_text_extra_large: Очень большой
 message_text_large: Большой
-message_text_size_value: '%{size}px'
 message_text_small: Малый
 message_text_standard: Стандартный
 model_library_manage: Управление моделями

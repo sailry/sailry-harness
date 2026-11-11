@@ -900,7 +900,6 @@ message_display_compact: Compact
 message_display_detailed: Detailed
 message_text_extra_large: Extra large
 message_text_large: Large
-message_text_size_value: '%{size}px'
 message_text_small: Small
 message_text_standard: Standard
 model_library_manage: Manage models

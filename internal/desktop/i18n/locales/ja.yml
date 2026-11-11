@@ -900,7 +900,6 @@ message_display_compact: コンパクト
 message_display_detailed: 詳細
 message_text_extra_large: 特大
 message_text_large: 大
-message_text_size_value: '%{size}px'
 message_text_small: 小
 message_text_standard: 標準
 model_library_manage: モデルを管理

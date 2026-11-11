@@ -1497,7 +1497,6 @@ message_text_small: 小
 message_text_standard: 标准
 message_text_large: 稍大
 message_text_extra_large: 特大
-message_text_size_value: "%{size}px"
 settings_appearance: 外观
 settings_conversation: 会话
 settings_conversation_description: 调整会话消息的显示方式
