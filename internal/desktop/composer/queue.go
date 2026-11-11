@@ -18,7 +18,8 @@ import (
 // Save. A message whose guidance is pending shows the loader in the handle's
 // place and Withdraw, with Edit and Remove disabled, and Send now too unless
 // the guidance is aimed at the turn taking guidance now. A message still on
-// its way to the queue is a last row whose actions are all disabled. A child
+// its way to the queue is a last row whose actions are all disabled. Every
+// row starts with the same slot (queueLead), so the labels share one edge. A child
 // session's strip is read-only: Read opens the text with Copy, Close and
 // Remove, and nothing is sent ahead or dragged (live/queue/render.rs). Rows
 // come in and go out collapsing, as the strip does. The strip lists queued
@@ -95,7 +96,7 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 					// to the conversation, before the message now after it.
 					list := slices.Clone(ctx.Queue)
 					kit.SortableList(c, &list, func(q Queued) string { return q.ID }, kit.SortableListProps{
-						Gap: 4, Handle: i18n.T(c, "queue_drag"),
+						Gap: 4, Handle: i18n.T(c, "queue_drag"), Disabled: queueBlocked(ctx),
 						OnMove: func(_, to int) { actions.MoveQueued(list[to].ID, after(list, list[to].ID)) },
 					}, func(item Queued, handle func()) { s.queueRow(c, ctx, actions, item, handle) })
 				}
@@ -144,16 +145,32 @@ func queueSmall(c *ui.Context, key string, icon *ui.SVG, tip string, disabled bo
 	kit.IconButton(c.Key(key), icon, tip, 24, false).Radius(12).Disabled(disabled).OnClick(fn)
 }
 
-// queueRow is 32 high, rounded 2xl, the drag handle (SortableList's; none for
-// a notice, in a child session or while read-only) or, while its guidance is
-// pending, the loader, the label, a file icon when it carries files, then
-// its actions; small round ghost buttons. A child session's row has Read in
-// Edit's place and no Send now.
+// queueLead is a row's leading slot, 24 square as the drag handle is: the
+// loader while the row is being taken, or the muted icon of what the row is.
+// No row leaves it empty.
+func queueLead(c *ui.Context, loading bool, icon *ui.SVG) {
+	ui.Box(c.Key("lead")).Size(24, 24).Center().Shrink(0).Children(func() {
+		if loading {
+			kit.Loader(c, 14)
+			return
+		}
+		ui.Icon(c, icon).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+	})
+}
+
+// queueRow is 32 high, rounded 2xl: the leading slot, the label, a file icon
+// when it carries files, then its actions; small round ghost buttons. The
+// slot is the drag handle (SortableList's, dimmed while read-only) on a row
+// that can be moved: a message or a compaction outside a child session. A
+// row that cannot shows its state there: the loader while its guidance is
+// pending or, on a background notice, while it is the next to be delivered;
+// otherwise the muted icon of its kind, the background command's for a
+// notice, which is delivered in its own order. A child session's row has
+// Read in Edit's place and no Send now.
 func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queued, handle func()) {
 	p := theme.Of(c)
 	label := queueLabel(c, item)
 	blocked := queueBlocked(ctx)
-	draggable := !item.Notice && !blocked && !ctx.Child && !item.Guided
 	row := ui.Row(c.Key(item.ID)).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
 		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion)
 	if row.Hovered() {
@@ -162,9 +179,15 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 	row.Children(func() {
 		switch {
 		case item.Guided:
-			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 14) })
-		case draggable:
+			queueLead(c, true, nil)
+		case item.Notice:
+			queueLead(c, ctx.Queue[0].ID == item.ID, icons.Terminal)
+		case !ctx.Child:
 			handle()
+		case item.Compaction:
+			queueLead(c, false, icons.Minimize)
+		default:
+			queueLead(c, false, icons.Chat)
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 		if len(item.Attachments) > 0 {
@@ -190,17 +213,15 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 	})
 }
 
-// outgoingRow is the message on its way to the queue: the loader while it
-// goes as guidance, its label, and Edit, Send now and Remove, all disabled
-// until the Node lists it (queue-outgoing).
+// outgoingRow is the message on its way to the queue: the loader in the
+// leading slot, its label, and Edit, Send now and Remove, all disabled until
+// the Node lists it (queue-outgoing).
 func (s *State) outgoingRow(c *ui.Context, item Queued) {
 	p := theme.Of(c)
 	label := queueLabel(c, item)
 	ui.Row(c.Key("outgoing")).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
 		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion).Children(func() {
-		if item.Guided {
-			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 14) })
-		}
+		queueLead(c, true, nil)
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
 		if len(item.Attachments) > 0 {
 			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
