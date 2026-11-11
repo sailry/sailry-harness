@@ -143,3 +143,85 @@ func TestProfileLockAfterKill(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A run that was killed leaves its scratch behind: database copies of a
+// backup, an unpacked restore, read-only staged inputs. The next start
+// removes it before anything uses the profile.
+func TestProfileLeftovers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "profile")
+	first, err := OpenProfile(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path = first.Ownership.Path
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("kept"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, mode os.FileMode) string {
+		t.Helper()
+		target := filepath.Join(path, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte("left behind"), mode); err != nil {
+			t.Fatal(err)
+		}
+		return target
+	}
+	removed := []string{
+		filepath.Dir(write("tmp/backup-1/node.sqlite", 0o600)),
+		filepath.Dir(write("tmp/restore-1/storage/node.sqlite", 0o600)),
+		write("tmp/command-output-1", 0o600),
+		filepath.Dir(write("storage/.upgrade-1/storage/node.sqlite", 0o600)),
+		filepath.Dir(write("storage/.schema-reference-1/reference.sqlite", 0o600)),
+		filepath.Dir(filepath.Dir(write("storage/backups/.upgrade-1/storage/node.sqlite", 0o600))),
+	}
+	// Staged inputs are read-only all the way down.
+	staged := filepath.Dir(write("tmp/sailry-inputs-1/nested/input", 0o400))
+	for _, directory := range []string{staged, filepath.Dir(staged)} {
+		if err := os.Chmod(directory, 0o500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed = append(removed, filepath.Dir(staged))
+	// A link in tmp is removed; what it names is not.
+	link := filepath.Join(path, "tmp", "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	removed = append(removed, link)
+	kept := []string{
+		// The process service kills the group this names, then removes it.
+		write("tmp/command-group-1", 0o600),
+		write("storage/backups/node-before-upgrade-1/node.sqlite", 0o600),
+		write("storage/.upgraded", 0o600),
+		filepath.Join(path, "storage", "node.sqlite"),
+		filepath.Join(path, "link.key"),
+		outside,
+	}
+
+	second, err := OpenProfile(ctx, path)
+	if err != nil {
+		t.Fatalf("start over leftovers: %v", err)
+	}
+	defer second.Close()
+	for _, name := range removed {
+		if _, err := os.Lstat(name); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s survived the start: %v", name, err)
+		}
+	}
+	for _, name := range kept {
+		if _, err := os.Lstat(name); err != nil {
+			t.Errorf("the start removed %s: %v", name, err)
+		}
+	}
+	if second.Identity.ID() != first.Identity.ID() {
+		t.Error("the profile changed its identity")
+	}
+}

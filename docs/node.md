@@ -242,6 +242,30 @@ installation, because the profile is released.
 | Stages after the one that did not stop are not run | They would wait for the same worker. What they would have released is what a crash leaves, and the next start clears it: terminals end with their pseudo-terminal, recorded command groups are killed, external browsers are closed, temporary files are removed |
 | A database still in use at the deadline is left open | Closing it would wait for the worker; SQLite recovers its log at the next start |
 
+### Leftovers of an earlier run
+
+`OpenProfile` removes them right after it takes the profile lock and before
+the identity, the databases or any component is opened (`sweepProfile`), so
+nothing it removes is in use by this process and no other process owns the
+profile:
+
+- everything in `tmp`: database copies and staged files of a backup, the
+  unpacked staging of a restore, sealed archives, staged inputs, command
+  scratch and retained output, transfer and browser scratch. The one exception
+  is the `command-group-*` records, which the process service reads at its
+  start to kill the command groups a crashed Node left and then removes
+- `storage/.upgrade-*`, `storage/.schema-reference-*` and
+  `storage/backups/.upgrade-*`, the scratch of a schema check or update. The
+  kept pre-update copies (`storage/backups/node-before-upgrade-*`) stay
+
+A link is removed, never followed; a read-only tree is made writable first. A
+leftover that cannot be removed is logged and does not stop the start.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The scratch space is cleared at every start | Rust removes nothing (`runtime-core/src/profile.rs`), so a backup or restore that was killed leaves plain copies of the database, stored credentials included, until someone deletes them by hand |
+| Not swept: `.sailry-restore-<uuid>` beside a restore target, `desktop/updater/download-*` | The first lies outside the profile at a path the Node no longer knows; the second belongs to the Desktop updater |
+
 ## Store
 
 `internal/node/store` has one writer goroutine that groups waiting jobs into one
