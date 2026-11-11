@@ -73,24 +73,41 @@ func (r *Runtime) readHostMetrics(state *liveHost, detailed bool) {
 				return
 			}
 			state.sample = &sample
-			state.view.Metrics, state.view.MetricsError = hostMetrics(sample), ""
+			metrics := hostMetrics(sample)
+			metrics.Follow(state.metrics)
+			state.metrics = metrics
+			state.view.Metrics, state.view.MetricsError = metrics, ""
 			state.metricsError = ""
 		})
 	})
 }
 
+// hostMetrics is a Node's sample as the host page shows it: every value the
+// Node sends, and none it does not. The sampler has no GPU, so none shows.
 func hostMetrics(sample protocol.HostMetricsSample) *host.Metrics {
-	metrics := &host.Metrics{CPU: math.NaN()}
+	metrics := &host.Metrics{At: time.UnixMilli(int64(min(sample.SampledAtMs, uint64(math.MaxInt64)))), CPU: math.NaN(), ProcessCount: -1}
 	if sample.CpuBasisPoints != nil {
 		metrics.CPU = float64(*sample.CpuBasisPoints) / 100
 	}
-	if sample.Memory != nil {
-		metrics.Memory = sample.Memory.TotalBytes
-		metrics.MemoryUsed = sample.Memory.TotalBytes - min(sample.Memory.AvailableBytes, sample.Memory.TotalBytes)
+	for _, core := range sample.CoreBasisPoints {
+		metrics.Cores = append(metrics.Cores, float64(core)/100)
 	}
-	if sample.Network != nil {
+	if load := sample.Load; load != nil {
+		metrics.Load = &[3]float64{float64(load.One) / 100, float64(load.Five) / 100, float64(load.Fifteen) / 100}
+	}
+	if memory := sample.Memory; memory != nil {
+		available := min(memory.AvailableBytes, memory.TotalBytes)
+		metrics.Memory = memory.TotalBytes
+		metrics.MemoryUsed = memory.TotalBytes - available
+		metrics.MemoryCached = available - min(memory.FreeBytes, available)
+	}
+	if swap := sample.Swap; swap != nil {
+		metrics.Swap, metrics.SwapUsed = swap.TotalBytes, min(swap.UsedBytes, swap.TotalBytes)
+	}
+	if network := sample.Network; network != nil {
 		metrics.Interval = time.Second
-		metrics.Received, metrics.Transmitted = sample.Network.ReceivedBytesPerSec, sample.Network.TransmittedBytesPerSec
+		metrics.Received, metrics.Transmitted = network.ReceivedBytesPerSec, network.TransmittedBytesPerSec
+		metrics.ReceivedTotal, metrics.TransmittedTotal, metrics.Totals = network.ReceivedBytes, network.TransmittedBytes, true
 	}
 	for _, disk := range sample.Disks {
 		row := host.Disk{Mount: disk.Mount, FileSystem: disk.FileSystem, Total: disk.TotalBytes, Available: disk.AvailableBytes}
@@ -100,11 +117,15 @@ func hostMetrics(sample protocol.HostMetricsSample) *host.Metrics {
 		metrics.Disks = append(metrics.Disks, row)
 	}
 	for _, process := range sample.Processes {
-		row := host.Process{Name: process.Name, CPU: math.NaN(), Memory: process.MemoryBytes}
+		row := host.Process{Name: process.Name, PID: process.Pid, Started: process.StartedAtSecs, CPU: math.NaN(), Memory: process.MemoryBytes}
 		if process.CpuBasisPoints != nil {
 			row.CPU = float64(*process.CpuBasisPoints) / 100
 		}
 		metrics.Processes = append(metrics.Processes, row)
+	}
+	// A sample without detail lists no process and counts none.
+	if len(sample.Processes) > 0 || sample.ProcessCount > 0 {
+		metrics.ProcessCount = int(min(sample.ProcessCount, uint64(math.MaxInt32)))
 	}
 	return metrics
 }
