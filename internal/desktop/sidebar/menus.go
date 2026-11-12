@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -353,14 +354,38 @@ func (s *State) addWorktree(pr *preview.Project) preview.Worktree {
 // fork copies a sample session beside itself, in memory, and shows the copy:
 // in the session's own worktree, or in a new one.
 func (s *State) fork(pr *preview.Project, cv *preview.Conversation, worktree bool) {
-	if pr == nil {
-		return
+	if pr != nil {
+		s.Fork(cv, "", worktree)
 	}
+}
+
+// Fork copies a sample session beside itself, in memory, and shows the copy:
+// all of it, or its turns up to turn, where the copy is at rest; in the
+// session's own worktree, or in a new one of its project.
+func (s *State) Fork(cv *preview.Conversation, turn string, worktree bool) {
+	pr := s.Data.ProjectOf(cv.ID)
 	s.created++
 	fork := *cv
-	fork.ID = fmt.Sprintf("%s/fork-%d", pr.ID, s.created)
+	owner := "chat"
+	if pr != nil {
+		owner = pr.ID
+	}
+	fork.ID = fmt.Sprintf("%s/fork-%d", owner, s.created)
 	fork.Turns = slices.Clone(cv.Turns)
+	if at := slices.IndexFunc(fork.Turns, func(t conversation.Turn) bool { return t.ID == turn }); at >= 0 {
+		fork.Turns = fork.Turns[:at+1]
+		fork.Status, fork.Waiting, fork.Queue, fork.Animating = preview.Idle, composer.Interactions{}, nil, false
+		if last := &fork.Turns[at]; last.Reply.Status.Active() {
+			last.Reply.Status, last.Reply.Phase = conversation.Cancelled, conversation.PhaseNone
+		}
+	}
 	fork.Pinned, fork.Updated, fork.Created = false, preview.Now, 10000+s.created
+	if pr == nil {
+		at := slices.Index(s.Data.Unassigned, cv)
+		s.Data.Unassigned = slices.Insert(s.Data.Unassigned, max(at, 0), &fork)
+		s.show(fork.ID)
+		return
+	}
 	if worktree {
 		tree := s.addWorktree(pr)
 		fork.Worktree, fork.WorktreePath = tree.Branch, tree.Path
@@ -370,6 +395,9 @@ func (s *State) fork(pr *preview.Project, cv *preview.Conversation, worktree boo
 	*s.opened("project/" + pr.ID) = true
 	s.show(fork.ID)
 }
+
+// AddWorktree adds a worktree to a sample project, in memory.
+func (s *State) AddWorktree(pr *preview.Project) preview.Worktree { return s.addWorktree(pr) }
 
 // archive asks before archiving, which in the preview only hides the row
 // (workspace_memory_only).

@@ -28,6 +28,7 @@ reply.answer: |-
   - Changes land through a pull request with one approving review.
 
   Tell me which part to take first and I will start with a short plan.
+reply.summary: "The conversation so far is summarized. Done: the work of the turns above, with their decisions and open points kept. Next: continue from the latest request."
 
 goal.label: "Goal"
 goal.running: "Running"

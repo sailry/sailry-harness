@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -594,6 +595,9 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	if a.sampled() && cv.Playing() {
 		c.After(preview.Tick)
 	}
+	if a.Demo() {
+		a.demoControls(cv)
+	}
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
 	comp.Searching = a.Messages.SearchOpenIn(cv.ID)
@@ -776,11 +780,45 @@ func (x *actions) Dictate(d *composer.Dictation, cmd composer.DictationCommand) 
 }
 
 // Compact, a new worktree, a new project and the teams' settings would
-// ask a model or write to disk: the preview says so.
-func (x *actions) Compact()        { x.notice() }
-func (x *actions) CreateWorktree() { x.notice() }
-func (x *actions) AddProject()     { x.notice() }
-func (x *actions) ManageTeams()    { x.notice() }
+// ask a model or write to disk: the preview says so. The demo does each in
+// memory: a compaction turn that runs and completes, a worktree of the
+// conversation's project chosen for it, the project editor and the teams'
+// settings.
+func (x *actions) Compact() {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	preview.Compact(x.cv, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
+}
+
+func (x *actions) CreateWorktree() {
+	pr := x.a.Data.ProjectOf(x.cv.ID)
+	if !x.a.Demo() || pr == nil {
+		x.notice()
+		return
+	}
+	tree := x.a.Sidebar.AddWorktree(pr)
+	x.comp.Worktree, x.cv.Worktree, x.cv.WorktreePath = tree.Branch, tree.Branch, tree.Path
+}
+
+func (x *actions) AddProject() {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.a.Sidebar.OpenEditor(nil)
+}
+
+func (x *actions) ManageTeams() {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.a.Settings.Open(settings.Teams)
+	x.a.Navigate(SettingsPage)
+}
 
 func (x *actions) Stop() {
 	if x.blocked() {
@@ -796,9 +834,32 @@ func (x *actions) OpenChange(path string) {
 	x.a.openPanel(panel.Changes)
 	x.a.Panel.Show(panel.Tab{Kind: panel.Changes, ID: path})
 }
-func (x *actions) Badge(_, _ string)  { x.notice() }
-func (x *actions) StopCommand(string) { x.notice() }
-func (x *actions) OpenService(int)    { x.notice() }
+
+// Badge in the demo is a button of the goal's panel, which pauses, resumes
+// or ends the goal in memory.
+func (x *actions) Badge(id, button string) {
+	if !x.a.Demo() || !preview.GoalAction(x.cv, id, button) {
+		x.notice()
+	}
+}
+
+// StopCommand in the demo ends the background command: its row leaves.
+func (x *actions) StopCommand(id string) {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.cv.Commands = slices.DeleteFunc(slices.Clone(x.cv.Commands), func(k composer.Command) bool { return k.ID == id })
+}
+
+// OpenService in the demo shows the service in the panel's browser.
+func (x *actions) OpenService(int) {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.a.openPanel(panel.Browser)
+}
 
 func (x *actions) Decide(id string, d composer.Decision, reason string) {
 	if x.blocked() {
@@ -885,12 +946,58 @@ func (x *actions) blocked() bool {
 	return false
 }
 
-func (x *actions) Retry(string)                             { x.notice() }
-func (x *actions) Fork(string)                              { x.notice() }
-func (x *actions) Rewind(string)                            { x.notice() }
-func (x *actions) Worktree(string)                          { x.notice() }
+// Retry in the demo runs the turn again: its reply plays from the start.
+func (x *actions) Retry(turn string) {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	preview.Retry(x.cv, turn, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
+}
+
+// Fork in the demo copies the conversation up to the turn, in memory, and
+// shows the copy; Worktree puts the copy in a new worktree of its project.
+func (x *actions) Fork(turn string) { x.fork(turn, false) }
+
+func (x *actions) Worktree(turn string) { x.fork(turn, true) }
+
+func (x *actions) fork(turn string, worktree bool) {
+	if !x.a.Demo() || worktree && x.a.Data.ProjectOf(x.cv.ID) == nil {
+		x.notice()
+		return
+	}
+	x.a.Sidebar.Fork(x.cv, turn, worktree)
+	x.a.Page = ConversationPage
+}
+
+// Rewind in the demo drops the turns after the turn, which the transcript
+// confirmed first.
+func (x *actions) Rewind(turn string) {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	preview.Rewind(x.cv, turn)
+}
+
+// Export writes a file: the demo's transcript has no export menu.
 func (x *actions) Export(string, conversation.ExportFormat) { x.notice() }
-func (x *actions) Read(string, string)                      { x.notice() }
+
+// Read speaks through the system's voice: the preview says so, and the
+// demo, which reaches no voice, only shows the button reading.
+func (x *actions) Read(string, string) { x.notice() }
+
+// demoControls disables what a demo's turn cannot do: a worktree for a chat
+// without a project.
+func (a *App) demoControls(cv *preview.Conversation) {
+	if a.Data.ProjectOf(cv.ID) != nil {
+		return
+	}
+	for i := range cv.Turns {
+		cv.Turns[i].Controls.NoWorktree = true
+	}
+}
 
 // Edit opens the message's editor in its bubble; the preview's Save only says
 // it changes nothing, the demo's replaces the message in memory, and Cancel
@@ -905,17 +1012,15 @@ func (x *actions) Edit(turn string) {
 	}
 }
 
-// SaveEdit in the demo replaces the message in memory and closes its editor.
+// SaveEdit in the demo replaces the message in memory and sends it again:
+// the turns after it leave and its reply plays.
 func (x *actions) SaveEdit(turn, text string) {
 	if !x.a.Demo() {
 		x.notice()
 		return
 	}
-	for i := range x.cv.Turns {
-		if t := &x.cv.Turns[i]; t.ID == turn {
-			t.User, t.Editing = text, nil
-		}
-	}
+	preview.Resend(x.cv, turn, text, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
 func (x *actions) CancelEdit(turn string) {
@@ -936,9 +1041,54 @@ func (x *actions) Start(text string) {
 	x.a.Page = ConversationPage
 	x.a.Composer(x.a.Sidebar.Selected).Draft = text
 }
-func (x *actions) Undo(string, string)   { x.notice() }
-func (x *actions) Review(string, string) { x.notice() }
-func (x *actions) Reconnect()            { x.notice() }
+
+// Undo in the demo asks over the History tab, as the application does, and
+// then marks the card's file, or with "" all of them, undone in memory.
+func (x *actions) Undo(turn, path string) {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.a.MountPanel()
+	x.a.syncPanel()
+	pr := x.a.project()
+	if pr == nil {
+		preview.Undo(x.cv, turn, path)
+		return
+	}
+	target := path
+	if target == "" {
+		target = x.cv.Title
+	}
+	x.a.Page, x.a.PanelOpen = ConversationPage, true
+	x.a.Panel.Sync(pr)
+	x.a.Panel.Show(panel.Tab{Kind: panel.History})
+	pr.Confirm("turn_changes_undo_all", target, func(done func(bool)) {
+		preview.Undo(x.cv, turn, path)
+		done(true)
+	}, "workspace_restore_confirm")
+}
+
+// Review in the demo opens the file's diff, or the changes, in the panel.
+func (x *actions) Review(_, path string) {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.a.openPanel(panel.Changes)
+	if path != "" {
+		x.a.Panel.Show(panel.Tab{Kind: panel.Changes, ID: path})
+	}
+}
+
+// Reconnect in the demo connects at once.
+func (x *actions) Reconnect() {
+	if !x.a.Demo() {
+		x.notice()
+		return
+	}
+	x.cv.Session.Connection = conversation.Connected
+}
 
 // ImageAction is the image viewer's Copy, Save or Open, which would write
 // the clipboard, a file or leave the window: the preview only says so.
@@ -971,6 +1121,14 @@ func (x *actions) FileAction(f conversation.File, a conversation.FileAction) {
 		if !x.a.Demo() {
 			x.a.startDownload(f.Name())
 		}
+	case conversation.RequestEdit:
+		// The demo asks for the edit as the application does: the file and
+		// the prompt go to the draft.
+		if !x.a.Demo() {
+			x.notice()
+			return
+		}
+		x.comp.InsertFiles([]string{f.Path}, i18n.T(x.c, "artifact_edit_prompt"))
 	default:
 		x.notice()
 	}
