@@ -4,7 +4,9 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'glass_chip.dart';
-import 'presentation.dart' show ConversationCommand, failureLabel;
+import 'presentation.dart'
+    show ConversationCommand, continuationMarker, failureLabel;
+import 'tool_display.dart' show continuationLabel;
 import 'guidance.dart';
 import 'turn_draft.dart';
 
@@ -304,6 +306,14 @@ class _LiveQueueState extends State<LiveQueue> {
       final items = objects(queue['items']);
       final outgoing = outgoingGuidance(widget.submission?.guidance, view);
       final enabled = !_busy && !_pending && view['connected'] == true;
+      // A queued continuation is an automatic row named by its marker: its
+      // prompt is input for the model, not a message to read, edit or send.
+      final markers = {
+        for (final run in objects(page['runs']))
+          run['turn']: ?continuationMarker(run),
+      };
+      bool automatic(Map<String, dynamic> item) =>
+          item['notice'] == true || markers.containsKey(item['turn']);
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -332,12 +342,14 @@ class _LiveQueueState extends State<LiveQueue> {
                     InkWell(
                       onTap:
                           enabled &&
-                              item['notice'] != true &&
+                              !automatic(item) &&
                               item['guidance'] == null
                           ? () => _open(item)
                           : null,
                       child: Text(
-                        item['notice'] == true
+                        markers[item['turn']] != null
+                            ? continuationLabel(context, markers[item['turn']])
+                            : item['notice'] == true
                             ? context.tr('backgroundNoticeTitle')
                             : item['preview'] as String? ?? '',
                         style: const TextStyle(height: 1.5),
@@ -353,7 +365,7 @@ class _LiveQueueState extends State<LiveQueue> {
                     Wrap(
                       children: [
                         if (!widget.delegated &&
-                            item['notice'] != true &&
+                            !automatic(item) &&
                             item['guidance'] == null)
                           TextButton(
                             onPressed: enabled ? () => _open(item) : null,
@@ -381,9 +393,9 @@ class _LiveQueueState extends State<LiveQueue> {
                         ),
                         if (!widget.delegated &&
                             index > 0 &&
-                            item['notice'] != true &&
+                            !automatic(item) &&
                             item['guidance'] == null &&
-                            items[index - 1]['notice'] != true &&
+                            !automatic(items[index - 1]) &&
                             items[index - 1]['guidance'] == null)
                           TextButton(
                             onPressed: enabled
@@ -396,7 +408,7 @@ class _LiveQueueState extends State<LiveQueue> {
                                 : null,
                             child: Text(context.tr('moveUp')),
                           ),
-                        if (!widget.delegated && item['notice'] != true)
+                        if (!widget.delegated && !automatic(item))
                           TextButton(
                             onPressed:
                                 enabled &&

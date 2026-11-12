@@ -215,6 +215,17 @@ class _LiveTimelineState extends State<LiveTimeline> {
               ),
             );
           }
+          if (resource['type'] == 'output_limit') {
+            return Padding(
+              key: ValueKey('limit-${entry['id']}-$index'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: ToolRow(
+                icon: 'info',
+                label: context.tr('conversationOutputLimit'),
+                tone: RowTone.pending,
+              ),
+            );
+          }
           if (resource['type'] != 'model_retry') return const SizedBox.shrink();
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -488,6 +499,15 @@ class _LiveTimelineState extends State<LiveTimeline> {
             children: children,
             onOpenChild: onOpenChild,
           ),
+          if (continuationMarker(run) case final marker?)
+            Padding(
+              key: ValueKey('continuation-${run['turn']}'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: ActivityText(
+                continuationLabel(context, marker),
+                active: false,
+              ),
+            ),
           ...body,
           PublicationDetails(
             key: ValueKey('publications-${run['turn']}'),
@@ -542,8 +562,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
               padding: const EdgeInsets.only(bottom: 12),
               child: SelectableText(
                 key: PageStorageKey('run-error-${run['turn']}'),
-                object(run['error'])['message'] as String? ??
-                    context.tr('conversationFailedStatus'),
+                runFailure(run['error'], translate: context.tr),
                 style: TextStyle(
                   fontSize: transcriptFontSize,
                   height: 1.7,
