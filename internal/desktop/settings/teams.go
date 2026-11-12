@@ -65,15 +65,19 @@ func (m *Model) modelChoices(c *ui.Context, follow string) (ids, names []string)
 	return ids, names
 }
 
-// efforts are a model's efforts after Auto.
-func (m *Model) efforts(c *ui.Context, id string) []string {
-	out := []string{""}
-	ch, model, _ := strings.Cut(id, "/")
-	if x := m.channel(ch); x != nil {
-		for _, y := range x.Models {
-			if y.ID == model {
-				out = append(out, y.Efforts...)
-			}
+// modelOptions are the enabled channels' models as kit.ModelSelect offers
+// them, named "channel/model" as modelChoices names them, each under its
+// channel with the channel's mark.
+func (m *Model) modelOptions() []kit.ModelOption {
+	var out []kit.ModelOption
+	for i := range m.Channels {
+		ch := &m.Channels[i]
+		if !ch.Enabled {
+			continue
+		}
+		for _, x := range ch.Models {
+			out = append(out, kit.ModelOption{ID: ch.ID + "/" + x.ID, Name: x.Name, Provider: ch.Name, Mark: channelMark(ch),
+				Efforts: x.Efforts, DefaultEffort: x.DefaultEffort})
 		}
 	}
 	return out
@@ -294,32 +298,22 @@ func roleRows(c *ui.Context, m *Model) {
 	})
 }
 
-// modelField is a model select of "" (labeled follow) and the channels'
-// models, with its effort select and one select per feature the model
-// declares after it. A feature follows (Auto, features nil), is off (absent
-// from the map) or takes one of its options.
+// modelField is the model select of "" (labeled follow) and the channels'
+// models, its efforts after Auto beside them in its popover, with one
+// select per feature the model declares after it. Another model starts
+// from Auto. A feature follows (Auto, features nil), is off (absent from
+// the map) or takes one of its options.
 func modelField(c *ui.Context, m *Model, key, label, follow string, model, effort *string, features *map[string]string) {
-	ids, names := m.modelChoices(c, follow)
 	kit.Field(c, key, label, "", func() {
 		ui.Row(c).Gap(8).Wrap().Children(func() {
-			chosen := max(0, slices.Index(ids, *model))
-			if pick(c, "model", label, &chosen, names, false).Grow(1).Changed() {
-				*model, *effort, *features = ids[chosen], "", nil
-			}
-			efs := m.efforts(c, *model)
-			if len(efs) > 1 {
-				shown := make([]string, len(efs))
-				for i, x := range efs {
-					shown[i] = x
-					if x == "" {
-						shown[i] = i18n.T(c, "role_effort_inherit")
+			kit.ModelSelect(c.Key("model"), kit.ModelSelectProps{Label: label, None: i18n.T(c, follow), Models: m.modelOptions(),
+				Model: *model, Effort: *effort, AutoEffort: i18n.T(c, "role_effort_inherit"),
+				OnChange: func(id, level string) {
+					if id != *model {
+						level, *features = "", nil
 					}
-				}
-				e := max(0, slices.Index(efs, *effort))
-				if pick(c, "effort", i18n.T(c, "provider_efforts"), &e, shown, false).Width(140).Changed() {
-					*effort = efs[e]
-				}
-			}
+					*model, *effort = id, level
+				}}).Grow(1)
 			for _, f := range m.modelFeatures(*model) {
 				shown := []string{i18n.T(c, "role_effort_inherit"), i18n.T(c, "composer_feature_off")}
 				at := 0

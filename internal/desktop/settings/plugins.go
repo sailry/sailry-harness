@@ -347,6 +347,12 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 						if pick(c, "select", label, &chosen, f.Options, e.pending).FillWidth().Changed() {
 							f.Value = f.Options[chosen]
 						}
+					case "model":
+						// A model a package asks for: the models the field offers,
+						// by their names; the efforts are not the field's to choose.
+						models := kit.ModelsOffered(m.modelOptions(), f.Options)
+						kit.ModelSelect(c.Key("select"), kit.ModelSelectProps{Label: label, Placeholder: t("composer_select_model"), Models: models,
+							Model: f.Value, Disabled: e.pending, OnChange: func(id, _ string) { f.Value = id }}).FillWidth()
 					case "secret":
 						action := e.secrets[f.Name]
 						if f.Set {

@@ -882,7 +882,7 @@ func TestProviderEditor(t *testing.T) {
 		// offered opens a row's select and returns its options.
 		offered := func(row string) (labels []string) {
 			t.Helper()
-			trigger := named(ui.RoleMenuButton, row)
+			trigger := named(ui.RoleButton, row)
 			if len(trigger) != 1 {
 				t.Fatalf("%d selects named %q", len(trigger), row)
 			}
@@ -890,7 +890,7 @@ func TestProviderEditor(t *testing.T) {
 			tt.Frame()
 			tt.Advance(time.Second)
 			for _, x := range tt.AccessAll() {
-				if x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox {
+				if x.Role == ui.RoleOption {
 					labels = append(labels, x.Name)
 				}
 			}
@@ -899,7 +899,7 @@ func TestProviderEditor(t *testing.T) {
 		choose := func(label string) {
 			t.Helper()
 			for _, x := range tt.AccessAll() {
-				if (x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox) && x.Name == label {
+				if x.Role == ui.RoleOption && x.Name == label {
 					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
 					tt.Frame()
 					tt.Advance(time.Second)
@@ -910,10 +910,10 @@ func TestProviderEditor(t *testing.T) {
 		}
 		follow := i18n.In("en", "media_follow")
 		for row, want := range map[string][]string{
-			"Vision": {follow, "A · see", "A · all"},
-			"Image":  {follow, "A · draw", "A · all"},
-			"Video":  {follow, "A · all"},
-			"Speech": {follow, "A · all", "B · gone"},
+			"Vision": {follow, "see", "all"},
+			"Image":  {follow, "draw", "all"},
+			"Video":  {follow, "all"},
+			"Speech": {follow, "all"},
 		} {
 			if got := offered(row); !slices.Equal(got, want) {
 				t.Errorf("%s offers %q, want %q", row, got, want)
@@ -925,17 +925,19 @@ func TestProviderEditor(t *testing.T) {
 		unavailable := i18n.In("en", "media_model_unavailable")
 		marked := func() (count int) {
 			for _, x := range tt.AccessAll() {
-				if x.Name == unavailable || x.Value == unavailable {
+				if x.Role == ui.RoleButton && x.Description == unavailable {
 					count++
 				}
 			}
 			return
 		}
-		if marked() != 1 {
-			t.Errorf("%d rows marked unavailable, want the Speech row alone", marked())
+		// The saved model that cannot run stays in its row's field, under its
+		// name and the warning, and is not offered again.
+		if speech := named(ui.RoleButton, "Speech"); marked() != 1 || len(speech) != 1 || speech[0].Value != "gone" || speech[0].Description != unavailable {
+			t.Errorf("%d rows marked unavailable, want the Speech row alone: %+v", marked(), speech)
 		}
 		offered("Image")
-		choose("A · draw")
+		choose("draw")
 		if m.Media.Draft != [4]string{"", "a/draw", "", "b/gone"} || m.Media.Saved != m.Media.Draft {
 			t.Errorf("chosen image model: draft %q, saved %q", m.Media.Draft, m.Media.Saved)
 		}
