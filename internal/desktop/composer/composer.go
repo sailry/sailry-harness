@@ -407,7 +407,7 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 	ui.Row(c.Key("toolbar")).FillWidth().MinWidth(0).MinHeight(32).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("start")).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 			kit.IconButton(c.Key("attach"), icons.Plus, i18n.T(c, "composer_attachment"), 32, false).Radius(16).
-				Disabled(!s.canPickFiles(ctx)).OnClick(func() { s.openFiles(ctx) })
+				Disabled(!s.canPickFiles(ctx)).OnClick(func() { s.openFiles(c, ctx) })
 			if compact {
 				s.settingsButton(c, ctx, actions)
 			} else {

@@ -26,10 +26,11 @@ func (s *State) SetAttachmentCallbacks(callbacks *AttachmentCallbacks) {
 }
 
 // openFiles asks the window for its file picker, from the attach button and
-// the @ picker's Attach files entry.
-func (s *State) openFiles(ctx *Context) {
+// the @ picker's Attach files entry. Enter in the @ picker chooses between
+// frames: the picker opens in the next one, where it can name its host.
+func (s *State) openFiles(c *ui.Context, ctx *Context) {
 	if s.canPickFiles(ctx) {
-		s.attachmentCallbacks.Pick()
+		s.inFrame(c, func(*ui.Context) { s.attachmentCallbacks.Pick() })
 	}
 }
 
