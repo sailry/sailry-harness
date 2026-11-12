@@ -18,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -79,6 +80,7 @@ func testNativeComponentAuthority(t *testing.T) {
 	})
 	t.Run("assistant draft retains source through first admission and retry", testNativeAssistantDraft)
 	t.Run("assistant panel switches between its sessions", testNativeAssistantSessions)
+	t.Run("composer state carries the selected model and its window", testNativeComposerModel)
 }
 
 func testNativeAssistantDraft(t *testing.T) {
@@ -335,5 +337,111 @@ func testNativeAssistantSessions(t *testing.T) {
 	}
 	if runtime.pluginComposerView(mounted.view.ID) != nil {
 		t.Error("the left draft kept its presentation")
+	}
+}
+
+// testNativeComposerModel covers the two members a package compares with the
+// statistics to tell that the model changed since the last request: the
+// composer's own selection and that model's window, whatever the last
+// request used.
+func testNativeComposerModel(t *testing.T) {
+	node, provider, session := protocol.NodeID{1}, protocol.ProviderID{4}, protocol.SessionID{9}
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = node
+	snapshot.Providers = []protocol.ConversationProvider{{
+		ID: provider, Revision: 7, Name: "Captured provider", Enabled: true, Api: "responses", Authentication: "api_key",
+		Models: []protocol.ConversationModel{
+			{ID: "small", Context: 32000, DefaultEffort: protocol.Effort{Kind: "default"}},
+			{ID: "large", Context: 200000, Tools: true, DefaultEffort: protocol.Effort{Kind: "default"}},
+		},
+	}}
+	transport := &conversationTestTransport{snapshot: snapshot}
+	transport.conversation = protocol.DefaultConversationSnapshot()
+	transport.conversation.Node = node
+	transport.conversation.Page.Session, transport.conversation.Page.Revision = session, 1
+	// The last request ran on the small model.
+	statistics := protocol.DefaultConversationStatistics()
+	used, window, last := uint64(12000), uint32(32000), "small"
+	statistics.ContextTokens, statistics.ContextLimit, statistics.ContextModel = &used, &window, &last
+	transport.conversation.Statistics = &statistics
+	controller := client.New(transport)
+	if err := controller.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Close()
+	runtime, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	changes := make(chan struct{}, 1)
+	release, err := controller.WatchConversation(t.Context(), session, func() {
+		select {
+		case changes <- struct{}{}:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	for {
+		history, _ := controller.Conversation(session)
+		if history.Err != nil {
+			t.Fatal(history.Err)
+		}
+		if history.Snapshot.Statistics != nil {
+			break
+		}
+		select {
+		case <-changes:
+		case <-t.Context().Done():
+			t.Fatal(t.Context().Err())
+		}
+	}
+	scope := protocol.DefaultPluginContext()
+	scope.Session, scope.Surface = &session, protocol.PluginDesktopSurface{Kind: "composer"}
+	native := plugins.NewNativeBinding(t.Context())
+	state := &pluginNativeState{runtime: runtime, scope: scope, native: &native}
+	view := &viewmodel.Conversation{ID: session.String(), Node: node.String()}
+	for _, row := range []struct {
+		model  string
+		window any
+		tools  bool
+	}{
+		{"small", float64(32000), false},
+		// A model chosen since: its own window, not the last request's.
+		{"large", float64(200000), true},
+		// A model the provider no longer lists keeps its name and has no window.
+		{"retired", nil, false},
+	} {
+		config := protocol.DefaultSessionConfig()
+		config.Provider, config.Model, config.Mode, config.Permission = provider, row.model, protocol.WorkModeCode, protocol.PermissionAsk
+		projected, err := state.projectComposer(view, runtime.App.Composer(view.ID), config, protocol.PluginInfo{Extension: &protocol.PluginExtension{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(projected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Model      any `json:"model"`
+			Limit      any `json:"context_limit"`
+			Tools      any `json:"model_tools"`
+			Statistics struct {
+				Model any `json:"context_model"`
+				Limit any `json:"context_limit"`
+			} `json:"statistics"`
+		}
+		if err = json.Unmarshal(body, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Model != row.model || got.Limit != row.window || got.Tools != row.tools {
+			t.Fatalf("selected %q: the composer state has model %v, window %v, tools %v", row.model, got.Model, got.Limit, got.Tools)
+		}
+		if got.Statistics.Model != "small" || got.Statistics.Limit != "32000" {
+			t.Fatalf("selected %q: the statistics carry model %v and window %v of the last request", row.model, got.Statistics.Model, got.Statistics.Limit)
+		}
 	}
 }

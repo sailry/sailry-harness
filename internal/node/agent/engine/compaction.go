@@ -147,6 +147,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	var usage canonical.Usage
 	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, func(attempt model.Attempt) error {
 		usage = attempt.Usage
+		x.timeline.attempt(attempt)
 		attempts = append(attempts, attempt)
 		return nil
 	}, func(part fantasy.StreamPart) bool {

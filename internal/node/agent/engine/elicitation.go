@@ -24,6 +24,7 @@ func (r *Runtime) Elicit(ctx context.Context, turn protocol.TurnID, parent canon
 	if owner.inv.Session.Delegation != nil {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "MCP input is unavailable to a subagent; the main conversation must run this tool"}
 	}
+	defer owner.timeline.span(phaseExcluded, parent.ID)()
 	parameters := request.Params
 	mode := parameters.Mode
 	if mode == "" && parameters.URL != "" {

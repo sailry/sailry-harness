@@ -825,6 +825,21 @@ without an owner.
   and has text, as in the reference, so a hidden runtime note recorded after
   the answer does not suppress it. A source that carries an error, an
   interrupted or failed finish, or a tool request still offers no review.
+- **Phases.** The turn's owner collects its execution intervals
+  (`engine/timeline.go`): each model request as waiting until its first token
+  and output after it, each tool call, and as excluded the time the turn
+  waits for somebody else (an approval, a question, an MCP input request, a
+  delegating tool call). When the turn's hooks have ended and before its end
+  is stored, the owner reduces them once to `active_us`, `waiting_us`,
+  `output_us`, `tools_us` and `other_us` and appends them as a hidden record
+  (`metadata.execution.phases`). Every instant belongs to one phase, the
+  later of waiting, output and tool where they overlap; an excluded interval
+  removes its own call's time and nothing else, and time left with nothing
+  but excluded intervals is not active. The session's statistics sum the
+  turns' phases (`observations.phases`) and report them unknown while any
+  finished turn has none, which a turn that ended before this record existed
+  or lost its owner does. A call owns its intervals by its id, where the
+  reference uses a task-local number (`engine.TestTurnPhases`).
 
 ### Queue item states
 

@@ -34,6 +34,7 @@ func toolIdentity(call canonical.ToolRequest) canonical.ToolIdentity {
 	return canonical.ToolIdentity{ID: &call.ID, Name: call.Name, Arguments: call.Arguments}
 }
 func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool) (bool, error) {
+	defer x.timeline.span(phaseExcluded, call.ID)()
 	var value protocol.ConversationApproval
 	publication := r.LockPublication()
 	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
@@ -140,6 +141,7 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 	if err := json.Unmarshal(call.Arguments, &spec); err != nil {
 		return invalidTool("invalid question arguments")
 	}
+	defer x.timeline.span(phaseExcluded, call.ID)()
 	var value protocol.ConversationQuestion
 	publication := r.LockPublication()
 	err := r.db.Write(x.ctx, func(db *sql.Conn) error {

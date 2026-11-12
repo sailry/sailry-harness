@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,27 @@ func packageCount(n int) string {
 		return fmt.Sprintf("%.1fM", float64(n)/1000000)
 	}
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
+}
+
+// subagentTokens are the tokens the subagents of a demo conversation used
+// beside the session's own: a quarter of the session's for one that ran to
+// its end, half of that for one running or stopped, none for one queued.
+func subagentTokens(cv *viewmodel.Conversation) int {
+	shares := 0
+	for _, turn := range cv.Turns {
+		for _, block := range turn.Reply.Blocks {
+			for _, child := range block.Children {
+				switch child.Status {
+				case conversation.ChildQueued:
+				case conversation.ChildCompleted, conversation.ChildFailed, conversation.ChildContinued:
+					shares += 2
+				default:
+					shares++
+				}
+			}
+		}
+	}
+	return cv.Session.Usage.Tokens / 8 * shares
 }
 
 // Demo mode over a real Node on a new profile: the settings' order, the
@@ -335,6 +357,12 @@ func TestDemoMode(t *testing.T) {
 				at, _ := contextPanel(locale)
 				tester.ClickAt(at.Bounds.X+at.Bounds.W/2, at.Bounds.Y+at.Bounds.H/2)
 				await(cv.ID, "context panel", contextPanelSection[locale])
+				if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+					// The panel has opened all the way in the picture.
+					tester.Advance(time.Second)
+					step()
+					shot("demo-context-panel-" + locale)
+				}
 				if opened, _ := contextPanel(locale); !opened.Expanded || opened.Disabled {
 					t.Errorf("%s: the context panel button is expanded %v, disabled %v", cv.ID, opened.Expanded, opened.Disabled)
 				}
@@ -343,8 +371,9 @@ func TestDemoMode(t *testing.T) {
 			}
 			if usage := cv.Session.Usage; composed && usage != nil {
 				speed := fmt.Sprintf("%.1f/s", usage.Speed)
-				if !until(func() bool { return shows(packageCount(usage.Tokens)) && shows(speed) }) {
-					t.Errorf("%s: the context bar lacks the figures %s and %s: %q", cv.ID, packageCount(usage.Tokens), speed, tester.Texts())
+				tokens := packageCount(usage.Tokens + subagentTokens(cv))
+				if !until(func() bool { return shows(tokens) && shows(speed) }) {
+					t.Errorf("%s: the context bar lacks the figures %s and %s: %q", cv.ID, tokens, speed, tester.Texts())
 				} else if cv == list[0] {
 					at, _ := tester.Find(speed)
 					tester.Move(at.X+at.W/2, at.Y+at.H/2)
@@ -473,12 +502,36 @@ func TestDemoMode(t *testing.T) {
 	// A sample usage as the statistics a session records, which the
 	// statistics package reads over a demo conversation.
 	t.Run("statistics", func(t *testing.T) {
-		if demoStatistics(nil) != nil {
+		if demoStatistics(&viewmodel.Conversation{}, "sample-model") != nil {
 			t.Error("a conversation without usage has statistics")
 		}
-		got := demoStatistics(&conversation.Usage{Tokens: 48200, Speed: 71.4, Cost: 0.0312, Cached: 36400, Turns: 2, Context: 0.24, Window: 200000})
+		tools := func(names ...string) conversation.Block {
+			block := conversation.Block{Kind: conversation.ToolsBlock}
+			for _, name := range names {
+				block.Calls = append(block.Calls, conversation.Call{Name: name})
+			}
+			return block
+		}
+		sent := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+		view := &viewmodel.Conversation{ID: "sample", Session: conversation.Session{
+			Usage: &conversation.Usage{Tokens: 48200, Speed: 71.4, Cost: 0.0312, Cached: 36400, Turns: 2, Context: 0.24, Window: 200000},
+		}, Turns: []conversation.Turn{
+			{ID: "1", Sent: sent, Reply: conversation.Reply{Elapsed: 40 * time.Second, Blocks: []conversation.Block{
+				tools("read", "read", "command"), {Kind: conversation.TextBlock}}}},
+			{ID: "2", Sent: sent.Add(time.Minute), Compaction: &conversation.Compaction{State: conversation.Compacted, Elapsed: 6 * time.Second}},
+			{ID: "3", Sent: sent.Add(2 * time.Minute), Compaction: &conversation.Compaction{State: conversation.CompactionFailed, Cause: "the summary did not fit"}},
+			{ID: "4", Sent: sent.Add(3 * time.Minute), Compaction: &conversation.Compaction{State: conversation.CompactionUnneeded}},
+			{ID: "5", Sent: sent.Add(4 * time.Minute), Reply: conversation.Reply{Elapsed: 70 * time.Second, Blocks: []conversation.Block{
+				tools("read"),
+				{Kind: conversation.ChildrenBlock, Children: []conversation.Child{
+					{ID: "a", Status: conversation.ChildRunning}, {ID: "b", Status: conversation.ChildCompleted}, {ID: "c", Status: conversation.ChildQueued}}},
+			}}},
+		}}
+		got := demoStatistics(view, "sample-model")
+		observed := got.Observations
 		if got.Turns != 2 || got.Responses != 2 || got.Usage == nil || got.Usage.Input != 42175 || got.Usage.Output != 6025 ||
-			got.Usage.CachedInput != 36400 || got.Observations.CacheRead == nil || *got.Observations.CacheRead != 36400 {
+			got.Usage.CachedInput != 36400 || got.Usage.Reasoning != 1807 || observed.CacheRead == nil || *observed.CacheRead != 36400 ||
+			observed.Reasoning == nil || *observed.Reasoning != 1807 || observed.Calls != 2 || observed.Replies != 1 {
 			t.Errorf("the tokens are recorded as %+v, %+v", got, got.Usage)
 		}
 		if got.Cost == nil || got.Cost.UsdMicros != 31200 || got.Cost.Responses != 2 {
@@ -488,28 +541,113 @@ func TestDemoMode(t *testing.T) {
 			math.Abs(float64(generation.OutputTokens)*1_000_000/float64(generation.ElapsedUs)-71.4) > 0.001 {
 			t.Errorf("the speed is recorded as %+v", generation)
 		}
-		if got.ContextTokens == nil || *got.ContextTokens != 48000 || got.ContextLimit == nil || *got.ContextLimit != 200000 {
+		// The context, the model it was measured with and the model's budget:
+		// compaction at four fifths of the window.
+		if got.ContextTokens == nil || *got.ContextTokens != 48000 || got.ContextLimit == nil || *got.ContextLimit != 200000 ||
+			got.ContextModel == nil || *got.ContextModel != "sample-model" {
 			t.Errorf("the context is recorded as %v of %v", got.ContextTokens, got.ContextLimit)
 		}
-		// More cached than input is all of the input; without a speed or a
-		// window neither is recorded.
-		bare := demoStatistics(&conversation.Usage{Tokens: 800, Cached: 5000})
-		if bare.Usage.Input != 700 || bare.Usage.CachedInput != 700 || bare.Generation != nil || bare.ContextTokens != nil || bare.ContextLimit != nil {
+		if budget := got.Budget; budget == nil || budget.Model != "sample-model" || budget.ContextLimit != 200000 ||
+			budget.TriggerTokens != 160000 || budget.OutputReserve != 32000 {
+			t.Errorf("the compaction budget is recorded as %+v", budget)
+		}
+		// One request a replying turn, in the transcript's order, growing to
+		// the context used; each request's categories add up to its tokens
+		// and its cached input is within its input.
+		if len(observed.Recent) != 2 || observed.Recent[0].Turn != demoTurnID("1") || observed.Recent[1].Turn != demoTurnID("5") ||
+			observed.Recent[0].Turn == observed.Recent[1].Turn || observed.Recent[1].TimestampMs != sent.Add(4*time.Minute).UnixMilli() {
+			t.Fatalf("the requests are recorded as %+v", observed.Recent)
+		}
+		composed := map[protocol.ConversationObservationCategoryKind]uint64{}
+		for index, request := range observed.Recent {
+			attempt := request.Attempts[0]
+			var parts uint64
+			for _, category := range attempt.Categories {
+				parts += *category.Tokens
+				composed[category.Kind] += *category.Tokens
+			}
+			whole := attempt.Usage.Input + attempt.Usage.Output
+			if request.TurnIndex == nil || *request.TurnIndex != uint64(index+1) || request.Model != "sample-model" || !attempt.CompleteContext ||
+				parts != whole || whole != []uint64{32000, 48000}[index] || attempt.Usage.CachedInput > attempt.Usage.Input ||
+				attempt.Usage.Reasoning > attempt.Usage.Output || *attempt.FirstTokenUs >= *attempt.ElapsedUs {
+				t.Errorf("request %d is recorded as %+v, usage %+v, categories adding up to %d", index, request, attempt.Usage, parts)
+			}
+		}
+		// A row a kind, as the Node records them. The first request has no
+		// earlier reply to carry; both carry tool results, the transcript's
+		// calls so far.
+		first, last := observed.Recent[0].Attempts[0].Categories, observed.Recent[1].Attempts[0].Categories
+		if len(first) != 7 || len(last) != 7 || first[5].Kind != protocol.ConversationObservationCategoryKindAssistant ||
+			*first[5].Tokens != 0 || *last[5].Tokens == 0 || *first[6].Items != 3 || *last[6].Items != 4 {
+			t.Errorf("the categories are recorded as %+v, then %+v", first, last)
+		}
+		for _, category := range observed.Composition {
+			if *category.Tokens != composed[category.Kind] {
+				t.Errorf("the composition counts %d tokens of %s, the requests %d", *category.Tokens, category.Kind, composed[category.Kind])
+			}
+		}
+		if len(observed.Composition) != 7 {
+			t.Errorf("the composition is recorded as %+v", observed.Composition)
+		}
+		// The time to the first token, and the phases, which add up to the
+		// active time: no less than the replies and the compaction took.
+		latency, phases := observed.Latency, observed.Phases
+		if got.FirstTokenUs == nil || *got.FirstTokenUs != 600_000 || *latency.FirstTokenUs != 600_000 || *latency.ResponseUs != 240_000 ||
+			*latency.ElapsedUs != 600_000+got.Generation.ElapsedUs/2 {
+			t.Errorf("the latency is recorded as %+v, first token %v", latency, got.FirstTokenUs)
+		}
+		if *phases.WaitingUs != 1_200_000 || *phases.OutputUs != got.Generation.ElapsedUs || *phases.ToolsUs != 4*1_600_000 ||
+			*phases.ActiveUs != 116_000_000 || *phases.WaitingUs+*phases.OutputUs+*phases.ToolsUs+*phases.OtherUs != *phases.ActiveUs {
+			t.Errorf("the phases are recorded as active %d: waiting %d, output %d, tools %d, other %d",
+				*phases.ActiveUs, *phases.WaitingUs, *phases.OutputUs, *phases.ToolsUs, *phases.OtherUs)
+		}
+		// The tool calls by name; the subagents, the queued one without a
+		// share, at the session's price; the compactions that wrote a summary
+		// and the last one that ran, which failed.
+		if len(observed.Tools) != 2 || observed.Tools["read"] != 3 || observed.Tools["command"] != 1 {
+			t.Errorf("the tool calls are recorded as %v", observed.Tools)
+		}
+		delegated := got.Delegated
+		if observed.Children != 3 || delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input+delegated.Tokens.Output != 18075 ||
+			delegated.Tokens.CachedInput > delegated.Tokens.Input || delegated.Cost == nil || delegated.Cost.UsdMicros != 11700 ||
+			delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.OutputTokens != delegated.Tokens.Output {
+			t.Errorf("the subagents are recorded as %d: %+v, tokens %+v, cost %+v", observed.Children, delegated, delegated.Tokens, delegated.Cost)
+		}
+		failure, _ := got.LastCompaction.Outcome.Data.(*protocol.ConversationCompactionFailure)
+		if observed.Compactions != 1 || got.LastCompaction.Turn != demoTurnID("3") || got.LastCompaction.TurnSequence != 3 ||
+			got.LastCompaction.Outcome.Kind != "failed" || failure == nil || failure.Cause == nil || *failure.Cause != "the summary did not fit" {
+			t.Errorf("the compactions are recorded as %d, the last %+v", observed.Compactions, got.LastCompaction)
+		}
+		// The same conversation always records the same.
+		if again := demoStatistics(view, "sample-model"); !reflect.DeepEqual(got, again) {
+			t.Error("the statistics of a conversation differ from one reading to the next")
+		}
+
+		// A conversation without subagents delegated nothing; more cached
+		// than input is all of the input; without a speed, a window or a
+		// model none of what follows from them is recorded.
+		bare := demoStatistics(&viewmodel.Conversation{Session: conversation.Session{Usage: &conversation.Usage{Tokens: 800, Cached: 5000}}}, "")
+		if bare.Usage.Input != 700 || bare.Usage.CachedInput != 700 || bare.Generation != nil || bare.ContextTokens != nil || bare.ContextLimit != nil ||
+			bare.Budget != nil || bare.ContextModel != nil || bare.LastCompaction != nil || bare.FirstTokenUs != nil ||
+			len(bare.Observations.Recent) != 0 || bare.Observations.Children != 0 || bare.Delegated.Tokens != nil || bare.Delegated.Cost != nil {
 			t.Errorf("a bare usage is recorded as %+v, %+v", bare, bare.Usage)
 		}
-		body, err := demoComposer(&viewmodel.Conversation{ID: "sample", Session: conversation.Session{Usage: &conversation.Usage{Tokens: 800, Window: 1000}}}, true)
-		if err != nil || body["session"] != nil || body["connected"] != true || body["has_messages"] != false || body["sidebar"] != true || body["statistics"] == nil {
+		body, err := demoComposer(&viewmodel.Conversation{ID: "sample", Session: conversation.Session{Usage: &conversation.Usage{Tokens: 800, Window: 1000}}}, "sample-model", true)
+		limit, _ := body["context_limit"].(*uint32)
+		selected, _ := body["model"].(*string)
+		if err != nil || body["session"] != nil || body["connected"] != true || body["has_messages"] != false || body["sidebar"] != true ||
+			body["statistics"] == nil || limit == nil || *limit != 1000 || selected == nil || *selected != "sample-model" {
 			t.Errorf("the composer state of a demo conversation is %v, %v", body, err)
 		}
 		// The tool calls are the transcript's, by name; a question or a plan
 		// review is none.
-		tools := demoTools([]conversation.Turn{
+		counted := demoTools([]conversation.Turn{
 			{Reply: conversation.Reply{Blocks: []conversation.Block{{Kind: conversation.ToolsBlock, Calls: []conversation.Call{
 				{Name: "read"}, {Name: "read"}, {Name: "command"}, {Name: "plan_review", Terminal: true}, {}}}}}},
 			{Reply: conversation.Reply{Blocks: []conversation.Block{{Kind: conversation.TextBlock}, {Kind: conversation.ToolsBlock, Calls: []conversation.Call{{Name: "read"}}}}}},
 		})
-		if len(tools) != 2 || tools["read"] != 3 || tools["command"] != 1 {
-			t.Errorf("the transcript's tool calls are counted as %v", tools)
+		if len(counted) != 2 || counted["read"] != 3 || counted["command"] != 1 {
+			t.Errorf("the transcript's tool calls are counted as %v", counted)
 		}
 	})
 
@@ -601,8 +739,17 @@ func TestDemoMode(t *testing.T) {
 		// asked of the Node: the package's view is the one the draft's
 		// composer already mounted.
 		usage := cv.Session.Usage
-		input, cents := usage.Tokens-usage.Tokens/demoOutputShare, int(math.Round(usage.Cost*1_000_000))/10_000
-		figures := []string{packageCount(usage.Tokens), fmt.Sprintf("%.1f/s", usage.Speed), fmt.Sprintf("%d.%02d", cents/100, cents%100),
+		// The conversation's subagents have a share of their own, which the
+		// tokens and the cost count in, at the session's price.
+		delegated := subagentTokens(cv)
+		micros := int(math.Round(usage.Cost * 1_000_000))
+		// The package writes whole cents.
+		price := func(micros int) string { return fmt.Sprintf("%d.%02d", micros/1_000_000, micros/10_000%100) }
+		input, share := usage.Tokens-usage.Tokens/demoOutputShare, micros*delegated/usage.Tokens
+		if delegated != 18075 || price(micros) != "0.03" || price(share) != "0.01" || price(micros+share) != "0.04" {
+			t.Fatalf("the subagents of the demo's first conversation have %d tokens at $%s", delegated, price(share))
+		}
+		figures := []string{packageCount(usage.Tokens + delegated), fmt.Sprintf("%.1f/s", usage.Speed), price(micros + share),
 			fmt.Sprintf("%.0f%%", 100*float64(usage.Cached)/float64(input))}
 		for range 20 {
 			if tester.HasText(figures[1]) {
@@ -635,9 +782,9 @@ func TestDemoMode(t *testing.T) {
 			tester.Advance(time.Second)
 			settle()
 		}
-		hover(figures[0], "Tokens", "This session", "Subagents")
-		hover(figures[1], "Session average", "Timed responses", "Timed output", packageCount(usage.Tokens/demoOutputShare), "TTFT")
-		hover(figures[2], "Cost", "This session", "$"+figures[2], "Subagents")
+		hover(figures[0], "Tokens", "This session", packageCount(usage.Tokens), "Subagents", packageCount(delegated))
+		hover(figures[1], "Session average", "Timed responses", "Timed output", packageCount(usage.Tokens/demoOutputShare), "TTFT", "600.0 ms")
+		hover(figures[2], "Cost", "This session", "$"+price(micros), "Subagents", "$"+price(share))
 		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
 		// The turns, a bare number, are read where they are published.
 		published := r.demoPluginRegistry(cv).Entries(protocol.PluginUiSlotStatistics)
@@ -662,12 +809,134 @@ func TestDemoMode(t *testing.T) {
 		if calls := demoTools(cv.Turns); len(calls) == 0 || !tester.HasText("Tool calls") {
 			t.Errorf("the context panel counts the tool calls %v: %q", calls, tester.Texts())
 		}
+		// It draws every section a session's does: the context of the model
+		// the composer is set to with the compaction threshold and the
+		// output reserve, the usage with its tool calls and subagents, the
+		// active time by phase and the connection's averages.
+		shows := func(where string, rows ...string) {
+			t.Helper()
+			for _, row := range rows {
+				if !tester.HasText(row) {
+					t.Errorf("the context panel lacks %q %s: %q", row, where, tester.Texts())
+				}
+			}
+			if shown := marked(); shown != "" {
+				t.Errorf("the context panel names the demo %s: %q", where, shown)
+			}
+		}
+		// fold presses a row of the panel, which hangs under the header's
+		// button.
+		fold := func(name string) {
+			t.Helper()
+			for _, info := range tester.AccessAll() {
+				if info.Name == name && info.Bounds.Y >= shell.HeaderHeight && info.Bounds.X >= panel.Bounds.X-400 && info.Bounds.W > 0 {
+					tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+					tester.Advance(time.Second)
+					settle()
+					return
+				}
+			}
+			// A row without a name of its own is pressed on its text.
+			if at, found := tester.Find(name); found && at.Y >= shell.HeaderHeight && at.X >= panel.Bounds.X-400 {
+				tester.ClickAt(at.X+at.W/2, at.Y+at.H/2)
+				tester.Advance(time.Second)
+				settle()
+				return
+			}
+			t.Fatalf("the context panel has no %q row: %q", name, tester.Texts())
+		}
+		occupied := int(usage.Context * float64(usage.Window))
+		shows("of the first conversation", r.App.Composer(cv.ID).Model, packageCount(occupied), "/ "+packageCount(usage.Window),
+			"Until compaction "+packageCount(usage.Window*4/5-occupied), "Output reserve "+packageCount(usage.Window*4/25), "Details",
+			fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros), "Input", packageCount(input), "Output", "Cache hit", "Subagents",
+			"Active time", "Wait", "Reply", "Tools", "Other", "Session average "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
+			"Connection averages", "API response", "240.0 ms", "TTFT", "600.0 ms", "Request time")
 		shot("demo-context-panel")
+		// Its folds: what the context divides into, the tool calls by name
+		// and the subagents' usage.
+		fold("Details")
+		fold("Tool calls")
+		fold("Subagents")
+		shows("with its folds open", "System prompt", "Tool definitions", "User messages", "Skills", "Injected content", "Assistant history",
+			"Tool results", "Subagent usage", packageCount(delegated))
+		shot("demo-context-panel-folds")
 		tester.Key(0, ui.KeyEscape)
 		settle()
 		if closed, _ := contextPanel("en"); closed.Expanded {
 			t.Error("Escape left the context panel open")
 		}
+		// open shows another demo conversation and its context panel.
+		open := func(id string) {
+			t.Helper()
+			r.App.Sidebar.Selected = id
+			settle()
+			if panel, ok = contextPanel("en"); !ok {
+				t.Fatalf("%s has no context panel button: %q", id, tester.Texts())
+			}
+			tester.ClickAt(panel.Bounds.X+panel.Bounds.W/2, panel.Bounds.Y+panel.Bounds.H/2)
+			tester.Advance(time.Second)
+			settle()
+		}
+		// A conversation that ran many subagents counts them all and what
+		// they used beside the session.
+		review := demo.Find("lumen-web/review")
+		children := 0
+		for _, turn := range review.Turns {
+			for _, block := range turn.Reply.Blocks {
+				children += len(block.Children)
+			}
+		}
+		if children < 8 {
+			t.Fatalf("the demo's review conversation has %d subagents", children)
+		}
+		open(review.ID)
+		fold("Subagents")
+		shows("of a conversation with subagents", "Subagents", "Subagent usage", packageCount(subagentTokens(review)))
+		if !slices.Contains(tester.Texts(), strconv.Itoa(children)) {
+			t.Errorf("the context panel does not count %d subagents: %q", children, tester.Texts())
+		}
+		shot("demo-context-panel-subagents")
+		tester.Key(0, ui.KeyEscape)
+		settle()
+		// A conversation that compacted counts its compactions and names the
+		// last one that ran, which opens the transcript at its turn: the
+		// demo's own, so no record is asked of a Node and none fails to open.
+		handbook := demo.Find("chat/handbook")
+		if !slices.ContainsFunc(handbook.Turns, func(turn conversation.Turn) bool {
+			return turn.Compaction != nil && turn.Compaction.State == conversation.CompactionFailed
+		}) {
+			t.Fatal("the demo's handbook conversation has no failed compaction")
+		}
+		open(handbook.ID)
+		fold("Details")
+		shows("of a conversation that compacted", "1 compactions", "Latest compaction", "Failed")
+		shot("demo-context-panel-compaction")
+		tester.Key(0, ui.KeyEscape)
+		settle()
+		// In a window too short for the transcript, scrolled to its start,
+		// the failed compaction's marker is out of sight until its row in
+		// the panel is pressed.
+		const short = 640
+		tester.SetSize(1280, short)
+		settle()
+		r.App.Messages.List(handbook.ID).ScrollTo(0, ui.Start)
+		settle()
+		marker := text("chat_compact_failed")
+		if at, found := tester.Find(marker); found && at.Y+at.H <= short {
+			t.Fatalf("the failed compaction shows at %v before it is opened", at)
+		}
+		open(handbook.ID)
+		if !tester.HasText("Latest compaction") {
+			fold("Details")
+		}
+		fold("Latest compaction")
+		if at, found := tester.Find(marker); !found || at.Y < shell.HeaderHeight || at.Y+at.H > short || tester.HasText("Could not open the record") {
+			t.Errorf("the latest compaction opened the transcript at %v, found %v: %q", at, found, tester.Texts())
+		}
+		tester.Key(0, ui.KeyEscape)
+		tester.SetSize(1280, 1600)
+		r.App.Sidebar.Selected = cv.ID
+		settle()
 		for _, kind := range sent()[visited:] {
 			if kind == "read_plugin_view" || strings.HasPrefix(kind, pluginStatisticsPackage+":") {
 				t.Errorf("showing the statistics package over the demo sent %q to the Node", kind)

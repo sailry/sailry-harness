@@ -1217,3 +1217,85 @@ func TestGuidanceBatchOverflow(t *testing.T) {
 		t.Fatalf("failed step code = %q", code)
 	}
 }
+
+func TestTurnPhases(t *testing.T) {
+	t.Run("an excluded wait removes only its owner's time", func(t *testing.T) {
+		micros := func(value *uint64) uint64 {
+			if value == nil {
+				t.Fatal("a phase is unknown")
+			}
+			return *value
+		}
+		result := reducePhases(100, []timelineSpan{
+			{0, 20, phaseWaiting, ""},
+			{20, 40, phaseOutput, ""},
+			{40, 90, phaseTool, "first"},
+			{50, 90, phaseTool, "second"},
+			{60, 80, phaseExcluded, "second"},
+		})
+		got := [5]uint64{micros(result.ActiveUs), micros(result.WaitingUs), micros(result.OutputUs), micros(result.ToolsUs), micros(result.OtherUs)}
+		if got != [5]uint64{100, 20, 20, 50, 10} {
+			t.Fatalf("active, waiting, output, tools, other = %v", got)
+		}
+		waiting := reducePhases(100, []timelineSpan{{0, 100, phaseTool, "call"}, {20, 80, phaseExcluded, "call"}})
+		if micros(waiting.ActiveUs) != 40 || micros(waiting.ToolsUs) != 40 {
+			t.Fatalf("a waiting tool is active for %d and runs for %d", micros(waiting.ActiveUs), micros(waiting.ToolsUs))
+		}
+	})
+	t.Run("a finished turn stores its phases for the session's statistics", func(t *testing.T) {
+		var timer *manualClock
+		read := objectTool("read", true, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			timer.Now()
+			return ToolResult{Value: map[string]bool{"ok": true}}
+		})
+		write := objectTool("write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			return ToolResult{Value: map[string]bool{"ok": true}}
+		})
+		write.Approval = true
+		m := &scriptedModel{scripts: []script{
+			response(text("Reading"), call("read", "read", `{}`), call("write", "write", `{}`), finish()),
+			response(text("Done"), finish()),
+		}}
+		f := newFixture(t, m, read, write)
+		timer = f.r.clock.(*manualClock)
+		f.start()
+		turn := f.submit("Task")
+		f.waitingApproval()
+		// Nobody decides: the five minutes the turn waits are not its work.
+		select {
+		case wait := <-timer.waits:
+			close(wait.advance)
+		case <-f.ctx.Done():
+			t.Fatal("no approval deadline")
+		}
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		var statistics protocol.ConversationStatistics
+		err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+			var err error
+			statistics, err = store.ReadAgentStatistics(f.ctx, db, f.session.ID)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		phases := statistics.Observations.Phases
+		if phases.ActiveUs == nil || phases.WaitingUs == nil || phases.OutputUs == nil || phases.ToolsUs == nil || phases.OtherUs == nil {
+			t.Fatalf("the finished turn left unknown phases: %+v", phases)
+		}
+		if *phases.WaitingUs == 0 || *phases.OutputUs == 0 || *phases.ToolsUs == 0 {
+			t.Fatalf("waiting %d, output %d, tools %d: each took time", *phases.WaitingUs, *phases.OutputUs, *phases.ToolsUs)
+		}
+		if sum := *phases.WaitingUs + *phases.OutputUs + *phases.ToolsUs + *phases.OtherUs; sum != *phases.ActiveUs {
+			t.Fatalf("the phases add up to %d of %d active", sum, *phases.ActiveUs)
+		}
+		if limit := uint64((300 * time.Second).Microseconds()); *phases.ActiveUs >= limit {
+			t.Fatalf("the active time %d includes the wait for a decision", *phases.ActiveUs)
+		}
+		for _, record := range f.state().Records {
+			if record.Metadata.Execution != nil && record.Metadata.Execution.Phases != nil &&
+				(record.Metadata.Runtime == nil || record.Metadata.Runtime.UserVisible || record.Metadata.Runtime.AgentVisible) {
+				t.Fatalf("the phases record is visible: %+v", record.Metadata.Runtime)
+			}
+		}
+	})
+}
