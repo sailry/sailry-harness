@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -158,6 +159,30 @@ func testToolDeclarations(t *testing.T) {
 		{"sign-in with a warning past its length", func(extension *protocol.PluginExtension) {
 			extension.Actions = append(extension.Actions, protocol.PluginActionAuthenticateModels)
 			extension.ModelAuth = []protocol.PluginModelAuthDeclaration{{ID: "account", Warning: &protocol.PluginModelAuthWarning{Text: strings.Repeat("a", 1025)}}}
+		}, false},
+		{"model provider with a warning", func(extension *protocol.PluginExtension) {
+			extension.ModelProviders = []protocol.ConversationPresetsPreset{{ID: "notes", Warning: &protocol.PluginModelAuthWarning{
+				Text: "Heavy use may count against this account", Locales: map[string]string{"zh-CN": "大量使用可能计入此账号的额度"}}}}
+		}, true},
+		{"model provider with a blank warning", func(extension *protocol.PluginExtension) {
+			extension.ModelProviders = []protocol.ConversationPresetsPreset{{ID: "notes", Warning: &protocol.PluginModelAuthWarning{Text: " "}}}
+		}, false},
+		{"model provider with a blank translated warning", func(extension *protocol.PluginExtension) {
+			extension.ModelProviders = []protocol.ConversationPresetsPreset{{ID: "notes", Warning: &protocol.PluginModelAuthWarning{
+				Text: "Heavy use may count against this account", Locales: map[string]string{"zh-CN": ""}}}}
+		}, false},
+		{"model provider with a warning past its length", func(extension *protocol.PluginExtension) {
+			extension.ModelProviders = []protocol.ConversationPresetsPreset{{ID: "notes", Warning: &protocol.PluginModelAuthWarning{Text: strings.Repeat("a", 1025)}}}
+		}, false},
+		{"model provider with a control character in its warning", func(extension *protocol.PluginExtension) {
+			extension.ModelProviders = []protocol.ConversationPresetsPreset{{ID: "notes", Warning: &protocol.PluginModelAuthWarning{Text: "Heavy use\nmay count"}}}
+		}, false},
+		{"model provider with too many warning locales", func(extension *protocol.PluginExtension) {
+			locales := map[string]string{}
+			for index := range 33 {
+				locales[fmt.Sprintf("x-%d", index)] = "Heavy use"
+			}
+			extension.ModelProviders = []protocol.ConversationPresetsPreset{{ID: "notes", Warning: &protocol.PluginModelAuthWarning{Text: "Heavy use", Locales: locales}}}
 		}, false},
 		{"permission with declared callbacks", func(extension *protocol.PluginExtension) {
 			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture", Check: new("recall"), Request: new("save"), Actions: []protocol.PluginAction{protocol.PluginActionReadStorage}}}

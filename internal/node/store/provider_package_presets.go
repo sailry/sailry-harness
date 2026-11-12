@@ -62,7 +62,10 @@ func appendPackagePresets(ctx context.Context, db *sql.Conn, listing protocol.Co
 				Source: protocol.ConversationPresetsSource{Kind: "package", Data: protocol.ConversationPresetsSourcePackagePayload{Name: info.Summary.Name}},
 				Preset: preset, Provenance: protocol.ConversationPresetsProvenanceThirdParty, Package: &reference, Origin: &origin,
 				Requested: protocol.ConversationConsentScopes{Messages: preset.Adapter != nil}, Icon: info.Extension.Icon,
+				LoginWarning: preset.Warning,
 			}
+			// The entry's login_warning is the one carrier of a warning.
+			entry.Preset.Warning = nil
 			if info.Origin != nil && info.Origin.Kind == "bundled" {
 				entry.Provenance = protocol.ConversationPresetsProvenance("bundled")
 			}
@@ -74,7 +77,9 @@ func appendPackagePresets(ctx context.Context, db *sql.Conn, listing protocol.Co
 					if declaration.ID == auth.Flow {
 						presentation := accountPresentation(declaration)
 						entry.Login, entry.Requested.Credentials = &presentation, declaration.Exchange != nil
-						entry.LoginWarning = declaration.Warning
+						if declaration.Warning != nil {
+							entry.LoginWarning = declaration.Warning
+						}
 					}
 				}
 			}

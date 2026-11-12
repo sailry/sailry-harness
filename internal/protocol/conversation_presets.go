@@ -60,6 +60,9 @@ type ConversationPresetsPreset struct {
 	Policies     []ConversationPresetsRequestPolicy `json:"policies"`
 	Products     []ConversationPresetsProduct       `json:"products"`
 	Adapter      *string                            `json:"adapter"`
+	// Warning is what a controller asks the user to accept before a channel
+	// is made from this preset, absent when it has none.
+	Warning *PluginModelAuthWarning `json:"warning,omitempty"`
 }
 
 func DefaultConversationPresetsPreset() ConversationPresetsPreset {
@@ -81,6 +84,7 @@ func DefaultConversationPresetsPreset() ConversationPresetsPreset {
 		Policies:     []ConversationPresetsRequestPolicy{},
 		Products:     []ConversationPresetsProduct{},
 		Adapter:      nil,
+		Warning:      nil,
 	}
 }
 func (value *ConversationPresetsPreset) UnmarshalJSON(data []byte) error {
@@ -94,6 +98,7 @@ func (value *ConversationPresetsPreset) UnmarshalJSON(data []byte) error {
 	decoded.Policies = []ConversationPresetsRequestPolicy{}
 	decoded.Products = []ConversationPresetsProduct{}
 	decoded.Adapter = nil
+	decoded.Warning = nil
 	if err := DecodeObject(data, &decoded, []string{"id", "name", "routes"}, true); err != nil {
 		return err
 	}
@@ -631,7 +636,8 @@ type ConversationPresetsEntry struct {
 	Requested  ConversationConsentScopes     `json:"requested"`
 	Icon       *string                       `json:"icon,omitempty"`
 	Login      *PluginModelAuthPresentation  `json:"login,omitempty"`
-	// LoginWarning is the declaration's warning, absent when it has none.
+	// LoginWarning is the warning of the preset's sign-in, else of the
+	// preset, absent when neither declares one.
 	LoginWarning *PluginModelAuthWarning `json:"login_warning,omitempty"`
 }
 
