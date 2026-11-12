@@ -608,7 +608,7 @@ func interactionKinds(t *testing.T) {
 	}
 
 	// Deny takes no reason: the popover has no reason field and Deny no
-	// menu (docs/removed-ui.md). The first send loses its outcome: the
+	// menu (AGENTS.md, Removed UI). The first send loses its outcome: the
 	// request stays for Retry, which sends that same request once while it
 	// travels.
 	approvals := text("approval_live_count", "count", 1)

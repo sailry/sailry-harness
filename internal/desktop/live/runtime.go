@@ -690,7 +690,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 			delete(r.busy, key)
 			code := faultCode(err)
 			// A forwarded creation is the one request a Node resolves by
-			// replay (docs/node.md, Session forwarding): its unknown outcome
+			// replay: its unknown outcome
 			// is final in the local Node's ledger until the target answers,
 			// so the request is kept and the next Send asks the target.
 			forwarded := command.Kind == "create_session_at" && code == protocol.ErrorCodeOutcomeUnknown

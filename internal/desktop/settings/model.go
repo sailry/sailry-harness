@@ -11,7 +11,7 @@ import (
 )
 
 // The settings' view model: the boundary between the pages and their
-// logic (docs/settings.md). Pages read and edit these fields; the logic
+// logic. Pages read and edit these fields; the logic
 // half loads them, validates and saves them, and reports how a save went.
 //
 // Two kinds of settings, as in the reference: - App preferences are the app's

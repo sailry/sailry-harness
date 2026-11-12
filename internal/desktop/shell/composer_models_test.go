@@ -681,7 +681,7 @@ func composerModels(t *testing.T) {
 
 	// The rail is Back and a tile for each family, 32 square, 4 apart, 6
 	// from the rail's sides: no capability filters and no line under the
-	// families (docs/removed-ui.md).
+	// families (AGENTS.md, Removed UI).
 	t.Run("rail", func(t *testing.T) {
 		tt := demoPicker(t, nil)
 		tt.Move(2, 2)
@@ -930,7 +930,7 @@ func composerModels(t *testing.T) {
 	})
 
 	// A score is text alone: the pointer at rest on one, a model's or an
-	// effort's, opens no tooltip and no card (docs/removed-ui.md).
+	// effort's, opens no tooltip and no card (AGENTS.md, Removed UI).
 	t.Run("scores open nothing", func(t *testing.T) {
 		tt, _, _ := modelPickerAt(t, 960, nil)
 		still := func(what string, x, y float32) {

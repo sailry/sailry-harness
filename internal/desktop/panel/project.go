@@ -12,8 +12,7 @@ import (
 // independent page in the main column and the right panel's tabs, both
 // draw from and write to it: the files and diffs open are the same items
 // in the page's strip and the panel's, each with its own state, and the
-// item shown last is the one either host shows first (docs/panel.md,
-// Components and hosts).
+// item shown last is the one either host shows first.
 type Project struct {
 	ID       string
 	Actions  *Actions

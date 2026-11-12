@@ -18,8 +18,9 @@ import (
 // Data charts of a reply (content/visuals): a Mermaid xychart or pie is
 // drawn here from limu's parsed model with MyGo's ui/chart, in the theme,
 // with the value of the mark under the pointer. Every other diagram, and a
-// chart whose data cannot be drawn, is CrychicUI's picture (visuals.go;
-// docs/crychic.md says why its chart components are not the painters).
+// chart whose data cannot be drawn, is CrychicUI's picture (visuals.go).
+// CrychicUI's chart components are not the painters: they are a fixed look
+// over the same ui/chart, and MyGo comes first.
 
 const (
 	// chartWidth is the widest a chart is, chartHeight the height of a

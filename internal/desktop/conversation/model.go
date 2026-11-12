@@ -10,7 +10,7 @@ import (
 
 // This file is the transcript's contract: the view models a backend fills
 // and the actions the transcript emits. The view groups, colors and lays
-// them out; it never fetches or changes them (docs/conversation.md).
+// them out; it never fetches or changes them.
 
 // RunStatus is the status of a reply's run.
 type RunStatus int

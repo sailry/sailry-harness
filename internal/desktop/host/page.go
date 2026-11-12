@@ -59,7 +59,7 @@ const Width = 1040
 // (live/host.rs): the header with the platform, the status, the uptimes and
 // the forwards, the monitor, then the running sessions, 1040 wide at most
 // and centered, 14 apart. It has neither a projects section nor a runtime
-// section (docs/removed-ui.md): projects are added from the sidebar, and the
+// section (AGENTS.md, Removed UI): projects are added from the sidebar, and the
 // header's line names the two versions.
 func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	if h == nil {
@@ -135,7 +135,7 @@ func (h *Host) Connection() feedback.Connection {
 // uptimes and the processes' count, its port forwards, and Update for a host
 // updated from here. The platform and the versions show here alone. A live host's status is CrychicUI's
 // ConnectionStatus; the preview's is its note. It has no Remove pairing
-// button (docs/removed-ui.md): the rail's host menu asks for it.
+// button (AGENTS.md, Removed UI): the rail's host menu asks for it.
 func header(c *ui.Context, s *State, h *Host, act Actions) {
 	p := theme.Of(c)
 	ui.Row(c.Key("header")).Wrap().GapX(16).GapY(12).AlignItems(ui.Center).Children(func() {

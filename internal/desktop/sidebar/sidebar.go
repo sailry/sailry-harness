@@ -1,6 +1,6 @@
 // Package sidebar is the conversation navigation beside the rail: pinned
 // conversations, chats without a project, and projects with their
-// conversations as a tree. See docs/sidebar.md.
+// conversations as a tree.
 package sidebar
 
 import (

@@ -50,7 +50,7 @@ func (s *State) older(c *ui.Context, sess *Session, actions Actions) {
 
 // banner tells the connection is recovering or lost: the last row of the
 // transcript, after the last turn. It is the session's state, not a message,
-// and offers nothing: the Client reconnects by itself (docs/removed-ui.md).
+// and offers nothing: the Client reconnects by itself (AGENTS.md, Removed UI).
 func banner(c *ui.Context, sess *Session) {
 	if sess == nil || sess.Connection == Connected {
 		return

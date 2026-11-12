@@ -27,7 +27,7 @@ func (o *owner) RemoveQueued(string)          { o.asked++ }
 func (o *owner) WithdrawGuidance(string)      { o.asked++ }
 func (o *owner) Discard(*composer.Attachment) {}
 
-// removedCopy is the copy the queue strip dropped (docs/removed-ui.md): the
+// removedCopy is the copy the queue strip dropped (AGENTS.md, Removed UI): the
 // reasons a row or a held background result waited on.
 var removedCopy = []string{"Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent",
 	"Held at automatic limit", "Held after failure", "暂缓", "已暂停", "停止后暂停", "中断后暂停", "未发送", "已达自动续接上限", "失败后暂缓"}

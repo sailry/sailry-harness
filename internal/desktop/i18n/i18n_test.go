@@ -42,7 +42,7 @@ func TestCatalogKeys(t *testing.T) {
 		}
 	})
 	// The copy of controls removed from the accepted UI stays out
-	// (docs/removed-ui.md): the root catalogs still carry it for the Rust
+	// (AGENTS.md, Removed UI): the root catalogs still carry it for the Rust
 	// application, and listing it here is the first step of bringing such a
 	// control back.
 	t.Run("RemovedControls", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestCatalogKeys(t *testing.T) {
 			"project_empty", // the empty state of the host page's projects section
 		} {
 			if _, listed := catalogs["en"][key]; listed {
-				t.Errorf("%s is the copy of a removed control: see docs/removed-ui.md", key)
+				t.Errorf("%s is the copy of a removed control: see Removed UI in AGENTS.md", key)
 			}
 		}
 	})

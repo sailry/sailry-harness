@@ -1937,7 +1937,7 @@ func testSessionForwarding(t *testing.T) {
 	}
 
 	// On another Host the model list says whose configuration each provider
-	// is. The composer offers no host choice (docs/removed-ui.md): its
+	// is. The composer offers no host choice (AGENTS.md, Removed UI): its
 	// context names no Hosts and the bar has no control named after one.
 	cv, comp, _ = draft(modelKey(remoteProvider, "fixture"))
 	// The fixture has no network to list its paired Hosts from: the frame

@@ -6,7 +6,7 @@ import (
 
 // The composer's view model: what the backend offers it (Context) and what
 // the user puts together (State, Message). Field names are the contract
-// with the logic half; docs/composer.md lists them.
+// with the logic half.
 
 // Context is what the conversation offers the composer, built by the page
 // from the backend's data. The composer reads it and changes none of it;
@@ -184,7 +184,7 @@ type Queued struct {
 }
 
 // Host is a computer the conversation can run on: execution-owner metadata.
-// The composer draws no host choice (docs/removed-ui.md).
+// The composer draws no host choice (AGENTS.md, Removed UI).
 type Host struct {
 	ID    string
 	Name  string

@@ -2,7 +2,7 @@
 
 Desktop links `github.com/ELY-Open-Source/CrychicUI` at the pseudo-version pinned
 in `go.mod` (`v0.0.0-20261110123803-1c55e6a884bb`, commit `1c55e6a884bb`),
-unmodified, for the components listed in [docs/crychic.md](../docs/crychic.md).
+unmodified, for the components listed in [AGENTS.md](../AGENTS.md#mygo-and-kit).
 It is a Go module dependency: no CrychicUI source is copied into this
 repository.
 

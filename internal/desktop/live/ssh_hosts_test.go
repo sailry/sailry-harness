@@ -133,7 +133,7 @@ func testSSHHostInstall(t *testing.T) {
 		}
 		// The header's line names this computer's platform from its Node's
 		// facts, and the running build's version and protocol after it. The
-		// page has no runtime section (docs/removed-ui.md), so the time zone
+		// page has no runtime section (AGENTS.md, Removed UI), so the time zone
 		// the Node reports is not projected.
 		system, release, machine, zone := "darwin", "27.2", "arm64", "JST +09:00"
 		info := protocol.DefaultHostInfo()

@@ -1,7 +1,6 @@
 // Package kit holds Sailry's shared components: the look of the reference
 // app's Kit, built on MyGo's widgets, with every color and size from
-// internal/desktop/theme. Pages compose them and add only their layout
-// (docs/kit.md).
+// internal/desktop/theme. Pages compose them and add only their layout.
 package kit
 
 import (

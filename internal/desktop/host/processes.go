@@ -83,7 +83,7 @@ func processPanel(c *ui.Context, s *State, h *Host, m *Metrics, t tones, act Act
 
 // processTable is the processes' table over its sorted rows. A cell is
 // plain text: the name has no letter tile before it and the memory no bar
-// of its share (docs/removed-ui.md); the load keeps its last minute before
+// of its share (AGENTS.md, Removed UI); the load keeps its last minute before
 // its figure.
 func processTable(c *ui.Context, s *State, t tones, columns []ui.TableColumn, rows []Process) ui.Element {
 	p := theme.Of(c)

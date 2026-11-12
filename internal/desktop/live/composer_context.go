@@ -111,7 +111,7 @@ func staleReference(ctx *composer.Context, reference composer.Reference) bool {
 // projectComposerQueue marks the queue's rows the running turn is taking as
 // guidance, and adds the message still on its way to the Host. The rows say
 // nothing about why they wait and held background results are not rows
-// (docs/removed-ui.md): what the user must know is a toast, once.
+// (AGENTS.md, Removed UI): what the user must know is a toast, once.
 func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Context) {
 	if run, active := x.activeRun(); active {
 		for i := range ctx.Queue {

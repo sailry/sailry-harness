@@ -46,7 +46,8 @@ const (
 // New terminal and the worktrees package's entry are the application's own
 // controls, as it owns terminals and worktrees, shown while their package is
 // enabled. The commands package's CLI submenu and the git package's Manage
-// branches are not shown (docs/removed-ui.md, docs/plugins.md).
+// branches are not shown (AGENTS.md, Removed UI): the project_menu slot is
+// not mounted.
 func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *viewmodel.Project) {
 	owner := r.projectOverviewRuntime(project)
 	if owner == nil {

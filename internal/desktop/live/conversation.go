@@ -288,7 +288,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		}
 	}
 	// Context.Hosts stays empty: the composer has no host choice
-	// (docs/removed-ui.md); a draft runs on its project's Node.
+	// (AGENTS.md, Removed UI); a draft runs on its project's Node.
 	ctx.Projects = r.composerProjects()
 	if s, ok := r.session(cv.ID); ok {
 		ctx.LocationLocked = true

@@ -3,8 +3,9 @@
 // library after MyGo's own controls. It is not a second Kit: a component that
 // is safe with the data it is given is called from its own package, and only
 // the ones that panic on data Sailry does not author, or that would cover a
-// Kit floating surface, have an adapter here. The verified components, the
-// copy every caller supplies and the caveats are in docs/crychic.md.
+// Kit floating surface, have an adapter here. The verified components are
+// listed in AGENTS.md; crychic_test.go probes each with the copy a caller
+// supplies and the inputs it panics on.
 package crychic
 
 import (
@@ -136,7 +137,7 @@ func LinkPreview(c *ui.Context, title, host string, image *ui.Bitmap) (ui.Elemen
 // Lightbox is overlay.Lightbox for decoded attachments. It builds nothing,
 // and closes, when there is no image or one failed to decode; the shown
 // index stays within the images and captions that do not match are dropped.
-// The component is blocked (docs/crychic.md): it draws its own scrim and
+// The component is not used: it draws its own scrim and
 // Kit's image viewer does more. The adapter is kept for when that changes.
 func Lightbox(c *ui.Context, label string, images []*ui.Bitmap, captions []string, at *int, open *bool, o overlay.LightboxOptions) (ui.Element, bool) {
 	ok := label != "" && len(images) > 0

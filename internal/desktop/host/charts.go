@@ -12,8 +12,8 @@ import (
 
 // The monitor's charts are MyGo's ui/chart: its Plot with the axes, its
 // Line, Area and Sector paths painted in the plot's Draw, and its RuleX and
-// Point marks at the sample under the pointer. Kit and the verified
-// CrychicUI components have no chart (docs/crychic.md).
+// Point marks at the sample under the pointer. Kit has no chart, and
+// CrychicUI's take no live series with gaps for missing samples (NaN panics).
 
 // tones are the monitor's series colours, from the theme's status and chart
 // colours (the reference's Tones). The upload is the chart violet, where

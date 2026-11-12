@@ -17,8 +17,9 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Follow the architecture and accepted UI. Connect data and actions without
   changing layout, styling, copy, view-model field names or `Actions` contracts.
   A refactor does not authorize deleting existing functions.
-- Each feature's contract lives in `docs/<feature>.md`. Update its backend wiring,
-  ownership and deviations when behavior changes. Internal plans are not source.
+- The architecture lives in ARCHITECTURE.md. Explain a deliberate deviation or
+  non-obvious ownership in a code comment at the place it applies, and keep it
+  true when behavior changes. Internal plans are not source.
 
 ## Git and workspace
 
@@ -80,16 +81,87 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   framework internals.
 - Lobe MyGo is a source reference for already adapted Kit components, not a module
   dependency. Preserve imported notices.
-- CrychicUI is the second UI library: prefer a MyGo control, then a component
-  verified in [docs/crychic.md](docs/crychic.md), then Kit or custom where
-  neither fits or ours does more; it may replace ours only where no function
-  is lost, and every floating surface stays Kit's frost.
-- Custom rendering requires a verified framework gap and an explanation in the
-  feature's deviations. Right-click menus are OS-native; left-click menus use
+- CrychicUI is the second UI library: prefer a MyGo control, then a verified
+  CrychicUI component, then Kit or custom where neither fits or ours does
+  more; it may replace ours only where no function is lost, and every floating
+  surface stays Kit's frost. A component is verified once the tests of
+  `internal/desktop/kit/crychic` probe it.
+  - Direct: `color.SwatchGrid`, `color.Palette`, `files.Dropzone`,
+    `files.FileCard`, `files.FileIcon`, `files.FileList` (not for the picker),
+    `form.FileField`, `form.TypeToConfirm`, `input.TagInput`,
+    `feedback.ErrorState`, `feedback.RetryIn`, `feedback.SaveStatus`,
+    `feedback.ConnectionStatus`, `chat.JumpToLatest`, `media.Recorder`,
+    `devtools.LevelFilter`, `code.DiffView`
+  - Through the `kit/crychic` adapter: `agent.ImageGenerating`,
+    `agent.SourceCard`, `agent.Citation`, `agent.RunTimeline`,
+    `agent.TaskProgress`, `chat.LinkPreview`, `navigation.ZoomControl`,
+    `media.Waveform`, `devtools.LogView`, `code.CommitGraph`, `code.Blame`,
+    `diagram.Mermaid`, and `desktop.UpdatePrompt` inside a Kit surface
+  - Not usable: `color.Picker`, `overlay.DangerDialog`,
+    `overlay.ShortcutSheet`, `overlay.WhatsNew`, `overlay.HoverCard` and
+    `overlay.Lightbox` (a floating surface of their own);
+    `input.KeyValueField`, `input.PasswordField`, `code.BranchPicker` (fixed
+    English) and `media.AudioPlayer` (plays no file); the `chart` package
+    (charts use MyGo's `ui/chart`)
+- Custom rendering requires a verified framework gap and an explanation in a
+  comment at the use. Right-click menus are OS-native; left-click menus use
   Kit menus or popovers.
 - Approved layouts are the baseline. Removed controls must not return through
-  backend work. Read [docs/removed-ui.md](docs/removed-ui.md) before adding any
-  control found in Rust or another reference.
+  backend work. Rust and the root `locales/` catalogs still carry most of
+  them, so before adding any control found in Rust or another reference, check
+  the Removed UI list below. An entry returns only when the user asks for it
+  by name, and is then deleted here. A removal keeps the command, protocol
+  field and stored data. Guard a new entry cheaply: keep its keys out of
+  `keys.txt` (`TestCatalogKeys/RemovedControls`) or assert its absence in the
+  feature's test.
+
+### Removed UI
+
+- Composer: a host choice or location dialog (choosing a project sets the host)
+- `@` and `/` picker: a header, footer, hint or check mark (group headings stay)
+- Approval popover: the Deny menu, "Deny with reason" and the reason field;
+  the arguments of a tool that declares no display (its name alone)
+- Question row: state text such as "waiting for answer" (the icon tells it)
+- Tool row: red for an error the tool returned (red only if the call did not run)
+- Queue strip: a wait reason on a row ("Held", "Paused", "Not sent" and the
+  like); held background results as rows; a paused-queue strip, "Queue paused"
+  and Continue sending (a halt is one toast; Send now or a message resumes)
+- Attachments: the composer's own file dialog and the system file dialog (Add
+  attachment opens the in-app picker)
+- Model picker: capability filters and the line over them in the rail (row
+  marks stay); a check mark on a chosen effort, model, family or team row (the
+  neutral fill marks it; mode and permission menus keep checks); a score card
+  or tooltip over a score (the controls page keeps its card)
+- File picker: the host's name on a second line under the title (this device
+  is never named)
+- Connection banner: the Retry button (the Client reconnects by itself)
+- Right panel: History and Documents as launcher or "+" entries (the tab kinds
+  stay); a preview of PDF, Office or other formats MyGo cannot draw (Open uses
+  the system's app, on Mobile too)
+- Split workspace: a pane close that stops, closes or removes its session or
+  terminal (it only detaches; a terminal pane still confirms)
+- Activity strip: the `git` plugin's Status-slot entry (the +/− badge is
+  core; `files` and `git` are not mounted in the Status slot)
+- Project menu and page: "Manage project trust" and its dialog (a project is
+  trusted when added); "Launch AI CLI", its submenu and its button (only the
+  `commands` package's slot may bring one back); the Session records dialog
+  (the project page lists sessions, archived ones too)
+- Host page: a Revoke or Remove pairing button outside a menu, also on host
+  rows of Settings › Connections; the Runtime section (the header's line keeps
+  the Host and Protocol versions); the Projects section, its Add project
+  button and empty state; a process row's letter tile and memory-share bar
+- Usage page: the provider tile before a model, the provider's name after it,
+  the project tag after a session's title and a cache-rate bar (plain text;
+  the tooltip and the copied row keep provider and project)
+- Settings › Connectors: an inline Connect button (it is in the row's menu)
+- Settings › Dictation: the "local models" heading
+- Settings › Providers: a preview note in the editor; Add model as a footer
+  row of the model list (it is a button beside Refresh)
+- Settings › Conversation: the value beside the text size slider and the
+  stepped sizes (Small to Extra large) it replaced
+- Settings › General: the toast that a language change applies after a restart
+- Welcome guide: the telemetry or diagnostics note and a Settings button
+- Theme packages: transparency or blur values (the Appearance page owns them)
 
 ## Code organization
 

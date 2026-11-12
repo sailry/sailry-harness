@@ -460,7 +460,7 @@ func TestPage(t *testing.T) {
 		}
 	})
 	t.Run("no runtime section", func(t *testing.T) {
-		// The section's title and its grid's labels (docs/removed-ui.md): their
+		// The section's title and its grid's labels (AGENTS.md, Removed UI): their
 		// copy is out of the catalog, so they are named as they read. The
 		// versions' labels show in the header's line alone.
 		shown := count()
@@ -484,7 +484,7 @@ func TestPage(t *testing.T) {
 	})
 	t.Run("no projects section", func(t *testing.T) {
 		// The section's title, its rows, its empty state and Add project
-		// (docs/removed-ui.md): the page ends with the running sessions. The
+		// (AGENTS.md, Removed UI): the page ends with the running sessions. The
 		// empty state's copy is out of the catalog, so it is named as it reads.
 		absent := func(when string) {
 			t.Helper()
@@ -613,7 +613,7 @@ func TestPage(t *testing.T) {
 			t.Error("no separator between the first two rows")
 		}
 		// No letter tile before a name and no bar of the memory's share
-		// (docs/removed-ui.md).
+		// (AGENTS.md, Removed UI).
 		texts := count()
 		if texts["s"] != 0 || texts["l"] != 0 {
 			t.Errorf("a process has a letter tile: %q", tt.Texts())

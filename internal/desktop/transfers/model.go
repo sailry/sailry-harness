@@ -1,6 +1,6 @@
 // Package transfers is the installations queue and the download dialog: the
 // rail's installations button with its ring and its popover of requests, and
-// the Save as dialog's progress. See docs/transfers.md.
+// the Save as dialog's progress.
 package transfers
 
 import (

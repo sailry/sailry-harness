@@ -272,7 +272,7 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 // plugin_controls.go). It reads the project's name, or Chats for none,
 // and a menu of Chats, every host's projects with a check on the current
 // one, then Add project. The composer has no host choice
-// (docs/removed-ui.md): the draft runs on its project's host, which choosing
+// (AGENTS.md, Removed UI): the draft runs on its project's host, which choosing
 // a project sets.
 func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	icon, label := icons.Inbox, i18n.T(c, "composer_no_project")

@@ -175,7 +175,7 @@ func composerParity(t *testing.T) {
 		}
 	})
 
-	// The composer has no host choice (docs/removed-ui.md): with two hosts
+	// The composer has no host choice (AGENTS.md, Removed UI): with two hosts
 	// offered, neither the context bar nor, below the icon width, the
 	// compact settings popover has a control named after one.
 	t.Run("no host control", func(t *testing.T) {

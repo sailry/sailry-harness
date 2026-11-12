@@ -415,7 +415,7 @@ func TestLiveBlocks(t *testing.T) {
 }
 
 // The connection banner tells its state and offers nothing: reconnection is
-// automatic (docs/removed-ui.md).
+// automatic (AGENTS.md, Removed UI).
 func TestConnectionBanner(t *testing.T) {
 	for _, row := range []struct {
 		name       string
