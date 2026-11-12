@@ -145,6 +145,14 @@ func (w liveWindow) rest(limit time.Duration) {
 	}
 }
 
+// liveTesterOptions are a whole window's settings in a test that reads its
+// texts and controls: opaque surfaces, as the software renderer spends the
+// test's time on the frosted ones otherwise. The frames saved when the
+// variable shots names a folder keep the frost.
+func liveTesterOptions(shots string) ui.TesterOptions {
+	return ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: os.Getenv(shots) == ""}}
+}
+
 // liveQuiet is how long nothing may arrive before a window is taken to be at
 // rest. What arrives after an answer comes from goroutines already runnable
 // (an update's delivery, a page's script going on), not from a timer, so it
@@ -183,10 +191,10 @@ func firstRun(t *testing.T) {
 	var asked atomic.Bool
 	r.SetUpdate(func(func()) { asked.Store(true) })
 	var view *ui.Context
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := ui.NewTesterWith(func(c *ui.Context) {
 		view = c
 		r.App.View(c)
-	}, 1280, 820)
+	}, 1280, 820, liveTesterOptions("SAILRY_UI_SHOTS"))
 	tester.SetLocale("en")
 	text := func(key string) string { return i18n.In("en", key) }
 	sent := func() []string {
