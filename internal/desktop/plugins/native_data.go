@@ -200,7 +200,19 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 			}
 		}
 	}
-	result := ui.Column(view).Fill().MinWidth(0).Children(func() {
+	// MyGo's Table has no frame, header fill or row separators, and pads
+	// each cell itself: the frame and the header's fill are drawn around it,
+	// and each cell draws its row's separator across that padding.
+	palette, neutral := theme.Of(view), theme.Neutral(view)
+	headerHeight, cellPad := neutral.Space(8), neutral.Space(1.5)
+	rowHeight := nativeProp(props, "row_height", float32(32))
+	result := ui.Column(view).Fill().MinWidth(0)
+	if count > 0 {
+		result.Border(1, palette.Border).Radius(palette.Radius).Clip().Draw(func(painter *ui.Painter, bounds ui.Rect) {
+			painter.FillRadii(ui.Rect{X: bounds.X, Y: bounds.Y, W: bounds.W, H: headerHeight + 1}, [4]float32{palette.Radius, palette.Radius, 0, 0}, palette.Muted)
+		})
+	}
+	result.Children(func() {
 		if count == 0 {
 			if icon := nativeIcon(nativeProp(props, "empty_icon", "")); icon != nil {
 				// Kit's empty state, as the reference's list_content.
@@ -220,7 +232,15 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 		ui.Themed(view.Key("neutral"), theme.Neutral(view)).Background(ui.Transparent).Grow(1).FillWidth().MinHeight(0).Children(func() {
 			table = ui.Table(view, &state.list, definitions, count, func(row, column int) {
 				absolute := first + row
-				cell := ui.Column(view).Gap(3).MinHeight(nativeProp(props, "row_height", float32(32)))
+				// A row is row_height high with the cell's padding, and
+				// its content is centered in it.
+				cell := ui.Column(view).Gap(3).MinHeight(rowHeight - 2*cellPad).AlignSelf(ui.Stretch).Justify(ui.Center)
+				if row+1 < count {
+					cell.Draw(func(painter *ui.Painter, bounds ui.Rect) {
+						// The cell's own box clips the line to the column.
+						painter.Fill(ui.Rect{X: bounds.X - 4096, Y: bounds.Y + bounds.H + cellPad - 1, W: 8192, H: 1}, palette.Border, 0)
+					})
+				}
 				if index := column; index < len(alignments) && alignments[index] == "end" {
 					cell.AlignItems(ui.End)
 				}
@@ -284,7 +304,7 @@ func validTableLine(line nativeTableLine) bool {
 
 func (binding *NativeBinding) renderTableLine(view *ui.Context, line nativeTableLine, secondary bool) {
 	palette := theme.Of(view)
-	ui.Row(view).Gap(6).MinWidth(0).Children(func() {
+	ui.Row(view).Gap(6).MinWidth(0).AlignItems(ui.Center).Children(func() {
 		if line.Badge != "" || line.BadgeIcon != "" {
 			ui.Box(view).Size(18, 18).Radius(5).Background(palette.Muted).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 				if icon := nativeIcon(line.BadgeIcon); icon != nil {
