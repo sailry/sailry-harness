@@ -12,6 +12,10 @@ const (
 	terminalMaxRows       = 200
 	terminalMaxScrollback = 1000
 	terminalMaxGraphics   = 8 * 1024 * 1024
+	// terminalMaxPending bounds the VT bytes kept for a reader that does not
+	// take them. A frame that starts the terminal over is kept whatever its
+	// size, as nothing shorter shows the screen.
+	terminalMaxPending = 1024 * 1024
 )
 
 // terminalProjection reduces one terminal's updates to its latest snapshot.
@@ -19,12 +23,23 @@ const (
 // A Node numbers the frames of each subscription from its own snapshot, so
 // order is compared within one subscription only: the first snapshot after
 // reconnect replaces what an earlier subscription left.
+//
+// A screen sent as a VT stream holds the bytes of its own update only, which
+// continue the update before it, so the bytes of every update are kept in
+// order until take hands them to the reader. A snapshot, and a frame whose
+// viewport took another size, start the receiving terminal over: they replace
+// the bytes not yet taken and mark the next take as a restart.
 type terminalProjection struct {
 	node     protocol.NodeID
 	terminal protocol.TerminalID
 	snapshot *protocol.TerminalSnapshot
 	fresh    bool
 	recovery bool
+	pending  protocol.Bytes
+	restart  bool
+	// stalled tells that this subscription's pending bytes passed their
+	// bound and were dropped.
+	stalled bool
 }
 
 func newTerminalProjection(node protocol.NodeID, terminal protocol.TerminalID) *terminalProjection {
@@ -33,7 +48,7 @@ func newTerminalProjection(node protocol.NodeID, terminal protocol.TerminalID) *
 
 // reconnect starts a new subscription: frames wait for its snapshot.
 func (projection *terminalProjection) reconnect() {
-	projection.fresh, projection.recovery = true, true
+	projection.fresh, projection.recovery, projection.stalled = true, true, false
 }
 
 func (projection *terminalProjection) recover() (Apply, error) {
@@ -60,7 +75,7 @@ func (projection *terminalProjection) apply(update protocol.Update) (Apply, erro
 			return projection.recover()
 		}
 		projection.snapshot, projection.fresh, projection.recovery = &snapshot, false, false
-		return Applied, nil
+		return projection.keep(snapshot.Screen, true), nil
 	case "terminal_frame":
 		frame, err := payload[protocol.TerminalFrame](update.Data)
 		if err != nil {
@@ -112,12 +127,57 @@ func (projection *terminalProjection) apply(update protocol.Update) (Apply, erro
 		if !validTerminalScreen(screen) {
 			return projection.recover()
 		}
+		// A Mirror starts the other terminal over when its screen took
+		// another size; a screen that turns into a VT stream starts one too.
+		previous := current.Screen.VT
+		restart := screen.VT != nil && (previous == nil ||
+			previous.Viewport.Columns != screen.VT.Viewport.Columns || previous.Viewport.Rows != screen.VT.Viewport.Rows)
+		if projection.keep(screen, restart) == Recover {
+			return Recover, nil
+		}
 		projection.snapshot = &protocol.TerminalSnapshot{Node: frame.Node, Info: frame.Info, Sequence: frame.Sequence, Screen: screen}
 		return Applied, nil
 	case "reset_required":
 		return projection.recover()
 	}
 	return Ignored, fault(protocol.ErrorCodeInvalidRequest, "unexpected terminal subscription update")
+}
+
+// keep adds an applied screen's VT bytes to those not yet taken. Past the
+// bound the bytes are dropped and the subscription recovers: its next
+// snapshot starts the terminal over.
+func (projection *terminalProjection) keep(screen protocol.TerminalScreen, restart bool) Apply {
+	if screen.VT == nil {
+		projection.pending, projection.restart = nil, false
+		return Applied
+	}
+	if restart {
+		projection.pending, projection.restart = append(protocol.Bytes(nil), screen.VT.Bytes...), true
+		return Applied
+	}
+	if len(projection.pending)+len(screen.VT.Bytes) > terminalMaxPending {
+		projection.pending, projection.restart, projection.stalled, projection.recovery = nil, false, true, true
+		return Recover
+	}
+	projection.pending = append(projection.pending, screen.VT.Bytes...)
+	return Applied
+}
+
+// take returns the latest snapshot for one delivery, nil before the first.
+// Its VT screen carries every byte not yet taken, in order, and none twice;
+// restart tells that they start the receiving terminal over, which is then
+// reset and sized to the viewport before it reads them.
+func (projection *terminalProjection) take() (snapshot *protocol.TerminalSnapshot, restart bool) {
+	if projection.snapshot == nil {
+		return nil, false
+	}
+	view := *projection.snapshot
+	if view.Screen.VT != nil {
+		view.Screen.VT = &protocol.TerminalVT{Viewport: view.Screen.VT.Viewport, Bytes: projection.pending}
+		restart = projection.restart
+		projection.pending, projection.restart = nil, false
+	}
+	return &view, restart
 }
 
 func (projection *terminalProjection) target(node protocol.NodeID, terminal protocol.TerminalID) error {

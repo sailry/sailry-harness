@@ -228,12 +228,96 @@ func TestMobileTerminalObserver(t *testing.T) {
 		return object, slices.Sorted(maps.Keys(object))
 	}
 	view, names := members(value.(string))
-	if !slices.Equal(names, []string{"connected", "error", "recovering", "snapshot"}) ||
-		string(view["connected"]) != "true" || string(view["recovering"]) != "false" || string(view["error"]) != "null" {
+	if !slices.Equal(names, []string{"connected", "error", "recovering", "reset", "snapshot"}) ||
+		string(view["connected"]) != "true" || string(view["recovering"]) != "false" || string(view["error"]) != "null" ||
+		string(view["reset"]) != "false" {
 		t.Fatalf("view = %s", value)
 	}
 	if _, names := members(string(view["snapshot"])); !slices.Equal(names, []string{"info", "node", "screen", "sequence"}) {
 		t.Fatalf("snapshot has members %v", names)
+	}
+}
+
+// A screen sent as a VT stream reaches Dart with every byte once and in
+// order, as the array of numbers the protocol writes, and each subscription's
+// first delivery tells Dart to start its terminal over.
+func TestMobileTerminalObserverDeliversStreamBytes(t *testing.T) {
+	t.Parallel()
+	node := protocol.NodeID{1}
+	terminal := protocol.DefaultTerminalInfo()
+	terminal.ID, terminal.Revision, terminal.Status = protocol.NewTerminalID(), 3, protocol.TerminalStatus{Kind: "running"}
+	stream := func(bytes string) protocol.TerminalScreen {
+		screen := protocol.DefaultTerminalScreen()
+		screen.Columns = 80
+		screen.VT = &protocol.TerminalVT{Viewport: protocol.TerminalViewport{Columns: 80, Rows: 24}, Bytes: protocol.Bytes(bytes)}
+		return screen
+	}
+	frame := func(sequence uint64, bytes string) protocol.Update {
+		return protocol.Update{Kind: "terminal_frame", Data: protocol.TerminalFrame{Node: node, Info: terminal, Sequence: sequence, Screen: protocol.TerminalScreenScreenUpdate{
+			Kind: "replace", Data: protocol.TerminalScreenScreenUpdateReplacePayload{Screen: stream(bytes)},
+		}}}
+	}
+	// Every subscription serves a snapshot, two frames and then a gap, which
+	// has the Client subscribe again.
+	shared := client.New(topicTransport{noticeTransport: noticeTransport{node: node}, topics: map[string][]protocol.Update{
+		"terminal": {
+			{Kind: "terminal_snapshot", Data: protocol.TerminalSnapshot{Node: node, Info: terminal, Screen: stream("\x1b[H$ ")}},
+			frame(1, "ls"), frame(2, "\r\n"), frame(4, "lost"),
+		},
+	}})
+	runtime := New(nil)
+	t.Cleanup(func() { runtime.Close(1); _ = shared.Close() })
+	owner := &connection{client: shared, controller: &controller{}}
+	arguments, _ := json.Marshal(map[string]string{"terminal": terminal.ID.String()})
+	if _, err := owner.invoke(t.Context(), runtime, 0, "watch_terminal", arguments); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	updates := runtime.handles[1].object
+	runtime.mu.Unlock()
+	// Deliveries are read until the second subscription's first: how the
+	// updates fall between the reads does not change what they add up to.
+	var resets int
+	var delivered []byte
+	for resets < 2 {
+		value, err := updates.invoke(t.Context(), runtime, 1, "next", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The bytes decode as numbers only: a string would fail here.
+		var view struct {
+			Reset    bool `json:"reset"`
+			Snapshot struct {
+				Screen struct {
+					VT struct {
+						Viewport protocol.TerminalViewport `json:"viewport"`
+						Bytes    []uint16                  `json:"bytes"`
+					} `json:"vt"`
+					Rows []json.RawMessage `json:"rows"`
+				} `json:"screen"`
+			} `json:"snapshot"`
+		}
+		if err := json.Unmarshal([]byte(value.(string)), &view); err != nil {
+			t.Fatalf("%s: %v", value, err)
+		}
+		screen := view.Snapshot.Screen
+		if screen.VT.Viewport.Columns != 80 || screen.VT.Viewport.Rows != 24 || len(screen.Rows) != 0 {
+			t.Fatalf("screen = %s", value)
+		}
+		if view.Reset {
+			if resets++; resets == 2 {
+				break
+			}
+			if len(delivered) != 0 {
+				t.Fatalf("%q came before the first reset", delivered)
+			}
+		}
+		for _, item := range screen.VT.Bytes {
+			delivered = append(delivered, byte(item))
+		}
+	}
+	if string(delivered) != "\x1b[H$ ls\r\n" {
+		t.Fatalf("delivered %q", delivered)
 	}
 }
 

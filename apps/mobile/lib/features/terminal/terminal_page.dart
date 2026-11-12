@@ -15,6 +15,7 @@ import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import 'appearance.dart';
 import 'cursor.dart';
+import 'emulator.dart';
 import 'grid.dart';
 import 'session.dart';
 import 'toolbar.dart';
@@ -46,6 +47,9 @@ class _TerminalPageState extends State<TerminalPage>
   final _blink = CursorBlink();
   final _scroll = ScrollController();
   final _modifiers = <String>{};
+  final _emulator = TerminalEmulator();
+  // The theme's terminal colors, which a screen sent as VT frames is drawn in.
+  Map<String, dynamic> _colors = const {};
   HostConnection? _host;
   TerminalUpdates? _updates;
   TerminalSession? _session;
@@ -69,7 +73,13 @@ class _TerminalPageState extends State<TerminalPage>
   CellPosition? _extent;
 
   Map<String, dynamic> get _info => object(_snapshot['info']);
-  Map<String, dynamic> get _screen => object(_snapshot['screen']);
+  // A screen sent as VT frames is drawn from the emulator that read them; one
+  // that carries parsed rows is drawn as it came.
+  Map<String, dynamic> get _screen {
+    final screen = object(_snapshot['screen']);
+    return screen['vt'] == null ? screen : _emulator.screen(screen, _colors);
+  }
+
   bool get _running => object(_info['status'])['kind'] == 'running';
   bool get _controlling =>
       _connected && _running && _lease != null && _info['revision'] == _lease;
@@ -90,6 +100,7 @@ class _TerminalPageState extends State<TerminalPage>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _visible = TickerMode.valuesOf(context).enabled;
+    _colors = terminalAppearance(context);
     _syncCursor();
     final session = AppSession.of(context);
     _host ??= widget.hostId == null
@@ -180,6 +191,10 @@ class _TerminalPageState extends State<TerminalPage>
         setState(() {
           _connected = view['connected'] == true;
           _snapshot = object(view['snapshot']);
+          final vt = object(_snapshot['screen'])['vt'];
+          if (vt != null) {
+            _emulator.feed(object(vt), reset: view['reset'] == true);
+          }
           final fault = view['error'];
           final version = versionMismatchKey(fault);
           _error = fault == null
