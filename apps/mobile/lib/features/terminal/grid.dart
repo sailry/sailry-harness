@@ -69,8 +69,9 @@ Color terminalColor(Object? value, Color fallback) {
   );
 }
 
-/// Flutter has no VT grid widget. The execution Node supplies parsed spans;
-/// this painter only positions cells, styles, cursor and the local selection.
+/// Flutter has no VT grid widget. The spans are the execution Node's, or the
+/// emulator's for a Node that sends VT frames; this painter only positions
+/// cells, styles, cursor and the local selection.
 class TerminalGridPainter extends CustomPainter {
   TerminalGridPainter({
     required this.screen,
