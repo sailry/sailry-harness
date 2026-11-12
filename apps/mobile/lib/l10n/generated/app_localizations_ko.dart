@@ -105,22 +105,6 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String conversationToolsCount(String count) {
-    return '$count 도구 호출';
-  }
-
-  @override
-  String get conversationGoal => '목표';
-
-  @override
-  String get conversationGoalBlocked => '차단됨';
-
-  @override
-  String conversationGoalBudget(String count) {
-    return '예산 $count 토큰';
-  }
-
-  @override
   String get conversationStepSkipped => '건너뜀';
 
   @override
@@ -184,12 +168,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationQueued => '대기열';
 
   @override
-  String get conversationProcessing => '처리 중';
-
-  @override
-  String get conversationUnsynced => '동기화되지 않은 상태';
-
-  @override
   String get conversationGenerating => '응답 중';
 
   @override
@@ -207,22 +185,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationCompacting => '컨텍스트 압축';
 
   @override
-  String get conversationForkConfirm => '이 기록에서 채팅을 포크하시겠습니까?';
-
-  @override
   String get conversationCompacted => '컨텍스트 압축됨';
 
   @override
   String get conversationToolWaiting => '보류 중';
-
-  @override
-  String get conversationToolRunning => '실행 중';
-
-  @override
-  String get conversationToolReturned => '응답됨';
-
-  @override
-  String get conversationUnsupportedInput => '이 입력을 데스크톱에서 처리하기';
 
   @override
   String get conversationStartCoding => '실행 시작';
@@ -237,9 +203,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationSubmit => '제출';
 
   @override
-  String get conversationSource => '소스';
-
-  @override
   String get conversationMode => '작업 모드';
 
   @override
@@ -252,9 +215,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationFlagship => '플래그십';
 
   @override
-  String get conversationPermission => '권한';
-
-  @override
   String get conversationAsk => '매번 물어보기';
 
   @override
@@ -264,43 +224,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationFull => '전체 액세스';
 
   @override
-  String get conversationReasoning => '추론 노력';
-
-  @override
-  String get conversationDefault => '기본값';
-
-  @override
-  String get conversationNone => '꺼짐';
-
-  @override
-  String get conversationMinimal => '최소';
-
-  @override
-  String get conversationLow => '낮음';
-
-  @override
-  String get conversationMedium => '중간';
-
-  @override
-  String get conversationHigh => '높음';
-
-  @override
-  String get conversationXHigh => '더 높음';
-
-  @override
-  String get conversationMax => '최대';
-
-  @override
   String get conversationBudget => '예산 추론';
 
   @override
   String get conversationAttachment => '첨부 파일';
-
-  @override
-  String get conversationAttachmentTooLarge => '첨부 파일을 읽을 수 없거나 64 MB 이상 크기';
-
-  @override
-  String get conversationDownload => '첨부 파일 보기';
 
   @override
   String get conversationImageFailed => '이미지를 표시할 수 없음';
@@ -310,9 +237,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get conversationDownloadFailed => '첨부 파일을 불러올 수 없음';
-
-  @override
-  String get conversationReadonly => '이 채팅은 보관되었습니다';
 
   @override
   String get conversationMicrophoneDenied => '마이크에 접근할 수 없음';
@@ -431,15 +355,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get codePlain => '일반 텍스트';
 
   @override
-  String get toolArguments => '인자';
-
-  @override
-  String get toolResult => '결과';
-
-  @override
-  String get toolRaw => '원시 결과';
-
-  @override
   String get turnChanges => '변경 사항 돌리기';
 
   @override
@@ -532,15 +447,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get toolFailed => '실패';
 
   @override
-  String get toolQuestionAnswered => '답변됨';
-
-  @override
-  String get toolQuestionDeclined => '거절됨';
-
-  @override
-  String get toolQuestionCancelled => '취소됨';
-
-  @override
   String get fileLinkUnavailable => '이 링크를 열 수 없습니다';
 
   @override
@@ -606,9 +512,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get resourceNoWorkspace => '연결된 호스트에서 작업 트리 선택';
 
   @override
-  String get resourceDisconnected => '연결되지 않음';
-
-  @override
   String get resourceRoot => '루트';
 
   @override
@@ -669,16 +572,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get resourceTerminalClaiming => '제어권 획득';
 
   @override
-  String get resourceTerminalReadOnly => '읽기 전용 터미널';
-
-  @override
   String get resourceTerminalEnded => '터미널 종료';
 
   @override
   String get resourceTerminalConnecting => '터미널 연결 중';
-
-  @override
-  String get resourceTerminalInput => '터미널 입력';
 
   @override
   String get resourceTerminalPaste => '붙여넣기';
@@ -987,24 +884,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get filterProjects => '프로젝트 필터';
 
   @override
-  String get closeSearch => '검색 닫기';
-
-  @override
-  String onlineHostCount(String count) {
-    return '$count 온라인';
-  }
-
-  @override
-  String get taskActions => '작업 동작';
-
-  @override
   String get archiveShort => '압축 파일';
 
   @override
   String get archiveTab => '보관함';
-
-  @override
-  String get archivedTasks => '보관함';
 
   @override
   String get delete => '삭제';
@@ -1016,12 +899,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get deleteWarning => '이 채팅은 삭제 후 재개할 수 없습니다';
 
   @override
-  String get busyDelete => '이 채팅을 삭제하기 전에 작업 중지';
-
-  @override
-  String get stopBeforeDelete => '작업 중지';
-
-  @override
   String get restored => '홈으로 복원';
 
   @override
@@ -1031,19 +908,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get archiveEmpty => '보관된 채팅 없음';
 
   @override
-  String get archiveKeepsRunning => '아카이빙은 실행 중인 작업을 중단하지 않습니다';
-
-  @override
   String get brand => 'Sailry';
 
   @override
   String get mobile => '모바일 워크스페이스';
-
-  @override
-  String get edition => '모바일 탐험 / 01';
-
-  @override
-  String get intro => '작업, 채팅 및 원격 워크스페이스';
 
   @override
   String get preview => '미리 보기';
@@ -1058,19 +926,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get light => '라이트';
 
   @override
-  String get gallery => '개요';
-
-  @override
   String get focus => '단일 화면';
 
   @override
   String get page => '페이지 선택';
-
-  @override
-  String get experience => '페이지 열기';
-
-  @override
-  String get backGallery => '개요로 돌아가기';
 
   @override
   String get design => '기능 및 디자인';
@@ -1115,34 +974,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get worktree => '작업 트리';
 
   @override
-  String get subtitleTasks => '호스트 간 작업 · 승인과 응답이 먼저';
-
-  @override
-  String get subtitleChat => '· 필요에 따라 도구 활동 확장';
-
-  @override
-  String get subtitleHosts => '연결, 호스트 리소스 및 프로세스';
-
-  @override
-  String get subtitleResources => '호스트 → 프로젝트 → 워크트리';
-
-  @override
-  String get subtitleChanges => '파일 차이, 스테이징 및 커밋';
-
-  @override
-  String get subtitleTerminal => '원격 터미널 · 명시적 입력 제어';
-
-  @override
-  String get subtitleUsage => 'Sailry 채팅 · 호스트 간 집계';
-
-  @override
-  String get subtitleSettings => '로컬 환경설정 및 실행 Node 설정';
-
-  @override
   String get allHosts => '모든 호스트';
-
-  @override
-  String get connectedHosts => '2 온라인';
 
   @override
   String get all => '모두';
@@ -1157,31 +989,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get completed => '완료됨';
 
   @override
-  String get taskProgress => '현재 작업';
-
-  @override
-  String get taskWait => '귀하의 결정을 기다립니다';
-
-  @override
-  String get taskRecent => '최근 완료됨';
-
-  @override
   String get search => '검색';
 
   @override
   String get searchTasks => '작업 및 프로젝트 검색';
 
   @override
-  String get filterTasks => '작업 필터';
-
-  @override
   String get noResults => '일치하는 작업이 없음';
 
   @override
   String get notification => '알림';
-
-  @override
-  String get newTask => '새 작업';
 
   @override
   String get newConversation => '새 채팅';
@@ -1196,15 +1013,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get approval => '승인';
 
   @override
-  String get viewRequest => '요청 보기';
-
-  @override
-  String get ago => '방금';
-
-  @override
-  String get minutesAgo => '12분 전';
-
-  @override
   String get allow => '한 번만 허용';
 
   @override
@@ -1212,12 +1020,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get working => '작업 중';
-
-  @override
-  String get viewChanges => '변경 사항 보기';
-
-  @override
-  String get viewConversation => '채팅 보기';
 
   @override
   String get branch => 'feature/sign-in';
@@ -1262,19 +1064,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get queueShort => '대기열';
 
   @override
-  String get replyingNow => '응답 중';
-
-  @override
-  String get readFileProgress => '파일 읽기';
-
-  @override
   String get questionPending => '귀하의 답변을 기다리고 있습니다';
-
-  @override
-  String get testTool => '프로젝트 테스트 실행';
-
-  @override
-  String get testFailed => '테스트 실패';
 
   @override
   String queueCount(String count) {
@@ -1298,28 +1088,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get resumeQueue => '대기열 재개';
 
   @override
-  String get enqueue => '대기열에 추가';
-
-  @override
   String get moveUp => '위로 이동';
 
   @override
   String get thinkingNow => '생각';
 
   @override
-  String get toolsNow => '실행 중';
-
-  @override
   String get thought => '추론';
-
-  @override
-  String get toolDiff => '파일 차이점 검사';
-
-  @override
-  String get approvalResolved => '승인 해결됨';
-
-  @override
-  String get chatContinue => '작업을 계속 설명하십시오';
 
   @override
   String get describeTask => '귀하의 작업을 설명';
@@ -1382,9 +1157,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get stoppedStatus => '중지됨';
 
   @override
-  String get hostSubtitle => '실행 노드';
-
-  @override
   String get pair => '호스트 연결';
 
   @override
@@ -1431,21 +1203,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get selectHost => '호스트 선택';
-
-  @override
-  String get selectProject => '프로젝트 선택';
-
-  @override
-  String get selectBranch => '작업 트리 선택';
-
-  @override
-  String get mainBranch => '기본 작업 트리';
-
-  @override
-  String get connectionTools => '연결';
-
-  @override
-  String get workspaceResources => '작업 공간';
 
   @override
   String get confirm => '확인';
@@ -1512,11 +1269,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get fileTrash => '휴지통으로 이동';
 
   @override
-  String gitLineChanges(String added, String removed) {
-    return '$added 줄 추가 · $removed 줄 제거';
-  }
-
-  @override
   String get gitActions => 'Git 작업';
 
   @override
@@ -1547,25 +1299,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitDeleteBranch => '분기 삭제';
 
   @override
-  String get gitSwitchNote => '이 작업 트리에서 브랜치를 바꿉니다; 시뮬레이션만 가능';
-
-  @override
-  String get gitDeleteNote => '선택한 브랜치 삭제; 시뮬레이션만';
-
-  @override
   String get review => '검토';
-
-  @override
-  String get reviewFiles => '코드 변경 내용 보기';
 
   @override
   String get selectWorkspace => '프로젝트 및 작업 트리';
 
   @override
   String get searchFiles => '파일 검색';
-
-  @override
-  String get recentFiles => '파일';
 
   @override
   String get src => '소스';
@@ -1575,9 +1315,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get modified => '수정됨';
-
-  @override
-  String get filePreview => '파일 미리 보기';
 
   @override
   String get edit => '편집';
@@ -1604,13 +1341,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get browser => '웹 미리 보기';
 
   @override
-  String get openTerminal => '터미널 열기';
-
-  @override
   String get openFile => '파일 열기';
-
-  @override
-  String get tables => '테이블';
 
   @override
   String get closePort => '앞으로 닫기';
@@ -1643,22 +1374,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get terminalEnter => 'Enter';
 
   @override
-  String get terminalOutputLabel => '터미널 출력';
-
-  @override
   String get readOnly => '읽기 전용';
-
-  @override
-  String get takeControl => '제어하세요';
-
-  @override
-  String get hasControl => '입력 제어';
-
-  @override
-  String get releaseControl => '릴리스 제어';
-
-  @override
-  String get usageSubtitle => 'Sailry 채팅만';
 
   @override
   String get tokens => 'Tokens';
@@ -1690,27 +1406,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get cached => '캐시 히트';
 
   @override
-  String get hostUsage => '호스트 사용량';
-
-  @override
-  String get recentRequests => '최근 응답';
-
-  @override
-  String get allUsage => '사용 정보';
-
-  @override
-  String get usageNote => '비용은 추정치이며 일부 응답은 가격이 표시되지 않습니다';
-
-  @override
-  String get sourceNote => '오프라인 호스트는 마지막으로 알려진 데이터를 유지합니다';
-
-  @override
-  String get profileSubtitle => '모바일 컨트롤러';
-
-  @override
-  String get localSettings => '로컬 환경설정';
-
-  @override
   String get appearance => '모양';
 
   @override
@@ -1735,9 +1430,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get configModels => '모델';
 
   @override
-  String get configInstructions => '지침';
-
-  @override
   String get configEmpty => '항목 없음';
 
   @override
@@ -1752,27 +1444,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get speechInput => '음성 입력';
 
   @override
-  String get developerInstructions => '작업에 대한 코드를 변경하고 결과를 확인';
-
-  @override
-  String get reviewerInstructions => '코드 변경 사항 검토 및 문제 식별';
-
-  @override
-  String get projectConventions => '프로젝트 컨벤션';
-
-  @override
-  String get memoryContent => '기존 코드 스타일 유지';
-
-  @override
   String get providers => '모델과 제공자';
 
   @override
   String get speech => '음성';
-
-  @override
-  String nodeSettingsNote(String host) {
-    return '$host에 저장된 구성';
-  }
 
   @override
   String get about => 'Sailry에 대하여';
@@ -1796,63 +1471,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get memberReset => '모델 재설정';
 
   @override
-  String get nodeDefaults => 'Node 기본값';
-
-  @override
   String get auto => '자동';
 
   @override
   String get manual => '매번 물어보기';
 
   @override
-  String get speechNote => '실행 Node 음성 구성을 사용합니다';
-
-  @override
   String get required => '먼저 작업을 설명하십시오';
-
-  @override
-  String get notificationsEmpty => '새 알림 없음';
-
-  @override
-  String get reviewTitle => '설계 참조 자료';
-
-  @override
-  String get reviewConversation => '채팅, 승인, 질문 및 대기열';
-
-  @override
-  String get reviewConversationText =>
-      '작업은 호스트, 프로젝트 및 작업 트리 소유권을 유지하며 채팅 내에서 도구 기록 및 승인을 확장합니다';
-
-  @override
-  String get reviewResources => '파일, Git, 터미널 및 연결';
-
-  @override
-  String get reviewResourcesText =>
-      '파일 편집, 스테이징, 커밋 및 포트는 엔트리 포인트를 유지합니다. 세부 정보는 보조 페이지에서 열립니다';
-
-  @override
-  String get reviewHosts => '호스트 연결 및 모니터링';
-
-  @override
-  String get reviewHostsText =>
-      '페어링된 노드, 6자리 코드, 리소스 사용량 및 프로세스; 오프라인 상태는 라이브로 표시되지 않음';
-
-  @override
-  String get reviewUsage => '사용 및 Node 설정';
-
-  @override
-  String get reviewUsageText =>
-      'Sailry 채팅 전용; 집계된 사용량은 완전성을 유지하고 비용은 추정치 및 범위를 나타냅니다';
-
-  @override
-  String get reviewBoundary => '이동 경계';
-
-  @override
-  String get reviewVisual => '시각적 참조';
-
-  @override
-  String get reviewVisualText =>
-      '참조 1: 채팅 계층; 참조 2: 소프트 카드 및 플로팅 네비게이션; 참조 3: 컴팩트 모니터링';
 
   @override
   String get hostConnectPrompt => '호스트 연결';
@@ -1918,25 +1543,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get completionAlerts => '완료 알림';
 
   @override
-  String get notificationsReadAll => '읽지 않은 편지 선택( C)';
-
-  @override
-  String get notificationsOpen => '열기';
-
-  @override
   String get preferencesFailed => '설정이 저장되지 않았습니다. 다시 시도하십시오';
 
   @override
-  String get connectFirst => '시작하려면 호스트 연결';
-
-  @override
-  String get initializing => '시작 중';
-
-  @override
   String get startupFailed => '시작 실패';
-
-  @override
-  String get retryConnection => '다시 시도';
 
   @override
   String get pairAction => '연결';
@@ -1949,9 +1559,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get pairing => '연결 중';
-
-  @override
-  String get hostUnavailable => '연결되지 않음';
 
   @override
   String get hostRemove => '호스트 제거';
@@ -1996,12 +1603,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get hostProjectPath => '호스트의 프로젝트 경로';
-
-  @override
-  String get hostProjectFailed => '프로젝트를 추가할 수 없음';
-
-  @override
-  String get hostUnknown => '데이터 없음';
 
   @override
   String get hostRefresh => '새로고침';
@@ -2055,12 +1656,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsSpeechFailed => '음성 모델이 준비되지 않았습니다. 다시 시도하십시오';
 
   @override
-  String get settingsNoHost => '먼저 호스트 연결하기';
-
-  @override
-  String get settingsUnavailable => '사용할 수 없음';
-
-  @override
   String get settingsLoadFailed => '불러올 수 없음';
 
   @override
@@ -2071,9 +1666,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsUnknown => '결과 확인되지 않음; 확인하려면 새로 고침';
-
-  @override
-  String get settingsLoading => '로딩 중';
 
   @override
   String get settingsRequired => '값 입력';
@@ -2250,15 +1842,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get providerLimitsInvalid => '최대 출력은 컨텍스트 길이를 넘을 수 없습니다';
 
   @override
-  String get settingsDriver => '서비스';
-
-  @override
-  String get settingsModel => '모델';
-
-  @override
-  String get settingsArchived => '보관함';
-
-  @override
   String get settingsUsageUnknown => '알 수 없음';
 
   @override
@@ -2400,9 +1983,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get backgroundUnknown => '결과 불확실';
-
-  @override
-  String get backgroundPending => '백그라운드 결과 대기 중';
 
   @override
   String conversationSteps(String count) {
@@ -2565,21 +2145,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => '속도';
-
-  @override
-  String queueHaltStopped(String count) {
-    return '중지됨 · 대기 $count개';
-  }
-
-  @override
-  String queueHaltInterrupted(String count) {
-    return '응답 중단됨 · 대기 $count개';
-  }
-
-  @override
-  String queueHaltUnsent(String count) {
-    return '메시지 전송 안 됨 · 대기 $count개';
-  }
 
   @override
   String get backgroundHeld => '결과 전달 안 됨';
