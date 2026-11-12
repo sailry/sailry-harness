@@ -23,6 +23,8 @@ type PluginModelAdapterWireRequest struct {
 	Session         string                          `json:"session"`
 	Endpoint        string                          `json:"endpoint"`
 	Options         map[string]json.RawMessage      `json:"options"`
+	// Settings are the package's current public setting values.
+	Settings map[string]json.RawMessage `json:"settings,omitempty"`
 }
 
 func DefaultPluginModelAdapterWireRequest() PluginModelAdapterWireRequest {
@@ -43,6 +45,7 @@ func DefaultPluginModelAdapterWireRequest() PluginModelAdapterWireRequest {
 		Session:         "",
 		Endpoint:        "",
 		Options:         map[string]json.RawMessage{},
+		Settings:        nil,
 	}
 }
 func (value *PluginModelAdapterWireRequest) UnmarshalJSON(data []byte) error {
@@ -51,6 +54,7 @@ func (value *PluginModelAdapterWireRequest) UnmarshalJSON(data []byte) error {
 	decoded.Features = map[string]string{}
 	decoded.Stop = []string{}
 	decoded.Options = map[string]json.RawMessage{}
+	decoded.Settings = nil
 	if err := DecodeObject(data, &decoded, []string{"version", "model", "messages", "tools", "tool_choice", "reasoning", "stream", "session", "endpoint"}, true); err != nil {
 		return err
 	}

@@ -24,8 +24,16 @@ declare module 'sailry/adapter' {
     tools: Tool[]; tool_choice: Choice; reasoning: {effort: Effort; replay: boolean};
     features: Record<string, string>;
     max_output_tokens?: number | null; temperature?: number | null; top_p?: number | null;
-    stop: string[]; stream: boolean; session: string; endpoint: string; options: Record<string, Json>;
+    stop: string[]; stream: boolean; session: string; endpoint: string;
+    /** Provider policies over the values discovery recorded for this model. */
+    options: Record<string, Json>;
+    /** The installed package's resolved non-secret settings. */
+    settings?: Record<string, Json>;
   }
+  /** Returned by `prepare` to send nothing and fail the turn with this message. */
+  export interface Refused {refusal: {class: Class; message: string}}
+  export interface Discovery {endpoint: string; settings: Record<string, Json>}
+  export interface DiscoveryResponse extends Discovery {status: number; headers: Record<string, string[]>; body: string}
   export interface Prepared {
     method: 'GET' | 'POST'; url: string; headers?: Record<string, string>; body?: string | null;
     /** Node replaces placeholders without giving their values to the module. */

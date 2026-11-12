@@ -31,6 +31,9 @@ type PluginCapture struct {
 	Key         *protocol.Secret
 	Secrets     []protocol.Secret
 	Client      *http.Client
+	// Settings are the package's current public setting values, which its
+	// prepare and discovery exports receive.
+	Settings map[string]json.RawMessage
 }
 
 type pluginModel struct {
@@ -60,6 +63,7 @@ func NewPlugin(_ context.Context, binding Binding, capture PluginCapture) (fanta
 		capture.Headers = http.Header{}
 	}
 	capture.Secrets = slices.Clone(capture.Secrets)
+	capture.Settings = maps.Clone(capture.Settings)
 	if capture.Access != nil {
 		access := protocol.NewSecret(capture.Access.Expose())
 		capture.Access = &access
@@ -115,9 +119,18 @@ func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModel
 		return pluginTranslationFailure(err)
 	}
 	defer worker.Close()
+	input.Settings = model.capture.Settings
 	raw, err := worker.Call("prepare", input, pluginRequestBytes)
 	if err != nil {
 		return pluginTranslationFailure(err)
+	}
+	// A translation refuses a request it must not send: nothing leaves the
+	// Node and the turn fails with the translation's own class and message.
+	var refused struct {
+		Refusal *protocol.PluginModelAdapterWireDeltaErrorPayload `json:"refusal"`
+	}
+	if json.Unmarshal(raw, &refused) == nil && refused.Refusal != nil {
+		return pluginClassified(refused.Refusal.Class, refused.Refusal.Message, nil, model.capture.Secrets)
 	}
 	var prepared protocol.PluginModelAdapterWirePrepared
 	if json.Unmarshal(raw, &prepared) != nil {

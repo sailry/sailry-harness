@@ -542,6 +542,14 @@ are retained with the request. Credential lookup and injection still happen only
 at execution on the Node. Both provider HTTP methods are available in Desktop
 and Node host callbacks and keep the same exact-package and revision checks.
 
+A flow may declare an optional `warning`: `{text, locales}`, plain text of at
+most 1024 bytes each without control characters and at most 32 locales. Desktop
+shows it in a confirmation before every sign-in attempt of a channel using the
+flow and sends nothing until it is confirmed; cancelling leaves the channel as
+it was. It changes nothing on the Node and is not part of the account's
+identity, so adding or rewording it keeps saved sign-ins. Name the target and
+the consequence once. A mirrored controller shows channels without starting
+sign-in, so it never shows the warning.
 `model_adapters` declares a script, allowed HTTPS origins, response framing
 (`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
 using one must select the `plugin` protocol. Its pure exports translate neutral
@@ -561,6 +569,18 @@ means no feature is selected. A translation maps only its own advertised choices
 to the upstream protocol. Native Responses currently maps `speed: "fast"` to
 `service_tier: "priority"` when that choice is advertised by the model catalog.
 
+`prepare`, `prepare_discovery` and `decode_discovery` receive `settings`: the
+installed package's resolved non-secret settings, read when the request is
+captured, or an empty object. `decode_discovery` may return
+`capabilities.options` for a model: at most 16 named JSON values of at most
+4096 bytes in total. Sailry saves them with the model, replaces them at the next
+discovery and passes them back in `prepare` as `options`; a provider policy of
+the same name wins. They carry facts a translation needs later, such as a price
+read from the catalog. Discovery runs only when the user updates a channel's
+models or the channel is validated, never on a timer, so a translation that
+depends on such a fact records when it was read and treats an old one as
+unknown. `prepare` may return `{refusal: {class, message}}` instead of a
+request. Nothing is sent and the turn fails with that class and message.
 Pure modules declare their entry and resources under `dev.sailry.platform/`.
 The inert `sailry/adapter` module exposes `version` and `parseJson`; its
 [type declarations](node/adapter.d.ts) describe
@@ -690,6 +710,8 @@ results to standard permission kinds and own any onboarding policy.
 String settings may declare a JSON Schema `pattern` alongside length limits. Invalid
 patterns reject the schema; values that do not match are rejected before saving.
 
+A settings schema may carry `x-sailry-locales`: per locale, a map from a field's
+name to its translated title. A map keyed by the English title is still read.
 A public string setting may declare `x-sailry-time: true` to use Kit's minute-precision
 time control in the common configuration form. Defaults and saved values use strict
 24-hour `HH:mm` from `00:00` through `23:59`, without an implicit time zone conversion.

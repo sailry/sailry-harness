@@ -156,6 +156,9 @@ type ConversationDiscoveryCapabilities struct {
 	Reasoning     *bool                         `json:"reasoning"`
 	Efforts       *[]Effort                     `json:"efforts"`
 	DefaultEffort *Effort                       `json:"default_effort"`
+	// Options are what a plugin adapter's discovery recorded about the model
+	// for its own prepare, which receives them in its request options.
+	Options map[string]json.RawMessage `json:"options,omitempty"`
 }
 
 func DefaultConversationDiscoveryCapabilities() ConversationDiscoveryCapabilities {
@@ -166,12 +169,14 @@ func DefaultConversationDiscoveryCapabilities() ConversationDiscoveryCapabilitie
 		Reasoning:     nil,
 		Efforts:       nil,
 		DefaultEffort: nil,
+		Options:       nil,
 	}
 }
 func (value *ConversationDiscoveryCapabilities) UnmarshalJSON(data []byte) error {
 	type plain ConversationDiscoveryCapabilities
 	decoded := plain{}
 	decoded.Features = []ConversationFeaturesFeature{}
+	decoded.Options = nil
 	if err := DecodeObject(data, &decoded, []string{}, false); err != nil {
 		return err
 	}

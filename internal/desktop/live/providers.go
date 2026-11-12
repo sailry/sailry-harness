@@ -507,6 +507,16 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		}
 		if i := slices.IndexFunc(old, func(v protocol.ConversationModel) bool { return v.ID == model.ID }); i >= 0 {
 			m = old[i]
+			// What a later discovery recorded for the model's adapter replaces
+			// the saved record; the rest of the saved model stays.
+			if known, ok := r.providerModels[d.Channel.ID][model.ID]; ok && known.Capabilities != nil && known.Capabilities.Options != nil {
+				capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+				if m.Capabilities != nil {
+					capabilities = *m.Capabilities
+				}
+				capabilities.Options = known.Capabilities.Options
+				m.Capabilities = &capabilities
+			}
 		}
 		if model.Name != "" && model.Name != model.ID {
 			name := model.Name

@@ -2,11 +2,13 @@ package node
 
 import (
 	"context"
+	"database/sql"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/providers"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -52,6 +54,23 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 		return captured, err
 	}
 	captured.Bundle = plugins.ScriptBundle{Entry: captured.Declaration.Script.Entry, Files: files}
+	// A setting is the user's current choice, so the installed package's
+	// values are read now, not those of the provider's captured revision.
+	captured.Settings = plugins.SettingDefaults(info.Settings)
+	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadPlugin(ctx, db, selection.Package.Name)
+		if err != nil || current == nil || current.Settings == nil {
+			return err
+		}
+		resolved, err := store.ResolvePluginSettings(ctx, db, plugins.PackageReference(*current))
+		if err == nil {
+			captured.Settings = resolved.Values
+		}
+		return err
+	})
+	if err != nil {
+		return captured, err
+	}
 	if binding.Provider.Authentication == protocol.AuthenticationApiKey {
 		captured.Key = binding.Secret
 		return captured, nil

@@ -74,6 +74,7 @@ func appendPackagePresets(ctx context.Context, db *sql.Conn, listing protocol.Co
 					if declaration.ID == auth.Flow {
 						presentation := accountPresentation(declaration)
 						entry.Login, entry.Requested.Credentials = &presentation, declaration.Exchange != nil
+						entry.LoginWarning = declaration.Warning
 					}
 				}
 			}

@@ -227,6 +227,7 @@ type Model struct {
 	provider         providerEditor
 	login            Authorization
 	loginFor         string
+	loginWarning     loginWarning
 	removing         string
 
 	// Connectors and MCP: the services, the connector types plugins declare, the
