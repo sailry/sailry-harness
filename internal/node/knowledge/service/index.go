@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/jonboulle/clockwork"
 	"lukechampine.com/blake3"
 
 	"github.com/sailry/sailry-harness/internal/node/knowledge"
@@ -117,7 +118,9 @@ type Index struct {
 	vectors *vectors
 }
 
-func newIndex(db *store.Handle) Index { return Index{db: db, vectors: newVectors()} }
+func newIndex(db *store.Handle, clock clockwork.Clock) Index {
+	return Index{db: db, vectors: newVectors(clock)}
+}
 
 func (index Index) read(ctx context.Context, callback func(*sql.Conn) error) error {
 	return failure(index.db.Read(ctx, callback))
