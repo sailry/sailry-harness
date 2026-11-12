@@ -315,6 +315,17 @@ two groups and their members, a mark for every preset and brand, distinct
 method rows, the family filter's options, the protocol switch and the command
 a save sends.
 
+A built-in sign-in's Advanced settings are the ones its authentication has, as
+in the reviewed source: the catalog version and User-Agent for ChatGPT OAuth,
+the User-Agent for ChatGPT SIWC and Claude, and the User-Agent, editor version
+and editor plugin version for Copilot. A new channel starts each on the value
+the Node uses (`providers.OAuthFields`), and a saved channel shows its own
+value, or the value in use where it saved none. These settings belong to the
+core sign-in, not to a package: a package sign-in has none. Deviation: a field
+cleared before a save falls back to the Node's value instead of failing the
+form. `TestProviderEditor` ("oauth advanced settings") and `TestMediaSettings`
+cover the fields and their starting values.
+
 ### Package sign-in warning and model facts
 
 A package authentication flow can declare a `warning`. The preset directory

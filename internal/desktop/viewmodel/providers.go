@@ -123,12 +123,14 @@ type Route struct {
 // i18n key of how it connects; Keyed asks for an API key whatever Access
 // says. Icon is the catalogue identifier of its mark. Routes are its
 // variants; without any the method is its only route (API, Endpoint,
-// Custom).
+// Custom). OAuth holds the values its sign-in's advanced settings start
+// with, in Channel.OAuth's order: a setting the sign-in does not have is ""
+// and is not offered.
 type Method struct {
 	ID, Name, Access, API, Endpoint string
 	Custom, Keyed                   bool
 	Login, KeyURL                   string
-	OAuthFields                     bool
+	OAuth                           [4]string
 	Icon                            string
 	Routes                          []Route
 }
