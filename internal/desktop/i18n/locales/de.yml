@@ -266,7 +266,6 @@ session_window_failed: Fenster konnte nicht geöffnet werden
 project_edit: Projekt bearbeiten
 project_remove: Projekt entfernen
 workspace_new_terminal: Terminal erstellen
-workspace_records: Sitzungsaufzeichnungen
 worktree_manage: Verwalten von Arbeitsbäumen
 worktree_create: Neuer Arbeitsbaum
 worktree_remove: Worktree entfernen
@@ -613,6 +612,7 @@ chat_rewind_confirm: Diesen Schritt behalten und spätere Nachrichten entfernen?
 chat_search: Nach Konversation suchen
 chat_search_result: 'Suchergebnisse für:'
 chat_status_unsynced: Status nicht synchronisiert
+chat_sync_failed: Konversationssynchronisation fehlgeschlagen
 compact_reason_unknown: Für diesen Fehler wurden keine weiteren Details aufgezeichnet
 composer_cache: Cache
 composer_compression_hint: 'Kontextkomprimierung: keine Laufzeitdaten (UI-Vorschau)'
@@ -1477,24 +1477,16 @@ workspace_host_status: Getrennt · UI-Vorschau
 local_host_detail: macOS · aarch64 · Vorschau
 remote_host_detail: Linux · x86_64
 host_update: Host aktualisieren
-workspace_host_type: Hosttyp
 workspace_worktrees: Worktrees
 workspace_sessions: Sitzungen
-host_active_preview: Aktive Sitzungen (Vorschau)
-project_empty: Keine Projekte auf diesem Host; fügen Sie eines hinzu, um Sitzungen oder Terminals zu erstellen
-workspace_runtime: Laufzeit
 host_runtime_loading: Laufzeit lesen (Vorschau)
 host_version: Host-Version
-host_system_version: Version des Systems
-host_timezone: Zeitzone
 host_uptime: Betriebszeit
 host_protocol: Protokollversion
 host_unknown: Unbekannt
 host_uptime_days: '%{count} Tage'
 host_uptime_hours: '%{count} Stunden'
 host_uptime_minutes: '%{count} Minuten'
-host_runtime_preview: Nur UI-Snapshot; vorhandene Werte bleiben beim Laden oder bei Fehlern erhalten. Live-Laufzeitdaten benötigen den gemeinsamen Node.
-workspace_runtime_preview: Live-Betriebssystem, Laufzeitversionen und Hostmetriken erfordern die gemeinsame Node
 workspace_running: Laufende Agenten
 host_activity_hint: Nur Vorschau der Sitzungsaktivität; kein echter Agent oder CLI-Prozess wird gestartet
 host_runtime_error: 'Laufzeit konnte nicht gelesen werden (Vorschau): %{error}'
@@ -1858,7 +1850,6 @@ ssh_key_changed: Hostschlüssel geändert, Fingerabdruck überprüfen
 ssh_trust: Vertrauen
 ssh_trust_title: Hostschlüssel vertrauen
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
@@ -1948,6 +1939,7 @@ market_permission_worktrees_read: Arbeitsbäume lesen
 market_permission_worktrees_write: Arbeitsbäume verwalten
 market_permission_process_read: Befehle anzeigen
 market_permission_process_control: Befehle ausführen
+market_permission_process_run: Deklarierte Programme auf diesem Gerät ausführen
 market_permission_terminals_read: Terminals lesen
 market_permission_conversation_read: Unterhaltungen lesen
 market_permission_conversation_control: Unterhaltungen steuern

@@ -266,7 +266,6 @@ session_window_failed: Não foi possível abrir a janela
 project_edit: Editar o projeto
 project_remove: Remover o projeto
 workspace_new_terminal: Criar um terminal
-workspace_records: Registros de sessão
 worktree_manage: Gerenciar árvores de trabalho
 worktree_create: Nova árvore de trabalho
 worktree_remove: Remover worktree
@@ -613,6 +612,7 @@ chat_rewind_confirm: Manter este turno e remover as mensagens seguintes? Os arqu
 chat_search: Pesquisar a conversa
 chat_search_result: Resultados da pesquisa
 chat_status_unsynced: Status não sincronizado
+chat_sync_failed: A sincronização da conversa falhou
 compact_reason_unknown: Nenhum detalhe adicional foi registrado para esta falha
 composer_cache: Cache
 composer_compression_hint: 'Compactação de contexto: sem dados de tempo de execução (visualização da IU)'
@@ -1477,24 +1477,16 @@ workspace_host_status: Desconectado · Visualização da interface do usuário
 local_host_detail: macOS · aarch64 · Visualização prévia
 remote_host_detail: Linux · x86_64
 host_update: Atualizar o host
-workspace_host_type: Tipo de host
 workspace_worktrees: Árvores de trabalho
 workspace_sessions: Sessões
-host_active_preview: Sessões ativas (visualização)
-project_empty: Nenhum projeto neste host; adicione um para criar sessões ou terminais
-workspace_runtime: Tempo de execução
 host_runtime_loading: Leitura de tempo de execução (visualização)
 host_version: Versão do host
-host_system_version: Versão do sistema
-host_timezone: Fuso horário
 host_uptime: Tempo ativo
 host_protocol: Versão do protocolo
 host_unknown: Desconhecido
 host_uptime_days: '%{count} dias'
 host_uptime_hours: '%{count} horas'
 host_uptime_minutes: '%{count} minutos'
-host_runtime_preview: Apenas um instantâneo da interface; os valores existentes são mantidos durante o carregamento ou em caso de falha. Os dados de execução em tempo real exigem o Node compartilhado.
-workspace_runtime_preview: Live OS, versões de tempo de execução e métricas de host requerem o Node compartilhado
 workspace_running: Agentes em execução
 host_activity_hint: Apenas visualização da atividade da sessão; nenhum Agente real ou processo CLI é iniciado
 host_runtime_error: 'Não foi possível ler o tempo de execução (visualização): %{error}'
@@ -1858,7 +1850,6 @@ ssh_key_changed: Chave de host alterada, verifique a impressão digital
 ssh_trust: Confiar
 ssh_trust_title: Chave de host confiável
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
@@ -1948,6 +1939,7 @@ market_permission_worktrees_read: Ler árvores de trabalho
 market_permission_worktrees_write: Gerenciar árvores de trabalho
 market_permission_process_read: Ver comandos
 market_permission_process_control: Executar comandos
+market_permission_process_run: Executar seus programas declarados neste dispositivo
 market_permission_terminals_read: Ler terminais
 market_permission_conversation_read: Ler conversas
 market_permission_conversation_control: Controlar conversas

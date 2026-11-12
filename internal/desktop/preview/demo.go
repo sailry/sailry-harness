@@ -261,7 +261,7 @@ func Demo(locale, host string) *Data {
 // reply the demo plays after a send, in locale.
 func DemoReplies(d *Data, locale string) {
 	b := &demo{locale: locale}
-	play := &script{label: b.t("tool.read"), file: "README.md", output: b.t("reply.file"), answer: b.t("reply.answer")}
+	play := &script{label: b.t("tool.read"), file: "README.md", output: b.t("reply.file"), answer: b.t("reply.answer"), summary: b.t("reply.summary")}
 	each := func(list []*Conversation) {
 		for _, c := range list {
 			if s := simulation(c); s.script == nil {

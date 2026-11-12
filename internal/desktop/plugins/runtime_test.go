@@ -595,7 +595,7 @@ export default class Example extends View {render(){return `+current.expression+
 			}
 		}
 		for brand, slug := range map[string]string{"github": "github", "notion": "notion", "figma": "figma", "linear": "linear",
-			"google-workspace": "google", "microsoft-365": "microsoft", "claude-auth": "claude", "openai-auth": "openai"} {
+			"google-workspace": "google", "microsoft-365": "microsoft", "claude-auth": "claude", "openai-auth": "openai", "copilot-auth": "githubcopilot"} {
 			if own[brand] != "ailogo:"+slug {
 				t.Errorf("%s declares %q, not its brand's mark", brand, own[brand])
 			}

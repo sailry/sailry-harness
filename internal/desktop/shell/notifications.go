@@ -71,85 +71,119 @@ func (a *App) noticeIDs(read bool) []string {
 	return ids
 }
 
-// notificationCenter uses the same cards and notice presentation as the bell.
+// notificationCenter is the bell's notices as one card of rows, newest
+// first, under the All and Unread filter and the bell's two actions.
 func (a *App) notificationCenter(c *ui.Context) {
 	kit.Page(c, "notification-center", i18n.T(c, "notification_center"), "", func() {
 		ui.Row(c.Key("toolbar")).Gap(8).Children(func() {
 			kit.Segmented(c, "filter", &a.noticeTab, []string{i18n.T(c, "notification_all"), i18n.T(c, "notification_unread")}, kit.SegmentedProps{})
 			ui.Spacer(c)
 			kit.Secondary(c.Key("read"), i18n.T(c, "notifications_read_all")).Disabled(len(a.noticeIDs(false)) == 0).OnClick(func() {
-				if a.Hooks.ReadNotices != nil {
-					a.Hooks.ReadNotices(a.noticeIDs(false))
-					return
-				}
-				for _, n := range a.Data.Notices { // the preview, as the bell's
-					n.Read = true
-				}
+				a.readNotices()
 			})
 			kit.Secondary(c.Key("delete"), i18n.T(c, "notification_delete_read")).Disabled(len(a.noticeIDs(true)) == 0).OnClick(func() {
-				if a.Hooks.DismissRead != nil {
-					a.Hooks.DismissRead(a.noticeIDs(true))
-					return
-				}
-				a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
+				a.dismissRead()
 			})
 		})
-		shown := 0
+		var shown []*viewmodel.Notice
 		for _, n := range SortNotices(a.Data.Notices) {
-			expanded := a.noticeDetail != nil && a.noticeDetail.ID == n.ID
-			if a.noticeTab == 1 && n.Read && !expanded {
+			// The notice open stays under Unread though opening it read it.
+			if a.noticeTab == 1 && n.Read && a.noticeDetail != n {
 				continue
 			}
-			shown++
-			kit.Card(c.Key(n.ID), func() {
-				p := theme.Of(c)
-				glyph, color, _ := noticeLook(p, n.Kind)
-				ui.Row(c.Key("heading")).Padding(12).Gap(8).Children(func() {
-					ui.Icon(c, glyph).FontSize(16).TextColor(color)
-					b := kit.Ghost(c.Key("details"), noticeTitle(c, n), expanded).Grow(1).Justify(ui.Start).Children(func() {
-						text := ui.Text(c, noticeTitle(c, n)).FontSize(14).SingleLine()
-						if !n.Read {
-							text.FontWeight(500)
-						}
-					}).OnClick(func() {
-						if expanded {
-							a.noticeDetail = nil
-						} else {
-							a.noticeDetail = n
-							if a.Hooks.ReadNotice != nil {
-								a.Hooks.ReadNotice(n.ID)
-							}
-						}
-					})
-					_ = b
-					if n.Session != "" && a.Data.Find(n.Session) != nil {
-						kit.IconButton(c.Key("open"), icons.ChevronRight, i18n.T(c, "notification_open_conversation"), 28, false).OnClick(func() {
-							if a.Hooks.ReadNotice != nil {
-								a.Hooks.ReadNotice(n.ID)
-							}
-							a.selectConversation(n.Session)
-						})
-					}
-					kit.IconButton(c.Key("dismiss"), icons.Trash, i18n.T(c, "settings_delete"), 28, false).OnClick(func() {
-						if a.Hooks.DismissNotices != nil {
-							a.Hooks.DismissNotices([]string{n.ID})
-						}
-					})
-				})
-				if expanded {
-					a.notificationDetails(c, n)
-				}
-			})
+			shown = append(shown, n)
 		}
-		if shown == 0 {
+		if len(shown) == 0 {
 			kit.Result(c, kit.ResultProps{Icon: icons.Bell, Title: i18n.T(c, "notifications_empty"), Card: true})
+			return
 		}
+		kit.Card(c.Key("list"), func() {
+			for _, n := range shown {
+				kit.Bleed(c, n.ID, func() {
+					expanded := a.noticeDetail == n
+					a.notificationRow(c, n, expanded)
+					if expanded {
+						a.notificationDetails(c, n)
+					}
+				})
+			}
+		})
 	})
 }
 
-func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
+// notificationRow is a notice in the centre's card, at the row metrics: the
+// kind's glyph in the lead slot, the title (medium while unread) over its
+// message on one muted line, the age, then the unread dot and the quiet
+// actions. A notice without a message, and the open one, whose message is
+// whole in its details, has its kind and host on that line. The row's box fills to the card's edges under the pointer,
+// whichever part it is over. The button that opens the notice's details
+// takes all of it before the actions, which are its siblings: MyGo does not
+// expose a button built inside a button to assistive technology.
+func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool) {
 	p := theme.Of(c)
-	ui.Column(c.Key("body")).Padding(12).Gap(12).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Children(func() {
+	title := noticeTitle(c, n)
+	glyph, color, kind := noticeLook(p, n.Kind)
+	line := strings.Join(strings.Fields(n.Message), " ")
+	if line == "" || expanded {
+		line = a.noticeSource(c, n)
+		if n.Kind != preview.NoticeInfo {
+			line = i18n.T(c, kind) + " · " + line
+		}
+	}
+	row := ui.Row(c.Key("row")).Margin(0, -16).PaddingEnd(16).Gap(kit.RowIconGap).AlignItems(ui.Center).TextColor(p.SurfaceForeground)
+	if row.Hovered() {
+		row.Background(p.Hover)
+	}
+	row.Children(func() {
+		ui.ButtonBase(c.Key("details")).Label(title).Expanded(expanded).Grow(1).Shrink(1).MinWidth(0).Padding(kit.RowPad, 0, kit.RowPad, 16).
+			Gap(kit.RowIconGap).MinHeight(kit.RowMinHeight).Justify(ui.Start).Cursor(ui.CursorPointer).Children(func() {
+			ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
+				ui.Icon(c, glyph).FontSize(18).TextColor(color)
+			})
+			ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
+				text := ui.Text(c, title).FontSize(kit.RowFont).SingleLine()
+				if !n.Read {
+					text.FontWeight(500)
+				}
+				ui.Text(c, line).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
+			})
+			if !n.Time.IsZero() {
+				ui.Text(c, a.noticeAge(c, n)).FontSize(12).SingleLine().Shrink(0).TextColor(p.MutedForeground)
+			}
+		}).OnClick(func() {
+			if expanded {
+				a.noticeDetail = nil
+				return
+			}
+			a.noticeDetail = n
+			a.readNotice(n)
+		})
+		ui.Row(c.Key("actions")).Shrink(0).Gap(4).Children(func() {
+			// The dot's room stays when read, so the actions line up.
+			dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0).Margin(0, 6)
+			if !n.Read {
+				dot.Background(p.Primary)
+			}
+			if n.Session != "" && a.Data.Find(n.Session) != nil {
+				kit.IconButton(c.Key("open"), icons.ChevronRight, i18n.T(c, "notification_open_conversation"), 28, false).TextColor(p.MutedForeground).OnClick(func() {
+					a.readNotice(n)
+					a.selectConversation(n.Session)
+				})
+			} else {
+				// Its room stays too, so the dots line up.
+				ui.Box(c.Key("open")).Size(28, 28).Shrink(0)
+			}
+			kit.IconButton(c.Key("dismiss"), icons.Trash, i18n.T(c, "settings_delete"), 28, false).TextColor(p.MutedForeground).OnClick(func() {
+				a.dismissNotice(n)
+			})
+		})
+	})
+}
+
+// notificationDetails is an open notice's text, facts and report under its
+// row, in line with the row's title.
+func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
+	ui.Column(c.Key("body")).Padding(0, 0, kit.RowPad, kit.RowIcon+kit.RowIconGap).Gap(12).Children(func() {
 		for _, text := range []string{n.Message, n.DetailText} {
 			if text != "" {
 				ui.Text(c, text).FontSize(14).Selectable()
@@ -205,5 +239,46 @@ func statusKey(status protocol.ConversationStatus) string {
 		return "chat_interrupted"
 	default:
 		return "activity_failed"
+	}
+}
+
+// The notices' actions go to the Node through the window's hooks. Where
+// none is set, and in the demo, whose notices are its own and reach no
+// Node, they change the list in memory.
+
+func (a *App) readNotice(n *preview.Notice) {
+	if !a.Demo() && a.Hooks.ReadNotice != nil {
+		a.Hooks.ReadNotice(n.ID)
+		return
+	}
+	n.Read = true
+}
+
+func (a *App) readNotices() {
+	if !a.Demo() && a.Hooks.ReadNotices != nil {
+		a.Hooks.ReadNotices(a.noticeIDs(false))
+		return
+	}
+	for _, n := range a.Data.Notices {
+		n.Read = true
+	}
+}
+
+func (a *App) dismissRead() {
+	if !a.Demo() && a.Hooks.DismissRead != nil {
+		a.Hooks.DismissRead(a.noticeIDs(true))
+		return
+	}
+	a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
+}
+
+func (a *App) dismissNotice(n *preview.Notice) {
+	if !a.Demo() && a.Hooks.DismissNotices != nil {
+		a.Hooks.DismissNotices([]string{n.ID})
+		return
+	}
+	a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(x *preview.Notice) bool { return x == n })
+	if a.noticeDetail == n {
+		a.noticeDetail = nil
 	}
 }

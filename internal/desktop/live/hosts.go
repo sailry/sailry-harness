@@ -80,7 +80,7 @@ func (r *Runtime) closeHosts() {
 func (r *Runtime) ensureHost(id string, owner *Runtime, local bool) *liveHost {
 	state := r.hosts[id]
 	if state == nil {
-		state = &liveHost{owner: owner, view: &host.Host{ID: id, Live: true, Local: local, Detail: "host_unknown", Runtime: host.Runtime{Live: true, Uptime: -1, NodeUptime: -1}}}
+		state = &liveHost{owner: owner, view: &host.Host{ID: id, Live: true, Local: local, Detail: "host_unknown", Runtime: host.Runtime{Uptime: -1, NodeUptime: -1}}}
 		if local {
 			state.view.Name = "local_host_name"
 		} else {
@@ -216,9 +216,7 @@ func hostOS(value string) string {
 
 func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	view := state.view
-	view.Projects, view.Activity = nil, nil
-	view.Worktrees, view.Sessions, view.Terminals = 0, 0, 0
-	view.Runtime.Loading = state.infoPending && state.info == nil
+	view.Activity = nil
 	view.Runtime.Error = state.infoError
 	if state.linkError != "" {
 		view.Runtime.Error = state.linkError
@@ -240,18 +238,11 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 				details = append(details, *part)
 			}
 		}
-		// The platform is the header's line alone: the runtime facts do not
-		// repeat it.
+		// The platform is the header's line, before the versions.
 		view.Detail = strings.Join(details, " · ")
 		// The computer's uptime and the Node's are two facts: a Node started
 		// minutes ago on a computer up for days shows both.
 		view.Runtime.Uptime, view.Runtime.NodeUptime = seconds(info.HostUptimeSecs), seconds(info.NodeUptimeSecs)
-		// The time zone is the computer's own, as its Node reports it: a Node
-		// that reports none leaves it unknown, never the controller's.
-		view.Runtime.Timezone = ""
-		if info.Timezone != nil {
-			view.Runtime.Timezone = *info.Timezone
-		}
 		view.Runtime.Known = true
 	}
 	view.Offline = state.owner == nil || !state.owner.controller.Connected()
@@ -259,18 +250,6 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 		return
 	}
 	snapshot, revision := state.owner.snapshotAt()
-	view.Worktrees = len(snapshot.Worktrees)
-	view.Sessions = len(snapshot.Sessions)
-	for _, terminal := range snapshot.Terminals {
-		if terminal.Status.Kind != "closed" {
-			view.Terminals++
-		}
-	}
-	for _, project := range d.Projects {
-		if project.Host == view.ID {
-			view.Projects = append(view.Projects, host.Project{ID: project.ID, Name: project.Name})
-		}
-	}
 	// The lanes follow from the Node snapshot alone and are found once for each.
 	if state.activeOwner != state.owner || state.activeRevision != revision {
 		state.active, state.activeOwner, state.activeRevision = nil, state.owner, revision
@@ -364,7 +343,6 @@ func (r *Runtime) readHostInfo(state *liveHost) {
 		return
 	}
 	state.infoPending = true
-	state.view.Runtime.Loading = state.info == nil
 	owner := state.owner
 	r.async(func() {
 		output, err := owner.controller.Do(owner.ctx, protocol.Command{Kind: "inspect_host"})

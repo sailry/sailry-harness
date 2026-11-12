@@ -55,11 +55,25 @@ func Group(c *ui.Context, key any, title, description string, actions, body func
 }
 
 // Card is a group's box of rows (Kit's GroupBox): the group_box fill, a 1
-// DIP border, the large radius, 16 across, rows apart by separators.
+// DIP border, the large radius, 16 across, rows apart by separators. The
+// separators run between the rows' own edges, 16 short of the border on
+// both sides, and a row's fill that reaches the border is cut to the
+// card's corners: they are the inner column's, as MyGo draws an element's
+// dividers across all of it inside its border, whatever its padding.
 func Card(c *ui.Context, rows func()) ui.Element {
 	p := theme.Of(c)
-	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Dividers(1, p.Border), p.Surface, CardTint).
-		TextColor(p.SurfaceForeground).Children(rows)
+	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Clip(), p.Surface, CardTint).
+		TextColor(p.SurfaceForeground).Children(func() {
+		ui.Column(c).FillWidth().Dividers(1, p.Separator()).Children(rows)
+	})
+}
+
+// Bleed is a Card's row whose fill reaches the card's border, as one that
+// opens something and fills on hover: row builds it with a side margin of
+// -16. The box around it keeps the card's separators short of the border,
+// as dividers reach as far as the children they lie between.
+func Bleed(c *ui.Context, key any, row func()) {
+	ui.Column(c.Key(key)).Children(row)
 }
 
 // Row is a setting: a title and a muted description on the left, its

@@ -169,8 +169,8 @@ func (d *dock) settle(*ui.Painter, ui.Rect) {
 // dock was laid out last, so its end rests on the dock, and follows it as the
 // dock grows or shrinks while the list shows its end. Beside the content
 // column the dock lets the pointer through: the wheel and presses there are
-// the transcript's. What it holds lies on a frosted sheet as wide as the
-// turns, so nothing of a turn shows sharp between the dock's parts. A
+// the transcript's. The turns fade out as they reach the dock and do not
+// show behind it (fadeUnder), so the dock needs no sheet of its own. A
 // session still loading has below under its loader.
 func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions, below func()) {
 	previousSession := s.renderSession
@@ -213,7 +213,7 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	// A lost or recovering connection is told after the last turn, where the
 	// next reply would come; a session without turns has it over the list.
 	if n == 0 {
-		banner(c, sess, actions)
+		banner(c, sess)
 	}
 	// The dock is not in the box that watches the transcript's presses: a
 	// press on it is one the transcript does not see.
@@ -224,10 +224,7 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 		pane.DrawOver(d.check).Children(func() {
 			s.transcript(c, ui.Box(c.Key("transcript")).Fill(), id, turns, sess, actions, reserve)
 			ui.Column(c.Key("dock")).Absolute().Left(0).Right(0).Bottom(0).PassThrough().Bind(&d.box).Children(func() {
-				p := theme.Of(c)
-				r := p.Radius2xl()
-				kit.Frost(c, ui.Column(c.Key("sheet")).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Radius(r, r, 0, 0), p.Background, kit.SurfaceTint).
-					Children(below)
+				ui.Column(c.Key("sheet")).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Children(below)
 			})
 		})
 	}
@@ -249,9 +246,11 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 	s.press.watch(pane)
 	pane.Children(func() {
 		// What shows of the transcript is the list above the dock.
-		area := ui.List(c, l, n, func(i int) {
+		list := ui.List(c, l, n, func(i int) {
 			s.turn(c, id, i, &turns[i], n, sess, actions)
-		}).Fill().Padding(0, 0, reserve, 0).Role(ui.RoleLog).Bounds()
+		}).Fill().Padding(0, 0, reserve, 0).Role(ui.RoleLog)
+		area := list.Bounds()
+		fadeUnder(list, area, reserve)
 		area.H = max(area.H-reserve, 0)
 		s.area[id] = area
 		// A delegated session's transcript, the child panel's (no session), is
@@ -265,6 +264,37 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 		s.searchBar(c, id, turns)
 	})
 }
+
+// dockFade is how far over the dock a turn fades out, within the room the
+// last turn keeps over the list's end, so nothing fades at the end.
+const dockFade = 24
+
+// fadeUnder masks the list, laid out at area, so its turns fade out as they
+// reach what floats over its last reserve DIPs and do not show behind it.
+// The strip at the trailing edge stays whole: the scroll bar runs the pane's
+// height, beside the dock.
+func fadeUnder(list ui.Element, area ui.Rect, reserve float32) {
+	if reserve <= 0 || area.H <= reserve || area.W <= scrollStrip {
+		return
+	}
+	// A mask shows as much as its alpha, whatever its colour.
+	shown := ui.RGB(0, 0, 0)
+	end := (area.H - reserve) / area.H
+	start := max(end-dockFade/area.H, 0)
+	strip := (area.W - scrollStrip) / area.W
+	list.Masks(
+		ui.Mask{Image: ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
+			{Color: ui.Transparent, At: 0}, {Color: ui.Transparent, At: strip}, {Color: shown, At: strip}, {Color: shown, At: 1},
+		}}},
+		ui.Mask{Image: ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+			{Color: shown, At: 0}, {Color: shown, At: start}, {Color: ui.Transparent, At: end}, {Color: ui.Transparent, At: 1},
+		}}},
+	)
+}
+
+// scrollStrip is the width at the list's trailing edge the fade leaves
+// whole, the scroll bar's; a turn's side padding is wider.
+const scrollStrip = 16
 
 func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess *Session, actions Actions) {
 	first, last := i == 0, i == n-1
@@ -327,7 +357,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		}
 		if last && sess != nil {
 			diagnostic(c, sess.Diagnostic)
-			banner(c, sess, actions)
+			banner(c, sess)
 		}
 	})
 }

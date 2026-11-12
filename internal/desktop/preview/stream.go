@@ -31,9 +31,12 @@ const answer = "The preview played this reply without a model. It grows a few ch
 // writes.
 type script struct {
 	label, file, output, answer string
+	// summary is what a played compaction writes.
+	summary string
 }
 
-var previewScript = script{label: "Read file", file: "README.md", output: "# sailry-go\n\nA Go prototype of Sailry's desktop UI.", answer: answer}
+var previewScript = script{label: "Read file", file: "README.md", output: "# sailry-go\n\nA Go prototype of Sailry's desktop UI.", answer: answer,
+	summary: "The preview compacted this conversation without a model. The summary stands for the turns before it."}
 
 type stream struct {
 	start time.Time
@@ -62,6 +65,10 @@ func Advance(c *Conversation, now time.Time) {
 		play = own
 	}
 	d := now.Sub(s.start)
+	if t.Compaction != nil {
+		compacting(c, t, play, d)
+		return
+	}
 	r := cv.Reply{Status: cv.Running, Elapsed: d.Truncate(time.Second), Phase: cv.Thinking}
 	if d >= readAt {
 		read := cv.Call{ID: t.ID + "/read", Name: "read", Label: play.label, Icon: "book-open", Detail: play.file, Code: true}

@@ -564,6 +564,61 @@ func TestProviderEditor(t *testing.T) {
 			t.Errorf("an edited channel changed its route to %+v", e.current())
 		}
 	})
+	// A sign-in's advanced settings are the ones it has, starting on the
+	// values in use; a saved channel shows its own and, for one saved
+	// without, the value in use.
+	t.Run("oauth advanced settings", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var saved []ProviderDraft
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		chatgpt := preview.Method{ID: "chatgpt", Name: "ChatGPT OAuth", Access: "provider_access_login", Login: "provider_login_chat_gpt",
+			OAuth: [4]string{"0.160.1", "Sailry/0.1"}, Routes: []preview.Route{{ID: "chatgpt/0", API: "responses", Endpoint: "https://chatgpt.example/codex"}}}
+		copilot := preview.Method{ID: "copilot", Name: "Copilot", Access: "provider_access_login", Login: "provider_access_login",
+			OAuth: [4]string{1: "GitHubCopilotChat/0.68.0", 2: "vscode/1.140.0", 3: "copilot-chat/0.68.0"}, Routes: []preview.Route{{ID: "copilot/0", API: "chat_completions", Endpoint: "https://copilot.example"}}}
+		key := preview.Method{ID: "key", Name: "Key", Access: "provider_access_key", Routes: []preview.Route{{ID: "key/0", API: "responses", Endpoint: "https://key.example/v1"}}}
+		m.Brands = append(m.Brands, preview.Brand{ID: "fixture", Name: "Fixture", Methods: []preview.Method{chatgpt, copilot, key}})
+		e := &m.provider
+		tester := ui.NewTester(func(c *ui.Context) { providerEditorDialog(c, m) }, 900, 900)
+		labels := []string{"provider_oauth_catalog_version", "provider_oauth_user_agent", "provider_oauth_editor_version", "provider_oauth_editor_plugin_version"}
+		// shown checks the fields the open form offers against want, where
+		// "" is a field that must be absent.
+		shown := func(name string, want [4]string) {
+			t.Helper()
+			e.advanced = true
+			tester.Frame()
+			for i, label := range labels {
+				field, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", label))
+				if ok != (want[i] != "") || ok && field.Value != want[i] {
+					t.Errorf("%s: field %s is %q (shown %v), want %q", name, label, field.Value, ok, want[i])
+				}
+			}
+		}
+		e.add(m)
+		e.configure(chatgpt)
+		shown("a new ChatGPT channel", chatgpt.OAuth)
+		e.models = []modelDraft{{id: "gpt", context: "128000"}}
+		if got := e.save(m); got != "" || len(saved) != 1 || saved[0].OAuth != chatgpt.OAuth {
+			t.Fatalf("save %q sent %+v", got, saved)
+		}
+		e.add(m)
+		e.configure(copilot)
+		shown("a new Copilot channel", copilot.OAuth)
+		// The settings of the method before do not stay under another.
+		e.configure(key)
+		if e.oauth != ([4]string{}) {
+			t.Errorf("an API key method kept settings %q", e.oauth)
+		}
+		tester.Frame()
+		if _, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "provider_oauth_advanced")); ok {
+			t.Error("an API key method offers advanced sign-in settings")
+		}
+		// A saved channel: its own user agent, and the catalog version in
+		// use where it saved none.
+		ch := preview.Channel{ID: "saved", Name: "Saved", Method: "chatgpt/0", API: "responses", Auth: preview.AuthOAuth, OAuth: [4]string{1: "Mine/2.0"}}
+		e.edit(m, &ch)
+		shown("a saved ChatGPT channel", [4]string{"0.160.1", "Mine/2.0"})
+	})
 	// An Azure OpenAI route asks for the API version, which a save carries,
 	// and names a model by its deployment.
 	t.Run("azure api version", func(t *testing.T) {
@@ -1835,8 +1890,10 @@ func TestExtensions(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.MarketPlugins = rows
 		m.Packages = nil
+		// Every third package stays uninstalled, wherever the bundled set
+		// puts it, except the Files package the steps below draw installed.
 		for i, row := range rows {
-			if i%3 != 0 {
+			if i%3 != 0 || row.ID == "files" {
 				row.Installed, row.Enabled = true, true
 				m.Packages = append(m.Packages, row)
 			}

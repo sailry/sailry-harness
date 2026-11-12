@@ -21,14 +21,15 @@ func (s *State) projectPlaces(host string) []picker.Location {
 		if pr.Host != host || pr.Path == "" {
 			continue
 		}
-		if s.Actions == nil {
-			if catalog := s.catalogs[host]; catalog == nil {
-				continue
-			} else if _, problem := catalog.List(pr.Path); problem != "" {
+		path := pr.Path
+		if catalog := s.Catalog(host); catalog != nil {
+			// The sample projects write their directories under "~".
+			path = catalog.Expand(path)
+			if _, problem := catalog.List(path); problem != "" {
 				continue
 			}
 		}
-		p := place{Location: picker.Location{Name: pr.Name, Path: pr.Path}}
+		p := place{Location: picker.Location{Name: pr.Name, Path: path}}
 		for _, cv := range pr.Conversations {
 			if cv.Updated.After(p.used) {
 				p.used = cv.Updated

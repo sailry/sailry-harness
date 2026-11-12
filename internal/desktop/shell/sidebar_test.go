@@ -672,9 +672,11 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	clickButton(t, tt, en("directory_title"))
 	settle(tt)
 	// Each is a whole label: the counts line is asserted exactly, with every
-	// argument, so a changed wording or count fails here.
+	// argument, so a changed wording or count fails here. The home holds the
+	// sample account's eight directories and the two that hold this host's
+	// sample projects: Web, and Work of the project added above.
 	for _, text := range []string{en("directory_preview"), "sailry", "scratch", "many", en("directory_locations"), en("directory_devices"),
-		en("directory_counts_hidden", "directories", 8, "files", 11, "hidden", 1), "/Users/alex"} {
+		en("directory_counts_hidden", "directories", 10, "files", 11, "hidden", 1), "/Users/alex"} {
 		if !slices.Contains(tt.Texts(), text) {
 			t.Fatalf("the picker does not show %q: %q", text, tt.Texts())
 		}

@@ -56,6 +56,51 @@ func testKitMapping(t *testing.T) {
 			t.Fatalf("the chosen row is filled %v over %v, want a neutral gray", fill, ground)
 		}
 	})
+	t.Run("table rows are as high as declared under a filled header", func(t *testing.T) {
+		native := NewNativeBinding(t.Context())
+		var failure error
+		tester := ui.NewTesterWith(func(view *ui.Context) {
+			theme.Apply(view, theme.BuiltinID, theme.Light)
+			ui.Column(view).Fill().Padding(20).Children(func() {
+				if _, err := native.renderTable(view, NativeElement{ID: 1, Module: "sailry/ui", Export: "DataTable",
+					Props: json.RawMessage(`["table",{"columns":["Name","Size"],"rows":[["alpha","1"],["beta","2"],["gamma","3"]],"row_height":36}]`)}, nil, nil); err != nil && failure == nil {
+					failure = err
+				}
+			})
+		}, 600, 300, ui.TesterOptions{})
+		tester.Frame()
+		tester.Frame()
+		if failure != nil {
+			t.Fatal(failure)
+		}
+		title, headed := tester.Find("Name")
+		first, shown := tester.Find("alpha")
+		second, also := tester.Find("beta")
+		if !headed || !shown || !also {
+			t.Fatalf("the table lists no rows: %q", tester.Texts())
+		}
+		// The declared height is the row's, cell padding included.
+		if pitch := second.Y - first.Y; pitch < 35.5 || pitch > 36.5 {
+			t.Fatalf("rows are %v apart, want the declared 36", pitch)
+		}
+		// Past the cell's text only the table's own fills are drawn.
+		at := func(y float32) [3]uint8 {
+			pixel := tester.Image().RGBAAt(int(first.X+first.W+40), int(y))
+			return [3]uint8{pixel.R, pixel.G, pixel.B}
+		}
+		middle := first.Y + first.H/2
+		ground := at(middle)
+		if at(title.Y+title.H/2) == ground {
+			t.Fatalf("the header is not filled: %v", ground)
+		}
+		separated := false
+		for y := middle + 12; y <= middle+24; y++ {
+			separated = separated || at(y) != ground
+		}
+		if !separated {
+			t.Fatal("no separator between the first two rows")
+		}
+	})
 	t.Run("page, select and empty list", func(t *testing.T) {
 		native := NewNativeBinding(t.Context())
 		name := ""

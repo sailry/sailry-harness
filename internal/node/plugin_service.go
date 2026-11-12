@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/installations"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
+	"github.com/sailry/sailry-harness/internal/node/program"
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -31,16 +32,25 @@ type pluginInvocation struct {
 }
 
 type pluginControls struct {
-	manager       *plugins.Manager
-	python        *python.Manager
-	pythonWake    chan struct{}
-	preparations  []protocol.PythonPreparation
-	mcp           *mcp.Pool
+	manager      *plugins.Manager
+	python       *python.Manager
+	pythonWake   chan struct{}
+	preparations []protocol.PythonPreparation
+	mcp          *mcp.Pool
+	// programs are the running programs of package adapters.
+	programs      *program.Pool
 	warm          chan struct{}
 	installations *installations.Queue
 	mu            sync.Mutex
 	invocations   map[protocol.RequestID]*pluginInvocation
 }
+
+// A package runs at most programLimit programs at once; one unused for
+// programIdle is stopped.
+const (
+	programLimit = 4
+	programIdle  = 10 * time.Minute
+)
 
 func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) error {
 	options := mcp.Options{}
@@ -50,6 +60,7 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 	controls := &pluginControls{
 		manager:       plugins.NewManager(node.profile.Ownership.Path),
 		mcp:           mcp.New(context.WithoutCancel(node.ctx), options),
+		programs:      program.NewPool(programLimit, programIdle),
 		installations: installations.New(node.tasks, node.ID(), node.closed),
 		invocations:   map[protocol.RequestID]*pluginInvocation{},
 	}
@@ -163,6 +174,7 @@ func (node *Node) closePlugins() error {
 	}
 	node.plugins.mu.Unlock()
 	err := node.plugins.mcp.Close()
+	node.plugins.programs.Close()
 	node.computerOverlay.Shutdown()
 	return err
 }
@@ -331,6 +343,8 @@ func (node *Node) pluginCommitted(changes []protocol.Event) {
 			packagesChanged = true
 			if summary, ok := dispatchPayload[protocol.PluginSummary](change.Data); ok {
 				_ = node.plugins.mcp.Observe(summary)
+				// A disabled, updated or reconfigured package starts its programs anew.
+				node.plugins.programs.Invalidate(summary.Name)
 				node.retainComputerOverlay(summary.Name)
 			}
 		}
@@ -338,6 +352,7 @@ func (node *Node) pluginCommitted(changes []protocol.Event) {
 			packagesChanged = true
 			if removed, ok := dispatchPayload[protocol.EventPluginRemovedPayload](change.Data); ok {
 				_ = node.plugins.mcp.Invalidate(removed.Name)
+				node.plugins.programs.Invalidate(removed.Name)
 				node.retainComputerOverlay(removed.Name)
 			}
 		}

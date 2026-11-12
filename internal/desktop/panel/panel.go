@@ -482,7 +482,8 @@ func statusBar(c *ui.Context, path string, end float32, after func(), system ...
 			if m.Item(i18n.T(c, "files_copy_path")).Chosen() {
 				c.WriteClipboard(path)
 			}
-			if len(system) > 0 && system[0] != nil && m.Item(i18n.T(c, "files_open_system")).Chosen() {
+			// The demo's files are on no disk for another app to open.
+			if len(system) > 0 && system[0] != nil && !kit.Demo(c) && m.Item(i18n.T(c, "files_open_system")).Chosen() {
 				system[0]()
 			}
 		})
@@ -544,7 +545,8 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 			}
 		})
 		separator(c)
-		kit.IconButton(c.Key("find"), icons.Search, i18n.T(c, "files_find"), 28, false).OnClick(func() {
+		// The demo's read-only view has no editor to search in.
+		kit.IconButton(c.Key("find"), icons.Search, i18n.T(c, "files_find"), 28, false).Disabled(v.editor == nil && kit.Demo(c)).OnClick(func() {
 			if v.editor != nil {
 				v.editor.Find("")
 			} else {
@@ -641,7 +643,20 @@ func (pr *Project) diff(c *ui.Context, path string) {
 					if pr.Actions != nil && pr.Actions.Hunk != nil {
 						pr.Actions.Hunk(c, ch.Path, selected, "stage")
 					} else {
-						notice(c)
+						// The demo's index takes the hunk: the file is staged, and
+						// still changed in the work tree while it has other hunks.
+						sampled(c, func() bool {
+							if pr.Actions != nil {
+								return false
+							}
+							rest := ch.Unstaged
+							if len(ch.Hunks) < 2 {
+								rest = ""
+							}
+							stageChange(ch)
+							ch.Unstaged = rest
+							return true
+						})
 					}
 				})
 			})
@@ -724,6 +739,12 @@ func (s *State) history(c *ui.Context) {
 						if s.Actions != nil && s.Actions.Restore != nil {
 							actions := s.Actions
 							s.historyConfirm = confirm{open: true, title: undo, message: i18n.T(c, "workspace_restore_confirm"), target: cp.Turn, run: func(c *ui.Context) { actions.Restore(c, cp.ID) }}
+						} else if s.Actions == nil && s.Demo {
+							// The demo asks as the application does, then drops the
+							// checkpoint from its memory.
+							s.historyConfirm = confirm{open: true, title: undo, message: i18n.T(c, "workspace_restore_confirm"), target: cp.Turn, run: func(*ui.Context) {
+								s.Data.Checkpoints = slices.DeleteFunc(s.Data.Checkpoints, func(x preview.Checkpoint) bool { return x.ID == cp.ID })
+							}}
 						} else {
 							notice(c)
 						}

@@ -43,6 +43,7 @@ type PluginModelAuthDeclaration struct {
 	Exchange       *PluginModelAuthTransformation     `json:"exchange"`
 	Requests       map[string]PluginModelAuthEndpoint `json:"requests"`
 	Mutations      map[string]PluginModelAuthEndpoint `json:"mutations"`
+	Warning        *PluginModelAuthWarning            `json:"warning,omitempty"`
 }
 
 func DefaultPluginModelAuthDeclaration() PluginModelAuthDeclaration {
@@ -59,6 +60,7 @@ func DefaultPluginModelAuthDeclaration() PluginModelAuthDeclaration {
 		Exchange:       nil,
 		Requests:       map[string]PluginModelAuthEndpoint{},
 		Mutations:      map[string]PluginModelAuthEndpoint{},
+		Warning:        nil,
 	}
 }
 func (value *PluginModelAuthDeclaration) UnmarshalJSON(data []byte) error {
@@ -73,6 +75,7 @@ func (value *PluginModelAuthDeclaration) UnmarshalJSON(data []byte) error {
 	decoded.Exchange = nil
 	decoded.Requests = map[string]PluginModelAuthEndpoint{}
 	decoded.Mutations = map[string]PluginModelAuthEndpoint{}
+	decoded.Warning = nil
 	if err := DecodeObject(data, &decoded, []string{"id", "display", "flow"}, true); err != nil {
 		return err
 	}
@@ -86,6 +89,36 @@ func (value PluginModelAuthDeclaration) MarshalJSON() ([]byte, error) {
 	encoded.Inject = normalizeCollections(encoded.Inject)
 	encoded.Requests = normalizeCollections(encoded.Requests)
 	encoded.Mutations = normalizeCollections(encoded.Mutations)
+	return json.Marshal(encoded)
+}
+
+// PluginModelAuthWarning is what a controller asks the user to accept before
+// a sign-in of this declaration starts: one text and its translations.
+type PluginModelAuthWarning struct {
+	Text    string            `json:"text"`
+	Locales map[string]string `json:"locales"`
+}
+
+func DefaultPluginModelAuthWarning() PluginModelAuthWarning {
+	return PluginModelAuthWarning{
+		Text:    "",
+		Locales: map[string]string{},
+	}
+}
+func (value *PluginModelAuthWarning) UnmarshalJSON(data []byte) error {
+	type plain PluginModelAuthWarning
+	decoded := plain{}
+	decoded.Locales = map[string]string{}
+	if err := DecodeObject(data, &decoded, []string{"text"}, true); err != nil {
+		return err
+	}
+	*value = PluginModelAuthWarning(decoded)
+	return nil
+}
+func (value PluginModelAuthWarning) MarshalJSON() ([]byte, error) {
+	type plain PluginModelAuthWarning
+	encoded := plain(value)
+	encoded.Locales = normalizeCollections(encoded.Locales)
 	return json.Marshal(encoded)
 }
 

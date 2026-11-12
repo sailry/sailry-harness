@@ -53,6 +53,7 @@ var packagePermissionLabels = map[protocol.PluginAction]string{
 	protocol.PluginActionWriteWorktrees:         "market_permission_worktrees_write",
 	protocol.PluginActionReadCommands:           "market_permission_process_read",
 	protocol.PluginActionControlCommands:        "market_permission_process_control",
+	protocol.PluginActionRunPrograms:            "market_permission_process_run",
 	protocol.PluginActionReadTerminals:          "market_permission_terminals_read",
 	protocol.PluginActionControlTerminals:       "market_permission_terminals_control",
 	protocol.PluginActionReadConversation:       "market_permission_conversation_read",

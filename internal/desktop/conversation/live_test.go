@@ -1,6 +1,7 @@
 package conversation_test
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -409,6 +410,38 @@ func TestLiveBlocks(t *testing.T) {
 				png.Encode(f, tt.Image())
 				f.Close()
 			}
+		}
+	}
+}
+
+// The connection banner tells its state and offers nothing: reconnection is
+// automatic (docs/removed-ui.md).
+func TestConnectionBanner(t *testing.T) {
+	for _, row := range []struct {
+		name       string
+		connection conversation.Connection
+		text       string
+	}{
+		{"reconnecting", conversation.Reconnecting, "chat_reconnecting"},
+		{"offline", conversation.Offline, "plugins_view_offline"},
+	} {
+		for _, turns := range [][]conversation.Turn{nil, preview.Turns("scenes", 1, 0)} {
+			t.Run(fmt.Sprintf("%s/%d turns", row.name, len(turns)), func(t *testing.T) {
+				s, sess := conversation.New(), &conversation.Session{Connection: row.connection}
+				tt := ui.NewTester(func(c *ui.Context) {
+					theme.Apply(c, "", theme.Light)
+					ui.Column(c).Fill().Children(func() { conversation.View(c, s, "chat/connection", turns, sess, &recorder{}) })
+				}, 1024, 9000)
+				tt.SetLocale("en")
+				tt.Frame()
+				tt.Frame()
+				if !tt.HasText(i18n.In("en", row.text)) {
+					t.Fatalf("the banner does not tell its state: %q", tt.Texts())
+				}
+				if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "chat_retry")); ok {
+					t.Fatal("the banner offers Retry")
+				}
+			})
 		}
 	}
 }

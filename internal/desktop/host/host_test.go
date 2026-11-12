@@ -117,21 +117,73 @@ func TestAddPort(t *testing.T) {
 	}
 }
 
-// The runtime's facts name the platform nowhere for a live host, whose
-// header shows it alone; the preview keeps its system row.
-func TestRuntimeFacts(t *testing.T) {
-	keys := func(r Runtime) []string {
-		var out []string
-		for _, f := range r.Facts() {
-			out = append(out, f.Label)
+// The monitor's charts read the sample under the pointer: a tip names its
+// time and each series' value, follows the pointer to another sample, shows
+// a new value of the same sample in place, and goes when the pointer
+// leaves. A value the sample did not have reads as a dash.
+func TestChartTip(t *testing.T) {
+	start := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	history := make([]Point, HistoryLimit)
+	down, up := make([]float64, HistoryLimit), make([]float64, HistoryLimit)
+	for i := range history {
+		history[i] = Point{At: start.Add(time.Duration(i) * time.Second)}
+		down[i], up[i] = float64(i)*1024, float64(i)*512
+	}
+	up[30] = math.NaN()
+	// The plot has no axes, so its area is the chart's box: 590 wide from
+	// 100, a sample every 10.
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		p := theme.Of(c)
+		ui.Column(c).Fill().Padding(100).AlignItems(ui.Start).Children(func() {
+			ui.Box(c).Width(590).Children(func() {
+				areaChart(c, "chart", 100, 64*1024, nil, nil, "Network", rates(c, history),
+					series{down, p.Chart[1], "Download"}, series{up, p.Chart[3], "Upload"})
+			})
+		})
+	}, 1000, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Frame()
+	rate := func(kib string) string { return i18n.In("en", "metrics_rate", "value", kib+" KiB") }
+	shows := func(want ...string) bool {
+		for _, text := range want {
+			if !tt.HasText(text) {
+				return false
+			}
 		}
-		return out
+		return true
 	}
-	if got := keys(Runtime{Live: true, System: "darwin · 27.2 · arm64"}); !slices.Equal(got, []string{"host_version", "host_timezone", "host_protocol"}) {
-		t.Errorf("a live host's facts: %v", got)
+	if tt.HasText("Download") || tt.HasText("09:00:30") {
+		t.Fatalf("a chart shows a tip without the pointer: %q", tt.Texts())
 	}
-	if got := keys(Runtime{}); !slices.Equal(got, []string{"host_version", "host_system_version", "host_timezone", "host_protocol"}) {
-		t.Errorf("the preview's facts: %v", got)
+	hover := func(x, y float32) {
+		tt.Move(x, y)
+		tt.Frame()
+		tt.Frame()
+	}
+	hover(100+10*30+2, 150)
+	if !shows("09:00:30", "Download", rate("30.0"), "Upload", dash) {
+		t.Fatalf("the tip at the thirty-first sample: %q", tt.Texts())
+	}
+	hover(100+10*45-2, 120)
+	if !shows("09:00:45", rate("45.0"), rate("22.5")) || tt.HasText("09:00:30") || tt.HasText(dash) {
+		t.Fatalf("the tip at the forty-sixth sample: %q", tt.Texts())
+	}
+	// The sample's value changes under a resting pointer: the tip reads it
+	// where it stands.
+	before, _ := tt.Find("09:00:45")
+	down[45] = 7 * 1024
+	tt.Frame()
+	after, _ := tt.Find("09:00:45")
+	if !shows(rate("7.0")) || tt.HasText(rate("45.0")) || before != after {
+		t.Fatalf("the tip after a new value: at %v then %v: %q", before, after, tt.Texts())
+	}
+	hover(50, 350)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.HasText("09:00:45") || tt.HasText("Download") {
+		t.Fatalf("the tip stays after the pointer left: %q", tt.Texts())
 	}
 }
 
@@ -316,7 +368,8 @@ func follows(texts, want []string) (string, bool) {
 // A live host's page is the reference's: the header once, with the
 // computer's and Sailry's uptimes apart and the platform on one line; then
 // the processor, the memory, the utilization, the network, the storage and
-// the processes; then the running agents, the projects and the runtime.
+// the processes; then the running agents and the projects, with no runtime
+// section: the header's line names the host's and the protocol's versions.
 // Every volume the Node lists shows, and no preview note. The accelerator
 // has its card where the sample has one. A process's right-click menu is the
 // system's and asks before it ends one. An offline host keeps what is known
@@ -340,11 +393,10 @@ func TestPage(t *testing.T) {
 	m.Follow(nil)
 	h := &Host{
 		Live: true, ID: "local", Name: "studio", Local: true, OS: "macos", Detail: platform,
-		Projects: []Project{{ID: "p", Name: "sailry-harness"}},
 		Activity: []Activity{{Session: "s", Title: "Rebuild the host page", Location: "sailry-harness / main", Status: "turn_thinking"}},
 		Runtime: Runtime{
-			Live: true, Version: "0.1.0", System: platform, Timezone: "UTC",
-			Uptime: 6*24*time.Hour + 9*time.Hour, NodeUptime: 5 * time.Minute, ProtocolMin: 1, ProtocolMax: 1, Known: true,
+			Version: "0.1.0",
+			Uptime:  6*24*time.Hour + 9*time.Hour, NodeUptime: 5 * time.Minute, ProtocolMin: 1, ProtocolMax: 1, Known: true,
 		},
 		Metrics: m,
 	}
@@ -366,6 +418,8 @@ func TestPage(t *testing.T) {
 	tt.Frame()
 	tt.Frame()
 	en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
+	// The header's line: the platform, then the two versions after their labels.
+	line := platform + " · " + en("host_version") + " 0.1.0 · " + en("host_protocol") + " v1"
 	count := func() map[string]int {
 		out := map[string]int{}
 		for _, text := range tt.Texts() {
@@ -376,10 +430,10 @@ func TestPage(t *testing.T) {
 
 	t.Run("sections in order", func(t *testing.T) {
 		order := []string{
-			"studio", en("live_connected"), platform, en("host_uptime"), en("host_node_uptime"),
+			"studio", en("live_connected"), line, en("host_uptime"), en("host_node_uptime"),
 			en("metrics_cpu"), en("metrics_gpu"), "Apple M4 Pro", en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
 			en("host_storage"), en("host_process_search"), en("host_pid"),
-			en("workspace_running"), "Rebuild the host page", en("projects"), "sailry-harness", en("workspace_runtime"), en("host_version"),
+			en("workspace_running"), "Rebuild the host page", "sailry-harness / main",
 		}
 		if missing, ok := follows(tt.Texts(), order); !ok {
 			t.Errorf("no %q in its place: %q", missing, tt.Texts())
@@ -387,22 +441,104 @@ func TestPage(t *testing.T) {
 	})
 	t.Run("header once", func(t *testing.T) {
 		shown := count()
-		// The platform is the header's line and no fact of the runtime.
-		if shown[platform] != 1 || shown[en("host_system_version")] != 0 {
-			t.Errorf("the platform shows %d times, its fact %d: %q", shown[platform], shown[en("host_system_version")], tt.Texts())
+		// The platform and the versions are the header's one line.
+		if shown[line] != 1 || shown[platform] != 0 {
+			t.Errorf("the header's line shows %d times, the platform alone %d: %q", shown[line], shown[platform], tt.Texts())
 		}
 		// The computer's uptime and Sailry's are two facts.
 		days := en("host_uptime_days", "count", 6) + " " + en("host_uptime_hours", "count", 9)
 		if shown[days] != 1 || shown[en("host_uptime_minutes", "count", 5)] != 1 {
 			t.Errorf("uptimes: %q", tt.Texts())
 		}
-		for _, key := range []string{"metrics_preview", "workspace_host_status", "host_activity_hint", "host_runtime_preview", "workspace_runtime_preview"} {
+		for _, key := range []string{"metrics_preview", "workspace_host_status", "host_activity_hint"} {
 			if tt.HasText(en(key)) {
 				t.Errorf("a live host shows the preview's %s", key)
 			}
 		}
 		if _, ok := tt.AccessByRole(ui.RoleButton, en("live_revoke")); ok {
 			t.Error("the page has a Remove pairing button")
+		}
+	})
+	t.Run("no runtime section", func(t *testing.T) {
+		// The section's title and its grid's labels (docs/removed-ui.md): their
+		// copy is out of the catalog, so they are named as they read. The
+		// versions' labels show in the header's line alone.
+		shown := count()
+		for _, text := range []string{
+			"Runtime", "Host type", "Worktrees", "Sessions", "Terminal", "System version", "Time zone", "UTC",
+			en("host_version"), en("host_protocol"), "0.1.0", "v1", en("host_unknown"),
+		} {
+			if shown[text] != 0 {
+				t.Errorf("the page shows %q of the removed runtime section: %q", text, tt.Texts())
+			}
+		}
+		// A version not known is left out of the line.
+		version := h.Runtime.Version
+		h.Runtime.Version, h.Runtime.ProtocolMax = "", 0
+		tt.Frame()
+		if shown := count(); shown[platform] != 1 {
+			t.Errorf("the line without versions: %q", tt.Texts())
+		}
+		h.Runtime.Version, h.Runtime.ProtocolMax = version, 1
+		tt.Frame()
+	})
+	t.Run("no projects section", func(t *testing.T) {
+		// The section's title, its rows, its empty state and Add project
+		// (docs/removed-ui.md): the page ends with the running sessions. The
+		// empty state's copy is out of the catalog, so it is named as it reads.
+		absent := func(when string) {
+			t.Helper()
+			shown := count()
+			for _, text := range []string{en("projects"), en("project_add"), "sailry-harness", "No projects on this host"} {
+				if shown[text] != 0 {
+					t.Errorf("%s: the page shows %q of the removed projects section: %q", when, text, tt.Texts())
+				}
+			}
+			for _, text := range tt.Texts() {
+				if strings.Contains(text, "Add a project") {
+					t.Errorf("%s: the page shows the removed empty state %q", when, text)
+				}
+			}
+			if _, ok := tt.AccessByRole(ui.RoleButton, en("project_add")); ok {
+				t.Errorf("%s: the page has an Add project button", when)
+			}
+		}
+		absent("with running sessions")
+		if texts := tt.Texts(); len(texts) == 0 || texts[len(texts)-1] != en("turn_thinking") {
+			t.Errorf("the page does not end with the running session's row: %q", texts)
+		}
+		// A host with no running session has no section after the monitor.
+		activity := h.Activity
+		h.Activity = nil
+		tt.Frame()
+		absent("without running sessions")
+		if tt.HasText(en("workspace_running")) {
+			t.Errorf("a host with no running session shows their section: %q", tt.Texts())
+		}
+		h.Activity = activity
+		tt.Frame()
+	})
+	t.Run("chart tip", func(t *testing.T) {
+		// The utilization's one sample is at the plot's right edge, over its
+		// time on the axis: the tip names the time again and each series'
+		// value beside the legend's.
+		clock := Clock(m.At)
+		tick, ok := tt.Find(clock)
+		if shown := count(); !ok || shown[clock] != 1 || shown["12.5%"] != 1 || shown["25.0%"] != 1 || shown["37.5%"] != 1 {
+			t.Fatalf("the utilization before the pointer: %v %q", ok, tt.Texts())
+		}
+		tt.Move(tick.X+tick.W/2-4, tick.Y-60)
+		tt.Frame()
+		tt.Frame()
+		if shown := count(); shown[clock] != 2 || shown["12.5%"] != 2 || shown["25.0%"] != 2 || shown["37.5%"] != 2 {
+			t.Errorf("the utilization's tip: %q", tt.Texts())
+		}
+		tt.Move(4, 4)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		if shown := count(); shown[clock] != 1 || shown["12.5%"] != 1 {
+			t.Errorf("the tip stays after the pointer left: %q", tt.Texts())
 		}
 	})
 	t.Run("volumes", func(t *testing.T) {
@@ -445,6 +581,61 @@ func TestPage(t *testing.T) {
 		}
 		m.GPUs, st.gpu = gpus[:1], ""
 		tt.Frame()
+	})
+	t.Run("process table look", func(t *testing.T) {
+		// The application's table look (kit.TableFrame, kit.TableCell), as a
+		// package's tables: rows exactly 36 apart under a filled header, a
+		// line between them, and plain cells.
+		title, headed := tt.Find(en("host_process_name"))
+		first, shown := tt.Find("sailry-node")
+		second, also := tt.Find("launchd")
+		if !headed || !shown || !also {
+			t.Fatalf("the table lists no processes: %q", tt.Texts())
+		}
+		if pitch := second.Y - first.Y; pitch < 35.5 || pitch > 36.5 {
+			t.Errorf("rows are %v apart, want 36", pitch)
+		}
+		// Past the name only the table's own fills are drawn.
+		at := func(y float32) [3]uint8 {
+			pixel := tt.Image().RGBAAt(int(first.X+first.W+40), int(y))
+			return [3]uint8{pixel.R, pixel.G, pixel.B}
+		}
+		middle := first.Y + first.H/2
+		ground := at(middle)
+		if at(title.Y+title.H/2) == ground {
+			t.Errorf("the header is not filled: %v", ground)
+		}
+		separated := false
+		for y := middle + 12; y <= middle+24; y++ {
+			separated = separated || at(y) != ground
+		}
+		if !separated {
+			t.Error("no separator between the first two rows")
+		}
+		// No letter tile before a name and no bar of the memory's share
+		// (docs/removed-ui.md).
+		texts := count()
+		if texts["s"] != 0 || texts["l"] != 0 {
+			t.Errorf("a process has a letter tile: %q", tt.Texts())
+		}
+		for _, info := range tt.AccessAll() {
+			if info.Role == ui.RoleProgress && (info.Name == "sailry-node" || info.Name == "launchd") {
+				t.Errorf("the process %s has a memory bar", info.Name)
+			}
+		}
+		// The loads end their column: each row's ends where the other's does,
+		// before the PID's column.
+		edge := func(text string, row ui.Rect) float32 {
+			r, ok := tt.Find(text)
+			if !ok || r.Y+r.H/2 < row.Y || r.Y+r.H/2 > row.Y+row.H {
+				t.Fatalf("no %q in its process's row at %v: %v %v", text, row, ok, r)
+			}
+			return r.X + r.W
+		}
+		pid, _ := tt.Find(en("host_pid"))
+		if a, b := edge(Percent(3), first), edge(Percent(1), second); a != b || a <= first.X+first.W || a >= pid.X {
+			t.Errorf("the loads end at %v and %v, want one edge before the PID's column at %v", a, b, pid.X)
+		}
 	})
 	t.Run("process menu", func(t *testing.T) {
 		stop, force := en("host_process_stop"), en("host_process_force_stop")
@@ -578,8 +769,11 @@ func TestPage(t *testing.T) {
 		if tt.HasText(en("host_utilization")) || tt.HasText("Host is disconnected") {
 			t.Errorf("an offline host shows a sample or the error's text in the page: %q", tt.Texts())
 		}
-		if missing, ok := follows(tt.Texts(), []string{"studio", en("workspace_running"), en("projects"), en("workspace_runtime")}); !ok {
+		if missing, ok := follows(tt.Texts(), []string{"studio", line, en("workspace_running"), "Rebuild the host page"}); !ok {
 			t.Errorf("no %q offline: %q", missing, tt.Texts())
+		}
+		if tt.HasText(en("projects")) || tt.HasText(en("project_add")) {
+			t.Errorf("an offline host shows the removed projects section: %q", tt.Texts())
 		}
 	})
 }

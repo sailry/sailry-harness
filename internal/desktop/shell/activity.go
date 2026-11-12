@@ -28,6 +28,17 @@ func NoticeAge(d time.Duration) (key string, count int) {
 	return "notifications_time_days", int(d / (24 * time.Hour))
 }
 
+// noticeAge writes a notice's age for the bell and the centre; the preview
+// counts from its own fixed time.
+func (a *App) noticeAge(c *ui.Context, n *preview.Notice) string {
+	now := c.Now()
+	if a.Preview {
+		now = preview.Now
+	}
+	key, count := NoticeAge(now.Sub(n.Time))
+	return i18n.T(c, key, "count", count)
+}
+
 // SortNotices orders notices newest first.
 func SortNotices(list []*preview.Notice) []*preview.Notice {
 	out := slices.Clone(list)
@@ -77,7 +88,7 @@ func (a *App) bell(c *ui.Context) {
 				ui.Text(c, center).FontSize(14).FontWeight(500)
 				ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(p.MutedForeground)
 			}).OnClick(func() {
-				if a.Preview {
+				if a.Preview && !a.Demo() {
 					kit.PreviewNotice(c)
 				} else {
 					a.activity = false
@@ -87,22 +98,12 @@ func (a *App) bell(c *ui.Context) {
 			ui.Spacer(c)
 			kit.IconButton(c.Key("read"), icons.CheckCheck, i18n.T(c, "notifications_read_all"), 28, false).
 				Disabled(unread == 0).OnClick(func() {
-				if a.Hooks.ReadNotices != nil {
-					a.Hooks.ReadNotices(a.noticeIDs(false))
-					return
-				}
-				for _, n := range a.Data.Notices {
-					n.Read = true
-				}
+				a.readNotices()
 			})
 			read := len(a.Data.Notices) - unread
 			kit.IconButton(c.Key("delete"), icons.Trash, i18n.T(c, "notification_delete_read"), 28, false).
 				Disabled(read == 0).OnClick(func() {
-				if a.Hooks.DismissRead != nil {
-					a.Hooks.DismissRead(a.noticeIDs(true))
-					return
-				}
-				a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
+				a.dismissRead()
 			})
 		})
 		ui.Scroll(c.Key("list")).MaxHeight(min(h-160, 360)).Gap(2).Children(func() {
@@ -127,12 +128,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	p := theme.Of(c)
 	title := noticeTitle(c, n)
 	glyph, color, kind := noticeLook(p, n.Kind)
-	now := c.Now()
-	if a.Preview {
-		now = preview.Now
-	}
-	key, count := NoticeAge(now.Sub(n.Time))
-	age := i18n.T(c, key, "count", count)
+	age := a.noticeAge(c, n)
 	row := ui.ButtonBase(c.Key(n.ID)).Padding(8).Gap(8).Radius(p.Radius).Cursor(ui.CursorPointer).
 		Label(title + " · " + a.hostName(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
 	text := p.PopoverForeground
@@ -155,11 +151,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 			dot.Background(p.Primary)
 		}
 	}).OnClick(func() {
-		if a.Hooks.ReadNotice != nil {
-			a.Hooks.ReadNotice(n.ID)
-		} else {
-			n.Read = true
-		}
+		a.readNotice(n)
 		a.activity = false
 		switch {
 		case n.Link != "":

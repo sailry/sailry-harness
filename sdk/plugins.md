@@ -479,9 +479,12 @@ redirect refusal, response budgets, PKCE proof validation, OIDC signature,
 issuer, audience, expiry and nonce checks remain in the shared Node owner.
 The existing absolute login deadline and cancellation cover every step and wait.
 
-The stable `chat_gpt`, `chat_gpt_oauth` and `claude_oauth` authentication IDs can
-be declared through optional `authentication`. Their existing private credential
-codecs stay unchanged. Default inventory metadata binds existing accounts to
+The stable `chat_gpt`, `chat_gpt_oauth`, `claude_oauth` and `copilot`
+authentication IDs can be declared through optional `authentication`. Their
+existing private credential codecs stay unchanged. A `copilot` flow finishes
+with `{kind, access, github, expires_at_ms, endpoint}`: the short-lived session
+token, the GitHub token that renews it, and a service endpoint under
+`githubcopilot.com`. Default inventory metadata binds existing accounts to
 their authorization package without rewriting credentials or sent-turn captures.
 Later admission checks the bound package, origin and authentication contract;
 ambiguous declarations or changed bindings fail rather than silently changing
@@ -506,7 +509,8 @@ accounts use only that installed package's own authentication declaration.
 
 A package can declare native account reads separately with optional
 `model_resources: [{authentication, requests}]`. Each authentication may appear
-once; supported values are `chat_gpt`, `chat_gpt_oauth` and `claude_oauth`.
+once; supported values are `chat_gpt`, `chat_gpt_oauth` and `claude_oauth`
+(`copilot` has no account resources).
 These declarations require `http.request`, expose no credentials, and cannot
 declare mutations. The native authentication owner permits GPT resources only
 at `https://chatgpt.com` and Claude resources only at
@@ -542,6 +546,14 @@ are retained with the request. Credential lookup and injection still happen only
 at execution on the Node. Both provider HTTP methods are available in Desktop
 and Node host callbacks and keep the same exact-package and revision checks.
 
+A flow may declare an optional `warning`: `{text, locales}`, plain text of at
+most 1024 bytes each without control characters and at most 32 locales. Desktop
+shows it in a confirmation before every sign-in attempt of a channel using the
+flow and sends nothing until it is confirmed; cancelling leaves the channel as
+it was. It changes nothing on the Node and is not part of the account's
+identity, so adding or rewording it keeps saved sign-ins. Name the target and
+the consequence once. A mirrored controller shows channels without starting
+sign-in, so it never shows the warning.
 `model_adapters` declares a script, allowed HTTPS origins, response framing
 (`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
 using one must select the `plugin` protocol. Its pure exports translate neutral
@@ -561,6 +573,18 @@ means no feature is selected. A translation maps only its own advertised choices
 to the upstream protocol. Native Responses currently maps `speed: "fast"` to
 `service_tier: "priority"` when that choice is advertised by the model catalog.
 
+`prepare`, `prepare_discovery` and `decode_discovery` receive `settings`: the
+installed package's resolved non-secret settings, read when the request is
+captured, or an empty object. `decode_discovery` may return
+`capabilities.options` for a model: at most 16 named JSON values of at most
+4096 bytes in total. Sailry saves them with the model, replaces them at the next
+discovery and passes them back in `prepare` as `options`; a provider policy of
+the same name wins. They carry facts a translation needs later, such as a price
+read from the catalog. Discovery runs only when the user updates a channel's
+models or the channel is validated, never on a timer, so a translation that
+depends on such a fact records when it was read and treats an old one as
+unknown. `prepare` may return `{refusal: {class, message}}` instead of a
+request. Nothing is sent and the turn fails with that class and message.
 Pure modules declare their entry and resources under `dev.sailry.platform/`.
 The inert `sailry/adapter` module exposes `version` and `parseJson`; its
 [type declarations](node/adapter.d.ts) describe
@@ -574,6 +598,48 @@ The Sailry Node remains the sole model/tool execution and history owner. Package
 can use `translationInput` and `translate` from `scripts/test-host.mjs` with an
 explicit current `SAILRY_PLUGIN_TEST_HOST`; that bridge runs the production pure
 VM without installing an SDK.
+
+### Agent programs
+
+A package may instead provide models through an installed command-line agent
+that speaks the Agent Client Protocol. The Node owns the process and the
+protocol; the package only declares. Packages get no process or standard-stream
+API. The agent is used as a plain model: its own tools are refused and Sailry
+keeps the loop, tools and history. See [docs/agy.md](../docs/agy.md).
+
+`programs` (at most four) requires the `process.run` action:
+
+| Member | Meaning |
+| --- | --- |
+| `id` | Name within the package |
+| `command` | Executable name, resolved on the Node's search path. No path, no shell |
+| `args` | Up to 32 fixed arguments. `{dir}` is the program directory, `{model}` the selected model |
+| `env` | Up to 8 variables the Node does not own. `{dir}`, and `{key}` for the channel's API key |
+| `files` | Up to 8 files of at most 64 KiB, written into the program directory before each start |
+
+The program directory is the package's own
+`programs/<id>` data directory and the working directory. The program inherits
+only the search path, account directories, locale, temporary directory and proxy
+variables. The Node starts it on demand, stops it after ten idle minutes and
+kills it with its children when the package changes, is disabled or removed.
+
+A model adapter names a program with `acp` instead of `script`. It declares
+`framing: "ndjson"`, `origins: []` and no `files` capability:
+
+| `acp` member | Meaning |
+| --- | --- |
+| `program` | The `programs` entry to run |
+| `replay_bytes` | Largest prompt in bytes, 4096 to 8 MiB. A larger history is a context overflow |
+| `sign_in` | The instruction shown when the agent reports that it is signed out |
+| `system_meta` | Dotted `_meta` path of `session/new` that takes the system text. Without it, or when the agent does not advertise it, the system text opens the first prompt |
+| `efforts` | Effort level (`minimal` to `max`) to model identifier suffix. Variants fold into one model |
+| `model_argument` | The model is the program's `{model}` argument, one process per model. Required exactly when an argument has `{model}` |
+| `auth_method` | The `authenticate` method the agent is asked to use once when it requires authentication |
+| `failure_markers` | Up to four texts that mark a reply as a failure |
+
+The preset uses a `plugin` route, `models: {"kind": "discover"}` and `auth`
+`none` or `api_key`. Its `endpoint` is required and is not contacted. Models are
+the ones the agent lists; none is invented.
 
 ## Storage
 
@@ -690,6 +756,8 @@ results to standard permission kinds and own any onboarding policy.
 String settings may declare a JSON Schema `pattern` alongside length limits. Invalid
 patterns reject the schema; values that do not match are rejected before saving.
 
+A settings schema may carry `x-sailry-locales`: per locale, a map from a field's
+name to its translated title. A map keyed by the English title is still read.
 A public string setting may declare `x-sailry-time: true` to use Kit's minute-precision
 time control in the common configuration form. Defaults and saved values use strict
 24-hour `HH:mm` from `00:00` through `23:59`, without an implicit time zone conversion.

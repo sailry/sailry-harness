@@ -249,25 +249,28 @@
     },
     {
       "id": "copilot",
-      "name": "GitHub Copilot OAuth",
+      "name": "Copilot",
       "locales": {
-        "en": "GitHub Copilot OAuth",
-        "ja": "GitHub Copilot OAuth",
-        "ru": "GitHub Copilot OAuth",
-        "fr": "GitHub Copilot OAuth",
-        "zh-TW": "GitHub Copilot OAuth",
-        "pt-BR": "GitHub Copilot OAuth",
-        "es": "GitHub Copilot OAuth",
-        "ko": "GitHub Copilot OAuth",
-        "de": "GitHub Copilot OAuth"
+        "en": "Copilot",
+        "ja": "Copilot",
+        "ru": "Copilot",
+        "fr": "Copilot",
+        "zh-TW": "Copilot",
+        "pt-BR": "Copilot",
+        "es": "Copilot",
+        "ko": "Copilot",
+        "de": "Copilot"
       },
       "logo": null,
       "description": null,
       "homepage": null,
       "key_url": null,
       "badge": null,
-      "brand": null,
-      "offered": false,
+      "brand": "copilot",
+      "brand_display": {
+        "label": "GitHub Copilot"
+      },
+      "offered": true,
       "routes": [
         {
           "protocol": "openai-chat-completions",
@@ -296,24 +299,27 @@
     },
     {
       "id": "copilot-responses",
-      "name": "GitHub Copilot OAuth",
+      "name": "Copilot",
       "locales": {
-        "en": "GitHub Copilot OAuth",
-        "ja": "GitHub Copilot OAuth",
-        "ru": "GitHub Copilot OAuth",
-        "fr": "GitHub Copilot OAuth",
-        "zh-TW": "GitHub Copilot OAuth",
-        "pt-BR": "GitHub Copilot OAuth",
-        "es": "GitHub Copilot OAuth",
-        "ko": "GitHub Copilot OAuth",
-        "de": "GitHub Copilot OAuth"
+        "en": "Copilot",
+        "ja": "Copilot",
+        "ru": "Copilot",
+        "fr": "Copilot",
+        "zh-TW": "Copilot",
+        "pt-BR": "Copilot",
+        "es": "Copilot",
+        "ko": "Copilot",
+        "de": "Copilot"
       },
       "logo": null,
       "description": null,
       "homepage": null,
       "key_url": null,
       "badge": null,
-      "brand": null,
+      "brand": "copilot",
+      "brand_display": {
+        "label": "GitHub Copilot"
+      },
       "offered": false,
       "routes": [
         {

@@ -2,6 +2,7 @@ package shell
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestHostPage(t *testing.T) {
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	for _, s := range []string{"workspace_host_status", "host_utilization", "host_storage", "workspace_running", "workspace_runtime", "port_title"} {
+	for _, s := range []string{"workspace_host_status", "host_utilization", "host_storage", "workspace_running", "port_title"} {
 		if !tt.HasText(i18n.In("en", s)) {
 			t.Errorf("no %s: %q", s, tt.Texts())
 		}
@@ -82,9 +83,10 @@ func TestHostPage(t *testing.T) {
 
 // The host page is laid out as the reference's. The sessions' side column
 // stays beside it, and the hosts are the rail picker's, which lists every
-// one. The header shows once, then the monitor's cards, the running agents,
-// the projects and the runtime, in that order. The summary column lists
-// only the volumes that hold the user's files.
+// one. The header shows once, then the monitor's cards and the running
+// agents, in that order; the page has neither a projects nor a runtime
+// section. The summary column lists only the volumes that hold the user's
+// files.
 func testHostLayout(t *testing.T) {
 	a, tt := newTester(t)
 	en := func(key string) string { return i18n.In("en", key) }
@@ -120,7 +122,7 @@ func testHostLayout(t *testing.T) {
 			en("workspace_host_status"), en("remote_host_detail"), en("host_uptime"), en("host_node_uptime"),
 			en("metrics_cpu"), en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
 			en("host_storage"), en("host_process_search"), en("host_pid"),
-			en("workspace_running"), en("projects"), en("workspace_runtime"), en("host_version"),
+			en("workspace_running"),
 		}
 		texts, at := tt.Texts(), 0
 		for _, want := range order {
@@ -138,6 +140,17 @@ func testHostLayout(t *testing.T) {
 				t.Errorf("%s shows %d times: %q", key, shown[en(key)], tt.Texts())
 			}
 		}
+		// The runtime section is gone (docs/removed-ui.md): neither its title
+		// nor a label of its grid shows. The paired host's versions are not
+		// known, so its line is the platform alone.
+		for _, text := range []string{"Runtime", "Host type", "Worktrees", "System version", "Time zone", en("host_version"), en("host_protocol")} {
+			if shown[text] != 0 {
+				t.Errorf("the page shows %q of the removed runtime section: %q", text, tt.Texts())
+			}
+		}
+	})
+	t.Run("no projects section", func(t *testing.T) {
+		hostNoProjects(t, tt, "the paired host")
 	})
 	t.Run("summary volumes", func(t *testing.T) {
 		// The Node lists only real volumes, so the page and its summary
@@ -304,8 +317,8 @@ func testHostDemo(t *testing.T) {
 	// line and mount) are data, and stay.
 	notes := map[string]string{}
 	for _, key := range []string{
-		"preview_notice", "workspace_host_status", "host_active_preview", "host_runtime_loading", "host_runtime_preview",
-		"workspace_runtime_preview", "host_activity_hint", "metrics_preview", "metrics_worker", "metrics_indexer",
+		"preview_notice", "workspace_host_status", "host_runtime_loading",
+		"host_activity_hint", "metrics_preview", "metrics_worker", "metrics_indexer",
 		"metrics_loading", "update_preview", "update_idle", "update_checking", "update_current", "update_available",
 		"update_downloading", "update_verifying", "update_staged", "update_applying", "update_restart", "update_failed",
 		"update_loading", "update_check", "update_download", "update_apply", "update_retry", "update_unavailable",
@@ -337,6 +350,9 @@ func testHostDemo(t *testing.T) {
 			t.Fatalf("%s: the demo's host page: %q", id, tt.Texts())
 		}
 		marked(id)
+		hostDemoHeader(t, tt, id)
+		hostNoProjects(t, tt, id+" in Demo mode")
+		hostDemoTip(t, tt, id)
 		a.togglePanel()
 		tt.Frame()
 		tt.Advance(time.Second)
@@ -375,4 +391,93 @@ func testHostDemo(t *testing.T) {
 		t.Fatalf("the host picker did not open: %q", tt.Texts())
 	}
 	marked("the host picker")
+}
+
+// hostDemoHeader checks the demo's header line and the absence of the
+// runtime section: this computer's line ends with its two versions after
+// their labels, the paired host's, whose versions are unknown, is its
+// platform alone, and neither page has the section's title or labels.
+func hostDemoHeader(t *testing.T, tt *ui.Tester, id string) {
+	t.Helper()
+	en := func(key string) string { return i18n.In("en", key) }
+	want := en("remote_host_detail")
+	if id == "local" {
+		want = en("local_host_detail") + " · " + en("host_version") + " 0.1.0-preview · " + en("host_protocol") + " v1"
+	}
+	if !tt.HasText(want) {
+		t.Errorf("%s: no header line %q: %q", id, want, tt.Texts())
+	}
+	// A text of its own: the header's line holds the versions' labels.
+	for _, text := range []string{"Runtime", "Host type", "Worktrees", "System version", "Time zone", en("host_version"), en("host_protocol")} {
+		if slices.Contains(tt.Texts(), text) {
+			t.Errorf("%s shows %q of the removed runtime section in Demo mode", id, text)
+		}
+	}
+}
+
+// hostNoProjects checks the absence of the host page's projects section
+// (docs/removed-ui.md): the sidebar beside the page names its own Projects
+// group once and holds the one Add project button, and nothing after the
+// page's header repeats either; the section's empty state, whose copy is
+// out of the catalog, shows nowhere.
+func hostNoProjects(t *testing.T, tt *ui.Tester, where string) {
+	t.Helper()
+	en := func(key string) string { return i18n.In("en", key) }
+	titles := 0
+	for _, text := range tt.Texts() {
+		if text == en("projects") {
+			titles++
+		}
+		if strings.Contains(text, "No projects on this host") {
+			t.Errorf("%s shows the removed projects section's empty state %q", where, text)
+		}
+	}
+	if titles > 1 {
+		t.Errorf("%s names Projects %d times, want the sidebar's group alone: %q", where, titles, tt.Texts())
+	}
+	// The page is right of the side column: no Add project is in it.
+	edge, ok := tt.Find(en("host_uptime"))
+	if !ok {
+		t.Fatalf("%s: no host page: %q", where, tt.Texts())
+	}
+	for _, info := range tt.AccessAll() {
+		if info.Name == en("project_add") && info.Bounds.X >= RailWidth+NavWidth {
+			t.Errorf("%s has an Add project control in the page at %v (the page's header is at %v)", where, info.Bounds, edge)
+		}
+	}
+}
+
+// hostDemoTip moves the pointer over the demo's utilization chart, at its
+// last sample: the tip names the sample's time, which the axis under it
+// shows once, and goes when the pointer leaves.
+func hostDemoTip(t *testing.T, tt *ui.Tester, id string) {
+	t.Helper()
+	h := preview.HostPages(preview.Load())[id]
+	clock := host.Clock(h.Metrics.At)
+	times := func() int {
+		n := 0
+		for _, text := range tt.Texts() {
+			if text == clock {
+				n++
+			}
+		}
+		return n
+	}
+	tick, ok := tt.Find(clock)
+	if !ok || times() != 1 {
+		t.Fatalf("%s: the utilization's last time shows %d times: %q", id, times(), tt.Texts())
+	}
+	tt.Move(tick.X+tick.W/2-4, tick.Y-60)
+	tt.Frame()
+	tt.Frame()
+	if times() != 2 {
+		t.Errorf("%s: no tip over the utilization: %q", id, tt.Texts())
+	}
+	tt.Move(4, 4)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if times() != 1 {
+		t.Errorf("%s: the tip stays after the pointer left: %q", id, tt.Texts())
+	}
 }

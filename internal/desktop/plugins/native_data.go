@@ -200,7 +200,14 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 			}
 		}
 	}
-	result := ui.Column(view).Fill().MinWidth(0).Children(func() {
+	// The frame, the header's fill and the rows' separators are Kit's table
+	// look (kit.TableFrame, kit.TableCell), shared with the host's processes.
+	rowHeight := nativeProp(props, "row_height", float32(32))
+	result := ui.Column(view).Fill().MinWidth(0)
+	if count > 0 {
+		kit.TableFrame(view, result)
+	}
+	result.Children(func() {
 		if count == 0 {
 			if icon := nativeIcon(nativeProp(props, "empty_icon", "")); icon != nil {
 				// Kit's empty state, as the reference's list_content.
@@ -220,7 +227,9 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 		ui.Themed(view.Key("neutral"), theme.Neutral(view)).Background(ui.Transparent).Grow(1).FillWidth().MinHeight(0).Children(func() {
 			table = ui.Table(view, &state.list, definitions, count, func(row, column int) {
 				absolute := first + row
-				cell := ui.Column(view).Gap(3).MinHeight(nativeProp(props, "row_height", float32(32)))
+				// A row is row_height high with the cell's padding, and
+				// its content is centered in it.
+				cell := kit.TableCell(view, rowHeight, row+1 == count).Gap(3)
 				if index := column; index < len(alignments) && alignments[index] == "end" {
 					cell.AlignItems(ui.End)
 				}
@@ -284,7 +293,7 @@ func validTableLine(line nativeTableLine) bool {
 
 func (binding *NativeBinding) renderTableLine(view *ui.Context, line nativeTableLine, secondary bool) {
 	palette := theme.Of(view)
-	ui.Row(view).Gap(6).MinWidth(0).Children(func() {
+	ui.Row(view).Gap(6).MinWidth(0).AlignItems(ui.Center).Children(func() {
 		if line.Badge != "" || line.BadgeIcon != "" {
 			ui.Box(view).Size(18, 18).Radius(5).Background(palette.Muted).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 				if icon := nativeIcon(line.BadgeIcon); icon != nil {

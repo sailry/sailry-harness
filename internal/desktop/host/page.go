@@ -13,8 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// Actions are what the page asks of the window: open a project or a
-// session, and add a project (the project editor). Revoke removes the
+// Actions are what the page asks of the window: open a session. Revoke removes the
 // host's pairing, nil for a host that has none to remove (this computer, the
 // preview's). StopProcess asks the host's Node to end a process, by force
 // when force is set, after the page's confirmation; nil where no Node is
@@ -22,9 +21,7 @@ import (
 type Actions struct {
 	Revoke      func()
 	StopProcess func(process Process, force bool)
-	OpenProject func(id string)
 	OpenSession func(id string)
-	AddProject  func()
 	Update      func(Update)
 	OpenPort    func(Port)
 	ClosePort   func(Port)
@@ -60,8 +57,10 @@ const Width = 1040
 
 // Page is the host's page, as the reference's live host page
 // (live/host.rs): the header with the platform, the status, the uptimes and
-// the forwards, the monitor, then the running sessions, the projects and
-// the runtime, 1040 wide at most and centered, 14 apart.
+// the forwards, the monitor, then the running sessions, 1040 wide at most
+// and centered, 14 apart. It has neither a projects section nor a runtime
+// section (docs/removed-ui.md): projects are added from the sidebar, and the
+// header's line names the two versions.
 func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	if h == nil {
 		return
@@ -71,8 +70,6 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 			header(c, s, h, act)
 			monitor(c, s, h, act)
 			activity(c, h, act)
-			projects(c, h, act)
-			runtime(c, h)
 		})
 	})
 	s.report(c, h)
@@ -134,9 +131,9 @@ func (h *Host) Connection() feedback.Connection {
 }
 
 // header is the host's logo in a round tile, its name beside its status and
-// its platform under them, then the computer's and Sailry's uptimes and the
-// processes' count, its port forwards, and Update for a host updated from
-// here. The platform shows here alone. A live host's status is CrychicUI's
+// its platform and versions under them, then the computer's and Sailry's
+// uptimes and the processes' count, its port forwards, and Update for a host
+// updated from here. The platform and the versions show here alone. A live host's status is CrychicUI's
 // ConnectionStatus; the preview's is its note. It has no Remove pairing
 // button (docs/removed-ui.md): the rail's host menu asks for it.
 func header(c *ui.Context, s *State, h *Host, act Actions) {
@@ -158,7 +155,7 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 				if !h.plain(c) {
 					ui.Text(c, i18n.T(c, "workspace_host_status")).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 				}
-				ui.Text(c.Key("platform"), h.label(c, h.Detail)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+				ui.Text(c.Key("platform"), h.detail(c)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 			})
 		})
 		ui.Row(c.Key("facts")).Wrap().GapX(24).GapY(8).AlignItems(ui.Center).Children(func() {
@@ -177,6 +174,21 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 			})
 		})
 	})
+}
+
+// detail is the header's line under the name: the platform, then the host's
+// version and its protocol, each after its label, as
+// "darwin · 27.2 · arm64 · Host version 0.1.6 · Protocol version v1". A
+// version not known is left out.
+func (h *Host) detail(c *ui.Context) string {
+	parts := []string{h.label(c, h.Detail)}
+	if version := strings.TrimSpace(h.Runtime.Version); version != "" {
+		parts = append(parts, i18n.T(c, "host_version")+" "+version)
+	}
+	if protocol := Protocol(h.Runtime.ProtocolMin, h.Runtime.ProtocolMax); protocol != "" {
+		parts = append(parts, i18n.T(c, "host_protocol")+" "+protocol)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // headerFact is a fact of the header: the muted label over its value in
@@ -252,90 +264,6 @@ func activity(c *ui.Context, h *Host, act Actions) {
 					kit.Badge(c, i18n.T(c, r.Status), tone).Shrink(0)
 				}).OnClick(func() { act.OpenSession(r.Session) })
 			}
-		})
-	})
-}
-
-// projects are the host's projects, a Kit group whose header adds one:
-// each a row opening its first conversation; with none, the empty state
-// with Add project.
-func projects(c *ui.Context, h *Host, act Actions) {
-	label := i18n.T(c, "project_add")
-	var add func()
-	if len(h.Projects) > 0 {
-		add = func() { small(c, "add", icons.Plus, label, false, true).OnClick(act.AddProject) }
-	}
-	kit.Group(c, "projects", i18n.T(c, "projects"), "", add, func() {
-		kit.List(c, len(h.Projects), func(i int) {
-			pr := h.Projects[i]
-			entry(c, pr.ID, pr.Name, icons.Folder, func() {
-				ui.Text(c, pr.Name).FontSize(kit.RowFont).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-			}).OnClick(func() { act.OpenProject(pr.ID) })
-		}, func() {
-			kit.Result(c, kit.ResultProps{Icon: icons.Folder, Title: i18n.T(c, "project_empty"), Extra: func() {
-				kit.Primary(c.Key("add"), label, false).Children(func() {
-					ui.Icon(c, icons.Plus).FontSize(16)
-					ui.Text(c, label).FontSize(14)
-				}).OnClick(act.AddProject)
-			}})
-		})
-	})
-}
-
-// runtime is what the host holds and what its Node tells of itself, a Kit
-// group over a card of facts: the host's type and its counts, then the
-// version, the time zone and the protocol. A shimmer shows while the Node's
-// facts load, unknown ones read host_unknown, and the preview adds its
-// note.
-func runtime(c *ui.Context, h *Host) {
-	p := theme.Of(c)
-	r := h.Runtime
-	note := ""
-	if !r.Live && !kit.Demo(c) {
-		note = "workspace_runtime_preview"
-		if r.Known {
-			note = "host_runtime_preview"
-		}
-		note = i18n.T(c, note)
-	}
-	kit.Group(c, "runtime", i18n.T(c, "workspace_runtime"), note, nil, func() {
-		if r.Loading {
-			loading := "host_runtime_loading"
-			if r.Live || kit.Demo(c) {
-				loading = "live_host_runtime_loading"
-			}
-			kit.Shimmer(c, i18n.T(c, loading), 14, p.MutedForeground)
-		}
-		typ := "composer_host_remote"
-		if h.Local {
-			typ = "composer_host_local"
-		}
-		active := "host_active_preview"
-		if h.plain(c) {
-			active = "workspace_running"
-		}
-		facts := []Fact{
-			{"workspace_host_type", i18n.T(c, typ)},
-			{"projects", strconv.Itoa(len(h.Projects))},
-			{"workspace_worktrees", strconv.Itoa(h.Worktrees)},
-			{"workspace_sessions", strconv.Itoa(h.Sessions)},
-			{"terminal", strconv.Itoa(h.Terminals)},
-			{active, strconv.Itoa(len(h.Activity))},
-		}
-		unknown := i18n.T(c, "host_unknown")
-		kit.Card(c, func() {
-			ui.Row(c.Key("facts")).Wrap().GapX(24).GapY(16).Padding(16, 4).Children(func() {
-				for _, f := range append(facts, r.Facts()...) {
-					value := f.Value
-					if value == "" {
-						value = unknown
-					}
-					ui.Column(c.Key(f.Label)).Grow(1).Shrink(1).Basis(176).MinWidth(0).Gap(4).Children(func() {
-						ui.Text(c, i18n.T(c, f.Label)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
-						ui.Text(c, value).FontSize(14).SingleLine().Label(value)
-					})
-				}
-			})
 		})
 	})
 }

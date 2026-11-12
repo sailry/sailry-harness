@@ -29,7 +29,6 @@ type Actions struct {
 	Files         func(host string) (picker.Source, bool)
 	Worktrees     func(*viewmodel.Project, string, string)
 	ForkWorktree  func(*viewmodel.Conversation)
-	Records       func(*viewmodel.Project)
 	OpenWindow    func(session string)
 	ForkHere      func(*viewmodel.Conversation)
 	Export        func(*viewmodel.Conversation, conversation.ExportFormat)

@@ -13,22 +13,22 @@ port forwards (the reference implementation `live/host.rs`,
 
 | File | Holds |
 |---|---|
-| `model.go` | **The view model**: `Host`, `Project`, `Activity`, `Runtime` (`Facts`, `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics`, `Disk`, `GPU`, `Process` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
+| `model.go` | **The view model**: `Host`, `Activity`, `Runtime` (the version, the protocol and the uptimes; `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics`, `Disk`, `GPU`, `Process` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
 | `sample.go` | What the monitor makes of the samples: the history (`Point`, `Metrics.Follow`, `HistoryLimit`), the chosen volume and accelerator (`Metrics.Volume`, `Metrics.GPU`), `SortProcesses`, `Scaled`, `Clock`, `Load` |
-| `page.go` | `State`, `Actions`, `Page`: header (`Host.Connection`), running agents, projects, runtime; `Platform`; failure toasts |
+| `page.go` | `State`, `Actions`, `Page`: header (`Host.Connection`, the platform and versions line), running agents; `Platform`; failure toasts |
 | `monitor.go` | The monitor's cards: processor and cores, the accelerator, memory, utilization, network, the chosen volume's transfers, storage; their place until the first sample |
-| `processes.go` | The processes: toolbar, search, the sortable table, its skeleton |
+| `processes.go` | The processes: toolbar, search, the sortable table in Kit's table look (`kit.TableFrame`, `kit.TableCell`, `kit.TableHeight`), its skeleton in the same look |
 | `process_actions.go` | A process's right-click menu (`State.processMenu`), its details and the stop confirmation (`processDialogs`), `Process.Stoppable` |
-| `charts.go` | The series' tones and the drawing on MyGo's `ui/chart`: area charts, sparklines, rings |
+| `charts.go` | The series' tones and the drawing on MyGo's `ui/chart`: area charts with the tip of the sample under the pointer (`hover`, `readout`), sparklines, rings |
 | `update.go` | The update dialog, `OpenUpdate` |
 | `metrics.go` | `MetricsPanel`, the right column's summary |
 | `menu.go` | What the rail's host menu opens (the port picker, a forward's address, Remove pairing) and the removal's confirmation |
 | `ports.go` | The header's forwards, the port picker and the new forward dialog |
 
 Preview data: `preview.HostPages(d)` (`internal/desktop/preview/hosts.go`), one
-`Host` per `Data.Hosts` entry: projects, counts and running sessions from
-the dataset, this host's runtime, the paired host's unknown runtime and
-update, a minute of example samples around the values of `Snapshot::sample`
+`Host` per `Data.Hosts` entry: running sessions from
+the dataset, this host's runtime (its version, protocol and uptimes), the
+paired host's unknown runtime and update, a minute of example samples around the values of `Snapshot::sample`
 (cores, load averages, transfers and two processes, on a fixed clock) and two
 forwards.
 
@@ -64,17 +64,43 @@ centered, padded 24, its parts 14 apart, in the reference's order:
 
 | Part | Shows | Built with |
 |---|---|---|
-| Header | The platform logo in a 44 round tile; the name (18 semibold) beside the status; the platform line once; `host_uptime` (the computer's), `host_node_uptime` (Sailry's) and the processes' count; the first three forwards and Port forwarding; Update host on a host updated from here | MyGo rows and text; CrychicUI `feedback.ConnectionStatus` for a live host's status (`live_connected`, `connection_connecting`, `connections_offline`); `portsHeader`; the preview shows `workspace_host_status` |
+| Header | The platform logo in a 44 round tile; the name (18 semibold) beside the status; under it one muted line, cut short with an ellipsis: the platform, then the host's version and the protocol's after their labels (`host_version`, `host_protocol`), as `darwin · 27.2 · arm64 · Host version 0.1.6 · Protocol version v1`, a version not known left out (`Host.detail`); `host_uptime` (the computer's), `host_node_uptime` (Sailry's) and the processes' count; the first three forwards and Port forwarding; Update host on a host updated from here | MyGo rows and text; CrychicUI `feedback.ConnectionStatus` for a live host's status (`live_connected`, `connection_connecting`, `connections_offline`); `portsHeader`; the preview shows `workspace_host_status` |
 | Processor | The load (32 bold, code font), `host_cores`, `host_load` with the three averages and their rings; every core's load after a divider | `kit.Card`; MyGo `ui.Progress` per core; rings on `ui/chart` sectors |
 | GPU | Only when the sample has an accelerator: its load (32 bold), its name, the load's bar and the last minute; a `kit.Select` chooses among several | `kit.Card`, `kit.Select`; MyGo `ui.Progress`; `ui/chart` |
 | Memory | Used of the whole with its ring of used and cached; used, cached and swap; the last minute | `kit.Card`; `ui/chart` |
 | Utilization | The processor's, the chosen accelerator's and the memory's use over the last minute, 0 to 100%, the samples' times under it | `kit.Card`; `ui/chart` `Plot`, `Area`, `Line` |
 | Network, Disk | Side by side, each wrapping under the other below 380: download and upload rates over the totals since boot; the chosen volume's write and read rates; both over the last minute | `kit.Card`, `kit.Tag` for the mount; `ui/chart` |
 | Storage | `host_partition_count` and one tile per real volume: mount, read and write rates, file system, used of total, a capacity bar. A click chooses the volume the Disk card follows | `kit.Card`; MyGo toggle buttons with `kit.GhostLook`; `ui.Progress` |
-| Processes | The count of every process, a search, a note when the sample lists fewer than run, and the table: name, the load with its last minute, the memory with its share, the PID. A header sorts; the load sorts first. The selected row is the neutral fill. A right-click opens the OS-native menu: Details, Copy PID, Copy name, End process, Force quit | `kit.Card`, `kit.Toolbar`, `kit.Result` when empty; MyGo `ui.Table` in `theme.Neutral`, `ListState.CellMenu`; `kit.AlertDialog`, `kit.Dialog` |
+| Processes | The count of every process, a search, a note when the sample lists fewer than run, and the table in the application's table look, as the Usage page's: a 1 DIP `Border` frame at the base radius, the header filled `Muted`, a `Border` line between rows, rows exactly 36 high with their content centered. Its cells are plain: the name, the load's last minute before its figure, the memory, the PID, the three figures at the end of their columns. A header sorts; the load sorts first. The selected row is the neutral fill. A right-click opens the OS-native menu: Details, Copy PID, Copy name, End process, Force quit | `kit.Card`, `kit.Toolbar`, `kit.Result` when empty; MyGo `ui.Table` in `theme.Neutral` inside `kit.TableFrame` with `kit.TableCell` cells, `ListState.CellMenu`; `kit.AlertDialog`, `kit.Dialog` |
 | Running Agents | The running and waiting sessions (agent or waiting user, title, project / branch, model, status); a click opens the session. Absent when there are none | `kit.Group`, `kit.Card`, `kit.Badge` |
-| Projects | Rows opening the project's first conversation, Add project in the group's header; the empty state with Add project | `kit.Group`, `kit.List`, `kit.Result`, `kit.Primary` |
-| Runtime | The host's type, its counts (projects, worktrees, sessions, terminals, running agents), the version, the time zone and the protocol, `host_unknown` for unknown ones | `kit.Group`, `kit.Card` |
+
+The page ends with the running agents, or with the processes on a host
+that has none. It has no projects section ([removed-ui.md](removed-ui.md)):
+the host's information does not list its projects or add one; projects are
+added from the sidebar, the rail's host menu and the composer's project
+menu, and opened from the sidebar. It has no runtime section either
+([removed-ui.md](removed-ui.md)): of that grid's facts the header's line
+keeps the host's version and the protocol's, and the rest (the host's type,
+its counts of projects, worktrees, sessions, terminals and running agents,
+the time zone) show nowhere.
+
+Every area chart reads the sample under the pointer (`hover` in
+`charts.go`): the GPU's and the memory's last minute, the utilization, the
+network and the disk, and the summary column's three. A 1 px guide stands at
+the sample nearest the pointer with a dot on each series, and beside it a
+tip names the sample's time (as the axis writes it, `Clock`) over one row a
+series: its colour mark, its name and its value as the card writes it
+(`12.5%`, `512.0 KiB/s`, and the memory card's use as a size, `8.0 GiB`), a
+dash for a value the sample did not have. The tip is Kit's floating surface
+(`kit.Floating`) in the window's overlay, attached to the guide as Kit's
+tooltip is to its anchor (`kit.Attach`, to the right, on the left where the
+window ends), names at 12 and values at 14 in the code font in a column of
+fixed width. The sample is found again from the pointer in every frame, so
+under a resting pointer the guide and the tip stay where they are while the
+values change in place as samples arrive. It goes when the pointer leaves
+the plot or a menu or popover opens (`kit.TipsHidden`); the tip and the
+marks take no input, so the wheel scrolls the page through them. The rings
+and the processes' sparklines have no tip, as in the reference.
 
 Until the first sample the processor's, the memory's and the processes'
 cards hold their place with `kit.Skeleton`. A live host whose sampling
@@ -113,7 +139,7 @@ window shows its live hosts. Over the preview's hosts the page speaks as a
 live host's does (`Host.plain`): the status is the connection's, the
 loading, update and failure texts are the live ones, the preview's notes
 (`workspace_host_status`, `metrics_preview`, `host_activity_hint`,
-`host_runtime_preview`, `update_preview`) are left out, the example
+`update_preview`) are left out, the example
 processes show as programs (`demoProcesses`) and an action raises no
 `preview_notice` (`kit.PreviewNotice`). What the actions do is still the
 preview's. The preview's example values (its version, platform line and
@@ -130,8 +156,7 @@ delivers after `preview.LoadAfter`.
 
 | Action | Preview |
 |---|---|
-| Open a project or a session | the conversation, revealed in the sidebar |
-| Add project | the project editor |
+| Open a session | the conversation, revealed in the sidebar |
 | Update host: Check, Download, Apply, Retry | `Update.Advance` moves between the reference's example states; a stale click does nothing |
 | Forward: open address | preview_notice |
 | Forward: copy address | the clipboard |
@@ -150,10 +175,11 @@ detail, the update's and the metrics' detail.
 the computer's (`host_uptime_secs`) and the Node's own (`node_uptime_secs`),
 which the header shows apart, since a Node started minutes ago runs on a
 computer up for days. The system and architecture are the header's platform
-line and no runtime fact. `Host.Offline` is whether the Node is not
+line. `Host.Offline` is whether the Node is not
 connected. The Link
 handshake supplies a remote Node's advertised software and protocol versions;
-the local Node uses the running build's versions. A controller and a Host are
+the local Node uses the running build's versions. Both end the header's line
+(`Runtime.Version`, `Runtime.ProtocolMin` and `ProtocolMax`). A controller and a Host are
 compatible when their protocol versions are equal (`internal/link/compatibility.go`);
 the software version is shown and offered for update, never compared for
 compatibility. A mismatch toasts the reference's copy chosen from the fault's
@@ -161,16 +187,15 @@ details (`host_version_older`, `host_version_newer`, `host_version_unknown`,
 `controller_version_unknown`; `feedback.rs` `fault_message`) rather than the
 fault's English message, and a Link failure of any kind leaves the page once
 the Link reaches the host again.
-The time zone is the computer's own: `HostInfo.timezone`, an
-optional member its Node fills with the zone's abbreviation and offset
-(`CST +08:00`, or `UTC+08:00` for a zone without a name). A Node that
-reports none leaves the fact unknown; the controller's zone is never shown
-in its place, for the local host either. Runtime read failures toast
+The Node still reports the computer's time zone (`HostInfo.timezone`, an
+optional member with the zone's abbreviation and offset, `CST +08:00`, or
+`UTC+08:00` for a zone without a name), but the page no longer shows it and
+the desktop does not project it. Runtime read failures toast
 once without replacing the page. Remembered offline execution peers remain in
 the host list; nonexecution controllers do not receive Node reads.
 
-Projects, worktrees, sessions and open terminals come from that Node's own Client
-snapshot. Running and waiting rows use Client's aggregate activity lanes,
+The page no longer lists that Node's projects, and its worktrees, sessions
+and terminals are no longer counted for it. Running and waiting rows use Client's aggregate activity lanes,
 found once per `Client.Revision`, excluding delegated and archived sessions. Their navigation retains the original
 Node identity. A shared Network owns one remote Client per execution peer, while
 each window retains its own presentation and selection.
@@ -384,24 +409,28 @@ original request and its recorded outcome.
 
 ## Tests
 
-`internal/desktop/host/host_test.go`: formats, the runtime's facts, the
-header's status, the history (`TestFollow`), the chosen volume and accelerator
+`internal/desktop/host/host_test.go`: formats, the charts' tip
+(`TestChartTip`: the sample under the pointer, another sample, a new value
+in place, leaving), the header's status, the history (`TestFollow`), the chosen volume and accelerator
 (`TestChoices`), the processes'
 sort and search, the update's phases and stale clicks, new forwards, and
-`TestPage`: a live host's sections in order, the header once, every volume
+`TestPage`: a live host's sections in order, the header once with its
+versions, no runtime section, the utilization's tip, every volume
 in the page and its summary, the accelerator's card and choice, the
 process menu with its confirmation and details, the offline page.
 `internal/desktop/shell/hosts_test.go`: the host page, the update dialog's
 Check, the summary column closed until toggled, closing the page;
 `testHostLayout`: the side column beside the page, the sections' order, the
-header once, the summary's volumes, the hosts in the rail's picker; the rail
+header once, no runtime section, the summary's volumes, the hosts in the rail's picker; the rail
 menu's forwards, Update and Remove pairing with its confirmation, cancel and
 busy state; `testHostDemo`: no preview note on the page, its summary, its
-update dialog or the rail's picker in Demo mode.
+update dialog or the rail's picker in Demo mode, the header's versions, no
+runtime section and the utilization's tip.
 `internal/desktop/shell/hosts_snapshot_test.go` writes the review sheets,
 the Demo mode page among them, when `SAILRY_SNAPSHOTS` is set. `internal/desktop/live/hosts_metrics_test.go`:
 a sample's mapping, a stop request's outcomes; `ssh_hosts_test.go`: a stop
-request sent once to the host's Node, the host's time zone.
+request sent once to the host's Node, the live header's platform and versions
+with no runtime section.
 `internal/node/host/metrics_test.go`: the sampler's volumes, accelerators
 and time zone; `internal/node/files/browser_test.go`: the volume rule.
 
@@ -410,7 +439,11 @@ and time zone; `internal/node/files/browser_test.go`: the volume rule.
 | Deviation | Reason |
 |---|---|
 | Upload is drawn in `chart.4` (violet) beside the download's `chart.2` (blue) | The reference draws upload in `info` and download in `chart_2`, the same blue, so the two series of one chart could not be told apart |
-| One page serves the preview and the live host: the live monitor (`live/host.rs`) followed by the overview's projects and runtime (`workspace/host.rs`) | The reference has two pages; the live one has no projects list or runtime facts, which the accepted page shows and its Add project needs |
+| One page serves the preview and the live host: the live monitor (`live/host.rs`), without the overview's projects (`workspace/host.rs`) | The reference has two pages; its overview lists the host's projects with Add project. User decision, 2026-11-12: the host's information does not show them ([removed-ui.md](removed-ui.md)), as the reference's live page does not |
+| No runtime section; the host's version and the protocol's end the header's platform line, after their labels | The reference's overview shows a grid of runtime facts (`workspace/host/runtime.rs`). User decision, 2026-11-12: the grid is removed and the two versions are enough ([removed-ui.md](removed-ui.md)). The labels are the grid's own copy, since two bare versions side by side read as one |
+| The processes' table has no letter tile before a name and no bar of the memory's share; its figures end their columns | The reference's rows (`live/host/processes.rs`) lead with the name's initial in a round tile and draw the memory's share as a bar. User decision, 2026-11-12: the table takes the Usage page's table look and plain cells ([removed-ui.md](removed-ui.md)). The load keeps its last minute: it is the row's one fact a figure does not carry, and reads at 36 DIP |
+| The charts' tip is built in `charts.go`: the pointer's sample from `PointerPosition` and `chart.Nearest`, MyGo's `chart.RuleX` and `chart.Point` marks, and a `kit.Floating` panel attached to the guide in `ui.Overlay` | The reference's `AreaChart` has a tooltip of its own (`tooltip_title`, `tooltip_value`). MyGo's `ui/chart` is headless and has none; its `chart.Select` keeps the chosen index while the pointer rests, so the guide would drift while the history fills, and makes each chart a stop of Tab. `kit.Tooltip` shows one text after a delay at its anchor's middle. The tip reads every series of the sample at once, each with its mark |
+| The memory card's tip reads the use as a size | The history holds the use in percent; the card's figure and legend write sizes, so its tip does too. The utilization's tip reads the same samples in percent, as its legend does |
 | Port forwards and the monitor show on the preview page, on example samples | The reference shows them only on a live host |
 | A host without an accelerator in its sample has no GPU card, and the card takes a row of its own | The reference shows the card beside the memory with "unavailable"; the Node reads accelerators only on macOS, so a Linux or Windows host would always show an empty card, and the accepted memory card keeps its row |
 | A Windows host's process menu has no End process | The reference offers it and the Node refuses it there; only the forced stop exists on Windows |
@@ -428,5 +461,5 @@ and time zone; `internal/node/files/browser_test.go`: the volume rule.
 | An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
 | Update confirmation drops the cached connection after each unconfirmed probe as well as before the first | Rust disconnects once before probing; a probe that reached the old process would otherwise leave its connection for the next |
 | An SSH connection prefers its trusted host key's algorithm and sends `keepalive@openssh.com` every 15 seconds, closing after 45 seconds without a reply (`internal/ssh/connect.go`) | Rust connects with russh's default configuration: a server that added a key type the library prefers read as a changed key, and a connection whose route died stayed open. The order and the interval are OpenSSH's (`HostKeyAlgorithms` from known keys, `ServerAliveInterval` 15 with `ServerAliveCountMax` 3) |
-| The time zone is an abbreviation with its offset, not an IANA name | Go's standard library exposes the local zone's abbreviation and offset on every platform; the IANA name is not available without `TZ` or a platform call. A Host built before `HostInfo.timezone` shows it as unknown |
+| `HostInfo.timezone` is an abbreviation with its offset, not an IANA name | Go's standard library exposes the local zone's abbreviation and offset on every platform; the IANA name is not available without `TZ` or a platform call. The page no longer shows it |
 | The sidebar footer keeps its summary samples | It shows the selected Node's load without the page's detail |

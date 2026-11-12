@@ -3,10 +3,11 @@
 B8 connects Market and the installation rail to the live Client adapters.
 `Hooks.PackageDialogs` renders captured package-discovery and AI CLI dialogs
 beside the existing download dialog hook; it changes no rail or page layout.
-The project overview and sidebar share one CLI launcher that reads available
-tools from the project's owning Node and retains its chosen worktree through
-launch. The authorized terminal prerequisite now displays that Node-owned AI CLI
-through MyGo Mirror/Conn in the panel, with actual input, resize and close.
+The project overview and sidebar offer no AI CLI entry
+([removed UI](removed-ui.md), rows 22 and 24); the launcher dialog that reads
+the owning Node's tools stays in `live` without an entry. The terminal
+prerequisite displays a Node-owned terminal through MyGo Mirror/Conn in the
+panel, with actual input, resize and close.
 General terminal resources, split shell actions and browser surfaces remain
 assigned to B10.
 
@@ -41,7 +42,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `header.go` | The header: brand, sidebar toggle, breadcrumbs, activity strip, preview tag, details toggle |
 | `rail.go` | `Features`, `MoveFeature`, the rail, More, the host picker |
 | `pages.go` | The rail features' pages, `Navigate`, `ClosePage`, the selected project's `panel.Project` |
-| `project.go` | The captured project's overview, Git initialization confirmation and searchable session records |
+| `project.go` | The captured project's overview, Git initialization confirmation and its searchable records: Sessions and Terminals in the list Settings pages use (`kit.List`: the filled card, rows at the row metrics a hairline apart, the empty state inside the card), each row a button with the neutral hover fill across the card, a session's with its right-click menu |
 | `shortcuts.go` | `Shortcuts`, `CloseFocused`, `KeyText`, the window's key handling, the menu's commands (`Do`) |
 | `menu.go` | `Menu`, `Accelerator`: the native app menu |
 | `search.go` | `Choice`, `Group`, `Filter`, `Next`, the search overlay |
@@ -412,6 +413,35 @@ with the kind's glyph and color (completed, failed, approval, input,
 info), the title (medium while unread), `NoticeAge`, the unread dot. A
 click reads it and opens its conversation, or its knowledge source.
 
+### Notification centre
+
+The centre's page (`notificationCenter`, `shell/notifications.go`) is the
+All/Unread filter, Mark all as read and Delete read over one `kit.Card` of the
+notices, newest first, apart by the card's inset separators; with none to show
+it is the card-shaped `notifications_empty` result. Each notice is a
+`kit.Bleed` row at the row metrics (`notificationRow`):
+
+- the kind's glyph and color in the lead slot;
+- the title, medium while unread, over the notice's message on one muted,
+  ellipsized line (the user's decision of 2026-11-12), then its age
+  (`noticeAge`, as the bell writes it) at the end of the row. A notice
+  without a message has the kind's label (not for an info notice) and its
+  host (`noticeSource`) on that line, and so has the open notice, whose
+  message is whole in its details: it is written once;
+- the unread dot, whose room stays when read, then the quiet 28 DIP icon
+  buttons with tooltips: Open conversation (the chevron, only for a notice
+  whose conversation is listed; its room stays too) and Delete.
+
+The row's box takes the neutral hover fill from one edge of the card to the
+other, as the project page's records do, whichever part the pointer is over.
+The button that opens the notice's details runs from the card's edge to the
+actions, which are its siblings: MyGo leaves a button built inside a button
+out of the accessibility tree. A click on it opens the details under the row
+and reads the notice; a second click closes
+them. The details (`notificationDetails`) are indented to the title: message
+and detail text, the facts as `kit.Record`s, and the report with its copy
+button. Under Unread the open notice stays listed though opening it read it.
+
 The header's strip (shell/activity/strip.rs) shows waiting, running and
 finished-unread sessions, chats included, in groups 12 DIPs apart: 28 DIP
 text buttons 4 apart, each a 20 DIP agent mark (`kit.Agent`, the
@@ -503,20 +533,20 @@ does and the demo's panels and order are never saved. The Node keeps running.
 | Conversation, composer, sidebar and panel actions | The preview's: they change the demo's memory. `Hooks.Conversation`, `RenderChild`, `WorkspaceProject`, `Overview`, `OpenKnowledge` and the sidebar's `Actions` are not called, so no command reaches a Node |
 | A sent message | Plays the demo's reply (`preview.DemoReplies`) |
 | Models | One provider, DeepSeek: DeepSeek V4.1 Pro (selected), DeepSeek V4.1 and DeepSeek V4.1 Flash (`preview.DemoModels`, `DemoFamilies`). They exist in the composer's context only; Settings lists the profile's own providers |
-| Identification | None, by the user's decision of 2026-11-11: no header tag, toast, badge or title suffix. `kit.SetDemo` marks the frame and `kit.PreviewNotice` and the preview-only hints stay silent; an action the demo cannot play does nothing |
+| Identification | None, by the user's decision of 2026-11-11: no header tag, toast, badge or title suffix. `kit.SetDemo` marks the frame and `kit.PreviewNotice` and the preview-only hints stay silent. A control either acts on the demo's memory or is absent ([Demo controls](#demo-controls)) |
 | Context ring | Reads the tokens used of the model's window, as a measured indicator does (`conversation.Usage.Window`, 200k for the demo's models): `48k / 200k 24%`, the same as its tooltip. The preview, whose usage has no window, keeps its compaction hint |
 | Statistics figures and context panel | The statistics package's own, as over a session: its five figures in the context bar, each with its rows on hover, and its context panel in the header (`Hooks.PluginHeader`). `Hooks.DemoConversation` runs after the demo's composer context is built and sets the figures (`composer.State.Metrics`). The controller mounts the package's composer view for each demo conversation shown, without a session, under the presentation `demo/<id>` (`internal/desktop/live/plugin_demo.go`); what the view reads as the composer's state is the state of a session that recorded what the conversation shows (`demoComposer`, `demoStatistics`), every value by a fixed rule from the conversation's `Session.Usage`, its transcript and the model its composer is set to, so the panel draws each section a session's does and the parts add up. From the usage: one token in eight is output and three tenths of the output reasoning, the cached part of the input, the cost with every response priced, the speed as output over its time, the context used of the window. From the model: the model and window of the last request and the compaction budget (the threshold at four fifths of the window, the output reserve). From the transcript: one request a replying turn whose context grows evenly to the context used, each divided into the seven categories the Node counts, which add up to it (`demoCategories`); the tool calls by name (`demoTools`); the subagents with their usage beside the session's, a quarter of the session's tokens for one that ran to an end, half of that for one running or stopped, none for one queued, at the session's price (`demoDelegated`); the compactions that wrote a summary and the last one that ran. The time to the first token is a few hundred milliseconds by the number of turns; the phases are the requests' waiting and output, 1.6 s a tool call and the rest of what the replies took, and add up to the active time. The panel's latest compaction row scrolls the demo's own transcript to its turn (`App.DemoReveal`). No other package is mounted over a demo conversation: theirs would ask the Node. Nothing is asked of a Node for it; the package's bundle is the one another of its mounts already read, and is read from the Node only where none has it. The mounts and their contributions leave with the demo. A profile without the package enabled shows no figures, as a session does |
 | Archive prompt | Names the conversation and offers Archive, as the application's does; it archives in the demo's memory |
 | Hosts, the rail, Settings, plugin pages, the performance indicator, message display | The window's own, live, but for the usage a plugin page reads (next row) |
 | Usage page (the statistics package) | The demo's usage ledger (`preview.DemoUsage`, held by the demo and read through `App.DemoUsage`): a year of model responses over the demo's projects, provider and models, generated from a fixed seed around today, with the demo conversations' own usage counted exactly. Plugin pages are mounted with it as their host's `UsageSample` (`live.Runtime.pluginUsageSample`), which answers `usageSources` (one source, this device), `readUsageChoices`, `readUsageInventory`, `watchUsage` and `refreshUsage` in the Node's shapes and asks no Node. `Hooks.DemoChanged` runs once when the switch is flipped or the demo is written in another language (`live.Runtime.demoChanged`). A page that may read usage (`pluginUsesUsage`: a workspace or settings page of a package that declares `usage.read`) is disposed and mounts again on the next frame that shows it, so an open Usage page redraws at once in its initial state over the other ledger: no project, provider or model filter, the default range, the first page of records, and a header without its old filters. Disposing closes the mount's host, which ends its calls waiting in `nextUsageSources` and `nextUsageChange` and its observers; the new mount takes the bundle the old one read (`pluginViewState.remounts`), so the Node is asked nothing. The page is remounted rather than given the other ledger under its living state because its filters are the package's own state, which the host cannot clear. Every other mount stays, the statistics package's figures over a composer and its header popover among them, and only has its host answer from the other ledger (`plugins.Host.SetUsageSample`) |
-| Activity centre | Empty |
+| Activity centre and notification centre | The demo's own notices (`preview.Demo`'s `Workspace.Notices`): the bell lists them, the centre opens, and read, Mark all as read, dismiss and Delete read change the demo's memory. The controller's `ReadNotice`, `ReadNotices`, `DismissRead` and `DismissNotices` hooks are not called |
 | Terminal and Browser tabs | Offered, as in the live window: the launcher and "+" list Browser, Terminal, Files and Git. The terminal shows the demo's screen and takes no input; the browser shows the demo's page and loads nothing ([panel](panel.md)). No shell starts and no network is reached. The per-conversation panels keep the demo's tabs in the demo's stage |
 | Sidebar menus | Every item acts on the demo in memory or is absent; none is left silent ([sidebar](sidebar.md#project-menu)). `sidebar.State.Sample` gives the project menu the demo's project page and terminal (`App.demoProject`, `App.demoTerminal`) |
-| Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): nothing is read or written, and the worktree manager, which a live project's actions open, is not offered |
-| Project editor and appearance | Saved to the demo's memory. Open folder is not offered: the demo has no host whose directories it could list. The editor's Browse button opens the file picker over the sample catalog (`picker.Catalog`), as the preview does, without the preview's note |
-| Session overview (header) | `preview.Overview` over the demo conversation, not `Hooks.Overview`. An output or a source opens the demo's file in the panel (`preview.Asset`); a cited page opens nothing |
+| Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): its Files and Git actions change the demo's tree, index, branches, stashes, tags and remotes in memory (`panel/sample.go`), and what needs a Node, the network or the system is not offered ([Demo controls](#demo-controls)) |
+| Project editor and appearance | Saved to the demo's memory. Open folder and the editor's Browse button open the file picker over the sample catalog (`picker.Catalog`), as the preview does, without the preview's note; the folder chosen is added to the demo |
+| Session overview (header) | `preview.Overview` over the demo conversation, not `Hooks.Overview`. An output or a source opens the demo's file in the panel (`preview.Asset`); a cited page opens a browser tab of the panel at its address, as a reply's link does (`App.sampleLink`) |
 | Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values and an authorization link (no page opens). A request read again or sent again changes the demo's rows |
-| Editing a sent message | Save replaces the message in memory. New chat from a selection opens a demo chat with the quote as its draft |
+| Editing a sent message | Save replaces the message in memory and sends it again: the turns after it leave and its reply plays. New chat from a selection opens a demo chat with the quote as its draft |
 | Links standing alone in a reply | The demo's own resolver (`preview.Embed` on the demo's `conversation.State`): its files as cards, its pictures and a tool's pictures as thumbnails. The controller's resolver is not called |
 | Composer plugin modes, pasted files | No plugin mode is offered; a pasted or dropped file plays a transfer and is not read |
 | Queue | Edited, reordered and sent in memory. A subagent's session (`Session.ReadOnly`) has its read-only tray and no composer |
@@ -526,6 +556,65 @@ does and the demo's panels and order are never saved. The Node keeps running.
 
 The demo is written again when the window's language changes between en and
 zh-CN; another language reads the English one.
+
+### Demo controls
+
+A control over the demo does in memory what it says, or is absent. None is
+left silent, none names the demo, and none reaches a Node. The preview keeps
+every control and tells `preview_notice` instead.
+
+| Control | In Demo mode |
+|---|---|
+| Send, Guide, Queue and the queue's rows | The demo's reply plays; the queue is edited, reordered and sent in memory |
+| Stop (`conversation.stop`, the composer, Escape) | Ends the reply that plays (`preview.Stop`) |
+| Retry | Runs the turn again: its reply plays from the start (`preview.Retry`) |
+| Edit a sent message, Save | Replaces the message and sends it again (`preview.Resend`) |
+| Fork session, Create worktree (a turn's menu) | Copies the conversation up to the turn beside itself and shows the copy, in a new worktree of the project for Create worktree (`sidebar.State.Fork`). A chat without a project has Create worktree disabled (`App.demoControls`) |
+| Rewind | Asks as the application does, then drops the turns after the turn (`preview.Rewind`) |
+| Compact | Adds a compaction turn that runs and completes (`preview.Compact`) |
+| Undo on a change card, Undo all | Opens the History tab and asks over it, then marks the file or the card undone (`preview.Undo`). The History tab's own Undo all asks, then drops the checkpoint |
+| Review on a change card, a file of the Git badge | Opens the diff in the panel |
+| Approvals, questions, plan reviews | Decided and answered in memory |
+| A goal's Pause, Resume and End | Change the badge and its buttons, or take it away (`preview.GoalAction`) |
+| Stop on a background command | The row leaves |
+| A service's port | Opens the panel's browser |
+| New worktree, Add project, Manage teams (the composer's location and team menus) | A worktree added to the conversation's project and chosen for it; the project editor; Settings, Teams |
+| Voice input | Plays the recording on the clock and ends with the demo's sentence in the draft (`dictation.text` of `preview/demo/<locale>.yml`). No microphone opens |
+| A pasted or dropped file | Plays a transfer; the file is not read |
+| Copy, Quote, New chat from a selection | Clipboard; the draft; a demo chat with the quote |
+| Read aloud (a turn's footer) | The button shows reading and Stop while it is pressed again. No voice speaks: reading through the system's voice is the controller's |
+| Read aloud in the selection dialog | Absent in a preview window, which has no voice; a live window's reads the text through its own voice |
+| Export (a turn's footer, a session's menu, a document's card) | Absent: the demo's conversations are in no file |
+| A file card, a file of the overview | Opens its tab in the panel. A file without a native preview (a PDF, a deck) opens a tab that names it and its kind, also on the platform-modifier click. Open in another app and Save as are absent: the file is on no disk |
+| The image viewer's Copy, Save and Open | Absent |
+| A link of a reply, a cited page | A browser tab of the panel at the address, which loads nothing; the system browser with the platform modifier |
+| Files: new file and folder, rename, move, copy, cut, paste, trash | The demo's tree changes (`panel.Project.sampleFile`). Open in another app, Reveal, Download and Insert into conversation are absent; Find is disabled over the read-only view |
+| Git: stage, unstage, discard, commit and its variants, undo commit, cherry-pick, switch, new, rename, delete and merge branch, tags, stashes, add and remove remote, ignore, fetch, pull, push and sync | The demo's index, history, branches, tags, stashes and remotes change (`panel.Project.sampleGit`); the network actions only settle the branch's tracking state |
+| Git: Clone, Manage worktrees, Git output, View stash, Rebase and a branch's Create worktree | Absent: they clone over the network, list a Node's worktrees and its commands' output, or would show nothing on the demo's history |
+| Git: Continue and Abort | Disabled, as in a repository with no operation under way |
+| Sidebar: New session, the chats' "+", Sort, Add project, a group's fold, Show more | As in the preview: a new chat, the order chosen, the project editor |
+| Sidebar: a session's Rename, Pin, Mark read or unread, Archive, Delete, Copy, Fork; drag to reorder | In memory, Archive and Delete after their confirmation ([sidebar](sidebar.md#project-menu)). Export, Open folder and New window are absent |
+| Sidebar: a project's menu | Every item ([sidebar](sidebar.md#project-menu)) |
+| Rail: the host picker and its right-click menu | The window's own hosts. Host information, Add project, the port forwards and Update open as they do. Edit is the controller's: a live window keeps it, a preview window's demo has none |
+| Search palette | A session opens, a project opens its page, a host its page |
+| Bell and notification centre | The demo's notices, read and dismissed in memory |
+| Rail pages of packages (next table) | The window's own, over the real Node |
+
+A rail or Settings page of a package is mounted on the window's Node and
+shows the profile's own data while the demo shows. Only the statistics
+package's Usage page reads a demo source (`UsageSample`).
+
+| Package page | What it reads | A demo source would take |
+|---|---|---|
+| Usage (`statistics`) | The demo's ledger | Done |
+| Activity Board (`activity-board`), Task Plaza (`task-plaza`) | `readActivityCatalog`, `readActivityPreviews`, `nextActivityHosts`, native operations bound in `live/plugin_activity.go` | Three operations answered from the demo's conversations in `live`; Task Plaza's details also mount a conversation, which must resolve to a demo one |
+| Scheduled tasks (`scheduled-tasks`), Reminders (`reminders`) | Package storage (`listKeys`, `getValue`), the dispatch lists and results through the request calls, the project, model and team catalogs | A sample hook for the host's reads keyed by command kind, the same for the request calls, demo records in each package's own shape, and a rule for the pages' saves |
+| Databases (`databases`) | `listDatabases`, `listSsh`, `browseDatabase`, and rows through `query_database` | The same hooks, plus canned results for free SQL and a refusal for edits |
+| SSH (`ssh`) | `listSsh`, `listSshTerminals`, `browseSshDirectory`, terminal inspection and transfers | The same hooks for the profiles; its terminals need a screen of their own |
+| Browser, External Browser, Memory, Search (Settings pages), the games | Their own settings and storage | Not examined |
+
+`live.Runtime.demoChanged` remounts only the pages that read usage; a wider
+demo source needs its predicate widened with it.
 
 ## Backend ownership
 
@@ -598,14 +687,21 @@ Phase 1–2 screens.
 `internal/desktop/live/demo_mode_test.go` (`TestDemoMode`): Demo mode over a
 real Node: the settings' order, the switch, the swap and the way back, no
 command sent by the demo's actions, no notice text, the model shown and the
-preference saved; the statistics package's figures with their cards and its
+preference saved; the sidebar's project and session menus and the
+transcript's Stop and Retry over the demo in that window (`menus and
+actions`), each changing the demo's memory with nothing sent; the statistics package's figures with their cards and its
 context panel over a demo conversation (`statistics`: what `demoStatistics`
 and `demoComposer` record for a transcript, the parts adding up), every
 section and fold of the panel, the subagents' usage, the compactions and the
 latest compaction's row scrolling the demo's transcript, with no view or
 statistics command sent and nothing left after the way back; the Usage page's calls answer from the demo's ledger
 without a command and from the Node again after the way back, the waiting
-call moving over. `internal/desktop/preview/demo_test.go` (`TestDemo`): the
+call moving over. `internal/desktop/shell/demo_actions_test.go`
+(`TestDemoActions`) and `project_menu_test.go` (`TestProjectMenu`): each
+control of [Demo controls](#demo-controls) over a preview window's demo;
+`internal/desktop/panel/sample_test.go` (`TestSampleActions`): the demo's
+Files and Git actions and what its Git menus leave out.
+`internal/desktop/preview/demo_test.go` (`TestDemo`): the
 demo shows every value of the view model's enumerations and sets every
 field, both catalogs have the same keys, and the models' names; its `usage`
 step reads the ledger over every range, filter, grouping and page of
@@ -733,7 +829,8 @@ and a stale captured version cannot overwrite a newer edit. Welcome state is in
 collapsed projects, rail state, tabs and pane layout; its legacy welcome field is
 used only by the preview. Closing a live guide persists the profile choice.
 
-The new notification centre uses existing Kit page/card/segmented controls. Live
+The notification centre uses existing Kit page/card/segmented controls
+([Notification centre](#notification-centre)). Live
 host views hide preview-only notes; B7 supplies their real facts and metrics.
 In the preview, terminal panes retain the accepted static placeholder and never
 start a process.
@@ -811,7 +908,7 @@ captured Host; Add Host opens the existing Connections flow.
 Conversation and workspace actions resolve their execution Runtime before
 asynchronous work starts. A new window retains the requested remote session
 until that owner's snapshot arrives. Notice read/dismiss actions route through
-the owning Client. Sync and conversation Retry refresh the selected execution
+the owning Client. Sync refreshes the selected execution
 owner rather than changing local Node authority.
 
 The project overview is an independent `ProjectPage`, opened through

@@ -87,7 +87,13 @@ without embedded credentials, queries or fragments; redirects are refused.
 Account generation is confined to the grant's authorized destination. ChatGPT
 direct use requires its two plan scopes; Codex uses the captured catalog identity
 and account header, Claude uses its OAuth transport, and Copilot uses its
-authorized service endpoint. Native discovery preserves visible ChatGPT catalog
+authorized service endpoint with the editor identity in `providers/accounts.go`
+(`GitHubCopilotChat/0.68.0`, `vscode/1.140.0`, `copilot-chat/0.68.0`, API
+version `2026-01-09`). Each Copilot generation request also carries
+`openai-intent: conversation-agent`, its own `x-request-id`, `x-initiator`
+(`user` when the last message, turn context aside, is one the user wrote in a
+session that is not delegated; otherwise `agent`) and `copilot-vision-request`
+when it carries an image. Native discovery preserves visible ChatGPT catalog
 order, reported names, limits, reasoning and service tiers. Copilot catalogs filter
 by the selected chat or Responses endpoint. Plugin adapters use their declared
 discovery translation.
@@ -279,20 +285,19 @@ reference, all deliberate:
   `store.agentStatisticsBudget`, which performs no request and therefore shows
   the catalog value until a turn has asked the server.
 
-Main transport attempts have at most five additional transient retries before
-any output event escapes. Summary output stays buffered and has one additional
-transient retry. `model.Run` is the only retry loop: the provider SDKs run with
-their own retries off. A retry waits 5 seconds, then twice as long each time up
-to 60 seconds (5, 10, 20, 40, 60), each wait spread by a fifth
-(`cenkalti/backoff` exponential schedule), so five retries wait about 135
-seconds and never more than 162. A positive `Retry-After` (header, or
-`retry_after_ms` from a plugin adapter) replaces the scheduled wait, capped at
-60 seconds; a provider that asks for longer is asked again after 60. Stopping
-the turn ends a wait at once. The retry record carries the wait that was
-actually chosen (`delay_ms`). The reference parses `Retry-After` and ignores
-it, waiting a fixed 60 seconds five times (5 seconds once for a summary); Go
-differs deliberately, so a brief failure is retried within seconds and a rate
-limit is retried when the provider says. Authentication, quota, invalid
+Main transport attempts have at most nine additional transient retries before
+any output event escapes. Summary output stays buffered, a failed attempt's
+output is discarded, and it has the same nine retries. `model.Run` is the only retry loop: the provider SDKs run with
+their own retries off. A main retry waits a fixed 60 seconds
+(`model.MainRetries`, `cenkalti/backoff` constant schedule), so nine retries
+wait 9 minutes, for a main request and a summary alike. A provider's
+`Retry-After` is parsed and neither shortens nor lengthens the wait, as in the
+reference. Stopping the turn ends a wait at once. The retry record carries the
+limit and the wait (`limit`, `delay_ms`), so a record written under an earlier
+limit still shows its own. The reference waits the same fixed 60 seconds five
+times, and 5 seconds once for a summary; Go retries nine times by the user's decision of 2026-11-12, which also
+replaced the earlier 5 to 60 second exponential schedule that followed
+`Retry-After`. Authentication, quota, invalid
 requests and malformed/truncated streams are terminal. Every attempted request
 reports timing, optional usage and failure facts once through the engine observer.
 Unknown token counts remain unknown; an explicitly reported zero remains known.
@@ -312,6 +317,48 @@ protocols. `TestMediaSettings` drives the flow over the bundled catalog: the
 two groups and their members, a mark for every preset and brand, distinct
 method rows, the family filter's options, the protocol switch and the command
 a save sends.
+
+A built-in sign-in's Advanced settings are the ones its authentication has, as
+in the reviewed source: the catalog version and User-Agent for ChatGPT OAuth,
+the User-Agent for ChatGPT SIWC and Claude, and the User-Agent, editor version
+and editor plugin version for Copilot. A new channel starts each on the value
+the Node uses (`providers.OAuthFields`), and a saved channel shows its own
+value, or the value in use where it saved none. These settings belong to the
+core sign-in, not to a package: a package sign-in has none. Deviation: a field
+cleared before a save falls back to the Node's value instead of failing the
+form. `TestProviderEditor` ("oauth advanced settings") and `TestMediaSettings`
+cover the fields and their starting values.
+
+### Package sign-in warning and model facts
+
+A package authentication flow can declare a `warning`. The preset directory
+carries it as the entry's optional `login_warning`, and the Desktop shows it in
+the settings confirmation dialog, titled with the channel, before each sign-in
+attempt: `begin_provider_login` is sent only after Continue, Cancel sends
+nothing, and the next attempt asks again. A channel whose flow declares none
+starts at once. The text is the package's own, chosen by the package locale.
+The Mobile mirror displays channels and does not start sign-in, so it shows no
+warning. `testProviderLoginWarning` drives this against a fake Node.
+
+A plugin translation receives the installed package's resolved settings, may
+record per-model `options` at discovery and may refuse a request from `prepare`
+with its own class and message before any HTTP. Recorded options are saved on
+the model's capabilities, replaced by a later discovery and merged under the
+provider's policies. Discovery runs on "Update models" and on validation only.
+
+Deviations: the reviewed source has no sign-in warning, no settings input and no
+refusal result; these three are additions for packages whose provider may
+suspend accounts or charge for some models. Setting titles are looked up by
+field name first, as the source does, then by English title as before.
+
+## Agent programs
+
+A package channel may be served by an installed command-line agent over the
+Agent Client Protocol instead of an HTTP translation. The channel editor,
+discovery and validation commands are the same; the Node routes them to
+`model.DiscoverACP` and `model.NewACP` when the captured adapter declares `acp`.
+Such a channel has no key (`auth: none`) or passes its key to the program's
+declared environment. Its contract is [agy.md](agy.md).
 
 ## Validation and current boundaries
 
@@ -360,3 +407,44 @@ save completes its tags from the catalog as for a model never tagged.
 The provider editor requires a positive context limit within the v1 `uint32`
 range and at least the model's output limit. It rejects an empty or oversized
 field before narrowing values for the protocol, retaining the draft on failure.
+
+## GitHub Copilot sign-in
+
+The bundled `copilot-auth` package declares `authentication: "copilot"` with a
+script flow, so sign-in runs through the same owner as ChatGPT and Claude. The
+flow requests a GitHub device code, shows it with
+`https://github.com/login/device`, polls at GitHub's interval (five seconds
+more on `slow_down`), and exchanges the GitHub token at
+`https://api.github.com/copilot_internal/v2/token`. The grant keeps the session
+token as `access`, the GitHub token as `github`, and an expiry five minutes
+before the session's own. Renewal repeats the exchange with the stored GitHub
+token; `BeginProviderRenewal` captures the declaration from the enabled
+package, so the grant needs no saved authentication target.
+
+The `copilot` preset is offered with two routes of one channel, Chat
+Completions and Responses, at `https://api.githubcopilot.com`. Discovery lists
+a model on the route its `supported_endpoints` names, and a model that names
+none on Chat Completions. Claude models are used through Chat Completions.
+
+Differences from the reference, all deliberate:
+
+- The reference signs in natively and refuses a package that declares
+  `copilot`; Go has one sign-in owner, so the flow is a package.
+- The reference uses the service endpoint the exchange returns. The package
+  pins `https://api.githubcopilot.com`, since a channel's endpoint is fixed
+  when it is saved and a different returned endpoint would fail the
+  destination check. GitHub Enterprise Cloud with data residency
+  (`*.ghe.com`) is not supported.
+- The reference stores the session's own expiry; the package stores it five
+  minutes early, as current clients renew.
+- As in the reference, a Copilot renewal writes no `renewal_pending` marker:
+  the exchange is a read that does not rotate the GitHub token. A refusal
+  (401, 403 or 404) marks the grant `renewal_rejected`; any other failure
+  leaves it unmarked and a later use repeats the exchange.
+- The client identity follows current Copilot Chat rather than the reference's
+  older values.
+
+Not covered: a model served only on `/v1/messages` (the host has no
+Anthropic route at Copilot's origin), plan and quota status (account resources
+inject the session token, and the quota endpoint needs the GitHub token), and
+native web search, which Copilot channels do not offer.

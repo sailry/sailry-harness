@@ -4,17 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/kaptinlin/jsonpointer"
+	"github.com/sailry/sailry-harness/internal/node/program"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -140,7 +137,7 @@ func (node *Node) runConnectorCLI(ctx context.Context, declaration protocol.Plug
 			environment[name] = value
 		}
 	}
-	executable, err := connectorExecutable(declaration.Command, environment)
+	executable, err := program.Resolve(declaration.Command, environment)
 	if err != nil {
 		return nil, connectorUnavailable()
 	}
@@ -154,7 +151,7 @@ func (node *Node) runConnectorCLI(ctx context.Context, declaration protocol.Plug
 	output := &connectorOutput{limit: int(declaration.MaxOutput)}
 	command.Stdout = output
 	command.WaitDelay = 2 * time.Second
-	cleanup, err := startConnectorCLI(command)
+	cleanup, err := program.StartGroup(command)
 	if err != nil {
 		return nil, connectorUnavailable()
 	}
@@ -163,29 +160,4 @@ func (node *Node) runConnectorCLI(ctx context.Context, declaration protocol.Plug
 		return nil, connectorUnavailable()
 	}
 	return slices.Clone(output.Bytes()), nil
-}
-
-func connectorExecutable(name string, environment map[string]string) (string, error) {
-	if strings.ContainsAny(name, `/\`) {
-		return "", errors.New("local credential command must use an executable name")
-	}
-	names := []string{name}
-	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
-		for _, extension := range strings.Split(environment["PATHEXT"], ";") {
-			names = append(names, name+strings.ToLower(extension))
-		}
-	}
-	for _, directory := range filepath.SplitList(environment["PATH"]) {
-		if !filepath.IsAbs(directory) {
-			continue
-		}
-		for _, candidate := range names {
-			path := filepath.Join(directory, candidate)
-			info, err := os.Stat(path)
-			if err == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0111 != 0) {
-				return path, nil
-			}
-		}
-	}
-	return "", exec.ErrNotFound
 }

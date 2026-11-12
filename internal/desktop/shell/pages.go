@@ -40,7 +40,21 @@ func (a *App) Navigate(p Page) {
 	if p != a.Page {
 		a.Settings.CloseDetails()
 	}
+	if p == SettingsPage && a.Page != SettingsPage {
+		a.before = a.Page
+	}
 	a.Page, a.shown = p, a.Sidebar.Selected
+}
+
+// ToggleSettings opens Settings, or from Settings goes back to the page it
+// opened over: the rail's button opens and closes it (user decision
+// 2026-11-12).
+func (a *App) ToggleSettings() {
+	if a.Page == SettingsPage {
+		a.Navigate(a.before)
+		return
+	}
+	a.Navigate(SettingsPage)
 }
 
 // ClosePage closes the independent page shown, back to the conversation.

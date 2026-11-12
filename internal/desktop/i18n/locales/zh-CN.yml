@@ -266,7 +266,6 @@ session_window_failed: 无法打开新窗口
 project_edit: 编辑项目
 project_remove: 移除项目
 workspace_new_terminal: 创建终端
-workspace_records: 会话记录
 worktree_manage: 管理 worktree
 worktree_create: 创建 worktree
 worktree_remove: 删除 worktree
@@ -613,6 +612,7 @@ chat_rewind_confirm: 保留此回合并移除后续消息？文件不变
 chat_search: 搜索对话
 chat_search_result: 搜索结果
 chat_status_unsynced: 状态未同步
+chat_sync_failed: 会话同步失败
 compact_reason_unknown: 此次失败未记录具体原因
 composer_cache: 缓存率
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
@@ -1477,24 +1477,16 @@ workspace_host_status: 未连接 · UI 预览
 local_host_detail: macOS · aarch64 · 示例
 remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主机
-workspace_host_type: 主机类型
 workspace_worktrees: worktree
 workspace_sessions: 会话
-host_active_preview: 活动会话（示例）
-project_empty: 此主机还没有项目。添加项目后即可创建会话或终端。
-workspace_runtime: 运行环境
 host_runtime_loading: 正在读取运行环境（示例）
 host_version: 主机版本
-host_system_version: 系统版本
-host_timezone: 时区
 host_uptime: 运行时长
 host_protocol: 协议版本
 host_unknown: 未获取
 host_uptime_days: '%{count} 天'
 host_uptime_hours: '%{count} 小时'
 host_uptime_minutes: '%{count} 分钟'
-host_runtime_preview: 此处仅展示 UI 示例快照；读取中或失败时保留已有值。真实环境将在公共节点接入后读取。
-workspace_runtime_preview: 真实操作系统、运行时版本与主机指标将在公共节点接入后读取
 workspace_running: 运行中的 Agent
 host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
 host_runtime_error: 运行环境读取失败（示例）：%{error}
@@ -1858,7 +1850,6 @@ ssh_key_changed: 主机密钥已变化，请核对指纹
 ssh_trust: 信任
 ssh_trust_title: 信任主机密钥
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: 正在读取主机运行信息
 live_host_runtime_error: 无法读取主机运行信息
 live_metrics_loading: 正在读取指标
 live_metrics_error: 无法读取主机指标
@@ -1948,6 +1939,7 @@ market_permission_worktrees_read: 读取工作树
 market_permission_worktrees_write: 管理工作树
 market_permission_process_read: 查看命令
 market_permission_process_control: 运行命令
+market_permission_process_run: 在此设备上运行其声明的程序
 market_permission_terminals_read: 读取终端
 market_permission_conversation_read: 读取会话
 market_permission_conversation_control: 控制会话

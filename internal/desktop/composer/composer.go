@@ -105,7 +105,6 @@ type State struct {
 	queue      queueState
 	queueOpen  bool // the queue tray's rows show: folded until the user unfolds it; kept while the queue empties
 	ref        refState
-	files      fileState
 	caret      int // a caret to put in the draft next frame, -1 for none
 	focus      bool
 	area       ui.Element
@@ -275,7 +274,6 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.contextBar(c, ctx, actions)
 		})
 	})
-	s.filePicker(c, ctx, actions)
 }
 
 // surface is padding 12, radius_2xl, muted, the package's border width in the
@@ -409,7 +407,7 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 	ui.Row(c.Key("toolbar")).FillWidth().MinWidth(0).MinHeight(32).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("start")).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 			kit.IconButton(c.Key("attach"), icons.Plus, i18n.T(c, "composer_attachment"), 32, false).Radius(16).
-				Disabled(!s.canPickFiles(ctx)).OnClick(func() { s.openFiles(ctx) })
+				Disabled(!s.canPickFiles(ctx)).OnClick(func() { s.openFiles(c, ctx) })
 			if compact {
 				s.settingsButton(c, ctx, actions)
 			} else {

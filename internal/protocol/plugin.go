@@ -229,6 +229,7 @@ type PluginExtension struct {
 	ModelAuth           []PluginModelAuthDeclaration       `json:"model_auth"`
 	ModelResources      []PluginModelAuthResource          `json:"model_resources,omitempty"`
 	ModelAdapters       []PluginModelAdapterDeclaration    `json:"model_adapters"`
+	Programs            []PluginProgramDeclaration         `json:"programs,omitempty"`
 	Ui                  []PluginUiContribution             `json:"ui"`
 	Cards               []PluginCardDeclaration            `json:"cards,omitempty"`
 }
@@ -263,6 +264,7 @@ func DefaultPluginExtension() PluginExtension {
 		ModelAuth:           []PluginModelAuthDeclaration{},
 		ModelResources:      []PluginModelAuthResource{},
 		ModelAdapters:       []PluginModelAdapterDeclaration{},
+		Programs:            []PluginProgramDeclaration{},
 		Ui:                  []PluginUiContribution{},
 		Cards:               []PluginCardDeclaration{},
 	}
@@ -292,6 +294,7 @@ func (value *PluginExtension) UnmarshalJSON(data []byte) error {
 	decoded.ModelAuth = []PluginModelAuthDeclaration{}
 	decoded.ModelResources = []PluginModelAuthResource{}
 	decoded.ModelAdapters = []PluginModelAdapterDeclaration{}
+	decoded.Programs = []PluginProgramDeclaration{}
 	decoded.Ui = []PluginUiContribution{}
 	decoded.Cards = []PluginCardDeclaration{}
 	if err := DecodeObject(data, &decoded, []string{"api_version"}, true); err != nil {
@@ -312,6 +315,7 @@ func (value PluginExtension) MarshalJSON() ([]byte, error) {
 	encoded.ModelAuth = normalizeCollections(encoded.ModelAuth)
 	encoded.ModelResources = normalizeCollections(encoded.ModelResources)
 	encoded.ModelAdapters = normalizeCollections(encoded.ModelAdapters)
+	encoded.Programs = normalizeCollections(encoded.Programs)
 	encoded.Ui = normalizeCollections(encoded.Ui)
 	encoded.Cards = normalizeCollections(encoded.Cards)
 	return json.Marshal(encoded)

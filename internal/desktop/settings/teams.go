@@ -226,26 +226,29 @@ func (m *Model) team(id string) *preview.Team {
 func teamRows(c *ui.Context, m *Model) {
 	p := theme.Of(c)
 	row := func(key, name, desc, meta string, builtin bool, members []string, open func()) {
-		b := ui.ButtonBase(c.Key(key)).Label(name).Padding(12, 16).Margin(0, -16).Gap(12).Justify(ui.Start).Cursor(ui.CursorPointer).OnClick(open)
-		if b.Hovered() {
-			b.Background(p.Hover)
-		}
-		b.Children(func() {
-			kit.MediaRow(c, name, desc, func() { kit.Tile(c, name, icons.Users) }, func() {
-				if builtin {
-					kit.Tag(c, i18n.T(c, "team_builtin"))
-				}
-			})
-			ui.Row(c).Shrink(0).Gap(4).Children(func() {
-				for i, id := range members[:min(5, len(members))] {
-					if r := m.role(id); r != nil {
-						ui.Row(c.Key(i)).Size(20, 20).Radius(10).Center().Background(kit.AgentColor(c, r.ID)).TextColor(theme.OnTint).Children(func() {
-							ui.Text(c, string([]rune(r.Name)[:1])).FontSize(10).FontWeight(600)
-						})
+		kit.Bleed(c, "row:"+key, func() {
+			b := ui.ButtonBase(c.Key(key)).Label(name).Padding(12, 16).Margin(0, -16).Gap(12).Justify(ui.Start).Cursor(ui.CursorPointer).OnClick(open)
+			if b.Hovered() {
+				b.Background(p.Hover)
+			}
+			b.Children(func() {
+				kit.MediaRow(c, name, desc, func() { kit.Tile(c, name, icons.Users) }, func() {
+					if builtin {
+						kit.Tag(c, i18n.T(c, "team_builtin"))
 					}
-				}
+				})
+				ui.Row(c).Shrink(0).Gap(4).Children(func() {
+					for i, id := range members[:min(5, len(members))] {
+						if r := m.role(id); r != nil {
+							ui.Row(c.Key(i)).Size(20, 20).Radius(10).Center().Background(kit.AgentColor(c, r.ID)).TextColor(theme.OnTint).Children(func() {
+								ui.Text(c, string([]rune(r.Name)[:1])).FontSize(10).FontWeight(600)
+							})
+						}
+					}
+				})
+				ui.Text(c, meta).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
 			})
-			ui.Text(c, meta).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+
 		})
 	}
 	kit.Card(c, func() {

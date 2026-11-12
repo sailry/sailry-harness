@@ -266,7 +266,6 @@ session_window_failed: Impossible d'ouvrir la fenêtre
 project_edit: Modifier le projet
 project_remove: Supprimer le projet
 workspace_new_terminal: Créer un terminal
-workspace_records: Comptes rendus de session
 worktree_manage: Gérer les arbres de travail
 worktree_create: Nouvel arbre de travail
 worktree_remove: Supprimer l'arbre de travail
@@ -613,6 +612,7 @@ chat_rewind_confirm: Garder ce tour et supprimer les messages suivants ? Les fic
 chat_search: Rechercher une conversation
 chat_search_result: Résultats de la recherche
 chat_status_unsynced: Statut non synchronisé
+chat_sync_failed: Synchronisation de la conversation a échoué
 compact_reason_unknown: Aucun détail supplémentaire n’a été enregistré pour cet échec
 composer_cache: Cache
 composer_compression_hint: 'Compression de contexte: pas de données d''exécution (aperçu de l''interface utilisateur)'
@@ -1477,24 +1477,16 @@ workspace_host_status: · Aperçu de l'interface utilisateur
 local_host_detail: macOS · aarch64 · Aperçu
 remote_host_detail: Linux · x86_64
 host_update: Mettre à jour l'hôte
-workspace_host_type: Type d &apos; hôte
 workspace_worktrees: Arbres de travail
 workspace_sessions: Sessions
-host_active_preview: Sessions actives (aperçu)
-project_empty: Aucun projet sur cet hôte; ajoutez-en un pour créer des sessions ou des terminaux
-workspace_runtime: Temps d'exécution
 host_runtime_loading: Lecture de l'environnement d'exécution (aperçu)
 host_version: Version de l'hôte
-host_system_version: Version du système
-host_timezone: Fuseau horaire
 host_uptime: Temps de fonctionnement
 host_protocol: Version du protocole
 host_unknown: Inconnu
 host_uptime_days: '%{count} jours'
 host_uptime_hours: '%{count} heures'
 host_uptime_minutes: '%{count} minutes'
-host_runtime_preview: Instantané de l’interface uniquement ; les valeurs existantes sont conservées pendant le chargement ou en cas d’échec. Les données d’exécution en direct nécessitent le Node partagé.
-workspace_runtime_preview: Le système d'exploitation Live, les versions d'exécution et les métriques d'hôte nécessitent le partage Node
 workspace_running: Agents en cours d'exécution
 host_activity_hint: Aperçu de l'activité de session uniquement ; aucun véritable processus Agent ou CLI n'est démarré
 host_runtime_error: 'Impossible de lire l''exécution (aperçu): %{error}'
@@ -1858,7 +1850,6 @@ ssh_key_changed: Clé d'hôte modifiée, vérifiez l'empreinte digitale
 ssh_trust: Faire confiance
 ssh_trust_title: Clé d'hôte de confiance
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
@@ -1948,6 +1939,7 @@ market_permission_worktrees_read: Lire les arbres de travail
 market_permission_worktrees_write: Gérer les arbres de travail
 market_permission_process_read: Voir les commandes
 market_permission_process_control: Exécuter des commandes
+market_permission_process_run: Exécuter ses programmes déclarés sur cet appareil
 market_permission_terminals_read: Lire les terminaux
 market_permission_conversation_read: Lire les conversations
 market_permission_conversation_control: Contrôler les conversations

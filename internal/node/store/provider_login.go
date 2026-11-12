@@ -342,7 +342,9 @@ func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeI
 		return nil, fault(protocol.ErrorCodeNotConfigured, "provider authorization expired; sign in again")
 	}
 	previous := grant
-	grant.RenewalPending = true
+	// Copilot's exchange is a read that does not rotate the GitHub token, so a
+	// lost answer consumes nothing and the grant is not marked uncertain.
+	grant.RenewalPending = grant.Kind != protocol.AuthenticationCopilot
 	body, err := json.Marshal(grant)
 	if err != nil {
 		return nil, err

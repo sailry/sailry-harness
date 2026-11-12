@@ -280,7 +280,6 @@ session_window_failed
 project_edit
 project_remove
 workspace_new_terminal
-workspace_records
 worktree_manage
 worktree_create
 worktree_remove
@@ -630,6 +629,7 @@ chat_rewind_confirm
 chat_search
 chat_search_result
 chat_status_unsynced
+chat_sync_failed
 compact_reason_unknown
 composer_cache
 composer_compression_hint
@@ -1489,24 +1489,16 @@ workspace_host_status
 local_host_detail
 remote_host_detail
 host_update
-workspace_host_type
 workspace_worktrees
 workspace_sessions
-host_active_preview
-project_empty
-workspace_runtime
 host_runtime_loading
 host_version
-host_system_version
-host_timezone
 host_uptime
 host_protocol
 host_unknown
 host_uptime_days
 host_uptime_hours
 host_uptime_minutes
-host_runtime_preview
-workspace_runtime_preview
 workspace_running
 host_activity_hint
 host_runtime_error
@@ -1870,7 +1862,6 @@ ssh_key_changed
 ssh_trust
 ssh_trust_title
 usage_duration_ms
-live_host_runtime_loading
 live_host_runtime_error
 live_metrics_loading
 live_metrics_error
@@ -1960,6 +1951,7 @@ market_permission_worktrees_read
 market_permission_worktrees_write
 market_permission_process_read
 market_permission_process_control
+market_permission_process_run
 market_permission_terminals_read
 market_permission_conversation_read
 market_permission_conversation_control

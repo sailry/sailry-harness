@@ -206,7 +206,8 @@ func marketPlugins(c *ui.Context, s *State) {
 		for _, x := range shown {
 			inst := m.installedPackage(x.ID)
 			action := MarketAction(inst != nil, inst != nil && Update(inst))
-			desc := i18n.T(c, x.Source) + " · " + x.Description
+			// The source is the filter above the cards, not repeated on each.
+			desc := x.Description
 			var install func()
 			if x.Requires == "" {
 				install = func() {

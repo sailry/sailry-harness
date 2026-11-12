@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	nodeproviders "github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -187,8 +188,9 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 		method := viewmodel.Method{ID: source + ":" + p.ID, Name: p.Name, Icon: p.ID, Access: "provider_access_key"}
 		switch p.Auth.Kind {
 		case "builtin":
-			method.Access, method.Login, method.OAuthFields = "provider_access_login", "provider_access_login", true
+			method.Access, method.Login = "provider_access_login", "provider_access_login"
 			auth, _ := detail[protocol.ConversationPresetsAuthBuiltinPayload](p.Auth.Data)
+			method.OAuth = oauthDefaults(auth.Authentication)
 			if auth.Authentication == protocol.AuthenticationClaudeOAuth {
 				method.Login = "provider_login_claude"
 			} else if auth.Authentication == protocol.AuthenticationChatGpt || auth.Authentication == protocol.AuthenticationChatGptOAuth {
@@ -245,6 +247,27 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 	})
 	r.App.Settings.Brands = brands
 }
+
+// oauthDefaults are the advanced settings a built-in sign-in has, at the
+// values the Node uses for one saved without them (providers.OAuthFields),
+// in Channel.OAuth's order: catalog version, user agent, editor version and
+// editor plugin version.
+func oauthDefaults(authentication protocol.Authentication) [4]string {
+	switch authentication {
+	case protocol.AuthenticationChatGpt:
+		return [4]string{1: defaultUserAgent}
+	case protocol.AuthenticationChatGptOAuth:
+		return [4]string{nodeproviders.DefaultCatalogVersion, defaultUserAgent}
+	case protocol.AuthenticationClaudeOAuth:
+		return [4]string{1: nodeproviders.DefaultClaudeAgent}
+	case protocol.AuthenticationCopilot:
+		return [4]string{1: nodeproviders.DefaultCopilotAgent, 2: nodeproviders.DefaultCopilotEditor, 3: nodeproviders.DefaultCopilotEditorPlugin}
+	}
+	return [4]string{}
+}
+
+// defaultUserAgent is the Node's user agent for a ChatGPT sign-in.
+const defaultUserAgent = "Sailry/0.1"
 
 // apiBrands are the families of channels saved without a preset, by their
 // wire protocol.
@@ -466,7 +489,7 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	if p.Authentication != protocol.AuthenticationApiKey && p.Authentication != protocol.AuthenticationPlugin {
 		userAgent := d.OAuth[1]
 		if userAgent == "" {
-			userAgent = "Sailry/0.1"
+			userAgent = defaultUserAgent
 		}
 		var catalog *string
 		if d.OAuth[0] != "" {
@@ -483,11 +506,14 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			options.Data = protocol.ConversationOauthOptionsClaudeOAuthPayload{UserAgent: userAgent}
 		case protocol.AuthenticationCopilot:
 			editor, plugin := d.OAuth[2], d.OAuth[3]
+			if d.OAuth[1] == "" {
+				userAgent = nodeproviders.DefaultCopilotAgent
+			}
 			if editor == "" {
-				editor = "vscode/1.107.0"
+				editor = nodeproviders.DefaultCopilotEditor
 			}
 			if plugin == "" {
-				plugin = "copilot-chat/0.35.0"
+				plugin = nodeproviders.DefaultCopilotEditorPlugin
 			}
 			options.Data = protocol.ConversationOauthOptionsCopilotPayload{UserAgent: userAgent, EditorVersion: editor, EditorPluginVersion: plugin}
 		}
@@ -507,6 +533,16 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		}
 		if i := slices.IndexFunc(old, func(v protocol.ConversationModel) bool { return v.ID == model.ID }); i >= 0 {
 			m = old[i]
+			// What a later discovery recorded for the model's adapter replaces
+			// the saved record; the rest of the saved model stays.
+			if known, ok := r.providerModels[d.Channel.ID][model.ID]; ok && known.Capabilities != nil && known.Capabilities.Options != nil {
+				capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+				if m.Capabilities != nil {
+					capabilities = *m.Capabilities
+				}
+				capabilities.Options = known.Capabilities.Options
+				m.Capabilities = &capabilities
+			}
 		}
 		if model.Name != "" && model.Name != model.ID {
 			name := model.Name

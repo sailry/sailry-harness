@@ -17,6 +17,14 @@ import (
 const DefaultCatalogVersion = "0.160.1"
 const DefaultClaudeAgent = "claude-cli/2.1.280 (external, cli)"
 
+// Copilot's service identifies its editor client by these values.
+const (
+	DefaultCopilotAgent        = "GitHubCopilotChat/0.68.0"
+	DefaultCopilotEditor       = "vscode/1.140.0"
+	DefaultCopilotEditorPlugin = "copilot-chat/0.68.0"
+	copilotAPIVersion          = "2026-01-09"
+)
+
 type AccountTarget struct {
 	Provider    protocol.ProviderID                 `json:"provider"`
 	Package     protocol.PluginReference            `json:"package"`
@@ -108,7 +116,7 @@ func OAuthFields(provider protocol.ConversationProvider) (map[string]string, err
 		if provider.Api != protocol.ConversationModelApiResponses && provider.Api != protocol.ConversationModelApiChatCompletions {
 			return nil, invalid("OAuth settings do not match the provider protocol")
 		}
-		fields["editor_version"], fields["editor_plugin_version"] = "vscode/1.107.0", "copilot-chat/0.35.0"
+		fields["user_agent"], fields["editor_version"], fields["editor_plugin_version"] = DefaultCopilotAgent, DefaultCopilotEditor, DefaultCopilotEditorPlugin
 	default:
 		return nil, invalid("provider authentication is unsupported")
 	}
@@ -306,7 +314,7 @@ func AccountHeaders(provider protocol.ConversationProvider, secret *protocol.Sec
 		headers.Set("editor-version", fields["editor_version"])
 		headers.Set("editor-plugin-version", fields["editor_plugin_version"])
 		headers.Set("copilot-integration-id", "vscode-chat")
-		headers.Set("x-github-api-version", "2025-04-01")
+		headers.Set("x-github-api-version", copilotAPIVersion)
 	}
 	return grant, headers, nil
 }

@@ -37,7 +37,6 @@ func (actions *fixtureConversationActions) ImageAction(kit.ImageAction, conversa
 func (actions *fixtureConversationActions) Undo(string, string)   { actions.reject() }
 func (actions *fixtureConversationActions) Review(string, string) { actions.reject() }
 func (actions *fixtureConversationActions) LoadOlder()            { actions.reject() }
-func (actions *fixtureConversationActions) Reconnect()            { actions.reject() }
 func (actions *fixtureConversationActions) Quote(string)          { actions.reject() }
 func (actions *fixtureConversationActions) SaveEdit(string, string) {
 	actions.reject()

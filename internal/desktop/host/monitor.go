@@ -304,7 +304,7 @@ func gpuCard(c *ui.Context, s *State, h *Host, m *Metrics, t tones, room float32
 				}
 			})
 			detail(c, "history", room).Children(func() {
-				areaChart(c, "chart", 56, 100, nil, nil, label, series{gpuHistory(m, g.ID), t.gpu})
+				areaChart(c, "chart", 56, 100, nil, nil, label, percents(m.History), series{gpuHistory(m, g.ID), t.gpu, label})
 			})
 		})
 	})
@@ -364,7 +364,7 @@ func memoryCard(c *ui.Context, m *Metrics, t tones, room float32) {
 				for _, point := range m.History {
 					use = append(use, point.Memory)
 				}
-				areaChart(c, "chart", 56, 100, nil, nil, i18n.T(c, "metrics_memory"), series{use, t.memory})
+				areaChart(c, "chart", 56, 100, nil, nil, i18n.T(c, "metrics_memory"), sizes(m.History, m.Memory), series{use, t.memory, i18n.T(c, "host_memory_used")})
 			})
 		})
 	})
@@ -393,11 +393,11 @@ func trendCard(c *ui.Context, s *State, m *Metrics, t tones) {
 			}
 			legend(c, i18n.T(c, "metrics_memory"), value, t.memory)
 		})
-		all := []series{{cpu, t.cpu}, {memory, t.memory}}
+		all := []series{{cpu, t.cpu, i18n.T(c, "metrics_cpu")}, {memory, t.memory, i18n.T(c, "metrics_memory")}}
 		if hasGPU {
-			all = []series{{cpu, t.cpu}, {gpuHistory(m, g.ID), t.gpu}, {memory, t.memory}}
+			all = []series{all[0], {gpuHistory(m, g.ID), t.gpu, i18n.T(c, "metrics_gpu")}, all[1]}
 		}
-		areaChart(c, "chart", 180, 100, percentTicks(), clockTicks(m.History, 5), i18n.T(c, "host_utilization"), all...)
+		areaChart(c, "chart", 180, 100, percentTicks(), clockTicks(m.History, 5), i18n.T(c, "host_utilization"), percents(m.History), all...)
 	})
 }
 
@@ -437,7 +437,8 @@ func networkCard(c *ui.Context, m *Metrics, t tones) {
 			received, sent = append(received, point.Received), append(sent, point.Transmitted)
 		}
 		top := ceiling(received, sent)
-		areaChart(c, "chart", 96, top, rateTicks(top), nil, i18n.T(c, "metrics_network"), series{received, t.download}, series{sent, t.upload})
+		areaChart(c, "chart", 96, top, rateTicks(top), nil, i18n.T(c, "metrics_network"), rates(c, m.History),
+			series{received, t.download, i18n.T(c, "metrics_download")}, series{sent, t.upload, i18n.T(c, "metrics_upload")})
 	})
 }
 
@@ -471,7 +472,8 @@ func diskCard(c *ui.Context, s *State, h *Host, m *Metrics, t tones) {
 			read, written = append(read, v[0]), append(written, v[1])
 		}
 		top := ceiling(read, written)
-		areaChart(c, "chart", 96, top, rateTicks(top), nil, i18n.T(c, "metrics_disks"), series{written, t.write}, series{read, t.read})
+		areaChart(c, "chart", 96, top, rateTicks(top), nil, i18n.T(c, "metrics_disks"), rates(c, m.History),
+			series{written, t.write, i18n.T(c, "host_disk_write")}, series{read, t.read, i18n.T(c, "host_disk_read")})
 	})
 }
 

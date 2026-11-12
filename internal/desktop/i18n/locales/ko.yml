@@ -266,7 +266,6 @@ session_window_failed: 창을 열 수 없음Name
 project_edit: 프로젝트 편집
 project_remove: 프로젝트 삭제
 workspace_new_terminal: 터미널 만들기
-workspace_records: 세션 기록
 worktree_manage: 작업 트리 관리
 worktree_create: 새 작업 트리
 worktree_remove: 작업 트리 삭제
@@ -613,6 +612,7 @@ chat_rewind_confirm: 이 턴을 남기고 이후 메시지를 제거할까요? �
 chat_search: 대화 검색
 chat_search_result: 검색 결과
 chat_status_unsynced: 상태가 동기화되지 않음
+chat_sync_failed: 대화 동기화 실패
 compact_reason_unknown: 이 오류의 자세한 원인은 기록되지 않았습니다
 composer_cache: 캐시
 composer_compression_hint: '컨텍스트 압축: 런타임 데이터 없음(UI 미리보기)'
@@ -1477,24 +1477,16 @@ workspace_host_status: 연결 끊김 · UI 미리보기
 local_host_detail: macOS · aarch64 · 미리보기
 remote_host_detail: Linux · x86_64 · 미리보기
 host_update: 호스트 업데이트
-workspace_host_type: 호스트 종류
 workspace_worktrees: 작업 트리
 workspace_sessions: 세션
-host_active_preview: 활성 세션 (미리보기)
-project_empty: 이 호스트에 프로젝트가 없습니다. 세션이나 터미널을 만들려면 하나 추가하십시오
-workspace_runtime: 런타임
 host_runtime_loading: 런타임 읽기 (미리보기)
 host_version: 호스트버전
-host_system_version: 시스템 버전
-host_timezone: 시간대
 host_uptime: 가동 시간
 host_protocol: 프로토콜 버전
 host_unknown: 알 수 없음
 host_uptime_days: '%{count} 일'
 host_uptime_hours: '%{count} 시간'
 host_uptime_minutes: '%{count} 분'
-host_runtime_preview: UI 스냅샷만 표시하며 로딩 중이거나 실패해도 기존 값은 유지됩니다. 실시간 실행 데이터에는 공유 Node가 필요합니다.
-workspace_runtime_preview: 라이브 OS, 런타임 버전 및 호스트 메트릭에는 공유 Node이 필요합니다
 workspace_running: 실행 중인 에이전트
 host_activity_hint: 세션 활동 미리보기만; 실제 에이전트 또는 CLI 프로세스가 시작되지 않음
 host_runtime_error: '런타임을 읽을 수 없습니다 (미리보기): %{error}'
@@ -1858,7 +1850,6 @@ ssh_key_changed: 호스트 키 변경, 지문 확인
 ssh_trust: 신뢰
 ssh_trust_title: 호스트 키 신뢰
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
@@ -1948,6 +1939,7 @@ market_permission_worktrees_read: 작업 트리 읽기
 market_permission_worktrees_write: 작업 트리 관리
 market_permission_process_read: 명령 보기
 market_permission_process_control: 명령 실행
+market_permission_process_run: 선언된 프로그램을 이 기기에서 실행
 market_permission_terminals_read: 터미널 읽기
 market_permission_conversation_read: 대화 읽기
 market_permission_conversation_control: 대화 제어

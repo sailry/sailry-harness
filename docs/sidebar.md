@@ -115,13 +115,13 @@ mono worktree path.
 | Mark read / unread | menu | `Status` Unread ↔ Idle |
 | Archive | hover button, menu | Confirm (`workspace_archive`, `workspace_memory_only`, `workspace_confirm`), then hidden in memory |
 | Delete | menu | Confirm naming the session once (`session_delete`, `session_delete_named`), and for a chat without a project that its private workspace's files go with it (`session_delete_private_files`), then removed from memory; its split pane leaves with it |
-| Export, Fork, Open file, New window | menu | `preview_notice` toast. In Demo mode, which says nothing of itself: Fork conversation copies the session beside itself in memory and shows the copy, Fork in new worktree does so in a worktree added to the project in memory; Export, Open folder and New window are not offered, as they need a Node, the system's file manager or a second window (`fork`) |
+| Export, Fork, Open file, New window | menu | `preview_notice` toast. In Demo mode, which says nothing of itself: Fork conversation copies the session beside itself in memory and shows the copy, Fork in new worktree does so in a worktree added to the project in memory; Export, Open folder and New window are not offered, as they need a Node, the system's file manager or a second window (`fork`). Every other item of the menu, the hover buttons, the header's Sort and "+" and the drags act on the demo's memory as on the preview's |
 | Copy title, ID, path | menu › `content_copy` | Clipboard |
 | New session | project menu | The project's unsent conversation when it has one, otherwise an empty one in the project, in memory |
 | Project overview, New terminal, Worktrees | project menu | `preview_notice` toast in the preview. In Demo mode they act on the demo ([Project menu](#project-menu)) |
 | Edit project | project menu | The editor with its name, path and appearance |
 | Remove project | project menu | A project with sessions is refused with the toast `project_remove_sessions`; otherwise confirm naming the path once (`project_remove_sample`, `project_remove_preview`), then removed from memory. Demo mode asks as the live window does (`project_remove_named`) and removes the project with its sessions from the demo's memory |
-| Open folder | `folder.open` (the menu, the shortcut) | The directory picker titled `menu_open_folder`; the choice opens the project already at that path on the shown host, otherwise adds one named after the directory |
+| Open folder | `folder.open` (the menu, the shortcut) | The directory picker titled `menu_open_folder`; the choice opens the project already at that path on the shown host, otherwise adds one named after the directory. Demo mode does the same over the sample catalog, without the preview's note |
 
 Right-click menus are the system's (`Element.ContextMenu`); their items and
 order follow the reference's live menus, `live/menus/session_actions.rs` and
@@ -254,7 +254,10 @@ Open folder adding and reopening, the refusal to remove a project
 with sessions and the removal of one without. `TestProjectMenu`
 (`shell/project_menu_test.go`) covers the menus over the demo: the item list
 in the preview and the demo, every project item's effect on the demo's data,
-the session menu's forks and its absent items, and the panel launcher.
+the session menu's forks and its absent items, every other session item
+(`SessionItems`), the groups' "+", Sort, Add project and a row's drag
+(`Groups`), the rail's host menu (`HostMenu`), the search palette's project
+(`Search`), and the panel launcher.
 `firstRunProjects` checks the live menu's exact items and separators against
 a real Node, Copy path, Project overview, that New terminal and Create
 worktree reach their adapters, and that New terminal leaves with the
@@ -302,7 +305,7 @@ none once no session runs.
 | The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
 | The project menu's New terminal and worktrees entries are the application's own controls, not mounted package entries | The application owns terminals and worktrees. They sit in the `project_menu` slot at their packages' orders and show only while `commands` and `worktrees` are enabled, as the reference's contributed entries do. The worktrees entry is a submenu (create, the list, remove) where the reference has one item opening its manager |
 | The project menu has no CLI submenu and no Manage branches | The user's decision of 2026-11-12 for the CLI ([removed-ui](removed-ui.md)); the `git` package is not mounted and branches are managed in the Git panel |
-| The project menu has no Records entry | The reference's live menu has none; the project page lists the project's sessions and terminals. `State.ShowRecords` and its dialog remain, opened by nothing in the menu |
+| The project menu has no Records entry | The reference's live menu has none; the project page lists the project's sessions and terminals. The reference's records dialog (`session_records`) opens only from its preview menu's Session records item, so the dialog, `Actions.Records` and the live adapter behind it are removed ([removed-ui](removed-ui.md)) |
 | The running row's loader is MyGo's `loading.Swirl` in one color | The user's decision; the dot matrix in the info, warning and danger colors is removed ([components.md](components.md#deviations)) |
 | The appearance popover lays the icons out six to a row | `kit.Popover` with Kit ghost buttons; the reference's popover wraps them freely |
 
@@ -359,9 +362,11 @@ remain unavailable.
 
 Combined presentation preserves each conversation's Node and each project's
 Host identity while every shared Client retains its own snapshot. Actions
-capture the owning Client instead of following later navigation. New projects
-opened from a Host page default to that exact Host; an existing project's Host
-remains read-only.
+capture the owning Client instead of following later navigation. A new project's
+editor opened at a Host (`OpenEditorAtHost`) defaults to that exact Host; no
+control opens it so since the host page lost its projects section
+([removed-ui.md](removed-ui.md)), and the editor's host select chooses the
+Host. An existing project's Host remains read-only.
 
 Project Overview opens `shell.ProjectPage` with the project's captured Node and
 project ID. The page resolves current facts by both identities, independently of
@@ -394,10 +399,10 @@ registration result cannot replace a different page or conversation.
 The overview reads Git status for its captured worktree. Directory
 initialization uses the existing Node `RunGitAction` command and its expected
 Git state; nested repositories require the ordinary confirmation. New terminal
-and terminal records remain unavailable until B10. B8 connects the AI CLI
-menu/overview callbacks to the owning Node's tool inventory and a captured
-worktree launcher. Its minimal authorized terminal prerequisite opens the actual
-Node-owned AI CLI through MyGo Mirror/Conn in the panel. General terminal
+and terminal records remain unavailable until B10. B8's AI CLI
+menu and overview entries were removed ([removed UI](removed-ui.md), rows 22
+and 24). Its minimal authorized terminal prerequisite opens a Node-owned
+terminal through MyGo Mirror/Conn in the panel. General terminal
 resources and split actions remain B10. The preview's project-menu behavior
 remains unchanged.
 

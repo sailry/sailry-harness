@@ -24,7 +24,6 @@ type ProjectActions struct {
 	OpenSession    func(*viewmodel.Conversation, func(bool))
 	Repository     func() ProjectRepository
 	Initialize     func(func(bool))
-	CLI            func(*viewmodel.Project)
 	// NewTerminal starts a terminal in the project's main worktree and shows
 	// its tab. Terminals lists the project's terminals the Node has not
 	// closed, and OpenTerminal shows one's tab.
@@ -133,20 +132,15 @@ func (a *App) projectView(c *ui.Context) {
 					ui.Icon(c, icons.Plus).FontSize(16)
 					ui.Text(c, label).FontSize(14)
 				}).OnClick(func() { state.actions.NewSession(project) })
-				for _, key := range []string{"workspace_new_terminal", "cli_launch"} {
-					label := i18n.T(c, key)
-					available := key == "cli_launch" && state.actions.CLI != nil || key == "workspace_new_terminal" && state.actions.NewTerminal != nil
-					button := kit.SecondaryLook(c, ui.ButtonBase(c.Key(key)).Label(label)).Disabled(!available).Children(func() {
-						ui.Icon(c, icons.Terminal).FontSize(16)
-						ui.Text(c, label).FontSize(14)
-					})
-					if available && key == "workspace_new_terminal" {
-						button.OnClick(func() { state.actions.NewTerminal(project) })
-					} else if available {
-						button.OnClick(func() { state.actions.CLI(project) })
-					} else {
-						kit.Tooltip(c, button, i18n.T(c, "unavailable"))
-					}
+				terminal := i18n.T(c, "workspace_new_terminal")
+				button := kit.SecondaryLook(c, ui.ButtonBase(c.Key("workspace_new_terminal")).Label(terminal)).Disabled(state.actions.NewTerminal == nil).Children(func() {
+					ui.Icon(c, icons.Terminal).FontSize(16)
+					ui.Text(c, terminal).FontSize(14)
+				})
+				if state.actions.NewTerminal != nil {
+					button.OnClick(func() { state.actions.NewTerminal(project) })
+				} else {
+					kit.Tooltip(c, button, i18n.T(c, "unavailable"))
 				}
 				if state.actions.Controls != nil {
 					state.actions.Controls(c)
@@ -158,8 +152,10 @@ func (a *App) projectView(c *ui.Context) {
 	state.initializeDialog(c)
 }
 
+// projectRecordsView is the project's records: its sessions or its
+// terminals, searched, in the list Settings pages use (kit.List: the filled
+// card, rows apart by hairlines, the empty state inside it).
 func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, state *projectOverview) {
-	palette := theme.Of(c)
 	ui.Column(c.Key("project-records")).FillWidth().Gap(12).Padding(16, 0, 0, 0).Children(func() {
 		ui.Row(c.Key("toolbar")).Gap(16).Wrap().Children(func() {
 			kit.Segmented(c, "tabs", &state.tab, []string{i18n.T(c, "workspace_sessions"), i18n.T(c, "terminal")}, kit.SegmentedProps{})
@@ -167,41 +163,31 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 			label := i18n.T(c, "search")
 			ui.SearchField(c.Key("search"), &state.search).Placeholder(label).Label(label).Width(240).MinWidth(0)
 		})
-		ui.Column(c.Key("records")).FillWidth().Border(1, palette.Border).Radius(palette.RadiusLg).Padding(8).Children(func() {
-			query := strings.ToLower(strings.TrimSpace(state.search))
-			shown := 0
-			if state.tab == 1 {
-				if state.actions.Terminals == nil {
-					kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "unavailable")}).FillWidth()
-					return
+		query := strings.ToLower(strings.TrimSpace(state.search))
+		matches := func(title, path string) bool {
+			return query == "" || strings.Contains(strings.ToLower(title), query) || strings.Contains(strings.ToLower(path), query)
+		}
+		var rows []func()
+		icon, none := icons.Bot, "project_sessions_empty"
+		switch {
+		case state.tab == 1 && state.actions.Terminals == nil:
+			icon, none, query = icons.Terminal, "unavailable", ""
+		case state.tab == 1:
+			icon, none = icons.Terminal, "workspace_no_terminal"
+			for _, terminal := range state.actions.Terminals() {
+				title := terminal.Title
+				if title == "" {
+					title = i18n.T(c, "terminal")
 				}
-				for _, terminal := range state.actions.Terminals() {
-					title := terminal.Title
-					if title == "" {
-						title = i18n.T(c, "terminal")
-					}
-					if query != "" && !strings.Contains(strings.ToLower(title), query) && !strings.Contains(strings.ToLower(terminal.Path), query) {
-						continue
-					}
-					shown++
-					kit.Ghost(c.Key("terminal/"+terminal.ID), title, false).FillWidth().Padding(12).Gap(12).Justify(ui.Start).
-						Disabled(state.actions.OpenTerminal == nil).Children(func() {
-						ui.Icon(c, icons.Terminal).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
-						ui.Column(c.Key("details")).Grow(1).MinWidth(0).Gap(4).Children(func() {
-							ui.Text(c, title).FontSize(14).SingleLine()
-							ui.Text(c, terminal.Path).FontSize(12).SingleLine().TextColor(palette.MutedForeground)
-						})
-					}).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
+				if !matches(title, terminal.Path) {
+					continue
 				}
-				if shown == 0 {
-					key := "workspace_no_terminal"
-					if query != "" {
-						key = "connection_search_empty"
-					}
-					kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, key)}).FillWidth()
-				}
-				return
+				rows = append(rows, func() {
+					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false, nil).
+						Disabled(state.actions.OpenTerminal == nil).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
+				})
 			}
+		default:
 			for _, session := range project.Conversations {
 				if (!a.sampled() && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
 					continue
@@ -211,33 +197,54 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 				if path == "" {
 					path = project.Path
 				}
-				if query != "" && !strings.Contains(strings.ToLower(title), query) && !strings.Contains(strings.ToLower(path), query) {
+				if !matches(title, path) {
 					continue
 				}
-				shown++
-				kit.Ghost(c.Key(session.Node+"/"+session.ID), title, false).FillWidth().Padding(12).Gap(12).Justify(ui.Start).
-					Disabled(state.pending || state.actions.OpenSession == nil).Children(func() {
-					if state.pending && state.opening == session.Node+"/"+session.ID {
-						kit.Busy(c)
-					} else {
-						ui.Icon(c, icons.Bot).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
-					}
-					ui.Column(c.Key("details")).Grow(1).MinWidth(0).Gap(4).Children(func() {
-						ui.Text(c, title).FontSize(14).SingleLine()
-						ui.Text(c, path).FontSize(12).SingleLine().TextColor(palette.MutedForeground)
+				id := session.Node + "/" + session.ID
+				rows = append(rows, func() {
+					projectRecord(c, id, title, path, nil, state.pending && state.opening == id, project).
+						Disabled(state.pending || state.actions.OpenSession == nil).
+						ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
+						state.pending, state.opening = true, id
+						state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
 					})
-				}).ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
-					state.pending, state.opening = true, session.Node+"/"+session.ID
-					state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
 				})
 			}
-			if shown == 0 {
-				key := "project_sessions_empty"
-				if query != "" {
-					key = "connection_search_empty"
-				}
-				kit.Result(c, kit.ResultProps{Icon: icons.Bot, Title: i18n.T(c, key)}).FillWidth()
+		}
+		if query != "" {
+			none = "connection_search_empty"
+		}
+		kit.List(c, len(rows), func(i int) { rows[i]() }, func() {
+			kit.Result(c, kit.ResultProps{Icon: icon, Title: i18n.T(c, none)}).FillWidth()
+		})
+	})
+}
+
+// projectRecord is a row of the records' card that opens something, at the
+// Settings row metrics: the icon in its slot (a spinner while busy), the
+// title over the path, and the neutral hover fill across the card. A
+// session's row leads with its project's glyph (user decision 2026-11-12)
+// in place of icon.
+func projectRecord(c *ui.Context, key, title, path string, icon *ui.SVG, busy bool, project *viewmodel.Project) ui.Element {
+	palette := theme.Of(c)
+	row := ui.ButtonBase(c.Key(key)).Label(title).Padding(kit.RowPad, 16).Margin(0, -16).Gap(kit.RowIconGap).MinHeight(kit.RowMinHeight).
+		Justify(ui.Start).Cursor(ui.CursorPointer).TextColor(palette.SurfaceForeground)
+	if row.Hovered() {
+		row.Background(palette.Hover)
+	}
+	return row.Children(func() {
+		ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
+			if busy {
+				kit.Busy(c)
+			} else if project != nil {
+				kit.ProjectGlyph(c, project.Icon, project.Color, 18)
+			} else {
+				ui.Icon(c, icon).FontSize(18).TextColor(palette.MutedForeground)
 			}
+		})
+		ui.Column(c.Key("details")).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
+			ui.Text(c, title).FontSize(kit.RowFont).SingleLine()
+			ui.Text(c, path).FontSize(kit.RowFont).SingleLine().TextColor(palette.Description())
 		})
 	})
 }

@@ -1,6 +1,7 @@
 package preview
 
 import (
+	"slices"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -45,6 +46,38 @@ func goalStatus(state string, tone kit.Tone, tail, objective composer.Text, show
 		badge.Panel.Buttons = append(badge.Panel.Buttons, composer.PanelButton{ID: "goal-" + key, Label: label("pursuit." + key), Ghost: index > 0})
 	}
 	return badge
+}
+
+// GoalAction is a button of the goal's panel on the demo's conversation, in
+// memory: Pause and Resume change the badge's state and its buttons, End
+// takes the badge away. It reports whether id and button are the goal's.
+func GoalAction(c *Conversation, id, button string) bool {
+	at := slices.IndexFunc(c.Badges, func(b composer.StatusBadge) bool { return b.ID == id && b.Panel != nil })
+	if at < 0 {
+		return false
+	}
+	label := (&demo{}).both
+	set := func(state string, tone kit.Tone, buttons ...string) {
+		b := &c.Badges[at]
+		b.Segment = []composer.Segment{{Text: label(state), Tone: tone}}
+		panel := *b.Panel
+		panel.Buttons = nil
+		for index, key := range buttons {
+			panel.Buttons = append(panel.Buttons, composer.PanelButton{ID: "goal-" + key, Label: label("pursuit." + key), Ghost: index > 0})
+		}
+		b.Panel = &panel
+	}
+	switch button {
+	case "goal-pause":
+		set("pursuit.paused", kit.Caution, "resume", "end")
+	case "goal-resume":
+		set("goal.running", kit.Info, "pause", "end")
+	case "goal-end":
+		c.Badges = slices.Delete(slices.Clone(c.Badges), at, at+1)
+	default:
+		return false
+	}
+	return true
 }
 
 // pursuit is a goal in progress: the user's turn set it, a continuation

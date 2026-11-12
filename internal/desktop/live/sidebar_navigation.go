@@ -67,7 +67,6 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 	}
 	root := r.localRuntime()
 	actions := shell.ProjectActions{
-		CLI: func(project *viewmodel.Project) { root.openCLILauncher(project, selectedPath) },
 		NewSession: func(current *viewmodel.Project) {
 			owner := root.projectOverviewRuntime(current)
 			if owner == nil {

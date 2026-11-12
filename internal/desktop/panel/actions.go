@@ -115,7 +115,7 @@ func (pr *Project) fileAction(c *ui.Context, action FileAction) {
 		pr.Actions.File(c, action)
 		return
 	}
-	notice(c)
+	sampled(c, func() bool { return pr.Actions == nil && pr.sampleFile(c, action) })
 }
 func (pr *Project) gitAction(c *ui.Context, action GitAction) {
 	if pr.Actions != nil && pr.Actions.Git != nil {
@@ -123,14 +123,15 @@ func (pr *Project) gitAction(c *ui.Context, action GitAction) {
 		pr.Actions.Git(c, action)
 		return
 	}
-	notice(c)
+	sampled(c, func() bool { return pr.Actions == nil && pr.sampleGit(c, action) })
 }
 func (pr *Project) refresh(c *ui.Context) {
 	if pr.Actions != nil && pr.Actions.Refresh != nil {
 		pr.Actions.Refresh()
 		return
 	}
-	notice(c)
+	// The demo's repository is already as its memory has it.
+	sampled(c, func() bool { return pr.Actions == nil })
 }
 func (pr *Project) readFile(path string) {
 	if pr.Actions != nil && pr.Actions.ReadFile != nil {

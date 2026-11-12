@@ -117,10 +117,11 @@ type featureUsage struct {
 }
 
 // count sends the uses to the local Node. The Node counts or drops them by
-// consent; a failed count is not retried and not shown.
+// consent; a failed count is not retried and not shown. The demo sends
+// nothing to a Node, so what is used in it is not counted.
 func (r *Runtime) count(features ...protocol.FeatureUse) {
 	root := r.localRuntime()
-	if len(features) == 0 || root.App.Preview {
+	if len(features) == 0 || root.App.Preview || root.App.DemoOn() {
 		return
 	}
 	root.async(func() {
