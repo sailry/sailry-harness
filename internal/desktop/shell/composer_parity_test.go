@@ -186,16 +186,13 @@ func composerParity(t *testing.T) {
 		}
 	})
 
-	// The composer has no host choice (AGENTS.md, Removed UI): with two hosts
-	// offered, neither the context bar nor, below the icon width, the
-	// compact settings popover has a control named after one.
+	// The composer has no host choice (AGENTS.md, Removed UI): neither the
+	// context bar nor, below the icon width, the compact settings popover
+	// has a control named after one of the preview's two hosts.
 	t.Run("no host control", func(t *testing.T) {
 		for _, width := range []int{960, 440} {
 			tt, _, _ := composerWith(t, width, func(s *composer.State, ctx *composer.Context) {
 				ctx.LocationLocked = false
-				if len(ctx.Hosts) < 2 {
-					t.Fatalf("the preview offers %d hosts, want two", len(ctx.Hosts))
-				}
 			})
 			if width == 440 {
 				for _, e := range tt.AccessAll() {

@@ -63,7 +63,7 @@ func workspaceChanges(status protocol.GitStatus) *composer.Changes {
 	if status.Kind == protocol.RepositoryKindDirectory {
 		return nil
 	}
-	value := &composer.Changes{Files: len(status.Entries), Partial: status.Truncated}
+	value := &composer.Changes{Files: len(status.Entries)}
 	entries := append([]protocol.GitEntry(nil), status.Entries...)
 	slices.SortStableFunc(entries, func(a, b protocol.GitEntry) int {
 		var am, bm uint64

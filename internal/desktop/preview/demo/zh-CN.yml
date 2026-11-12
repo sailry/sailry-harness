@@ -1,6 +1,5 @@
 # The demo's prose (Demo mode) in Simplified Chinese, under en.yml's keys.
 
-provider.description: "DeepSeek 对话与推理模型"
 plugin.git: "在会话中查看分支、差异与提交"
 plugin.knowledge: "按语义检索本地文档"
 plugin.goals: "让智能体持续推进的目标"

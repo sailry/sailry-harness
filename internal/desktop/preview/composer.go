@@ -66,9 +66,6 @@ func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := &composer.Context{
 		Models: d.Models, Families: Families, Teams: Teams, Interactions: c.Waiting, Queue: c.Queue,
 	}
-	for _, h := range d.Hosts {
-		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
-	}
 	for _, p := range d.Projects {
 		pr := composer.Project{ID: p.ID, Name: p.Name, Host: p.Host}
 		for _, w := range p.Worktrees {

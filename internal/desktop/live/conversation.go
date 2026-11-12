@@ -92,7 +92,7 @@ func (r *Runtime) projectModels() {
 	own := len(r.snapshot().Providers)
 	for i, p := range r.composerProviders() {
 		if i < own {
-			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name, Enabled: p.Enabled})
+			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name})
 		}
 		if !p.Enabled {
 			continue
@@ -280,8 +280,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			ctx.Families = append(ctx.Families, family)
 		}
 	}
-	// Context.Hosts stays empty: the composer has no host choice
-	// (AGENTS.md, Removed UI); a draft runs on its project's Node.
+	// The composer has no host choice (AGENTS.md, Removed UI); a draft runs
+	// on its project's Node.
 	ctx.Projects = r.composerProjects()
 	if s, ok := r.session(cv.ID); ok {
 		ctx.LocationLocked = true

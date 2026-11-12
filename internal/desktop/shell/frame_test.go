@@ -938,15 +938,6 @@ func testSearchRules(t *testing.T) {
 	if got := Filter(groups, ""); len(got) != 2 {
 		t.Errorf("empty query: %+v", got)
 	}
-	for _, c := range []struct {
-		n, sel int
-		rev    bool
-		want   int
-	}{{3, 2, false, 0}, {3, 0, true, 2}, {3, -1, false, 0}, {3, -1, true, 2}, {0, 0, false, -1}} {
-		if got := Next(c.n, c.sel, c.rev); got != c.want {
-			t.Errorf("Next(%d, %d, %v) = %d", c.n, c.sel, c.rev, got)
-		}
-	}
 }
 
 // TestMoreDragShowsInsertionLine drags Activity over the lower half of
