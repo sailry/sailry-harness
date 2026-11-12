@@ -212,28 +212,35 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 			}
 			return
 		}
-		table := ui.Table(view, &state.list, definitions, count, func(row, column int) {
-			absolute := first + row
-			cell := ui.Column(view).Gap(3).MinHeight(nativeProp(props, "row_height", float32(32)))
-			if index := column; index < len(alignments) && alignments[index] == "end" {
-				cell.AlignItems(ui.End)
-			}
-			if absolute < len(details) {
-				cell.Tooltip(details[absolute][column])
-			} else {
-				cell.Tooltip(rows[absolute][column])
-			}
-			cell.Children(func() {
-				if absolute < len(cells) && column < len(cells[absolute]) {
-					binding.renderTableLine(view, cells[absolute][column].Primary, false)
-					if secondary := cells[absolute][column].Secondary; secondary != nil {
-						binding.renderTableLine(view, *secondary, true)
-					}
-				} else {
-					nativeText(view, rows[absolute][column]).SingleLine()
+		// MyGo fills a chosen row with its theme's accent, the app's
+		// emphasis color: the table is built under the neutral theme, so a
+		// chosen row takes the neutral selected fill, as the file picker's
+		// and the host's processes do.
+		var table ui.Element
+		ui.Themed(view.Key("neutral"), theme.Neutral(view)).Background(ui.Transparent).Grow(1).FillWidth().MinHeight(0).Children(func() {
+			table = ui.Table(view, &state.list, definitions, count, func(row, column int) {
+				absolute := first + row
+				cell := ui.Column(view).Gap(3).MinHeight(nativeProp(props, "row_height", float32(32)))
+				if index := column; index < len(alignments) && alignments[index] == "end" {
+					cell.AlignItems(ui.End)
 				}
-			})
-		}).Grow(1).FillWidth()
+				if absolute < len(details) {
+					cell.Tooltip(details[absolute][column])
+				} else {
+					cell.Tooltip(rows[absolute][column])
+				}
+				cell.Children(func() {
+					if absolute < len(cells) && column < len(cells[absolute]) {
+						binding.renderTableLine(view, cells[absolute][column].Primary, false)
+						if secondary := cells[absolute][column].Secondary; secondary != nil {
+							binding.renderTableLine(view, *secondary, true)
+						}
+					} else {
+						nativeText(view, rows[absolute][column]).SingleLine()
+					}
+				})
+			}).Grow(1).FillWidth()
+		})
 		table.OnChange(func() {
 			var row *int
 			if state.selected >= 0 {

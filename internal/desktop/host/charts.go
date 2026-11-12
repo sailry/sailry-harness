@@ -16,7 +16,8 @@ import (
 // tones are the monitor's series colours, from the theme's status and base
 // colours (the reference's Tones).
 type tones struct {
-	cpu, memory, cache, swap  ui.Color
+	cpu, gpu, memory, cache   ui.Color
+	swap                      ui.Color
 	download, upload          ui.Color
 	write, read               ui.Color
 	track, grid               ui.Color
@@ -25,7 +26,7 @@ type tones struct {
 
 func tonesOf(p *theme.Palette) tones {
 	return tones{
-		cpu: p.Success, memory: p.Warning, cache: p.Warning.Alpha(0.5), swap: p.MutedForeground.Alpha(0.5),
+		cpu: p.Success, gpu: p.Magenta, memory: p.Warning, cache: p.Warning.Alpha(0.5), swap: p.MutedForeground.Alpha(0.5),
 		download: p.Blue, upload: p.Info, write: p.Warning, read: p.Success,
 		track: p.MutedForeground.Alpha(0.16), grid: p.Border,
 		warning: p.Warning, danger: p.Danger, positive: p.Success,

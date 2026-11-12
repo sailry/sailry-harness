@@ -244,6 +244,7 @@ knowledge_slide: 第 %{slide} 張
 workspace_archive: 歸檔會話
 session_delete: 刪除會話
 session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: 重新命名
 session_title_required: 請輸入名稱
 session_mark_read: 標記為已讀
@@ -1548,6 +1549,20 @@ host_process_name: 程序
 host_pid: PID
 host_process_empty: 暫無程序
 host_process_no_matches: 無匹配程序
+host_process_details: 檢視詳情
+host_process_copy_pid: 複製 PID
+host_process_copy_name: 複製名稱
+host_process_stop: 結束程序
+host_process_force_stop: 強制結束
+host_process_stop_confirm: 向此程序傳送結束請求，可能中斷正在進行的任務
+host_process_force_confirm: 立即結束此程序，未儲存的資料可能丟失
+host_process_stop_sent: 已傳送結束請求
+host_process_gone: 此程序已退出
+host_process_changed: 程序已變化，請重新整理後重試
+host_process_protected: 無法結束系統程序或當前主機服務
+host_process_uncertain: 結束結果未知，請檢查程序狀態
+host_process_stop_failed: 無法結束程序，可能已退出、許可權不足或主機不支援此操作
+metrics_gpu: GPU
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發
@@ -1621,7 +1636,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 新增
+reference_group_context: 上下文
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1862,7 +1877,7 @@ authorization_connected: 已連線
 connector_bound: 已綁定
 connector_checked: 連線正常
 connector_mcp_reconnected: 已連線，%{n} 個工具
-connector_consent_effect: 繼續前請確認授權目標的變更
+connector_consent_effect: 允許變更後的連線權限
 connector_changed_origins: 來源
 connector_changed_scopes: 權限範圍
 connector_changed_client: 用戶端

@@ -20,7 +20,7 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 	u := h.Update
 	kit.Dialog(c.Key("host-update"), &s.updating, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-		if !h.Live {
+		if !h.plain(c) {
 			ui.Text(c, i18n.T(c, "update_preview")).FontSize(14).TextColor(p.MutedForeground)
 		}
 		ui.Scroll(c.Key("status")).MaxHeight(min(max(wh-300, 80), 300)).Gap(12).Children(func() {
@@ -29,7 +29,7 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 				return
 			}
 			headline := u.Headline()
-			if h.Live {
+			if h.plain(c) {
 				headline = "live_" + headline
 			}
 			ui.Text(c, i18n.T(c, headline)).FontSize(14).FontWeight(600)
@@ -56,7 +56,7 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 			}
 			if _, label, ok := u.Primary(); ok {
 				expected := *u
-				if h.Live {
+				if h.plain(c) {
 					label = "live_" + label
 				}
 				text := i18n.T(c, label)

@@ -244,6 +244,7 @@ knowledge_slide: 第 %{slide} 张
 workspace_archive: 归档会话
 session_delete: 删除会话
 session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
+session_delete_private_files: 其私有工作区中的文件也会一并删除
 workspace_rename: 重命名
 session_title_required: 请输入名称
 session_mark_read: 标记为已读
@@ -1548,6 +1549,20 @@ host_process_name: 进程
 host_pid: PID
 host_process_empty: 暂无进程
 host_process_no_matches: 无匹配进程
+host_process_details: 查看详情
+host_process_copy_pid: 复制 PID
+host_process_copy_name: 复制名称
+host_process_stop: 结束进程
+host_process_force_stop: 强制结束
+host_process_stop_confirm: 向此进程发送结束请求，可能中断正在进行的任务
+host_process_force_confirm: 立即结束此进程，未保存的数据可能丢失
+host_process_stop_sent: 已发送结束请求
+host_process_gone: 此进程已退出
+host_process_changed: 进程已变化，请刷新后重试
+host_process_protected: 无法结束系统进程或当前主机服务
+host_process_uncertain: 结束结果未知，请检查进程状态
+host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
+metrics_gpu: GPU
 port_title: 端口转发
 port_mappings: 端口映射
 port_add: 新建转发

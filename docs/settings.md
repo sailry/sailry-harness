@@ -1042,7 +1042,7 @@ so an action finishes and toasts after the page has moved on.
 
 | Control | Command | Notes |
 |---|---|---|
-| Page | `read_backup_settings`, the controller's snapshot | Read when the page shows and after every action that did not return settings. Controls are disabled (`Backup.Pending`) until the settings are known and while an action runs. Archived sessions and the session count come from the snapshot |
+| Page | `read_backup_settings`, the controller's snapshot | Read when the page shows and after every action that did not return settings. Controls are disabled (`Backup.Pending`) until the settings are known and while an action runs. Archived sessions and the session count come from the snapshot. Deleting an archived session without a project (`Archived.Private`) adds `session_delete_private_files` to the confirmation's consequence: the Node removes that session's private workspace with it |
 | Storage dialog › Save | `save_backup_settings` | Sent at the revision read. Typed secrets replace, blank ones keep, Clear credentials removes; WebDAV clears the session token. The schedule is left as saved. A clean draft closes without a request. The draft stays in the dialog until the Node has saved it |
 | Choose folder | the in-app host file picker (docs/files.md), titled `backup_local_directory` | Browses the shown host through its controller, opening at the field's path |
 | Schedule switch, time, timezone | `save_backup_settings` | The switch saves at once, time and timezone 350 ms after they rest, with every secret kept. An enabled schedule without a timezone waits. A draft the Node refused is not sent again until it changes |
