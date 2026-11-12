@@ -59,7 +59,6 @@ type packageState struct {
 	themeBusy          map[string]bool
 	themeRead          bool
 	themeGeneration    atomic.Uint64
-	cli                *cliLauncher
 	downloadCancel     context.CancelFunc
 	downloadGeneration uint64
 	terminals          map[string]*liveTerminal

@@ -337,7 +337,6 @@ git_action_conflict: Git state changed, refresh
 git_action_failed: Git operation failed
 git_action_unknown: Git outcome unconfirmed, refresh before continuing
 git_auth_failed: Git authentication failed
-cli_launch: Launch AI CLI
 workspace_memory_only: Changes preview only
 workspace_confirm: Confirm
 project_remove_named: Remove project “%{name}”? Its terminals will close; files and sessions will be kept

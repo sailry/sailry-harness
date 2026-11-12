@@ -64,6 +64,7 @@ func TestCatalogKeys(t *testing.T) {
 			"workspace_runtime", "workspace_runtime_preview", "host_runtime_preview", "live_host_runtime_loading",
 			"workspace_host_type", "host_active_preview", "host_system_version", "host_timezone",
 			"project_empty", // the empty state of the host page's projects section
+			"cli_launch",    // the Launch AI CLI dialog of the project menu and page
 		} {
 			if _, listed := catalogs["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see Removed UI in AGENTS.md", key)
