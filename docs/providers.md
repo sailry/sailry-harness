@@ -309,6 +309,28 @@ two groups and their members, a mark for every preset and brand, distinct
 method rows, the family filter's options, the protocol switch and the command
 a save sends.
 
+### Package sign-in warning and model facts
+
+A package authentication flow can declare a `warning`. The preset directory
+carries it as the entry's optional `login_warning`, and the Desktop shows it in
+the settings confirmation dialog, titled with the channel, before each sign-in
+attempt: `begin_provider_login` is sent only after Continue, Cancel sends
+nothing, and the next attempt asks again. A channel whose flow declares none
+starts at once. The text is the package's own, chosen by the package locale.
+The Mobile mirror displays channels and does not start sign-in, so it shows no
+warning. `testProviderLoginWarning` drives this against a fake Node.
+
+A plugin translation receives the installed package's resolved settings, may
+record per-model `options` at discovery and may refuse a request from `prepare`
+with its own class and message before any HTTP. Recorded options are saved on
+the model's capabilities, replaced by a later discovery and merged under the
+provider's policies. Discovery runs on "Update models" and on validation only.
+
+Deviations: the reviewed source has no sign-in warning, no settings input and no
+refusal result; these three are additions for packages whose provider may
+suspend accounts or charge for some models. Setting titles are looked up by
+field name first, as the source does, then by English title as before.
+
 ## Validation and current boundaries
 
 The model tests cover semantic provider requests, stable prompt fields,
