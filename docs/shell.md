@@ -128,6 +128,13 @@ act (⌥⌘B still changes the choice). The resize handles are
 6 DIP strips over the edges (custom: `ui.Split` keeps both panes 40 DIPs
 wide and cannot close one to nothing, which the motion needs).
 
+A conversation pane (the main column, or a pane of a split) is the
+transcript filling it from under the header to its bottom, with the
+composer floating over the transcript's end (`conversation.Docked`, see
+`docs/conversation.md`), then the navigation rail over both. The welcome
+page hosts its composer itself, and the child transcript of the right panel
+has no dock.
+
 ### Side column per page
 
 The column beside the rail belongs to the page (`App.HasNavigation`, the
@@ -610,6 +617,7 @@ none.
 
 | Deviation | Reason |
 |---|---|
+| The composer floats over the transcript's end rather than standing under the transcript (user decision 2026-11-12) | The reference's column ends the transcript's scroll bar where the composer begins; see `docs/conversation.md` |
 | Breadcrumbs in the header | The plan asks for them; the reference shows a title |
 | Header icon buttons are 28 with a 15 icon, the rail's icon is 15 | Kit's accepted small button (docs/components.md); the reference's header buttons are 24 with a 14 icon and its rail icon is 16 |
 | The details toggle is disabled while the window has no room for the panel | It cannot act then; it used to dim and still take clicks |

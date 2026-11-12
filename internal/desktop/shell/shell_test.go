@@ -46,10 +46,16 @@ func clickTree(t *testing.T, tt *ui.Tester, label string) {
 	tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
 }
 
-// codeHas reports whether the editor or diff side labelled label shows s.
+// codeHas reports whether an editor or diff side labelled label shows s.
+// A reply's code block carries the same label, and the transcript, which
+// fills its pane, may have built one above the view.
 func codeHas(tt *ui.Tester, label, s string) bool {
-	e, ok := tt.Access(label)
-	return ok && strings.Contains(e.Value, s)
+	for _, e := range tt.AccessAll() {
+		if e.Name == label && strings.Contains(e.Value, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func click(t *testing.T, tt *ui.Tester, label string) {
@@ -651,6 +657,7 @@ func TestOpenUnsupportedFile(t *testing.T) {
 // the actions and at the text's inset, without the draft's Remove.
 func TestQueueEditorShowsAttachments(t *testing.T) {
 	_, tt := newTester(t)
+	unfoldQueue(t, tt)
 	edit := i18n.In("en", "queue_edit")
 	var last ui.AccessInfo
 	for _, e := range tt.AccessAll() {

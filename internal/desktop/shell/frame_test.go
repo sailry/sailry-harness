@@ -972,6 +972,11 @@ func still(tt *ui.Tester) {
 // nothing to show.
 func testHeaderSplit(t *testing.T) {
 	a, tt := newTester(t)
+	// The band's buttons are told from the transcript's by where they are,
+	// and the transcript scrolls under the band: with the queue tray folded
+	// a message's Copy and Edit rest there. Unfolded, the transcript is
+	// where these checks were written for.
+	unfoldQueue(t, tt)
 	en := func(k string) string { return i18n.In("en", k) }
 	fold := func() ui.AccessInfo {
 		t.Helper()
