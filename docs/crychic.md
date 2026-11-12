@@ -228,6 +228,12 @@ What to use instead, with the surface Kit's:
   `connection_connecting` and `connections_offline`. Kit has tags and badges
   but no status dot that pulses while a connection is coming up. It sits on
   the page, not in a floating surface, and needs no adapter.
+- `ConnectionStatus` is also the status of each row in Settings ›
+  Connections (`settings/connections.go`, [settings.md](settings.md)), in
+  place of `kit.StatusDot` and a text: `Online` for a device that is online
+  and `Offline` otherwise, never `Reconnecting`, so it is still. The three
+  texts are all the row's own status (this device, peer to peer, relay,
+  offline), and the element has the status role the dot and text lacked.
 
 ### Destructive confirmation
 
@@ -268,287 +274,52 @@ What to use instead, with the surface Kit's:
 - `SourceCard` and `Citation` open the address themselves through
   `c.OpenURL` when `ui.SafeToOpen` allows it (http, https, mailto) and report
   the click as `Changed`.
-- `JumpToLatest` builds an empty box at zero and does not scroll: read
-  `Clicked`.
-- `Lightbox` has nothing `kit.ImageViewer` lacks. Its adapter is kept and
-  tested, unused.
-
-### Other
-
-| Component | Signature | Panics on | Copy | Status |
-|---|---|---|---|---|
-| `overlay.ShortcutSheet` | `(c, title string, groups []ShortcutGroup, open *bool, o ShortcutSheetOptions) ui.Element` | empty title, no group, an untitled or empty group, a shortcut without label or keys, nil open | `Close` | **not usable** (its panel) |
-| `overlay.WhatsNew` | `(c, title string, features []Feature, page *int, open *bool, o WhatsNewOptions) ui.Element` | empty title, no feature, an untitled feature, an `Icon` that is not a Lucide name, nil or out-of-range page, nil open | `Back`, `Next`, `Done` | **not usable** (its panel) |
-| `desktop.UpdatePrompt` | `(c, app, version string, notes []string, o UpdatePromptOptions) (root, install, later ui.Element)` | blank app or version, an `Icon` that is not a Lucide name | `Title` (*format* `%s` the app), `Version` (*format* `%s`), `Install`, `Later` | **hosted** |
-| `overlay.HoverCard` | `(c, label string, anchor ui.Element, content func()) ui.Element` | empty label, nil content | none | **not usable** (its card) |
-| `navigation.ZoomControl` | `(c, label string, zoom *float64, o ZoomControlOptions) ui.Element` | empty label, nil zoom, a zoom that is NaN or outside `Min` to `Max`, an invalid range | `Out`, `In`, `Fit` | adapter |
-| `media.Waveform` | `(c, label string, levels []float64, played float64, o WaveformOptions) ui.Element` | empty label, no level, a level or `played` outside 0 to 1 or NaN, a negative or non-finite `Height` | none | adapter |
-| `media.Recorder` | `(c, label string, state *Take, level float64, o RecorderOptions) ui.Element` | empty label, nil or unknown state, a level outside 0 to 1 or NaN | `Record`, `Pause`, `Resume`, `Stop` | direct, level through `crychic.Unit` |
-| `media.AudioPlayer` | `(c, label string, clip Clip, pos *time.Duration, playing *bool, o AudioPlayerOptions) ui.Element` | empty label, no note, a note outside 20 to 20000 Hz, a beat of zero, nil or out-of-range pos, nil playing | `Play`, `Seek` | **blocked** |
-| `devtools.LogView` | `(c, lines []LogLine, query *string, follow *bool, o LogViewOptions) ui.Element` | nil query or follow, a negative `Height`, a line without time or message, an unknown level, a blank or repeated ID | `Title`, `Search`, `Follow`, `Empty`, `Levels` | adapter |
-| `devtools.LevelFilter` | `(c, on *[4]bool, counts [4]int, o LevelFilterOptions) ui.Element` | nil `on`, a negative count | `Levels` | direct |
-| `code.CommitGraph` | `(c, label string, commits []GraphCommit) ui.Element` | empty label, no commit, an empty hash or message, a lane outside 0 to 7, a repeated hash, a parent listed at or before its child | none | adapter |
-| `code.DiffView` | `(c, st *editor.DiffState, split *bool, o DiffViewOptions) ui.Element` | nil state or flag; a negative or non-finite `Height` | `Name` (the file; the default is English `Changes`), `Split`, `Unified` | direct |
-| `code.BranchPicker` | `(c, label string, branches []Branch, current *int, query *string, o BranchPickerOptions) (root, field ui.Element)` | empty label, no branch, an unnamed or repeated branch, a negative count, nil or out-of-range current, nil query | `Placeholder`, `Empty`, `Current`; **fixed** accessible name `Clear search` | **blocked** |
-| `code.Blame` | `(c, label string, lines []BlameLine, o BlameOptions) ui.Element` | empty label, no line, a line without author or time | `FormatAge` (the default is English: `now`, `5m`, `2mo`) | adapter |
-
-- `media.AudioPlayer` is blocked for what it is: it plays a list of
-  synthesized notes through the cue system that Setup mutes, and cannot play an
-  audio file or stream. Read-aloud and attachments keep `internal/desktop/reader`.
-- `media.Recorder` is controls only. It captures nothing, and its elapsed time
-  lives in the element: it resets if the element leaves the tree.
-- `code.BranchPicker` is blocked by the fixed name on the clear button of the
-  library's search field, shown once the query is not empty. Its adapter is
-  kept and tested for when that is solved.
-- `ShortcutSheet` has no adapter: its panel is not Kit's frost and nothing
-  else of it can be hosted, so no page may call it.
-- Adapters: `ZoomControl` clamps a stored zoom; the range in `o` is the caller's.
-  `Waveform` clamps levels. `LogView` drops records without a message, shows a
-  dash for a missing time, clamps levels and replaces blank or repeated IDs.
-  `CommitGraph` shows the hash for a missing message, folds lanes onto eight
-  and builds nothing for a history it cannot draw. `BranchPicker` and `Blame`
-  build nothing for an unnamed or repeated branch and for a line without a time.
-- `UpdatePrompt` takes bundled data and icons: a wrong icon name panics on
-  first build, so it is caught by the feature's own test. It is a card with
-  Install and Later, not a dialog, and reports only the two clicks. The
-  updater's own surface, with its check, download, verification and restart,
-  does more and stays.
-- `Blame` builds every row and `LogView` filters every record on each build:
-  give them a bounded page, not a whole history or log.
-- `Blame` highlights with MyGo's editor language named by `Lang`; an unknown
-  name leaves the text plain.
-
-### Diagrams
-
-| Component | Signature | Panics on | Copy | Status |
-|---|---|---|---|---|
-| `diagram.Mermaid` | `(c, source string, o MermaidOptions) ui.Element` | nothing: a source it cannot draw shows an error box | `Label` (the accessible name; else the source's `accTitle`, else English `Diagram`), `Failed` (the error box's title; else English `Diagram failed`). The box's message is pele-go's, in English | adapter |
-
-It draws a Mermaid source natively, with no WebView and no JavaScript:
-`github.com/Broderick-Westrope/pele-go` v0.2.0 (MIT, a pure Go port of Pele
-1.10.0, standard library only) lays the source out and returns SVG, which the
-component reads into shapes and text runs and paints itself. All 33 of
-pele-go's kinds are registered: flowchart, sequence, class, state, er, gantt,
-gitGraph, journey, mindmap, timeline, quadrantChart, sankey, requirement, c4,
-block, architecture, kanban, packet, radar, treemap, venn, usecase, swimlane,
-wardley, treeView, railroad, ishikawa, eventmodeling, cynefin, agentflow,
-info, pie and xychart. The conversation uses it for every kind but the two
-data charts ([conversation.md](conversation.md#b10-visuals)), in place of
-limu's renderer and its MyGo adapter (`limumygo`), which are no longer
-linked. limu itself stays for its parser alone: the conversation's chart
-painter reads an `xychart-beta` or `pie` source's data with it.
-
-- **Adapter.** `crychic.Mermaid(c, source, o) (ui.Element, bool)` builds
-  nothing, and returns false, for a source the component would answer with
-  its error box, so the caller shows the source its own way: a transcript
-  shows the code block and never a red box. The component gives no result to
-  ask, so `crychic.MermaidOf(c, source)` renders the source with pele-go
-  first, with the component's own options and measurer, and keeps what it
-  learns per source, font and text size (at most 256): whether it draws, the
-  size it draws at, its kind, its `accTitle` and whether it draws a title of
-  its own. A caller sizes its layout from that. This is the one place Sailry
-  imports pele-go itself.
-- **What fails.** A source pele-go rejects (a syntax error, an unknown kind,
-  more than 50,000 characters or 5,000 edges), and a drawing the component
-  cannot read. pele-go passes the value of a `style` or `classDef` property
-  through as written, and the component fails the whole drawing on a `var()`
-  of a custom property in pele-go's own namespaces that it does not know, so
-  the adapter refuses a source that names one (`var(--_…)`, `var(--pele-…)`).
-  No other markup of a model's source reaches the reader: pele-go keeps
-  style properties to its own list and draws no links or images (both are
-  switched off).
-- **Name.** The adapter fills an empty `Label` with the source's `accTitle`,
-  else with the kind, so the library's English `Diagram` is never read out.
-  Give `Failed` from i18n all the same.
-- **Size.** The picture fills the width it is given up to its natural width
-  at the theme's text size, keeps its proportions and never grows past it.
-  The component passes pele-go no width, so the layout does not depend on the
-  room: the caller scales the picture or scrolls it.
-- **Colors.** `Text` for text and lines, `TextMuted`, `Surface` for node
-  fills, `SurfaceHover` for their second tone, `Border` for outlines,
-  `Background` behind edge labels (nothing is painted behind the picture),
-  `Radius` for corners, `Danger`, and for series `Accent`, `Success`,
-  `Warning`, `Danger`, three mixes of them and `TextMuted`, with no option.
-  Under `theme.Apply` alone the node fill is the page's own color in the
-  light appearance; a caller that wants another fill builds the picture
-  under `ui.Themed`, as the conversation does.
-- **Cost.** The layout runs on the UI goroutine inside the build, and again
-  whenever the source, font, text size or a color changes, so on every theme
-  switch. The scene lives in the element (`ui.Local`): an element built anew,
-  as when a virtual list brings a turn back, lays out again. With the
-  adapter's own render a new source is laid out twice. In the conversation's
-  test a reply with one diagram was first shown in 5 to 430 ms with both
-  layouts, most kinds in 20 to 130 ms and a radar slowest.
-- **Arrival.** The component rises 6 DIP and fades in over 200 ms every time
-  it is built anew. The adapter holds it still (no offset, full opacity), as
-  a virtual list would replay it; after those 200 ms nothing asks for a
-  frame.
-- **Logs.** One debug record per layout, `crychic: Mermaid drew` with the
-  source's length, the number of text runs and the size, or `crychic: Mermaid
-  failed` with pele-go's code, line and column: never the source *(tested)*.
-- **Access.** Role image with the name; no focus, no value and nothing to
-  interact with. The text inside the picture is painted, not exposed.
-
-Verified by the probe and the adapter's cases in `internal/desktop/kit/crychic`
-and by `TestLiveBlocks/diagrams` in `internal/desktop/conversation`, which
-draws every kind above but the two charts.
-
-### Charts
-
-The `chart` package is a fixed look over MyGo's own `ui/chart`. The
-components that could draw a reply's Mermaid `xychart-beta` or `pie` were
-read in source for the conversation's rules *(read; none was built, as none
-passes)*. None is used and no adapter exists: the conversation draws both
-with its own painter on `ui/chart` directly, MyGo being first in the order
-of preference ([conversation.md](conversation.md#b10-visuals)). The host
-monitor's area charts, sparklines and rings are drawn the same way
-(`host/charts.go`, [host.md](host.md)): they are live series with gaps for
-missing samples and no hover tip, which the components below do not take
-(NaN panics). The rest of the package (stacked, area, radar, sankey, treemap
-and the other shapes) was not assessed.
-
-| Component | Signature | Panics on | Copy | Status |
-|---|---|---|---|---|
-| `chart.Bars` | `(c, label string, labels []string, vs []float64, at *int, o BarsOptions) ui.Element` | empty label, no value, an empty or repeated label, lengths that differ, NaN or Inf, an `at` outside -1 to n-1 | none | **not used** |
-| `chart.HBars` | `(c, label string, labels []string, vs []float64, at *int, o HBarsOptions) ui.Element` | as `Bars` | none | **not used** |
-| `chart.GroupedBars` | `(c, label string, labels []string, series []Series, at *int, o GroupedBarsOptions) ui.Element` | as `Bars`, and no series, an unnamed or repeated series name | none | **not used** |
-| `chart.Line`, `chart.Crosshair` | `(c, label string, labels []string, series []Series, at *int, o …Options) ui.Element` | as `GroupedBars` | none | **not usable** (their tip) |
-| `chart.Combo` | `(c, label string, labels []string, bars, line Series, at *int, o ComboOptions) ui.Element` | as `GroupedBars` | none | **not used** |
-| `chart.Pie`, `chart.Donut` | `(c, label string, names []string, vs []float64, at *int, o …Options) ui.Element` | empty label, no value, an empty or repeated name, lengths that differ, NaN or Inf, a negative value, a sum of zero, an `at` out of range | `Donut`'s `Total` | **not used** |
-| `chart.ChartCard` | `(c, title, value string, delta float64, o ChartCardOptions, content func()) ui.Element` | not read further | `Delta` | **not used** (a card with a title) |
-
-What each rule of a chart in a conversation finds:
-
-- **Hover values.** `Bars`, `HBars`, `GroupedBars`, `Combo`, `Pie` and
-  `Donut` show a value only through MyGo's `Element.Tooltip`: after the
-  pointer rests 600 ms, in the theme's opaque inverse colors, not Kit's
-  frost. `Line` and `Crosshair` draw their own opaque bordered tip, anchored
-  above the plot's top edge, outside the chart and over the text before it.
-  A component that draws its own floating surface is not used.
-- **Colors.** Series take the accent and the status tones (success, warning,
-  danger) in turn, with no option; only substituting the whole theme changes
-  them, and a chart of status colors reads as a verdict.
-- **Mermaid's model does not map.** `Combo` is exactly one bar and one line
-  series on two separate axes, while Mermaid mixes any number on one. No
-  component takes a y range (the domain always includes zero), horizontal
-  grouped bars or lines, or a missing value (NaN panics). Series need
-  distinct names, which Mermaid's usually lack, and a legend is always shown
-  by `GroupedBars`, `Combo`, `Pie` and `Donut`. Every category label is drawn
-  whole in a zero-width box: nothing is left out or cut short.
-- **Picking.** A click picks a mark through the caller's `at` (the others dim,
-  a slice lifts) with no pointer way to clear it.
-- **Motion.** A 700 ms arrival plays whenever the element enters the tree,
-  which the virtual transcript does on every scroll back.
-- **Hostile data** would need an adapter for every panic above (repeated
-  labels, NaN, lengths, negative shares), after which the gaps above remain.
-
-Using a component for the few sources it could draw, and the painter for the
-rest, would give near-identical charts two looks and two hover behaviors.
-
-### `code.CommitGraph`
-
-It draws what it is given and computes nothing. Per commit, newest first:
-
-| Field | Required | Meaning |
-|---|---|---|
-| `Hash` | yes, unique in the list | Identity, and the key parents refer to. The row shows its first 7 characters |
-| `Message` | yes | The row's text and accessible name, on one line |
-| `Lane` | 0 to 7 | The column of the commit's dot. The caller assigns lanes: the library has no layout of its own |
-| `Parents` | no | Hashes. A parent in the list must come later in it; an edge is drawn to its dot, curving to its lane. A parent not in the list (beyond the page) is drawn as a line to the bottom edge. None draws no edge. Two or more make the dot larger |
-| `Refs` | no | Branch and tag names, shown as chips in the lane's color |
-| `Author` | no | Shown muted after the message |
-
-- So a history needs each commit's parents, an order in which every child
-  precedes its parents (`git log --topo-order`, or by date for an ordinary
-  history), and a lane per commit worked out by the caller. A listing without
-  parents cannot be drawn as a graph.
-- Panics (each by test): no commits, a commit without a message, a lane of 8,
-  a repeated hash, a parent listed before its child. Also an empty label or
-  hash and a commit that names itself as parent *(read)*.
-- `crychic.CommitGraph` shows the hash for a missing message, folds lanes
-  onto the eight drawn (lane 9 is drawn in lane 1, so two branches can share
-  a column) and builds nothing for a history it cannot draw: none, an
-  unnamed or repeated commit, or a parent listed before its child. Check the
-  result and show the plain history list instead.
-- Rows are not interactive: no selection, click or menu. Lane colors repeat
-  after four (accent, success, warning, danger).
-- It is not virtual. 400 commits build 400 rows at 36 DIP each, 14,408 DIP
-  tall, and every paint strokes every edge; that frame is at rest after the
-  one-second arrival and asks for no more *(tested with 400)*. It has no
-  scroll of its own: put it in a `ui.Scroll`, and page the history rather
-  than give it thousands of commits.
-
-### `code.DiffView`
-
-MyGo's `editor.DiffView` under a file bar: a file glyph, `Name`, `+N` and
-`−N` from the state, and a Split and Unified switch.
-
-- The caller owns the `editor.DiffState`, so the theme, font, hunk actions
-  and fit set on it stay. The component writes `st.Layout` from `*split` on
-  every build: the flag wins over the state *(tested)*.
-- Height. As built the root is `o.Height` tall, 320 DIP by default: it stays
-  320 in a taller body and shrinks into a shorter one. `Grow(1)` on the
-  returned root makes it fill a flexible tab body *(tested at 200 and 600
-  DIP)*; nothing in the library has to change.
-- It has its own border and radius and plays an arrival. The counts in the
-  bar duplicate any `+N −N` the caller shows.
-- Empty, binary and partial states are not its concern: build it only for a
-  text diff.
-
-## Compared with ours
-
-A read-only audit compared the whole library with our components by reading
-alone. Its findings about the components verified here were checked; its
-findings about components not in this document were not.
-
-| Finding | Result |
-|---|---|
-| CrychicUI needs MyGo v0.8.3; does it build against our pin? | Yes: the adapters and the tests build and pass on the pinned MyGo |
-| Colors come from `c.Theme()`; surfaces are opaque cards | Confirmed: every probe builds in both appearances; the overlays hide the page *(tested)* |
-| Every interaction asks for a cue; `SetEnabled(false)` silences it | Confirmed *(tested)*: the cue is recorded and nothing plays |
-| Logs are `slog.Debug` | Confirmed *(tested)* |
-| Fixed English: `input.PasswordField` (`Reveal <label>`), `input.KeyValueField` (`Remove row`), `code.BranchPicker` (`Clear search`) | Confirmed *(tested)*: each is present with every option filled |
-| Sizes are `B`, `KB`, `MB`; dates and ages default to English | Confirmed *(tested)*: `KB` shows in `FileCard` and `FileList`; `FormatDate` and `FormatAge` replace the others |
-| `files.FileList` panics on an empty directory and on duplicates | Confirmed *(tested)*. Corrected: a duplicate is the same `Path` and `Name`; one name in two folders is accepted |
-| `files.FileIcon` panics only on an empty name | Corrected: also on a negative or non-finite `Size` *(read)* |
-| `code.CommitGraph` panics on no commits, an empty message, more than 8 lanes, a child after its parent | Confirmed *(tested)*. Also a repeated or empty hash and an empty label. A parent outside the list is accepted |
-| `code.BranchPicker` panics on a repository with no branches | Confirmed *(tested)* |
-| `overlay.Lightbox` panics on an image not decoded | Confirmed *(tested)* |
-| `devtools.LogView` panics on a line without a time or message; `overlay.ShortcutSheet` on no groups | Confirmed *(tested)* |
-| `code.DiffView` has a fixed height; can it fill a tab? | It can: `Grow(1)` on the root *(tested)* |
-| `code.DiffView` rewrites `st.Layout` on every build; its labels are options | Confirmed *(tested)* |
-| `feedback.ErrorState` always shows Retry | Confirmed *(tested)*; it also shakes once and asks for a cue *(read)* |
-| `chat.JumpToLatest` draws nothing at zero | Confirmed *(tested)*: an empty box |
-| Tooltips are MyGo's own and ignore Kit's hidden tips | Confirmed *(read)* |
-| Are arrivals skipped under Reduce Motion? | By MyGo's contract for `Element.Keyframes`, playback completes at once *(read, not tested)* |
-
-### What ours keeps
-
-The audit's decisions stand where ours does more; none was overturned here.
-
-- **Replace, in part:** the panel's single-file diff may take
-  `code.DiffView` for its bar and Split and Unified switch, keeping
-  `kit.Diff`'s state, hunk actions and its empty, binary and partial states.
-  The height question is settled above.
-- **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
-  cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
-  when those features are added.
-- **Replaced:** limu's renderer in the conversation by `diagram.Mermaid`,
-  at the user's request. What the conversation's own wrapper did stays ours
-  and is kept: code while the block streams and when it cannot be drawn, no
-  card, one title, the name for assistive technology, the caps on width and
-  height with the scroll past them, and no motion
-  ([conversation.md](conversation.md#b10-visuals)). What limu did and the
-  component does not: lay a diagram out for the reply's width, keep one
-  layout across remounts, and repaint without a layout on a theme switch.
-  cells; `feedback.ConnectionStatus` for the host page's status;
-  `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView` when
-  those features are added.
+- `SourceCard` is not used: the web search result dialog keeps its numbered
+  `ui.Link` rows, one source a line (the user's decision of 2026-11-12: the
+  sources are a folded tool's detail and need no cards).
+- **Used beside ours:** `feedback.ConnectionStatus` for the host page's
+  status and the rows of Settings › Connections.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
   rows and editors, the composer and conversation components, the
   conversation's chart painter ([Charts](#charts)) and the host monitor's
   (`host/charts.go`), both on MyGo's `ui/chart`.
+
+### Declined, page by page
+
+Each place the app could take a component was read against ours. These stay
+ours; the right column is the function the replacement would lose. The
+components marked *(read)* are not verified in this document: they were
+judged from their source alone and would need the steps under
+[Adding a component](#adding-a-component) before any use.
+
+| Component | Place | What it would lose |
+|---|---|---|
+| `feedback.EmptyState` *(read)* | `kit.Result` on every empty page | Our own icons (it takes a Lucide name), the second action, the dashed card and the error status; it panics on an empty title |
+| `feedback.ErrorState` | `kit.Result`'s error status | It always shows Retry, shakes and repeats what the toast said |
+| `feedback.Skeleton` family *(read)* | `kit.Skeleton` | The still state under Reduce Motion and the capped frame rate (its sheen asks for every frame), the sizes and the secondary tone |
+| `feedback.ProgressBar`, `QuotaBar`, `StorageBar` *(read)* | Usage, storage, downloads | MyGo's `ui.Progress` comes first. `QuotaBar` panics on a limit of zero, which a provider may report, and formats raw numbers itself |
+| `display.StatusBadge`, `Badge`, `Tag` *(read)* | `kit.Badge`, `kit.Tag` | Kit has them; theirs arrive with a motion and `StatusBadge` pulses without end in two states only |
+| `display.Presence` *(read)*, `feedback.ConnectionStatus` | Connector and provider statuses | The failed state in the destructive colour and the spinner while a command runs; `Reconnecting` pulses without end, wrong for a warning that does not change |
+| `display.Stat`, `StatCard`, `KPI` *(read)* | Host facts, usage totals | They take a `float64`; ours are formatted texts (uptime, sizes, token counts by locale) |
+| `display.DescriptionList` *(read)* | `settings/details.go` facts, notification details | Values that can be selected and copied, and a key column sized by its content (theirs is fixed at 10 rem); notifications use `kit.Record` |
+| `display.Timeline` *(read)* | none | No timeline is drawn by hand anywhere |
+| `typography.Kbd`, `KeyCombo`, `navigation.KeyHints` *(read)* | Settings › Shortcuts, menu shortcuts | Ours is the recorder button and the platform's chord text; there is no key hint footer to fill |
+| `display.Avatar`, `typography.Monogram` *(read)* | Project and session marks | `kit.Identicon` draws a mark from the ID; the provider badge belongs to the model picker, which is approved |
+| `color.SwatchGrid` | The project colour popover | The accepted single row of 11 round 16 DIP swatches (its squares are 32 DIPs), Kit's tooltip and the hidden tips setting |
+| `files.FileIcon` | The picker's grid, the conversation's file card | It cannot show a folder, knows fewer kinds than `picker/tile.go` and decides by extension where the card has the file's `Kind`; its extension pill overflows the 104 DIP cell; `conversation.FileIcon` is also the overview's and the panel tabs' icon |
+| `files.FileList` | The picker's list | As listed under [Files](#files) |
+| `navigation.ZoomControl` *(read)* | The image viewer's bar | Kit's tooltips in the frosted bar, zoom about the pointer, the disabled ends |
+| `form.FileField`, `files.Dropzone` | The SSH key file | Typing a path (`~/.ssh/id_ed25519`), the full path shown (it shows the base name), the disabled state while pairing |
+| `input.TagInput` | none | No list of free tags is edited: shared projects are checkboxes of offered projects. It also cannot remove a chosen chip or refuse a repeat |
+| `feedback.SaveStatus` | Settings saves | Nothing saves by itself; a save's outcome is a toast, and its spinner is not the approved loading mark |
+| `feedback.RetryIn` | The model retry row | The Node retries by itself and gives no time; a button would do nothing |
+| `form.TypeToConfirm` | Destructive dialogs | None asks for a typed name, and adding one is a second approval |
+| `agent.TaskProgress`, `RunTimeline` | The composer's overview progress | The list of every step with its skipped state; its opaque card would sit in the frosted popover; the composer is approved |
+| `agent.Citation` | Citations in a reply | They are numbered links inside the Markdown text (`Cite`), which wrap and select with it |
+| `agent.ImageGenerating`, `chat.LinkPreview`, `media.Waveform` and `Recorder` *(read)*, `devtools.LogView`, `code.Blame` | none | The app has no such data: no generation progress, no page preview, no blame; dictation's level is a 16 DIP glyph in a button |
+| `chat.JumpToLatest` | The transcript's jump button | We do not count unseen messages; ours fades with `AtEnd` |
+| `desktop.UpdatePrompt` *(read)* | The updater | Ours shows notes, progress and the restart |
 
 ## Size
 
@@ -568,6 +339,9 @@ already linked.
 6 MB before it was approved, while limu's layout, scene and style packages
 and `limumygo` are no longer linked. The table has not been measured again
 since: rebuild and add the row.
+
+The Connections rows and the search result sources add no package:
+`feedback` was linked by the host page and `agent` by the adapters.
 
 ## Adding a component
 

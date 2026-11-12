@@ -151,6 +151,7 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 | `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file view, hunks, checkpoints, documents |
 | `files.go`, `selection.go` | The file tree, its selection (the files plugin's `explorer.js`), keys, drag and right-click menu |
 | `git.go`, `gitmenu.go`, `changes.go` | The Git component's side column (the git plugin's `view.js`), its menus and picker (`menus.js`), the change list's rows (`changes.js`), All changes |
+| `git_history.go` | The history as a graph: the lanes, the names at a commit, the rows over `code.CommitGraph`, the plain list |
 | `tools.go` | The browser and terminal tabs' chrome, per tab: the browser's history and address, the terminal's folder and find bar; `State.Find` |
 
 ## Entry point
@@ -269,10 +270,26 @@ terminal, subagent and file-preview tabs are single-pane.
   the commit box (options line, message with expand, Commit with its
   menu). A click or the arrows open a change's diff, which stays
   selected; a row's right-click menu acts on every change in it. The
-  history lists the commits with their id, author and branch. The diff is MyGo's diff viewer
-  (`kit.Diff`), unified as Rust's content diff view: highlighted, old and
-  new numbers, word changes, and on the change under the pointer Revert
-  and Keep (`editor.DefaultHunkActions`) and Stage. Status bar: path, `+N −M`.
+  history is a graph (CrychicUI's `code.CommitGraph` through
+  `crychic.CommitGraph`, [crychic.md](crychic.md#codecommitgraph)): a lane
+  per line of work, merges, each commit's short ID, the names at it (the
+  branch checked out or a detached `HEAD` first, then tags, branches and
+  remote branches) and its subject, with the author where the list is wide
+  enough; a row's tooltip says all of it. A click opens the commit's
+  changes and keeps the row selected in the neutral fill; the right-click
+  menu, the system's, has Copy commit ID, New branch and Create tag at the
+  commit, and Cherry-pick, which asks first naming the commit. Pages are
+  the Node's, 100 commits each, with Previous and Next. A history without
+  parents (an earlier Node) is the plain list: subject, ID, author and
+  branch. The diff is MyGo's diff viewer (`kit.Diff`): highlighted, old
+  and new numbers, word changes, and on the change under the pointer
+  Revert and Keep (`editor.DefaultHunkActions`) and Stage. Its toolbar has
+  Unified | Split (`kit.DiffLayout`, a small `kit.Segmented`): unified as
+  Rust's content diff view, or the old text on the left and the new on the
+  right with a divider to drag. The choice is the window's
+  (`shell.App.DiffSplit`, saved as `diffSplit` in the UI state file) and
+  every diff follows it: a file's, All changes, a commit's and a stash's.
+  Status bar: path, `+N −M`.
 - History: a card per checkpoint: the turn, its age (against the frame
   clock when live, the fixture's clock in the preview), the files, `+N −M`
   and `turn_changes_undo_all`.
@@ -343,7 +360,12 @@ open diff: a status read opens no diff tab, and a closed one stays closed. Exist
 revision-aware index, commit, branch, remote, stash, tag and worktree commands;
 forms retain values after failures. Destructive operations name their target
 in the existing confirmation. Pickers preserve full stash and tag identifiers.
-Output, commits and stashes open in the existing document tabs. Diff scope caches
+Output, commits and stashes open in the existing document tabs. A history
+entry carries the optional `parents` (absent from an earlier Node: not known,
+and the page is the plain list; `[]` for a root) and its references, which
+include `HEAD` at the commit checked out. The history's menu sends
+`create_git_branch` and the `create_tag` and `cherry_pick` actions at the commit, with the
+generic Git toasts. Diff scope caches
 remain separate and invalidate with Repository updates. A native hunk's line
 range maps to the displayed patch, then to a unique captured turn-hunk identity;
 reordered or unrelated reviews cannot select an arbitrary hunk. Stage and Revert
@@ -666,7 +688,9 @@ refused addresses, the tab in front, behind and in a hidden conversation's
 panel, the bound without a gesture and a closed tab's request.
 `internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
-confirmation, Commit's menu and amending, the history, All changes; the
+confirmation, Commit's menu and amending, the history's graph, its rows'
+click and right-click menu and the plain list without parents, the lanes
+and the names' order and fit, Unified and Split, All changes; the
 file tree's click, ⌘-click, ⇧-click, ⇧↓, ⌘A, right-click selection and
 Copy path, and its arrows, → and Enter.
 `internal/desktop/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
@@ -686,6 +710,10 @@ at its width.
 
 | Deviation | Reason |
 |---|---|
+| The history's rows are built over the graph, which is not interactive | `code.CommitGraph` has no click, selection or menu ([crychic.md](crychic.md#codecommitgraph)); ours are laid at its rows |
+| A line of the graph that crosses from the page before is not drawn at the top of a page | Lanes are worked out per page of 100 and the component draws edges only from commits it lists |
+| The history's menu has no Checkout or Revert of a commit | The Node has no action for either; Cherry-pick, a branch and a tag at the commit are the ones it has |
+| At the list's first width a long branch name is left to the row's tooltip | The graph draws names on the subject's line; they get up to half of it |
 | PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
 | The editor's Link and Image are one prompt each: a link's address (`content_link_address`; the caret's link fills it in under `content_link_edit`, and an empty address removes the link), an image's address and alt text (`content_image_address`, `content_image_alt`) | The reference has a link popover (Open, Edit, Copy, Remove) and an image dialog with Choose file and a caption; those are not built: an image is inserted in Source, since the rich codec does not keep one (`richMarkdownSafe`) |
 | Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |

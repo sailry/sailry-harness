@@ -136,7 +136,7 @@ class _TerminalPageState extends State<TerminalPage>
         _session = TerminalSession(
           controller: identity,
           command: host.command,
-          execute: host.execute,
+          resolve: host.check,
           terminal: widget.terminalId,
           worktree: widget.worktreeId,
           createNew: widget.createNew,

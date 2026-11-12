@@ -8,7 +8,7 @@ package desktop surfaces do not supply these panels or the native Git badge.
 `internal/node/git.Service` performs bounded reads through the pinned go-git v5
 library. The required status trial selected the documented native status fallback:
 its warm ratio and ignored-file parity failed acceptance. Native status disables
-optional locks, fsmonitor, clean/process filters and renames. Concurrent reads of
+optional locks, fsmonitor and renames. Concurrent reads of
 a root share one request and a one-second cache. Mutations and relevant shared
 watcher events invalidate that cache. Other mapped reads retain go-git.
 
@@ -16,7 +16,8 @@ Status includes per-file staged, unstaged and total line counts. One status
 reads the HEAD tree and the index once and loads each side of an entry once for
 its three counts. An entry changed on one side only is compared once. A side
 over 1 MiB is neither read nor hashed and its counts are marked `truncated`,
-as the reference marks them; binary content counts no lines. Counting takes at
+as the reference marks them; binary content counts no lines. The unstaged side
+is the content Git would store ([Stored content](#stored-content)). Counting takes at
 most one second of the five-second status deadline: entries past it, and a
 comparison cut short, are marked `truncated` and the status still answers. The
 reference has no such share because libgit2's line diff is fast enough; the
@@ -41,7 +42,8 @@ revision conflict. Oversized, binary, symlink, submodule and non-UTF-8 changes
 carry explicit skip reasons instead of incomplete review anchors. A worktree
 inventory accepts a tracked file as unchanged without reading it when its size
 and times (and on Unix its device and inode) still equal the stat data Git
-recorded in an index entry older than the index itself; any other file is hashed. File reads use
+recorded in an index entry older than the index itself; any other file is
+compared by the blob Git would store for it ([Stored content](#stored-content)). File reads use
 the confined Core kernel.
 
 Staging whole paths runs native `git add --all` on exactly those paths after
@@ -71,8 +73,15 @@ result through `git hash-object -w --path`, which applies the path's
 line-ending conversion. A path with a `filter` attribute (LFS) has no hunk
 actions: its index content is the driver's output, not lines of the file, so
 staging and reverting a hunk are refused with a message that names the driver.
-Diffs still compare worktree bytes with stored content, so a file whose line
-endings are converted shows every line as changed.
+The hunks of a file whose line endings are converted are lines of its stored
+form. Staging one stores those lines. Reverting one writes the restored lines
+with the file's line ending, and is refused for a file that mixes line endings,
+whose bytes the stored form does not determine. A file converted in another way
+(`ident`, `working-tree-encoding`) has no hunk actions.
+A staged hunk's index entry records no file size, as after
+`git update-index --cacheinfo`, so Git compares the file's content; the size of
+the staged text, recorded before, made `git status` list a converted file whose
+last hunk was staged.
 
 Commit, signing, hooks, remotes, transport, merge, rebase, cherry-pick and stash
 operations use the Node's native Git executable and environment. They pass argv
@@ -115,13 +124,54 @@ Continue and Abort run `git revert --continue` and `--abort`. The reference
 reports it as a rebase and then refuses both, leaving no way out in the panel.
 The panel starts no revert itself; the state comes from a command.
 
-Status never runs a configured filter program (the overrides of the status
-arguments, as in the reference). Git therefore compares the raw worktree bytes
-of a filtered file whenever it has to read the file again (its recorded times
-no longer match, or equal the index's own time), and such a file, an LFS file
-for one, shows as modified with its stored form on the other side of the diff
-although nothing changed. Measured with a `tr` filter in a temporary
-repository; real LFS was not run.
+### Stored content
+
+Status, the worktree change inventory, diffs and line counts follow Git's own
+rule for a worktree file. A file whose stat data matches its index entry is
+unchanged and is not read. Any other file is compared by the content Git would
+store for it: the output of the path's conversion (`core.autocrlf`, the `text`
+and `eol` attributes, `ident`, `working-tree-encoding` and a `filter.<name>`
+driver such as LFS). An LFS file that was only touched, or a CRLF file of a
+repository that stores LF, is therefore unchanged, and an edit of a CRLF file
+diffs and counts its edited lines only. The reference disables the filter
+programs for status and compares worktree bytes everywhere, which shows such a
+file as modified, with every line changed.
+
+Git performs every conversion; the service implements none. Status is native
+`git status` with the configured filters left on, so Git runs a filter exactly
+for the paths it reads again and speaks the long-running filter protocol itself.
+Like `git status`, it lists a file whose size differs from the size the index
+recorded without comparing content; such a file can have an empty diff. The
+other readers ask `git hash-object --stdin-paths` for the stored blob ids of the
+files they have to read again: one process per 1,000 paths, never one per file,
+without writing an object. Equal ids mean unchanged. For lines, the stored
+content is the file's bytes when Git's id equals their hash, the bytes with
+CRLF replaced by LF when that reproduces Git's id, and otherwise the blob of
+that id when the repository holds it, which it does for an unchanged file. A
+changed file behind a filter driver has no such blob. Opening its diff stores
+one with `git hash-object -w`, as `git add` would, and compares it, so the diff
+equals `git diff`; a status never writes, and marks that file's line counts
+`truncated`.
+
+Cost and bounds. Nothing runs for a file whose stat data matches. Otherwise the
+cost is Git's: each status runs the filter of every listed-or-touched filtered
+file again, because the status takes no lock and so cannot record the refreshed
+stat data as an interactive `git status` does; `git add` or any command that
+refreshes the index ends that. A status with unstaged changes starts one more
+process for the ids of at most 500 files of at most 1 MiB, inside the one-second
+counting share; the inventory asks for files up to 32 MiB as before, and a
+larger changed-stat file is listed without comparison. Each process has the
+five-second read deadline and stops with its request. When a process fails or is
+stopped (a file vanished, a filter failed, the deadline), its batch falls back
+to comparing worktree bytes, which is the earlier behaviour. When `git status`
+itself fails with filters on, as it does for a `required` filter whose program
+is missing, the status is read once more with the configured filter programs
+disabled, so the panel still answers and shows the filtered files as Git's byte
+comparison sees them. The inventory compares content where `git status` trusts
+a changed size, so a file stored unchanged is absent from it.
+
+Measured with a counting `tr` filter and `text=auto eol=lf` in a temporary
+repository (`TestStoredContentIntegration`). Real Git LFS was not run.
 
 A remote's name may hold a slash, so deleting a remote branch and Pull from
 split `remote/branch` at the longest configured remote that begins the name, as

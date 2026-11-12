@@ -424,3 +424,35 @@ func TestAddedEnumText(t *testing.T) {
 		t.Errorf("hold from text = %q, %v", hold, err)
 	}
 }
+
+// A history entry's parents are optional: a Node that sends none leaves them
+// unknown (nil), and a root commit's empty list is written and read back as a
+// list, so a graph can tell the two apart.
+func TestGitLogEntryParents(t *testing.T) {
+	t.Parallel()
+	entry := DefaultGitLogEntry()
+	entry.ID, entry.Message = "a1", "Root"
+	for _, item := range []struct {
+		name    string
+		parents []string
+		member  string
+	}{{"unknown", nil, ""}, {"root", []string{}, `"parents":[]`}, {"merge", []string{"b2", "c3"}, `"parents":["b2","c3"]`}} {
+		t.Run(item.name, func(t *testing.T) {
+			entry.Parents = item.parents
+			encoded, err := json.Marshal(entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), `"parents"`) != (item.member != "") || !strings.Contains(string(encoded), item.member) {
+				t.Fatalf("encoded %s", encoded)
+			}
+			var decoded GitLogEntry
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if (decoded.Parents == nil) != (item.parents == nil) || !reflect.DeepEqual(append([]string{}, decoded.Parents...), append([]string{}, item.parents...)) {
+				t.Fatalf("decoded %#v, want %#v", decoded.Parents, item.parents)
+			}
+		})
+	}
+}

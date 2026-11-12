@@ -14,6 +14,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	fdiff "github.com/go-git/go-git/v5/plumbing/format/diff"
 	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -119,7 +120,13 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	}
 	limited, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
-	capture, err := s.command(limited, root, StatusArgs(drivers), nil, true)
+	// Git runs the conversions of the paths it has to read again, as git status
+	// does. A required filter that cannot run fails the whole status, which
+	// then answers without the configured filter programs.
+	capture, err := s.command(limited, root, StatusArgs(nil), nil, true)
+	if err != nil && len(drivers) > 0 && limited.Err() == nil {
+		capture, err = s.command(limited, root, StatusArgs(drivers), nil, true)
+	}
 	if err != nil {
 		return protocol.GitStatus{}, err
 	}
@@ -163,6 +170,22 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	// Line statistics share the status deadline with Git itself. Past their
 	// share the remaining entries keep the uncounted marker they were parsed with.
 	budget := time.Now().Add(s.stats)
+	// The unstaged side of a count is the content Git would store, so a file
+	// whose line endings are converted counts its edited lines only.
+	var ids map[string]plumbing.Hash
+	if s.stats > 0 {
+		paths := []string{}
+		for _, entry := range result.Entries {
+			if entry.Unstaged != nil && !entry.Conflicted {
+				paths = append(paths, entry.Path)
+			}
+		}
+		if len(paths) > 0 {
+			counting, stop := context.WithDeadline(limited, budget)
+			ids = s.storedIDs(counting, root, paths, statLimit)
+			stop()
+		}
+	}
 	for _, entry := range result.Entries {
 		if err := checkContext(limited); err != nil {
 			return protocol.GitStatus{}, err
@@ -196,6 +219,9 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 				working = content{exists: true, binary: true, large: true}
 			} else {
 				working, workingErr = workingContent(root, entry.Path, statLimit)
+				if workingErr == nil {
+					working, workingErr = s.stored(limited, root, r, entry.Path, working, ids[entry.Path], statLimit, false)
+				}
 			}
 			// An entry changed on one side only needs one comparison.
 			entry.StagedDiff = lineStats(committed, indexed, committedErr, indexedErr, remaining)

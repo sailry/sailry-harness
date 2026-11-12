@@ -91,6 +91,9 @@ func (runtime *Runtime) Invoke(handle uint64, method string, data []byte, reques
 		var value any
 		var err error
 		switch {
+		case handle == 0 && (method == "close" || method == "dispose"):
+			// Handle 0 names the root; releasing it would release every handle.
+			err = invalid("the root is closed with the bridge")
 		case method == "close" || method == "dispose":
 			err = runtime.release(handle, request)
 		case handle == 0:

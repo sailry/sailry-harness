@@ -414,7 +414,10 @@ git_commit_staged: 提交已暂存更改
 git_commit_staged_amend: 提交已暂存更改（修改上次提交）
 git_commit_staged_signoff: 提交已暂存更改（签署声明）
 git_commit_sync: 提交并同步
+git_cherry_pick: 拣选提交
+git_cherry_pick_confirm: 将此提交应用到当前分支
 git_copy_branch: 复制分支名
+git_copy_commit_id: 复制提交 ID
 git_copy_path: 复制路径
 git_delete_branch: 删除分支
 git_delete_confirm: 确认删除？无法撤销
@@ -1448,6 +1451,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 选择文件夹
 skill_source_choose_archive: 选择压缩包
 git_diff: 差异
+git_diff_split: 并排
+git_diff_unified: 统一
 market_permission_git_read: 读取 Git 改动
 market_permission_git_write: 修改 Git
 market_permission_files_read: 读取文件
@@ -2233,3 +2238,4 @@ runtime_python_preparing: 正在准备
 python_creating: 准备依赖
 python_installing: 安装依赖
 python_validating: 检查依赖
+port_count: '%{count} 个端口'

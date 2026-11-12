@@ -472,12 +472,12 @@ func background() []composer.Command {
 }
 
 // goal is the goals plugin's Status badge as the demo's goals have it
-// (goalStatus): Goal · Running · 12m, the counters as its tooltip, and the
-// panel with the objective and Pause, Edit and Clear.
+// (goalStatus): Running · 12m, the counters as its tooltip, and the panel
+// with the objective, Pause and End.
 func goal() composer.StatusBadge {
 	objective := "Port the composer's activity strip and keep the benchmarks within budget"
 	return goalStatus("goal.running", kit.Info, composer.Text{Label: "12m"}, composer.Text{Label: objective}, objective,
-		"3 / 25", "12m", "96.4k", "pause", "edit", "clear")
+		"3 / 25", "12m", "96.4k", "pause", "end")
 }
 
 // Overview is c's session overview: the last turn's subagents, task progress

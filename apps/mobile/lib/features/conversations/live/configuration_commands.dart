@@ -5,13 +5,14 @@ import 'team.dart';
 class ConfigurationCommands {
   ConfigurationCommands({
     required this.command,
-    required this.execute,
+    required this.resolve,
     required this.accept,
     required this.active,
   });
 
   final CommandHandler command;
-  final Future<Map<String, dynamic>> Function(String request) execute;
+  // Asks about a retained request without sending it again.
+  final Future<Map<String, dynamic>> Function(String request) resolve;
   final void Function(Map<String, dynamic> response) accept;
   final bool Function() active;
   String? _pending;
@@ -35,10 +36,7 @@ class ConfigurationCommands {
     try {
       response = await command(kind, data);
     } on CommandFailure catch (error) {
-      final request = error.request;
-      if (error.code == 'outcome_unknown' && request != null) {
-        _pending = request;
-      }
+      if (error.retained) _pending = error.request;
       rethrow;
     }
     if (!active()) return;
@@ -50,7 +48,7 @@ class ConfigurationCommands {
     if (pending == null || !active()) return;
     Map<String, dynamic> response;
     try {
-      response = await execute(pending);
+      response = await resolve(pending);
     } on CommandFailure catch (error) {
       if (error.rejected) _pending = null;
       rethrow;
