@@ -244,6 +244,7 @@ knowledge_slide: Diapositiva %{slide}
 workspace_archive: Sesión de archivo
 session_delete: Eliminar sesión
 session_delete_named: Eliminar sesión “%{name}” y sus sub-agentes permanentemente
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Renombrar
 session_title_required: Ingrese un nombre
 session_mark_read: Marcar como leído
@@ -1551,6 +1552,20 @@ host_process_name: Procesos
 host_pid: PID
 host_process_empty: No hay procesos
 host_process_no_matches: No hay procesos coincidentes
+host_process_details: Ver los detalles
+host_process_copy_pid: Copiar PID
+host_process_copy_name: Copiar el nombre
+host_process_stop: Proceso de fin
+host_process_force_stop: Forzar cierre
+host_process_stop_confirm: Enviar una solicitud de detención; esto puede interrumpir las tareas en ejecución
+host_process_force_confirm: Termine este proceso ahora; los datos no guardados pueden perderse
+host_process_stop_sent: Solicitud de detención enviada
+host_process_gone: El proceso salió
+host_process_changed: Proceso cambiado; actualice y vuelva a intentarlo
+host_process_protected: No se pueden detener los procesos del sistema o el servicio de host actual
+host_process_uncertain: Resultado de parada desconocido; comprobar el estado del proceso
+host_process_stop_failed: No se pudo detener el proceso; puede haber salido, el acceso puede estar denegado o este host puede no admitirlo
+metrics_gpu: GPU
 port_title: Reenvío de puertos
 port_mappings: Asignaciones de puertos
 port_add: Nuevo delantero
@@ -1624,7 +1639,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Añadir
+reference_group_context: Contexto
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1865,7 +1880,7 @@ authorization_connected: Conectado
 connector_bound: Vinculado
 connector_checked: Conexión correcta
 connector_mcp_reconnected: Conectado, %{n} herramientas
-connector_consent_effect: Revisa los cambios de destinos antes de continuar
+connector_consent_effect: Permitir los permisos de conexión modificados
 connector_changed_origins: Orígenes
 connector_changed_scopes: Permisos
 connector_changed_client: Cliente

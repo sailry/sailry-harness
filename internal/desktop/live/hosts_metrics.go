@@ -83,7 +83,7 @@ func (r *Runtime) readHostMetrics(state *liveHost, detailed bool) {
 }
 
 // hostMetrics is a Node's sample as the host page shows it: every value the
-// Node sends, and none it does not. The sampler has no GPU, so none shows.
+// Node sends, and none it does not.
 func hostMetrics(sample protocol.HostMetricsSample) *host.Metrics {
 	metrics := &host.Metrics{At: time.UnixMilli(int64(min(sample.SampledAtMs, uint64(math.MaxInt64)))), CPU: math.NaN(), ProcessCount: -1}
 	if sample.CpuBasisPoints != nil {
@@ -108,6 +108,13 @@ func hostMetrics(sample protocol.HostMetricsSample) *host.Metrics {
 		metrics.Interval = time.Second
 		metrics.Received, metrics.Transmitted = network.ReceivedBytesPerSec, network.TransmittedBytesPerSec
 		metrics.ReceivedTotal, metrics.TransmittedTotal, metrics.Totals = network.ReceivedBytes, network.TransmittedBytes, true
+	}
+	for _, gpu := range sample.Gpus {
+		row := host.GPU{ID: gpu.ID, Name: gpu.Name, Usage: math.NaN()}
+		if gpu.UsageBasisPoints != nil {
+			row.Usage = float64(*gpu.UsageBasisPoints) / 100
+		}
+		metrics.GPUs = append(metrics.GPUs, row)
 	}
 	for _, disk := range sample.Disks {
 		row := host.Disk{Mount: disk.Mount, FileSystem: disk.FileSystem, Total: disk.TotalBytes, Available: disk.AvailableBytes}

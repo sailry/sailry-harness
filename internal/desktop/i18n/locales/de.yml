@@ -244,6 +244,7 @@ knowledge_slide: Folie %{slide}
 workspace_archive: Sitzung archivieren
 session_delete: Sitzung löschen
 session_delete_named: Session „%{name}“ und ihre Subagenten dauerhaft löschen
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Umbenennen
 session_title_required: Geben Sie einen Namen ein
 session_mark_read: Als gelesen markieren
@@ -1551,6 +1552,20 @@ host_process_name: Prozesse
 host_pid: PID
 host_process_empty: Keine Prozesse
 host_process_no_matches: Keine passenden Prozesse
+host_process_details: Details anzeigen »
+host_process_copy_pid: PID kopieren
+host_process_copy_name: Name kopieren
+host_process_stop: Endprozess
+host_process_force_stop: Beenden erzwingen
+host_process_stop_confirm: Senden einer Stopp-Anforderung; dies kann laufende Aufgaben unterbrechen
+host_process_force_confirm: Beenden Sie diesen Prozess jetzt; ungespeicherte Daten können verloren gehen
+host_process_stop_sent: Stopp-Anfrage gesendet
+host_process_gone: Prozess beendet
+host_process_changed: Prozess geändert; aktualisieren und erneut versuchen
+host_process_protected: Systemprozesse oder der aktuelle Hostdienst können nicht beendet werden
+host_process_uncertain: Stop-Ergebnis unbekannt; Prozessstatus prüfen
+host_process_stop_failed: Der Prozess konnte nicht gestoppt werden. Er wurde möglicherweise beendet, der Zugriff wurde verweigert oder der Host unterstützt ihn möglicherweise nicht
+metrics_gpu: GPU
 port_title: Portweiterleitung
 port_mappings: Port-Mappings
 port_add: Neuer Stürmer
@@ -1624,7 +1639,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Hinzufügen
+reference_group_context: Kontext
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1865,7 +1880,7 @@ authorization_connected: Verbunden
 connector_bound: Verknüpft
 connector_checked: Verbindung in Ordnung
 connector_mcp_reconnected: Verbunden, %{n} Werkzeuge
-connector_consent_effect: Geänderte Autorisierungsziele vor dem Fortfahren prüfen
+connector_consent_effect: Geänderte Verbindungsberechtigungen zulassen
 connector_changed_origins: Ursprünge
 connector_changed_scopes: Berechtigungen
 connector_changed_client: Client

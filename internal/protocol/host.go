@@ -17,6 +17,7 @@ type HostInfo struct {
 	Memory         *MemoryUsage `json:"memory"`
 	HostUptimeSecs uint64       `json:"host_uptime_secs"`
 	NodeUptimeSecs uint64       `json:"node_uptime_secs"`
+	Timezone       *string      `json:"timezone,omitempty"`
 }
 
 func DefaultHostInfo() HostInfo {
@@ -31,6 +32,7 @@ func DefaultHostInfo() HostInfo {
 		Memory:         nil,
 		HostUptimeSecs: 0,
 		NodeUptimeSecs: 0,
+		Timezone:       nil,
 	}
 }
 func (value *HostInfo) UnmarshalJSON(data []byte) error {

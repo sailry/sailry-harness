@@ -27,6 +27,9 @@ type backupDialogs struct {
 	restore               BackupRestore
 	removing              bool
 	removed, removedTitle string
+	// removedPrivate is a session without a project, whose private
+	// workspace is deleted with it.
+	removedPrivate bool
 	// restarting offers the restart on the profile just restored at restart.
 	restarting bool
 	restart    string
@@ -229,7 +232,12 @@ func backup(c *ui.Context, m *Model) {
 	}
 	if d.removing && a != nil {
 		// Destructive: the session is named and its consequence said once.
-		if kit.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", t("backup_delete_session_consequence"),
+		// A session without a project loses its private workspace too.
+		consequence := t("backup_delete_session_consequence")
+		if d.removedPrivate {
+			consequence += "\n" + t("session_delete_private_files")
+		}
+		if kit.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", consequence,
 			t("settings_cancel"), t("backup_delete")) == 1 {
 			a.Delete(d.removed)
 		}
@@ -376,7 +384,7 @@ func archivesDialog(c *ui.Context, m *Model) {
 						})
 						kit.TextActionBusy(c.Key("delete"), t("backup_delete"), m.Backup.Pending, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
 							if m.BackupActions != nil {
-								d.removed, d.removedTitle, d.removing = a.ID, a.Title, true
+								d.removed, d.removedTitle, d.removedPrivate, d.removing = a.ID, a.Title, a.Private, true
 								return
 							}
 							notice(c)

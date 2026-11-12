@@ -44,7 +44,7 @@ func openPort(c *ui.Context, port Port, actions Actions) {
 		actions.OpenPort(port)
 		return
 	}
-	kit.Message(c, i18n.T(c, "preview_notice"))
+	kit.PreviewNotice(c)
 }
 
 // pick is a row of the picker.
@@ -155,7 +155,7 @@ func portDialogs(c *ui.Context, s *State, h *Host, actions Actions) {
 				}
 				h.Ports = append(h.Ports, x)
 				pk.adding = false
-				kit.Message(c, i18n.T(c, "preview_notice"))
+				kit.PreviewNotice(c)
 			})
 		})
 	}).Width(min(420, w-48)).Label(title)

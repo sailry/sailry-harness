@@ -376,4 +376,5 @@ git_copy_commit_id: Copy commit ID
 git_cherry_pick_confirm: Apply this commit to the current branch
 git_diff_split: Split
 git_diff_unified: Unified
+session_delete_private_files: Its private workspace files are deleted too
 port_count: "%{count} ports"
