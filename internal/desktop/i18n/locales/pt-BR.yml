@@ -1346,6 +1346,7 @@ connector_tools_empty: Sem ferramentas
 plugins_no_skills: Sem habilidades
 plugins_no_mcp: No MCP servidores
 market_details_permission_none: Nenhuma permissão extra necessária
+market_details_added_permissions: Novas permissões
 market_installed: Instalado
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope

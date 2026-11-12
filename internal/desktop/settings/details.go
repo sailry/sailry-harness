@@ -290,6 +290,9 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 					})
 					if i == 0 {
 						releaseNotes(c, pk.Notes)
+						if Update(pk) {
+							addedPermissions(c, pk)
+						}
 					}
 				})
 			}

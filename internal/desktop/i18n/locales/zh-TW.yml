@@ -1346,6 +1346,7 @@ connector_tools_empty: 無工具
 plugins_no_skills: 暫無技能
 plugins_no_mcp: 暫無 MCP 服務
 market_details_permission_none: 不需要額外權限
+market_details_added_permissions: 新增權限
 market_installed: 已安裝
 model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭

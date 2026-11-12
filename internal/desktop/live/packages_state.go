@@ -305,6 +305,9 @@ func (r *Runtime) projectPackages() {
 					if candidate, ok := detail[protocol.PluginInfo](report.Available.Data); ok {
 						view.Latest = stringValue(candidate.Summary.Version)
 						view.Notes = packageReleaseNotes(candidate.ReleaseNotes, r.packageLocale())
+						if candidate.Extension != nil {
+							view.AddedPermissions = addedPermissions(info.Extension, candidate.Extension.Actions)
+						}
 						if len(candidate.Versions) != 0 {
 							view.Versions = packageView(candidate, r.packageLocale()).Versions
 						}
@@ -313,6 +316,7 @@ func (r *Runtime) projectPackages() {
 					if candidate, ok := detail[protocol.PluginCatalogEntry](report.Available.Data); ok {
 						view.Latest = stringValue(candidate.Version)
 						view.Notes = packageReleaseNotes(candidate.ReleaseNotes, r.packageLocale())
+						view.AddedPermissions = addedPermissions(info.Extension, candidate.Permissions)
 						applyPackageCatalog(&view, candidate, r.packageLocale())
 					}
 				}
@@ -404,6 +408,18 @@ func packageOrigin(info protocol.PluginInfo) string {
 		}
 	}
 	return "market_details_source_local"
+}
+
+// addedPermissions are the labels of the actions an update asks that the
+// installed package does not have.
+func addedPermissions(installed *protocol.PluginExtension, candidate []protocol.PluginAction) []string {
+	var added []string
+	for _, action := range candidate {
+		if label, known := packagePermissionLabels[action]; known && (installed == nil || !slices.Contains(installed.Actions, action)) {
+			added = append(added, label)
+		}
+	}
+	return added
 }
 
 func packageView(info protocol.PluginInfo, locale string) viewmodel.Package {

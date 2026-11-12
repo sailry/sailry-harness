@@ -2000,6 +2000,49 @@ func TestExtensions(t *testing.T) {
 			t.Error("Cancel left the library model's details open")
 		}
 	})
+	// An update that asks for more than the installed version has says so,
+	// in the review and on the details' newest version.
+	t.Run("update permissions", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		s := &State{Model: m}
+		var pk *preview.Package
+		for i := range m.Packages {
+			if m.Packages[i].Installed && Update(&m.Packages[i]) {
+				pk = &m.Packages[i]
+				break
+			}
+		}
+		if pk == nil {
+			t.Fatal("the preview has no package with an update")
+		}
+		pk.AddedPermissions = []string{"market_permission_artifacts_write"}
+		want := i18n.In("en", "market_details_added_permissions") + ": " + i18n.In("en", "market_permission_artifacts_write")
+		m.updates = pluginUpdates{open: true, chosen: map[string]bool{}}
+		d := &Detail{Kind: DetailPlugin, ID: pk.ID, Tab: 3}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			if m.updates.open {
+				pluginUpdatesDialog(c, m)
+			} else {
+				pluginDetails(c, s, pk, d)
+			}
+		}, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		if !tt.HasText(want) {
+			t.Errorf("the review lacks %q: %q", want, tt.Texts())
+		}
+		m.updates.open = false
+		tt.Frame()
+		tt.Advance(time.Second)
+		if !tt.HasText(want) {
+			t.Errorf("the details lack %q: %q", want, tt.Texts())
+		}
+		pk.AddedPermissions = nil
+		tt.Frame()
+		if tt.HasText(i18n.In("en", "market_details_added_permissions")) {
+			t.Error("an update without new permissions names some")
+		}
+	})
 	// Dictation opens the library for speech models, as the other model
 	// pages do for theirs; the library's details install the version they
 	// show with the prefixes typed, and a managed model's details update

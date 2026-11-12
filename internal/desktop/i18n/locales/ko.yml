@@ -1346,6 +1346,7 @@ connector_tools_empty: 도구 없음
 plugins_no_skills: 기술 없음
 plugins_no_mcp: 아니 MCP 서버
 market_details_permission_none: 추가 권한이 필요하지 않음
+market_details_added_permissions: 새 권한
 market_installed: 설치됨
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope

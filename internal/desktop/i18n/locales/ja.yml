@@ -1346,6 +1346,7 @@ connector_tools_empty: ツールなし
 plugins_no_skills: スキルなし
 plugins_no_mcp: MCP番サーバ
 market_details_permission_none: 追加の権限は不要です
+market_details_added_permissions: 追加される権限
 market_installed: インストール済み
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope

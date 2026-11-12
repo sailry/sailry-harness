@@ -81,7 +81,7 @@ model library and the extension details page.
 | `providers.go` | Providers: catalog and compaction, families, channels with quota and status, the editor (brand, method, configure, models) and sign-in |
 | `connectors.go` | Connectors: toolbar and filter, service rows with status, switch and menu; the add dialog, details dialog and MCP server editor |
 | `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model and effort, prompt, members), role editor |
-| `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes, uninstall |
+| `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes and the permissions an update adds (`Package.AddedPermissions`, also on the details' newest version), uninstall |
 | `skills.go` | Skills: cards, install dialog by source, uninstall |
 | `market.go` | Market (`MarketPage`): plugins, skills and themes with search, source, filters and install/update states |
 | `library.go` | The model library dialog: hub, search, rows with download progress, load more, details (version, prefixes, install), delete |
@@ -423,6 +423,10 @@ hover style.
 - Skills, Market: no paging (market "Load more"); the market's plugin
   source and skill catalogs are filtered locally. Theme Apply is
   preview_notice rather than switching the window's theme.
+- Plugin install: the reference prepares and installs the package as soon
+  as the system's picker returns; ours fills the path from the picker and
+  installs on Install. A plugin's details have no homepage row: a plugin
+  package and its catalog entry carry no homepage in the protocol.
 - The model library is a dialog opened by "Manage models" on the
   local-model pages; the Available tab still lists the kind's catalog
   inline. Dictation has the same entry in its tabs' row, without a

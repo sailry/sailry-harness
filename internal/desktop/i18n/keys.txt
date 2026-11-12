@@ -1357,6 +1357,7 @@ connector_tools_empty
 plugins_no_skills
 plugins_no_mcp
 market_details_permission_none
+market_details_added_permissions
 market_installed
 model_library_huggingface
 model_library_modelscope
