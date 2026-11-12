@@ -72,12 +72,40 @@ func shouldCompact(binding model.Binding, state store.AgentState, percent uint8)
 		return false
 	}
 	count := contextTokens(state.Records)
-	return count > budget.TriggerTokens
+	return count > budget.TriggerTokens && automaticFailures(binding, state.Records) < pauseAfter
+}
+
+// pauseAfter is how many automatic compactions in a row may fail before the
+// threshold stops starting one: each costs a summary request and its retries.
+const pauseAfter = 3
+
+// automaticFailures counts the automatic compactions that failed in a row for
+// this provider and model. A compaction that succeeded, manual or automatic,
+// starts the count again, and so does a request another provider or model
+// answered. The count is read from the records, so it survives a restart.
+func automaticFailures(binding model.Binding, records []canonical.Record) int {
+	count := 0
+	for _, record := range records {
+		if record.Kind == "compaction" {
+			count = 0
+			continue
+		}
+		execution := record.Metadata.Execution
+		if execution != nil && execution.Source != nil && execution.Media == nil && (execution.Purpose == nil || *execution.Purpose != canonical.PurposeSearch) &&
+			(execution.Source.ID != binding.Provider.ID || execution.Source.Model != binding.Config.Model) {
+			count = 0
+			continue
+		}
+		if maintenance := record.Metadata.Compaction; maintenance != nil && maintenance.Failure != nil && maintenance.Failure.Source == protocol.ConversationCompactionSourceAutomatic {
+			count++
+		}
+	}
+	return count
 }
 
 // compactionFailure is the conversation's record of a compaction that failed.
 // Clients show it as their own localized notice with the cause.
-func (r *Runtime) compactionFailure(x *execution, manual bool, stage protocol.ConversationCompactionStage, reason protocol.ConversationCompactionReason, attempts []model.Attempt, failure error) canonical.Record {
+func (r *Runtime) compactionFailure(x *execution, binding model.Binding, earlier []canonical.Record, manual bool, stage protocol.ConversationCompactionStage, reason protocol.ConversationCompactionReason, attempts []model.Attempt, failure error) canonical.Record {
 	detail := protocol.DefaultConversationCompactionFailure()
 	detail.Source, detail.Stage, detail.Reason = protocol.ConversationCompactionSourceAutomatic, stage, reason
 	if manual {
@@ -93,6 +121,11 @@ func (r *Runtime) compactionFailure(x *execution, manual bool, stage protocol.Co
 	runtime := canonical.DefaultRuntime()
 	runtime.AgentVisible = false
 	record.Metadata.Runtime = &runtime
+	// The failure names its provider and model, which the pause counts by. The
+	// one that reaches the limit says the pause once.
+	scope := model.Scope(binding)
+	record.Metadata.Execution = &canonical.Execution{Source: &scope}
+	detail.Paused = !manual && automaticFailures(binding, earlier) == pauseAfter-1
 	record.Metadata.Compaction = &canonical.Maintenance{Failure: &detail}
 	return record
 }
@@ -122,7 +155,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
 		}
 		if x.ctx.Err() == nil {
-			records = append(records, r.compactionFailure(x, manual, stage, reason, attempts, failure))
+			records = append(records, r.compactionFailure(x, summaryBinding, state.Records, manual, stage, reason, attempts, failure))
 		}
 		if e := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, records...); e != nil {
 			return e

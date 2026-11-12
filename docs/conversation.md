@@ -429,7 +429,28 @@ names the source (`manual` or `automatic`), the stage (`budget`, `request`,
 cause; a stopped turn records none. The page carries it as the resource
 `{"type":"compaction_failure","failure":{…}}`, statistics report it as the last
 compaction with outcome `failed`, and the run still fails with the same error.
-The transcript shows it as the error block `chat_compact_failed` with the
+Automatic compaction pauses after three failures in a row (`engine.pauseAfter`,
+`automaticFailures`): the threshold no longer starts one for the session, so a
+message does not spend another summary request and its nine retries on a
+compaction that keeps failing. The count is read from the stored records, with
+no added storage: the automatic failure records since the last compaction
+record, manual or automatic, counting only those of the turn's provider and
+model (each failure record carries `metadata.execution.source`), so a
+successful `/compact`, a compaction that succeeds through overflow recovery or
+another provider or model starts it again, also after a restart. Manual
+compaction always runs and its failures are not counted; overflow recovery
+still compacts while paused, since nothing else can continue the turn. The
+third failure's record says so once with the optional member `paused: true`
+(absent means not paused, as before); later failures while paused do not
+repeat it. Deviation, by the user's decision of 2026-11-12: Goose and the
+reference try again on every message
+(`engine.TestCompactionHandoff/three automatic failures pause the threshold`).
+An edit of the same provider's endpoint or key is not a new binding and does
+not end the pause; `/compact` does.
+
+The transcript shows it as the error block `chat_compact_failed`, or
+`chat_compact_failed_paused` for the failure that paused automatic compaction
+(the same block, no added control or notice), with the
 cause, and then omits the run's own error block when it repeats that cause, so
 the failure reads once; the diagnostic card is unchanged. A manual compaction
 turn keeps its failed state and cause from the run. A completed compaction run

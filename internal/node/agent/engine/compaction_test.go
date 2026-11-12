@@ -288,6 +288,70 @@ func TestCompactionHandoff(t *testing.T) {
 			})
 		}
 	})
+	t.Run("three automatic failures pause the threshold", func(t *testing.T) {
+		refused := func(_ context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: 400, ResponseBody: []byte(`{"error":{"message":"Summary refused"}}`)}})
+		}
+		m := &scriptedModel{scripts: []script{refused, refused, refused, refused, refused, response(text(`{"user_intent":["Continue task"]}`), finish())}}
+		f, x, binding, state := compactionFixture(t, m)
+		trigger := uint32(1)
+		binding.Provider.Models[0].CompactionTokens = &trigger
+		other := binding
+		other.Config.Model = "other"
+		fail := func(manual bool) protocol.ConversationCompactionFailure {
+			t.Helper()
+			before := f.state()
+			if err := f.r.compact(x, binding, before, manual); err == nil {
+				t.Fatal("refused summary compacted")
+			}
+			added := f.state().Records[len(before.Records):]
+			last := added[len(added)-1]
+			if last.Metadata.Compaction == nil || last.Metadata.Compaction.Failure == nil || last.Metadata.Execution == nil || last.Metadata.Execution.Source.Model != binding.Config.Model {
+				t.Fatalf("failure record = %+v", last.Metadata)
+			}
+			return *last.Metadata.Compaction.Failure
+		}
+		if !shouldCompact(binding, state, 80) {
+			t.Fatal("fixture is not over its threshold")
+		}
+		for attempt := 1; attempt <= 2; attempt++ {
+			if failure := fail(false); failure.Paused {
+				t.Fatalf("failure %d paused automatic compaction", attempt)
+			}
+		}
+		// A manual failure neither counts nor pauses.
+		if failure := fail(true); failure.Paused || failure.Source != protocol.ConversationCompactionSourceManual {
+			t.Fatalf("manual failure = %+v", failure)
+		}
+		if !shouldCompact(binding, f.state(), 80) {
+			t.Fatal("two automatic failures paused the threshold")
+		}
+		if failure := fail(false); !failure.Paused {
+			t.Fatal("the third failure does not say automatic compaction is paused")
+		}
+		paused := f.state()
+		if shouldCompact(binding, paused, 80) {
+			t.Fatal("the threshold still compacts after three automatic failures")
+		}
+		// Another model starts again; the threshold itself is not what stopped it.
+		if automaticFailures(binding, paused.Records) != 3 || automaticFailures(other, paused.Records) != 0 {
+			t.Fatalf("failures = %d, for another model %d", automaticFailures(binding, paused.Records), automaticFailures(other, paused.Records))
+		}
+		// Overflow recovery still tries, and its failure does not say the pause again.
+		if failure := fail(false); failure.Paused {
+			t.Fatal("the pause was told twice")
+		}
+		if m.count() != 5 {
+			t.Fatalf("summary requests = %d", m.count())
+		}
+		// A compaction that succeeds ends the pause.
+		if err := f.r.compact(x, binding, f.state(), true); err != nil {
+			t.Fatal(err)
+		}
+		if automaticFailures(binding, f.state().Records) != 0 {
+			t.Fatal("a successful compaction left the threshold paused")
+		}
+	})
 	t.Run("automatic continuation", func(t *testing.T) {
 		for _, merged := range []bool{false, true} {
 			f, x, binding, state := compactionFixture(t, &scriptedModel{scripts: []script{response(text(`{"user_intent":["Continue task"]}`), finish())}})
