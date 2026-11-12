@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -266,12 +269,11 @@ func TestGitPage(t *testing.T) {
 		if _, ok := tt.AccessByRole(ui.RoleList, en("git_view_history")); !ok {
 			t.Fatalf("the history is not the graph: %q", tt.Texts())
 		}
-		// At the list's first width the author is left to the tooltip.
-		if tip := commitTip(pr.Data.Repo.Commits[0], pr.Data.Repo.Branch); tip != "Port the Git panel's grouped changes\n9f2c41ab · Ada Chen · main" {
-			t.Fatalf("the row's tooltip %q", tip)
+		// At the list's first width the author, the age and the names are
+		// left to the tooltip, which also describes the row.
+		if row, _ := tt.AccessByRole(ui.RoleOption, "Port the Git panel's grouped changes"); row.Description != "Port the Git panel's grouped changes\n9f2c41ab · Ada Chen · 40 min ago · main" {
+			t.Fatalf("the row's tooltip %q", row.Description)
 		}
-		tt.Advance(time.Second) // the graph's arrival
-		tt.Frame()
 		shot(t, tt, "git-history")
 		// A click chooses the commit and reads its changes.
 		var read string
@@ -312,11 +314,43 @@ func TestGitPage(t *testing.T) {
 		if sent.Kind != "git_cherry_pick" || sent.Target != merge.ID {
 			t.Fatalf("sent %+v", sent)
 		}
+		// The list grows at its end while the repository has more commits.
+		more := 0
+		pr.Actions.GitHistory = func() { more++ }
+		pr.SetGitHistory(GitHistoryState{Next: true})
+		tt.Frame()
+		clickRole(t, tt, ui.RoleButton, en("files_load_more"), 0)
+		pr.SetGitHistory(GitHistoryState{Next: true, Loading: true})
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("files_load_more")); more != 1 || ok {
+			t.Fatalf("Load more read %d times, shown while reading %v", more, ok)
+		}
+		pr.SetGitHistory(GitHistoryState{})
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("files_load_more")); ok {
+			t.Fatal("Load more shows with nothing more to read")
+		}
 		// A Node that sends no parents has the plain list, with the same rows.
 		pr.Data.Repo.Commits[2].Parents = nil
 		tt.Frame()
 		if _, ok := tt.AccessByRole(ui.RoleList, en("git_view_history")); ok || !tt.HasText("Ada Chen") || !tt.HasText("9f2c41ab") {
 			t.Fatalf("no plain list without parents: %q", tt.Texts())
+		}
+	})
+	// A row takes its click in the frame the history first shows: the
+	// graph's arrival moves the graph's own rows, not the ones over them.
+	t.Run("HistoryClickAtOnce", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		pr.Git.view = 1
+		tt.Frame()
+		row, ok := tt.AccessByRole(ui.RoleOption, "Merge branch 'split-view'")
+		if !ok {
+			t.Fatalf("no row in the first frame: %q", tt.Texts())
+		}
+		tt.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+		tt.Frame()
+		if pr.Git.commitID != pr.Data.Repo.Commits[1].ID {
+			t.Fatalf("the click chose %q", pr.Git.commitID)
 		}
 	})
 	// Lanes keep every line the graph draws ending at a dot; the names at
@@ -334,6 +368,7 @@ func TestGitPage(t *testing.T) {
 			{"merge", []preview.Commit{commit("m", "a", "b"), commit("a", "r"), commit("b", "r"), commit("r")}, []int{0, 0, 1, 0}},
 			{"two heads", []preview.Commit{commit("x", "r"), commit("y", "r"), commit("r")}, []int{0, 1, 0}},
 			{"parent beyond the page", []preview.Commit{commit("m", "a", "gone"), commit("a", "far"), commit("z", "far")}, []int{0, 0, 1}},
+			{"lines that leave the list keep their lanes", []preview.Commit{commit("x", "far"), commit("y", "far"), commit("z")}, []int{0, 1, 2}},
 			{"a freed lane is taken again", []preview.Commit{commit("m", "a", "b"), commit("b", "a"), commit("a", "r"), commit("n", "r", "q"), commit("q", "r"), commit("r")}, []int{0, 1, 0, 1, 1, 0}},
 		} {
 			if got, ok := graphLanes(o.commits); !ok || !slices.Equal(got, o.want) {
@@ -353,10 +388,12 @@ func TestGitPage(t *testing.T) {
 		labels := []string{"feature/rate-limit", "v2", "origin/feature/rate-limit"}
 		for _, o := range []struct {
 			room float32
+			most int
 			want []string
-		}{{400, labels}, {180, []string{"feature/rate-limit", "v2"}}, {210, []string{"feature/rate-limit", "v2", "+1"}}, {100, []string{"feature/rat…"}}, {30, nil}} {
-			if got := fitRefs(labels, o.room); !slices.Equal(got, o.want) {
-				t.Errorf("room %v: names %q, want %q", o.room, got, o.want)
+		}{{400, 3, labels}, {180, 3, []string{"feature/rate-limit", "v2"}}, {210, 3, []string{"feature/rate-limit", "v2", "+1"}},
+			{100, 3, []string{"feature/rat…"}}, {50, 3, nil}, {400, 1, []string{"feature/rate-limit", "+2"}}, {140, 1, []string{"feature/rate-limit"}}} {
+			if got := fitRefs(labels, o.room, o.most); !slices.Equal(got, o.want) {
+				t.Errorf("room %v, at most %d: names %q, want %q", o.room, o.most, got, o.want)
 			}
 		}
 	})
@@ -435,9 +472,22 @@ func TestGitPage(t *testing.T) {
 			pr.Git.view, pr.Git.commitID = 1, pr.Data.Repo.Commits[1].ID
 			rest()
 			shot(t, tt, "git-history-graph-"+name)
-			pr.Git.side = 420
+			pr.Git.side = sideMax
 			rest()
 			shot(t, tt, "git-history-graph-wide-"+name)
+			// A history longer than one read of the Node (100 commits): a
+			// branch merged above the hundredth commit and forked below it,
+			// so its lane runs across where the second read begins.
+			demo := pr.Data.Repo.Commits
+			pr.Data.Repo.Commits = longHistory()
+			pr.Git.commitID = ""
+			rest()
+			list, _ := tt.AccessByRole(ui.RoleListBox, en("git_view_history"))
+			tt.Wheel(list.Bounds.X+40, list.Bounds.Y+200, 0, 92*36)
+			tt.Move(8, 400)
+			rest()
+			shot(t, tt, "git-history-graph-continued-"+name)
+			pr.Data.Repo.Commits = demo
 			pr.Git.side, pr.Git.view = sideWidth, 0
 			pr.showChange("internal/booking/reserve.go", "all")
 			rest()
@@ -608,4 +658,41 @@ func TestFileTree(t *testing.T) {
 			t.Fatalf("Enter showed %q", v.File())
 		}
 	})
+}
+
+// longHistory is 130 commits of a main line with a branch merged at the
+// 96th and forked from the 108th: its commits lie on both sides of the
+// hundredth, where the Node's second page begins.
+func longHistory() []preview.Commit {
+	id := func(kind string, n int) string {
+		sum := sha1.Sum(fmt.Append(nil, kind, n))
+		return hex.EncodeToString(sum[:8])
+	}
+	var out []preview.Commit
+	add := func(hash, message string, refs []string, parents ...string) {
+		out = append(out, preview.Commit{ID: hash, Message: message, Author: "Maya Lindqvist", Refs: refs,
+			Time: preview.Now.Add(-time.Duration(len(out)+1) * 3 * time.Hour), Parents: parents})
+	}
+	for n := 0; len(out) < 130; n++ {
+		switch {
+		case n == 95:
+			add(id("a", n), "Merge branch 'feature/export'", nil, id("a", n+1), id("b", 0))
+			for k := 0; k < 6; k++ {
+				add(id("a", n+1+k), fmt.Sprintf("Tune query %d of the report", k+1), nil, id("a", n+2+k))
+				parent := id("b", k+1)
+				if k == 5 {
+					parent = id("a", n+7)
+				}
+				var refs []string
+				if k == 0 {
+					refs = []string{"heads/feature/export"}
+				}
+				add(id("b", k), fmt.Sprintf("Export step %d", 6-k), refs, parent)
+			}
+			n += 6
+		default:
+			add(id("a", n), fmt.Sprintf("Change %d of the service", 130-n), nil, id("a", n+1))
+		}
+	}
+	return out
 }

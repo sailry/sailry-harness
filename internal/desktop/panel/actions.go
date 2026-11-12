@@ -23,7 +23,7 @@ type Actions struct {
 	Git              func(*ui.Context, GitAction)
 	ReadDiff         func(string, string)
 	ReadCommit       func(string)
-	GitHistory       func(bool)
+	GitHistory       func() // reads the commits after the ones listed
 	ReadDocument     func(string)
 	Hunk             func(*ui.Context, string, int, string)
 	Restore          func(*ui.Context, string)
