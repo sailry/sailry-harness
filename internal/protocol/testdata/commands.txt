@@ -137,7 +137,6 @@ read_provider_key
 begin_provider_login
 complete_provider_login
 cancel_provider_login
-read_catalog_status
 list_channel_presets
 refresh_model_catalog
 read_model_catalog
@@ -158,7 +157,6 @@ read_tool_detail
 list_conversation_assets
 search_conversation
 list_file_checkpoints
-read_file_checkpoint
 read_turn_diff
 read_turn_hunks
 apply_turn_hunk

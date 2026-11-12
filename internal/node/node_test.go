@@ -810,7 +810,7 @@ func TestRenameRevisionConflict(t *testing.T) {
 	session := sessionFixture(t, node)
 	// A command this build does not declare, such as one removed from the
 	// contract, is refused before admission and changes nothing.
-	for _, kind := range []string{"put_credential", "revoke_credential", "set_defaults", "bind_connection_session", "validate_provider", "future_command"} {
+	for _, kind := range []string{"put_credential", "revoke_credential", "set_defaults", "bind_connection_session", "validate_provider", "read_catalog_status", "read_file_checkpoint", "future_command"} {
 		var refused *protocol.Fault
 		if _, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: kind})); !errors.As(err, &refused) || refused.Code != protocol.ErrorCodeInvalidRequest || refused.Message != "invalid command" {
 			t.Fatalf("undeclared %s = %v", kind, err)

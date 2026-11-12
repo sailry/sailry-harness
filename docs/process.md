@@ -191,11 +191,6 @@ Commands with no sender in the desktop's own pages, and who does send them:
 | `read_turn_capture` | Client helper used by Node tests; allowed to Node plugin callbacks | Allowed to Node plugin callbacks; no bundled package calls it | Keep |
 | `report_diagnostic` | Sent for a failed plugin panel, a failed plugin metadata read and a failed Git head inspection | Not sent: those failures store no system notification | Sender missing (plugin views) |
 | `update_knowledge_collection`, `pause_knowledge_collection` | Node tests only; the plugin SDK prepares creation, rebuild and removal | The same | Keep; editing and pausing a collection has no page on either side |
-| `read_catalog_status`, `read_file_checkpoint` | Node and Mobile bridge tests only | No sender, no test | Dead for controllers |
-
-"Dead for controllers" names a v1 contract command no shipped controller,
-package or tool sends on either side. Its handler stays until the contract
-drops it.
 
 ### Removed commands
 
@@ -212,14 +207,21 @@ plugin callback or tool sent them on either side; only tests did:
   `create_session` with `config.resource`.
 - `validate_provider`, the `provider_validation` output and its
   `ConversationDiscoveryValidation` value. `discover_models` stays.
+- `read_catalog_status`. The snapshot carries `model_catalog`,
+  `model_catalog_changed` follows it and `refresh_model_catalog` still answers
+  with the `catalog_status` output.
+- `read_file_checkpoint`, the `file_checkpoint` output and the response-size
+  refusal only it made. `list_file_checkpoints`, `read_turn_diff`,
+  `read_turn_hunks` and `restore_file_checkpoint` stay, and a restore still
+  reads the checkpoint content inside the Node.
 
 The feature counters `settings.save.credential` and `settings.save.defaults`
-went with their commands. A peer that still sends one of the five is answered
+went with their commands. A peer that still sends one of the seven is answered
 as for any undeclared command ([node.md](node.md#values-from-another-build)):
-a Node's Link refuses the frame (`invalid_request` "invalid Link frame") and
-closes the stream without a receipt, so the sender reads `outcome_unknown` and
-`inspect_request` answers `not_admitted`; a local controller's dispatch fails
-with `invalid_request` "invalid command". Neither is admitted or run. A ledger row an earlier build kept for a raw
+a Node's Link answers the request with a `rejected` reply and a local
+controller's dispatch fails, both with `invalid_request` "invalid command".
+Neither is admitted, recorded or run, so `inspect_request` for it answers
+`not_admitted`. A ledger row an earlier build kept for a raw
 `put_credential` request is still digested at startup.
 
 ### Updates and changes with one end missing

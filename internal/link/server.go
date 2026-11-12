@@ -185,6 +185,11 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 		}
 		return copyDuplex(ctx, stream, service)
 	case wire.CallCommand:
+		if envelope.Undecoded != nil {
+			// Nothing was admitted or recorded, so the peer is told now
+			// instead of being left to ask what became of its request.
+			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command"})
+		}
 		if envelope.Call.Request == nil {
 			return invalidLink("command request expected")
 		}
