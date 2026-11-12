@@ -48,7 +48,7 @@ func TestSettingsSectionsOpen(t *testing.T) {
 							entries++
 						}
 						for _, row := range []string{"provider_cap_vision", "media_image", "media_video", "media_speech"} {
-							if x.Role == ui.RoleMenuButton && x.Name == i18n.In(lang, row) {
+							if x.Role == ui.RoleButton && x.HasPopup == ui.PopupListBox && x.Name == i18n.In(lang, row) {
 								follows++
 							}
 						}

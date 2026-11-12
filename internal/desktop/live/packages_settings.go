@@ -62,7 +62,9 @@ func packageSettingsFields(schema *protocol.PluginSettingsSchema, state protocol
 			}
 		}
 		if property.Model && len(catalogs) != 0 {
-			field.Kind = "choice"
+			// A model field's options are model IDs: the forms draw them
+			// with kit.ModelSelect, by their names.
+			field.Kind = "model"
 			field.Options = nil
 			for _, model := range catalogs[0].Models {
 				field.Options = append(field.Options, model.ID)

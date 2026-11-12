@@ -74,6 +74,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 		return pluginNativeAppearance(palette), nil
 	}
 	binding.ChooseSecretFile = state.chooseSecretFile
+	binding.Models = r.modelOptions
 	binding.Operations = map[string]plugins.HostOperation{}
 	state.navigationOperations()
 	state.browserOperations()

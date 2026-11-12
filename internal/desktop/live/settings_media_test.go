@@ -122,7 +122,7 @@ func TestMediaSettings(t *testing.T) {
 	}
 	items := func() (found []ui.AccessInfo) {
 		for _, x := range tester.AccessAll() {
-			if x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox {
+			if x.Role == ui.RoleOption {
 				found = append(found, x)
 			}
 		}
@@ -132,7 +132,7 @@ func TestMediaSettings(t *testing.T) {
 	open := func(row string) (labels []string) {
 		t.Helper()
 		for _, x := range tester.AccessAll() {
-			if x.Role == ui.RoleMenuButton && x.Name == row {
+			if x.Role == ui.RoleButton && x.Name == row {
 				tester.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
 				tester.Frame()
 				tester.Advance(time.Second)
@@ -160,7 +160,7 @@ func TestMediaSettings(t *testing.T) {
 	}
 	shown := func(text string) (count int) {
 		for _, x := range tester.AccessAll() {
-			if x.Name == text {
+			if x.Role == ui.RoleButton && x.Description == text {
 				count++
 			}
 		}
@@ -172,11 +172,12 @@ func TestMediaSettings(t *testing.T) {
 
 	t.Run("rows list the models tagged for their purpose", func(t *testing.T) {
 		for row, want := range map[string][]string{
-			"Vision": {follow, "Fixture · see", "Fixture · hosted"},
-			"Image":  {follow, "Fixture · draw"},
+			"Vision": {follow, "see", "hosted"},
+			"Image":  {follow, "draw"},
 			"Video":  {follow},
-			// The saved model the Node no longer offers stays the row's choice.
-			"Speech": {follow, "Fixture · gone"},
+			// The saved model the Node no longer offers stays in the row's
+			// field, not among the choices.
+			"Speech": {follow},
 		} {
 			if got := open(row); !slices.Equal(got, want) {
 				t.Errorf("%s offers %q, want %q", row, got, want)
@@ -188,13 +189,18 @@ func TestMediaSettings(t *testing.T) {
 		if m.Media.Saved != [4]string{"", "", "", key("gone")} || m.Media.Draft != m.Media.Saved {
 			t.Errorf("projected bindings %q, draft %q", m.Media.Saved, m.Media.Draft)
 		}
+		for _, x := range tester.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == "Speech" && x.Value != "gone" {
+				t.Errorf("the Speech row reads %q, want the saved model", x.Value)
+			}
+		}
 		if m.MediaUnavailable != [4]bool{false, false, false, true} || shown(i18n.In("en", "media_model_unavailable")) != 1 {
 			t.Errorf("unavailable %v, marked on %d rows", m.MediaUnavailable, shown(i18n.In("en", "media_model_unavailable")))
 		}
 	})
 
 	t.Run("a choice saves every binding at the revision read", func(t *testing.T) {
-		choose("Image", "Fixture · draw")
+		choose("Image", "draw")
 		await("the save", func() bool { return !m.Media.Pending && m.Media.Revision == 4 })
 		locked(func() {
 			if len(saves) != 1 || saves[0].Revision != 3 || len(saves[0].Bindings) != 2 ||
@@ -219,7 +225,7 @@ func TestMediaSettings(t *testing.T) {
 		index   int
 		chosen  string
 	}{
-		{"a conflict keeps the draft and toasts", protocol.ErrorCodeRevisionConflict, "media_conflict", "Vision", "Fixture · see", 0, key("see")},
+		{"a conflict keeps the draft and toasts", protocol.ErrorCodeRevisionConflict, "media_conflict", "Vision", "see", 0, key("see")},
 		{"a failure keeps the draft and toasts", protocol.ErrorCodeInternal, "media_failed", "Speech", follow, 3, ""},
 		{"an unknown outcome keeps the draft and toasts", protocol.ErrorCodeOutcomeUnknown, "media_unknown", "Image", follow, 1, ""},
 	} {

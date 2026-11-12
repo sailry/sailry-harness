@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -103,20 +104,27 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 			if enable != "" && settingSwitch(c, "enabled", i18n.T(c, enable), "", &lm.Enabled.Draft, locked) {
 				save()
 			}
-			names := []string{i18n.T(c, none)}
-			for _, x := range installed {
-				names = append(names, x.Name)
+			// The model select names a model by its place among the
+			// installed ones, which is what lm.Model holds: -1 for none,
+			// and the place after the last for the one that is Missing.
+			models := make([]kit.ModelOption, len(installed))
+			for i, x := range installed {
+				models[i] = kit.ModelOption{ID: strconv.Itoa(i), Name: x.Name}
 			}
-			if lm.Missing != "" {
-				names = append(names, lm.Missing)
+			chosen := ""
+			if lm.Model >= 0 {
+				chosen = strconv.Itoa(lm.Model)
 			}
 			t := i18n.T(c, label)
-			chosen := lm.Model + 1
 			kit.WideRow(c, "model", t, "", func() {
-				if pick(c, "select", t, &chosen, names, !lm.Enabled.Draft || locked).Fill().Changed() {
-					lm.Model = chosen - 1
-					save()
-				}
+				kit.ModelSelect(c.Key("select"), kit.ModelSelectProps{Label: t, None: i18n.T(c, none), Models: models, Model: chosen,
+					Stored: lm.Missing, Disabled: !lm.Enabled.Draft || locked,
+					OnChange: func(id, _ string) {
+						if lm.Model = -1; id != "" {
+							lm.Model, _ = strconv.Atoi(id)
+						}
+						save()
+					}}).FillWidth().MinWidth(0)
 			})
 			if lm.Unavailable {
 				kit.Row(c, "status", i18n.T(c, "local_models_status"), "", func() {

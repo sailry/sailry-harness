@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -37,6 +38,26 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 		}
 		if titles["free_only"] != "仅使用免费模型" || titles["plain"] != "Plain" {
 			t.Fatalf("setting titles: %v", titles)
+		}
+	})
+	// The forms draw a model field with kit.ModelSelect; what it offers and
+	// stores stays the catalog's model IDs, and a stored model the catalog
+	// lost stays offered.
+	t.Run("a package model setting offers the catalog's model IDs", func(t *testing.T) {
+		var schema protocol.PluginSettingsSchema
+		source := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+			"properties":{"model":{"type":"string","title":"Model","x-sailry-model":true},"tone":{"type":"string","enum":["plain","warm"]}}}`
+		if err := json.Unmarshal([]byte(source), &schema); err != nil {
+			t.Fatal(err)
+		}
+		state := protocol.PluginSettingsState{Values: map[string]json.RawMessage{"model": json.RawMessage(`"p/lost"`)}}
+		catalog := protocol.PluginModelsCatalog{Models: []protocol.PluginModelsModel{{ID: "p/one"}, {ID: "p/two"}}}
+		fields := packageSettingsFields(&schema, state, "en", catalog)
+		if len(fields) != 2 || fields[0].Kind != "model" || fields[0].Value != "p/lost" || !slices.Equal(fields[0].Options, []string{"p/one", "p/two", "p/lost"}) {
+			t.Fatalf("model field %+v", fields)
+		}
+		if fields[1].Kind != "choice" || !slices.Equal(fields[1].Options, []string{"plain", "warm"}) {
+			t.Fatalf("choice field %+v", fields[1])
 		}
 	})
 	t.Run("a failed sign-in closes without asking the Node", func(t *testing.T) {

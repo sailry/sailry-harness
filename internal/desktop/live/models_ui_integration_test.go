@@ -587,7 +587,13 @@ func pickOption(w *terminalUI, picker, option string) {
 	w.t.Helper()
 	var chooser ui.AccessInfo
 	settle(w, fmt.Sprintf("the enabled select %q", picker), modelsUIWait, func() bool {
+		// A select opens a menu; a model select is a button opening a list.
 		found := w.named(ui.RoleMenuButton, picker)
+		for _, button := range w.named(ui.RoleButton, picker) {
+			if button.HasPopup == ui.PopupListBox {
+				found = append(found, button)
+			}
+		}
 		if len(found) != 1 || found[0].Disabled {
 			return false
 		}
