@@ -225,7 +225,68 @@ func saveCaptures(t *testing.T, name string, captured []capturedRequest) {
 	}
 }
 
+// ambientSDKEnvironment sets every variable the Anthropic and OpenAI SDKs read
+// for a default client, as a shell prepared for another tool would.
+func ambientSDKEnvironment(t *testing.T) {
+	t.Helper()
+	for name, value := range map[string]string{
+		"ANTHROPIC_BASE_URL":       "http://127.0.0.1:1",
+		"ANTHROPIC_API_KEY":        "ambient-key",
+		"ANTHROPIC_AUTH_TOKEN":     "ambient-token",
+		"ANTHROPIC_CUSTOM_HEADERS": "x-environment: ambient-header",
+		"OPENAI_BASE_URL":          "http://127.0.0.1:1",
+		"OPENAI_API_KEY":           "ambient-key",
+		"OPENAI_ADMIN_KEY":         "ambient-admin",
+		"OPENAI_ORG_ID":            "ambient-organization",
+		"OPENAI_PROJECT_ID":        "ambient-project",
+		"OPENAI_CUSTOM_HEADERS":    "x-environment: ambient-header",
+	} {
+		t.Setenv(name, value)
+	}
+}
+
+func TestSDKClientsIgnoreEnvironment(t *testing.T) {
+	for _, row := range []struct{ kind, header, want string }{
+		{"anthropic", "x-api-key", "configured-key"},
+		{"responses", "authorization", "Bearer configured-key"},
+		{"chat", "authorization", "Bearer configured-key"},
+	} {
+		t.Run(row.kind, func(t *testing.T) {
+			// ANTHROPIC_API_KEY ends the SDK's credential chain before the
+			// token, so each is tried alone.
+			for _, unset := range []string{"", "ANTHROPIC_API_KEY"} {
+				ambientSDKEnvironment(t)
+				if unset != "" {
+					t.Setenv(unset, "")
+				}
+				server := serverFixture(t, string(fixture(t, row.kind+"-text.sse")))
+				model, err := newSDK(t.Context(), transportConfig{Kind: row.kind, Model: "fixture", Endpoint: server.URL, Key: "configured-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				collect(t, model, requestCall(t, row.kind))
+				requests := server.captured()
+				if len(requests) != 1 {
+					t.Fatalf("configured endpoint received %d requests", len(requests))
+				}
+				headers := requests[0].Headers
+				if got := headers.Get(row.header); got != row.want {
+					t.Errorf("header %s = %q, want %q", row.header, got, row.want)
+				}
+				for name, values := range headers {
+					for _, value := range values {
+						if strings.Contains(value, "ambient") {
+							t.Errorf("header %s carries the environment value %q", name, value)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestRequestParity(t *testing.T) {
+	ambientSDKEnvironment(t)
 	t.Run("user reasoning tag outranks discovery", func(t *testing.T) {
 		for _, row := range []struct {
 			name                    string

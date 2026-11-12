@@ -167,10 +167,12 @@ func (node *Node) providerResourceCached(ctx context.Context, key [32]byte, ttl 
 				}
 				continue
 			}
-			if !document.fetched.Before(requested) || document.err == nil && document.result.Status >= http.StatusOK && document.result.Status < http.StatusMultipleChoices && time.Since(document.fetched) < ttl {
-				result, err := document.result, document.err
+			// A failure belongs to the caller whose context made the request:
+			// one who waited behind it fetches again under its own.
+			if document.err == nil && (!document.fetched.Before(requested) || document.result.Status >= http.StatusOK && document.result.Status < http.StatusMultipleChoices && time.Since(document.fetched) < ttl) {
+				result := document.result
 				node.auth.mu.Unlock()
-				return copyProviderResponse(result), err
+				return copyProviderResponse(result), nil
 			}
 		} else {
 			for len(node.auth.resources) >= 32 {

@@ -89,7 +89,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		state.Records = append(state.Records, *contextRecord)
 	}
 	instruction := prompt.Instruction(x.inv.Session.Delegation != nil)
-	system := prompt.System(instruction, state.Context, nil)
+	system := prompt.System(instruction, state.Context)
 	tools := r.declarations(x, binding, state)
 	schemas := map[string]json.RawMessage{}
 	for _, tool := range tools {
@@ -116,7 +116,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		return err
 	}
 	inventory := &observation.Inventory{System: system}
-	for _, part := range prompt.SystemParts(instruction, state.Context, nil)[1:] {
+	for _, part := range prompt.SystemParts(instruction, state.Context)[1:] {
 		inventory.Sources = append(inventory.Sources, observation.Source{Kind: protocol.ConversationObservationCategoryKindInjected, Text: part})
 	}
 	for _, record := range handoff.Pending(projected) {
