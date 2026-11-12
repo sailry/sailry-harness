@@ -30,7 +30,7 @@ func BenchmarkSemanticScan(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer opened.Close()
-	index := newIndex(opened.Knowledge)
+	index := newIndex(opened.Knowledge, nil)
 	binding := Binding{ID: protocol.NewKnowledgeID(), Generation: 1, Model: localmodels.DefaultEmbedding, Dimension: dimension, Rebuild: 1}
 	if err := index.Bind(b.Context(), binding); err != nil {
 		b.Fatal(err)

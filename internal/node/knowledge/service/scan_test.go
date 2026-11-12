@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/node/knowledge"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -117,7 +119,8 @@ func TestSemanticScan(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer opened.Close()
-	index := newIndex(opened.Knowledge)
+	clock := clockwork.NewFakeClock()
+	index := newIndex(opened.Knowledge, clock)
 	shared := make([][]float32, 4)
 	for position := range shared {
 		shared[position] = direction(dimension)
@@ -333,6 +336,42 @@ func TestSemanticScan(t *testing.T) {
 			t.Fatalf("kept %d bytes over the budget: %+v", index.vectors.size, kept(large))
 		}
 		index.vectors.budget = vectorBudget
+	})
+	t.Run("vectors no query used for ten minutes are released", func(t *testing.T) {
+		index.vectors.change("")()
+		want := check(t, "before idling")
+		if kept(large) == nil || kept(large).block == nil || kept(small) == nil || kept(small).block == nil {
+			t.Fatal("a query kept no vectors")
+		}
+		// The release runs on the clock's own goroutine.
+		released := func(binding Binding) {
+			t.Helper()
+			for deadline := time.Now().Add(10 * time.Second); kept(binding) != nil; time.Sleep(time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("idle vectors stayed in memory")
+				}
+			}
+		}
+		clock.Advance(6 * time.Minute)
+		if index.vectors.get(small.ID.String(), kept(small).stamp) == nil {
+			t.Fatal("kept vectors were not found")
+		}
+		clock.Advance(5 * time.Minute)
+		released(large)
+		if kept(small) == nil {
+			t.Fatal("vectors used five minutes ago were released")
+		}
+		clock.Advance(10 * time.Minute)
+		released(small)
+		index.vectors.mu.Lock()
+		size, waiting := index.vectors.size, index.vectors.waiting
+		index.vectors.mu.Unlock()
+		if size != 0 || waiting {
+			t.Fatalf("an idle index holds %d bytes, timer pending %v", size, waiting)
+		}
+		if got := check(t, "after the release"); !same(got, want) || kept(large) == nil {
+			t.Fatal("a query after the release ranked differently or kept nothing")
+		}
 	})
 	t.Run("keyword ranking equals the per-chunk filter", func(t *testing.T) {
 		for name, change := range queries {

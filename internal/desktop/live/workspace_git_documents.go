@@ -11,7 +11,7 @@ import (
 func workspaceGitDocumentFile(diff protocol.GitDiff) panel.GitDocumentFile {
 	return panel.GitDocumentFile{
 		FileChange: viewmodel.FileChange{Path: diff.Path, Added: int(diff.Additions), Removed: int(diff.Deletions), Hunks: workspaceHunks(diff.Text)},
-		Binary:     diff.Binary, Truncated: diff.Truncated,
+		Binary:     diff.Binary, Truncated: diff.Truncated, Size: diff.Size,
 	}
 }
 

@@ -1452,8 +1452,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 选择文件夹
 skill_source_choose_archive: 选择压缩包
 git_diff: 差异
-git_diff_split: 并排
-git_diff_unified: 统一
+git_diff_side_by_side: 并排
+git_diff_inline: 内联
+git_diff_needs_width: 宽度不足，无法并排
 market_permission_git_read: 读取 Git 改动
 market_permission_git_write: 修改 Git
 market_permission_files_read: 读取文件

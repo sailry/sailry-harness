@@ -59,7 +59,6 @@ type workspaceProject struct {
 	turnView                 *protocol.TurnID
 	branches                 protocol.GitBranches
 	gitLogPages              []protocol.GitLog
-	gitLogPage               int
 	gitLastRead              time.Time
 	gitRefreshTimer          *time.Timer
 	gitRefreshGeneration     uint64
@@ -258,7 +257,7 @@ func (p *workspaceProject) actions() *panel.Actions {
 		ReadDirectory: func(path string) { p.readDirectory(path, false) }, NextDirectory: p.nextDirectory, RefreshDirectory: func(path string) { p.readDirectory(path, true) },
 		ReadFile: p.readFile, OpenFile: p.openFileKind, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
 		Search: p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
-		GitHistory: p.gitHistoryPage,
+		GitHistory: p.gitHistoryMore,
 		PendingGit: p.pendingGitOperations,
 		Loading:    p.resourcesLoading,
 		GitBusy:    func() bool { return p.gitRunning > 0 },

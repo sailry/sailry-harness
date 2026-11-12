@@ -6,7 +6,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // Project is a project's Files and Git state. Its two hosts, the
@@ -27,6 +26,10 @@ type Project struct {
 	// reveal shows a file of the tree in the host's Files, as the host
 	// showing the project last sets it.
 	reveal func(path string)
+	// stacked and narrow are the layout of the host building the project
+	// (pair): its list above its document, and a document too narrow for a
+	// diff side by side.
+	stacked, narrow bool
 }
 
 // FileView is the Files component's state: the files open, each with its
@@ -241,51 +244,4 @@ func (ps *Projects) Of(id string) *Project {
 	}
 	ps.of[id] = p
 	return p
-}
-
-// The side list's width: 220 at first, dragged between sideMin and sideMax,
-// the main area keeping sideMin.
-const (
-	sideWidth = 220
-	sideMin   = 180
-	sideMax   = 480
-	handle    = 6
-)
-
-// split is the main area, then the side list at its own width past a drag
-// handle. Custom, not MyGo's Split: that sizes its first pane, so keeping the
-// list's width meant converting it from the last frame's layout, and a first
-// frame (a page switched to, a tab chosen, the panel opening) drew the main
-// area at its minimum. Here the list is a fixed-width column from the first
-// frame; the main area takes the rest and the motion of the panel only moves
-// the main area. Only a drag reads the layout, to keep the main area sideMin
-// wide.
-func split(c *ui.Context, key string, side *float32, main, list func()) {
-	box := ui.Row(c.Key(key)).Grow(1).MinHeight(0).MinWidth(0).AlignItems(ui.Stretch).Clip()
-	w := box.LayoutBounds().W
-	box.Children(func() {
-		ui.Column(c.Key("main")).Grow(1).Shrink(1).MinWidth(0).MinHeight(0).Children(main)
-		divider(c, side, w)
-		ui.Column(c.Key("side")).Width(*side).Shrink(0).MinHeight(0).Children(list)
-	})
-}
-
-// divider is the split's 1 DIP line under a 6 DIP drag handle: dragging
-// left widens the list.
-func divider(c *ui.Context, side *float32, w float32) {
-	p := theme.Of(c)
-	h := ui.Box(c.Key("divider")).Width(handle).Margin(0, -handle/2).ZIndex(1).Cursor(ui.CursorResizeEW).Shrink(0).
-		Row().Justify(ui.Center).Children(func() {
-		ui.Box(c).Width(1).FillHeight().Background(p.Border)
-	})
-	if h.Hovered() || h.Pressed() {
-		h.Background(p.Ring.Alpha(0.5))
-	}
-	if dx, _, ok := h.Dragged(); ok {
-		limit := float32(sideMax)
-		if w > 0 {
-			limit = min(limit, max(w-sideMin, sideMin))
-		}
-		*side = min(max(*side-dx, sideMin), limit)
-	}
 }

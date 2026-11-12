@@ -171,8 +171,10 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	// share the remaining entries keep the uncounted marker they were parsed with.
 	budget := time.Now().Add(s.stats)
 	// The unstaged side of a count is the content Git would store, so a file
-	// whose line endings are converted counts its edited lines only.
+	// whose line endings are converted counts its edited lines only. A file
+	// behind a filter driver counts no lines and its driver is not run again.
 	var ids map[string]plumbing.Hash
+	var driven map[string]bool
 	if s.stats > 0 {
 		paths := []string{}
 		for _, entry := range result.Entries {
@@ -182,6 +184,8 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		}
 		if len(paths) > 0 {
 			counting, stop := context.WithDeadline(limited, budget)
+			driven = s.filtered(counting, root, r, paths)
+			paths = slices.DeleteFunc(paths, func(path string) bool { return driven[path] })
 			ids = s.storedIDs(counting, root, paths, statLimit)
 			stop()
 		}
@@ -213,14 +217,16 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 			}
 			var working content
 			var workingErr error
-			if statErr == nil && info.Mode().IsRegular() && info.Size() > statLimit {
+			if driven[entry.Path] {
+				working, workingErr = opaque(root, entry.Path)
+			} else if statErr == nil && info.Mode().IsRegular() && info.Size() > statLimit {
 				// A file over the limit is neither read nor hashed: status
 				// already says that it changed.
 				working = content{exists: true, binary: true, large: true}
 			} else {
 				working, workingErr = workingContent(root, entry.Path, statLimit)
 				if workingErr == nil {
-					working, workingErr = s.stored(limited, root, r, entry.Path, working, ids[entry.Path], statLimit, false)
+					working = stored(working, ids[entry.Path])
 				}
 			}
 			// An entry changed on one side only needs one comparison.
@@ -262,7 +268,7 @@ func lineStats(before, after content, beforeErr, afterErr error, limit time.Dura
 	if before.large || after.large || limit <= 0 {
 		return protocol.GitLineStats{Truncated: true}
 	}
-	if bytes.IndexByte(before.data, 0) >= 0 || bytes.IndexByte(after.data, 0) >= 0 || !utf8.Valid(before.data) || !utf8.Valid(after.data) {
+	if before.binary || after.binary || bytes.IndexByte(before.data, 0) >= 0 || bytes.IndexByte(after.data, 0) >= 0 || !utf8.Valid(before.data) || !utf8.Valid(after.data) {
 		return protocol.GitLineStats{}
 	}
 	started := time.Now()

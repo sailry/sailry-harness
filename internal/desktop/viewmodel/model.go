@@ -205,6 +205,7 @@ type Commit struct {
 	ID      string
 	Message string
 	Author  string
+	Time    time.Time // when it was authored; zero when the source does not say
 	Refs    []string
 	Parents []string
 }

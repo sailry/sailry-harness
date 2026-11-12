@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"github.com/sailry/sailry-harness/internal/desktop/kit/kittest"
 	"slices"
 	"testing"
 
@@ -194,6 +195,10 @@ func testEmptyStates(t *testing.T) {
 		tt.Frame()
 		if !tt.HasText(text(row.want)) {
 			t.Errorf("%s shows no %q: %q", row.name, row.want, tt.Texts())
+		}
+		// A tab with nothing but its empty state centres it in the panel.
+		if row.project == nil {
+			kittest.Centred(t, tt, text(row.want), ui.Rect{W: 560, H: 600})
 		}
 	}
 	// While the session's checkpoints are read the tab shows a spinner.
