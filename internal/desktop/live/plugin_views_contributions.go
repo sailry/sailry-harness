@@ -43,10 +43,12 @@ func pluginViewAccepts(surface string, slot protocol.PluginUiSlot) bool {
 	}
 }
 
-// nativeProjectControl reports whether the application draws a bundled
-// package's project control itself: the overview's New terminal and AI CLI
-// buttons, and the project menu's New terminal, AI CLI and Worktrees items.
-// Drawing the package's too would show each twice.
+// nativeProjectControl reports whether a bundled package's project control
+// is the application's own rather than a mounted one: the overview's New
+// terminal and AI CLI buttons, and the project menu's New terminal and
+// Worktrees entries, which projectPluginMenu draws in the slot while their
+// package is enabled. The commands package's CLI submenu of the project menu
+// is not shown at all (docs/removed-ui.md).
 func nativeProjectControl(name, id string) bool {
 	switch name {
 	case "commands":

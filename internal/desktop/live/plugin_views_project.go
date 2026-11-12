@@ -1,6 +1,8 @@
 package live
 
 import (
+	"math"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -30,29 +32,69 @@ func (r *Runtime) renderProjectControls(view *ui.Context, project *viewmodel.Pro
 	}
 }
 
-// projectPluginMenu adds the items packages contribute to a project's
-// system menu: a button is an item, a menu a submenu of its choices.
+// The orders the bundled packages give their project menu entries the
+// application draws itself: the commands package's New terminal and the
+// worktrees package's Manage worktrees.
+const (
+	projectMenuTerminalOrder  = 10
+	projectMenuWorktreesOrder = 30
+)
+
+// projectPluginMenu fills a project menu's project_menu slot with the
+// entries of the packages enabled on the project's Node, in their order: a
+// button is an item, a menu a submenu of its choices. The commands package's
+// New terminal and the worktrees package's entry are the application's own
+// controls, as it owns terminals and worktrees, shown while their package is
+// enabled. The commands package's CLI submenu and the git package's Manage
+// branches are not shown (docs/removed-ui.md, docs/plugins.md).
 func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *viewmodel.Project) {
-	owner, registry := r.projectPluginRegistry(project, "")
-	if registry == nil {
+	owner := r.projectOverviewRuntime(project)
+	if owner == nil {
 		return
 	}
-	for _, entry := range registry.Entries(protocol.PluginUiSlotProjectMenu) {
-		if entry.Retry {
-			continue
+	side := r.localRuntime().App.Sidebar
+	terminal, worktrees := owner.packageEnabled("commands"), owner.packageEnabled(pluginWorktreesPackage)
+	native := func(before int) {
+		if terminal && projectMenuTerminalOrder <= before {
+			side.TerminalItem(view, menu, project)
+			terminal = false
 		}
-		label := pluginLabel(entry.Declaration.Label, view.Locale())
-		switch entry.Declaration.Kind {
-		case "button":
-			if menu.Item(label).Disabled(!entry.State.Enabled).Chosen() {
-				owner.invokePluginControl(registry, entry.Key, "invoke", nil)
-			}
-		case "menu":
-			menu.Submenu(label, func(child *ui.Menu) {
-				owner.projectPluginChoices(view, child, registry, entry, pluginEntryChoices(entry), entry.State.Enabled)
-			})
+		if worktrees && projectMenuWorktreesOrder <= before {
+			side.WorktreeMenu(view, menu, project)
+			worktrees = false
 		}
 	}
+	if _, registry := r.projectPluginRegistry(project, ""); registry != nil {
+		for _, entry := range registry.Entries(protocol.PluginUiSlotProjectMenu) {
+			if entry.Retry {
+				continue
+			}
+			native(int(entry.Declaration.Order))
+			label := pluginLabel(entry.Declaration.Label, view.Locale())
+			switch entry.Declaration.Kind {
+			case "button":
+				if menu.Item(label).Disabled(!entry.State.Enabled).Chosen() {
+					owner.invokePluginControl(registry, entry.Key, "invoke", nil)
+				}
+			case "menu":
+				menu.Submenu(label, func(child *ui.Menu) {
+					owner.projectPluginChoices(view, child, registry, entry, pluginEntryChoices(entry), entry.State.Enabled)
+				})
+			}
+		}
+	}
+	native(math.MaxInt)
+}
+
+// packageEnabled reports whether the Node has the package enabled and can
+// run it.
+func (r *Runtime) packageEnabled(name string) bool {
+	for _, summary := range r.snapshot().Plugins {
+		if summary.Name == name {
+			return summary.Enabled && summary.Compatibility.Kind == "compatible"
+		}
+	}
+	return false
 }
 
 func (r *Runtime) projectPluginChoices(view *ui.Context, menu *ui.Menu, registry *desktopplugins.Registry, entry desktopplugins.ContributionEntry, choices []protocol.PluginUiChoice, enabled bool) {

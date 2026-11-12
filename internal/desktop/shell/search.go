@@ -112,6 +112,10 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 					a.Sidebar.Actions.Overview(pr)
 					return
 				}
+				if a.Sidebar.Actions == nil && a.Sidebar.Sample.Overview != nil {
+					a.Sidebar.Sample.Overview(pr)
+					return
+				}
 				a.Page, a.NavOpen = ConversationPage, true
 				a.Sidebar.Reveal(pr.ID)
 			}})

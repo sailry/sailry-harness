@@ -150,8 +150,8 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	}
 }
 
-// The launcher is titled "details" and lists the six resources in order
-// from the top of the panel, each row opening its resource.
+// The launcher lists its four resources, Browser, Terminal, Files and Git,
+// centred in the panel, and neither History nor Documents.
 func TestPanelLauncherCentred(t *testing.T) {
 	for _, lang := range []string{"en", "zh-CN"} {
 		_, tt := newTester(t)
@@ -161,9 +161,23 @@ func TestPanelLauncherCentred(t *testing.T) {
 		tt.Frame()
 		// The launcher has no title: its rows are centred between the header
 		// and the window's bottom edge.
-		// The first and last rows have labels no other control carries.
-		head, ok := tt.AccessByRole(ui.RoleButton, i18n.In(lang, panel.Resources[0].Label))
-		tail, found := tt.AccessByRole(ui.RoleButton, i18n.In(lang, panel.Resources[len(panel.Resources)-1].Label))
+		// The rail names Files and Git too: the launcher's rows are the
+		// panel's.
+		row := func(r panel.Resource) (ui.AccessInfo, bool) {
+			for _, info := range tt.AccessAll() {
+				if info.Role == ui.RoleButton && info.Name == i18n.In(lang, r.Label) && info.Bounds.X >= 640 {
+					return info, true
+				}
+			}
+			return ui.AccessInfo{}, false
+		}
+		for _, r := range panel.Resources[4:] {
+			if _, listed := row(r); listed {
+				t.Fatalf("%s: the launcher lists %s", lang, r.Label)
+			}
+		}
+		head, ok := row(panel.Resources[0])
+		tail, found := row(panel.Resources[3])
 		if !ok || !found || head.Bounds.X < 640 || tail.Bounds.X != head.Bounds.X {
 			t.Fatalf("%s: launcher rows %v %v: %+v %+v", lang, ok, found, head.Bounds, tail.Bounds)
 		}
@@ -173,7 +187,7 @@ func TestPanelLauncherCentred(t *testing.T) {
 			t.Fatalf("%s: the rows are not vertically centred: %v above, %v below", lang, above, below)
 		}
 	}
-	for _, r := range panel.Resources {
+	for _, r := range panel.Resources[:4] {
 		a, tt := newTester(t)
 		tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
 		tt.Advance(time.Second)

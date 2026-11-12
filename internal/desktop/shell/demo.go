@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -140,6 +141,7 @@ func (a *App) enterDemo(locale string) {
 	a.demo = &demoMode{parked: own, locale: locale, usage: preview.DemoUsage(d, locale, time.Now)}
 	side := sidebar.New(d, preview.DemoStart)
 	side.Sort = own.sidebar.Sort
+	side.Sample = sidebar.Sample{Overview: a.demoProject, NewTerminal: a.demoTerminal}
 	shown := panel.New(d.Workspace)
 	shown.Demo = true
 	a.demo.data = d
@@ -154,6 +156,52 @@ func (a *App) enterDemo(locale string) {
 		comp := a.Composer(id)
 		comp.Draft, comp.Attachments = draft.Text, draft.Attachments
 	}
+}
+
+// demoProject shows a demo project's page, as the live window's Project
+// overview does: its sessions open, New session and New terminal act on the
+// demo, and its Terminal records are the terminal tabs open beside the
+// conversation. Nothing reaches a Node.
+func (a *App) demoProject(pr *viewmodel.Project) {
+	a.OpenProject(pr, ProjectActions{
+		NewSession: func(pr *viewmodel.Project) { a.Sidebar.NewSession(pr) },
+		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
+			a.Page, a.Sidebar.Selected = ConversationPage, cv.ID
+			done(true)
+		},
+		NewTerminal: a.demoTerminal,
+		Terminals: func() []ProjectTerminal {
+			var list []ProjectTerminal
+			if a.Data.ProjectOf(a.Sidebar.Selected) != pr {
+				return list
+			}
+			for _, t := range a.Panel.Tabs {
+				if t.Kind == panel.Terminal {
+					list = append(list, ProjectTerminal{ID: t.ID, Path: pr.Path})
+				}
+			}
+			return list
+		},
+		OpenTerminal: func(id string) {
+			a.Page, a.PanelOpen = ConversationPage, true
+			a.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
+		},
+	})
+}
+
+// demoTerminal opens a terminal tab in a demo project: beside the
+// conversation shown when it is the project's, else beside the project's
+// first, or a new one. The tab shows the demo's screen; no shell starts.
+func (a *App) demoTerminal(pr *viewmodel.Project) {
+	if a.Data.ProjectOf(a.Sidebar.Selected) != pr {
+		at := slices.IndexFunc(pr.Conversations, func(cv *viewmodel.Conversation) bool { return !cv.Archived })
+		if at < 0 {
+			a.Sidebar.NewSession(pr)
+		} else {
+			a.Sidebar.Selected = pr.Conversations[at].ID
+		}
+	}
+	a.openPanel(panel.Terminal)
 }
 
 // underneath runs f over the window's own stage, the demo waiting meanwhile:

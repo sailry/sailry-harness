@@ -35,10 +35,18 @@ type Actions struct {
 	Export        func(*viewmodel.Conversation, conversation.ExportFormat)
 	OpenWorkspace func(*viewmodel.Project, *viewmodel.Conversation)
 	Overview      func(*viewmodel.Project)
-	CLI           func(*viewmodel.Project)
 	NewTerminal   func(*viewmodel.Project)
-	// ProjectMenu adds the items packages contribute to a project's menu.
+	// ProjectMenu fills the project menu's project_menu slot, after New
+	// session: the enabled packages' entries in their order, the bundled
+	// ones the application draws through TerminalItem and WorktreeMenu.
 	ProjectMenu func(*ui.Context, *ui.Menu, *viewmodel.Project)
+}
+
+// Sample is what the window does for a sample dataset's menus, which have no
+// Actions: the demo's project page and terminal. Nothing reaches a Node.
+type Sample struct {
+	Overview    func(*viewmodel.Project)
+	NewTerminal func(*viewmodel.Project)
 }
 
 // removeLabel is the removal's confirming action: the preview names its

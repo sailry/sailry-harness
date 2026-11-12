@@ -106,7 +106,7 @@ func (b *demo) workspace() *Workspace {
 		return []viewmodel.ScreenSpan{span(viewmodel.ToneAccent, "harbor-api"), span(viewmodel.ToneMuted, " feature/rate-limit"), span(viewmodel.ToneGood, " ❯ "), span(viewmodel.TonePlain, text)}
 	}
 	passed := func(pkg, took string) []viewmodel.ScreenSpan {
-		return []viewmodel.ScreenSpan{span(viewmodel.ToneGood, "ok  \t"), span(viewmodel.TonePlain, "github.com/harbor/harbor-api/internal/"+pkg+"\t"), span(viewmodel.ToneMuted, took)}
+		return []viewmodel.ScreenSpan{span(viewmodel.ToneGood, "ok      "), span(viewmodel.TonePlain, "github.com/harbor/harbor-api/internal/"+pkg+"    "), span(viewmodel.ToneMuted, took)}
 	}
 	status := func(tone viewmodel.ScreenTone, mark, path string) []viewmodel.ScreenSpan {
 		return []viewmodel.ScreenSpan{span(tone, mark), span(viewmodel.TonePlain, " "+path)}

@@ -2150,8 +2150,6 @@ project_removed: プロジェクトを削除しました
 project_revoke: 信頼を取り消す
 project_revoke_description: プロジェクトタスクを停止し、履歴と草稿を保持します
 project_revoke_title: プロジェクトの信頼を取り消す
-project_trust: プロジェクトの信頼を管理
-project_trust_preview: プレビューのみを変更
 task_completed: 完了
 artifact_export_failed: エクスポートできませんでした
 chat_compact_incomplete: 要約不完全

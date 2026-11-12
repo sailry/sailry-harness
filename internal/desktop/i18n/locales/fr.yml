@@ -2150,8 +2150,6 @@ project_removed: Projet retiré
 project_revoke: Révoquer la confiance
 project_revoke_description: Arrêter les tâches de projet; conserver l'historique et les brouillons
 project_revoke_title: Révoquer l'approbation du projet
-project_trust: Gérer la confiance du projet
-project_trust_preview: Aperçu des modifications uniquement
 task_completed: Achevée
 artifact_export_failed: Échec de l’export
 chat_compact_incomplete: Résumé incomplet
