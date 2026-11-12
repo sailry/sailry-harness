@@ -21,6 +21,10 @@ class Connection extends NativeHandle {
   Future<String> execute({required String request}) async =>
       await invoke('execute', {'request': request}) as String;
 
+  /// Asks what became of [request] without sending it again.
+  Future<String> resolve({required String request}) async =>
+      await invoke('resolve', {'request': request}) as String;
+
   Future<String> prepareStatus({
     required String scope,
     required String entry,

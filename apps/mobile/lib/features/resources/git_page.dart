@@ -149,10 +149,7 @@ class _GitPageState extends State<GitPage> {
       return true;
     } on CommandFailure catch (error) {
       if (mounted) {
-        setState(
-          () =>
-              _pending = error.code == 'outcome_unknown' ? error.request : null,
-        );
+        setState(() => _pending = error.retained ? error.request : null);
       }
       _toast(error);
     } catch (error) {
@@ -169,14 +166,12 @@ class _GitPageState extends State<GitPage> {
     if (pending == null || target == null) return;
     setState(() => _busy = true);
     try {
-      await target.host.execute(pending);
+      await target.host.check(pending);
       if (!mounted) return;
       setState(() => _pending = null);
       await _load();
     } on CommandFailure catch (error) {
-      if (mounted && error.code != 'outcome_unknown') {
-        setState(() => _pending = null);
-      }
+      if (mounted && !error.retained) setState(() => _pending = null);
       _toast(error);
     } catch (error) {
       _toast(error);

@@ -221,6 +221,39 @@ func TestDraftChecks(t *testing.T) {
 		if tt.HasText(local) || tt.HasText(remote) || tt.HasText(mobile) {
 			t.Fatalf("a row shows a whole Node ID: %q", tt.Texts())
 		}
+		// A row's status is CrychicUI's ConnectionStatus, named by its
+		// label: this computer, the route of a device that is reachable, and
+		// offline, each once here.
+		for _, key := range []string{"composer_host_local", "connection_route_p2p", "connection_route_relay", "connections_offline"} {
+			label := i18n.In("zh-CN", key)
+			status, ok := tt.AccessByRole(ui.RoleStatus, label)
+			if text, shown := tt.Find(label); !ok || !shown || text.Y < status.Bounds.Y || text.Y+text.H > status.Bounds.Y+status.Bounds.H {
+				t.Fatalf("no status %q holding its label: %+v, %q", label, status, tt.Texts())
+			}
+		}
+		// For review: $SAILRY_SNAPSHOTS/settings-connections-status-<mode>.png at 2x.
+		if dir := os.Getenv("SAILRY_SNAPSHOTS"); dir != "" {
+			for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+				sheet := ui.NewTesterWith(func(c *ui.Context) {
+					theme.Apply(c, "", mode)
+					ui.Column(c).Fill().Padding(24).Background(theme.Of(c).Background).Children(func() { connections(c, m) })
+				}, 760, 620, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
+				sheet.SetLocale("en")
+				sheet.SetScale(2)
+				sheet.Frame()
+				sheet.Advance(time.Second)
+				sheet.Frame()
+				name := map[theme.Mode]string{theme.Light: "light", theme.Dark: "dark"}[mode]
+				out, err := os.Create(filepath.Join(dir, "settings-connections-status-"+name+".png"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := png.Encode(out, sheet.Image()); err != nil {
+					t.Fatal(err)
+				}
+				out.Close()
+			}
+		}
 		shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
 		if err := os.MkdirAll(shots, 0o755); err != nil {
 			t.Fatal(err)

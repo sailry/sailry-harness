@@ -197,12 +197,16 @@ type Remote struct {
 }
 
 // Commit is a commit of the history, newest first; Refs are the
-// references at it, as heads/main or tags/v0.1.0.
+// references at it, as heads/main, remotes/origin/main or tags/v0.1.0, and
+// HEAD at the commit checked out. Parents are its parents' IDs, the first
+// the line it continues: empty for a root commit and nil when the source
+// does not say, which leaves the history without a graph.
 type Commit struct {
 	ID      string
 	Message string
 	Author  string
 	Refs    []string
+	Parents []string
 }
 
 // Repository is the project's Git repository as the Git panel shows it.

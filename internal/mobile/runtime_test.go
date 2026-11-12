@@ -1,10 +1,16 @@
 package mobile
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"sync"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 func TestMobileInvokeOps(t *testing.T) {
@@ -58,6 +64,94 @@ func (owner *waitingObject) invoke(ctx context.Context, _ *Runtime, _ uint64, _ 
 func (owner *waitingObject) close() error {
 	close(owner.stopped)
 	return nil
+}
+
+func TestMobileRootHandleIsNotReleased(t *testing.T) {
+	t.Parallel()
+	for _, method := range []string{"close", "dispose"} {
+		t.Run(method, func(t *testing.T) {
+			results := make(chan envelope, 2)
+			runtime := New(func(_ uint64, data []byte) {
+				var value envelope
+				if err := json.Unmarshal(data, &value); err != nil {
+					t.Errorf("decode completion: %v", err)
+				}
+				results <- value
+			})
+			owner := &waitingObject{started: make(chan struct{}), stopped: make(chan struct{})}
+			lifetime, cancel := context.WithCancel(runtime.ctx)
+			if _, err := runtime.add(0, "updates", owner, lifetime, cancel); err != nil {
+				t.Fatal(err)
+			}
+			// A handle that was never set is 0 on the Dart side.
+			if !runtime.Invoke(0, method, []byte("{}"), 1) {
+				t.Fatal("operation was not accepted")
+			}
+			if got := <-results; got.OK || got.Error == nil || got.Error.Code != protocol.ErrorCodeInvalidRequest {
+				t.Fatalf("completion = %#v", got)
+			}
+			select {
+			case <-owner.stopped:
+				t.Fatal("releasing the root released another handle")
+			default:
+			}
+			if lifetime.Err() != nil {
+				t.Fatal("releasing the root cancelled another handle")
+			}
+			runtime.Close(2)
+			<-owner.stopped
+			<-results
+		})
+	}
+}
+
+func TestMobileTransferBytes(t *testing.T) {
+	t.Parallel()
+	content := []byte{0, 1, 254, 255}
+	const encoded = `"AAH+/w=="`
+	t.Run("digest", func(t *testing.T) {
+		owner := newDigest()
+		// Base64 is the bridge's form; a number array is still read.
+		for _, input := range []string{`{"bytes":` + encoded + `}`, `{"bytes":[0,1,254,255]}`} {
+			if _, err := owner.invoke(t.Context(), nil, 0, "update", json.RawMessage(input)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		revision, err := owner.invoke(t.Context(), nil, 0, "revision", nil)
+		want := blake3.Sum256(append(append([]byte{}, content...), content...))
+		if err != nil || revision != hex.EncodeToString(want[:]) {
+			t.Fatalf("revision = %v, %v", revision, err)
+		}
+	})
+	t.Run("upload", func(t *testing.T) {
+		reader, writer := io.Pipe()
+		owner := &upload{transfer: &transfer{reader: reader, writer: writer}}
+		received := make(chan []byte, 1)
+		go func() {
+			data := make([]byte, 16)
+			count, _ := reader.Read(data)
+			received <- data[:count]
+		}()
+		if _, err := owner.invoke(t.Context(), nil, 0, "write", json.RawMessage(`{"bytes":`+encoded+`}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got := <-received; !bytes.Equal(got, content) {
+			t.Fatalf("uploaded %v", got)
+		}
+	})
+	t.Run("download", func(t *testing.T) {
+		reader, writer := io.Pipe()
+		owner := &download{transfer: &transfer{reader: reader, writer: writer}}
+		go func() { _, _ = writer.Write(content) }()
+		value, err := owner.invoke(t.Context(), nil, 0, "next", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		completion, err := json.Marshal(result(value, nil))
+		if err != nil || string(completion) != `{"ok":true,"value":`+encoded+`}` {
+			t.Fatalf("completion = %s, %v", completion, err)
+		}
+	})
 }
 
 func TestMobileSubscribeCancel(t *testing.T) {

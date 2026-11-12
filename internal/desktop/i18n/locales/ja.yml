@@ -414,7 +414,10 @@ git_commit_staged: ステージド変更をコミット
 git_commit_staged_amend: ステージされたコミットと修正
 git_commit_staged_signoff: コミットをステージ化し、サインアウト
 git_commit_sync: コミットと同期
+git_cherry_pick: チェリーピックコミット
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: ブランチ名をコピー
+git_copy_commit_id: Copy commit ID
 git_copy_path: パスをコピー
 git_delete_branch: ブランチを削除
 git_delete_confirm: 削除しますか？これは元に戻せません
@@ -1443,6 +1446,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: フォルダーを選択
 skill_source_choose_archive: アーカイブを選択
 git_diff: 差分
+git_diff_split: Split
+git_diff_unified: Unified
 market_permission_git_read: Git 変更の読み取り
 market_permission_git_write: Git の変更
 market_permission_files_read: ファイルの読み取り
@@ -2219,3 +2224,4 @@ host_version_older: Host が古いため、Host を更新してください
 host_version_newer: Host が新しいため、デスクトップを更新してください
 host_version_unknown: Host のバージョンを確認できません。Host を更新してください
 controller_version_unknown: デスクトップのバージョンを確認できません。更新してください
+port_count: '%{count} ports'

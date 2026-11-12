@@ -711,6 +711,35 @@ func TestPolicy(t *testing.T) {
 			t.Errorf("after the split side: flag %v, layout %v", split, st.Layout)
 		}
 	})
+	// The Git history puts a row of its own over each of the graph's, by
+	// these figures: a library that lays its rows elsewhere fails here.
+	t.Run("CommitGraph lays its rows where CommitGraphRows says", func(t *testing.T) {
+		var top, height, lanes, pad float32
+		s := newStage(func(c *ui.Context) {
+			top, height = CommitGraphRows(c)
+			lanes, pad = CommitGraphLanes(c, 2), CommitGraphPad(c)
+			CommitGraph(c, "t:history", history)
+		}, theme.Light)
+		s.settle()
+		list, ok := s.tt.AccessByRole(ui.RoleList, "t:history")
+		if !ok {
+			t.Fatal("no graph")
+		}
+		for i, k := range history {
+			row, ok := s.tt.AccessByRole(ui.RoleListItem, k.Message)
+			if !ok {
+				t.Fatalf("no row %q", k.Message)
+			}
+			if want := list.Bounds.Y + top + float32(i)*height; row.Bounds.Y != want || row.Bounds.H != height {
+				t.Errorf("row %d is at %v, %v tall; CommitGraphRows says %v, %v", i, row.Bounds.Y, row.Bounds.H, want, height)
+			}
+		}
+		// The text starts after the lanes: two here.
+		hash, ok := s.tt.Find(history[0].Hash[:7])
+		if want := list.Bounds.X + pad + lanes; !ok || hash.X != want {
+			t.Errorf("the text starts at %v, want %v after two lanes", hash.X, want)
+		}
+	})
 	t.Run("CommitGraph builds every row of a long history and comes to rest", func(t *testing.T) {
 		const n = 400
 		hash := func(i int) string { return fmt.Sprintf("%07x", n-i) }

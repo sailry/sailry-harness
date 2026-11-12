@@ -414,7 +414,10 @@ git_commit_staged: Fazer commit de alterações em estágio
 git_commit_staged_amend: Commit staged e amend
 git_commit_staged_signoff: Commit staged e assinar fora
 git_commit_sync: Confirmar e sincronizar
+git_cherry_pick: Cherry-pick commit
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Copiar nome da filial
+git_copy_commit_id: Copy commit ID
 git_copy_path: Copiar caminho
 git_delete_branch: Excluir ramo
 git_delete_confirm: Excluir? Isso não pode ser desfeito
@@ -1443,6 +1446,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Escolher pasta
 skill_source_choose_archive: Escolher arquivo
 git_diff: Diferenças
+git_diff_split: Split
+git_diff_unified: Unified
 market_permission_git_read: Ler alterações do Git
 market_permission_git_write: Alterar Git
 market_permission_files_read: Ler arquivos
@@ -2219,3 +2224,4 @@ host_version_older: Host é mais antigo; atualize o Host
 host_version_newer: Host é mais recente; atualize o Desktop
 host_version_unknown: Não foi possível verificar a versão do Host; atualize o Host
 controller_version_unknown: Não foi possível verificar a versão do Desktop; atualize o Desktop
+port_count: '%{count} ports'

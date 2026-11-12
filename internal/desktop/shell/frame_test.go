@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -302,6 +303,11 @@ func testSideColumns(t *testing.T) {
 	a.NavWidth = 300
 	a.Navigate(MarketPage)
 	tt.Frame()
+	// The window's diff layout is saved with them: the choice above a diff
+	// writes the app's (kit.DiffSplit), and a file without it is unified.
+	a.Hooks.BeforeFrame = func(c *ui.Context) { *kit.DiffSplit(c) = true }
+	tt.Frame()
+	a.Hooks.BeforeFrame = nil
 	dir := t.TempDir()
 	if err := SavePrefs(dir, a.Prefs()); err != nil {
 		t.Fatal(err)
@@ -311,11 +317,14 @@ func testSideColumns(t *testing.T) {
 	if !b.NavOpen || b.NavWidth != 300 {
 		t.Errorf("the choice did not come back from a page without a column: %+v", b.Prefs())
 	}
+	if !a.DiffSplit || !b.DiffSplit {
+		t.Errorf("the split diff did not come back: chosen %v, restored %v", a.DiffSplit, b.DiffSplit)
+	}
 	if err := os.WriteFile(filepath.Join(dir, PrefsFile), []byte(`{"navWidth":280,"navOpen":false,"panelWidth":420,"panelOpen":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	b.SetPrefs(LoadPrefs(dir))
-	if b.NavOpen || b.NavWidth != 280 || !b.PanelOpen || b.PanelWidth != 420 {
+	if b.NavOpen || b.NavWidth != 280 || !b.PanelOpen || b.PanelWidth != 420 || b.DiffSplit {
 		t.Errorf("an earlier file did not load: %+v", b.Prefs())
 	}
 	bt := ui.NewTesterWith(b.View, 1280, 820, opaque)

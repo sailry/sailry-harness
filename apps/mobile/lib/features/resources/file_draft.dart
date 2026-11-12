@@ -30,9 +30,9 @@ class FileDraft {
               'text': submitted,
               'expected_revision': revision,
             })
-          : await host.execute(pending!);
+          : await host.check(pending!);
     } on CommandFailure catch (error) {
-      pending = error.code == 'outcome_unknown' ? error.request : null;
+      pending = error.retained ? error.request : null;
       rethrow;
     }
     final data = object(output['data']);

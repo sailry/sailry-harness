@@ -46,6 +46,12 @@ func Busy(c *ui.Context) ui.Element {
 	return BusyIn(c, theme.Of(c).MutedForeground)
 }
 
+// BusySized is Busy size across: the mark of a step in progress in a list
+// whose icons are that size.
+func BusySized(c *ui.Context, size float32) ui.Element {
+	return loading.Ring(c, loading.Options{Size: size, Color: theme.Of(c).MutedForeground})
+}
+
 // BusyIn is Busy in color, the color of the label it stands before on a
 // filled button.
 func BusyIn(c *ui.Context, color ui.Color) ui.Element {
