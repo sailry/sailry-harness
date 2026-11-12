@@ -3,20 +3,7 @@
 Read [ARCHITECTURE.md](ARCHITECTURE.md) and [AGENTS.md](AGENTS.md) before changing
 code. The Go module and repository are `github.com/sailry/sailry-harness`.
 
-## Scope and status
-
-The accepted desktop preview remains available through `--preview`. B1 supplies
-the v1 protocol, B2 the isolated profile and SQLite storage, and B3 the local
-Node, Client and live sidebar, notifications and preferences. B4 adds captured
-model transport and canonical agent execution; B5 adds workspace tools, Git,
-verified transfers, sandboxed commands, Web resources and hooks with live native
-resource panels. B6 connects frozen teams and roles, child execution, background
-delivery and immutable skill resources. B7 supplies remote Link, pairing, Host
-control, SSH Host deployment, metrics, port forwarding and the Flutter Go
-adapter. Plugin runtimes and the remaining resource services arrive in their
-assigned phases. Each platform's runtime acceptance is recorded separately.
-Implement phases in order, with centralized checks and a report per phase.
-The user has authorized continuing through B14 without confirmation pauses.
+## Scope
 
 The checkout is self-contained: locale sources live in `locales/`, plugin SDK
 declarations in `sdk/`, and official packages in the pinned submodules. Setup,
@@ -35,10 +22,9 @@ Requirements:
 - The MyGo version pinned in `go.mod`:
   `v0.8.4-0.20261109104234-eadf1fce6af3`. Do not upgrade it or edit its source.
 - Platform-native runtime dependencies required by that MyGo version.
-- B7 Link requires the pinned Rust 1.98.0 toolchain to build iroh 1.3.0. Mobile
-  requires Flutter and the target's Android NDK or Apple SDK; the preserved
-  TypeScript pairing service uses its own Node.js package tooling.
-- Later phases add their pinned native runtimes and plugin tooling.
+- Building the Link native library requires the pinned Rust 1.98.0 toolchain
+  (iroh 1.3.0). Mobile requires Flutter and the target's Android NDK or Apple
+  SDK; the TypeScript pairing service uses its own Node.js package tooling.
 
 Use this environment before every Go command:
 
@@ -112,15 +98,12 @@ installed release profile. Tests use `t.TempDir()`.
 | `schemas/` | Published v1 plugin contract schemas and the Agent Plugins manifest schema |
 | `third_party_licenses/` | Index of third-party notices, shared license texts and the Go module list |
 | `justfile` | Local recipes for the commands in this document |
-| `sdk/` | Preserved v1 plugin contract and declarations; Go runtimes arrive in B8/B9 |
-| `internal/{protocol,link,client,core,node,...}` | Backend packages added only by their assigned phases |
-| `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries added in B7 |
-| `native/` | Pinned native libraries and their phase-specific build inputs |
-| `services/pairing-relay` | Preserved short-code rendezvous service, separate from the encrypted iroh data relay |
+| `sdk/` | The v1 plugin contract and its declarations |
+| `internal/{protocol,link,client,core,node,...}` | Backend packages ([ARCHITECTURE.md](ARCHITECTURE.md#components-and-dependencies)) |
+| `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries |
+| `native/` | Pinned native libraries and their build inputs |
+| `services/pairing-relay` | Short-code rendezvous service, separate from the encrypted iroh data relay |
 | `.runtime/` | Ignored fixed-purpose experiments, libraries and test profiles |
-
-B0 retains `settings.Stored[T]`, `shell.Prefs` and callback-driven window
-invalidation. Nodra is not adopted because its prototype did not reduce code.
 
 ## Checks
 
@@ -147,7 +130,7 @@ Additional checks apply only when their inputs change:
 | `internal/mobile` or `cmd/sailry-mobile` | `CGO_ENABLED=1 go vet ./cmd/sailry-mobile` |
 | `native/` | `cargo build --locked` in the changed native project |
 | `apps/mobile` | `flutter analyze` and `flutter test` there |
-| `internal/node`, `internal/client` or `internal/link` | Once per phase, `CGO_ENABLED=1 go test -race` on the changed packages |
+| `internal/node`, `internal/client` or `internal/link` | Before a release, `CGO_ENABLED=1 go test -race` on the changed packages |
 
 The mobile C ABI and local race detector are the documented cgo exceptions;
 ordinary Desktop and Host code uses `CGO_ENABLED=0`. Native artifacts belong
@@ -199,11 +182,7 @@ does not prove live or cross-platform acceptance.
   Libraries own their own tests.
 - Keep one assertion at one layer. Do not port Rust tests one for one or repeat
   store assertions through Client and UI. Prefer compact table-driven cases.
-- Each phase names its tests and target count. The full repository ceiling by
-  B14 is 400 default-run test functions, including existing UI tests; tests
-  behind `//go:build integration` are not counted. B0 adds zero tests;
-  existing test bodies and assertions stay unchanged while imports and obsolete
-  source comments follow the package moves.
+- Prefer a subtest in an existing test function to a new function.
 - Keep default tests deterministic and isolated. Use `t.TempDir()`, injected
   clocks, local fakes and `net/http/httptest`. No sleeps, real timers, live
   network, user profiles or real child processes in the default suite.
@@ -217,7 +196,7 @@ does not prove live or cross-platform acceptance.
 - A failing check must be diagnosed and repaired without weakening assertions or
   skipping cases. Reuse passing results until a relevant input changes.
 - Plugin behavior tests belong in the plugins repository. Core contract fixtures
-  stay package-neutral; B8/B9 add only their specified runtime coverage.
+  stay package-neutral.
 
 ## Continuous integration
 
@@ -276,7 +255,7 @@ per-test matrices or retry-on-flake wrappers.
 
 ## Release packages
 
-Release work is B14. Allowed packaging tools are `mygo build`, `flutter build`,
+Allowed packaging tools are `mygo build`, `flutter build`,
 the specified `native/*/build.sh` scripts and the ported Host installer files
 under `internal/node/host/deployment/`.
 Signing credentials, profiles, binaries and native artifacts never enter Git.
@@ -352,9 +331,7 @@ bundled Python interpreter keeps `disable-library-validation`. Windows packages
 are not signed: the existing release settings hold no Windows certificate, and
 `windows.certificate` and `windows.signCommand` stay unset in `mygo.json`.
 
-B2 selected the prescribed SQLite fallback after the Turso contention load
-failed. On November 11, 2026 the user decided that releases open `~/.sailry` in
-place. The Go Node creates `storage/node.sqlite` and `storage/knowledge.sqlite`
+Storage is SQLite. A release opens `~/.sailry` in place. The Go Node creates `storage/node.sqlite` and `storage/knowledge.sqlite`
 and moves an earlier release's database files into `storage/rust-archive/`
 without opening, importing, changing or removing them; sessions and settings
 stored in them do not appear. It keeps the

@@ -6,10 +6,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 
 ## Scope
 
-- Finish all authorized backend phases in order against their acceptance criteria.
-  The user has authorized continuous implementation through B14 without pausing
-  for phase confirmation. Do unlisted work only as a prerequisite or blocking
-  defect; optional improvements and later-phase work are not completion gates.
+- Do the work that was asked. Do unrequested work only as a prerequisite or a
+  blocking defect; optional improvements are not completion gates.
 - The Go module and repository are `github.com/sailry/sailry-harness`.
 - Development is self-contained. Locale sources and SDK declarations live here;
   official packages come from the pinned submodules. Do not depend on a sibling
@@ -37,7 +35,7 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   another agent's changes.
 - Official plugins and themes are separate submodules. Preserve their reviewed
   Gitlink pins; do not substitute remote tips or modify packages during an
-  application-only phase.
+  application-only change.
 
 ## Environment and validation
 
@@ -54,7 +52,7 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Reuse built native libraries. Rebuild Rust only when its source, C ABI,
   dependency pins or target changes; Go-only development does not rerun Cargo.
 - Tests use `t.TempDir()`. Manual backend runs use
-  `--data-dir .runtime/profiles/<fixed-name>` once B2 adds that flag. Never use
+  `--data-dir .runtime/profiles/<fixed-name>`. Never use
   `~/.sailry`; `~/.sailry-go` is reserved for the user's acceptance runs.
 - Other-OS checks use `//go:build integration` programs for the user or CI to run
   on those systems. Local compilation does not prove another platform's behavior.
@@ -62,7 +60,7 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 ## Language and product copy
 
 - Source, identifiers, comments, logs, diagnostics, developer errors and public
-  docs are English. User-facing phase reports are Chinese. Other languages live
+  docs are English. Reports to the user are Chinese. Other languages live
   only in i18n resources under stable keys or intentional Unicode fixtures.
 - UI copy belongs in `internal/desktop/i18n/keys.txt` and both
   `locales/en.yml` and `locales/zh-CN.yml` in that package. Maintain their source
@@ -167,20 +165,18 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 
 - Organize by feature in the owning package; keep entry points and shell routing
   thin. UI packages live under `internal/desktop`. Backend code stays outside it;
-  `internal/desktop/live` owns projection and action adapters when B3 lands.
+  `internal/desktop/live` owns projection and action adapters.
 - Preserve the dependency boundaries in ARCHITECTURE.md. Do not add single-
   implementation interfaces, pass-through wrappers or speculative abstractions.
   Add a platform adapter only for a verified gap.
-- Use the libraries named by the backend plan. Do not hand-roll infrastructure,
+- Use the libraries already pinned in `go.mod`. Do not hand-roll infrastructure,
   add unlisted retries or timeouts, revalidate our own data or duplicate checks a
-  library already enforces. A failed spike uses only its documented fallback.
-- The user's November 10, 2026 B8 decision replaces gocron with a direct port of
-  the Rust dispatch calendar, standard production timers and clockwork tests.
-  This source port is explicitly authorized. The later decision that day
-  replaces QuickJS with pinned moejs v0.1.0 after compatibility and resource
-  checks. Keep the 64 MiB callback allocation budget, 60-second deadline,
-  cancellation and Rust-compatible recursion fault without crashing the host.
-  Use the engine's own recursion bound; do not claim a physical stack-byte limit.
+  library already enforces.
+- Dispatch scheduling is our own calendar on standard timers, tested with
+  clockwork; no scheduler library. Plugin JavaScript runs in moejs with a 64 MiB
+  callback allocation budget, a 60-second deadline, cancellation and a recursion
+  fault that does not crash the host. Use the engine's own recursion bound; do
+  not claim a physical stack-byte limit.
 
 ## Dependencies and versions
 
@@ -201,7 +197,7 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 ## Product boundaries
 
 - Preview and demo data never trigger models, tools, pairing, terminals or
-  user-data changes. All B0 surfaces remain preview-only.
+  user-data changes.
 - Mobile is a Flutter controller with Client, Link and a thin Dart FFI adapter.
   A desktop-only Go test is not Mobile acceptance; desktop tasks do not expand
   into Mobile work.
