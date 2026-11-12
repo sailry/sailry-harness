@@ -253,7 +253,8 @@ func (r *Runtime) cancelConnectorLogin() {
 		return
 	}
 	view := &r.App.Settings.ConnectorActions.Authorization
-	if attempt.id == (protocol.RequestID{}) {
+	// As cancelProviderLogin: nothing is left to cancel on the Node.
+	if attempt.id == (protocol.RequestID{}) || attempt.ctx.Err() != nil {
 		view.Open = false
 		attempt.cancel()
 		r.authorizations.connector = nil
