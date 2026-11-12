@@ -1006,5 +1006,58 @@
   "hostNoMatches": "일치 항목 없음",
   "modelFeatureOff": "표준",
   "modelFeatureFast": "빠름",
-  "modelFeatureSpeed": "속도"
+  "modelFeatureSpeed": "속도",
+  "queueHaltStopped": "중지됨 · 대기 {count}개",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "응답 중단됨 · 대기 {count}개",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "메시지 전송 안 됨 · 대기 {count}개",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "결과 전달 안 됨",
+  "backgroundHoldLimit": "전달 안 됨 · 자동 턴 한도 도달",
+  "backgroundHoldStopped": "전달 안 됨 · 응답 중지됨",
+  "backgroundHoldInterrupted": "전달 안 됨 · 응답 중단됨",
+  "backgroundHoldFailed": "전달 안 됨 · 응답 실패",
+  "continuationRefused": "계속되지 않음",
+  "continuationPlan": "계획 모드에서는 계속되지 않음",
+  "continuationChild": "하위 작업은 계속되지 않음",
+  "continuationArchived": "보관된 채팅은 계속되지 않음",
+  "continuationWorktree": "계속되지 않음 · 작업 트리 없음",
+  "continuationQueuePaused": "계속되지 않음 · 대기열 일시 정지됨",
+  "continuationQueuedInput": "계속되지 않음 · 대기 중인 메시지 있음",
+  "continuationRunning": "계속되지 않음 · 응답 진행 중",
+  "continuationInteraction": "계속되지 않음 · 응답을 기다리는 요청 있음",
+  "continuationLimit": "자동 턴 한도에 도달함",
+  "continuationLimitCount": "자동 턴 한도에 도달함 · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "계속되지 않음 · 채팅이 이미 진행됨",
+  "conversationContextOverflow": "모델 컨텍스트 한도를 초과함",
+  "conversationOutputLimit": "출력 한도에서 응답이 잘림"
 }

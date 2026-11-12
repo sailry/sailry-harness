@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../content/code.dart';
+import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 
 typedef ToolSelectionChanged =
@@ -26,6 +27,13 @@ String capturedLabel(BuildContext context, Object? value) {
         locales[locale.languageCode],
     text(label['label']),
   );
+}
+
+/// A package's continuation marker in the app's language; a continuation
+/// without a declared marker reads as continued.
+String continuationLabel(BuildContext context, Object? marker) {
+  final label = capturedLabel(context, marker);
+  return label.isEmpty ? context.tr('conversationContinued') : label;
 }
 
 class ToolInput extends StatelessWidget {

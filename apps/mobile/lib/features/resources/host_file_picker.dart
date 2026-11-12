@@ -5,6 +5,7 @@ import '../../runtime/json.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
 import '../conversations/live/presentation.dart';
+import 'files/entry_data.dart';
 
 /// Browses the selected execution host using the same Client API as Desktop.
 class HostFilePicker extends StatefulWidget {
@@ -126,11 +127,12 @@ class _HostFilePickerState extends State<HostFilePicker> {
             child: Row(
               children: [
                 for (final location in objects(_listing['locations']))
-                  TextButton(
+                  TextButton.icon(
                     onPressed: _busy
                         ? null
                         : () => _load(text(location['path'])),
-                    child: Text(text(location['name'])),
+                    icon: AppIcon(locationIcon(location), size: 16),
+                    label: Text(text(location['name'])),
                   ),
               ],
             ),
@@ -169,7 +171,18 @@ class _HostFilePickerState extends State<HostFilePicker> {
                                       entry['kind'] == 'file'),
                           trailing: entry['kind'] == 'directory'
                               ? const AppIcon('chevron')
-                              : null,
+                              : switch (entryModifiedLabel(context, entry)) {
+                                  final modified? => Text(
+                                    modified,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  null => null,
+                                },
                           onTap: () {
                             final path = _path(text(entry['name']));
                             if (entry['kind'] == 'directory') {

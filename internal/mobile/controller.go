@@ -39,7 +39,6 @@ type input struct {
 	Entry      string   `json:"entry"`
 	Session    string   `json:"session"`
 	Terminal   string   `json:"terminal"`
-	Attempt    string   `json:"attempt"`
 	Source     string   `json:"source"`
 	LocalPort  uint16   `json:"local_port"`
 	RemotePort uint16   `json:"remote_port"`

@@ -1006,5 +1006,58 @@
   "hostNoMatches": "一致なし",
   "modelFeatureOff": "標準",
   "modelFeatureFast": "高速",
-  "modelFeatureSpeed": "速度"
+  "modelFeatureSpeed": "速度",
+  "queueHaltStopped": "停止済み · キュー {count} 件",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "返信が中断されました · キュー {count} 件",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "メッセージ未送信 · キュー {count} 件",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "結果は未配信",
+  "backgroundHoldLimit": "未配信（自動ターンの上限）",
+  "backgroundHoldStopped": "未配信（返信を停止）",
+  "backgroundHoldInterrupted": "未配信（返信が中断）",
+  "backgroundHoldFailed": "未配信（返信に失敗）",
+  "continuationRefused": "続行されませんでした",
+  "continuationPlan": "プランモードでは続行されません",
+  "continuationChild": "サブタスクは続行されません",
+  "continuationArchived": "アーカイブ済みのチャットは続行されません",
+  "continuationWorktree": "続行されません（ワークツリーがありません）",
+  "continuationQueuePaused": "続行されません（キューは一時停止中）",
+  "continuationQueuedInput": "続行されません（キューにメッセージあり）",
+  "continuationRunning": "続行されません（返信を実行中）",
+  "continuationInteraction": "続行されません（対応待ちのリクエストあり）",
+  "continuationLimit": "自動ターンの上限に達しました",
+  "continuationLimitCount": "自動ターンの上限に達しました · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "続行されません（チャットが先に進みました）",
+  "conversationContextOverflow": "モデルのコンテキスト上限を超えました",
+  "conversationOutputLimit": "出力上限で返信が打ち切られました"
 }

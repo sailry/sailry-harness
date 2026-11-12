@@ -91,7 +91,7 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 		return runtime.add(handle, "forwarding", &forwarding{forwarder: forwarder}, lifetime, cancel)
 	case "upload_attachment", "download_attachment", "download_file":
 		return owner.transfer(ctx, runtime, handle, method, values)
-	case "watch", "watch_commands", "watch_connections", "watch_connector_login", "watch_conversation", "watch_login", "watch_status", "watch_terminal", "watch_usage":
+	case "watch", "watch_commands", "watch_conversation", "watch_status", "watch_terminal", "watch_usage":
 		var argument json.RawMessage = json.RawMessage("null")
 		switch method {
 		case "watch_commands", "watch_conversation":
@@ -102,8 +102,6 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 			argument = json.RawMessage(values.Scope)
 		case "watch_usage":
 			argument = json.RawMessage(values.Query)
-		case "watch_login", "watch_connector_login":
-			argument = json.RawMessage(values.Attempt)
 		}
 		lifetime, cancel, detach := runtime.lifetime(ctx, handle)
 		observer, err := owner.client.Watch(lifetime, method, argument)
@@ -114,10 +112,8 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 		}
 		kind := map[string]string{
 			"watch": "updates", "watch_commands": "command_updates",
-			"watch_connections": "connections_updates", "watch_connector_login": "login_updates",
-			"watch_conversation": "conversation_updates", "watch_login": "login_updates",
-			"watch_status": "status_updates", "watch_terminal": "terminal_updates",
-			"watch_usage": "usage_updates",
+			"watch_conversation": "conversation_updates", "watch_status": "status_updates",
+			"watch_terminal": "terminal_updates", "watch_usage": "usage_updates",
 		}[method]
 		return runtime.add(handle, kind, &observation{observer: observer, connection: owner, notices: method == "watch"}, lifetime, cancel)
 	}
