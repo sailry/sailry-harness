@@ -48,4 +48,5 @@ func TestCodeLooks(t *testing.T) {
 		}
 	})
 	t.Run("CopyIsAnIcon", testCodeCopy)
+	t.Run("RecoverOffersRetry", testRecover)
 }

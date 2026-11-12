@@ -413,6 +413,14 @@ hover style.
   always says why it has no tools. The row's ellipsis is disabled when the row
   has no action; statuses and menu rules are in
   [Declared authorization](connectors.md#server-status-and-row-actions).
+- Failure toasts: the toast of a save that failed or whose outcome is
+  unknown offers Retry (`kit.Recover`) for Prevent sleep, diagnostics,
+  Command sandbox, the compaction threshold, team concurrency, the
+  terminal settings and hooks. Retry saves the page's draft again at the
+  revision the page then holds, and only while the page still shows the
+  Node or project it failed for. The reference offers Reload on some of
+  these; our pages read again by themselves after such a save. A conflict
+  toast has no action.
 - Teams: the model field is a select of Follow and the enabled channels'
   models with an effort select and one select per feature the model
   declares (Auto follows, Off, the feature's options; `Role.Features`,

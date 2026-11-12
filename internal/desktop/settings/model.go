@@ -58,6 +58,15 @@ func report(c *ui.Context, o kit.Outcome, m Messages) {
 // Report delivers an asynchronous settings save result through the same toasts.
 func Report(c *ui.Context, o kit.Outcome, m Messages) { report(c, o, m) }
 
+// ReportRetry is Report whose failure and uncertain toasts offer Retry,
+// which runs again.
+func ReportRetry(c *ui.Context, o kit.Outcome, m Messages, again func()) {
+	key := map[kit.Outcome]string{kit.Done: m.Done, kit.Failed: m.Failed, kit.Conflict: m.Conflict, kit.Uncertain: m.Uncertain}[o]
+	if key != "" {
+		kit.Recover(c, o, i18n.T(c, key), again)
+	}
+}
+
 // notice is the toast of an action the preview does not carry out: one
 // that would read the disk, use the network, pair or run a model.
 func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }

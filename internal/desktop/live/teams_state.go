@@ -151,7 +151,11 @@ func (r *Runtime) saveConcurrency() {
 	m.Pending = true
 	r.executeScoped("teams/settings", protocol.Command{Kind: "save_team_settings", Data: value}, func(c *ui.Context, out protocol.Output, err error) {
 		outcome := teamOutcome(err)
-		settings.Report(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"})
+		settings.ReportRetry(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"}, func() {
+			if r.showsSettings() {
+				r.saveConcurrency()
+			}
+		})
 		// The slider is this Node's only while the page shows it.
 		if !r.showsSettings() {
 			return
