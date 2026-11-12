@@ -3,6 +3,8 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -151,6 +153,106 @@ func TestMobileClosedConnectionLeavesNoClient(t *testing.T) {
 	}
 	if _, kept := owner.clients[node]; kept {
 		t.Fatal("a closed Client stayed reachable for notification commands")
+	}
+}
+
+// topicStream yields its updates and then waits for its reader to stop.
+type topicStream struct {
+	updates chan protocol.Update
+}
+
+func (stream topicStream) Next(ctx context.Context) (protocol.Update, error) {
+	select {
+	case update := <-stream.updates:
+		return update, nil
+	case <-ctx.Done():
+		return protocol.Update{}, ctx.Err()
+	}
+}
+func (topicStream) Close() error { return nil }
+
+// topicTransport serves each topic kind the updates a test gives it.
+type topicTransport struct {
+	noticeTransport
+	topics map[string][]protocol.Update
+}
+
+func (transport topicTransport) Subscribe(_ context.Context, topic protocol.Topic) (link.Subscription, error) {
+	updates, served := transport.topics[topic.Kind]
+	if !served {
+		return nil, unavailable("test subscription is unavailable")
+	}
+	stream := topicStream{updates: make(chan protocol.Update, len(updates))}
+	for _, update := range updates {
+		stream.updates <- update
+	}
+	return stream, nil
+}
+
+// The terminal observer reaches Dart as a handle of the kind its API names and
+// a JSON string per next, with exactly the members its reader takes.
+func TestMobileTerminalObserver(t *testing.T) {
+	t.Parallel()
+	node := protocol.NodeID{1}
+	terminal := protocol.DefaultTerminalInfo()
+	terminal.ID, terminal.Revision, terminal.Status = protocol.NewTerminalID(), 3, protocol.TerminalStatus{Kind: "running"}
+	screen := protocol.DefaultTerminalScreen()
+	screen.Columns, screen.Rows = 80, make([]protocol.TerminalScreenLine, 24)
+	shared := client.New(topicTransport{noticeTransport: noticeTransport{node: node}, topics: map[string][]protocol.Update{
+		"terminal": {{Kind: "terminal_snapshot", Data: protocol.TerminalSnapshot{Node: node, Info: terminal, Screen: screen}}},
+	}})
+	runtime := New(nil)
+	t.Cleanup(func() { runtime.Close(1); _ = shared.Close() })
+	owner := &connection{client: shared, controller: &controller{}}
+	arguments, _ := json.Marshal(map[string]string{"terminal": terminal.ID.String()})
+	opened, err := owner.invoke(t.Context(), runtime, 0, "watch_terminal", arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle := opened.(Handle); handle.Kind != "terminal_updates" || handle.Handle != "1" {
+		t.Fatalf("handle = %#v", handle)
+	}
+	runtime.mu.Lock()
+	updates := runtime.handles[1].object
+	runtime.mu.Unlock()
+	value, err := updates.invoke(t.Context(), runtime, 1, "next", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := func(data string) (map[string]json.RawMessage, []string) {
+		t.Helper()
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(data), &object); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		return object, slices.Sorted(maps.Keys(object))
+	}
+	view, names := members(value.(string))
+	if !slices.Equal(names, []string{"connected", "error", "recovering", "snapshot"}) ||
+		string(view["connected"]) != "true" || string(view["recovering"]) != "false" || string(view["error"]) != "null" {
+		t.Fatalf("view = %s", value)
+	}
+	if _, names := members(string(view["snapshot"])); !slices.Equal(names, []string{"info", "node", "screen", "sequence"}) {
+		t.Fatalf("snapshot has members %v", names)
+	}
+}
+
+// Sign-in and connection management are done on the computer: the phone has
+// no operation for them, so their names fail as any unknown operation does.
+func TestMobileHasNoAuthorizationObservers(t *testing.T) {
+	t.Parallel()
+	shared := client.New(noticeTransport{node: protocol.NodeID{1}})
+	t.Cleanup(func() { _ = shared.Close() })
+	owner := &connection{client: shared, controller: &controller{}}
+	_, unknown := owner.invoke(t.Context(), nil, 0, "missing", nil)
+	for _, method := range []string{"watch_login", "watch_connector_login", "watch_connections"} {
+		_, err := owner.invoke(t.Context(), nil, 0, method, json.RawMessage(`{"attempt":"{}"}`))
+		if failed := result(nil, err).Error; failed == nil || failed.Code != protocol.ErrorCodeInvalidRequest || err.Error() != unknown.Error() {
+			t.Fatalf("%s = %v, want %v", method, err, unknown)
+		}
+		if _, err := shared.Watch(t.Context(), method, json.RawMessage("null")); err == nil {
+			t.Fatalf("the Client observes %s", method)
+		}
 	}
 }
 
