@@ -581,15 +581,20 @@ empty so the text remains aligned.
   entries and Git Status contribution are deliberately not mounted.
 - The `project` and `project_menu` slots are drawn where the source draws
   them: `project` controls follow the project overview's own actions as its
-  secondary buttons, and `project_menu` buttons and menus follow New terminal
-  and Records in the project's system menu as items and submenus of choices.
+  secondary buttons, and `project_menu` buttons and menus follow New session
+  in the project's system menu, in their declared order, as items and
+  submenus of choices.
   Both belong to one registry per project, scoped to its main worktree (the
-  overview's selected one). The application already draws six bundled
-  controls itself, so those declarations validate and are not mounted:
-  `commands` `terminal-new`, `terminal-cli`, `terminal-menu-new` and
-  `terminal-menu-cli` (the overview's and the menu's New terminal and AI CLI)
-  and `worktrees` `manage` (the menu's Worktrees); the Git package's `manage`
-  goes with its unmounted entry. A default installation therefore mounts
+  overview's selected one). Six bundled declarations validate and are not
+  mounted. The application owns terminals and worktrees, so it draws
+  `commands` `terminal-new` and `terminal-cli` on the overview, and
+  `commands` `terminal-menu-new` and `worktrees` `manage` in the menu's slot
+  at their orders (10 and 30), the two menu entries only while their package
+  is enabled and compatible on the project's Node
+  (`live.projectPluginMenu`). `commands` `terminal-menu-cli`, the menu's CLI
+  submenu, is not shown by the user's decision
+  ([removed-ui](removed-ui.md)), and the Git package's `manage` goes with
+  its unmounted entry: branches are managed in the Git panel. A default installation therefore mounts
   nothing for a project. The system menu is built when it is asked for, so
   while an installed package declares a menu item of its own, every listed
   project keeps its registry mounted; the source mounts on the click and
