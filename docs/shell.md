@@ -422,12 +422,15 @@ it is the card-shaped `notifications_empty` result. Each notice is a
 `kit.Bleed` row at the row metrics (`notificationRow`):
 
 - the kind's glyph and color in the lead slot;
-- the title, medium while unread, over one muted line of the kind's label
-  (not for an info notice), the notice's host (`noticeSource`) and its age
-  (`noticeAge`, as the bell writes it);
+- the title, medium while unread, over the notice's message on one muted,
+  ellipsized line (the user's decision of 2026-11-12), then its age
+  (`noticeAge`, as the bell writes it) at the end of the row. A notice
+  without a message has the kind's label (not for an info notice) and its
+  host (`noticeSource`) on that line, and so has the open notice, whose
+  message is whole in its details: it is written once;
 - the unread dot, whose room stays when read, then the quiet 28 DIP icon
   buttons with tooltips: Open conversation (the chevron, only for a notice
-  whose conversation is listed) and Delete.
+  whose conversation is listed; its room stays too) and Delete.
 
 The row's box takes the neutral hover fill from one edge of the card to the
 other, as the project page's records do, whichever part the pointer is over.

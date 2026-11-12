@@ -112,9 +112,10 @@ func (a *App) notificationCenter(c *ui.Context) {
 }
 
 // notificationRow is a notice in the centre's card, at the row metrics: the
-// kind's glyph in the lead slot, the title (medium while unread) over a
-// muted line of its kind, host and age, then the unread dot and the quiet
-// actions. The row's box fills to the card's edges under the pointer,
+// kind's glyph in the lead slot, the title (medium while unread) over its
+// message on one muted line, the age, then the unread dot and the quiet
+// actions. A notice without a message, and the open one, whose message is
+// whole in its details, has its kind and host on that line. The row's box fills to the card's edges under the pointer,
 // whichever part it is over. The button that opens the notice's details
 // takes all of it before the actions, which are its siblings: MyGo does not
 // expose a button built inside a button to assistive technology.
@@ -122,13 +123,12 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 	p := theme.Of(c)
 	title := noticeTitle(c, n)
 	glyph, color, kind := noticeLook(p, n.Kind)
-	var facts []string
-	if n.Kind != preview.NoticeInfo {
-		facts = append(facts, i18n.T(c, kind))
-	}
-	facts = append(facts, a.noticeSource(c, n))
-	if !n.Time.IsZero() {
-		facts = append(facts, a.noticeAge(c, n))
+	line := strings.Join(strings.Fields(n.Message), " ")
+	if line == "" || expanded {
+		line = a.noticeSource(c, n)
+		if n.Kind != preview.NoticeInfo {
+			line = i18n.T(c, kind) + " · " + line
+		}
 	}
 	row := ui.Row(c.Key("row")).Margin(0, -16).PaddingEnd(16).Gap(kit.RowIconGap).AlignItems(ui.Center).TextColor(p.SurfaceForeground)
 	if row.Hovered() {
@@ -145,8 +145,11 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 				if !n.Read {
 					text.FontWeight(500)
 				}
-				ui.Text(c, strings.Join(facts, " · ")).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
+				ui.Text(c, line).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
 			})
+			if !n.Time.IsZero() {
+				ui.Text(c, a.noticeAge(c, n)).FontSize(12).SingleLine().Shrink(0).TextColor(p.MutedForeground)
+			}
 		}).OnClick(func() {
 			if expanded {
 				a.noticeDetail = nil
