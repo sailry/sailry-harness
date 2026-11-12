@@ -197,7 +197,8 @@ func (client *Client) startObserver(ctx context.Context, fresh bool) error {
 	lifetime, cancel := context.WithCancel(context.Background())
 	stop := context.AfterFunc(ctx, cancel)
 	err := client.Start(lifetime)
-	if !stop() || err != nil {
+	// A transient failure leaves the Client retrying under this lifetime.
+	if !stop() || err != nil && !transient(err) {
 		cancel()
 	}
 	return err
@@ -215,7 +216,8 @@ func (client *Client) watchView(ctx context.Context) *Observer {
 		startup := initial
 		observer.mu.Unlock()
 		telemetry := client.Connection()
-		if failure == nil {
+		// The startup failure stands only until an observation connects.
+		if failure == nil && !connected {
 			failure = startup
 		}
 		if !connected {

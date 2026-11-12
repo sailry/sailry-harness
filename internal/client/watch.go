@@ -18,6 +18,12 @@ type observation struct {
 }
 
 // Start establishes the initial snapshot before returning to composition.
+//
+// It returns the first attempt's failure. After Unavailable or Busy (the
+// controller or the Node is offline at open) the Client is started all the
+// same: the one observation owner retries with the reconnect backoff until ctx
+// ends or Close, so a caller that gives up on the error closes the Client.
+// Any other failure leaves it unstarted.
 func (client *Client) Start(ctx context.Context) error {
 	client.lifecycle.Lock()
 	if client.closed {
@@ -32,7 +38,14 @@ func (client *Client) Start(ctx context.Context) error {
 	scoped, release := client.interruptible(ctx)
 	watch, err := client.openObservation(scoped)
 	release()
-	if err != nil {
+	if err != nil && transient(err) && ctx.Err() == nil && client.closing.Err() == nil {
+		client.mu.Lock()
+		client.connected, client.err = false, err
+		client.mu.Unlock()
+		watchContext, cancel := context.WithCancel(client.context)
+		watch = &observation{context: watchContext, cancel: cancel, done: make(chan struct{})}
+	}
+	if watch == nil {
 		client.stop()
 		client.context, client.stop = nil, nil
 	} else {
