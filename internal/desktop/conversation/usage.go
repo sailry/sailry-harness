@@ -115,14 +115,35 @@ func usageFigure(c *ui.Context, m Metric) {
 		}
 		ui.Text(c, m.Value).FontSize(14).SingleLine()
 	})
-	if kit.TipsHidden(c) {
+	UsageCard(c, item, m)
+}
+
+// UsageCard shows the figures' hover card over item's end: each figure's
+// label, value and rows, as a figure of the context bar shows its own, with a
+// divider between two. Settings shows a channel's account figures in it.
+func UsageCard(c *ui.Context, item ui.Element, figures ...Metric) {
+	if len(figures) == 0 || kit.TipsHidden(c) {
 		return
 	}
+	p := theme.Of(c)
 	ui.TooltipBase(c, item, func(card ui.Element) {
 		kit.Anchored(card, item, kit.CardLayer)
 		kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).
-			Width(usageCard(m)).AttachedOrigin().Transition(kit.TipMotion(kit.Top))
-		card.Children(func() { usageDetails(c, m) })
+			Width(usageCard(figures[0])).AttachedOrigin().Transition(kit.TipMotion(kit.Top))
+		card.Children(func() {
+			if len(figures) == 1 {
+				usageDetails(c, figures[0])
+				return
+			}
+			ui.Column(c.Key("figures")).FillWidth().MinWidth(0).Gap(12).Children(func() {
+				for i, m := range figures {
+					if i > 0 {
+						ui.Divider(c.Key(fmt.Sprint("divider/", i))).Background(p.Border)
+					}
+					usageDetails(c, m)
+				}
+			})
+		})
 	})
 }
 

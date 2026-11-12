@@ -388,24 +388,38 @@ func (state *pluginNativeState) projectModelContext(config protocol.SessionConfi
 		if !provider.Enabled || provider.ID != config.Provider {
 			continue
 		}
-		ownsPreset := false
-		if provider.Preset != nil && provider.Preset.Source.Kind == "package" {
-			source, valid := detail[protocol.ConversationPresetsSourcePackagePayload](provider.Preset.Source.Data)
-			ownsPreset = valid && source.Name == info.Summary.Name
-		}
-		declared := (provider.Authentication == protocol.AuthenticationChatGpt || provider.Authentication == protocol.AuthenticationChatGptOAuth || provider.Authentication == protocol.AuthenticationClaudeOAuth) &&
-			slices.ContainsFunc(info.Extension.ModelResources, func(resource protocol.PluginModelAuthResource) bool {
-				return resource.Authentication == provider.Authentication
-			})
-		if value["connected"] == true && (ownsPreset || declared) {
-			value["provider"] = map[string]any{
-				"id": provider.ID, "revision": strconv.FormatUint(provider.Revision, 10), "model": config.Model,
-				"authentication": provider.Authentication, "preset": provider.Preset,
-			}
+		if context, shown := pluginProviderContext(provider, config.Model, info); shown && value["connected"] == true {
+			value["provider"] = context
 		}
 		break
 	}
 	return value
+}
+
+// pluginProviderContext is what a package is told of an enabled channel: its
+// identity, model and sign-in, where the channel came from the package's own
+// preset or signs in the way one of the package's model resources declares
+// (plugins/providers.rs context).
+func pluginProviderContext(provider protocol.ConversationProvider, model string, info protocol.PluginInfo) (map[string]any, bool) {
+	if !provider.Enabled || info.Extension == nil {
+		return nil, false
+	}
+	ownsPreset := false
+	if provider.Preset != nil && provider.Preset.Source.Kind == "package" {
+		source, valid := detail[protocol.ConversationPresetsSourcePackagePayload](provider.Preset.Source.Data)
+		ownsPreset = valid && source.Name == info.Summary.Name
+	}
+	declared := (provider.Authentication == protocol.AuthenticationChatGpt || provider.Authentication == protocol.AuthenticationChatGptOAuth || provider.Authentication == protocol.AuthenticationClaudeOAuth) &&
+		slices.ContainsFunc(info.Extension.ModelResources, func(resource protocol.PluginModelAuthResource) bool {
+			return resource.Authentication == provider.Authentication
+		})
+	if !ownsPreset && !declared {
+		return nil, false
+	}
+	return map[string]any{
+		"id": provider.ID, "revision": strconv.FormatUint(provider.Revision, 10), "model": model,
+		"authentication": provider.Authentication, "preset": provider.Preset,
+	}, true
 }
 
 func pluginNativeReference(reference protocol.PluginReference) map[string]any {
