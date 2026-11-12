@@ -1134,6 +1134,10 @@ provider_model_default: Standard
 provider_set_default: Als Standard festlegen
 provider_default: Standardmodell
 provider_model_id: Modell-ID
+provider_deployment_id: Name der Bereitstellung
+provider_api_version: API Version
+form_api_version_hint: z. B. 2024-10-21
+provider_cloud_required: Cloud-Anbieterkonfiguration eingeben
 form_model_hint: Modell-ID
 provider_context: Kontextbegrenzung (Token)
 form_tokens_hint: Anzahl der Token

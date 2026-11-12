@@ -1134,6 +1134,10 @@ provider_model_default: Par défaut
 provider_set_default: Définir comme par défaut
 provider_default: Modèle par défaut
 provider_model_id: Numéro de modèle
+provider_deployment_id: Nom du déploiement
+provider_api_version: Version API
+form_api_version_hint: par exemple 2024-10-21
+provider_cloud_required: Entrez la configuration du fournisseur de cloud
 form_model_hint: Numéro de modèle
 provider_context: Limite de contexte (tokens)
 form_tokens_hint: Nombre de jetons

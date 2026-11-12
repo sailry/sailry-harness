@@ -395,9 +395,8 @@ hover style.
   own files); a brand the collection lacks shows its name's initial. The
   editor's protocol, product and region are `kit.Segmented` controls (the
   reference's are dropdowns), and a single choice is not shown. Switching
-  one keeps an endpoint the user typed (the reference overwrites it). The
-  cloud credentials form, partner suggestions and provider-contributed
-  plugins are not built. Usage shows the 5h/7d quota bars, not the metrics
+  one keeps an endpoint the user typed (the reference overwrites it).
+  Partner suggestions and provider-contributed plugins are not built. Usage shows the 5h/7d quota bars, not the metrics
   popover.
   Default effort per model is a check per effort.
 - The authorization dialog's countdown is static text, and Open/Reopen
@@ -514,6 +513,15 @@ models the previous route came with. A sign-in method has no key field and
 its action is Save and sign in. Editing keeps the channel's route: the three
 controls are disabled, as in the reference; name, endpoint (custom routes),
 key, OAuth fields and models stay editable.
+
+An Azure OpenAI route (`azure_open_ai`) adds the API version field, as the
+reference's cloud form does: it starts at `2024-10-21`, is required
+(`provider_cloud_required`) and is saved as the provider's `azure_open_ai`
+connection options (`Channel.APIVersion`); a model of that route is labelled
+Deployment name. The bundled Azure presets are not offered, as in the
+reference, so the field shows for a saved Azure channel or a preset a partner
+or package offers. The reference has no other cloud field (no Bedrock or
+Vertex form), so none is built.
 
 The family filter lists All, the offered brands and the brands only a saved
 channel has, each with its mark in the menu; the closed control shows the

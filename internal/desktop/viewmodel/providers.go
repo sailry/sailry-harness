@@ -74,11 +74,13 @@ type Quota struct{ FiveHour, SevenDay float64 }
 // catalogue identifier of its mark (icons.Brand), Brand's when empty.
 // Method is the Route.ID it was saved with.
 type Channel struct {
-	Revision                  uint64
-	ID, Name, Brand           string
-	BrandName, Icon           string
-	Method                    string
-	API, Endpoint             string
+	Revision        uint64
+	ID, Name, Brand string
+	BrandName, Icon string
+	Method          string
+	API, Endpoint   string
+	// APIVersion is the Azure OpenAI API version, "" for every other API.
+	APIVersion                string
 	Auth                      Auth
 	Enabled, KeySet, SignedIn bool
 	Account                   string

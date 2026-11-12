@@ -1134,6 +1134,10 @@ provider_model_default: По умолчанию
 provider_set_default: Установить по умолчанию
 provider_default: Модель по умолчанию
 provider_model_id: Идентификация модели
+provider_deployment_id: Имя развертывания
+provider_api_version: API версия
+form_api_version_hint: например 2024-10-21
+provider_cloud_required: Введите конфигурацию облачного поставщика
 form_model_hint: Идентификация модели
 provider_context: Контекстное ограничение (токен)
 form_tokens_hint: Число токенов

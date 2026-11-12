@@ -314,6 +314,7 @@ func (r *Runtime) projectProviderSnapshot() {
 				}
 			}
 		}
+		ch.APIVersion = azureVersion(p)
 		for _, quota := range snapshot.ProviderQuotas {
 			if quota.Provider == p.ID && p.Credential != nil && quota.Credential == *p.Credential {
 				value := &viewmodel.Quota{FiveHour: -1, SevenDay: -1}
@@ -357,6 +358,15 @@ func (r *Runtime) projectProviderSnapshot() {
 	}
 }
 
+// azureVersion is the API version an Azure OpenAI provider was saved with.
+func azureVersion(p protocol.ConversationProvider) string {
+	if p.Options == nil {
+		return ""
+	}
+	options, _ := detail[protocol.ConversationConnectionOptionsAzureOpenAiPayload](p.Options.Data)
+	return options.ApiVersion
+}
+
 func channelModel(m protocol.ConversationModel) viewmodel.ChannelModel {
 	v := viewmodel.ChannelModel{ID: m.ID, Name: m.ID, Context: int(m.Context), Output: int(m.Output), DefaultEffort: effortName(m.DefaultEffort),
 		Vision: m.Vision, Tools: m.Tools, Reasoning: m.Reasoning, CustomCapabilities: m.CustomCapabilities}
@@ -398,6 +408,11 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	p.Name = d.Channel.Name
 	p.Endpoint = d.Channel.Endpoint
 	p.Api = protocol.ConversationModelApi(d.Channel.API)
+	// The API version travels with an Azure OpenAI provider; a draft that
+	// names none keeps the one the provider has.
+	if p.Api == protocol.ConversationModelApiAzureOpenAi && d.Channel.APIVersion != "" {
+		p.Options = &protocol.ConversationConnectionOptions{Kind: "azure_open_ai", Data: protocol.ConversationConnectionOptionsAzureOpenAiPayload{ApiVersion: d.Channel.APIVersion}}
+	}
 	if entry, ok := r.providerPresets[d.Channel.Method]; ok {
 		ref := protocol.ConversationPresetsPresetRef{ID: entry.Preset.ID, Source: entry.Source}
 		if _, index, ok := strings.Cut(d.Channel.Method, "/"); ok {

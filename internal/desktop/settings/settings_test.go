@@ -530,6 +530,58 @@ func TestProviderEditor(t *testing.T) {
 			t.Errorf("an edited channel changed its route to %+v", e.current())
 		}
 	})
+	// An Azure OpenAI route asks for the API version, which a save carries,
+	// and names a model by its deployment.
+	t.Run("azure api version", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var saved []ProviderDraft
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		azure := preview.Method{ID: "azure", Name: "Azure OpenAI", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{{ID: "azure/0", API: "azure_open_ai", Custom: true}}}
+		e := &m.provider
+		e.add(m)
+		e.configure(azure)
+		if e.apiVersion != "2024-10-21" {
+			t.Fatalf("a new Azure form starts on version %q", e.apiVersion)
+		}
+		e.endpoint, e.key = "https://unit.openai.azure.com", "key"
+		e.models = []modelDraft{{id: "deployment", context: "128000"}}
+		e.apiVersion = " "
+		if got := e.Check(); got != "provider_cloud_required" {
+			t.Errorf("no version: %q", got)
+		}
+		e.apiVersion = " 2025-01-01-preview "
+		if got := e.save(m); got != "" || len(saved) != 1 || saved[0].Channel.APIVersion != "2025-01-01-preview" || saved[0].Channel.API != "azure_open_ai" {
+			t.Fatalf("save %q sent %+v", got, saved)
+		}
+		// A saved channel opens on its version; another API has none.
+		ch := preview.Channel{ID: "saved", Name: "Saved", Method: "builtin:azure-openai/0", API: "azure_open_ai", Endpoint: "https://unit.openai.azure.com", APIVersion: "2024-06-01", KeySet: true}
+		e.edit(m, &ch)
+		if !e.azure() || e.apiVersion != "2024-06-01" {
+			t.Errorf("edit opened azure %v on version %q", e.azure(), e.apiVersion)
+		}
+		tester := ui.NewTester(func(c *ui.Context) { providerEditorDialog(c, m) }, 900, 900)
+		tester.Frame()
+		version, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_api_version"))
+		if !ok || version.Value != "2024-06-01" {
+			t.Errorf("the form's version field is %+v, %v", version, ok)
+		}
+		e.models = []modelDraft{{id: "deployment", context: "128000", open: true}}
+		tester.Frame()
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_deployment_id")); !ok {
+			t.Error("an Azure model is not named by its deployment")
+		}
+		other := preview.Channel{ID: "other", Name: "Other", Method: "x", API: "chat_completions", Endpoint: "https://other.example/v1", KeySet: true, Models: []preview.ChannelModel{{ID: "a", Context: 128000}}}
+		e.edit(m, &other)
+		e.models[0].open = true
+		tester.Frame()
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_api_version")); ok || e.apiVersion != "" {
+			t.Errorf("another API asks for a version (%q)", e.apiVersion)
+		}
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_model_id")); !ok {
+			t.Error("another API's model is not named by its ID")
+		}
+	})
 	t.Run("removed model row", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true,

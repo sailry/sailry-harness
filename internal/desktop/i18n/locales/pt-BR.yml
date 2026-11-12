@@ -1134,6 +1134,10 @@ provider_model_default: Padrão
 provider_set_default: Definir como padrão
 provider_default: Modelo padrão
 provider_model_id: ID do modelo
+provider_deployment_id: Nome da implementação
+provider_api_version: Versão API
+form_api_version_hint: por exemplo 2024-10-21
+provider_cloud_required: Digite a configuração do provedor de nuvem
 form_model_hint: ID do modelo
 provider_context: Limite de contexto (tokens)
 form_tokens_hint: Contagem de tokens

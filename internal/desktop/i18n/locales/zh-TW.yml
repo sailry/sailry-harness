@@ -1134,6 +1134,10 @@ provider_model_default: 預設
 provider_set_default: 設為預設
 provider_default: 預設模型
 provider_model_id: 模型 ID
+provider_deployment_id: 部署名
+provider_api_version: API 版本
+form_api_version_hint: 如 2024-10-21
+provider_cloud_required: 請填寫雲渠道配置
 form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
 form_tokens_hint: Token 數量

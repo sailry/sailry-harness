@@ -1134,6 +1134,10 @@ provider_model_default: デフォルト
 provider_set_default: デフォルトとして設定
 provider_default: デフォルトモデル
 provider_model_id: モデルID
+provider_deployment_id: デプロイメント名
+provider_api_version: APIバージョン
+form_api_version_hint: 例えば 2024年10月21日
+provider_cloud_required: クラウドプロバイダの設定を入力
 form_model_hint: モデルID
 provider_context: コンテキスト制限 (トークン)
 form_tokens_hint: トークン数

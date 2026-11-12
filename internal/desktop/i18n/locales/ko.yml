@@ -1134,6 +1134,10 @@ provider_model_default: 기본값
 provider_set_default: 기본값으로 설정
 provider_default: 기본 모델
 provider_model_id: 모델 ID
+provider_deployment_id: 배포 이름
+provider_api_version: API 버전
+form_api_version_hint: 예를 들어 2024-10-21
+provider_cloud_required: 클라우드 공급자 구성 입력
 form_model_hint: 모델 ID
 provider_context: 컨텍스트 제한( 토큰)
 form_tokens_hint: 토큰 수
