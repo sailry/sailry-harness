@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -301,6 +302,68 @@ func testPluginViewOwnership(t *testing.T) {
 	// provider's account status, are the context bar's with their detail
 	// rows; the composer's indicator is a toolbar ring; the header's popover
 	// is a header button the window opens, which its package never hears of.
+	// Removed UI: a failed view draws nothing in its place. Its failure is one
+	// toast, whose Retry mounts the view again.
+	t.Run("a failed view draws no retry button of its own", func(t *testing.T) {
+		info := protocol.DefaultPluginInfo()
+		info.Summary.Name, info.Summary.Digest, info.Summary.Enabled = "failed-fixture", strings.Repeat("e", 64), true
+		info.Summary.Compatibility.Kind = "compatible"
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node, snapshot.Plugins = protocol.NodeID{1}, []protocol.PluginSummary{info.Summary}
+		source := &pluginViewTestNode{snapshot: snapshot, bundle: make(chan link.Response, 1)}
+		root := pluginViewFixture(t, source)
+		scope := protocol.DefaultPluginContext()
+		scope.Package, scope.Surface.Kind = packageReference(info.Summary), "workspace"
+		root.pluginViews.navigation["fixture"] = pluginNavigationEntry{owner: root, info: info, scope: scope}
+		mounted := root.ensurePluginView(nil, root, info, scope, "navigation", nil)
+		if mounted == nil {
+			t.Fatal("the fixture's view is not mounted")
+		}
+		source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_view", Data: protocol.PluginDesktopBundle{
+			Package: scope.Package, Entry: "dev.sailry.platform/desktop/main.js",
+			Files: map[string]string{"dev.sailry.platform/desktop/main.js": `import {View} from "gpui-kit";export default class extends View{render(){throw new Error("fixture render failed");}}`},
+		}}}
+		// The read is the fixture's only worker: its completion is queued.
+		root.workers.Wait()
+		key, drawn := mounted.key, true
+		tester := ui.NewTester(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			root.mu.Lock()
+			queued := root.queue
+			root.queue = nil
+			root.mu.Unlock()
+			for _, apply := range queued {
+				apply(view)
+			}
+			ui.Column(view).Fill().Children(func() { drawn = root.renderMountedPlugin(view, root.pluginViews.mounts[key]) })
+			kit.ToastHost(view)
+		}, 960, 600)
+		tester.SetLocale("en")
+		for range 3 {
+			tester.Frame()
+		}
+		retry := i18n.In("en", "chat_retry")
+		var buttons []ui.AccessInfo
+		for _, node := range tester.AccessAll() {
+			if node.Name == retry {
+				buttons = append(buttons, node)
+			}
+		}
+		if drawn || mounted.failure == nil || root.pluginViews.mounts[key] != mounted || !tester.HasText(i18n.In("en", "plugin_callback_failed")) {
+			t.Fatalf("the view did not fail with its toast: drawn %t, %v, %q", drawn, mounted.failure, tester.Texts())
+		}
+		// The toast's action is the one Retry: no icon button in the page.
+		if len(buttons) != 1 || !tester.HasText(retry) {
+			t.Fatalf("a failed view shows %d Retry controls %v: %q", len(buttons), buttons, tester.Texts())
+		}
+		tester.ClickAt(buttons[0].Bounds.X+buttons[0].Bounds.W/2, buttons[0].Bounds.Y+buttons[0].Bounds.H/2)
+		for range 2 {
+			tester.Frame()
+		}
+		if again := root.pluginViews.mounts[key]; again == nil || again == mounted || again.failure != nil || !again.loading {
+			t.Fatalf("the toast's Retry did not mount the view again: %+v", again)
+		}
+	})
 	t.Run("declared slots draw their figures, ring and header popover", func(t *testing.T) {
 		info := protocol.DefaultPluginInfo()
 		info.Summary.Name, info.Summary.Digest, info.Summary.Enabled = "slots-fixture", strings.Repeat("d", 64), true
