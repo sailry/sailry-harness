@@ -28,7 +28,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `options.go` | Mode and permission menus (with the packages' modes), project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, the controls' score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
-| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray. Every row starts with the same 24 DIP slot (`queueLead`) so the labels share one edge: the drag handle on a row that can be moved (a message or a compaction outside a child session; dimmed while read-only), the loader on a row being taken (pending guidance, the outgoing row, a background notice that is next to be delivered), otherwise the muted icon of its kind (`square-terminal` for a notice, which is delivered in its own order and never moved; in a child session `minimize` for a compaction and the chat icon for a message) |
+| `queue.go` | Queue strip: the header that counts the queued messages and folds the rows (below), then rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray. Every row starts with the same 24 DIP slot (`queueLead`) so the labels share one edge: the drag handle on a row that can be moved (a message or a compaction outside a child session; dimmed while read-only), the loader on a row being taken (pending guidance, the outgoing row, a background notice that is next to be delivered), otherwise the muted icon of its kind (`square-terminal` for a notice, which is delivered in its own order and never moved; in a child session `minimize` for a compaction and the chat icon for a message) |
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
 | `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
@@ -517,6 +517,35 @@ because the reply ended before it could join (`queue_guidance_outlived`).
 Guidance the user edited, paused or withdrew is not reported. The Rust desktop
 does not show the second toast.
 
+The strip's first row is its header (`queueHeader`): a chevron in the rows'
+leading slot, right while folded and down while unfolded, then the count
+(`queue_messages_one`, `queue_messages_count`, the catalog's one/many pair as
+`background_one`/`background_count`; a message on its way is counted), both
+in the muted foreground at 14, the row 32 high as a message's. The whole row
+is a button reporting its expanded state, as the transcript's disclosures: a
+click, Enter or Space folds and unfolds the rows, which come and go with the
+tray's `queueMotion`. Unfolded, a hairline in the border color separates the
+header from the rows; folded, the tray is the header alone. The tray keeps its
+accessible label `queue_count`.
+
+- The tray is folded until the user unfolds it. The fold is `State.queueOpen`:
+  one per conversation's composer, not stored, and not part of the view model,
+  so the demo's queues show folded and no demo data describes it.
+- The user's choice is kept while the queue empties and fills again; nothing
+  resets it.
+- A message being edited is never folded away: while the editor is open the
+  tray is unfolded whatever the fold says, and the header is disabled, so the
+  draft cannot be hidden. Escape, Cancel or Save leave the editor as before,
+  to the rows unfolded (Edit is reached only from an unfolded tray).
+- A drag starts on a visible row's handle and the header is the only fold, so
+  a drag in progress is never folded away by the pointer; nothing else folds.
+- A child session's read-only tray has the same header and default.
+- Folded, the rows' actions (Edit or Read, Withdraw, Send now, Remove,
+  reordering) are not offered. Enter in an empty draft still sends the first
+  queued message, and the outcome toasts are unchanged: neither needs a row.
+- Tab and Shift+Tab are the draft's own keys, so from the draft the header is
+  reached by the pointer; it is the focus stop before the rows' buttons.
+
 The strip lists queued input only. A row says nothing about why it waits, and
 a background result the Node holds back from automatic delivery
 (`ConversationBackgroundTask.hold`) is not a row
@@ -751,7 +780,7 @@ details dialog.
 | UI state (`State`) | Backend data (`Context`) |
 |---|---|
 | Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs, files |
-| Pickers, popovers, dialogs, queue editor | Queue, `Running`, attachment status and progress, dictation phase |
+| Pickers, popovers, dialogs, queue editor, the queue tray's fold | Queue, `Running`, attachment status and progress, dictation phase |
 | Question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
 | Selected project before admission and window-owned port actions | Project-to-Node identity, command services and Forwarder state from the captured Client |
 
@@ -866,10 +895,21 @@ pictures (`preview.PlainTurns`).
 the dictation's phases, its insertion at the caret, cancellation in each phase
 and every failure, over a fake microphone and recognizer.
 
+`internal/desktop/composer/queue_test.go`, `TestQueueTray/fold`: the tray
+folded by default with the count and no rows or row actions; a click unfolds
+every row with its buttons and a second folds; the count in English and
+Chinese, one and many, following the queue; one fold per composer state, kept
+while the queue empties; Enter and Space on the focused header and the focus
+order; the editor never folded away; a child session's tray; the hairline
+only while unfolded; the header on the rows' edges. `SAILRY_UI_SHOTS` set
+saves `queue-{folded,folded-hover,unfolded}-{dark,light}.png`. The tests of
+rows in `shell` and `live` unfold the tray through its header first.
+
 ## Deviations
 
 | Deviation | Reason |
 |---|---|
+| The queue tray has a header counting the queued messages that folds its rows, and is folded until the user unfolds it (user decision 2026-11-12) | The reference's strip (`live/queue/render.rs`) always lists every row; a long queue took the room over the composer |
 | The worktrees package's `location` control is not drawn, and the native worktree menu gives way to the Git package's `branch` control (user decision 2026-11-11) | The reference draws the packages' controls only; here the project is native, so both showed the location twice |
 | An unknown indicator has no tooltip | The statistics package sends `0` as its hint, which read as a bare `0` |
 | A footer figure is not checked against its package's model context | The reference hides a footer figure whose package has no provider in the session's model context (`registered_footer`); here what the package publishes decides alone, and the official packages show theirs for their own provider only |

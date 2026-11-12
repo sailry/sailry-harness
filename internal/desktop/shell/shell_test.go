@@ -651,6 +651,7 @@ func TestOpenUnsupportedFile(t *testing.T) {
 // the actions and at the text's inset, without the draft's Remove.
 func TestQueueEditorShowsAttachments(t *testing.T) {
 	_, tt := newTester(t)
+	unfoldQueue(t, tt)
 	edit := i18n.In("en", "queue_edit")
 	var last ui.AccessInfo
 	for _, e := range tt.AccessAll() {

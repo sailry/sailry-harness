@@ -103,6 +103,7 @@ type State struct {
 	in         interaction
 	act        activity
 	queue      queueState
+	queueOpen  bool // the queue tray's rows show: folded until the user unfolds it; kept while the queue empties
 	ref        refState
 	files      fileState
 	caret      int // a caret to put in the draft next frame, -1 for none

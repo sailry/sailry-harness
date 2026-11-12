@@ -2812,3 +2812,5 @@ git_diff_inline: 内联
 git_diff_needs_width: 宽度不足，无法并排
 session_delete_private_files: 其私有工作区中的文件也会一并删除
 port_count: "%{count} 个端口"
+queue_messages_one: 1 条消息排队
+queue_messages_count: "%{count} 条消息排队"

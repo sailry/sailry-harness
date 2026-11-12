@@ -378,3 +378,5 @@ git_diff_inline: Inline
 git_diff_needs_width: Side by side needs more width
 session_delete_private_files: Its private workspace files are deleted too
 port_count: "%{count} ports"
+queue_messages_one: 1 queued message
+queue_messages_count: "%{count} queued messages"

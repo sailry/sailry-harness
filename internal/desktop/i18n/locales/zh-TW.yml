@@ -2260,3 +2260,5 @@ python_creating: 準備相依套件
 python_installing: 安裝相依套件
 python_validating: 檢查相依套件
 port_count: '%{count} ports'
+queue_messages_one: 1 queued message
+queue_messages_count: '%{count} queued messages'
