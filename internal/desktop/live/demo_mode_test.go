@@ -113,12 +113,16 @@ func TestDemoMode(t *testing.T) {
 		return slices.Clone(kinds)
 	}
 	settle := func() {
-		for range 4 {
+		// The demo's running conversations move in every frame, so a frame
+		// here is the Tester's twenty: after the first, another is drawn only
+		// for what the workers' answers asked for.
+		for round := range 4 {
 			r.workers.Wait()
+			if round > 0 && !asked.Swap(false) {
+				break
+			}
 			tester.Frame()
 		}
-		// A reply that plays asks for a frame each tick and is shown for the
-		// whole of the time; a still window rests as soon as it is one.
 		window.rest(200 * time.Millisecond)
 		r.workers.Wait()
 		tester.Frame()

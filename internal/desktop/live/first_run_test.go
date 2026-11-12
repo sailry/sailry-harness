@@ -137,31 +137,39 @@ const (
 	liveMotion  = 400 * time.Millisecond
 )
 
-// rest shows the window as run does until it is at rest, for at most limit:
-// the Node has answered every command, the view asks for no further frame
-// (what moved has arrived) and the Runtime has asked for none for liveQuiet
-// of real time. A view that never comes to rest is shown for limit, as run
-// shows it.
+// rest shows the window until it is at rest, for at most limit: the Node has
+// answered every command and the Runtime has asked for no frame for
+// liveQuiet of real time. The window's clock moves on by limit at most, a
+// refresh at a time, which draws the frames the view itself asks for when
+// they are due; a frame is forced only for what the Runtime asked. A view
+// that never stops moving is so shown for limit of its own clock and not
+// redrawn twenty times an instant for limit of real time.
 func (w liveWindow) rest(limit time.Duration) {
 	start := time.Now()
-	calm := start
+	calm, clock := start, limit
 	for {
-		w.tester.Advance(16 * time.Millisecond)
+		if clock > 0 {
+			w.tester.Advance(16 * time.Millisecond)
+			clock -= 16 * time.Millisecond
+		}
 		working := w.asked.Swap(false)
-		drawn := working || w.tester.FramePending()
-		if drawn {
+		if working {
 			w.tester.Frame()
 		}
 		now := time.Now()
-		if working || w.tester.FramePending() || w.flying.Load() > 0 {
+		if working || w.flying.Load() > 0 {
 			calm = now
 		}
-		if now.Sub(start) >= limit || now.Sub(calm) >= liveQuiet {
+		if now.Sub(start) >= limit {
 			return
 		}
-		if !drawn {
-			time.Sleep(5 * time.Millisecond)
+		if clock > 0 && w.tester.FramePending() {
+			continue // the view moves: on to its next frame
 		}
+		if now.Sub(calm) >= liveQuiet {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
