@@ -100,10 +100,8 @@ var savedFeatures = map[string]protocol.FeatureUse{
 	"save_code_index_settings":    protocol.FeatureUseSaveCodeIndex,
 	"create_knowledge_collection": protocol.FeatureUseSaveKnowledge, "update_knowledge_collection": protocol.FeatureUseSaveKnowledge,
 	"delete_knowledge_collection": protocol.FeatureUseSaveKnowledge,
-	"put_credential":              protocol.FeatureUseSaveCredential,
 	"save_ssh":                    protocol.FeatureUseSaveSSH, "remove_ssh": protocol.FeatureUseSaveSSH,
 	"save_database": protocol.FeatureUseSaveDatabase, "remove_database": protocol.FeatureUseSaveDatabase,
-	"set_defaults": protocol.FeatureUseSaveDefaults,
 }
 
 // featureUsage is what the last frame showed.

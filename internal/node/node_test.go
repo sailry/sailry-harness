@@ -610,7 +610,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	}
 	interrupted := protocol.NewRequest(id, secretCommands("interrupted-ledger-key")["save_provider"])
 	legacyCompleted := protocol.NewRequest(id, secretCommands(legacyKey)["save_provider"])
-	legacyAdmitted := protocol.NewRequest(id, secretCommands(legacyKey)["put_credential"])
+	legacyAdmitted := protocol.NewRequest(id, secretCommands(legacyKey)["save_ssh"])
 	recorded, err := json.Marshal(protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "recorded before the update"}})
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +625,12 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)", id[:], legacyCompleted.ID.String(), encode(legacyCompleted), string(recorded)); err != nil {
 			return err
 		}
-		_, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", id[:], legacyAdmitted.ID.String(), encode(legacyAdmitted))
+		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", id[:], legacyAdmitted.ID.String(), encode(legacyAdmitted)); err != nil {
+			return err
+		}
+		// A command that has left the contract since: its row still holds a key.
+		retired := `{"command":{"kind":"put_credential","data":{"secret":"retired-` + legacyKey + `"}}}`
+		_, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)", id[:], protocol.NewRequestID().String(), []byte(retired), string(recorded))
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -701,7 +706,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 			t.Fatalf("legacy %s body = %q, %v", legacy.Command.Kind, kept, err)
 		}
 		inspection := commandFixture(t, restarted, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: legacy.ID, Digest: hex.EncodeToString(digest[:])}})
-		if want := map[string]string{"save_provider": "completed", "put_credential": "unknown"}[legacy.Command.Kind]; inspection.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != want {
+		if want := map[string]string{"save_provider": "completed", "save_ssh": "unknown"}[legacy.Command.Kind]; inspection.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != want {
 			t.Fatalf("legacy %s inspection = %#v, want %s", legacy.Command.Kind, inspection, want)
 		}
 	}
@@ -803,9 +808,26 @@ func TestRenameRevisionConflict(t *testing.T) {
 		t.Fatal("missing defaults created a placeholder session")
 	}
 	session := sessionFixture(t, node)
-	defaults := commandFixture(t, node, protocol.Command{Kind: "set_defaults", Data: protocol.CommandSetDefaultsPayload{ExpectedRevision: 0, Config: session.Config}}).Data.(protocol.Defaults)
-	if defaults.Revision != 1 || defaults.Config == nil {
-		t.Fatal("defaults were not saved")
+	// A command this build does not declare, such as one removed from the
+	// contract, is refused before admission and changes nothing.
+	for _, kind := range []string{"put_credential", "revoke_credential", "set_defaults", "bind_connection_session", "validate_provider", "future_command"} {
+		var refused *protocol.Fault
+		if _, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: kind})); !errors.As(err, &refused) || refused.Code != protocol.ErrorCodeInvalidRequest || refused.Message != "invalid command" {
+			t.Fatalf("undeclared %s = %v", kind, err)
+		}
+	}
+	stored, err := json.Marshal(session.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.profile.Store.Node.Write(context.Background(), func(db *sql.Conn) error {
+		_, err := db.ExecContext(context.Background(), "INSERT INTO defaults(singleton,revision,config) VALUES(1,1,?1)", stored)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if defaults := snapshotFixture(t, node).Defaults; defaults.Revision != 1 || defaults.Config == nil {
+		t.Fatal("stored defaults were not read")
 	}
 	inherited := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{}}).Data.(protocol.Session)
 	if !reflect.DeepEqual(inherited.Config, session.Config) {
@@ -1218,7 +1240,6 @@ func secretCommands(canary string) map[string]protocol.Command {
 	imported := protocol.DefaultSessionImport()
 	imported.Source, imported.Config, imported.Provider, imported.Secret = protocol.NodeID{1}, config, provider, &secret
 	return map[string]protocol.Command{
-		"put_credential":          {Kind: "put_credential", Data: &protocol.CommandPutCredentialPayload{ID: protocol.NewCredentialID(), Provider: provider.ID, Secret: secret}},
 		"save_provider":           {Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}},
 		"complete_provider_login": {Kind: "complete_provider_login", Data: &protocol.CommandCompleteProviderLoginPayload{Attempt: protocol.NewRequestID(), Callback: secret}},
 		"import_session":          {Kind: "import_session", Data: &imported},

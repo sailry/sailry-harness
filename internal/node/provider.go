@@ -45,9 +45,6 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 			}
 		}
 		output := protocol.Output{Kind: "discovered_models", Data: catalog}
-		if request.Command.Kind == "validate_provider" {
-			output = protocol.Output{Kind: "provider_validation", Data: providers.ValidateDiscovery(*work.Provider, catalog.Models)}
-		}
 		return &providers.Prepared{Provider: work.Provider, Output: &output}, nil
 	}
 	work.Directory = &node.providerDirectory

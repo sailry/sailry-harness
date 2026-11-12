@@ -99,7 +99,7 @@ func TestLocalTransportContract(t *testing.T) {
 		}
 	})
 	for _, kind := range []string{
-		"snapshot", "inspect_request", "create_project", "update_project", "remove_project", "register_worktree", "set_defaults",
+		"snapshot", "inspect_request", "create_project", "update_project", "remove_project", "register_worktree",
 		"create_session", "rename_session", "set_session_read", "set_session_archived", "archive_sessions", "remove_session", "remove_sessions",
 		"set_session_order", "read_session", "publish_notification", "mark_notification_read", "mark_notifications_read",
 		"dismiss_read_notifications", "dismiss_notifications", "read_power_settings", "save_power_settings", "read_telemetry_settings", "save_telemetry_settings",

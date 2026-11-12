@@ -143,7 +143,6 @@ refresh_model_catalog
 read_model_catalog
 read_model_scores
 discover_models
-validate_provider
 put_provider
 read_session
 list_associated_sessions
@@ -332,14 +331,10 @@ move_entry_to
 trash_entry
 trash_file
 list_credentials
-put_credential
-revoke_credential
 register_project
 create_project
 update_project
 remove_project
-set_defaults
-bind_connection_session
 create_session
 start_session
 read_project_catalog

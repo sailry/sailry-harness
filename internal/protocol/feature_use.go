@@ -108,10 +108,8 @@ const (
 	FeatureUseSaveLocalModels FeatureUse = "settings.save.local_models"
 	FeatureUseSaveCodeIndex   FeatureUse = "settings.save.code_index"
 	FeatureUseSaveKnowledge   FeatureUse = "settings.save.knowledge"
-	FeatureUseSaveCredential  FeatureUse = "settings.save.credential"
 	FeatureUseSaveSSH         FeatureUse = "settings.save.ssh"
 	FeatureUseSaveDatabase    FeatureUse = "settings.save.database"
-	FeatureUseSaveDefaults    FeatureUse = "settings.save.defaults"
 )
 
 var featureUses = []FeatureUse{
@@ -133,8 +131,8 @@ var featureUses = []FeatureUse{
 	FeatureUseSaveProvider, FeatureUseSaveTeam, FeatureUseSaveRole, FeatureUseSaveConnector, FeatureUseSaveMCP, FeatureUseSavePlugin,
 	FeatureUseSaveHooks, FeatureUseSaveBackup, FeatureUseSaveTerminal, FeatureUseSaveMedia, FeatureUseSavePower, FeatureUseSaveTelemetry,
 	FeatureUseSaveNetwork, FeatureUseSaveSandbox, FeatureUseSaveSearch, FeatureUseSaveCompaction, FeatureUseSavePython,
-	FeatureUseSaveLocalModels, FeatureUseSaveCodeIndex, FeatureUseSaveKnowledge, FeatureUseSaveCredential, FeatureUseSaveSSH,
-	FeatureUseSaveDatabase, FeatureUseSaveDefaults,
+	FeatureUseSaveLocalModels, FeatureUseSaveCodeIndex, FeatureUseSaveKnowledge, FeatureUseSaveSSH,
+	FeatureUseSaveDatabase,
 }
 
 // FeatureUses lists the fixed identifiers. FeatureUsePagePluginOfficial is

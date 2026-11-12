@@ -77,7 +77,7 @@ with Conflict. Decoding accepts either order.
 
 The ledger keeps `credential-v1:<BLAKE3 hex>` of the serialized request instead
 of its body for every durable command whose payload can hold a secret
-(`admission.DigestOnly`): `put_credential`, `save_provider`,
+(`admission.DigestOnly`): `save_provider`,
 `complete_provider_login`, `import_session`, `save_ssh`, `save_database`,
 `save_search_settings`, `save_plugin_settings`, `save_plugin_mcp`, `install_mcp`,
 `start_connector_login`, `submit_connector_input`, `update_connection`,
@@ -165,6 +165,9 @@ and U+2029 escaped, so digests computed over retained values do not change.
 ### Values from another build
 
 The rule is in [ARCHITECTURE.md](../ARCHITECTURE.md#contract-and-storage-versions).
+The declarations in `internal/protocol` are hand-maintained: no generator
+writes them, so a change keeps the variant tables, `Durable`, the fixtures
+under `testdata` and the tolerance tests consistent by hand.
 A decode is exact unless the caller names its source with `protocol.DecodeAs`:
 
 | Level | Caller | Unknown member | Unknown enum value | Unknown variant |
