@@ -429,9 +429,12 @@ it is the card-shaped `notifications_empty` result. Each notice is a
   buttons with tooltips: Open conversation (the chevron, only for a notice
   whose conversation is listed) and Delete.
 
-The whole row is one button: under the pointer it takes the neutral hover fill
-from one edge of the card to the other, as the project page's records do, and
-a click opens the notice's details under it and reads it; a second click closes
+The row's box takes the neutral hover fill from one edge of the card to the
+other, as the project page's records do, whichever part the pointer is over.
+The button that opens the notice's details runs from the card's edge to the
+actions, which are its siblings: MyGo leaves a button built inside a button
+out of the accessibility tree. A click on it opens the details under the row
+and reads the notice; a second click closes
 them. The details (`notificationDetails`) are indented to the title: message
 and detail text, the facts as `kit.Record`s, and the report with its copy
 button. Under Unread the open notice stays listed though opening it read it.

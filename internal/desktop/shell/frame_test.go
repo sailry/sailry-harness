@@ -739,9 +739,9 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 			t.Errorf("Delete read left %d of %d notices", len(a.Data.Notices), total)
 		}
 	})
-	// The centre is one card of rows: each row is the button, across the
-	// card, that holds its actions and fills from edge to edge under the
-	// pointer.
+	// The centre is one card of rows: each row's button runs from the
+	// card's edge to its actions, which assistive technology reaches beside
+	// it, and the row fills from edge to edge under the pointer.
 	t.Run("center rows", func(t *testing.T) {
 		a, tt := newTester(t)
 		a.Navigate(NotificationsPage)
@@ -772,9 +772,13 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 		for _, n := range notices {
 			rows = append(rows, row(n).Bounds)
 		}
+		deletes := named(en("settings_delete"))
+		if len(deletes) != len(notices) {
+			t.Fatalf("%d delete buttons for %d notices", len(deletes), len(notices))
+		}
 		for i, b := range rows {
-			if b.X != rows[0].X || b.W != rows[0].W {
-				t.Errorf("row %d spans %v+%v, the first %v+%v", i, b.X, b.W, rows[0].X, rows[0].W)
+			if b.X != rows[0].X {
+				t.Errorf("row %d starts at %v, the first at %v", i, b.X, rows[0].X)
 			}
 			if b.H < kit.RowMinHeight || b.H > 72 {
 				t.Errorf("row %d is %v tall", i, b.H)
@@ -786,14 +790,13 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 				}
 			}
 		}
-		deletes := named(en("settings_delete"))
-		if len(deletes) != len(notices) {
-			t.Fatalf("%d delete buttons for %d notices", len(deletes), len(notices))
-		}
+		// Each row's Delete is beside its button, within its height, and
+		// all end at one line.
+		end := deletes[0].Bounds.X + deletes[0].Bounds.W
 		for i, d := range deletes {
 			b := d.Bounds
-			if inset := rows[0].X + rows[0].W - (b.X + b.W); inset < 15.5 || inset > 16.5 || b.Y < rows[i].Y || b.Y+b.H > rows[i].Y+rows[i].H {
-				t.Errorf("delete %d at %+v is not inside its row %+v, 16 from its end", i, b, rows[i])
+			if b.X+b.W != end || b.X < rows[i].X+rows[i].W || b.Y < rows[i].Y || b.Y+b.H > rows[i].Y+rows[i].H {
+				t.Errorf("delete %d at %+v is not beside its row's button %+v, ending at %v", i, b, rows[i], end)
 			}
 		}
 		// The second line: the kind, the host and the age.
@@ -827,14 +830,24 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 		}
 		for name, strip := range map[string]ui.Rect{
 			"start": {X: target.X + 2, Y: target.Y + 4, W: 8, H: 8},
-			"end":   {X: target.X + target.W - 10, Y: target.Y + 4, W: 8, H: 8},
+			"end":   {X: end + 4, Y: target.Y + 4, W: 8, H: 8},
 		} {
 			if differs(strip) == 0 {
 				t.Errorf("the hover fill does not reach the row's %s", name)
 			}
 		}
-		if n := differs(rows[2]); n != 0 {
+		// Inside the next row, past the pixel line the two share.
+		next := rows[2]
+		next.Y, next.H = next.Y+2, next.H-4
+		if n := differs(next); n != 0 {
 			t.Errorf("hovering one row changes %d pixels of the next", n)
+		}
+		// Over an action the row keeps its fill.
+		tt.Move(deletes[1].Bounds.X+deletes[1].Bounds.W/2, deletes[1].Bounds.Y+deletes[1].Bounds.H/2)
+		tt.Frame()
+		hovered = tt.Image()
+		if differs(ui.Rect{X: target.X + 2, Y: target.Y + 4, W: 8, H: 8}) == 0 {
+			t.Error("the row loses its hover fill under the pointer on Delete")
 		}
 		// A click anywhere on the row opens its details and reads it; a
 		// second closes them.
