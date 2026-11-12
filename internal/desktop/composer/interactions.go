@@ -404,7 +404,7 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 // outlined is a popover's secondary button.
 func outlined(c *ui.Context, label string) ui.Element {
 	p := theme.Of(c)
-	return kit.Ghost(c, label, false).Height(28).PaddingX(12).Border(1, p.Border).
+	return kit.Ghost(c, label, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Border(1, p.Border).
 		Children(func() { ui.Text(c, label).FontSize(14) })
 }
 
@@ -541,7 +541,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 			case q.Kind == AskLink:
 				submit = i18n.T(c, "question_open_url")
 			}
-			kit.Primary(c.Key("submit"), submit, held || answer == nil).Height(28).
+			kit.Primary(c.Key("submit"), submit, held || answer == nil).Height(28).Radius(14).
 				Children(func() { busyLabel(c, submit, q.Busy) }).
 				OnClick(func() {
 					if a := s.answer(q); a != nil {
