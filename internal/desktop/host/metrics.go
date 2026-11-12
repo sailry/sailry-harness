@@ -54,7 +54,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 			cpu, memory = append(cpu, point.CPU), append(memory, point.Memory)
 			received, sent = append(received, point.Received), append(sent, point.Transmitted)
 		}
-		meter(c, "cpu", i18n.T(c, "metrics_cpu"), orDash(Percent(m.CPU)), m.CPU, cpu, t.load(m.CPU, t.cpu))
+		meter(c, "cpu", i18n.T(c, "metrics_cpu"), orDash(Percent(m.CPU)), m.CPU, m.History, cpu, t.load(m.CPU, t.cpu))
 		used, known := Usage(m.MemoryUsed, m.Memory)
 		value := dash
 		if known {
@@ -62,7 +62,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		} else {
 			used = math.NaN()
 		}
-		meter(c, "memory", i18n.T(c, "metrics_memory"), value, used, memory, t.load(used, t.memory))
+		meter(c, "memory", i18n.T(c, "metrics_memory"), value, used, m.History, memory, t.load(used, t.memory))
 		down, up := math.NaN(), math.NaN()
 		if m.Interval > 0 {
 			down, up = float64(m.Received)/m.Interval.Seconds(), float64(m.Transmitted)/m.Interval.Seconds()
@@ -72,7 +72,8 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 			top := ceiling(received, sent)
 			fact(c, i18n.T(c, "metrics_download"), rate(c, down), t.download)
 			fact(c, i18n.T(c, "metrics_upload"), rate(c, up), t.upload)
-			areaChart(c, "chart", 40, top, nil, nil, i18n.T(c, "metrics_network"), series{received, t.download}, series{sent, t.upload})
+			areaChart(c, "chart", 40, top, nil, nil, i18n.T(c, "metrics_network"), rates(c, m.History),
+				series{received, t.download, i18n.T(c, "metrics_download")}, series{sent, t.upload, i18n.T(c, "metrics_upload")})
 		})
 		ui.Column(c.Key("disks")).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_disks")).FontSize(14).FontWeight(600)
@@ -116,14 +117,15 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 }
 
 // meter is a load in the summary: its label and value, a MyGo progress bar
-// of its percentage, and the last minute's line under it.
-func meter(c *ui.Context, key, label, value string, percent float64, history []float64, tone ui.Color) {
+// of its percentage, and the last minute's line under it, the values of
+// points.
+func meter(c *ui.Context, key, label, value string, percent float64, points []Point, history []float64, tone ui.Color) {
 	ui.Column(c.Key(key)).Gap(8).Children(func() {
 		fact(c, label, value, ui.Color{})
 		if !math.IsNaN(percent) {
 			ui.Progress(c.Key("bar"), min(max(percent, 0), 100)/100).FillWidth().Height(4).Label(label).TextColor(tone)
 		}
-		areaChart(c, "chart", 32, 100, nil, nil, label, series{history, tone})
+		areaChart(c, "chart", 32, 100, nil, nil, label, percents(points), series{history, tone, label})
 	})
 }
 
