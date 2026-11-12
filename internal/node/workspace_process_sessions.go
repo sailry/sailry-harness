@@ -18,8 +18,11 @@ func (node *Node) processSessionEvents(changes []protocol.Event, after func([]pr
 		}
 		// Closing waits for each command's completion write, and the command
 		// lock may be held here, so it runs on its own. Node closure stops
-		// every command itself.
+		// every command itself. The removing command is still counted, and
+		// Stop waits for this too.
+		node.work.Add(1)
 		go func() {
+			defer node.work.Done()
 			for _, session := range removed {
 				_, _ = node.processes.CloseSession(node.ctx, session)
 			}
