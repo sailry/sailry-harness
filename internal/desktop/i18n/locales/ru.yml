@@ -2153,8 +2153,6 @@ project_removed: Проект удалён
 project_revoke: Отзыв доверия
 project_revoke_description: Остановить задачи проекта; сохранить историю и черновики
 project_revoke_title: Отзыв доверия к проекту
-project_trust: Управление доверием проекта
-project_trust_preview: Только предварительный просмотр изменений
 task_completed: Завершено
 artifact_export_failed: Не удалось экспортировать
 chat_compact_incomplete: Резюме неполное

@@ -698,14 +698,73 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 	// Editing sends the changed appearance with update_project.
 	menu("inner")
 	items := tester.Menu()
-	for _, key := range []string{"workspace_project", "project_edit", "workspace_new_session", "workspace_copy_path", "project_remove"} {
-		if !slices.Contains(items, zh(key)) {
-			t.Errorf("the project menu lacks %s: %q", key, items)
+	// The reference's menu in its order: its own items, and after New
+	// session the project_menu slot, here the commands package's New terminal
+	// and the worktrees package's entry. No AI CLI, trust or records.
+	want := []string{zh("workspace_project"), zh("project_edit"), "-", zh("workspace_new_session"), zh("workspace_new_terminal"),
+		zh("worktree_manage"), "-", zh("workspace_copy_path"), "-", zh("project_remove")}
+	if !slices.Equal(items, want) {
+		t.Fatalf("the project menu is %q, want %q", items, want)
+	}
+	pick := func(path ...string) {
+		t.Helper()
+		if err := tester.ChooseMenuItem(path...); err != nil {
+			t.Fatalf("%v: %q", err, tester.Menu())
 		}
+		settle()
 	}
-	if slices.Contains(items, zh("project_trust")) {
-		t.Errorf("the live project menu offers the preview's trust: %q", items)
+	pick(zh("workspace_copy_path"))
+	if got := tester.Clipboard(); got != chosen {
+		t.Fatalf("Copy path copied %q, want %q", got, chosen)
 	}
+	// New terminal and the worktrees reach their adapters with the project;
+	// what the adapters send is covered where they are tested.
+	actions := r.App.Sidebar.Actions
+	newTerminal, worktrees := actions.NewTerminal, actions.Worktrees
+	var asked []string
+	actions.NewTerminal = func(project *viewmodel.Project) { asked = append(asked, "terminal "+project.Name) }
+	actions.Worktrees = func(project *viewmodel.Project, operation, _ string) {
+		asked = append(asked, operation+" "+project.Name)
+	}
+	menu("inner")
+	pick(zh("workspace_new_terminal"))
+	menu("inner")
+	pick(zh("worktree_manage"), zh("worktree_create"))
+	actions.NewTerminal, actions.Worktrees = newTerminal, worktrees
+	if !slices.Equal(asked, []string{"terminal inner", "create inner"}) {
+		t.Fatalf("the contributed entries asked %q", asked)
+	}
+	menu("inner")
+	pick(zh("workspace_project"))
+	if _, id, shown := r.App.ProjectOwner(); !shown || id != project.ID.String() {
+		t.Fatalf("Project overview shows page %d, project %q", r.App.Page, id)
+	}
+	r.App.Navigate(shell.ConversationPage)
+	settle()
+	// A contributed entry shows only while its package is enabled.
+	enable := func(name string, enabled bool) {
+		t.Helper()
+		for _, summary := range r.snapshot().Plugins {
+			if summary.Name == name {
+				if _, err := r.controller.Do(r.ctx, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{
+					Name: name, ExpectedRevision: summary.Revision, Enabled: enabled}}); err != nil {
+					t.Fatal(err)
+				}
+				settle()
+				return
+			}
+		}
+		t.Fatalf("no %s package", name)
+	}
+	enable("commands", false)
+	menu("inner")
+	if items := tester.Menu(); slices.Contains(items, zh("workspace_new_terminal")) || !slices.Contains(items, zh("worktree_manage")) {
+		t.Fatalf("the menu without the commands package is %q", items)
+	}
+	tester.Key(0, ui.KeyEscape)
+	settle()
+	enable("commands", true)
+	menu("inner")
 	if err := tester.ChooseMenuItem(zh("project_edit")); err != nil {
 		t.Fatal(err)
 	}

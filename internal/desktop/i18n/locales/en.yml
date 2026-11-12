@@ -2153,8 +2153,6 @@ project_removed: Project removed
 project_revoke: Revoke trust
 project_revoke_description: Stop project tasks; keep history and drafts
 project_revoke_title: Revoke project trust
-project_trust: Manage project trust
-project_trust_preview: Changes preview only
 task_completed: Completed
 artifact_export_failed: Could not export
 chat_compact_incomplete: Summary incomplete

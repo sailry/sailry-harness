@@ -260,9 +260,24 @@ terminal, subagent and file-preview tabs are single-pane.
   an open item focuses its tab. Menus are `kit.MenuButton`. The pages'
   strips draw the same tabs, without "+" and the chevron.
 - Launcher: `details`, then 40 DIP secondary rows up to 440 wide: icon,
-  label, Kbd shortcut. Order: Browser ⌘T, Terminal ⌃`, Files ⌘P, Git ⌃⇧G,
-  History, Docs. History and Docs belong to a session: the live launcher
-  and "+" menu leave them out on an unsent draft (`State.Session`).
+  label, Kbd shortcut. Browser ⌘T, Terminal ⌃`, Files ⌘P, Git ⌃⇧G, the
+  reference's four (`resources/launcher.rs`), in the preview, Demo mode and
+  the live window; the "+" menu lists the same four with the same shortcuts
+  (`State.lists`). History and Documents are not entries: they keep their
+  tab kinds and views and open where the reference reaches them, the turns'
+  checkpoints from a turn's Undo (`live/workspace_activity.go`) and a
+  session's documents from their cards in the transcript. The preview and
+  Demo mode have no control that opens the History tab.
+- Demo mode's Terminal tab shows the demo's screen
+  (`viewmodel.Workspace.Screen`, drawn by `screen` in `tools.go`): prompts,
+  commands and output in the monospace face and the theme's semantic
+  colours, a block cursor after the last prompt. No shell starts and it
+  takes no input. Its Browser tab opens on the demo's page
+  (`viewmodel.Workspace.Page`: an address, a title that names the tab and
+  markdown drawn by `kit.Markdown`); Back, Forward and the address work over
+  the tab's history, and any other address shows `browser_load_failed` with
+  the address, as nothing is loaded from a network. Neither says it is a
+  sample. The preview keeps its placeholders.
 - Empty states: a tab with nothing to show draws `kit.Result` with its
   resource's icon, centered, never a blank body: History
   `panel_history_empty`, Documents `panel_documents_empty` (a spinner while
@@ -708,7 +723,7 @@ against a real Node in Chinese: on an unsent draft and on a session every kind
 of tab (Browser, Terminal, Files, Git, History, Documents, Artifact, Subagent,
 a file and a diff) closes by its close button and by ⌘W, stays closed over
 frames, the settings page and back, a Git refresh and a relaunch, the launcher
-and "+" list History and Documents only with a session, and each body shows
+and "+" list Browser, Terminal, Files and Git and never History or Documents, and each body shows
 its content or its empty state. `SAILRY_SNAPSHOTS` names a folder for the
 launcher and empty-state frames.
 
@@ -733,7 +748,7 @@ reaches the controller, and the next call of the same turn is refused once the
 package is disabled. A `use_browser` command for an unknown conversation or
 another worktree is refused and the conversation's own is admitted.
 
-`internal/desktop/panel/model_test.go`: the live launcher's kinds per state, the
+`internal/desktop/panel/model_test.go`: the launcher's four kinds in the preview, the demo and the live window, the
 Documents tab without a document, the first change opening no diff, each empty
 state and the loading spinner; tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file

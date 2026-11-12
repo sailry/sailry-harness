@@ -161,7 +161,11 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	l.Key = func(i int) any { return turns[i].ID }
 	n := len(turns)
 	s.wantOlder = false
-	banner(c, sess, actions)
+	// A lost or recovering connection is told after the last turn, where the
+	// next reply would come; a session without turns has it over the list.
+	if n == 0 {
+		banner(c, sess, actions)
+	}
 	// The theme's conversation effects lie under the turns.
 	pane := kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation"))
 	s.press.watch(pane)
@@ -249,6 +253,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		}
 		if last && sess != nil {
 			diagnostic(c, sess.Diagnostic)
+			banner(c, sess, actions)
 		}
 	})
 }

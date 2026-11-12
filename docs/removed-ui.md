@@ -38,6 +38,9 @@ Commits are in this repository. Dates are the removal's.
 | 18 | A wait reason on a queued row ("Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent"), and held background results as rows in the queue ("Held at automatic limit", "Held after failure") | The composer's queue strip (`composer/queue.go`) | The strip lists queued input only, as plain rows. A queue the Node stopped sending is one toast when it happens (`queue_halt_interrupted`, `queue_halt_unsent`); the user's own Stop or pause is not reported. The Node and the protocol keep `pause_reason` and `hold`; a held result joins the user's next message and shows in the transcript: on the row of the call that started the command, and with the turn that takes it ([composer.md](composer.md), [conversation.md](conversation.md)) | User decision, 2026-11-12 |
 | 19 | The size's value beside the message text size slider, and the stepped sizes (Small, Standard, Large, Extra large) the slider replaced | Settings › Conversation (`settings/conversation.go`) | The slider alone, one tick a pixel from 12 to 18; the transcript shows the size ([conversation.md](conversation.md)) | `b612a83`, `c8f0be4`, 2026-11-12 |
 | 20 | The toast that a language change applies after a restart | Settings › General (`settings/general.go`) | The window redraws in the language chosen at once, so nothing is said | `0b2988b`, 2026-11-12 |
+| 21 | "Manage project trust" and its grant and revoke dialog | The project's right-click menu (`sidebar/menus.go` `projectMenu`) | A project is trusted when it is added. `Project.Trusted` and the Node's trust record stay | User decision, 2026-11-12 |
+| 22 | "Launch AI CLI" and the CLI submenu | The project's right-click menu and the project page's More menu (`sidebar/menus.go` `projectMenu`, `ProjectActions`) | In the reference it is the `commands` package's `terminal-menu-cli` entry in the `project_menu` slot, not a core item; it is not mounted here and core draws none. The project page's AI CLI button and its launcher stay | User decision, 2026-11-12 |
+| 23 | History and Documents as launcher entries | The right panel's launcher and its "+" menu (`panel/model.go` `lists`) | The launcher lists Browser, Terminal, Files and Git, as the reference's does. Both tab kinds and their views stay: checkpoints open from a turn's Undo, a session's documents from their cards | User decision, 2026-11-12 |
 
 ## Guards
 
@@ -57,6 +60,8 @@ subtests of the feature's existing tests.
 | The file picker's heading is one line and names no local host | `picker` `TestModel/view/heading` |
 | The queue strip draws no wait reason, and no strip without queued input | `composer` `TestQueueTray`; `live` `TestQueueStates/held results are not rows`; the `queue_wait_*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
 | The text size row has no value and no stepped sizes; a language change says nothing of a restart | The `message_text_*` and `settings_language_restart` keys in `i18n` `TestCatalogKeys/RemovedControls` |
+| The project menu has no trust, AI CLI or Records item, and the More menu no AI CLI | `shell` `TestProjectMenu/Items`; `live` `firstRunProjects` (the menu's exact items); the `project_trust*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
+| The launcher and "+" list neither History nor Documents | `panel` `TestTabsModel/SessionResources`; `shell` `TestPanelLauncherCentred`, `TestProjectMenu/Launcher`; `live` `TestPanelProjection` (`launcherLists`) |
 
 A key on the guard's list cannot be added to `keys.txt` without editing the
 test, which points here.
