@@ -90,7 +90,7 @@ func TestPreparedFileChanges(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(root, "third.txt")); !os.IsNotExist(err) {
 		t.Fatalf("unattempted file exists: %v", err)
 	}
-	if _, err = ResolvePatch(ctx, root, "*** Begin Patch\n*** Update File: first.txt\n@@\n-after\n+next\n*** End Patch", core.ManualFiles); err == nil {
+	if _, err = ResolvePatchWithRevisions(ctx, root, "*** Begin Patch\n*** Update File: first.txt\n@@\n-after\n+next\n*** End Patch", nil, core.ManualFiles); err == nil {
 		t.Fatal("unobserved file update was accepted")
 	}
 }
