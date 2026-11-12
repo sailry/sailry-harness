@@ -396,17 +396,17 @@ List<UsageRow> usageRows(
   for (final entry in groups) {
     final group = entry.containsKey('group') ? object(entry['group']) : entry;
     final key = object(group['key']);
-    final kind = string(key['kind']);
+    final kind = text(key['kind']);
     final data = key['data'];
     final name = group['name'] is String ? group['name'] as String : null;
     UsageRow? row;
     if (kind == 'model' && data is Map) {
-      final provider = string(data['provider']);
+      final provider = text(data['provider']);
       final label = name ?? _short(provider);
       row = switch (mode) {
         UsageBreakdown.model => UsageRow(
-          '$provider:${string(data['model'])}',
-          string(data['model']),
+          '$provider:${text(data['model'])}',
+          text(data['model']),
           label,
         ),
         UsageBreakdown.provider => UsageRow(provider, label, null),
@@ -418,7 +418,7 @@ List<UsageRow> usageRows(
         'session' => UsageRow('session', unassigned, null),
         'project' => UsageRow(
           'project:$data',
-          name ?? projects[data] ?? _short(string(data)),
+          name ?? projects[data] ?? _short(text(data)),
           null,
         ),
         'connection' || 'assistant' => UsageRow(

@@ -108,22 +108,6 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
-  String conversationToolsCount(String count) {
-    return '$count appels d\'outils';
-  }
-
-  @override
-  String get conversationGoal => 'Objectif';
-
-  @override
-  String get conversationGoalBlocked => 'Bloqué';
-
-  @override
-  String conversationGoalBudget(String count) {
-    return 'Budget $count jetons';
-  }
-
-  @override
   String get conversationStepSkipped => 'Ignoré';
 
   @override
@@ -191,12 +175,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationQueued => 'En file d\'attente';
 
   @override
-  String get conversationProcessing => 'Traitement';
-
-  @override
-  String get conversationUnsynced => 'État non synchronisé';
-
-  @override
   String get conversationGenerating => 'Réponse';
 
   @override
@@ -214,23 +192,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationCompacting => 'Compacter le contexte';
 
   @override
-  String get conversationForkConfirm =>
-      'Fork un chat à partir de cet enregistrement?';
-
-  @override
   String get conversationCompacted => 'Contexte compacté';
 
   @override
   String get conversationToolWaiting => 'En attente';
-
-  @override
-  String get conversationToolRunning => 'En cours';
-
-  @override
-  String get conversationToolReturned => 'Retourné';
-
-  @override
-  String get conversationUnsupportedInput => 'Gérer cette entrée sur le bureau';
 
   @override
   String get conversationStartCoding => 'Démarrer l\'exécution';
@@ -245,9 +210,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationSubmit => 'Envoyer';
 
   @override
-  String get conversationSource => 'Source';
-
-  @override
   String get conversationMode => 'Mode de travail';
 
   @override
@@ -260,9 +222,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationFlagship => 'Phare';
 
   @override
-  String get conversationPermission => 'Permissions';
-
-  @override
   String get conversationAsk => 'Demandez à chaque fois';
 
   @override
@@ -272,44 +231,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationFull => 'Un accès complet';
 
   @override
-  String get conversationReasoning => 'Effort de raisonnement';
-
-  @override
-  String get conversationDefault => 'Par défaut';
-
-  @override
-  String get conversationNone => 'Désactivé';
-
-  @override
-  String get conversationMinimal => 'Minimal';
-
-  @override
-  String get conversationLow => 'Faible';
-
-  @override
-  String get conversationMedium => 'Moyen';
-
-  @override
-  String get conversationHigh => 'Élevé';
-
-  @override
-  String get conversationXHigh => 'Supérieur';
-
-  @override
-  String get conversationMax => 'Maximum';
-
-  @override
   String get conversationBudget => 'Raisonnement budgétaire';
 
   @override
   String get conversationAttachment => 'Pièce jointe';
-
-  @override
-  String get conversationAttachmentTooLarge =>
-      'Pièce jointe illisible ou plus grande que 64 Mo';
-
-  @override
-  String get conversationDownload => 'Voir pièce jointe';
 
   @override
   String get conversationImageFailed => 'Impossible d\'afficher l\'image';
@@ -320,9 +245,6 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get conversationDownloadFailed =>
       'Impossible de charger la pièce jointe';
-
-  @override
-  String get conversationReadonly => 'Ce chat est archivé';
 
   @override
   String get conversationMicrophoneDenied =>
@@ -446,15 +368,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get codePlain => 'Texte brut';
 
   @override
-  String get toolArguments => 'Arguments';
-
-  @override
-  String get toolResult => 'Résultat';
-
-  @override
-  String get toolRaw => 'Résultat brut';
-
-  @override
   String get turnChanges => 'Tourner les changements';
 
   @override
@@ -552,15 +465,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get toolFailed => 'Échec';
 
   @override
-  String get toolQuestionAnswered => 'Réponse';
-
-  @override
-  String get toolQuestionDeclined => 'Demande rejetée';
-
-  @override
-  String get toolQuestionCancelled => 'Annulé';
-
-  @override
   String get fileLinkUnavailable => 'Impossible d\'ouvrir ce lien';
 
   @override
@@ -630,9 +534,6 @@ class AppLocalizationsFr extends AppLocalizations {
       'Choisir une arborescence de travail sur un hôte connecté';
 
   @override
-  String get resourceDisconnected => 'Hébergeur non connecté';
-
-  @override
   String get resourceRoot => 'Racine';
 
   @override
@@ -695,16 +596,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get resourceTerminalClaiming => 'Prendre le contrôle';
 
   @override
-  String get resourceTerminalReadOnly => 'Terminal en lecture seule';
-
-  @override
   String get resourceTerminalEnded => 'Terminaux fermés';
 
   @override
   String get resourceTerminalConnecting => 'Terminal de raccordement';
-
-  @override
-  String get resourceTerminalInput => 'Entrée de terminal';
 
   @override
   String get resourceTerminalPaste => 'Coller';
@@ -1015,24 +910,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get filterProjects => 'Filtrer les projets';
 
   @override
-  String get closeSearch => 'Fermer la recherche';
-
-  @override
-  String onlineHostCount(String count) {
-    return '$count en ligne';
-  }
-
-  @override
-  String get taskActions => 'Actions de tâche';
-
-  @override
   String get archiveShort => 'Archives';
 
   @override
   String get archiveTab => 'Archivé';
-
-  @override
-  String get archivedTasks => 'Archivé';
 
   @override
   String get delete => 'Supprimer';
@@ -1045,12 +926,6 @@ class AppLocalizationsFr extends AppLocalizations {
       'Ce chat ne peut pas être repris après la suppression';
 
   @override
-  String get busyDelete => 'Arrêter la tâche avant de supprimer ce chat';
-
-  @override
-  String get stopBeforeDelete => 'Arrêter la tâche';
-
-  @override
   String get restored => 'Restauré à la maison';
 
   @override
@@ -1060,20 +935,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get archiveEmpty => 'Aucun chat archivé';
 
   @override
-  String get archiveKeepsRunning =>
-      'L\'archivage n\'arrête pas l\'exécution des tâches';
-
-  @override
   String get brand => 'Sailry';
 
   @override
   String get mobile => 'Espace de travail mobile';
-
-  @override
-  String get edition => 'EXPLORATION MOBILE / 01';
-
-  @override
-  String get intro => 'Tâches, chats et espaces de travail distants';
 
   @override
   String get preview => 'Aperçu';
@@ -1088,19 +953,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get light => 'Clair';
 
   @override
-  String get gallery => 'Aperçu général';
-
-  @override
   String get focus => 'Un seul écran';
 
   @override
   String get page => 'Choisir une page';
-
-  @override
-  String get experience => 'Ouvrir la page';
-
-  @override
-  String get backGallery => 'Retour à l\'aperçu';
 
   @override
   String get design => 'Caractéristiques et design';
@@ -1145,40 +1001,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get worktree => 'Arbre de travail';
 
   @override
-  String get subtitleTasks =>
-      'Tâches sur plusieurs hôtes · Approbations et réponses en premier';
-
-  @override
-  String get subtitleChat =>
-      'Chat continu · Développez l\'activité de l\'outil au besoin';
-
-  @override
-  String get subtitleHosts => 'Connexions, ressources hôtes et processus';
-
-  @override
-  String get subtitleResources => 'Hébergeur → Projet → Arbre de travail';
-
-  @override
-  String get subtitleChanges =>
-      'Différences de fichiers, mise en attente et validations';
-
-  @override
-  String get subtitleTerminal =>
-      'Terminal à distance · Contrôle d\'entrée explicite';
-
-  @override
-  String get subtitleUsage =>
-      'Sailry conversations · Agrégées sur tous les hôtes';
-
-  @override
-  String get subtitleSettings =>
-      'Préférences locales et paramètres d\'exécution Node';
-
-  @override
   String get allHosts => 'Tous les hôtes';
-
-  @override
-  String get connectedHosts => '2 en ligne';
 
   @override
   String get all => 'Tout';
@@ -1193,31 +1016,16 @@ class AppLocalizationsFr extends AppLocalizations {
   String get completed => 'Achevée';
 
   @override
-  String get taskProgress => 'Tâche actuelle';
-
-  @override
-  String get taskWait => 'En attente de votre décision';
-
-  @override
-  String get taskRecent => 'Récemment terminé';
-
-  @override
   String get search => 'Rechercher';
 
   @override
   String get searchTasks => 'Rechercher des tâches et des projets';
 
   @override
-  String get filterTasks => 'Filtrer les tâches';
-
-  @override
   String get noResults => 'Aucune tâche correspondante';
 
   @override
   String get notification => 'Notifications';
-
-  @override
-  String get newTask => 'Nouvelle tâche';
 
   @override
   String get newConversation => 'Un nouveau chat';
@@ -1233,15 +1041,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get approval => 'Approbation';
 
   @override
-  String get viewRequest => 'Voir la demande';
-
-  @override
-  String get ago => 'Juste à présent';
-
-  @override
-  String get minutesAgo => 'Il y a 12 minutes';
-
-  @override
   String get allow => 'Autoriser une fois';
 
   @override
@@ -1249,12 +1048,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get working => 'En cours';
-
-  @override
-  String get viewChanges => 'Voir les changements';
-
-  @override
-  String get viewConversation => 'Voir le chat';
 
   @override
   String get branch => 'feature/sign-in';
@@ -1299,19 +1092,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get queueShort => 'File d’attente';
 
   @override
-  String get replyingNow => 'Réponse';
-
-  @override
-  String get readFileProgress => 'Lecture du fichier';
-
-  @override
   String get questionPending => 'En attente de votre réponse';
-
-  @override
-  String get testTool => 'Exécuter des tests de projet';
-
-  @override
-  String get testFailed => 'Tests échoués';
 
   @override
   String queueCount(String count) {
@@ -1335,28 +1116,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get resumeQueue => 'Reprendre la file d\'attente';
 
   @override
-  String get enqueue => 'Ajouter à la liste d\'attente';
-
-  @override
   String get moveUp => 'Déplacer vers le haut';
 
   @override
   String get thinkingNow => 'Penser';
 
   @override
-  String get toolsNow => 'Exécution en cours';
-
-  @override
   String get thought => 'Raisonnement';
-
-  @override
-  String get toolDiff => 'Inspecter les diffs de fichiers';
-
-  @override
-  String get approvalResolved => 'Approbation résolue';
-
-  @override
-  String get chatContinue => 'Continuez à décrire votre tâche';
 
   @override
   String get describeTask => 'Décrivez votre tâche';
@@ -1420,9 +1186,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get stoppedStatus => 'Arrêté';
 
   @override
-  String get hostSubtitle => 'Vos nœuds d\'exécution';
-
-  @override
   String get pair => 'Connecter l\'hôte';
 
   @override
@@ -1469,21 +1232,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get selectHost => 'Choisir un hôte';
-
-  @override
-  String get selectProject => 'Choisir un projet';
-
-  @override
-  String get selectBranch => 'Choisissez l\'arbre de travail';
-
-  @override
-  String get mainBranch => 'Arbre de travail principal';
-
-  @override
-  String get connectionTools => 'Connexions';
-
-  @override
-  String get workspaceResources => 'Espace de travail';
 
   @override
   String get confirm => 'Confirmer';
@@ -1550,11 +1298,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get fileTrash => 'Placer dans la corbeille';
 
   @override
-  String gitLineChanges(String added, String removed) {
-    return '$added lignes ajoutées · $removed supprimées';
-  }
-
-  @override
   String get gitActions => 'Actions Git';
 
   @override
@@ -1585,27 +1328,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get gitDeleteBranch => 'Supprimer la branche';
 
   @override
-  String get gitSwitchNote =>
-      'Changer de branche dans cet arbre de travail; simulation uniquement';
-
-  @override
-  String get gitDeleteNote =>
-      'Supprimer la branche sélectionnée; simulation seulement';
-
-  @override
   String get review => 'Examiner';
-
-  @override
-  String get reviewFiles => 'Afficher les modifications de code';
 
   @override
   String get selectWorkspace => 'Projet et arbre de travail';
 
   @override
   String get searchFiles => 'Recherche de fichiers';
-
-  @override
-  String get recentFiles => 'Fichiers';
 
   @override
   String get src => 'Source';
@@ -1615,9 +1344,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get modified => 'Modifié';
-
-  @override
-  String get filePreview => 'Aperçu du fichier';
 
   @override
   String get edit => 'Modifier';
@@ -1644,13 +1370,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get browser => 'Aperçu du Web';
 
   @override
-  String get openTerminal => 'Ouvrir le terminal';
-
-  @override
   String get openFile => 'Ouvrir le fichier';
-
-  @override
-  String get tables => 'Tableaux';
 
   @override
   String get closePort => 'Fermer vers l\'avant';
@@ -1683,22 +1403,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get terminalEnter => 'Entrée';
 
   @override
-  String get terminalOutputLabel => 'Sortie du terminal';
-
-  @override
   String get readOnly => 'Lecture seule';
-
-  @override
-  String get takeControl => 'Prenez le contrôle';
-
-  @override
-  String get hasControl => 'Contrôle des entrées';
-
-  @override
-  String get releaseControl => 'Contrôle des rejets';
-
-  @override
-  String get usageSubtitle => 'Sailry chats seulement';
 
   @override
   String get tokens => 'Tokens';
@@ -1730,29 +1435,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get cached => 'Hits de cache';
 
   @override
-  String get hostUsage => 'Utilisation de l &apos; hôte';
-
-  @override
-  String get recentRequests => 'Réponses récentes';
-
-  @override
-  String get allUsage => 'Détails d\'utilisation';
-
-  @override
-  String get usageNote =>
-      'Les coûts sont des estimations; certaines réponses ne sont pas chiffrées';
-
-  @override
-  String get sourceNote =>
-      'Les hôtes hors ligne conservent leurs dernières données connues';
-
-  @override
-  String get profileSubtitle => 'Contrôleur mobile';
-
-  @override
-  String get localSettings => 'Les préférences locales';
-
-  @override
   String get appearance => 'Apparence';
 
   @override
@@ -1777,9 +1459,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get configModels => 'Modèles';
 
   @override
-  String get configInstructions => 'Instructions';
-
-  @override
   String get configEmpty => 'Aucune entrée';
 
   @override
@@ -1794,29 +1473,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get speechInput => 'Entrée de voix';
 
   @override
-  String get developerInstructions =>
-      'Modifier le code de la tâche et vérifier le résultat';
-
-  @override
-  String get reviewerInstructions =>
-      'Examiner les modifications de code et identifier les problèmes';
-
-  @override
-  String get projectConventions => 'Conventions de projet';
-
-  @override
-  String get memoryContent => 'Préserver le style de code existant';
-
-  @override
   String get providers => 'Modèles et fournisseurs';
 
   @override
   String get speech => 'Discours';
-
-  @override
-  String nodeSettingsNote(String host) {
-    return 'Configuration enregistrée sur $host';
-  }
 
   @override
   String get about => 'À propos de Sailry';
@@ -1840,64 +1500,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get memberReset => 'Réinitialiser le modèle';
 
   @override
-  String get nodeDefaults => 'Node par défaut';
-
-  @override
   String get auto => 'Automatique';
 
   @override
   String get manual => 'Demandez à chaque fois';
 
   @override
-  String get speechNote => 'Utilise la configuration d\'exécution Node';
-
-  @override
   String get required => 'Décrivez votre tâche en premier';
-
-  @override
-  String get notificationsEmpty => 'Pas de nouvelles notifications';
-
-  @override
-  String get reviewTitle => 'Références de conception';
-
-  @override
-  String get reviewConversation =>
-      'Chats, approbations, questions et file d\'attente';
-
-  @override
-  String get reviewConversationText =>
-      'Les tâches conservent la propriété de l\'hôte, du projet et de l\'arborescence de travail ; élargissez les enregistrements d\'outils et les approbations dans les chats';
-
-  @override
-  String get reviewResources => 'Limes, Git, bornes et connexions';
-
-  @override
-  String get reviewResourcesText =>
-      'L\'édition de fichiers, la mise en attente, les commits et les portages conservent leurs points d\'entrée; les détails s\'ouvrent sur des pages secondaires';
-
-  @override
-  String get reviewHosts => 'Connexions et surveillance des hôtes';
-
-  @override
-  String get reviewHostsText =>
-      'Nœuds appariés, codes à 6 chiffres, utilisation des ressources et processus; l\'état hors ligne n\'est pas affiché comme actif';
-
-  @override
-  String get reviewUsage => 'Utilisation et Node paramètres';
-
-  @override
-  String get reviewUsageText =>
-      'Sailry clavardage seulement; l\'utilisation agrégée conserve l\'exhaustivité et les coûts indiquent les estimations et la couverture';
-
-  @override
-  String get reviewBoundary => 'Frontière mobile';
-
-  @override
-  String get reviewVisual => 'Références visuelles';
-
-  @override
-  String get reviewVisualText =>
-      'Référence 1: hiérarchie du chat; référence 2: cartes souples et navigation flottante; référence 3: surveillance compacte';
 
   @override
   String get hostConnectPrompt => 'Connecter un hôte';
@@ -1965,25 +1574,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get completionAlerts => 'Alertes d\'achèvement';
 
   @override
-  String get notificationsReadAll => 'Marquer tout comme lu';
-
-  @override
-  String get notificationsOpen => 'Ouvrir';
-
-  @override
   String get preferencesFailed => 'Préférences non sauvegardées; réessayez';
 
   @override
-  String get connectFirst => 'Connectez un hôte pour commencer';
-
-  @override
-  String get initializing => 'Démarrage en cours';
-
-  @override
   String get startupFailed => 'Le démarrage a échoué';
-
-  @override
-  String get retryConnection => 'Réessayer';
 
   @override
   String get pairAction => 'Connecter';
@@ -1996,9 +1590,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get pairing => 'Connexion en cours';
-
-  @override
-  String get hostUnavailable => 'Hébergeur non connecté';
 
   @override
   String get hostRemove => 'Retirer l’hôte';
@@ -2043,12 +1634,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get hostProjectPath => 'Chemin du projet sur l\'hôte';
-
-  @override
-  String get hostProjectFailed => 'Impossible d\'ajouter un projet';
-
-  @override
-  String get hostUnknown => 'Aucune donnée';
 
   @override
   String get hostRefresh => 'Actualiser';
@@ -2103,12 +1688,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get settingsSpeechFailed => 'Modèle de discours non prêt; réessayez';
 
   @override
-  String get settingsNoHost => 'Connecter un hôte en premier';
-
-  @override
-  String get settingsUnavailable => 'Non disponible';
-
-  @override
   String get settingsLoadFailed => 'Impossible de charger';
 
   @override
@@ -2122,9 +1701,6 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get settingsUnknown =>
       'Résultat non confirmé; actualiser pour vérifier';
-
-  @override
-  String get settingsLoading => 'Chargement';
 
   @override
   String get settingsRequired => 'Entrez une valeur';
@@ -2303,15 +1879,6 @@ class AppLocalizationsFr extends AppLocalizations {
       'La sortie max. ne peut pas dépasser le contexte';
 
   @override
-  String get settingsDriver => 'Service';
-
-  @override
-  String get settingsModel => 'Modèle';
-
-  @override
-  String get settingsArchived => 'Archivé';
-
-  @override
   String get settingsUsageUnknown => 'Inconnu';
 
   @override
@@ -2453,9 +2020,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get backgroundUnknown => 'Résultat incertain';
-
-  @override
-  String get backgroundPending => 'Résultats en attente';
 
   @override
   String conversationSteps(String count) {
@@ -2618,21 +2182,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => 'Vitesse';
-
-  @override
-  String queueHaltStopped(String count) {
-    return 'Arrêté · $count en attente';
-  }
-
-  @override
-  String queueHaltInterrupted(String count) {
-    return 'Réponse interrompue · $count en attente';
-  }
-
-  @override
-  String queueHaltUnsent(String count) {
-    return 'Message non envoyé · $count en attente';
-  }
 
   @override
   String get backgroundHeld => 'Résultat non remis';

@@ -405,6 +405,21 @@ func TestToleranceReachesEveryObject(t *testing.T) {
 	})
 }
 
+// TestUndeclaredResultVariantIsAnError keeps a peer's result that is neither
+// Ok nor Err from ending the process that decodes it.
+func TestUndeclaredResultVariantIsAnError(t *testing.T) {
+	var outcome RequestOutcome
+	if err := DecodeAs(PeerData, []byte(`{"kind":"completed","data":{"Later":{}}}`), &outcome); err == nil {
+		t.Fatalf("an undeclared result variant decoded to %#v", outcome)
+	}
+	if err := DecodeAs(PeerData, []byte(`{"kind":"completed","data":{"Err":{"code":"cancelled","message":"stopped"}}}`), &outcome); err != nil {
+		t.Fatal(err)
+	}
+	if result := outcome.Data.(*Result[Output, Fault]); result.Ok != nil || result.Err == nil || result.Err.Code != ErrorCodeCancelled {
+		t.Fatalf("declared result: %#v", result)
+	}
+}
+
 // TestLeaseEndsWithItsDecode keeps a tolerant decode from loosening a later
 // authored decode of the same bytes.
 func TestLeaseEndsWithItsDecode(t *testing.T) {

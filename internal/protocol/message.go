@@ -8786,32 +8786,6 @@ func (value Snapshot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-type RetainedRecord struct {
-	Kind string          `json:"kind"`
-	Data json.RawMessage `json:"data"`
-}
-
-func DefaultRetainedRecord() RetainedRecord {
-	return RetainedRecord{
-		Kind: "",
-		Data: json.RawMessage("null"),
-	}
-}
-func (value *RetainedRecord) UnmarshalJSON(data []byte) error {
-	type plain RetainedRecord
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"kind", "data"}, true); err != nil {
-		return err
-	}
-	*value = RetainedRecord(decoded)
-	return nil
-}
-func (value RetainedRecord) MarshalJSON() ([]byte, error) {
-	type plain RetainedRecord
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
 type Output struct {
 	Kind string
 	Data any
@@ -8911,56 +8885,6 @@ func (value *OutputCodeIndexQueryCancelledPayload) UnmarshalJSON(data []byte) er
 }
 func (value OutputCodeIndexQueryCancelledPayload) MarshalJSON() ([]byte, error) {
 	type plain OutputCodeIndexQueryCancelledPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
-type OutputCodeUninstalledPayload struct {
-	Package string `json:"package"`
-	Version string `json:"version"`
-}
-
-func DefaultOutputCodeUninstalledPayload() OutputCodeUninstalledPayload {
-	return OutputCodeUninstalledPayload{
-		Package: "",
-		Version: "",
-	}
-}
-func (value *OutputCodeUninstalledPayload) UnmarshalJSON(data []byte) error {
-	type plain OutputCodeUninstalledPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"package", "version"}, false); err != nil {
-		return err
-	}
-	*value = OutputCodeUninstalledPayload(decoded)
-	return nil
-}
-func (value OutputCodeUninstalledPayload) MarshalJSON() ([]byte, error) {
-	type plain OutputCodeUninstalledPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
-type OutputCodeQueryCancelledPayload struct {
-	Request RequestID `json:"request"`
-}
-
-func DefaultOutputCodeQueryCancelledPayload() OutputCodeQueryCancelledPayload {
-	return OutputCodeQueryCancelledPayload{
-		Request: RequestID{},
-	}
-}
-func (value *OutputCodeQueryCancelledPayload) UnmarshalJSON(data []byte) error {
-	type plain OutputCodeQueryCancelledPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"request"}, false); err != nil {
-		return err
-	}
-	*value = OutputCodeQueryCancelledPayload(decoded)
-	return nil
-}
-func (value OutputCodeQueryCancelledPayload) MarshalJSON() ([]byte, error) {
-	type plain OutputCodeQueryCancelledPayload
 	encoded := plain(value)
 	return json.Marshal(encoded)
 }
@@ -9631,8 +9555,7 @@ func (value OutputWorktreeRemovedPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-var outputVariants = variantFactories{"retained_record": func() any { return new(RetainedRecord) },
-	"installation_dismissed":       func() any { return new(OutputInstallationDismissedPayload) },
+var outputVariants = variantFactories{"installation_dismissed": func() any { return new(OutputInstallationDismissedPayload) },
 	"installations":                func() any { return new([]InstallationTask) },
 	"artifact":                     func() any { return new(ArtifactContent) },
 	"artifact_written":             func() any { return new(OutputArtifactWrittenPayload) },
@@ -9651,18 +9574,7 @@ var outputVariants = variantFactories{"retained_record": func() any { return new
 	"code_graph":                   func() any { return new(CodeIndexGraphGraphPage) },
 	"code_index_settings":          func() any { return new(CodeIndexSettings) },
 	"code_index_query_cancelled":   func() any { return new(OutputCodeIndexQueryCancelledPayload) },
-	"code":                         func() any { return new(CodeResult) },
 	"hook_settings":                func() any { return new(HooksState) },
-	"code_settings":                func() any { return new(CodeSettings) },
-	"code_server":                  func() any { return new(CodeServer) },
-	"code_servers":                 func() any { return new([]CodeServer) },
-	"code_packages":                func() any { return new(CodeWorkspace) },
-	"code_catalog":                 func() any { return new([]CodeLanguage) },
-	"code_installation":            func() any { return new(CodeInstallation) },
-	"code_installations":           func() any { return new([]CodeInstallation) },
-	"code_uninstalled":             func() any { return new(OutputCodeUninstalledPayload) },
-	"code_rules":                   func() any { return new(CodeRules) },
-	"code_query_cancelled":         func() any { return new(OutputCodeQueryCancelledPayload) },
 	"activity_catalog":             func() any { return new(ActivityCatalog) },
 	"project_catalog":              func() any { return new(ProjectsCatalog) },
 	"plugin_transaction":           func() any { return new([]Output) },
@@ -10644,8 +10556,7 @@ func (value EventTurnQueuedPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-var eventVariants = variantFactories{"retained_record": func() any { return new(RetainedRecord) },
-	"local_models_changed":          func() any { return new(EventLocalModelsChangedPayload) },
+var eventVariants = variantFactories{"local_models_changed": func() any { return new(EventLocalModelsChangedPayload) },
 	"local_model_settings_changed":  func() any { return new(EventLocalModelSettingsChangedPayload) },
 	"knowledge_collections_changed": nil,
 	"task_started":                  func() any { return new(EventTaskStartedPayload) },

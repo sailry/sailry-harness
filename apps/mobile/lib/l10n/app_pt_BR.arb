@@ -20,7 +20,6 @@
   "backgroundInterrupted": "Interrompido",
   "backgroundStalled": "Sem saída recente",
   "backgroundUnknown": "Resultado incerto",
-  "backgroundPending": "Resultados pendentes",
   "usageHitRate": "Taxa de acerto do cache",
   "usageLocalTime": "Horário local",
   "usageProvider": "Provedor"

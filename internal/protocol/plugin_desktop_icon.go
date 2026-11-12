@@ -36,9 +36,6 @@ func (value PluginDesktopIconSvgPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-var pluginDesktopIconVariants = variantFactories{"Name": func() any { return new(string) },
-	"Svg": func() any { return new(PluginDesktopIconSvgPayload) }}
-
 func (value PluginDesktopIcon) MarshalJSON() ([]byte, error) {
 	switch value.Kind {
 	case "Name", "Svg":
