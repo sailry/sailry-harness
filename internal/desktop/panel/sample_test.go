@@ -4,6 +4,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
 
@@ -212,6 +215,78 @@ func TestSampleActions(t *testing.T) {
 		}
 		if pr.sampleFile(nil, FileAction{Kind: "files_open_system", Paths: []string{docs}}) {
 			t.Fatal("the demo opened a file in the system")
+		}
+	})
+
+	t.Run("Remotes", func(t *testing.T) {
+		pr, w := open()
+		n := len(w.Repo.Remotes)
+		git(t, pr, GitAction{Kind: "git_add_remote"})
+		pr.prompt.values[1] = "https://git.harbor.example/mirror/harbor-api.git"
+		submit(t, pr, w.Repo.Remotes[0].Name, false) // the name is taken: the form stays
+		submit(t, pr, "mirror", true)
+		if len(w.Repo.Remotes) != n+1 || w.Repo.Remotes[n].Name != "mirror" || w.Repo.Remotes[n].URL == "" {
+			t.Fatalf("Add remote: %+v", w.Repo.Remotes)
+		}
+		git(t, pr, GitAction{Kind: "git_remove_remote", Remote: "mirror"})
+		if len(w.Repo.Remotes) != n {
+			t.Fatalf("Remove remote: %+v", w.Repo.Remotes)
+		}
+		// Ignore takes an untracked file out of the changes and leaves a
+		// tracked one.
+		const added, edited = "internal/middleware/ratelimit.go", "internal/http/router.go"
+		changes := len(w.Changes)
+		git(t, pr, GitAction{Kind: "git_ignore", Paths: []string{added, edited}})
+		if len(w.Changes) != changes-1 || find(w, added) != nil || find(w, edited) == nil {
+			t.Fatalf("Ignore left %d of %d changes", len(w.Changes), changes)
+		}
+	})
+
+	// What the demo cannot carry out in memory is not in its menus; the
+	// preview, which tells its notice, keeps every item.
+	t.Run("Menus", func(t *testing.T) {
+		pr, _ := open()
+		var labels func(list []action, into map[string]bool)
+		labels = func(list []action, into map[string]bool) {
+			for _, a := range list {
+				into[a.label] = true
+				labels(a.sub, into)
+			}
+		}
+		for _, demo := range []bool{true, false} {
+			shown, branch := map[string]bool{}, map[string]bool{}
+			tt := ui.NewTester(func(c *ui.Context) {
+				kit.SetDemo(c, demo)
+				g := pr.menus(c)
+				labels(g.root(), shown)
+				// A branch's own actions are the picker Manage branches opens.
+				for _, b := range g.management() {
+					if b.run == nil || b.group == g.t("git_branch_actions") {
+						continue
+					}
+					b.run(c)
+					labels(pr.Git.picker.items, branch)
+					pr.Git.picker = picker{}
+				}
+			}, 400, 300)
+			tt.SetLocale("en")
+			tt.Frame()
+			for _, key := range []string{"git_clone", "worktree_manage", "git_output", "git_stash_view_open"} {
+				if shown[i18n.In("en", key)] == demo {
+					t.Errorf("demo %v: the Git menu has %s: %v", demo, key, !demo)
+				}
+			}
+			for _, key := range []string{"git_rebase", "worktree_create"} {
+				if branch[i18n.In("en", key)] == demo {
+					t.Errorf("demo %v: a branch's actions have %s: %v", demo, key, !demo)
+				}
+			}
+			// Every action left in the demo's menu is one it carries out.
+			for _, key := range []string{"git_add_remote", "git_fetch", "git_stash_all", "git_tag_create_open", "git_checkout_open"} {
+				if !shown[i18n.In("en", key)] {
+					t.Errorf("demo %v: the Git menu lacks %s", demo, key)
+				}
+			}
 		}
 	})
 }

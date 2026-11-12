@@ -103,6 +103,11 @@ func (s *State) artifact(c *ui.Context, id string) {
 			notice(c)
 		}
 	})
+	if s.Demo && f.Kind == conversation.OtherFile {
+		// The demo's file is on no disk for its app to open: the tab names it.
+		kit.Result(c, kit.ResultProps{Icon: conversation.FileIcon(f), Title: f.Name(), SubTitle: conversation.Kind(c, f)}).Grow(1).Justify(ui.Center)
+		return
+	}
 	ui.Scroll(c.Key("artifact-" + id)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
 		case conversation.TextFile:

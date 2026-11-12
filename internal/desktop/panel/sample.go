@@ -260,6 +260,19 @@ func (pr *Project) sampleGit(c *ui.Context, a GitAction) bool {
 			cm := &repo.Commits[i]
 			cm.Refs = slices.DeleteFunc(slices.Clone(cm.Refs), func(r string) bool { return r == "tags/"+a.Target })
 		}
+	case "git_ignore":
+		// An ignored file leaves the changes; a tracked one stays changed.
+		drop(func(e preview.FileChange) bool { return e.Untracked && e.Staged == "" && covered(e.Path, a.Paths) })
+	case "git_add_remote":
+		pr.Prompt(a.Kind, []string{"settings_name", "mcp_url"}, []string{"", ""}, func(values []string, done func(bool)) {
+			name, address := strings.TrimSpace(values[0]), strings.TrimSpace(values[1])
+			if name == "" || address == "" || slices.ContainsFunc(repo.Remotes, func(r preview.Remote) bool { return r.Name == name }) {
+				done(false)
+				return
+			}
+			repo.Remotes = append(repo.Remotes, preview.Remote{Name: name, URL: address})
+			done(true)
+		})
 	case "git_remove_remote":
 		repo.Remotes = slices.DeleteFunc(repo.Remotes, func(r preview.Remote) bool { return r.Name == a.Target || r.Name == a.Remote })
 	case "git_stash_all":
