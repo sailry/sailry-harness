@@ -890,6 +890,68 @@
       ],
       "type": "object"
     },
+    "ClaudeCode": {
+      "additionalProperties": false,
+      "description": "The user's own Claude Code used as a per-step model.",
+      "properties": {
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ClaudeCodeModel"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "program": {
+          "type": "string"
+        },
+        "sign_in": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "program",
+        "sign_in",
+        "models"
+      ],
+      "type": "object"
+    },
+    "ClaudeCodeModel": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "efforts": {
+          "items": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "output": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
     "Client": {
       "anyOf": [
         {
@@ -1551,6 +1613,9 @@
             "tools": false,
             "vision": false
           }
+        },
+        "claude_code": {
+          "$ref": "#/$defs/ClaudeCode"
         },
         "discovery": {
           "default": false,

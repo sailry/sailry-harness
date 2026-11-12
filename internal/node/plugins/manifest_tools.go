@@ -419,8 +419,11 @@ func validWarning(warning *protocol.PluginModelAuthWarning) bool {
 }
 
 // validateAdapterTransport requires exactly one transport: a translation
-// script over HTTP, or a declared agent program.
+// script over HTTP, a declared agent program, or the user's Claude Code.
 func validateAdapterTransport(adapter protocol.PluginModelAdapterDeclaration, extension protocol.PluginExtension) error {
+	if adapter.ClaudeCode != nil {
+		return validateClaudeCode(adapter, extension)
+	}
 	agent := adapter.Acp
 	if agent == nil {
 		if adapter.Script.Entry == "" {
@@ -459,6 +462,38 @@ func validateAdapterTransport(adapter protocol.PluginModelAdapterDeclaration, ex
 	named := slices.ContainsFunc(extension.Programs[index].Args, func(argument string) bool { return strings.Contains(argument, "{model}") })
 	if agent.ModelArgument != named {
 		return packageFault("invalid plugin agent adapter")
+	}
+	return nil
+}
+
+// validateClaudeCode checks an adapter served by Claude Code. The Node owns
+// that command line, so the program declares only its command and variables.
+func validateClaudeCode(adapter protocol.PluginModelAdapterDeclaration, extension protocol.PluginExtension) error {
+	route := adapter.ClaudeCode
+	index := slices.IndexFunc(extension.Programs, func(program protocol.PluginProgramDeclaration) bool { return program.ID == route.Program })
+	text := func(value string, limit int) bool {
+		return value != "" && len(value) <= limit && !strings.ContainsFunc(value, unicode.IsControl)
+	}
+	if adapter.Acp != nil || adapter.Script.Entry != "" || len(adapter.Script.Resources) != 0 || len(adapter.Origins) != 0 || adapter.Capabilities.Files ||
+		adapter.Framing != protocol.PluginModelAdapterFramingNdjson || index < 0 || !text(route.SignIn, 256) ||
+		len(route.Models) == 0 || len(route.Models) > 32 ||
+		len(extension.Programs[index].Args) != 0 || len(extension.Programs[index].Files) != 0 {
+		return packageFault("invalid plugin Claude Code adapter")
+	}
+	levels := []string{"low", "medium", "high", "xhigh", "max"}
+	for at, model := range route.Models {
+		// A model is a `--model` value: an alias or a full name, never a flag.
+		if !text(model.ID, 128) || strings.HasPrefix(model.ID, "-") || strings.ContainsAny(model.ID, " \t") ||
+			slices.ContainsFunc(route.Models[:at], func(other protocol.PluginModelAdapterClaudeCodeModel) bool { return other.ID == model.ID }) ||
+			model.Name != nil && !text(*model.Name, 128) || model.Context != nil && *model.Context == 0 || model.Output != nil && *model.Output == 0 ||
+			len(model.Efforts) > len(levels) {
+			return packageFault("invalid plugin Claude Code adapter")
+		}
+		for at, level := range model.Efforts {
+			if !slices.Contains(levels, level) || slices.Contains(model.Efforts[:at], level) {
+				return packageFault("invalid plugin Claude Code adapter")
+			}
+		}
 	}
 	return nil
 }

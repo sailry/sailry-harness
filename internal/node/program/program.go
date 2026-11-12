@@ -80,10 +80,8 @@ func Resolve(name string, environment map[string]string) (string, error) {
 	return "", ErrNotInstalled
 }
 
-// Process is a running program with piped standard streams. A program that
-// needs a terminal instead of pipes is not built: it would be a second start
-// function here returning the same Process over the PTY that
-// internal/node/terminal owns, with Pool unchanged.
+// Process is a running program and its standard streams: pipes from Start,
+// or both ends of a terminal from StartTerminal.
 type Process struct {
 	Stdin  io.WriteCloser
 	Stdout io.Reader
@@ -94,10 +92,9 @@ type Process struct {
 	tail   string
 }
 
-// Start writes the declared files, then runs the program in its directory
-// with a scrubbed environment, as the leader of its own process group. Its
-// standard error goes to the Node's log line by line.
-func Start(spec Spec) (*Process, error) {
+// command writes the declared files and prepares the program to run in its
+// directory with a scrubbed environment.
+func command(spec Spec) (*exec.Cmd, error) {
 	environment := map[string]string{}
 	for _, entry := range spec.Host {
 		if name, value, ok := strings.Cut(entry, "="); ok && slices.Contains(inherited, name) {
@@ -133,13 +130,24 @@ func Start(spec Spec) (*Process, error) {
 		}
 	}
 	root.Close()
-	// StartGroup sets the command's Cancel, which os/exec accepts only on a
+	// A group's kill is the command's Cancel, which os/exec accepts only on a
 	// command made with a context. The program outlives the call that starts
 	// it and ends by Kill, so the context is never done.
-	command := exec.CommandContext(context.Background(), executable, spec.Args...)
-	command.Dir = spec.Dir
+	prepared := exec.CommandContext(context.Background(), executable, spec.Args...)
+	prepared.Dir = spec.Dir
 	for name, value := range environment {
-		command.Env = append(command.Env, name+"="+value)
+		prepared.Env = append(prepared.Env, name+"="+value)
+	}
+	return prepared, nil
+}
+
+// Start writes the declared files, then runs the program in its directory
+// with a scrubbed environment, as the leader of its own process group. Its
+// standard error goes to the Node's log line by line.
+func Start(spec Spec) (*Process, error) {
+	command, err := command(spec)
+	if err != nil {
+		return nil, err
 	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
@@ -180,10 +188,14 @@ func Start(spec Spec) (*Process, error) {
 	return process, nil
 }
 
+// ErrNoTerminal reports that this system gives a program no terminal.
+var ErrNoTerminal = errors.New("programs cannot be given a terminal on this system")
+
 // Done closes when the program has exited and its group is gone.
 func (process *Process) Done() <-chan struct{} { return process.done }
 
-// Diagnostic is the last line the program wrote to standard error.
+// Diagnostic is the last line the program wrote to standard error. A
+// program in a terminal has none: what it wrote is on its screen.
 func (process *Process) Diagnostic() string {
 	process.mu.Lock()
 	defer process.mu.Unlock()
