@@ -128,7 +128,10 @@ func (s *Service) Clone(ctx context.Context, repositoryURL, destination string, 
 				return "", invalid("use a repository URL without embedded credentials")
 			}
 		}
-	} else if !filepath.IsAbs(repositoryURL) && !(strings.Contains(repositoryURL, "@") && strings.Contains(repositoryURL, ":")) {
+	} else if !filepath.IsAbs(repositoryURL) && (!strings.Contains(repositoryURL, "@") || !strings.Contains(repositoryURL, ":") ||
+		// What url.Parse refused is accepted only as scp-style user@host:path:
+		// a scheme or a helper::address form must not pass the allowlist above.
+		strings.Contains(repositoryURL, "::") || strings.Contains(repositoryURL, "://") || strings.ContainsFunc(repositoryURL, unicode.IsSpace)) {
 		return "", invalid("repository URL is invalid")
 	}
 	target, err := newDestination(destination)

@@ -301,14 +301,11 @@ func (node *Node) reactKnowledge(previous, latest localmodels.Update) {
 		slices.Sort(ids)
 		return ids
 	}
-	same := func(left, right protocol.ModelsLocalChoice) bool {
-		return left.Enabled == right.Enabled && (left.Model == nil) == (right.Model == nil) && (left.Model == nil || *left.Model == *right.Model)
-	}
 	switch {
-	case !same(previous.Embedding, latest.Embedding) ||
+	case !localmodels.SameChoice(previous.Embedding, latest.Embedding) ||
 		!slices.Equal(installed(previous, protocol.ModelsKindEmbedding), installed(latest, protocol.ModelsKindEmbedding)):
 		node.knowledge.Invalidate()
-	case !same(previous.OCR, latest.OCR) ||
+	case !localmodels.SameChoice(previous.OCR, latest.OCR) ||
 		!slices.Equal(installed(previous, protocol.ModelsKindOcr), installed(latest, protocol.ModelsKindOcr)):
 		node.knowledge.Refresh()
 	}

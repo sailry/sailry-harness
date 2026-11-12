@@ -103,9 +103,12 @@ func connectorModelAuth(capture store.ConnectorLoginCapture, registration bool) 
 		declaration.Token, declaration.Scopes = &mapping, auth.Scopes
 		if auth.Refresh {
 			refresh := token
-			refresh.Body = &protocol.PluginModelAuthBody{Kind: "form", Data: protocol.PluginModelAuthBodyFormPayload{Fields: map[string]string{
-				"grant_type": "refresh_token", "refresh_token": "{refresh}", "client_id": "{client_id}",
-			}}}
+			form := map[string]string{"grant_type": "refresh_token", "refresh_token": "{refresh}", "client_id": "{client_id}"}
+			// A confidential client renews with its secret, as it logs in.
+			if fields["client_secret"] != "" {
+				form["client_secret"] = "{client_secret}"
+			}
+			refresh.Body = &protocol.PluginModelAuthBody{Kind: "form", Data: protocol.PluginModelAuthBodyFormPayload{Fields: form}}
 			declaration.Refresh = &protocol.PluginModelAuthRefresh{Request: refresh, Token: mapping}
 		}
 		if auth.Flow == protocol.PluginConnectorFlowPkce {
@@ -257,14 +260,9 @@ func (node *Node) connectorIdentity(ctx context.Context, capture store.Connector
 		if err != nil {
 			return 0, nil, err
 		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-		if err != nil {
-			return 0, nil, err
-		}
-		request.Header = input.Headers
 		endpoint := protocol.PluginModelAuthEndpoint{Url: target, Method: protocol.PluginModelAuthMethodGet, Headers: map[string]string{}}
-		for name := range request.Header {
-			endpoint.Headers[name] = request.Header.Get(name)
+		for name := range input.Headers {
+			endpoint.Headers[name] = input.Headers.Get(name)
 		}
 		return authorization.Response(ctx, authorization.HTTPClient(), endpoint, map[string]string{}, true)
 	}

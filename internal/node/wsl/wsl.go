@@ -4,7 +4,6 @@ package wsl
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"sync"
 	"unicode"
@@ -19,7 +18,6 @@ type installKey struct {
 
 type active struct {
 	distribution string
-	plugin       string
 	progress     protocol.SshInstallProgress
 	cancel       context.CancelFunc
 }
@@ -80,7 +78,6 @@ func (service *Service) Begin(ctx context.Context, caller protocol.NodeID, reque
 	key := installKey{caller, request.ID}
 	service.active[key] = &active{
 		distribution: input.Distribution,
-		plugin:       pluginScope(request.Plugin),
 		progress:     protocol.SshInstallProgress{Kind: "connecting"},
 		cancel:       cancel,
 	}
@@ -88,11 +85,11 @@ func (service *Service) Begin(ctx context.Context, caller protocol.NodeID, reque
 }
 
 // Progress reads the current stage of the caller's own active installation.
-func (service *Service) Progress(caller protocol.NodeID, request protocol.RequestID, plugin *protocol.PluginContext) (protocol.SshInstallProgress, error) {
+func (service *Service) Progress(caller protocol.NodeID, request protocol.RequestID) (protocol.SshInstallProgress, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	entry := service.active[installKey{caller, request}]
-	if entry == nil || plugin != nil && entry.plugin != pluginScope(plugin) {
+	if entry == nil {
 		return protocol.SshInstallProgress{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "WSL Host installation is not active"}
 	}
 	return entry.progress, nil
@@ -100,15 +97,12 @@ func (service *Service) Progress(caller protocol.NodeID, request protocol.Reques
 
 // Cancel stops the caller's own active installation. A request that is not
 // active is already settled, so cancelling it succeeds without effect.
-func (service *Service) Cancel(caller protocol.NodeID, request protocol.RequestID, plugin *protocol.PluginContext) error {
+func (service *Service) Cancel(caller protocol.NodeID, request protocol.RequestID) error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	entry := service.active[installKey{caller, request}]
 	if entry == nil {
 		return nil
-	}
-	if plugin != nil && entry.plugin != pluginScope(plugin) {
-		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Host installation belongs to another plugin scope"}
 	}
 	entry.cancel()
 	return nil
@@ -150,14 +144,6 @@ func deployable(distributions []protocol.WslDistribution, name string) error {
 		return nil
 	}
 	return &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "WSL distribution is no longer installed"}
-}
-
-func pluginScope(plugin *protocol.PluginContext) string {
-	if plugin == nil {
-		return ""
-	}
-	body, _ := json.Marshal(plugin)
-	return string(body)
 }
 
 func asciiLower(value string) string {

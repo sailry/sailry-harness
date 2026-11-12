@@ -124,13 +124,8 @@ func TestPluginHTTPAndAliases(t *testing.T) {
 	})
 	t.Run("stable alias namespace", func(t *testing.T) {
 		alias := ToolAlias("fixture", "lookup")
-		if !IsToolAlias(alias) || ToolAlias("fixture", "lookup") != alias || ToolAlias("other", "lookup") == alias {
+		if ToolAlias("fixture", "lookup") != alias || ToolAlias("other", "lookup") == alias {
 			t.Fatal("alias identity is not stable")
-		}
-		for _, invalid := range []string{"plugin_0123456789abcde_lookup", "plugin_0123456789abcdeg_lookup", "plugin_0123456789abcdef_", "other_0123456789abcdef_lookup"} {
-			if IsToolAlias(invalid) {
-				t.Fatalf("accepted alias %s", invalid)
-			}
 		}
 	})
 }

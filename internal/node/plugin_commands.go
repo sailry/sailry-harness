@@ -428,9 +428,6 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 	if request.Command.Kind == "read_plugin_mcp" {
 		return node.readPluginMCP(ctx, request)
 	}
-	if request.Command.Kind == "check_plugin_mcp" {
-		return node.checkPluginMCP(ctx, request)
-	}
 	if request.Command.Kind == "read_plugin_callback" {
 		return node.pluginCallback(ctx, caller, request, true)
 	}
@@ -558,8 +555,6 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 			}
 		}
 		return protocol.Output{Kind: "plugin_updates", Data: value}, nil
-	case *protocol.PluginHttpRequest:
-		return node.pluginHTTP(ctx, request, *input)
 	}
 	var output protocol.Output
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {

@@ -41,6 +41,10 @@ type ScriptExecution struct {
 	ReadOnly   bool
 	Turn       json.RawMessage
 	StagedTurn json.RawMessage
+	// Writes counts the durable writes of this tool call: in the first
+	// evaluation's count, out the count the next evaluation of the same
+	// call continues from, so each write has its own request ID.
+	Writes uint64
 }
 
 type scriptVM struct {
