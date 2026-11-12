@@ -1939,6 +1939,7 @@ market_permission_worktrees_read: ワークツリーの読み取り
 market_permission_worktrees_write: ワークツリーの管理
 market_permission_process_read: コマンドの表示
 market_permission_process_control: コマンドの実行
+market_permission_process_run: 宣言されたプログラムをこのデバイスで実行
 market_permission_terminals_read: ターミナルの読み取り
 market_permission_conversation_read: 会話の読み取り
 market_permission_conversation_control: 会話の制御

@@ -171,6 +171,18 @@ func ValidateFeatures(api protocol.ConversationModelApi, model protocol.Conversa
 		features = model.Capabilities.Features
 	}
 	ids := map[string]bool{}
+	if model.Capabilities != nil {
+		size := 0
+		for name, value := range model.Capabilities.Options {
+			size += len(name) + len(value)
+			if name == "" || len(name) > 64 || !json.Valid(value) {
+				return invalid("model adapter options must be named JSON values")
+			}
+		}
+		if len(model.Capabilities.Options) > 16 || size > 4096 {
+			return invalid("model adapter options exceed their budget")
+		}
+	}
 	advertised := map[string]map[string]bool{}
 	if len(features) > 16 {
 		return invalid("model feature declarations must be unique and bounded")

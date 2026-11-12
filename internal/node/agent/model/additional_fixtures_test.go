@@ -3,15 +3,19 @@ package model
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/google"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // additionalParityFixtures runs under TestRequestParity.
@@ -418,5 +422,61 @@ func b4GeminiBufferedUsage(t *testing.T) {
 	}
 	if len(server.captured()) != 1 {
 		t.Error("the passive observer issued another model request")
+	}
+}
+
+// TestCopilotRequestHeaders checks what a Copilot generation request declares
+// about itself, and that no other account kind receives those headers.
+func TestCopilotRequestHeaders(t *testing.T) {
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Api, provider.Authentication, provider.Enabled = protocol.NewProviderID(), protocol.ConversationModelApiChatCompletions, protocol.AuthenticationCopilot, true
+	entry := protocol.DefaultConversationModel()
+	entry.ID, entry.Vision = "fixture", true
+	provider.Models = []protocol.ConversationModel{entry}
+	binding := Binding{Provider: provider, Config: protocol.SessionConfig{Provider: provider.ID, Model: "fixture", Effort: protocol.Effort{Kind: "default"}}}
+	turn, created := protocol.NewTurnID(), time.Unix(100, 0)
+	message := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
+		return canonical.NewRecord(turn, "message", canonical.NewMessage(role, blocks...), created)
+	}
+	asked := message(canonical.User, canonical.Text(0, "Read the file"))
+	called := message(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: "call", Name: "read", Arguments: json.RawMessage(`{}`)}})
+	answered := message(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "call", Name: "read", Status: canonical.ToolSuccess, Result: canonical.Payload{Value: json.RawMessage(`"done"`)}}})
+	environment := message(canonical.User, canonical.Text(0, "Environment"))
+	environment.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, TurnContext: true}
+	pixels := []byte("\x89PNG\r\n\x1a\nfixture")
+	pictured := message(canonical.User, canonical.Text(0, "Describe it"), canonical.Block{Index: 1, Kind: "image", Data: &canonical.AssetContent{Asset: canonical.AssetRef{Digest: "digest", Mime: "image/png", Size: uint64(len(pixels))}}})
+	identifiers := map[string]bool{}
+	for _, row := range []struct {
+		name              string
+		request           Request
+		initiator, vision string
+	}{
+		{"a message the user wrote", Request{Records: []canonical.Record{asked}}, "user", ""},
+		{"turn context after the user's message", Request{Records: []canonical.Record{asked, environment}}, "user", ""},
+		{"a tool result", Request{Records: []canonical.Record{asked, called, answered}}, "agent", ""},
+		{"a delegated session", Request{Records: []canonical.Record{asked}, Delegated: true}, "agent", ""},
+		{"an image", Request{Records: []canonical.Record{pictured}, Assets: map[string][]byte{"digest": pixels}}, "user", "true"},
+		{"headers of the caller", Request{Records: []canonical.Record{asked}, Headers: map[string]string{"x-fixture": "kept"}}, "user", ""},
+	} {
+		call, err := BuildCall(binding, row.request)
+		if err != nil {
+			t.Fatalf("%s: %v", row.name, err)
+		}
+		if call.Headers["openai-intent"] != "conversation-agent" || call.Headers["x-initiator"] != row.initiator || call.Headers["copilot-vision-request"] != row.vision {
+			t.Errorf("%s: headers %v", row.name, call.Headers)
+		}
+		if identifier := call.Headers["x-request-id"]; identifier == "" || identifiers[identifier] {
+			t.Errorf("%s: request identifier %q is missing or repeated", row.name, identifier)
+		} else {
+			identifiers[identifier] = true
+		}
+		if row.request.Headers != nil && (call.Headers["x-fixture"] != "kept" || len(row.request.Headers) != 1) {
+			t.Errorf("%s: caller headers %v became %v", row.name, row.request.Headers, call.Headers)
+		}
+	}
+	binding.Provider.Authentication = protocol.AuthenticationApiKey
+	call, err := BuildCall(binding, Request{Records: []canonical.Record{asked}})
+	if err != nil || len(call.Headers) != 0 {
+		t.Fatalf("an API-key request carries Copilot headers: %v, %v", call.Headers, err)
 	}
 }

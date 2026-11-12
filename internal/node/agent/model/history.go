@@ -14,6 +14,7 @@ import (
 	"github.com/MoeForge/moego/base64"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
@@ -213,7 +214,41 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 			}
 		}
 	}
+	if binding.Provider.Authentication == protocol.AuthenticationCopilot {
+		call.Headers = copilotHeaders(request, records, call.Prompt)
+	}
 	return call, nil
+}
+
+// copilotHeaders are what Copilot reads on each generation request: who
+// started it, its own identifier and whether it carries an image. A request is
+// the user's when its last message, turn context aside, is one the user wrote
+// in a session that is not delegated; a tool's reply and a delegated run are
+// the agent's.
+func copilotHeaders(request Request, records []canonical.Record, prompt fantasy.Prompt) map[string]string {
+	headers := map[string]string{}
+	for name, value := range request.Headers {
+		headers[name] = value
+	}
+	headers["openai-intent"], headers["x-initiator"], headers["x-request-id"] = "conversation-agent", "agent", protocol.NewRequestID().String()
+	for index := len(records) - 1; index >= 0; index-- {
+		message := records[index].Message()
+		if message == nil || records[index].Metadata.Runtime != nil && records[index].Metadata.Runtime.TurnContext {
+			continue
+		}
+		if message.Role == canonical.User && !request.Delegated && !slices.ContainsFunc(message.Content, func(block canonical.Block) bool { return block.Kind == "tool_response" }) {
+			headers["x-initiator"] = "user"
+		}
+		break
+	}
+	for _, message := range prompt {
+		for _, part := range message.Content {
+			if file, ok := part.(fantasy.FilePart); ok && strings.HasPrefix(file.MediaType, "image/") {
+				headers["copilot-vision-request"] = "true"
+			}
+		}
+	}
+	return headers
 }
 
 // visibleRecords selects what a request carries: agent-visible records after

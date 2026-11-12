@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -308,5 +309,153 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 	value, ok := dispatchPayload[protocol.ConversationLoginUpdate](update.Data)
 	if err != nil || !ok || value.State.Kind != "cancelled" {
 		t.Fatalf("cancellation did not settle the attempt: %#v, %v", value, err)
+	}
+}
+
+// TestCopilotSignIn drives the bundled Copilot sign-in package through the
+// Node's workflow driver against a local server standing in for GitHub.
+// Over 3 s: a Node start, then two polls at GitHub's one-second interval.
+func TestCopilotSignIn(t *testing.T) {
+	node := nodeFixture(t)
+	var polls, exchanges atomic.Int32
+	answer := func(writer http.ResponseWriter, status int, body string) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
+		_, _ = io.WriteString(writer, body)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Host + request.URL.Path {
+		case "github.com/login/device/code":
+			if request.Method != http.MethodPost || request.ParseForm() != nil || request.PostForm.Get("client_id") != "Iv1.b507a08c87ecfe98" || request.PostForm.Get("scope") != "read:user" || request.Header.Get("Accept") != "application/json" {
+				t.Errorf("device request: %s %v", request.Method, request.PostForm)
+			}
+			answer(writer, http.StatusOK, `{"device_code":"private-device","user_code":"ABCD-1234","verification_uri":"https://github.com/login/device","expires_in":600,"interval":1}`)
+		case "github.com/login/oauth/access_token":
+			if request.Method != http.MethodPost || request.ParseForm() != nil || request.PostForm.Get("client_id") != "Iv1.b507a08c87ecfe98" || request.PostForm.Get("device_code") != "private-device" ||
+				request.PostForm.Get("grant_type") != "urn:ietf:params:oauth:grant-type:device_code" {
+				t.Errorf("token poll: %s %v", request.Method, request.PostForm)
+			}
+			if polls.Add(1) == 1 {
+				answer(writer, http.StatusOK, `{"error":"authorization_pending"}`)
+				return
+			}
+			answer(writer, http.StatusOK, `{"access_token":"github-token","token_type":"bearer","scope":"read:user"}`)
+		case "api.github.com/copilot_internal/v2/token":
+			if request.Method != http.MethodGet || request.Header.Get("Authorization") != "token github-token" || request.Header.Get("Editor-Version") != providers.DefaultCopilotEditor ||
+				request.Header.Get("Editor-Plugin-Version") != providers.DefaultCopilotEditorPlugin || request.Header.Get("User-Agent") != providers.DefaultCopilotAgent {
+				t.Errorf("session exchange: %s %v", request.Method, request.Header)
+			}
+			// The first two sessions end within the renewal window; the third
+			// exchange finds the GitHub token revoked.
+			switch count := exchanges.Add(1); count {
+			case 1, 2:
+				body, _ := json.Marshal(map[string]any{"token": "session-" + string(rune('0'+count)), "expires_at": time.Now().Add(330 * time.Second).Unix(),
+					"endpoints": map[string]string{"api": "https://api.individual.githubcopilot.com"}})
+				answer(writer, http.StatusOK, string(body))
+			default:
+				answer(writer, http.StatusUnauthorized, `{"message":"Bad credentials"}`)
+			}
+		default:
+			t.Errorf("unexpected request to %s%s", request.Host, request.URL.Path)
+			answer(writer, http.StatusNotFound, `null`)
+		}
+	}))
+	defer server.Close()
+	// The declared hosts are fixed; only the connection goes to the local server.
+	node.auth.client = &http.Client{Transport: accountHTTP(func(request *http.Request) (*http.Response, error) {
+		forwarded := request.Clone(request.Context())
+		target := *request.URL
+		target.Scheme, target.Host = "http", server.Listener.Addr().String()
+		forwarded.URL, forwarded.Host = &target, request.URL.Host
+		return http.DefaultTransport.RoundTrip(forwarded)
+	})}
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Copilot", true
+	provider.Api, provider.Authentication, provider.Endpoint = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationCopilot, "https://api.githubcopilot.com"
+	output := commandFixture(t, node, protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider}})
+	provider, ok := dispatchPayload[protocol.ConversationProvider](output.Data)
+	if !ok {
+		t.Fatal("provider save did not return its configuration")
+	}
+	output = commandFixture(t, node, protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision}})
+	attempt, ok := dispatchPayload[protocol.ConversationLoginAttempt](output.Data)
+	if !ok {
+		t.Fatal("provider login did not return its captured attempt")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	stream, err := node.Subscribe(ctx, node.ID(), protocol.Topic{Kind: "provider_login", Data: attempt.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	prompted := false
+	for connected := false; !connected; {
+		update, err := stream.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, ok := dispatchPayload[protocol.ConversationLoginUpdate](update.Data)
+		if !ok {
+			t.Fatal("provider login update has invalid shape")
+		}
+		switch value.State.Kind {
+		case "pending":
+			prompt, ok := dispatchPayload[protocol.ConversationLoginStatePendingPayload](value.State.Data)
+			if !ok || prompt.UserCode != "ABCD-1234" || prompt.VerificationUrl != "https://github.com/login/device" {
+				t.Fatalf("device prompt: %#v", value.State.Data)
+			}
+			prompted = true
+		case "failed", "cancelled":
+			t.Fatalf("Copilot sign-in ended %s: %#v", value.State.Kind, value.State.Data)
+		case "connected":
+			connected = true
+		}
+	}
+	if !prompted || polls.Load() != 2 || exchanges.Load() != 1 {
+		t.Fatalf("sign-in prompted=%v with %d polls and %d exchanges", prompted, polls.Load(), exchanges.Load())
+	}
+	for _, saved := range snapshotFixture(t, node).Providers {
+		if saved.ID == provider.ID {
+			provider = saved
+		}
+	}
+	if provider.Credential == nil {
+		t.Fatal("completed sign-in did not attach its credential")
+	}
+	listed, _ := json.Marshal(commandFixture(t, node, protocol.Command{Kind: "list_credentials"}))
+	if bytes.Contains(listed, []byte("github-token")) || bytes.Contains(listed, []byte("session-1")) {
+		t.Fatalf("credential metadata exposed a Copilot secret: %s", listed)
+	}
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Credential = provider.ID, provider.Credential
+	authorize := func() (providers.AccountGrant, error) {
+		invocation := &store.AgentInvocation{Provider: &provider, Turn: protocol.QueuedTurn{Config: config}}
+		if err := node.authorizeTurnProvider(ctx, invocation); err != nil {
+			return providers.AccountGrant{}, err
+		}
+		return providers.DecodeAccount(invocation.Secret, provider.Authentication)
+	}
+	// The stored session is within a minute of its early expiry, so the next
+	// use repeats the exchange with the GitHub token and keeps the pinned endpoint.
+	grant, err := authorize()
+	if err != nil || grant.Access != "session-2" || grant.Github != "github-token" || grant.Endpoint != "https://api.githubcopilot.com" || grant.RenewalPending || exchanges.Load() != 2 {
+		t.Fatalf("renewal returned %+v after %d exchanges: %v", grant, exchanges.Load(), err)
+	}
+	if _, headers, err := providers.AccountHeaders(provider, func() *protocol.Secret {
+		body, _ := json.Marshal(grant)
+		secret := protocol.NewSecret(string(body))
+		return &secret
+	}()); err != nil || headers.Get("Authorization") != "Bearer session-2" {
+		t.Fatalf("renewed grant does not authorize its channel: %v", err)
+	}
+	// A revoked GitHub token is a refusal: the grant is marked and later uses
+	// ask for a new sign-in without another request.
+	var fault *protocol.Fault
+	if _, err := authorize(); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodePermissionDenied || exchanges.Load() != 3 {
+		t.Fatalf("revoked sign-in returned %v after %d exchanges", err, exchanges.Load())
+	}
+	if _, err := authorize(); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodePermissionDenied || exchanges.Load() != 3 {
+		t.Fatalf("rejected grant was renewed again: %v after %d exchanges", err, exchanges.Load())
 	}
 }

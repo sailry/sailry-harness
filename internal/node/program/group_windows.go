@@ -1,4 +1,4 @@
-package node
+package program
 
 import (
 	"os/exec"
@@ -8,7 +8,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func startConnectorCLI(command *exec.Cmd) (func(), error) {
+// StartGroup starts command as the leader of its own process group (a job
+// object on Windows) and returns the function that kills the whole group.
+func StartGroup(command *exec.Cmd) (func(), error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err

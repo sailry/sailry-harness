@@ -200,7 +200,7 @@ placeholder in an empty masked input.
 | Providers | catalog Update, Get API key, open/reopen authorization | preview_notice |
 | Providers | compaction threshold | `Commit`, compaction_settings_* toast |
 | Providers | add/edit (brand, method, configure), discover models, delete | in memory; problems toast, the editor keeps its draft; delete confirms |
-| Providers | sign in | authorization dialog: device code (ChatGPT) or browser with pasted callback (Claude) |
+| Providers | sign in | authorization dialog: device code (ChatGPT, GitHub Copilot) or browser with pasted callback (Claude) |
 | Connectors | add (choose, method, fields), configure, enable account or server, details | in memory, connector_saved toast; OAuth authorize, probe and reconnect are preview_notice; delete confirms |
 | Connectors | Add MCP, configure a manual server | MCP editor; secrets never kept; mcp_configuration_saved |
 | Teams | concurrency | `Commit`, teams_settings_* toast |
@@ -530,7 +530,9 @@ channel saved with one keeps its brand and mark; a channel without a preset
 belongs to the family of its wire protocol.
 
 The Add provider dialog has two headed groups. Account sign-in lists every
-sign-in method by the account's product (ChatGPT, Claude) and opens its form.
+sign-in method by the account's product (ChatGPT, Claude), or by the method's
+name where the product has no label of its own (GitHub Copilot OAuth), and
+opens its form.
 API key lists each brand that has a method other than a sign-in, once; a brand
 with one such method opens its form, and a brand with several asks which,
 each row naming the method and how it is accessed (API key, Custom endpoint).

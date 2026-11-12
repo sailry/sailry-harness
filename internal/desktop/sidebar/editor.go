@@ -3,6 +3,7 @@ package sidebar
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -300,13 +301,77 @@ func (s *State) files(host string) (picker.Source, bool) {
 		}
 		return s.Actions.Files(host)
 	}
+	return s.Catalog(host).Source(), true
+}
+
+// Catalog is the preview's sample tree of host, nil in a live window. Beside
+// the sample account's own folders it holds the directories of the host's
+// sample projects, and under the project the right panel shows that
+// project's files, so a picker opens on what the window names.
+func (s *State) Catalog(host string) *picker.Catalog {
+	if s.Actions != nil {
+		return nil
+	}
 	if s.catalogs == nil {
 		s.catalogs = map[string]*picker.Catalog{}
 	}
-	if s.catalogs[host] == nil {
-		s.catalogs[host] = picker.NewCatalog(len(s.Data.Hosts) > 0 && s.Data.Hosts[0].ID != host)
+	if s.catalogs[host] != nil {
+		return s.catalogs[host]
 	}
-	return s.catalogs[host].Source(), true
+	catalog := picker.NewCatalog(len(s.Data.Hosts) > 0 && s.Data.Hosts[0].ID != host)
+	s.catalogs[host] = catalog
+	var add func(directory string, n *preview.FileNode, depth int)
+	add = func(directory string, n *preview.FileNode, depth int) {
+		path := directory + "/" + n.Name
+		modified := picker.CatalogNow.Add(-time.Duration(depth*7+len(n.Name)) * time.Hour)
+		catalog.Add(path, n.Children == nil, uint64(len(n.Text))*37+512, modified)
+		for _, child := range n.Children {
+			add(path, child, depth+1)
+		}
+	}
+	for _, pr := range s.Data.Projects {
+		if pr.Host != host || pr.Path == "" {
+			continue
+		}
+		root := catalog.Expand(pr.Path)
+		if _, problem := catalog.List(root); problem != "" {
+			catalog.Add(root, false, 0, picker.CatalogNow.Add(-time.Duration(len(pr.Name))*24*time.Hour))
+		}
+		i := strings.LastIndex(root, "/")
+		if tree := s.Data.Files; tree != nil && i > 0 && tree.Name == root[i+1:] {
+			for _, child := range tree.Children {
+				add(root, child, 1)
+			}
+		}
+	}
+	return catalog
+}
+
+// ChooseFiles opens the window's picker in its multi-file mode on host's
+// files, for the composer's Add attachment. initial is the directory first
+// shown, the host's home for "" or one that cannot show; choose takes the
+// chosen files' paths.
+func (s *State) ChooseFiles(c *ui.Context, host, initial string, choose func(paths []string)) {
+	source, ok := s.files(host)
+	if !ok {
+		kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+		return
+	}
+	if catalog := s.Catalog(host); catalog != nil {
+		initial = catalog.Expand(initial)
+	}
+	o := picker.Options{Mode: picker.Files, Title: "composer_attachment", Confirm: "directory_open", Initial: initial,
+		Source: source, Projects: s.projectPlaces(host), Preview: s.Actions == nil,
+		Choose: func(paths []string) bool {
+			choose(paths)
+			return true
+		}}
+	for _, h := range s.Data.Hosts {
+		if h.ID == host {
+			o.Host, o.Remote = s.hostLabel(c, h), !h.Local
+		}
+	}
+	s.Picker.Open(o)
 }
 
 // browse opens the host's directory picker for the draft. From the editor a

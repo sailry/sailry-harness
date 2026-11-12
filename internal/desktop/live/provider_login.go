@@ -115,11 +115,46 @@ func (r *Runtime) initAuthorization() {
 	r.initConnectorUI()
 }
 
-func (r *Runtime) beginProviderLogin(id string) {
+// loginEntry is the preset entry a provider was made from, which carries how
+// its sign-in is presented.
+func (r *Runtime) loginEntry(provider protocol.ConversationProvider) (protocol.ConversationPresetsEntry, bool) {
+	for _, entry := range r.providerPresets {
+		if provider.Preset != nil && provider.Preset.ID == entry.Preset.ID && reflect.DeepEqual(provider.Preset.Source, entry.Source) {
+			return entry, true
+		}
+	}
+	return protocol.ConversationPresetsEntry{}, false
+}
+
+func (r *Runtime) loginProvider(id string) (protocol.ConversationProvider, bool) {
 	provider, ok := r.provider(id)
 	if !ok {
 		provider, ok = r.authorizations.savedProviders[id]
 	}
+	return provider, ok
+}
+
+// beginProviderLogin starts a provider's sign-in. A package that declares a
+// warning for it is asked about first: nothing is sent until the user
+// continues, once for each attempt.
+func (r *Runtime) beginProviderLogin(id string) {
+	provider, ok := r.loginProvider(id)
+	if !ok {
+		return
+	}
+	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
+		text := entry.LoginWarning.Text
+		if translated := entry.LoginWarning.Locales[i18n.Match(r.packageLocale())]; translated != "" {
+			text = translated
+		}
+		r.App.Settings.WarnProviderAuthorization(provider.Name, text, func() { r.startProviderLogin(id) })
+		return
+	}
+	r.startProviderLogin(id)
+}
+
+func (r *Runtime) startProviderLogin(id string) {
+	provider, ok := r.loginProvider(id)
 	if !ok {
 		return
 	}
@@ -128,11 +163,8 @@ func (r *Runtime) beginProviderLogin(id string) {
 		previous.cancel()
 	}
 	var presentation *protocol.PluginModelAuthPresentation
-	for _, entry := range r.providerPresets {
-		if provider.Preset != nil && provider.Preset.ID == entry.Preset.ID && reflect.DeepEqual(provider.Preset.Source, entry.Source) {
-			presentation = entry.Login
-			break
-		}
+	if entry, found := r.loginEntry(provider); found {
+		presentation = entry.Login
 	}
 	ctx, cancel := context.WithCancel(r.ctx)
 	redirect, returned, manual, err := localAuthorization(ctx, presentation)

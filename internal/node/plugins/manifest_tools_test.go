@@ -141,6 +141,24 @@ func testToolDeclarations(t *testing.T) {
 				ID: "notes", Auth: protocol.ConversationPresetsAuth{Kind: "plugin", Data: &protocol.ConversationPresetsAuthPluginPayload{Flow: "missing"}},
 			}}
 		}, false},
+		{"sign-in with a warning", func(extension *protocol.PluginExtension) {
+			extension.Actions = append(extension.Actions, protocol.PluginActionAuthenticateModels)
+			extension.ModelAuth = []protocol.PluginModelAuthDeclaration{{ID: "account", Warning: &protocol.PluginModelAuthWarning{
+				Text: "The service may suspend this account", Locales: map[string]string{"zh-CN": "该服务可能封禁此账号"}}}}
+		}, true},
+		{"sign-in with a blank warning", func(extension *protocol.PluginExtension) {
+			extension.Actions = append(extension.Actions, protocol.PluginActionAuthenticateModels)
+			extension.ModelAuth = []protocol.PluginModelAuthDeclaration{{ID: "account", Warning: &protocol.PluginModelAuthWarning{Text: " "}}}
+		}, false},
+		{"sign-in with a blank translated warning", func(extension *protocol.PluginExtension) {
+			extension.Actions = append(extension.Actions, protocol.PluginActionAuthenticateModels)
+			extension.ModelAuth = []protocol.PluginModelAuthDeclaration{{ID: "account", Warning: &protocol.PluginModelAuthWarning{
+				Text: "The service may suspend this account", Locales: map[string]string{"zh-CN": ""}}}}
+		}, false},
+		{"sign-in with a warning past its length", func(extension *protocol.PluginExtension) {
+			extension.Actions = append(extension.Actions, protocol.PluginActionAuthenticateModels)
+			extension.ModelAuth = []protocol.PluginModelAuthDeclaration{{ID: "account", Warning: &protocol.PluginModelAuthWarning{Text: strings.Repeat("a", 1025)}}}
+		}, false},
 		{"permission with declared callbacks", func(extension *protocol.PluginExtension) {
 			extension.Permissions = []protocol.PermissionsContribution{{Kind: "accessibility", Subject: "dev.fixture", Check: new("recall"), Request: new("save"), Actions: []protocol.PluginAction{protocol.PluginActionReadStorage}}}
 		}, true},

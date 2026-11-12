@@ -155,7 +155,11 @@ func testProviderFlow(t *testing.T) {
 				t.Errorf("method %q of %q has no mark", x.ID, b.Name)
 			}
 			if x.Login != "" {
-				logins = append(logins, zh(x.Login))
+				if x.Login == "provider_access_login" {
+					logins = append(logins, x.Name)
+				} else {
+					logins = append(logins, zh(x.Login))
+				}
 				if x.Access != "provider_access_login" || x.Keyed {
 					t.Errorf("sign-in %q is accessed by %q", x.ID, x.Access)
 				}
@@ -179,10 +183,10 @@ func testProviderFlow(t *testing.T) {
 		}
 	}
 	want := []string{"Anthropic", "Baidu", "Cohere", "DeepSeek", "Doubao", "Gemini", "Kimi", "MiniMax", "Mistral", "OpenAI", "OpenCode", "Qwen", "xAI", "Zhipu"}
-	if !slices.Equal(brands, want) || !slices.Equal(keyed, want) {
+	if listed := slices.Insert(slices.Clone(want), 6, "GitHub Copilot"); !slices.Equal(brands, listed) || !slices.Equal(keyed, want) {
 		t.Errorf("brands %q, with API methods %q, want %q", brands, keyed, want)
 	}
-	if slices.Sort(logins); !slices.Equal(logins, []string{"ChatGPT", "Claude"}) {
+	if slices.Sort(logins); !slices.Equal(logins, []string{"ChatGPT", "Claude", "GitHub Copilot OAuth"}) {
 		t.Errorf("sign-ins %q", logins)
 	}
 	// Every entry of the catalog, offered or not, has a mark in the
@@ -227,7 +231,7 @@ func testProviderFlow(t *testing.T) {
 			options = append(options, x.Name)
 		}
 	}
-	if expected := append(append([]string{zh("provider_all")}, want...), "OpenRouter"); !slices.Equal(options, expected) {
+	if expected := append(append([]string{zh("provider_all")}, slices.Insert(slices.Clone(want), 6, "GitHub Copilot")...), "OpenRouter"); !slices.Equal(options, expected) {
 		t.Errorf("filter options %q, want %q", options, expected)
 	}
 	if icons.BrandColor("openrouter") == nil {
@@ -254,7 +258,7 @@ func testProviderFlow(t *testing.T) {
 	if !ok || !found || login.Y >= key.Y {
 		t.Fatalf("the brand step's headings are at %v and %v: %q", login, key, tester.Texts())
 	}
-	for _, name := range []string{"ChatGPT", "Claude"} {
+	for _, name := range []string{"ChatGPT", "Claude", "GitHub Copilot OAuth"} {
 		if chip, ok := tester.AccessByRole(ui.RoleButton, name); !ok || chip.Bounds.Y <= login.Y || chip.Bounds.Y >= key.Y {
 			t.Errorf("sign-in %q is at %v, outside its group", name, chip.Bounds)
 		}

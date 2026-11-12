@@ -1939,6 +1939,7 @@ market_permission_worktrees_read: 读取工作树
 market_permission_worktrees_write: 管理工作树
 market_permission_process_read: 查看命令
 market_permission_process_control: 运行命令
+market_permission_process_run: 在此设备上运行其声明的程序
 market_permission_terminals_read: 读取终端
 market_permission_conversation_read: 读取会话
 market_permission_conversation_control: 控制会话

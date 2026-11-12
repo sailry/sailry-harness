@@ -32,7 +32,11 @@ func DiscoverPlugin(ctx context.Context, binding Binding, capture PluginCapture)
 		return catalog, pluginTranslationFailure(err)
 	}
 	defer worker.Close()
-	raw, err := worker.Call("prepare_discovery", map[string]string{"endpoint": binding.Provider.Endpoint}, pluginDiscoveryBytes)
+	settings := model.capture.Settings
+	if settings == nil {
+		settings = map[string]json.RawMessage{}
+	}
+	raw, err := worker.Call("prepare_discovery", map[string]any{"endpoint": binding.Provider.Endpoint, "settings": settings}, pluginDiscoveryBytes)
 	if err != nil {
 		return catalog, pluginTranslationFailure(err)
 	}
@@ -65,7 +69,7 @@ func DiscoverPlugin(ctx context.Context, binding Binding, capture PluginCapture)
 	if err := model.public(string(body)); err != nil {
 		return catalog, err
 	}
-	raw, err = worker.Call("decode_discovery", map[string]any{"endpoint": binding.Provider.Endpoint, "status": response.StatusCode, "headers": headers, "body": string(body)}, pluginDiscoveryBytes)
+	raw, err = worker.Call("decode_discovery", map[string]any{"endpoint": binding.Provider.Endpoint, "status": response.StatusCode, "headers": headers, "body": string(body), "settings": settings}, pluginDiscoveryBytes)
 	if err != nil {
 		return catalog, pluginTranslationFailure(err)
 	}

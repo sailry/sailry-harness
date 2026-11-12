@@ -483,11 +483,15 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			options.Data = protocol.ConversationOauthOptionsClaudeOAuthPayload{UserAgent: userAgent}
 		case protocol.AuthenticationCopilot:
 			editor, plugin := d.OAuth[2], d.OAuth[3]
+			// The Node's defaults (providers.DefaultCopilot*).
+			if d.OAuth[1] == "" {
+				userAgent = "GitHubCopilotChat/0.68.0"
+			}
 			if editor == "" {
-				editor = "vscode/1.107.0"
+				editor = "vscode/1.140.0"
 			}
 			if plugin == "" {
-				plugin = "copilot-chat/0.35.0"
+				plugin = "copilot-chat/0.68.0"
 			}
 			options.Data = protocol.ConversationOauthOptionsCopilotPayload{UserAgent: userAgent, EditorVersion: editor, EditorPluginVersion: plugin}
 		}
@@ -507,6 +511,16 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		}
 		if i := slices.IndexFunc(old, func(v protocol.ConversationModel) bool { return v.ID == model.ID }); i >= 0 {
 			m = old[i]
+			// What a later discovery recorded for the model's adapter replaces
+			// the saved record; the rest of the saved model stays.
+			if known, ok := r.providerModels[d.Channel.ID][model.ID]; ok && known.Capabilities != nil && known.Capabilities.Options != nil {
+				capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+				if m.Capabilities != nil {
+					capabilities = *m.Capabilities
+				}
+				capabilities.Options = known.Capabilities.Options
+				m.Capabilities = &capabilities
+			}
 		}
 		if model.Name != "" && model.Name != model.ID {
 			name := model.Name

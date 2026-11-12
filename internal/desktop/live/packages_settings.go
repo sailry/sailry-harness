@@ -31,7 +31,10 @@ func packageSettingsFields(schema *protocol.PluginSettingsSchema, state protocol
 		if property.Title != nil {
 			field.Title = *property.Title
 		}
-		if title := schema.Locales[locale][field.Title]; title != "" {
+		// A package names a setting by its field; a title is the older key.
+		if title := schema.Locales[locale][name]; title != "" {
+			field.Title = title
+		} else if title := schema.Locales[locale][field.Title]; title != "" {
 			field.Title = title
 		}
 		value := state.Values[name]

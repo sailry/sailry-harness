@@ -334,6 +334,58 @@ export function decode(input) { if(input.headers["set-cookie"] || input.headers.
 			t.Fatalf("single captured translation = %d, %+v", requests, parts)
 		}
 	})
+	t.Run("a refusal from prepare sends nothing and keeps its message", func(t *testing.T) {
+		requests := 0
+		model, binding, _ := pluginFixture(t, `
+export function prepare(input) {
+  if (input.settings.free_only !== false && input.options.fixture_free !== true) {
+    return {refusal:{class:"invalid_request",message:"fixture model is not free: private-token"}};
+  }
+  return {method:"POST",url:input.endpoint+"/messages",body:"{}"};
+}
+export function decode(input) { return {state:null,deltas:input.events.map(event=>JSON.parse(event.data))}; }
+`, func(*http.Request) (*http.Response, error) {
+			requests++
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader("data: {\"kind\":\"finish\",\"reason\":\"stop\"}\n\n"))}, nil
+		})
+		send := func(binding Binding) *Failure {
+			call, err := BuildCall(binding, Request{System: "captured"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := model.Stream(t.Context(), call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for part := range stream {
+				if part.Type == fantasy.StreamPartTypeError {
+					return Classify(part.Error)
+				}
+			}
+			return nil
+		}
+		model.capture.Settings = map[string]json.RawMessage{"free_only": json.RawMessage(`true`)}
+		failure := send(binding)
+		if failure == nil || failure.Kind != InvalidRequest || failure.Retryable() || failure.Message != "fixture model is not free: [redacted]" || requests != 0 {
+			t.Fatalf("refusal = %+v after %d requests", failure, requests)
+		}
+		// What discovery recorded about the model reaches prepare as an option.
+		entry := protocol.DefaultConversationModel()
+		entry.ID = "captured"
+		capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+		capabilities.Options = map[string]json.RawMessage{"fixture_free": json.RawMessage(`true`)}
+		entry.Capabilities = &capabilities
+		stamped := binding
+		stamped.Provider.Models = []protocol.ConversationModel{entry}
+		if failure := send(stamped); failure != nil || requests != 1 {
+			t.Fatalf("stamped model = %+v after %d requests", failure, requests)
+		}
+		model.capture.Settings = map[string]json.RawMessage{"free_only": json.RawMessage(`false`)}
+		if failure := send(binding); failure != nil || requests != 2 {
+			t.Fatalf("setting off = %+v after %d requests", failure, requests)
+		}
+	})
 	t.Run("origin and header authority fence requests", func(t *testing.T) {
 		requests := 0
 		model, _, _ := pluginFixture(t, "", func(request *http.Request) (*http.Response, error) {
@@ -424,6 +476,23 @@ export function decode_discovery(input){if(input.status!==200)throw Error("faile
 		}
 		if len(result.Models) != 1 || result.Models[0].Capabilities == nil || *result.Models[0].Capabilities.Vision || *result.Models[0].Capabilities.Tools || *result.Models[0].Capabilities.Reasoning {
 			t.Fatalf("discovery elevated declared capability: %+v", result)
+		}
+		// Discovery receives the package settings and keeps what it records
+		// about a model for prepare; an oversized record is refused.
+		status = 200
+		catalog = `{"endpoint":"https://example.test/v1/","models":[{"id":"fixture","context":4096,"output":1024,"capabilities":{"options":{"fixture_free":true}}}]}`
+		capture.Bundle.Files[capture.Bundle.Entry] = `
+export function prepare_discovery(input){if(input.settings.free_only!==true)throw Error("settings missing");return {method:"GET",url:input.endpoint+"/models"}}
+export function decode_discovery(input){if(input.settings.free_only!==true)throw Error("settings missing");return JSON.parse(input.body)}
+`
+		capture.Settings = map[string]json.RawMessage{"free_only": json.RawMessage(`true`)}
+		result, err = DiscoverPlugin(t.Context(), binding, capture)
+		if err != nil || len(result.Models) != 1 || string(result.Models[0].Capabilities.Options["fixture_free"]) != "true" {
+			t.Fatalf("discovery options: %v %+v", err, result)
+		}
+		catalog = `{"endpoint":"https://example.test/v1/","models":[{"id":"fixture","capabilities":{"options":{"note":"` + strings.Repeat("a", 5000) + `"}}}]}`
+		if _, err := DiscoverPlugin(t.Context(), binding, capture); err == nil {
+			t.Fatal("oversized adapter options were accepted")
 		}
 		status, catalog = 401, "private-token"
 		if _, err := DiscoverPlugin(t.Context(), binding, capture); err == nil || Classify(err).Kind != Unavailable || strings.Contains(err.Error(), "private-token") {

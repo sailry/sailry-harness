@@ -114,6 +114,13 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 		description := tool.Description
 		input.Tools = append(input.Tools, protocol.PluginModelAdapterWireTool{Name: tool.Name, Description: &description, Parameters: schema})
 	}
+	// What discovery recorded about the model comes first; a declared policy
+	// of the same name replaces it.
+	if entry := metadata(binding); entry != nil && entry.Capabilities != nil {
+		for key, raw := range entry.Capabilities.Options {
+			input.Options[key] = slices.Clone(raw)
+		}
+	}
 	if binding.Provider.Binding != nil && *binding.Provider.Binding != nil {
 		for _, policy := range (**binding.Provider.Binding).Policies {
 			if slices.Contains(policy.Models, binding.Config.Model) {

@@ -91,22 +91,19 @@ func (a *pickerViewActions) Upload(*composer.Attachment) { a.uploads++ }
 
 func testAttachmentPickerAvailability(t *testing.T) {
 	for _, fixture := range []struct {
-		name                        string
-		callbacks                   *composer.AttachmentCallbacks
-		preview, readonly, disabled bool
+		name               string
+		callbacks          *composer.AttachmentCallbacks
+		readonly, disabled bool
 	}{
-		{name: "preview chooser", preview: true},
-		{name: "native missing", callbacks: &composer.AttachmentCallbacks{}, preview: true, disabled: true},
-		{name: "native supplied", callbacks: &composer.AttachmentCallbacks{Pick: func() {}}},
+		{name: "no window picker", disabled: true},
+		{name: "picker missing", callbacks: &composer.AttachmentCallbacks{}, disabled: true},
+		{name: "picker supplied", callbacks: &composer.AttachmentCallbacks{Pick: func() {}}},
 		{name: "readonly", callbacks: &composer.AttachmentCallbacks{Pick: func() {}}, readonly: true, disabled: true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			comp := composer.New("")
 			comp.SetAttachmentCallbacks(fixture.callbacks)
 			context := &composer.Context{Readonly: fixture.readonly}
-			if fixture.preview {
-				context.Files = &composer.Entry{Name: "root", Path: "/"}
-			}
 			actions := &pickerViewActions{}
 			attach := false
 			tester := ui.NewTester(func(c *ui.Context) {
@@ -124,7 +121,7 @@ func testAttachmentPickerAvailability(t *testing.T) {
 			if !ok || button.Disabled != fixture.disabled {
 				t.Fatalf("attach control availability changed: found=%v disabled=%v expected=%v", ok, button.Disabled, fixture.disabled)
 			}
-			if fixture.name == "native missing" {
+			if fixture.name == "picker missing" {
 				attach = true
 				tester.Frame()
 				if actions.uploads != 1 || len(comp.Attachments) != 1 {

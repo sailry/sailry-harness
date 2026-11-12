@@ -10,9 +10,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
 
-// AttachmentCallbacks connect controller-owned native effects to the accepted
-// draft cards. A nil callback keeps the preview's existing behavior.
+// AttachmentCallbacks connect window-owned effects to the accepted draft
+// cards. A nil Remove or Image keeps the preview's behavior.
 type AttachmentCallbacks struct {
+	// Pick opens the window's file picker in its multi-file mode for this
+	// composer; the owner attaches what is chosen (AttachPaths). The composer
+	// has no picker of its own: without Pick the attach button is disabled.
 	Pick   func()
 	Remove func(*Attachment)
 	Image  func(kit.ImageAction, *Attachment)
@@ -20,6 +23,21 @@ type AttachmentCallbacks struct {
 
 func (s *State) SetAttachmentCallbacks(callbacks *AttachmentCallbacks) {
 	s.attachmentCallbacks = callbacks
+}
+
+// openFiles asks the window for its file picker, from the attach button and
+// the @ picker's Attach files entry. Enter in the @ picker chooses between
+// frames: the picker opens in the next one, where it can name its host.
+func (s *State) openFiles(c *ui.Context, ctx *Context) {
+	if s.canPickFiles(ctx) {
+		s.inFrame(c, func(*ui.Context) { s.attachmentCallbacks.Pick() })
+	}
+}
+
+// canPickFiles reports whether files can be chosen: not in a read-only
+// conversation, and only where the window offers its picker.
+func (s *State) canPickFiles(ctx *Context) bool {
+	return !ctx.Readonly && s.attachmentCallbacks != nil && s.attachmentCallbacks.Pick != nil
 }
 
 // SetReferenceChildren keeps an open page tied to its current shared listing.

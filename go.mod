@@ -21,6 +21,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/chromedp/cdproto v0.159.0
 	github.com/chromedp/chromedp v0.23.0
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/creack/pty/v2 v2.0.1
 	github.com/dlclark/regexp2 v1.11.0
 	github.com/ebitengine/purego v0.11.3
