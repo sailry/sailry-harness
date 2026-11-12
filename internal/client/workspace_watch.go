@@ -99,6 +99,9 @@ func (c *Client) workspaceChanged(w *workspaceWatch, update protocol.Update) {
 func (c *Client) observeWorkspace(w *workspaceWatch) {
 	defer c.workspaceOwners.Done()
 	defer func() {
+		// A watch that ends on a failure it does not retry is over: the
+		// next observer starts a new one instead of joining it.
+		w.cancel()
 		c.workspaceMu.Lock()
 		w.state.Connected = false
 		c.workspaceMu.Unlock()

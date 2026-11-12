@@ -92,7 +92,14 @@ func (c *Client) commandsChanged(w *commandsWatch) {
 }
 func (c *Client) observeCommands(w *commandsWatch) {
 	defer c.commandOwners.Done()
-	defer func() { c.commandsMu.Lock(); w.state.Connected = false; c.commandsMu.Unlock(); c.commandsChanged(w) }()
+	defer func() {
+		// As observeWorkspace: a watch that ended is not joined again.
+		w.cancel()
+		c.commandsMu.Lock()
+		w.state.Connected = false
+		c.commandsMu.Unlock()
+		c.commandsChanged(w)
+	}()
 	delay := 250 * time.Millisecond
 	for w.ctx.Err() == nil {
 		subscription, err := c.transport.Subscribe(w.ctx, protocol.Topic{Kind: "commands", Data: w.session})
