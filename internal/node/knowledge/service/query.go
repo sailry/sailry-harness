@@ -1,7 +1,6 @@
 package service
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -23,7 +22,17 @@ type Embedding struct {
 
 // filter admits only chunks of captured grants and applies source filters
 // before any candidate limit. A paused grant keeps its cached keyword text.
-const filter = "JOIN sources s ON s.id=c.source JOIN collections k ON k.id=s.collection JOIN json_each(?1) admitted ON json_extract(admitted.value,'$.id')=k.id AND json_extract(admitted.value,'$.scope')=lower(hex(k.scope)) AND json_extract(admitted.value,'$.rebuild')=k.rebuild AND (json_extract(admitted.value,'$.generation')=k.generation OR (json_extract(admitted.value,'$.semantic')=0 AND k.generation<=json_extract(admitted.value,'$.generation'))) WHERE NOT EXISTS(SELECT 1 FROM json_each(?2) wanted WHERE NOT EXISTS(SELECT 1 FROM json_each(s.tags) actual WHERE actual.value=wanted.value)) AND (?3 IS NULL OR substr(s.locator,1,length(?3))=?3) AND (?4 IS NULL OR s.modified_ms>=?4) AND (?5 IS NULL OR s.modified_ms<=?5) AND (json_array_length(?6)=0 OR EXISTS(SELECT 1 FROM json_each(?6) wanted JOIN json_each(s.tags) actual ON actual.value=wanted.value))"
+const (
+	granted = "JOIN json_each(?1) admitted ON json_extract(admitted.value,'$.id')=k.id AND json_extract(admitted.value,'$.scope')=lower(hex(k.scope)) AND json_extract(admitted.value,'$.rebuild')=k.rebuild AND (json_extract(admitted.value,'$.generation')=k.generation OR (json_extract(admitted.value,'$.semantic')=0 AND k.generation<=json_extract(admitted.value,'$.generation')))"
+	sourced = "NOT EXISTS(SELECT 1 FROM json_each(?2) wanted WHERE NOT EXISTS(SELECT 1 FROM json_each(s.tags) actual WHERE actual.value=wanted.value)) AND (?3 IS NULL OR substr(s.locator,1,length(?3))=?3) AND (?4 IS NULL OR s.modified_ms>=?4) AND (?5 IS NULL OR s.modified_ms<=?5) AND (json_array_length(?6)=0 OR EXISTS(SELECT 1 FROM json_each(?6) wanted JOIN json_each(s.tags) actual ON actual.value=wanted.value))"
+	filter  = "JOIN sources s ON s.id=c.source JOIN collections k ON k.id=s.collection " + granted + " WHERE " + sourced
+	// keywords ranks the chunks that match the query's words. The index
+	// scores every match, and the scores are materialized before the joins so
+	// that every captured grant and source filter applies before the
+	// candidate limit. The grants and filters are evaluated once per source,
+	// not once per matching chunk.
+	keywords = "WITH candidates AS MATERIALIZED (SELECT rowid AS id,-bm25(chunks_fts,2,1,2,1) AS score FROM chunks_fts WHERE chunks_fts MATCH ?7), admitted_sources AS MATERIALIZED (SELECT s.id FROM sources s JOIN collections k ON k.id=s.collection " + granted + " WHERE " + sourced + ") SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id JOIN admitted_sources a ON a.id=c.source ORDER BY f.score DESC,c.key LIMIT 100"
+)
 
 func searchCancelled(ctx context.Context) error {
 	if ctx.Err() != nil {
@@ -35,8 +44,9 @@ func searchCancelled(ctx context.Context) error {
 // Search ranks the chunks the bindings admit and returns one page.
 func (index Index) Search(ctx context.Context, query protocol.KnowledgeQuery, allowed []Binding, embeddings []Embedding, indexing bool) (protocol.KnowledgePage, error) {
 	page := protocol.DefaultKnowledgePage()
+	stamps := index.vectors.snapshot(allowed)
 	err := index.read(ctx, func(db *sql.Conn) error {
-		ranked, mode, err := ranks(ctx, db, query, allowed, embeddings, nil)
+		ranked, mode, err := index.ranks(ctx, db, stamps, query, allowed, embeddings, nil)
 		if err != nil {
 			return err
 		}
@@ -69,8 +79,9 @@ func (index Index) Search(ctx context.Context, query protocol.KnowledgeQuery, al
 func (index Index) Candidates(ctx context.Context, query protocol.KnowledgeQuery, allowed []Binding, embeddings []Embedding, alternatives []string) ([]protocol.KnowledgeHit, error) {
 	var found []protocol.KnowledgeHit
 	query.Mode = protocol.KnowledgeModeSemantic
+	stamps := index.vectors.snapshot(allowed)
 	err := index.read(ctx, func(db *sql.Conn) error {
-		ranked, mode, err := ranks(ctx, db, query, allowed, embeddings, alternatives)
+		ranked, mode, err := index.ranks(ctx, db, stamps, query, allowed, embeddings, alternatives)
 		if err != nil || mode == protocol.KnowledgeModeKeyword {
 			return err
 		}
@@ -80,7 +91,9 @@ func (index Index) Candidates(ctx context.Context, query protocol.KnowledgeQuery
 	return found, err
 }
 
-func ranks(ctx context.Context, db *sql.Conn, query protocol.KnowledgeQuery, allowed []Binding, embeddings []Embedding, alternatives []string) ([]knowledge.Ranked, protocol.KnowledgeMode, error) {
+// ranks orders the admitted chunks. The stamps are those of the collections
+// before the read transaction of db began.
+func (index Index) ranks(ctx context.Context, db *sql.Conn, stamps map[string]stamp, query protocol.KnowledgeQuery, allowed []Binding, embeddings []Embedding, alternatives []string) ([]knowledge.Ranked, protocol.KnowledgeMode, error) {
 	if err := knowledge.ValidateQuery(query); err != nil {
 		return nil, "", err
 	}
@@ -125,10 +138,7 @@ func ranks(ctx context.Context, db *sql.Conn, query protocol.KnowledgeQuery, all
 	scores := map[string]float32{}
 	var keyword, semantic []string
 	if terms := knowledge.Query(query.Query); terms != "" {
-		// Scores are materialized before the joins so that every captured
-		// grant and source filter applies before the candidate limit.
-		rows, err := db.QueryContext(ctx, "WITH candidates AS MATERIALIZED (SELECT rowid AS id,-bm25(chunks_fts,2,1,2,1) AS score FROM chunks_fts WHERE chunks_fts MATCH ?7) SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id "+filter+" ORDER BY f.score DESC,c.key LIMIT 100",
-			grants, tags, path, after, before, choices, terms)
+		rows, err := db.QueryContext(ctx, keywords, grants, tags, path, after, before, choices, terms)
 		if err != nil {
 			return nil, "", err
 		}
@@ -151,40 +161,16 @@ func ranks(ctx context.Context, db *sql.Conn, query protocol.KnowledgeQuery, all
 	}
 	var nearest []knowledge.Ranked
 	if query.Mode != protocol.KnowledgeModeKeyword {
+		filtered := len(query.Tags) != 0 || path != nil || after != nil || before != nil || len(alternatives) != 0
 		for _, embedding := range embeddings {
-			rows, err := db.QueryContext(ctx, "SELECT c.key,c.vector FROM chunks c "+filter+" AND json_extract(admitted.value,'$.semantic')=1 AND k.model=?7 AND k.dimension=?8 AND c.vector IS NOT NULL",
-				grants, tags, path, after, before, choices, vectorKey(embedding.Model, embedding.Identity), len(embedding.Values))
+			found, err := index.nearest(ctx, db, stamps, embedding, filtered, admitted, []any{tags, path, after, before, choices})
 			if err != nil {
 				return nil, "", err
 			}
-			defer rows.Close()
-			for rows.Next() {
-				if err := searchCancelled(ctx); err != nil {
-					return nil, "", err
-				}
-				var key string
-				var bytes []byte
-				if err := rows.Scan(&key, &bytes); err != nil {
-					return nil, "", err
-				}
-				vector, err := knowledge.DecodeVector(bytes, len(embedding.Values))
-				if err != nil {
-					return nil, "", err
-				}
-				score, err := vector.Cosine(embedding.Values)
-				if err != nil {
-					return nil, "", err
-				}
-				nearest = append(nearest, knowledge.Ranked{Key: key, Score: score})
-			}
-			if err := rows.Close(); err != nil {
-				return nil, "", err
-			}
+			nearest = append(nearest, found...)
 		}
 	}
-	slices.SortFunc(nearest, func(left, right knowledge.Ranked) int {
-		return cmp.Or(cmp.Compare(right.Score, left.Score), cmp.Compare(left.Key, right.Key))
-	})
+	slices.SortFunc(nearest, order)
 	nearest = nearest[:min(len(nearest), candidates)]
 	for _, candidate := range nearest {
 		semantic = append(semantic, candidate.Key)

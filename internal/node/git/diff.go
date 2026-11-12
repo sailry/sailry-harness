@@ -29,6 +29,9 @@ type content struct {
 	binary bool
 	// large marks a side over the inspection limit, which is not read.
 	large bool
+	// converted marks a worktree side held as Git would store it, which is
+	// not the bytes of the file.
+	converted bool
 }
 
 func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode, limit int) (content, error) {
@@ -182,7 +185,7 @@ func (s *Service) contents(ctx context.Context, root, path string, scope protoco
 	case protocol.GitDiffScopeUnstaged:
 		before, err = indexContent(r, path, 1024*1024)
 		if err == nil {
-			after, err = workingContent(root, path, 1024*1024)
+			after, err = s.storedContent(ctx, root, r, path, 1024*1024)
 		}
 	case protocol.GitDiffScopeAll:
 		tree, e := headTree(r)
@@ -191,7 +194,7 @@ func (s *Service) contents(ctx context.Context, root, path string, scope protoco
 		}
 		before, err = treeContent(r, tree, path, 1024*1024)
 		if err == nil {
-			after, err = workingContent(root, path, 1024*1024)
+			after, err = s.storedContent(ctx, root, r, path, 1024*1024)
 		}
 	default:
 		err = invalid("invalid Git diff scope")
