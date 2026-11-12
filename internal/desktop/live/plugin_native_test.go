@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"image/png"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -59,6 +62,74 @@ func testNativeComponentAuthority(t *testing.T) {
 			}
 		})
 	}
+	t.Run("the ssh package mounts its SSH terminals", func(t *testing.T) {
+		// The bundled package's own declaration: no terminal actions.
+		data, err := fs.ReadFile(sailry.Plugins, "plugins/ssh/plugin.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			Extensions map[string]struct {
+				Actions []protocol.PluginAction `json:"actions"`
+			} `json:"extensions"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		declared := manifest.Extensions["dev.sailry.platform"].Actions
+		if len(declared) == 0 || slices.Contains(declared, protocol.PluginActionReadTerminals) {
+			t.Fatalf("the ssh package declares %v", declared)
+		}
+		worktree, other, profile := protocol.WorktreeID{1}, protocol.WorktreeID{2}, protocol.SshID{3}
+		for _, current := range []struct {
+			name          string
+			actions       []protocol.PluginAction
+			surface       string
+			local, remote bool
+		}{
+			{"ssh package", declared, "workspace", false, true},
+			{"ssh package outside a workspace", declared, "settings", false, false},
+			{"ssh read only", []protocol.PluginAction{protocol.PluginActionReadSsh}, "workspace", false, false},
+			{"terminal package", actions, "workspace", true, false},
+			{"both", append(slices.Clone(actions), declared...), "workspace", true, true},
+			{"neither", []protocol.PluginAction{protocol.PluginActionReadProjects}, "workspace", false, false},
+		} {
+			native := plugins.NewNativeBinding(t.Context())
+			scope := protocol.DefaultPluginContext()
+			scope.Package, scope.Surface, scope.Worktree = reference, protocol.PluginDesktopSurface{Kind: current.surface}, &worktree
+			info := protocol.PluginInfo{Extension: &protocol.PluginExtension{Actions: current.actions}}
+			info.Summary.Name, info.Summary.Digest = reference.Name, reference.Digest
+			info.Summary.SettingsRevision, info.Summary.Enabled = reference.SettingsRevision, true
+			info.Summary.Compatibility.Kind = "compatible"
+			state := pluginNativeState{
+				scope: scope, native: &native,
+				runtime: &Runtime{packages: &packageState{infos: map[string]protocol.PluginInfo{reference.Name: info}}},
+			}
+			local, remote, err := state.terminalAuthority()
+			if local != current.local || remote != current.remote || (err == nil) != (local || remote) {
+				t.Errorf("%s: local %t, remote %t, %v", current.name, local, remote, err)
+			}
+			// An SSH terminal has no worktree; a local one is the view's own.
+			for name, row := range map[string]struct {
+				info    protocol.TerminalInfo
+				allowed bool
+			}{
+				"ssh terminal":     {protocol.TerminalInfo{Ssh: &profile}, remote},
+				"own worktree":     {protocol.TerminalInfo{Worktree: &worktree}, local},
+				"another worktree": {protocol.TerminalInfo{Worktree: &other}, false},
+				"no owner":         {protocol.TerminalInfo{}, false},
+			} {
+				if pluginTerminalInScope(scope, row.info, local, remote) != row.allowed {
+					t.Errorf("%s: %s allowed %t", current.name, name, !row.allowed)
+				}
+			}
+			scope.Worktree = nil
+			if pluginTerminalInScope(scope, protocol.TerminalInfo{Ssh: &profile}, local, remote) != remote ||
+				pluginTerminalInScope(scope, protocol.TerminalInfo{Worktree: &worktree}, local, remote) {
+				t.Errorf("%s: a Node-wide view reaches the wrong terminals", current.name)
+			}
+		}
+	})
 	t.Run("native component IDs remain distinct without explicit keys", func(t *testing.T) {
 		first, _, err := pluginNativeProps(plugins.NativeElement{ID: 1, Props: json.RawMessage(`{"terminal":null}`)})
 		if err != nil {
