@@ -432,6 +432,24 @@ turn keeps its failed state and cause from the run. A completed compaction run
 whose loaded turn holds no summary shows `chat_compact_unneeded`; a turn whose
 entries are not loaded keeps `chat_compacted`.
 
+The summary input (`compact.Prepare`) shortens older turns first: tool
+responses to their first and last 1,000 characters, tool responses omitted,
+the user's messages only, then the turn dropped. When the latest turn alone
+is still over the budget it is shortened the same way and only as far as
+needed: whole, tool responses to their edges, tool responses omitted, and
+last the user's message that started it, the line
+`[N earlier records of this turn omitted]` and the newest records that fit.
+A kept tool response keeps its output reference line, so the model can read
+the output again. The budget stage fails only when the prompt and the output
+reserve exceed the window (`summary prompt and output exceed the context
+limit`), the user's latest message alone does not fit (`latest user message
+exceeds the summary context limit`) or, in a turn without one, its newest
+record does not (`latest record exceeds the summary context limit`).
+Deviation, by the user's decision of 2026-11-12: Goose and the reference
+never shorten the latest turn and fail with `latest turn exceeds the summary
+context limit`, which is the overflow recovery of one long turn of tool calls
+(`compact.TestPrepareShortensLatestTurn`).
+
 Differences from the reference, deliberate: the reference ends the turn
 normally with an English assistant message ("Ran into this error trying to
 compact: … Please try again or create a new session") and never writes the

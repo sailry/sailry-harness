@@ -83,8 +83,9 @@ func TestCompactionHandoff(t *testing.T) {
 		}
 		base, _ := handoff.Prepare(nil, 64000, 8000)
 		tight := uint64(8000+256+100) + tokens.Text(base)
-		if _, err = handoff.Prepare(history, tight, 8000); err == nil || !strings.Contains(err.Error(), "latest turn") {
-			t.Fatal("oversized latest turn was silently degraded")
+		// A latest turn over the budget is shortened and keeps the user's message.
+		if shortened, err := handoff.Prepare(history, tight, 8000); err != nil || !strings.Contains(shortened, "[user]: Current request") || strings.Contains(shortened, "Keep the public API") || strings.Contains(shortened, "LATEST_MIDDLE") {
+			t.Fatalf("oversized latest turn was not shortened to its request: %v", err)
 		}
 		if _, err = handoff.Prepare(history, 8000, 8000); err == nil {
 			t.Fatal("summary prompt and output reserve were not counted")
