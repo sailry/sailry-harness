@@ -156,10 +156,6 @@ approval_reject: 拒否
 approval_allow_once: 許可
 approval_allow_session: このセッションで許可
 approval_live_count: '%{count} 承認中'
-file_changes_added: 追加
-file_changes_modified: 変更
-file_changes_deleted: 削除
-file_changes_renamed: 名前変更
 subagent_count: サブエージェント %{completed}/%{total}
 chat_child: サブエージェント
 question_reply: 応答を待っています
@@ -190,7 +186,6 @@ tool_find_tools: ツールを検索
 tool_read_output: ツール出力を読む
 approval_allow_prefix: プレフィックス「%{prefix}」を許可
 approval_preview_result: プレビュー承認が記録されました。ファイル、コマンド、モデルは使用されませんでした。
-file_changes_shortened: 差分は一部省略されています
 interaction_input: 答えまたは詳細を入力
 approval_unrestricted: ファイルシステムとネットワークへのフルアクセス
 close: 閉じる
@@ -651,7 +646,6 @@ composer_permission_ask_description: ファイルを編集したりコマンド�
 composer_permission_project_description: プロジェクトファイルを自動的に編集します。コマンドを実行する前に確認します
 composer_permission_full_description: プロジェクトの外部を含むファイルを編集し、コマンドを自動的に実行します
 composer_host_local: ローカルデバイス
-composer_host_remote: リモート
 composer_no_project: チャット
 composer_branch_none: 分枝なし
 composer_settings: セッションの設定
@@ -733,7 +727,6 @@ directory_documents: ドキュメンテーション
 directory_downloads: ダウンロード
 directory_applications: Applications
 directory_locations: 場所
-directory_count_directories: フォルダー %{count} 件
 directory_count_files: ファイル %{count} 件
 directory_name: 名前
 directory_size: サイズ
@@ -1787,8 +1780,6 @@ files_wrap: Soft wrap
 location_copy_changes: 変更をコピー
 location_fork: フォークワークトリー
 refresh: Refresh
-artifact_next_page: 次のページ
-artifact_previous_page: 前のページ
 git_commit_scope: コミットの範囲
 git_commit_tracked: トラックされたファイルをコミット
 git_continue: 続ける
@@ -2129,9 +2120,6 @@ live_request_failed: 要求が不完全です。ノードの接続とディレ�
 plugins_loading: 読み込み中
 project_appearance: プロジェクトの外観
 project_clone_failed: クローンは完了していません。目的地をチェックしてください
-project_grant: 信頼し続ける
-project_grant_description: プロジェクトの指示とツールはすべてのワークトリーでコードを実行できます
-project_grant_title: このプロジェクトを信頼
 project_outcome_unknown: 結果が確認されていません。目的地をチェックしてください。再試行して元の要求をチェックします。
 project_path_in_use: このパスはセッションまたはワークツリーで使用されます
 project_remove_busy: プロジェクトは使用中です。再試行してください
@@ -2143,9 +2131,6 @@ project_remove_tasks: 実行中のタスクを停止してからプロジェク�
 project_remove_tasks_partial: プロジェクトは保持されています。タスクを停止して再試行してください。一部のターミナルは閉じられた可能性があります
 project_remove_unknown: 削除結果は未確認です。プロジェクトとターミナルを確認してください
 project_removed: プロジェクトを削除しました
-project_revoke: 信頼を取り消す
-project_revoke_description: プロジェクトタスクを停止し、履歴と草稿を保持します
-project_revoke_title: プロジェクトの信頼を取り消す
 task_completed: 完了
 artifact_export_failed: エクスポートできませんでした
 chat_compact_incomplete: 要約不完全

@@ -11,7 +11,6 @@ func neutral(dark bool) map[string]string {
 	box, button := "#00000000", "#00000000" // light group boxes and buttons are clear
 	m := map[string]string{
 		"sidebar.background":               "#fafafa",
-		"sidebar.accent.background":        active,
 		"border":                           border,
 		"sidebar.border":                   "#00000014",
 		"popover.background":               base,
@@ -20,13 +19,9 @@ func neutral(dark bool) map[string]string {
 		"primary.active.background":        "#1d4ed8", // blue-700
 		"button.primary.hover.background":  "#000000f0",
 		"button.primary.active.background": "#000000ff",
-		"list.active.background":           active,
-		"list.active.border":               "#00000040",
 		"selection.background":             "#00000018",
 		"tab.active.background":            "#ffffff",
 		"tab.active.foreground":            "#181818",
-		"tab_bar.segmented.background":     "#00000008",
-		"switch.background":                "#0000001f",
 	}
 	if dark {
 		base, fg, mfg = "#181818", "#ffffffd9", "#ffffff99"
@@ -34,7 +29,6 @@ func neutral(dark bool) map[string]string {
 		box, button = surface, surface
 		m = map[string]string{
 			"sidebar.background":               "#1d1d1d",
-			"sidebar.accent.background":        "#ffffff0f",
 			"border":                           "#ffffff0c",
 			"sidebar.border":                   "#ffffff14",
 			"popover.background":               "#242424",
@@ -43,43 +37,36 @@ func neutral(dark bool) map[string]string {
 			"primary.active.background":        "#3b82f6", // blue-500
 			"button.primary.hover.background":  "#fffffff0",
 			"button.primary.active.background": "#ffffffff",
-			"list.active.background":           "#ffffff33",
-			"list.active.border":               mfg,
 			"selection.background":             "#ffffff4d",
 			"tab.active.background":            "#454545",
 			"tab.active.foreground":            "#ffffff",
-			"tab_bar.segmented.background":     "#ffffff12",
-			"switch.background":                "#ffffff1f",
 		}
 	}
 	for k, v := range map[string]string{
 		"background": base, "title_bar.background": base,
 		"foreground": fg, "accent.foreground": fg, "group_box.foreground": fg,
 		"group_box.title.foreground": fg, "popover.foreground": fg, "secondary.foreground": fg,
-		"button.foreground": fg, "button.secondary.foreground": fg, "sidebar.foreground": fg,
-		"sidebar.accent.foreground": fg, "table.head.foreground": fg, "caret": fg,
-		"button.primary.background": fg, "sidebar.primary.background": fg, "progress.bar.background": fg,
-		"primary.foreground": base, "button.primary.foreground": base, "sidebar.primary.foreground": base,
-		"muted.foreground": mfg, "tab.foreground": mfg, "ring": mfg, "slider.background": mfg,
+		"button.secondary.foreground": fg, "sidebar.foreground": fg,
+		"sidebar.accent.foreground": fg, "caret": fg,
+		"button.primary.background": fg, "progress.bar.background": fg,
+		"primary.foreground": base, "button.primary.foreground": base,
+		"muted.foreground": mfg, "ring": mfg, "slider.background": mfg,
 		"scrollbar.thumb.hover.background": mfg,
 		"group_box.background":             box, "button.background": button, "button.secondary.background": button,
-		"list.background": surface, "table.background": surface, "table.head.background": surface,
-		"tab_bar.background": surface, "secondary.background": surface,
-		"muted.background":  inset,
-		"accent.background": hover, "list.hover.background": hover, "table.hover.background": hover,
-		"secondary.hover.background": hover, "button.hover.background": hover,
-		"button.secondary.hover.background": hover,
-		"secondary.active.background":       active, "button.active.background": active,
+		"list.background": surface, "table.background": surface,
+		"secondary.background": surface,
+		"muted.background":     inset,
+		"accent.background":    hover, "list.hover.background": hover,
+		"secondary.hover.background":         hover,
+		"button.secondary.hover.background":  hover,
+		"secondary.active.background":        active,
 		"button.secondary.active.background": active,
-		"input.border":                       border, "title_bar.border": border, "table.row.border": border,
-		"scrollbar.thumb.background": border,
-		"tab.background":             "#00000000", "scrollbar.background": "#00000000",
+		"input.border":                       border, "title_bar.border": border,
+		"tab.background":          "#00000000",
 		"slider.thumb.background": "#ffffff",
 	} {
 		m[k] = v
 	}
-	m["table.active.background"] = m["list.active.background"]
-	m["table.active.border"] = m["list.active.border"]
 	return m
 }
 
@@ -88,8 +75,6 @@ func neutral(dark bool) map[string]string {
 // and the switch thumb the background.
 var fallbacks = [][2]string{
 	{"link", "primary.background"},
-	{"link.hover", "primary.hover.background"},
-	{"link.active", "primary.active.background"},
 	{"switch.thumb.background", "background"},
 }
 
@@ -158,7 +143,9 @@ var Identicon = [8][2]ui.Color{
 // Opacity is white at alpha a, the tint that fades a picture.
 func Opacity(a float32) ui.Color { return white.Alpha(a) }
 
-// fields maps every theme.colors key onto its Palette field.
+// fields maps the theme.colors keys the application paints with onto their
+// Palette fields. A package may set the other keys of themeColorKeys; they
+// color nothing here.
 var fields = map[string]func(*Palette) *ui.Color{
 	"background":                         func(p *Palette) *ui.Color { return &p.Background },
 	"foreground":                         func(p *Palette) *ui.Color { return &p.Foreground },
@@ -169,10 +156,7 @@ var fields = map[string]func(*Palette) *ui.Color{
 	"sidebar.background":                 func(p *Palette) *ui.Color { return &p.Sidebar },
 	"sidebar.foreground":                 func(p *Palette) *ui.Color { return &p.SidebarForeground },
 	"sidebar.border":                     func(p *Palette) *ui.Color { return &p.SidebarBorder },
-	"sidebar.accent.background":          func(p *Palette) *ui.Color { return &p.SidebarAccent },
 	"sidebar.accent.foreground":          func(p *Palette) *ui.Color { return &p.SidebarAccentForeground },
-	"sidebar.primary.background":         func(p *Palette) *ui.Color { return &p.SidebarPrimary },
-	"sidebar.primary.foreground":         func(p *Palette) *ui.Color { return &p.SidebarPrimaryForeground },
 	"group_box.background":               func(p *Palette) *ui.Color { return &p.Surface },
 	"group_box.foreground":               func(p *Palette) *ui.Color { return &p.SurfaceForeground },
 	"group_box.title.foreground":         func(p *Palette) *ui.Color { return &p.SurfaceTitle },
@@ -182,8 +166,6 @@ var fields = map[string]func(*Palette) *ui.Color{
 	"input.border":                       func(p *Palette) *ui.Color { return &p.Input },
 	"ring":                               func(p *Palette) *ui.Color { return &p.Ring },
 	"link":                               func(p *Palette) *ui.Color { return &p.Link },
-	"link.hover":                         func(p *Palette) *ui.Color { return &p.LinkHover },
-	"link.active":                        func(p *Palette) *ui.Color { return &p.LinkActive },
 	"primary.background":                 func(p *Palette) *ui.Color { return &p.Primary },
 	"primary.foreground":                 func(p *Palette) *ui.Color { return &p.PrimaryForeground },
 	"primary.hover.background":           func(p *Palette) *ui.Color { return &p.PrimaryHover },
@@ -199,38 +181,21 @@ var fields = map[string]func(*Palette) *ui.Color{
 	"secondary.hover.background":         func(p *Palette) *ui.Color { return &p.SecondaryHover },
 	"secondary.active.background":        func(p *Palette) *ui.Color { return &p.Active },
 	"button.background":                  func(p *Palette) *ui.Color { return &p.Button },
-	"button.foreground":                  func(p *Palette) *ui.Color { return &p.ButtonForeground },
-	"button.hover.background":            func(p *Palette) *ui.Color { return &p.ButtonHover },
-	"button.active.background":           func(p *Palette) *ui.Color { return &p.ButtonActive },
 	"button.secondary.background":        func(p *Palette) *ui.Color { return &p.ButtonSecondary },
 	"button.secondary.foreground":        func(p *Palette) *ui.Color { return &p.ButtonSecondaryForeground },
 	"button.secondary.hover.background":  func(p *Palette) *ui.Color { return &p.ButtonSecondaryHover },
 	"button.secondary.active.background": func(p *Palette) *ui.Color { return &p.ButtonSecondaryActive },
 	"tab.background":                     func(p *Palette) *ui.Color { return &p.Tab },
-	"tab.foreground":                     func(p *Palette) *ui.Color { return &p.TabForeground },
 	"tab.active.background":              func(p *Palette) *ui.Color { return &p.TabActive },
 	"tab.active.foreground":              func(p *Palette) *ui.Color { return &p.TabActiveText },
-	"tab_bar.background":                 func(p *Palette) *ui.Color { return &p.TabBarBackground },
-	"tab_bar.segmented.background":       func(p *Palette) *ui.Color { return &p.TabBar },
-	"switch.background":                  func(p *Palette) *ui.Color { return &p.Switch },
 	"switch.thumb.background":            func(p *Palette) *ui.Color { return &p.SwitchThumb },
 	"slider.background":                  func(p *Palette) *ui.Color { return &p.Slider },
 	"slider.thumb.background":            func(p *Palette) *ui.Color { return &p.SliderThumb },
 	"progress.bar.background":            func(p *Palette) *ui.Color { return &p.Progress },
-	"scrollbar.background":               func(p *Palette) *ui.Color { return &p.ScrollbarTrack },
-	"scrollbar.thumb.background":         func(p *Palette) *ui.Color { return &p.ScrollbarThumb },
 	"scrollbar.thumb.hover.background":   func(p *Palette) *ui.Color { return &p.ScrollbarThumbHover },
 	"selection.background":               func(p *Palette) *ui.Color { return &p.Selection },
 	"caret":                              func(p *Palette) *ui.Color { return &p.Caret },
 	"list.background":                    func(p *Palette) *ui.Color { return &p.List },
 	"list.hover.background":              func(p *Palette) *ui.Color { return &p.ListHover },
-	"list.active.background":             func(p *Palette) *ui.Color { return &p.ListActive },
-	"list.active.border":                 func(p *Palette) *ui.Color { return &p.ListActiveBorder },
 	"table.background":                   func(p *Palette) *ui.Color { return &p.Table },
-	"table.head.background":              func(p *Palette) *ui.Color { return &p.TableHead },
-	"table.head.foreground":              func(p *Palette) *ui.Color { return &p.TableHeadForeground },
-	"table.hover.background":             func(p *Palette) *ui.Color { return &p.TableHover },
-	"table.active.background":            func(p *Palette) *ui.Color { return &p.TableActive },
-	"table.active.border":                func(p *Palette) *ui.Color { return &p.TableActiveBorder },
-	"table.row.border":                   func(p *Palette) *ui.Color { return &p.TableRowBorder },
 }

@@ -156,10 +156,6 @@ approval_reject: 거부
 approval_allow_once: 허용
 approval_allow_session: 이 세션에서 허용
 approval_live_count: '%{count} 승인 대기 중'
-file_changes_added: 추가
-file_changes_modified: 수정
-file_changes_deleted: 삭제
-file_changes_renamed: 이름 변경
 subagent_count: 하위 에이전트 %{completed}/%{total}
 chat_child: 하위 에이전트
 question_reply: 응답을 기다리는 중
@@ -190,7 +186,6 @@ tool_find_tools: 도구 찾기
 tool_read_output: 도구 출력 읽기
 approval_allow_prefix: 접두사 "%{prefix}" 허용
 approval_preview_result: 미리보기 승인 기록. 파일, 명령어 또는 모델이 사용되지 않았습니다.
-file_changes_shortened: 차이 일부 생략됨
 interaction_input: 답변 또는 세부사항 입력
 approval_unrestricted: 전체 파일 시스템 및 네트워크 접근
 close: 닫기
@@ -651,7 +646,6 @@ composer_permission_ask_description: 파일을 편집하거나 명령을 실행�
 composer_permission_project_description: 프로젝트 파일 자동 편집; 명령 실행 전에 묻기
 composer_permission_full_description: 프로젝트 외부에서도 파일을 편집하고 명령을 자동으로 실행
 composer_host_local: 로컬 장치
-composer_host_remote: 원격
 composer_no_project: 대화
 composer_branch_none: 브랜치 없음
 composer_settings: 세션 설정
@@ -733,7 +727,6 @@ directory_documents: 문서화
 directory_downloads: 다운로드
 directory_applications: Applications
 directory_locations: 위치
-directory_count_directories: 폴더 %{count}개
 directory_count_files: 파일 %{count}개
 directory_name: 이름
 directory_size: 크기
@@ -1787,8 +1780,6 @@ files_wrap: Soft wrap
 location_copy_changes: 변경 사항 복사
 location_fork: 포크 작업 트리
 refresh: Refresh
-artifact_next_page: 다음 쪽
-artifact_previous_page: 이전 페이지
 git_commit_scope: 커밋 범위
 git_commit_tracked: 추적된 파일 커밋
 git_continue: 계속
@@ -2129,9 +2120,6 @@ live_request_failed: 요청이 완료되지 않았습니다. Node 연결 및 디
 plugins_loading: 로딩 중
 project_appearance: 프로젝트 외관
 project_clone_failed: 복제가 불완전합니다. 대상을 확인하십시오
-project_grant: 신뢰하고 계속하세요
-project_grant_description: 프로젝트 명령과 도구는 모든 작업 트리에서 코드를 실행할 수 있습니다
-project_grant_title: 이 프로젝트 신뢰하기
 project_outcome_unknown: 결과가 확인되지 않았습니다. 대상을 확인하십시오. 다시 시도하면 원래 요청을 확인합니다.
 project_path_in_use: 이 경로는 세션이나 작업 트리에 의해 사용됩니다
 project_remove_busy: 프로젝트가 사용 중입니다. 다시 시도하세요
@@ -2143,9 +2131,6 @@ project_remove_tasks: 실행 중인 작업을 중지한 후 프로젝트를 제�
 project_remove_tasks_partial: 프로젝트가 유지되었습니다. 작업을 중지한 후 다시 시도하세요. 일부 터미널은 이미 닫혔을 수 있습니다
 project_remove_unknown: 제거 결과가 확인되지 않았습니다. 프로젝트와 터미널을 확인하세요
 project_removed: 프로젝트가 제거되었습니다
-project_revoke: 신뢰 취소
-project_revoke_description: 프로젝트 작업 중지; 기록 및 초안 유지
-project_revoke_title: 프로젝트 신뢰 취소
 task_completed: 완료됨
 artifact_export_failed: 내보내기 실패
 chat_compact_incomplete: 요약 불완전
