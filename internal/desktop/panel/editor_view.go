@@ -23,7 +23,7 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 	}
 	item := pr.Files.item(path)
 	if item.documentState().unavailable && !item.dirty {
-		kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "file_empty")})
+		empty(c, icons.File, "file_empty")
 		return
 	}
 	if !item.loaded {

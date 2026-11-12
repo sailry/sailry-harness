@@ -7,3 +7,10 @@ var (
 	Hash     = load("hash")
 	User     = load("user")
 )
+
+// A diff's layouts, Reicon outlines: two columns for side by side, two rows
+// for inline.
+var (
+	DiffColumns = load("reicon-newicons-row-horizontal")
+	DiffRows    = load("reicon-newicons-row-vertical")
+)

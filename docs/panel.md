@@ -171,16 +171,48 @@ s.Close(s.Active)                     // ⌘W; false when no tab is left
 
 ## Components and hosts
 
-Files and Git are each one two-column component drawn by two hosts:
+Files and Git are each one list-and-document component drawn by two hosts:
 `Page`, the rail's independent page in the main column, and `View`, the
-right panel's tabs. Both draw the same layout (`resources/split.rs`): the
-main area on the left and the side list on the right (the tree, or the
-change list), 220 DIPs at first, dragged between 180 and 480 with the
-main area keeping 180. The list is a fixed-width column past our own 6
-DIP drag handle, not MyGo's `Split`: that sizes its first pane, and
-converting the list's width from the last frame's layout drew a first
-frame (a page switched to, a tab chosen, the panel opening) at the
-minimum; the panel's motion moves only the main area.
+right panel's tabs. Both follow one rule by their laid-out width
+(`layout.go`, `Project.pair`):
+
+- At 720 DIPs or more (the list's 220 beside a document of 500) the pair
+  is side by side (`resources/split.rs`): the main area on the left and
+  the side list on the right (the tree, or the change list), 220 DIPs at
+  first, dragged between 180 and 480 with the main area keeping 180. The
+  list is a fixed-width column past our own 6 DIP drag handle, not MyGo's
+  `Split`: that sizes its first pane, and converting the list's width from
+  the last frame's layout drew a first frame (a page switched to, a tab
+  chosen, the panel opening) at the minimum; the panel's motion moves only
+  the main area.
+- Below it the pair is stacked: the list on top at the host's full width,
+  the document under it. The list is as high as its rows and no higher
+  than its share of the height, 38% at first, and scrolls past that. The 6
+  DIP handle under it (the same handle, a splitter) drags the share
+  between 20% and 70%, never under the list's bars and three rows, and a
+  double click resets it. The share is the window's
+  (`shell.App.ListShare`, `panel.BindListShare`, saved as `listShare` in
+  the UI state file), one for Files and Git, panel and page. The panel's
+  first width, 560, stacks.
+
+A stacked pair goes side by side at 728, 8 DIPs past the width at which a
+side-by-side one stacks, so a width resting on the threshold does not
+flip. A box's width is known from the frame before, and a tab's box is new
+each time it is chosen, so the host's last width and layout are kept at
+the window's root: a tab switched to draws in the layout it had. The first
+frame of all guesses: the panel stacks, the page follows the window.
+
+Stacked, Git's column is compact: Changes | History is a small segmented
+control in the branch's bar, and the message is one line beside Commit
+until expanded.
+
+A document with nothing to show (no file open, no change chosen, a file
+that is gone, a notebook without cells) fills its region with the empty
+state (`empty`: `kit.Result` grown and centred), centred both ways in the
+document's region: beside the list, or under it when stacked.
+
+A document under 640 DIPs has no room for two diff columns: its diffs
+show unified whatever the window's choice, which is left alone.
 
 Every open file and every open diff is its own item: three open files
 and one diff are four tabs in the panel's one flat strip. The active
@@ -286,13 +318,19 @@ terminal, subagent and file-preview tabs are single-pane.
   history without parents (an earlier Node) is the plain list: subject,
   ID, author and branch. The diff is MyGo's diff viewer (`kit.Diff`): highlighted, old
   and new numbers, word changes, and on the change under the pointer
-  Revert and Keep (`editor.DefaultHunkActions`) and Stage. Its toolbar has
-  Unified | Split (`kit.DiffLayout`, a small `kit.Segmented`): unified as
-  Rust's content diff view, or the old text on the left and the new on the
-  right with a divider to drag. The choice is the window's
+  Revert and Keep (`editor.DefaultHunkActions`) and Stage. It is unified
+  as Rust's content diff view, or the old text on the left and the new on
+  the right with a divider to drag. The choice is the window's
   (`shell.App.DiffSplit`, saved as `diffSplit` in the UI state file) and
   every diff follows it: a file's, All changes, a commit's and a stash's.
-  Status bar: path, `+N −M`.
+  No row heads a diff. Status bar: path, `+N −M`, and at its far right one
+  24 DIP icon button (`Project.diffToggle`) that flips the choice, named
+  by what a press shows: Side by side (`git_diff_side_by_side`, two
+  columns) while unified, Inline (`git_diff_inline`, two rows) while side
+  by side. Where the document is too narrow for two columns the button is
+  disabled and its tooltip says so (`git_diff_needs_width`). A document of
+  several diffs has the one footer; a binary file's has the path alone,
+  and command output, like a file's editor, has no diff and no button.
 - History: a card per checkpoint: the turn, its age (against the frame
   clock when live, the fixture's clock in the preview), the files, `+N −M`
   and `turn_changes_undo_all`.
@@ -698,9 +736,21 @@ confirmation, Commit's menu and amending, the history's graph, its rows'
 click (also in the first frame), tooltip and right-click menu, Load more
 and the plain list without parents, the lanes and the names' order and
 fit, Unified and Split, All changes; the
+click and right-click menu and the plain list without parents, the lanes
+and the names' order and fit, All changes; the
 file tree's click, ⌘-click, ⇧-click, ⇧↓, ⌘A, right-click selection and
 Copy path, and its arrows, → and Enter.
-`internal/desktop/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
+`internal/desktop/panel/layout_test.go` (subtests of `TestGitPage`): the
+footer's button after the counts, its toggle and its one place in every
+diff document; the list above its document at 560 and beside it at 900 for
+Git and Files, the threshold's slack, the divider's drag and bounds, and
+the narrow document's unified diff with the button disabled. The empty
+document centred in its region in both layouts and both hosts
+(`kittest.Centred`, also over the tabs' empty states in `model_test.go`). With
+`$SAILRY_SNAPSHOTS` set it writes the stacked and side-by-side frames at
+2x, dark and light.
+`internal/desktop/shell/frame_test.go`: the stacked list's share dragged,
+saved, restored and absent from an earlier file; ⌘⌥B opens the launcher, ⌘P a file tab
 beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
 a diff tab (read through the diff viewer's accessible text), choosing a
 tab shows its item beside its list, eight tabs show the overflow menu,
@@ -733,6 +783,8 @@ at its width.
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
+| A narrow host stacks the list over its document, with Git's view choice in the branch's bar and a one-line message | The reference keeps two columns at any width; at the panel's 560 neither the list nor a diff had room |
+| The diff's layout is one icon button at the footer's end | The reference has no side-by-side diff; a row above every diff for one choice was removed |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |

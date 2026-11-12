@@ -83,7 +83,7 @@ func (pr *Project) gitDocumentLabel(id, fallback string) string {
 	return fallback
 }
 
-func gitDocumentFile(c *ui.Context, box ui.Element, file GitDocumentFile, fit bool) {
+func (pr *Project) gitDocumentFile(c *ui.Context, box ui.Element, file GitDocumentFile, fit bool) {
 	if file.Binary {
 		box.Children(func() {
 			ui.Text(c, binaryDiff(c, file.Size)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
@@ -91,7 +91,7 @@ func gitDocumentFile(c *ui.Context, box ui.Element, file GitDocumentFile, fit bo
 		return
 	}
 	old, next := file.Texts()
-	kit.Diff(c, box, old, next, kit.DiffOptions{Language: editor.LanguageFor(file.Path), Fit: fit, Split: *kit.DiffSplit(c)})
+	kit.Diff(c, box, old, next, kit.DiffOptions{Language: editor.LanguageFor(file.Path), Fit: fit, Split: pr.diffSplit(c)})
 }
 
 func (pr *Project) gitDocument(c *ui.Context, id string) bool {
@@ -110,13 +110,16 @@ func (pr *Project) gitDocument(c *ui.Context, id string) bool {
 	for _, file := range document.files {
 		added, removed = added+file.Added, removed+file.Removed
 	}
-	if len(document.files) > 0 {
-		diffToolbar(c)
+	// The footer's layout choice goes with a diff: a document without
+	// files, or of one binary file, shows none.
+	diffs := false
+	for _, file := range document.files {
+		diffs = diffs || !file.Binary
 	}
 	if len(document.files) == 0 {
 		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "git_diff_empty")}).Grow(1).Justify(ui.Center)
 	} else if !document.combined {
-		gitDocumentFile(c, ui.Column(c.Key(id)).Grow(1).MinHeight(0), document.files[0], false)
+		pr.gitDocumentFile(c, ui.Column(c.Key(id)).Grow(1).MinHeight(0), document.files[0], false)
 		if document.files[0].Truncated && !document.files[0].Binary {
 			ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 		}
@@ -144,7 +147,7 @@ func (pr *Project) gitDocument(c *ui.Context, id string) bool {
 						stats(c, p, file.Added, file.Removed)
 					}).OnClick(func() { document.folded[file.Path] = open })
 					if open {
-						gitDocumentFile(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), file, true)
+						pr.gitDocumentFile(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), file, true)
 						if file.Truncated && !file.Binary {
 							ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 						}
@@ -156,6 +159,10 @@ func (pr *Project) gitDocument(c *ui.Context, id string) bool {
 			}
 		})
 	}
-	status(c, document.title, func() { stats(c, p, added, removed) })
+	if diffs {
+		pr.diffStatus(c, document.title, func() { stats(c, p, added, removed) })
+	} else {
+		status(c, document.title, func() { stats(c, p, added, removed) })
+	}
 	return true
 }

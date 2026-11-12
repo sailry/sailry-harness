@@ -106,13 +106,13 @@ func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
 	}
 	parent, known := r.teams.childParents[id]
 	if !known {
-		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")})
+		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")}).Grow(1).Justify(ui.Center)
 		return
 	}
 	r.watchChild(parent)
 	child, session, ok := r.childSession(parent, id)
 	if !ok || !delegated(session) {
-		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")})
+		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")}).Grow(1).Justify(ui.Center)
 		return
 	}
 	r.conversationSeen[parent] = true
