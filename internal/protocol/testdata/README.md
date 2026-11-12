@@ -50,3 +50,6 @@ of round-trip fixture files.
 The RestoreBackup fixtures also capture `message.rs`'s online-location omission
 and explicit local location. These and the MCP server fixtures pin declared
 Serde behavior alongside the literal cases extracted from Rust tests.
+
+`fault/model_request_overflow` is Go's: the optional `context_overflow` member
+of the `model_request` detail, which Rust does not declare.

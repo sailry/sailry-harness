@@ -447,6 +447,14 @@ func summarizeRun(run protocol.ConversationRun) protocol.ConversationRunsSummary
 	value.Origin = run.Origin
 	if run.Error != nil {
 		value.ErrorCode = &run.Error.Code
+		if details := run.Error.Details; details != nil {
+			switch request := details.Data.(type) {
+			case protocol.FaultDetailsModelRequestPayload:
+				value.ContextOverflow = request.ContextOverflow
+			case *protocol.FaultDetailsModelRequestPayload:
+				value.ContextOverflow = request.ContextOverflow
+			}
+		}
 	}
 	return value
 }

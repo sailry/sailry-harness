@@ -63,17 +63,25 @@ func (c *Client) exportSelection(ctx context.Context, session protocol.SessionID
 	if err = count(page); err != nil {
 		return ExportDocument{}, err
 	}
+	// earliest is the lowest sequence the page holds of each turn, kept as
+	// entries are merged in, so a missing turn does not scan the page.
+	earliest := map[protocol.TurnID]uint64{}
+	loaded := func(entries []protocol.ConversationEntry) {
+		for _, entry := range entries {
+			if first, known := earliest[entry.Turn]; !known || entry.Sequence < first {
+				earliest[entry.Turn] = entry.Sequence
+			}
+		}
+	}
+	loaded(page.Entries)
 	hydrate := func(h protocol.ConversationHistory) error {
 		for _, id := range h.Missing {
 			if turn != nil && id != *turn {
 				continue
 			}
 			var before *uint64
-			for _, entry := range page.Entries {
-				if entry.Turn == id && (before == nil || entry.Sequence < *before) {
-					n := entry.Sequence
-					before = &n
-				}
+			if first, known := earliest[id]; known {
+				before = &first
 			}
 			seen := map[uint64]bool{}
 			for {
@@ -94,6 +102,7 @@ func (c *Client) exportSelection(ctx context.Context, session protocol.SessionID
 				if e = mergeConversationPage(&page, incoming, true, nil); e != nil {
 					return e
 				}
+				loaded(older.Entries)
 				if older.NextBefore == nil {
 					break
 				}
@@ -111,8 +120,10 @@ func (c *Client) exportSelection(ctx context.Context, session protocol.SessionID
 	}
 	seen := map[protocol.TurnID]bool{}
 	for page.NextBefore != nil {
-		if turn != nil && slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == *turn }) {
-			break
+		if turn != nil {
+			if _, held := earliest[*turn]; held {
+				break
+			}
 		}
 		cursor := *page.NextBefore
 		if seen[cursor] {
@@ -136,6 +147,7 @@ func (c *Client) exportSelection(ctx context.Context, session protocol.SessionID
 		if e = mergeConversationPage(&page, older.Page, true, nil); e != nil {
 			return ExportDocument{}, e
 		}
+		loaded(older.Page.Entries)
 		page.NextBefore = next
 		if e = hydrate(older); e != nil {
 			return ExportDocument{}, e

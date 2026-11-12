@@ -61,6 +61,25 @@ func TestRemovedSessionWorkspace(t *testing.T) {
 			t.Fatalf("a remaining session lost its workspace: %v", err)
 		}
 	}
+	// Removing a worktree holds its own root until the command ends, not
+	// every effect on the Node: Git may take long.
+	change := &workspaceCompletion{}
+	removal := protocol.NewRequest(node.ID(), protocol.Command{Kind: "remove_worktree", Data: &protocol.CommandRemoveWorktreePayload{Worktree: kept.Worktree}})
+	if _, err := node.workspaceIO(context.Background(), node.ID(), removal, nil, change); err == nil {
+		change.close()
+		t.Fatal("a private workspace was removed as a project worktree")
+	}
+	other := make(chan func(), 1)
+	go func() { other <- node.locks.effect(archivedRoot) }()
+	select {
+	case release := <-other:
+		release()
+		change.close()
+	case <-time.After(10 * time.Second):
+		change.close()
+		(<-other)()
+		t.Fatal("removing a worktree stalled an effect in another root")
+	}
 	// A directory an earlier process could not remove goes at the next start.
 	if err := os.MkdirAll(removedRoot, 0o700); err != nil {
 		t.Fatal(err)

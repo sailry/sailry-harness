@@ -23,12 +23,13 @@ func TestRemovedSessionStopsCommands(t *testing.T) {
 	t.Cleanup(func() { _ = service.Close() })
 	node := &Node{processes: service, ctx: context.Background()}
 	removed, kept := protocol.NewSessionID(), protocol.NewSessionID()
+	cleaned := make(chan struct{})
 	for _, session := range []protocol.SessionID{removed, kept} {
 		if _, err := service.Start(process.Launch{ID: protocol.NewRequestID(), Session: session, Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", Access: protocol.ProcessAccessWorkspace, TimeoutMs: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	node.processSessionEvents([]protocol.Event{{Kind: "session_changed"}, {Kind: "sessions_removed", Data: []protocol.SessionID{removed}}}, func([]protocol.SessionID) {})
+	node.processSessionEvents([]protocol.Event{{Kind: "session_changed"}, {Kind: "sessions_removed", Data: []protocol.SessionID{removed}}}, func([]protocol.SessionID) { <-cleaned })
 	select {
 	case session := <-stopped:
 		if session != removed {
@@ -54,5 +55,19 @@ func TestRemovedSessionStopsCommands(t *testing.T) {
 	case <-stopped:
 		t.Fatal("removal stopped another session's command")
 	default:
+	}
+	// Node close waits for the stop and for what follows it.
+	closed := make(chan struct{})
+	go func() { node.work.Wait(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Node close did not wait for the removed session's commands")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(cleaned)
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the removed session's cleanup did not end")
 	}
 }

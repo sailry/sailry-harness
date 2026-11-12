@@ -757,8 +757,8 @@ func (node *Node) run(lane *commandLane) {
 		}
 		// A clone and the checks above run unlocked; recording which roots
 		// exist excludes workspace effects. Creating or removing a worktree
-		// is the one registration that also runs Git under that exclusion
-		// (workspaceIO): the root appears on disk apart from its row.
+		// runs Git as an effect that this exclusion waits for (workspaceIO):
+		// the root appears on disk apart from its row.
 		registered := func() {}
 		if projectEffect {
 			registered = node.locks.registration()

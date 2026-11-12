@@ -62,9 +62,10 @@ func (node *Node) removePrivateWorkspace(session protocol.SessionID, path string
 func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 	ctx := node.ctx
 	// Removing a worktree changes which roots exist, as remove_worktree does,
-	// and like it holds the registration across Git's local work: the root
-	// goes on disk before its row, and no effect may resolve it in between.
-	release := node.locks.registration()
+	// and like it holds the root from Git's local work to the row: the root
+	// goes on disk before its row, and no effect may run in it in between.
+	// A project command waits too, so the path read below stays the root.
+	release := node.locks.change(tree.Path)
 	defer release()
 	var capture store.WorkspaceGitCapture
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -72,7 +73,7 @@ func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 		capture, err = store.PrepareWorkspaceWorktreeRemoval(ctx, db, tree.ID)
 		return err
 	})
-	if err != nil || capture.Worktree.Path != filepath.Join(core.Worktrees(capture.Project.Path), tree.ID.String()) || node.activeWorkspaceCommands(ctx, tree.ID) {
+	if err != nil || capture.Worktree.Path != tree.Path || capture.Worktree.Path != filepath.Join(core.Worktrees(capture.Project.Path), tree.ID.String()) || node.activeWorkspaceCommands(ctx, tree.ID) {
 		return
 	}
 	path := capture.Worktree.Path
