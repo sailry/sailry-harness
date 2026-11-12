@@ -161,28 +161,56 @@ func (client *Client) Watch(ctx context.Context, kind string, argument json.RawM
 		if err := json.Unmarshal(argument, &terminal); err != nil {
 			return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid terminal identifier")
 		}
-		return unavailableObserver(ctx, map[string]any{
-			"snapshot": nil, "connected": false, "recovering": false,
-		}, "terminal observation is unavailable"), nil
-	case "watch_login", "watch_connector_login":
-		if !json.Valid(argument) {
+		return client.watchTerminalView(ctx, terminal), nil
+	case "watch_login":
+		var attempt protocol.ConversationLoginAttempt
+		if err := json.Unmarshal(argument, &attempt); err != nil {
 			return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid login attempt")
 		}
-		return unavailableObserver(ctx, map[string]any{
-			"update": nil, "connected": false,
-		}, "authorization observation is unavailable"), nil
+		return watchLoginView(ctx, client, "provider_login", attempt.ID, attempt, func(update protocol.ConversationLoginUpdate) (protocol.ConversationLoginAttempt, uint64, string) {
+			return update.Attempt, update.Revision, update.State.Kind
+		}), nil
+	case "watch_connector_login":
+		var attempt protocol.PluginConnectorAttempt
+		if err := json.Unmarshal(argument, &attempt); err != nil {
+			return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid login attempt")
+		}
+		return watchLoginView(ctx, client, "connector_login", attempt.ID, attempt, func(update protocol.PluginConnectorLoginUpdate) (protocol.PluginConnectorAttempt, uint64, string) {
+			return update.Attempt, update.Revision, update.State.Kind
+		}), nil
 	case "watch_connections":
-		return nil, fault(protocol.ErrorCodeUnavailable, "plugin connection observation is unavailable")
+		return client.watchConnectionsView(ctx)
 	}
 	return nil, fault(protocol.ErrorCodeInvalidRequest, "unknown Client observation")
 }
 
-func unavailableObserver(ctx context.Context, value map[string]any, message string) *Observer {
-	observer := newObserver(ctx)
-	value["error"] = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: message}
-	observer.read = func() (any, error) { return value, nil }
-	observer.notify()
-	return observer
+// ending installs view as what the observer reads, under its lock, and
+// returns the function that ends it: the view is delivered once more and
+// every later Next fails with the given error.
+func (observer *Observer) ending(view func() any) func(error) {
+	var failure error
+	delivered := false
+	observer.read = func() (any, error) {
+		observer.mu.Lock()
+		defer observer.mu.Unlock()
+		if failure != nil {
+			observer.notify()
+			if delivered {
+				return nil, failure
+			}
+			delivered = true
+		}
+		return view(), nil
+	}
+	return func(err error) {
+		if err == nil {
+			err = fault(protocol.ErrorCodeUnavailable, "observation is closed")
+		}
+		observer.mu.Lock()
+		failure = err
+		observer.mu.Unlock()
+		observer.notify()
+	}
 }
 
 func (client *Client) startObserver(ctx context.Context, fresh bool) error {
