@@ -64,12 +64,15 @@ func (s *State) artifact(c *ui.Context, id string) {
 				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		}
-		kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(open)
+		// The demo's files are on no disk for another app to open.
+		if !s.Demo {
+			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(open)
+		}
 	})
 	state := func(key string) {
 		ui.Column(c.Key("state")).Grow(1).Padding(16).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(p.MutedForeground)
-			if key != "artifact_preview_loading" {
+			if key != "artifact_preview_loading" && !s.Demo {
 				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).AlignSelf(ui.Start).OnClick(open)
 			}
 		})

@@ -46,6 +46,9 @@ type FileView struct {
 	search      fileSearch
 	searchOpen  bool
 	directories map[string]DirectoryState
+	// sampleClip is what the demo's tree copied or cut, in memory.
+	sampleClip []string
+	sampleCut  bool
 }
 
 // fileItem is an open file's own view.
@@ -65,6 +68,10 @@ type fileItem struct {
 // layout, its rows open and its cursor, Changes or History, the commit
 // draft and options) and the picker or confirmation showing.
 type GitView struct {
+	// sampleStashes are the changes the demo's stashes put away, beside the
+	// repository's messages, and sampleCommits counts the commits it made.
+	sampleStashes [][]preview.FileChange
+	sampleCommits int
 	change        string   // the changed file shown last, by path, or allChanges
 	open          []string // the diffs open, in order
 	scope         string   // the scope the diff shown opened in: all, staged, unstaged
