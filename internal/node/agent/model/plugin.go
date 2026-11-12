@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"charm.land/fantasy"
@@ -138,7 +137,7 @@ func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModel
 		Refusal *protocol.PluginModelAdapterWireDeltaErrorPayload `json:"refusal"`
 	}
 	if json.Unmarshal(raw, &refused) == nil && refused.Refusal != nil {
-		return pluginClassified(refused.Refusal.Class, refused.Refusal.Message, nil, model.capture.Secrets)
+		return pluginClassified(refused.Refusal.Class, refused.Refusal.Message, model.capture.Secrets)
 	}
 	var prepared protocol.PluginModelAdapterWirePrepared
 	if json.Unmarshal(raw, &prepared) != nil {
@@ -295,7 +294,7 @@ func (model *pluginModel) classify(ctx context.Context, response *http.Response,
 	if err := model.public(string(body)); err != nil {
 		return err
 	}
-	failure := &Failure{Kind: pluginHTTPClass(response.StatusCode), Message: fmt.Sprintf("model endpoint returned HTTP %d", response.StatusCode), RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"), time.Now())}
+	failure := &Failure{Kind: pluginHTTPClass(response.StatusCode), Message: fmt.Sprintf("model endpoint returned HTTP %d", response.StatusCode)}
 	status := uint16(response.StatusCode)
 	failure.status = &status
 	classifies, err := worker.HasExport("classify")
@@ -311,10 +310,7 @@ func (model *pluginModel) classify(ctx context.Context, response *http.Response,
 		if json.Unmarshal(raw, &classified) != nil {
 			return &Failure{Kind: InvalidRequest, Message: "model translation returned an invalid error"}
 		}
-		classifiedFailure := pluginClassified(classified.Class, classified.Message, classified.RetryAfterMs, model.capture.Secrets)
-		if classifiedFailure.RetryAfter == nil {
-			classifiedFailure.RetryAfter = failure.RetryAfter
-		}
+		classifiedFailure := pluginClassified(classified.Class, classified.Message, model.capture.Secrets)
 		classifiedFailure.status = &status
 		failure = classifiedFailure
 	}

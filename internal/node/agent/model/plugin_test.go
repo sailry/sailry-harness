@@ -452,14 +452,13 @@ export function decode(input) { return {state:null,deltas:input.events.map(event
 	})
 	t.Run("keeps provider failures distinct from network failures", func(t *testing.T) {
 		for _, class := range []protocol.PluginModelAdapterWireClass{protocol.PluginModelAdapterWireClassUnknown, protocol.PluginModelAdapterWireClassUnavailable} {
-			failure := pluginClassified(class, "provider unavailable", nil, nil)
+			failure := pluginClassified(class, "provider unavailable", nil)
 			if failure.Kind != Unavailable || !failure.Retryable() {
 				t.Fatalf("provider rejection = %+v", failure)
 			}
 		}
-		delay := uint64(2000)
-		failure := pluginClassified(protocol.PluginModelAdapterWireClassRateLimited, "private-token quota", &delay, []protocol.Secret{protocol.NewSecret("private-token")})
-		if failure.Kind != RateLimited || failure.Message != "[redacted] quota" || failure.RetryAfter == nil || *failure.RetryAfter != 2*time.Second {
+		failure := pluginClassified(protocol.PluginModelAdapterWireClassRateLimited, "private-token quota", []protocol.Secret{protocol.NewSecret("private-token")})
+		if failure.Kind != RateLimited || failure.Message != "[redacted] quota" {
 			t.Fatalf("classified private diagnostics = %+v", failure)
 		}
 		model, _, _ := pluginFixture(t, `export function classify(input){return {class:"quota",message:"quota exhausted"}}`, nil)
@@ -471,8 +470,8 @@ export function decode(input) { return {state:null,deltas:input.events.map(event
 		response := &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"2"}}, Body: io.NopCloser(strings.NewReader(`{"error":"quota"}`))}
 		err = model.classify(t.Context(), response, map[string][]string{"retry-after": {"2"}}, worker)
 		failure = Classify(err)
-		if failure.Kind != Quota || failure.RetryAfter == nil || *failure.RetryAfter != 2*time.Second {
-			t.Fatalf("native Retry-After fallback = %+v", failure)
+		if failure.Kind != Quota {
+			t.Fatalf("classified response = %+v", failure)
 		}
 		model.client.Transport = pluginRoundTripper(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New("connection failed with private-token")
