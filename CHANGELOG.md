@@ -23,7 +23,8 @@ from 0.1.5 do not appear.
 - Keep the answer and complete tool calls of a reply cut at the output limit
 - Add GitHub Copilot sign-in by device code
 - Bundle WorkBuddy with a warning before sign-in, free models only by default and opt-in daily check-in
-- Use an installed command-line agent as a model over the Agent Client Protocol, with the Antigravity package in the Market
+- Use an installed command-line agent as a model over the Agent Client Protocol, with the Antigravity and Cursor packages in the Market
+- Warn before a Copilot or Claude sign-in, and before adding an Antigravity or Cursor channel, that the account's terms and limits apply
 - Start a sign-in's advanced settings on the values in use
 - Ask an Azure OpenAI channel for its API version and name its models by deployment
 - Fold the model picker's groups and mark chosen rows with a neutral fill
