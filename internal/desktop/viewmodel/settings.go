@@ -68,4 +68,7 @@ type Permission struct {
 type Archived struct {
 	ID, Title string
 	At        time.Time
+	// Private is a session without a project: deleting it deletes the
+	// private workspace its files are in.
+	Private bool
 }

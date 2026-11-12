@@ -374,4 +374,5 @@ git_cherry_pick_confirm: Apply this commit to the current branch
 git_diff_side_by_side: Side by side
 git_diff_inline: Inline
 git_diff_needs_width: Side by side needs more width
+session_delete_private_files: Its private workspace files are deleted too
 port_count: "%{count} ports"

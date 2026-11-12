@@ -126,7 +126,7 @@ func backupSessions(sessions []protocol.Session, untitled string) (archived []vi
 		case !session.Archived:
 			active++
 		default:
-			row := viewmodel.Archived{ID: session.ID.String(), Title: session.Activity.Title}
+			row := viewmodel.Archived{ID: session.ID.String(), Title: session.Activity.Title, Private: session.Project == nil}
 			if row.Title == "" {
 				row.Title = untitled
 			}

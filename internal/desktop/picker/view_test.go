@@ -273,6 +273,41 @@ func views(t *testing.T) {
 
 	// The current directory marks the nearest location that holds it, and
 	// the projects' group shows only where the caller names some.
+	t.Run("a sort keeps the place", func(t *testing.T) {
+		b := newBench(t, Options{Mode: File, Source: NewCatalog(false).Source()})
+		table, ok := b.tt.AccessByRole(ui.RoleTable, en("files"))
+		if !ok {
+			t.Fatalf("no table: %q", b.tt.Texts())
+		}
+		whole := func(name string) bool {
+			row, ok := b.tt.AccessByRole(ui.RoleRow, name)
+			return ok && row.Bounds.Y >= table.Bounds.Y && row.Bounds.Y+row.Bounds.H <= table.Bounds.Y+table.Bounds.H+0.5
+		}
+		name := func(row int) string { return b.s.listing.Entries[b.s.rows[row]].Name }
+		last := len(b.s.rows) - 1
+		if top, end := name(0), name(last); !whole(top) || whole(end) {
+			t.Fatalf("the fixture's entries all show, or none: %q %v, %q %v", top, whole(top), end, whole(end))
+		}
+		// Nothing is chosen: a sort shows the top of the new order, not
+		// where the old order's rows went.
+		b.tt.Wheel(table.Bounds.X+table.Bounds.W/2, table.Bounds.Y+table.Bounds.H/2, 0, 4000)
+		b.settle()
+		if top := name(0); whole(top) {
+			t.Fatalf("the list did not scroll: %q", top)
+		}
+		b.click(en("files_entry_name"))
+		if top := name(0); b.s.sort.Column != "name" || !whole(top) {
+			t.Fatalf("sorted %+v with nothing chosen, the top %q shows %v", b.s.sort, top, whole(top))
+		}
+		// The chosen file stays in view when a sort moves it to the end.
+		first := slices.IndexFunc(b.s.rows, func(i int) bool { return b.s.listing.Entries[i].Kind == "file" })
+		chosen := name(first)
+		b.click(chosen)
+		b.click(en("files_entry_name"))
+		if b.s.current != chosen || b.s.row != last || !whole(chosen) {
+			t.Fatalf("after the sort %q is chosen at row %d of %d and %q shows %v", b.s.current, b.s.row, last, chosen, whole(chosen))
+		}
+	})
 	t.Run("places", func(t *testing.T) {
 		b := newBench(t, Options{Mode: Directory, Source: NewCatalog(false).Source(), Preview: true, Projects: projects})
 		marked := func() (out []string) {

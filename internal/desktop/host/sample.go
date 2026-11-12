@@ -28,6 +28,9 @@ type Point struct {
 	// Disks are the read and written bytes a second of each volume, by its
 	// mount.
 	Disks map[string][2]float64
+	// GPUs are the accelerators' loads in percent, by their IDs: one whose
+	// load the sample did not have is absent.
+	GPUs map[string]float64
 }
 
 // Follow continues the history of the sample before this one: its points and
@@ -52,7 +55,7 @@ func (m *Metrics) Follow(prev *Metrics) {
 			}
 		}
 	}
-	point := Point{At: m.At, CPU: m.CPU, Memory: math.NaN(), Received: math.NaN(), Transmitted: math.NaN(), Disks: map[string][2]float64{}}
+	point := Point{At: m.At, CPU: m.CPU, Memory: math.NaN(), Received: math.NaN(), Transmitted: math.NaN(), Disks: map[string][2]float64{}, GPUs: map[string]float64{}}
 	if v, ok := Usage(m.MemoryUsed, m.Memory); ok {
 		point.Memory = v
 	}
@@ -62,6 +65,11 @@ func (m *Metrics) Follow(prev *Metrics) {
 	}
 	for _, d := range m.Disks {
 		point.Disks[d.Mount] = [2]float64{float64(d.ReadBytes), float64(d.Written)}
+	}
+	for _, g := range m.GPUs {
+		if !math.IsNaN(g.Usage) {
+			point.GPUs[g.ID] = g.Usage
+		}
 	}
 	m.History = trim(append(slices.Clone(history), point))
 	for i, x := range m.Processes {
@@ -92,57 +100,11 @@ func trim[T any](values []T) []T {
 	return values
 }
 
-// pseudoFileSystems are file systems that hold no files of the user's: the
-// kernel's views, memory and the system's own images.
-var pseudoFileSystems = map[string]bool{
-	"autofs": true, "bpf": true, "binfmt_misc": true, "cgroup": true, "cgroup2": true, "configfs": true, "debugfs": true,
-	"devfs": true, "devpts": true, "devtmpfs": true, "efivarfs": true, "fdescfs": true, "fusectl": true, "hugetlbfs": true,
-	"iso9660": true, "mqueue": true, "nsfs": true, "nullfs": true, "proc": true, "procfs": true, "pstore": true,
-	"ramfs": true, "rootfs": true, "rpc_pipefs": true, "securityfs": true, "squashfs": true, "sysfs": true,
-	"tmpfs": true, "tracefs": true,
-}
-
-// systemMounts are where a system mounts its own volumes: macOS's sealed and
-// hidden volumes (Data, VM, Preboot, Update and the firmware's), which share
-// the startup volume's space, and the kernel's directories on Linux.
-var systemMounts = []string{"/System/Volumes", "/private/var", "/dev", "/proc", "/sys", "/run"}
-
-// RealVolume reports whether a mounted volume is one the user stores files
-// on. The Go sampler lists every mount; the reference's lists only volumes
-// the system's file browser shows, so its page never showed /dev or
-// /System/Volumes. A volume of no size is not one either. Removable media
-// under /run/media stay.
-func RealVolume(d Disk) bool {
-	if d.Total == 0 || d.Mount == "" || pseudoFileSystems[strings.ToLower(d.FileSystem)] {
-		return false
-	}
-	if strings.HasPrefix(d.Mount, "/run/media/") {
-		return true
-	}
-	for _, prefix := range systemMounts {
-		if d.Mount == prefix || strings.HasPrefix(d.Mount, prefix+"/") {
-			return false
-		}
-	}
-	return true
-}
-
-// Volumes are the sample's real volumes (RealVolume), in the sample's
-// order.
-func (m *Metrics) Volumes() []Disk {
-	var out []Disk
-	for _, d := range m.Disks {
-		if RealVolume(d) {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
 // Volume is the volume the disk card follows: the one chosen, or the root,
-// or the first (Monitor::accept). ok is false when the host has none.
+// or the first (Monitor::accept). ok is false when the host has none. The
+// Node lists only the volumes the user stores files on.
 func (m *Metrics) Volume(chosen string) (Disk, bool) {
-	volumes := m.Volumes()
+	volumes := m.Disks
 	for _, want := range []string{chosen, "/", `C:\`} {
 		for _, d := range volumes {
 			if want != "" && d.Mount == want {
@@ -154,6 +116,20 @@ func (m *Metrics) Volume(chosen string) (Disk, bool) {
 		return Disk{}, false
 	}
 	return volumes[0], true
+}
+
+// GPU is the accelerator the GPU card follows: the one chosen, or the first
+// (Monitor::accept). ok is false when the sample has none.
+func (m *Metrics) GPU(chosen string) (GPU, bool) {
+	for _, g := range m.GPUs {
+		if g.ID == chosen {
+			return g, true
+		}
+	}
+	if len(m.GPUs) == 0 {
+		return GPU{}, false
+	}
+	return m.GPUs[0], true
 }
 
 // Used is the volume's used space, and its share of the whole in percent.

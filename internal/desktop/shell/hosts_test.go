@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -75,6 +76,7 @@ func TestHostPage(t *testing.T) {
 	}
 	t.Run("rail menu", testHostMenu)
 	t.Run("layout", testHostLayout)
+	t.Run("demo", testHostDemo)
 }
 
 // The host page is laid out as the reference's. The sessions' side column
@@ -137,15 +139,15 @@ func testHostLayout(t *testing.T) {
 		}
 	})
 	t.Run("summary volumes", func(t *testing.T) {
-		// The sampler lists every mount; neither the page nor its summary
-		// shows a device or a system one.
+		// The Node lists only real volumes, so the page and its summary
+		// show every one of a sample.
 		real := h.Metrics.Disks[0].Mount
-		h.Metrics.Disks = append(h.Metrics.Disks,
-			host.Disk{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
-			host.Disk{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39})
+		disks := h.Metrics.Disks
+		h.Metrics.Disks = append(disks[:len(disks):len(disks)],
+			host.Disk{Mount: "/Volumes/Backup", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39})
 		tt.Frame()
 		before := count()
-		if before[real] == 0 || before["/dev"] != 0 || before["/System/Volumes/VM"] != 0 {
+		if before[real] == 0 || before["/Volumes/Backup"] == 0 {
 			t.Fatalf("the page's volumes: %q", tt.Texts())
 		}
 		a.togglePanel()
@@ -155,12 +157,13 @@ func testHostLayout(t *testing.T) {
 		if !a.Metrics || after[en("metrics_title")] == 0 {
 			t.Fatalf("the summary did not open: %q", tt.Texts())
 		}
-		if after[real] <= before[real] || after["/dev"] != 0 || after["/System/Volumes/VM"] != 0 {
-			t.Errorf("the summary's volumes: %q %d then %d, /dev %d, /System/Volumes/VM %d", real, before[real], after[real], after["/dev"], after["/System/Volumes/VM"])
+		if after[real] <= before[real] || after["/Volumes/Backup"] <= before["/Volumes/Backup"] {
+			t.Errorf("the summary's volumes: %q %d then %d, /Volumes/Backup %d then %d", real, before[real], after[real], before["/Volumes/Backup"], after["/Volumes/Backup"])
 		}
 		a.togglePanel()
 		tt.Frame()
 		settle(tt)
+		h.Metrics.Disks = disks
 	})
 	t.Run("hosts in the rail", func(t *testing.T) {
 		// The reference lists hosts in the rail's picker, not in the side
@@ -283,4 +286,92 @@ func testHostMenu(t *testing.T) {
 	if err := tt.ChooseMenuItem(revoke); err == nil {
 		t.Error("Remove pairing could be chosen while it runs")
 	}
+}
+
+// Demo mode says nowhere that its data is a sample: over the preview's
+// hosts, neither the host page, its summary column, its update dialog nor
+// the rail's host picker shows a preview's note, and the page's actions
+// raise no preview notice.
+func testHostDemo(t *testing.T) {
+	a := New(preview.Load())
+	a.Settings.Model.DemoMode = true
+	tt := ui.NewTesterWith(a.View, 1440, 1960, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	// The preview's notes and every text of the page that names itself a
+	// preview's. The preview's own example values (its version, platform
+	// line and mount) are data, and stay.
+	notes := map[string]string{}
+	for _, key := range []string{
+		"preview_notice", "workspace_host_status", "host_active_preview", "host_runtime_loading", "host_runtime_preview",
+		"workspace_runtime_preview", "host_activity_hint", "metrics_preview", "metrics_worker", "metrics_indexer",
+		"metrics_loading", "update_preview", "update_idle", "update_checking", "update_current", "update_available",
+		"update_downloading", "update_verifying", "update_staged", "update_applying", "update_restart", "update_failed",
+		"update_loading", "update_check", "update_download", "update_apply", "update_retry", "update_unavailable",
+	} {
+		notes[i18n.In("en", key)] = key
+	}
+	marked := func(where string) {
+		t.Helper()
+		for _, text := range tt.Texts() {
+			if key := notes[text]; key != "" {
+				t.Errorf("%s shows the preview's %s in Demo mode: %q", where, key, text)
+			}
+		}
+		for _, info := range tt.AccessAll() {
+			if key := notes[info.Name]; key != "" {
+				t.Errorf("%s names a control by the preview's %s in Demo mode", where, key)
+			}
+		}
+	}
+	for _, id := range []string{"local", "remote"} {
+		a.openHost(id, false)
+		tt.Frame()
+		// Before the first sample, and with it.
+		marked(id + " while loading")
+		tt.Advance(2 * time.Second)
+		tt.Frame()
+		tt.Frame()
+		if !a.Demo() || !tt.HasText(i18n.In("en", "host_utilization")) {
+			t.Fatalf("%s: the demo's host page: %q", id, tt.Texts())
+		}
+		marked(id)
+		a.togglePanel()
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !tt.HasText(i18n.In("en", "metrics_title")) {
+			t.Fatalf("%s: no summary: %q", id, tt.Texts())
+		}
+		marked(id + "'s summary")
+		a.togglePanel()
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+	}
+	// The remote host's update dialog, through its phases.
+	clickButton(t, tt, i18n.In("en", "host_update"))
+	tt.Frame()
+	marked("the update dialog")
+	clickButton(t, tt, i18n.In("en", "live_update_check"))
+	tt.Frame()
+	if h, _ := a.hostPage(); h.Update.Phase != "update_available" {
+		t.Fatalf("the demo's check: %+v", h.Update)
+	}
+	marked("the checked update")
+	clickButton(t, tt, i18n.In("en", "close"))
+	tt.Frame()
+	// The rail's picker names the hosts and nothing else.
+	picker, ok := tt.AccessByRole(ui.RoleMenuButton, i18n.In("en", "hosts"))
+	if !ok {
+		t.Fatalf("no host picker: %q", tt.Texts())
+	}
+	tt.ClickAt(picker.Bounds.X+picker.Bounds.W/2, picker.Bounds.Y+picker.Bounds.H/2)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !tt.HasText(i18n.In("en", "host_add")) {
+		t.Fatalf("the host picker did not open: %q", tt.Texts())
+	}
+	marked("the host picker")
 }
