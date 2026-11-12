@@ -74,7 +74,10 @@ const resultWidth = 320
 
 // Result is an empty state or a load failure, centered: its icon in a
 // round tile, a title, a subtitle and actions. It is never an operation's
-// outcome, which is only a toast. Its root takes the caller's context as it
+// outcome, which is only a toast. It is centered across its parent and as
+// high as its content: one standing for a whole empty area fills that area
+// and centers down it too, .Grow(1).Justify(ui.Center) in the area's
+// column; a group without rows keeps its own height. Its root takes the caller's context as it
 // is, so a caller showing more than one under a parent keys each.
 func Result(c *ui.Context, p ResultProps) ui.Element {
 	pal := theme.Of(c)

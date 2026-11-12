@@ -171,16 +171,48 @@ s.Close(s.Active)                     // ⌘W; false when no tab is left
 
 ## Components and hosts
 
-Files and Git are each one two-column component drawn by two hosts:
+Files and Git are each one list-and-document component drawn by two hosts:
 `Page`, the rail's independent page in the main column, and `View`, the
-right panel's tabs. Both draw the same layout (`resources/split.rs`): the
-main area on the left and the side list on the right (the tree, or the
-change list), 220 DIPs at first, dragged between 180 and 480 with the
-main area keeping 180. The list is a fixed-width column past our own 6
-DIP drag handle, not MyGo's `Split`: that sizes its first pane, and
-converting the list's width from the last frame's layout drew a first
-frame (a page switched to, a tab chosen, the panel opening) at the
-minimum; the panel's motion moves only the main area.
+right panel's tabs. Both follow one rule by their laid-out width
+(`layout.go`, `Project.pair`):
+
+- At 720 DIPs or more (the list's 220 beside a document of 500) the pair
+  is side by side (`resources/split.rs`): the main area on the left and
+  the side list on the right (the tree, or the change list), 220 DIPs at
+  first, dragged between 180 and 480 with the main area keeping 180. The
+  list is a fixed-width column past our own 6 DIP drag handle, not MyGo's
+  `Split`: that sizes its first pane, and converting the list's width from
+  the last frame's layout drew a first frame (a page switched to, a tab
+  chosen, the panel opening) at the minimum; the panel's motion moves only
+  the main area.
+- Below it the pair is stacked: the list on top at the host's full width,
+  the document under it. The list is as high as its rows and no higher
+  than its share of the height, 38% at first, and scrolls past that. The 6
+  DIP handle under it (the same handle, a splitter) drags the share
+  between 20% and 70%, never under the list's bars and three rows, and a
+  double click resets it. The share is the window's
+  (`shell.App.ListShare`, `panel.BindListShare`, saved as `listShare` in
+  the UI state file), one for Files and Git, panel and page. The panel's
+  first width, 560, stacks.
+
+A stacked pair goes side by side at 728, 8 DIPs past the width at which a
+side-by-side one stacks, so a width resting on the threshold does not
+flip. A box's width is known from the frame before, and a tab's box is new
+each time it is chosen, so the host's last width and layout are kept at
+the window's root: a tab switched to draws in the layout it had. The first
+frame of all guesses: the panel stacks, the page follows the window.
+
+Stacked, Git's column is compact: Changes | History is a small segmented
+control in the branch's bar, and the message is one line beside Commit
+until expanded.
+
+A document with nothing to show (no file open, no change chosen, a file
+that is gone, a notebook without cells) fills its region with the empty
+state (`empty`: `kit.Result` grown and centred), centred both ways in the
+document's region: beside the list, or under it when stacked.
+
+A document under 640 DIPs has no room for two diff columns: its diffs
+show unified whatever the window's choice, which is left alone.
 
 Every open file and every open diff is its own item: three open files
 and one diff are four tabs in the panel's one flat strip. The active
@@ -272,24 +304,33 @@ terminal, subagent and file-preview tabs are single-pane.
   selected; a row's right-click menu acts on every change in it. The
   history is a graph (CrychicUI's `code.CommitGraph` through
   `crychic.CommitGraph`, [crychic.md](crychic.md#codecommitgraph)): a lane
-  per line of work, merges, each commit's short ID, the names at it (the
-  branch checked out or a detached `HEAD` first, then tags, branches and
-  remote branches) and its subject, with the author where the list is wide
-  enough; a row's tooltip says all of it. A click opens the commit's
-  changes and keeps the row selected in the neutral fill; the right-click
-  menu, the system's, has Copy commit ID, New branch and Create tag at the
-  commit, and Cherry-pick, which asks first naming the commit. Pages are
-  the Node's, 100 commits each, with Previous and Next. A history without
-  parents (an earlier Node) is the plain list: subject, ID, author and
-  branch. The diff is MyGo's diff viewer (`kit.Diff`): highlighted, old
+  per line of work, merges, and on each commit's line its short ID, the
+  names at it (the branch checked out or a detached `HEAD` first, then
+  tags, branches and remote branches) and its subject. A narrow list gives
+  the line to the subject and shows at most one name with the count of the
+  others; a wider one shows the names that fit, and the widest the author
+  and the commit's age too. A row's tooltip says all of it. A click opens
+  the commit's changes and keeps the row selected in the neutral fill; the
+  right-click menu, the system's, has Copy commit ID, New branch and Create
+  tag at the commit, and Cherry-pick, which asks first naming the commit.
+  The list starts with the newest 100 commits and Load more at its end adds
+  the next 100, so a line of the graph runs on however far it goes. A
+  history without parents (an earlier Node) is the plain list: subject,
+  ID, author and branch. The diff is MyGo's diff viewer (`kit.Diff`): highlighted, old
   and new numbers, word changes, and on the change under the pointer
-  Revert and Keep (`editor.DefaultHunkActions`) and Stage. Its toolbar has
-  Unified | Split (`kit.DiffLayout`, a small `kit.Segmented`): unified as
-  Rust's content diff view, or the old text on the left and the new on the
-  right with a divider to drag. The choice is the window's
+  Revert and Keep (`editor.DefaultHunkActions`) and Stage. It is unified
+  as Rust's content diff view, or the old text on the left and the new on
+  the right with a divider to drag. The choice is the window's
   (`shell.App.DiffSplit`, saved as `diffSplit` in the UI state file) and
   every diff follows it: a file's, All changes, a commit's and a stash's.
-  Status bar: path, `+N −M`.
+  No row heads a diff. Status bar: path, `+N −M`, and at its far right one
+  24 DIP icon button (`Project.diffToggle`) that flips the choice, named
+  by what a press shows: Side by side (`git_diff_side_by_side`, two
+  columns) while unified, Inline (`git_diff_inline`, two rows) while side
+  by side. Where the document is too narrow for two columns the button is
+  disabled and its tooltip says so (`git_diff_needs_width`). A document of
+  several diffs has the one footer; a binary file's has the path alone,
+  and command output, like a file's editor, has no diff and no button.
 - History: a card per checkpoint: the turn, its age (against the frame
   clock when live, the fixture's clock in the preview), the files, `+N −M`
   and `turn_changes_undo_all`.
@@ -362,8 +403,11 @@ forms retain values after failures. Destructive operations name their target
 in the existing confirmation. Pickers preserve full stash and tag identifiers.
 Output, commits and stashes open in the existing document tabs. A history
 entry carries the optional `parents` (absent from an earlier Node: not known,
-and the page is the plain list; `[]` for a root) and its references, which
-include `HEAD` at the commit checked out. The history's menu sends
+and the history is the plain list; `[]` for a root), its time and its
+references, which
+include `HEAD` at the commit checked out. The pages read are listed as one
+history, a commit two pages repeat once; `Actions.GitHistory` reads the next
+page, and a status change reads the first again. The history's menu sends
 `create_git_branch` and the `create_tag` and `cherry_pick` actions at the commit, with the
 generic Git toasts. Diff scope caches
 remain separate and invalidate with Repository updates. A native hunk's line
@@ -689,11 +733,24 @@ panel, the bound without a gesture and a closed tab's request.
 `internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
 confirmation, Commit's menu and amending, the history's graph, its rows'
+click (also in the first frame), tooltip and right-click menu, Load more
+and the plain list without parents, the lanes and the names' order and
+fit, Unified and Split, All changes; the
 click and right-click menu and the plain list without parents, the lanes
-and the names' order and fit, Unified and Split, All changes; the
+and the names' order and fit, All changes; the
 file tree's click, ⌘-click, ⇧-click, ⇧↓, ⌘A, right-click selection and
 Copy path, and its arrows, → and Enter.
-`internal/desktop/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
+`internal/desktop/panel/layout_test.go` (subtests of `TestGitPage`): the
+footer's button after the counts, its toggle and its one place in every
+diff document; the list above its document at 560 and beside it at 900 for
+Git and Files, the threshold's slack, the divider's drag and bounds, and
+the narrow document's unified diff with the button disabled. The empty
+document centred in its region in both layouts and both hosts
+(`kittest.Centred`, also over the tabs' empty states in `model_test.go`). With
+`$SAILRY_SNAPSHOTS` set it writes the stacked and side-by-side frames at
+2x, dark and light.
+`internal/desktop/shell/frame_test.go`: the stacked list's share dragged,
+saved, restored and absent from an earlier file; ⌘⌥B opens the launcher, ⌘P a file tab
 beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
 a diff tab (read through the diff viewer's accessible text), choosing a
 tab shows its item beside its list, eight tabs show the overflow menu,
@@ -711,9 +768,10 @@ at its width.
 | Deviation | Reason |
 |---|---|
 | The history's rows are built over the graph, which is not interactive | `code.CommitGraph` has no click, selection or menu ([crychic.md](crychic.md#codecommitgraph)); ours are laid at its rows |
-| A line of the graph that crosses from the page before is not drawn at the top of a page | Lanes are worked out per page of 100 and the component draws edges only from commits it lists |
-| The history's menu has no Checkout or Revert of a commit | The Node has no action for either; Cherry-pick, a branch and a tag at the commit are the ones it has |
-| At the list's first width a long branch name is left to the row's tooltip | The graph draws names on the subject's line; they get up to half of it |
+| The history grows by Load more instead of the reference's pages | `code.CommitGraph` draws a line only between commits of one list; pages cut every line that crossed from one to the next (follow-up instruction of 2026-11-12) |
+| A commit's row is one line: short ID, names, subject | The component's row; the reference's second line (ID, author, branch) is the row's tooltip, and shows inline where the list is wide |
+| The history's menu has no Checkout or Revert of a commit | The reference has no menu on a commit at all, and its Node neither action (`plugins/git/dev.sailry.platform/desktop/view.js`, `crates/protocol/src/git.rs`); ours adds only what the Node already does: a branch or a tag at the commit and `cherry_pick` |
+| The graph draws itself in each time the History tab is chosen | The component's arrival is inside its painter and rows and cannot be held still from outside; the rows take clicks throughout |
 | PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
 | The editor's Link and Image are one prompt each: a link's address (`content_link_address`; the caret's link fills it in under `content_link_edit`, and an empty address removes the link), an image's address and alt text (`content_image_address`, `content_image_alt`) | The reference has a link popover (Open, Edit, Copy, Remove) and an image dialog with Choose file and a caption; those are not built: an image is inserted in Source, since the rich codec does not keep one (`richMarkdownSafe`) |
 | Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |
@@ -725,6 +783,8 @@ at its width.
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
+| A narrow host stacks the list over its document, with Git's view choice in the branch's bar and a one-line message | The reference keeps two columns at any width; at the panel's 560 neither the list nor a diff had room |
+| The diff's layout is one icon button at the footer's end | The reference has no side-by-side diff; a row above every diff for one choice was removed |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |

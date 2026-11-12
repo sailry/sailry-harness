@@ -102,9 +102,14 @@ type App struct {
 	PanelOpen  bool
 	PanelWidth float32
 	// DiffSplit is the window's diff layout, side by side when set: the
-	// Unified | Split choice above a diff writes it (kit.DiffLayout), and
+	// button at the end of a diff's footer writes it (kit.DiffSplit), and
 	// it is saved with the window's other choices (prefs.go).
 	DiffSplit bool
+	// ListShare is the share of the height a list takes above its document
+	// where the panel or a page is too narrow for both side by side
+	// (panel.BindListShare); 0 is the first share. The divider between them
+	// writes it, and it is saved as DiffSplit is.
+	ListShare float32
 
 	// OnMode, when set, gets the theme mode as it changes, so the window's
 	// native material follows the app's appearance.
@@ -252,6 +257,7 @@ func (a *App) Composer(id string) *composer.State {
 func (a *App) View(c *ui.Context) {
 	defer a.updateFileSaveMenu(c)
 	kit.BindDiffSplit(c, &a.DiffSplit)
+	panel.BindListShare(c, &a.ListShare)
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
 	// The panel is the selected conversation's before anything opens a tab
 	// in it (panels.go).
