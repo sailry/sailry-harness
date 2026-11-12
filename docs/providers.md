@@ -336,13 +336,31 @@ starts at once. The text is the package's own, chosen by the package locale.
 The Mobile mirror displays channels and does not start sign-in, so it shows no
 warning. `testProviderLoginWarning` drives this against a fake Node.
 
+A channel that has no sign-in (a preset with `auth` `none` or `api_key`, such
+as one served by a local program over ACP) has no attempt to ask before, so the
+preset itself can declare the same `warning`. It is declared on the preset
+because the preset is what the directory already lists and what the user picks;
+an adapter or `acp` declaration is not projected to a controller and may serve
+several presets. The directory carries it in the same `login_warning` member
+and removes it from the listed preset, so there is one carrier. Where a preset
+has a sign-in, `login_warning` is the flow's warning, else the preset's.
+
+The Desktop shows a preset warning of a channel without a sign-in in the same
+dialog, titled "Add" and the preset's name, once when the user picks that preset
+in the add editor (also from the welcome guide): Continue opens the form exactly
+as before, Cancel leaves the editor on the step it was on, and nothing is saved
+or sent either way. Picking it again asks again; editing a saved channel does
+not ask. `testProviderPresetWarning` drives this against a fake Node,
+`TestPackagePresetWarning` covers the directory and `TestProviderEditor` the
+editor's steps.
+
 A plugin translation receives the installed package's resolved settings, may
 record per-model `options` at discovery and may refuse a request from `prepare`
 with its own class and message before any HTTP. Recorded options are saved on
 the model's capabilities, replaced by a later discovery and merged under the
 provider's policies. Discovery runs on "Update models" and on validation only.
 
-Deviations: the reviewed source has no sign-in warning, no settings input and no
+Deviations: the reviewed source has no sign-in or preset warning, no settings input and no
 refusal result; these three are additions for packages whose provider may
 suspend accounts or charge for some models. Setting titles are looked up by
 field name first, as the source does, then by English title as before.

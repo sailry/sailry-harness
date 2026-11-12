@@ -540,6 +540,14 @@ Back returns from the form to the methods when the choice offered several,
 else to the brands; from the welcome guide the brands' Back returns to the
 guide.
 
+A method without a sign-in whose package preset declares a warning
+(`viewmodel.Method.Warning`, from the entry's `login_warning`) asks it in the
+settings confirmation dialog before its form opens: the title is Add and the
+method's name, the text is the package's own, Continue opens the form and
+Cancel leaves the editor on the brands or methods it showed. The prompt is
+`Model.configureProvider`; it sends nothing. A sign-in method keeps its warning
+for each sign-in attempt.
+
 The form is the same for a new and a saved channel. Protocol, service and
 region are each a segmented control where the method's routes differ in them.
 A switch keeps the name, key, typed endpoint and the models the user added or

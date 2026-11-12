@@ -132,6 +132,13 @@ ACP-backed package declares:
 The route's `endpoint` is required by the channel contract and is not contacted;
 a package declares its vendor's home page.
 
+Such a channel is created without a sign-in step, so a package that drives the
+user's own account declares its risk notice as the preset's optional `warning`
+(`{text, locales}`). The Desktop asks it once when the user picks the preset,
+before the channel form
+([providers.md](providers.md#package-sign-in-warning-and-model-facts)). `agy`
+declares one from 0.1.1.
+
 ## Antigravity
 
 `plugins/agy` 0.1.0 runs

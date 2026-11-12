@@ -491,6 +491,43 @@ func TestProviderEditor(t *testing.T) {
 	if e.back(); e.step != stepBrand {
 		t.Errorf("back from a sign-in went to %d", e.step)
 	}
+	// A method without a sign-in whose package declares a warning asks
+	// before its form: nothing is configured or added until it is accepted,
+	// and a sign-in keeps its warning for the sign-in.
+	t.Run("a method's warning precedes its form", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		e, n := &m.provider, len(m.Channels)
+		brand := &preview.Brand{ID: "agent", Name: "Agent"}
+		local := preview.Method{ID: "local", Name: "Local agent", Access: "provider_access_endpoint", Warning: "Heavy use may count against this account"}
+		e.add(m)
+		m.chooseProvider(brand, []preview.Method{local})
+		if w := m.loginWarning; !w.open || w.verb != "settings_add" || w.title != "Local agent" || w.text != local.Warning || e.step != stepBrand || e.method.ID != "" {
+			t.Fatalf("pick: warning %+v, step %d, method %q", w, e.step, e.method.ID)
+		}
+		// Cancel drops the prompt: the editor is where it was.
+		m.loginWarning = loginWarning{}
+		if e.step != stepBrand || len(m.Channels) != n {
+			t.Fatalf("cancel: step %d, %d channels", e.step, len(m.Channels))
+		}
+		m.chooseProvider(brand, []preview.Method{local})
+		m.loginWarning.proceed()
+		if e.step != stepConfigure || e.method.ID != "local" || len(m.Channels) != n {
+			t.Fatalf("continue: step %d, method %q, %d channels", e.step, e.method.ID, len(m.Channels))
+		}
+		// An answer for an editor since reopened configures nothing.
+		e.add(m)
+		m.configureProvider(local)
+		stale := m.loginWarning.proceed
+		e.add(m)
+		if stale(); e.step != stepBrand {
+			t.Fatalf("a stale answer went to step %d", e.step)
+		}
+		m.loginWarning = loginWarning{}
+		signIn := preview.Method{ID: "account", Name: "Account", Access: "provider_access_login", Login: "provider_access_login", Warning: local.Warning}
+		if m.chooseProvider(brand, []preview.Method{signIn}); m.loginWarning.open || e.step != stepConfigure {
+			t.Fatalf("a sign-in asked at the pick: %+v, step %d", m.loginWarning, e.step)
+		}
+	})
 	// A method's routes are one entry: the form switches its protocol,
 	// product and region, keeping what was typed and following the route's
 	// own defaults.
