@@ -602,14 +602,17 @@ library) and again by the library whenever its element is built anew or the
 theme changes, where limu kept one layout per width and repainted on a theme
 switch.
 
-Math is bound by `bindMath`. The default build has no typesetter
-(`math_source.go`): formulas keep their source text, which is the documented
-fallback. `math_untie.go` holds the Untie integration behind the `untie` build
-tag: one process-wide `untiemygo.Renderer` bound with `BindMarkdown` for
-`$…$`, `$$…$$`, `\(…\)` and `\[…\]`, colored from the theme at paint time. It
-needs `github.com/caelyreth/untie` and its `contrib/mygo` module in `go.mod`
-and an OpenType MATH font at `internal/desktop/conversation/math.otf`; until
-both are added the tag does not build.
+Math is bound by `bindMath` (`math.go`): one process-wide
+`untiemygo.Renderer` (Untie, Latin Modern Math at
+`internal/desktop/conversation/math.otf`) bound with `BindMarkdown` for `$…$`,
+`$$…$$`, `\(…\)` and `\[…\]`, colored from the theme at paint time. With no
+usable font nothing is bound and formulas keep their source text. Untie adds
+its math flags to `Options.Extensions`, where MyGo reads zero as its `Default`
+set, so `bindMath` writes `parser.Default` out first: a reply keeps its
+tables, task lists, strikethrough, autolinks, footnotes and alerts beside
+math. While a reply streams, MyGo holds a top-level table's header back until
+its delimiter row is whole; the header of a table inside a list item shows as
+a line of text until then (pinned MyGo).
 
 ## Turn settlement and queue
 
@@ -1033,7 +1036,6 @@ destination, the rewind toast's backup action, and
 | Row texts are moved a fraction of a DIP by `kit.Level` so their capitals sit at the icon's middle; a question's row is as high as the others for one line (24), its icon and caret where theirs are | MyGo centres a text's line box and snaps its baseline, which left labels up to 1.2 DIPs below their icons ([components.md](components.md#text-beside-icons)); the wrapping row had its text at the top with the icon 2 below |
 | A row's single-line label and its detail are `ui.RichText` of one span, levelled by `kit.LevelSpan`, running or not | `kit.Sweep` draws its band with `Painter.RichText`, whose line starts from the theme's 14 whatever the span's size; a plain `ui.Text` at another message text size sits up to 2 DIPs off the band, and a label laid out one way while running and another once settled would move |
 | A code block's Copy is an icon button confirmed by a toast, not MyGo's `CopyButton` with its "Copy" and "Copied" texts | The user's decision: the icon alone; outcomes show as toasts |
-| Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
 | Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | pele-go lays a bounded source out (64 KiB here, 50,000 characters and 5,000 edges in pele-go) when it is first shown and when the theme changes; Rust prepares images off the UI thread. The library's error box never shows in a transcript: the adapter checks the source first |
 | A diagram is not laid out for the reply's width | `diagram.Mermaid` passes pele-go no width; the picture is scaled down to 0.7, then scrolls. limu, which it replaced at the user's request, laid out per width |
 | Mermaid xychart and pie are drawn by our own painter (`chart.go`) on MyGo's `ui/chart`, not by the diagram's picture or a CrychicUI chart | Verified gap: the picture has no hover and draws its title; CrychicUI's `chart` components fail the conversation's rules ([docs/crychic.md](crychic.md#charts)): their value tips are MyGo's delayed opaque tooltip or an own surface outside the plot, their colors are the status tones, and they cannot draw Mermaid's shared-axis bar and line mix, a y range, gaps or horizontal series |
