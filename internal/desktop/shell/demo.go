@@ -292,8 +292,10 @@ func (a *App) sampleAttach(c *ui.Context, cv *viewmodel.Conversation, comp *comp
 	a.Sidebar.ChooseFiles(c, host, initial, func(paths []string) {
 		before := len(comp.Attachments)
 		comp.AttachPaths(c, paths, act)
-		for _, added := range comp.Attachments[before:] {
-			added.Size = int64(a.Sidebar.Catalog(host).Size(added.Path))
+		if catalog := a.Sidebar.Catalog(host); catalog != nil {
+			for _, added := range comp.Attachments[before:] {
+				added.Size = int64(catalog.Size(added.Path))
+			}
 		}
 	})
 }
