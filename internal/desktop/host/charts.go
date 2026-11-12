@@ -13,8 +13,9 @@ import (
 // Line, Area and Sector paths painted in the plot's Draw. Kit and the
 // verified CrychicUI components have no chart (docs/crychic.md).
 
-// tones are the monitor's series colours, from the theme's status and base
-// colours (the reference's Tones).
+// tones are the monitor's series colours, from the theme's status and chart
+// colours (the reference's Tones). The upload is the chart violet, where
+// the reference draws it in the download's blue.
 type tones struct {
 	cpu, gpu, memory, cache   ui.Color
 	swap                      ui.Color
@@ -26,8 +27,8 @@ type tones struct {
 
 func tonesOf(p *theme.Palette) tones {
 	return tones{
-		cpu: p.Success, gpu: p.Magenta, memory: p.Warning, cache: p.Warning.Alpha(0.5), swap: p.MutedForeground.Alpha(0.5),
-		download: p.Blue, upload: p.Info, write: p.Warning, read: p.Success,
+		cpu: p.Success, gpu: p.Chart[1], memory: p.Warning, cache: p.Warning.Alpha(0.5), swap: p.MutedForeground.Alpha(0.5),
+		download: p.Chart[1], upload: p.Chart[3], write: p.Warning, read: p.Success,
 		track: p.MutedForeground.Alpha(0.16), grid: p.Border,
 		warning: p.Warning, danger: p.Danger, positive: p.Success,
 	}
