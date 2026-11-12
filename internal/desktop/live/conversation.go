@@ -103,13 +103,6 @@ func (r *Runtime) projectModels() {
 				name = *m.DisplayName
 			}
 			v := composer.Model{ID: modelKey(p.ID, m.ID), Name: name, Provider: p.Name, Reasoning: m.Reasoning, Family: modelFamily(p.Api), DefaultEffort: effortName(m.DefaultEffort), Score: r.measuredScore(modelKey(p.ID, m.ID), m.DefaultEffort)}
-			generates := make([]string, len(m.Generates))
-			for i, generated := range m.Generates {
-				generates[i] = string(generated)
-			}
-			for _, kind := range viewmodel.Capabilities(m.Vision, generates) {
-				v.Capabilities = append(v.Capabilities, composer.Capability{ID: kind, Label: viewmodel.CapabilityLabels[kind], Icon: icons.Capabilities[kind]})
-			}
 			for _, e := range m.Efforts {
 				v.Efforts = append(v.Efforts, effortName(e))
 			}
@@ -548,6 +541,14 @@ func conversationInput(m composer.Message) protocol.ConversationInput {
 		case composer.Database:
 			if database, ok := databaseReferenceTarget(ref.ID); ok {
 				target = database
+			}
+		case composer.Element:
+			// One reference per file behind the chip, named as the chip, so
+			// they read as one selection.
+			for _, attachment := range m.Attachments {
+				if id, err := protocol.ParseAttachmentID(attachment.ID); err == nil && attachment.Chip == ref.ID {
+					input.References = append(input.References, protocol.ConversationReference{Target: protocol.ConversationReferenceTarget{Kind: "attachment", Data: id}, Label: ref.Label})
+				}
 			}
 		}
 		if target.Kind != "" {

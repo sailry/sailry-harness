@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -53,15 +54,44 @@ func (s *State) AttachPaths(c *ui.Context, paths []string, actions Actions) {
 	s.attachPaths(c, paths, actions)
 }
 
-// Attach adds attachments that belong together, such as an element picked in
-// the browser with its page context: all of them or, over the limit, none.
-func (s *State) Attach(c *ui.Context, list []*Attachment, actions Actions) bool {
+// AttachElement adds the attachments of an element picked in the browser,
+// its picture and its page context, behind one chip named label at the end
+// of the draft: all of them or, over the limit, none. They have no cards
+// (Attachment.Chip) and leave when the chip is deleted (dropChipped).
+func (s *State) AttachElement(c *ui.Context, id, label string, list []*Attachment, actions Actions) bool {
 	if len(s.Attachments)+len(list) > MaxAttachments {
 		kit.Toast(c, kit.Failed, i18n.T(c, "chat_attachment_limit"))
 		return false
 	}
+	// A chip is found by its text: a second element of the same name is
+	// numbered.
+	name := label
+	for n := 2; slices.ContainsFunc(s.References, func(r Reference) bool { return r.Label == name }); n++ {
+		name = fmt.Sprintf("%s %d", label, n)
+	}
+	ref := Reference{ID: id, Kind: Element, Label: name}
+	for _, a := range list {
+		a.Chip = id
+	}
 	s.add(c, list, actions)
+	s.References = append(s.References, ref)
+	if s.Draft != "" && !strings.HasSuffix(s.Draft, " ") && !strings.HasSuffix(s.Draft, "\n") {
+		s.Draft += " "
+	}
+	s.Draft += token(ref) + " "
+	s.caret = len([]rune(s.Draft))
+	s.focus = true
+	s.ref = refState{}
 	return true
+}
+
+// dropChipped removes the attachments whose chip left the draft.
+func (s *State) dropChipped(actions Actions) {
+	for _, a := range slices.Clone(s.Attachments) {
+		if a.Chip != "" && !slices.ContainsFunc(s.References, func(r Reference) bool { return r.ID == a.Chip }) {
+			s.remove(a, actions)
+		}
+	}
 }
 
 // InsertFiles adds normal file-reference tokens; it never submits the draft.

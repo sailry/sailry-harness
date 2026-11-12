@@ -450,6 +450,12 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	}
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
+		// A turn that started is in the transcript, not waiting any more.
+		if slices.ContainsFunc(page.Runs, func(r protocol.ConversationRun) bool {
+			return r.Turn == item.Turn && (r.Status == "running" || r.Status == "stopping")
+		}) {
+			continue
+		}
 		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
 		// A queued continuation is an automatic row named by its marker: its
 		// prompt is not a message to read, edit or send ahead.

@@ -585,8 +585,18 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 }
 
 // showPhase hides the phase row while the run waits on the user or a
-// call or child runs: their rows already say what goes on.
+// call or child runs: their rows already say what goes on. A reply that
+// ends in tools, children or a retry keeps the activity on that row (tools
+// marks the last call running) until new content takes over, so the phase
+// row shows only before the first content, while the model thinks or
+// writes, and while the context compacts.
 func showPhase(r *Reply, blocks []Block) bool {
+	if n := len(blocks); n > 0 && r.Phase != Compacting && r.Status != Queued {
+		switch blocks[n-1].Kind {
+		case ToolsBlock, ChildrenBlock, RetryBlock:
+			return false
+		}
+	}
 	for _, b := range blocks {
 		for _, call := range b.Calls {
 			if call.Pending || call.Running {

@@ -174,6 +174,13 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 			if json.Unmarshal(body, &fault) == nil {
 				failure.Origin = protocol.ToolFailureOriginRuntime
 				failure.Code = &fault.Code
+				// The call ran and the tool refused what it was asked, as
+				// reading a folder as a file: the tool's own error, not a
+				// call that did not run.
+				switch fault.Code {
+				case protocol.ErrorCodeInvalidRequest, protocol.ErrorCodeNotFound, protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
+					failure.Origin = protocol.ToolFailureOriginTool
+				}
 			}
 		}
 		presentation.Failures = append(presentation.Failures, canonical.ToolFailure{Index: block.Index, ID: response.ID, Name: response.Name, Failure: failure})

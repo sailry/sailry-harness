@@ -106,13 +106,6 @@ var DemoFamilies = []composer.Family{{ID: demoFamily, Label: "provider_deepseek"
 
 // DemoModels are the demo's models, the selected one first.
 func DemoModels() []Model {
-	capability := func(ids ...string) []composer.Capability {
-		var out []composer.Capability
-		for _, id := range ids {
-			out = append(out, composer.Capability{ID: id, Label: map[string]string{"vision": "provider_cap_vision", "image": "provider_cap_image"}[id], Icon: icons.Capabilities[id]})
-		}
-		return out
-	}
 	score := func(overall float64, tested string, axes ...float64) *composer.Score {
 		s := &composer.Score{Overall: overall, Tested: tested}
 		copy(s.Axes[:], axes)
@@ -121,9 +114,9 @@ func DemoModels() []Model {
 	fast := []composer.Feature{{ID: "speed", Name: "Speed", Options: []composer.FeatureOption{{ID: "fast", Name: "Fast"}}}}
 	return []Model{
 		{ID: "deepseek-v4.1-pro", Name: DemoModel, Provider: DemoProvider, Reasoning: true, Family: demoFamily,
-			Score: score(9.2, "high", 9.4, 8.9, 9.5, 8.7, 9.1), Features: fast, Capabilities: capability("vision", "image")},
+			Score: score(9.2, "high", 9.4, 8.9, 9.5, 8.7, 9.1), Features: fast},
 		{ID: "deepseek-v4.1", Name: "DeepSeek V4.1", Provider: DemoProvider, Reasoning: true, Family: demoFamily,
-			Score: score(8.7, "medium", 8.9, 8.5, 8.8, 8.3, 8.6), Capabilities: capability("vision")},
+			Score: score(8.7, "medium", 8.9, 8.5, 8.8, 8.3, 8.6)},
 		{ID: "deepseek-v4.1-flash", Name: demoFast, Provider: DemoProvider, Family: demoFamily},
 	}
 }

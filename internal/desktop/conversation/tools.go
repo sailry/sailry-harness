@@ -369,7 +369,10 @@ func (s *State) row(c *ui.Context, call Call) {
 			delete(s.requestedDetails, call.ID)
 		}
 	}
-	if call.Output == nil {
+	// A call whose loaded output has nothing to draw does not open: its
+	// row already says all there is.
+	card := s.toolCards[s.renderSession][call.ID]
+	if call.Output == nil || call.Load == nil && card == nil && bare(call) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
@@ -377,10 +380,21 @@ func (s *State) row(c *ui.Context, call Call) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func() {
 		s.output(c, call.Output)
-		if render := s.toolCards[s.renderSession][call.ID]; render != nil {
-			render(c)
+		if card != nil {
+			card(c)
 		}
 	})
+}
+
+// bare tells that a call's output draws nothing its row does not: no
+// table, diff, text, picture or note, and a failure only where the row
+// shows it as its detail (summary).
+func bare(call Call) bool {
+	o := call.Output
+	if o.Table != nil || o.Diff != nil || o.Text != "" || len(o.Images) > 0 || len(o.Notices) > 0 || o.Partial {
+		return false
+	}
+	return o.Failure == "" || o.Failure == call.Error && (call.Failed || call.Warning) && call.State != Denied
 }
 
 func failureTone(c *ui.Context, o *Output) ui.Color {

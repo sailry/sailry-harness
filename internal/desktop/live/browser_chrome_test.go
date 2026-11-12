@@ -18,6 +18,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -495,6 +496,15 @@ func browserChrome(t *testing.T) {
 	}
 	if !bytes.Equal(comp.Attachments[0].Data, picture) {
 		t.Fatal("the composer's picture is not the element's")
+	}
+	// One chip in the draft stands for both files: they have no cards, and
+	// leave with the chip.
+	if len(comp.References) != 1 || comp.References[0].Kind != composer.Element || comp.References[0].Label != "百度一下" ||
+		comp.Attachments[0].Chip != comp.References[0].ID || comp.Attachments[1].Chip != comp.References[0].ID || !strings.Contains(comp.Draft, "@百度一下") {
+		t.Fatalf("the element's chip: draft %q, references %+v", comp.Draft, comp.References)
+	}
+	if tester.HasText("browser-element-1.json") {
+		t.Errorf("the element's page context has a card: %q", tester.Texts())
 	}
 	click(need(ui.RoleButton, text("browser_cancel_selection")))
 	if tab.pick != nil {

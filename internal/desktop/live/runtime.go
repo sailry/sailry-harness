@@ -72,69 +72,75 @@ type Runtime struct {
 	pendingSession           string
 	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session
-	composerRevisions        map[string]uint64
-	composerSaving           map[string]bool
-	composerWaiters          map[string][]func(bool)
-	composerBases            map[*composer.State]protocol.SessionConfig
-	sessionBases             map[*composer.State]*sessionBaseStart
-	App                      *shell.App
-	Preferences              *preferences.Store
-	controller               *client.Client
-	ctx                      context.Context
-	cancel                   context.CancelFunc
-	unsubscribe              func()
-	unsubscribePrefs         func()
-	mu                       sync.Mutex
-	dirty                    bool
-	closed                   bool
-	queue                    []func(*ui.Context)
-	invalidate               func()
-	update                   func(func())
-	workers                  sync.WaitGroup
-	observers                sync.WaitGroup
-	openWindow               func(string)
-	pickDirectory            func(func(string))
-	savedProject             string // the project the editor saved, opened once projected
-	preferencesChanged       func()
-	busy                     map[string]bool
-	uncertain                map[string]protocol.Request
-	drafts                   uint64
-	openDrafts               map[string]bool // drafts New session opened, on the local Runtime
-	draftsShown              map[string]bool // those a pane showed this frame
-	lastPreferences          string
-	lastMaterials            [3]float32
-	lastFeatures             string
-	lastKeys                 string
-	powerObservedRevision    uint64
-	compactionObserved       uint64
-	updates                  *Updates
-	updatesFocused           func() bool
-	prefsRevision            uint64
-	conversationWatches      map[protocol.SessionID]func()
-	conversationSeen         map[protocol.SessionID]bool
-	childStops               map[protocol.TurnID]bool
-	composerInitialized      map[string]bool
-	composerObserved         map[string]string
-	readAloud                func(string, string, string)
-	exportConversation       func(string, string, conversation.ExportFormat)
-	conversationEdits        map[string]conversationEdit
-	conversationPending      map[string]protocol.TurnID // the turn a fork or rewind in flight acts on
-	turnRetries              map[string]turnRetry
-	interactionFlows         map[string]*interactionFlow
-	conversationCreations    map[string]conversationCreation
-	conversationCreating     map[string]bool
-	providerPresets          map[string]protocol.ConversationPresetsEntry
-	providerBrands           map[string]string // brand names by presetBrand, offered or not
-	providerModels           map[string]map[string]protocol.ConversationModel
-	providerDraftBases       map[string]protocol.ConversationProvider
-	modelScores              map[string][]protocol.ConversationCatalogScoresEffortScore
-	modelScoreKey            string
-	snapshotMu               sync.Mutex
-	snapshotCopy             protocol.Snapshot
-	snapshotRevision         uint64
-	snapshotRead             bool
-	conversationCopies       map[protocol.SessionID]conversationCopy
-	conversationsStale       atomic.Bool
+	// acknowledged is the attention revision each shown session was marked
+	// read at (attentionFrame).
+	acknowledged map[string]uint64
+	// keptUnread is the shown session the user marked unread: it stays so
+	// until another one is shown.
+	keptUnread            string
+	composerRevisions     map[string]uint64
+	composerSaving        map[string]bool
+	composerWaiters       map[string][]func(bool)
+	composerBases         map[*composer.State]protocol.SessionConfig
+	sessionBases          map[*composer.State]*sessionBaseStart
+	App                   *shell.App
+	Preferences           *preferences.Store
+	controller            *client.Client
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	unsubscribe           func()
+	unsubscribePrefs      func()
+	mu                    sync.Mutex
+	dirty                 bool
+	closed                bool
+	queue                 []func(*ui.Context)
+	invalidate            func()
+	update                func(func())
+	workers               sync.WaitGroup
+	observers             sync.WaitGroup
+	openWindow            func(string)
+	pickDirectory         func(func(string))
+	savedProject          string // the project the editor saved, opened once projected
+	preferencesChanged    func()
+	busy                  map[string]bool
+	uncertain             map[string]protocol.Request
+	drafts                uint64
+	openDrafts            map[string]bool // drafts New session opened, on the local Runtime
+	draftsShown           map[string]bool // those a pane showed this frame
+	lastPreferences       string
+	lastMaterials         [3]float32
+	lastFeatures          string
+	lastKeys              string
+	powerObservedRevision uint64
+	compactionObserved    uint64
+	updates               *Updates
+	updatesFocused        func() bool
+	prefsRevision         uint64
+	conversationWatches   map[protocol.SessionID]func()
+	conversationSeen      map[protocol.SessionID]bool
+	childStops            map[protocol.TurnID]bool
+	composerInitialized   map[string]bool
+	composerObserved      map[string]string
+	readAloud             func(string, string, string)
+	exportConversation    func(string, string, conversation.ExportFormat)
+	conversationEdits     map[string]conversationEdit
+	conversationPending   map[string]protocol.TurnID // the turn a fork or rewind in flight acts on
+	turnRetries           map[string]turnRetry
+	interactionFlows      map[string]*interactionFlow
+	conversationCreations map[string]conversationCreation
+	conversationCreating  map[string]bool
+	providerPresets       map[string]protocol.ConversationPresetsEntry
+	providerBrands        map[string]string // brand names by presetBrand, offered or not
+	providerModels        map[string]map[string]protocol.ConversationModel
+	providerDraftBases    map[string]protocol.ConversationProvider
+	modelScores           map[string][]protocol.ConversationCatalogScoresEffortScore
+	modelScoreKey         string
+	snapshotMu            sync.Mutex
+	snapshotCopy          protocol.Snapshot
+	snapshotRevision      uint64
+	snapshotRead          bool
+	conversationCopies    map[protocol.SessionID]conversationCopy
+	conversationsStale    atomic.Bool
 	// composerOutgoing is a queued or guiding message on its way to the
 	// Host, by conversation: the queue tray's placeholder row.
 	composerOutgoing map[string]composer.Queued
@@ -456,6 +462,40 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.networkFrame(c)
 	r.browserFrame()
 	r.aboutFrame(c)
+	r.attentionFrame()
+}
+
+// attentionFrame marks the conversation on screen read: a session whose
+// turn ended is unread until it is shown in the focused window, as the
+// reference acknowledges it (shell/session_scope/attention.rs). One
+// acknowledgement goes out per attention revision; one that lost to a newer
+// revision is sent again for that revision.
+func (r *Runtime) attentionFrame() {
+	if r.parent != nil || r.App.Page != shell.ConversationPage || r.updatesFocused != nil && !r.updatesFocused() {
+		return
+	}
+	cv := r.App.Data.Find(r.App.Sidebar.Selected)
+	if cv == nil || cv.ID == r.keptUnread {
+		return
+	}
+	r.keptUnread = ""
+	owner := r.conversationRuntime(cv, nil)
+	if owner == nil {
+		return
+	}
+	session, ok := owner.session(cv.ID)
+	if !ok || !session.Activity.Attention.Unread {
+		return
+	}
+	revision := session.Activity.Attention.Revision
+	if sent, ok := owner.acknowledged[cv.ID]; ok && sent == revision {
+		return
+	}
+	if owner.acknowledged == nil {
+		owner.acknowledged = map[string]uint64{}
+	}
+	owner.acknowledged[cv.ID] = revision
+	owner.execute(protocol.Command{Kind: "set_session_read", Data: protocol.CommandSetSessionReadPayload{Session: session.ID, ExpectedRevision: revision, Read: true}}, func(*ui.Context, protocol.Output, error) {})
 }
 
 func (r *Runtime) afterFrame() {
@@ -808,6 +848,9 @@ func (r *Runtime) unarchive(cv *viewmodel.Conversation) {
 	r.command(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: id, ExpectedRevision: cv.Revision, Archived: false}}, "session_changed", nil)
 }
 func (r *Runtime) read(cv *viewmodel.Conversation, read bool) {
+	if !read {
+		r.localRuntime().keptUnread = cv.ID
+	}
 	if owner := r.conversationRuntime(cv, nil); owner == nil {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
 		return

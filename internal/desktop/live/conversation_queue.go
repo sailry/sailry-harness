@@ -1,6 +1,8 @@
 package live
 
 import (
+	"slices"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -12,10 +14,13 @@ import (
 // are automatic rows the strip draws without an editor, and get neither.
 func (r *Runtime) enrichQueue(cv *viewmodel.Conversation, queue protocol.ConversationQueue) {
 	for i := range cv.Queue {
-		item := queue.Items[i]
-		if cv.Queue[i].Notice || cv.Queue[i].Compaction {
+		// The strip leaves out the turns that started, so a row is found by
+		// its turn, not its place.
+		index := slices.IndexFunc(queue.Items, func(item protocol.ConversationPending) bool { return item.Turn.String() == cv.Queue[i].ID })
+		if index < 0 || cv.Queue[i].Notice || cv.Queue[i].Compaction {
 			continue
 		}
+		item := queue.Items[index]
 		cv.Queue[i].Load = func(done func(string, bool)) {
 			r.readQueued(item, func(value protocol.ConversationQueuedMessage, ok bool) { done(value.Message.Text, ok) })
 		}

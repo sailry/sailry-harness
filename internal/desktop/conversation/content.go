@@ -394,37 +394,53 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 	if k.Elapsed >= time.Second {
 		label += " " + Elapsed(k.Elapsed)
 	}
-	stopped := k.State == CompactionFailed || k.State == CompactionInterrupted
+	// One rule across the transcript with the state in its middle, as the
+	// reference draws every compaction (live/messages/compaction.rs). A
+	// summary is not shown: the row tells that the context was compacted.
+	rule := func(middle func()) {
+		ui.Row(c.Key("compaction")).FillWidth().Height(rowHeight(size)).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Height(1).Grow(1).Background(p.Border)
+			middle()
+			ui.Box(c).Height(1).Grow(1).Background(p.Border)
+		})
+	}
 	switch {
 	case k.State == CompactionFailed || k.State == CompactionInterrupted && strings.TrimSpace(k.Cause) != "":
-		head := Call{Label: label, Icon: "triangle-alert", Failed: true}
+		// The failure's label opens its cause under the rule.
 		cause := k.Cause
 		if strings.TrimSpace(cause) == "" {
 			cause = i18n.T(c, "compact_reason_unknown")
 		}
-		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-			ui.Text(c, cause).Selectable().FontSize(size).TextColor(p.Danger)
+		id := "compaction-" + t.ID
+		open := s.opened(id)
+		ui.Column(c.Key(id)).FillWidth().Gap(4).Children(func() {
+			rule(func() {
+				ui.ButtonBase(c.Key("toggle")).Shrink(0).Expanded(open).Cursor(ui.CursorPointer).TextColor(p.Danger).Children(func() {
+					ui.Text(c, label).FontSize(size)
+				}).OnClick(func() { s.toggle(id) })
+			})
+			if open {
+				ui.Scroll(c).MaxHeight(160).Children(func() {
+					ui.Text(c, cause).Selectable().FontSize(size).TextColor(p.MutedForeground)
+				})
+			}
 		})
 	case k.Summary != "":
-		head := Call{Label: label, Icon: "file-text"}
-		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-			ui.Scroll(c).MaxHeight(240).Children(func() {
-				ui.Text(c, k.Summary).Selectable().FontSize(size).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
-			})
+		rule(func() {
+			ui.Icon(c, icons.FileText).FontSize(rowIcon(size)).Shrink(0).TextColor(p.MutedForeground)
+			ui.Text(c, label).FontSize(size).Shrink(0).TextColor(p.MutedForeground)
 		})
 	default:
 		tone := p.MutedForeground
-		if stopped {
+		if k.State == CompactionInterrupted {
 			tone = p.Danger
 		}
-		ui.Row(c.Key("compaction")).FillWidth().Height(rowHeight(size)).Gap(8).AlignItems(ui.Center).TextColor(tone).Children(func() {
-			ui.Box(c).Height(1).Grow(1).Background(p.Border)
+		rule(func() {
 			if k.State == CompactionRunning || k.State == CompactionQueued {
 				kit.Shimmer(c, label, size, p.MutedForeground)
 			} else {
-				ui.Text(c, label).FontSize(size)
+				ui.Text(c, label).FontSize(size).Shrink(0).TextColor(tone)
 			}
-			ui.Box(c).Height(1).Grow(1).Background(p.Border)
 		})
 	}
 }

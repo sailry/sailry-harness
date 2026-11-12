@@ -36,7 +36,8 @@ type editorCloseRequest struct {
 
 func (item *fileItem) documentState() *documentEditor {
 	if item.document == nil {
-		item.document = &documentEditor{}
+		// Long lines wrap until the toolbar's toggle turns it off.
+		item.document = &documentEditor{wrap: true}
 	}
 	return item.document
 }

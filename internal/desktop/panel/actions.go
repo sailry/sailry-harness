@@ -183,6 +183,10 @@ func (pr *Project) CommitSaved(message string) {
 func (pr *Project) SetFileWritable(path string, writable bool) {
 	pr.Files.item(path).writable = writable
 }
+
+// FileLoaded tells that the file's view holds content: a view made again
+// after its tab closed does not yet.
+func (pr *Project) FileLoaded(path string) bool { return pr.Files.item(path).loaded }
 func (pr *Project) FileDraft(path string) (string, bool) {
 	item := pr.Files.item(path)
 	return item.draft + item.suffix, item.dirty

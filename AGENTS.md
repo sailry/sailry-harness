@@ -126,8 +126,9 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   and Continue sending (a halt is one toast; Send now or a message resumes)
 - Attachments: the composer's own file dialog and the system file dialog (Add
   attachment opens the in-app picker)
-- Model picker: capability filters and the line over them in the rail (row
-  marks stay); a check mark on a chosen effort, model, family or team row (the
+- Model picker: capability filters and the line over them in the rail, and
+  capability marks on a model's row (the score alone ends it); the heading
+  over the efforts; a check mark on a chosen effort, model, family or team row (the
   neutral fill marks it; mode and permission menus keep checks); a score card
   or tooltip over a score (the controls page keeps its card)
 - File picker: the host's name on a second line under the title (this device

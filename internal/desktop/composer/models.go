@@ -278,7 +278,7 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 	h := float32(108 + teamRow + 9)
 	switch s.layer {
 	case layerModels:
-		// As tall as the efforts' heading and nine rows, less in a window
+		// As tall as ten rows, less in a window
 		// too short for it, where the models and the efforts scroll.
 		_, wh := c.Size()
 		h = max(panelHeight/2, min(panelHeight, wh-pickerReserve))
@@ -602,14 +602,10 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 	shown := func(m Model) bool { return s.family == "" || m.Family == s.family }
 	var providers []string
 	seen := map[string]bool{}
-	// scored tells that a listed model has a score: every row then keeps
-	// the score's place, so the capability marks line up (modelRow).
-	scored := false
 	for _, m := range models {
 		if !shown(m) {
 			continue
 		}
-		scored = scored || m.Score != nil
 		if !seen[m.Provider] {
 			seen[m.Provider] = true
 			providers = append(providers, m.Provider)
@@ -698,7 +694,7 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 				}
 				for _, m := range models {
 					if m.Provider == pr && shown(m) {
-						rows[m.ID] = s.modelRow(c, m, chosen, scored)
+						rows[m.ID] = s.modelRow(c, m, chosen)
 					}
 				}
 			}
@@ -802,12 +798,6 @@ func (e *effortState) aim(id string, at [2]int, moved bool) bool {
 // rowPad is a picker row's padding at each end: its score ends there.
 const rowPad = 8
 
-// scoreWidth is the place a model's row keeps for its score, a digit, the
-// point and a decimal at 14 in the monospace font, ending at the row's
-// padding: a row without a score keeps it empty, so its capability marks
-// stand where the other rows' do.
-const scoreWidth = 28
-
 // rowLook is a row of the picker, a model's or an effort's: 32 high, its
 // content from rowPad. The chosen one is told by its fill alone, the
 // neutral Palette.Selected, with no check; assistive technology has it as
@@ -830,24 +820,15 @@ func score(c *ui.Context, sc *Score) ui.Element {
 		TextColor(theme.Of(c).MutedForeground)
 }
 
-// modelRow is a model of a group: its name, then at the row's end its
-// capabilities and, last, its score. scored tells that a model of the list
-// has a score: a row without one then keeps the score's place under its
-// capabilities. It chooses the model at the effort its column checks.
-func (s *State) modelRow(c *ui.Context, m, chosen Model, scored bool) ui.Element {
-	p := theme.Of(c)
+// modelRow is a model of a group: its name and, at the row's end, its
+// score alone, with no capability marks (AGENTS.md, Removed UI). It
+// chooses the model at the effort its column checks.
+func (s *State) modelRow(c *ui.Context, m, chosen Model) ui.Element {
 	b := rowLook(c, ui.ButtonBase(c.Key(m.ID)).Label(m.Name), m.ID == chosen.ID)
 	b.Children(func() {
 		ui.Text(c, m.Name).FontSize(14).LineHeight(20.0 / 14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-		for _, capability := range m.Capabilities {
-			label := i18n.T(c, capability.Label)
-			kit.Tooltip(c, ui.Icon(c.Key(capability.ID), capability.Icon).FontSize(12).Shrink(0).TextColor(p.MutedForeground).Label(label), label)
-		}
-		switch {
-		case m.Score != nil:
-			score(c, m.Score).MinWidth(scoreWidth).TextAlign(ui.End)
-		case scored && len(m.Capabilities) > 0:
-			ui.Box(c.Key("no-score")).Width(scoreWidth).Shrink(0)
+		if m.Score != nil {
+			score(c, m.Score)
 		}
 	}).OnClick(func() { s.pick(m, s.carried(m, chosen)) })
 	return b
@@ -869,8 +850,8 @@ func (s *State) carried(m, chosen Model) int {
 	return defaultEffort(m)
 }
 
-// effortColumn is the efforts of a model under their heading, rows as the
-// models' are: the level and, at the row's end, the score measured at it.
+// effortColumn is the efforts of a model, with no heading over them
+// (AGENTS.md, Removed UI), rows as the models' are: the level and, at the row's end, the score measured at it.
 // The one the model's row chooses is filled and selected. A model without
 // efforts has a muted line for them, so the column keeps its place. focus
 // gives the selected row the keyboard focus.
@@ -884,10 +865,6 @@ func (s *State) effortColumn(c *ui.Context, m, chosen Model, focus bool) {
 	column := ui.Scroll(c.Key("efforts")).Width(effortWidth).Shrink(0).MaxHeight(panelHeight).Role(ui.RoleListBox).Label(name).
 		FocusGroup(ui.Vertical)
 	column.Children(func() {
-		// As tall as a group's name, so the rows line up with the models'.
-		ui.Row(c.Key("heading")).FillWidth().Height(32).Shrink(0).PaddingX(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, name).FontSize(12).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
-		})
 		if len(list) == 0 {
 			ui.Text(c.Key("none"), i18n.T(c, "composer_effort_unavailable")).FontSize(14).LineHeight(20.0/14).
 				Padding(6, 8).TextColor(p.MutedForeground)

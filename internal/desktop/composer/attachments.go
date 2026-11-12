@@ -190,10 +190,17 @@ func (s *State) attachments(c *ui.Context, actions Actions) {
 		}
 		kit.PreviewNotice(c)
 	})
-	if len(s.Attachments) == 0 {
+	// A file behind a chip of the draft has no card.
+	var cards []*Attachment
+	for _, a := range s.Attachments {
+		if a.Chip == "" {
+			cards = append(cards, a)
+		}
+	}
+	if len(cards) == 0 {
 		return
 	}
-	s.strip(c.Key("attachments"), s.Attachments, actions).FillWidth().Shrink(0).Padding(8, 2, 2, 2)
+	s.strip(c.Key("attachments"), cards, actions).FillWidth().Shrink(0).Padding(8, 2, 2, 2)
 }
 
 // strip is the row of list's cards. With actions nil the cards only show

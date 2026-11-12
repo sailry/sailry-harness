@@ -132,6 +132,8 @@ func testTextSize(t *testing.T) {
 			{Kind: ToolsBlock, Calls: []Call{{ID: "a", Name: "shell", Label: first, Icon: "circle-check", Detail: "MAKE TEST", Code: true, Output: &Output{Text: "ok"}}}},
 			{Kind: TextBlock, Text: between},
 			{Kind: ToolsBlock, Calls: []Call{{ID: "b", Name: "read", Label: second, Icon: "file-text", Output: &Output{Text: "ok"}}}},
+			// The phase row shows once content follows the calls (showPhase).
+			{Kind: TextBlock, Text: "After"},
 		}}}}
 		var userWidth, labelWidth float32
 		tt := ui.NewTester(func(c *ui.Context) {

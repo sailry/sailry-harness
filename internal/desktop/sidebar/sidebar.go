@@ -600,8 +600,9 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 
 // status puts the conversation's state in the 12x12 slot on the elbow: the
 // loader, in the color of the row's text and named as running, while it
-// runs, otherwise the status dot in its tone. A row that does not run has
-// no loader and asks for no frame.
+// runs, the status dot in its tone while it waits or is unread, and a small
+// dim dot at rest. A row that does not run has no loader and asks for no
+// frame.
 func status(c *ui.Context, st preview.Status, color ui.Color) {
 	slot := ui.Box(c).Absolute().Left(guideX-6).Top(rowHeight/2-6).Size(12, 12).Center().PassThrough()
 	switch st {
@@ -611,6 +612,9 @@ func status(c *ui.Context, st preview.Status, color ui.Color) {
 		slot.Children(func() { kit.StatusDot(c, kit.Caution, i18n.T(c, "activity_waiting")) })
 	case preview.Unread:
 		slot.Children(func() { kit.StatusDot(c, kit.Info, i18n.T(c, "notification_unread")) })
+	default:
+		// At rest: a small dim dot, so every row has its mark.
+		slot.Children(func() { ui.Box(c).Size(6, 6).Shrink(0).Radius(3).Background(theme.Of(c).MutedForeground.Alpha(0.45)) })
 	}
 }
 

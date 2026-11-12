@@ -34,6 +34,7 @@ var unshown = map[string]string{
 	"conversation.Session.Loading":             "a moment before any content, not content",
 	"conversation.Session.LoadingOlder":        "a moment, which would keep the window redrawing",
 	"conversation.Call.Load":                   "a live disclosure's request",
+	"composer.Attachment.Chip":                 "set by a pick in the live browser, which binds the file to its chip",
 	"composer.Queued.Load":                     "a live queue's request",
 	"composer.Queued.Save":                     "a live queue's request",
 	"composer.Queued.Revision":                 "a live queue's revision",
@@ -401,9 +402,6 @@ func TestDemo(t *testing.T) {
 		}
 		if len(ctx.Families) != 1 || i18n.In("en", ctx.Families[0].Label) != "DeepSeek" || ctx.Families[0].Icon == nil || icons.Brand("deepseek") == nil {
 			t.Errorf("the model picker's rail is %+v", ctx.Families)
-		}
-		if len(ctx.Models[0].Capabilities) == 0 || len(ctx.Models[1].Capabilities) == 0 {
-			t.Error("the models carry no capability tags")
 		}
 		var listed []string
 		for _, command := range ctx.Commands {

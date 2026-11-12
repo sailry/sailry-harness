@@ -102,17 +102,6 @@ type Model struct {
 	Scores map[string]*Score
 	// Features are its options beyond the effort, as Fast mode.
 	Features []Feature
-	// Capabilities are what it understands and generates beyond text, as
-	// the picker's rows mark them.
-	Capabilities []Capability
-}
-
-// Capability is a model's capability tag the picker shows: understanding
-// images, or generating images, video or speech.
-type Capability struct {
-	ID    string
-	Label string // i18n key
-	Icon  *ui.SVG
 }
 
 // Family is a group of providers on the model picker's rail: a cloud,
@@ -240,6 +229,7 @@ const (
 	EffortCommand                      // a / command choosing the effort Insert names
 	Compact                            // /compact: compacts the conversation
 	AttachFiles                        // opens the window's file picker
+	Element                            // an element picked in the browser: its chip stands for its attachments
 )
 
 // Reference is a row of the @ and / pickers (live/references): a page of
@@ -292,6 +282,10 @@ type Attachment struct {
 	Status   AttachmentStatus
 	Progress float32 // 0 to 1 while Sending
 	Error    string  // i18n key while Failed
+	// Chip is the ID of the reference whose chip in the draft stands for
+	// this file, as an element picked in the browser: it has no card in the
+	// attachment row and leaves with its chip.
+	Chip string
 }
 
 // MaxAttachments is how many files a message carries (chat_attachment_limit).

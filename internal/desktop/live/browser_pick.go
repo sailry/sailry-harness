@@ -463,8 +463,8 @@ func browserCaptureWithin(ctx context.Context, view *mygo.WebView, limit time.Du
 }
 
 // browserAttachElement gives a picked element to the composer of the tab's
-// conversation while it is the one on screen: the element's picture and its
-// page context, two attachments that go together. A pick that arrives after
+// conversation while it is the one on screen: one chip in the draft that
+// stands for the element's picture and its page context. A pick that arrives after
 // its conversation left the screen is refused and ends the selection: no
 // other conversation's composer takes it.
 func (r *Runtime) browserAttachElement(c *ui.Context, tab *browserTab, element *browserElement, picture []byte) bool {
@@ -488,5 +488,5 @@ func (r *Runtime) browserAttachElement(c *ui.Context, tab *browserTab, element *
 	if bitmap, err := ui.DecodeBitmap(picture); err == nil {
 		shot.Image = bitmap
 	}
-	return comp.Attach(c, []*composer.Attachment{shot, {Name: name + ".json", Mime: "application/json", Size: int64(len(document)), Data: document}}, actions)
+	return comp.AttachElement(c, "element:"+name, element.label(), []*composer.Attachment{shot, {Name: name + ".json", Mime: "application/json", Size: int64(len(document)), Data: document}}, actions)
 }

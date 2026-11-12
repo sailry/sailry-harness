@@ -431,7 +431,14 @@ func (p *workspaceProject) readFile(relative string) {
 	if relative == "" {
 		return
 	}
-	if _, loaded := p.files[relative]; loaded {
+	if value, loaded := p.files[relative]; loaded {
+		// A tab closed and opened again is a new view of the file already
+		// read: it shows that content and is as writable as it.
+		if !p.panel.FileLoaded(relative) {
+			p.panel.SetFile(relative, value.Text)
+			p.panel.SetFileWritable(relative, value.Revision != nil && !value.Truncated)
+			p.panel.SetFileStatus(relative, false, value.Truncated)
+		}
 		p.settleChanged(relative)
 		return
 	}

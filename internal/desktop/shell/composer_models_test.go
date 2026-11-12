@@ -886,17 +886,13 @@ func composerModels(t *testing.T) {
 	})
 
 	// A score is the last thing of its row, ending at the row's padding, on
-	// the models' rows and the efforts' alike, so the scores are a column;
-	// a model without a score keeps the score's place, so its capability
-	// mark is under the others'.
+	// the models' rows and the efforts' alike, so the scores are a column.
+	// A model's row has nothing else at its end: no capability mark, and
+	// the efforts have no heading over them (AGENTS.md, Removed UI).
 	t.Run("scores at the row's end", func(t *testing.T) {
-		vision, image := zh("provider_cap_vision"), zh("provider_cap_image")
 		tt := demoPicker(t, func(models []composer.Model) {
-			// Pro: the image mark, its score, and scores measured at two
-			// efforts. V4.1: its score alone. Flash: the vision mark alone.
-			pro, plain, flash := &models[0], &models[1], &models[2]
-			flash.Capabilities = pro.Capabilities[:1]
-			pro.Capabilities, plain.Capabilities = pro.Capabilities[1:], nil
+			// Pro: its score, and scores measured at two efforts.
+			pro := &models[0]
 			pro.Scores = map[string]*composer.Score{"low": {Overall: 7.3, Tested: "low"}, "high": {Overall: 9.4, Tested: "high"}}
 		})
 		tt.Move(2, 2)
@@ -911,7 +907,7 @@ func composerModels(t *testing.T) {
 			}
 			return row.Bounds.X + row.Bounds.W - (box.X + box.W)
 		}
-		pro, plain, flash := modelRow(t, tt, preview.DemoModel), modelRow(t, tt, "DeepSeek V4.1"), modelRow(t, tt, "DeepSeek V4.1 Flash")
+		pro, plain := modelRow(t, tt, preview.DemoModel), modelRow(t, tt, "DeepSeek V4.1")
 		low, high := effortRow(t, tt, "low"), effortRow(t, tt, "high")
 		if !near(low.Bounds.X+low.Bounds.W, high.Bounds.X+high.Bounds.W) || !near(pro.Bounds.X+pro.Bounds.W, plain.Bounds.X+plain.Bounds.W) {
 			t.Fatalf("the rows of a column end apart: the efforts %v and %v, the models %v and %v", low.Bounds, high.Bounds, pro.Bounds, plain.Bounds)
@@ -922,10 +918,10 @@ func composerModels(t *testing.T) {
 				t.Errorf("a column's scores end %v and %v before the ends of their rows, want the padding, 8, for both", column[0], column[1])
 			}
 		}
-		// The marks: before the score's place, 8 apart from it.
-		scored, unscored := ends(image, pro), ends(vision, flash)
-		if !near(scored, unscored) || scored < 8+28+8-1 || scored > 8+28+8+1 {
-			t.Errorf("the capability marks end %v before the end of a row with a score and %v of one without, want 44 for both", scored, unscored)
+		for _, removed := range []string{zh("provider_cap_vision"), zh("provider_cap_image")} {
+			if _, ok := tt.Find(removed); ok {
+				t.Errorf("a model's row has the capability mark %q", removed)
+			}
 		}
 	})
 
