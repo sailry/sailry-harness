@@ -151,7 +151,7 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 			servers.Go(func() {
 				prepared, err := node.prepareMCPLaunch(ctx, info, settings, name, configuration.Servers[name])
 				if err == nil {
-					node.startComputer(info, settings, configuration.Servers[name], &prepared)
+					node.startComputer(info, configuration.Servers[name], &prepared)
 					var lease *mcp.Lease
 					if lease, err = node.plugins.mcp.Acquire(ctx, prepared); err == nil {
 						_, err = lease.List(ctx)

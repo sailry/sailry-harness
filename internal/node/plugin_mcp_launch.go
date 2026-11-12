@@ -237,7 +237,12 @@ func (node *Node) prepareMCPLaunch(ctx context.Context, info protocol.PluginInfo
 		return prepared, err
 	}
 	prepared.Authorization = []any{prepared.Authorization, authorization}
-	capture := connectorMCPAuthority{info: info, settings: settings, server: name, target: server, base: base, launch: prepared.Launch, identity: authorization}
+	// The capture keeps the launch as it was authorized: what the caller
+	// adds to the prepared launch afterwards (a helper's session variable)
+	// is not a changed credential.
+	authorized := prepared.Launch
+	authorized.Env, authorized.Headers = maps.Clone(authorized.Env), maps.Clone(authorized.Headers)
+	capture := connectorMCPAuthority{info: info, settings: settings, server: name, target: server, base: base, launch: authorized, identity: authorization}
 	prepared.Validate = func(ctx context.Context) error { return node.validateMCPAuthorization(ctx, capture) }
 	return prepared, nil
 }

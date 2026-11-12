@@ -265,9 +265,6 @@ func TestComputerHelperLocator(t *testing.T) {
 		if helper.calls[len(helper.calls)-1] != "session end run-4" || attach(true) != "" {
 			t.Fatal(helper.calls)
 		}
-		if !OverlayEnabled(nil) || OverlayEnabled(map[string]json.RawMessage{"cursor_overlay": json.RawMessage("false")}) {
-			t.Fatal("the overlay setting defaults on")
-		}
 		for _, data := range []string{`{}`, `{"session_id":""}`, `{"session_id":"../other"}`, `{"session_id":"` + strings.Repeat("run-", 20) + `"}`} {
 			if _, code := sessionID([]byte(data)); code != "INVALID_SESSION" {
 				t.Fatal(data)

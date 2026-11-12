@@ -96,7 +96,7 @@ func (node *Node) checkPluginMCP(ctx context.Context, request protocol.Request) 
 	if err != nil {
 		return protocol.Output{}, err
 	}
-	node.startComputer(info, settings, server, &prepared)
+	node.startComputer(info, server, &prepared)
 	lease, err := node.plugins.mcp.Acquire(ctx, prepared)
 	if err != nil {
 		return protocol.Output{}, err

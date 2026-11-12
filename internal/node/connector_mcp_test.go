@@ -65,6 +65,12 @@ func TestRetainedMCPAuthorization(t *testing.T) {
 			if err := prepared.Validate(ctx); err != nil {
 				t.Fatal(err)
 			}
+			// What a caller adds to the prepared launch afterwards, as the
+			// computer helper's session variable, is not a changed credential.
+			prepared.Launch.Headers["X-Test-Session"] = "run-1"
+			if err := prepared.Validate(ctx); err != nil {
+				t.Fatalf("a value added after authorization failed validation: %v", err)
+			}
 			err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 				switch scenario {
 				case "disabled connection":

@@ -82,7 +82,7 @@ func (node *Node) connectMCPTools(ctx context.Context, invocation *store.AgentIn
 	// keeps the enable state of the package's first install.
 	info := binding.info
 	info.Summary.Enabled = true
-	node.startComputer(info, binding.settings, binding.configuration, &prepared)
+	node.startComputer(info, binding.configuration, &prepared)
 	lease, err := node.plugins.mcp.Acquire(ctx, prepared)
 	if err != nil {
 		return nil, err

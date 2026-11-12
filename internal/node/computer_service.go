@@ -8,7 +8,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
-	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -96,14 +95,15 @@ func computerServer(server protocol.PluginMcpServer) bool {
 }
 
 // startComputer finishes a helper MCP launch: it joins the package's cursor
-// overlay session when the package allows one, and starts the helper under
-// its own system identity.
-func (node *Node) startComputer(info protocol.PluginInfo, settings store.ResolvedPluginSettings, server protocol.PluginMcpServer, prepared *mcp.Configuration) {
+// overlay session, which an enabled, compatible package always has (there
+// is no setting for it), and starts the helper under its own system
+// identity.
+func (node *Node) startComputer(info protocol.PluginInfo, server protocol.PluginMcpServer, prepared *mcp.Configuration) {
 	if !computerServer(server) {
 		return
 	}
 	launch := &prepared.Launch
-	allowed := info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" && computer.OverlayEnabled(settings.Values)
+	allowed := info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible"
 	session, attached := node.computerOverlay.Attach(info.Summary.Name, allowed, computer.Invocation{
 		Command: launch.Command, Directory: launch.Directory, Env: launch.Env, Environment: launch.Environment,
 	})
@@ -114,7 +114,7 @@ func (node *Node) startComputer(info protocol.PluginInfo, settings store.Resolve
 }
 
 // retainComputerOverlay ends a changed package's overlay session once the
-// package is removed, disabled or no longer allows the overlay.
+// package is removed or disabled.
 func (node *Node) retainComputerOverlay(name string) {
 	if node.begin() != nil {
 		return
@@ -128,11 +128,7 @@ func (node *Node) retainComputerOverlay(name string) {
 		allowed := false
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			info, err := store.ReadPlugin(ctx, db, name)
-			if err != nil || info == nil || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
-				return err
-			}
-			settings, err := store.ResolvePluginSettings(ctx, db, plugins.PackageReference(*info))
-			allowed = err == nil && computer.OverlayEnabled(settings.Values)
+			allowed = err == nil && info != nil && info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible"
 			return err
 		})
 		if err != nil || allowed {

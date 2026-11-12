@@ -362,12 +362,6 @@ func configure(home, session string) string {
 	return ""
 }
 
-// OverlayEnabled reads a package's "cursor_overlay" setting; it defaults on.
-func OverlayEnabled(values map[string]json.RawMessage) bool {
-	var enabled bool
-	return json.Unmarshal(values["cursor_overlay"], &enabled) != nil || enabled
-}
-
 func report(operation, code string) {
 	slog.Warn("computer overlay step failed", "operation", operation, "code", code)
 }

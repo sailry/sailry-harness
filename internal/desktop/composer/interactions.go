@@ -218,14 +218,17 @@ type Actions interface {
 
 // interaction is the State's part for the interactions.
 type interaction struct {
-	approvals, question bool   // the popovers are open
-	at                  int    // the approval shown
-	asked               string // the question the draft is for
-	chosen              int
-	choices             map[int]*bool
-	other               bool
-	text                string
-	fields              []fieldDraft
+	approvals, question bool // the popovers are open
+	at                  int  // the approval shown
+	// offered are the pending approvals the popover has opened for: a
+	// request that arrives opens it once, and closing it keeps it closed.
+	offered map[string]bool
+	asked   string // the question the draft is for
+	chosen  int
+	choices map[int]*bool
+	other   bool
+	text    string
+	fields  []fieldDraft
 }
 
 // fieldDraft is what the user entered in a form field. An optional field
@@ -286,6 +289,19 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	if pending > 0 {
 		label = i18n.T(c, "approval_live_count", "count", pending)
 	}
+	// A request that arrives opens the popover on itself, so a run does not
+	// wait behind a capsule nobody pressed.
+	offered := map[string]bool{}
+	for i, a := range list {
+		if a.Receipt {
+			continue
+		}
+		offered[a.ID] = true
+		if !s.in.offered[a.ID] {
+			s.in.approvals, s.in.at = true, i
+		}
+	}
+	s.in.offered = offered
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
 	s.in.at = min(max(s.in.at, 0), len(list)-1)
 	place(c, kit.Popover(c, trigger, &s.in.approvals, func() {
