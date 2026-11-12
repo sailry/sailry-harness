@@ -52,13 +52,25 @@ func fixture(t *testing.T) (string, *gogit.Repository, string) {
 
 // fixtureService answers native Git without a process. Hunk staging asks Git
 // for a path's filter driver and for the blob of the staged text; the fixture
-// reports no driver and stores the text unconverted.
+// reports no driver and stores the text unconverted. Asked for the stored form
+// of worktree files, it hashes their bytes: the fixture converts nothing.
 func fixtureService() *Service {
 	return New(Options{Run: func(_ context.Context, root string, args []string, input []byte) (CommandResult, error) {
 		switch args[0] {
 		case "check-attr":
 			return CommandResult{Stdout: []byte(args[len(args)-1] + "\x00filter\x00unspecified\x00")}, nil
 		case "hash-object":
+			if args[1] == "--stdin-paths" {
+				var out strings.Builder
+				for _, path := range strings.Split(strings.TrimSuffix(string(input), "\n"), "\n") {
+					body, err := os.ReadFile(filepath.Join(root, path))
+					if err != nil {
+						return CommandResult{ExitCode: 128}, nil
+					}
+					out.WriteString(plumbing.ComputeHash(plumbing.BlobObject, body).String() + "\n")
+				}
+				return CommandResult{Stdout: []byte(out.String())}, nil
+			}
 			r, err := open(root)
 			if err != nil {
 				return CommandResult{}, err
@@ -197,7 +209,11 @@ func TestGitReadMapping(t *testing.T) {
 		started, release := make(chan struct{}), make(chan struct{})
 		var calls int
 		var mu sync.Mutex
-		s := New(Options{Run: func(context.Context, string, []string, []byte) (CommandResult, error) {
+		s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			// The status also asks for the stored form of its modified file.
+			if args[0] == "hash-object" {
+				return CommandResult{ExitCode: 128}, nil
+			}
 			mu.Lock()
 			calls++
 			if calls == 1 {
