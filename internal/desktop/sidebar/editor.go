@@ -324,7 +324,11 @@ func (s *State) Catalog(host string) *picker.Catalog {
 	add = func(directory string, n *preview.FileNode, depth int) {
 		path := directory + "/" + n.Name
 		modified := picker.CatalogNow.Add(-time.Duration(depth*7+len(n.Name)) * time.Hour)
-		catalog.Add(path, n.Children == nil, uint64(len(n.Text))*37+512, modified)
+		var size uint64
+		if n.Children == nil {
+			size = uint64(len(n.Text))*37 + 512
+		}
+		catalog.Add(path, n.Children == nil, size, modified)
 		for _, child := range n.Children {
 			add(path, child, depth+1)
 		}

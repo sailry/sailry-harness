@@ -29,6 +29,9 @@ func testProviderLoginWarning(t *testing.T) {
 		value := protocol.DefaultConversationPresetsEntry()
 		value.Source, value.Provenance = source, protocol.ConversationPresetsProvenanceThirdParty
 		value.Preset.ID, value.Preset.Name = id, id
+		// A preset a provider can be saved from has a route; the directory
+		// is kept by it.
+		value.Preset.Routes = []protocol.ConversationPresetsRoute{{Protocol: protocol.ConversationPresetsProtocolPlugin}}
 		value.Login = &protocol.PluginModelAuthPresentation{Kind: "polling"}
 		value.LoginWarning = warning
 		return value

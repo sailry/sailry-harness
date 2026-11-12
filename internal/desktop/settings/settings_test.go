@@ -1835,8 +1835,10 @@ func TestExtensions(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.MarketPlugins = rows
 		m.Packages = nil
+		// Every third package stays uninstalled, wherever the bundled set
+		// puts it, except the Files package the steps below draw installed.
 		for i, row := range rows {
-			if i%3 != 0 {
+			if i%3 != 0 || row.ID == "files" {
 				row.Installed, row.Enabled = true, true
 				m.Packages = append(m.Packages, row)
 			}
