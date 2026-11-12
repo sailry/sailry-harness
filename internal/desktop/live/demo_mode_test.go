@@ -1129,30 +1129,40 @@ func TestDemoMode(t *testing.T) {
 				t.Fatalf("Fork conversation: %d sessions, selected %q", len(project.Conversations), r.App.Sidebar.Selected)
 			}
 
-			// The transcript's Retry runs the turn again and Stop ends it: the
-			// demo's own actions, where a session's would ask the Node.
+			// Stop ends a reply that plays, and the stopped turn's Retry runs it
+			// again: the demo's own actions, where a session's would ask the
+			// Node.
 			r.App.Sidebar.Selected = idle.ID
 			r.App.PanelOpen = false
 			settle()
-			var retry *ui.AccessInfo
-			for _, info := range tester.AccessAll() {
-				if info.Role == ui.RoleButton && info.Name == text("chat_retry") {
-					retry = &info
-				}
-			}
-			if retry == nil {
-				t.Fatalf("the demo's transcript has no Retry: %q", tester.Texts())
-			}
-			tester.ClickAt(retry.Bounds.X+retry.Bounds.W/2, retry.Bounds.Y+retry.Bounds.H/2)
-			tester.Frame()
-			if !idle.Running() {
-				t.Fatal("Retry did not run the demo's turn")
+			turns := len(idle.Turns)
+			click(text("composer"))
+			tester.Type("And once more")
+			tester.Key(0, ui.KeyEnter)
+			settle()
+			if len(idle.Turns) != turns+1 || !idle.Running() {
+				t.Fatalf("the message did not run: %d turns of %d, last %+v", len(idle.Turns), turns, idle.Turns[len(idle.Turns)-1])
 			}
 			r.App.Do("conversation.stop")
 			tester.Frame()
 			tester.Frame()
-			if idle.Running() {
-				t.Fatal("Stop left the demo's turn running")
+			if idle.Running() || idle.Turns[turns].Reply.Status != conversation.Cancelled {
+				t.Fatalf("Stop left the demo's turn running %v, status %d", idle.Running(), idle.Turns[turns].Reply.Status)
+			}
+			settle()
+			press(text("chat_retry"))
+			if len(idle.Turns) != turns+1 || idle.Turns[turns].Reply.Status == conversation.Cancelled {
+				t.Fatalf("Retry did not run the demo's turn again: status %d", idle.Turns[turns].Reply.Status)
+			}
+			for range 600 {
+				if !idle.Playing() {
+					break
+				}
+				tester.Advance(preview.Tick)
+				tester.Frame()
+			}
+			if got := idle.Turns[turns].Reply.Status; got != conversation.Completed {
+				t.Fatalf("the retried reply ended with status %d", got)
 			}
 			settle()
 			if shown := marked(); shown != "" {
