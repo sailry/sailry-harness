@@ -21,7 +21,18 @@ type ChannelModel struct {
 	Vision, Tools, Reasoning bool
 	Generates                []string
 	CustomCapabilities       bool
+	// Features are its options beyond the effort, as a fast mode.
+	Features []ModelFeature
 }
+
+// ModelFeature is a feature a model declares with its options.
+type ModelFeature struct {
+	ID, Name string
+	Options  []FeatureOption
+}
+
+// FeatureOption is a choice of a ModelFeature.
+type FeatureOption struct{ ID, Name string }
 
 // The values of ChannelModel.Generates. An image comes from the images
 // endpoint (GenerateImage) or from the tool the conversation model hosts

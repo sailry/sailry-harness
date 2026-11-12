@@ -80,7 +80,7 @@ model library and the extension details page.
 | `draft.go` | `draftDialog` (settings/draft.rs) and the dialog footer |
 | `providers.go` | Providers: catalog and compaction, families, channels with quota and status, the editor (brand, method, configure, models) and sign-in |
 | `connectors.go` | Connectors: toolbar and filter, service rows with status, switch and menu; the add dialog, details dialog and MCP server editor |
-| `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model and effort, prompt, members), role editor |
+| `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model with its effort and feature selects, prompt, members), role editor |
 | `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes and the permissions an update adds (`Package.AddedPermissions`, also on the details' newest version), uninstall |
 | `skills.go` | Skills: cards, install dialog by source, uninstall |
 | `market.go` | Market (`MarketPage`): plugins, skills and themes with search, source, filters and install/update states |
@@ -413,6 +413,11 @@ hover style.
   always says why it has no tools. The row's ellipsis is disabled when the row
   has no action; statuses and menu rules are in
   [Declared authorization](connectors.md#server-status-and-row-actions).
+- Teams: the model field is a select of Follow and the enabled channels'
+  models with an effort select and one select per feature the model
+  declares (Auto follows, Off, the feature's options; `Role.Features`,
+  `Team.Features`). The reference opens a searchable picker popover for
+  the same choices; ours has no search.
 - Teams: role and team appearance (icon and color picker) is not
   built; roles show the agent mark in their ID's color. The team list's
   right-click menu is folded into the editor's Duplicate and Delete.

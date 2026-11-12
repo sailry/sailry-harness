@@ -19,6 +19,9 @@ const (
 // ChannelModel is a model a channel offers.
 type ChannelModel = viewmodel.ChannelModel
 
+// ModelFeature is a feature a model declares.
+type ModelFeature = viewmodel.ModelFeature
+
 // Quota is an account login's remaining share of its windows, in percent;
 // negative for a window it does not report.
 type Quota = viewmodel.Quota

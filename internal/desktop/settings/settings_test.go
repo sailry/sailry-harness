@@ -1546,6 +1546,70 @@ func TestTeams(t *testing.T) {
 	if got := m.saveRole(preview.Role{Name: "X", Key: "tester"}); got != "role_duplicate" {
 		t.Errorf("duplicate key: %q", got)
 	}
+	// A model's features each have a select after the effort: Auto follows,
+	// Off sets none, an option sets it; another model starts from Auto.
+	t.Run("model features", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		var ch *preview.Channel
+		for i := range m.Channels {
+			if m.Channels[i].Enabled && len(m.Channels[i].Models) > 1 {
+				ch = &m.Channels[i]
+				break
+			}
+		}
+		if ch == nil {
+			t.Fatal("the preview has no enabled channel with two models")
+		}
+		ch.Models[0].Features = []preview.ModelFeature{{ID: "speed", Name: "Speed", Options: []viewmodel.FeatureOption{{ID: "fast", Name: "fast"}}}}
+		model, effort := ch.ID+"/"+ch.Models[0].ID, ""
+		var features map[string]string
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			modelField(c, m, "model", "Model", "role_inherit", &model, &effort, &features)
+		}, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		choose := func(option string) {
+			t.Helper()
+			tt.Frame()
+			var trigger ui.AccessInfo
+			for _, x := range tt.AccessAll() {
+				if x.Name == "Speed" && x.Bounds.H > trigger.Bounds.H {
+					trigger = x
+				}
+			}
+			tt.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
+			tt.Frame()
+			tt.Advance(time.Second)
+			for _, x := range tt.AccessAll() {
+				if x.Name == option && x.Bounds.Y > trigger.Bounds.Y+trigger.Bounds.H/2 {
+					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(time.Second)
+					return
+				}
+			}
+			t.Fatalf("no %q option: %q", option, tt.Texts())
+		}
+		choose(i18n.In("en", "composer_feature_fast"))
+		if features["speed"] != "fast" {
+			t.Fatalf("Fast set %v", features)
+		}
+		choose(i18n.In("en", "composer_feature_off"))
+		if features == nil || len(features) != 0 {
+			t.Fatalf("Off set %v", features)
+		}
+		choose(i18n.In("en", "role_effort_inherit"))
+		if features != nil {
+			t.Fatalf("Auto set %v", features)
+		}
+		features = map[string]string{"speed": "fast"}
+		model = ch.ID + "/" + ch.Models[1].ID
+		tt.Frame()
+		for _, x := range tt.AccessAll() {
+			if x.Name == "Speed" {
+				t.Error("a model without features offers one")
+			}
+		}
+	})
 	// A team's deletion closes the editor it was deleted from, not one
 	// opened since for another team.
 	t.Run("late removal", func(t *testing.T) {

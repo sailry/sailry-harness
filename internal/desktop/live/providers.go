@@ -379,6 +379,22 @@ func channelModel(m protocol.ConversationModel) viewmodel.ChannelModel {
 	for _, e := range m.Efforts {
 		v.Efforts = append(v.Efforts, effortName(e))
 	}
+	if m.Capabilities != nil {
+		for _, feature := range m.Capabilities.Features {
+			f := viewmodel.ModelFeature{ID: feature.ID, Name: feature.ID}
+			if feature.Name != nil {
+				f.Name = *feature.Name
+			}
+			for _, option := range feature.Options {
+				o := viewmodel.FeatureOption{ID: option.ID, Name: option.ID}
+				if option.Name != nil {
+					o.Name = *option.Name
+				}
+				f.Options = append(f.Options, o)
+			}
+			v.Features = append(v.Features, f)
+		}
+	}
 	return v
 }
 func (r *Runtime) provider(id string) (protocol.ConversationProvider, bool) {
