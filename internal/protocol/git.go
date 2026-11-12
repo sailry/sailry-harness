@@ -1197,6 +1197,9 @@ type GitDiff struct {
 	Deletions uint64       `json:"deletions"`
 	Binary    bool         `json:"binary"`
 	Truncated bool         `json:"truncated"`
+	// Size is the length in bytes of a file that is not compared as text: the
+	// new side, or the old side of a deletion.
+	Size uint64 `json:"size,omitempty"`
 }
 
 func DefaultGitDiff() GitDiff {

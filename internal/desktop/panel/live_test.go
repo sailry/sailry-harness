@@ -83,9 +83,13 @@ func TestLiveDiffHunkSelection(t *testing.T) {
 		if pr.Git.documents[key].files[0].Hunks[0].Lines[0].Text != "before Ω" || !pr.Git.documents[key].truncated {
 			t.Fatal("captured commit aliases mutable caller data")
 		}
-		stash := pr.SetGitDiff("stash", "Stash", GitDocumentFile{Binary: true})
-		if !pr.Git.documents[stash].files[0].Binary {
-			t.Fatal("binary stash flag lost")
+		stash := pr.SetGitDiff("stash", "Stash", GitDocumentFile{Binary: true, Size: 1536})
+		if file := pr.Git.documents[stash].files[0]; !file.Binary || file.Size != 1536 {
+			t.Fatal("binary stash flag or size lost")
+		}
+		// The binary card says the size when the diff carries one.
+		if binarySize(0) != "" || binarySize(8) != " · 8 B" || binarySize(1536) != " · 1.5 KB" || binarySize(2_500_000) != " · 2.5 MB" {
+			t.Fatalf("binary sizes = %q %q %q", binarySize(8), binarySize(1536), binarySize(2_500_000))
 		}
 		literal := "```diff\n# literal <tag>\n```\n"
 		output := pr.SetGitText("output", "Git output", literal)

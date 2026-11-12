@@ -3,13 +3,15 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 )
 
 // storedBatch is the number of paths one hash-object process answers within
@@ -59,44 +61,79 @@ func (s *Service) storedIDs(ctx context.Context, root string, paths []string, li
 	return ids
 }
 
+// filtered reports which of the paths are stored through a configured filter
+// driver, such as Git LFS. Git answers from the attributes alone, so no filter
+// program runs, and a repository without filter drivers is not asked.
+func (s *Service) filtered(ctx context.Context, root string, r *gogit.Repository, paths []string) map[string]bool {
+	drivers, err := filterDrivers(r)
+	if err != nil || len(drivers) == 0 {
+		return nil
+	}
+	found := map[string]bool{}
+	for len(paths) > 0 && ctx.Err() == nil {
+		batch := paths[:min(len(paths), storedBatch)]
+		paths = paths[len(batch):]
+		limited, cancel := context.WithTimeout(ctx, readTimeout)
+		capture, err := s.run(limited, root, []string{"check-attr", "-z", "--stdin", "filter"}, []byte(strings.Join(batch, "\x00")+"\x00"))
+		cancel()
+		if err != nil || capture.ExitCode != 0 {
+			continue
+		}
+		fields := bytes.Split(capture.Stdout, []byte{0})
+		for i := 0; i+2 < len(fields); i += 3 {
+			if slices.Contains(drivers, string(fields[i+2])) {
+				found[string(fields[i])] = true
+			}
+		}
+	}
+	return found
+}
+
+// opaque is a worktree file that is not compared as text: it changed, and its
+// size is all that is said of it. Nothing of it is read.
+func opaque(root, path string) (content, error) {
+	target, err := safePath(root, path)
+	if err != nil {
+		return content{}, err
+	}
+	info, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return content{}, nil
+	}
+	if err != nil {
+		return content{}, mapError(err)
+	}
+	mode := filemode.Regular
+	if info.Mode()&0111 != 0 {
+		mode = filemode.Executable
+	}
+	return content{mode: mode, exists: true, binary: true, size: info.Size()}, nil
+}
+
 // stored turns the bytes of a worktree file into the content Git would store
 // for it, given the id Git computed. Equal ids mean no conversion. A file
-// that differs by line endings is converted here and checked against the id.
-// Any other stored form is read from the repository when it is there, which
-// it is for an unchanged file. A changed file behind a filter driver is not:
-// with write, Git stores the blob as git add would and it is read back;
-// without, the side stays unread and its lines uncounted.
-func (s *Service) stored(ctx context.Context, root string, r *gogit.Repository, path string, working content, id plumbing.Hash, limit int, write bool) (content, error) {
+// that differs by line endings is converted in memory and checked against the
+// id. Any other stored form is not compared as text.
+func stored(working content, id plumbing.Hash) content {
 	if id.IsZero() || id == working.hash {
-		return working, nil
+		return working
 	}
 	if bytes.Contains(working.data, []byte("\r\n")) {
 		data := bytes.ReplaceAll(working.data, []byte("\r\n"), []byte("\n"))
 		if plumbing.ComputeHash(plumbing.BlobObject, data) == id {
-			return content{data: data, hash: id, mode: working.mode, exists: true, converted: true}, nil
+			return content{data: data, hash: id, mode: working.mode, exists: true, size: working.size, converted: true}
 		}
 	}
-	if _, err := r.BlobObject(id); err != nil {
-		if !write {
-			return content{hash: id, mode: working.mode, exists: true, binary: true, large: true, converted: true}, nil
-		}
-		limited, cancel := context.WithTimeout(ctx, readTimeout)
-		capture, err := s.run(limited, root, []string{"hash-object", "-w", "--", path}, nil)
-		cancel()
-		if err != nil {
-			return content{}, mapError(err)
-		}
-		if id = plumbing.NewHash(strings.TrimSpace(string(capture.Stdout))); capture.ExitCode != 0 || id.IsZero() {
-			return content{}, fault(protocol.ErrorCodeUnavailable, "Git could not convert the file for comparison")
-		}
-	}
-	value, err := blobContent(r, id, working.mode, limit)
-	value.converted = true
-	return value, err
+	return content{hash: id, mode: working.mode, exists: true, binary: true, large: working.large, size: working.size}
 }
 
-// storedContent reads a worktree file as Git would store it.
+// storedContent reads a worktree file for a comparison with what Git holds.
+// A file behind a filter driver is not read: its stored form is the driver's,
+// and it is shown by its size whether or not the driver can run.
 func (s *Service) storedContent(ctx context.Context, root string, r *gogit.Repository, path string, limit int) (content, error) {
+	if s.filtered(ctx, root, r, []string{path})[path] {
+		return opaque(root, path)
+	}
 	working, err := workingContent(root, path, limit)
 	if err != nil || !working.exists {
 		return working, err
@@ -105,5 +142,5 @@ func (s *Service) storedContent(ctx context.Context, root string, r *gogit.Repos
 	if err := checkContext(ctx); err != nil {
 		return content{}, err
 	}
-	return s.stored(ctx, root, r, path, working, id, limit, true)
+	return stored(working, id), nil
 }

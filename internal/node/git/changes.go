@@ -495,6 +495,10 @@ func (s *Service) readResource(ctx context.Context, root, path string, r *gogit.
 	if err != nil {
 		return nil, "", err
 	}
+	if c.binary {
+		// A file behind a filter driver is not compared as text.
+		return nil, "binary", nil
+	}
 	after, err := os.Lstat(target)
 	if err != nil || !os.SameFile(stat, after) || after.ModTime() != stat.ModTime() || after.Size() != stat.Size() {
 		return nil, "", conflict()

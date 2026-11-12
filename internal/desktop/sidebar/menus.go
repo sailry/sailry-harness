@@ -227,9 +227,6 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	if m.Item(t("project_edit")).Chosen() {
 		s.OpenEditor(pr)
 	}
-	if s.Actions == nil && m.Item(t("project_trust")).Chosen() {
-		s.trust(c, pr)
-	}
 	if m.Item(t("workspace_copy_path")).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}
@@ -336,26 +333,6 @@ func (s *State) AskRemove(c *ui.Context, pr *preview.Project) {
 	}
 	s.confirm = confirm{open: true, title: i18n.T(c, "project_remove"), message: message, action: i18n.T(c, s.removeLabel(c)),
 		run: func() { s.remove(pr) }}
-}
-
-// trust asks before granting or revoking a sample project's trust, which
-// the preview only records.
-func (s *State) trust(c *ui.Context, pr *preview.Project) {
-	title, detail, action := "project_grant_title", "project_grant_description", "project_grant"
-	if pr.Trusted {
-		title, detail, action = "project_revoke_title", "project_revoke_description", "project_revoke"
-	}
-	trusted, path := pr.Trusted, pr.Path
-	message := pr.Name + "\n" + pr.Path + "\n" + i18n.T(c, detail)
-	if !kit.Demo(c) {
-		message += "\n" + i18n.T(c, "project_trust_preview")
-	}
-	s.confirm = confirm{open: true, title: i18n.T(c, title), message: message,
-		action: i18n.T(c, action), run: func() {
-			if pr.Path == path && pr.Trusted == trusted {
-				pr.Trusted = !trusted
-			}
-		}}
 }
 
 // remove takes a project out of its Node's inventory through the live
