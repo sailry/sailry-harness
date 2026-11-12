@@ -175,16 +175,7 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 		effect := &workspaceCompletion{}
 		output, effectErr := node.workspaceIO(operationContext, caller, request, nil, effect)
 		if result.Receipt.Durable {
-			unlock := node.agent.LockPublication()
-			recordContext := context.WithoutCancel(node.ctx)
-			var err error
-			output, effectErr, err = node.recordWorkspaceEffect(recordContext, caller, request, output, effectErr, effect)
-			if err != nil {
-				effectErr = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"}
-			} else {
-				node.publish()
-			}
-			unlock()
+			output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(node.ctx), caller, request, output, effectErr, effect)
 		}
 		// A completed command's effect is visible to its caller's next command.
 		effect.close()
@@ -557,9 +548,24 @@ func (node *Node) workspaceSettings(ctx context.Context, command protocol.Comman
 }
 func outputAfter(value *protocol.Output, err error) (protocol.Output, error) { return *value, err }
 
-// recordWorkspaceEffect commits resource metadata and its receipt together.
-func (node *Node) recordWorkspaceEffect(ctx context.Context, caller protocol.NodeID, request protocol.Request, output protocol.Output, effectErr error, effect *workspaceCompletion) (protocol.Output, error, error) {
+// recordWorkspaceEffect commits resource metadata and its receipt together and
+// answers with the result the ledger holds. When that transaction fails, the
+// request is settled in a transaction of its own (Node.settle), so it never
+// stays admitted after it ended:
+//
+//   - an operation that failed, or one with nothing but its result to store,
+//     keeps the result it had;
+//   - an effect outside the database whose metadata was in the failed
+//     transaction is recorded as an unknown outcome: the effect is there and
+//     its record is not;
+//   - a command whose whole change was in the failed transaction changed
+//     nothing, and that failure is its result (Node.unapplied). An attachment
+//     whose row did not commit is one of these: the next collection removes
+//     its file.
+func (node *Node) recordWorkspaceEffect(ctx context.Context, caller protocol.NodeID, request protocol.Request, output protocol.Output, effectErr error, effect *workspaceCompletion) (protocol.Output, error) {
+	ran, ranErr := output, effectErr
 	var changes []protocol.Event
+	unlock := node.agent.LockPublication()
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		if _, err := db.ExecContext(ctx, "SAVEPOINT workspace_metadata"); err != nil {
 			return err
@@ -567,7 +573,7 @@ func (node *Node) recordWorkspaceEffect(ctx context.Context, caller protocol.Nod
 		if effectErr == nil && effect.commit != nil {
 			output, changes, effectErr = effect.commit(ctx, db, output)
 			if effectErr != nil && effect.external {
-				effectErr = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation completed but its resource metadata could not be recorded; inspect the target before retrying"}
+				effectErr = unrecordedEffect()
 			}
 		}
 		if effectErr != nil {
@@ -593,5 +599,31 @@ func (node *Node) recordWorkspaceEffect(ctx context.Context, caller protocol.Nod
 		node.publish()
 		node.conversationEvents(changes)
 	}
-	return output, effectErr, err
+	unlock()
+	if err == nil {
+		return output, effectErr
+	}
+	var settled link.Response
+	switch {
+	case nodeFault(err).(*protocol.Fault).Code == protocol.ErrorCodeOutcomeUnknown:
+		// The store could not confirm the commit: the request stays admitted
+		// until the next start.
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"}
+	case ranErr != nil:
+		settled = node.settle(caller, request.ID, response(ran, ranErr))
+	case effect.external:
+		settled = node.settle(caller, request.ID, link.Response{Fault: unrecordedEffect()})
+	case effect.commit != nil || request.Command.Kind == "finish_attachment_upload":
+		settled = node.unapplied(caller, request.ID, err)
+	default:
+		settled = node.settle(caller, request.ID, response(ran, nil))
+	}
+	if settled.Fault != nil {
+		return protocol.Output{}, settled.Fault
+	}
+	return settled.Output, nil
+}
+
+func unrecordedEffect() *protocol.Fault {
+	return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation completed but its resource metadata could not be recorded; inspect the target before retrying"}
 }
