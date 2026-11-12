@@ -1141,6 +1141,10 @@ provider_model_default: デフォルト
 provider_set_default: デフォルトとして設定
 provider_default: デフォルトモデル
 provider_model_id: モデルID
+provider_deployment_id: デプロイメント名
+provider_api_version: APIバージョン
+form_api_version_hint: 例えば 2024年10月21日
+provider_cloud_required: クラウドプロバイダの設定を入力
 form_model_hint: モデルID
 provider_context: コンテキスト制限 (トークン)
 form_tokens_hint: トークン数
@@ -1349,6 +1353,7 @@ connector_tools_empty: ツールなし
 plugins_no_skills: スキルなし
 plugins_no_mcp: MCP番サーバ
 market_details_permission_none: 追加の権限は不要です
+market_details_added_permissions: 追加される権限
 market_installed: インストール済み
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2007,7 +2012,12 @@ knowledge_saved: 保存しました
 knowledge_cancel_requested: キャンセルを要求しました
 model_library_failed: モデルを読み込めません
 model_library_partial: 一部の結果を取得できません
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: このバージョンのファイルが変更されています
+model_library_version: バージョン
+model_library_more: さらに読み込む
+model_library_query_prefix: 検索プレフィックス
+model_library_document_prefix: 文書プレフィックス
+knowledge_up_to_date: 最新です
 local_models_unavailable: 利用不可
 dictation_unavailable: ローカル音声入力が利用できません
 dictation_model_missing: まず音声モデルをダウンロード
@@ -2239,4 +2249,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: リンクアドレス
+content_link_edit: リンクを編集
+content_image_address: 画像アドレス
+content_image_alt: 代替テキスト
+runtime_python_preparing: 準備中
+python_creating: 依存関係を準備中
+python_installing: 依存関係をインストール中
+python_validating: 依存関係を確認中
 port_count: '%{count} ports'

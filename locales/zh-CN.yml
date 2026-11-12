@@ -2791,7 +2791,6 @@ knowledge_collection_failures: "%{count} 项未索引 · %{reason}"
 knowledge_pause: 暂停
 knowledge_resume: 继续
 knowledge_update: 更新
-model_library_speech_unsupported: 模型库不支持添加语音模型
 start_failed: Sailry 无法启动
 start_profile_in_use: Sailry 已在使用此数据目录运行
 backup_keep: 保留的备份

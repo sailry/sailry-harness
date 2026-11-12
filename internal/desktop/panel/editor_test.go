@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -131,6 +132,28 @@ func TestEditorContracts(t *testing.T) {
 	t.Run("source formatting keeps unrelated bytes", func(t *testing.T) {
 		source := "<div>Keep</div>\n\nhello world\n\n```go\npackage main\n```"
 		start := strings.Index(source, "world")
+		for _, image := range [][3]string{
+			{"a.png", "", "![](a.png)"},
+			{" shots/first run.png ", " The [first] run ", `![The \[first\] run](<shots/first run.png>)`},
+			{"https://example.com/a(1).png", "one\ntwo", "![one two](<https://example.com/a(1).png>)"},
+		} {
+			if got := markdownImage(image[0], image[1]); got != image[2] {
+				t.Errorf("image %q, %q = %q, want %q", image[0], image[1], got, image[2])
+			}
+		}
+		if got, _ := editMarkdownSource("before", editor.Selection{Anchor: 6, Head: 6}, "insert:image", markdownImage("a.png", "Alt")); got != "before\n\n![Alt](a.png)" {
+			t.Errorf("image insertion = %q", got)
+		}
+		// The toolbar asks for an image's address and alt text, and for a
+		// link's address, under their own names.
+		asked := editorFixture("note.md", "before")
+		for action, fields := range map[string][]string{"insert:image": {"content_image_address", "content_image_alt"}, "link": {"content_link_address"}} {
+			asked.runEditorAction(nil, "note.md", action)
+			if !asked.prompt.open || !slices.Equal(asked.prompt.labels, fields) {
+				t.Errorf("%s asks %v, want %v", action, asked.prompt.labels, fields)
+			}
+			asked.prompt = prompt{}
+		}
 		got, selection := editMarkdownSource(source, editor.Selection{Anchor: start, Head: start + 5}, "bold", "")
 		if got != strings.Replace(source, "world", "**world**", 1) || got[selection.Start():selection.End()] != "world" {
 			t.Fatalf("format changed unrelated source: %q %+v", got, selection)

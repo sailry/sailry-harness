@@ -357,7 +357,6 @@ knowledge_collection_failures: "%{count} not indexed · %{reason}"
 knowledge_pause: Pause
 knowledge_resume: Resume
 knowledge_update: Update
-model_library_speech_unsupported: Speech models cannot be added from the library
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
 backup_keep: Backups to keep

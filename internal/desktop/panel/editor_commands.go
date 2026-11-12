@@ -59,16 +59,24 @@ func (pr *Project) runEditorAction(c *ui.Context, path, action string) {
 		if rich && action == "link" {
 			value = state.rich.Formatting().Link
 		}
-		label := "files_link"
-		if action == "insert:image" {
-			label = "files_insert_image"
+		// A link is its address, which the caret's link fills in and an
+		// empty one removes; an image is its address and its alt text.
+		label, fields, values := "files_link", []string{"content_link_address"}, []string{value}
+		if value != "" {
+			label = "content_link_edit"
 		}
-		pr.Prompt(label, []string{"mcp_url"}, []string{value}, func(values []string, finish func(bool)) {
-			if rich && action == "link" {
-				state.rich.SetLink(values[0])
+		if action == "insert:image" {
+			label, fields, values = "files_insert_image", []string{"content_image_address", "content_image_alt"}, []string{"", ""}
+		}
+		pr.Prompt(label, fields, values, func(values []string, finish func(bool)) {
+			switch {
+			case rich && action == "link":
+				state.rich.SetLink(strings.TrimSpace(values[0]))
 				pr.syncRichDraft(path)
-			} else {
-				pr.editorSourceAction(c, path, action, values[0])
+			case action == "insert:image":
+				pr.editorSourceAction(c, path, action, markdownImage(values[0], values[1]))
+			default:
+				pr.editorSourceAction(c, path, action, strings.TrimSpace(values[0]))
 			}
 			finish(true)
 		})

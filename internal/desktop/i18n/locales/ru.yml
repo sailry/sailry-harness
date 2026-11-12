@@ -1141,6 +1141,10 @@ provider_model_default: По умолчанию
 provider_set_default: Установить по умолчанию
 provider_default: Модель по умолчанию
 provider_model_id: Идентификация модели
+provider_deployment_id: Имя развертывания
+provider_api_version: API версия
+form_api_version_hint: например 2024-10-21
+provider_cloud_required: Введите конфигурацию облачного поставщика
 form_model_hint: Идентификация модели
 provider_context: Контекстное ограничение (токен)
 form_tokens_hint: Число токенов
@@ -1349,6 +1353,7 @@ connector_tools_empty: Нет инструментов
 plugins_no_skills: Без навыков
 plugins_no_mcp: Нет MCP серверов
 market_details_permission_none: Дополнительные разрешения не нужны
+market_details_added_permissions: Новые разрешения
 market_installed: Установлено
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2007,7 +2012,12 @@ knowledge_saved: Сохранено
 knowledge_cancel_requested: Запрошена отмена
 model_library_failed: Не удалось загрузить модели
 model_library_partial: Некоторые результаты недоступны
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Файлы этой версии изменились
+model_library_version: Версия
+model_library_more: Загрузить ещё
+model_library_query_prefix: Префикс запроса
+model_library_document_prefix: Префикс документа
+knowledge_up_to_date: Уже обновлено
 local_models_unavailable: Недоступно
 dictation_unavailable: Локальный голосовой ввод недоступен
 dictation_model_missing: Сначала загрузите модель речи
@@ -2239,4 +2249,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: Адрес ссылки
+content_link_edit: Изменить ссылку
+content_image_address: Адрес изображения
+content_image_alt: Альтернативный текст
+runtime_python_preparing: Подготовка
+python_creating: Подготовка зависимостей
+python_installing: Установка зависимостей
+python_validating: Проверка зависимостей
 port_count: '%{count} ports'

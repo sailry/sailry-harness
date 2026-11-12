@@ -42,12 +42,9 @@ func Class(e Entry) string {
 	return "file"
 }
 
-// tile is the tinted square holding an entry's glyph, as the rows of
-// CrychicUI's file list show it: side wide, the glyph half of that (more in
-// the 20 DIP tile of a list row, which keeps it readable), in the status
-// color of the entry's class over a wash of the same color. A chosen row or
-// cell is filled with the neutral selected color, over which the tile keeps
-// its own.
+// tile is an entry's glyph, side across, in the status color of the entry's
+// class. A chosen row or cell is filled with the neutral selected color,
+// over which the glyph keeps its own.
 func tile(c *ui.Context, e Entry, side float32) ui.Element {
 	p := theme.Of(c)
 	icon, ink := icons.File, p.MutedForeground
@@ -73,11 +70,8 @@ func tile(c *ui.Context, e Entry, side float32) ui.Element {
 	case "video":
 		icon, ink = icons.Video, p.Danger
 	}
-	glyph, radius := side/2, p.Radius
-	if side < 28 {
-		glyph, radius = side*0.6, p.Radius-1
-	}
-	return ui.Box(c).Size(side, side).Shrink(0).Center().Radius(radius).Background(ink.Alpha(0.14)).Children(func() {
-		ui.Icon(c, icon).FontSize(glyph).TextColor(ink)
+	// The glyph alone, in its class's color: no wash behind it.
+	return ui.Box(c).Size(side, side).Shrink(0).Center().Children(func() {
+		ui.Icon(c, icon).FontSize(side).TextColor(ink)
 	})
 }

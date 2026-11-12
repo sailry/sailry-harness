@@ -41,13 +41,15 @@ type localModelState struct {
 	// installing the ones under way.
 	requests   map[string]protocol.Request
 	installing map[string]bool
-	known      bool
-	reading    bool
-	failed     bool
-	stale      bool
-	saving     bool
-	watching   bool
-	unwatched  bool // the Node's events could not be followed
+	// updating are the models whose newer version is being looked for.
+	updating  map[string]bool
+	known     bool
+	reading   bool
+	failed    bool
+	stale     bool
+	saving    bool
+	watching  bool
+	unwatched bool // the Node's events could not be followed
 
 	shown   *Runtime
 	visible bool
@@ -71,6 +73,14 @@ func (r *Runtime) localModelsFrame() {
 			m.ModelActions = root.modelActions()
 		}
 		m.Speech, m.SpeechModel = speechModels(root.Preferences.Data.DictationModel(), root.speechManager())
+		// The library searches and resolves through the selected host's
+		// Node; what it installs and removes is the controller's.
+		owner := root.runtimeFor(root.App.Host)
+		if owner != state.shown {
+			m.CloseModelDialogs()
+		}
+		state.shown = owner
+		root.libraryFrame(owner)
 	}
 	visible := settingsPage && (m.Section == settings.OCR || m.Section == settings.Knowledge || m.Section == settings.Decision)
 	if !visible {
@@ -149,11 +159,27 @@ func (r *Runtime) modelActions() *settings.ModelActions {
 			}
 			on(func(owner *Runtime) { owner.cancelLocalModel(id) })
 		},
+		Update: func(key, id string) {
+			if key == settings.ModelsSpeech {
+				r.updateSpeechModel(id)
+				return
+			}
+			on(func(owner *Runtime) { owner.updateLocalModel(id) })
+		},
+		Delete: func(key, id string) {
+			if key == settings.ModelsSpeech {
+				r.deleteSpeechModel(id)
+				return
+			}
+			on(func(owner *Runtime) { owner.deleteLocalModel(id) })
+		},
 		Microphone:     r.requestMicrophone,
 		LibraryInstall: r.installLibraryModel,
 		LibraryCancel:  r.cancelLibraryModel,
 		LibraryDelete:  r.deleteLibraryModel,
 		LibraryDetails: r.readLibraryModel,
+		LibraryVersion: r.showLibraryVersion,
+		LibraryMore:    r.moreLibrary,
 		CollectionPause: func(id string, paused bool) {
 			on(func(owner *Runtime) { owner.pauseCollection(id, paused) })
 		},
@@ -460,11 +486,14 @@ func localModelViews(models []protocol.ModelsLocalModel, kind protocol.ModelsKin
 		if modelFormatKind(model.Definition.Format) != kind {
 			continue
 		}
-		view := viewmodel.LocalModel{ID: model.ID, Name: model.Definition.Name, Repo: model.Definition.Source.Repository}
+		view := viewmodel.LocalModel{ID: model.ID, Name: model.Definition.Name, Repo: model.Definition.Source.Repository,
+			Version: model.Definition.Source.Revision, License: model.Definition.License, Size: modelSize(model.Definition.Assets)}
 		if view.Name == "" {
 			view.Name = model.ID
 		}
 		view.Status, view.Percent = localModelStatus(model, kind, tasks)
+		// What is installed can be deleted, and updated from its source.
+		view.Removable = view.Status == viewmodel.ModelInstalled
 		names[view.Name]++
 		views = append(views, view)
 	}

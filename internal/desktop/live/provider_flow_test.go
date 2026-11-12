@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -371,6 +372,26 @@ func testProviderFlow(t *testing.T) {
 	click(ui.RoleButton, zh("provider_step_back"))
 	if !tester.HasText(zh("provider_add_title")) {
 		t.Errorf("Back from a sign-in went to %q", tester.Texts())
+	}
+
+	// An Azure OpenAI channel saves its API version as the provider's
+	// connection options, and a saved one shows it again.
+	azure := viewmodel.Channel{ID: protocol.ProviderID{9}.String(), Name: "Azure", Method: "builtin:azure-openai/0", API: string(protocol.ConversationModelApiAzureOpenAi),
+		Endpoint: "https://unit.openai.azure.com", APIVersion: "2025-01-01-preview", Models: []viewmodel.ChannelModel{{ID: "deployment", Context: 128000}}}
+	before := sent()
+	m.ProviderActions.Save(settings.ProviderDraft{Channel: azure, Key: "key"}, func(bool) {})
+	await("the Azure save", func() bool { return sent() == before+1 })
+	transport.mu.Lock()
+	p = saves[before].Provider
+	transport.mu.Unlock()
+	if p.Api != protocol.ConversationModelApiAzureOpenAi || p.Options == nil || p.Options.Kind != "azure_open_ai" || p.Preset == nil || p.Preset.ID != "azure-openai" {
+		t.Fatalf("the Azure save sent %+v with options %+v", p, p.Options)
+	}
+	if err := providers.ValidateConfiguration(p); err != nil {
+		t.Errorf("the Node refuses the Azure provider: %v", err)
+	}
+	if got := azureVersion(p); got != "2025-01-01-preview" {
+		t.Errorf("a saved Azure provider shows version %q", got)
 	}
 }
 

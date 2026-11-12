@@ -224,8 +224,8 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Messages.Embed = r.chatEmbed
 	r.App.Messages.SessionLink = func(link string) bool { return client.SessionLink(normalizeLink(link)) != nil }
-	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
-		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
+	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Unarchive: r.unarchive, Read: r.read, Delete: r.removeSession,
+		Pin: r.pin, MovePin: r.movePin, MoveSession: r.moveSession, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
 			if r.openWindow != nil {
 				r.openWindow(id)
 			}
@@ -775,6 +775,22 @@ func (r *Runtime) archive(cv *viewmodel.Conversation) {
 	}
 	r.command(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: id, ExpectedRevision: cv.Revision, Archived: true}}, "session_changed", nil)
 }
+
+// unarchive returns an archived session to its project's rows.
+func (r *Runtime) unarchive(cv *viewmodel.Conversation) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.unarchive(cv)
+		return
+	}
+	id, err := protocol.ParseSessionID(cv.ID)
+	if err != nil {
+		return
+	}
+	r.command(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: id, ExpectedRevision: cv.Revision, Archived: false}}, "session_changed", nil)
+}
 func (r *Runtime) read(cv *viewmodel.Conversation, read bool) {
 	if owner := r.conversationRuntime(cv, nil); owner == nil {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
@@ -959,6 +975,62 @@ func (r *Runtime) pin(cv *viewmodel.Conversation) {
 	node := r.controller.Target()
 	r.Preferences.Data.SetPin(node, cv.ID, preferences.Pin{Pinned: !cv.Pinned})
 	r.project()
+}
+
+// moveSession saves the manual order of a project's sessions with source
+// before or after target. The Node checks the order it is given against
+// its own, so the order comes from the snapshot, which also holds the
+// sessions the sidebar does not list.
+func (r *Runtime) moveSession(source, target *viewmodel.Conversation, after bool) {
+	if owner := r.conversationRuntime(target, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.moveSession(source, target, after)
+		return
+	}
+	command, ok := sessionOrderCommand(r.snapshot().Sessions, source.ID, target.ID, after)
+	if !ok {
+		return
+	}
+	r.execute(command, func(c *ui.Context, _ protocol.Output, err error) {
+		if err != nil {
+			r.reportKeys(c, err, "live_request_failed", "session_changed", "project_outcome_unknown")
+			return
+		}
+		r.project()
+	})
+}
+
+// sessionOrderCommand is the command moving source before or after target
+// among their project's sessions, false when they share no project or
+// nothing moves.
+func sessionOrderCommand(sessions []protocol.Session, source, target string, after bool) (protocol.Command, bool) {
+	var project *protocol.ProjectID
+	for _, session := range sessions {
+		if session.ID.String() == target {
+			project = session.Project
+		}
+	}
+	if project == nil {
+		return protocol.Command{}, false
+	}
+	var expected []protocol.SessionID
+	var ids []string
+	for _, session := range sessions {
+		if session.Project != nil && *session.Project == *project {
+			expected, ids = append(expected, session.ID), append(ids, session.ID.String())
+		}
+	}
+	moved, ok := sidebar.MovePin(ids, source, target, after)
+	if !ok {
+		return protocol.Command{}, false
+	}
+	order := make([]protocol.SessionID, len(moved))
+	for i, id := range moved {
+		order[i] = expected[slices.Index(ids, id)]
+	}
+	return protocol.Command{Kind: "set_session_order", Data: protocol.CommandSetSessionOrderPayload{Project: *project, Expected: expected, Sessions: order}}, true
 }
 func (r *Runtime) movePin(source, target string, after bool) {
 	var pins []sidebar.Pin

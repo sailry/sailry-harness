@@ -42,8 +42,8 @@ func dictation(c *ui.Context, m *Model) {
 		})
 	})
 	// The speech models in the page's Installed and Available tabs, as
-	// the Decision and Knowledge pages show theirs, not in the library
-	// dialog.
+	// the Decision and Knowledge pages show theirs, with the same Manage
+	// models entry to the library for adding and removing others.
 	kit.Group(c, "models", "", "", nil, func() {
 		ui.Row(c).Gap(12).Wrap().Children(func() {
 			kit.Segmented(c, "tabs", &m.SpeechTab, []string{i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")}, kit.SegmentedProps{}).
@@ -51,6 +51,8 @@ func dictation(c *ui.Context, m *Model) {
 			if m.SpeechTab == 1 {
 				ui.SearchField(c.Key("search"), &m.SpeechQuery).Placeholder(i18n.T(c, "search")).Width(220)
 			}
+			ui.Spacer(c)
+			kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.openLibrary(ModelsSpeech) })
 		})
 		q := strings.ToLower(strings.TrimSpace(m.SpeechQuery))
 		var shown []int
@@ -71,12 +73,12 @@ func dictation(c *ui.Context, m *Model) {
 				if x.ID == "" {
 					name = i18n.T(c, "dictation_model_name")
 				}
-				modelRow(c, m, ModelsSpeech, x, name, i == m.SpeechModel, false, func() { m.SpeechModel = i }, func() { m.info = &modelInfo{name, *x} })
+				modelRow(c, m, ModelsSpeech, x, name, i == m.SpeechModel, false, func() { m.SpeechModel = i }, func() { m.info = &modelInfo{name, ModelsSpeech, *x} })
 			}
 		})
 	})
 	m.followModel(m.Speech)
-	modelDetails(c, &m.info)
+	modelDetails(c, m)
 }
 
 // localModels is whether it is on, the model it uses, and its Installed and
@@ -151,12 +153,12 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 			for i := range list {
 				x := list[i]
 				selected := lm.Tab == 0 && i == lm.Model
-				modelRow(c, m, lm.Kind, &x, x.Name, selected, locked, func() { lm.Model = i }, func() { m.info = &modelInfo{x.Name, x} })
+				modelRow(c, m, lm.Kind, &x, x.Name, selected, locked, func() { lm.Model = i }, func() { m.info = &modelInfo{x.Name, lm.Kind, x} })
 			}
 		})
 	})
 	m.followModel(lm.Models)
-	modelDetails(c, &m.info)
+	modelDetails(c, m)
 }
 
 // modelRow is a managed model: its name and repository, its details, the
@@ -198,39 +200,73 @@ func modelRow(c *ui.Context, m *Model, kind string, x *preview.LocalModel, name 
 	})
 }
 
-// modelInfo is the model whose details show.
+// modelInfo is the model whose details show, of a page's kind.
 type modelInfo struct {
-	name  string
-	model preview.LocalModel
+	name, kind string
+	model      preview.LocalModel
 }
 
-// modelDetails is the details dialog of a managed model: its name, source and
-// state.
-func modelDetails(c *ui.Context, info **modelInfo) {
-	d := *info
-	if d == nil {
-		return
-	}
-	p := theme.Of(c)
-	open := true
-	status := map[preview.ModelStatus]string{preview.ModelMissing: "knowledge_missing",
-		preview.ModelDownloading: "knowledge_downloading", preview.ModelInstalled: "knowledge_installed"}[d.model.Status]
-	kit.Dialog(c.Key("model-details"), &open, func() {
-		ui.Text(c, d.name).FontSize(16).FontWeight(600)
-		for _, row := range [][2]string{{i18n.T(c, "model_library_source"), d.model.Repo}, {i18n.T(c, "local_models_status"), i18n.T(c, status)}} {
-			if row[1] == "" {
-				continue
+// modelDetails is the details dialog of a managed model: its state, source,
+// version, license and size, with its download's progress, over Close and
+// what its state allows: Cancel for a download, Update for an installed
+// model that can be removed, and Delete, which asks first.
+func modelDetails(c *ui.Context, m *Model) {
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	if d := m.info; d != nil {
+		x := &d.model
+		open := true
+		status := map[preview.ModelStatus]string{preview.ModelMissing: "knowledge_missing",
+			preview.ModelDownloading: "knowledge_downloading", preview.ModelInstalled: "knowledge_installed"}[x.Status]
+		kit.Dialog(c.Key("model-details"), &open, func() {
+			ui.Text(c, d.name).FontSize(16).FontWeight(600)
+			var rows [][2]string
+			for _, row := range [][2]string{{t("local_models_status"), t(status)}, {t("model_library_source"), x.Repo},
+				{t("model_library_version"), x.Version}, {t("settings_license"), x.License}, {t("knowledge_model_size"), x.Size}} {
+				if row[1] != "" {
+					rows = append(rows, row)
+				}
 			}
-			ui.Row(c.Key(row[0])).Gap(12).Children(func() {
-				ui.Text(c, row[0]).FontSize(14).Width(120).TextColor(p.MutedForeground)
-				ui.Text(c, row[1]).FontSize(14).Grow(1).Shrink(1).MinWidth(0).Selectable()
+			facts(c, rows)
+			if x.Status == preview.ModelDownloading {
+				ui.Row(c.Key("progress")).Gap(12).AlignItems(ui.Center).Children(func() {
+					ui.Progress(c, x.Percent/100).Grow(1).Height(4)
+					ui.Textf(c, "%.0f%%", x.Percent).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+				})
+			}
+			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { m.info = nil })
+				switch {
+				case x.Status == preview.ModelDownloading:
+					kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() {
+						m.modelAction(c, func(a *ModelActions) { a.Cancel(d.kind, x.ID) })
+					})
+				case x.Removable && x.Status == preview.ModelInstalled:
+					kit.Secondary(c.Key("update"), t("settings_update")).OnClick(func() {
+						m.modelAction(c, func(a *ModelActions) { a.Update(d.kind, x.ID) })
+					})
+				}
+				if x.Removable && x.Status != preview.ModelDownloading {
+					kit.Danger(c.Key("delete"), t("knowledge_delete")).OnClick(func() { m.dropping, m.info = d, nil })
+				}
 			})
+		}).Width(min(480, width(c)-48)).Label(t("knowledge_model_details"))
+		if !open {
+			m.info = nil
 		}
-		ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { *info = nil })
-		})
-	}).Width(480).Label(i18n.T(c, "knowledge_model_details"))
-	if !open {
-		*info = nil
+	}
+	if d := m.dropping; d != nil {
+		open := true
+		// Only an embedding model's removal changes collections; the others
+		// name the model, as the reference's prompt does.
+		title, consequence := t("knowledge_delete"), d.name
+		if d.kind == ModelsEmbedding {
+			title, consequence = t("knowledge_delete")+" "+d.name, t("knowledge_delete_model_effect", "name", d.name)
+		}
+		if confirm(c, "model-delete", &open, title, consequence, t("knowledge_delete")) {
+			m.modelAction(c, func(a *ModelActions) { a.Delete(d.kind, d.model.ID) })
+		}
+		if !open {
+			m.dropping = nil
+		}
 	}
 }

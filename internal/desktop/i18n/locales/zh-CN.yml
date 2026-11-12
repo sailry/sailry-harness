@@ -1141,6 +1141,10 @@ provider_model_default: 默认
 provider_set_default: 设为默认
 provider_default: 默认模型
 provider_model_id: 模型 ID
+provider_deployment_id: 部署名
+provider_api_version: API 版本
+form_api_version_hint: 如 2024-10-21
+provider_cloud_required: 请填写云渠道配置
 form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
 form_tokens_hint: Token 数量
@@ -1349,6 +1353,7 @@ connector_tools_empty: 无工具
 plugins_no_skills: 暂无技能
 plugins_no_mcp: 暂无 MCP 服务
 market_details_permission_none: 不需要额外权限
+market_details_added_permissions: 新增权限
 market_installed: 已安装
 model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭
@@ -2007,7 +2012,12 @@ knowledge_saved: 已保存
 knowledge_cancel_requested: 已请求取消
 model_library_failed: 无法加载模型
 model_library_partial: 部分结果不可用
-model_library_speech_unsupported: 模型库不支持添加语音模型
+model_library_conflict: 此版本的文件已变化
+model_library_version: 版本
+model_library_more: 加载更多
+model_library_query_prefix: 查询前缀
+model_library_document_prefix: 文档前缀
+knowledge_up_to_date: 已是最新
 local_models_unavailable: 不可用
 dictation_unavailable: 本地语音输入不可用
 dictation_model_missing: 请先下载语音模型
@@ -2239,4 +2249,12 @@ backup_restart_restored: 使用恢复的数据重启
 backup_restart_consequence: Sailry 将使用恢复的数据重启，当前数据目录会以带日期的名称保留在其旁边
 backup_restart_invalid: 恢复的数据无法使用，未做任何更改
 backup_restart_failed: Sailry 无法切换到恢复的数据
+content_link_address: 链接地址
+content_link_edit: 编辑链接
+content_image_address: 图片地址
+content_image_alt: 替代文本
+runtime_python_preparing: 正在准备
+python_creating: 准备依赖
+python_installing: 安装依赖
+python_validating: 检查依赖
 port_count: '%{count} 个端口'
