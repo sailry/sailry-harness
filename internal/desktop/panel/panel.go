@@ -546,10 +546,19 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	})
 }
 
-// diff is a changed file in MyGo's unified diff viewer, with
-// content diff view, with the change under the pointer's Revert and Keep
-// (editor.DefaultHunkActions) and Stage: in the preview each toasts, as
-// they would write the file and the index.
+// diffToolbar heads a diff with the window's Unified | Split choice, which
+// every diff of the panel follows.
+func diffToolbar(c *ui.Context) {
+	toolbar(c, "diff-toolbar", func() {
+		ui.Spacer(c)
+		kit.DiffLayout(c, "layout")
+	})
+}
+
+// diff is a changed file in MyGo's diff viewer under the layout choice,
+// unified as content diff view or side by side, with the change under the
+// pointer's Revert and Keep (editor.DefaultHunkActions) and Stage: in the
+// preview each toasts, as they would write the file and the index.
 func (pr *Project) diff(c *ui.Context, path string) {
 	if pr.gitDocument(c, path) {
 		return
@@ -574,9 +583,10 @@ func (pr *Project) diff(c *ui.Context, path string) {
 		return
 	}
 	old, new := ch.Texts()
+	diffToolbar(c)
 	box := ui.Column(c.Key(ch.Path)).Grow(1).MinHeight(0)
 	selected := -1
-	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path),
+	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Split: *kit.DiffSplit(c),
 		Actions: func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
 			selected = diffHunkIndex(*ch, a.Hunk)
 			bar.Row().Gap(4)

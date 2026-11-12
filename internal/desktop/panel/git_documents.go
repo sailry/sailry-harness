@@ -89,7 +89,7 @@ func gitDocumentFile(c *ui.Context, box ui.Element, file GitDocumentFile, fit bo
 		return
 	}
 	old, next := file.Texts()
-	kit.Diff(c, box, old, next, kit.DiffOptions{Language: editor.LanguageFor(file.Path), Fit: fit})
+	kit.Diff(c, box, old, next, kit.DiffOptions{Language: editor.LanguageFor(file.Path), Fit: fit, Split: *kit.DiffSplit(c)})
 }
 
 func (pr *Project) gitDocument(c *ui.Context, id string) bool {
@@ -107,6 +107,9 @@ func (pr *Project) gitDocument(c *ui.Context, id string) bool {
 	added, removed := 0, 0
 	for _, file := range document.files {
 		added, removed = added+file.Added, removed+file.Removed
+	}
+	if len(document.files) > 0 {
+		diffToolbar(c)
 	}
 	if len(document.files) == 0 {
 		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "git_diff_empty")}).Grow(1).Justify(ui.Center)

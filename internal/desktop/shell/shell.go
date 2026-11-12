@@ -101,6 +101,10 @@ type App struct {
 	// hides it without changing this.
 	PanelOpen  bool
 	PanelWidth float32
+	// DiffSplit is the window's diff layout, side by side when set: the
+	// Unified | Split choice above a diff writes it (kit.DiffLayout), and
+	// it is saved with the window's other choices (prefs.go).
+	DiffSplit bool
 
 	// OnMode, when set, gets the theme mode as it changes, so the window's
 	// native material follows the app's appearance.
@@ -247,6 +251,7 @@ func (a *App) Composer(id string) *composer.State {
 // View builds the window.
 func (a *App) View(c *ui.Context) {
 	defer a.updateFileSaveMenu(c)
+	kit.BindDiffSplit(c, &a.DiffSplit)
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
 	// The panel is the selected conversation's before anything opens a tab
 	// in it (panels.go).

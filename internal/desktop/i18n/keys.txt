@@ -429,7 +429,10 @@ git_commit_staged
 git_commit_staged_amend
 git_commit_staged_signoff
 git_commit_sync
+git_cherry_pick
+git_cherry_pick_confirm
 git_copy_branch
+git_copy_commit_id
 git_copy_path
 git_delete_branch
 git_delete_confirm
@@ -1454,6 +1457,8 @@ skill_source_hub_hint
 skill_source_choose_directory
 skill_source_choose_archive
 git_diff
+git_diff_split
+git_diff_unified
 market_permission_git_read
 market_permission_git_write
 market_permission_files_read

@@ -58,14 +58,15 @@ func TestPanelProjection(t *testing.T) {
 	})
 	t.Run("history projects actual page offset without mutating canonical head", func(t *testing.T) {
 		data := &viewmodel.Workspace{}
-		p := &workspaceProject{data: data, gitLogPages: []protocol.GitLog{{Entries: []protocol.GitLogEntry{{ID: "head", Message: "latest"}}}, {Offset: 100, ReferencesTruncated: true, Entries: []protocol.GitLogEntry{{ID: "older", Message: "older"}}}}, gitLogPage: 1}
+		p := &workspaceProject{data: data, gitLogPages: []protocol.GitLog{{Entries: []protocol.GitLogEntry{{ID: "head", Message: "latest"}}}, {Offset: 100, ReferencesTruncated: true, Entries: []protocol.GitLogEntry{{ID: "older", Message: "older", Parents: []string{}}}}}, gitLogPage: 1}
 		p.panel = panel.NewLiveProject("worktree", data, &panel.Actions{})
 		p.projectGitHistory(false)
-		if len(data.Repo.Commits) != 1 || data.Repo.Commits[0].ID != "older" {
+		// A root's parents are known and none; an earlier Node's are not known.
+		if len(data.Repo.Commits) != 1 || data.Repo.Commits[0].ID != "older" || data.Repo.Commits[0].Parents == nil {
 			t.Fatalf("history projection=%#v", data.Repo.Commits)
 		}
 		p.gitHistoryPage(false)
-		if data.Repo.Commits[0].ID != "head" {
+		if data.Repo.Commits[0].ID != "head" || data.Repo.Commits[0].Parents != nil {
 			t.Fatal("previous page did not restore cached canonical page")
 		}
 	})

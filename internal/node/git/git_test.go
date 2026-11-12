@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -160,6 +161,65 @@ func TestGitReadMapping(t *testing.T) {
 		blame, err := s.Blame(ctx, root, protocol.CommandReadGitBlamePayload{Path: "file.txt", Limit: 2})
 		if err != nil || len(blame.Entries) != 2 || blame.Entries[1].OriginalLine != 2 || blame.Entries[0].Email != "fixture@example.test" {
 			t.Fatal(blame, err)
+		}
+	})
+	// A history graph needs each commit's parents and the names at it: a
+	// merge lists both, the root an empty list, and HEAD is named at the
+	// commit checked out.
+	t.Run("log_parents_and_decorations", func(t *testing.T) {
+		root, r, first := fixture(t)
+		s := fixtureService()
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		commit := func(message string, at int64, parents ...plumbing.Hash) plumbing.Hash {
+			t.Helper()
+			hash, err := w.Commit(message, &gogit.CommitOptions{AllowEmptyCommits: true, Parents: parents,
+				Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(at, 0)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return hash
+		}
+		base := plumbing.NewHash(first)
+		side := commit("Side", 200, base)
+		main := commit("Main", 300, base)
+		merge := commit("Merge", 400, main, side)
+		for name, hash := range map[plumbing.ReferenceName]plumbing.Hash{
+			plumbing.NewBranchReferenceName("side"): side, plumbing.NewTagReferenceName("v1"): side,
+			plumbing.NewRemoteReferenceName("origin", "main"): main} {
+			if err := r.Storer.SetReference(plumbing.NewHashReference(name, hash)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		log, err := s.Log(ctx, root, protocol.CommandReadGitLogPayload{Limit: 10})
+		if err != nil || len(log.Entries) != 4 {
+			t.Fatal(log, err)
+		}
+		entries := map[string]protocol.GitLogEntry{}
+		for _, entry := range log.Entries {
+			entries[entry.ID] = entry
+		}
+		if got := entries[merge.String()]; !slices.Equal(got.Parents, []string{main.String(), side.String()}) || !slices.Equal(got.References, []string{"HEAD", "heads/main"}) {
+			t.Fatalf("merge: %+v", got)
+		}
+		if got := entries[side.String()]; !slices.Equal(got.Parents, []string{first}) || !slices.Equal(got.References, []string{"heads/side", "tags/v1"}) {
+			t.Fatalf("side: %+v", got)
+		}
+		if got := entries[main.String()]; !slices.Equal(got.References, []string{"remotes/origin/main"}) {
+			t.Fatalf("main: %+v", got)
+		}
+		if got := entries[first]; got.Parents == nil || len(got.Parents) != 0 {
+			t.Fatalf("the root's parents are %#v, want an empty list", got.Parents)
+		}
+		// Detached, HEAD is the only name at its commit.
+		if err := r.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, main)); err != nil {
+			t.Fatal(err)
+		}
+		log, err = s.Log(ctx, root, protocol.CommandReadGitLogPayload{Limit: 1})
+		if err != nil || len(log.Entries) != 1 || !slices.Equal(log.Entries[0].References, []string{"HEAD", "remotes/origin/main"}) {
+			t.Fatal(log, err)
 		}
 	})
 	t.Run("changes_snapshot_pages_and_conflicts", func(t *testing.T) {
