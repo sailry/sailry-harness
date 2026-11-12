@@ -452,7 +452,7 @@ func TestParentEndSettlesChildren(t *testing.T) {
 					return err
 				}
 				settings.ChildConcurrency = 1
-				_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+				_, _, err = store.ExecuteTeamCommand(f.ctx, db, protocol.Command{Kind: "save_team_settings", Data: &settings})
 				return err
 			}); err != nil {
 				t.Fatal(err)
@@ -554,7 +554,7 @@ func TestStopSingleChild(t *testing.T) {
 			return err
 		}
 		settings.ChildConcurrency = 1
-		_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+		_, _, err = store.ExecuteTeamCommand(f.ctx, db, protocol.Command{Kind: "save_team_settings", Data: &settings})
 		return err
 	}); err != nil {
 		t.Fatal(err)

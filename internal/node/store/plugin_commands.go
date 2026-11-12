@@ -89,6 +89,18 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 		if err := db.QueryRowContext(ctx, "SELECT coalesce(max(sequence),0) FROM plugin_conversation_records").Scan(&checkpoint); err != nil {
 			return protocol.Output{}, nil, err
 		}
+		// A captured turn or invocation keeps its package through a later
+		// disable. A controller surface follows the live state, so the
+		// settings view of a disabled package sends in a transaction only
+		// what it may send directly.
+		enabled := true
+		if scope.Turn == nil && scope.Invocation == nil {
+			current, err := ReadPlugin(ctx, db, scope.Package.Name)
+			if err != nil {
+				return protocol.Output{}, nil, err
+			}
+			enabled = current != nil && current.Summary.Enabled
+		}
 		var admitted *protocol.QueuedTurn
 		var events []protocol.Event
 		for _, operation := range input.Operations {
@@ -102,7 +114,7 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 			if err != nil {
 				return protocol.Output{}, nil, err
 			}
-			info.Summary.Enabled = true
+			info.Summary.Enabled = enabled
 			if err := CheckPluginRequest(ctx, db, nested, info); err != nil {
 				return protocol.Output{}, nil, err
 			}

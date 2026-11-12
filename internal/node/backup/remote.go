@@ -84,6 +84,7 @@ func publish(ctx context.Context, plan Plan, location protocol.BackupLocation, p
 		}
 		length, err := io.ReadFull(input, buffer)
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			plan.cleanup(location, id, len(parts))
 			return ioFault(err)
 		}
 		if length == 0 {
@@ -101,10 +102,12 @@ func publish(ctx context.Context, plan Plan, location protocol.BackupLocation, p
 	}
 	manifest := remoteManifest{Version: 1, Record: record, Parts: parts}
 	if err := manifest.validate(id); err != nil {
+		plan.cleanup(location, id, len(parts))
 		return err
 	}
 	body, err := json.Marshal(manifest)
 	if err != nil {
+		plan.cleanup(location, id, len(parts))
 		return ioFault(err)
 	}
 	if len(body) > MaxManifest {
