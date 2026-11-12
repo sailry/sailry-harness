@@ -1157,6 +1157,10 @@ provider_model_default
 provider_set_default
 provider_default
 provider_model_id
+provider_deployment_id
+provider_api_version
+form_api_version_hint
+provider_cloud_required
 form_model_hint
 provider_context
 form_tokens_hint
@@ -1357,6 +1361,7 @@ connector_tools_empty
 plugins_no_skills
 plugins_no_mcp
 market_details_permission_none
+market_details_added_permissions
 market_installed
 model_library_huggingface
 model_library_modelscope
@@ -2016,7 +2021,12 @@ knowledge_saved
 knowledge_cancel_requested
 model_library_failed
 model_library_partial
-model_library_speech_unsupported
+model_library_conflict
+model_library_version
+model_library_more
+model_library_query_prefix
+model_library_document_prefix
+knowledge_up_to_date
 local_models_unavailable
 dictation_unavailable
 dictation_model_missing
@@ -2247,4 +2257,12 @@ backup_restart_restored
 backup_restart_consequence
 backup_restart_invalid
 backup_restart_failed
+content_link_address
+content_link_edit
+content_image_address
+content_image_alt
+runtime_python_preparing
+python_creating
+python_installing
+python_validating
 port_count

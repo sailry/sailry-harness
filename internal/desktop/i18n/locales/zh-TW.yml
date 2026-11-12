@@ -1138,6 +1138,10 @@ provider_model_default: 預設
 provider_set_default: 設為預設
 provider_default: 預設模型
 provider_model_id: 模型 ID
+provider_deployment_id: 部署名
+provider_api_version: API 版本
+form_api_version_hint: 如 2024-10-21
+provider_cloud_required: 請填寫雲渠道配置
 form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
 form_tokens_hint: Token 數量
@@ -1346,6 +1350,7 @@ connector_tools_empty: 無工具
 plugins_no_skills: 暫無技能
 plugins_no_mcp: 暫無 MCP 服務
 market_details_permission_none: 不需要額外權限
+market_details_added_permissions: 新增權限
 market_installed: 已安裝
 model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭
@@ -2004,7 +2009,12 @@ knowledge_saved: 已儲存
 knowledge_cancel_requested: 已要求取消
 model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: 此版本的檔案已變更
+model_library_version: 版本
+model_library_more: 載入更多
+model_library_query_prefix: 查詢前綴
+model_library_document_prefix: 文件前綴
+knowledge_up_to_date: 已是最新
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
@@ -2235,4 +2245,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: 連結位址
+content_link_edit: 編輯連結
+content_image_address: 圖片位址
+content_image_alt: 替代文字
+runtime_python_preparing: 正在準備
+python_creating: 準備相依套件
+python_installing: 安裝相依套件
+python_validating: 檢查相依套件
 port_count: '%{count} ports'

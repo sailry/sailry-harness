@@ -58,6 +58,15 @@ func report(c *ui.Context, o kit.Outcome, m Messages) {
 // Report delivers an asynchronous settings save result through the same toasts.
 func Report(c *ui.Context, o kit.Outcome, m Messages) { report(c, o, m) }
 
+// ReportRetry is Report whose failure and uncertain toasts offer Retry,
+// which runs again.
+func ReportRetry(c *ui.Context, o kit.Outcome, m Messages, again func()) {
+	key := map[kit.Outcome]string{kit.Done: m.Done, kit.Failed: m.Failed, kit.Conflict: m.Conflict, kit.Uncertain: m.Uncertain}[o]
+	if key != "" {
+		kit.Recover(c, o, i18n.T(c, key), again)
+	}
+}
+
 // notice is the toast of an action the preview does not carry out: one
 // that would read the disk, use the network, pair or run a model.
 func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
@@ -196,6 +205,7 @@ type Model struct {
 	SpeechQuery       string
 	Speech            []preview.LocalModel
 	info              *modelInfo // the model whose details show
+	dropping          *modelInfo // the model whose removal is asked
 
 	// Providers (settings/providers): the channels, the directory's
 	// brands, the catalog, the compaction threshold and the family
@@ -264,8 +274,12 @@ type Model struct {
 	// it runs, from the market's first frame.
 	MarketLoad preview.Fetch
 	// LibraryLoad is the model library's search: placeholder rows before
-	// its first page, a spinner over the results after.
+	// its first page, a spinner over the results after. LibraryMore marks
+	// a hub with a further page and LibraryFailed a search that failed,
+	// which Retry runs again.
 	LibraryLoad   preview.Fetch
+	LibraryMore   bool
+	LibraryFailed bool
 	config        pluginConfig
 	install       pluginInstall
 	download      pluginDownload
@@ -309,10 +323,13 @@ type Model struct {
 
 	// Runtime and OCR (runtime/*, models/*).
 	PythonVersion string
-	Indexes       []string
-	Python        Stored[Python]
-	OCR           LocalModels
-	Knowledge     LocalModels // embedding models (knowledge-settings)
+	// PythonPreparing are the packages whose Python dependencies the Node
+	// is preparing now, with the stage each is at.
+	PythonPreparing []PythonPreparation
+	Indexes         []string
+	Python          Stored[Python]
+	OCR             LocalModels
+	Knowledge       LocalModels // embedding models (knowledge-settings)
 	// Collections are the selected host's knowledge collections; the
 	// preview has none.
 	Collections []viewmodel.KnowledgeCollection

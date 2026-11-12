@@ -1138,6 +1138,10 @@ provider_model_default: 기본값
 provider_set_default: 기본값으로 설정
 provider_default: 기본 모델
 provider_model_id: 모델 ID
+provider_deployment_id: 배포 이름
+provider_api_version: API 버전
+form_api_version_hint: 예를 들어 2024-10-21
+provider_cloud_required: 클라우드 공급자 구성 입력
 form_model_hint: 모델 ID
 provider_context: 컨텍스트 제한( 토큰)
 form_tokens_hint: 토큰 수
@@ -1346,6 +1350,7 @@ connector_tools_empty: 도구 없음
 plugins_no_skills: 기술 없음
 plugins_no_mcp: 아니 MCP 서버
 market_details_permission_none: 추가 권한이 필요하지 않음
+market_details_added_permissions: 새 권한
 market_installed: 설치됨
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2004,7 +2009,12 @@ knowledge_saved: 저장됨
 knowledge_cancel_requested: 취소 요청됨
 model_library_failed: 모델을 불러올 수 없습니다
 model_library_partial: 일부 결과를 사용할 수 없습니다
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: 이 버전의 파일이 변경되었습니다
+model_library_version: 버전
+model_library_more: 더 보기
+model_library_query_prefix: 검색 접두사
+model_library_document_prefix: 문서 접두사
+knowledge_up_to_date: 이미 최신 버전
 local_models_unavailable: 사용 불가
 dictation_unavailable: 로컬 음성 입력을 사용할 수 없음
 dictation_model_missing: 먼저 음성 모델 다운로드하기
@@ -2235,4 +2245,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: 링크 주소
+content_link_edit: 링크 편집
+content_image_address: 이미지 주소
+content_image_alt: 대체 텍스트
+runtime_python_preparing: 준비 중
+python_creating: 의존성 준비 중
+python_installing: 의존성 설치 중
+python_validating: 의존성 확인 중
 port_count: '%{count} ports'

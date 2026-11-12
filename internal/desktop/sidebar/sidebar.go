@@ -407,8 +407,14 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		text = p.SidebarForeground
 	}
 	b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title})
-	if kind == rowPinned {
-		s.reorder(c, b, cv)
+	switch {
+	case kind == rowPinned:
+		s.reorder(c, b, cv, s.pinnedDrag, func(source string, after bool) { s.MovePin(source, cv.ID, after) })
+	case kind == rowTree && s.sort() == SortCreated:
+		// The manual order is the Node's, which only the creation order
+		// shows.
+		s.reorder(c, b, cv, func(d panes.Drag) bool { return s.sessionDrag(d, cv) },
+			func(source string, after bool) { s.MoveSession(source, cv.ID, after) })
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
 	s.details(c, b, cv)
@@ -461,14 +467,15 @@ func (s *State) nonMainWorktree(cv *preview.Conversation) bool {
 	return false
 }
 
-// reorder makes a pinned row, which drags its session, take another pinned
-// one to a new place among the pinned, a 2 DIP line showing where it would
-// go.
-func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation) {
+// reorder makes a row, which drags its session, take another row that it
+// accepts to a new place before or after it, a 2 DIP line showing where it
+// would go: a pinned row among the pinned, a project's row among the
+// project's.
+func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation, accepts func(panes.Drag) bool, move func(source string, after bool)) {
 	if b.Dragging() {
 		b.Opacity(0.5)
 	}
-	if v, over := ui.DragOver[panes.Drag](b); over && v.Target.ID != cv.ID && s.pinnedDrag(v) {
+	if v, over := ui.DragOver[panes.Drag](b); over && v.Target.ID != cv.ID && accepts(v) {
 		_, y, _ := b.PointerPosition()
 		after := y >= b.Bounds().H/2
 		line := ui.Box(c.Key("drop")).Absolute().Left(0).Right(0).Height(2).Radius(1).Background(theme.Of(c).Primary).PassThrough()
@@ -478,9 +485,48 @@ func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation) {
 			line.Top(-1)
 		}
 	}
-	if v, ok := ui.Drop[panes.Drag](b); ok && s.pinnedDrag(v) {
+	if v, ok := ui.Drop[panes.Drag](b); ok && v.Target.ID != cv.ID && accepts(v) {
 		_, y, _ := b.PointerPosition()
-		s.MovePin(v.Target.ID, cv.ID, y >= b.Bounds().H/2)
+		move(v.Target.ID, y >= b.Bounds().H/2)
+	}
+}
+
+// sessionDrag reports whether a drag carries another session of cv's
+// project that is not archived.
+func (s *State) sessionDrag(d panes.Drag, cv *preview.Conversation) bool {
+	source := s.Data.Find(d.Target.ID)
+	if d.Target.Kind != panes.Session || source == nil || source == cv || source.Archived || source.Node != cv.Node {
+		return false
+	}
+	pr := s.Data.ProjectOf(cv.ID)
+	return pr != nil && pr == s.Data.ProjectOf(source.ID)
+}
+
+// MoveSession moves a project's session before or after another of the
+// same project in its manual order.
+func (s *State) MoveSession(source, target string, after bool) {
+	from, to := s.Data.Find(source), s.Data.Find(target)
+	pr := s.Data.ProjectOf(target)
+	if from == nil || to == nil || pr == nil || pr != s.Data.ProjectOf(source) {
+		return
+	}
+	if s.Actions != nil {
+		if s.Actions.MoveSession != nil {
+			s.Actions.MoveSession(from, to, after)
+		}
+		return
+	}
+	var ids []string
+	byID := map[string]*preview.Conversation{}
+	for _, cv := range pr.Conversations {
+		ids, byID[cv.ID] = append(ids, cv.ID), cv
+	}
+	moved, ok := MovePin(ids, source, target, after)
+	if !ok {
+		return
+	}
+	for i, id := range moved {
+		pr.Conversations[i] = byID[id]
 	}
 }
 

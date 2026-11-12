@@ -1,10 +1,20 @@
 package live
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/speech/models"
 
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -184,11 +194,40 @@ func checkLocalModelHelpers(t *testing.T) {
 		t.Fatalf("unique items = %+v", items)
 	}
 	resolved := map[string]protocol.ModelsDefinition{libraryID(items[3].Source): {License: "apache-2.0", Assets: []protocol.ModelsAsset{{Bytes: 512}}}}
-	rows := libraryRows(items, models, resolved, tasks)
+	held := func(item protocol.ModelsItem) (libraryHolding, bool) {
+		model, registered := registeredModel(models, item)
+		holding := libraryHolding{id: model.ID, definition: model.Definition}
+		holding.status, holding.percent = localModelStatus(model, modelFormatKind(item.Format), tasks)
+		return holding, registered
+	}
+	rows := libraryRows(items, resolved, nil, held)
 	if rows[0].Status != viewmodel.ModelInstalled || rows[0].Size != "1.5 MiB" || rows[0].License != "mit" || rows[0].Kind != settings.ModelsEmbedding ||
 		rows[0].Source != "model_library_huggingface" || rows[1].Status != viewmodel.ModelMissing || rows[1].Size != "" ||
 		rows[2].Status != viewmodel.ModelDownloading || rows[2].Percent != 42 || rows[3].Size != "0.5 KiB" || rows[3].License != "apache-2.0" {
 		t.Fatalf("library rows = %+v", rows)
+	}
+	// A held model's own definition is what its details show until another
+	// version is resolved for them; a held version the hub does not list
+	// is the last of the row's versions.
+	listed := map[string][]protocol.ModelsVersion{libraryID(items[0].Source): {{Name: "main", Revision: "fedcba9876543210fedcba9876543210fedcba98"}, {Revision: "v1"}}}
+	rows = libraryRows(items, resolved, listed, held)
+	if want := []string{"main", "v1", commit[:7]}; !slices.Equal(rows[0].Versions, want) || rows[0].Version != 2 || !rows[0].Current || !rows[0].Resolved || rows[1].Resolved || rows[3].Current {
+		t.Fatalf("held versions = %+v", rows)
+	}
+	prefix := "query: "
+	resolved[libraryID(items[0].Source)] = protocol.ModelsDefinition{Source: hub("org/embed", "fedcba9876543210fedcba9876543210fedcba98"), License: "bsd", QueryPrefix: &prefix}
+	rows = libraryRows(items, resolved, listed, held)
+	if rows[0].Version != 0 || rows[0].Current || rows[0].License != "bsd" || rows[0].QueryPrefix != prefix || rows[0].Status != viewmodel.ModelInstalled || len(rows[0].Versions) != 2 {
+		t.Fatalf("another version's details = %+v", rows[0])
+	}
+	if modelPrefix("") != nil || *modelPrefix(prefix) != prefix || !sameModelDefinition(protocol.ModelsDefinition{}, protocol.ModelsDefinition{QueryPrefix: modelPrefix("")}) ||
+		sameModelDefinition(protocol.ModelsDefinition{QueryPrefix: &prefix}, protocol.ModelsDefinition{}) {
+		t.Fatal("prefixes are misread")
+	}
+	// A managed row carries its version, license and size; what is
+	// installed can be removed.
+	if views[0].Version != commit || views[0].License != "mit" || views[0].Size != "1.5 MiB" || !views[0].Removable || views[1].Removable || views[2].Removable {
+		t.Fatalf("managed details = %+v", views)
 	}
 	if !commitRevision(commit) || commitRevision("main") || commitRevision(commit[:39]+"G") {
 		t.Fatal("commit revisions are misread")
@@ -220,11 +259,11 @@ func checkLibraryFollow(t *testing.T) {
 
 	// The first answer with results ends the search.
 	page, asked := follow(protocol.ModelsPage{NextCursor: cursor("two")}, protocol.ModelsPage{Items: []protocol.ModelsItem{found}, NextCursor: cursor("three")})
-	if len(page.Items) != 1 || page.Partial || len(asked) != 2 || asked[0] != "" || asked[1] != "two" {
+	if len(page.Items) != 1 || page.Partial || len(asked) != 2 || asked[0] != "" || asked[1] != "two" || page.NextCursor == nil || *page.NextCursor != "three" {
 		t.Fatalf("followed answer: %+v after %q", page, asked)
 	}
 	// A hub without more pages has no results.
-	if page, asked = follow(protocol.ModelsPage{}); len(page.Items) != 0 || page.Partial || len(asked) != 1 {
+	if page, asked = follow(protocol.ModelsPage{}); len(page.Items) != 0 || page.Partial || len(asked) != 1 || page.NextCursor != nil {
 		t.Fatalf("last answer: %+v after %q", page, asked)
 	}
 	// A listing of other kinds of model is not read to its end.
@@ -237,5 +276,95 @@ func checkLibraryFollow(t *testing.T) {
 		return protocol.ModelsPage{}, failed
 	}); !errors.Is(err, failed) {
 		t.Fatalf("failure: %v", err)
+	}
+}
+
+// checkSpeechLibrary covers the library's speech models, which the
+// controller holds: a hub result takes the state of the registered model
+// from its source, a definition with other files for a registered source is
+// refused, and a removal deletes the files and gives dictation back the
+// recommended model.
+func checkSpeechLibrary(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "desktop")
+	id := protocol.NewModelID()
+	source := protocol.ModelsSource{Hub: protocol.ModelsHubHuggingFace, Repository: "org/voice", Revision: "0123456789abcdef0123456789abcdef01234567"}
+	definition := protocol.ModelsDefinition{Source: source, Name: "Voice", License: "mit", Format: protocol.ModelsFormat{Kind: "sense_voice", Data: &protocol.ModelsFormatSenseVoicePayload{}}}
+	files := filepath.Join(directory, "models", "speech", id.String())
+	if err := os.MkdirAll(files, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"model.onnx", "tokens.txt"} {
+		content := []byte("fixture " + name)
+		sum := sha256.Sum256(content)
+		definition.Assets = append(definition.Assets, protocol.ModelsAsset{Source: source, Path: name, Name: name, Bytes: uint64(len(content)), Sha256: hex.EncodeToString(sum[:])})
+		if err := os.WriteFile(filepath.Join(files, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	index, err := json.Marshal([]models.Record{{ID: id, Installed: true, Definition: definition}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "models", "speech.json"), index, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	manager, err := models.Open(ctx, models.Options{Directory: directory, Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("no network in tests")
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &Runtime{ctx: ctx, cancel: cancel, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}),
+		Preferences: preferences.Open(filepath.Join(directory, "preferences.json"))}
+	r.dictation.manager = manager
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	r.Preferences.Data.Dictation = &preferences.Dictation{Language: "english", Model: &id}
+
+	item := protocol.ModelsItem{Source: protocol.ModelsSource{Hub: source.Hub, Repository: source.Repository, Revision: "main"}, Name: "Voice", Format: definition.Format}
+	held := r.libraryHeld(r)
+	holding, registered := held(item)
+	if !registered || holding.id != id.String() || holding.status != viewmodel.ModelInstalled {
+		t.Fatalf("held speech model = %+v, %v", holding, registered)
+	}
+	other := item
+	other.Source.Revision = "fedcba9876543210fedcba9876543210fedcba98"
+	if _, registered := held(other); registered {
+		t.Fatal("another commit counts as the registered model")
+	}
+	rows := libraryRows([]protocol.ModelsItem{item}, nil, nil, held)
+	if rows[0].Status != viewmodel.ModelInstalled || rows[0].License != "mit" || !rows[0].Current || rows[0].Kind != settings.ModelsSpeech {
+		t.Fatalf("speech library row = %+v", rows[0])
+	}
+	managed, selected := speechModels(&id, manager)
+	if len(managed) != 2 || selected != 1 || managed[0].Removable || !managed[1].Removable || managed[1].Version != source.Revision || managed[1].License != "mit" {
+		t.Fatalf("speech rows = %+v, selected %d", managed, selected)
+	}
+
+	// The same source with other files is refused and registers nothing.
+	conflict := definition
+	conflict.Assets = slices.Clone(definition.Assets)
+	conflict.Assets[0].Bytes++
+	r.addSpeechModel(conflict)
+	if entries := manager.Entries(); len(entries) != 1 {
+		t.Fatalf("a conflicting definition left %d models", len(entries))
+	}
+
+	r.deleteSpeechModel(id.String())
+	if entries := manager.Entries(); len(entries) != 0 {
+		t.Fatalf("the removal left %+v", entries)
+	}
+	if _, err := os.Stat(files); !os.IsNotExist(err) {
+		t.Fatalf("the removal left the files: %v", err)
+	}
+	if r.Preferences.Data.DictationModel() != nil {
+		t.Fatal("dictation still names the removed model")
+	}
+	if _, registered := r.libraryHeld(r)(item); registered {
+		t.Fatal("the removed model is still held")
 	}
 }

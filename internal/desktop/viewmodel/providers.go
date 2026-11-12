@@ -21,7 +21,18 @@ type ChannelModel struct {
 	Vision, Tools, Reasoning bool
 	Generates                []string
 	CustomCapabilities       bool
+	// Features are its options beyond the effort, as a fast mode.
+	Features []ModelFeature
 }
+
+// ModelFeature is a feature a model declares with its options.
+type ModelFeature struct {
+	ID, Name string
+	Options  []FeatureOption
+}
+
+// FeatureOption is a choice of a ModelFeature.
+type FeatureOption struct{ ID, Name string }
 
 // The values of ChannelModel.Generates. An image comes from the images
 // endpoint (GenerateImage) or from the tool the conversation model hosts
@@ -74,11 +85,13 @@ type Quota struct{ FiveHour, SevenDay float64 }
 // catalogue identifier of its mark (icons.Brand), Brand's when empty.
 // Method is the Route.ID it was saved with.
 type Channel struct {
-	Revision                  uint64
-	ID, Name, Brand           string
-	BrandName, Icon           string
-	Method                    string
-	API, Endpoint             string
+	Revision        uint64
+	ID, Name, Brand string
+	BrandName, Icon string
+	Method          string
+	API, Endpoint   string
+	// APIVersion is the Azure OpenAI API version, "" for every other API.
+	APIVersion                string
 	Auth                      Auth
 	Enabled, KeySet, SignedIn bool
 	Account                   string
