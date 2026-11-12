@@ -51,8 +51,10 @@ type demoMode struct {
 	// under is set while the window's own stage is back on the fields
 	// (underneath).
 	under bool
-	// data is the demo's dataset, which DemoConversation reads.
-	data *viewmodel.Data
+	// data is the demo's dataset, which DemoConversation reads, and messages
+	// its transcripts' state, which DemoReveal scrolls.
+	data     *viewmodel.Data
+	messages *conversation.State
 }
 
 func (a *App) onStage() stage {
@@ -79,6 +81,17 @@ func (a *App) DemoConversation(id string) *viewmodel.Conversation {
 		return nil
 	}
 	return a.demo.data.Find(id)
+}
+
+// DemoReveal scrolls the demo's transcript of that conversation to the turn
+// at index; nothing without the demo. Like DemoConversation it also answers
+// while the window's own stage is back on the fields, where a package
+// mounted over a demo conversation asks for it.
+func (a *App) DemoReveal(id string, index int) {
+	if a.demo == nil || a.demo.messages == nil {
+		return
+	}
+	a.demo.messages.List(id).ScrollTo(index, ui.Center)
 }
 
 // DemoUsage is the usage the demo counts, which the Usage page reads while
@@ -148,6 +161,7 @@ func (a *App) enterDemo(locale string) {
 	messages.Embed = func(session, dest, _ string, image bool) (conversation.Embed, bool) {
 		return preview.Embed(d.Find(session), dest, image)
 	}
+	a.demo.messages = messages
 	a.setStage(stage{data: d, sidebar: side, messages: messages, panel: shown,
 		projects: panel.NewProjects(d.Workspace), drafts: map[string]*composer.State{}, panelWidth: own.panelWidth})
 	for id, draft := range preview.DemoDrafts(locale) {
