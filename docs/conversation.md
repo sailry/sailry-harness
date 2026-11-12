@@ -551,9 +551,9 @@ source named at least one. These follow the message text size
 stay three DIPs under it, a pie's legend two under it on rows six higher than
 its text, and the plot's height and the room its axes take grow in proportion
 (`size/14`). The pie's 180 DIP box holds no text and keeps its size, and the
-tip over a mark is a tooltip, which keeps Kit's 12. Colors are `theme.Tints` (blue, violet, teal,
-amber, gray; the lighter end in dark mode), stepping toward the background
-from the sixth series.
+tip over a mark is a tooltip, which keeps Kit's 12. Colors are the theme's chart colors in
+`Palette.Series` order (blue, violet, emerald, amber, rose, cyan, pink,
+gray), stepping toward the background from the ninth series.
 
 The mark under the pointer shows its value at once, on Kit's floating
 surface inside the plot: the category and value over a single series, the

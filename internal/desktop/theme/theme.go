@@ -112,6 +112,27 @@ type Palette struct {
 	// Kit's status and base colors; packages do not set them.
 	Info, Danger, DangerForeground, Success, Warning ui.Color
 	Blue, Green, Yellow, Magenta, Orange             ui.Color
+
+	// Chart is the categorical chart colors, chart.1 to chart.8: distinct
+	// hues for the series of one chart or the rows of one legend. A
+	// package sets the first five; the others keep the built-in values.
+	Chart [ChartColors]ui.Color
+}
+
+// ChartColors is how many chart colors a palette has.
+const ChartColors = 8
+
+// Series is the color of the i-th series or slice of a chart the
+// application draws: the chart colors from the blue on and, from the ninth
+// series, a step toward the background each lap.
+func (p *Palette) Series(i int) ui.Color {
+	c := p.Chart[series[i%ChartColors]]
+	if lap := i / ChartColors % 3; lap > 0 {
+		ground := p.Background
+		ground.A = 255
+		c = c.Mix(ground, 0.35*float32(lap))
+	}
+	return c
 }
 
 // Window material opacities: defaults keep the main panel at 83.5% and the
@@ -167,6 +188,14 @@ func palette(pkg *Package, dark bool) *Palette {
 	p.Info, p.Danger, p.DangerForeground, p.Success, p.Warning = info, danger, white, success, warning
 	b := base[dark]
 	p.Blue, p.Green, p.Yellow, p.Magenta, p.Orange = b[0], b[1], b[2], b[3], b[4]
+	p.Chart = charts[dark]
+	if v := p.Variant; v != nil {
+		for i, k := range chartKeys {
+			if c := v.Theme.Colors[k]; c.OK {
+				p.Chart[i] = c.V
+			}
+		}
+	}
 	return p
 }
 

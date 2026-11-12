@@ -24,15 +24,10 @@ func ThemeSnapshot(palette *theme.Palette) json.RawMessage {
 		"selection": palette.Selection,
 		"group_box": palette.Surface, "group_box_foreground": palette.SurfaceForeground,
 		"success": palette.Success, "warning": palette.Warning, "info": palette.Info,
-		"chart_1": ui.Hex("#93c5fd"), "chart_2": ui.Hex("#3b82f6"), "chart_3": ui.Hex("#2563eb"),
-		"chart_4": ui.Hex("#1d4ed8"), "chart_5": ui.Hex("#1e40af"),
 	}
-	if palette.Variant != nil {
-		for index := 1; index <= 5; index++ {
-			if color, exists := palette.Variant.Theme.Colors[fmt.Sprintf("chart.%d", index)]; exists && color.OK {
-				colors[fmt.Sprintf("chart_%d", index)] = color.V
-			}
-		}
+	// The theme's categorical chart colors, in order.
+	for index, color := range palette.Chart {
+		colors[fmt.Sprintf("chart_%d", index+1)] = color
 	}
 	encoded := make(map[string]string, len(colors))
 	for name, color := range colors {

@@ -112,6 +112,28 @@ var base = map[bool][5]ui.Color{
 	true:  {ui.Hex("#60a5fa"), ui.Hex("#4ade80"), ui.Hex("#facc15"), ui.Hex("#c084fc"), ui.Hex("#f97316")},
 }
 
+// charts are the built-in theme's categorical chart colors, chart.1 to
+// chart.8: amber, blue, emerald, violet, rose, cyan, pink and a neutral gray
+// for what is left over. The first five are the hues the reference sets
+// (amber, blue, emerald, violet and rose 500). Each mode's set is tuned for
+// its surfaces: at least 3:1 against the popover and the background, a
+// narrow band of lightness and one saturation so no entry stands out, and
+// the lightness staggered inside that band so that every pair also differs
+// without red or green vision. Rose leans toward pink so it is not the
+// danger red.
+var charts = map[bool][ChartColors]ui.Color{
+	false: {ui.Hex("#d07c06"), ui.Hex("#3e90fd"), ui.Hex("#099562"), ui.Hex("#7e5bd6"), ui.Hex("#ec5a78"), ui.Hex("#0886a4"), ui.Hex("#cd67ce"), ui.Hex("#8b9198")},
+	true:  {ui.Hex("#f89a2b"), ui.Hex("#77b0fe"), ui.Hex("#02b77f"), ui.Hex("#a284f3"), ui.Hex("#ff7c92"), ui.Hex("#01afc6"), ui.Hex("#e782d6"), ui.Hex("#b9bec6")},
+}
+
+// chartKeys are the chart colors a theme package may set, in order.
+var chartKeys = [...]string{"chart.1", "chart.2", "chart.3", "chart.4", "chart.5"}
+
+// series is the order the application's own charts take the chart colors
+// in: blue first, as the emphasis color, then violet, emerald, amber, rose,
+// cyan, pink and the gray.
+var series = [ChartColors]int{1, 3, 2, 0, 4, 5, 6, 7}
+
 // Tints are the emblem gradients, top to bottom, under OnTint glyphs.
 var Tints = [][2]ui.Color{
 	{ui.Hex("#3da9fc"), ui.Hex("#2580f4")}, // blue

@@ -347,7 +347,7 @@ func nativeTone(view *ui.Context, name string) ui.Color {
 		return palette.Danger
 	case "info":
 		return palette.Info
-	case "chart_1", "chart_2", "chart_3", "chart_4", "chart_5":
+	case "chart_1", "chart_2", "chart_3", "chart_4", "chart_5", "chart_6", "chart_7", "chart_8":
 		return nativeChartColor(view, name)
 	}
 	return palette.Foreground
