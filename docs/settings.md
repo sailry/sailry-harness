@@ -312,8 +312,10 @@ hover style.
   `TestExtensions` (classification, configuration checks, market actions,
   skill sources, a section closing the details).
   `TestDraftChecks` also renders the Connections rows of a local Host, remote
-  Hosts and a Mobile controller: the detail line, the short ID's tooltip and
-  Copy ID in each row's native menu.
+  Hosts and a Mobile controller: the detail line, the short ID's tooltip,
+  Copy ID in each row's native menu and each row's status, which is
+  CrychicUI's `feedback.ConnectionStatus`
+  ([crychic.md](crychic.md#recovery)) with the status role.
 - `internal/desktop/chrome/chrome_test.go`: the reference's key and cipher
   vectors, a read-only import of a synthetic profile with its skipped rows, the
   schema check, confined profile discovery, the failure states, and no secret

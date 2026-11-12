@@ -228,6 +228,12 @@ What to use instead, with the surface Kit's:
   `connection_connecting` and `connections_offline`. Kit has tags and badges
   but no status dot that pulses while a connection is coming up. It sits on
   the page, not in a floating surface, and needs no adapter.
+- `ConnectionStatus` is also the status of each row in Settings ›
+  Connections (`settings/connections.go`, [settings.md](settings.md)), in
+  place of `kit.StatusDot` and a text: `Online` for a device that is online
+  and `Offline` otherwise, never `Reconnecting`, so it is still. The three
+  texts are all the row's own status (this device, peer to peer, relay,
+  offline), and the element has the status role the dot and text lacked.
 
 ### Destructive confirmation
 
@@ -268,6 +274,14 @@ What to use instead, with the surface Kit's:
 - `SourceCard` and `Citation` open the address themselves through
   `c.OpenURL` when `ui.SafeToOpen` allows it (http, https, mailto) and report
   the click as `Changed`.
+- `SourceCard` is the numbered sources of the web search result dialog
+  (`conversation/content.go`, [conversation.md](conversation.md)), in place
+  of numbered `ui.Link` rows: it adds the source's host under its title. It
+  is content inside `kit.Dialog`, so the frost stays. The cards keep the
+  numbers of the sources as the reply cites them, skip an address that is
+  not http(s) without credentials, and are built under a theme whose font
+  size is the message text size, because the component sizes by `Rem`. The
+  provider's suggestions stay plain links: they have no number.
 - `JumpToLatest` builds an empty box at zero and does not scroll: read
   `Clicked`.
 - `Lightbox` has nothing `kit.ImageViewer` lacks. Its adapter is kept and
@@ -530,9 +544,10 @@ The audit's decisions stand where ours does more; none was overturned here.
   `code.DiffView` for its bar and Split and Unified switch, keeping
   `kit.Diff`'s state, hunk actions and its empty, binary and partial states.
   The height question is settled above.
-- **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
-  cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
-  when those features are added.
+- **Use theirs for something we lack:** `code.CommitGraph` for lanes;
+  `code.Blame` and `devtools.LogView` when those features are added. The
+  audit also named `files.FileIcon` for the picker's grid cells; reading
+  both declined it ([below](#declined-page-by-page)).
 - **Replaced:** limu's renderer in the conversation by `diagram.Mermaid`,
   at the user's request. What the conversation's own wrapper did stays ours
   and is kept: code while the block streams and when it cannot be drawn, no
@@ -541,14 +556,50 @@ The audit's decisions stand where ours does more; none was overturned here.
   ([conversation.md](conversation.md#b10-visuals)). What limu did and the
   component does not: lay a diagram out for the reply's width, keep one
   layout across remounts, and repaint without a layout on a theme switch.
-  cells; `feedback.ConnectionStatus` for the host page's status;
-  `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView` when
-  those features are added.
+- **Used beside ours:** `feedback.ConnectionStatus` for the host page's
+  status and the rows of Settings › Connections; `agent.SourceCard` for the
+  sources of the web search result dialog.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
   rows and editors, the composer and conversation components, the
   conversation's chart painter ([Charts](#charts)) and the host monitor's
   (`host/charts.go`), both on MyGo's `ui/chart`.
+
+### Declined, page by page
+
+Each place the app could take a component was read against ours. These stay
+ours; the right column is the function the replacement would lose. The
+components marked *(read)* are not verified in this document: they were
+judged from their source alone and would need the steps under
+[Adding a component](#adding-a-component) before any use.
+
+| Component | Place | What it would lose |
+|---|---|---|
+| `feedback.EmptyState` *(read)* | `kit.Result` on every empty page | Our own icons (it takes a Lucide name), the second action, the dashed card and the error status; it panics on an empty title |
+| `feedback.ErrorState` | `kit.Result`'s error status | It always shows Retry, shakes and repeats what the toast said |
+| `feedback.Skeleton` family *(read)* | `kit.Skeleton` | The still state under Reduce Motion and the capped frame rate (its sheen asks for every frame), the sizes and the secondary tone |
+| `feedback.ProgressBar`, `QuotaBar`, `StorageBar` *(read)* | Usage, storage, downloads | MyGo's `ui.Progress` comes first. `QuotaBar` panics on a limit of zero, which a provider may report, and formats raw numbers itself |
+| `display.StatusBadge`, `Badge`, `Tag` *(read)* | `kit.Badge`, `kit.Tag` | Kit has them; theirs arrive with a motion and `StatusBadge` pulses without end in two states only |
+| `display.Presence` *(read)*, `feedback.ConnectionStatus` | Connector and provider statuses | The failed state in the destructive colour and the spinner while a command runs; `Reconnecting` pulses without end, wrong for a warning that does not change |
+| `display.Stat`, `StatCard`, `KPI` *(read)* | Host facts, usage totals | They take a `float64`; ours are formatted texts (uptime, sizes, token counts by locale) |
+| `display.DescriptionList` *(read)* | `settings/details.go` facts, notification details | Values that can be selected and copied, and a key column sized by its content (theirs is fixed at 10 rem); notifications use `kit.Record` |
+| `display.Timeline` *(read)* | none | No timeline is drawn by hand anywhere |
+| `typography.Kbd`, `KeyCombo`, `navigation.KeyHints` *(read)* | Settings › Shortcuts, menu shortcuts | Ours is the recorder button and the platform's chord text; there is no key hint footer to fill |
+| `display.Avatar`, `typography.Monogram` *(read)* | Project and session marks | `kit.Identicon` draws a mark from the ID; the provider badge belongs to the model picker, which is approved |
+| `color.SwatchGrid` | The project colour popover | The accepted single row of 11 round 16 DIP swatches (its squares are 32 DIPs), Kit's tooltip and the hidden tips setting |
+| `files.FileIcon` | The picker's grid, the conversation's file card | It cannot show a folder, knows fewer kinds than `picker/tile.go` and decides by extension where the card has the file's `Kind`; its extension pill overflows the 104 DIP cell; `conversation.FileIcon` is also the overview's and the panel tabs' icon |
+| `files.FileList` | The picker's list | As listed under [Files](#files) |
+| `navigation.ZoomControl` *(read)* | The image viewer's bar | Kit's tooltips in the frosted bar, zoom about the pointer, the disabled ends |
+| `form.FileField`, `files.Dropzone` | The SSH key file | Typing a path (`~/.ssh/id_ed25519`), the full path shown (it shows the base name), the disabled state while pairing |
+| `input.TagInput` | none | No list of free tags is edited: shared projects are checkboxes of offered projects. It also cannot remove a chosen chip or refuse a repeat |
+| `feedback.SaveStatus` | Settings saves | Nothing saves by itself; a save's outcome is a toast, and its spinner is not the approved loading mark |
+| `feedback.RetryIn` | The model retry row | The Node retries by itself and gives no time; a button would do nothing |
+| `form.TypeToConfirm` | Destructive dialogs | None asks for a typed name, and adding one is a second approval |
+| `agent.TaskProgress`, `RunTimeline` | The composer's overview progress | The list of every step with its skipped state; its opaque card would sit in the frosted popover; the composer is approved |
+| `agent.Citation` | Citations in a reply | They are numbered links inside the Markdown text (`Cite`), which wrap and select with it |
+| `agent.ImageGenerating`, `chat.LinkPreview`, `media.Waveform` and `Recorder` *(read)*, `devtools.LogView`, `code.Blame` | none | The app has no such data: no generation progress, no page preview, no blame; dictation's level is a 16 DIP glyph in a button |
+| `chat.JumpToLatest` | The transcript's jump button | We do not count unseen messages; ours fades with `AtEnd` |
+| `desktop.UpdatePrompt` *(read)* | The updater | Ours shows notes, progress and the restart |
 
 ## Size
 
@@ -568,6 +619,9 @@ already linked.
 6 MB before it was approved, while limu's layout, scene and style packages
 and `limumygo` are no longer linked. The table has not been measured again
 since: rebuild and add the row.
+
+The Connections rows and the search result sources add no package:
+`feedback` was linked by the host page and `agent` by the adapters.
 
 ## Adding a component
 
