@@ -126,22 +126,128 @@ func Quote(text string) string {
 	return strings.Join(lines, "\n") + "\n\n"
 }
 
-// selectionAt is where a turn's selection pill stands: the pointer's place
-// in the turn when the selection last changed, and that selection.
+// press is the pointer's primary button over the transcript, as its pane
+// observes it: MyGo tells no element whether a button is held, and the
+// paragraph a selection drags from takes the press.
+type press struct {
+	held, away bool
+	downs, ups int // presses and releases seen, for the turns to tell a new one
+}
+
+// watch observes the presses and releases over pane. A release outside it
+// goes unseen: the press counts as let go once the pointer is back over the
+// pane after leaving it.
+func (p *press) watch(pane ui.Element) {
+	pane.ObserveInput(func(ev ui.InputEvent) {
+		if ev.Button != 0 {
+			return
+		}
+		switch ev.Kind {
+		case ui.InputPointerDown:
+			p.held, p.away = true, false
+			p.downs++
+		case ui.InputPointerUp:
+			p.held = false
+			p.ups++
+		}
+	})
+	if !p.held {
+		return
+	}
+	switch _, _, over := pane.PointerPosition(); {
+	case !over:
+		p.away = true
+	case p.away:
+		p.held, p.away = false, false
+		p.ups++
+	}
+}
+
+// textSpan is a box of a turn that holds selectable text, as of the last
+// frame in window DIPs: the user bubble's text, with its paragraph's id, or
+// a reply's Markdown (id 0, its paragraphs being MyGo's).
+type textSpan struct {
+	id uint64
+	r  ui.Rect
+}
+
+// span notes el as a text box of the turn being built, inset by its padding.
+func (s *State) span(el ui.Element, id uint64, padY, padX float32) {
+	r := el.Bounds()
+	if r.W <= 2*padX || r.H <= 2*padY {
+		return
+	}
+	s.spans = append(s.spans, textSpan{id, ui.Rect{X: r.X + padX, Y: r.Y + padY, W: r.W - 2*padX, H: r.H - 2*padY}})
+}
+
+// selectionAt is a turn's selection and where its pill stands, in the turn's
+// own coordinates so that it moves with the text.
 type selectionAt struct {
-	x, y float32
-	text string
+	text           string
+	press, release ui.Point // where the pointer began and ended the selection
+	downs, ups     int      // the presses and releases this turn has seen
+	onPill         bool     // the press under way is on the pill
+	keyboard       bool     // the selection was made without the pointer
+	pointed        bool     // the pointer let go and no key followed: a change is its own
+	hidden         bool     // dismissed until the selection changes
+	offset         float32  // the turn's place in the visible area
+	seen           bool
+	pill           ui.Rect // the pill as placed last; W and H as measured
+	placed         bool
 }
 
 type selectionKey struct{}
 
-// selection is the pill over a turn holding a selection: Quote (disabled in a
-// read-only session), Copy and New conversation, above the selected text.
-func selection(c *ui.Context, turn ui.Element, readonly bool, actions Actions) {
-	sel := turn.SelectedTexts()
-	if len(sel) == 0 {
-		return
+// selectionGap is between the pill and the selection, the reference's.
+const selectionGap = 8
+
+// selection is the pill of a turn holding a selection: Quote (disabled in a
+// read-only session), Copy and New conversation.
+//
+// It shows once the pointer lets go, above the selection and centred on it,
+// below it where the turn or the visible transcript has no room above, and
+// inside both; never over the selected lines unless they fill the view. A
+// press elsewhere, Escape, one of its actions or the transcript scrolling
+// dismisses it until the selection changes.
+//
+// MyGo tells the selected paragraphs' ids and text, not where they are, so
+// the selection's place is taken from the pointer: the lines between where
+// the press began and where it ended, a line's height around each. The text
+// boxes the turn noted correct a pointer that left the text, which selects
+// to the nearest paragraph: a selection inside the user bubble stays in the
+// bubble's own box, and an end outside every box widens the lines to the
+// nearest box's edge. A selection made with the keyboard takes the boxes
+// themselves.
+func (s *State) selection(c *ui.Context, session string, turn ui.Element, readonly bool, actions Actions) {
+	at := ui.Local(turn, selectionKey{}, func() selectionAt { return selectionAt{downs: s.press.downs, ups: s.press.ups} })
+	turn.ObserveInput(func(ev ui.InputEvent) {
+		if ev.Kind != ui.InputKeyDown {
+			return
+		}
+		at.pointed = false
+		if ev.Key == ui.KeyEscape {
+			at.hidden = true
+		}
+	})
+	if at.downs != s.press.downs {
+		at.downs = s.press.downs
+		x, y, _ := turn.PointerPosition()
+		at.onPill = at.placed && x >= at.pill.X && x < at.pill.X+at.pill.W && y >= at.pill.Y && y < at.pill.Y+at.pill.H
+		if !at.onPill {
+			// Shift extends the selection from where it began.
+			if at.text == "" || c.Modifiers()&ui.Shift == 0 {
+				at.press = ui.Point{X: x, Y: y}
+			}
+			at.hidden = at.text != ""
+		}
 	}
+	released := at.ups != s.press.ups
+	at.ups = s.press.ups
+	if released && !at.onPill {
+		at.pointed = true
+	}
+
+	sel := turn.SelectedTexts()
 	var parts []string
 	for _, t := range sel {
 		r := []rune(t.Text)
@@ -149,27 +255,158 @@ func selection(c *ui.Context, turn ui.Element, readonly bool, actions Actions) {
 	}
 	text := strings.Join(parts, "\n")
 	if strings.TrimSpace(text) == "" {
+		at.text, at.hidden, at.keyboard, at.seen, at.placed = "", false, false, false, false
 		return
 	}
-	// The pill stands over the selection, where the pointer left it: above
-	// the line, so it covers none of the selected text, and inside the turn.
-	at := ui.Local(turn, selectionKey{}, func() selectionAt { return selectionAt{} })
-	if x, y, over := turn.PointerPosition(); text != at.text && over {
-		at.x, at.y = x, y
+	held := s.press.held && !at.onPill
+	if text != at.text {
+		at.text, at.hidden = text, false
+		// MyGo tells the selection as of the last frame: a quick drag's shows
+		// in the frame after the pointer let go.
+		at.keyboard = !held && !at.pointed
 	}
-	at.text = text
-	const pillWidth, pillHeight = 232, 36
-	left := min(max(at.x-pillWidth/2, 0), max(turn.Bounds().W-pillWidth, 0))
-	kit.Floating(c, ui.Row(c.Key("selection"))).Absolute().Top(at.y - textSize(c) - pillHeight - 6).Left(left).Padding(4).Gap(4).Radius(18).Children(func() {
-		pill := func(key, label string, do func()) ui.Element {
-			return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(10).Radius(14).
-				Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(do)
+	if (held || released) && !at.onPill {
+		x, y, _ := turn.PointerPosition()
+		at.release = ui.Point{X: x, Y: y}
+	}
+	box, area := turn.Bounds(), s.area[session]
+	if box.W <= 0 || box.H <= 0 {
+		return
+	}
+	if area.W <= 0 || area.H <= 0 {
+		area = box
+	}
+	// The transcript moving under a pill that shows dismisses it; not the
+	// last step of a drag that scrolled it, seen as the pointer lets go.
+	if offset := box.Y - area.Y; at.seen && !held && !released && (offset-at.offset > 0.5 || at.offset-offset > 0.5) {
+		at.hidden = true
+		at.offset = offset
+	} else {
+		at.offset, at.seen = offset, true
+	}
+	if held || at.hidden {
+		at.placed = false
+		return
+	}
+
+	// The selected lines, in the turn.
+	line := textSize(c) * 1.75
+	top, bottom := min(at.press.Y, at.release.Y)-line, max(at.press.Y, at.release.Y)+line
+	left, right := min(at.press.X, at.release.X), max(at.press.X, at.release.X)
+	var bubble *ui.Rect
+	var bubbleID uint64
+	var texts []ui.Rect // the other boxes
+	for _, sp := range s.spans {
+		r := sp.r
+		r.X, r.Y = r.X-box.X, r.Y-box.Y
+		if sp.id != 0 {
+			bubble, bubbleID = &r, sp.id
+		} else {
+			texts = append(texts, r)
 		}
-		pill("quote", i18n.T(c, "message_quote"), func() { actions.Quote(Quote(text)) }).Disabled(readonly)
-		pill("copy", i18n.T(c, "message_copy"), func() {
+	}
+	inBubble, onlyBubble := false, bubble != nil
+	for _, t := range sel {
+		same := bubble != nil && bubbleID == t.ID
+		inBubble, onlyBubble = inBubble || same, onlyBubble && same
+	}
+	switch {
+	case onlyBubble:
+		if at.keyboard || top >= bubble.Y+bubble.H || bottom <= bubble.Y {
+			top, bottom = bubble.Y, bubble.Y+bubble.H
+		}
+		top, bottom = max(top, bubble.Y), min(bottom, bubble.Y+bubble.H)
+		left, right = bubble.X, bubble.X+bubble.W
+	case at.keyboard:
+		// Everything the turn's boxes hold, as Select All takes it.
+		top, bottom, left, right = 0, box.H, 0, box.W
+		for i, r := range texts {
+			if i == 0 {
+				top, bottom, left, right = r.Y, r.Y+r.H, r.X, r.X+r.W
+			}
+			top, bottom = min(top, r.Y), max(bottom, r.Y+r.H)
+			left, right = min(left, r.X), max(right, r.X+r.W)
+		}
+		if inBubble {
+			top = bubble.Y
+		}
+	default:
+		for _, y := range []float32{at.press.Y, at.release.Y} {
+			// An end outside every box selected to the nearest one's edge.
+			var near *ui.Rect
+			distance := float32(0)
+			for i, r := range texts {
+				d := max(r.Y-y, y-r.Y-r.H, 0)
+				if near == nil || d < distance {
+					near, distance = &texts[i], d
+				}
+			}
+			switch {
+			case near == nil || distance == 0:
+			case near.Y > y:
+				bottom = max(bottom, near.Y+line)
+			default:
+				top = min(top, near.Y+near.H-line)
+			}
+		}
+		if bubble != nil {
+			if edge := bubble.Y + bubble.H; inBubble {
+				top = max(top, bubble.Y)
+			} else if edge < bottom {
+				top = max(top, edge)
+			}
+		}
+	}
+	top, bottom = max(top, 0), min(bottom, box.H)
+
+	// The room: the visible transcript down to the turn's end. The pill may
+	// stand over the turn before, which paints under it, not the one after.
+	roomTop, roomBottom := area.Y-box.Y, min(area.Y+area.H-box.Y, box.H)
+	roomLeft, roomRight := max(area.X-box.X, 0), min(area.X+area.W-box.X, box.W)
+	pill := kit.Floating(c, ui.Row(c.Key("selection"))).Absolute().Padding(4).Gap(4).Radius(18)
+	pill.Children(func() {
+		button := func(key, label string, do func()) ui.Element {
+			return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(10).Radius(14).
+				Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
+				do()
+				at.hidden = true
+			})
+		}
+		button("quote", i18n.T(c, "message_quote"), func() { actions.Quote(Quote(text)) }).Disabled(readonly)
+		button("copy", i18n.T(c, "message_copy"), func() {
 			c.WriteClipboard(text)
 			kit.Message(c, i18n.T(c, "content_copied"))
 		})
-		pill("new", i18n.T(c, "chat_new"), func() { actions.Start(Quote(text)) })
+		button("new", i18n.T(c, "chat_new"), func() { actions.Start(Quote(text)) })
 	})
+	// Laid out, then placed: its width follows its labels.
+	if size := pill.Bounds(); size.W > 0 && size.H > 0 {
+		at.pill.W, at.pill.H = size.W, size.H
+	}
+	w, h := at.pill.W, at.pill.H
+	if w == 0 || min(bottom, roomBottom) <= max(top, roomTop) {
+		// Not measured yet, or the selection is out of view.
+		pill.Top(0).Left(0).Invisible().IgnoreInput(true)
+		at.placed = false
+		if w == 0 {
+			c.Invalidate()
+		}
+		return
+	}
+	y := top - selectionGap - h
+	if y < roomTop {
+		y = bottom + selectionGap
+	}
+	if y+h > roomBottom {
+		// The selection fills the view: the pill stays in it, at its top.
+		y = min(roomTop+selectionGap, roomBottom-h)
+	}
+	x := max(min((left+right-w)/2, roomRight-w), roomLeft)
+	pill.Top(y).Left(x)
+	at.pill.X, at.pill.Y, at.placed = x, y, true
+	// A press the pane does not see, as on the composer, dismisses it too.
+	if pill.PressedOutside() {
+		at.hidden = true
+		c.Invalidate()
+	}
 }

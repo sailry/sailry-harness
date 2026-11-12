@@ -9,16 +9,18 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Links of a reply: one normalization and routing decision. A session link
-// opens that session, a web link opens in the browser tab (in the system
-// browser with the platform modifier), mail and telephone links go to the
-// system, and the rest are knowledge sources or files resolved against the
-// session's worktree.
+// Links and file paths of a conversation's content: one normalization and
+// routing decision. A session link opens that session, a web link opens in a
+// browser tab of the right panel (in the system browser with the platform
+// modifier), mail and telephone links go to the system, and the rest are
+// knowledge sources or files resolved against the session's worktree: in the
+// right panel, or with the modifier in the file's own app on this device.
 
 // normalizeLink recovers the forms Markdown leaves without a usable scheme:
 // a bare www host, and file:relative, which as a URL would read as absolute.
@@ -145,7 +147,7 @@ func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
 		return false
 	}
 	link = normalizeLink(link)
-	external := c.Modifiers()&ui.Cmd != 0
+	external := conversation.External(c)
 	owner := r
 	cv := r.App.Data.Find(session)
 	if cv != nil {
@@ -168,6 +170,10 @@ func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
 	if parsed, err := url.Parse(link); err == nil {
 		switch strings.ToLower(parsed.Scheme) {
 		case "http", "https":
+			// An address without a host or with credentials opens nowhere.
+			if !browserAddress(link) {
+				return true
+			}
 			if external || r.browser == nil || !r.browser.available {
 				c.OpenURL(link)
 			} else {

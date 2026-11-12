@@ -1,7 +1,9 @@
 package shell
 
 import (
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -163,6 +165,7 @@ func (a *App) enterDemo(locale string) {
 	messages.Embed = func(session, dest, _ string, image bool) (conversation.Embed, bool) {
 		return preview.Embed(d.Find(session), dest, image)
 	}
+	messages.OpenLink = a.sampleLink
 	a.demo.messages = messages
 	a.setStage(stage{data: d, sidebar: side, messages: messages, panel: shown,
 		projects: panel.NewProjects(d.Workspace), drafts: map[string]*composer.State{}, panelWidth: own.panelWidth})
@@ -251,4 +254,36 @@ func (a *App) sampleComposer(cv *viewmodel.Conversation, comp *composer.State) *
 		return preview.DemoComposer(a.Data, cv, comp.Worktree)
 	}
 	return preview.Composer(a.Data, cv, comp.Worktree)
+}
+
+// sampleLink opens a link or a file path of a sample conversation's content
+// (conversation.State.OpenLink), the preview's or the demo's. A web address
+// opens a browser tab of the right panel, which loads nothing, and in the
+// system browser with the platform modifier; a file of the conversation
+// opens its preview in the right panel in either case, as sample paths name
+// nothing on this device. Mail, session and other links open nothing.
+func (a *App) sampleLink(c *ui.Context, session, link string) bool {
+	link = strings.TrimSpace(link)
+	if strings.HasPrefix(link, "#") {
+		return false
+	}
+	shown := func() { a.Page, a.PanelOpen = ConversationPage, true }
+	if target, err := url.Parse(link); err == nil && target.Scheme != "" {
+		switch {
+		case target.Scheme == "sailry-knowledge":
+			a.OpenKnowledge(c, session, link)
+		case target.Scheme != "http" && target.Scheme != "https", target.Host == "", target.User != nil:
+		case conversation.External(c):
+			c.OpenURL(link)
+		default:
+			shown()
+			a.Panel.Browse(link)
+		}
+		return true
+	}
+	if e, ok := preview.Embed(a.Data.Find(session), link, false); ok && e.File != nil {
+		shown()
+		a.Panel.ShowArtifact(*e.File)
+	}
+	return true
 }
