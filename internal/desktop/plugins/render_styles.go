@@ -12,8 +12,17 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// elementLook is the edges a host look gave an element before its package's
+// styles: a style naming one edge keeps the others.
+type elementLook struct {
+	padding, border, radius [4]float32
+}
+
 func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, element *NativeElement) error {
 	var padding, margin, border, radius [4]float32
+	if element.look != nil {
+		padding, border, radius = element.look.padding, element.look.border, element.look.radius
+	}
 	fontSize := float32(14)
 	for _, style := range element.Styles {
 		name := style.Name
@@ -37,7 +46,8 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 						// Kit's button heights: 20, 24, 32 and 36.
 						target.Height(map[string]float32{"xsmall": 20, "small": 24, "medium": 32, "large": 36}[label])
 						if size < 20 {
-							target.PaddingX(8)
+							padding[1], padding[3] = 8, 8
+							target.Padding(padding[0], padding[1], padding[2], padding[3])
 						}
 					default:
 						target.MinHeight(size + 12)

@@ -43,6 +43,7 @@ type NativeElement struct {
 	Callbacks   map[string]CallbackRef
 	RenderChild func(*ui.Context, *NativeElement) (ui.Element, error) `json:"-"`
 	Focus       func() bool                                           `json:"-"`
+	look        *elementLook
 }
 
 type NativeComponent struct {

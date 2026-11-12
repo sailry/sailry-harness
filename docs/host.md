@@ -409,6 +409,7 @@ and time zone; `internal/node/files/browser_test.go`: the volume rule.
 
 | Deviation | Reason |
 |---|---|
+| Upload is drawn in `chart.4` (violet) beside the download's `chart.2` (blue) | The reference draws upload in `info` and download in `chart_2`, the same blue, so the two series of one chart could not be told apart |
 | One page serves the preview and the live host: the live monitor (`live/host.rs`) followed by the overview's projects and runtime (`workspace/host.rs`) | The reference has two pages; the live one has no projects list or runtime facts, which the accepted page shows and its Add project needs |
 | Port forwards and the monitor show on the preview page, on example samples | The reference shows them only on a live host |
 | A host without an accelerator in its sample has no GPU card, and the card takes a row of its own | The reference shows the card beside the memory with "unavailable"; the Node reads accelerators only on macOS, so a Linux or Windows host would always show an empty card, and the accepted memory card keeps its row |

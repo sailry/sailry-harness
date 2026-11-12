@@ -265,20 +265,9 @@ func (d *dataChart) describe(i int) string {
 	return strings.TrimPrefix(d.labels[i]+": "+strings.Join(parts, ", "), ": ")
 }
 
-// seriesColor is the color of the i-th series or slice: the emblem tints
-// (blue, violet, teal, amber, gray), their lighter end in dark mode, and
-// from the sixth on a step toward the background each lap.
-func seriesColor(p *theme.Palette, i int) ui.Color {
-	end := 1
-	if p.Dark {
-		end = 0
-	}
-	c := theme.Tints[i%len(theme.Tints)][end]
-	if lap := i / len(theme.Tints) % 3; lap > 0 {
-		c = c.Mix(kit.Opaque(p.Background), 0.35*float32(lap))
-	}
-	return c
-}
+// seriesColor is the color of the i-th series or slice: the theme's chart
+// colors in its series order.
+func seriesColor(p *theme.Palette, i int) ui.Color { return p.Series(i) }
 
 // A chart's text follows the message text size as its caption does
 // (textSize), keeping what it was apart from 14: axis labels, axis titles
