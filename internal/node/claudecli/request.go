@@ -82,11 +82,6 @@ const (
 	roleTool      = "tool"
 )
 
-type image struct {
-	mime string
-	data []byte
-}
-
 // turnMessage is one prompt message reduced to what the route compares and
 // renders.
 type turnMessage struct {
