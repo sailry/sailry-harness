@@ -137,6 +137,10 @@ type App struct {
 	// input on the frame clock (preview).
 	transfers preview.Transfers
 	voice     preview.Voice
+	// clock is the frame's time, which the sample actions start their
+	// playing from: a key's handler runs between frames, where the context
+	// has no time to give.
+	clock time.Time
 
 	features       []string // the rail's order
 	pluginFeatures map[string]Feature
@@ -263,6 +267,7 @@ func (a *App) View(c *ui.Context) {
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
 	// The panel is the selected conversation's before anything opens a tab
 	// in it (panels.go).
+	a.clock = c.Now()
 	a.syncDemo(c)
 	a.MountPanel()
 	if a.Hooks.BeforeFrame != nil {
@@ -708,7 +713,7 @@ func (x *actions) Send(m composer.Message) {
 	if text == "" && len(m.Attachments) > 0 {
 		text = i18n.T(x.c, "chat_attachment_count", "count", len(m.Attachments))
 	}
-	preview.Send(x.cv, text, x.c.Now())
+	preview.Send(x.cv, text, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
@@ -717,7 +722,7 @@ func (x *actions) Guide(m composer.Message) {
 	if x.blocked() {
 		return
 	}
-	preview.Guide(x.cv, m, x.c.Now())
+	preview.Guide(x.cv, m, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
@@ -725,7 +730,7 @@ func (x *actions) Queue(m composer.Message) {
 	if x.blocked() {
 		return
 	}
-	preview.Queue(x.cv, m, x.c.Now())
+	preview.Queue(x.cv, m, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
@@ -733,7 +738,7 @@ func (x *actions) SendQueued(id string) {
 	if x.blocked() {
 		return
 	}
-	preview.SendQueued(x.cv, id, x.c.Now())
+	preview.SendQueued(x.cv, id, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
@@ -769,7 +774,7 @@ func (x *actions) Upload(a *composer.Attachment) {
 		return
 	}
 	x.notice()
-	x.a.transfers.Start(a, x.c.Now())
+	x.a.transfers.Start(a, x.a.clock)
 	x.c.After(preview.Tick)
 }
 
@@ -785,7 +790,7 @@ func (x *actions) Dictate(d *composer.Dictation, cmd composer.DictationCommand) 
 	if x.blocked() {
 		return
 	}
-	x.a.voice.Command(d, cmd, x.c.Now())
+	x.a.voice.Command(d, cmd, x.a.clock)
 	x.c.After(preview.Tick)
 }
 
@@ -799,7 +804,7 @@ func (x *actions) Compact() {
 		x.notice()
 		return
 	}
-	preview.Compact(x.cv, x.c.Now())
+	preview.Compact(x.cv, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
@@ -962,7 +967,7 @@ func (x *actions) Retry(turn string) {
 		x.notice()
 		return
 	}
-	preview.Retry(x.cv, turn, x.c.Now())
+	preview.Retry(x.cv, turn, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
@@ -1029,7 +1034,7 @@ func (x *actions) SaveEdit(turn, text string) {
 		x.notice()
 		return
 	}
-	preview.Resend(x.cv, turn, text, x.c.Now())
+	preview.Resend(x.cv, turn, text, x.a.clock)
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 

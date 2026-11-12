@@ -82,6 +82,25 @@ func TestDemoActions(t *testing.T) {
 		}
 	})
 
+	// Enter sends as the button does: the reply plays from the frame's time,
+	// not at once, though a key's handler runs between frames.
+	t.Run("EnterSends", func(t *testing.T) {
+		a, tt, _ := open(t, flaky)
+		cv := a.Data.Find(flaky)
+		n := len(cv.Turns)
+		click(t, tt, en("composer"))
+		tt.Type("Run it once more")
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		if len(cv.Turns) != n+1 || !cv.Running() || cv.Turns[n].Reply.Status == conversation.Completed {
+			t.Fatalf("Enter: %d turns, running %v, status %d", len(cv.Turns), cv.Running(), cv.Turns[n].Reply.Status)
+		}
+		play(tt)
+		if cv.Turns[n].Reply.Status != conversation.Completed {
+			t.Fatalf("the reply ended %d", cv.Turns[n].Reply.Status)
+		}
+	})
+
 	t.Run("EditAndResend", func(t *testing.T) {
 		a, tt, act := open(t, flaky)
 		cv := a.Data.Find(flaky)
