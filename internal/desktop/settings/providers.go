@@ -887,8 +887,9 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	ui.Column(c.Key("picker")).Gap(20).Padding(10, 12, 28, 12).Children(func() {
 		group("provider_access_login", len(logins), func() {
 			for _, x := range logins {
+				// The method's own mark, else its brand's.
 				mark := x.method.Icon
-				if mark == "" {
+				if icons.Brand(mark) == nil {
 					mark = x.brand.ID
 				}
 				chip("login-"+x.method.ID, x.label, mark, func() { m.chooseProvider(x.brand, []preview.Method{x.method}) })

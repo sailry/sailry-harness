@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	nodeproviders "github.com/sailry/sailry-harness/internal/node/providers"
@@ -150,6 +151,15 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 	for _, entry := range listing.Entries {
 		p := entry.Preset
 		key := presetBrand(entry)
+		if p.BrandDisplay != nil && p.BrandDisplay.Icon != nil && p.BrandDisplay.Icon.Kind == "Svg" {
+			// The package's own mark, for a brand the collection lacks.
+			var value protocol.PluginDesktopIconSvgPayload
+			if body, err := json.Marshal(p.BrandDisplay.Icon); err == nil && json.Unmarshal(body, &value) == nil {
+				if mark, err := ui.ParseSVG([]byte(value.Svg)); err == nil {
+					icons.Declare(key, mark)
+				}
+			}
+		}
 		if base := key[strings.LastIndex(key, ":")+1:]; p.ID == base {
 			bases[key] = p.Name
 			if p.BrandDisplay != nil {

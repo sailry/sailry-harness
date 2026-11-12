@@ -13,7 +13,6 @@ single owning package, and this index lists every location.
 | OpenAI Codex patch format, adapted in `internal/node/files` | Apache-2.0 | [codex.md](codex.md), [codex-LICENSE](codex-LICENSE), [codex-NOTICE](codex-NOTICE) |
 | Agent Plugins schema in `schemas/agent-plugins` | Apache-2.0 | [agent-plugins.md](agent-plugins.md), [agent-plugins-Apache-2.0.txt](agent-plugins-Apache-2.0.txt) |
 | AI Logo brand marks, linked from `github.com/yldm-tech/ai-logo/mygo` and drawn through `internal/desktop/icons` | MIT, with per-brand terms | [ai-logo.md](ai-logo.md) |
-| Lobe Icons provider marks in `internal/desktop/icons/svg` | MIT | [lobe-icons.txt](lobe-icons.txt) |
 | Phosphor Icons fill set in `internal/desktop/icons/phosphor`, named by plugins as `phosphor:<name>` | MIT | [phosphor-icons.md](phosphor-icons.md), [phosphor-icons-MIT.txt](phosphor-icons-MIT.txt) |
 | CrychicUI components and their bundled Lucide icons, linked into Desktop | MIT, ISC | [crychicui.md](crychicui.md), [crychicui-MIT.txt](crychicui-MIT.txt), [crychicui-THIRD_PARTY_NOTICES.md](crychicui-THIRD_PARTY_NOTICES.md) |
 | pele-go Mermaid renderer, linked into Desktop through CrychicUI's `diagram` package | MIT | [pele-go.md](pele-go.md), [pele-go-MIT.txt](pele-go-MIT.txt) |

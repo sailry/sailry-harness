@@ -59,18 +59,36 @@ func logo(slug string, variant ailogo.Variant) *ui.SVG {
 	return mark
 }
 
+// declared are the marks packages declare for their own brands, by slug.
+var declared sync.Map
+
+// Declare gives a brand the mark its package declares. It shows only where
+// the collection has no mark for that brand.
+func Declare(id string, mark *ui.SVG) {
+	if id != "" && mark != nil {
+		declared.Store(BrandSlug(id), mark)
+	}
+}
+
 // Brand is the mark of a catalogue identifier for ui.Icon, which draws it in
-// the text color; nil when the collection has no such brand.
+// the text color: the collection's, else the one its package declared; nil
+// when the brand has neither.
 func Brand(id string) *ui.SVG {
 	if id == "" {
 		return nil
 	}
-	return logo(BrandSlug(id), ailogo.Mono)
+	if mark := logo(BrandSlug(id), ailogo.Mono); mark != nil {
+		return mark
+	}
+	if mark, found := declared.Load(BrandSlug(id)); found {
+		return mark.(*ui.SVG)
+	}
+	return nil
 }
 
 // BrandColor is the mark in the brand's own colors for ui.Image, which
-// draws a mark without them in the text color; nil when the collection has
-// no such brand.
+// draws a mark without them in the text color; nil when the brand has no
+// mark.
 func BrandColor(id string) *ui.SVG {
 	if id == "" {
 		return nil
