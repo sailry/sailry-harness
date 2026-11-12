@@ -65,7 +65,7 @@ func TestCommandLogClassification(t *testing.T) {
 	// protocol declarations, through unions, so a new secret field fails here
 	// until admission names its command.
 	typed := secretCommandKinds(t)
-	for _, kind := range []string{"put_credential", "save_provider", "save_ssh", "save_database", "save_backup_settings", "save_plugin_settings", "import_session", "dispatch"} {
+	for _, kind := range []string{"save_provider", "save_ssh", "save_database", "save_backup_settings", "save_plugin_settings", "import_session", "dispatch"} {
 		if !typed[kind] {
 			t.Errorf("the protocol declarations no longer show a secret in %s: the derivation is broken", kind)
 		}
@@ -119,8 +119,6 @@ func TestCommandLogClassification(t *testing.T) {
 	}{
 		"save_provider": {protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}, ""},
 		"put_provider":  {&protocol.CommandPutProviderPayload{Provider: provider}, ""},
-		"put_credential": {&protocol.CommandPutCredentialPayload{ID: protocol.NewCredentialID(), Provider: owner, Secret: secret},
-			"provider=" + owner.String()},
 		"save_database": {protocol.CommandSaveDatabasePayload{Profile: protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: canary}, Password: &secret}, ""},
 		"save_ssh": {protocol.CommandSaveSshPayload{Profile: protocol.SshProfile{ID: protocol.NewSshID(), Host: canary + ".test", Username: canary},
 			Credential: &protocol.SshCredential{Kind: "password", Data: &protocol.SshCredentialPasswordPayload{Password: secret}}}, ""},

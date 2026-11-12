@@ -540,6 +540,14 @@ Back returns from the form to the methods when the choice offered several,
 else to the brands; from the welcome guide the brands' Back returns to the
 guide.
 
+A method without a sign-in whose package preset declares a warning
+(`viewmodel.Method.Warning`, from the entry's `login_warning`) asks it in the
+settings confirmation dialog before its form opens: the title is Add and the
+method's name, the text is the package's own, Continue opens the form and
+Cancel leaves the editor on the brands or methods it showed. The prompt is
+`Model.configureProvider`; it sends nothing. A sign-in method keeps its warning
+for each sign-in attempt.
+
 The form is the same for a new and a saved channel. Protocol, service and
 region are each a segmented control where the method's routes differ in them.
 A switch keeps the name, key, typed endpoint and the models the user added or
@@ -1015,7 +1023,7 @@ attaches only when the installed log lies in its own profile.
 | Files | `<profile>/logs/<desktop\|host>/current.log`, mode 0600 in a 0700 directory, with `writer.lock` held by the one writing process. 10 MiB a file, ten files, rotated by size only. Earlier daily `YYYY-MM-DD.log` files are removed once the Node owns the profile |
 | Records | `<UTC time, microseconds> <DEBUG\|INFO\|WARN\|ERROR> <application> key=value…` in the policy's order. Only the policy's keys are written; strings lose control characters and stop at 256 characters. Records of other libraries stay with the previous `slog` handler |
 | Commands | `logging_commands.go` records every command that changes data: `begin`, `admitted` and one outcome (`completed`, `failed` with the fault code such as `revision_conflict`, `cancelled`, or `interrupted` with `outcome_unknown`), each with the kind, Node, caller, request and `duration_us`. The rule follows the registry: a command with durable admission (`protocol.Command.Durable`) is always recorded, and so is any command the file does not name. Commands without durable admission are classified one by one in `transientCommands`; see the classes below. A package's unrecorded commands appear as `plugin_command` with its name, digest and settings revision, its reads at DEBUG. Not found, invalid request and network unavailability are WARN |
-| Command classes | Of 365 commands, 189 are durable and 5 transient ones change state (`complete_browser`, `refresh_model_catalog`, `dismiss_installation`, `cancel_local_model`, `request_computer_permission`): full records. 3 registry reads keep the reference's full record and 18 reads its slow record (100 ms, failed or uncertain). Unrecorded: 132 read-only commands (reads, probes, cancelled reads, `send_diagnostics`, `synthesize_speech`, a schedule's reads), 13 transfers that open or cancel a byte stream whose durable finishing command is the recorded change, and 5 interactive commands (`claim_terminal`, `input_terminal`, `resize_terminal`, `set_terminal_appearance` and the desktop's `count_feature`) that would bury the log. `TestCommandLogClassification` fails for a registered command that is neither durable nor classified |
+| Command classes | Of 360 commands, 185 are durable and 5 transient ones change state (`complete_browser`, `refresh_model_catalog`, `dismiss_installation`, `cancel_local_model`, `request_computer_permission`): full records. 3 registry reads keep the reference's full record and 18 reads its slow record (100 ms, failed or uncertain). Unrecorded: 131 read-only commands (reads, probes, cancelled reads, `send_diagnostics`, `synthesize_speech`, a schedule's reads), 13 transfers that open or cancel a byte stream whose durable finishing command is the recorded change, and 5 interactive commands (`claim_terminal`, `input_terminal`, `resize_terminal`, `set_terminal_appearance` and the desktop's `count_feature`) that would bury the log. `TestCommandLogClassification` fails for a registered command that is neither durable nor classified |
 | Redaction | A record names only typed identifiers from the top level of the payload: `session` (`SessionID`), `turn` (`TurnID` in `turn` or `recipient`), `provider` (`ProviderID`) and `worktree` (`WorktreeID`). No other field is read, so payloads, results, prompts, message text, file contents and paths, endpoints, credentials and environment values cannot reach a record |
 | Disclosure | `logging.Remote`: `area`, `phase`, `operation`, `code` and `cause_code` as lowercase tokens, `duration_us`, `elapsed_us` and `count`, a SemVer `app_version`, and a package only as `third_party`. Identifiers, names, details and paths never pass |
 | Attachment | The last 500 records in the last mebibyte of the active file, each reduced by `Remote`, one JSON object a line. Rotated files are not read |
@@ -1069,7 +1077,7 @@ an order, a time within the window, or a second dimension.
 | `read_aloud.os_voice`, `read_aloud.model_voice` | A reading starts, by the voice that reads it |
 | `dictation.start`, `session.export` | Dictation starts; an export is requested |
 | `theme.change.builtin`, `theme.change.package` | The theme changes to the built-in one or to a package's, never named |
-| `settings.save.provider`, `.team`, `.role`, `.connector`, `.mcp`, `.plugin`, `.hooks`, `.backup`, `.terminal`, `.media`, `.power`, `.telemetry`, `.network`, `.sandbox`, `.search`, `.compaction`, `.python`, `.local_models`, `.code_index`, `.knowledge`, `.credential`, `.ssh`, `.database`, `.defaults` | A command of that settings family is sent (`live/feature_usage.go` `savedFeatures`, from the command's kind alone, never its values) |
+| `settings.save.provider`, `.team`, `.role`, `.connector`, `.mcp`, `.plugin`, `.hooks`, `.backup`, `.terminal`, `.media`, `.power`, `.telemetry`, `.network`, `.sandbox`, `.search`, `.compaction`, `.python`, `.local_models`, `.code_index`, `.knowledge`, `.ssh`, `.database` | A command of that settings family is sent (`live/feature_usage.go` `savedFeatures`, from the command's kind alone, never its values) |
 
 An interface event's class is `unresponsive` for a hang and, for a crash, one
 of `panic.nil_dereference`, `panic.index_out_of_range`,

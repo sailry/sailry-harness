@@ -21,14 +21,10 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return removeProject(ctx, db, request.Command.Data.(*protocol.CommandRemoveProjectPayload).Expected, prepared.TerminalsClosed)
 	case "register_worktree":
 		return registerWorktree(ctx, db, *request.Command.Data.(*protocol.CommandRegisterWorktreePayload), prepared)
-	case "set_defaults":
-		return setDefaults(ctx, db, node, *request.Command.Data.(*protocol.CommandSetDefaultsPayload))
 	case "create_session":
 		return createSession(ctx, db, node, profile, *request.Command.Data.(*protocol.CommandCreateSessionPayload))
 	case "import_session":
 		return importSession(ctx, db, node, caller, profile, *request.Command.Data.(*protocol.SessionImport))
-	case "bind_connection_session":
-		return bindConnectionSession(ctx, db, profile, *request.Command.Data.(*protocol.CommandBindConnectionSessionPayload))
 	case "save_database", "remove_database":
 		return ExecuteDatabaseCommand(ctx, db, request.Command)
 	case "rename_session":

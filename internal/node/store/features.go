@@ -182,35 +182,3 @@ func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) 
 	value.Config = &config
 	return value, nil
 }
-
-func setDefaults(ctx context.Context, db *sql.Conn, node protocol.NodeID, input protocol.CommandSetDefaultsPayload) (protocol.Output, []protocol.Event, error) {
-	if input.Config.Resource != nil || input.Config.Assistant != nil {
-		return protocol.Output{}, nil, invalid("default conversations cannot bind a resource or plugin assistant")
-	}
-	if err := validateConfig(ctx, db, node, input.Config); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	current, err := ReadDefaults(ctx, db)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	if err := checkRevision(current.Revision, input.ExpectedRevision); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	revision, err := nextRevision(current.Revision)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	value := protocol.Defaults{Revision: revision, Config: &input.Config}
-	var previous []byte
-	err = db.QueryRowContext(ctx, "SELECT config FROM defaults WHERE singleton=1").Scan(&previous)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return protocol.Output{}, nil, err
-	}
-	body, err := preserveConfig(previous, input.Config)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	_, err = db.ExecContext(ctx, "INSERT INTO defaults(singleton,revision,config) VALUES(1,?1,?2) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,config=excluded.config", revision, body)
-	return protocol.Output{Kind: "defaults", Data: value}, []protocol.Event{{Kind: "defaults_changed", Data: value}}, err
-}

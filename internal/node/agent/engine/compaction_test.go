@@ -32,7 +32,7 @@ func TestCompactionHandoff(t *testing.T) {
 			{"prose example", `A quoted example {"user_intent":["Wrong"]} is not a handoff`, ""},
 		} {
 			t.Run(row.name, func(t *testing.T) {
-				summary, err := handoff.Parse(row.document)
+				summary, err := handoff.Parse(row.document, 4000)
 				if row.want == "" {
 					if err == nil {
 						t.Fatal("unusable document replaced the handoff")
@@ -83,8 +83,9 @@ func TestCompactionHandoff(t *testing.T) {
 		}
 		base, _ := handoff.Prepare(nil, 64000, 8000)
 		tight := uint64(8000+256+100) + tokens.Text(base)
-		if _, err = handoff.Prepare(history, tight, 8000); err == nil || !strings.Contains(err.Error(), "latest turn") {
-			t.Fatal("oversized latest turn was silently degraded")
+		// A latest turn over the budget is shortened and keeps the user's message.
+		if shortened, err := handoff.Prepare(history, tight, 8000); err != nil || !strings.Contains(shortened, "[user]: Current request") || strings.Contains(shortened, "Keep the public API") || strings.Contains(shortened, "LATEST_MIDDLE") {
+			t.Fatalf("oversized latest turn was not shortened to its request: %v", err)
 		}
 		if _, err = handoff.Prepare(history, 8000, 8000); err == nil {
 			t.Fatal("summary prompt and output reserve were not counted")
@@ -155,9 +156,43 @@ func TestCompactionHandoff(t *testing.T) {
 			t.Fatal("summary coverage timestamps describe the model request instead of the replaced history")
 		}
 		usage := compacted.Summary.Usage
-		normalized, _ := handoff.Parse(string(document))
+		normalized, _ := handoff.Parse(string(document), 4000)
 		if usage.Input == nil || *usage.Input != 123 || usage.Output == nil || *usage.Output != tokens.Text(normalized.Document()) || usage.Total == nil || *usage.Total != 123+*usage.Output || saved.Metadata.Execution.Source.ID != binding.Provider.ID {
 			t.Fatal("summary lost reported optional usage, normalized output estimate or captured scope")
+		}
+	})
+	t.Run("cap follows the window", func(t *testing.T) {
+		var concepts []string
+		for range 600 {
+			concepts = append(concepts, strings.Repeat("Reference kept by a large window ", 6))
+		}
+		document, _ := json.Marshal(map[string]any{"user_intent": []string{"Fix parser"}, "technical_concepts": concepts})
+		for _, row := range []struct {
+			context        uint32
+			output         int64
+			limit          uint64
+			target, cutoff string
+		}{{200000, 8000, 4000, "under 3,000 tokens", "beyond 4,000 tokens"}, {1000000, 24000, 12000, "under 9,000 tokens", "beyond 12,000 tokens"}} {
+			m := &scriptedModel{scripts: []script{response(text(string(document)), finish())}}
+			f, x, binding, state := compactionFixture(t, m)
+			binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = row.context, 64000
+			if err := f.r.compact(x, binding, state, true); err != nil {
+				t.Fatal(err)
+			}
+			request := m.calls[0]
+			system := request.Prompt[0].Content[0].(fantasy.TextPart).Text
+			if request.MaxOutputTokens == nil || *request.MaxOutputTokens != row.output || !strings.Contains(system, row.target) || !strings.Contains(system, row.cutoff) {
+				t.Fatalf("%d window: output limit %v or prompt limits are wrong", row.context, request.MaxOutputTokens)
+			}
+			budget := store.AgentCompactionBudget(binding.Provider.Models[0], 80)
+			if int64(budget.SummaryOutput) != row.output || budget.SummaryInput != uint64(row.context)-uint64(row.output) || budget.OutputReserve != 64000 {
+				t.Fatalf("%d window: reported budget = %+v", row.context, budget)
+			}
+			after := f.state()
+			rendered := after.Records[len(state.Records)].Data.(*canonical.Compaction).Summary.Content[0].Data.(*canonical.TextContent).Text
+			if size := tokens.Text(rendered); size > row.limit || row.limit > 4000 && size <= 4000 {
+				t.Fatalf("%d window: handoff is %d tokens under a cap of %d", row.context, size, row.limit)
+			}
 		}
 	})
 	t.Run("failed summaries retain usage", func(t *testing.T) {
@@ -251,6 +286,70 @@ func TestCompactionHandoff(t *testing.T) {
 					t.Fatalf("failure = %+v", failure)
 				}
 			})
+		}
+	})
+	t.Run("three automatic failures pause the threshold", func(t *testing.T) {
+		refused := func(_ context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: 400, ResponseBody: []byte(`{"error":{"message":"Summary refused"}}`)}})
+		}
+		m := &scriptedModel{scripts: []script{refused, refused, refused, refused, refused, response(text(`{"user_intent":["Continue task"]}`), finish())}}
+		f, x, binding, state := compactionFixture(t, m)
+		trigger := uint32(1)
+		binding.Provider.Models[0].CompactionTokens = &trigger
+		other := binding
+		other.Config.Model = "other"
+		fail := func(manual bool) protocol.ConversationCompactionFailure {
+			t.Helper()
+			before := f.state()
+			if err := f.r.compact(x, binding, before, manual); err == nil {
+				t.Fatal("refused summary compacted")
+			}
+			added := f.state().Records[len(before.Records):]
+			last := added[len(added)-1]
+			if last.Metadata.Compaction == nil || last.Metadata.Compaction.Failure == nil || last.Metadata.Execution == nil || last.Metadata.Execution.Source.Model != binding.Config.Model {
+				t.Fatalf("failure record = %+v", last.Metadata)
+			}
+			return *last.Metadata.Compaction.Failure
+		}
+		if !shouldCompact(binding, state, 80) {
+			t.Fatal("fixture is not over its threshold")
+		}
+		for attempt := 1; attempt <= 2; attempt++ {
+			if failure := fail(false); failure.Paused {
+				t.Fatalf("failure %d paused automatic compaction", attempt)
+			}
+		}
+		// A manual failure neither counts nor pauses.
+		if failure := fail(true); failure.Paused || failure.Source != protocol.ConversationCompactionSourceManual {
+			t.Fatalf("manual failure = %+v", failure)
+		}
+		if !shouldCompact(binding, f.state(), 80) {
+			t.Fatal("two automatic failures paused the threshold")
+		}
+		if failure := fail(false); !failure.Paused {
+			t.Fatal("the third failure does not say automatic compaction is paused")
+		}
+		paused := f.state()
+		if shouldCompact(binding, paused, 80) {
+			t.Fatal("the threshold still compacts after three automatic failures")
+		}
+		// Another model starts again; the threshold itself is not what stopped it.
+		if automaticFailures(binding, paused.Records) != 3 || automaticFailures(other, paused.Records) != 0 {
+			t.Fatalf("failures = %d, for another model %d", automaticFailures(binding, paused.Records), automaticFailures(other, paused.Records))
+		}
+		// Overflow recovery still tries, and its failure does not say the pause again.
+		if failure := fail(false); failure.Paused {
+			t.Fatal("the pause was told twice")
+		}
+		if m.count() != 5 {
+			t.Fatalf("summary requests = %d", m.count())
+		}
+		// A compaction that succeeds ends the pause.
+		if err := f.r.compact(x, binding, f.state(), true); err != nil {
+			t.Fatal(err)
+		}
+		if automaticFailures(binding, f.state().Records) != 0 {
+			t.Fatal("a successful compaction left the threshold paused")
 		}
 	})
 	t.Run("automatic continuation", func(t *testing.T) {

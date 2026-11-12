@@ -82,7 +82,10 @@ func optional(value any) *string {
 	}
 	return &text
 }
-func Parse(text string) (Summary, error) {
+
+// Parse reads the handoff of a summary response and bounds its rendered text
+// to limit tokens.
+func Parse(text string, limit uint64) (Summary, error) {
 	var candidates []string
 	cuts := []int{}
 	for offset := 0; ; {
@@ -157,7 +160,7 @@ func Parse(text string) (Summary, error) {
 		if len(summary.UserIntent)+len(summary.TechnicalConcepts)+len(summary.ErrorsAndFixes)+len(summary.ProblemSolving)+len(summary.UserMessages)+len(summary.PendingTasks)+len(summary.Files) == 0 && summary.CurrentWork == nil && summary.NextStep == nil {
 			continue
 		}
-		summary.Bound()
+		summary.Bound(limit)
 		return summary, nil
 	}
 	return Summary{}, fmt.Errorf("compaction summary was not a structured handoff")
@@ -331,8 +334,11 @@ func (s Summary) Render() string {
 	}
 	return strings.TrimSpace(out.String())
 }
-func (s *Summary) Bound() {
-	for tokens.Text(s.Render()) > 4000 {
+
+// Bound cuts the least essential sections until the rendered handoff is at
+// most limit tokens.
+func (s *Summary) Bound(limit uint64) {
+	for tokens.Text(s.Render()) > limit {
 		if !s.trim() {
 			return
 		}

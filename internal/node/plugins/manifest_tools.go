@@ -346,18 +346,8 @@ func validateModels(extension protocol.PluginExtension) error {
 			(auth.Exchange != nil || auth.Flow.Kind == "script") && !has(protocol.PluginActionInspectCredentials) {
 			return packageFault("plugin model sign-in requires an undeclared action")
 		}
-		if warning := auth.Warning; warning != nil {
-			text := func(value string) bool {
-				return strings.TrimSpace(value) != "" && len(value) <= 1024 && !strings.ContainsFunc(value, unicode.IsControl)
-			}
-			if !text(warning.Text) || len(warning.Locales) > 32 {
-				return packageFault("invalid plugin model sign-in warning")
-			}
-			for locale, value := range warning.Locales {
-				if strings.TrimSpace(locale) == "" || len(locale) > 32 || !text(value) {
-					return packageFault("invalid plugin model sign-in warning")
-				}
-			}
+		if !validWarning(auth.Warning) {
+			return packageFault("invalid plugin model sign-in warning")
 		}
 	}
 	for index, resource := range extension.ModelResources {
@@ -401,8 +391,31 @@ func validateModels(extension protocol.PluginExtension) error {
 		if preset.Adapter != nil && !slices.ContainsFunc(extension.ModelAdapters, func(adapter protocol.PluginModelAdapterDeclaration) bool { return adapter.ID == *preset.Adapter }) {
 			return packageFault("plugin model provider names an undeclared adapter")
 		}
+		if !validWarning(preset.Warning) {
+			return packageFault("invalid plugin model provider warning")
+		}
 	}
 	return nil
+}
+
+// validWarning reports whether a sign-in's or a preset's warning, when
+// declared, is plain text within its bounds in every language.
+func validWarning(warning *protocol.PluginModelAuthWarning) bool {
+	if warning == nil {
+		return true
+	}
+	text := func(value string) bool {
+		return strings.TrimSpace(value) != "" && len(value) <= 1024 && !strings.ContainsFunc(value, unicode.IsControl)
+	}
+	if !text(warning.Text) || len(warning.Locales) > 32 {
+		return false
+	}
+	for locale, value := range warning.Locales {
+		if strings.TrimSpace(locale) == "" || len(locale) > 32 || !text(value) {
+			return false
+		}
+	}
+	return true
 }
 
 // validateAdapterTransport requires exactly one transport: a translation
@@ -425,7 +438,7 @@ func validateAdapterTransport(adapter protocol.PluginModelAdapterDeclaration, ex
 	if adapter.Script.Entry != "" || len(adapter.Script.Resources) != 0 || len(adapter.Origins) != 0 || adapter.Capabilities.Files ||
 		adapter.Framing != protocol.PluginModelAdapterFramingNdjson || index < 0 || !text(agent.SignIn, 256) ||
 		agent.ReplayBytes < 4096 || agent.ReplayBytes > 8*1024*1024 || len(agent.Efforts) > 6 || len(agent.FailureMarkers) > 4 ||
-		agent.AuthMethod != nil && !text(*agent.AuthMethod, 64) {
+		agent.AuthMethod != nil && !text(*agent.AuthMethod, 64) || agent.Mode != nil && !text(*agent.Mode, 64) {
 		return packageFault("invalid plugin agent adapter")
 	}
 	if path := agent.SystemMeta; path != nil {

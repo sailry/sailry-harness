@@ -87,7 +87,6 @@ func (command Command) Durable() bool {
 		"read_model_scores",
 		"request_provider_http",
 		"discover_models",
-		"validate_provider",
 		"read_conversation",
 		"read_conversation_runs",
 		"read_conversation_run",

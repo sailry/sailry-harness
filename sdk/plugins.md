@@ -554,6 +554,34 @@ it was. It changes nothing on the Node and is not part of the account's
 identity, so adding or rewording it keeps saved sign-ins. Name the target and
 the consequence once. A mirrored controller shows channels without starting
 sign-in, so it never shows the warning.
+
+A channel without a sign-in has no attempt to warn before: a preset whose
+`auth` is `none` or `api_key`, such as one served by a local program through
+`model_adapters[].acp`. Declare the same `warning` on the preset in
+`model_providers` instead, with the same limits:
+
+```json
+"model_providers": [
+  {
+    "id": "example",
+    "name": "Example",
+    "routes": [{ "protocol": "plugin", "endpoint": "https://example.com" }],
+    "auth": { "kind": "none" },
+    "adapter": "example",
+    "models": { "kind": "discover" },
+    "warning": {
+      "text": "This uses your own Example account; heavy automated use may count against its limits or violate its terms",
+      "locales": { "zh-CN": "..." }
+    }
+  }
+]
+```
+
+Desktop asks it once when the user picks the preset to add a channel, before the
+channel form: Continue opens the form, Cancel adds nothing. Editing a saved
+channel does not ask again. On a preset that has a sign-in, the flow's `warning`
+is the one shown before each attempt; the preset's is used only when the flow
+declares none. The warning needs no action and changes nothing on the Node.
 `model_adapters` declares a script, allowed HTTPS origins, response framing
 (`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
 using one must select the `plugin` protocol. Its pure exports translate neutral
@@ -634,6 +662,7 @@ A model adapter names a program with `acp` instead of `script`. It declares
 | `system_meta` | Dotted `_meta` path of `session/new` that takes the system text. Without it, or when the agent does not advertise it, the system text opens the first prompt |
 | `efforts` | Effort level (`minimal` to `max`) to model identifier suffix. Variants fold into one model |
 | `model_argument` | The model is the program's `{model}` argument, one process per model. Required exactly when an argument has `{model}` |
+| `mode` | The session mode entered in every new session before a prompt, for example a read-only one. An agent that does not offer it is refused. Without it the session keeps the agent's mode |
 | `auth_method` | The `authenticate` method the agent is asked to use once when it requires authentication |
 | `failure_markers` | Up to four texts that mark a reply as a failure |
 

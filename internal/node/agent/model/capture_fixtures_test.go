@@ -136,6 +136,18 @@ func capturedPolicyFixtures(t *testing.T) {
 		if summary.Config.Effort.Kind != "none" || binding.Config.Effort.Kind != "high" || OutputLimit(binding, true) != 4096 {
 			t.Fatalf("summary policy=%+v", summary.Config.Effort)
 		}
+		// The summary output is twice the handoff cap of the window, within the
+		// model's own limit; a 200,000 token window keeps 8,000.
+		for _, row := range []struct {
+			context, output uint32
+			want            int64
+		}{{200000, 64000, 8000}, {32000, 8000, 8000}, {400000, 64000, 16000}, {1000000, 64000, 24000}, {1000000, 10000, 10000}, {1000000, 0, 8000}} {
+			sized := binding
+			sized.Provider.Models = []protocol.ConversationModel{{ID: "fixture", Context: row.context, Output: row.output}}
+			if got := OutputLimit(sized, true); got != row.want {
+				t.Errorf("summary output of a %d window with %d output = %d, want %d", row.context, row.output, got, row.want)
+			}
+		}
 	})
 	geminiCarrierRoundtrip(t)
 	providerResourceFixtures(t)

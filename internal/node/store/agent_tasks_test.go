@@ -30,7 +30,11 @@ func testTaskAdmission(t *testing.T) {
 			var team protocol.TeamProfile
 			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 				if selection == "default model" {
-					if _, _, err := setDefaults(ctx, db, node, protocol.CommandSetDefaultsPayload{Config: base.Config}); err != nil {
+					stored, err := encode(base.Config)
+					if err != nil {
+						return err
+					}
+					if _, err := db.ExecContext(ctx, "INSERT INTO defaults(singleton,revision,config) VALUES(1,1,?1)", stored); err != nil {
 						return err
 					}
 					draft.Config = nil

@@ -7,9 +7,9 @@ standard streams, one message per line) is used as a **plain language model**.
 Sailry keeps its loop, tools, history and compaction. The agent's own tools and
 agent behaviour are switched off. This is not a second agent loop.
 
-The first package is `plugins/agy` (Google Antigravity CLI, `agy acp`). A
-second consumer, the Cursor CLI (`agent acp`), is decided but not built; the
-declaration is shaped so that it needs no core change.
+The first package is `plugins/agy` (Google Antigravity CLI, `agy acp`). The
+second is `plugins/cursor` (the official Cursor CLI, `agent acp`). Neither is
+bundled; the user installs them from the catalog.
 
 ## Ownership
 
@@ -70,6 +70,14 @@ list of `session/new`, `session/set_model`).
   `session/request_permission` is answered with the agent's reject option, or
   `cancelled` when it offers none. Any other request from the agent is
   `Method not found`.
+- **Session mode.** A declared `mode` is entered in every new session before a
+  prompt: through the session's `category: "mode"` select option
+  (`session/set_config_option`), else through `modes.availableModes`
+  (`session/set_mode`). Nothing is sent when the session is already in it. An
+  agent that does not offer the mode fails with "`<command>` does not offer
+  the mode `<mode>`" (`NotConfigured`) and receives no prompt, because a
+  package declares a mode to bound what the agent does by itself. Without the
+  member the session keeps the agent's own mode.
 - **System text.** The discipline, the tool convention with the tool list, then
   the caller's system text. It goes into the declared `_meta` path of
   `session/new` when the agent advertises that path as `true` in its
@@ -122,7 +130,7 @@ ACP-backed package declares:
    `files` that switch the agent's own tools off.
 3. One `model_adapters` entry with `framing: "ndjson"`, `origins: []`, no
    `script`, its capabilities and `acp`: `program`, `replay_bytes`, `sign_in`,
-   and where they apply `system_meta`, `efforts`, `model_argument`,
+   and where they apply `system_meta`, `efforts`, `model_argument`, `mode`,
    `auth_method`, `failure_markers`.
 4. One `model_providers` preset with a `plugin` route, `adapter`,
    `models: discover` and `auth` `none` (the agent holds its own sign-in) or
@@ -130,6 +138,13 @@ ACP-backed package declares:
 
 The route's `endpoint` is required by the channel contract and is not contacted;
 a package declares its vendor's home page.
+
+Such a channel is created without a sign-in step, so a package that drives the
+user's own account declares its risk notice as the preset's optional `warning`
+(`{text, locales}`). The Desktop asks it once when the user picks the preset,
+before the channel form
+([providers.md](providers.md#package-sign-in-warning-and-model-facts)). `agy`
+declares one from 0.1.1.
 
 ## Antigravity
 
@@ -162,12 +177,78 @@ through `--ide-mcp-port` and a `nc` shim on the search path, which relies on
 undocumented behaviour. Native tool calls through such a bridge are a possible
 follow-up, not part of this route.
 
+## Cursor
+
+`plugins/cursor` 0.1.0 runs `agent --model=<model> acp` (`agent acp` for
+discovery), the Agent Client Protocol mode of the official Cursor CLI. The
+user's decision of November 12, 2026 rejects the reverse-engineered private
+Cursor protocol; none of it is used or ported. The one core addition this
+package needed is the declared session `mode`.
+
+Sources are Cursor's public pages under `cursor.com/docs/cli` (`acp`,
+`reference/parameters`, `reference/permissions`, `reference/configuration`,
+`using`, `installation`), `cursor.com/docs/agent/hooks`, and the help output
+of the CLI (`agent --help`, `agent acp --help`, version 2026.09.23).
+
+- **Command.** The installer puts `agent` in `~/.local/bin`. `agent acp` takes
+  no options of its own; `--model` is a root option and precedes it.
+- **Sign-in.** The CLI holds its own (`agent login`). The package declares
+  `auth: none` and `auth_method: "cursor_login"`, the method the CLI
+  advertises. It passes no `--api-key`, `--auth-token` or endpoint, and the
+  Node reads no Cursor file.
+- **Models.** Discovery reads the list of a new session. The model is the
+  `--model` start option, one process per model: Cursor's staff name start-up
+  selection as the supported path for ACP clients, and selection inside a
+  session is reported as unreliable. The `ACP` page documents neither.
+- **Built-in tools.** Cursor documents no switch that removes the CLI's tools,
+  and `initialize` capabilities of `false` are shown without a stated effect.
+  The package therefore layers what is documented:
+  1. `mode: "ask"`. The ACP page lists `ask` as "Q&A/read-only behavior" and
+     `agent` as "full tool access"; the CLI help calls `ask` read-only.
+  2. `.cursor/cli.json` in the program directory, the session's workspace,
+     with deny rules `Shell(*)`, `Read(**)`, `Read(/**)`, `Write(**)`,
+     `Write(/**)`, `WebFetch(*)` and `Mcp(*:*)`. Deny rules take precedence
+     over allow rules, and permissions are the one setting a project file may
+     hold.
+  3. `.cursor/hooks.json` with a `preToolUse` hook that answers
+     `permission: deny` and fails closed.
+  4. `AGENTS.md`, which the CLI applies as a rule, telling the model to use no
+     tool.
+  5. The route's own discipline: every `session/request_permission` is
+     refused, no file or terminal capability, `mcpServers: []`, and the
+     vendor's `cursor/*` requests are answered `Method not found`.
+- System text opens the first prompt (the CLI advertises no `_meta` path for
+  it). The replay budget is 512 KiB; Cursor documents no prompt limit, so the
+  figure is ours and the model's own context error still applies.
+
+### What is not guaranteed
+
+- No Cursor page states that an ACP session in `ask` mode cannot run a tool,
+  that `Shell(*)` matches every command, that deny rules apply to search tools
+  (`Grep`, `Glob`), web search or subagents, or that the CLI runs hooks at
+  all (project hooks need a trusted workspace, and `--trust` is documented
+  for headless mode only). Each layer is documented by itself; their sum
+  being complete is inferred.
+- User-level MCP servers in `~/.cursor/mcp.json` that the user approved may
+  load; the `Mcp(*:*)` deny rule is what stands against them.
+- How the session reports its modes (`modes` or a `mode` option) is not in
+  Cursor's pages; the route reads both. A CLI that reports neither is refused
+  rather than used in its default full-access mode.
+- Whether a new session of a signed-in CLI needs `authenticate` first, and
+  what `cursor_login` does when signed out (it may open a browser), is
+  unverified. The route asks only after the CLI answers that authentication
+  is required.
+- Some CLI builds between May and July 2026 listed no model over ACP. Such a
+  build fails discovery with "`agent` did not list its models".
+- The CLI updates itself by default and documents no switch for that.
+
 ## Limits
 
 - Not verified against a real account: no prompt, session or sign-in was run
   during development. Only `agy --version`, `agy --help` and `agy acp --help`
-  were. The fake agent in `internal/node/agent/model/acp_test.go` covers the
-  route; it does not prove what `agy` does.
+  were, and the same three of `agent`. The fake agent in
+  `internal/node/agent/model/acp_test.go` covers the route; it does not prove
+  what `agy` or `agent` does.
 - The hook command uses `printf`, so the hook is inert on Windows. The stripped
   agent, the refused permissions and the absent client capabilities still apply.
 - Whether `agy acp` loads `.agents/hooks.json` from a folder it has not been

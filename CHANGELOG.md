@@ -12,6 +12,34 @@ profile. The Go Node stores sessions and settings in new SQLite files beside the
 earlier release's database, which it leaves untouched, so sessions and settings
 from 0.1.5 do not appear.
 
+- Fill the conversation pane with the transcript under a docked composer, with turns fading out above it
+- Fold the queue tray under a header that counts the queued messages
+- Open a conversation's links and files in the side panel, or in the system's app with Command or Control
+- Attach files through the same file picker that chooses project folders
+- Set the message text size a pixel at a time and draw reply diagrams natively
+- Retry a failed model request or summary every 60 seconds, nine times, and fail a request that stays silent for 600 seconds
+- Show the connection banner only for a real interruption and reconnect without a Retry button
+- Shorten an oversized summary input, scale the summary with the context window and pause automatic compaction after three failures
+- Keep the answer and complete tool calls of a reply cut at the output limit
+- Add GitHub Copilot sign-in by device code
+- Bundle WorkBuddy with a warning before sign-in, free models only by default and opt-in daily check-in
+- Use an installed command-line agent as a model over the Agent Client Protocol, with the Antigravity and Cursor packages in the Market
+- Warn before a Copilot or Claude sign-in, and before adding an Antigravity or Cursor channel, that the account's terms and limits apply
+- Start a sign-in's advanced settings on the values in use
+- Ask an Azure OpenAI channel for its API version and name its models by deployment
+- Fold the model picker's groups and mark chosen rows with a neutral fill
+- Give goals a state badge, Pause, Resume and End, and turn, token and time limits
+- Draw the Git history as a commit graph, add a Unified and Split choice to diffs and show conflicted paths
+- Add a More menu, Unarchive and session reordering to the project page and list its records
+- Rebuild the host page as a monitor with versions in its header, chart tooltips, a GPU card and a process table
+- List notifications in one card with each notice's message
+- Show Usage as compact tables and Market cards without their source
+- Close Settings from the rail's Settings button
+- Add Demo mode under Settings, Experimental, which shows sample conversations and sends nothing
+- Back up while the Node runs, with retention and the last backup's record
+- Keep SSH connections alive and prefer the trusted host key's algorithm
+- Fire due schedules after the computer wakes
+
 ## [0.1.5](https://github.com/sailry/sailry-harness/releases/tag/v0.1.5) — 2026-11-08
 
 - Replace Goose execution with Sailry's Agent loop and Rig provider integration

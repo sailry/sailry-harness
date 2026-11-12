@@ -301,7 +301,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 			title := failureKey(*r.Error)
 			// A compaction that failed has said so, with this cause, on its own block.
 			if !slices.ContainsFunc(t.Reply.Blocks, func(block conversation.Block) bool {
-				return block.Kind == conversation.ErrorBlock && block.Label == "chat_compact_failed" && block.Text == r.Error.Message
+				return block.Kind == conversation.ErrorBlock && (block.Label == "chat_compact_failed" || block.Label == "chat_compact_failed_paused") && block.Text == r.Error.Message
 			}) {
 				t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
 			}
@@ -1092,12 +1092,18 @@ func projectResource(reply *conversation.Reply, data any) {
 		var v struct {
 			Failure protocol.ConversationCompactionFailure `json:"failure"`
 		}
-		if json.Unmarshal(raw, &v) == nil {
+		// A Node's value: a member a later build adds does not hide the failure.
+		if protocol.DecodeAs(protocol.PeerData, raw, &v) == nil {
 			message := ""
 			if v.Failure.Cause != nil {
 				message = *v.Failure.Cause
 			}
-			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: "chat_compact_failed", Text: message})
+			label := "chat_compact_failed"
+			// The failure that paused automatic compaction says so, once.
+			if v.Failure.Paused {
+				label = "chat_compact_failed_paused"
+			}
+			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: label, Text: message})
 		}
 	}
 }

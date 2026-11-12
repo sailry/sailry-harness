@@ -125,11 +125,14 @@ type Route struct {
 // variants; without any the method is its only route (API, Endpoint,
 // Custom). OAuth holds the values its sign-in's advanced settings start
 // with, in Channel.OAuth's order: a setting the sign-in does not have is ""
-// and is not offered.
+// and is not offered. Warning is what its package asks the user to accept
+// before a channel is added with it, "" for none; a sign-in's warning is
+// asked before the sign-in instead and is not here.
 type Method struct {
 	ID, Name, Access, API, Endpoint string
 	Custom, Keyed                   bool
 	Login, KeyURL                   string
+	Warning                         string
 	OAuth                           [4]string
 	Icon                            string
 	Routes                          []Route

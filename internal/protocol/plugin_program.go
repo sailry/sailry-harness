@@ -62,6 +62,10 @@ type PluginModelAdapterAcp struct {
 	// Efforts maps an effort level to the suffix of the agent's model
 	// identifier for that level.
 	Efforts map[string]string `json:"efforts,omitempty"`
+	// Mode is the session mode every session must be in before a prompt is
+	// sent. An agent that does not offer it is refused. Without it the
+	// session keeps the agent's own mode.
+	Mode *string `json:"mode,omitempty"`
 	// ReplayBytes bounds the text of one prompt.
 	ReplayBytes uint32 `json:"replay_bytes"`
 	// AuthMethod is the `authenticate` method tried once when the agent

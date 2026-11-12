@@ -28,7 +28,7 @@ func (node *Node) renewCommandProvider(ctx context.Context, request protocol.Req
 		return nil
 	}
 	switch request.Command.Kind {
-	case "start_session", "submit_turn", "queue_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn", "validate_provider", "discover_models":
+	case "start_session", "submit_turn", "queue_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn", "discover_models":
 	default:
 		return nil
 	}

@@ -15,7 +15,34 @@ var promptText string
 
 const Request = "Please summarize the conversation history provided in the system prompt."
 
+// Output is the output limit a summary request asks for in a context window:
+// twice the handoff's cap, since the JSON document is larger than the text
+// rendered from it. The model's own output limit bounds it.
+func Output(contextLimit uint64) uint64 {
+	return 2 * min(max(contextLimit*2/100, 4000), 12000)
+}
+
+// Cap is the rendered handoff's token limit: 2% of the context window, at
+// least 4,000 and at most 12,000 tokens, and no more than half the output the
+// summary request may write once that leaves the 4,000 of every window.
+func Cap(contextLimit, outputLimit uint64) uint64 {
+	return max(4000, min(Output(contextLimit), outputLimit)/2)
+}
+
+// instructions is the prompt with its handoff limits: the soft target is three
+// quarters of the cap.
+func instructions(limit uint64, messages string) string {
+	figure := func(value uint64) string {
+		if value < 1000 {
+			return fmt.Sprint(value)
+		}
+		return fmt.Sprintf("%d,%03d", value/1000, value%1000)
+	}
+	return strings.TrimSpace(strings.NewReplacer("{{ target }}", figure(limit*3/4), "{{ cap }}", figure(limit), "{{ messages }}", messages).Replace(promptText))
+}
+
 func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, request ...string) (string, error) {
+	limit := Cap(contextLimit, outputLimit)
 	records = Visible(records)
 	filtered := records[:0]
 	for _, record := range records {
@@ -24,7 +51,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 		}
 	}
 	records = filtered
-	base := strings.TrimSpace(strings.ReplaceAll(promptText, "{{ messages }}", ""))
+	base := instructions(limit, "")
 	requestReserve := uint64(256)
 	if len(request) > 0 {
 		requestReserve = max(requestReserve, tokens.Text(request[0])+7)
@@ -36,28 +63,19 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	budget := contextLimit - reserve
 	var turns [][]canonical.Record
 	for _, record := range records {
-		message := record.Message()
-		kickoff := message != nil && message.Role == canonical.User
-		if kickoff {
-			hasInput, hasTool := false, false
-			for _, block := range message.Content {
-				hasInput = hasInput || block.Kind == "text" || block.Kind == "image" || block.Kind == "document"
-				hasTool = hasTool || block.Kind == "tool_response" || block.Kind == "tool_request"
-			}
-			kickoff = hasInput && !hasTool
-		}
-		if len(turns) == 0 || kickoff {
+		if len(turns) == 0 || kickoff(record.Message()) {
 			turns = append(turns, nil)
 		}
 		turns[len(turns)-1] = append(turns[len(turns)-1], record)
 	}
 	if len(turns) == 0 {
-		return strings.TrimSpace(strings.ReplaceAll(promptText, "{{ messages }}", "")), nil
+		return base, nil
 	}
+	last := len(turns) - 1
 	history := make([]string, len(turns))
 	for i, turn := range turns {
 		detail := 0
-		if i == len(turns)-1 {
+		if i == last {
 			detail = -1
 		}
 		history[i] = transcript(turn, detail)
@@ -68,9 +86,6 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	for i, part := range history {
 		sizes[i] = tokens.Text(part) + 2
 		count += sizes[i]
-	}
-	if sizes[len(sizes)-1]-2 > budget {
-		return "", fmt.Errorf("latest turn exceeds the summary context limit")
 	}
 	fit := func() (string, bool) {
 		if count > budget {
@@ -90,7 +105,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	}
 	body, ok := fit()
 	for detail := 1; !ok && detail <= 3; detail++ {
-		for i := 0; i < len(turns)-1; i++ {
+		for i := 0; i < last; i++ {
 			history[i] = transcript(turns[i], detail)
 			count -= sizes[i]
 			sizes[i] = tokens.Text(history[i]) + 2
@@ -101,12 +116,84 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 			}
 		}
 	}
+	// The older turns are gone. The latest one, alone, is shortened only as far
+	// as it has to be: whole, tool responses to their edges, tool responses
+	// omitted, then its oldest records.
+	if !ok && sizes[last]-2 <= budget {
+		body, ok = history[last], true
+	}
+	for detail := 0; !ok && detail <= 1; detail++ {
+		body = transcript(turns[last], detail)
+		ok = tokens.Text(body) <= budget
+	}
 	if !ok {
-		body = history[len(history)-1]
+		var err error
+		if body, err = recent(turns[last], budget); err != nil {
+			return "", err
+		}
 	}
 	// The source summary request serializes its user transcript once more.
 	body = "[user]: " + body
-	return strings.TrimSpace(strings.ReplaceAll(promptText, "{{ messages }}", body)), nil
+	return instructions(limit, body), nil
+}
+
+// kickoff reports a message the user wrote, which starts a turn.
+func kickoff(message *canonical.Message) bool {
+	if message == nil || message.Role != canonical.User {
+		return false
+	}
+	hasInput, hasTool := false, false
+	for _, block := range message.Content {
+		hasInput = hasInput || block.Kind == "text" || block.Kind == "image" || block.Kind == "document"
+		hasTool = hasTool || block.Kind == "tool_response" || block.Kind == "tool_request"
+	}
+	return hasInput && !hasTool
+}
+
+// recent is the latest turn when it does not fit with its tool responses
+// omitted: the user's message that started it, one line saying how many
+// records were left out, and the newest records that fit after it.
+func recent(turn []canonical.Record, budget uint64) (string, error) {
+	head, rest := "", turn
+	if kickoff(turn[0].Message()) {
+		head, rest = transcript(turn[:1], 1), turn[1:]
+	}
+	var parts []string
+	for i := range rest {
+		if part := transcript(rest[i:i+1], 1); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	// The estimate reserves the marker line; the joined text decides.
+	used := tokens.Text(head) + 16
+	first := len(parts)
+	for first > 0 {
+		size := tokens.Text(parts[first-1]) + 1
+		if used+size > budget {
+			break
+		}
+		used += size
+		first--
+	}
+	for ; ; first++ {
+		if first >= len(parts) && head == "" && len(parts) > 0 {
+			return "", fmt.Errorf("latest record exceeds the summary context limit")
+		}
+		var lines []string
+		if head != "" {
+			lines = append(lines, head)
+		}
+		if first > 0 {
+			lines = append(lines, fmt.Sprintf("[%d earlier records of this turn omitted]", first))
+		}
+		body := strings.Join(append(lines, parts[first:]...), "\n")
+		if tokens.Text(body) <= budget {
+			return body, nil
+		}
+		if first >= len(parts) {
+			return "", fmt.Errorf("latest user message exceeds the summary context limit")
+		}
+	}
 }
 func transcript(records []canonical.Record, detail int) string {
 	if detail == 3 {
