@@ -230,10 +230,10 @@ func TeamsData() *TeamSet {
 	return &TeamSet{
 		Concurrency: 4,
 		Roles: []Role{
-			{ID: "explore", Key: "explore", Name: "Explore code", Description: "Read the current project's code and report findings", ReadOnly: true, Builtin: true},
-			{ID: "research", Key: "research", Name: "Web research", Description: "Investigate public web sources", ReadOnly: true, Builtin: true},
+			{ID: "explore", Key: "explore", Name: "Explore code", Description: "Read the current project's code and report findings", ReadOnly: true, Builtin: true, Avatar: "avatar-fox"},
+			{ID: "research", Key: "research", Name: "Web research", Description: "Investigate public web sources", ReadOnly: true, Builtin: true, Avatar: "avatar-owl"},
 			{ID: "reviewer", Key: "code-reviewer", Name: "Reviewer", Description: "Review changes and report evidence-backed findings",
-				Model: "anthropic/claude-opus-5-5", Effort: "high", ReadOnly: true, Instructions: "Review code and changes within the assigned scope."},
+				Model: "anthropic/claude-opus-5-5", Effort: "high", ReadOnly: true, Instructions: "Review code and changes within the assigned scope.", Avatar: "avatar-panda"},
 			{ID: "tester", Key: "tester", Name: "Tester", Description: "Run checks and report verified results", Instructions: "Verify the assigned change."},
 		},
 		Teams: []Team{

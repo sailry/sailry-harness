@@ -46,6 +46,8 @@ type Overview struct {
 type OverviewChild struct {
 	ID, Name, Status   string
 	Running, Completed bool
+	// Avatar is the avatar of the role it runs as, "" for its identicon.
+	Avatar string
 }
 
 // OverviewAsset is an output or a source: Name is its whole name, the row's
@@ -142,7 +144,7 @@ func (s *OverviewState) body(c *ui.Context, o *Overview) {
 			}
 			status := i18n.T(c, k.Status)
 			row("child-"+k.ID, label+": "+status, func() {
-				kit.Identicon(c, k.ID, k.Running, 16)
+				kit.RoleIdenticon(c, k.ID, k.Avatar, k.Running, 16)
 				name(label)
 				switch {
 				case k.Completed:

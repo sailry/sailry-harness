@@ -658,7 +658,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		}
 		ui.Row(c).Gap(4).Shrink(0).Children(func() {
 			for _, k := range kids {
-				kit.Identicon(c.Key(k.ID), k.ID, k.Status.Active(), rowIcon(size))
+				kit.RoleIdenticon(c.Key(k.ID), k.ID, k.Avatar, k.Status.Active(), rowIcon(size))
 			}
 		})
 		// Laid out as the sweep draws it, running or not (summary).
@@ -701,7 +701,7 @@ func child(c *ui.Context, k Child, actions Actions) {
 		if k.Status == ChildContinued {
 			ui.Icon(c, icons.ArrowRight).FontSize(rowIcon(size)).TextColor(color)
 		} else {
-			kit.Identicon(c, k.ID, k.Status.Active(), rowIcon(size))
+			kit.RoleIdenticon(c, k.ID, k.Avatar, k.Status.Active(), rowIcon(size))
 		}
 		if k.Status.Active() {
 			levelSpan(c, kit.Shimmer(c, title, size, color), ui.Span{Size: size}, size, false)

@@ -95,6 +95,19 @@ func (r *Runtime) roleDraft(d viewmodel.Role) (protocol.RoleProfile, error) {
 	profile.Revision = d.Revision
 	profile.Key, profile.Name = strings.TrimSpace(d.Key), strings.TrimSpace(d.Name)
 	profile.Description, profile.Instructions, profile.ReadOnly, profile.Model = d.Description, d.Instructions, d.ReadOnly, model
+	// An avatar is the appearance's icon, beside the color the role had.
+	// Without one, an appearance that named an avatar goes back to the
+	// Node, which gives the role an icon again; any other is kept.
+	switch {
+	case d.Avatar != "":
+		appearance := protocol.ProjectsAppearance{Icon: d.Avatar, Color: "none"}
+		if profile.Appearance != nil {
+			appearance.Color = profile.Appearance.Color
+		}
+		profile.Appearance = &appearance
+	case roleAvatar(profile.Appearance) != "":
+		profile.Appearance = nil
+	}
 	return profile, nil
 }
 

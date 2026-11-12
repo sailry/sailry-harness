@@ -240,6 +240,9 @@ func teamRows(c *ui.Context, m *Model) {
 				ui.Row(c).Shrink(0).Gap(4).Children(func() {
 					for i, id := range members[:min(5, len(members))] {
 						if r := m.role(id); r != nil {
+							if _, drawn := kit.Avatar(c.Key(i), r.Avatar, 20); drawn {
+								continue
+							}
 							ui.Row(c.Key(i)).Size(20, 20).Radius(10).Center().Background(kit.AgentColor(c, r.ID)).TextColor(theme.OnTint).Children(func() {
 								ui.Text(c, string([]rune(r.Name)[:1])).FontSize(10).FontWeight(600)
 							})
@@ -285,7 +288,7 @@ func roleRows(c *ui.Context, m *Model) {
 				desc += " · " + i18n.T(c, "teams_read_only")
 			}
 			kit.Entry(c, r.ID, func() {
-				kit.MediaRow(c, r.Name, desc, func() { kit.Agent(c, r.ID, kit.AgentColor(c, r.ID), false, kit.TileSize) }, nil)
+				kit.MediaRow(c, r.Name, desc, func() { kit.RoleAvatar(c, r.ID, r.Avatar, kit.TileSize) }, nil)
 			}, nil, func() {
 				kit.Action(c.Key("edit"), icons.Pencil, i18n.T(c, "settings_edit"), false).OnClick(func() { m.roleEdit = roleEditor{open: true, role: *r} })
 				kit.Action(c.Key("delete"), icons.Trash, i18n.T(c, "settings_delete"), r.Builtin).OnClick(func() { m.roleRemoving = r.ID })
@@ -398,7 +401,7 @@ func teamDialog(c *ui.Context, m *Model) {
 					if r.ReadOnly {
 						sub += " · " + t("teams_read_only")
 					}
-					row := listRow{subtitle: sub, leading: func() { kit.Agent(c, r.ID, kit.AgentColor(c, r.ID), false, 28) }}
+					row := listRow{subtitle: sub, leading: func() { kit.RoleAvatar(c, r.ID, r.Avatar, 28) }}
 					if !e.def {
 						row.remove, row.removeLabel = func() { e.team.Members = slices.Delete(e.team.Members, i, i+1) }, t("team_member_remove")
 					}
@@ -563,6 +566,7 @@ func roleDialog(c *ui.Context, m *Model) {
 					})
 				})
 			})
+			avatarField(c, &e.role, e.pending || e.locked)
 			kit.Field(c, "description", t("teams_description"), "", func() {
 				ui.TextInput(c.Key("input"), &e.role.Description).Label(t("teams_description")).FillWidth().Disabled(locked)
 			})

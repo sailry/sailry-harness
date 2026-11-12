@@ -146,6 +146,9 @@ type Member struct {
 	ID, Name string
 	// Overridden marks a member whose model differs from the team's.
 	Overridden bool
+	// Avatar is the role's avatar (icons.Avatar), "" for the bot on its
+	// color.
+	Avatar string
 }
 
 // Queued is a message waiting for the reply to end (live/queue).
