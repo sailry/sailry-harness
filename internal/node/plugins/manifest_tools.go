@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/sailry/sailry-harness/internal/node/program"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -363,6 +364,12 @@ func validateModels(extension protocol.PluginExtension) error {
 		if !has(protocol.PluginActionProvideModels) {
 			return packageFault("plugin model adapter requires an undeclared action")
 		}
+		if err := validateAdapterTransport(adapter, extension); err != nil {
+			return err
+		}
+	}
+	if err := validatePrograms(extension); err != nil {
+		return err
 	}
 	for index, preset := range extension.ModelProviders {
 		if slices.ContainsFunc(extension.ModelProviders[:index], func(other protocol.ConversationPresetsPreset) bool { return other.ID == preset.ID }) {
@@ -380,6 +387,94 @@ func validateModels(extension protocol.PluginExtension) error {
 		}
 		if preset.Adapter != nil && !slices.ContainsFunc(extension.ModelAdapters, func(adapter protocol.PluginModelAdapterDeclaration) bool { return adapter.ID == *preset.Adapter }) {
 			return packageFault("plugin model provider names an undeclared adapter")
+		}
+	}
+	return nil
+}
+
+// validateAdapterTransport requires exactly one transport: a translation
+// script over HTTP, or a declared agent program.
+func validateAdapterTransport(adapter protocol.PluginModelAdapterDeclaration, extension protocol.PluginExtension) error {
+	agent := adapter.Acp
+	if agent == nil {
+		if adapter.Script.Entry == "" {
+			return packageFault("plugin model adapter has no script")
+		}
+		return nil
+	}
+	index := slices.IndexFunc(extension.Programs, func(program protocol.PluginProgramDeclaration) bool { return program.ID == agent.Program })
+	text := func(value string, limit int) bool {
+		return value != "" && len(value) <= limit && !strings.ContainsFunc(value, unicode.IsControl)
+	}
+	if adapter.Script.Entry != "" || len(adapter.Script.Resources) != 0 || len(adapter.Origins) != 0 || adapter.Capabilities.Files ||
+		adapter.Framing != protocol.PluginModelAdapterFramingNdjson || index < 0 || !text(agent.SignIn, 256) ||
+		agent.ReplayBytes < 4096 || agent.ReplayBytes > 8*1024*1024 || len(agent.Efforts) > 6 || len(agent.FailureMarkers) > 4 ||
+		agent.AuthMethod != nil && !text(*agent.AuthMethod, 64) {
+		return packageFault("invalid plugin agent adapter")
+	}
+	if path := agent.SystemMeta; path != nil {
+		for _, name := range strings.Split(*path, ".") {
+			if name == "" || len(*path) > 128 || strings.Trim(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" {
+				return packageFault("invalid plugin agent adapter")
+			}
+		}
+	}
+	for level, suffix := range agent.Efforts {
+		if !slices.Contains([]string{"minimal", "low", "medium", "high", "xhigh", "max"}, level) || !text(suffix, 32) {
+			return packageFault("invalid plugin agent adapter")
+		}
+	}
+	for _, marker := range agent.FailureMarkers {
+		if strings.TrimSpace(marker) == "" || len(marker) > 256 {
+			return packageFault("invalid plugin agent adapter")
+		}
+	}
+	// The model argument is how such an adapter selects its model.
+	named := slices.ContainsFunc(extension.Programs[index].Args, func(argument string) bool { return strings.Contains(argument, "{model}") })
+	if agent.ModelArgument != named {
+		return packageFault("invalid plugin agent adapter")
+	}
+	return nil
+}
+
+// validatePrograms bounds what a package may have the Node start: a command
+// name the Node resolves on its own search path, fixed arguments, a few
+// variables the Node does not own, and files inside the program's directory.
+// The placeholders are {dir} (that directory), {model} and {key}.
+func validatePrograms(extension protocol.PluginExtension) error {
+	if len(extension.Programs) > 4 || len(extension.Programs) > 0 && !slices.Contains(extension.Actions, protocol.PluginActionRunPrograms) {
+		return packageFault("plugin programs require an undeclared action")
+	}
+	filled := func(value string, placeholders ...string) bool {
+		for _, placeholder := range placeholders {
+			value = strings.ReplaceAll(value, placeholder, "")
+		}
+		return len(value) <= 2048 && !strings.ContainsAny(value, "\x00{}")
+	}
+	for index, declared := range extension.Programs {
+		command := declared.Command
+		if !ValidateName(declared.ID) || slices.ContainsFunc(extension.Programs[:index], func(other protocol.PluginProgramDeclaration) bool { return other.ID == declared.ID }) ||
+			command == "" || len(command) > 64 || strings.Trim(command, "abcdefghijklmnopqrstuvwxyz0123456789._-") != "" || strings.ContainsRune("._-", rune(command[0])) ||
+			len(declared.Args) > 32 || len(declared.Env) > 8 || len(declared.Files) > 8 {
+			return packageFault("invalid plugin program")
+		}
+		for _, argument := range declared.Args {
+			if !filled(argument, "{dir}", "{model}") {
+				return packageFault("invalid plugin program")
+			}
+		}
+		for name, value := range declared.Env {
+			if name == "" || len(name) > 64 || name[0] < 'A' || name[0] > 'Z' || strings.Trim(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" ||
+				program.Inherited(name) || !filled(value, "{dir}", "{key}") {
+				return packageFault("invalid plugin program")
+			}
+		}
+		paths := map[string]bool{}
+		for _, file := range declared.Files {
+			if !resourcePath(file.Path) || paths[file.Path] || len(file.Content) > 64*1024 || strings.ContainsRune(file.Content, 0) {
+				return packageFault("invalid plugin program")
+			}
+			paths[file.Path] = true
 		}
 	}
 	return nil

@@ -1948,6 +1948,7 @@ market_permission_worktrees_read: Read worktrees
 market_permission_worktrees_write: Manage worktrees
 market_permission_process_read: View commands
 market_permission_process_control: Run commands
+market_permission_process_run: Run its declared programs on this device
 market_permission_terminals_read: Read terminals
 market_permission_conversation_read: Read conversations
 market_permission_conversation_control: Control conversations

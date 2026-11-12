@@ -1,6 +1,6 @@
 //go:build !windows
 
-package node
+package program
 
 import (
 	"errors"
@@ -8,7 +8,9 @@ import (
 	"syscall"
 )
 
-func startConnectorCLI(command *exec.Cmd) (func(), error) {
+// StartGroup starts command as the leader of its own process group (a job
+// object on Windows) and returns the function that kills the whole group.
+func StartGroup(command *exec.Cmd) (func(), error) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	kill := func() error {
 		if command.Process == nil {

@@ -26,13 +26,23 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 	}
 	if work.Provider != nil && model.PluginBound(*work.Provider) {
 		binding := model.Binding{Provider: *work.Provider, Secret: work.Secret}
-		capture, err := node.capturePluginModel(ctx, binding)
-		if err != nil {
+		var catalog protocol.ConversationDiscoveryCatalog
+		if agent, bound, err := node.captureAgentModel(ctx, binding); err != nil {
 			return nil, err
-		}
-		catalog, err := model.DiscoverPlugin(ctx, binding, capture)
-		if err != nil {
-			return nil, err
+		} else if bound {
+			// Discovery captures no model selection; the agent's session lists them.
+			binding.Session = protocol.NewSessionID()
+			if catalog, err = model.DiscoverACP(ctx, binding, agent); err != nil {
+				return nil, err
+			}
+		} else {
+			capture, err := node.capturePluginModel(ctx, binding)
+			if err != nil {
+				return nil, err
+			}
+			if catalog, err = model.DiscoverPlugin(ctx, binding, capture); err != nil {
+				return nil, err
+			}
 		}
 		output := protocol.Output{Kind: "discovered_models", Data: catalog}
 		if request.Command.Kind == "validate_provider" {
