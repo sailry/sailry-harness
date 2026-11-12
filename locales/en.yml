@@ -369,3 +369,8 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+git_copy_commit_id: Copy commit ID
+git_cherry_pick_confirm: Apply this commit to the current branch
+git_diff_split: Split
+git_diff_unified: Unified
+port_count: "%{count} ports"

@@ -102,7 +102,7 @@ func testLoadingMarks(t *testing.T) {
 		// 12 DIPs in, and no larger: both in the middle of the capsule.
 		img := tt.Image()
 		var inks [2]float64
-		for i, chip := range []string{i18n.In("zh-CN", "background_count", "count", 2) + ": " + i18n.In("zh-CN", "chat_running"), "8080"} {
+		for i, chip := range []string{i18n.In("zh-CN", "background_count", "count", 2) + ": " + i18n.In("zh-CN", "chat_running"), i18n.In("zh-CN", "port_mappings") + ": 8080"} {
 			b, ok := tt.AccessByRole(ui.RoleButton, chip)
 			if !ok {
 				t.Fatalf("%s: no capsule %q: %q", name, chip, tt.Texts())

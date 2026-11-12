@@ -129,9 +129,9 @@ class ChangeReview extends ChangeNotifier {
                   'checkpoint': id,
                   'worktree': file['worktree'],
                 })
-              : await host.execute(pending!);
+              : await host.check(pending!);
         } on CommandFailure catch (failure) {
-          pending = failure.code == 'outcome_unknown' ? failure.request : null;
+          pending = failure.retained ? failure.request : null;
           _pendingCheckpoint = pending == null ? null : id;
           rethrow;
         }

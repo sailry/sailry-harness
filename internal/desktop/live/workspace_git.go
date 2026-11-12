@@ -246,8 +246,15 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 		run(protocol.GitAction{Kind: "drop_all_stashes", Data: protocol.GitActionDropAllStashesPayload{Commits: commits}}, nil)
 	case "git_stash_view":
 		p.openGitStash(a.Target)
+	case "git_cherry_pick":
+		run(protocol.GitAction{Kind: "cherry_pick", Data: protocol.GitActionCherryPickPayload{Commit: a.Target}}, nil)
 	case "git_tag_create":
-		commit := workspaceString(status.Head)
+		// The tag is made at the commit named, as the history's menu names
+		// one, else at HEAD.
+		commit := a.Secondary
+		if commit == "" {
+			commit = workspaceString(status.Head)
+		}
 		p.panel.Prompt(a.Kind, []string{"settings_name", "git_commit_message"}, []string{"", ""}, func(v []string, done func(bool)) {
 			var message *string
 			if v[1] != "" {
