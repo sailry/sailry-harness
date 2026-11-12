@@ -246,6 +246,23 @@ func plain(c *ui.Context, key any, call Call) {
 	sw.Frame(row)
 }
 
+// pathRow is a file a call touched, as a plain row: it opens the file as a
+// link of the content does (State.follow) when the application opens files.
+func (s *State) pathRow(c *ui.Context, path string) {
+	call := Call{Label: "", Icon: "file-text", Detail: path, Code: true}
+	if s.OpenLink == nil {
+		plain(c, path, call)
+		return
+	}
+	session := s.renderSession
+	row := rowSize(ui.ButtonBase(c.Key(path)).Label(path), textSize(c), false).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
+		Justify(ui.Start).Cursor(ui.CursorPointer)
+	hovered := row.Hovered() || row.FocusVisible()
+	sw := &kit.Sweep{}
+	row.Children(func() { summary(c, call, hovered, false, false, sw) }).OnClick(func() { s.follow(c, session, pathLink(path)) })
+	sw.Frame(row)
+}
+
 // disclosure is a row whose body shows below it on a rail while open.
 // Opening is instant, as the reference's (Kit Collapsible without a
 // motion_id).
@@ -322,7 +339,7 @@ func (s *State) group(c *ui.Context, run []Call) {
 	}, 8, 8, func() {
 		if paths := uniquePaths(run); len(paths) > 0 && pathList(run[len(run)-1]) {
 			for _, path := range paths {
-				plain(c, path, Call{Label: "", Icon: "file-text", Detail: path, Code: true})
+				s.pathRow(c, path)
 			}
 			for _, call := range run {
 				if call.Output != nil && call.Output.Failure != "" {
@@ -393,7 +410,7 @@ func (s *State) output(c *ui.Context, o *Output) {
 			table(c, o.Table)
 		}
 		if o.Diff != nil {
-			diff(c, o.Diff)
+			s.diff(c, o.Diff)
 		}
 		if o.Text != "" {
 			text, hidden := o.Text, 0
@@ -453,8 +470,10 @@ func (*Diff) Op(l DiffLine) byte {
 }
 
 // diff is a file change preview: an outlined box, its header the file name
-// and +N −M, its body up to five rows of the diff in Kit's code size.
-func diff(c *ui.Context, d *Diff) {
+// and +N −M, its body up to five rows of the diff in Kit's code size. The
+// name opens the file as a link of the content does (State.follow) when the
+// application opens files.
+func (s *State) diff(c *ui.Context, d *Diff) {
 	p := theme.Of(c)
 	size := textSize(c)
 	name := d.Path
@@ -464,7 +483,13 @@ func diff(c *ui.Context, d *Diff) {
 	ui.Column(c).Border(1, p.Border).Radius(p.Radius2xl()).Background(p.Background).Clip().Children(func() {
 		ui.Row(c).Height(size+18).PaddingX(12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).
 			TextColor(p.MutedForeground).Children(func() {
-			kit.Tooltip(c, ui.Text(c, name).FontSize(size).SingleLine().Grow(1).Shrink(1), d.Path)
+			label := ui.Text(c, name).FontSize(size).SingleLine().Shrink(1)
+			if s.OpenLink != nil && d.Path != "" {
+				session := s.renderSession
+				label.Cursor(ui.CursorPointer).OnClick(func() { s.follow(c, session, pathLink(d.Path)) })
+			}
+			kit.Tooltip(c, label, d.Path)
+			ui.Spacer(c)
 			ui.Row(c).Gap(6).Shrink(0).Children(func() {
 				if d.Added > 0 || d.Removed == 0 {
 					ui.Textf(c, "+%d", d.Added).Font("monospace").FontSize(size - 2).TextColor(p.Success)

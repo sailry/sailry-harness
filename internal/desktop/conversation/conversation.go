@@ -60,8 +60,11 @@ type State struct {
 	requestedDetails map[string]bool
 	references       map[string]map[string][]Reference
 	referenceDetail  referenceDetail
-	// OpenLink takes a link of a reply the application opens itself, as a
-	// knowledge source; the rest open as the system opens them.
+	// OpenLink takes a link or a file path of the conversation's content
+	// the application opens itself: in the right panel on a click, with the
+	// system on a click with the platform modifier (External). It reports
+	// false for one it leaves to the transcript: a heading anchor scrolls,
+	// and an address ui.SafeToOpen allows opens in the system.
 	OpenLink func(c *ui.Context, session, link string) bool
 	// Embed resolves a link (image false) or an image standing alone in a
 	// reply of session to what shows in its place; false leaves it as
@@ -71,7 +74,35 @@ type State struct {
 	// agent's icon.
 	SessionLink func(link string) bool
 	result      *Block            // the search result open over the window
+	resultOf    string            // the conversation it is of
 	resultMD    *markdown.Options // its answer's Markdown
+}
+
+// External reports whether the click being handled opens its target with
+// the system rather than in the right panel: the platform modifier is held
+// (Command on macOS, Control elsewhere).
+func External(c *ui.Context) bool { return c.Modifiers()&ui.Cmd != 0 }
+
+// follow opens a link or a file path of session's content, and reports
+// whether the application took it (OpenLink).
+func (s *State) follow(c *ui.Context, session, link string) bool {
+	switch {
+	case s.OpenLink != nil && s.OpenLink(c, session, link):
+		return true
+	case strings.HasPrefix(link, "#"):
+		// OnLink takes every link, so a heading link scrolls here.
+		s.md.Anchor = strings.TrimPrefix(link, "#")
+		s.md.AnchorVersion++
+	case ui.SafeToOpen(link):
+		c.OpenURL(link)
+	}
+	return false
+}
+
+// pathLink is a file's path as the link OpenLink takes: the characters a
+// link reads as its query, fragment or escapes are escaped.
+func pathLink(path string) string {
+	return strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F").Replace(path)
 }
 
 func New() *State {
@@ -118,19 +149,7 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	if s.SessionLink != nil {
 		s.md.LinkIcon = sessionIcon(c, s.SessionLink)
 	}
-	if s.OpenLink != nil {
-		s.md.OnLink = func(link string) {
-			switch {
-			case s.OpenLink(c, id, link):
-			case strings.HasPrefix(link, "#"):
-				// OnLink takes every link, so a heading link scrolls here.
-				s.md.Anchor = strings.TrimPrefix(link, "#")
-				s.md.AnchorVersion++
-			case ui.SafeToOpen(link):
-				c.OpenURL(link)
-			}
-		}
-	}
+	s.md.OnLink = func(link string) { s.follow(c, id, link) }
 	if sess != nil && sess.Loading {
 		loading(c)
 		return
@@ -160,7 +179,7 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	}
 	s.viewer(c, actions)
 	s.confirmRewind(c, actions)
-	s.searchResult(c)
+	s.searchResult(c, id)
 	s.referenceDialog(c, id)
 }
 

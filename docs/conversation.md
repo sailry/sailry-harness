@@ -243,13 +243,14 @@ Kit `MessageScroller`, in `jump.go`:
 | `Reply.Notice` | A notice-only run: no reply frame |
 | `ImagesBlock` / `Block.Images` | Thumbnails (`kit.Image`) up to 240 DIPs, wrapping; a Skeleton while `Source` is nil |
 | `FilesBlock` / `Block.Files` (`File`) | File cards; a document with `Image` shows it on top |
-| `SearchBlock` / `Block.Sources`, `Block.Suggestions` | Globe "Search results" row; it opens the result dialog: the answer as Markdown, the numbered sources as link rows, one a line, and the links of the provider's suggestions. Only http(s) links without credentials open, in the system browser |
+| `SearchBlock` / `Block.Sources`, `Block.Suggestions` | Globe "Search results" row; it opens the result dialog: the answer as Markdown, the numbered sources as link rows, one a line, and the links of the provider's suggestions. Only http(s) links without credentials open, as a reply's links do ([Links and files](#links-and-files)); an internal open closes the dialog over the panel |
 | `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`, `Stopped`) | Network row, shimmer while active, the provider's message when opened; a stopped recovery is a warning row with its reason after the label |
 | `Turn.Editing` (`Text`, `Pending`) | The user bubble is its editor (`edit.go`): a field of 1 to 12 lines, Cancel and Save. Enter or Save calls `SaveEdit`; Escape, Cancel or the focus leaving the editor calls `CancelEdit`. While `Pending` the field is read-only, Save and Cancel are disabled and a loader shows |
 | `Turn.Controls` (`ReadOnly`, `NoEdit`, `NoFork`, `NoRewind`, `NoWorktree`, `NoExport`, `Busy`) | `ReadOnly` hides Edit, Retry and the fork menu; the `No…` fields disable their control or menu item; `Busy` replaces the fork button with a loader while a fork or rewind of the turn is in flight |
 | `Output.Images` | A tool result's pictures as thumbnails under its output; one opens the image viewer |
 | `Image.Missing` | A picture that is gone or past the limits shows `chat_image_missing` instead of a frame |
 | `State.Embed` | Asked for a link or images standing alone in a paragraph of a reply (`embed.go`): a file card, thumbnails, the missing line, or a link button; web images and links inside a sentence stay Markdown's |
+| `State.OpenLink` | Takes every link and file path of the content ([Links and files](#links-and-files)); without it a heading link scrolls, an address `ui.SafeToOpen` allows opens in the system, and tool rows' paths are not links |
 | `State.SessionLink` | A link that opens a session carries the Bot icon before its text |
 | `Compaction.Elapsed`, `CompactionInterrupted` | The compaction turn's label carries its duration; an interrupted one reads `chat_compact_interrupted` |
 | `Reply.PhaseElapsed` | The Compacting phase row carries how long it has run |
@@ -434,16 +435,50 @@ action, which puts the submission back into an empty composer
 (`queue_draft_present` when it is not empty, `chat_restore_unavailable` on a
 read-only conversation).
 
-Links of a reply go through `openChatLink` (`conversation_links.go`): a
-`sailry://session/<id>` link opens that session (a child in its panel tab); an
-http(s) link opens in a new in-app browser tab, or in the system browser with
-the platform modifier or when no browser pane exists; `mailto:` and `tel:` go
-to the system; `sailry-knowledge:` opens the knowledge source; anything else is
-a path resolved against the session's worktree. A workspace file opens in the
-right panel at its line (`#L12`, `path:12`, `path:12:3`), a file with a preview
-kind in its preview tab, a folder in the file manager on this device, and with
-the modifier on this device in its own app; a path outside the worktree opens
-in the system on this device and toasts `files_remote_path` elsewhere.
+### Links and files
+
+One rule for every link and file of a conversation's content: **a click opens
+it in the right panel of that conversation, a click with the platform modifier
+(Command on macOS, Control elsewhere) opens it with the system's default**. The
+transcript reads the modifier at the click (`conversation.External`) and hands
+the link to `State.OpenLink`; live answers with `openChatLink`
+(`conversation_links.go`), sample data with `App.sampleLink` (`shell/demo.go`).
+
+| Target | Click | Modifier click | Rust (`conversation/links.rs`, `shell/links.rs`) |
+|---|---|---|---|
+| `http(s)` address with a host and no credentials (a `www.` host gains `https://`) | A new browser tab of the right panel, the panel opening | The system browser (also on a plain click when the browser pane is unavailable) | Same |
+| `http(s)` address with credentials or no host | Nothing | Nothing | Routed to the browser, which refuses it |
+| `mailto:`, `tel:` | The system | The system | Same |
+| `sailry://session/<id>` | That session; a child in its panel tab; `unavailable` toast for one unknown | Same | Same |
+| `sailry-knowledge:` | The knowledge source | Same | Same |
+| Workspace file (`path`, `path#L12`, `path:12`, `path:12:3`, `file:` forms), resolved against the session's worktree | The file tab of the right panel at its line; a file with a preview kind in its preview tab | On this device, the file's own app; on another Node, as a click | Same |
+| Workspace folder (`./`, a trailing `/`) | The file manager on this device; `files_remote_path` elsewhere | Same | Same |
+| Path outside the worktree | The system on this device; `files_remote_path` elsewhere | Same | Same |
+| `#heading` | Scrolls the reply | Same | Same |
+| Other schemes (`javascript:` and the rest) | Resolved as a path, which fails with `files_open_failed` | Same | Same |
+
+Where the rule applies, all through `State.follow` or the file actions:
+
+| Content | Click | Modifier click |
+|---|---|---|
+| Reply Markdown links, autolinks and citation numbers (`Options.OnLink`) | `OpenLink` | `OpenLink`, external |
+| The link button of an image that is no file (`embed.go`) | `OpenLink` | `OpenLink`, external |
+| Search result dialog: the answer's links and the source and suggestion rows | `OpenLink`, then the dialog closes | `OpenLink`, external; the dialog stays |
+| File card: Open and the picture on top | `Actions.OpenFile` (the preview tab) | `Actions.FileAction(OpenExternal)`, as the menu's `files_open_system` |
+| Changes card file row | `Actions.Review` (the change in the panel) | `OpenLink` with the path, external |
+| A path of a tool group's path list, and the file name heading a tool's diff | `OpenLink` with the path | `OpenLink`, external |
+| The child panel's transcript, the session overview's sources | The same hook with the child's session | Same |
+
+A tool row's own click stays its disclosure: the path in its summary line is
+not a link of its own. MyGo reports only the primary button's click on a
+Markdown link, so a middle click does nothing. Links carry MyGo's tooltip (the
+address), not a note about where a click goes, as in Rust.
+
+In sample data (the preview and Demo mode) a web address opens a browser tab
+that loads nothing and shows the address (`panel.State.Browse`), a file of the
+conversation opens its preview tab in either mode (a sample path names nothing
+on this device), and mail, session and unknown links open nothing; only a web
+address clicked with the modifier reaches the system browser.
 
 `chatEmbed` (`conversation_embeds.go`) answers `State.Embed`:
 `sailry-image:<result>/<index>` is the tool result's picture of that reference
@@ -1020,6 +1055,9 @@ destination, the rewind toast's backup action, and
 | The editor of a sent message edits its text only; its attachments and references show unchanged and are sent again | The reference's editor is the same text field; the bubble has no chip editor |
 | A file link of a reply resolves against the session's current worktree | The reference resolves against the worktree the turn ran in; the page projects no per-turn worktree path |
 | The web search result is a dialog over the window, and the provider's suggestions show as their links | The reference opens a second window with the suggestions in a scriptless web view; the transcript owns no window, and the dialog is the existing host for content over it |
+| The search result's links follow the content's rule (panel on a click, system with the modifier) | The reference's result window sends every link to the system browser; the user's rule is one behaviour for every link of a conversation |
+| A file card's Open, a changes row, a tool group's paths and a diff's file name take the platform modifier or open the file | The reference reads the modifier on Markdown links and the image link button only, and its tool paths are text; the user's rule covers files too |
+| A web address with credentials opens nowhere | The reference hands it to its browser resource, which refuses it; here it also never reaches the system browser |
 | A tool result's pictures follow its other output | The reference places each picture at its position among the result's content blocks; the summary carries the pictures apart from the detail |
 | A failed send keeps its draft; Restore draft is offered only when the composer was changed before the failure arrived | The reference clears the composer on send and always offers the restore; saves keep drafts on failure here |
 | Reasoning is shown as a disclosure; live mode drops it | Kept for the preview to show the block; drop it in `project` to match |

@@ -584,6 +584,18 @@ must be visible: an occluded window draws no frame, and a navigation waits for
 the next one. It ends by loading `https://www.baidu.com/` and printing how
 that ended, as evidence when the network is there.
 
+### Opening from a conversation
+
+The right panel is where a conversation's links and files open on a plain
+click; the platform modifier sends them to the system instead
+([conversation.md](conversation.md#links-and-files) has the whole rule).
+`openChatLink` opens a web address with `Panel.AddBrowser(true)` and
+`browserNavigate`, setting `PanelOpen`; a workspace file with the project's
+`openFileKind` (its preview tab) or `openFileAt` (the file tab at the line),
+after showing the session's workspace; a file card with `ShowArtifact`. Sample
+data uses `State.Browse`, which opens a browser tab at an address without
+loading it, and `ShowArtifact`.
+
 ## Live file editing
 
 `panel/editor_*.go` owns native editor state and controls. Text edits retain the

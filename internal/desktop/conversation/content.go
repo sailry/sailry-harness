@@ -68,13 +68,22 @@ func FileIcon(f File) *ui.SVG {
 func fileCard(c *ui.Context, key string, f File, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
+	// A click opens the file in the right panel; with the platform
+	// modifier, in the system's app, as the menu's item does.
+	open := func() {
+		if External(c) {
+			actions.FileAction(f, OpenExternal)
+			return
+		}
+		actions.OpenFile(f)
+	}
 	card := ui.Column(c.Key(key)).FillWidth().MinWidth(0).Radius(p.Radius2xl()).Border(1, p.Border).
 		Background(p.Surface.Alpha(0.8)).Clip()
 	card.Children(func() {
 		if f.Image != nil && f.Image.Source != nil && f.Kind != ImageFile {
 			w, h := float32(f.Image.Width), float32(f.Image.Height)
 			t := kit.Image(c.Key("thumb"), f.Image.Source, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless,
-				Alt: i18n.T(c, "artifact_open"), OnOpen: func() { actions.OpenFile(f) }}).
+				Alt: i18n.T(c, "artifact_open"), OnOpen: open}).
 				FillWidth().Radius(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border)
 			if w > 0 && h > 0 {
 				t.AspectRatio(w / h)
@@ -90,7 +99,7 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 					ui.Text(c, Kind(c, f)).FontSize(size - 2).SingleLine().TextColor(p.MutedForeground)
 				})
 			})
-			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "artifact_open"), 28, false).OnClick(func() { actions.OpenFile(f) })
+			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "artifact_open"), 28, false).OnClick(open)
 			kit.MenuButton(c.Key("more"), "file-"+key, func(b ui.Element) {
 				kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", 28, false)
 			}, func(m *kit.Menu) {
@@ -232,35 +241,40 @@ func (s *State) grounding(c *ui.Context, key string, b Block) {
 		Justify(ui.Start).Cursor(ui.CursorPointer)
 	hovered := t.Hovered() || t.FocusVisible()
 	sw := &kit.Sweep{}
+	session := s.renderSession
 	t.Children(func() { summary(c, head, hovered, false, false, sw) }).OnClick(func() {
 		result := b
-		s.result = &result
+		s.result, s.resultOf = &result, session
 	})
 	sw.Frame(t)
 }
 
 // webLink reports an http or https address with a host and no credentials:
-// the only destinations a search result opens, in the system browser.
+// the only destinations a search result opens.
 func webLink(link string) bool {
 	u, err := url.Parse(link)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil
 }
 
-// searchResult is the open search result: a dialog in place of the
-// reference's window, since the transcript has no second window.
-func (s *State) searchResult(c *ui.Context) {
-	if s.result == nil {
+// searchResult is the open search result of conversation id: a dialog in
+// place of the reference's window, since the transcript has no second
+// window. Its links open as a reply's do: a click in the right panel,
+// which closes the dialog over it, and with the platform modifier in the
+// system browser, the dialog staying.
+func (s *State) searchResult(c *ui.Context, id string) {
+	if s.result == nil || s.resultOf != id {
 		return
 	}
 	p := theme.Of(c)
 	size := textSize(c) // the answer's and its sources', under the dialog's own title
 	b := s.result
 	open := true
-	options := markdown.Options{Theme: s.md.Theme, OnLink: func(link string) {
-		if webLink(link) {
-			c.OpenURL(link)
+	visit := func(link string) {
+		if webLink(link) && s.follow(c, id, link) && !External(c) {
+			s.result = nil
 		}
-	}}
+	}
+	options := markdown.Options{Theme: s.md.Theme, OnLink: visit}
 	if s.resultMD == nil {
 		s.resultMD = &options
 	} else {
@@ -287,7 +301,9 @@ func (s *State) searchResult(c *ui.Context) {
 								if numbered {
 									ui.Text(c, fmt.Sprint(i+1)).FontSize(size - 2).Shrink(0).TextColor(p.MutedForeground)
 								}
-								ui.Link(c, title, src.URI).FontSize(size).SingleLine().Shrink(1).MinWidth(0)
+								if ui.Link(c, title, "").FontSize(size).SingleLine().Shrink(1).MinWidth(0).Clicked() {
+									visit(src.URI)
+								}
 							})
 						}
 					})
@@ -439,6 +455,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 	}
 	moreKey := "changes-more-" + turn
 	more := s.opened(moreKey)
+	session := s.renderSession
 	all := ch.Undone[""]
 	ui.Column(c.Key("changes")).FillWidth().Radius(p.Radius2xl()).Border(1, p.Border).Background(p.Muted.Alpha(0.2)).Clip().Children(func() {
 		ui.Row(c).FillWidth().MinWidth(0).Padding(12).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -491,7 +508,15 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 					}
 					kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, label), 28, false).Disabled(done).OnClick(func() { actions.Undo(turn, f.Path) })
 				})
-			}).OnClick(func() { actions.Review(turn, f.Path) })
+			}).OnClick(func() {
+				// A click reviews the change in the right panel; with the
+				// platform modifier the file opens in the system's app.
+				if External(c) && s.OpenLink != nil {
+					s.follow(c, session, pathLink(f.Path))
+					return
+				}
+				actions.Review(turn, f.Path)
+			})
 		}
 		if n > previewFiles {
 			label := i18n.T(c, "turn_changes_more", "count", n-previewFiles)
