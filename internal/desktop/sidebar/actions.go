@@ -11,12 +11,16 @@ import (
 // Actions injects controller operations without giving views backend ownership.
 // Completion callbacks run on the UI thread. A failed save keeps its draft.
 type Actions struct {
-	Rename        func(*viewmodel.Conversation, string, func(bool))
-	Archive       func(*viewmodel.Conversation)
-	Read          func(*viewmodel.Conversation, bool)
-	Delete        func(*viewmodel.Conversation)
-	Pin           func(*viewmodel.Conversation)
-	MovePin       func(source, target string, after bool)
+	Rename    func(*viewmodel.Conversation, string, func(bool))
+	Archive   func(*viewmodel.Conversation)
+	Unarchive func(*viewmodel.Conversation)
+	Read      func(*viewmodel.Conversation, bool)
+	Delete    func(*viewmodel.Conversation)
+	Pin       func(*viewmodel.Conversation)
+	MovePin   func(source, target string, after bool)
+	// MoveSession saves a project's manual session order with source
+	// before or after target.
+	MoveSession   func(source, target *viewmodel.Conversation, after bool)
 	NewDraft      func(*viewmodel.Project)
 	RemoveProject func(*viewmodel.Project)
 	SaveProject   func(Editor, string, func(bool))

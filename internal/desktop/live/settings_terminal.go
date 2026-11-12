@@ -164,7 +164,12 @@ func (r *Runtime) saveTerminalSettings() {
 	}
 	model.Pending = true
 	request := terminalRequest(model.Draft, model.Revision, state.choices, state.saved)
-	r.saveSetting(protocol.Command{Kind: "save_terminal_settings", Data: request}, settings.TerminalMessages, func(output protocol.Output, ok bool) {
+	again := func() {
+		if r.showsSettings() {
+			r.saveTerminalSettings()
+		}
+	}
+	r.saveSettingRetry(protocol.Command{Kind: "save_terminal_settings", Data: request}, settings.TerminalMessages, nil, again, func(output protocol.Output, ok bool) {
 		model := r.terminalModel()
 		model.Pending = false
 		value, valid := detail[protocol.TerminalSettings](output.Data)

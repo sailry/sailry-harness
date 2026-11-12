@@ -8,6 +8,12 @@ import (
 )
 
 func (r *Runtime) reportKeys(c *ui.Context, err error, failed, conflict, unknown string) {
+	r.reportKeysRetry(c, err, failed, conflict, unknown, nil)
+}
+
+// reportKeysRetry is reportKeys whose failure and uncertain toasts offer
+// Retry, which runs again.
+func (r *Runtime) reportKeysRetry(c *ui.Context, err error, failed, conflict, unknown string, again func()) {
 	if err == nil {
 		return
 	}
@@ -18,7 +24,7 @@ func (r *Runtime) reportKeys(c *ui.Context, err error, failed, conflict, unknown
 	case protocol.ErrorCodeOutcomeUnknown:
 		outcome, key = kit.Uncertain, unknown
 	}
-	kit.Toast(c, outcome, i18n.T(c, key))
+	kit.Recover(c, outcome, i18n.T(c, key), again)
 }
 
 func (r *Runtime) providerCommand(command protocol.Command, done func(protocol.Output, bool)) {

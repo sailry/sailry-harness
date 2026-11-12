@@ -178,6 +178,29 @@ func TestBrowseLocations(t *testing.T) {
 			t.Errorf("the drives of Windows are %q, want %q", got, want)
 		}
 
+		// The rule the host metrics share: the volumes the user stores
+		// files on, whatever a file manager makes of where they are mounted.
+		kept := func(goos string, mounts []disk.PartitionStat) (out []string) {
+			for _, mount := range mounts {
+				if IsVolume(goos, mount) {
+					out = append(out, mount.Mountpoint)
+				}
+			}
+			return out
+		}
+		if got, want := kept("darwin", mac), []string{"/Volumes/Work", "/", "/Volumes/.timemachine", "/Volumes/Work/nested", "/Volumes/share", "/Volumes/Work"}; !slices.Equal(got, want) {
+			t.Errorf("the volumes among the mounts of macOS are %q, want %q", got, want)
+		}
+		kernel := []disk.PartitionStat{{Mountpoint: "/proc", Fstype: "proc"}, {Mountpoint: "/dev/shm", Fstype: "ext4"}, {Mountpoint: "/run/user/1000", Fstype: "ext4"},
+			{Mountpoint: "/sys/fs/cgroup", Fstype: "cgroup2"}, {Mountpoint: "/tmp", Fstype: "TMPFS"}, {Mountpoint: "", Fstype: "ext4"}, {Mountpoint: "/system", Fstype: "ext4"}}
+		if got, want := kept("linux", append(kernel, linux...)), []string{"/system", "/boot/efi", "/", "/home", "/media/me/USB STICK", "/media/other/theirs",
+			"/run/media/me/card", "/mnt/data", "/mnt", "/mnt/data/inner"}; !slices.Equal(got, want) {
+			t.Errorf("the volumes among the mounts of Linux are %q, want %q", got, want)
+		}
+		if got, want := kept("windows", drives), []string{"C:", `C:\mounted\`, "E:", "Z:"}; !slices.Equal(got, want) {
+			t.Errorf("the volumes among the drives of Windows are %q, want %q", got, want)
+		}
+
 		// The startup volume is named by the link to the root kept beside
 		// the other volumes.
 		directory := t.TempDir()

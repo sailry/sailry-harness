@@ -18,11 +18,15 @@ const (
 )
 
 // LocalModel is a model a host runs for OCR, dictation, knowledge or
-// decisions.
+// decisions. Version (the source's revision), License and Size are its
+// definition's, "" where unknown. Removable marks a model whose files can
+// be deleted and, once installed, updated.
 type LocalModel struct {
-	ID, Name, Repo string
-	Status         ModelStatus
-	Percent        float64 // of a download
+	ID, Name, Repo         string
+	Status                 ModelStatus
+	Percent                float64 // of a download
+	Version, License, Size string
+	Removable              bool
 }
 
 // KnowledgeState is what a knowledge collection is doing.
@@ -55,6 +59,15 @@ type LibraryModel struct {
 	Source, Size, License string
 	Status                ModelStatus
 	Percent               float64
+	// Versions are the hub's versions once read, newest first, and Version
+	// the index of the one the details show. Resolved marks a known
+	// definition (size, license), which an install from the details needs;
+	// Current marks the shown version as the one the host has, which Status
+	// is about. QueryPrefix and DocumentPrefix are an embedding model's own.
+	Versions                    []string
+	Version                     int
+	Resolved, Current           bool
+	QueryPrefix, DocumentPrefix string
 }
 
 // Permission is a system permission the app or a plugin needs, by its
@@ -68,4 +81,7 @@ type Permission struct {
 type Archived struct {
 	ID, Title string
 	At        time.Time
+	// Private is a session without a project: deleting it deletes the
+	// private workspace its files are in.
+	Private bool
 }

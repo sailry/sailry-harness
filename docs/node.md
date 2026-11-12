@@ -289,7 +289,13 @@ wake assertion or telemetry sender.
 
 `report_diagnostic` stores a controller's system report as a notification.
 Plugin callers are refused, a cancellation stores nothing, and a repeated
-incident answers with its first notice without another event.
+incident answers with its first notice without another event. The Desktop
+sends it when a package's metadata read (`plugin_metadata`, operation
+`metadata_read`) or a view's initialization (`plugin_initialization`,
+operation `view_initialize`) fails (`live/plugin_diagnostics.go`): once per
+failure the view shows, not for a cancellation or while disconnected, and
+its result is ignored. The package is named only when the snapshot gives its
+version.
 
 The Node writes its own notices in the transaction of the change they report
 (`internal/node/store/notifications_system.go`), as Rust's

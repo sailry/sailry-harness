@@ -1,6 +1,7 @@
 package live
 
 import (
+	"errors"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -46,7 +47,10 @@ func speechModels(selected *protocol.ModelID, manager *models.Manager) ([]viewmo
 			rows[0].Status, rows[0].Percent = speechStatus(state)
 		}
 		for _, entry := range manager.Entries() {
-			row := viewmodel.LocalModel{ID: entry.Record.ID.String(), Name: entry.Record.Definition.Name, Repo: entry.Record.Definition.Source.Repository}
+			definition := entry.Record.Definition
+			// A registered model can be removed; the recommended one cannot.
+			row := viewmodel.LocalModel{ID: entry.Record.ID.String(), Name: definition.Name, Repo: definition.Source.Repository,
+				Version: definition.Source.Revision, License: definition.License, Size: modelSize(definition.Assets), Removable: true}
 			row.Status, row.Percent = speechStatus(entry.State)
 			rows = append(rows, row)
 		}
@@ -134,12 +138,107 @@ func (r *Runtime) cancelSpeechModel(id string) {
 	}
 }
 
-// speechUnavailable reports that a speech model cannot be taken from the
-// model library, whose results a Node resolves for itself. The message names
-// that reason: dictation itself may well be available.
-func (r *Runtime) speechUnavailable() {
-	r.localRuntime().enqueue(func(c *ui.Context) {
-		kit.Toast(c, kit.Failed, i18n.T(c, "model_library_speech_unsupported"))
+// speechHeld is the controller's registered model of a hub result: the
+// same hub and repository, and the same revision where the result names a
+// commit. Of several, an installed one comes before a downloading one, and
+// that before a missing one.
+func speechHeld(entries []models.Entry, item protocol.ModelsItem) (libraryHolding, bool) {
+	var best libraryHolding
+	found := false
+	for _, entry := range entries {
+		source := entry.Record.Definition.Source
+		if source.Hub != item.Source.Hub || source.Repository != item.Source.Repository ||
+			commitRevision(item.Source.Revision) && source.Revision != item.Source.Revision {
+			continue
+		}
+		held := libraryHolding{id: entry.Record.ID.String(), definition: entry.Record.Definition}
+		held.status, held.percent = speechStatus(entry.State)
+		if !found || held.status > best.status {
+			best, found = held, true
+		}
+	}
+	return best, found
+}
+
+// addSpeechModel registers a definition a Node resolved with the
+// controller and downloads it. The same source with other files is the
+// model_library_conflict toast.
+func (r *Runtime) addSpeechModel(definition protocol.ModelsDefinition) {
+	root := r.localRuntime()
+	fail := func(key string) {
+		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
+	}
+	manager := root.speechManager()
+	if manager == nil {
+		fail("dictation_storage")
+		return
+	}
+	id, err := manager.Register(definition)
+	if err == nil {
+		err = manager.Start(&id, nil)
+	}
+	switch {
+	case errors.Is(err, models.ErrConflict):
+		fail("model_library_conflict")
+	case err != nil:
+		fail(dictationKey(err))
+	}
+}
+
+// deleteSpeechModel removes a registered speech model and its files, after
+// the confirmation. Dictation then uses the recommended model where it
+// used this one.
+func (r *Runtime) deleteSpeechModel(id string) {
+	root := r.localRuntime()
+	model, valid := speechSelection(id)
+	manager := root.speechManager()
+	if !valid || model == nil || manager == nil {
+		return
+	}
+	if err := manager.Remove(*model); err != nil {
+		key := dictationKey(err)
+		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
+		return
+	}
+	if selected := root.Preferences.Data.DictationModel(); selected != nil && *selected == *model {
+		root.dictationPreferences().Model = nil
+	}
+	root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Done, i18n.T(c, "knowledge_deleted")) })
+}
+
+// updateSpeechModel looks for a newer version of a registered speech model:
+// the selected host's Node resolves its source at its head. A version that
+// is installed is "Already up to date"; another is registered and
+// downloaded.
+func (r *Runtime) updateSpeechModel(id string) {
+	root := r.localRuntime()
+	manager := root.speechManager()
+	owner := root.runtimeFor(root.App.Host)
+	if manager == nil || owner == nil {
+		return
+	}
+	entries := manager.Entries()
+	index := slices.IndexFunc(entries, func(entry models.Entry) bool { return entry.Record.ID.String() == id })
+	if index < 0 {
+		return
+	}
+	source := entries[index].Record.Definition.Source
+	source.Revision = "HEAD"
+	owner.async(func() {
+		definition, err := owner.resolveModel(protocol.ModelsKindSpeech, source)
+		root.enqueue(func(c *ui.Context) {
+			if err != nil {
+				owner.reportKeys(c, err, "runtime_failed", "runtime_conflict", "runtime_unknown")
+				return
+			}
+			if slices.ContainsFunc(manager.Entries(), func(entry models.Entry) bool {
+				return entry.State.Status == models.Installed && entry.Record.Definition.Source == definition.Source
+			}) {
+				kit.Message(c, i18n.T(c, "knowledge_up_to_date"))
+				return
+			}
+			root.addSpeechModel(definition)
+		})
 	})
 }
 

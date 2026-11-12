@@ -244,6 +244,7 @@ knowledge_slide: 第 %{slide} 张
 workspace_archive: 归档会话
 session_delete: 删除会话
 session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
+session_delete_private_files: 其私有工作区中的文件也会一并删除
 workspace_rename: 重命名
 session_title_required: 请输入名称
 session_mark_read: 标记为已读
@@ -1137,6 +1138,10 @@ provider_model_default: 默认
 provider_set_default: 设为默认
 provider_default: 默认模型
 provider_model_id: 模型 ID
+provider_deployment_id: 部署名
+provider_api_version: API 版本
+form_api_version_hint: 如 2024-10-21
+provider_cloud_required: 请填写云渠道配置
 form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
 form_tokens_hint: Token 数量
@@ -1345,6 +1350,7 @@ connector_tools_empty: 无工具
 plugins_no_skills: 暂无技能
 plugins_no_mcp: 暂无 MCP 服务
 market_details_permission_none: 不需要额外权限
+market_details_added_permissions: 新增权限
 market_installed: 已安装
 model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭
@@ -1548,6 +1554,20 @@ host_process_name: 进程
 host_pid: PID
 host_process_empty: 暂无进程
 host_process_no_matches: 无匹配进程
+host_process_details: 查看详情
+host_process_copy_pid: 复制 PID
+host_process_copy_name: 复制名称
+host_process_stop: 结束进程
+host_process_force_stop: 强制结束
+host_process_stop_confirm: 向此进程发送结束请求，可能中断正在进行的任务
+host_process_force_confirm: 立即结束此进程，未保存的数据可能丢失
+host_process_stop_sent: 已发送结束请求
+host_process_gone: 此进程已退出
+host_process_changed: 进程已变化，请刷新后重试
+host_process_protected: 无法结束系统进程或当前主机服务
+host_process_uncertain: 结束结果未知，请检查进程状态
+host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
+metrics_gpu: GPU
 port_title: 端口转发
 port_mappings: 端口映射
 port_add: 新建转发
@@ -1989,7 +2009,12 @@ knowledge_saved: 已保存
 knowledge_cancel_requested: 已请求取消
 model_library_failed: 无法加载模型
 model_library_partial: 部分结果不可用
-model_library_speech_unsupported: 模型库不支持添加语音模型
+model_library_conflict: 此版本的文件已变化
+model_library_version: 版本
+model_library_more: 加载更多
+model_library_query_prefix: 查询前缀
+model_library_document_prefix: 文档前缀
+knowledge_up_to_date: 已是最新
 local_models_unavailable: 不可用
 dictation_unavailable: 本地语音输入不可用
 dictation_model_missing: 请先下载语音模型
@@ -2224,4 +2249,12 @@ host_version_older: Host 版本较旧，请更新 Host
 host_version_newer: Host 版本较新，请更新桌面端
 host_version_unknown: 无法确认 Host 版本，请更新 Host
 controller_version_unknown: 无法确认桌面端版本，请更新桌面端
+content_link_address: 链接地址
+content_link_edit: 编辑链接
+content_image_address: 图片地址
+content_image_alt: 替代文本
+runtime_python_preparing: 正在准备
+python_creating: 准备依赖
+python_installing: 安装依赖
+python_validating: 检查依赖
 port_count: '%{count} 个端口'

@@ -244,6 +244,7 @@ knowledge_slide: Folie %{slide}
 workspace_archive: Sitzung archivieren
 session_delete: Sitzung löschen
 session_delete_named: Session „%{name}“ und ihre Subagenten dauerhaft löschen
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Umbenennen
 session_title_required: Geben Sie einen Namen ein
 session_mark_read: Als gelesen markieren
@@ -1137,6 +1138,10 @@ provider_model_default: Standard
 provider_set_default: Als Standard festlegen
 provider_default: Standardmodell
 provider_model_id: Modell-ID
+provider_deployment_id: Name der Bereitstellung
+provider_api_version: API Version
+form_api_version_hint: z. B. 2024-10-21
+provider_cloud_required: Cloud-Anbieterkonfiguration eingeben
 form_model_hint: Modell-ID
 provider_context: Kontextbegrenzung (Token)
 form_tokens_hint: Anzahl der Token
@@ -1345,6 +1350,7 @@ connector_tools_empty: Keine Werkzeuge
 plugins_no_skills: Keine Fähigkeiten
 plugins_no_mcp: Nr. MCP Server
 market_details_permission_none: Keine zusätzlichen Berechtigungen erforderlich
+market_details_added_permissions: Neue Berechtigungen
 market_installed: Installiert
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -1548,6 +1554,20 @@ host_process_name: Prozesse
 host_pid: PID
 host_process_empty: Keine Prozesse
 host_process_no_matches: Keine passenden Prozesse
+host_process_details: Details anzeigen »
+host_process_copy_pid: PID kopieren
+host_process_copy_name: Name kopieren
+host_process_stop: Endprozess
+host_process_force_stop: Beenden erzwingen
+host_process_stop_confirm: Senden einer Stopp-Anforderung; dies kann laufende Aufgaben unterbrechen
+host_process_force_confirm: Beenden Sie diesen Prozess jetzt; ungespeicherte Daten können verloren gehen
+host_process_stop_sent: Stopp-Anfrage gesendet
+host_process_gone: Prozess beendet
+host_process_changed: Prozess geändert; aktualisieren und erneut versuchen
+host_process_protected: Systemprozesse oder der aktuelle Hostdienst können nicht beendet werden
+host_process_uncertain: Stop-Ergebnis unbekannt; Prozessstatus prüfen
+host_process_stop_failed: Der Prozess konnte nicht gestoppt werden. Er wurde möglicherweise beendet, der Zugriff wurde verweigert oder der Host unterstützt ihn möglicherweise nicht
+metrics_gpu: GPU
 port_title: Portweiterleitung
 port_mappings: Port-Mappings
 port_add: Neuer Stürmer
@@ -1621,7 +1641,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Hinzufügen
+reference_group_context: Kontext
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1862,7 +1882,7 @@ authorization_connected: Verbunden
 connector_bound: Verknüpft
 connector_checked: Verbindung in Ordnung
 connector_mcp_reconnected: Verbunden, %{n} Werkzeuge
-connector_consent_effect: Geänderte Autorisierungsziele vor dem Fortfahren prüfen
+connector_consent_effect: Geänderte Verbindungsberechtigungen zulassen
 connector_changed_origins: Ursprünge
 connector_changed_scopes: Berechtigungen
 connector_changed_client: Client
@@ -1989,7 +2009,12 @@ knowledge_saved: Gespeichert
 knowledge_cancel_requested: Abbruch angefordert
 model_library_failed: Modelle konnten nicht geladen werden
 model_library_partial: Einige Ergebnisse sind nicht verfügbar
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Die Dateien dieser Version wurden geändert
+model_library_version: Version
+model_library_more: Mehr laden
+model_library_query_prefix: Suchpräfix
+model_library_document_prefix: Dokumentpräfix
+knowledge_up_to_date: Bereits aktuell
 local_models_unavailable: Nicht verfügbar
 dictation_unavailable: Lokale Spracheingabe nicht verfügbar
 dictation_model_missing: Zuerst ein Sprachmodell herunterladen
@@ -2224,4 +2249,12 @@ host_version_older: Host ist älter; Host aktualisieren
 host_version_newer: Host ist neuer; Desktop aktualisieren
 host_version_unknown: Host-Version nicht überprüfbar; Host aktualisieren
 controller_version_unknown: Desktop-Version nicht überprüfbar; Desktop aktualisieren
+content_link_address: Linkadresse
+content_link_edit: Link bearbeiten
+content_image_address: Bildadresse
+content_image_alt: Alternativtext
+runtime_python_preparing: Wird vorbereitet
+python_creating: Abhängigkeiten vorbereiten
+python_installing: Abhängigkeiten installieren
+python_validating: Abhängigkeiten prüfen
 port_count: '%{count} ports'
