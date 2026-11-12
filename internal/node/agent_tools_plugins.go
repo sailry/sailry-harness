@@ -173,8 +173,6 @@ func (node *Node) pluginManager(inv *store.AgentInvocation) agentTool {
 				return protocol.Command{}, revisionRequired
 			}
 			return protocol.Command{Kind: "remove_plugin", Data: &protocol.CommandRemovePluginPayload{Name: action.Name, ExpectedRevision: action.ExpectedRevision}}, nil
-		case "update":
-			return protocol.Command{}, revisionRequired
 		}
 		return protocol.Command{}, invalid
 	}
