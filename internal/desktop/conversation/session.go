@@ -48,15 +48,15 @@ func (s *State) older(c *ui.Context, sess *Session, actions Actions) {
 	})
 }
 
-// banner tells the connection is recovering or lost, with Retry: the last
-// row of the transcript, after the last turn. It is the session's state, not
-// a message.
-func banner(c *ui.Context, sess *Session, actions Actions) {
+// banner tells the connection is recovering or lost: the last row of the
+// transcript, after the last turn. It is the session's state, not a message,
+// and offers nothing: the Client reconnects by itself (docs/removed-ui.md).
+func banner(c *ui.Context, sess *Session) {
 	if sess == nil || sess.Connection == Connected {
 		return
 	}
 	p := theme.Of(c)
-	ui.Row(c.Key("banner")).FillWidth().MaxWidth(theme.ContentWidth).Margin(8, ui.Auto, 0, ui.Auto).Padding(6, 8, 6, 12).Gap(8).Shrink(0).
+	ui.Row(c.Key("banner")).FillWidth().MaxWidth(theme.ContentWidth).Margin(8, ui.Auto, 0, ui.Auto).Padding(10, 12).Gap(8).Shrink(0).
 		Radius(p.RadiusLg).Background(p.Floating()).Border(1, p.Border).AlignItems(ui.Center).Role(ui.RoleStatus).Children(func() {
 		if sess.Connection == Reconnecting {
 			kit.Loader(c, 14)
@@ -65,8 +65,6 @@ func banner(c *ui.Context, sess *Session, actions Actions) {
 			ui.Icon(c, icons.TriangleAlert).FontSize(16).TextColor(p.Danger)
 			ui.Text(c, i18n.T(c, "plugins_view_offline")).FontSize(14).Grow(1).TextColor(p.Danger)
 		}
-		kit.Ghost(c.Key("reconnect"), i18n.T(c, "chat_retry"), false).Height(28).PaddingX(8).
-			Children(func() { ui.Text(c, i18n.T(c, "chat_retry")).FontSize(14) }).OnClick(actions.Reconnect)
 	})
 }
 

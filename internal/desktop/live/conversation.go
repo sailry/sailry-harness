@@ -799,16 +799,6 @@ func (x *conversationActions) LoadOlder() {
 		x.r.async(func() { _ = x.r.controller.LoadOlderConversation(x.r.ctx, id) })
 	}
 }
-func (x *conversationActions) Reconnect() {
-	if !x.owned() {
-		x.unavailable()
-		return
-	}
-	x.r.Refresh()
-	if id, err := protocol.ParseSessionID(x.cv.ID); err == nil {
-		_ = x.r.controller.RefreshConversation(x.r.ctx, id)
-	}
-}
 func (x *conversationActions) Quote(text string) {
 	if x.comp.Draft != "" {
 		x.comp.Draft += "\n\n"

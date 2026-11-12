@@ -1102,15 +1102,6 @@ func (x *actions) Review(_, path string) {
 	}
 }
 
-// Reconnect in the demo connects at once.
-func (x *actions) Reconnect() {
-	if !x.a.Demo() {
-		x.notice()
-		return
-	}
-	x.cv.Session.Connection = conversation.Connected
-}
-
 // ImageAction is the image viewer's Copy, Save or Open, which would write
 // the clipboard, a file or leave the window: the preview only says so.
 func (x *actions) ImageAction(kit.ImageAction, conversation.Image) { x.notice() }

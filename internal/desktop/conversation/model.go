@@ -527,8 +527,6 @@ type Actions interface {
 	Review(turn, path string)
 	// LoadOlder asks for the page before the first turn.
 	LoadOlder()
-	// Reconnect retries the connection while recovering.
-	Reconnect()
 	// Quote adds a selection to the draft, quoted.
 	Quote(text string)
 	// Start begins a new conversation whose draft quotes a selection.
