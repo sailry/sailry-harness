@@ -186,8 +186,7 @@ does not prove live or cross-platform acceptance.
 - Keep default tests deterministic and isolated. Use `t.TempDir()`, injected
   clocks, local fakes and `net/http/httptest`. No sleeps, real timers, live
   network, user profiles or real child processes in the default suite.
-- Use `t.Parallel()` when a test touches no shared state. The default run budget
-  is two minutes cold on an M-series Mac and 20 seconds warm with the Go cache.
+- Use `t.Parallel()` when a test touches no shared state.
 - Real processes, providers, models, iroh, remote storage and OS permission prompts
   belong behind `//go:build integration`. Other-OS spike programs are run on the
   named system by the user or CI; unrun checks are reported as unrun.
