@@ -92,6 +92,11 @@ func (target *downloadDestination) publish(ctx context.Context) error {
 		err = target.root.Link(target.temporary, target.name)
 		if err == nil {
 			_ = target.root.Remove(target.temporary)
+		} else if errors.Is(err, errors.ErrUnsupported) || errors.Is(err, fs.ErrPermission) {
+			// A filesystem without hard links (FAT, exFAT, some shares)
+			// refuses Link. The name was absent a moment ago, so the
+			// temporary file is renamed onto it.
+			err = target.root.Rename(target.temporary, target.name)
 		}
 	} else {
 		err = target.root.Rename(target.temporary, target.name)

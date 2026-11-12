@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -382,34 +380,4 @@ func (market *Market) Download(ctx context.Context, selection ThemeSelection) (S
 	})
 	snapshot.Files[themeSourceFile] = source
 	return snapshot, nil
-}
-
-func BundledSnapshot(ctx context.Context, id string) (Snapshot, error) {
-	if !validThemeID(id) {
-		return Snapshot{}, errors.New("invalid bundled theme ID")
-	}
-	tree, err := fs.Sub(sailry.Themes, "themes/"+id)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	manifest, err := fs.ReadFile(tree, "theme.json")
-	if err != nil {
-		return Snapshot{}, err
-	}
-	var declaration Package
-	if json.Unmarshal(manifest, &declaration) != nil || declaration.validate() != nil {
-		return Snapshot{}, errors.New("bundled theme manifest is invalid")
-	}
-	files := map[string][]byte{}
-	for _, name := range resourceNames(&declaration) {
-		if err := ctx.Err(); err != nil {
-			return Snapshot{}, err
-		}
-		body, err := fs.ReadFile(tree, path.Clean(name))
-		if err != nil {
-			return Snapshot{}, err
-		}
-		files[name] = body
-	}
-	return snapshotFiles(files)
 }

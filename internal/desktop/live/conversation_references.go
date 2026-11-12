@@ -13,14 +13,8 @@ import (
 
 func (r *Runtime) bindReferences(session string, page protocol.ConversationPage) {
 	bound := map[string][]conversation.Reference{}
-	owners := map[protocol.TurnID]protocol.TurnID{}
+	owners := turnOwners(page.Runs)
 	canonical := map[protocol.TurnID]bool{}
-	for _, run := range page.Runs {
-		owners[run.Turn] = run.Turn
-		if run.Joined != nil {
-			owners[run.Turn] = *run.Joined
-		}
-	}
 	appendReference := func(turn protocol.TurnID, ref protocol.ConversationReference) {
 		value, ok := composerReference(ref)
 		if !ok {

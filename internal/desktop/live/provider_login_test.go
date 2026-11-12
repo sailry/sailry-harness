@@ -7,7 +7,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -56,6 +58,45 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 		}
 		if fields[1].Kind != "choice" || !slices.Equal(fields[1].Options, []string{"plain", "warm"}) {
 			t.Fatalf("choice field %+v", fields[1])
+		}
+	})
+	t.Run("a failed sign-in closes without asking the Node", func(t *testing.T) {
+		transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
+		r := &Runtime{
+			ctx: t.Context(), controller: client.New(transport), App: &shell.App{Settings: settings.New()},
+			authorizations: &authorizationState{}, busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
+		}
+		r.App.Settings.ConnectorActions = &settings.ConnectorActions{}
+		defer r.workers.Wait()
+		failed := protocol.ConversationLoginState{Kind: "failed", Data: protocol.Fault{Code: protocol.ErrorCodeUnavailable}}
+		ended := func(view *settings.Authorization) *liveAuthorization {
+			ctx, cancel := context.WithCancel(t.Context())
+			attempt := &liveAuthorization{id: protocol.NewRequestID(), ctx: ctx, cancel: cancel}
+			view.Open = true
+			// What a terminal update does to the attempt and its dialog.
+			if _, terminal := projectAuthorization(view, failed); !terminal || !view.Open || view.Flow != settings.FlowFailed {
+				t.Fatalf("failed state: terminal=%v view=%+v", terminal, view)
+			}
+			attempt.cancel()
+			return attempt
+		}
+		provider := r.App.Settings.ProviderAuthorization()
+		r.authorizations.provider = ended(provider)
+		r.cancelProviderLogin()
+		if provider.Open || provider.Cancelling || r.authorizations.provider != nil {
+			t.Fatalf("failed provider sign-in stayed open: %+v", provider)
+		}
+		connector := &r.App.Settings.ConnectorActions.Authorization
+		r.authorizations.connector = ended(connector)
+		r.cancelConnectorLogin()
+		if connector.Open || connector.Cancelling || r.authorizations.connector != nil {
+			t.Fatalf("failed connector sign-in stayed open: %+v", connector)
+		}
+		r.workers.Wait()
+		transport.mu.Lock()
+		defer transport.mu.Unlock()
+		if len(transport.requests) != 0 {
+			t.Fatalf("an ended attempt was cancelled on the Node: %+v", transport.requests)
 		}
 	})
 	t.Run("quota remains unknown after reset", func(t *testing.T) {

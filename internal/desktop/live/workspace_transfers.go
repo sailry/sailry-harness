@@ -209,7 +209,7 @@ func (p *workspaceProject) pendingWorkspaceOperations() []panel.PendingOperation
 		}
 		result = append(result, panel.PendingOperation{Label: relative, Run: func(c *ui.Context) {
 			p.panel.Confirm("files_check_result", relative, func(done func(bool)) {
-				p.mutate(command, func(c *ui.Context, out protocol.Output) {
+				p.mutateNamed(workspaceAction, command, func(c *ui.Context, out protocol.Output) {
 					if settled != nil {
 						settled(c, out)
 					}

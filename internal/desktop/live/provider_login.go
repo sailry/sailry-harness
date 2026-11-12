@@ -369,7 +369,9 @@ func (r *Runtime) cancelProviderLogin() {
 	}
 	view := r.App.Settings.ProviderAuthorization()
 	view.Cancelling = true
-	if attempt.id == (protocol.RequestID{}) {
+	// An attempt the Node never began or has already ended (its context is
+	// over) has nothing to cancel there: the dialog closes by itself.
+	if attempt.id == (protocol.RequestID{}) || attempt.ctx.Err() != nil {
 		attempt.cancel()
 		view.Open, view.Cancelling = false, false
 		r.authorizations.provider = nil

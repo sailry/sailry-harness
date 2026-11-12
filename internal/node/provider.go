@@ -18,7 +18,7 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 	var work *providers.Work
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		work, err = store.PrepareProviderCommand(ctx, db, node.ID(), caller, request)
+		work, err = store.PrepareProviderCommand(ctx, db, node.ID(), request)
 		return err
 	})
 	if err != nil || work == nil {
@@ -62,7 +62,7 @@ func (node *Node) readProvider(ctx context.Context, caller protocol.NodeID, requ
 		var changes []protocol.Event
 		err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			var err error
-			output, changes, err = store.ExecuteProviderCommand(ctx, db, node.ID(), caller, request, prepared)
+			output, changes, err = store.ExecuteProviderCommand(ctx, db, node.ID(), request, prepared)
 			if err != nil {
 				return err
 			}

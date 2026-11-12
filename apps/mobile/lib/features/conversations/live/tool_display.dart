@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../content/code.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 
@@ -34,29 +33,4 @@ String capturedLabel(BuildContext context, Object? value) {
 String continuationLabel(BuildContext context, Object? marker) {
   final label = capturedLabel(context, marker);
   return label.isEmpty ? context.tr('conversationContinued') : label;
-}
-
-class ToolInput extends StatelessWidget {
-  const ToolInput({super.key, required this.input});
-  final Map<String, dynamic> input;
-
-  @override
-  Widget build(BuildContext context) {
-    final fields = <String>{};
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final name in ['summary', 'context', 'content'])
-          if (object(input[name]) case final field
-              when text(field['text']).isNotEmpty &&
-                  fields.add(text(field['text'])))
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: field['code'] == true
-                  ? CodeBlock(text(field['text']))
-                  : SelectableText(text(field['text'])),
-            ),
-      ],
-    );
-  }
 }

@@ -75,7 +75,7 @@ func providerList(ctx context.Context, db *sql.Conn) ([]protocol.ConversationPro
 	}
 	return values, nil
 }
-func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, caller protocol.NodeID, request protocol.Request) (*providers.Work, error) {
+func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, request protocol.Request) (*providers.Work, error) {
 	if request.Plugin != nil {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "plugin invocation authority is unavailable")
 	}
@@ -150,7 +150,7 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 	}
 	return work, nil
 }
-func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, caller protocol.NodeID, request protocol.Request, prepared *providers.Prepared) (output protocol.Output, changes []protocol.Event, resultErr error) {
+func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, request protocol.Request, prepared *providers.Prepared) (output protocol.Output, changes []protocol.Event, resultErr error) {
 	defer func() {
 		if resultErr != nil {
 			return

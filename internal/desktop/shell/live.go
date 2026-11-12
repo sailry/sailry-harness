@@ -57,6 +57,14 @@ type ConversationActions interface {
 	conversation.Actions
 }
 
+// DropComposer forgets the input state of a draft that is gone and returns
+// it, nil when there was none.
+func (a *App) DropComposer(id string) *composer.State {
+	state := a.drafts[id]
+	delete(a.drafts, id)
+	return state
+}
+
 // ReplaceConversationID retains local input state when a draft is created on Node.
 func (a *App) ReplaceConversationID(before, after string) {
 	if cv := a.Data.Find(before); cv != nil {

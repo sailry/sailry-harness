@@ -154,7 +154,13 @@ func testConversationWatchRecovery(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
+	if _, kept := c.Conversation(session.ID); !kept {
+		t.Fatal("a removed conversation left its observer without state")
+	}
 	other()
+	if _, kept := c.Conversation(session.ID); kept {
+		t.Fatal("a removed conversation without observers kept its watch")
+	}
 	if err := c.Close(); err != nil {
 		t.Fatal(err)
 	}

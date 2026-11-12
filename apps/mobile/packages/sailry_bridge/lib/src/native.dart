@@ -39,10 +39,6 @@ NativeBridge get nativeBridge {
   return _shared!;
 }
 
-Future<void> shutdownNativeBridge() async {
-  await _shared?.shutdown();
-}
-
 class _Release {
   const _Release(this.bridge, this.handle);
 
@@ -136,8 +132,7 @@ class NativeBridge {
     bool subscribe = false,
   }) {
     if (_closing) return Future.error(StateError('native bridge is closed'));
-    if (handle == 0 &&
-        (method == 'open' || method == 'new' || method == 'default')) {
+    if (handle == 0 && (method == 'open' || method == 'new')) {
       _disposeRequested = true;
     }
     final request = _nextRequest();

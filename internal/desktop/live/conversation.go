@@ -92,7 +92,7 @@ func (r *Runtime) projectModels() {
 	own := len(r.snapshot().Providers)
 	for i, p := range r.composerProviders() {
 		if i < own {
-			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name, Enabled: p.Enabled})
+			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name})
 		}
 		if !p.Enabled {
 			continue
@@ -280,8 +280,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			ctx.Families = append(ctx.Families, family)
 		}
 	}
-	// Context.Hosts stays empty: the composer has no host choice
-	// (AGENTS.md, Removed UI); a draft runs on its project's Node.
+	// The composer has no host choice (AGENTS.md, Removed UI); a draft runs
+	// on its project's Node.
 	ctx.Projects = r.composerProjects()
 	if s, ok := r.session(cv.ID); ok {
 		ctx.LocationLocked = true
@@ -335,7 +335,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		encoded, _ := json.Marshal(config)
 		key := string(encoded)
 		if before, seen := r.composerObserved[cv.ID]; seen && before != key && !r.composerSaving[cv.ID] {
-			r.rememberConfig(config)
+			r.rememberConfig(config, comp.Team)
 			if s, exists := r.session(cv.ID); exists {
 				r.saveComposerConfig(s, config, nil)
 			}
@@ -434,12 +434,12 @@ func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (prot
 	return protocol.SessionConfig{}, 0, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Select a configured model"}}
 }
 
-func (r *Runtime) rememberConfig(config protocol.SessionConfig) {
+func (r *Runtime) rememberConfig(config protocol.SessionConfig, team string) {
 	source := r.controller.Target()
 	if r.forwards(config.Provider) {
 		source = r.parent.controller.Target()
 	}
-	r.Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
+	r.Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Team: team, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
 }
 
 func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) ([]composer.Reference, []composer.Reference) {
@@ -709,7 +709,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		}
 		return
 	}
-	x.r.rememberConfig(config)
+	x.r.rememberConfig(config, x.comp.Team)
 	if s, ok := x.r.session(x.cv.ID); ok {
 		// A failed send whose composer was changed meanwhile offers the
 		// submission back from its toast.

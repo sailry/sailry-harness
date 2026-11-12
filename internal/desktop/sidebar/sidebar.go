@@ -19,9 +19,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-// Limit is how many conversations a group shows before "Show more".
-const Limit = Initial
-
 // Layout metrics.
 const (
 	rowHeight = 28
@@ -318,8 +315,8 @@ func (s *State) sortMenu(c *ui.Context, color ui.Color) {
 	}, kit.MenuOptions{CheckRight: true})
 }
 
-// limited shows the first Limit conversations of a list and a toggle for the
-// rest.
+// limited shows the first Initial conversations of a list and a toggle for
+// the rest.
 func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation, row func(cv *preview.Conversation)) {
 	n, more := Window(len(list), s.more[key])
 	for i := range n {
@@ -618,11 +615,7 @@ func status(c *ui.Context, st preview.Status, color ui.Color) {
 	}
 }
 
-// Age is the short age of sidebar rows: 45s, 12m, 3h, 2d.
-func Age(c *ui.Context, t time.Time) string {
-	return ageAt(c, t, preview.Now)
-}
-
+// ageAt is the short age of sidebar rows: 45s, 12m, 3h, 2d.
 func ageAt(c *ui.Context, t, now time.Time) string {
 	if t.IsZero() {
 		return ""

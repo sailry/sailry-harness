@@ -156,10 +156,6 @@ approval_reject: 拒绝
 approval_allow_once: 允许
 approval_allow_session: 本会话允许
 approval_live_count: 待审批 %{count} 项
-file_changes_added: 新增
-file_changes_modified: 修改
-file_changes_deleted: 删除
-file_changes_renamed: 重命名
 subagent_count: '%{completed}/%{total} 子代理'
 chat_child: 子代理
 question_reply: 等待回答
@@ -190,7 +186,6 @@ tool_find_tools: 查找工具
 tool_read_output: 读取工具输出
 approval_allow_prefix: 允许前缀“%{prefix}”
 approval_preview_result: 已记录本回合的示例审批选择。未修改文件、执行命令或调用模型。
-file_changes_shortened: 差异已截断
 interaction_input: 输入回答或补充说明…
 approval_unrestricted: 完整文件系统和网络访问
 close: 关闭
@@ -337,7 +332,6 @@ git_action_conflict: 操作存在冲突，请刷新并解决冲突后继续
 git_action_failed: Git 操作失败，请检查仓库状态和远程配置
 git_action_unknown: Git 操作结果未确认，请刷新检查后再继续
 git_auth_failed: 远程认证失败，请检查执行主机的 Git 凭据
-cli_launch: 启动 AI CLI
 workspace_memory_only: 仅修改示例
 workspace_confirm: 确认
 project_remove_named: 确认移除项目“%{name}”？将关闭其终端，文件和会话会保留
@@ -651,7 +645,6 @@ composer_permission_ask_description: 修改文件和执行命令前询问
 composer_permission_project_description: 自动修改项目文件，执行命令前询问
 composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
 composer_host_local: 本机
-composer_host_remote: 远程
 composer_no_project: 对话
 composer_branch_none: 无 worktree
 composer_settings: 会话设置
@@ -733,7 +726,6 @@ directory_documents: 文档
 directory_downloads: 下载
 directory_applications: 应用程序
 directory_locations: 位置
-directory_count_directories: '%{count} 个文件夹'
 directory_count_files: '%{count} 个文件'
 directory_name: 名称
 directory_size: 大小
@@ -1785,8 +1777,6 @@ files_wrap: 自动换行
 location_copy_changes: 带入未提交修改
 location_fork: 在独立工作树中派生会话
 refresh: 刷新
-artifact_next_page: 下一页
-artifact_previous_page: 上一页
 git_commit_scope: 尚未暂存更改
 git_commit_tracked: 提交已跟踪文件
 git_continue: 继续操作
@@ -2127,9 +2117,6 @@ live_request_failed: 请求未完成，请检查节点连接和目录；重试�
 plugins_loading: 正在读取
 project_appearance: 项目外观
 project_clone_failed: 克隆失败，请检查地址、分支和网络
-project_grant: 信任并继续
-project_grant_description: 信任后，项目指令和工具可能执行代码，适用于所有 worktree
-project_grant_title: 信任此项目
 project_outcome_unknown: 结果未确认，请先检查目标目录，重试将查询原请求
 project_path_in_use: 路径已关联会话或 worktree，不能直接修改
 project_remove_busy: 项目正在使用中，请稍后重试
@@ -2141,9 +2128,6 @@ project_remove_tasks: 请先停止运行中的任务再移除项目
 project_remove_tasks_partial: 项目已保留，请先停止任务再重试，部分终端可能已关闭
 project_remove_unknown: 移除结果未确认，请检查项目和终端
 project_removed: 项目已移除
-project_revoke: 撤销信任
-project_revoke_description: 撤销后停止项目任务，保留历史和草稿
-project_revoke_title: 撤销项目信任
 task_completed: 已完成
 artifact_export_failed: 导出失败
 chat_compact_incomplete: 摘要未完整返回

@@ -182,10 +182,15 @@ func (value *Result[Success, Failure]) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	decoded := Result[Success, Failure]{}
-	if kind == "Ok" {
+	// Tolerant decoding yields an undeclared kind instead of an error; a
+	// result has no third variant to carry it.
+	switch kind {
+	case "Ok":
 		decoded.Ok = payload.(*Success)
-	} else {
+	case "Err":
 		decoded.Err = payload.(*Failure)
+	default:
+		return fmt.Errorf("unknown result variant %q", kind)
 	}
 	*value = decoded
 	return nil

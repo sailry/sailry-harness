@@ -182,18 +182,6 @@ func TestDenyUnknownFields(t *testing.T) {
 		target  func() any
 	}{
 		{
-			name:    "retained record",
-			valid:   `{"kind":"retired","data":null}`,
-			invalid: `{"kind":"retired","data":null,"extra":true}`,
-			target:  func() any { return new(RetainedRecord) },
-		},
-		{
-			name:    "nested retained record",
-			valid:   `{"kind":"retained_record","data":{"kind":"retired","data":{"future":true}}}`,
-			invalid: `{"kind":"retained_record","data":{"kind":"retired","data":{"future":true},"extra":true}}`,
-			target:  func() any { return new(Output) },
-		},
-		{
 			name:    "team settings",
 			valid:   `{"revision":0,"child_concurrency":8}`,
 			invalid: `{"revision":0,"child_concurrency":8,"other":true}`,
@@ -251,11 +239,6 @@ func TestDenyUnknownFields(t *testing.T) {
 			name: "vector null item", valid: `{"columns":["A"],"rows":[["value"]]}`,
 			invalid: `{"columns":["A"],"rows":[[null]]}`,
 			target:  func() any { return new(ToolContentTable) },
-		},
-		{
-			name: "flattened chart", valid: `{"type":"line","data":[{"label":"A","value":1}]}`,
-			invalid: `{"title":null,"type":"line","data":[{"label":"A","value":1}]}`,
-			target:  func() any { return new(Chart) },
 		},
 		{
 			name: "fixed array length", valid: `{"effort":"default","overall":1,"axes":[1,2,3,4,5]}`,

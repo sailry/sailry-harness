@@ -5,13 +5,9 @@ import '../src/native.dart';
 class Digest extends NativeHandle {
   Digest.internal(super.bridge, super.handle);
 
-  static Future<Digest> newInstance() => _create('new');
-
-  static Future<Digest> default_() => _create('default');
-
-  static Future<Digest> _create(String method) async {
+  static Future<Digest> newInstance() async {
     final bridge = nativeBridge;
-    final value = await bridge.invoke(0, method, {'kind': 'digest'});
+    final value = await bridge.invoke(0, 'new', {'kind': 'digest'});
     return Digest.internal(bridge, nativeHandle(value, 'digest'));
   }
 

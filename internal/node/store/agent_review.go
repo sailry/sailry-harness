@@ -164,7 +164,7 @@ func PublishPlanReview(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if err = validatePlanReview(ctx, db, record); err != nil {
 		return nil, nil, nil, err
 	}
-	entry, events, err := AppendCanonical(ctx, db, run.Session, record)
+	entry, _, err := AppendCanonical(ctx, db, run.Session, record)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -187,7 +187,7 @@ func PublishPlanReview(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if _, err = db.ExecContext(ctx, "INSERT INTO agent_questions(id,turn,call,body) VALUES(?1,?2,?3,?4)", question.ID.String(), turn.String(), record.ID, body); err != nil {
 		return nil, nil, nil, err
 	}
-	events, err = activityEvent(ctx, db, run.Session)
+	events, err := activityEvent(ctx, db, run.Session)
 	return &entry, &question, events, err
 }
 func reviewRaw(record canonical.Record, index uint64) (*rawAgentTool, error) {
@@ -218,7 +218,7 @@ func reviewRaw(record canonical.Record, index uint64) (*rawAgentTool, error) {
 	if !ok {
 		return nil, invalid("plan review result is invalid")
 	}
-	result := map[string]any{}
+	var result map[string]any
 	switch response.Response.Kind {
 	case "answer":
 		answer := response.Response.Data.(*protocol.ConversationQuestionAnswer)

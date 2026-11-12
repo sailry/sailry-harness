@@ -163,7 +163,7 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 		row.Justify(ui.End)
 	}
 	if len(shown) > 0 {
-		kit.ImageGroup(c, row, &s.view, shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
+		kit.ImageGroup(c, row, s.viewOf(s.renderSession), shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
 			w, h := float32(im.Width), float32(im.Height)
 			if w <= 0 || h <= 0 {
 				w, h = thumbMax, thumbMax

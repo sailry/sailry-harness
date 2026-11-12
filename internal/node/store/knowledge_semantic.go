@@ -145,10 +145,6 @@ func knowledgeAutomatic(stored KnowledgeStored) bool {
 	return semanticIdentifier(name, source.Prefix, false) == stored.Collection.ID || semanticIdentifier(name, source.Prefix, true) == stored.Collection.ID
 }
 
-func packageReference(info protocol.PluginInfo) protocol.PluginReference {
-	return protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}
-}
-
 // ensureSemantic registers the declared collections of a package that have
 // an indexed value pointing at its text. It returns the registered ones.
 func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) ([]KnowledgeStored, bool, error) {
@@ -186,7 +182,7 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 				return nil, false, err
 			}
 			// An old admitted turn retains access without replacing a newer package capture.
-			if *previous.Capture.Package != reference && latest != nil && packageReference(*latest) == reference {
+			if *previous.Capture.Package != reference && latest != nil && plugins.PackageReference(*latest) == reference {
 				previous.Capture.Package = &reference
 				if err := advanceKnowledge(previous); err != nil {
 					return nil, false, err
@@ -232,7 +228,7 @@ func RegisterKnowledgeSemantic(ctx context.Context, db *sql.Conn) (bool, error) 
 		if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
-		_, registered, err := ensureSemantic(ctx, db, packageReference(info))
+		_, registered, err := ensureSemantic(ctx, db, plugins.PackageReference(info))
 		if err != nil {
 			return false, err
 		}

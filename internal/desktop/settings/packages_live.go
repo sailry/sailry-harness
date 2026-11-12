@@ -100,9 +100,3 @@ func (m *Model) SetBusy(op string, on bool) {
 	}
 	m.Busy[op] = true
 }
-
-func (m *Model) PackageDraftOpen() bool { return m.install.open || m.download.open || m.skillAdd.open }
-
-func (m *Model) OpenPackageUpdates() {
-	m.updates = pluginUpdates{open: true, chosen: map[string]bool{}}
-}

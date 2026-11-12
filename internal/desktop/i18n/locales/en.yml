@@ -156,10 +156,6 @@ approval_reject: Deny
 approval_allow_once: Allow
 approval_allow_session: Allow for this session
 approval_live_count: '%{count} awaiting approval'
-file_changes_added: Added
-file_changes_modified: Modified
-file_changes_deleted: Deleted
-file_changes_renamed: Renamed
 subagent_count: '%{completed}/%{total} subagents'
 chat_child: Subagent
 question_reply: Waiting for answer
@@ -190,7 +186,6 @@ tool_find_tools: Find tools
 tool_read_output: Read tool output
 approval_allow_prefix: Allow prefix "%{prefix}"
 approval_preview_result: Preview approval recorded. No files, commands or models were used.
-file_changes_shortened: Diff shortened
 interaction_input: Enter an answer or details
 approval_unrestricted: Full filesystem and network access
 close: Close
@@ -337,7 +332,6 @@ git_action_conflict: Git state changed, refresh
 git_action_failed: Git operation failed
 git_action_unknown: Git outcome unconfirmed, refresh before continuing
 git_auth_failed: Git authentication failed
-cli_launch: Launch AI CLI
 workspace_memory_only: Changes preview only
 workspace_confirm: Confirm
 project_remove_named: Remove project “%{name}”? Its terminals will close; files and sessions will be kept
@@ -651,7 +645,6 @@ composer_permission_ask_description: Ask before editing files or running command
 composer_permission_project_description: Edit project files automatically; ask before running commands
 composer_permission_full_description: Edit files and run commands automatically, including outside the project
 composer_host_local: Local device
-composer_host_remote: Remote
 composer_no_project: Chats
 composer_branch_none: No branch
 composer_settings: Session settings
@@ -733,7 +726,6 @@ directory_documents: Documents
 directory_downloads: Downloads
 directory_applications: Applications
 directory_locations: Locations
-directory_count_directories: '%{count} folders'
 directory_count_files: '%{count} files'
 directory_name: Name
 directory_size: Size
@@ -1785,8 +1777,6 @@ files_wrap: Soft wrap
 location_copy_changes: Copy changes
 location_fork: Fork worktree
 refresh: Refresh
-artifact_next_page: Next page
-artifact_previous_page: Previous page
 git_commit_scope: Commit scope
 git_commit_tracked: Commit tracked files
 git_continue: Continue
@@ -2127,9 +2117,6 @@ live_request_failed: Request incomplete; check Node connection and directory. Re
 plugins_loading: Loading
 project_appearance: Project appearance
 project_clone_failed: Clone failed; check the URL, branch and network
-project_grant: Trust and continue
-project_grant_description: Project instructions and tools may run code in all worktrees
-project_grant_title: Trust this project
 project_outcome_unknown: Result unconfirmed; check the destination. Retry checks the original request.
 project_path_in_use: This path is used by a session or worktree
 project_remove_busy: Project is busy; try again
@@ -2141,9 +2128,6 @@ project_remove_tasks: Stop active tasks before removing the project
 project_remove_tasks_partial: Project kept; stop active tasks before retrying. Terminals may already be closed
 project_remove_unknown: Removal unconfirmed; check the project and its terminals
 project_removed: Project removed
-project_revoke: Revoke trust
-project_revoke_description: Stop project tasks; keep history and drafts
-project_revoke_title: Revoke project trust
 task_completed: Completed
 artifact_export_failed: Could not export
 chat_compact_incomplete: Summary incomplete

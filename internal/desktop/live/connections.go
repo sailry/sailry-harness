@@ -392,7 +392,7 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 			id := peer.address.ID.String()
 			remembered, exists := known[id]
 			device := viewmodel.Device{ID: id, Execution: true, Online: peer.online}
-			if exists || remembered.Name != nil || remembered.Platform != nil {
+			if exists {
 				device.Execution = remembered.Execution
 				if remembered.Name != nil {
 					device.Name = *remembered.Name

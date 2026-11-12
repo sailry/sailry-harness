@@ -202,7 +202,7 @@ func (r *Runtime) selectConversationWorktree(cv *viewmodel.Conversation, comp *c
 		if tree.ID == session.Worktree {
 			return
 		}
-		p.mutate(protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{Session: session.ID, Worktree: tree.ID, ExpectedRevision: session.Revision}}, func(c *ui.Context, out protocol.Output) {
+		p.mutateNamed(workspaceAction, protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{Session: session.ID, Worktree: tree.ID, ExpectedRevision: session.Revision}}, func(c *ui.Context, out protocol.Output) {
 			if _, ok := detail[protocol.Session](out.Data); ok {
 				comp.References = nil
 				r.project()

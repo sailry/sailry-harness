@@ -1,6 +1,6 @@
 package store
 
-import "embed"
+import _ "embed"
 
 //go:embed schema.sql
 var NodeSchema string
@@ -10,6 +10,3 @@ var KnowledgeSchema string
 
 //go:embed code_index/schema.sql
 var CodeSchema string
-
-//go:embed database/schema/upgrades
-var currentDefaults embed.FS

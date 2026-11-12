@@ -14,6 +14,7 @@ func TestPanelProjection(t *testing.T) {
 	t.Run("panel tabs close, stay closed and never show a blank body", panelTabs)
 	t.Run("browser tab shows its page's state and fills its body", browserChrome)
 	t.Run("rail Files and Git pages show the selected project", railPages)
+	t.Run("rail Files page of a session without a project reads once", railPagesSession)
 	t.Run("worktree manager lists every worktree with its markers and actions", worktreeManagerEntries)
 	t.Run("Git and worktree failures name their cause", workspaceFailures)
 	t.Run("worktree manager rows act against the Node", worktreeManagerLive)
@@ -215,7 +216,7 @@ func TestPanelProjection(t *testing.T) {
 			status.Entries = append(status.Entries, protocol.GitEntry{Path: fmt.Sprintf("file-%02d", index), ModifiedMs: &modified, Diff: protocol.GitLineStats{Additions: uint64(index), Deletions: 1}})
 		}
 		projected := workspaceChanges(status)
-		if projected.Files != 12 || projected.Added != 66 || projected.Removed != 12 || !projected.Partial || len(projected.Recent) != 10 {
+		if projected.Files != 12 || projected.Added != 66 || projected.Removed != 12 || len(projected.Recent) != 10 {
 			t.Fatalf("native badge = %#v", projected)
 		}
 		if projected.Recent[0].Path != "file-11" || projected.Recent[9].Path != "file-02" {

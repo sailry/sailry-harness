@@ -2,6 +2,7 @@ package program
 
 import (
 	"os/exec"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -21,9 +22,14 @@ func StartGroup(command *exec.Cmd) (func(), error) {
 		_ = windows.CloseHandle(job)
 		return nil, err
 	}
+	// The group is killed when the program exits and again by Kill: the
+	// handle is closed once, since its value may be reused afterwards.
+	var once sync.Once
 	closeJob := func() {
-		_ = windows.TerminateJobObject(job, 1)
-		_ = windows.CloseHandle(job)
+		once.Do(func() {
+			_ = windows.TerminateJobObject(job, 1)
+			_ = windows.CloseHandle(job)
+		})
 	}
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
 	command.Cancel = func() error { return windows.TerminateJobObject(job, 1) }

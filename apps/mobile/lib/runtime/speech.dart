@@ -17,7 +17,7 @@ class SpeechController extends ChangeNotifier {
   final Future<SpeechInput> Function(String) _open;
   final SharedPreferencesAsync _preferences;
   static Future<SpeechInput> _openInput(String directory) =>
-      SpeechInput.newInstance(directory: directory);
+      SpeechInput.newInstance();
   SpeechInput? _input;
   Future<SpeechInput>? _opening;
   SpeechInput get input =>

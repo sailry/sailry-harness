@@ -112,9 +112,6 @@ func (a *App) unpinnedList() []string {
 	return out
 }
 
-// selectedFeature is the feature the page shows.
-func (a *App) selectedFeature() string { return a.feature() }
-
 func (a *App) PluginFeature() string {
 	if a.Page == PluginPage {
 		return a.pluginPage
@@ -150,7 +147,7 @@ func (a *App) rail(c *ui.Context) {
 				continue
 			}
 			label := i18n.T(c, f.Label)
-			kit.IconButton(c.Key(f.ID), f.Icon, label, RailButton, a.selectedFeature() == f.ID).OnClick(func() { a.openFeature(c, f.ID) })
+			kit.IconButton(c.Key(f.ID), f.Icon, label, RailButton, a.feature() == f.ID).OnClick(func() { a.openFeature(c, f.ID) })
 		}
 		a.moreButton(c)
 		ui.Spacer(c)

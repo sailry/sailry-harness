@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -403,6 +404,7 @@ func TestElementMapping(t *testing.T) {
 		{"brand icon in the text color", `new Icon("ailogo:openai")`},
 		{"tabs", `new TabBar("tabs").selected_index(1).menu(false).children([new Tab().label("One"),new Tab().label("Two")])`},
 		{"pagination", `new Pagination("pages").current_page(2).total_pages(5).visible_pages(3)`},
+		{"pagination bound", `new Pagination("pages").current_page(2).total_pages(20000).visible_pages(20000)`},
 		{"shimmer", `new ShimmerText("Pending").id("pending")`},
 		{"collapsible", `new Collapsible().open(true).motion_id("fold").content(div().child("Revealed"))`},
 		{"border and corner styles", `div().border_1().border_t_0().border_y_1().rounded_t(3).w_px()`},
@@ -437,6 +439,18 @@ export default class Example extends View {render(){return `+current.expression+
 				}
 				if own := current.name == "brand icon"; own && colored < 20 || !own && (inked < 20 || colored != 0) {
 					t.Fatalf("the brand mark drew %d pixels in its color and %d in the text's", colored, inked)
+				}
+			}
+			if current.name == "pagination bound" {
+				// A package's count builds no more page buttons than the bound.
+				pages := 0
+				for _, text := range tester.Texts() {
+					if _, err := strconv.Atoi(text); err == nil {
+						pages++
+					}
+				}
+				if pages != 9 {
+					t.Fatalf("%d page buttons", pages)
 				}
 			}
 			if current.name == "shimmer" && !tester.HasText("Pending") {

@@ -136,13 +136,13 @@ func TestWSLDiscovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if progress, err := service.Progress(caller, request.ID, nil); err != nil || progress.Kind != "connecting" {
+		if progress, err := service.Progress(caller, request.ID); err != nil || progress.Kind != "connecting" {
 			t.Fatalf("initial progress %v, error %v", progress, err)
 		}
-		if _, err := service.Progress(other, request.ID, nil); faultCode(err) != protocol.ErrorCodeNotFound {
+		if _, err := service.Progress(other, request.ID); faultCode(err) != protocol.ErrorCodeNotFound {
 			t.Fatalf("another caller read progress: %v", err)
 		}
-		if err := service.Cancel(other, request.ID, nil); err != nil || installation.ctx.Err() != nil {
+		if err := service.Cancel(other, request.ID); err != nil || installation.ctx.Err() != nil {
 			t.Fatalf("another caller cancelled: %v", err)
 		}
 		duplicate := installRequest("ubuntu 资料")
@@ -150,14 +150,14 @@ func TestWSLDiscovery(t *testing.T) {
 			t.Fatalf("duplicate distribution: %v", err)
 		}
 		installation.stage("installing")
-		if progress, _ := service.Progress(caller, request.ID, nil); progress.Kind != "installing" {
+		if progress, _ := service.Progress(caller, request.ID); progress.Kind != "installing" {
 			t.Fatalf("progress %v", progress)
 		}
-		if err := service.Cancel(caller, request.ID, nil); err != nil || installation.ctx.Err() == nil {
+		if err := service.Cancel(caller, request.ID); err != nil || installation.ctx.Err() == nil {
 			t.Fatalf("owner cancellation: %v", err)
 		}
 		installation.Close()
-		if _, err := service.Progress(caller, request.ID, nil); faultCode(err) != protocol.ErrorCodeNotFound {
+		if _, err := service.Progress(caller, request.ID); faultCode(err) != protocol.ErrorCodeNotFound {
 			t.Fatalf("closed installation stayed active: %v", err)
 		}
 		installation, err = service.Begin(closed, caller, request)
@@ -168,31 +168,6 @@ func TestWSLDiscovery(t *testing.T) {
 		shutdown()
 		if installation.ctx.Err() == nil {
 			t.Fatal("Node shutdown did not stop the installation")
-		}
-	})
-	t.Run("preserves plugin scope", func(t *testing.T) {
-		scope := func(name string) *protocol.PluginContext {
-			value := protocol.DefaultPluginContext()
-			value.Package = protocol.PluginReference{Name: name, Digest: strings.Repeat("a", 64), SettingsRevision: 1}
-			return &value
-		}
-		service := NewService()
-		caller := protocol.NodeID{1}
-		request := installRequest("Ubuntu")
-		request.Plugin = scope("fixture")
-		installation, err := service.Begin(context.Background(), caller, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer installation.Close()
-		if _, err := service.Progress(caller, request.ID, scope("fixture")); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := service.Progress(caller, request.ID, scope("other")); faultCode(err) != protocol.ErrorCodeNotFound {
-			t.Fatalf("another scope read progress: %v", err)
-		}
-		if err := service.Cancel(caller, request.ID, scope("other")); faultCode(err) != protocol.ErrorCodePermissionDenied || installation.ctx.Err() != nil {
-			t.Fatalf("another scope cancelled: %v", err)
 		}
 	})
 	t.Run("builds launch arguments and release script", func(t *testing.T) {
@@ -317,7 +292,7 @@ func TestWSLDiscovery(t *testing.T) {
 		if _, err := installation.Execute(nil, nil, protocol.NodeID{1}, nil, nil); !unavailable(err) {
 			t.Fatalf("install: %v", err)
 		}
-		if progress, err := service.Progress(protocol.NodeID{1}, request.ID, nil); err != nil || progress.Kind != "detecting" {
+		if progress, err := service.Progress(protocol.NodeID{1}, request.ID); err != nil || progress.Kind != "detecting" {
 			t.Fatalf("progress %v, error %v", progress, err)
 		}
 	})

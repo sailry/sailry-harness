@@ -719,10 +719,9 @@ func TestCompactionAtThreshold(t *testing.T) {
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
 
 // A transient failure is retried after the fixed wait, which the retry record
-// announces with the request's nine retries; a Retry-After does not change it.
+// announces with the request's nine retries.
 func TestTransientRetryRecord(t *testing.T) {
-	after := 7 * time.Second
-	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down", RetryAfter: &after}}
+	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down"}}
 	f := newFixture(t, &scriptedModel{scripts: []script{response(limited), response(text("Done"), finish())}})
 	f.start()
 	turn := f.submit("Task")

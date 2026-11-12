@@ -186,38 +186,3 @@ func (value *ConversationConsentOrigin) UnmarshalJSON(data []byte) error {
 	value.Kind, value.Data = kind, decoded
 	return nil
 }
-
-type ConversationConsentScope string
-
-const (
-	ConversationConsentScopeMessages    ConversationConsentScope = "Messages"
-	ConversationConsentScopeCredentials ConversationConsentScope = "Credentials"
-)
-
-func (value ConversationConsentScope) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
-func (value *ConversationConsentScope) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	switch ConversationConsentScope(decoded) {
-	case ConversationConsentScopeMessages, ConversationConsentScopeCredentials:
-		*value = ConversationConsentScope(decoded)
-		return nil
-	default:
-		return unknownEnum(data, value, decoded)
-	}
-}
-func (value ConversationConsentScope) MarshalText() ([]byte, error) {
-	if _, err := value.MarshalJSON(); err != nil {
-		return nil, err
-	}
-	return []byte(value), nil
-}
-func (value *ConversationConsentScope) UnmarshalText(data []byte) error {
-	encoded, err := json.Marshal(string(data))
-	if err != nil {
-		return err
-	}
-	return value.UnmarshalJSON(encoded)
-}

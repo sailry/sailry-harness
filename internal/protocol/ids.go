@@ -450,11 +450,6 @@ type ArtifactID [16]byte
 
 func NewArtifactID() ArtifactID { return ArtifactID(uuid.New()) }
 
-func ParseArtifactID(value string) (ArtifactID, error) {
-	identity, err := parseIdentifier(value)
-	return ArtifactID(identity), err
-}
-
 func (identity ArtifactID) String() string { return uuid.UUID(identity).String() }
 
 func (identity ArtifactID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
@@ -484,11 +479,6 @@ func (identity *ArtifactID) UnmarshalText(data []byte) error {
 type CredentialID [16]byte
 
 func NewCredentialID() CredentialID { return CredentialID(uuid.New()) }
-
-func ParseCredentialID(value string) (CredentialID, error) {
-	identity, err := parseIdentifier(value)
-	return CredentialID(identity), err
-}
 
 func (identity CredentialID) String() string { return uuid.UUID(identity).String() }
 
@@ -695,11 +685,6 @@ type EventID [16]byte
 
 func NewEventID() EventID { return EventID(uuid.New()) }
 
-func ParseEventID(value string) (EventID, error) {
-	identity, err := parseIdentifier(value)
-	return EventID(identity), err
-}
-
 func (identity EventID) String() string { return uuid.UUID(identity).String() }
 
 func (identity EventID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
@@ -729,11 +714,6 @@ func (identity *EventID) UnmarshalText(data []byte) error {
 type JobID [16]byte
 
 func NewJobID() JobID { return JobID(uuid.New()) }
-
-func ParseJobID(value string) (JobID, error) {
-	identity, err := parseIdentifier(value)
-	return JobID(identity), err
-}
 
 func (identity JobID) String() string { return uuid.UUID(identity).String() }
 
@@ -834,11 +814,6 @@ func (identity *ModelID) UnmarshalText(data []byte) error {
 type NotificationID [16]byte
 
 func NewNotificationID() NotificationID { return NotificationID(uuid.New()) }
-
-func ParseNotificationID(value string) (NotificationID, error) {
-	identity, err := parseIdentifier(value)
-	return NotificationID(identity), err
-}
 
 func (identity NotificationID) String() string { return uuid.UUID(identity).String() }
 

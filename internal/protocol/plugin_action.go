@@ -103,39 +103,3 @@ func (value *PluginAction) UnmarshalText(data []byte) error {
 	}
 	return value.UnmarshalJSON(encoded)
 }
-
-type PluginActionAccess string
-
-const (
-	PluginActionAccessRead    PluginActionAccess = "read"
-	PluginActionAccessModify  PluginActionAccess = "modify"
-	PluginActionAccessOperate PluginActionAccess = "operate"
-)
-
-func (value PluginActionAccess) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
-func (value *PluginActionAccess) UnmarshalJSON(data []byte) error {
-	var decoded string
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	switch PluginActionAccess(decoded) {
-	case PluginActionAccessRead, PluginActionAccessModify, PluginActionAccessOperate:
-		*value = PluginActionAccess(decoded)
-		return nil
-	default:
-		return unknownEnum(data, value, decoded)
-	}
-}
-func (value PluginActionAccess) MarshalText() ([]byte, error) {
-	if _, err := value.MarshalJSON(); err != nil {
-		return nil, err
-	}
-	return []byte(value), nil
-}
-func (value *PluginActionAccess) UnmarshalText(data []byte) error {
-	encoded, err := json.Marshal(string(data))
-	if err != nil {
-		return err
-	}
-	return value.UnmarshalJSON(encoded)
-}

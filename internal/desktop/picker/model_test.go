@@ -91,6 +91,9 @@ func TestModel(t *testing.T) {
 		{Listing{Separator: "/", Path: "/home/me"}, []Crumb{{"/", "/"}, {"home", "/home"}, {"me", "/home/me"}}},
 		{Listing{Separator: "/", Path: "/Volumes/Data/src", Locations: []Location{{Kind: "root", Path: "/"}, {Kind: "volume", Name: "Data", Path: "/Volumes/Data"}}},
 			[]Crumb{{"Data", "/Volumes/Data"}, {"src", "/Volumes/Data/src"}}},
+		// A volume without a name is not told by the root's.
+		{Listing{Separator: "/", Path: "/Volumes/X/src", Locations: []Location{{Kind: "root", Name: "Macintosh HD", Path: "/"}, {Kind: "volume", Path: "/Volumes/X"}}},
+			[]Crumb{{"/Volumes/X", "/Volumes/X"}, {"src", "/Volumes/X/src"}}},
 		{Listing{Separator: `\`, Path: `D:\source\目录`}, []Crumb{{"D:", `D:\`}, {"source", `D:\source`}, {"目录", `D:\source\目录`}}},
 		{Listing{Separator: `\`, Path: `\\node\share\folder`}, []Crumb{{`\\node\share`, `\\node\share`}, {"folder", `\\node\share\folder`}}},
 	} {

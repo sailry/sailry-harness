@@ -36,8 +36,10 @@ func (model *sdkModel) openAIOptions(call fantasy.Call) []option.RequestOption {
 }
 
 func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fantasy.Call, emitter *sdkEmitter) {
-	client := openaisdk.NewClient(model.openAIOptions(call)...)
-	stream := client.Responses.NewStreaming(ctx, responses.ResponseNewParams{}, option.WithRequestBody("application/json", raw))
+	// The service is built without openaisdk.NewClient, which would add the
+	// OPENAI_* variables of the machine to a request for the configured provider.
+	service := responses.NewResponseService(model.openAIOptions(call)...)
+	stream := service.NewStreaming(ctx, responses.ResponseNewParams{}, option.WithRequestBody("application/json", raw))
 	defer stream.Close()
 	texts, tools, reasoning := map[string]string{}, map[string]bool{}, map[string]bool{}
 	callItems := map[string]map[string]any{}
@@ -239,8 +241,9 @@ type chatTool struct {
 }
 
 func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.Call, emitter *sdkEmitter) {
-	client := openaisdk.NewClient(model.openAIOptions(call)...)
-	stream := client.Chat.Completions.NewStreaming(ctx, openaisdk.ChatCompletionNewParams{}, option.WithRequestBody("application/json", raw))
+	// Built without openaisdk.NewClient for the reason given in streamResponses.
+	service := openaisdk.NewChatCompletionService(model.openAIOptions(call)...)
+	stream := service.NewStreaming(ctx, openaisdk.ChatCompletionNewParams{}, option.WithRequestBody("application/json", raw))
 	defer stream.Close()
 	tools := map[int64]*chatTool{}
 	reason := ""

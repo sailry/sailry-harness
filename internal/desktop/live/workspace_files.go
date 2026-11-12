@@ -1,12 +1,10 @@
 package live
 
 import (
-	"encoding/json"
 	"path"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -15,55 +13,6 @@ import (
 
 func (p *workspaceProject) workspaceError(c *ui.Context, code protocol.ErrorCode, message string) {
 	p.runtime.reportKeys(c, protocol.Fault{Code: code, Message: message}, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-}
-func (p *workspaceProject) mutate(command protocol.Command, done func(*ui.Context, protocol.Output), failed ...func(*ui.Context, error)) {
-	encoded, _ := json.Marshal(command)
-	key := string(encoded)
-	scope := "workspace-action/" + p.owner.ID.String()
-	// A Git action that is sent, not one already in flight, counts as running.
-	git := command.Kind == "run_git_action" && !p.runtime.busy[scope+"\x00"+key]
-	if git {
-		p.gitRunning++
-	}
-	p.runtime.executeScoped(scope, command, func(c *ui.Context, out protocol.Output, err error) {
-		if git {
-			p.gitRunning--
-		}
-		// Only a request the Runtime kept can be checked again.
-		unknown := client.Retained(err)
-		p.panel.SetPromptUncertain(unknown)
-		if unknown {
-			if p.uncertainOperations == nil {
-				p.uncertainOperations = map[string]protocol.Command{}
-			}
-			p.uncertainOperations[key] = command
-			if p.uncertainCallbacks == nil {
-				p.uncertainCallbacks = map[string]func(*ui.Context, protocol.Output){}
-			}
-			if _, exists := p.uncertainCallbacks[key]; !exists {
-				p.uncertainCallbacks[key] = done
-			}
-		} else {
-			delete(p.uncertainOperations, key)
-			delete(p.uncertainCallbacks, key)
-		}
-		if err != nil {
-			p.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-			for _, failure := range failed {
-				failure(c, err)
-			}
-			if done != nil {
-				done(c, protocol.Output{})
-			}
-			return
-		}
-		p.pendingFiles, p.pendingGit = true, true
-		if done != nil {
-			done(c, out)
-		} else {
-			kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
-		}
-	})
 }
 func (p *workspaceProject) saveFile(c *ui.Context, relative, text string) {
 	source, exists := p.files[relative]
@@ -131,7 +80,7 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 				}
 				command = protocol.Command{Kind: "rename_entry", Data: protocol.CommandRenameEntryPayload{Worktree: p.owner.ID, From: a.Paths[0], To: path.Join(path.Dir(a.Paths[0]), name)}}
 			}
-			p.mutate(command, func(c *ui.Context, out protocol.Output) {
+			p.mutateNamed(workspaceAction, command, func(c *ui.Context, out protocol.Output) {
 				finish(out.Kind != "")
 				if out.Kind != "" {
 					if a.Kind == "files_new_file" {
@@ -210,7 +159,7 @@ func (p *workspaceProject) fileCommandsFinish(batch *fileBatch, commands []proto
 			}
 			return
 		}
-		p.mutate(commands[index], func(c *ui.Context, out protocol.Output) {
+		p.mutateNamed(workspaceAction, commands[index], func(c *ui.Context, out protocol.Output) {
 			if out.Kind == "" {
 				if finish != nil {
 					finish(false)

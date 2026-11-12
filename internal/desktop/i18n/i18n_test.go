@@ -57,14 +57,17 @@ func TestCatalogKeys(t *testing.T) {
 			"queue_wait_held", "queue_wait_paused", "queue_wait_stopped", "queue_wait_interrupted", "queue_wait_unsent", "queue_wait_limit", "queue_wait_failed",
 			// the text size's value beside its slider, and the stepped sizes the slider replaced
 			"message_text_size_value", "message_text_small", "message_text_standard", "message_text_large", "message_text_extra_large",
-			"settings_language_restart",              // the note that a language change needs a restart
-			"project_trust", "project_trust_preview", // trust management in the project menu
+			"settings_language_restart", // the note that a language change needs a restart
+			// trust management in the project menu, and its dialog
+			"project_trust", "project_trust_preview",
+			"project_grant", "project_grant_description", "project_grant_title", "project_revoke", "project_revoke_description", "project_revoke_title",
 			"workspace_records", // the project menu's Records item and its dialog
 			// the host page's runtime section: its title, notes and the labels of its grid
 			"workspace_runtime", "workspace_runtime_preview", "host_runtime_preview", "live_host_runtime_loading",
 			"workspace_host_type", "host_active_preview", "host_system_version", "host_timezone",
 			"project_empty",                               // the empty state of the host page's projects section
 			"settings_sessions", "settings_session_order", // the session order row of Settings › Conversation
+			"cli_launch", // the Launch AI CLI dialog of the project menu and page
 		} {
 			if _, listed := catalogs["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see Removed UI in AGENTS.md", key)

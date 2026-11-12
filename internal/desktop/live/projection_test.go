@@ -56,8 +56,8 @@ func TestSidebarProjection(t *testing.T) {
 	if len(d.Models) != 0 || len(d.Providers) != 0 || len(d.Plugins) != 0 || d.Files != nil {
 		t.Fatal("live projection contains fixture data")
 	}
-	if d.Projects[0].Trusted || d.Find(ids[0].String()).Worktree != "" || d.Find(ids[0].String()).WorktreePath != "/fixture/linked" {
-		t.Fatal("live projection fabricated trust or a branch, or lost the actual worktree path")
+	if d.Find(ids[0].String()).Worktree != "" || d.Find(ids[0].String()).WorktreePath != "/fixture/linked" {
+		t.Fatal("live projection fabricated a branch, or lost the actual worktree path")
 	}
 	if d.Find(ids[2].String()).Status != viewmodel.Unread || d.Find(ids[3].String()).Status != viewmodel.Running {
 		t.Fatal("Client activity lanes did not reach presentation status")

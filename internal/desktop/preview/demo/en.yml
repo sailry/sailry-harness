@@ -1,7 +1,6 @@
 # The demo's prose (Demo mode), source language. Every key is also in
 # zh-CN.yml. The projects, people and services are made up.
 
-provider.description: "DeepSeek chat and reasoning models"
 plugin.git: "Branches, diffs and commits in conversations"
 plugin.knowledge: "Local documents searched by meaning"
 plugin.goals: "A goal the agent keeps working toward"

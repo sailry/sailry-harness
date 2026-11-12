@@ -6,7 +6,6 @@ import (
 	"math"
 	"slices"
 	"strings"
-	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -185,7 +184,7 @@ func (accumulator *pluginAccumulator) push(deltas []protocol.PluginModelAdapterW
 			accumulator.flush(&parts)
 			accumulator.reason, accumulator.finished = value.Reason, true
 		case *protocol.PluginModelAdapterWireDeltaErrorPayload:
-			return nil, pluginClassified(value.Class, value.Message, value.RetryAfterMs, accumulator.secrets)
+			return nil, pluginClassified(value.Class, value.Message, accumulator.secrets)
 		}
 	}
 	return parts, nil
@@ -240,7 +239,7 @@ func (accumulator *pluginAccumulator) finish() ([]fantasy.StreamPart, error) {
 	return parts, nil
 }
 
-func pluginClassified(class protocol.PluginModelAdapterWireClass, message string, retryMilliseconds *uint64, secrets []protocol.Secret) *Failure {
+func pluginClassified(class protocol.PluginModelAdapterWireClass, message string, secrets []protocol.Secret) *Failure {
 	kind := Unavailable
 	switch class {
 	case protocol.PluginModelAdapterWireClassAuthentication, protocol.PluginModelAdapterWireClassPermission:
@@ -256,10 +255,5 @@ func pluginClassified(class protocol.PluginModelAdapterWireClass, message string
 	case protocol.PluginModelAdapterWireClassUnsupported:
 		kind = Unsupported
 	}
-	failure := &Failure{Kind: kind, Message: safeDiagnostic(message, secrets)}
-	if retryMilliseconds != nil && *retryMilliseconds <= uint64(math.MaxInt64/int64(time.Millisecond)) {
-		delay := time.Duration(*retryMilliseconds) * time.Millisecond
-		failure.RetryAfter = &delay
-	}
-	return failure
+	return &Failure{Kind: kind, Message: safeDiagnostic(message, secrets)}
 }

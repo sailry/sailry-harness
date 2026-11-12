@@ -332,7 +332,7 @@ func (store *sshTransferStore) insertUploads(access sshTransferAccess, directory
 func (state *pluginNativeState) sshTransferOperations() {
 	operations := state.native.Operations
 	store := state.runtime.sshTransferStore()
-	operations["sailry/ssh-transfers.uploadDropped"] = func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+	operations["sailry/ssh-transfers.uploadDropped"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		profile, err := pluginNativeArgument[protocol.SshProfile](arguments, 0)
 		if err != nil {
 			return nil, err
@@ -345,7 +345,9 @@ func (state *pluginNativeState) sshTransferOperations() {
 		if err != nil {
 			return nil, err
 		}
-		access, err := state.sshTransferAuthorize(ctx, profile, true, true)
+		// A synchronous export already runs on the UI thread; waiting for the
+		// window's queue here would wait for this very call.
+		access, err := state.sshTransferAccess(profile, true, true)
 		if err != nil {
 			return nil, err
 		}
@@ -447,7 +449,7 @@ func (state *pluginNativeState) sshTransferOperations() {
 		}
 		return pluginNativeJSON(ids)
 	}
-	operations["sailry/ssh-transfers.transferAction"] = func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+	operations["sailry/ssh-transfers.transferAction"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		text, err := pluginNativeArgument[string](arguments, 0)
 		if err != nil {
 			return nil, err
@@ -466,7 +468,8 @@ func (state *pluginNativeState) sshTransferOperations() {
 		if job == nil {
 			return nil, sshTransferUnavailable()
 		}
-		access, err := state.sshTransferAuthorize(ctx, job.access.profile, job.upload, kind == "start" || kind == "replace")
+		// Synchronous, like uploadDropped: authorize on the calling UI thread.
+		access, err := state.sshTransferAccess(job.access.profile, job.upload, kind == "start" || kind == "replace")
 		if err != nil {
 			return nil, err
 		}

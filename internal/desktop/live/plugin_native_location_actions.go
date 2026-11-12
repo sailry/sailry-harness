@@ -211,7 +211,7 @@ func (location *pluginNativeLocation) selectComposer(view *ui.Context, selection
 	}
 	current := state.runtime.workspaceFor(captured)
 	if _, confirmed := location.confirmed[tree.ID]; confirmed {
-		current.mutate(protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{
+		current.mutateNamed(workspaceAction, protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{
 			Session: session.ID, Worktree: tree.ID, ExpectedRevision: session.Revision,
 		}}, func(view *ui.Context, output protocol.Output) {
 			if _, valid := detail[protocol.Session](output.Data); valid {

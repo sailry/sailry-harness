@@ -149,6 +149,47 @@ func TestPluginContinuationAdmission(t *testing.T) {
 	}
 }
 
+// TestPluginTransactionDisabled holds the settings view of a disabled package
+// to the operations it may send directly.
+func TestPluginTransactionDisabled(t *testing.T) {
+	t.Parallel()
+	profile, node, storage := schemaFixture(t)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		info := pluginTestInfo("disabled-fixture", 'd')
+		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
+		extension.Actions = []protocol.PluginAction{protocol.PluginActionDispatch}
+		extension.SettingsPage = new(protocol.DefaultPluginDesktopSettings())
+		info.Extension = &extension
+		info, err := InstallPlugin(ctx, db, info, 0, false)
+		if err != nil {
+			return err
+		}
+		scope := protocol.DefaultPluginContext()
+		scope.Package, scope.Surface = plugins.PackageReference(info), protocol.PluginDesktopSurface{Kind: "settings"}
+		request := protocol.NewRequest(node, protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: []protocol.PluginTransactionOperation{{
+			Kind: "dispatch", Data: protocol.DispatchCommand{Kind: "list_handlers"},
+		}}}})
+		request.Plugin = &scope
+		_, _, err = ExecutePluginStorageCommand(ctx, db, node, profile, node, request)
+		var failure *protocol.Fault
+		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeNotConfigured || failure.Message != "plugin is disabled" {
+			return fmt.Errorf("a disabled package dispatched through a transaction: %v", err)
+		}
+		if _, err = SetPluginEnabled(ctx, db, info.Summary.Name, info.Summary.Revision, true); err != nil {
+			return err
+		}
+		if _, _, err = ExecutePluginStorageCommand(ctx, db, node, profile, node, request); err != nil {
+			return fmt.Errorf("an enabled package could not dispatch: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestPluginTransactionSubmit admits a session's first turn through a plugin
 // transaction, whose ledger entry is only a digest: the turn still starts
 // with its message, and the session is titled by it.
