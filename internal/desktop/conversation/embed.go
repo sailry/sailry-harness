@@ -85,11 +85,7 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 			default:
 				ui.ButtonBase(c.Key(n)).AlignSelf(ui.Start).MaxWidthPercent(100).Cursor(ui.CursorPointer).Children(func() {
 					ui.Text(c, dest).FontSize(textSize(c)).SingleLine().TextColor(p.Primary)
-				}).OnClick(func() {
-					if s.md.OnLink != nil {
-						s.md.OnLink(dest)
-					}
-				})
+				}).OnClick(func() { s.follow(c, session, dest) })
 			}
 		}
 		flush(len(embeds))

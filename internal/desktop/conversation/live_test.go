@@ -372,6 +372,8 @@ func TestLiveBlocks(t *testing.T) {
 	t.Run("charts", checkCharts)
 	t.Run("content sizes", checkContentSizes)
 	t.Run("diagrams", checkDiagrams)
+	t.Run("links", checkLinks)
+	t.Run("markdown", checkMarkdown)
 	t.Run("math", checkMath)
 	t.Run("transcript", checkTranscript)
 	for _, lang := range []string{"en", "zh-CN"} {

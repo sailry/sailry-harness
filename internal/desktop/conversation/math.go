@@ -8,6 +8,7 @@ import (
 	"github.com/caelyreth/untie"
 	untiemygo "github.com/caelyreth/untie/contrib/mygo"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
 // Math in replies is typeset natively by Untie (no WebView).
@@ -45,11 +46,18 @@ var mathRenderer = sync.OnceValue(func() *untiemygo.Renderer {
 // stream's: it closes the open formula and each partial source is typeset
 // as it stands; one Untie cannot read shows its source. With no usable
 // font nothing is bound and formulas keep their source text.
+//
+// Untie adds its math flags to o.Extensions, where zero means MyGo's
+// Default: the default is written out first, so adding to it keeps tables,
+// task lists, strikethrough, autolinks, footnotes and alerts.
 func bindMath(o *markdown.Options) {
 	if o.Math != nil {
 		return
 	}
 	if r := mathRenderer(); r != nil {
+		if o.Extensions == 0 {
+			o.Extensions = parser.Default
+		}
 		r.BindMarkdown(o)
 	}
 }

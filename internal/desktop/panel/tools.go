@@ -37,6 +37,18 @@ func (b *page) Go(address string) bool {
 	return true
 }
 
+// Browse opens another browser tab at address, shown, and returns it. A
+// sample panel loads nothing: the tab shows the address. A live panel's owner
+// loads the page of the tab it is given.
+func (s *State) Browse(address string) Tab {
+	t := s.AddBrowser(true)
+	// The tab's history begins at address, not at the dataset's own page.
+	b := s.pageOf(t.ID)
+	b.history, b.at = nil, -1
+	b.Go(address)
+	return t
+}
+
 // Step goes back (-1) or forward (1) in the history.
 func (b *page) Step(d int) {
 	if i := b.at + d; i >= 0 && i < len(b.history) {

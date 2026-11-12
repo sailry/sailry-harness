@@ -77,6 +77,7 @@ func TestHostPage(t *testing.T) {
 	t.Run("rail menu", testHostMenu)
 	t.Run("layout", testHostLayout)
 	t.Run("demo", testHostDemo)
+	t.Run("sample links", testSampleLinks)
 }
 
 // The host page is laid out as the reference's. The sessions' side column

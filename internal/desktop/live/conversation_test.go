@@ -827,7 +827,7 @@ func TestComposerSendRouting(t *testing.T) {
 				later := protocol.TurnID{7}
 				transport.conversation.Page.Runs = append(transport.conversation.Page.Runs, protocol.ConversationRun{Session: session, Turn: later, Worktree: worktree, Sequence: 2, Revision: 1, Kind: "task", Status: "completed"})
 				transport.conversation.Page.Entries = append(transport.conversation.Page.Entries,
-					protocol.ConversationEntry{ID: "reply", Sequence: 2, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Open [website](https://example.com/page), [backup](sailry://session/" + backup.String() + ") or [source](src/main.go#L12)."}}},
+					protocol.ConversationEntry{ID: "reply", Sequence: 2, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Open [website](https://example.com/page), [backup](sailry://session/" + backup.String() + "), [source](src/main.go#L12), [mail](mailto:a@example.com), [secret](https://user:pw@example.com/x) or [hosts](/etc/hosts)."}}},
 					protocol.ConversationEntry{ID: "later", Sequence: 3, Turn: later, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Later answer"}}})
 				transport.snapshot.Sessions = append(transport.snapshot.Sessions, protocol.Session{ID: backup, Revision: 1, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()})
 				transport.handle = func(request protocol.Request) (link.Response, bool) {
@@ -1245,6 +1245,55 @@ func TestComposerSendRouting(t *testing.T) {
 				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 1 || opened[0] != "https://example.com/page" {
 					t.Fatal("a modifier click did not open the system browser", opened)
 				}
+				// Mail goes to the system; an address with credentials opens nowhere, in either mode.
+				if err := tester.Click("mail"); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				for _, mods := range []ui.Modifiers{0, ui.Cmd} {
+					if err := tester.ClickWith(mods, "secret"); err != nil {
+						t.Fatal(err)
+					}
+					tester.Frame()
+				}
+				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 2 || opened[1] != "mailto:a@example.com" {
+					t.Fatal("mail did not go to the system alone", opened, len(r.App.Panel.Tabs))
+				}
+				// A file outside the worktree opens with the system on this device only.
+				if err := tester.Click("hosts"); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				tester.Frame()
+				if !tester.HasText(i18n.In("en", "files_remote_path")) {
+					t.Fatal("a path outside the worktree on another device reported nothing", tester.Texts())
+				}
+				own := r.attachments
+				var system []string
+				r.SetNativeFileActions(NativeFileActions{LocalNode: r.controller.Target(), OpenLocal: func(path string) { system = append(system, path) }})
+				if err := tester.Click("hosts"); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				if len(system) != 1 || filepath.ToSlash(system[0]) != "/etc/hosts" {
+					t.Fatal("a local path outside the worktree did not open with the system", system)
+				}
+				// With the modifier a workspace file on this device goes to its own app, not to the panel.
+				active := r.App.Panel.Active
+				hold = true
+				if err := tester.ClickWith(ui.Cmd, "source"); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
+				r.mu.Lock()
+				external := len(r.queue)
+				r.queue = nil
+				r.mu.Unlock()
+				hold = false
+				if external != 1 || r.App.Panel.Active != active {
+					t.Fatal("a modifier click on a workspace file did not hand it to the system", external, r.App.Panel.Active)
+				}
+				r.attachments = own
 				for link, want := range map[string]fileTarget{
 					"src/main.go#L12":                   {workspace: true, path: "src/main.go", line: 12},
 					"src/main.go:7:3":                   {workspace: true, path: "src/main.go", line: 7},

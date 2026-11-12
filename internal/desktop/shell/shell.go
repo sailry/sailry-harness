@@ -203,6 +203,7 @@ func New(d *preview.Data) *App {
 	a := newApp(d, preview.Big, settings.New())
 	a.Preview = true
 	a.installs = preview.Installations()
+	a.Messages.OpenLink = a.sampleLink
 	return a
 }
 
