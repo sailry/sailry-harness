@@ -418,7 +418,11 @@ usage is absent. A failed statistics refresh (the `statistics_failed` change,
 `usage_read_failed`, once when the failure begins for the shown conversation
 (`reportUsage`), as in the reference.
 
-A compaction that ends without a summary (`engine/compaction.go`) saves, after
+A summary request that waits to be sent again writes the retry record of a
+main request ([providers.md](providers.md)), so the turn shows the `Retry` row
+while it compacts and keeps it afterwards; a turn stopped during the wait ends
+at once, keeps that row and records no failure, and the compacting draft goes
+with the run. A compaction that ends without a summary (`engine/compaction.go`) saves, after
 its billed attempts, one system record whose `metadata.compaction.failure`
 names the source (`manual` or `automatic`), the stage (`budget`, `request`,
 `summary`, `history`), the reason, the HTTP status of the last attempt and the

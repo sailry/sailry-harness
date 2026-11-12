@@ -146,8 +146,12 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	limited, textBlock := false, false
 	var usage canonical.Usage
 	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, func(attempt model.Attempt) error {
-		usage = attempt.Usage
 		x.timeline.attempt(attempt)
+		// An attempt that waits to be sent again shows as a main request's does.
+		if attempt.RetryDelay != nil {
+			return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, r.retryRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
+		}
+		usage = attempt.Usage
 		attempts = append(attempts, attempt)
 		return nil
 	}, func(part fantasy.StreamPart) bool {

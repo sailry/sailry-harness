@@ -290,7 +290,13 @@ wait 9 minutes, for a main request and a summary alike. A provider's
 `Retry-After` is parsed and neither shortens nor lengthens the wait, as in the
 reference. Stopping the turn ends a wait at once. The retry record carries the
 limit and the wait (`limit`, `delay_ms`), so a record written under an earlier
-limit still shows its own. The reference waits the same fixed 60 seconds five
+limit still shows its own. A summary request's waiting attempt writes the same
+record (`engine.retryRecord`, purpose `compaction`) when the wait begins, so
+the conversation shows the retry row under the compacting phase instead of
+nine silent minutes; it is that attempt's only observation, so usage and
+timing are counted once. Deviation, by the user's decision of 2026-11-12: the
+reference shows nothing for a summary's retry
+(`engine.TestSummaryRetryRecord`). The reference waits the same fixed 60 seconds five
 times, and 5 seconds once for a summary; Go retries nine times by the user's decision of 2026-11-12, which also
 replaced the earlier 5 to 60 second exponential schedule that followed
 `Retry-After`. Authentication, quota, invalid

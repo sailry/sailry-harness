@@ -150,13 +150,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			r.observeModel(metric, binding, attempt)
 			x.timeline.attempt(attempt)
 			if attempt.RetryDelay != nil {
-				record := r.observationRecord(x, binding, purpose, attempt)
-				limit, delay := uint64(model.MainRetries), uint64(attempt.RetryDelay.Milliseconds())
-				code := string(attempt.Failure.Kind)
-				message := attempt.Failure.Message
-				record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}
-				record.Metadata.Runtime.UserVisible = true
-				return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
+				return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, r.retryRecord(x, binding, purpose, attempt))
 			}
 			attempts = append(attempts, attempt)
 			return nil
@@ -369,6 +363,19 @@ func successfulTool(records []canonical.Record) bool {
 		}
 	}
 	return found
+}
+
+// retryRecord is the observation of an attempt that waits to be sent again,
+// which the conversation shows as the request's retry row. It is the attempt's
+// only record: its usage and timing are not observed a second time.
+func (r *Runtime) retryRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt) canonical.Record {
+	record := r.observationRecord(x, binding, purpose, attempt)
+	limit, delay := uint64(model.MainRetries), uint64(attempt.RetryDelay.Milliseconds())
+	code := string(attempt.Failure.Kind)
+	message := attempt.Failure.Message
+	record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}
+	record.Metadata.Runtime.UserVisible = true
+	return record
 }
 
 func (r *Runtime) observationRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt) canonical.Record {
