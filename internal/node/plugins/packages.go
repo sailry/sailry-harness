@@ -622,7 +622,7 @@ func releaseNotes(files map[string][]byte, version *string) *protocol.PluginCata
 	}
 	notes := protocol.PluginCatalogReleaseNotes{Text: section(files["CHANGELOG.md"]), Locales: map[string]string{}}
 	for name, data := range files {
-		if strings.HasPrefix(name, "CHANGELOG.") && strings.HasSuffix(name, ".md") {
+		if name != "CHANGELOG.md" && strings.HasPrefix(name, "CHANGELOG.") && strings.HasSuffix(name, ".md") {
 			locale := strings.TrimSuffix(strings.TrimPrefix(name, "CHANGELOG."), ".md")
 			if text := section(data); text != "" {
 				notes.Locales[locale] = text

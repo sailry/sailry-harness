@@ -29,7 +29,6 @@ type scriptBridge struct {
 	dispatch      ScriptDispatch
 	drafts        map[string]scriptDraft
 	calls         int
-	writes        uint64
 	faults        map[string]*protocol.Fault
 	installations map[protocol.RequestID]bool
 	failure       *protocol.Fault
@@ -189,8 +188,8 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 		if bridge.execution.CallID == nil {
 			return nil, scriptInvalid("durable writes require a tool identity")
 		}
-		request.ID = scriptWriteIdentity(*bridge.execution.CallID, bridge.writes)
-		bridge.writes++
+		request.ID = scriptWriteIdentity(*bridge.execution.CallID, bridge.execution.Writes)
+		bridge.execution.Writes++
 	}
 	draft := scriptDraft{request: request, kind: command.Kind}
 	if operation == "read" || operation == "models.list" {
