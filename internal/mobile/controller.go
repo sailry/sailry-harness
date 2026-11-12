@@ -149,13 +149,12 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		detach()
 		shared := client.New(owner.endpoint.Remote(address))
 		connection := &connection{client: shared, controller: owner}
-		result, err := runtime.add(handle, "connection", connection, lifetime, cancel)
-		if err == nil {
-			owner.mu.Lock()
-			owner.clients[address.ID] = shared
-			owner.mu.Unlock()
-		}
-		return result, err
+		// Registered first: closing the connection, also when it cannot be
+		// added, removes exactly this Client again.
+		owner.mu.Lock()
+		owner.clients[address.ID] = shared
+		owner.mu.Unlock()
+		return runtime.add(handle, "connection", connection, lifetime, cancel)
 	case "notifications":
 		return encode(struct {
 			Notices []client.Notice `json:"notices"`

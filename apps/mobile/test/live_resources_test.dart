@@ -54,7 +54,7 @@ class ConnectionFixture implements Connection {
   int forwardCalls = 0;
   Completer<Forwarding>? pendingForward;
   @override
-  Future<String> execute({required String request}) async {
+  Future<String> resolve({required String request}) async {
     requests.add(request);
     return jsonEncode({
       'Ok': {

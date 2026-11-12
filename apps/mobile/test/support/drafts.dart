@@ -6,16 +6,19 @@ import 'package:sailry_bridge/api/connection.dart';
 class RecoveryConnection extends Fake implements Connection {
   final requests = <String>[];
   String? code;
+  bool released = false;
   Map<String, dynamic> result = {};
 
+  // A retained request is only asked about; it is never executed again.
   @override
-  Future<String> execute({required String request}) async {
+  Future<String> resolve({required String request}) async {
     requests.add(request);
     return jsonEncode(
       code == null
           ? {'Ok': result}
           : {
               'Err': {'code': code, 'message': 'Fixture failure'},
+              if (released) 'released': true,
             },
     );
   }

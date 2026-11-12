@@ -26,19 +26,30 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 			return nil, invalid("invalid command")
 		}
 		return encode(owner.client.Prepare(command))
-	case "execute":
+	case "execute", "resolve":
+		// execute sends a request once and looks an unobserved result up;
+		// resolve only asks what became of a request sent earlier. "released"
+		// marks a failure that ends the request: nothing more can be learned
+		// about it, so the caller drops it and builds a new one.
 		var request protocol.Request
 		var output protocol.Output
+		var released bool
 		var err error
 		if err = json.Unmarshal([]byte(values.Request), &request); err != nil {
 			err = invalid("invalid command request")
+		} else if method == "execute" {
+			output, err = owner.client.Settle(ctx, request)
+			released = client.Released(err)
 		} else {
-			output, err = owner.client.Execute(ctx, request)
+			output, released, err = owner.resolve(ctx, request)
 		}
 		if err != nil {
 			failed := result(nil, err).Error
 			if errors.Is(err, context.Canceled) {
 				failed = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connection closed; retain the request identifier"}
+			}
+			if released {
+				return encode(map[string]any{"Err": failed, "released": true})
 			}
 			return encode(map[string]any{"Err": failed})
 		}
@@ -113,7 +124,41 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 	return nil, invalid("unknown connection operation")
 }
 
+// resolve reports what became of a request whose result was not observed,
+// without running it: its stored output or fault, a released failure when it
+// never reached the Node or the Node can never tell, and OutcomeUnknown while
+// it still runs or the Node cannot be asked.
+func (owner *connection) resolve(ctx context.Context, request protocol.Request) (protocol.Output, bool, error) {
+	if !request.Command.Durable() {
+		// The Node keeps no outcome for it, so only a new request can answer.
+		return protocol.Output{}, true, unavailable("the Node keeps no outcome for this request")
+	}
+	resolution, err := owner.client.Resolve(ctx, request)
+	if err != nil {
+		return protocol.Output{}, false, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the Node could not be asked; retain the request identifier"}
+	}
+	switch resolution.State {
+	case client.RequestApplied:
+		return resolution.Output, false, nil
+	case client.RequestFailed:
+		return protocol.Output{}, false, resolution.Fault
+	case client.RequestAbsent:
+		return protocol.Output{}, true, unavailable("the request did not reach the Node; nothing was changed")
+	case client.RequestUnknown:
+		return protocol.Output{}, true, resolution.Fault
+	}
+	return protocol.Output{}, false, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the request is still running; retain the request identifier"}
+}
+
 func (owner *connection) close() error {
+	// A closed Client must not stay the peer's Client for notification commands.
+	if owner.controller != nil {
+		owner.controller.mu.Lock()
+		if id := owner.client.Target(); owner.controller.clients[id] == owner.client {
+			delete(owner.controller.clients, id)
+		}
+		owner.controller.mu.Unlock()
+	}
 	return owner.client.Close()
 }
 

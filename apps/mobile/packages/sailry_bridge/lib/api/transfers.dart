@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../src/native.dart';
 
 class Digest extends NativeHandle {
@@ -14,7 +16,7 @@ class Digest extends NativeHandle {
   }
 
   Future<void> update({required List<int> bytes}) async {
-    await invoke('update', {'bytes': bytes});
+    await invoke('update', {'bytes': base64Encode(bytes)});
   }
 
   Future<String> revision() async => await invoke('revision') as String;

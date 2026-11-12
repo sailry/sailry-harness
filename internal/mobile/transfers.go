@@ -175,9 +175,6 @@ func (owner *download) invoke(ctx context.Context, _ *Runtime, _ uint64, method 
 	if count == 0 {
 		return nil, owner.wait(ctx)
 	}
-	bytes := make([]int, count)
-	for index, value := range data[:count] {
-		bytes[index] = int(value)
-	}
-	return bytes, nil
+	// A byte slice crosses the boundary as one base64 string in both directions.
+	return data[:count], nil
 }

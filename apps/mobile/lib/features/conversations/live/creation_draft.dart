@@ -257,7 +257,7 @@ class CreationDraft extends ChangeNotifier {
     try {
       while (_stage != _Stage.ready && !_disposed) {
         final result = uncertain
-            ? await host.execute(pendingRequest!)
+            ? await host.check(pendingRequest!)
             : await _advance();
         if (_disposed) return;
         _admitted = object(result['data']);
@@ -273,9 +273,9 @@ class CreationDraft extends ChangeNotifier {
       if (!_disposed) _created = _admitted;
     } catch (error) {
       if (!_disposed) {
-        if (error is CommandFailure && error.code == 'outcome_unknown') {
+        if (error is CommandFailure && error.retained) {
           _uncertain = true;
-          _pendingRequest = error.request ?? pendingRequest;
+          _pendingRequest = error.request;
         } else if (error is CommandFailure && error.rejected) {
           _uncertain = false;
           _pendingRequest = null;

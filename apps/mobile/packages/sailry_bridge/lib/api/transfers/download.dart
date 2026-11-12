@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../src/native.dart';
@@ -10,6 +11,6 @@ class Download extends NativeHandle {
   Future<Uint8List?> next() async {
     final value = await nextValue();
     if (value == null) return null;
-    return Uint8List.fromList((value as List<dynamic>).cast<int>());
+    return base64Decode(value as String);
   }
 }

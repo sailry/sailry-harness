@@ -73,10 +73,7 @@ class TurnDraft extends ChangeNotifier {
         if (composer) _clear(text, files);
       }
     } catch (error) {
-      if (!_disposed &&
-          error is CommandFailure &&
-          error.code == 'outcome_unknown' &&
-          error.request != null) {
+      if (!_disposed && error is CommandFailure && error.retained) {
         _pending = (
           request: error.request!,
           text: text,
@@ -102,7 +99,7 @@ class TurnDraft extends ChangeNotifier {
     notifyListeners();
     try {
       // Reconciliation queries the original request; it never resubmits input.
-      final output = await host.execute(captured.request);
+      final output = await host.check(captured.request);
       if (_disposed) return false;
       _admitted(output);
       if (captured.composer) _clear(captured.text, captured.attachments);
