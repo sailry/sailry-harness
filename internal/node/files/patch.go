@@ -329,9 +329,6 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 	}
 	return out.String(), nil
 }
-func ResolvePatch(ctx context.Context, root, input string, access core.FileAccess) ([]protocol.FileChange, error) {
-	return ResolvePatchWithRevisions(ctx, root, input, nil, access)
-}
 func ResolvePatchWithRevisions(ctx context.Context, root, input string, observed map[string]string, access core.FileAccess) ([]protocol.FileChange, error) {
 	hunks, e := ParsePatch(input)
 	if e != nil {

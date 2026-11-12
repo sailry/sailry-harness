@@ -332,12 +332,6 @@ func (manager *Manager) Retain(requirements []Requirements) {
 	manager.retained = true
 }
 
-func (manager *Manager) CollectionDue() bool {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	return manager.collected.IsZero() || manager.options.Now().Sub(manager.collected) >= 24*time.Hour
-}
-
 func (manager *Manager) Collect(ctx context.Context, current string) error {
 	manager.runtimeMu.Lock()
 	runtime := manager.runtime

@@ -1011,8 +1011,6 @@ settings_runtime
 settings_runtime_description
 settings_save
 settings_seconds
-settings_session_order
-settings_sessions
 settings_shortcuts_description
 settings_sidebar_metrics
 settings_skills_description

@@ -7,11 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -35,10 +32,9 @@ const (
 )
 
 type Failure struct {
-	Kind       FailureKind
-	Message    string
-	RetryAfter *time.Duration
-	status     *uint16
+	Kind    FailureKind
+	Message string
+	status  *uint16
 }
 
 func (f *Failure) Error() string { return f.Message }
@@ -120,12 +116,6 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		default:
 			f.Kind = InvalidResponse
 		}
-		for key, value := range provider.ResponseHeaders {
-			if strings.EqualFold(key, "Retry-After") {
-				f.RetryAfter = parseRetryAfter(value, time.Now())
-				break
-			}
-		}
 	case errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &malformed):
 		f.Kind = InvalidResponse
 	case errors.As(err, &network) || errors.Is(err, context.DeadlineExceeded):
@@ -159,20 +149,6 @@ func jsonString(body map[string]any, path ...string) string {
 	}
 	result, _ := value.(string)
 	return result
-}
-func parseRetryAfter(value string, now time.Time) *time.Duration {
-	if seconds, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32); err == nil {
-		duration := time.Duration(seconds) * time.Second
-		return &duration
-	}
-	if until, err := http.ParseTime(value); err == nil {
-		duration := until.Sub(now)
-		if duration < 0 {
-			duration = 0
-		}
-		return &duration
-	}
-	return nil
 }
 func safeDiagnostic(message string, secrets []protocol.Secret) string {
 	values := make([]string, 0, len(secrets))

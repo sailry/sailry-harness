@@ -203,7 +203,7 @@ func TestTeamRevisionFrozen(t *testing.T) {
 		if child.Turn.Config.Mode != protocol.WorkModePlan || child.Provider == nil || child.Provider.Endpoint != originalEndpoint {
 			return errors.New("child did not retain frozen role model and Plan permission")
 		}
-		if _, _, err = ExecuteTeamCommand(ctx, db, node, protocol.Command{Kind: "remove_role", Data: &protocol.CommandRemoveRolePayload{Role: role.ID, ExpectedRevision: role.Revision}}); err != nil {
+		if _, _, err = ExecuteTeamCommand(ctx, db, protocol.Command{Kind: "remove_role", Data: &protocol.CommandRemoveRolePayload{Role: role.ID, ExpectedRevision: role.Revision}}); err != nil {
 			return err
 		}
 		teams, err := ReadTeams(ctx, db)

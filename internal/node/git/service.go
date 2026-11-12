@@ -65,7 +65,6 @@ type Service struct {
 	mu       sync.Mutex
 	statuses map[string]*statusSlot
 	journal  map[string]string
-	times    map[string]map[string]int64
 	changes  []*changeCapture
 	idle     time.Duration // silence limit of a network operation
 	stats    time.Duration // line statistics share of a status
@@ -73,7 +72,7 @@ type Service struct {
 }
 
 func New(options Options) *Service {
-	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, times: map[string]map[string]int64{}, idle: networkIdle, stats: statBudget}
+	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, idle: networkIdle, stats: statBudget}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -236,17 +235,6 @@ func bounded(text string, limit int) (string, bool) {
 func ptr[T any](v T) *T                   { return &v }
 func (s *Service) Invalidate(root string) { s.mu.Lock(); delete(s.statuses, root); s.mu.Unlock() }
 
-// EntryTimes supplies modification timestamps for the existing native activity
-// projection without changing the v1 GitEntry declaration.
-func (s *Service) EntryTimes(root string) map[string]int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	result := map[string]int64{}
-	for p, v := range s.times[root] {
-		result[p] = v
-	}
-	return result
-}
 func checkContext(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return mapError(err)

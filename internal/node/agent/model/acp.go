@@ -657,14 +657,14 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 				keep = false
 				return model.failure(ctx, agent, finished.err)
 			}
-			return model.finish(agent, digests, parser, finished.prompted, emit, &keep)
+			return model.finish(agent, digests, parser, finished.prompted, emit)
 		}
 	}
 }
 
 // finish ends the reply: its stop reason, its usage and what the session
 // now holds.
-func (model *acpModel) finish(agent *acpAgent, digests []string, parser *acpParser, prompted acpPrompted, emit func(...protocol.PluginModelAdapterWireDelta) (bool, error), keep *bool) error {
+func (model *acpModel) finish(agent *acpAgent, digests []string, parser *acpParser, prompted acpPrompted, emit func(...protocol.PluginModelAdapterWireDelta) (bool, error)) error {
 	command := model.capture.Program.Command
 	reason := protocol.PluginModelAdapterWireFinishStop
 	switch prompted.StopReason {

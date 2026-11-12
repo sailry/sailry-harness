@@ -91,7 +91,11 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		}
 		p.diffContents[key] = workspaceHunks(diff.Text)
 		p.projectDiff(relative, p.diffContents[key])
-		p.readFile(relative)
+		// A binary file has no text to read beside its diff: its card says
+		// so, and reading it would only fail.
+		if !diff.Binary {
+			p.readFile(relative)
+		}
 		p.readTurnHunks(relative)
 	})
 }

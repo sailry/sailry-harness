@@ -12,15 +12,15 @@ import (
 
 func TestSystemPromptByteStable(t *testing.T) {
 	t.Parallel()
-	policy, personal, environment, title, capability := "Captured policy", "Personal rules", "First environment", "First title", "Available tools"
+	policy, personal, environment, title := "Captured policy", "Personal rules", "First environment", "First title"
 	state := canonical.Context{Policy: &policy, Personal: &personal, Environment: &environment, Title: &title, Guides: map[string]canonical.Guide{"z": {Content: "Later guide"}, "a": {Content: "Earlier guide"}}}
-	first := System("Captured instructions", state, &capability)
+	first := System("Captured instructions", state)
 	environment, title = "Changed environment\n2026-11-10", "Renamed conversation"
-	second := System("Captured instructions", state, &capability)
+	second := System("Captured instructions", state)
 	if first != second || strings.Contains(second, environment) || strings.Contains(second, title) {
 		t.Fatal("dynamic turn state changed cached system instructions")
 	}
-	if !strings.HasPrefix(first, "Captured instructions\n\nCaptured policy\n\nPersonal rules\n\nProject instructions\n") || !strings.HasSuffix(first, "Earlier guide\n\nLater guide\n\nAvailable tools") {
+	if !strings.HasPrefix(first, "Captured instructions\n\nCaptured policy\n\nPersonal rules\n\nProject instructions\n") || !strings.HasSuffix(first, "Earlier guide\n\nLater guide") {
 		t.Fatalf("captured instruction order changed: %q", first)
 	}
 	for _, permission := range []protocol.Permission{protocol.PermissionAsk, protocol.PermissionProject, protocol.PermissionFull} {

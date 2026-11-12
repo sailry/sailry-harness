@@ -29,6 +29,9 @@ type pluginScriptTurn struct {
 	scope      protocol.PluginContext
 	mu         sync.Mutex
 	state      json.RawMessage
+	// writes counts each tool call's durable SDK writes across its
+	// evaluations: a flow's steps, a handler and its result formatter.
+	writes map[protocol.RequestID]uint64
 }
 
 func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call string, input any, readOnly bool) (json.RawMessage, error) {
@@ -42,10 +45,14 @@ func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	scope := owner.scope
-	execution := &plugins.ScriptExecution{CallID: &identity, Mode: owner.invocation.Turn.Config.Mode, ReadOnly: readOnly, Turn: owner.state}
+	execution := &plugins.ScriptExecution{CallID: &identity, Mode: owner.invocation.Turn.Config.Mode, ReadOnly: readOnly, Turn: owner.state, Writes: owner.writes[identity]}
 	result, err := plugins.RunTool(operation, owner.bundle, handler, input, plugins.ScriptEnvironment{
 		Context: scope, Target: owner.node.ID(), Deadline: time.Now().Add(plugins.ScriptCallTimeout),
 	}, owner.node.dispatchCallbackResult, execution)
+	if owner.writes == nil {
+		owner.writes = map[protocol.RequestID]uint64{}
+	}
+	owner.writes[identity] = execution.Writes
 	if err == nil && execution.StagedTurn != nil {
 		owner.state = slices.Clone(execution.StagedTurn)
 	}

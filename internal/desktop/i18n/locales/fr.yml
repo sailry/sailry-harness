@@ -992,8 +992,6 @@ settings_runtime: Environnement d’exécution
 settings_runtime_description: Configurer ce nœud
 settings_save: Enregistrer
 settings_seconds: '%{count} secondes'
-settings_session_order: Ordre des sessions
-settings_sessions: Sessions
 settings_shortcuts_description: Afficher les commandes globales et les raccourcis clavier
 settings_sidebar_metrics: Indicateur de performance
 settings_skills_description: Gérer les compétences disponibles pour les sessions

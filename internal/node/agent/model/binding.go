@@ -140,7 +140,6 @@ func OutputLimit(binding Binding, summary bool) int64 {
 }
 func Summary(binding Binding) Binding {
 	result := binding
-	result.Config = binding.Config
 	result.Config.Effort = protocol.Effort{Kind: "default"}
 	if model := metadata(binding); model != nil && model.Reasoning {
 		rank := int64(1 << 62)

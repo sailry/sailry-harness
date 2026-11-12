@@ -16,6 +16,8 @@ func insertBranchSession(ctx context.Context, db *sql.Conn, previous protocol.Se
 	value.Archived = false
 	value.Worktree = worktree
 	value.Fork = nil
+	// The source's association has no row for the new session.
+	value.Association = nil
 	var err error
 	value.CreationOrder, err = NextCounter(ctx, db, CounterSessions)
 	if err != nil {
@@ -160,6 +162,21 @@ func rewindConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 		}
 		value.Backup = &saved
 	}
+	// A turn that ended before its input was recorded still holds that input
+	// in the queue. Once the conversation no longer lists the turn, sending it
+	// would run a turn no history shows, so its input leaves the queue here.
+	// Only this session's own turns: a fork also lists its source's.
+	retained, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn IN (SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.session=?1 AND t.rowid>?2)", input.Session.String(), boundary)
+	if err != nil {
+		return value, nil, err
+	}
+	if removed, e := retained.RowsAffected(); e != nil {
+		return value, nil, e
+	} else if removed > 0 {
+		if err = bumpQueue(ctx, db, input.Session); err != nil {
+			return value, nil, err
+		}
+	}
 	if _, err = db.ExecContext(ctx, "DELETE FROM conversation_turns WHERE session=?1 AND turn IN (SELECT id FROM turns WHERE rowid>?2)", input.Session.String(), boundary); err != nil {
 		return value, nil, err
 	}
@@ -221,6 +238,9 @@ func replaceConversationTurn(ctx context.Context, db *sql.Conn, node, caller pro
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if err = bindAgentAttachments(ctx, db, turn.ID, current.Worktree, input.Message.Attachments); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	current, err = ReadSession(ctx, db, input.Session)
 	return protocol.Output{Kind: "turn_replaced", Data: protocol.OutputTurnReplacedPayload{Turn: turn, History: &history}}, []protocol.Event{{Kind: "session_rewound", Data: protocol.EventSessionRewoundPayload{Session: &current, Backup: sessionPointer(history.Backup)}}}, err
 }
@@ -280,6 +300,10 @@ func forkConversationAt(ctx context.Context, db *sql.Conn, input protocol.Comman
 	}
 	if head == nil {
 		value, e := insertBranchSession(ctx, db, current, input.Worktree)
+		if e != nil {
+			return protocol.Output{}, nil, e
+		}
+		value.Activity, e = readActivity(ctx, db, value.ID)
 		return protocol.Output{Kind: "session", Data: value}, []protocol.Event{{Kind: "session_changed", Data: &value}}, e
 	}
 	value, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: input.Session, Through: *head, ExpectedRevision: input.ExpectedRevision})

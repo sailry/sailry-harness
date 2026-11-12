@@ -225,9 +225,6 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 			return nil, invalid("no Git operation to continue or abort")
 		}
 		return []string{operation, "--" + action.Kind}, nil
-	case "prune_worktree":
-		v := data[protocol.GitActionPruneWorktreePayload](action.Data)
-		return []string{"worktree", "remove", "--", v.Path}, nil
 	}
 	return nil, invalid("Git action requires its compound operation owner")
 }

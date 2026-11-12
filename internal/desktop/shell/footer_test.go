@@ -722,3 +722,39 @@ func TestQuestionRowQuiet(t *testing.T) {
 		t.Errorf("a state text at %v sits on the prompt's row", state)
 	}
 }
+
+// A request for approval that arrives while the composer shows opens its
+// popover by itself; closed, it stays closed until another request arrives.
+// The requests a composer first shows with stay behind their capsule.
+func TestApprovalPopoverOpensForArrival(t *testing.T) {
+	var list []composer.Approval
+	tt, _, _ := composerAlone(t, "en", 900, func(_ *composer.State, ctx *composer.Context) {
+		ctx.Interactions.Approvals = list
+	})
+	shown := func(text string) bool { tt.Frame(); tt.Frame(); return tt.HasText(text) }
+	first := composer.Approval{ID: "one", Title: "Open app", Description: "Notes"}
+	list = []composer.Approval{first}
+	if !shown("Notes") {
+		t.Fatalf("the popover did not open for a request that arrived: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	if shown("Notes") {
+		t.Fatal("Escape did not close the popover")
+	}
+	if shown("Notes") {
+		t.Fatal("the popover opened again for the same request")
+	}
+	list = []composer.Approval{first, {ID: "two", Title: "Open app", Description: "Calendar"}}
+	if !shown("Calendar") {
+		t.Fatalf("the popover did not open on the second request: %q", tt.Texts())
+	}
+
+	// A composer that first shows with a request waits behind its capsule.
+	list = []composer.Approval{first}
+	tt, _, _ = composerAlone(t, "en", 900, func(_ *composer.State, ctx *composer.Context) {
+		ctx.Interactions.Approvals = list
+	})
+	if shown("Notes") {
+		t.Fatal("the popover opened by itself over a composer just shown")
+	}
+}

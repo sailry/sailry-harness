@@ -34,10 +34,10 @@ func (node *Node) dispatchWSL(ctx context.Context, service *wsl.Service, configu
 	}
 	switch input := request.Command.Data.(type) {
 	case *protocol.CommandReadWslHostInstallPayload:
-		value, err := service.Progress(caller, input.Request, request.Plugin)
+		value, err := service.Progress(caller, input.Request)
 		return true, protocol.Output{Kind: "host_install_progress", Data: value}, err
 	case *protocol.CommandCancelWslHostInstallPayload:
-		err := service.Cancel(caller, input.Request, request.Plugin)
+		err := service.Cancel(caller, input.Request)
 		return true, protocol.Output{Kind: "wsl_host_install_cancelled", Data: protocol.OutputWslHostInstallCancelledPayload{Request: input.Request}}, err
 	case *protocol.CommandInstallWslHostPayload:
 		outcome, err := node.installWSLHost(ctx, service, configure, caller, request, input)

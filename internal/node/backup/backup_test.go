@@ -552,4 +552,21 @@ func TestBackupArchiveLayout(t *testing.T) {
 			_ = file.Close()
 		}
 	})
+
+	t.Run("a refused export leaves nothing behind", func(t *testing.T) {
+		directory := filepath.Join(t.TempDir(), "backups")
+		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}}
+		// An archive without content has no segment to commit.
+		empty := *packed
+		empty.Path, empty.Size = filepath.Join(t.TempDir(), "empty"), 0
+		if err := os.WriteFile(empty.Path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Export(t.Context(), plan, &empty, uuid.NewString()); code(err) != protocol.ErrorCodeInvalidRequest {
+			t.Fatalf("empty archive: %v", err)
+		}
+		if entries, err := os.ReadDir(directory); err != nil || len(entries) != 0 {
+			t.Fatalf("refused export left %v: %v", entries, err)
+		}
+	})
 }
