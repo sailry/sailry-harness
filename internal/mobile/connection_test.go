@@ -131,6 +131,29 @@ func TestMobileUncertainRequest(t *testing.T) {
 	})
 }
 
+func TestMobileClosedConnectionLeavesNoClient(t *testing.T) {
+	t.Parallel()
+	node := protocol.NodeID{1}
+	owner := &controller{clients: map[protocol.NodeID]*client.Client{}}
+	first := &connection{client: client.New(noticeTransport{node: node}), controller: owner}
+	second := &connection{client: client.New(noticeTransport{node: node}), controller: owner}
+	// A second connect to the same peer replaces the first as its Client.
+	owner.clients[node] = first.client
+	owner.clients[node] = second.client
+	if err := first.close(); err != nil {
+		t.Fatal(err)
+	}
+	if owner.clients[node] != second.client {
+		t.Fatal("closing a replaced connection removed the current Client")
+	}
+	if err := second.close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := owner.clients[node]; kept {
+		t.Fatal("a closed Client stayed reachable for notification commands")
+	}
+}
+
 func TestMobileUnobservedConnectionPreservesInbox(t *testing.T) {
 	t.Parallel()
 	for _, method := range []string{"close", "watch", "watch_terminal"} {

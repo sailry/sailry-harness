@@ -151,6 +151,14 @@ func (owner *connection) resolve(ctx context.Context, request protocol.Request) 
 }
 
 func (owner *connection) close() error {
+	// A closed Client must not stay the peer's Client for notification commands.
+	if owner.controller != nil {
+		owner.controller.mu.Lock()
+		if id := owner.client.Target(); owner.controller.clients[id] == owner.client {
+			delete(owner.controller.clients, id)
+		}
+		owner.controller.mu.Unlock()
+	}
 	return owner.client.Close()
 }
 
