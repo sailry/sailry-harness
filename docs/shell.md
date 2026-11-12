@@ -617,6 +617,7 @@ none.
 
 | Deviation | Reason |
 |---|---|
+| The composer floats over the transcript's end rather than standing under the transcript (user decision 2026-11-12) | The reference's column ends the transcript's scroll bar where the composer begins; see `docs/conversation.md` |
 | Breadcrumbs in the header | The plan asks for them; the reference shows a title |
 | Header icon buttons are 28 with a 15 icon, the rail's icon is 15 | Kit's accepted small button (docs/components.md); the reference's header buttons are 24 with a 14 icon and its rail icon is 16 |
 | The details toggle is disabled while the window has no room for the panel | It cannot act then; it used to dim and still take clicks |
