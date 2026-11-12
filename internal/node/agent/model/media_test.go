@@ -296,6 +296,33 @@ func TestMediaDrivers(t *testing.T) {
 		if !bytes.Equal(output.Data, movie) || output.MediaType != "video/mp4" || output.Job != "video_1" || *output.Usage.Input != 4 {
 			t.Fatalf("video output = %s %s", output.MediaType, output.Job)
 		}
+		// Resuming waits for the submitted job and downloads it; it submits
+		// nothing, so the prompt is not paid for twice.
+		mu.Lock()
+		before := len(requests)
+		mu.Unlock()
+		resumed, err := ResumeVideo(t.Context(), binding, "video_1", time.Millisecond)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		following := append([]seen(nil), requests[before:]...)
+		mu.Unlock()
+		if len(following) != 2 || following[0].Method != http.MethodGet || following[0].Path != "/v1/videos/video_1" || following[1].Path != "/v1/videos/video_1/content" {
+			t.Fatalf("resumed video requests = %+v", following)
+		}
+		if !bytes.Equal(resumed.Data, movie) || resumed.MediaType != "video/mp4" || resumed.Job != "video_1" || *resumed.Usage.Input != 4 {
+			t.Fatalf("resumed video output = %s %s", resumed.MediaType, resumed.Job)
+		}
+		// A stored job that is no path segment is refused before any request.
+		_, err = ResumeVideo(t.Context(), binding, "../video_1", time.Millisecond)
+		failure(err, InvalidResponse)
+		mu.Lock()
+		unsent := len(requests) == before+2
+		mu.Unlock()
+		if !unsent {
+			t.Fatal("an invalid video job reached the provider")
+		}
 		handle("GET /v1/videos/video_1", func(writer http.ResponseWriter, _ *http.Request) {
 			_, _ = writer.Write([]byte(`{"id":"video_1","status":"failed","error":{"message":"content policy"}}`))
 		})
