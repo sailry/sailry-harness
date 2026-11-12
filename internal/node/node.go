@@ -612,7 +612,7 @@ func supportedCommand(kind string) bool {
 		return true
 	case "deliver_background", "continue_turn":
 		return true
-	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "import_session", "bind_connection_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
+	case "create_project", "update_project", "remove_project", "register_worktree", "create_session", "import_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
 		return true
 	default:
 		return false

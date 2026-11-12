@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -107,12 +108,26 @@ func TestCommandKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := strings.Fields(string(data))
-	if len(want) != 362 {
-		t.Fatalf("Rust command inventory contains %d entries, want 362", len(want))
+	if len(want) != 357 {
+		t.Fatalf("command inventory contains %d entries, want the 362 of Rust less the 5 removed", len(want))
+	}
+	for _, removed := range []string{"put_credential", "revoke_credential", "set_defaults", "bind_connection_session", "validate_provider"} {
+		if slices.Contains(want, removed) {
+			t.Fatalf("removed command %s is in the inventory", removed)
+		}
+		for name, tolerance := range map[string]Tolerance{"authored": Authored, "peer command": PeerCommand, "peer data": PeerData} {
+			var command Command
+			if err := DecodeAs(tolerance, []byte(`{"kind":"`+removed+`","data":{}}`), &command); (err == nil) != (tolerance == PeerData) {
+				t.Fatalf("removed command %s decoded as %s: %v", removed, name, err)
+			}
+		}
+		if _, err := json.Marshal(Command{Kind: removed}); err == nil {
+			t.Fatalf("removed command %s was encoded", removed)
+		}
 	}
 	got := CommandKinds()
 	if extensions := []string{"apply_git_hunk", "synthesize_speech", "count_feature"}; len(got) != len(want)+len(extensions) || !reflect.DeepEqual(got[:len(want)], want) || !reflect.DeepEqual(got[len(want):], extensions) {
-		t.Fatalf("command kinds differ from the Rust inventory plus the documented native extensions\nwant: %v + %v\n got: %v", want, extensions, got)
+		t.Fatalf("command kinds differ from the captured inventory plus the documented native extensions\nwant: %v + %v\n got: %v", want, extensions, got)
 	}
 	t.Run("native Git hunk extension validates captured revisions", func(t *testing.T) {
 		input := CommandApplyGitHunkPayload{Worktree: NewWorktreeID(), Path: "source.go", Scope: GitDiffScopeUnstaged, Operation: GitHunkStage, Hunk: 0, DiffRevision: strings.Repeat("a", 64), ExpectedRevision: strings.Repeat("b", 64), ExpectedIndex: strings.Repeat("c", 64)}

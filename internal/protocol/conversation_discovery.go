@@ -190,38 +190,3 @@ func (value ConversationDiscoveryCapabilities) MarshalJSON() ([]byte, error) {
 	encoded.Efforts = normalizeCollections(encoded.Efforts)
 	return json.Marshal(encoded)
 }
-
-type ConversationDiscoveryValidation struct {
-	Provider   ProviderID `json:"provider"`
-	Revision   uint64     `json:"revision"`
-	Missing    []string   `json:"missing"`
-	Exceeded   []string   `json:"exceeded"`
-	Unverified []string   `json:"unverified"`
-}
-
-func DefaultConversationDiscoveryValidation() ConversationDiscoveryValidation {
-	return ConversationDiscoveryValidation{
-		Provider:   ProviderID{},
-		Revision:   0,
-		Missing:    []string{},
-		Exceeded:   []string{},
-		Unverified: []string{},
-	}
-}
-func (value *ConversationDiscoveryValidation) UnmarshalJSON(data []byte) error {
-	type plain ConversationDiscoveryValidation
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"provider", "revision", "missing", "exceeded", "unverified"}, false); err != nil {
-		return err
-	}
-	*value = ConversationDiscoveryValidation(decoded)
-	return nil
-}
-func (value ConversationDiscoveryValidation) MarshalJSON() ([]byte, error) {
-	type plain ConversationDiscoveryValidation
-	encoded := plain(value)
-	encoded.Missing = normalizeCollections(encoded.Missing)
-	encoded.Exceeded = normalizeCollections(encoded.Exceeded)
-	encoded.Unverified = normalizeCollections(encoded.Unverified)
-	return json.Marshal(encoded)
-}

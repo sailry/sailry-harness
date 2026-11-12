@@ -13,7 +13,7 @@ import (
 
 func SupportsProviderCommand(kind string) bool {
 	switch kind {
-	case "list_providers", "read_provider_key", "put_provider", "save_provider", "remove_provider", "list_credentials", "put_credential", "revoke_credential", "read_catalog_status", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models", "validate_provider":
+	case "list_providers", "read_provider_key", "put_provider", "save_provider", "remove_provider", "list_credentials", "read_catalog_status", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models":
 		return true
 	}
 	return false
@@ -98,16 +98,6 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			return nil, nil
 		}
 		return work, nil
-	case "validate_provider":
-		input, err := providerPayload[protocol.CommandValidateProviderPayload](request.Command)
-		if err != nil {
-			return nil, err
-		}
-		saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
-		if err != nil {
-			return nil, err
-		}
-		work.Provider = saved.Provider
 	case "discover_models":
 		source, err := providerPayload[protocol.ConversationDiscoverySource](request.Command)
 		if err != nil {
@@ -166,7 +156,7 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			return
 		}
 		switch request.Command.Kind {
-		case "put_provider", "save_provider", "remove_provider", "put_credential", "revoke_credential":
+		case "put_provider", "save_provider", "remove_provider":
 			var quotaChanges []protocol.Event
 			quotaChanges, resultErr = ReconcileProviderQuotas(ctx, db, node)
 			changes = append(changes, quotaChanges...)
@@ -284,17 +274,37 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 		}
 		values, err := providerList(ctx, db)
 		return protocol.Output{Kind: "providers", Data: values}, []protocol.Event{{Kind: "provider_removed", Data: protocol.EventProviderRemovedPayload{ID: input.Provider}}}, err
-	case "put_credential", "revoke_credential":
-		return executeProviderCredential(ctx, db, node, command)
 	case "refresh_model_catalog":
 		return applyProviderCatalog(ctx, db, prepared)
-	case "discover_models", "validate_provider":
+	case "discover_models":
 		if prepared == nil || prepared.Output == nil {
 			return protocol.Output{}, nil, fault(protocol.ErrorCodeInternal, "provider discovery result is missing")
 		}
-		if command.Kind == "validate_provider" {
-			input, err := providerPayload[protocol.CommandValidateProviderPayload](command)
-			if err != nil {
+		source, err := providerPayload[protocol.ConversationDiscoverySource](command)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if source.Kind == "draft" {
+			var input protocol.ConversationDiscoveryDraft
+			if err := decodeProviderData(source.Data, &input); err != nil {
+				return protocol.Output{}, nil, err
+			}
+			draft := draftProvider(input)
+			if err := bindProviderPreset(ctx, db, &draft, nil, true); err != nil {
+				return protocol.Output{}, nil, err
+			}
+			if prepared.Provider != nil && !reflect.DeepEqual(draft.Binding, prepared.Provider.Binding) {
+				return protocol.Output{}, nil, fault(protocol.ErrorCodeRevisionConflict, "channel declaration changed during model discovery")
+			}
+			if input.Secret == nil && input.Credential != nil {
+				if _, err := resolveProviderKey(ctx, db, node, *input.Credential, input.Provider); err != nil {
+					return protocol.Output{}, nil, err
+				}
+			}
+		}
+		if source.Kind == "saved" {
+			var input protocol.ConversationDiscoverySourceSavedPayload
+			if err := decodeProviderData(source.Data, &input); err != nil {
 				return protocol.Output{}, nil, err
 			}
 			saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
@@ -304,44 +314,6 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			if saved.Provider.Credential != nil {
 				if _, err := resolveProviderKey(ctx, db, node, *saved.Provider.Credential, saved.ID); err != nil {
 					return protocol.Output{}, nil, err
-				}
-			}
-		} else {
-			source, err := providerPayload[protocol.ConversationDiscoverySource](command)
-			if err != nil {
-				return protocol.Output{}, nil, err
-			}
-			if source.Kind == "draft" {
-				var input protocol.ConversationDiscoveryDraft
-				if err := decodeProviderData(source.Data, &input); err != nil {
-					return protocol.Output{}, nil, err
-				}
-				draft := draftProvider(input)
-				if err := bindProviderPreset(ctx, db, &draft, nil, true); err != nil {
-					return protocol.Output{}, nil, err
-				}
-				if prepared.Provider != nil && !reflect.DeepEqual(draft.Binding, prepared.Provider.Binding) {
-					return protocol.Output{}, nil, fault(protocol.ErrorCodeRevisionConflict, "channel declaration changed during model discovery")
-				}
-				if input.Secret == nil && input.Credential != nil {
-					if _, err := resolveProviderKey(ctx, db, node, *input.Credential, input.Provider); err != nil {
-						return protocol.Output{}, nil, err
-					}
-				}
-			}
-			if source.Kind == "saved" {
-				var input protocol.ConversationDiscoverySourceSavedPayload
-				if err := decodeProviderData(source.Data, &input); err != nil {
-					return protocol.Output{}, nil, err
-				}
-				saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
-				if err != nil {
-					return protocol.Output{}, nil, err
-				}
-				if saved.Provider.Credential != nil {
-					if _, err := resolveProviderKey(ctx, db, node, *saved.Provider.Credential, saved.ID); err != nil {
-						return protocol.Output{}, nil, err
-					}
 				}
 			}
 		}

@@ -348,25 +348,3 @@ func validEffort(name string) bool {
 	}
 	return false
 }
-func ValidateDiscovery(provider protocol.ConversationProvider, models []protocol.ConversationDiscoveryModel) protocol.ConversationDiscoveryValidation {
-	result := protocol.DefaultConversationDiscoveryValidation()
-	result.Provider = provider.ID
-	result.Revision = provider.Revision
-	for _, saved := range provider.Models {
-		var found *protocol.ConversationDiscoveryModel
-		for i := range models {
-			if models[i].ID == saved.ID {
-				found = &models[i]
-				break
-			}
-		}
-		if found == nil {
-			result.Missing = append(result.Missing, saved.ID)
-		} else if found.Context != nil && saved.Context > *found.Context || found.Output != nil && saved.Output > *found.Output {
-			result.Exceeded = append(result.Exceeded, saved.ID)
-		} else if found.Context == nil || found.Output == nil {
-			result.Unverified = append(result.Unverified, saved.ID)
-		}
-	}
-	return result
-}

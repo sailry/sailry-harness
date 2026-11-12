@@ -302,7 +302,6 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "https://SECRET.test/v1"
 		worktree := protocol.NewWorktreeID()
 		change(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
-		change(protocol.Command{Kind: "put_credential", Data: protocol.CommandPutCredentialPayload{ID: protocol.NewCredentialID(), Provider: provider.ID, Secret: secret}})
 		change(protocol.Command{Kind: "save_database", Data: protocol.CommandSaveDatabasePayload{Password: &secret, Profile: protocol.DatabaseProfile{
 			ID: protocol.NewDatabaseID(), Name: "SECRET database", ReadOnly: true, Connection: protocol.DatabaseConnection{Kind: "network", Data: &protocol.DatabaseConnectionNetworkPayload{
 				Engine: protocol.DatabaseEnginePostgres, Host: "SECRET.test", Port: 5432, Database: "SECRET", Username: "SECRET", Tls: protocol.DatabaseTlsRequire}}}}})
@@ -366,8 +365,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 				t.Fatalf("%s has no complete record (begin %v, outcome %v): %s", kind, begun, finished, written)
 			}
 		}
-		if !bytes.Contains(written, []byte(" request="+changes["put_credential"].String()+" provider="+provider.ID.String()+" command=put_credential ")) ||
-			!bytes.Contains(written, []byte(" request="+changes["write_file"].String()+" worktree="+worktree.String()+" command=write_file ")) {
+		if !bytes.Contains(written, []byte(" request="+changes["write_file"].String()+" worktree="+worktree.String()+" command=write_file ")) {
 			t.Fatalf("log = %s", written)
 		}
 		observed := 0

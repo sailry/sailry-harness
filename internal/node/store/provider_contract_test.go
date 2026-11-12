@@ -66,15 +66,6 @@ func providerStoreFixtures(t *testing.T) {
 		if key, ok := output.Data.(*protocol.Secret); !ok || key.Expose() != secret.Expose() {
 			t.Fatal("explicit key read changed")
 		}
-		updated := protocol.NewSecret("updated-key")
-		output, err = execute(protocol.Command{Kind: "put_credential", Data: &protocol.CommandPutCredentialPayload{ID: saved.Credential.ID, Provider: provider.ID, ExpectedRevision: 1, Secret: updated}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		credential := output.Data.(protocol.Credential)
-		if credential.Revision != 2 || credential.Revoked {
-			t.Fatalf("credential=%+v", credential)
-		}
 		if _, err := execute(protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: saved, ExpectedRevision: 0, Secret: &secret}}); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
 			t.Fatalf("stale save=%v", err)
 		}
@@ -93,7 +84,7 @@ func providerStoreFixtures(t *testing.T) {
 			t.Fatal(err)
 		}
 		credentials := output.Data.([]protocol.Credential)
-		if len(credentials) != 1 || credentials[0].Revision != 2 {
+		if len(credentials) != 1 || credentials[0].ID != saved.Credential.ID || credentials[0].Revision != 1 || credentials[0].Revoked {
 			t.Fatalf("removal lost authorization: %+v", credentials)
 		}
 		if count := schemaInteger(t, storage.Node, "SELECT count(*) FROM providers"); count != 1 {
@@ -114,7 +105,7 @@ func providerStoreFixtures(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		request := protocol.Request{Command: protocol.Command{Kind: "validate_provider", Data: &protocol.CommandValidateProviderPayload{Provider: saved.ID, ExpectedRevision: saved.Revision}}}
+		request := protocol.Request{Command: protocol.Command{Kind: "discover_models", Data: &protocol.ConversationDiscoverySource{Kind: "saved", Data: protocol.ConversationDiscoverySourceSavedPayload{Provider: saved.ID, ExpectedRevision: saved.Revision}}}}
 		var work *providers.Work
 		if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
@@ -132,7 +123,7 @@ func providerStoreFixtures(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		preparedOutput := protocol.Output{Kind: "provider_validation", Data: protocol.ConversationDiscoveryValidation{Provider: saved.ID, Revision: 1}}
+		preparedOutput := protocol.Output{Kind: "discovered_models", Data: protocol.DefaultConversationDiscoveryCatalog()}
 		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 			_, _, err := ExecuteProviderCommand(ctx, db, node, node, request, &providers.Prepared{Output: &preparedOutput})
 			return err

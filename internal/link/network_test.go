@@ -509,6 +509,37 @@ func TestServerPreservesTransientRejection(t *testing.T) {
 	if reply.Kind != wire.ReplyRejected || reply.Rejected.Code != protocol.ErrorCodeNotFound {
 		t.Fatalf("transient rejection: %#v", reply)
 	}
+	// A command this build does not declare, such as one removed from the
+	// contract, never reaches the handler: the frame is refused and the stream
+	// closes without a receipt, so the sender asks what became of its request.
+	t.Run("undeclared_command_is_not_dispatched", func(t *testing.T) {
+		link := newFixtureLink(t)
+		link.trusted[caller] = true
+		envelope, err := json.Marshal(link.envelope(wire.Call{Kind: wire.CallCommand, Request: &request}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, kind := range []string{"set_defaults", "future_command"} {
+			undeclared := bytes.Replace(envelope, []byte(`"command":{"kind":"snapshot"}`), []byte(`"command":{"kind":"`+kind+`","data":{}}`), 1)
+			if bytes.Equal(undeclared, envelope) {
+				t.Fatalf("envelope has no command to replace: %s", envelope)
+			}
+			var incoming bytes.Buffer
+			if err := wire.Write(&incoming, json.RawMessage(undeclared), false); err != nil {
+				t.Fatal(err)
+			}
+			stream := newFixtureStream(incoming.Bytes())
+			link.handler = fixtureHandler{dispatch: func(context.Context, protocol.NodeID, protocol.Request) (Admission, error) {
+				t.Errorf("undeclared %s was dispatched", kind)
+				return Admission{}, nil
+			}}
+			var compression atomic.Bool
+			err := link.serveRequest(t.Context(), caller, stream, make(chan struct{}, maxStreams-8), &compression)
+			if fault := faultValue(err); err == nil || fault.Code != protocol.ErrorCodeInvalidRequest || len(stream.written()) != 0 {
+				t.Fatalf("undeclared %s: %v, %d bytes written", kind, err, len(stream.written()))
+			}
+		}
+	})
 	t.Run("admitted_read_context_lives_through_completion", func(t *testing.T) {
 		link := newFixtureLink(t)
 		link.trusted[caller] = true

@@ -77,7 +77,7 @@ with Conflict. Decoding accepts either order.
 
 The ledger keeps `credential-v1:<BLAKE3 hex>` of the serialized request instead
 of its body for every durable command whose payload can hold a secret
-(`admission.DigestOnly`): `put_credential`, `save_provider`,
+(`admission.DigestOnly`): `save_provider`,
 `complete_provider_login`, `import_session`, `save_ssh`, `save_database`,
 `save_search_settings`, `save_plugin_settings`, `save_plugin_mcp`, `install_mcp`,
 `start_connector_login`, `submit_connector_input`, `update_connection`,

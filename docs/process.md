@@ -191,15 +191,36 @@ Commands with no sender in the desktop's own pages, and who does send them:
 | `read_turn_capture` | Client helper used by Node tests; allowed to Node plugin callbacks | Allowed to Node plugin callbacks; no bundled package calls it | Keep |
 | `report_diagnostic` | Sent for a failed plugin panel, a failed plugin metadata read and a failed Git head inspection | Not sent: those failures store no system notification | Sender missing (plugin views) |
 | `update_knowledge_collection`, `pause_knowledge_collection` | Node tests only; the plugin SDK prepares creation, rebuild and removal | The same | Keep; editing and pausing a collection has no page on either side |
-| `put_credential`, `revoke_credential` | Node tests only; a provider is saved with `save_provider` | Node tests only (`revoke_credential` none) | Dead for controllers |
-| `set_defaults` | Node and Mobile bridge tests only | Node and Link tests only | Dead for controllers |
-| `bind_connection_session` | Node tests only | No sender, no test | Dead for controllers |
-| `validate_provider` | The Client's `copy_provider` example only | Node tests only | Dead for controllers |
 | `read_catalog_status`, `read_file_checkpoint` | Node and Mobile bridge tests only | No sender, no test | Dead for controllers |
 
 "Dead for controllers" names a v1 contract command no shipped controller,
 package or tool sends on either side. Its handler stays until the contract
 drops it.
+
+### Removed commands
+
+Removed from the v1 contract on 2026-11-12 because no controller, package,
+plugin callback or tool sent them on either side; only tests did:
+
+- `put_credential`, `revoke_credential` and the `credential` output. A key is
+  stored by `save_provider` and a sign-in by `complete_provider_login`;
+  `list_credentials` and `credential_changed` stay.
+- `set_defaults` and the `defaults` output. The snapshot still carries
+  `defaults` and a session created without a configuration still reads the
+  stored row; nothing writes it, as before. `defaults_changed` stays declared.
+- `bind_connection_session`. A connection conversation is created bound, by
+  `create_session` with `config.resource`.
+- `validate_provider`, the `provider_validation` output and its
+  `ConversationDiscoveryValidation` value. `discover_models` stays.
+
+The feature counters `settings.save.credential` and `settings.save.defaults`
+went with their commands. A peer that still sends one of the five is answered
+as for any undeclared command ([node.md](node.md#values-from-another-build)):
+a Node's Link refuses the frame (`invalid_request` "invalid Link frame") and
+closes the stream without a receipt, so the sender reads `outcome_unknown` and
+`inspect_request` answers `not_admitted`; a local controller's dispatch fails
+with `invalid_request` "invalid command". Neither is admitted or run. A ledger row an earlier build kept for a raw
+`put_credential` request is still digested at startup.
 
 ### Updates and changes with one end missing
 

@@ -200,7 +200,7 @@ lookup, not by scanning them. No second OS watcher is created by the Git service
 The accepted native hunk controls also act on manual working-tree edits that
 have no conversation checkpoint. The original v1 protocol only supplies turn
 hunk operations, so the authorized prerequisite adds `apply_git_hunk` and
-`git_hunk_applied` in place at v1. The original 362 captured command fixtures
+`git_hunk_applied` in place at v1. The captured command fixtures
 remain unchanged; the public inventory explicitly appends the new command.
 Its strict payload captures worktree/path, working-tree scope, selected hunk,
 full patch digest, complete file revision and expected HEAD/branch/index.

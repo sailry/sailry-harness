@@ -47,7 +47,7 @@ func Run(ctx context.Context, work Work) (*Prepared, error) {
 		if ctx.Err() != nil {
 			return nil, cancelled("model catalog refresh cancelled")
 		}
-	case "discover_models", "validate_provider":
+	case "discover_models":
 		if work.Provider == nil {
 			return nil, invalid("provider discovery capture is missing")
 		}
@@ -56,9 +56,6 @@ func Run(ctx context.Context, work Work) (*Prepared, error) {
 			return nil, err
 		}
 		output := protocol.Output{Kind: "discovered_models", Data: catalog}
-		if work.Command.Kind == "validate_provider" {
-			output = protocol.Output{Kind: "provider_validation", Data: ValidateDiscovery(*work.Provider, catalog.Models)}
-		}
 		result.Output = &output
 	case "list_channel_presets":
 		directory := work.Directory
