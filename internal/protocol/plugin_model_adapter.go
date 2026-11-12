@@ -69,6 +69,7 @@ type PluginModelAdapterDeclaration struct {
 	SchemaDialect PluginModelAdapterDialect      `json:"schema_dialect"`
 	Capabilities  PluginModelAdapterCapabilities `json:"capabilities"`
 	Discovery     bool                           `json:"discovery"`
+	Acp           *PluginModelAdapterAcp         `json:"acp,omitempty"`
 }
 
 func DefaultPluginModelAdapterDeclaration() PluginModelAdapterDeclaration {
@@ -80,6 +81,7 @@ func DefaultPluginModelAdapterDeclaration() PluginModelAdapterDeclaration {
 		SchemaDialect: PluginModelAdapterDialectGeneric,
 		Capabilities:  DefaultPluginModelAdapterCapabilities(),
 		Discovery:     false,
+		Acp:           nil,
 	}
 }
 func (value *PluginModelAdapterDeclaration) UnmarshalJSON(data []byte) error {
@@ -88,7 +90,9 @@ func (value *PluginModelAdapterDeclaration) UnmarshalJSON(data []byte) error {
 	decoded.SchemaDialect = PluginModelAdapterDialectGeneric
 	decoded.Capabilities = DefaultPluginModelAdapterCapabilities()
 	decoded.Discovery = false
-	if err := DecodeObject(data, &decoded, []string{"id", "script", "origins", "framing"}, true); err != nil {
+	decoded.Acp = nil
+	// An adapter that names an agent program has no translation script.
+	if err := DecodeObject(data, &decoded, []string{"id", "origins", "framing"}, true); err != nil {
 		return err
 	}
 	*value = PluginModelAdapterDeclaration(decoded)

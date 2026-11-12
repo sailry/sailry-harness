@@ -216,7 +216,12 @@ func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModel
 }
 
 func (model *pluginModel) Generate(ctx context.Context, call fantasy.Call) (*fantasy.Response, error) {
-	stream, err := model.Stream(ctx, call)
+	return model.generate(ctx, model.Stream, call)
+}
+
+// generate collects one stream of adapter parts into a response.
+func (*pluginModel) generate(ctx context.Context, open func(context.Context, fantasy.Call) (fantasy.StreamResponse, error), call fantasy.Call) (*fantasy.Response, error) {
+	stream, err := open(ctx, call)
 	if err != nil {
 		return nil, err
 	}

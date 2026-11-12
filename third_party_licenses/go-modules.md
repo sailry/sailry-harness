@@ -57,6 +57,7 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/chromedp/cdproto` | v0.159.0 | MIT | `LICENSE` | D H |
 | `github.com/chromedp/chromedp` | v0.23.0 | MIT | `LICENSE` | D H |
 | `github.com/cloudflare/circl` | v1.6.3 | BSD-3-Clause | `LICENSE` | D H |
+| `github.com/coder/acp-go-sdk` | v0.13.5 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/coder/websocket` | v1.8.15 | ISC | `LICENSE.txt` | D H |
 | `github.com/creack/pty/v2` | v2.0.1 | MIT | `LICENSE` | D H |
 | `github.com/cyphar/filepath-securejoin` | v0.6.1 | MPL-2.0, BSD-3-Clause | `COPYING.md`, `LICENSE.BSD`, `LICENSE.MPL-2.0` | D H |

@@ -1947,6 +1947,7 @@ market_permission_worktrees_read: Чтение рабочих деревьев
 market_permission_worktrees_write: Управление рабочими деревьями
 market_permission_process_read: Просмотр команд
 market_permission_process_control: Выполнение команд
+market_permission_process_run: Запуск объявленных программ на этом устройстве
 market_permission_terminals_read: Чтение терминалов
 market_permission_conversation_read: Чтение диалогов
 market_permission_conversation_control: Управление диалогами

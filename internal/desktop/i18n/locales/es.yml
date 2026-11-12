@@ -1947,6 +1947,7 @@ market_permission_worktrees_read: Leer árboles de trabajo
 market_permission_worktrees_write: Administrar árboles de trabajo
 market_permission_process_read: Ver comandos
 market_permission_process_control: Ejecutar comandos
+market_permission_process_run: Ejecutar sus programas declarados en este dispositivo
 market_permission_terminals_read: Leer terminales
 market_permission_conversation_read: Leer conversaciones
 market_permission_conversation_control: Controlar conversaciones
