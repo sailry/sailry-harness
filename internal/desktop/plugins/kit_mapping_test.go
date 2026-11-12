@@ -125,6 +125,7 @@ func testKitMapping(t *testing.T) {
 		}
 	})
 	t.Run("list rows", testListRows)
+	t.Run("package-sized buttons", testSizedButtons)
 	t.Run("empty state panel", func(t *testing.T) {
 		native := NewNativeBinding(t.Context())
 		var failure error

@@ -122,7 +122,8 @@ func TestDemoMode(t *testing.T) {
 		tester.Frame()
 	}
 	// shot saves the frame at 2x in the dark theme to
-	// $SAILRY_SNAPSHOTS/name.png, when set.
+	// $SAILRY_SNAPSHOTS/name.png, when set, and the context panel's also
+	// in the light theme to name-light.png.
 	shot := func(name string) {
 		t.Helper()
 		dir := os.Getenv("SAILRY_SNAPSHOTS")
@@ -132,18 +133,24 @@ func TestDemoMode(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		tester.SetDark(true)
+		save := func(name string) {
+			settle()
+			file, err := os.Create(filepath.Join(dir, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(file, tester.Image())
+			file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 		tester.SetScale(2)
-		settle()
-		file, err := os.Create(filepath.Join(dir, name+".png"))
-		if err != nil {
-			t.Fatal(err)
+		if strings.HasPrefix(name, "demo-context-panel") {
+			save(name + "-light")
 		}
-		err = png.Encode(file, tester.Image())
-		file.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
+		tester.SetDark(true)
+		save(name)
 		tester.SetDark(false)
 		tester.SetScale(1)
 		settle()

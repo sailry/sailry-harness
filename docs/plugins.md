@@ -506,8 +506,22 @@ for that concept, at the same sizes and tokens:
 | `DataTable` rows | MyGo `ui.Table` under `theme.Neutral`: a chosen row takes the neutral selected fill, not the accent |
 | loading `CardList` | a card of `kit.Skeleton` lines |
 | `ModelPopup` trigger | `kit.SecondaryLook`, full width, title and caret |
-| `Button` | `kit.Secondary`; `primary`, `danger` and `ghost` variants are `kit.Primary`, `kit.Danger`, `kit.Ghost`; sizes 20, 24, 32, 36 |
+| `gpui-component` `Button` | `kit.Secondary`; `primary`, `danger` and `ghost` variants are `kit.Primary`, `kit.Danger`, `kit.Ghost`; sizes 20, 24, 32, 36 |
+| `gpui-base` `Button`, `Link`, `Tab`, `AccordionTrigger` | MyGo `ui.ButtonBase` with no look |
+| `Tooltip` | a column filling its parent under `kit.Tooltip` |
 | searchable header filter | `kit.SelectTrigger` over a query popover |
+
+The two `Button`s differ as in the reference. `gpui-base` exports unstyled
+controls (`crates/base/src/button.rs`): the package's styles are all they
+draw, `selected` and `disabled` change nothing by themselves, a Button and a
+Tab center their content on a line as high as its text, and they shrink in a
+flex row as any element. `gpui-component` exports the styled Button, drawn by
+Kit. In both, the package's styles are applied after the host's look and win
+over it: a size, padding, border, radius, alignment or background the package
+sets replaces Kit's, and a style that names one edge (`py`, `border_b`,
+`rounded_t`) keeps Kit's other edges, as a GPUI style refinement does. The
+`Tooltip` trigger is the reference's `div().size_full()`: it adds no box of
+its own to the layout of what it holds.
 
 `CardColumn` and `CardSummary` keep the source widths (128, 192, 48; title from
 96). Their rows follow Kit's row metrics
