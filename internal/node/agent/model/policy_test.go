@@ -58,11 +58,6 @@ func (clock *policyClock) Sleep(ctx context.Context, duration time.Duration) err
 	return ctx.Err()
 }
 
-// spread reports whether a wait is the nominal one within the schedule's spread.
-func spread(delay, nominal time.Duration) bool {
-	low, high := time.Duration(float64(nominal)*(1-retrySpread)), time.Duration(float64(nominal)*(1+retrySpread))+1
-	return delay >= low && delay <= high
-}
 func errorPart(kind FailureKind) fantasy.StreamPart {
 	return fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: kind, Message: string(kind)}}
 }
@@ -84,7 +79,12 @@ func TestRetryTransient(t *testing.T) {
 				if err != nil || fake.calls != 2 || len(observations) != 2 || len(output) != 2 {
 					t.Fatalf("retry result: calls=%d observations=%d output=%d error=%v", fake.calls, len(observations), len(output), err)
 				}
-				if len(timer.delays) != 1 || !spread(timer.delays[0], 5*time.Second) {
+				// A main request waits 60 seconds, a summary 5.
+				want := 60 * time.Second
+				if purpose == SummaryPurpose {
+					want = 5 * time.Second
+				}
+				if len(timer.delays) != 1 || timer.delays[0] != want {
 					t.Errorf("retry delays = %v", timer.delays)
 				}
 				if observations[0].RetryDelay == nil || *observations[0].RetryDelay != timer.delays[0] || observations[1].RetryDelay != nil {
@@ -99,52 +99,41 @@ func TestRetryTransient(t *testing.T) {
 			})
 		}
 	}
-	t.Run("main_exhausts_five_retries", func(t *testing.T) {
+	t.Run("main_exhausts_nine_retries", func(t *testing.T) {
 		fake := &policyModel{}
-		for i := 0; i < 6; i++ {
+		for i := 0; i < 11; i++ {
 			fake.responses = append(fake.responses, []fantasy.StreamPart{errorPart(Network)})
 		}
 		timer := &policyClock{}
 		var announced []*time.Duration
 		err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, func(attempt Attempt) error { announced = append(announced, attempt.RetryDelay); return nil }, nil)
-		if err == nil || fake.calls != 6 || len(timer.delays) != 5 || len(announced) != 6 || announced[5] != nil {
+		if err == nil || fake.calls != 10 || len(timer.delays) != 9 || len(announced) != 10 || announced[9] != nil {
 			t.Fatalf("exhaustion: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
 		}
-		// The waits double from 5 seconds to the 60-second ceiling.
-		total := time.Duration(0)
-		for index, nominal := range []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 60 * time.Second} {
-			if !spread(timer.delays[index], nominal) || *announced[index] != timer.delays[index] {
-				t.Fatalf("delay %d = %v, about %v expected", index, timer.delays[index], nominal)
+		// Every wait is 60 seconds: no growth and no spread.
+		for index, delay := range timer.delays {
+			if delay != 60*time.Second || *announced[index] != delay {
+				t.Fatalf("delay %d = %v, announced %v", index, delay, *announced[index])
 			}
-			total += timer.delays[index]
-		}
-		if total > 300*time.Second {
-			t.Fatalf("retries waited %v", total)
 		}
 	})
 	t.Run("summary_retries_once", func(t *testing.T) {
 		fake := &policyModel{responses: [][]fantasy.StreamPart{{errorPart(Network)}, {errorPart(Network)}}}
 		timer := &policyClock{}
-		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil); err == nil || fake.calls != 2 || len(timer.delays) != 1 {
+		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil); err == nil || fake.calls != 2 || len(timer.delays) != 1 || timer.delays[0] != 5*time.Second {
 			t.Fatalf("summary: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
 		}
 	})
-	t.Run("retry_after", func(t *testing.T) {
-		for _, row := range []struct {
-			name  string
-			after time.Duration
-			want  time.Duration
-		}{{"honoured", 7 * time.Second, 7 * time.Second}, {"shorter than the schedule", time.Second, time.Second}, {"capped", time.Hour, 60 * time.Second}, {"immediate", 0, 0}, {"negative", -time.Second, 0}} {
-			t.Run(row.name, func(t *testing.T) {
-				limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: RateLimited, Message: "slow down", RetryAfter: &row.after}}
+	// The wait is fixed: a provider's Retry-After neither shortens nor
+	// lengthens it.
+	t.Run("retry_after_is_not_followed", func(t *testing.T) {
+		for _, after := range []time.Duration{time.Second, 7 * time.Second, time.Hour, 0, -time.Second} {
+			t.Run(after.String(), func(t *testing.T) {
+				limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: RateLimited, Message: "slow down", RetryAfter: &after}}
 				fake := &policyModel{responses: [][]fantasy.StreamPart{{limited}, {textPart("result"), finishPart()}}}
 				timer := &policyClock{}
-				if err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, nil); err != nil || len(timer.delays) != 1 {
+				if err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, nil); err != nil || len(timer.delays) != 1 || timer.delays[0] != 60*time.Second {
 					t.Fatalf("delays=%v error=%v", timer.delays, err)
-				}
-				// A provider that names no positive wait gets the schedule's.
-				if row.want == 0 && !spread(timer.delays[0], 5*time.Second) || row.want != 0 && timer.delays[0] != row.want {
-					t.Fatalf("delay = %v, want %v", timer.delays[0], row.want)
 				}
 			})
 		}

@@ -718,7 +718,8 @@ func TestCompactionAtThreshold(t *testing.T) {
 }
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
 
-// A transient failure is retried after the wait the retry record announces.
+// A transient failure is retried after the fixed wait, which the retry record
+// announces with the request's nine retries; a Retry-After does not change it.
 func TestTransientRetryRecord(t *testing.T) {
 	after := 7 * time.Second
 	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down", RetryAfter: &after}}
@@ -727,7 +728,7 @@ func TestTransientRetryRecord(t *testing.T) {
 	turn := f.submit("Task")
 	select {
 	case wait := <-f.r.clock.(*manualClock).waits:
-		if wait.duration != after {
+		if wait.duration != 60*time.Second {
 			t.Fatalf("retry wait = %s", wait.duration)
 		}
 		close(wait.advance)
@@ -744,7 +745,7 @@ func TestTransientRetryRecord(t *testing.T) {
 			retries = append(retries, *execution.Retry)
 		}
 	}
-	if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 5 || *retries[0].DelayMs != 7000 || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
+	if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != 60000 || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
 		t.Fatalf("retries = %+v", retries)
 	}
 }

@@ -305,7 +305,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
 | `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
 | `Session.Loading` | Loader and "Loading conversation" instead of the list |
-| `Session.Connection` | Banner: Reconnecting (shimmer) or Host disconnected, with Retry |
+| `Session.Connection` | Banner: Reconnecting (shimmer) or Host disconnected. It has no button: reconnection is automatic ([removed-ui.md](removed-ui.md), row 31) |
 | `Session.Diagnostic` (`Title`, `Fields`, `Detail`) | Failure card after the last turn, Copy |
 | `Session.Usage` | Composer context bar: tokens, speed, cost, cache, turns (hover cards) and the context ring |
 
@@ -333,7 +333,6 @@ type Actions interface {
 	Undo(turn, path string)                  // "" undoes all
 	Review(turn, path string)
 	LoadOlder()
-	Reconnect()
 	Quote(text string) // the selection, quoted, into the draft
 }
 ```
@@ -355,7 +354,6 @@ type Actions interface {
 | `ImageAction` | Image viewer Copy, Save as, Open | Copy the picture, save it, open it in the system's app (the preview toasts `preview_notice`) |
 | `Undo`, `Review` | Changes card | Revert / review the turn's changes |
 | `LoadOlder` | The start comes into view, or Retry after a failure | Load the page before; set `LoadingOlder` while it loads |
-| `Reconnect` | Banner Retry | Reconnect |
 | `Quote` | Selection pill Quote | Append the quote to the draft (the shell does) |
 
 Copy (answer, user message, selection, diagnostic) and the image viewer,
@@ -574,8 +572,8 @@ The same Client projection serves in-process and iroh transport. A visible
 conversation retains its execution Node's bound Runtime for history, search,
 tool details, attachments, commands and all asynchronous actions. Transport
 connection changes feed the existing Reconnecting/Host disconnected banner.
-Retry refreshes that Client and its retained conversation observation; it does
-not resubmit a turn or select the controller's local Node.
+The banner has no Retry (user decision, 2026-11-12): the Client reconnects by
+itself.
 
 The banner follows what the Client reports, as the reference's notices do
 (`conversation/live/feedback.rs`). The Client reconnects quietly (250 ms to
@@ -587,11 +585,12 @@ observation and is Host disconnected with the diagnostic titled
 `chat_sync_failed`. A disconnected controller is Reconnecting for no error,
 `unavailable` or `busy`, otherwise Host disconnected. The banner is not the
 model request's recovery: a retried model request is the `Retry` row inside
-the turn ("Retrying request 2/5", [providers.md](providers.md)). Deviations
+the turn ("Retrying request 2/9", [providers.md](providers.md)). Deviations
 from the reference: it tells these states as toasts ("Reconnecting" without
 an action; "Conversation sync failed" with the fault and Reconnect), Go as
-the accepted banner after the last turn, whose Retry is also offered while
-the Client reconnects and asks for an attempt at once.
+the accepted banner after the last turn, without an action in either state.
+An observation that ended on a fault other than `unavailable` or `busy` is
+therefore opened again only when the conversation is shown again.
 
 A revoked or removed execution peer leaves captured actions unavailable. Explicit
 Node ownership never falls back to the local Client, including when another

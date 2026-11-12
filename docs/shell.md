@@ -579,7 +579,6 @@ every control and tells `preview_notice` instead.
 | Stop on a background command | The row leaves |
 | A service's port | Opens the panel's browser |
 | New worktree, Add project, Manage teams (the composer's location and team menus) | A worktree added to the conversation's project and chosen for it; the project editor; Settings, Teams |
-| Reconnect | Connects at once |
 | Voice input | Plays the recording on the clock and ends with the demo's sentence in the draft (`dictation.text` of `preview/demo/<locale>.yml`). No microphone opens |
 | A pasted or dropped file | Plays a transfer; the file is not read |
 | Copy, Quote, New chat from a selection | Clipboard; the draft; a demo chat with the quote |
@@ -909,7 +908,7 @@ captured Host; Add Host opens the existing Connections flow.
 Conversation and workspace actions resolve their execution Runtime before
 asynchronous work starts. A new window retains the requested remote session
 until that owner's snapshot arrives. Notice read/dismiss actions route through
-the owning Client. Sync and conversation Retry refresh the selected execution
+the owning Client. Sync refreshes the selected execution
 owner rather than changing local Node authority.
 
 The project overview is an independent `ProjectPage`, opened through

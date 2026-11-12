@@ -213,7 +213,7 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	// A lost or recovering connection is told after the last turn, where the
 	// next reply would come; a session without turns has it over the list.
 	if n == 0 {
-		banner(c, sess, actions)
+		banner(c, sess)
 	}
 	// The dock is not in the box that watches the transcript's presses: a
 	// press on it is one the transcript does not see.
@@ -357,7 +357,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		}
 		if last && sess != nil {
 			diagnostic(c, sess.Diagnostic)
-			banner(c, sess, actions)
+			banner(c, sess)
 		}
 	})
 }

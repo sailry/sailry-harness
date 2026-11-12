@@ -151,7 +151,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			x.timeline.attempt(attempt)
 			if attempt.RetryDelay != nil {
 				record := r.observationRecord(x, binding, purpose, attempt)
-				limit, delay := uint64(5), uint64(attempt.RetryDelay.Milliseconds())
+				limit, delay := uint64(model.MainRetries), uint64(attempt.RetryDelay.Milliseconds())
 				code := string(attempt.Failure.Kind)
 				message := attempt.Failure.Message
 				record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}

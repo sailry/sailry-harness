@@ -27,7 +27,6 @@ func (noActions) ImageAction(kit.ImageAction, conversation.Image)       {}
 func (noActions) Undo(string, string)                                   {}
 func (noActions) Review(string, string)                                 {}
 func (noActions) LoadOlder()                                            {}
-func (noActions) Reconnect()                                            {}
 func (noActions) Quote(string)                                          {}
 func (noActions) SaveEdit(string, string)                               {}
 func (noActions) CancelEdit(string)                                     {}

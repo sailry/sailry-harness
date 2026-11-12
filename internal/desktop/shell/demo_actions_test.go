@@ -227,11 +227,6 @@ func TestDemoActions(t *testing.T) {
 		if !a.Sidebar.Draft().Open {
 			t.Fatal("Add project opened no editor")
 		}
-		cv.Session.Connection = conversation.Offline
-		act(func(x *actions) { x.Reconnect() })
-		if cv.Session.Connection != conversation.Connected {
-			t.Fatal("Reconnect left the session disconnected")
-		}
 		cv.Commands = []composer.Command{{ID: "k1", Command: "make watch"}, {ID: "k2", Command: "make serve"}}
 		act(func(x *actions) { x.StopCommand("k1") })
 		if len(cv.Commands) != 1 || cv.Commands[0].ID != "k2" {
