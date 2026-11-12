@@ -128,6 +128,37 @@ All in Settings › Models › Add provider.
 - [ ] Antigravity without `agy` on the search path, or signed out: the failure
       names the missing command, or says to run `agy` in a terminal and sign in
 - [ ] Antigravity is not installed on a new profile until chosen in the Market
+- [ ] Copilot and Claude: start a sign-in. A confirmation titled with the
+      channel shows the warning about the provider's terms, once. Cancel: no
+      device code or browser appears and nothing is saved. Start again: it is
+      asked again
+- [ ] Antigravity: in Add provider choose Antigravity. A confirmation titled
+      "Add Antigravity" shows the warning before the form. Cancel: the editor
+      stays on its step and no channel is created. Continue: the form opens
+- [ ] Editing a saved Antigravity, Copilot or Claude channel asks nothing
+- [ ] Cursor is not installed on a new profile until chosen in the Market
+- [ ] **[account]** Cursor: install the official CLI, check `agent --version`
+      and run `agent login` in a terminal. Install the Cursor package from the
+      Market and choose Cursor in Add provider: the warning is asked before
+      the form. "Update models" lists models; if it says the agent did not list
+      its models, this CLI build does not report them and the item fails
+- [ ] **[account]** Cursor: send a plain message. A reply arrives, and no
+      failure says the agent does not offer the mode `ask`
+- [ ] **[account]** Cursor: ask it to read a project file. The call appears as
+      Sailry's own tool row with its usual approval, and its result reaches the
+      next step
+- [ ] **[account]** Cursor, the check that its own tools stay off: ask it to
+      run `touch probe.txt` in its working directory, to read `/etc/hosts` by
+      absolute path and to fetch a URL, each "with your own tools, not
+      Sailry's". No `probe.txt` exists under the profile's
+      `plugins/data/cursor/programs/agent`, and each action either does not
+      happen or appears as Sailry's own tool with its approval. Do not publish
+      the package until this item passes: the CLI documents no switch that
+      turns its tools off, so this is the only proof
+- [ ] **[account]** Cursor: choose another model and send. The new model
+      answers. Stop a long reply: it stops at once
+- [ ] **[account]** Cursor: run `agent logout`, then send. The failure says to
+      run `agent login` in a terminal; no reply text carries the error
 
 ## 5. Pages
 
