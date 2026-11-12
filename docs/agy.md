@@ -47,11 +47,10 @@ them. The layer offers:
   last line is kept for a failure message.
 - **Streams.** `Process.Stdin` and `Process.Stdout` are plain pipes.
 
-A program attached to a PTY is **not built**. Sharing `internal/node/terminal`
-is not small: that package owns a MyGo terminal session with a mirror, sizing
-and a controller contract, not a bare PTY. The seam is one more start function
-in `internal/node/program` that returns the same `Process` over a PTY that
-package opens; `Pool` and its users do not change. There are no sockets.
+`program.StartTerminal` runs a program as the leader of its own session with
+a pseudo-terminal instead of pipes (macOS and Linux; `program.Terminal` is
+false elsewhere). It returns the same `Process`, so `Pool` and its users do
+not change. The Claude Code route is its one user. There are no sockets.
 
 A second line protocol (for example a vendor's own stream format) reuses layer 1
 unchanged. It would add: its own manifest member naming a program, its framing

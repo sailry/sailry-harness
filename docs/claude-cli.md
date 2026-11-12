@@ -13,19 +13,20 @@ started and `~/.claude` was not touched, so every statement about runtime
 behavior below is taken from magpie or from the binary's strings and is
 unverified until the user's acceptance run.
 
-Status: the `-p` route, its codec and the tool bridge are built in
-`internal/node/claudecli` against fakes, and both executables enter the
-hidden relay mode. No Node code constructs the route yet, so nothing starts
-`claude`. The interactive mode, the provider
-declaration and the wiring into `node.newModel` are designed here and not
-built ([what blocks them](#interactive-mode)).
+Status: both modes are built in `internal/node/claudecli` on the process
+layer (`internal/node/program`) and are reached through the official package
+`plugins/claude`. Every test uses a scripted stand-in for `claude`; the real
+binary was only asked for `--version` and `--help`. `-p` is the default. The
+interactive mode is **experimental and off by default**: its screen texts and
+transcript rows are magpie's, none was observed here, so it cannot be called
+reliable before the [acceptance run](#acceptance-the-user-with-a-real-account).
 
 ## Modes
 
 | Mode | What runs | When |
 | --- | --- | --- |
-| Interactive (designed, default once built) | The real TUI in a pseudo-terminal. Input is typed as a bracketed paste; output is read from Claude Code's own session transcript; tools cross through MCP | Every turn, when the machine has a PTY and the mode is accepted |
-| `-p` (built) | `claude -p` with stream-json on stdin and stdout | Until interactive mode is accepted; where no PTY exists; once per turn when interactive mode is refused by content |
+| Interactive (built, experimental, off by default) | The real TUI in a pseudo-terminal. Input is typed as a bracketed paste; output is read from Claude Code's own session transcript; tools cross through MCP | Turns with tools and no attached file, on macOS and Linux, when the package setting `terminal` is on |
+| `-p` (built, default) | `claude -p` with stream-json on stdin and stdout | Every request while the setting is off; requests without tools (summaries, titles); turns with attached files; Windows; once per step when interactive mode is refused by content |
 
 magpie reports that Anthropic meters `-p` (entrypoint `sdk-cli`) at about
 twice the plan allowance of interactive use (`cli`), citing
@@ -86,23 +87,50 @@ It is viable on those terms, with these costs, all taken from magpie:
   ending the process; there is no control request. Effort is fixed at start.
 - Startup sends Claude Code's own small quota request before the first turn.
 
-It is not built in this pass, for three reasons: it needs a PTY child from
-the process layer that `wt/agy` has not merged, the rule against a second
-process layer forbids building one here; its correctness is almost entirely
-screen and timing behavior that cannot be written honestly without running
-the real binary, which this pass may not do; and it is not small. The seam
-is ready for it: the route talks to a `Child` (bytes in, bytes out) and a
-`Bridge`, and an interactive child would present the same stream-json lines
-the `-p` child does, as magpie's helper does.
+### What is built
 
-Options for the user:
+`claudecli/interactive.go`, with `program.StartTerminal` as the PTY.
 
-1. Accept `-p` first, then build interactive mode against the merged process
-   layer with a real account at hand (recommended).
-2. Build interactive mode without ever answering the trust question: the
-   user runs `claude` once in Sailry's working folder. Less screen driving,
-   one manual step.
-3. Stay on `-p` and accept its metering.
+- **Start.** `InteractiveArguments`: the shared flags plus `--session-id
+  <new UUID>` and `--no-chrome`, `TERM=xterm-256color`, a 200x50 terminal.
+  The cursor-position and device-attribute queries are answered, as a
+  terminal would.
+- **Readiness.** The prompt mark is drawn and, where tools are offered, the
+  bridge has seen `tools/list`; 45 seconds at most.
+- **Questions are the user's.** Sailry presses no key on the folder-trust
+  question, the sign-in screen or the first-run screens. The step fails with
+  what to do: `not_configured` naming the folder to run `claude` in once, or
+  `authentication` with the package's sign-in instruction. This is option 2
+  of the earlier design, and it means Sailry writes no trust entry by itself.
+- **Sending.** One bracketed paste, cleaned of control characters and of an
+  opening `/`, `!`, `#` or `&`, then Enter, repeated up to four times until
+  the transcript shows the user row.
+- **Reading.** The transcript is found as `<projects>/*/<session>.jsonl`,
+  where `<projects>` is under the user's `CLAUDE_CONFIG_DIR` or `~/.claude`.
+  Only that one file is read. Text and reasoning of a message are held until
+  the message is known to be the current reply.
+- **Tool calls** are reported by the bridge when the `tools/call` parks, not
+  by the transcript, so a calling message written late cannot delay the step.
+  Its late text is dropped rather than shown out of place.
+- **Fallback.** A step refused as third-party use before anything was shown
+  is asked once in `-p`. A `-p` refusal is the step's failure.
+- **Stopping** ends the process group; the next turn replays in a new session.
+
+Not built: images and PDF in interactive mode (such a turn runs in `-p`),
+the Esc interrupt, Windows (ConPTY; `program.Terminal` is false there), and
+any answer to a dialog. A dialog this list does not name shows as
+"showed no prompt in 45 seconds" with the end of the screen.
+
+### Defaults taken for the open questions
+
+| Question | Default |
+| --- | --- |
+| Which mode is the default | `-p`. The user asked for interactive; it stays off until it has run against a real account |
+| Who answers the trust question | The user, once, in the named folder |
+| Session residue | Accepted for interactive conversations only; one-off requests stay in `-p` with `--no-session-persistence` |
+| Where the switch lives | The package setting `terminal`, read at each request |
+| Fallback | Once per step, only for the third-party refusal, only before output |
+| Streaming | None in interactive mode; whole messages |
 
 ## Command line
 
@@ -132,10 +160,10 @@ claude -p --input-format stream-json --output-format stream-json
 | `--effort` | The captured effort | Help (`low`, `medium`, `high`, `xhigh`, `max`) |
 | `--thinking-display summarized` | Reasoning text in the stream | Hidden flag; the parser names its choices |
 
-Interactive mode would drop `-p`, the formats, `--verbose`,
+Interactive mode drops `-p`, the formats, `--verbose`,
 `--include-partial-messages`, `--thinking-display` and
-`--no-session-persistence`, and add `--session-id <uuid>` and `--no-chrome`
-(both in help). magpie's `--permission-mode default` is refused by 2.1.322:
+`--no-session-persistence`, and adds `--session-id <uuid>` and `--no-chrome`
+(both in help). It keeps `--permission-mode dontAsk`. magpie's `--permission-mode default` is refused by 2.1.322:
 the choices are `acceptEdits`, `auto`, `bypassPermissions`, `manual`,
 `dontAsk`, `plan`.
 
@@ -147,7 +175,10 @@ whether that includes `--mcp-config` is unknown).
 ## Environment
 
 The child gets the scrubbed environment of the process layer plus the rows
-marked adopt. A user could set each of them for a headless run.
+marked adopt. A user could set each of them for a headless run. The layer
+inherits a fixed list (search path, account folders, locale, temporary
+folder, proxy variables), so "removed" below needs no code: those variables
+never reach the child. `SSH_CONNECTION` is neither inherited nor set.
 
 | Variable | magpie | Class | Sailry |
 | --- | --- | --- | --- |
@@ -165,10 +196,10 @@ marked adopt. A user could set each of them for a headless run.
 | `DISABLE_ERROR_REPORTING=1` | set | Isolation | Adopt |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | one-off runs only | Isolation, but it stops feature flags, and with them sending only new messages per turn | Not set; the user's own value passes through |
 | `DISABLE_TELEMETRY`, `DO_NOT_TRACK` | passed as the user set them | The user's choice | Pass through |
-| `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | set from its proxy, SOCKS bridged | Correctness | Adopt from the Node's proxy; a SOCKS proxy is refused before start (Bun takes HTTP proxies only) |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | set from its proxy, SOCKS bridged | Correctness | The Node's own environment values pass through. Applying the Node's network settings and refusing a SOCKS proxy are not built |
 | `IS_SANDBOX=1` | set when root | A false claim that makes the permission bypass acceptable | Out |
 | `BUN_OPTIONS=--preload`, `MAGPIE_CLAUDE_TAP`, `MAGPIE_CLAUDE_GUARD` | set | Code injection | Out |
-| `CLAUDE_CONFIG_DIR` | set for saved accounts | Needs copied credentials | Out |
+| `CLAUDE_CONFIG_DIR` | set for saved accounts | Needs copied credentials | Never set by Sailry; the user's own value passes through |
 | `DISABLE_PROMPT_CACHING=1` | set for client cache marks | Not needed | Out |
 
 ## Isolation and residue
@@ -186,8 +217,10 @@ Sailry sets no `CLAUDE_CONFIG_DIR` and never reads the Keychain item or
 | Session files | `--no-session-persistence` in `-p` |
 | Installed plugins | Not confirmed. `--setting-sources ""` should leave none enabled; check in acceptance |
 
-The working folder is one fixed private folder under the profile
-(`tmp/claude-cli/work`), never a project. Sailry's system prompt names the
+The working folder is the package's program folder
+(`plugins/data/claude/programs/claude` under the profile), never a project.
+Run files (the system prompt, the bridge socket and token) live under
+`tmp/claude-cli`, which the Node empties at start. Sailry's system prompt names the
 workspace; Claude Code's prompt names this folder as its own.
 
 What a `-p` run may still leave in the user's Claude Code data, written by
@@ -244,8 +277,9 @@ The MCP call is where they meet.
 User input that joins with tool results (guidance) is appended to the last
 result as a marked `[user message]`, so the process and its cache go on.
 
-One child serves one conversation and is kept while idle (ten minutes by
-default, at most four children; magpie measured about 205 MiB per idle
+One child serves one conversation and is kept while idle (the process
+layer's pool: ten minutes, at most four children per package, a fifth
+concurrent request fails with "every claude process is busy"; magpie measured about 205 MiB per idle
 process on Linux arm64). A request without tools, such as a compaction
 summary or a title, uses its own child and ends it with the step.
 
@@ -297,13 +331,15 @@ match.
 
 | Condition | How it is recognized | Failure |
 | --- | --- | --- |
-| Not installed | The launcher reports no executable | `not_configured`: "Claude Code is not installed" |
-| Not signed in | A result or exit text with "Not logged in" or "/login", or status 401 | `authentication`: "Claude Code is not signed in" |
+| Not installed | `program.ErrNotInstalled` | `not_configured`: "claude is not installed or not on the search path" |
+| Not signed in | A result or exit text with "Not logged in" or "/login", or status 401 | `authentication`: "Claude Code is not signed in: " and the package's `sign_in` text |
 | Refused as third-party use | Result text "Third-party apps now draw from … extra usage" | `quota`, with Anthropic's text |
 | Rate limit | Status 429 or a rejected `rate_limit_event` | `rate_limited` |
 | Context too long | "Prompt is too long" | `context_overflow` |
 | Child ended mid-step | End of output before the step ended | `unavailable`, with the end of its error output |
 | Stopped | The request's context | `cancelled` |
+| Trust or first-run screen (interactive) | Drawn text | `not_configured`, naming what the user runs once |
+| No prompt, or message not taken (interactive) | 45 seconds; four Enters | `unavailable`, with the end of the screen |
 
 The content refusal can come through the real binary: magpie reports that
 Anthropic judges the caller's system prompt as a whole. In interactive mode
@@ -324,23 +360,60 @@ Copy for the enable prompt, to be added with the provider declaration
   refuse use from other apps`
 - Action: `Enable`
 
-## Declaration and migration (proposed)
+## Declaration and wiring
 
-- The provider is a new official package, `claude-cli`, bundled where
-  `claude-auth` is (`internal/node/plugins/catalog.go`). It declares one
-  executable entry (`claude`, found on the user's PATH, never downloaded)
-  and one model route on it, in the manifest shape the process layer of
-  `wt/agy` defines for its ACP route. That shape does not exist yet and
-  authored manifests are validated strictly, so no manifest is written in
-  this pass.
-- `node.newModel` gains one branch for that route kind which returns
-  `claudecli.New`. Model capture needs no secret and no endpoint.
-- `claude-auth` 0.1.3 and the `claude_oauth` request path stay as they are
-  in this pass. Proposal: once the new route is accepted with a real
-  account, hide Claude OAuth from Add provider, keep existing `claude_oauth`
-  providers working behind the same warning for one release, then remove
-  `model/claude.go`, its billing header and version string, and the package.
-  Stored grants are left in place and never read by the new route.
+- `plugins/claude` 0.1.0 is declaration-only: actions `models.provide` and
+  `process.run`, one program (`claude`, no arguments, no files), one adapter
+  with `claude_code` (`program`, `sign_in`, `models`), one preset
+  `claude-code` with `auth: none` and `models: discover`, and the setting
+  `terminal` (boolean, default false). It is embedded with the other official
+  packages and is **not** in `BundledDefaults`: the user installs it.
+- The manifest member is `model_adapters[].claude_code`
+  ([sdk/plugins.md](../sdk/plugins.md#claude-code)). The Node owns the
+  command line, so validation refuses a program with arguments or files.
+- `node.captureProgramModel` captures both program-backed adapters;
+  `node.newModel` returns `claudecli.New` for `claude_code`.
+- Discovery (`claudecli.Discover`) starts nothing: it resolves the executable
+  and lists the declared models. They are `--model` aliases (`opus`,
+  `sonnet`, `fable`) with efforts and no context size, because an alias has
+  none of its own; nothing is invented.
+- Discovery failures of any package channel now keep their message as a
+  `not_configured` or `unavailable` fault instead of an internal fault.
+
+### Ownership
+
+| Layer | Owner |
+| --- | --- |
+| Process, group kill, pool, idle stop, scrubbed environment, PTY | `internal/node/program` |
+| Command line, codec, bridge, replay, terminal driving | `internal/node/claudecli` |
+| Capture, settings, discovery routing | `internal/node` (`model_service.go`, `provider.go`) |
+| Executable name, models, sign-in text, the switch | `plugins/claude` |
+
+### Deviations
+
+- From magpie: no tap, no key pressed on any dialog, `dontAsk` instead of a
+  permission bypass, tool calls taken from the bridge instead of the
+  transcript, no images in interactive mode.
+- From the first design: the package is `claude`, not `claude-cli`; the
+  working folder is the program folder; interactive is not the default.
+- From agy: the route lives outside `agent/model` because it needs the MCP
+  bridge, and its models are declared instead of asked of the program.
+
+## Migration (proposed, nothing removed yet)
+
+`claude-auth` 0.1.3 and `model/claude.go` are unchanged.
+
+1. Ship `plugins/claude` beside Claude OAuth. Both channels can exist.
+2. After the acceptance run, stop offering Claude OAuth in Add provider.
+   Saved `claude_oauth` channels keep working and show the risk warning.
+3. One release later, remove `claude-auth` from `BundledDefaults` and delete
+   `model/claude.go` with its billing header and version string. A saved
+   `claude_oauth` channel then fails as `not_configured` with "Add a Claude
+   Code channel"; it is not converted, because the new channel needs Claude
+   Code installed on the Node and a model alias the user picks. Sessions keep
+   their history and need a model chosen again.
+4. Stored grants are never read by the new route. Deleting them is a
+   separate, confirmed action.
 
 ## Not ported
 
@@ -355,25 +428,15 @@ Copy for the enable prompt, to be added with the provider declaration
 | `rewind_conversation`, session branches, `--resume` | Replay is simpler; no session files |
 | WebSearch pass-through, `--json-schema`, `/usage` reading, WSL | Outside this route |
 
-## Joining the process layer
-
-`claudecli.Launcher` is the seam: it receives the argument list, the
-environment to set and to remove, the working folder and the files to write
-before start, and returns a `Child` with `Write`, `Read`, `Diagnostics` and
-`Close`. After `wt/agy` merges, the adapter maps that onto the process
-layer's start call (consent, bounded count, idle shutdown, process group,
-scrubbed environment, confined folder). The route's own child bound and idle
-timer then give way to the layer's.
-
 ## Size
 
 | Part | Lines, without tests |
 | --- | --- |
-| Bridge and helper | about 350 |
-| stream-json codec | about 250 |
-| Route, replay, runs | about 650 |
-| Process-layer adapter, declaration, `newModel` branch | about 200, not built |
-| Interactive mode | about 1,500 to 2,500, not built |
+| Bridge and helper | about 410 |
+| stream-json codec | about 300 |
+| Route, requests, replay, discovery | about 1,030 |
+| Interactive mode | about 525 |
+| PTY start in the process layer | about 95 |
 
 ## Acceptance (the user, with a real account)
 
@@ -390,3 +453,9 @@ timer then give way to the layer's.
 8. Sign out of Claude Code: the turn fails as not signed in.
 9. Compare step 2's files: record what Claude Code changed.
 10. Watch for the third-party refusal and note the plan usage per turn.
+11. Turn on the package setting, then repeat 3 to 9. Record: the trust
+    question and the folder named, whether the prompt mark and the
+    `tools/list` wait hold, whether `--permission-mode dontAsk` with
+    `--allowedTools mcp__sailry` runs the bridge tools without a dialog, the
+    transcript's folder and row shapes, how often text before a call is
+    lost, and what `/resume` and `~/.claude.json` show afterwards.
