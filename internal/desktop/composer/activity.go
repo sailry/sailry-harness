@@ -144,9 +144,9 @@ type Command struct {
 
 // activity is the State's part for the strip: which popovers are open.
 type activity struct {
-	changes, progress, commands, children bool
-	badges                                map[string]*bool
-	command                               string // the command row open
+	changes, progress, commands, services, children bool
+	badges                                          map[string]*bool
+	command                                         string // the command row open
 }
 
 // activity builds the strip: min_h_7, px_4, gap_2.
@@ -362,8 +362,8 @@ func count(c *ui.Context, one, many string, n int) string {
 	return i18n.T(c, many, "count", n)
 }
 
-// commandActivity is the running commands' capsule and popover, then a
-// capsule per service port.
+// commandActivity is the running commands' capsule and popover, then the
+// capsule of the ports they listen on.
 func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
 	connected, unavailable := a.Connected, false
 	if s.ActivityCallbacks != nil && s.ActivityCallbacks.CommandState != nil {
@@ -393,29 +393,67 @@ func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
 			}
 		})
 	}), trigger, 400, 8, 0)
+	s.services(c, running, connected, actions)
+}
+
+// service is a port a running command listens on.
+type service struct {
+	port    int
+	command string
+}
+
+// services is the capsule of the ports the running commands listen on and
+// its popover: a row a port, with its mapping and the command that serves
+// it. A click on a row opens the service; the capsule only lists them.
+func (s *State) services(c *ui.Context, running []Command, connected bool, actions Actions) {
+	var list []service
 	seen := map[int]bool{}
 	for _, cmd := range running {
 		for _, port := range cmd.Ports {
-			if seen[port] {
-				continue
+			if !seen[port] {
+				seen[port] = true
+				list = append(list, service{port, strings.Join(strings.Fields(cmd.Command), " ")})
 			}
-			seen[port] = true
-			label, busy := strconv.Itoa(port), false
-			if s.ActivityCallbacks != nil {
-				if s.ActivityCallbacks.ServiceLabel != nil {
-					label = s.ActivityCallbacks.ServiceLabel(port)
-				}
-				if s.ActivityCallbacks.ServiceBusy != nil {
-					busy = s.ActivityCallbacks.ServiceBusy(port)
-				}
-			}
-			b := chip(c.Key("service-"+strconv.Itoa(port)), label, false, func() {
-				ui.Icon(c, icons.Globe).FontSize(14)
-				chipText(c, label)
-			}).Disabled(!connected || busy).OnClick(func() { actions.OpenService(port) })
-			kit.Tooltip(c, b, i18n.T(c, "port_open_service"))
 		}
 	}
+	if len(list) == 0 {
+		s.act.services = false
+		return
+	}
+	label := strconv.Itoa(list[0].port)
+	if len(list) > 1 {
+		label = i18n.T(c, "port_count", "count", len(list))
+	}
+	trigger := chip(c.Key("services"), i18n.T(c, "port_mappings")+": "+label, s.act.services, func() {
+		ui.Icon(c, icons.Globe).FontSize(chipIcon)
+		chipText(c, label)
+	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.services = !s.act.services })
+	placeStart(kit.Popover(c, trigger, &s.act.services, func() {
+		p := theme.Of(c)
+		ui.Scroll(c.Key("service-rows")).MaxHeight(6 * 28).Gap(2).Children(func() {
+			for _, item := range list {
+				name, busy := strconv.Itoa(item.port), false
+				if s.ActivityCallbacks != nil {
+					if s.ActivityCallbacks.ServiceLabel != nil {
+						name = s.ActivityCallbacks.ServiceLabel(item.port)
+					}
+					if s.ActivityCallbacks.ServiceBusy != nil {
+						busy = s.ActivityCallbacks.ServiceBusy(item.port)
+					}
+				}
+				row := kit.Ghost(c.Key(item.port), name, false).FillWidth().Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
+					Disabled(!connected || busy).Children(func() {
+					ui.Icon(c, icons.Globe).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+					ui.Text(c, name).Font("monospace").FontSize(13).SingleLine().Shrink(0)
+					ui.Text(c, item.command).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+				}).OnClick(func() {
+					s.act.services = false
+					actions.OpenService(item.port)
+				})
+				kit.Tooltip(c, row, i18n.T(c, "port_open_service"))
+			}
+		})
+	}), trigger, 320, 8, 0)
 }
 
 // commandRow is the status icon, the command (a click shows its output), the

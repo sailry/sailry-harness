@@ -2227,3 +2227,4 @@ backup_restart_restored
 backup_restart_consequence
 backup_restart_invalid
 backup_restart_failed
+port_count
