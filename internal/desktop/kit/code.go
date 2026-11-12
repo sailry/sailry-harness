@@ -94,6 +94,8 @@ func codeTheme(c *ui.Context, look codeLook) *editor.Theme {
 type codeView struct {
 	st   *editor.State
 	text string
+	// version is the buffer's version Changed last heard of.
+	version uint64
 }
 
 // CodeOptions are how Code shows its text.
@@ -128,13 +130,14 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element 
 		if !o.Numbers {
 			st.LineNumbers = editor.LineNumbersOff
 		}
-		return codeView{st: st, text: text}
+		return codeView{st: st, text: text, version: st.Buffer.Version()}
 	})
 	if v.text != text {
 		v.text = text
 		if v.st.Buffer.String() != text {
 			v.st.Buffer.Set(text)
 		}
+		v.version = v.st.Buffer.Version()
 	}
 	look := lookPlain
 	switch {
@@ -148,14 +151,16 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element 
 		o.Bind(v.st)
 	}
 	var native ui.Element
-	box.Children(func() {
-		before := v.st.Buffer.Version()
-		native = editor.View(c, v.st).FillWidth()
-		if o.Changed != nil && v.st.Buffer.Version() != before {
-			v.text = v.st.Buffer.String()
-			o.Changed(v.text)
+	box.Children(func() { native = editor.View(c, v.st).FillWidth() })
+	// An edit reaches the buffer with its input event, between frames as
+	// well as inside the view: Changed hears of every version once.
+	if now := v.st.Buffer.Version(); now != v.version {
+		v.version = now
+		if edited := v.st.Buffer.String(); o.Changed != nil && edited != v.text {
+			v.text = edited
+			o.Changed(edited)
 		}
-	})
+	}
 	return native
 }
 

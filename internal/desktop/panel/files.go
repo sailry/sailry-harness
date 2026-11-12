@@ -102,9 +102,11 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 				item := tree.Item(folder)
 				row := item.Row.Height(rowHeight).PaddingStart(8 + 16*float32(item.Depth())).PaddingEnd(8).Gap(8).
 					Radius(p.Radius).Cursor(ui.CursorPointer).Label(n.Name)
-				if v.focus == n.Path {
+				// The root's path is "": the request is its own flag, or the
+				// root's row would take the focus from the editor every frame.
+				if v.focusing && v.focus == n.Path {
 					row.Focus()
-					v.focus = ""
+					v.focusing = false
 				}
 				switch {
 				case row.Clicked():
@@ -183,7 +185,7 @@ func (pr *Project) treeKeys(c *ui.Context, root ui.Element, visible []string) {
 		i := max(slices.Index(visible, v.sel.current), 0)
 		next := visible[min(max(i+step, 0), len(visible)-1)]
 		v.sel.pick(visible, next, true, false)
-		v.focus = next
+		v.focus, v.focusing = next, true
 	}
 	targets := v.sel.targets(visible, v.sel.current)
 	switch {

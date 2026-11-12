@@ -34,12 +34,14 @@ type Project struct {
 // FileView is the Files component's state: the files open, each with its
 // own view, and the tree's: its open folders and its selection.
 type FileView struct {
-	file        string   // the file shown last, by path
-	open        []string // the files open, in order
-	items       map[string]*fileItem
-	folders     map[string]*bool
-	sel         selection
-	focus       string // the row to take the keyboard focus, "" for none
+	file    string   // the file shown last, by path
+	open    []string // the files open, in order
+	items   map[string]*fileItem
+	folders map[string]*bool
+	sel     selection
+	// focus is the row to take the keyboard focus while focusing is set.
+	focus       string
+	focusing    bool
 	tree        ui.ScrollState
 	side        float32 // the tree's width
 	search      fileSearch
