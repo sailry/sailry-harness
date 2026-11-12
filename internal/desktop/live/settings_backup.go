@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -33,6 +34,11 @@ type backupSettingsState struct {
 	failed  bool
 	stale   bool
 	busy    bool
+	// retry is whether the storage save sent last is a request the Node
+	// has not confirmed (client.Retained), which the same save sends again.
+	retry bool
+	// storage is that save's command while its dialog may send it again.
+	storage *protocol.Command
 
 	records []settings.BackupRecord
 	partial bool
@@ -90,12 +96,12 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	state.actions.Restartable = owner == root && state.restart != nil
 	if owner == nil {
 		m.Backup.Pending, m.Archived, m.Sessions = true, nil, 0
-		state.actions.Records, state.actions.Partial, state.actions.Listing = nil, false, false
+		state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = nil, false, false, false
 		return
 	}
 	s := &owner.backupSettings
 	m.Backup.Pending = s.busy || !s.known
-	state.actions.Records, state.actions.Partial, state.actions.Listing = s.records, s.partial, s.listing
+	state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = s.records, s.partial, s.listing, s.retry
 	if !visible {
 		return
 	}
@@ -466,7 +472,29 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				return
 			}
 			command := protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, saved)}
-			owner.submitBackup(command, "backup_saved", backupFailure, func(err error) { done(err == nil) })
+			s := &owner.backupSettings
+			s.storage = &command
+			owner.submitBackup(command, "backup_saved", backupFailure, func(err error) {
+				if s.storage != &command {
+					// The dialog closed, or sent another draft, meanwhile.
+					owner.forgetCommand(command)
+				} else if s.retry = client.Retained(err); !s.retry {
+					s.storage = nil
+				}
+				state.actions.Retry = s.retry
+				done(err == nil)
+			})
+		},
+		Forget: func() {
+			owner := state.shown
+			if owner == nil {
+				return
+			}
+			s := &owner.backupSettings
+			if s.storage != nil {
+				owner.forgetCommand(*s.storage)
+			}
+			s.storage, s.retry, state.actions.Retry = nil, false, false
 		},
 		Keep: func(keep int) {
 			if owner := ready(); owner != nil && keep >= 0 && uint32(keep) != owner.backupSettings.saved.Keep {

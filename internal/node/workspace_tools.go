@@ -185,13 +185,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			defer effect.close()
 			output, effectErr := node.workspaceIO(ctx, inv.Caller, request, current.prepared, effect)
 			if !declaration.ReadOnly {
-				unlock := node.agent.LockPublication()
-				defer unlock()
-				var err error
-				output, effectErr, err = node.recordWorkspaceEffect(context.WithoutCancel(ctx), inv.Caller, request, output, effectErr, effect)
-				if err != nil {
-					return workspaceToolFault(&protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "tool effect result could not be recorded; inspect the target before retrying"})
-				}
+				output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(ctx), inv.Caller, request, output, effectErr, effect)
 			}
 			if effectErr != nil {
 				return workspaceToolFault(effectErr)

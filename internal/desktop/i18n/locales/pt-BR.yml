@@ -2250,6 +2250,10 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host é mais antigo; atualize o Host
+host_version_newer: Host é mais recente; atualize o Desktop
+host_version_unknown: Não foi possível verificar a versão do Host; atualize o Host
+controller_version_unknown: Não foi possível verificar a versão do Desktop; atualize o Desktop
 content_link_address: Endereço do link
 content_link_edit: Editar link
 content_image_address: Endereço da imagem

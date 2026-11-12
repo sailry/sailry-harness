@@ -365,14 +365,15 @@ func small(c *ui.Context, key any, icon *ui.SVG, label string, disabled, outline
 }
 
 // report toasts the host's failures once each (Shell::observe_host_errors):
-// the runtime's with its detail.
+// the runtime's with its detail, which is a copy key for a protocol
+// mismatch (feedback.rs fault_message) and the Node's own text otherwise.
 func (s *State) report(c *ui.Context, h *Host) {
 	if e := h.Runtime.Error; e != "" && e != s.runtimeFailed {
 		key := "host_runtime_error"
 		if h.plain(c) {
 			key = "live_host_runtime_error"
 		}
-		kit.Error(c, i18n.T(c, key), e)
+		kit.Error(c, i18n.T(c, key), i18n.T(c, e))
 	}
 	s.runtimeFailed = h.Runtime.Error
 }

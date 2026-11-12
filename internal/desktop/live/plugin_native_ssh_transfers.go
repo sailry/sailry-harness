@@ -99,7 +99,7 @@ func (job *sshTransferJob) snapshot(id protocol.RequestID) map[string]any {
 	return map[string]any{
 		"id": id, "profile": job.access.profile.ID, "kind": kind, "source": source, "path": job.remote,
 		"stage": stage, "error": failure, "progress": progress,
-		"can_start":   !job.busy && (job.status.stage == sshTransferReady || job.status.stage == sshTransferFailed && !unknown),
+		"can_start":   !job.busy && (job.status.stage == sshTransferReady || job.status.stage == sshTransferFailed && (!unknown || job.plan.pending == nil)),
 		"can_replace": !job.busy && job.status.stage == sshTransferExists,
 		"can_check":   !job.busy && job.plan.pending != nil && unknown,
 		"can_cancel":  job.busy && job.status.stage != sshTransferPublishing,
@@ -197,8 +197,8 @@ func (store *sshTransferStore) action(id protocol.RequestID, kind string) error 
 	case sshTransferExists:
 		allowed = replace
 	case sshTransferFailed:
-		if job.status.fault != nil && job.status.fault.Code == protocol.ErrorCodeOutcomeUnknown {
-			allowed = check && job.plan.pending != nil
+		if job.status.fault != nil && job.status.fault.Code == protocol.ErrorCodeOutcomeUnknown && job.plan.pending != nil {
+			allowed = check
 		} else {
 			allowed = kind == "start"
 		}

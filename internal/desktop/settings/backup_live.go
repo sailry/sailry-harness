@@ -38,6 +38,14 @@ type BackupActions struct {
 	// Save saves the storage dialog's draft with its typed secrets. The
 	// schedule's draft is saved as it changes.
 	Save func(target BackupTarget, done func(bool))
+	// Retry is whether the Node has not confirmed the storage save sent
+	// last. The dialog that sent it keeps its draft as sent and its Save
+	// reads Retry, which sends that request again
+	// (settings/backup/editor.rs).
+	Retry bool
+	// Forget drops that unconfirmed save when its dialog closes, so that
+	// a later identical draft is a new request.
+	Forget func()
 	// Keep saves how many of the Node's backups stay stored; 0 keeps all.
 	Keep         func(keep int)
 	ChooseFolder func(initial string, selected func(string))

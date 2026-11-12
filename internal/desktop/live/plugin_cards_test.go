@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -48,14 +49,35 @@ func testPluginCardContracts(t *testing.T) {
 			t.Fatalf("card lost an uncertain durable request: %s", code)
 		}
 		failure := &protocol.Fault{Code: code, Message: "isolated completed outcome"}
-		outcome := protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Err: failure}}
-		_, err, confirmed := pluginCardInspected(outcome, nil)
+		state := client.RequestFailed
+		if code == protocol.ErrorCodeOutcomeUnknown {
+			// Recorded by the Node as never to be known: final as well.
+			state = client.RequestUnknown
+		}
+		_, err, confirmed := pluginCardInspected(client.Resolution{State: state, Fault: failure}, nil)
 		if !confirmed || err == nil || faultCode(err) != code {
 			t.Fatal("completed card fault was not definitive")
 		}
 	}
-	if _, err, confirmed := pluginCardInspected(protocol.RequestOutcome{Kind: "not_admitted"}, nil); confirmed || faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
-		t.Fatal("card inspection replayed an uncertain action")
+	// Only a request the Node still runs, or a Node that cannot be asked,
+	// keeps the login unconfirmed; every other answer ends the request, so a
+	// card never asks about the same request forever.
+	for name, inspected := range map[string]struct {
+		resolution client.Resolution
+		failure    error
+		confirmed  bool
+		code       protocol.ErrorCode
+	}{
+		"running":       {client.Resolution{State: client.RequestPending}, nil, false, protocol.ErrorCodeOutcomeUnknown},
+		"unreachable":   {client.Resolution{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node is unreachable"}, false, protocol.ErrorCodeUnavailable},
+		"interrupted":   {client.Resolution{State: client.RequestUnknown, Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the Node restarted"}}, nil, true, protocol.ErrorCodeOutcomeUnknown},
+		"never arrived": {client.Resolution{State: client.RequestAbsent}, nil, true, protocol.ErrorCodeUnavailable},
+		"applied":       {client.Resolution{State: client.RequestApplied, Output: protocol.Output{Kind: "connector_login"}}, nil, true, ""},
+	} {
+		output, err, confirmed := pluginCardInspected(inspected.resolution, inspected.failure)
+		if confirmed != inspected.confirmed || faultCode(err) != inspected.code || (err == nil) != (output.Kind == "connector_login") {
+			t.Fatalf("%s card inspection = %#v, %v, confirmed %t", name, output, err, confirmed)
+		}
 	}
 	reference := protocol.PluginReference{Name: "captured-card", Digest: strings.Repeat("a", 64), SettingsRevision: 2}
 	card := &pluginCardInstance{summary: protocol.PluginCardSummary{Package: reference}, reference: reference}

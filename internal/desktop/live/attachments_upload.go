@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -135,10 +136,14 @@ func (r *Runtime) finishAttachment(a *composer.Attachment, record *attachmentRec
 		if pending != nil {
 			record.pending, record.expected = pending, expected
 		}
+		// unexpected is an answer the Node gave that is not this
+		// attachment: asking about the request again reads the same answer,
+		// so the request ends with an uncertain toast and is not kept.
+		unexpected := false
 		if err == nil {
 			attachment, ok := detail[protocol.Attachment](output.Data)
 			if output.Kind != "attachment" || !ok || attachment.Spec != expected {
-				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "attachment publication result is unavailable")
+				err, unexpected = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "attachment publication result is unavailable"), true
 			} else {
 				record.ready, record.pending = &attachment, nil
 				a.ID, a.Name, a.Mime, a.Size, a.Status, a.Progress, a.Error = attachment.ID.String(), attachment.Spec.Name, attachment.Spec.MediaType, int64(attachment.Spec.Size), composer.Ready, 1, ""
@@ -163,6 +168,15 @@ func (r *Runtime) finishAttachment(a *composer.Attachment, record *attachmentRec
 		}
 		if faultCode(err) == protocol.ErrorCodeRevisionConflict {
 			a.Error = "files_upload_changed"
+		}
+		if unexpected {
+			record.pending = nil
+			if record.removing {
+				r.removeDraftAttachment(a, record)
+				return
+			}
+			kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_attachment_unknown"))
+			return
 		}
 		if pending != nil && attachmentRequestUncertain(err) {
 			a.Status, a.Error = composer.Uncertain, "chat_attachment_unknown"
@@ -256,18 +270,26 @@ func (r *Runtime) finishAttachmentDiscard(a *composer.Attachment, record *attach
 			r.removeDraftAttachment(a, record)
 			return
 		}
-		record.pending = &pending
 		a.Status, a.Error = composer.Failed, "chat_attachment_remove_failed"
 		if attachmentRequestUncertain(err) {
+			record.pending = &pending
 			a.Status, a.Error = composer.Uncertain, "chat_attachment_unknown"
 			kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_attachment_unknown"))
 			return
 		}
+		// The request ended: the next removal is a new one.
+		record.pending = nil
 		r.attachmentOutcome(c, err)
 	})
 }
 
+// attachmentRequestUncertain reports whether a publication's request is kept
+// to be asked about again. A released request is not: the Node holds nothing
+// more for it.
 func attachmentRequestUncertain(err error) bool {
+	if client.Released(err) {
+		return false
+	}
 	code := faultCode(err)
 	return code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == protocol.ErrorCodeInternal
 }

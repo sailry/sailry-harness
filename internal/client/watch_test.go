@@ -408,6 +408,11 @@ func TestRecoverAfterReset(t *testing.T) {
 						if err != nil || resolution.State != test.state {
 							t.Fatalf("resolution = %#v, %v", resolution, err)
 						}
+						// A flow that keeps its request reads the same answer.
+						answer, failure := resolution.Result()
+						if (failure == nil) != (test.code == "") || failure != nil && faultCode(failure) != test.code || Released(failure) != test.released || (failure == nil) != (answer.Kind == stored.Kind) {
+							t.Fatalf("result = %#v, %v, released %t", answer, failure, Released(failure))
+						}
 					}
 				})
 			}

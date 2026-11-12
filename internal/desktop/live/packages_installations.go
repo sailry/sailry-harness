@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -224,7 +225,9 @@ func (r *Runtime) retryInstallation(entry transfers.Entry) {
 					owner.packages.infos[info.Summary.Name] = info
 				}
 				owner.dismissInstallation(entry)
-			} else if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+			} else if !client.Retained(err) {
+				// Failed, or final: the Node can never tell what the
+				// installation did. Either way this request is over.
 				delete(owner.packages.pending, packageCommandKey(request.Command))
 				for index := range owner.packages.tasks {
 					if owner.packages.tasks[index].Request == id {

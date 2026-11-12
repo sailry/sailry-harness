@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -91,7 +92,7 @@ func (p *workspaceProject) runBranchSwitch(command protocol.Command, branch pane
 			kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 		}
 	}, func(c *ui.Context, err error) {
-		if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+		if client.Retained(err) {
 			p.panel.SetGitSwitchPending([]panel.PendingOperation{{Label: "files_check_result", Run: func(*ui.Context) { p.runBranchSwitch(command, branch, local, finish) }}})
 		} else if faultCode(err) == protocol.ErrorCodeConflict {
 			p.panel.SetGitSwitchPending([]panel.PendingOperation{{Label: "git_stash_switch", Run: func(*ui.Context) {

@@ -3,13 +3,17 @@ package node
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/web"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -56,6 +60,82 @@ func TestWorkspaceAdmissionAndWebOwnership(t *testing.T) {
 		conflict := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: session.Worktree, Path: "note.txt", Text: "overwrite", ExpectedRevision: &expected}}))
 		if conflict.Fault == nil || conflict.Fault.Code != protocol.ErrorCodeRevisionConflict {
 			t.Fatalf("conflict lost: %v", conflict.Fault)
+		}
+	})
+	t.Run("a result that could not be stored is settled", func(t *testing.T) {
+		node := nodeFixture(t)
+		session := sessionFixture(t, node)
+		ctx := context.Background()
+		// The writer's connection refuses to store a result until the gate opens.
+		gate := func(statement string) {
+			t.Helper()
+			if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+				_, err := db.ExecContext(ctx, statement)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sandbox := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings)
+		gate("CREATE TEMP TABLE result_gate AS SELECT 1 AS closed")
+		gate("CREATE TEMP TRIGGER result_refused BEFORE UPDATE OF status ON requests WHEN (SELECT closed FROM result_gate)=1 BEGIN SELECT RAISE(ABORT,'result write refused'); END")
+		defer gate("DROP TRIGGER result_refused")
+		// A file write has only its result to store; a settings save has its
+		// whole change in the transaction that fails.
+		requests := map[string]protocol.Request{
+			"effect":   protocol.NewRequest(node.ID(), protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: session.Worktree, Path: "settled.txt", Text: "written\n"}}),
+			"settings": protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_sandbox_settings", Data: &sandbox}),
+		}
+		inspect := func(name string) protocol.RequestOutcome {
+			t.Helper()
+			body, err := json.Marshal(requests[name])
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: requests[name].ID, Digest: admission.Digest(body)}}
+			return commandFixture(t, node, query).Data.(protocol.OutputRequestOutcomePayload).Outcome
+		}
+		pending := map[string]<-chan link.Response{}
+		for name, request := range requests {
+			accepted, err := node.Dispatch(ctx, node.ID(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending[name] = accepted.Completion
+		}
+		time.Sleep(200 * time.Millisecond)
+		for name, completion := range pending {
+			select {
+			case early := <-completion:
+				t.Fatalf("%s answered before its result was stored: %#v, %v", name, early.Output, early.Fault)
+			default:
+			}
+			if outcome := inspect(name); outcome.Kind != "admitted" {
+				t.Fatalf("%s while its result is unrecorded = %#v", name, outcome)
+			}
+		}
+		gate("UPDATE result_gate SET closed=0")
+		for name, completion := range pending {
+			result := <-completion
+			outcome := inspect(name)
+			stored, ok := outcome.Data.(protocol.Result[protocol.Output, protocol.Fault])
+			if outcome.Kind != "completed" || !ok {
+				t.Fatalf("%s stored outcome = %#v", name, outcome)
+			}
+			replay := dispatchFixture(t, node, node.ID(), requests[name])
+			switch name {
+			case "effect":
+				if result.Fault != nil || stored.Ok == nil || replay.Fault != nil {
+					t.Fatalf("effect = %v, stored %#v, replay %v", result.Fault, stored, replay.Fault)
+				}
+			case "settings":
+				if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeInternal || stored.Err == nil || *stored.Err != *result.Fault || replay.Fault == nil || *replay.Fault != *result.Fault {
+					t.Fatalf("settings = %v, stored %#v, replay %v", result.Fault, stored, replay.Fault)
+				}
+			}
+		}
+		if saved := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings); saved.Revision != sandbox.Revision {
+			t.Fatalf("a failed save was applied: revision %d, was %d", saved.Revision, sandbox.Revision)
 		}
 	})
 	t.Run("saved code index setting applies before completion", func(t *testing.T) {
