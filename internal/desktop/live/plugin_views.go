@@ -11,7 +11,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -573,11 +572,8 @@ func (r *Runtime) renderMountedPlugin(view *ui.Context, mounted *pluginMountedVi
 	}
 	mounted.seen = true
 	if mounted.mounted == nil {
-		if mounted.failure != nil {
-			kit.IconButton(view.Key("plugin-retry"), icons.RotateCw, i18n.T(view, "chat_retry"), 28, false).
-				OnClick(func() { r.retryPluginView(view, mounted) })
-		}
-		// A mount takes a few frames; a spinner would only flash.
+		// A mount takes a few frames; a spinner would only flash. A failed
+		// view draws nothing either: its toast reports it and retries.
 		return false
 	}
 	_, err := mounted.mounted.Render(view.Key(mounted.generation))

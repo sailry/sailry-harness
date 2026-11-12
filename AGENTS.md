@@ -134,6 +134,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - File picker: the host's name on a second line under the title (this device
   is never named)
 - Connection banner: the Retry button (the Client reconnects by itself)
+- Plugin page: a Retry icon button in a failed view's place, at the top
+  left of the page (the failure's toast keeps Retry)
 - Right panel: History and Documents as launcher or "+" entries (the tab kinds
   stay); a preview of PDF, Office or other formats MyGo cannot draw (Open uses
   the system's app, on Mobile too)

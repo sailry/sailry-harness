@@ -71,7 +71,12 @@ func (binding *NativeBinding) renderControl(view *ui.Context, element NativeElem
 		}
 		return control.Disabled(disabled), nil
 	case "SelectableRow":
-		row := kit.Ghost(view, label, selected).FillWidth().MinWidth(0).Justify(ui.Start).Disabled(disabled).Children(children)
+		row := kit.Ghost(view, label, selected).FillWidth().MinWidth(0).Justify(ui.Start).Disabled(disabled)
+		if nativeProp(props, "variant", "") == "card" {
+			// The reference's card is its outline button padded 12.
+			row.Border(1, theme.Of(view).Border).Padding(12)
+		}
+		row.Children(children)
 		row.OnClick(func() { binding.emit("control", map[string]any{"id": identity, "click_count": 1}) })
 		return row, nil
 	case "SelectableText":
