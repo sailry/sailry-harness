@@ -218,10 +218,10 @@ plugin callback or tool sent them on either side; only tests did:
 The feature counters `settings.save.credential` and `settings.save.defaults`
 went with their commands. A peer that still sends one of the seven is answered
 as for any undeclared command ([node.md](node.md#values-from-another-build)):
-a Node's Link refuses the frame (`invalid_request` "invalid Link frame") and
-closes the stream without a receipt, so the sender reads `outcome_unknown` and
-`inspect_request` answers `not_admitted`; a local controller's dispatch fails
-with `invalid_request` "invalid command". Neither is admitted or run. A ledger row an earlier build kept for a raw
+a Node's Link answers the request with a `rejected` reply and a local
+controller's dispatch fails, both with `invalid_request` "invalid command".
+Neither is admitted, recorded or run, so `inspect_request` for it answers
+`not_admitted`. A ledger row an earlier build kept for a raw
 `put_credential` request is still digested at startup.
 
 ### Updates and changes with one end missing

@@ -192,6 +192,16 @@ member is refused at every level.
   that is neither `Ok` nor `Err`, pairing and rendezvous frames, package
   manifests (`plugins.ValidateManifest`), plugin transaction operations and
   script input, tool arguments, settings and stored rows, and required members.
+- A command request a Node cannot decode is refused definitely where it can
+  be. When the envelope and the request's `version`, `id` and `target` decode
+  and only its `command` does not (an undeclared kind, such as a removed
+  command, or a payload this build cannot read), the Link writes the ordinary
+  `rejected` reply with `invalid_request` "invalid command" after the same
+  pairing and protocol checks as any call, and the sender's dispatch fails
+  with that fault. Nothing is admitted or recorded, so `inspect_request` for
+  that identifier answers `not_admitted`. A frame whose request identity does
+  not decode is refused as before (`invalid_request` "invalid Link frame"):
+  the stream closes without a reply and the sender reads `outcome_unknown`.
 - Consumers: `client.Projection` and the conversation reducer skip an event or
   frame change of an undeclared kind and advance its sequence; a draft part of
   an undeclared kind is valid and not drawn; `live` reads an undeclared queue
