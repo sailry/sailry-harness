@@ -492,6 +492,7 @@ func (pr *Project) combined(c *ui.Context) {
 		return
 	}
 	add, del := 0, 0
+	diffToolbar(c)
 	ui.Scroll(c.Key("git-combined")).Grow(1).Padding(8).Gap(8).Children(func() {
 		for _, ch := range pr.Data.Changes {
 			pr.readDiff(ch.Path, "all")
@@ -527,7 +528,7 @@ func (pr *Project) combined(c *ui.Context) {
 						ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 					} else {
 						kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
-							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true})
+							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true, Split: *kit.DiffSplit(c)})
 						if metadata.Partial {
 							ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 						}
