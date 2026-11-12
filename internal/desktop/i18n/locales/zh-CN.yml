@@ -337,7 +337,6 @@ git_action_conflict: 操作存在冲突，请刷新并解决冲突后继续
 git_action_failed: Git 操作失败，请检查仓库状态和远程配置
 git_action_unknown: Git 操作结果未确认，请刷新检查后再继续
 git_auth_failed: 远程认证失败，请检查执行主机的 Git 凭据
-cli_launch: 启动 AI CLI
 workspace_memory_only: 仅修改示例
 workspace_confirm: 确认
 project_remove_named: 确认移除项目“%{name}”？将关闭其终端，文件和会话会保留

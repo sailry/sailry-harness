@@ -337,7 +337,6 @@ git_action_conflict: Git состояние изменено, обновить
 git_action_failed: Git операция не удалась
 git_action_unknown: Git результат не подтвержден, обновить перед продолжением
 git_auth_failed: Git ошибка проверки подлинности
-cli_launch: Запустить CLI ИИ
 workspace_memory_only: Только предварительный просмотр изменений
 workspace_confirm: Подтвердить
 project_remove_named: Удалить проект «%{name}»? Его терминалы будут закрыты; файлы и сессии сохранятся

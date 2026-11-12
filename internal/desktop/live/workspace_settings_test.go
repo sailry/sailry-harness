@@ -25,6 +25,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("terminal tabs prune", testTerminalTabsPrune)
 	t.Run("terminal tabs create", testTerminalTabsCreate)
 	t.Run("terminal tabs close", testTerminalTabsClose)
+	t.Run("terminal tabs close pending", testTerminalTabsClosePending)
 	t.Run("terminal tabs project", testTerminalTabsProject)
 	t.Run("SSH host install", testSSHHostInstall)
 	t.Run("browser address", testBrowserAddress)

@@ -351,7 +351,6 @@ git_action_conflict
 git_action_failed
 git_action_unknown
 git_auth_failed
-cli_launch
 workspace_memory_only
 workspace_confirm
 project_remove_named

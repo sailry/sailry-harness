@@ -337,7 +337,6 @@ git_action_conflict: Git 状態が変更されました、更新します
 git_action_failed: Git 操作に失敗しました
 git_action_unknown: Git 結果は確認されていません。続行する前に更新してください
 git_auth_failed: Git 認証に失敗しました
-cli_launch: AI CLI を起動
 workspace_memory_only: プレビューのみを変更
 workspace_confirm: 確認
 project_remove_named: プロジェクト「%{name}」を削除しますか？ターミナルは閉じられ、ファイルとセッションは保持されます

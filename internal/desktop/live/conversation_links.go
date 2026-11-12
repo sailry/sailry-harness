@@ -247,7 +247,12 @@ func (r *Runtime) openFileLink(c *ui.Context, session, link string, external, li
 			project.openFileAt(target.path, target.line)
 		}
 	case local && r.attachments.native.OpenLocal != nil:
-		r.attachments.native.OpenLocal(filepath.FromSlash(target.path))
+		// resolveFileLink keeps a Windows drive path as "/C:/…".
+		localPath := target.path
+		if filepath.VolumeName(localPath[1:]) != "" {
+			localPath = localPath[1:]
+		}
+		r.attachments.native.OpenLocal(filepath.FromSlash(localPath))
 	default:
 		failed("files_remote_path")
 	}

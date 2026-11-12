@@ -337,7 +337,6 @@ git_action_conflict: 操作存在衝突，請重新整理並解決衝突後繼�
 git_action_failed: Git 操作失敗，請檢查倉庫狀態和遠端配置
 git_action_unknown: Git 操作結果未確認，請重新整理檢查後再繼續
 git_auth_failed: 遠端認證失敗，請檢查執行主機的 Git 憑據
-cli_launch: 啟動 AI CLI
 workspace_memory_only: 僅修改示例
 workspace_confirm: 確認
 project_remove_named: 確認移除專案“%{name}”？將關閉其終端，檔案和會話會保留

@@ -293,6 +293,22 @@ func (state *pluginNativeState) releaseConversation(mounted *pluginNativeConvers
 	mounted.draftID = ""
 }
 
+// releaseConversations ends the view's conversation mounts. Nothing else
+// prunes a draft that never became a session and each view's draft key is
+// new, so the draft's composer state goes with the view.
+func (state *pluginNativeState) releaseConversations() {
+	runtime := state.runtime
+	for identity, mounted := range state.conversations {
+		state.releaseConversation(mounted)
+		delete(state.conversations, identity)
+		id := fmt.Sprintf("draft/plugin/%p/%s", state, identity)
+		if comp := runtime.App.DropComposer(id); comp != nil {
+			delete(runtime.composerBases, comp)
+		}
+		delete(runtime.composerInitialized, id)
+	}
+}
+
 func (state *pluginNativeState) initializeAssistantComposer(comp *composer.State, session protocol.Session) {
 	if comp.Model == "" {
 		state.runtime.defaultComposer(comp)

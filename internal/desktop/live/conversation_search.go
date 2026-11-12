@@ -83,10 +83,8 @@ func (r *Runtime) initConversationSearch() {
 				if cv != nil {
 					ownerTurn := turn
 					if state, ok := owner.controller.Conversation(id); ok {
-						for _, run := range state.Snapshot.Page.Runs {
-							if run.Turn == turn && run.Joined != nil {
-								ownerTurn = *run.Joined
-							}
+						if joined, listed := turnOwners(state.Snapshot.Page.Runs)[turn]; listed {
+							ownerTurn = joined
 						}
 					}
 					for i, row := range cv.Turns {

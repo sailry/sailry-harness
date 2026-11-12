@@ -46,6 +46,8 @@ func TestAttachmentLocalIO(t *testing.T) {
 		}
 	})
 	t.Run("workspace uploads", testWorkspaceUploads)
+	t.Run("workspace git busy", testWorkspaceGitBusy)
+	t.Run("queued read repeated", testQueuedReadRepeated)
 	t.Run("ssh transfers", testSshTransferBridge)
 	t.Parallel()
 	t.Run("source evidence and limits", func(t *testing.T) {

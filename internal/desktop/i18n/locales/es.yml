@@ -337,7 +337,6 @@ git_action_conflict: Git estado cambiado, actualizar
 git_action_failed: Git operación fallida
 git_action_unknown: Git resultado no confirmado, actualice antes de continuar
 git_auth_failed: Git la autenticación falló
-cli_launch: Iniciar CLI de IA
 workspace_memory_only: Vista previa de cambios solamente
 workspace_confirm: Confirmar
 project_remove_named: ¿Eliminar el proyecto «%{name}»? Sus terminales se cerrarán; los archivos y sesiones se conservarán

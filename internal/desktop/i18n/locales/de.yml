@@ -337,7 +337,6 @@ git_action_conflict: Git Zustand geändert, aktualisieren
 git_action_failed: Git Operation fehlgeschlagen
 git_action_unknown: Git Ergebnis nicht bestätigt, aktualisieren Sie vor dem Fortfahren
 git_auth_failed: Git Authentifizierung fehlgeschlagen
-cli_launch: AI-CLI starten
 workspace_memory_only: Nur Vorschau der Änderungen
 workspace_confirm: Bestätigen
 project_remove_named: Projekt „%{name}“ entfernen? Seine Terminals werden geschlossen; Dateien und Sitzungen bleiben erhalten

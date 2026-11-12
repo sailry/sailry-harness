@@ -289,7 +289,6 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initPluginViews()
 	r.App.Panel.SetCreateResource(r.createPanelResource)
 	r.App.Hooks.PluginOverlays = r.renderPluginOverlays
-	r.App.Hooks.PluginHeader = r.renderPluginHeader
 	r.App.Hooks.PluginTitle = r.renderPluginTitle
 	return r, nil
 }
