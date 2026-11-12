@@ -24,6 +24,12 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 		padding, border, radius = element.look.padding, element.look.border, element.look.radius
 	}
 	fontSize := float32(14)
+	// MyGo's Grow, also of no share, turns an unset basis into 0%, which
+	// nothing sets back: a package's plain container that asks for no share
+	// is left as it is built, without one, so that its basis stays its own
+	// size. One that holds a scrolling list and names no minimum would
+	// otherwise be laid out with no size in a parent of a known one.
+	grown := element.Module != "gpui-kit" || element.Export != "Div"
 	for _, style := range element.Styles {
 		name := style.Name
 		var argument any
@@ -189,18 +195,27 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 		case "flex_wrap":
 			target.Wrap()
 		case "flex_1", "flex_auto":
-			target.Grow(1).Shrink(1).Basis(0)
-		case "flex_none":
-			target.Grow(0).Shrink(0)
-		case "flex_initial":
-			// The basis stays the element's own size: MyGo's Auto on a
-			// basis stretches it to its limit instead.
-			target.Grow(0).Shrink(1)
+			// The reference's basis is 0%, not 0: nothing in a parent of a
+			// known size, the content in one as high or wide as what it
+			// holds. A basis of 0 there collapses a scrolling list to
+			// nothing, as it has no minimum of its own.
+			target.Grow(1).Shrink(1).BasisPercent(0)
+			grown = true
+		case "flex_none", "flex_initial":
+			if grown {
+				target.Grow(0)
+			}
+			if name == "flex_none" {
+				target.Shrink(0)
+			} else {
+				target.Shrink(1)
+			}
 		case "flex_grow":
 			if argument == nil {
 				value = 1
 			}
 			target.Grow(value)
+			grown = true
 		case "flex_shrink", "flex_shrink_0":
 			if argument == nil && name == "flex_shrink" {
 				value = 1
