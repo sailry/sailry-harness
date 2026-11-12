@@ -80,11 +80,11 @@ model library and the extension details page.
 | `draft.go` | `draftDialog` (settings/draft.rs) and the dialog footer |
 | `providers.go` | Providers: catalog and compaction, families, channels with quota and status, the editor (brand, method, configure, models) and sign-in |
 | `connectors.go` | Connectors: toolbar and filter, service rows with status, switch and menu; the add dialog, details dialog and MCP server editor |
-| `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model and effort, prompt, members), role editor |
-| `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes, uninstall |
+| `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model with its effort and feature selects, prompt, members), role editor |
+| `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes and the permissions an update adds (`Package.AddedPermissions`, also on the details' newest version), uninstall |
 | `skills.go` | Skills: cards, install dialog by source, uninstall |
 | `market.go` | Market (`MarketPage`): plugins, skills and themes with search, source, filters and install/update states |
-| `library.go` | The model library dialog: hub, search, rows with download progress, details, delete |
+| `library.go` | The model library dialog: hub, search, rows with download progress, load more, details (version, prefixes, install), delete |
 | `details.go` | The extension details page (`Detail`, `ShowDetails`, `CloseDetails`, `DetailsPanel`) |
 | `lists.go` | Dialog pieces: `modalList`/`listRow` (ui/modal_list.rs), `authorization` (ui/authorization.rs), `iconButton`, `confirm` |
 | `ai.go` | `enabledOpacity` |
@@ -211,7 +211,7 @@ placeholder in an empty masked input.
 | Skills | install, re-import, update | preview_notice |
 | Market | install, update, apply theme | preview_notice |
 | Model library | search, details | in memory |
-| Model library | install, cancel | preview_notice; delete confirms |
+| Model library | install, cancel, update | preview_notice; delete confirms |
 
 ## Backend ownership
 
@@ -383,8 +383,11 @@ hover style.
   keystroke parser does.
 - The hook editor saves on Close after validation; the reference saves as
   fields change (debounced) and Close ends the edit.
-- The model details dialog shows the source and status only; size and
-  license come with the model library (phase 5b).
+- A managed model's details dialog shows its status, source, version,
+  license and size with its download's bar and percent, over Close and what
+  its state allows: Cancel for a download, Update for an installed model
+  and Delete, which asks first. The reference adds the download's speed,
+  which the Node's installation tasks do not report.
 - A downloading library row shows its bar and `Downloading`; the reference
   adds the percent as text.
 - Backup's local folder picker, restore from file and the records dialog
@@ -397,9 +400,8 @@ hover style.
   own files); a brand the collection lacks shows its name's initial. The
   editor's protocol, product and region are `kit.Segmented` controls (the
   reference's are dropdowns), and a single choice is not shown. Switching
-  one keeps an endpoint the user typed (the reference overwrites it). The
-  cloud credentials form, partner suggestions and provider-contributed
-  plugins are not built. Usage shows the 5h/7d quota bars, not the metrics
+  one keeps an endpoint the user typed (the reference overwrites it).
+  Partner suggestions and provider-contributed plugins are not built. Usage shows the 5h/7d quota bars, not the metrics
   popover.
   Default effort per model is a check per effort.
 - The authorization dialog's countdown is static text, and Open/Reopen
@@ -413,6 +415,30 @@ hover style.
   always says why it has no tools. The row's ellipsis is disabled when the row
   has no action; statuses and menu rules are in
   [Declared authorization](connectors.md#server-status-and-row-actions).
+- Failure toasts: the toast of a save that failed or whose outcome is
+  unknown offers Retry (`kit.Recover`) for Prevent sleep, diagnostics,
+  Command sandbox, the compaction threshold, team concurrency, the
+  terminal settings and hooks. Retry saves the page's draft again at the
+  revision the page then holds, and only while the page still shows the
+  Node or project it failed for. The reference offers Reload on some of
+  these; our pages read again by themselves after such a save. A conflict
+  toast has no action.
+- Runtime, Preparing: while the shown Node prepares packages' Python
+  dependencies the Python card has a Preparing row naming each package and
+  its stage (`runtime_python_preparing`, `python_creating`,
+  `python_installing`, `python_validating`), from the Node's `python`
+  topic (`Runtime.observePython`), as the reference's Runtime page. The
+  reference's same stage on a plugin's row is not shown. A stage this
+  build does not name is left out.
+- The `provider` slot is not mounted: a package's metric on a provider's
+  row (`provider-status`, `workbuddy`) needs the provider-context reads
+  (`sailry/ui.readProviderContexts`, `nextProviderContexts`) and a
+  provider-surface registry on the Providers page, which are not built.
+- Teams: the model field is a select of Follow and the enabled channels'
+  models with an effort select and one select per feature the model
+  declares (Auto follows, Off, the feature's options; `Role.Features`,
+  `Team.Features`). The reference opens a searchable picker popover for
+  the same choices; ours has no search.
 - Teams: role and team appearance (icon and color picker) is not
   built; roles show the agent mark in their ID's color. The team list's
   right-click menu is folded into the editor's Duplicate and Delete.
@@ -423,11 +449,15 @@ hover style.
 - Skills, Market: no paging (market "Load more"); the market's plugin
   source and skill catalogs are filtered locally. Theme Apply is
   preview_notice rather than switching the window's theme.
+- Plugin install: the reference prepares and installs the package as soon
+  as the system's picker returns; ours fills the path from the picker and
+  installs on Install. A plugin's details have no homepage row: a plugin
+  package and its catalog entry carry no homepage in the protocol.
 - The model library is a dialog opened by "Manage models" on the
   local-model pages; the Available tab still lists the kind's catalog
-  inline. Dictation has no Manage models: its speech models are in the
-  page's Installed and Available tabs, as the local-model pages show
-  theirs.
+  inline. Dictation has the same entry in its tabs' row, without a
+  heading of its own (the "local models" heading stays removed), and its
+  library lists speech models.
 
 ## B3 live wiring
 
@@ -516,6 +546,15 @@ models the previous route came with. A sign-in method has no key field and
 its action is Save and sign in. Editing keeps the channel's route: the three
 controls are disabled, as in the reference; name, endpoint (custom routes),
 key, OAuth fields and models stay editable.
+
+An Azure OpenAI route (`azure_open_ai`) adds the API version field, as the
+reference's cloud form does: it starts at `2024-10-21`, is required
+(`provider_cloud_required`) and is saved as the provider's `azure_open_ai`
+connection options (`Channel.APIVersion`); a model of that route is labelled
+Deployment name. The bundled Azure presets are not offered, as in the
+reference, so the field shows for a saved Azure channel or a preset a partner
+or package offers. The reference has no other cloud field (no Bedrock or
+Vertex form), so none is built.
 
 The family filter lists All, the offered brands and the brands only a saved
 channel has, each with its mark in the menu; the closed control shows the
@@ -760,13 +799,24 @@ repeat, so an older answer never replaces the event's registry.
 
 Deviations from the Rust reference:
 
-- The library loads the first hub page only; the accepted dialog has no
-  load-more control. An answer without a compatible model is followed at
-  most three times (`libraryAnswers`, nine hub pages with the Node's own
+- The library loads one hub page and offers `model_library_more` while the
+  hub names a further one. An answer without a compatible model is followed
+  at most three times (`libraryAnswers`, nine hub pages with the Node's own
   skipping) and then reported as `model_library_partial`, so a query that
   matches only other kinds of model does not read the hub's whole listing.
-- `refresh_local_model` is not called: the accepted details dialogs have no
-  Update control.
+  A search that failed is the `model_library_failed` toast; the empty
+  dialog then offers Retry without repeating the failure.
+- The library is searched for the kind of the page that opened it, as in
+  the reference; there is no search across kinds.
+- A result's details read its versions (`read_model_versions`) and resolve
+  the one chosen (`resolve_model`); Install registers the version shown,
+  with an embedding model's query and document prefixes as typed (empty is
+  none). A row's Install takes the model held or the result's own revision.
+- Update on a managed model resolves its source at `HEAD`
+  (`refresh_local_model` for OCR), keeps its prefixes, says
+  `knowledge_up_to_date` when that version is installed and otherwise
+  registers and downloads it. A Node's model can be deleted and updated
+  once installed, as in the reference.
 - Only the save locks the page; a running download does not.
 - The Knowledge page lists the collections with their state and Pause,
   Resume and Update; the reference shows no collection anywhere, so a paused
@@ -828,16 +878,15 @@ manager, not `ReadLocalModels`.
     `dictation_model_invalid`, `dictation_unavailable`).
   - SDICT-007: Select stores an installed row in `dictation.model`.
 - Only `resolve_model`, `search_models` and `read_model_versions` with the
-  speech kind reach a Node in the reference, from its model library. The
-  accepted Dictation page has no library, so nothing registers a speech model:
-  `Manager.Register` and `Manager.Remove` exist and are tested but have no
-  control. The library dialog opens only from the OCR, Knowledge and Decision
-  pages and searches that page's kind, so it lists no speech model; were a
-  result of the speech kind to appear, its Install answers
-  `model_library_speech_unsupported` instead of sending it to a Node, which
-  refuses the kind. Adding, deleting and updating a speech model from a hub
-  (settings audit D4, D7, D8) need a library entry on the Dictation page,
-  which is a layout decision and not part of the wiring.
+  speech kind reach a Node, as in the reference: Manage models on the
+  Dictation page opens the library for speech models, which the selected
+  host's Node searches and resolves. What it installs is the controller's:
+  `Manager.Register` then `Manager.Start`; the same source with other files
+  is the `model_library_conflict` toast. Delete (library row or the model's
+  details) is `Manager.Remove` after the confirmation and gives dictation
+  back the recommended model where it used the removed one; Update resolves
+  the source at `HEAD` through the Node. The recommended model cannot be
+  removed or updated.
 
 Deviations from the reference:
 

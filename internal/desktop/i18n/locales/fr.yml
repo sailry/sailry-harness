@@ -1138,6 +1138,10 @@ provider_model_default: Par défaut
 provider_set_default: Définir comme par défaut
 provider_default: Modèle par défaut
 provider_model_id: Numéro de modèle
+provider_deployment_id: Nom du déploiement
+provider_api_version: Version API
+form_api_version_hint: par exemple 2024-10-21
+provider_cloud_required: Entrez la configuration du fournisseur de cloud
 form_model_hint: Numéro de modèle
 provider_context: Limite de contexte (tokens)
 form_tokens_hint: Nombre de jetons
@@ -1346,6 +1350,7 @@ connector_tools_empty: Aucun outil
 plugins_no_skills: Pas de compétences
 plugins_no_mcp: No MCP serveurs
 market_details_permission_none: Aucune autorisation supplémentaire requise
+market_details_added_permissions: Nouvelles autorisations
 market_installed: Installé
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2005,7 +2010,12 @@ knowledge_saved: Enregistré
 knowledge_cancel_requested: Annulation demandée
 model_library_failed: Impossible de charger les modèles
 model_library_partial: Certains résultats sont indisponibles
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Les fichiers de cette version ont changé
+model_library_version: Version
+model_library_more: Charger plus
+model_library_query_prefix: Préfixe de recherche
+model_library_document_prefix: Préfixe de document
+knowledge_up_to_date: Déjà à jour
 local_models_unavailable: Indisponible
 dictation_unavailable: Entrée vocale locale non disponible
 dictation_model_missing: Télécharger un modèle de discours en premier
@@ -2236,4 +2246,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: Adresse du lien
+content_link_edit: Modifier le lien
+content_image_address: Adresse de l’image
+content_image_alt: Texte alternatif
+runtime_python_preparing: Préparation
+python_creating: Préparation des dépendances
+python_installing: Installation des dépendances
+python_validating: Vérification des dépendances
 port_count: '%{count} ports'

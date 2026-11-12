@@ -601,6 +601,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 						ui.Text(c, msg).FontSize(12).TextColor(pal.Warning)
 					}
 					releaseNotes(c, p.Notes)
+					addedPermissions(c, p)
 				})
 			}
 		})
@@ -629,6 +630,19 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 			})
 		})
 	}).Width(min(560, width(c)-48)).Label(title)
+}
+
+// addedPermissions names what an update asks that the installed version
+// does not have.
+func addedPermissions(c *ui.Context, p *preview.Package) {
+	if len(p.AddedPermissions) == 0 {
+		return
+	}
+	pal := theme.Of(c)
+	ui.Row(c.Key("added-permissions")).Gap(8).Padding(8, 12).AlignItems(ui.Start).Children(func() {
+		ui.Icon(c, icons.Shield).FontSize(16).Shrink(0).TextColor(pal.Warning)
+		ui.Text(c, i18n.T(c, "market_details_added_permissions")+": "+strings.Join(labels(c, p.AddedPermissions), ", ")).FontSize(14).Grow(1).Shrink(1).TextColor(pal.Warning)
+	})
 }
 
 // releaseNotes is the notes' lines as plain text, list markers dropped.

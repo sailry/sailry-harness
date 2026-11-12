@@ -419,6 +419,7 @@ type providerEditor struct {
 	route               int
 	name, endpoint, key string
 	keySet              bool
+	apiVersion          string    // Azure OpenAI's, asked for where the route is that API
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
 	advanced            bool
 	models              []modelDraft
@@ -461,6 +462,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 		keySet: ch.KeySet, models: draftsOf(ch.Models), def: ch.Default}
 	e.revision = ch.Revision
 	e.oauth = ch.OAuth
+	e.apiVersion = ch.APIVersion
 	if m.Live && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
@@ -483,7 +485,18 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	if e.brand == nil {
 		e.method = preview.Method{ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key", Custom: ch.Endpoint != ""}
 	}
+	if e.azure() && e.apiVersion == "" {
+		e.apiVersion = azureDefaultVersion
+	}
 }
+
+// azureDefaultVersion is the API version an Azure OpenAI form starts with,
+// the reference's.
+const azureDefaultVersion = "2024-10-21"
+
+// azure reports an Azure OpenAI route: its form asks for the API version
+// and names a model by its deployment.
+func (e *providerEditor) azure() bool { return e.current().API == "azure_open_ai" }
 
 // methodRoutes are a method's routes: its own, or the method as its only
 // one.
@@ -587,6 +600,10 @@ func (e *providerEditor) configure(x preview.Method) {
 	e.method, e.route, e.step = x, 0, stepConfigure
 	e.name, e.endpoint = x.Name, e.current().Endpoint
 	e.models, e.def = nil, 0
+	e.apiVersion = ""
+	if e.azure() {
+		e.apiVersion = azureDefaultVersion
+	}
 	e.seed()
 }
 
@@ -624,6 +641,9 @@ func (e *providerEditor) Check() string {
 	}
 	if e.usesKey() && !e.keySet && strings.TrimSpace(e.key) == "" {
 		return "provider_key_required"
+	}
+	if e.azure() && strings.TrimSpace(e.apiVersion) == "" {
+		return "provider_cloud_required"
 	}
 	if len(e.models) == 0 && !e.login() {
 		return "provider_model_required"
@@ -685,6 +705,9 @@ func (e *providerEditor) save(m *Model) string {
 		}
 		e.probing, e.saving = true, true
 		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
+		if e.azure() {
+			channel.APIVersion = strings.TrimSpace(e.apiVersion)
+		}
 		generation := e.generation
 		signIn := e.login() && e.editing == ""
 		id := e.id
@@ -705,6 +728,9 @@ func (e *providerEditor) save(m *Model) string {
 	}
 	if ch := m.channel(e.editing); ch != nil {
 		ch.Name, ch.Endpoint, ch.Models, ch.Default = strings.TrimSpace(e.name), e.endpoint, models, e.def
+		if e.azure() {
+			ch.APIVersion = strings.TrimSpace(e.apiVersion)
+		}
 		ch.KeySet = ch.KeySet || e.key != ""
 		return ""
 	}
@@ -960,6 +986,9 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 		}
 		routeField(c, e, "product", t("provider_product"), axisProduct)
 		routeField(c, e, "region", t("provider_region"), axisRegion)
+		if e.azure() {
+			input("api-version", t("provider_api_version"), t("form_api_version_hint"), &e.apiVersion, false)
+		}
 		if e.usesKey() {
 			hint := t("provider_key_hint")
 			if e.keySet {
@@ -1003,7 +1032,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			kit.SecondaryBusy(c.Key("discover"), label, e.probing && !e.saving).Disabled(e.probing).OnClick(func() {
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
-					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID}, Key: e.key, ExpectedRevision: e.revision}
+					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.key, ExpectedRevision: e.revision}
 					generation := e.generation
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {
@@ -1084,18 +1113,23 @@ func providerModel(c *ui.Context, e *providerEditor, i int) {
 				e.def--
 			}
 		}, removeLabel: t("settings_delete"),
-		content: func() { modelForm(c, d) },
+		content: func() { modelForm(c, d, e.azure()) },
 	}.row(c, [2]int{e.removed, i}, title)
 }
 
 // modelForm is the model ID, the context limit with its common sizes, and the
-// reasoning efforts with the default.
-func modelForm(c *ui.Context, d *modelDraft) {
+// reasoning efforts with the default. An Azure OpenAI model is named by its
+// deployment.
+func modelForm(c *ui.Context, d *modelDraft, deployment bool) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
+	name := t("provider_model_id")
+	if deployment {
+		name = t("provider_deployment_id")
+	}
 	ui.Column(c.Key("model-form")).Gap(12).Children(func() {
-		kit.Field(c, "id", t("provider_model_id"), "", func() {
-			ui.TextInput(c.Key("input"), &d.id).Label(t("provider_model_id")).Placeholder(t("form_model_hint")).FillWidth().Disabled(d.pending)
+		kit.Field(c, "id", name, "", func() {
+			ui.TextInput(c.Key("input"), &d.id).Label(name).Placeholder(t("form_model_hint")).FillWidth().Disabled(d.pending)
 		})
 		// The label with the common sizes at its right, the input under
 		// them at full width.

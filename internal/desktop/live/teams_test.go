@@ -40,6 +40,22 @@ func TestTeamsProjection(t *testing.T) {
 		if err != nil || got.Revision != 3 || got.Name != "Code review" || !reflect.DeepEqual(got.MaxTurns, role.MaxTurns) || !reflect.DeepEqual(got.Skills, role.Skills) || !reflect.DeepEqual(got.Tools, role.Tools) || !reflect.DeepEqual(got.Appearance, role.Appearance) || !reflect.DeepEqual(got.Model.Features, role.Model.Features) {
 			t.Fatalf("editor changed immutable base fields: %#v, %v", got, err)
 		}
+		// The editor's feature options are the model's: nil follows, an
+		// empty map turns the model's features off.
+		if !reflect.DeepEqual(draft.Features, features) {
+			t.Fatalf("the editor shows features %v", draft.Features)
+		}
+		draft.Features = nil
+		if got, err = r.roleDraft(draft); err != nil || got.Model.Features != nil {
+			t.Fatalf("a role that follows keeps features %v, %v", got.Model.Features, err)
+		}
+		draft.Features = map[string]string{}
+		if got, err = r.roleDraft(draft); err != nil || got.Model.Features == nil || len(*got.Model.Features) != 0 {
+			t.Fatalf("a role with its features off saves %v, %v", got.Model.Features, err)
+		}
+		if follows := roleView(protocol.RoleProfile{Model: &protocol.RoleModel{}}); follows.Features != nil {
+			t.Fatalf("a model without features shows %v", follows.Features)
+		}
 		team := protocol.DefaultTeamProfile()
 		team.ID, team.Revision, team.Key, team.Name = protocol.TeamID{1}, 7, "stable-key", "Team"
 		team.Appearance = role.Appearance

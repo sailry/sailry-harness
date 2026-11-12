@@ -83,13 +83,13 @@ Every sort is stable over the Created order, which breaks ties. Names
 compare by lowercased code point, without locale collation.
 
 Pinned sessions stay first: the pinned group is above the others and is
-never sorted by the choice. It keeps `OrderPins`, which is the only manual
-order: dragging reorders pinned rows only. A pinned session's own row inside
-its project or the chats follows the chosen order as any other row. The
-Node's durable manual order (`set_session_order`, which this desktop never
-sends) is part of the Node's order, so only Created shows one that another
-controller saved; the other two orders use it for ties only, as the
-reference disables the drag under `updated`.
+never sorted by the choice. It keeps `OrderPins`, its own manual order. A
+pinned session's own row inside its project or the chats follows the chosen
+order as any other row. The Node's durable manual order (`set_session_order`)
+is part of the Node's order, so only Created shows it; the other two orders
+use it for ties only. A project's row therefore drags before or after
+another of its project under Created alone; the reference disables the drag
+under `updated`.
 
 ### Rows
 
@@ -111,6 +111,7 @@ mono worktree path.
 | Rename | double click, menu `workspace_rename` | In place: an input with the title; Enter or leaving keeps it, Escape gives up; `ValidTitle` failing toasts `session_title_required` and keeps the input |
 | Pin / Unpin | hover button, menu | `TogglePin`: appended with `NextPinOrder`; unpin clears the order |
 | Reorder pins | drag a pinned row | `MovePin`; a 2 DIP primary line shows before or after the target; every pin gets its index as order |
+| Reorder a project's sessions | drag a project's row onto another of the project, under the Created order | `MoveSession`; the same 2 DIP line; the project's rows move in memory |
 | Mark read / unread | menu | `Status` Unread ↔ Idle |
 | Archive | hover button, menu | Confirm (`workspace_archive`, `workspace_memory_only`, `workspace_confirm`), then hidden in memory |
 | Delete | menu | Confirm naming the session once (`session_delete`, `session_delete_named`), and for a chat without a project that its private workspace's files go with it (`session_delete_private_files`), then removed from memory; its split pane leaves with it |
@@ -236,7 +237,7 @@ none once no session runs.
 | No Recent group; empty groups show no placeholder | The user's decision: Recent repeats sessions listed in their groups, and an empty group is its header |
 | Header actions always show; the projects' header has a Sort menu | The user's decision, after Cursor's repository header; the reference shows "+" on hover and sorts only from Settings |
 | `session_order` gains `name`, defaults to `updated`, and also orders projects | The user's decision. The reference has `created` (its default) and `updated`, for sessions only. A profile without a value now reads as `updated`; a stored `created` is kept |
-| Project sessions do not reorder by dragging; no split folders | Not in this phase |
+| Project sessions reorder by dragging only under the Created order; no split folders | Name and Updated do not show the manual order, so a move there would not show |
 | The pinned group does not append the host's running sessions | The preview has one host's pins only |
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
 | No terminals in the tree | Terminals come with the terminal work |
@@ -285,7 +286,7 @@ Client through the application window factory.
 Pins are controller preferences keyed by lowercase NodeID/session ID. Unordered
 legacy pins precede ordered ones. Large u64 orders map to presentation ranks
 without integer overflow, while persisted values remain unchanged. Pin reordering
-never dispatches SetSessionOrder. Archived/removed resources lose their current
+never dispatches SetSessionOrder; a project row's drag does. Archived/removed resources lose their current
 Node's pins. Empty drafts remain UI-local and create no persisted session until
 B4's first-send path. As the reference's draft is a panel and never a tree
 row, live keeps drafts in the shell's data and gives the sidebar a copy
@@ -309,7 +310,19 @@ session keeps the captured project. Records include ordinary project sessions,
 including archived ones, exclude delegated and resource-owned sessions, and
 search titles and worktree paths without changing ownership. Opening an archived
 record uses its owning Client's revision-checked `SetSessionArchived` before
-navigating; failure keeps the page open.
+navigating; failure keeps the page open. A record's right-click menu is the
+session's (`SessionMenu`); an archived record's has Unarchive
+(`backup_unarchive`, `set_session_archived` at its revision), Delete and
+Copy alone, as it has no row to rename or pin. The header's More menu
+(`ProjectActions`) on the page has Edit, New worktree, Copy path, Remove
+worktree, Remove project and Launch CLI, the sidebar's project actions; the
+reference's Manage worktrees entry is the sidebar menu's submenu here.
+
+Dragging a project's row sends `set_session_order` with every session of
+the project in the snapshot's order as `expected` (delegated and archived
+ones included, which the Node counts) and reports a conflict as
+`session_changed`, an unknown outcome as `project_outcome_unknown` and any
+other failure as `live_request_failed`, as the reference.
 
 Worktree menu selection captures that project's Node and worktree, registers a
 native checkout when needed, then opens the project overview without creating a

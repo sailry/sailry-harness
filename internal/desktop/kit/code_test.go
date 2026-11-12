@@ -48,6 +48,7 @@ func TestCodeLooks(t *testing.T) {
 		}
 	})
 	t.Run("CopyIsAnIcon", testCodeCopy)
+	t.Run("RecoverOffersRetry", testRecover)
 	// A diff is unified until its window's choice splits it, in place: the
 	// same state, so what was expanded and scrolled stays.
 	t.Run("DiffSplits", func(t *testing.T) {

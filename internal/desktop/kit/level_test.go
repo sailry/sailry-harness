@@ -5,6 +5,7 @@ import (
 	"image"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -184,5 +185,50 @@ func testCodeCopy(t *testing.T) {
 	}
 	if !tt.HasText(copied) {
 		t.Errorf("no toast: %q", tt.Texts())
+	}
+}
+
+// A failure or an uncertain outcome with something to run again offers
+// Retry on its toast; a conflict and a failure without it do not.
+func testRecover(t *testing.T) {
+	var show func(*ui.Context)
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		if show != nil {
+			show(c)
+			show = nil
+		}
+		ToastHost(c)
+	}, 500, 400)
+	tt.SetLocale("en")
+	retry := i18n.In("en", "chat_retry")
+	ran := 0
+	again := func() { ran++ }
+	for _, sample := range []struct {
+		outcome Outcome
+		again   func()
+		offered bool
+	}{{Failed, again, true}, {Uncertain, again, true}, {Conflict, again, false}, {Failed, nil, false}, {Done, again, false}} {
+		message := fmt.Sprintf("outcome %d %v", sample.outcome, sample.again != nil)
+		show = func(c *ui.Context) { Recover(c, sample.outcome, message, sample.again) }
+		tt.Frame()
+		tt.Advance(time.Second)
+		if !tt.HasText(message) {
+			t.Fatalf("no toast %q: %q", message, tt.Texts())
+		}
+		b, ok := tt.AccessByRole(ui.RoleButton, retry)
+		if ok != sample.offered {
+			t.Fatalf("%q: Retry offered %v, want %v", message, ok, sample.offered)
+		}
+		if !ok {
+			continue
+		}
+		before := ran
+		tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+		if ran != before+1 || tt.HasText(message) {
+			t.Fatalf("%q: Retry ran %d times and left %q", message, ran-before, tt.Texts())
+		}
 	}
 }

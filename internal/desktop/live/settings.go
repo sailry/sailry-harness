@@ -94,7 +94,13 @@ func (r *Runtime) savePower() {
 			r.readPower()
 		}
 	}
-	r.saveSettingChecked(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, func(output protocol.Output, ok bool) {
+	// Retry saves the switch again while the pages still hold this Node.
+	again := func() {
+		if r.showsSettings() {
+			r.savePower()
+		}
+	}
+	r.saveSettingRetry(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, again, func(output protocol.Output, ok bool) {
 		if !r.showsSettings() {
 			return
 		}
@@ -115,7 +121,7 @@ func (r *Runtime) saveTelemetry() {
 	}
 	m.Pending = true
 	request := protocol.TelemetryUpdate{Revision: m.Revision, Errors: m.Draft.Errors, Metrics: m.Draft.Metrics}
-	r.saveSettingChecked(protocol.Command{Kind: "save_telemetry_settings", Data: request}, settings.TelemetryMessages, r.readTelemetry, func(output protocol.Output, ok bool) {
+	r.saveSettingRetry(protocol.Command{Kind: "save_telemetry_settings", Data: request}, settings.TelemetryMessages, r.readTelemetry, r.saveTelemetry, func(output protocol.Output, ok bool) {
 		m.Pending = false
 		if !ok {
 			return
@@ -139,6 +145,13 @@ func (r *Runtime) saveSetting(command protocol.Command, messages settings.Messag
 // Node can never tell whether the save was applied: the page would otherwise
 // keep a revision that the next save may be refused for.
 func (r *Runtime) saveSettingChecked(command protocol.Command, messages settings.Messages, reread func(), done func(protocol.Output, bool)) {
+	r.saveSettingRetry(command, messages, reread, nil, done)
+}
+
+// saveSettingRetry also offers Retry on the toast of a save that failed or
+// whose outcome is unknown. again saves the section's draft anew, at the
+// revision the page then holds, rather than sending this request again.
+func (r *Runtime) saveSettingRetry(command protocol.Command, messages settings.Messages, reread, again func(), done func(protocol.Output, bool)) {
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		if reread != nil && client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
 			defer reread()
@@ -153,7 +166,7 @@ func (r *Runtime) saveSettingChecked(command protocol.Command, messages settings
 				outcome = kit.Uncertain
 			}
 		}
-		settings.Report(c, outcome, messages)
+		settings.ReportRetry(c, outcome, messages, again)
 		done(output, err == nil)
 	})
 }
