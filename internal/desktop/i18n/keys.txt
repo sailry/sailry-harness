@@ -1490,7 +1490,6 @@ remote_host_detail
 host_update
 workspace_worktrees
 workspace_sessions
-project_empty
 host_runtime_loading
 host_version
 host_uptime

@@ -2,6 +2,7 @@ package shell
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestHostPage(t *testing.T) {
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	for _, s := range []string{"workspace_host_status", "host_utilization", "host_storage", "workspace_running", "projects", "port_title"} {
+	for _, s := range []string{"workspace_host_status", "host_utilization", "host_storage", "workspace_running", "port_title"} {
 		if !tt.HasText(i18n.In("en", s)) {
 			t.Errorf("no %s: %q", s, tt.Texts())
 		}
@@ -82,9 +83,10 @@ func TestHostPage(t *testing.T) {
 
 // The host page is laid out as the reference's. The sessions' side column
 // stays beside it, and the hosts are the rail picker's, which lists every
-// one. The header shows once, then the monitor's cards, the running agents,
-// the projects and the runtime, in that order. The summary column lists
-// only the volumes that hold the user's files.
+// one. The header shows once, then the monitor's cards and the running
+// agents, in that order; the page has neither a projects nor a runtime
+// section. The summary column lists only the volumes that hold the user's
+// files.
 func testHostLayout(t *testing.T) {
 	a, tt := newTester(t)
 	en := func(key string) string { return i18n.In("en", key) }
@@ -120,7 +122,7 @@ func testHostLayout(t *testing.T) {
 			en("workspace_host_status"), en("remote_host_detail"), en("host_uptime"), en("host_node_uptime"),
 			en("metrics_cpu"), en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
 			en("host_storage"), en("host_process_search"), en("host_pid"),
-			en("workspace_running"), en("projects"),
+			en("workspace_running"),
 		}
 		texts, at := tt.Texts(), 0
 		for _, want := range order {
@@ -146,6 +148,9 @@ func testHostLayout(t *testing.T) {
 				t.Errorf("the page shows %q of the removed runtime section: %q", text, tt.Texts())
 			}
 		}
+	})
+	t.Run("no projects section", func(t *testing.T) {
+		hostNoProjects(t, tt, "the paired host")
 	})
 	t.Run("summary volumes", func(t *testing.T) {
 		// The Node lists only real volumes, so the page and its summary
@@ -346,6 +351,7 @@ func testHostDemo(t *testing.T) {
 		}
 		marked(id)
 		hostDemoHeader(t, tt, id)
+		hostNoProjects(t, tt, id+" in Demo mode")
 		hostDemoTip(t, tt, id)
 		a.togglePanel()
 		tt.Frame()
@@ -401,9 +407,42 @@ func hostDemoHeader(t *testing.T, tt *ui.Tester, id string) {
 	if !tt.HasText(want) {
 		t.Errorf("%s: no header line %q: %q", id, want, tt.Texts())
 	}
+	// A text of its own: the header's line holds the versions' labels.
 	for _, text := range []string{"Runtime", "Host type", "Worktrees", "System version", "Time zone", en("host_version"), en("host_protocol")} {
-		if tt.HasText(text) {
+		if slices.Contains(tt.Texts(), text) {
 			t.Errorf("%s shows %q of the removed runtime section in Demo mode", id, text)
+		}
+	}
+}
+
+// hostNoProjects checks the absence of the host page's projects section
+// (docs/removed-ui.md): the sidebar beside the page names its own Projects
+// group once and holds the one Add project button, and nothing after the
+// page's header repeats either; the section's empty state, whose copy is
+// out of the catalog, shows nowhere.
+func hostNoProjects(t *testing.T, tt *ui.Tester, where string) {
+	t.Helper()
+	en := func(key string) string { return i18n.In("en", key) }
+	titles := 0
+	for _, text := range tt.Texts() {
+		if text == en("projects") {
+			titles++
+		}
+		if strings.Contains(text, "No projects on this host") {
+			t.Errorf("%s shows the removed projects section's empty state %q", where, text)
+		}
+	}
+	if titles > 1 {
+		t.Errorf("%s names Projects %d times, want the sidebar's group alone: %q", where, titles, tt.Texts())
+	}
+	// The page is right of the side column: no Add project is in it.
+	edge, ok := tt.Find(en("host_uptime"))
+	if !ok {
+		t.Fatalf("%s: no host page: %q", where, tt.Texts())
+	}
+	for _, info := range tt.AccessAll() {
+		if info.Name == en("project_add") && info.Bounds.X >= RailWidth+NavWidth {
+			t.Errorf("%s has an Add project control in the page at %v (the page's header is at %v)", where, info.Bounds, edge)
 		}
 	}
 }

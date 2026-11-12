@@ -362,9 +362,11 @@ remain unavailable.
 
 Combined presentation preserves each conversation's Node and each project's
 Host identity while every shared Client retains its own snapshot. Actions
-capture the owning Client instead of following later navigation. New projects
-opened from a Host page default to that exact Host; an existing project's Host
-remains read-only.
+capture the owning Client instead of following later navigation. A new project's
+editor opened at a Host (`OpenEditorAtHost`) defaults to that exact Host; no
+control opens it so since the host page lost its projects section
+([removed-ui.md](removed-ui.md)), and the editor's host select chooses the
+Host. An existing project's Host remains read-only.
 
 Project Overview opens `shell.ProjectPage` with the project's captured Node and
 project ID. The page resolves current facts by both identities, independently of

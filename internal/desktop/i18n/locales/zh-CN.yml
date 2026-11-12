@@ -1478,7 +1478,6 @@ remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主机
 workspace_worktrees: worktree
 workspace_sessions: 会话
-project_empty: 此主机还没有项目。添加项目后即可创建会话或终端。
 host_runtime_loading: 正在读取运行环境（示例）
 host_version: 主机版本
 host_uptime: 运行时长
