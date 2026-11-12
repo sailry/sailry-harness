@@ -1,7 +1,7 @@
 // Package panel is the right panel beside the conversation: a row of resource
 // tabs (files, changes, checkpoints, documents, browser, terminal) over the
 // active one, or the launcher when none is open. The frame owns its width,
-// motion and toggle (docs/shell.md); see docs/panel.md.
+// motion and toggle (internal/desktop/shell).
 package panel
 
 import (
@@ -240,10 +240,9 @@ func (s *State) Reserve(tabs ...Tab) {
 	}
 }
 
-// Mount replaces the strip with a conversation's tabs and the one it showed
-// (docs/panel.md, Tabs per conversation). Restored tabs come from the saved
-// window state: the project takes their files and diffs as it does at
-// start-up (Sync).
+// Mount replaces the strip with a conversation's tabs and the one it showed.
+// Restored tabs come from the saved window state: the project takes their
+// files and diffs as it does at start-up (Sync).
 func (s *State) Mount(tabs []Tab, active Tab, restored bool) {
 	s.Tabs = nil
 	for _, t := range tabs {
@@ -352,7 +351,7 @@ func (s *State) shown(k Kind) string {
 }
 
 // Sync makes the strip's file and diff tabs the project's open items, as
-// the page's strip shows them (docs/panel.md, Components and hosts): a
+// the page's strip shows them: a
 // tab with no item yet takes the one shown last, items opened or closed
 // on the page are added or dropped, and another project's are swapped
 // for this one's. The first project takes the tabs restored at start-up.

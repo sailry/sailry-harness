@@ -591,7 +591,7 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 // that effort. Up and Down move in a column, Right or Tab from the models to
 // the efforts, Left or Shift+Tab back. The fill alone marks what is chosen
 // (Palette.Selected); the rail filters by family only and a score opens
-// nothing (docs/removed-ui.md).
+// nothing (AGENTS.md, Removed UI).
 func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 	p := theme.Of(c)
 	e := &s.efforts
@@ -824,7 +824,7 @@ func rowLook(c *ui.Context, b ui.Element, selected bool) ui.Element {
 
 // score is a row's last child: the score in the monospace font, muted, its
 // digits ending at the row's padding. It is text alone: nothing opens
-// over it (docs/removed-ui.md).
+// over it (AGENTS.md, Removed UI).
 func score(c *ui.Context, sc *Score) ui.Element {
 	return ui.Text(c, fmt.Sprintf("%.1f", sc.Overall)).Font("monospace").FontSize(14).SingleLine().Shrink(0).
 		TextColor(theme.Of(c).MutedForeground)
@@ -942,7 +942,7 @@ func (s *State) pick(m Model, effort int) {
 
 // scoreTip is the overall score, the five axes and the effort they were
 // measured at, over the controls' effort. The picker's scores have none
-// (docs/removed-ui.md).
+// (AGENTS.md, Removed UI).
 func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 	p := theme.Of(c)
 	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",

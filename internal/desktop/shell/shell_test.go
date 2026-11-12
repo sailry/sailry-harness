@@ -225,7 +225,7 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	closed := fields()
 	clickButton(t, tt, i18n.In("en", "approval_live_count", "count", 2))
 	snapshot(t, tt, "approvals")
-	// Deny takes no reason (docs/removed-ui.md): the popover has no reason
+	// Deny takes no reason (AGENTS.md, Removed UI): the popover has no reason
 	// field and Deny no menu.
 	t.Run("no deny reason", func(t *testing.T) {
 		if open := fields(); open != closed {

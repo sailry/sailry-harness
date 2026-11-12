@@ -1,7 +1,7 @@
 // Package shell is the main window's frame: the header band, the feature
 // rail, the sidebar column and the right panel beside the page, each column
 // opening, closing and resizing with the reference's motion, and the window's
-// shortcuts, search, activity centre and knowledge viewer. See docs/shell.md.
+// shortcuts, search, activity centre and knowledge viewer.
 package shell
 
 import (

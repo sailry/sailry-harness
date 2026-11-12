@@ -140,7 +140,7 @@ func testHostLayout(t *testing.T) {
 				t.Errorf("%s shows %d times: %q", key, shown[en(key)], tt.Texts())
 			}
 		}
-		// The runtime section is gone (docs/removed-ui.md): neither its title
+		// The runtime section is gone (AGENTS.md, Removed UI): neither its title
 		// nor a label of its grid shows. The paired host's versions are not
 		// known, so its line is the platform alone.
 		for _, text := range []string{"Runtime", "Host type", "Worktrees", "System version", "Time zone", en("host_version"), en("host_protocol")} {
@@ -271,7 +271,7 @@ func testHostMenu(t *testing.T) {
 	if revoked != 0 || tt.HasText(confirm) {
 		t.Fatalf("cancel: %d revoked %q", revoked, tt.Texts())
 	}
-	// The page has no Remove pairing button (docs/removed-ui.md): the menu
+	// The page has no Remove pairing button (AGENTS.md, Removed UI): the menu
 	// is the one way to ask.
 	if info, ok := tt.AccessByRole(ui.RoleButton, revoke); ok {
 		t.Errorf("the host page has a Remove pairing button at %v", info.Bounds)
@@ -416,7 +416,7 @@ func hostDemoHeader(t *testing.T, tt *ui.Tester, id string) {
 }
 
 // hostNoProjects checks the absence of the host page's projects section
-// (docs/removed-ui.md): the sidebar beside the page names its own Projects
+// (AGENTS.md, Removed UI): the sidebar beside the page names its own Projects
 // group once and holds the one Add project button, and nothing after the
 // page's header repeats either; the section's empty state, whose copy is
 // out of the catalog, shows nowhere.

@@ -119,7 +119,7 @@ var (
 		protocol.PluginActionReadWeb, protocol.PluginActionReadKnowledge, protocol.PluginActionReadCommands,
 		protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage, protocol.PluginActionHttp,
 	}
-	// A handler may prepare a delegation or a guidance (docs/delegation.md);
+	// A handler may prepare a delegation or a guidance;
 	// waiting, progress and settings reads are the model's own.
 	handlerExcluded = []protocol.ToolOperation{
 		protocol.ToolOperationProgress, protocol.ToolOperationReadSettings, protocol.ToolOperationWaitAgent,

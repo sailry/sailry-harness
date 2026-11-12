@@ -13,7 +13,7 @@ import (
 // every page and compares the text with the reference, which rasterizes with
 // a different renderer. Image-only and embedded-font pages must agree
 // exactly. The page typeset by a system print filter is the accepted
-// deviation of docs/models.md: it may differ by isolated characters, so its
+// deviation: it may differ by isolated characters, so its
 // lines are compared with their spaces removed.
 func TestReferencePDF(t *testing.T) {
 	engine, fixtures := integrationEngine(t)

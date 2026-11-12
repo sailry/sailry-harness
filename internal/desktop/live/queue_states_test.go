@@ -168,7 +168,7 @@ func TestQueueStates(t *testing.T) {
 		}
 	})
 	// Background results held back from delivery are not queue rows
-	// (docs/removed-ui.md). The strip is drawn over the projection of a page
+	// (AGENTS.md, Removed UI). The strip is drawn over the projection of a page
 	// that holds one of each kind: with a queued message it is that one row,
 	// and without one there is no strip, and no result's title shows.
 	t.Run("held results are not rows", func(t *testing.T) {

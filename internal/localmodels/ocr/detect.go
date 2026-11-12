@@ -326,7 +326,7 @@ func boxScoreFast(pred []float32, width, height int, box []Point) float32 {
 // joins, two decimal digits) and takes the minimum-area rectangle of the
 // result. For a convex quadrilateral that rectangle is spanned by the offset
 // edges, so this returns the endpoints of the four offset edges rounded to
-// two digits (docs/models.md, Deviations).
+// two digits: a deliberate deviation from the reference.
 func unclip(box []Point, ratio float64) []Point {
 	n := len(box)
 	xs, ys := make([]float64, n), make([]float64, n)

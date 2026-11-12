@@ -41,7 +41,7 @@ func TestWelcomeGuide(t *testing.T) {
 	}
 	snapshot(t, tt, "welcome-guide")
 	// The guide ends with the picker: no diagnostics note and no Settings
-	// button (docs/removed-ui.md).
+	// button (AGENTS.md, Removed UI).
 	t.Run("no diagnostics note or Settings", func(t *testing.T) {
 		if note := "Anonymous diagnostics are on by default. You can change this in Settings"; tt.HasText(note) {
 			t.Errorf("the guide has the diagnostics note %q", note)

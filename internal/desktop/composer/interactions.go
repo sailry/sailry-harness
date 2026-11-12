@@ -200,7 +200,7 @@ type Actions interface {
 	AddProject()
 	ManageTeams()
 	// Decide answers approval id. The popover has no reason form
-	// (docs/removed-ui.md) and passes "".
+	// (AGENTS.md, Removed UI) and passes "".
 	Decide(id string, d Decision, reason string)
 	Answer(id string, a Answer)
 	CancelQuestion(id string)
@@ -307,7 +307,7 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 // approval is one request: its title (who asks, the tool, where, on one
 // line), the request in a card (the host key, the command, the text or the
 // change set), the notices, and Deny and Allow, Allow with a menu of the
-// wider grants. Deny takes no reason (docs/removed-ui.md). Details still
+// wider grants. Deny takes no reason (AGENTS.md, Removed UI). Details still
 // being read show a spinner, a failed read Retry.
 func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 	p := theme.Of(c)

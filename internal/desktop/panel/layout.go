@@ -15,8 +15,7 @@ const (
 )
 
 // One rule lays out every list and its document, Files and Git, in the
-// panel's tabs and on the rail's pages alike (docs/panel.md, Components and
-// hosts).
+// panel's tabs and on the rail's pages alike.
 const (
 	// stackBelow is the host width under which the list goes above the
 	// document: the list's first width and a 500 DIP document no longer fit

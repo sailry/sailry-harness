@@ -26,7 +26,7 @@ import (
 // counts the messages and folds the rest away; it is folded until the user
 // unfolds it, for each conversation's composer. The strip lists queued
 // input only: a row says nothing about why it waits, and background results
-// held back from delivery are not rows (docs/removed-ui.md).
+// held back from delivery are not rows (AGENTS.md, Removed UI).
 
 // queueState is the strip's: the message edited and its draft.
 type queueState struct {

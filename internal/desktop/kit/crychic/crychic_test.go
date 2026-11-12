@@ -423,7 +423,7 @@ func TestApprovedComponents(t *testing.T) {
 				}
 				for _, english := range p.fixed {
 					if !said(all, english) {
-						t.Errorf("%s: %q is documented as built in and is gone: update docs/crychic.md: %q", name, english, all)
+						t.Errorf("%s: %q is recorded as built in and is gone: update its probe: %q", name, english, all)
 					}
 				}
 				if p.active == nil {
@@ -464,8 +464,9 @@ func (r *records) Handle(_ context.Context, record slog.Record) error {
 
 // Setup mutes the library before anything plays, its logs stay at debug, and
 // the adapters build, or decline, data no component would take. The library
-// panics exactly where docs/crychic.md says, DiffView and CommitGraph size
-// and settle as it says, and the floating surfaces it says hide the page do,
+// panics on exactly the inputs listed here, DiffView and CommitGraph size
+// and settle as their callers rely on, and the overlays' own floating
+// surfaces hide the page,
 // while content hosted in Kit's leaves the frost showing.
 func TestPolicy(t *testing.T) {
 	t.Run("setup mutes every cue and starts no audio output", func(t *testing.T) {

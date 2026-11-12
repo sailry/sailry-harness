@@ -1,5 +1,5 @@
 // Package onboarding is the welcome guide: the first launch's dialog with the
-// brand banner and the providers' picker. See docs/onboarding.md.
+// brand banner and the providers' picker.
 package onboarding
 
 import (
@@ -26,7 +26,7 @@ type Guide struct {
 // holds the white mark, the title and the description over the brand
 // gradient, with a white close at its top right; the picker follows and
 // ends the guide: it has no diagnostics note and no Settings button
-// (docs/removed-ui.md). picker draws the providers' picker
+// (AGENTS.md, Removed UI). picker draws the providers' picker
 // (settings.ProviderPicker), whose choice continues in Settings ›
 // Providers. Closing it in any way marks it seen.
 func View(c *ui.Context, g *Guide, picker func()) {

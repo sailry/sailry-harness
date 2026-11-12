@@ -574,8 +574,8 @@ func TestBackgroundDelivery(t *testing.T) {
 	}
 }
 
-// TestGuidanceQueue covers the queue and guidance transitions listed in
-// docs/conversation.md that TestQueueSettlement does not.
+// TestGuidanceQueue covers the queue and guidance transitions that
+// TestQueueSettlement does not.
 func TestGuidanceQueue(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{"pending guidance is taken together", "other settings stay ordinary", "outlived guidance starts one turn", "queue commands"} {

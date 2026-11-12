@@ -7,7 +7,7 @@ import (
 )
 
 // conversationPanelsFrame keeps the conversations' right panels in step with
-// the conversations (docs/panel.md, Tabs per conversation): the selected one
+// the conversations: the selected one
 // is mounted, a browser page opened for a conversation that is not shown goes
 // to that conversation's panel, and the panel of a conversation that is gone
 // leaves with it, its terminals closed on their Node.

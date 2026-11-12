@@ -1,6 +1,6 @@
 // Package settings is the settings navigation and its pages: the App, AI,
 // Tools and System groups of Section::GROUPS. Each page renders its part of
-// the view model (model.go) over preview data; docs/settings.md lists them.
+// the view model (model.go) over preview data.
 package settings
 
 import (

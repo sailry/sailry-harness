@@ -15,7 +15,8 @@ import (
 // BenchmarkSemanticScan measures one query over a growing collection of
 // 384-component vectors, the dimension of the default embedding model. Every
 // semantic or hybrid query scores each admitted vector, so its cost grows
-// with the corpus; docs/knowledge.md records the measured limit. The semantic
+// with the corpus: on an Apple M4 Pro a semantic query took about 17 ms at
+// 100,000 chunks and 35 ms at 200,000. The semantic
 // case runs first after the collection grew, so its mean includes reading the
 // vectors into memory once. The semantic and hybrid cases ask for a word that
 // one chunk in 500 has; the common case asks for words every chunk has, which

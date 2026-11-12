@@ -48,7 +48,7 @@ func pluginViewAccepts(surface string, slot protocol.PluginUiSlot) bool {
 // terminal and AI CLI buttons, and the project menu's New terminal and
 // Worktrees entries, which projectPluginMenu draws in the slot while their
 // package is enabled. The commands package's CLI submenu of the project menu
-// is not shown at all (docs/removed-ui.md).
+// is not shown at all (AGENTS.md, Removed UI).
 func nativeProjectControl(name, id string) bool {
 	switch name {
 	case "commands":

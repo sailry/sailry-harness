@@ -2,7 +2,7 @@
 // uptimes, its platform and versions, the monitor (processor, memory,
 // utilization, network, disks, storage and processes) and the running
 // sessions, with the update dialog, the port forwards and the metrics
-// summary in the right column. See docs/host.md.
+// summary in the right column.
 package host
 
 import (

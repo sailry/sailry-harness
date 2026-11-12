@@ -8,7 +8,7 @@
 // track (track.go: MyGo's StepSlider has no gradient fill or step dots),
 // the dictation level meter (four bars of live levels), and the inline
 // reference chips, which are MyGo TextRanges (a text area draws no inline
-// elements; see docs/composer.md).
+// elements).
 package composer
 
 import (
