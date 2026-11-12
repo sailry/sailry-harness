@@ -73,6 +73,9 @@ func subagentTokens(cv *viewmodel.Conversation) int {
 // the demo's ledger meanwhile and from the Node again after the way back,
 // the page's watch moving over with the switch.
 func TestDemoMode(t *testing.T) {
+	// The test names the statistics package's control panel, so the panel
+	// package's terminal kind is taken here.
+	const terminalTab = panel.Terminal
 	// The walk opens every demo conversation in two languages; on a loaded
 	// machine that takes minutes, and the Node must outlive it.
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
@@ -1006,6 +1009,162 @@ func TestDemoMode(t *testing.T) {
 		if acted := sent()[before:]; len(acted) != 0 {
 			t.Errorf("the tour sent commands to the Node: %q", acted)
 		}
+
+		// The sidebar's menus and the transcript's actions over the demo in a
+		// window with a real Node: each changes the demo's memory, none is
+		// left to the controller, and the Node hears nothing.
+		t.Run("menus and actions", func(t *testing.T) {
+			before := len(sent())
+			r.App.Navigate(shell.ConversationPage)
+			settle()
+			project := demo.ProjectOf(idle.ID)
+			// menu right-clicks the sidebar's row of that name.
+			menu := func(row string) []string {
+				t.Helper()
+				for _, info := range tester.AccessAll() {
+					if info.Name == row && info.Bounds.X >= shell.RailWidth && info.Bounds.X < shell.RailWidth+shell.NavWidth && info.Bounds.Y > shell.HeaderHeight {
+						tester.RightClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+						return tester.Menu()
+					}
+				}
+				t.Fatalf("no sidebar row %q: %q", row, tester.Texts())
+				return nil
+			}
+			choose := func(row string, path ...string) {
+				t.Helper()
+				menu(row)
+				if err := tester.ChooseMenuItem(path...); err != nil {
+					t.Fatalf("%v: %q", err, tester.Menu())
+				}
+				settle()
+				if shown := marked(); shown != "" {
+					t.Errorf("%v names the demo: %q", path, shown)
+				}
+				if tester.HasText(text("unavailable")) {
+					t.Errorf("%v is unavailable", path)
+				}
+			}
+			// The demo's project menu, not the Node's: the bundled entries and
+			// nothing a package of this profile contributes.
+			items := menu(project.Name)
+			want := []string{text("workspace_project"), text("project_edit"), text("workspace_new_session"), text("workspace_new_terminal"),
+				text("worktree_manage"), text("workspace_copy_path"), text("project_remove")}
+			var top []string
+			for _, item := range items {
+				if slices.Contains(want, item) {
+					top = append(top, item)
+				}
+			}
+			if !slices.Equal(top, want) {
+				t.Fatalf("the demo's project menu over a Node is %q", items)
+			}
+			tester.CloseMenu()
+			settle()
+			sessions, trees := len(project.Conversations), len(project.Worktrees)
+			choose(project.Name, text("workspace_new_session"))
+			if len(project.Conversations) != sessions+1 || demo.ProjectOf(r.App.Sidebar.Selected) != project {
+				t.Fatalf("New session: %d sessions, selected %q", len(project.Conversations), r.App.Sidebar.Selected)
+			}
+			choose(project.Name, text("worktree_manage"), text("worktree_create"))
+			// The new session it opens is the project's unsent one, made above:
+			// a project keeps a single draft.
+			if len(project.Worktrees) != max(trees, 1)+1 || len(project.Conversations) != sessions+1 || demo.ProjectOf(r.App.Sidebar.Selected) != project {
+				t.Fatalf("Create worktree: %d worktrees, %d sessions", len(project.Worktrees), len(project.Conversations))
+			}
+			choose(project.Name, text("workspace_new_terminal"))
+			if !r.App.PanelOpen || r.App.Panel.Active.Kind != terminalTab {
+				t.Fatalf("New terminal: panel open %v, active %+v", r.App.PanelOpen, r.App.Panel.Active)
+			}
+			choose(project.Name, text("workspace_copy_path"))
+			if got := tester.Clipboard(); got != project.Path {
+				t.Fatalf("Copy path copied %q", got)
+			}
+			choose(project.Name, text("project_edit"))
+			if !r.App.Sidebar.Draft().Open {
+				t.Fatal("Edit project opened no editor")
+			}
+			press(text("settings_cancel"))
+			if r.App.Sidebar.Draft().Open {
+				t.Fatal("Cancel left the editor open")
+			}
+			choose(project.Name, text("workspace_project"))
+			if _, id, shown := r.App.ProjectOwner(); !shown || id != project.ID {
+				t.Fatalf("Project overview shows page %d, project %q", r.App.Page, id)
+			}
+			r.App.Navigate(shell.ConversationPage)
+			settle()
+			// Removal asks, naming the project; it is not confirmed here, as
+			// the Usage page below counts the demo's projects.
+			choose(project.Name, text("project_remove"))
+			if !tester.HasText(text("project_remove_named", "name", project.Path)) {
+				t.Fatalf("Remove project did not ask: %q", tester.Texts())
+			}
+			press(text("settings_cancel"))
+			if tester.HasText(text("project_remove_named", "name", project.Path)) || !slices.Contains(demo.Projects, project) {
+				t.Fatal("Cancel did not keep the project")
+			}
+
+			// A session's menu: what needs the Node or the system is absent,
+			// a pin and a fork are made in memory.
+			items = menu(idle.Title)
+			for _, key := range []string{"conversation_export", "files_open", "session_new_window"} {
+				if slices.Contains(items, text(key)) {
+					t.Errorf("the demo's session menu offers %q: %q", text(key), items)
+				}
+			}
+			tester.CloseMenu()
+			settle()
+			choose(idle.Title, text("workspace_pin"))
+			if !idle.Pinned {
+				t.Fatal("Pin left the session unpinned")
+			}
+			choose(idle.Title, text("workspace_unpin"))
+			if idle.Pinned {
+				t.Fatal("Unpin left the session pinned")
+			}
+			sessions = len(project.Conversations)
+			choose(idle.Title, text("session_fork"), text("session_fork_here"))
+			fork := demo.Find(r.App.Sidebar.Selected)
+			if len(project.Conversations) != sessions+1 || fork == nil || fork == idle || len(fork.Turns) != len(idle.Turns) {
+				t.Fatalf("Fork conversation: %d sessions, selected %q", len(project.Conversations), r.App.Sidebar.Selected)
+			}
+
+			// The transcript's Retry runs the turn again and Stop ends it: the
+			// demo's own actions, where a session's would ask the Node.
+			r.App.Sidebar.Selected = idle.ID
+			r.App.PanelOpen = false
+			settle()
+			var retry *ui.AccessInfo
+			for _, info := range tester.AccessAll() {
+				if info.Role == ui.RoleButton && info.Name == text("chat_retry") {
+					retry = &info
+				}
+			}
+			if retry == nil {
+				t.Fatalf("the demo's transcript has no Retry: %q", tester.Texts())
+			}
+			tester.ClickAt(retry.Bounds.X+retry.Bounds.W/2, retry.Bounds.Y+retry.Bounds.H/2)
+			tester.Frame()
+			if !idle.Running() {
+				t.Fatal("Retry did not run the demo's turn")
+			}
+			r.App.Do("conversation.stop")
+			tester.Frame()
+			tester.Frame()
+			if idle.Running() {
+				t.Fatal("Stop left the demo's turn running")
+			}
+			settle()
+			if shown := marked(); shown != "" {
+				t.Errorf("the actions name the demo: %q", shown)
+			}
+			if acted := sent()[before:]; len(acted) != 0 {
+				t.Errorf("the demo's menus and actions sent commands to the Node: %q", acted)
+			}
+			if len(controller.Snapshot().Sessions) != 0 || len(controller.Snapshot().Projects) != 0 {
+				t.Errorf("the demo created %d Node sessions and %d projects", len(controller.Snapshot().Sessions), len(controller.Snapshot().Projects))
+			}
+		})
 
 		// The Usage page reads the demo's ledger: one source, this device,
 		// with figures over the demo's projects and models, and nothing
