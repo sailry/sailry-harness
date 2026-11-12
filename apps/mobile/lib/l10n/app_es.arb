@@ -1006,5 +1006,58 @@
   "hostNoMatches": "Sin resultados",
   "modelFeatureOff": "Estándar",
   "modelFeatureFast": "Rápido",
-  "modelFeatureSpeed": "Velocidad"
+  "modelFeatureSpeed": "Velocidad",
+  "queueHaltStopped": "Detenido · {count} en cola",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "Respuesta interrumpida · {count} en cola",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "Mensaje no enviado · {count} en cola",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "Resultado no entregado",
+  "backgroundHoldLimit": "No entregado; límite de turnos alcanzado",
+  "backgroundHoldStopped": "No entregado; respuesta detenida",
+  "backgroundHoldInterrupted": "No entregado; respuesta interrumpida",
+  "backgroundHoldFailed": "No entregado; la respuesta falló",
+  "continuationRefused": "No continuado",
+  "continuationPlan": "No continuado en modo Plan",
+  "continuationChild": "Una subtarea no se continúa",
+  "continuationArchived": "Un chat archivado no se continúa",
+  "continuationWorktree": "No continuado; falta el árbol de trabajo",
+  "continuationQueuePaused": "No continuado; cola en pausa",
+  "continuationQueuedInput": "No continuado; hay mensajes en cola",
+  "continuationRunning": "No continuado; hay una respuesta en curso",
+  "continuationInteraction": "No continuado; una solicitud espera su respuesta",
+  "continuationLimit": "Límite de turnos automáticos alcanzado",
+  "continuationLimitCount": "Límite de turnos automáticos alcanzado · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "No continuado; el chat ha avanzado",
+  "conversationContextOverflow": "Se superó el límite de contexto del modelo",
+  "conversationOutputLimit": "Respuesta cortada en el límite de salida"
 }

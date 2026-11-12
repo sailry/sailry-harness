@@ -2586,4 +2586,78 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => 'Speed';
+
+  @override
+  String queueHaltStopped(String count) {
+    return 'Stopped · $count queued';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return 'Reply interrupted · $count queued';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return 'Message not sent · $count queued';
+  }
+
+  @override
+  String get backgroundHeld => 'Result not delivered';
+
+  @override
+  String get backgroundHoldLimit => 'Not delivered; turn limit reached';
+
+  @override
+  String get backgroundHoldStopped => 'Not delivered; reply stopped';
+
+  @override
+  String get backgroundHoldInterrupted => 'Not delivered; reply interrupted';
+
+  @override
+  String get backgroundHoldFailed => 'Not delivered; reply failed';
+
+  @override
+  String get continuationRefused => 'Not continued';
+
+  @override
+  String get continuationPlan => 'Not continued in Plan mode';
+
+  @override
+  String get continuationChild => 'A subtask is not continued';
+
+  @override
+  String get continuationArchived => 'An archived chat is not continued';
+
+  @override
+  String get continuationWorktree => 'Not continued; worktree missing';
+
+  @override
+  String get continuationQueuePaused => 'Not continued; queue paused';
+
+  @override
+  String get continuationQueuedInput => 'Not continued; messages queued';
+
+  @override
+  String get continuationRunning => 'Not continued; a reply is running';
+
+  @override
+  String get continuationInteraction => 'Not continued; a request awaits you';
+
+  @override
+  String get continuationLimit => 'Automatic turn limit reached';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return 'Automatic turn limit reached · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => 'Not continued; the chat has moved on';
+
+  @override
+  String get conversationContextOverflow => 'Model context limit exceeded';
+
+  @override
+  String get conversationOutputLimit => 'Reply cut at the output limit';
 }

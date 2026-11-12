@@ -1006,5 +1006,58 @@
   "hostNoMatches": "无匹配结果",
   "modelFeatureOff": "标准",
   "modelFeatureFast": "快速",
-  "modelFeatureSpeed": "速度"
+  "modelFeatureSpeed": "速度",
+  "queueHaltStopped": "已停止 · {count} 条排队",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "回复已中断 · {count} 条排队",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "消息未发送 · {count} 条排队",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "结果待送达",
+  "backgroundHoldLimit": "未送达，已达自动轮次上限",
+  "backgroundHoldStopped": "未送达，回复已停止",
+  "backgroundHoldInterrupted": "未送达，回复已中断",
+  "backgroundHoldFailed": "未送达，回复失败",
+  "continuationRefused": "未继续执行",
+  "continuationPlan": "计划模式下不继续执行",
+  "continuationChild": "子任务不继续执行",
+  "continuationArchived": "已归档会话不继续执行",
+  "continuationWorktree": "未继续执行，工作树不存在",
+  "continuationQueuePaused": "未继续执行，队列已暂停",
+  "continuationQueuedInput": "未继续执行，队列中有消息",
+  "continuationRunning": "未继续执行，回复进行中",
+  "continuationInteraction": "未继续执行，有请求等待你处理",
+  "continuationLimit": "已达自动轮次上限",
+  "continuationLimitCount": "已达自动轮次上限 · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "未继续执行，会话已有新进展",
+  "conversationContextOverflow": "上下文超出模型限制",
+  "conversationOutputLimit": "回复已达输出上限"
 }

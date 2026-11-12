@@ -4,7 +4,9 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'glass_chip.dart';
-import 'presentation.dart' show ConversationCommand, failureLabel;
+import 'presentation.dart'
+    show ConversationCommand, continuationMarker, failureLabel;
+import 'tool_display.dart' show continuationLabel;
 import 'guidance.dart';
 import 'turn_draft.dart';
 
@@ -16,10 +18,21 @@ GuidancePreview? outgoingGuidance(
     ? null
     : preview;
 
-typedef QueueState = ({int count, bool paused, bool guiding});
+typedef QueueState = ({int count, bool paused, String? reason, bool guiding});
+
+/// The paused queue's label: a queue the Node halted after a stop, a lost turn
+/// or an unrecorded input does not read as paused by the user. A missing or
+/// unknown reason keeps the plain paused label.
+String pausedKey(Object? reason) => switch (reason) {
+  'stopped' => 'queueHaltStopped',
+  'interrupted' => 'queueHaltInterrupted',
+  'unrecorded' => 'queueHaltUnsent',
+  _ => 'queuePaused',
+};
 
 /// Counts queued input with guidance still awaiting admission; [guiding]
-/// marks input waiting to join the running turn.
+/// marks input waiting to join the running turn and [reason] says why a paused
+/// queue stopped sending.
 QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
   final queue = object(object(object(view['snapshot'])['page'])['queue']);
   final items = objects(queue['items']);
@@ -28,6 +41,9 @@ QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
   return (
     count: items.length + (preview == null ? 0 : 1),
     paused: queue['paused'] == true,
+    reason: queue['paused'] == true && queue['pause_reason'] is String
+        ? queue['pause_reason'] as String
+        : null,
     guiding:
         preview != null ||
         items.any((item) => guidance[item['turn']] == 'pending'),
@@ -37,7 +53,7 @@ QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
 /// Speaks the count and the icon-only pending-guidance mark.
 String describe(QueueState state, Translator tr) {
   final queue = tr(
-    state.paused ? 'queuePaused' : 'queueCount',
+    state.paused ? pausedKey(state.reason) : 'queueCount',
   ).replaceAll('{count}', '${state.count}');
   return state.guiding
       ? tr('queueGuidance').replaceAll('{queue}', queue)
@@ -70,7 +86,11 @@ class QueueChip extends StatelessWidget {
             children: [
               AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
               if (state.paused)
-                Text(context.tr('queuePaused').replaceAll('{count}', count))
+                Text(
+                  context
+                      .tr(pausedKey(state.reason))
+                      .replaceAll('{count}', count),
+                )
               else ...[
                 Text(context.tr('queueShort')),
                 Text(count, style: TextStyle(color: colors.onSurface)),
@@ -286,6 +306,14 @@ class _LiveQueueState extends State<LiveQueue> {
       final items = objects(queue['items']);
       final outgoing = outgoingGuidance(widget.submission?.guidance, view);
       final enabled = !_busy && !_pending && view['connected'] == true;
+      // A queued continuation is an automatic row named by its marker: its
+      // prompt is input for the model, not a message to read, edit or send.
+      final markers = {
+        for (final run in objects(page['runs']))
+          run['turn']: ?continuationMarker(run),
+      };
+      bool automatic(Map<String, dynamic> item) =>
+          item['notice'] == true || markers.containsKey(item['turn']);
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -314,12 +342,14 @@ class _LiveQueueState extends State<LiveQueue> {
                     InkWell(
                       onTap:
                           enabled &&
-                              item['notice'] != true &&
+                              !automatic(item) &&
                               item['guidance'] == null
                           ? () => _open(item)
                           : null,
                       child: Text(
-                        item['notice'] == true
+                        markers[item['turn']] != null
+                            ? continuationLabel(context, markers[item['turn']])
+                            : item['notice'] == true
                             ? context.tr('backgroundNoticeTitle')
                             : item['preview'] as String? ?? '',
                         style: const TextStyle(height: 1.5),
@@ -335,7 +365,7 @@ class _LiveQueueState extends State<LiveQueue> {
                     Wrap(
                       children: [
                         if (!widget.delegated &&
-                            item['notice'] != true &&
+                            !automatic(item) &&
                             item['guidance'] == null)
                           TextButton(
                             onPressed: enabled ? () => _open(item) : null,
@@ -363,9 +393,9 @@ class _LiveQueueState extends State<LiveQueue> {
                         ),
                         if (!widget.delegated &&
                             index > 0 &&
-                            item['notice'] != true &&
+                            !automatic(item) &&
                             item['guidance'] == null &&
-                            items[index - 1]['notice'] != true &&
+                            !automatic(items[index - 1]) &&
                             items[index - 1]['guidance'] == null)
                           TextButton(
                             onPressed: enabled
@@ -378,7 +408,7 @@ class _LiveQueueState extends State<LiveQueue> {
                                 : null,
                             child: Text(context.tr('moveUp')),
                           ),
-                        if (!widget.delegated && item['notice'] != true)
+                        if (!widget.delegated && !automatic(item))
                           TextButton(
                             onPressed:
                                 enabled &&

@@ -1006,5 +1006,58 @@
   "hostNoMatches": "無相符結果",
   "modelFeatureOff": "標準",
   "modelFeatureFast": "快速",
-  "modelFeatureSpeed": "速度"
+  "modelFeatureSpeed": "速度",
+  "queueHaltStopped": "已停止 · {count} 條排隊",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "回覆已中斷 · {count} 條排隊",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "訊息未傳送 · {count} 條排隊",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "結果待送達",
+  "backgroundHoldLimit": "未送達，已達自動輪次上限",
+  "backgroundHoldStopped": "未送達，回覆已停止",
+  "backgroundHoldInterrupted": "未送達，回覆已中斷",
+  "backgroundHoldFailed": "未送達，回覆失敗",
+  "continuationRefused": "未繼續執行",
+  "continuationPlan": "計畫模式下不繼續執行",
+  "continuationChild": "子任務不繼續執行",
+  "continuationArchived": "已歸檔會話不繼續執行",
+  "continuationWorktree": "未繼續執行，工作樹不存在",
+  "continuationQueuePaused": "未繼續執行，佇列已暫停",
+  "continuationQueuedInput": "未繼續執行，佇列中有訊息",
+  "continuationRunning": "未繼續執行，回覆進行中",
+  "continuationInteraction": "未繼續執行，有請求等待你處理",
+  "continuationLimit": "已達自動輪次上限",
+  "continuationLimitCount": "已達自動輪次上限 · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "未繼續執行，會話已有新進展",
+  "conversationContextOverflow": "上下文超出模型限制",
+  "conversationOutputLimit": "回覆已達輸出上限"
 }

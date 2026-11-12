@@ -1006,5 +1006,58 @@
   "hostNoMatches": "Нет совпадений",
   "modelFeatureOff": "Обычно",
   "modelFeatureFast": "Быстро",
-  "modelFeatureSpeed": "Скорость"
+  "modelFeatureSpeed": "Скорость",
+  "queueHaltStopped": "Остановлено · в очереди: {count}",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "Ответ прерван · в очереди: {count}",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "Сообщение не отправлено · в очереди: {count}",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "Результат не доставлен",
+  "backgroundHoldLimit": "Не доставлено: достигнут лимит ходов",
+  "backgroundHoldStopped": "Не доставлено: ответ остановлен",
+  "backgroundHoldInterrupted": "Не доставлено: ответ прерван",
+  "backgroundHoldFailed": "Не доставлено: ошибка ответа",
+  "continuationRefused": "Не продолжено",
+  "continuationPlan": "Не продолжено в режиме плана",
+  "continuationChild": "Подзадача не продолжается",
+  "continuationArchived": "Архивный чат не продолжается",
+  "continuationWorktree": "Не продолжено: рабочее дерево отсутствует",
+  "continuationQueuePaused": "Не продолжено: очередь приостановлена",
+  "continuationQueuedInput": "Не продолжено: в очереди есть сообщения",
+  "continuationRunning": "Не продолжено: ответ выполняется",
+  "continuationInteraction": "Не продолжено: запрос ожидает вашего ответа",
+  "continuationLimit": "Достигнут лимит автоматических ходов",
+  "continuationLimitCount": "Достигнут лимит автоматических ходов · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "Не продолжено: чат продвинулся дальше",
+  "conversationContextOverflow": "Превышен предел контекста модели",
+  "conversationOutputLimit": "Ответ обрезан по лимиту вывода"
 }
