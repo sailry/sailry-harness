@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -19,6 +20,22 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 	t.Run("plugin location ownership", testPluginLocationOwnership)
 	t.Run("a declared sign-in warning precedes the login command", testProviderLoginWarning)
 	t.Parallel()
+	t.Run("a package setting is titled by its field's translation", func(t *testing.T) {
+		var schema protocol.PluginSettingsSchema
+		source := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+			"properties":{"free_only":{"type":"boolean","title":"Free models only","default":true},"plain":{"type":"boolean","title":"Plain"}},
+			"x-sailry-locales":{"zh-CN":{"free_only":"仅使用免费模型"}}}`
+		if err := json.Unmarshal([]byte(source), &schema); err != nil {
+			t.Fatal(err)
+		}
+		titles := map[string]string{}
+		for _, field := range packageSettingsFields(&schema, protocol.PluginSettingsState{}, "zh-CN") {
+			titles[field.Name] = field.Title
+		}
+		if titles["free_only"] != "仅使用免费模型" || titles["plain"] != "Plain" {
+			t.Fatalf("setting titles: %v", titles)
+		}
+	})
 	t.Run("quota remains unknown after reset", func(t *testing.T) {
 		reset := uint64(100)
 		window := &protocol.ConversationQuotaWindow{UsedBasisPoints: 4250, ResetAtMs: &reset}
