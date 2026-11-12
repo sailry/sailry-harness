@@ -375,5 +375,6 @@ a sample's mapping.
 | Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
 | An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
 | Update confirmation drops the cached connection after each unconfirmed probe as well as before the first | Rust disconnects once before probing; a probe that reached the old process would otherwise leave its connection for the next |
+| An SSH connection prefers its trusted host key's algorithm and sends `keepalive@openssh.com` every 15 seconds, closing after 45 seconds without a reply (`internal/ssh/connect.go`) | Rust connects with russh's default configuration: a server that added a key type the library prefers read as a changed key, and a connection whose route died stayed open. The order and the interval are OpenSSH's (`HostKeyAlgorithms` from known keys, `ServerAliveInterval` 15 with `ServerAliveCountMax` 3) |
 | Remote timezone remains unknown | HostInfo and the Link handshake do not expose it; the controller does not substitute its own timezone |
 | The sidebar footer keeps its summary samples | It shows the selected Node's load without the page's detail |
