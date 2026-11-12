@@ -204,6 +204,78 @@ func TestTerminalProjection(t *testing.T) {
 	}
 }
 
+// terminalTestStream is a screen sent as a VT stream of the given size.
+func terminalTestStream(rows uint16, bytes string) protocol.TerminalScreen {
+	screen := terminalTestScreen(0, 0)
+	screen.VT = &protocol.TerminalVT{Viewport: protocol.TerminalViewport{Columns: 80, Rows: rows}, Bytes: protocol.Bytes(bytes)}
+	return screen
+}
+
+func terminalTestStreamFrame(node protocol.NodeID, id protocol.TerminalID, sequence uint64, rows uint16, bytes string) protocol.Update {
+	return terminalTestFrame(node, id, sequence, "replace", protocol.TerminalScreenScreenUpdateReplacePayload{Screen: terminalTestStream(rows, bytes)})
+}
+
+// Every VT byte reaches the reader once and in order, however many updates
+// arrive between two deliveries.
+func TestTerminalProjectionKeepsStreamBytes(t *testing.T) {
+	t.Parallel()
+	node, id := protocol.NodeID{1}, protocol.NewTerminalID()
+	projection := newTerminalProjection(node, id)
+	apply := func(update protocol.Update, want Apply) {
+		t.Helper()
+		if applied, err := projection.apply(update); applied != want || err != nil {
+			t.Fatalf("applied = %d, %v; want %d", applied, err, want)
+		}
+	}
+	take := func(bytes string, restart bool, sequence uint64) {
+		t.Helper()
+		snapshot, restarted := projection.take()
+		if snapshot == nil || string(snapshot.Screen.VT.Bytes) != bytes || restarted != restart || snapshot.Sequence != sequence {
+			t.Fatalf("took %q restart %v of %+v; want %q restart %v at %d", snapshot.Screen.VT.Bytes, restarted, snapshot, bytes, restart, sequence)
+		}
+	}
+	if snapshot, restart := projection.take(); snapshot != nil || restart {
+		t.Fatalf("took %+v before a snapshot", snapshot)
+	}
+	apply(terminalTestSnapshot(node, id, 1, 0, terminalTestStream(24, "a")), Applied)
+	apply(terminalTestStreamFrame(node, id, 1, 24, "b"), Applied)
+	apply(terminalTestStreamFrame(node, id, 2, 24, "c"), Applied)
+	take("abc", true, 2)
+	take("", false, 2)
+	apply(terminalTestStreamFrame(node, id, 3, 24, "d"), Applied)
+	apply(terminalTestStreamFrame(node, id, 3, 24, "d"), Ignored)
+	take("d", false, 3)
+
+	// Another size starts over: what was drawn for the old one is not read.
+	apply(terminalTestStreamFrame(node, id, 4, 24, "e"), Applied)
+	apply(terminalTestStreamFrame(node, id, 5, 30, "f"), Applied)
+	apply(terminalTestStreamFrame(node, id, 6, 30, "g"), Applied)
+	take("fg", true, 6)
+
+	// A gap keeps what came in order; the next subscription starts over.
+	apply(terminalTestStreamFrame(node, id, 7, 30, "h"), Applied)
+	apply(terminalTestStreamFrame(node, id, 9, 30, "lost"), Recover)
+	take("h", false, 7)
+	projection.reconnect()
+	apply(terminalTestSnapshot(node, id, 1, 0, terminalTestStream(30, "i")), Applied)
+	apply(terminalTestStreamFrame(node, id, 1, 30, "j"), Applied)
+	take("ij", true, 1)
+
+	// Past the bound the bytes go and the subscription recovers.
+	full := string(make([]byte, terminalMaxPending))
+	apply(terminalTestStreamFrame(node, id, 2, 30, full), Applied)
+	apply(terminalTestStreamFrame(node, id, 3, 30, "k"), Recover)
+	if !projection.stalled {
+		t.Fatal("dropped bytes were not reported")
+	}
+	apply(terminalTestStreamFrame(node, id, 4, 30, "l"), Recover)
+	take("", false, 2)
+	projection.reconnect()
+	// A starting frame is kept whatever its size.
+	apply(terminalTestSnapshot(node, id, 1, 0, terminalTestStream(30, full+"m")), Applied)
+	take(full+"m", true, 0)
+}
+
 func TestTerminalScreenValidation(t *testing.T) {
 	t.Parallel()
 	line := func(spans ...protocol.TerminalScreenSpan) []protocol.TerminalScreenLine {
@@ -355,6 +427,83 @@ func TestTerminalObserver(t *testing.T) {
 		}
 		if after(10*time.Second) != 4 {
 			t.Fatal("an ended observer subscribed again")
+		}
+	})
+}
+
+// The observer hands a VT screen's bytes to its reader in order, marks the
+// deliveries that start the terminal over, and stops holding bytes for a
+// reader that takes none.
+func TestTerminalObserverDeliversStreamBytes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		streams := []*observerTestStream{newObserverTestStream(), newObserverTestStream(), newObserverTestStream()}
+		transport := observerTestTransportWith(streams...)
+		controller := New(transport)
+		id := protocol.NewTerminalID()
+		argument, _ := json.Marshal(id)
+		observer, err := controller.Watch(t.Context(), "watch_terminal", argument)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = observer.Close(); _ = controller.Close() }()
+		node := controller.Target()
+		next := func() (terminalView, string) {
+			t.Helper()
+			synctest.Wait()
+			view := nextView[terminalView](t, observer)
+			if view.Snapshot == nil || view.Snapshot.Screen.VT == nil {
+				t.Fatalf("view = %+v", view)
+			}
+			return view, string(view.Snapshot.Screen.VT.Bytes)
+		}
+		after := func(wait time.Duration) int {
+			time.Sleep(wait)
+			synctest.Wait()
+			return transport.subscribed()
+		}
+
+		// Two frames between two reads deliver both runs in order.
+		streams[0].events <- terminalTestSnapshot(node, id, 1, 0, terminalTestStream(24, "one "))
+		if view, bytes := next(); !view.Reset || !view.Connected || bytes != "one " {
+			t.Fatalf("snapshot = %q, %+v", bytes, view)
+		}
+		streams[0].events <- terminalTestStreamFrame(node, id, 1, 24, "two ")
+		streams[0].events <- terminalTestStreamFrame(node, id, 2, 24, "three")
+		if view, bytes := next(); view.Reset || bytes != "two three" || view.Snapshot.Sequence != 2 {
+			t.Fatalf("frames = %q, %+v", bytes, view)
+		}
+
+		// A reconnect delivers no byte twice and then starts over.
+		streams[0].events <- fault(protocol.ErrorCodeUnavailable, "route lost")
+		if view, bytes := next(); view.Reset || view.Connected || bytes != "" {
+			t.Fatalf("loss = %q, %+v", bytes, view)
+		}
+		if after(250*time.Millisecond) != 2 {
+			t.Fatal("a loss did not subscribe again")
+		}
+		streams[1].events <- terminalTestSnapshot(node, id, 1, 0, terminalTestStream(24, "again "))
+		streams[1].events <- terminalTestStreamFrame(node, id, 1, 24, "more")
+		if view, bytes := next(); !view.Reset || !view.Connected || bytes != "again more" {
+			t.Fatalf("reconnected = %q, %+v", bytes, view)
+		}
+
+		// A reader that takes nothing holds at most the bound: the bytes go,
+		// and the next subscription waits for the reader.
+		streams[1].events <- terminalTestStreamFrame(node, id, 2, 24, string(make([]byte, terminalMaxPending)))
+		streams[1].events <- terminalTestStreamFrame(node, id, 3, 24, "over")
+		if after(time.Minute) != 2 {
+			t.Fatal("subscribed again for a reader that takes nothing")
+		}
+		if view, bytes := next(); view.Reset || view.Connected || !view.Recovering || bytes != "" {
+			t.Fatalf("dropped = %d bytes, %+v", len(bytes), view)
+		}
+		synctest.Wait()
+		if transport.subscribed() != 3 {
+			t.Fatal("the reader's return did not subscribe again")
+		}
+		streams[2].events <- terminalTestSnapshot(node, id, 1, 0, terminalTestStream(24, "fresh"))
+		if view, bytes := next(); !view.Reset || !view.Connected || view.Recovering || bytes != "fresh" {
+			t.Fatalf("recovered = %q, %+v", bytes, view)
 		}
 	})
 }
