@@ -29,10 +29,10 @@ func (pr *Project) SetGitSwitchPending(operations []PendingOperation) {
 	pr.Git.switchPending = operations
 }
 
-type GitHistoryState struct {
-	Loading, Next, Previous, Partial bool
-	Offset                           uint64
-}
+// GitHistoryState is the history's read: Loading while a page is read, Next
+// while the repository has commits after the ones listed, Partial when a
+// commit or the references were cut short.
+type GitHistoryState struct{ Loading, Next, Partial bool }
 type GitDiffState struct{ Binary, Partial bool }
 
 func (pr *Project) SetGitDiffState(path, scope string, state GitDiffState) {
