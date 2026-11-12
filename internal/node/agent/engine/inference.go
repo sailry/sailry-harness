@@ -111,7 +111,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if err = r.toolMediaAssets(x.ctx, binding, projected, assets); err != nil {
 		return err
 	}
-	call, err := model.BuildCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets})
+	call, err := model.BuildCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets, Delegated: x.inv.Session.Delegation != nil})
 	if err != nil {
 		return err
 	}
