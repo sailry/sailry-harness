@@ -249,19 +249,145 @@ func TestGitPage(t *testing.T) {
 			t.Fatalf("committing does not tell the preview: %q", tt.Texts())
 		}
 	})
-	// The history lists the commits with their id, author and branch.
+	// The history is a graph: each commit's subject and short ID, the names
+	// at it, and a row over it that says the rest and takes the click.
 	t.Run("History", func(t *testing.T) {
-		_, tt := pageTester(t, Changes)
+		pr, tt := pageTester(t, Changes)
 		if err := tt.Click(en("git_view_history")); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		for _, s := range []string{"Port the Git panel's grouped changes", "9f2c41ab", "Ada Chen", "split-view"} {
+		for _, s := range []string{"Port the Git panel's grouped changes", "9f2c41a", "Merge branch 'split-view'"} {
 			if !tt.HasText(s) {
 				t.Fatalf("the history has no %q: %q", s, tt.Texts())
 			}
 		}
+		if _, ok := tt.AccessByRole(ui.RoleList, en("git_view_history")); !ok {
+			t.Fatalf("the history is not the graph: %q", tt.Texts())
+		}
+		// At the list's first width the author is left to the tooltip.
+		if tip := commitTip(pr.Data.Repo.Commits[0], pr.Data.Repo.Branch); tip != "Port the Git panel's grouped changes\n9f2c41ab · Ada Chen · main" {
+			t.Fatalf("the row's tooltip %q", tip)
+		}
+		tt.Advance(time.Second) // the graph's arrival
+		tt.Frame()
 		shot(t, tt, "git-history")
+		// A click chooses the commit and reads its changes.
+		var read string
+		var sent GitAction
+		pr.Actions = &Actions{ReadCommit: func(id string) { read = id }, Git: func(_ *ui.Context, a GitAction) { sent = a }}
+		pr.SetGitState(GitState{Known: true, Kind: "repository", Head: true})
+		tt.Frame()
+		merge := pr.Data.Repo.Commits[1]
+		mergeRow := func() ui.AccessInfo {
+			row, _ := tt.AccessByRole(ui.RoleOption, "Merge branch 'split-view'")
+			return row
+		}
+		clickRole(t, tt, ui.RoleOption, "Merge branch 'split-view'", 0)
+		if row := mergeRow(); pr.Git.commitID != merge.ID || read != merge.ID || !row.Selected {
+			t.Fatalf("chosen %q, read %q, selected %v", pr.Git.commitID, read, row.Selected)
+		}
+		// The right-click menu is the system's and acts at the commit.
+		menu := func(item string) {
+			t.Helper()
+			row := mergeRow()
+			tt.RightClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+			if err := tt.ChooseMenuItem(en(item)); err != nil {
+				t.Fatalf("%v: %q", err, tt.Menu())
+			}
+			tt.Frame()
+			tt.Advance(300 * time.Millisecond)
+			tt.Frame()
+		}
+		menu("git_copy_commit_id")
+		if got := tt.Clipboard(); got != merge.ID {
+			t.Fatalf("copied %q", got)
+		}
+		menu("git_cherry_pick")
+		if cf := pr.Git.confirm; !cf.open || cf.message != en("git_cherry_pick_confirm") || cf.target != "e5a31c7f Merge branch 'split-view'" {
+			t.Fatalf("the confirmation %+v", cf)
+		}
+		clickRole(t, tt, ui.RoleButton, en("git_cherry_pick"), 0)
+		if sent.Kind != "git_cherry_pick" || sent.Target != merge.ID {
+			t.Fatalf("sent %+v", sent)
+		}
+		// A Node that sends no parents has the plain list, with the same rows.
+		pr.Data.Repo.Commits[2].Parents = nil
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleList, en("git_view_history")); ok || !tt.HasText("Ada Chen") || !tt.HasText("9f2c41ab") {
+			t.Fatalf("no plain list without parents: %q", tt.Texts())
+		}
+	})
+	// Lanes keep every line the graph draws ending at a dot; the names at
+	// a commit are ordered and cut to the room.
+	t.Run("HistoryLanes", func(t *testing.T) {
+		commit := func(id string, parents ...string) preview.Commit {
+			return preview.Commit{ID: id, Parents: append([]string{}, parents...)}
+		}
+		for _, o := range []struct {
+			name    string
+			commits []preview.Commit
+			want    []int
+		}{
+			{"line", []preview.Commit{commit("c", "b"), commit("b", "a"), commit("a")}, []int{0, 0, 0}},
+			{"merge", []preview.Commit{commit("m", "a", "b"), commit("a", "r"), commit("b", "r"), commit("r")}, []int{0, 0, 1, 0}},
+			{"two heads", []preview.Commit{commit("x", "r"), commit("y", "r"), commit("r")}, []int{0, 1, 0}},
+			{"parent beyond the page", []preview.Commit{commit("m", "a", "gone"), commit("a", "far"), commit("z", "far")}, []int{0, 0, 1}},
+			{"a freed lane is taken again", []preview.Commit{commit("m", "a", "b"), commit("b", "a"), commit("a", "r"), commit("n", "r", "q"), commit("q", "r"), commit("r")}, []int{0, 1, 0, 1, 1, 0}},
+		} {
+			if got, ok := graphLanes(o.commits); !ok || !slices.Equal(got, o.want) {
+				t.Errorf("%s: lanes %v (%v), want %v", o.name, got, ok, o.want)
+			}
+		}
+		if _, ok := graphLanes([]preview.Commit{commit("b", "a"), {ID: "a"}}); ok {
+			t.Error("lanes for a commit whose parents are not known")
+		}
+		refs := []string{"remotes/origin/main", "tags/v1", "heads/topic", "HEAD", "heads/main", "heads/main"}
+		if got := refLabels(refs, "main"); !slices.Equal(got, []string{"main", "v1", "topic", "origin/main"}) {
+			t.Errorf("names %q", got)
+		}
+		if got := refLabels([]string{"HEAD", "tags/v1"}, ""); !slices.Equal(got, []string{"HEAD", "v1"}) {
+			t.Errorf("detached names %q", got)
+		}
+		labels := []string{"feature/rate-limit", "v2", "origin/feature/rate-limit"}
+		for _, o := range []struct {
+			room float32
+			want []string
+		}{{400, labels}, {180, []string{"feature/rate-limit", "v2"}}, {210, []string{"feature/rate-limit", "v2", "+1"}}, {100, []string{"feature/rat…"}}, {30, nil}} {
+			if got := fitRefs(labels, o.room); !slices.Equal(got, o.want) {
+				t.Errorf("room %v: names %q, want %q", o.room, got, o.want)
+			}
+		}
+	})
+	// The review's frames, written only when $SAILRY_SNAPSHOTS names a
+	// folder: the demo repository's history as a graph, at the list's first
+	// width and widened, and a change's diff unified and split, at 2x in
+	// both appearances.
+	t.Run("Snapshots", func(t *testing.T) {
+		if os.Getenv("SAILRY_SNAPSHOTS") == "" {
+			t.Skip("SAILRY_SNAPSHOTS is not set")
+		}
+		for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+			name := map[theme.Mode]string{theme.Light: "light", theme.Dark: "dark"}[mode]
+			pr := NewProjects(preview.Demo("en", "local").Workspace).Of("harbor-api")
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				theme.Apply(c, "", mode)
+				ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { Page(c, Changes, pr, func() {}) })
+			}, 1180, 760, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
+			tt.SetLocale("en")
+			tt.SetScale(2)
+			rest := func() {
+				tt.Frame()
+				tt.Advance(2 * time.Second)
+				tt.Frame()
+			}
+			pr.Git.view, pr.Git.commitID = 1, pr.Data.Repo.Commits[1].ID
+			rest()
+			shot(t, tt, "git-history-graph-"+name)
+			pr.Git.side = 420
+			rest()
+			shot(t, tt, "git-history-graph-wide-"+name)
+		}
 	})
 	// Ctrl+G then Down pulls, which the preview only tells. The key after
 	// Ctrl+G completes the chord or drops it: a Down the list took, or one

@@ -414,7 +414,10 @@ git_commit_staged: Procéder à des modifications par étapes
 git_commit_staged_amend: Commit staged et amend
 git_commit_staged_signoff: Confirmer en étape et signer
 git_commit_sync: Valider et synchroniser
+git_cherry_pick: Cherry-pick commit
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Copier le nom de la branche
+git_copy_commit_id: Copy commit ID
 git_copy_path: Copier le chemin
 git_delete_branch: Supprimer la branche
 git_delete_confirm: Supprimer? Cela ne peut pas être annulé
@@ -1443,6 +1446,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Choisir un dossier
 skill_source_choose_archive: Choisir une archive
 git_diff: Différences
+git_diff_split: Split
+git_diff_unified: Unified
 market_permission_git_read: Lire les modifications Git
 market_permission_git_write: Modifier Git
 market_permission_files_read: Lire les fichiers

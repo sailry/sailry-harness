@@ -54,7 +54,7 @@ func (p *workspaceProject) projectGitHistory(loading bool) {
 		p.data.Repo.Commits = nil
 		for _, entry := range page.Entries {
 			state.Partial = state.Partial || entry.Truncated
-			p.data.Repo.Commits = append(p.data.Repo.Commits, viewmodel.Commit{ID: entry.ID, Message: entry.Message, Author: entry.Author, Refs: entry.References})
+			p.data.Repo.Commits = append(p.data.Repo.Commits, viewmodel.Commit{ID: entry.ID, Message: entry.Message, Author: entry.Author, Refs: entry.References, Parents: entry.Parents})
 		}
 	}
 	p.panel.SetGitHistory(state)

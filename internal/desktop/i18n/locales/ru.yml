@@ -414,7 +414,10 @@ git_commit_staged: Завершение поэтапных изменений
 git_commit_staged_amend: Завершение этапировано и изменено
 git_commit_staged_signoff: Завершение на стадии и отключение
 git_commit_sync: Завершение и синхронизация
+git_cherry_pick: Cherry-pick
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Копировать имя ветки
+git_copy_commit_id: Copy commit ID
 git_copy_path: Копировать путь
 git_delete_branch: Исключить ветвь
 git_delete_confirm: Удалить? Это нельзя отменить
@@ -1443,6 +1446,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Выбрать папку
 skill_source_choose_archive: Выбрать архив
 git_diff: Различия
+git_diff_split: Split
+git_diff_unified: Unified
 market_permission_git_read: Чтение изменений Git
 market_permission_git_write: Изменение Git
 market_permission_files_read: Чтение файлов

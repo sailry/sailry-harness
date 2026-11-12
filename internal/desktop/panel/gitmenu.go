@@ -506,6 +506,25 @@ func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryP
 		g.item("git_copy_path", func(c *ui.Context) { c.WriteClipboard(strings.Join(paths, "\n")) }, true))
 }
 
+// commitActions is a commit's right-click menu in the history: its ID copied, a
+// branch or a tag made at it, and the commit applied to the branch checked
+// out, which asks first.
+func (g gitMenus) commitActions(cm preview.Commit) []action {
+	subject, _, _ := strings.Cut(cm.Message, "\n")
+	target := cm.ID[:min(8, len(cm.ID))] + " " + strings.TrimSpace(subject)
+	pick := g.item("git_cherry_pick", func(*ui.Context) {
+		g.v.confirm = confirm{open: true, title: g.t("git_cherry_pick"), message: g.t("git_cherry_pick_confirm"), target: target, run: func(c *ui.Context) {
+			g.pr.gitAction(c, GitAction{Kind: "git_cherry_pick", Target: cm.ID})
+		}}
+	}, g.pr.gitWritable() && g.head())
+	return []action{
+		g.item("git_copy_commit_id", func(c *ui.Context) { c.WriteClipboard(cm.ID) }, true), separatorItem,
+		g.item("git_new_branch", func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "branch_create", Secondary: cm.ID}) }, g.pr.gitWritable()),
+		g.item("git_tag_create", func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_tag_create", Secondary: cm.ID}) }, g.pr.gitWritable()),
+		separatorItem, pick,
+	}
+}
+
 // newFile reports a change HEAD does not hold: an untracked file or a
 // staged addition. Restoring HEAD would delete it.
 func newFile(e preview.FileChange) bool {
