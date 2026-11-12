@@ -77,23 +77,24 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 	return previous
 }
 
-// A transient failure waits 5 seconds, then twice as long each time up to
-// retryCeiling, each wait spread by a fifth so that sessions that failed
-// together do not return together. A provider's Retry-After replaces the wait,
-// up to the same ceiling.
+// MainRetries is how often a main request is sent again after a transient
+// failure, each time after retryDelay: a fixed wait, which a provider's
+// Retry-After neither shortens nor lengthens. A summary is sent again once,
+// after summaryRetryDelay.
 const (
-	retryInitial = 5 * time.Second
-	retryCeiling = 60 * time.Second
-	retrySpread  = 0.2
+	MainRetries       = 9
+	retryDelay        = 60 * time.Second
+	summaryRetries    = 1
+	summaryRetryDelay = 5 * time.Second
 )
 
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool) error {
-	retries := uint64(5)
+	retries, delay := uint64(MainRetries), retryDelay
 	buffered := purpose == SummaryPurpose
 	if buffered {
-		retries = 1
+		retries, delay = summaryRetries, summaryRetryDelay
 	}
-	schedule := &backoff.ExponentialBackOff{InitialInterval: retryInitial, RandomizationFactor: retrySpread, Multiplier: 2, MaxInterval: retryCeiling}
+	schedule := backoff.NewConstantBackOff(delay)
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	var secrets []protocol.Secret
 	if sdk, ok := languageModel.(*sdkModel); ok {
@@ -168,9 +169,6 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			}
 			if !released && !escaped && index < retries && attempt.Failure.Retryable() && !errors.Is(ctx.Err(), context.Canceled) {
 				delay := schedule.NextBackOff()
-				if after := attempt.Failure.RetryAfter; after != nil && *after > 0 {
-					delay = min(*after, retryCeiling)
-				}
 				attempt.RetryDelay = &delay
 			}
 		}

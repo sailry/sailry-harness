@@ -585,7 +585,7 @@ observation and is Host disconnected with the diagnostic titled
 `chat_sync_failed`. A disconnected controller is Reconnecting for no error,
 `unavailable` or `busy`, otherwise Host disconnected. The banner is not the
 model request's recovery: a retried model request is the `Retry` row inside
-the turn ("Retrying request 2/5", [providers.md](providers.md)). Deviations
+the turn ("Retrying request 2/9", [providers.md](providers.md)). Deviations
 from the reference: it tells these states as toasts ("Reconnecting" without
 an action; "Conversation sync failed" with the fault and Reconnect), Go as
 the accepted banner after the last turn, without an action in either state.

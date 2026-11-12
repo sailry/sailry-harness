@@ -107,8 +107,8 @@ func retried(id string) cv.Turn {
 	r := done(cv.Failed, 75)
 	r.Blocks = []cv.Block{
 		text("Fetching the pull requests…"),
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 2, Limit: 5, Reason: "chat_model_rate_limited"}},
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 5, Limit: 5, Reason: "chat_model_server_overloaded", Exhausted: true,
+		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 2, Limit: 9, Reason: "chat_model_rate_limited"}},
+		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded", Exhausted: true,
 			Detail: `529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`}},
 		{Kind: cv.ErrorBlock, Label: "Model service overloaded", Text: "The provider stayed overloaded after 5 attempts."},
 	}
