@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
@@ -11,6 +12,7 @@ func TestEditorChecks(t *testing.T) {
 	t.Run("SuggestName", testSuggestName)
 	t.Run("CheckProject", testCheckProject)
 	t.Run("CheckClone", testCheckClone)
+	t.Run("SampleTree", testSampleTree)
 }
 
 func testSuggestName(t *testing.T) {
@@ -59,5 +61,45 @@ func testCheckClone(t *testing.T) {
 	}
 	if got := Destination(`C:\src\`, "tool"); got != `C:\src\tool` {
 		t.Errorf("destination %q", got)
+	}
+}
+
+// The preview's sample tree holds the host's sample projects under the
+// sample account's home, and the files the right panel shows under their
+// project, so a picker opens on what the window names.
+func testSampleTree(t *testing.T) {
+	s := New(preview.Load(), preview.Big)
+	catalog := s.Catalog("local")
+	if catalog == nil || catalog != s.Catalog("local") {
+		t.Fatal("the preview keeps no sample tree for its host")
+	}
+	listing, problem := catalog.List("/Users/alex/Web/sailry-go")
+	if problem != "" {
+		t.Fatalf("the sample project is not in the tree: %s", problem)
+	}
+	var names []string
+	for _, entry := range listing.Entries {
+		names = append(names, entry.Name+":"+entry.Kind)
+	}
+	if want := []string{"README.md:file", "docs:directory", "go.mod:file", "internal:directory"}; !slices.Equal(names, want) {
+		t.Fatalf("the sample project lists %q, want %q", names, want)
+	}
+	if catalog.Size("/Users/alex/Web/sailry-go/go.mod") == 0 || catalog.Size("/Users/alex/Web/sailry-go/docs") != 0 {
+		t.Fatal("a sample file has no size, or a directory has one")
+	}
+	// A project of another host is not in this host's tree.
+	if _, problem := catalog.List("/Users/alex/Work/billing-api"); problem == "" {
+		t.Fatal("the remote host's project is in the local tree")
+	}
+	var places []string
+	for _, place := range s.projectPlaces("local") {
+		places = append(places, place.Path)
+	}
+	if !slices.Contains(places, "/Users/alex/Web/sailry-go") || slices.Contains(places, "~/Web/sailry-go") {
+		t.Fatalf("the picker's projects are %q", places)
+	}
+	s.Actions = &Actions{}
+	if s.Catalog("local") != nil {
+		t.Fatal("a live window has a sample tree")
 	}
 }
