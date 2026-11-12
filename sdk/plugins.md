@@ -1,19 +1,16 @@
 # Sailry plugin API v1
 
-This is the v1 plugin contract for `github.com/sailry/sailry-harness`.
-B0 only embeds the pinned package snapshot:
-Node callbacks land in B8 and the desktop compatibility layer in B9. No plugin
-SDK described here executes in the B0 preview.
+This is the v1 plugin contract for `github.com/sailry/sailry-harness`. Node
+callbacks and Desktop entries run in the Go runtime; nothing described here
+executes in the `--preview` desktop.
 
 JavaScript module names, method names, payloads and examples remain the v1
 contract, including `gpui-kit` imports. The Go compatibility layer maps those
-elements to MyGo/Kit; packages do not port their business logic to Go. The local
-declarations document the target runtime contract; they do not imply that the
-runtime is already implemented.
+elements to MyGo/Kit; packages do not port their business logic to Go.
 
 Desktop plugins import the host-owned `sailry/sdk` module. The host registers it for each mounted plugin and uses the existing Client → Node commands on local and remote connections. Do not bundle a private copy of the SDK, model response parser, or request recovery loop.
 
-The desktop TypeScript contract is [api.d.ts](desktop/api.d.ts). The Go compatibility layer preserves that declaration and checks it against exported methods when B9 lands. Headless callbacks have a separate [Node SDK subset](node/api.d.ts); desktop-only exports are not available there.
+The desktop TypeScript contract is [api.d.ts](desktop/api.d.ts). The Go compatibility layer preserves that declaration and checks it against exported methods. Headless callbacks have a separate [Node SDK subset](node/api.d.ts); desktop-only exports are not available there.
 Their [model](node/models.d.ts) and
 [installation](node/installations.d.ts) modules
 share the scoped request contract with bounded snapshot observations.
@@ -1495,7 +1492,7 @@ Notion account or embedded sign-in acceptance.
 ## Package tests
 
 Keep plugin behavior cases and assertions in the plugin repository. Go runtime
-contract checks arrive in B8/B9 with the production QuickJS loader and SDK,
+contract checks run the production moejs loader and SDK,
 using in-memory bundles, captured context, optional invocation policy and exact
 typed request/reply fixtures. Unmatched or unused replies fail the fixture.
 Reports include the script result, observed requests and staged turn state.

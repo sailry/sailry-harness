@@ -14,7 +14,7 @@ import (
 )
 
 // BackgroundRecord retains completion evidence independently of process handles.
-// B6 consumes its follow-up flag through the same authoritative writer.
+// Background delivery consumes its follow-up flag through the same authoritative writer.
 type BackgroundRecord struct {
 	Task      protocol.ConversationBackgroundTask `json:"task"`
 	FollowUp  bool                                `json:"follow_up"`
