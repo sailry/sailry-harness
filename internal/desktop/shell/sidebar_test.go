@@ -25,6 +25,7 @@ func TestSidebarSessions(t *testing.T) {
 	t.Run("SidebarMenuPinsAndRenames", testSidebarMenuPinsAndRenames)
 	t.Run("SidebarRenameKeepsEmptyTitleOut", testSidebarRenameKeepsEmptyTitleOut)
 	t.Run("SidebarReordersPins", testSidebarReordersPins)
+	t.Run("SidebarReordersSessions", testSidebarReordersSessions)
 	t.Run("SidebarDeleteConfirms", testSidebarDeleteConfirms)
 	t.Run("SidebarNewSession", testSidebarNewSession)
 	t.Run("SidebarGroups", testSidebarGroups)
@@ -538,6 +539,73 @@ func testSidebarReordersPins(t *testing.T) {
 	after := order()
 	if after[2] != before[0] || after[0] != before[1] {
 		t.Errorf("pins %v became %v", before, after)
+	}
+}
+
+// A project's session drags before or after another of its project while
+// the sidebar shows the creation order, the only one that shows the manual
+// order; under another order the drop does nothing.
+func testSidebarReordersSessions(t *testing.T) {
+	// Tall enough to show the project's rows under either order.
+	a := New(preview.Load())
+	tt := ui.NewTesterWith(a.View, 1280, 1600, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	var project *viewmodel.Project
+	var rows []*viewmodel.Conversation
+	for _, pr := range a.Data.Projects {
+		rows = nil
+		for _, cv := range pr.Conversations {
+			if !cv.Archived && !cv.Pinned && cv.Title != "" {
+				rows = append(rows, cv)
+			}
+		}
+		if len(rows) >= 2 {
+			project = pr
+			break
+		}
+	}
+	if project == nil {
+		t.Fatal("no project with two unpinned sessions")
+	}
+	a.Sidebar.Reveal(rows[0].ID)
+	ids := func() []string {
+		var out []string
+		for _, cv := range project.Conversations {
+			out = append(out, cv.ID)
+		}
+		return out
+	}
+	drag := func() {
+		t.Helper()
+		tt.Frame()
+		from, ok := tt.AccessByRole(ui.RoleButton, rows[0].Title)
+		to, found := tt.AccessByRole(ui.RoleButton, rows[1].Title)
+		if !ok || !found {
+			t.Fatalf("rows not shown: %q", tt.Texts())
+		}
+		dragTo(t, tt, from, from.Bounds.X+from.Bounds.W/2, to.Bounds.Y+to.Bounds.H-4, nil)
+	}
+	before := ids()
+	*a.Sidebar.Sort = int(sidebar.SortUpdated)
+	drag()
+	if got := ids(); !slices.Equal(got, before) {
+		t.Fatalf("the update order reordered %v to %v", before, got)
+	}
+	*a.Sidebar.Sort = int(sidebar.SortCreated)
+	drag()
+	got := ids()
+	if slices.Index(got, rows[0].ID) != slices.Index(got, rows[1].ID)+1 || len(got) != len(before) {
+		t.Fatalf("drag moved %v to %v, want %s after %s", before, got, rows[0].ID, rows[1].ID)
+	}
+	// A live window hands the move to its controller and keeps the rows.
+	var moved []string
+	a.Sidebar.Actions = &sidebar.Actions{MoveSession: func(source, target *viewmodel.Conversation, after bool) {
+		moved = []string{source.ID, target.ID, fmt.Sprint(after)}
+	}}
+	a.Sidebar.MoveSession(rows[1].ID, rows[0].ID, true)
+	if want := []string{rows[1].ID, rows[0].ID, "true"}; !slices.Equal(moved, want) || !slices.Equal(ids(), got) {
+		t.Fatalf("live move = %v, rows %v", moved, ids())
 	}
 }
 
