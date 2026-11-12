@@ -29,7 +29,7 @@ class Fixture {
         }
         return response;
       },
-      execute: (request) async {
+      resolve: (request) async {
         recovered.add(request);
         final error = failure;
         if (error != null) throw CommandFailure(error, request: request);

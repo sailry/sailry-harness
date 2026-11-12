@@ -29,6 +29,108 @@ func (noticeTransport) WatchConnection(ctx context.Context, _ func(link.Connecti
 	return ctx.Err()
 }
 
+// ledgerTransport loses the reply of every mutation and answers
+// inspect_request with outcome, or fails the query when outcome is nil.
+type ledgerTransport struct {
+	noticeTransport
+	outcome   *protocol.RequestOutcome
+	mutations *int
+}
+
+func (transport ledgerTransport) Dispatch(_ context.Context, request protocol.Request) (link.Admission, error) {
+	completion := make(chan link.Response, 1)
+	switch {
+	case request.Command.Kind != "inspect_request":
+		*transport.mutations++
+		close(completion)
+	case transport.outcome == nil:
+		return link.Admission{}, unavailable("Node is unreachable")
+	default:
+		query := request.Command.Data.(protocol.CommandInspectRequestPayload)
+		completion <- link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: *transport.outcome}}}
+	}
+	return link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: completion}, nil
+}
+
+func TestMobileUncertainRequest(t *testing.T) {
+	t.Parallel()
+	stored := protocol.Output{Kind: "notifications_updated"}
+	conflict := protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "session changed"}
+	completed := func(value protocol.Result[protocol.Output, protocol.Fault]) *protocol.RequestOutcome {
+		return &protocol.RequestOutcome{Kind: "completed", Data: value}
+	}
+	for _, test := range []struct {
+		name     string
+		outcome  *protocol.RequestOutcome
+		code     protocol.ErrorCode // "" for success
+		released bool
+	}{
+		{"applied", completed(protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}), "", false},
+		{"failed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &conflict}), protocol.ErrorCodeConflict, false},
+		{"interrupted by a restart", &protocol.RequestOutcome{Kind: "unknown"}, protocol.ErrorCodeOutcomeUnknown, true},
+		{"never admitted", &protocol.RequestOutcome{Kind: "not_admitted"}, protocol.ErrorCodeUnavailable, true},
+		{"still running", &protocol.RequestOutcome{Kind: "admitted"}, protocol.ErrorCodeOutcomeUnknown, false},
+		{"Node unreachable", nil, protocol.ErrorCodeOutcomeUnknown, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mutations := 0
+			shared := client.New(ledgerTransport{noticeTransport: noticeTransport{node: protocol.NodeID{1}}, outcome: test.outcome, mutations: &mutations})
+			t.Cleanup(func() { _ = shared.Close() })
+			owner := &connection{client: shared, controller: &controller{}}
+			call := func(method, key, value string) string {
+				t.Helper()
+				data, _ := json.Marshal(map[string]string{key: value})
+				encoded, err := owner.invoke(t.Context(), nil, 0, method, data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return encoded.(string)
+			}
+			request := call("prepare", "command", `{"kind":"rename_session","data":{"session":"`+protocol.NewSessionID().String()+`","expected_revision":1,"title":"Changed"}}`)
+			// execute sends once; resolve, the result check, never sends.
+			for sent, method := range []string{"execute", "resolve", "resolve"} {
+				var answer struct {
+					Ok       *json.RawMessage
+					Err      *protocol.Fault
+					Released bool `json:"released"`
+				}
+				if err := json.Unmarshal([]byte(call(method, "request", request)), &answer); err != nil {
+					t.Fatal(err)
+				}
+				if test.code == "" {
+					if answer.Ok == nil || answer.Err != nil || answer.Released {
+						t.Fatalf("%s %d = %#v", method, sent, answer)
+					}
+				} else if answer.Ok != nil || answer.Err == nil || answer.Err.Code != test.code || answer.Released != test.released {
+					t.Fatalf("%s %d = %#v, fault %#v", method, sent, answer, answer.Err)
+				}
+				if mutations != 1 {
+					t.Fatalf("the mutation was sent %d times after %s %d", mutations, method, sent)
+				}
+			}
+		})
+	}
+	t.Run("a request without a stored outcome is released", func(t *testing.T) {
+		mutations := 0
+		shared := client.New(ledgerTransport{noticeTransport: noticeTransport{node: protocol.NodeID{1}}, mutations: &mutations})
+		t.Cleanup(func() { _ = shared.Close() })
+		owner := &connection{client: shared, controller: &controller{}}
+		request, _ := json.Marshal(shared.Prepare(protocol.Command{Kind: "snapshot"}))
+		data, _ := json.Marshal(map[string]string{"request": string(request)})
+		encoded, err := owner.invoke(t.Context(), nil, 0, "resolve", data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var answer struct {
+			Err      *protocol.Fault
+			Released bool `json:"released"`
+		}
+		if err := json.Unmarshal([]byte(encoded.(string)), &answer); err != nil || answer.Err == nil || answer.Err.Code != protocol.ErrorCodeUnavailable || !answer.Released || mutations != 0 {
+			t.Fatalf("resolved read = %s, %v, sent %d", encoded, err, mutations)
+		}
+	})
+}
+
 func TestMobileUnobservedConnectionPreservesInbox(t *testing.T) {
 	t.Parallel()
 	for _, method := range []string{"close", "watch", "watch_terminal"} {

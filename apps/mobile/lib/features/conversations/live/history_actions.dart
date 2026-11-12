@@ -26,7 +26,7 @@ extension _HistoryActions on _LiveConversationPageState {
     try {
       final output = pending == null
           ? await _command(kind, data)
-          : await widget.host.execute(pending.request);
+          : await widget.host.check(pending.request);
       if (!mounted) return true;
       _historyPending = null;
       if (kind == 'rewind_conversation') {
@@ -40,7 +40,7 @@ extension _HistoryActions on _LiveConversationPageState {
       return true;
     } on CommandFailure catch (failure) {
       if (mounted) {
-        if (failure.code == 'outcome_unknown' && failure.request != null) {
+        if (failure.retained) {
           _historyPending = (kind: kind, request: failure.request!);
         } else if (failure.rejected) {
           _historyPending = null;

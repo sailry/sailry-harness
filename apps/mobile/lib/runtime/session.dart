@@ -504,12 +504,26 @@ class HostConnection extends ChangeNotifier {
     return execute(request);
   }
 
-  /// An explicit retry can reuse this request; no write is replayed automatically.
-  Future<Map<String, dynamic>> execute(String request) async {
+  /// Sends [request] once. A result that was not observed is looked up on
+  /// the Node; no write is replayed automatically.
+  Future<Map<String, dynamic>> execute(String request) =>
+      _outcome(request, () => connection.execute(request: request));
+
+  /// Asks the Node what became of a retained [request] without sending it
+  /// again: its stored result, its stored failure, a [CommandFailure.released]
+  /// failure when it was never applied or can never be confirmed, or
+  /// `outcome_unknown` while it still runs or the Node cannot be asked.
+  Future<Map<String, dynamic>> check(String request) =>
+      _outcome(request, () => connection.resolve(request: request));
+
+  Future<Map<String, dynamic>> _outcome(
+    String request,
+    Future<String> Function() send,
+  ) async {
     if (_closed) throw StateError('connection is closed');
     Map<String, dynamic> result;
     try {
-      result = object(jsonDecode(await connection.execute(request: request)));
+      result = object(jsonDecode(await send()));
     } catch (_) {
       throw CommandFailure('outcome_unknown', request: request);
     }
@@ -520,6 +534,7 @@ class HostConnection extends ChangeNotifier {
         detail: text(fault['message']),
         details: object(fault['details']),
         request: request,
+        released: result['released'] == true,
       );
     }
     if (!result.containsKey('Ok')) {
@@ -577,6 +592,7 @@ class CommandFailure implements Exception {
     this.detail = '',
     this.details = const {},
     this.request,
+    this.released = false,
   });
   final String code;
   final String detail;
@@ -584,16 +600,26 @@ class CommandFailure implements Exception {
   final Map<String, dynamic> details;
   // Retained only in memory, never logged, rendered or persisted in a UI cache.
   final String? request;
+  // The Node holds nothing more for the request: it never arrived
+  // (`unavailable`, nothing changed) or its result can never be confirmed
+  // (`outcome_unknown`). The request is dropped; the next attempt is a new one.
+  final bool released;
+
+  /// The result is still to be learned: keep [request] and check it later.
+  bool get retained =>
+      code == 'outcome_unknown' && request != null && !released;
 
   // Transport, cancellation and pairing failures do not resolve an older send.
-  bool get rejected => switch (code) {
-    'invalid_request' ||
-    'revision_conflict' ||
-    'conflict' ||
-    'not_found' ||
-    'not_configured' => true,
-    _ => false,
-  };
+  bool get rejected =>
+      released ||
+      switch (code) {
+        'invalid_request' ||
+        'revision_conflict' ||
+        'conflict' ||
+        'not_found' ||
+        'not_configured' => true,
+        _ => false,
+      };
   @override
   String toString() => 'Command failed: $code';
 }

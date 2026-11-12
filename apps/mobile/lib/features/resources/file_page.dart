@@ -256,14 +256,12 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
             'path': widget.path,
           });
         } else {
-          await widget.host.execute(request);
+          await widget.host.check(request);
         }
         widget.document.trashRequest = null;
         if (mounted) Navigator.pop(context, true);
       } on CommandFailure catch (error) {
-        widget.document.trashRequest = error.code == 'outcome_unknown'
-            ? error.request
-            : null;
+        widget.document.trashRequest = error.retained ? error.request : null;
         rethrow;
       }
     }, mutating: true);

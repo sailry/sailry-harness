@@ -126,9 +126,7 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
       if (identical(_running[key], operation)) _requests.remove(key);
     } catch (failure) {
       if (!_closed && identical(_running[key], operation)) {
-        if (request != null &&
-            failure is CommandFailure &&
-            failure.code == 'outcome_unknown') {
+        if (request != null && failure is CommandFailure && failure.retained) {
           _requests[key] = (request: request, entry: selected);
         } else {
           _requests.remove(key);
