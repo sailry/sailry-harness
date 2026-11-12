@@ -29,14 +29,24 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	if page.NextBefore != nil || len(snapshot.Missing) > 0 {
 		session.Older = 20
 	}
-	if !state.Connected {
-		session.Connection = conversation.Reconnecting
-		if state.Err != nil {
-			session.Connection = conversation.Offline
+	// The Client reconnects quietly and reports only an interruption that
+	// lasts: an observation without an error is being opened, not recovered.
+	// While the Client keeps trying, its fault text is not user copy; a busy
+	// host and a fault that ended the observation are told in detail.
+	switch faultCode(state.Err) {
+	case protocol.ErrorCodeUnavailable:
+		if !state.Connected {
+			session.Connection = conversation.Reconnecting
 		}
-	}
-	if state.Err != nil {
-		session.Diagnostic = &conversation.Diagnostic{Title: "chat_action_failed", Detail: state.Err.Error()}
+	case protocol.ErrorCodeBusy:
+		session.Diagnostic = &conversation.Diagnostic{Title: "live_read_busy", Detail: state.Err.Error()}
+	default:
+		if state.Err != nil {
+			if !state.Connected {
+				session.Connection = conversation.Offline
+			}
+			session.Diagnostic = &conversation.Diagnostic{Title: "chat_sync_failed", Detail: state.Err.Error()}
+		}
 	}
 	if statistics := snapshot.Statistics; statistics != nil {
 		u := &conversation.Usage{Turns: int(statistics.Turns)}

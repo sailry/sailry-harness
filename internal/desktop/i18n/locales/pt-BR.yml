@@ -612,6 +612,7 @@ chat_rewind_confirm: Manter este turno e remover as mensagens seguintes? Os arqu
 chat_search: Pesquisar a conversa
 chat_search_result: Resultados da pesquisa
 chat_status_unsynced: Status não sincronizado
+chat_sync_failed: A sincronização da conversa falhou
 compact_reason_unknown: Nenhum detalhe adicional foi registrado para esta falha
 composer_cache: Cache
 composer_compression_hint: 'Compactação de contexto: sem dados de tempo de execução (visualização da IU)'

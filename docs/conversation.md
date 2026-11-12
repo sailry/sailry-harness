@@ -577,6 +577,22 @@ connection changes feed the existing Reconnecting/Host disconnected banner.
 Retry refreshes that Client and its retained conversation observation; it does
 not resubmit a turn or select the controller's local Node.
 
+The banner follows what the Client reports, as the reference's notices do
+(`conversation/live/feedback.rs`). The Client reconnects quietly (250 ms to
+5 s backoff) and reports an interruption only after 5 seconds. An observation
+without an error is being opened and shows no banner. `unavailable` is
+Reconnecting, without the Client's fault text, while the Client keeps trying;
+`busy` is the diagnostic titled `live_read_busy`; any other fault ended the
+observation and is Host disconnected with the diagnostic titled
+`chat_sync_failed`. A disconnected controller is Reconnecting for no error,
+`unavailable` or `busy`, otherwise Host disconnected. The banner is not the
+model request's recovery: a retried model request is the `Retry` row inside
+the turn ("Retrying request 2/5", [providers.md](providers.md)). Deviations
+from the reference: it tells these states as toasts ("Reconnecting" without
+an action; "Conversation sync failed" with the fault and Reconnect), Go as
+the accepted banner after the last turn, whose Retry is also offered while
+the Client reconnects and asks for an attempt at once.
+
 A revoked or removed execution peer leaves captured actions unavailable. Explicit
 Node ownership never falls back to the local Client, including when another
 Node has a resource with the same ID. Retained drafts stay read-only until their

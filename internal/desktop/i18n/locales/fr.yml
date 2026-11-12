@@ -612,6 +612,7 @@ chat_rewind_confirm: Garder ce tour et supprimer les messages suivants ? Les fic
 chat_search: Rechercher une conversation
 chat_search_result: Résultats de la recherche
 chat_status_unsynced: Statut non synchronisé
+chat_sync_failed: Synchronisation de la conversation a échoué
 compact_reason_unknown: Aucun détail supplémentaire n’a été enregistré pour cet échec
 composer_cache: Cache
 composer_compression_hint: 'Compression de contexte: pas de données d''exécution (aperçu de l''interface utilisateur)'

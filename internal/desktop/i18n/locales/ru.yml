@@ -612,6 +612,7 @@ chat_rewind_confirm: Оставить этот ход и убрать после
 chat_search: Поиск разговора
 chat_search_result: Поиск результатов
 chat_status_unsynced: Статус не синхронизирован
+chat_sync_failed: Синхронизация разговора не удалась
 compact_reason_unknown: Подробности этого сбоя не были записаны
 composer_cache: Кэш
 composer_compression_hint: 'Контекстное сжатие: отсутствие данных времени выполнения (предварительный просмотр интерфейса пользователя)'
