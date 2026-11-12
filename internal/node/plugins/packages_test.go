@@ -245,7 +245,7 @@ func TestBundledPackageContracts(t *testing.T) {
 			}
 		})
 	}
-	if len(BundledDefaults()) != 26 {
+	if len(BundledDefaults()) != 27 {
 		t.Fatal("initial distribution changed")
 	}
 	for _, selection := range BundledDefaults() {
