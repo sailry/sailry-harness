@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // TestProjectMenu covers the sidebar's right-click menus over the demo: every
@@ -107,6 +109,102 @@ func TestProjectMenu(t *testing.T) {
 		settle(tt)
 		if a.Page != ConversationPage || a.Sidebar.Selected != pr.Conversations[len(pr.Conversations)-1].ID {
 			t.Fatalf("the record did not open: page %d, selected %q", a.Page, a.Sidebar.Selected)
+		}
+	})
+
+	// The page's records are the list Settings pages use: one filled card,
+	// its rows across it at the row metrics and a hairline apart, the empty
+	// state inside the card.
+	t.Run("Records", func(t *testing.T) {
+		a, tt := demo(t)
+		choose(t, tt, name, en("workspace_project"))
+		pr := a.overviewProject()
+		rows := func() []ui.AccessInfo {
+			var out []ui.AccessInfo
+			for _, cv := range pr.Conversations {
+				for _, info := range tt.AccessAll() {
+					if info.Name == cv.Title && info.Role == ui.RoleButton && info.Bounds.X > 300 {
+						out = append(out, info)
+					}
+				}
+			}
+			slices.SortFunc(out, func(x, y ui.AccessInfo) int { return int(x.Bounds.Y - y.Bounds.Y) })
+			return out
+		}
+		list := rows()
+		if len(list) != len(pr.Conversations) {
+			t.Fatalf("%d record rows for %d sessions", len(list), len(pr.Conversations))
+		}
+		for i, row := range list {
+			if row.Bounds.H < 56 || row.Bounds.X != list[0].Bounds.X || row.Bounds.W != list[0].Bounds.W {
+				t.Fatalf("row %d is %+v, the first %+v", i, row.Bounds, list[0].Bounds)
+			}
+			// The card's hairlines are drawn over the rows' shared edge and
+			// take no room (kit.Card).
+			if i > 0 && row.Bounds.Y != list[i-1].Bounds.Y+list[i-1].Bounds.H {
+				t.Fatalf("rows %d and %d are not adjacent: %+v %+v", i-1, i, list[i-1].Bounds, row.Bounds)
+			}
+		}
+		img := tt.Image()
+		edge := int(list[1].Bounds.Y * 2)
+		x := int(list[0].Bounds.X+list[0].Bounds.W/2) * 2
+		if img.At(x, edge) == img.At(x, edge+12) && img.At(x, edge-1) == img.At(x, edge+12) {
+			t.Fatalf("no hairline between the first two rows")
+		}
+		// The card is filled: a row's corner is not the page behind it.
+		inside := img.At(int(list[0].Bounds.X+4)*2, int(list[0].Bounds.Y+4)*2)
+		outside := img.At(int(list[0].Bounds.X-12)*2, int(list[0].Bounds.Y+4)*2)
+		if inside == outside {
+			t.Fatalf("the records' card has no fill: %v inside and outside", inside)
+		}
+		if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+			for _, mode := range []string{"dark", "light"} {
+				for _, backdrop := range []bool{false, true} {
+					b := New(preview.Load())
+					b.Settings.Model.DemoMode = true
+					b.Mode = map[string]theme.Mode{"dark": theme.Dark, "light": theme.Light}[mode]
+					options, file := opaque, "project-page-"+mode
+					if backdrop {
+						packages := theme.Packages()
+						b.Theme = packages[len(packages)-1].ID
+						options, file = ui.TesterOptions{}, "project-page-backdrop-"+mode
+					}
+					bt := ui.NewTesterWith(b.View, 1280, 820, options)
+					bt.SetLocale("zh-CN")
+					bt.SetDark(mode == "dark")
+					bt.SetScale(2)
+					bt.Frame()
+					settle(bt)
+					b.Sidebar.OpenOverview(nil, b.Data.Projects[0])
+					settle(bt)
+					snapshot(t, bt, file)
+				}
+			}
+		}
+		// A search filters the rows; one that matches nothing shows the
+		// empty state inside the card, and so does a tab without records.
+		a.overview.search = pr.Conversations[0].Title
+		settle(tt)
+		if got := rows(); len(got) != 1 || got[0].Name != pr.Conversations[0].Title {
+			t.Fatalf("the search left %d rows", len(got))
+		}
+		a.overview.search = "no such record"
+		settle(tt)
+		if len(rows()) != 0 || !tt.HasText(en("connection_search_empty")) {
+			t.Fatalf("no empty search state: %q", tt.Texts())
+		}
+		a.overview.search, a.overview.tab = "", 1
+		settle(tt)
+		if !tt.HasText(en("workspace_no_terminal")) {
+			t.Fatalf("no empty terminals state: %q", tt.Texts())
+		}
+		// A terminal made from the page lists in the Terminals tab.
+		clickButton(t, tt, en("workspace_new_terminal"))
+		settle(tt)
+		a.Navigate(ProjectPage)
+		settle(tt)
+		if tt.HasText(en("workspace_no_terminal")) || !tt.HasText(pr.Path) {
+			t.Fatalf("the new terminal is not listed: %q", tt.Texts())
 		}
 	})
 

@@ -3,10 +3,11 @@
 B8 connects Market and the installation rail to the live Client adapters.
 `Hooks.PackageDialogs` renders captured package-discovery and AI CLI dialogs
 beside the existing download dialog hook; it changes no rail or page layout.
-The project overview and sidebar share one CLI launcher that reads available
-tools from the project's owning Node and retains its chosen worktree through
-launch. The authorized terminal prerequisite now displays that Node-owned AI CLI
-through MyGo Mirror/Conn in the panel, with actual input, resize and close.
+The project overview and sidebar offer no AI CLI entry
+([removed UI](removed-ui.md), rows 22 and 24); the launcher dialog that reads
+the owning Node's tools stays in `live` without an entry. The terminal
+prerequisite displays a Node-owned terminal through MyGo Mirror/Conn in the
+panel, with actual input, resize and close.
 General terminal resources, split shell actions and browser surfaces remain
 assigned to B10.
 
@@ -41,7 +42,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `header.go` | The header: brand, sidebar toggle, breadcrumbs, activity strip, preview tag, details toggle |
 | `rail.go` | `Features`, `MoveFeature`, the rail, More, the host picker |
 | `pages.go` | The rail features' pages, `Navigate`, `ClosePage`, the selected project's `panel.Project` |
-| `project.go` | The captured project's overview, Git initialization confirmation and searchable session records |
+| `project.go` | The captured project's overview, Git initialization confirmation and its searchable records: Sessions and Terminals in the list Settings pages use (`kit.List`: the filled card, rows at the row metrics a hairline apart, the empty state inside the card), each row a button with the neutral hover fill across the card, a session's with its right-click menu |
 | `shortcuts.go` | `Shortcuts`, `CloseFocused`, `KeyText`, the window's key handling, the menu's commands (`Do`) |
 | `menu.go` | `Menu`, `Accelerator`: the native app menu |
 | `search.go` | `Choice`, `Group`, `Filter`, `Next`, the search overlay |

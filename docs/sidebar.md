@@ -394,10 +394,10 @@ registration result cannot replace a different page or conversation.
 The overview reads Git status for its captured worktree. Directory
 initialization uses the existing Node `RunGitAction` command and its expected
 Git state; nested repositories require the ordinary confirmation. New terminal
-and terminal records remain unavailable until B10. B8 connects the AI CLI
-menu/overview callbacks to the owning Node's tool inventory and a captured
-worktree launcher. Its minimal authorized terminal prerequisite opens the actual
-Node-owned AI CLI through MyGo Mirror/Conn in the panel. General terminal
+and terminal records remain unavailable until B10. B8's AI CLI
+menu and overview entries were removed ([removed UI](removed-ui.md), rows 22
+and 24). Its minimal authorized terminal prerequisite opens a Node-owned
+terminal through MyGo Mirror/Conn in the panel. General terminal
 resources and split actions remain B10. The preview's project-menu behavior
 remains unchanged.
 
