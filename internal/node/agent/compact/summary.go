@@ -338,11 +338,45 @@ func (s Summary) Render() string {
 // Bound cuts the least essential sections until the rendered handoff is at
 // most limit tokens.
 func (s *Summary) Bound(limit uint64) {
-	for tokens.Text(s.Render()) > limit {
+	fits := func() bool { return tokens.Text(s.Render()) <= limit }
+	if fits() {
+		return
+	}
+	// The droppable lists can be long, and counting the whole handoff after
+	// every dropped entry is quadratic, so each is cut by bisection to the
+	// same length that dropping entries one at a time arrives at.
+	if cut(&s.TechnicalConcepts, fits) || cut(&s.ErrorsAndFixes, fits) || cut(&s.Files, fits) || cut(&s.ProblemSolving, fits) {
+		return
+	}
+	for !fits() {
 		if !s.trim() {
 			return
 		}
 	}
+}
+
+// cut drops the fewest trailing entries of list that make the handoff fit
+// and reports whether it then fits; a list that cannot make it fit is emptied.
+func cut[T any](list *[]T, fits func() bool) bool {
+	full := *list
+	if len(full) == 0 {
+		return false
+	}
+	*list = full[:0]
+	if !fits() {
+		return false
+	}
+	kept, over := 0, len(full)
+	for over-kept > 1 {
+		middle := (kept + over) / 2
+		if *list = full[:middle]; fits() {
+			kept = middle
+		} else {
+			over = middle
+		}
+	}
+	*list = full[:kept]
+	return true
 }
 func (s *Summary) trim() bool {
 	for _, list := range []*[]string{&s.TechnicalConcepts, &s.ErrorsAndFixes} {
