@@ -91,4 +91,25 @@ func TestWorkspaceLocks(t *testing.T) {
 		// The same root twice is one lock.
 		locks.effect("/a", "/a")()
 	})
+	t.Run("commands_without_a_root_run_together", func(t *testing.T) {
+		var locks workspaceLocks
+		// A web fetch holds no worktree; its cancellation must not wait for it.
+		fetch := locks.effect("", "")
+		cancel, ok := within(free, func() func() { return locks.effect("", "") })
+		if !ok {
+			t.Fatal("a command without a root waited for another")
+		}
+		cancel()
+		mixed := locks.effect("", "/a")
+		same, ok := within(blocked, func() func() { return locks.effect("/a") })
+		if ok {
+			t.Fatal("an empty root dropped the root beside it")
+		}
+		mixed()
+		same()
+		fetch()
+		if len(locks.held) != 0 {
+			t.Fatalf("released roots are kept: %v", locks.held)
+		}
+	})
 }

@@ -212,6 +212,11 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 			// takes only the registration, so the root locks alone would
 			// let it move or remove the project between the two.
 			effect.release = node.locks.registration()
+		case "save_search_settings", "save_code_index_settings":
+			// One save at a time, to the end of its refresh (workspaceLocks).
+			node.locks.settings.Lock()
+			release := node.locks.effect()
+			effect.release = func() { release(); node.locks.settings.Unlock() }
 		default:
 			effect.release = node.locks.effect(source, root)
 		}

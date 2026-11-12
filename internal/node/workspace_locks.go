@@ -17,6 +17,10 @@ type workspaceLocks struct {
 	registrations atomic.Uint64
 	mu            sync.Mutex
 	held          map[string]*rootLock
+	// settings orders the saves whose refresh after the commit reads the
+	// saved settings back and applies them, so the last save is the applied
+	// one. They work in no root.
+	settings sync.Mutex
 }
 
 type rootLock struct {
@@ -25,11 +29,16 @@ type rootLock struct {
 }
 
 // roots locks the given roots, in one order so that an effect across two
-// roots cannot deadlock with its mirror image.
+// roots cannot deadlock with its mirror image. A command that works in no
+// worktree has an empty root, which is no lock: such commands (a web fetch
+// and its cancellation, for one) run together.
 func (locks *workspaceLocks) roots(roots ...string) (release func()) {
 	roots = slices.Clone(roots)
 	slices.Sort(roots)
 	roots = slices.Compact(roots)
+	if len(roots) > 0 && roots[0] == "" {
+		roots = roots[1:]
+	}
 	entries := make([]*rootLock, len(roots))
 	for index, root := range roots {
 		locks.mu.Lock()
