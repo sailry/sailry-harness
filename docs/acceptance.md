@@ -159,6 +159,38 @@ All in Settings › Models › Add provider.
       answers. Stop a long reply: it stops at once
 - [ ] **[account]** Cursor: run `agent logout`, then send. The failure says to
       run `agent login` in a terminal; no reply text carries the error
+- [ ] Claude Code is not installed on a new profile until chosen in the Market
+- [ ] **[account]** Claude Code: run `claude --version`, then `claude` once in
+      a terminal to confirm its sign-in. Note `~/.claude.json` and the folders
+      under `~/.claude/projects`. Install the Claude Code package and choose
+      Claude Code in Add provider: the warning is asked before the form.
+      "Update models" lists `opus`, `sonnet` and `fable`
+- [ ] **[account]** Claude Code: send a message that needs no tool. Text and
+      reasoning stream and the turn's usage is recorded
+- [ ] **[account]** Claude Code: ask for a file read and a command. Both
+      appear as Sailry's own tool rows with their approvals, their results
+      reach the model and the turn ends. No Claude Code permission dialog is
+      involved
+- [ ] **[account]** Claude Code: send a second message, then edit an earlier
+      one, compact, and restart the app. Each next turn answers with the
+      conversation intact
+- [ ] **[account]** Claude Code: stop a turn mid-reply. It stops at once and
+      no `claude` process remains
+- [ ] **[account]** Claude Code: sign out of Claude Code in a terminal and
+      send. The turn fails saying it is not signed in; no reply text carries
+      the error. Without `claude` on the search path the failure says it is
+      not installed
+- [ ] **[account]** Claude Code: compare `~/.claude.json` and
+      `~/.claude/projects` with the note taken above and record what changed.
+      Record the plan usage per turn and whether a refusal as third-party use
+      appears
+- [ ] **[account]** **[macOS]** **[Linux]** Claude Code, experimental: turn on
+      the package setting "Use the terminal interface (experimental)" and
+      repeat the five items above. Record whether the folder-trust question
+      appears and which folder it names, whether bridge tools run without a
+      dialog, how often text written before a tool call is lost, and what
+      `/resume` shows afterwards. The setting stays off by default until this
+      item passes
 
 ## 5. Pages
 
