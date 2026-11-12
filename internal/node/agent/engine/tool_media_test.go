@@ -115,4 +115,42 @@ func TestToolMedia(t *testing.T) {
 			})
 		}
 	})
+	// An attachment becomes content in the request alone, and a message
+	// without one is not copied: this runs on every model step.
+	t.Run("attachments change the request's copy only", func(t *testing.T) {
+		id, mime := protocol.NewAttachmentID(), "text/plain"
+		plain := &canonical.Message{Role: canonical.User, PartCount: 1, Content: []canonical.Block{canonical.Text(0, "plain")}}
+		attached := &canonical.Message{Role: canonical.User, PartCount: 2, Content: []canonical.Block{
+			canonical.Text(0, "see the note"),
+			{Index: 1, Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: attachmentPrefix + id.String(), Mime: &mime}}},
+		}}
+		records := []canonical.Record{{ID: "plain", Kind: "message", Data: plain}, {ID: "attached", Kind: "message", Data: attached}}
+		r := &Runtime{
+			attachment: func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error) {
+				return protocol.Attachment{ID: id, Spec: protocol.AttachmentSpec{Name: "note.txt", MediaType: mime, Size: 4}}, true, nil
+			},
+			attachmentBytes: func(context.Context, protocol.Attachment) ([]byte, error) { return []byte("note"), nil },
+		}
+		x := &execution{ctx: t.Context(), inv: &store.AgentInvocation{Provider: &protocol.ConversationProvider{}}}
+		request, assets, err := r.hydrateAttachments(x, records)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(request) != 2 || len(assets) != 0 {
+			t.Fatalf("request = %d records, %d assets", len(request), len(assets))
+		}
+		if records[1].Data != any(attached) || attached.PartCount != 2 || len(attached.Content) != 2 || attached.Content[1].Kind != "file" {
+			t.Fatalf("history lost its attachment reference: %+v", attached)
+		}
+		hydrated := request[1].Message()
+		if hydrated == nil || hydrated == attached || hydrated.PartCount != 3 || len(hydrated.Content) != 3 {
+			t.Fatalf("request message = %+v", hydrated)
+		}
+		if text, ok := hydrated.Content[1].Data.(*canonical.TextContent); !ok || text.Text != "Attachment: note.txt\nnote" || hydrated.Content[2].Index != 2 {
+			t.Fatalf("request content = %+v", hydrated.Content)
+		}
+		if request[0].Message() != plain {
+			t.Fatal("a message without an attachment was copied")
+		}
+	})
 }

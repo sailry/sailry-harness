@@ -241,6 +241,33 @@ func testConversationProjectionOrder(t *testing.T) {
 			t.Fatal("history changed a terminal decision", err)
 		}
 	})
+	t.Run("history_pages_match_entries_by_sequence_or_id", func(t *testing.T) {
+		s := conversationFixture()
+		older := copyValue(s.Page)
+		older.Entries = append(older.Entries, protocol.ConversationEntry{ID: "reply", Turn: protocol.TurnID{1}, Sequence: 2, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Reply"}}})
+		// A page read twice adds its entries once.
+		for range 2 {
+			if err := mergeConversationPage(&s.Page, older, true, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(s.Page.Entries) != 2 || s.Page.Entries[1].ID != "reply" {
+			t.Fatalf("merged entries = %+v", s.Page.Entries)
+		}
+		for name, change := range map[string]func(*protocol.ConversationEntry){
+			"sequence": func(e *protocol.ConversationEntry) { e.ID = "other" },
+			"ID":       func(e *protocol.ConversationEntry) { e.Sequence = 3 },
+		} {
+			changed := copyValue(older)
+			change(&changed.Entries[1])
+			if err := mergeConversationPage(&s.Page, changed, true, nil); faultCode(err) != protocol.ErrorCodeInvalidRequest {
+				t.Fatalf("an entry that reuses a held %s was merged: %v", name, err)
+			}
+		}
+		if len(s.Page.Entries) != 2 {
+			t.Fatal("a refused page changed the conversation")
+		}
+	})
 	t.Run("reveals_wait_for_loaded_extent", func(t *testing.T) {
 		s := conversationFixture()
 		s.Page.Entries[0].Sequence = 100

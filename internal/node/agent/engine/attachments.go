@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/MoeForge/moego/base64"
 	"github.com/gabriel-vasile/mimetype"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -25,16 +26,12 @@ type attachmentMaterial struct {
 }
 
 // hydrateAttachments changes the request's copy only. Canonical history retains
-// stable attachment references, independent of provider representation.
+// stable attachment references, independent of provider representation. It
+// runs every model step, so it copies the record list and then only a message
+// that holds an attachment or an image the model cannot see; every other
+// record is the caller's, unchanged.
 func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) ([]canonical.Record, map[string][]byte, error) {
-	raw, err := json.Marshal(records)
-	if err != nil {
-		return nil, nil, err
-	}
-	var request []canonical.Record
-	if err = json.Unmarshal(raw, &request); err != nil {
-		return nil, nil, err
-	}
+	request := slices.Clone(records)
 	assets := map[string][]byte{}
 	remaining := uint64(64 << 20)
 	vision := false
@@ -145,7 +142,15 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 		for index := range content {
 			content[index].Index = uint64(index)
 		}
-		message.Content, message.PartCount = content, uint64(len(content))
+		hydrated := *message
+		hydrated.Content, hydrated.PartCount = content, uint64(len(content))
+		if compaction, ok := request[i].Data.(*canonical.Compaction); ok {
+			summarized := *compaction
+			summarized.Summary = hydrated
+			request[i].Data = &summarized
+		} else {
+			request[i].Data = &hydrated
+		}
 	}
 	return request, assets, nil
 }

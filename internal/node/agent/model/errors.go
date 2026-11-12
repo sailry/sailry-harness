@@ -208,5 +208,7 @@ func Fault(err error) *protocol.Fault {
 	case RateLimited, Quota:
 		reason = protocol.ModelFailureRateLimited
 	}
-	return &protocol.Fault{Code: code, Message: failure.Message, Details: &protocol.FaultDetails{Kind: "model_request", Data: protocol.FaultDetailsModelRequestPayload{Reason: reason}}}
+	// The code and reason are Rust's. An overflow is stated beside them, so
+	// that a reader of the run can tell it from an outage.
+	return &protocol.Fault{Code: code, Message: failure.Message, Details: &protocol.FaultDetails{Kind: "model_request", Data: protocol.FaultDetailsModelRequestPayload{Reason: reason, ContextOverflow: failure.Kind == ContextOverflow}}}
 }

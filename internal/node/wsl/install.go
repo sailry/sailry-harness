@@ -74,6 +74,38 @@ func (installation *Installation) Execute(environment []string, endpoint *link.L
 // Host it installed.
 const pairingAttempts = 5
 
+// pairBootstrap is the retry of pair, apart from the process and the endpoint
+// it reads and pairs through. wait reports whether time remains for another
+// read.
+func pairBootstrap(read func() (string, error), pair func(string) (link.EndpointAddress, error), wait func() (bool, error)) (link.EndpointAddress, error) {
+	for failures := 0; ; {
+		ticket, err := read()
+		if err != nil {
+			return link.EndpointAddress{}, unknown("Host installed but its bootstrap ticket could not be read")
+		}
+		if ticket != "" {
+			address, err := pair(ticket)
+			if err == nil {
+				return address, nil
+			}
+			var settled *protocol.Fault
+			if failures++; failures == pairingAttempts || errors.As(err, &settled) && settled.Code == protocol.ErrorCodeOutcomeUnknown {
+				return link.EndpointAddress{}, unknown("Host installed but pairing could not be confirmed")
+			}
+		}
+		more, err := wait()
+		if err != nil {
+			return link.EndpointAddress{}, err
+		}
+		if !more {
+			if failures > 0 {
+				return link.EndpointAddress{}, unknown("Host installed but pairing could not be confirmed")
+			}
+			return link.EndpointAddress{}, unknown("Host service started but pairing is unavailable; inspect the distribution service")
+		}
+	}
+}
+
 // pair waits for the installed service to publish its bootstrap ticket, then
 // confirms an independent endpoint running the expected release. The service
 // has only just started, so one refused or unreachable attempt does not end
@@ -82,34 +114,26 @@ const pairingAttempts = 5
 // seconds. A result that may have changed trust is not retried.
 func (installation *Installation) pair(ctx context.Context, executable string, arguments, environment []string, endpoint *link.Link, local protocol.NodeID, network *protocol.NetworkSelection, version string, configure ConfigureNetwork) (protocol.HostInstallationOutcome, error) {
 	deadline := time.Now().Add(90 * time.Second)
-	var address link.EndpointAddress
-	for failures := 0; ; {
+	read := func() (string, error) {
 		output, err := run(ctx, executable, arguments, environment, ticketScript, 5*time.Second)
-		if err != nil {
-			return protocol.HostInstallationOutcome{}, unknown("Host installed but its bootstrap ticket could not be read")
-		}
-		if ticket := strings.TrimSpace(output); ticket != "" {
-			if address, err = endpoint.Pair(ctx, ticket); err == nil {
-				break
-			}
-			var settled *protocol.Fault
-			if failures++; failures == pairingAttempts || errors.As(err, &settled) && settled.Code == protocol.ErrorCodeOutcomeUnknown {
-				return protocol.HostInstallationOutcome{}, unknown("Host installed but pairing could not be confirmed")
-			}
-		}
+		return strings.TrimSpace(output), err
+	}
+	wait := func() (bool, error) {
 		if !time.Now().Before(deadline) {
-			if failures > 0 {
-				return protocol.HostInstallationOutcome{}, unknown("Host installed but pairing could not be confirmed")
-			}
-			return protocol.HostInstallationOutcome{}, unknown("Host service started but pairing is unavailable; inspect the distribution service")
+			return false, nil
 		}
 		timer := time.NewTimer(time.Second)
+		defer timer.Stop()
 		select {
 		case <-ctx.Done():
-			timer.Stop()
-			return protocol.HostInstallationOutcome{}, ctx.Err()
+			return false, ctx.Err()
 		case <-timer.C:
+			return true, nil
 		}
+	}
+	address, err := pairBootstrap(read, func(ticket string) (link.EndpointAddress, error) { return endpoint.Pair(ctx, ticket) }, wait)
+	if err != nil {
+		return protocol.HostInstallationOutcome{}, err
 	}
 	if address.ID == local {
 		return protocol.HostInstallationOutcome{}, unknown("Installed Host identity is not independent")

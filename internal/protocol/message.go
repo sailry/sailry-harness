@@ -136,11 +136,17 @@ func (value FaultDetailsModelRecoveryPayload) MarshalJSON() ([]byte, error) {
 
 type FaultDetailsModelRequestPayload struct {
 	Reason ModelFailure `json:"reason"`
+	// ContextOverflow is set when the model refused the request because it
+	// exceeds the context window, which no retry of the same request cures.
+	// Absent for every other failure. Rust does not state it: there only the
+	// failed step's record names the overflow.
+	ContextOverflow bool `json:"context_overflow,omitempty"`
 }
 
 func DefaultFaultDetailsModelRequestPayload() FaultDetailsModelRequestPayload {
 	return FaultDetailsModelRequestPayload{
-		Reason: ModelFailure(""),
+		Reason:          ModelFailure(""),
+		ContextOverflow: false,
 	}
 }
 func (value *FaultDetailsModelRequestPayload) UnmarshalJSON(data []byte) error {

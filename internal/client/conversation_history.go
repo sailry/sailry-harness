@@ -190,21 +190,45 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 	merged.Entries, merged.Runs = slices.Clone(current.Entries), slices.Clone(current.Runs)
 	merged.Approvals, merged.Questions = slices.Clone(current.Approvals), slices.Clone(current.Questions)
 	merged.Children, merged.Background = slices.Clone(current.Children), slices.Clone(current.Background)
+	// An incoming entry is the one already held with its sequence or its ID,
+	// whichever comes first in the list. The positions are indexed once: an
+	// export merges every page of a conversation.
+	bySequence, byID := make(map[uint64]int, len(merged.Entries)), make(map[string]int, len(merged.Entries))
+	held := func(i int) {
+		if _, known := bySequence[merged.Entries[i].Sequence]; !known {
+			bySequence[merged.Entries[i].Sequence] = i
+		}
+		if _, known := byID[merged.Entries[i].ID]; !known {
+			byID[merged.Entries[i].ID] = i
+		}
+	}
+	for i := range merged.Entries {
+		held(i)
+	}
 	for _, e := range incoming.Entries {
 		if hidden[e.ID] {
 			continue
 		}
-		if i := slices.IndexFunc(merged.Entries, func(v protocol.ConversationEntry) bool { return v.Sequence == e.Sequence || v.ID == e.ID }); i >= 0 {
+		i, found := bySequence[e.Sequence]
+		if j, same := byID[e.ID]; same && (!found || j < i) {
+			i, found = j, true
+		}
+		if found {
 			if !reflect.DeepEqual(merged.Entries[i], e) {
 				return fault(protocol.ErrorCodeInvalidRequest, "canonical event changed during pagination")
 			}
 		} else {
 			merged.Entries = append(merged.Entries, e)
+			held(len(merged.Entries) - 1)
 		}
 	}
 	slices.SortFunc(merged.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
+	byTurn := make(map[protocol.TurnID]int, len(merged.Runs))
+	for i := len(merged.Runs) - 1; i >= 0; i-- {
+		byTurn[merged.Runs[i].Turn] = i
+	}
 	for _, r := range incoming.Runs {
-		if i := slices.IndexFunc(merged.Runs, func(v protocol.ConversationRun) bool { return v.Turn == r.Turn }); i >= 0 {
+		if i, found := byTurn[r.Turn]; found {
 			if !sameRun(merged.Runs[i], r) {
 				return fault(protocol.ErrorCodeInvalidRequest, "sent turn changed during pagination")
 			}
@@ -213,6 +237,7 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 			}
 		} else {
 			merged.Runs = append(merged.Runs, r)
+			byTurn[r.Turn] = len(merged.Runs) - 1
 		}
 	}
 	slices.SortFunc(merged.Runs, func(a, b protocol.ConversationRun) int { return cmp.Compare(a.Sequence, b.Sequence) })
@@ -242,8 +267,14 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 			return err
 		}
 	}
+	sent := map[protocol.TurnID]bool{}
+	for _, e := range merged.Entries {
+		if e.Author == "user" {
+			sent[e.Turn] = true
+		}
+	}
 	for i := range merged.Runs {
-		if slices.ContainsFunc(merged.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == merged.Runs[i].Turn && e.Author == "user" }) {
+		if sent[merged.Runs[i].Turn] {
 			merged.Runs[i].Input = nil
 		}
 	}

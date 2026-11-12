@@ -10,6 +10,7 @@ import (
 	"testing"
 	"unicode/utf16"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -230,6 +231,69 @@ func TestWSLDiscovery(t *testing.T) {
 		custom.Data = &protocol.NetworkSelectionCustomPayload{Relays: []string{"https://relay.example/\x00"}}
 		if _, err := ReleaseScript("0.1.0", false, &custom); faultCode(err) != protocol.ErrorCodeInvalidRequest {
 			t.Fatalf("null byte relay: %v", err)
+		}
+	})
+	// The retry the SSH installer's test covers, on this installer's loop.
+	t.Run("bootstrap pairing", func(t *testing.T) {
+		refused := &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "pairing rejected"}
+		unconfirmed := "Host installed but pairing could not be confirmed"
+		paired := link.EndpointAddress{ID: protocol.NodeID{7}}
+		for _, row := range []struct {
+			name    string
+			tickets []string
+			results []error
+			tried   []string
+			message string
+		}{
+			{"first ticket", []string{"", "", "a"}, []error{nil}, []string{"a"}, ""},
+			{"refused once", []string{"a", "a", "b"}, []error{refused, refused, nil}, []string{"a", "a", "b"}, ""},
+			{"unreachable once", []string{"a", "a"}, []error{errors.New("no route"), nil}, []string{"a", "a"}, ""},
+			{"always refused", []string{"a", "b", "c", "d", "e", "f"}, []error{refused, refused, refused, refused, refused, nil}, []string{"a", "b", "c", "d", "e"}, unconfirmed},
+			{"trust unconfirmed", []string{"a", "b"}, []error{unknown("trust could not be confirmed"), nil}, []string{"a"}, unconfirmed},
+			{"refused until the time ran out", []string{"a", "b"}, []error{refused, refused}, []string{"a", "b"}, unconfirmed},
+			{"never published", nil, nil, nil, "Host service started but pairing is unavailable; inspect the distribution service"},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				reads := 0
+				var tried []string
+				address, err := pairBootstrap(func() (string, error) {
+					reads++
+					if reads > len(row.tickets) {
+						return "", nil
+					}
+					return row.tickets[reads-1], nil
+				}, func(ticket string) (link.EndpointAddress, error) {
+					tried = append(tried, ticket)
+					if err := row.results[len(tried)-1]; err != nil {
+						return link.EndpointAddress{}, err
+					}
+					return paired, nil
+				}, func() (bool, error) { return reads < 90, nil })
+				if strings.Join(tried, ",") != strings.Join(row.tried, ",") {
+					t.Fatalf("tickets tried: %v", tried)
+				}
+				if row.message == "" {
+					if err != nil || address.ID != paired.ID {
+						t.Fatalf("pairing: %+v, %v", address, err)
+					}
+					return
+				}
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown || fault.Message != row.message {
+					t.Fatalf("pairing failure: %v", err)
+				}
+				if reads > 90 {
+					t.Fatalf("pairing was not bounded: %d reads", reads)
+				}
+			})
+		}
+		// A stopped installation ends the wait with its own error.
+		stopped := errors.New("stopped")
+		if _, err := pairBootstrap(func() (string, error) { return "", nil }, nil, func() (bool, error) { return false, stopped }); !errors.Is(err, stopped) {
+			t.Fatalf("stopped pairing: %v", err)
+		}
+		if _, err := pairBootstrap(func() (string, error) { return "", stopped }, nil, nil); faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("unreadable ticket: %v", err)
 		}
 	})
 	t.Run("is unavailable outside Windows", func(t *testing.T) {

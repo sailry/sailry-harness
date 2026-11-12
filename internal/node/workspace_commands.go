@@ -210,8 +210,14 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		case "create_worktree", "create_managed_worktree", "remove_worktree":
 			// Held from Git's local work to the row. A project command
 			// takes only the registration, so the root locks alone would
-			// let it move or remove the project between the two.
-			effect.release = node.locks.registration()
+			// let it move or remove the project between the two; joining
+			// the effects keeps it out without stalling the other roots.
+			effect.release = node.locks.change(source, root)
+		case "save_search_settings", "save_code_index_settings":
+			// One save at a time, to the end of its refresh (workspaceLocks).
+			node.locks.settings.Lock()
+			release := node.locks.effect()
+			effect.release = func() { release(); node.locks.settings.Unlock() }
 		default:
 			effect.release = node.locks.effect(source, root)
 		}

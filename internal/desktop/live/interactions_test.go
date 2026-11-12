@@ -594,6 +594,25 @@ func interactionKinds(t *testing.T) {
 		t.Fatalf("the MCP server received %s %s", form.Action, got)
 	}
 
+	// A link this Desktop would not open is not one to answer as opened,
+	// whatever Node sent it.
+	for _, row := range []struct {
+		data any
+		open bool
+	}{
+		{protocol.ConversationQuestionInputUrlPayload{Url: authorizeURL}, true},
+		{&protocol.ConversationQuestionInputUrlPayload{Url: "http://127.0.0.1:8080/callback"}, true},
+		{protocol.ConversationQuestionInputUrlPayload{Url: "http://fixture.test/authorize"}, false},
+		{protocol.ConversationQuestionInputUrlPayload{Url: "file:///etc/passwd"}, false},
+		{protocol.ConversationQuestionInputUrlPayload{Url: "https://user@fixture.test/"}, false},
+		{protocol.ConversationQuestionInputUrlPayload{}, false},
+		{nil, false},
+	} {
+		if link, ok := questionLink(protocol.ConversationQuestionInput{Kind: "url", Data: row.data}); ok != row.open || ok != (link != "") {
+			t.Fatalf("link question %+v opens %q, %v", row.data, link, ok)
+		}
+	}
+
 	// An authorization link: Open opens the system browser and answers.
 	submit(session, "scenario:link")
 	asked("Authorize the fixture")
