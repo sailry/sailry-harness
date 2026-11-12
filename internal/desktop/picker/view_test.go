@@ -933,7 +933,7 @@ func views(t *testing.T) {
 		said()
 	})
 
-	// The top band moves the window, so its empty parts take no click of
+	// The top band moves the dialog, so its empty parts take no click of
 	// their own, and its controls keep theirs.
 	t.Run("top bar", func(t *testing.T) {
 		home := NewCatalog(false).Home()
@@ -966,6 +966,29 @@ func views(t *testing.T) {
 		b.press(en("directory_up"))
 		if b.s.listing.Path != "/Users" {
 			t.Fatalf("Up led to %q", b.s.listing.Path)
+		}
+		// A drag on the band's empty part moves the dialog with the
+		// pointer; a new opening is centred again.
+		before := b.button(en("directory_up")).Bounds
+		from := b.text(en("directory_title"))
+		x, y := from.X+from.W+30, from.Y+from.H/2
+		b.tt.Press(x, y)
+		b.tt.Move(x+40, y+25)
+		b.tt.Frame()
+		b.tt.Release(x+40, y+25)
+		b.settle()
+		after := b.button(en("directory_up")).Bounds
+		if dx, dy := after.X-before.X, after.Y-before.Y; dx < 39 || dx > 41 || dy < 24 || dy > 26 {
+			t.Fatalf("the drag moved the dialog by %v, %v, want 40, 25", dx, dy)
+		}
+		b.press(en("directory_up"))
+		if b.s.listing.Path != "/" {
+			t.Fatalf("the moved dialog's Up led to %q", b.s.listing.Path)
+		}
+		b.s.Open(b.s.o)
+		b.settle()
+		if again := b.button(en("directory_up")).Bounds; again.X != before.X || again.Y != before.Y {
+			t.Fatalf("a new opening starts at %v, want %v", again, before)
 		}
 	})
 
