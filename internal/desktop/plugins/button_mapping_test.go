@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"testing"
@@ -137,6 +138,35 @@ export default class Example extends View {render(){
 	for label, kitLabel := range map[string]string{"Padded": "Kit padded", "Small": "Kit small"} {
 		if button, reference := bounds(label), bounds(kitLabel); !near(button.W, reference.W) || !near(button.H, reference.H) {
 			t.Fatalf("%s button %v lost the padding of Kit's %v", label, button, reference)
+		}
+	}
+}
+
+// testChartTokens asserts a package's chart_1 to chart_8 are the theme's
+// chart colors in order, in both modes: a step of testKitMapping.
+func testChartTokens(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		palette := theme.Look("", dark)
+		var snapshot struct {
+			Colors map[string]string `json:"colors"`
+		}
+		if err := json.Unmarshal(ThemeSnapshot(palette), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]int{}
+		for index, color := range palette.Chart {
+			name := fmt.Sprintf("chart_%d", index+1)
+			want := fmt.Sprintf("#%02x%02x%02x%02x", color.R, color.G, color.B, color.A)
+			if snapshot.Colors[name] != want {
+				t.Errorf("dark %v: %s = %q, want the theme's %s", dark, name, snapshot.Colors[name], want)
+			}
+			if other, taken := seen[want]; taken {
+				t.Errorf("dark %v: %s repeats chart_%d", dark, name, other)
+			}
+			seen[want] = index + 1
+		}
+		if _, extra := snapshot.Colors["chart_9"]; extra || len(palette.Chart) != 8 {
+			t.Errorf("dark %v: the snapshot holds more chart colors than the contract's eight", dark)
 		}
 	}
 }

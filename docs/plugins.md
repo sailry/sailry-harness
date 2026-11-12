@@ -506,6 +506,7 @@ for that concept, at the same sizes and tokens:
 | `DataTable` rows | MyGo `ui.Table` under `theme.Neutral`: a chosen row takes the neutral selected fill, not the accent |
 | loading `CardList` | a card of `kit.Skeleton` lines |
 | `ModelPopup` trigger | `kit.SecondaryLook`, full width, title and caret |
+| `chart_1` to `chart_8` (theme colors, chart series, `ProgressBar`, tones) | The application theme's categorical chart colors, `theme.Palette.Chart`, in order ([theme](theme.md#chart-colors)) |
 | `gpui-component` `Button` | `kit.Secondary`; `primary`, `danger` and `ghost` variants are `kit.Primary`, `kit.Danger`, `kit.Ghost`; sizes 20, 24, 32, 36 |
 | `gpui-base` `Button`, `Link`, `Tab`, `AccordionTrigger` | MyGo `ui.ButtonBase` with no look |
 | `Tooltip` | a column filling its parent under `kit.Tooltip` |
