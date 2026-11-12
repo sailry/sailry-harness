@@ -58,6 +58,10 @@ type Composer struct {
 	Model      *Model              `json:"model"`
 	Mode       protocol.WorkMode   `json:"mode"`
 	Permission protocol.Permission `json:"permission"`
+	// Team is the team the last message was sent with, "" for one model:
+	// a new conversation starts as the last one did, and a new profile
+	// with one model.
+	Team string `json:"team,omitempty"`
 }
 type Model struct {
 	Source   protocol.NodeID     `json:"source"`
