@@ -700,7 +700,9 @@ without an owner.
   and a child run report nothing. The Node cannot know at a turn's end whether
   another automatic turn follows, so every failed or interrupted automatic
   turn is reported, not only the last; the success that ends a chain is its
-  package's to report (`store.TestAutomaticRunNotices`).
+  package's to report (`store.TestAutomaticRunNotices`). The failure is the
+  Node's alone: a package adds no notification of its own for a failed or
+  interrupted turn ([goal](goal.md), `node.TestGoalLoop`).
 - **Durable end.** A turn keeps its owner until its end is stored. When the
   finishing transaction fails, it is repeated every second, logged once
   (`operation=finish`), until it succeeds or the Node stops; a stopped Node
@@ -952,8 +954,8 @@ model fails it until a demo conversation shows it.
 | `chat/staging` | A connection recovering with a diagnostic, an unsynced run awaiting a response, a question that cannot be answered meanwhile, export disabled, an older page that did not load |
 | `chat/release-notes` | A run stopping while the model thinks |
 | `chat/translate` | An offline host |
-| `lumen-web/pursuit` | A goal in pursuit: the user's turn that set it, a finished continuation and a running one, each under the package's marker row in place of a user message; the badge Goal, Running and the time, its details (objective, turns, time, tokens) and panel (Pause, Edit, Clear) |
-| `lumen-web/pursuit-limit` | A goal paused at the turn limit: its wrap-up continuation, the badge Goal, Paused and the reason, and the panel (Resume, Edit, Clear) |
+| `lumen-web/pursuit` | A goal in pursuit: the user's turn that set it, a finished continuation and a running one, each under the package's marker row in place of a user message; the badge's icon with Running and the time, its details (objective, turns, time, tokens) and panel (Pause, End) |
+| `lumen-web/pursuit-limit` | A goal paused at the turn limit: its wrap-up continuation, the badge's icon with Paused and the reason, and the panel (Resume, End) |
 
 The first page loading (`Session.Loading`), an older page loading
 (`LoadingOlder`, which the preview plays on a timer), an answer on its way

@@ -28,6 +28,8 @@ type goalStep struct {
 	calls [][3]string
 	text  string
 	gate  chan struct{}
+	// fail ends the request with a fault no retry can mend.
+	fail bool
 }
 
 // goalScript answers the main session's model requests in order and keeps
@@ -79,6 +81,9 @@ func (script *goalScript) Stream(ctx context.Context, call fantasy.Call) (fantas
 	step := script.steps[0]
 	script.steps = script.steps[1:]
 	script.mu.Unlock()
+	if step.fail {
+		return nil, &fantasy.ProviderError{Title: "unauthorized", Message: "fixture key rejected", StatusCode: 401}
+	}
 	if step.gate != nil {
 		script.gated.Add(1)
 		select {
@@ -271,7 +276,9 @@ func (f *goalFixture) read() ([]protocol.ConversationRun, map[string]any) {
 
 func (f *goalFixture) wait(name string, done func([]protocol.ConversationRun, map[string]any) bool) ([]protocol.ConversationRun, map[string]any) {
 	f.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	// A chain of 25 turns beside the Nodes of the other subtests outgrows
+	// half a minute on a loaded machine; the fixture context bounds the test.
+	deadline := time.Now().Add(90 * time.Second)
 	for {
 		runs, goal := f.read()
 		if done(runs, goal) {
@@ -725,7 +732,60 @@ func TestGoalLoop(t *testing.T) {
 		}
 	})
 
-	t.Run("the model cannot pause, resume, edit or clear on its own", func(t *testing.T) {
+	t.Run("a failed goal turn is notified once, by the Node, and End closes the goal", func(t *testing.T) {
+		t.Parallel()
+		f := newGoalFixture(t, protocol.WorkModeCode)
+		f.script.push(goalStep{text: "Started"}, goalStep{fail: true})
+		f.send("/goal Make the fixture pass and prove it")
+		runs, goal := f.settled("paused", "error")
+		f.finished()
+		if len(runs) != 2 || runs[1].Status != protocol.ConversationStatusFailed || runs[1].Continuation == nil || goal["detail"] == nil {
+			t.Fatalf("failed goal turn = %+v, goal %v", runs, goal)
+		}
+		// The panel and badge show the reason; the one notification of the
+		// failure is the Node's, of the run. (The user's own turn that set
+		// the goal has the Node's ordinary completion notice.)
+		if status, reason, _ := shown(f); status != "paused" || reason != "error" {
+			t.Fatalf("the goal after its failed turn is shown %s, %v", status, reason)
+		}
+		var all, failures []protocol.NotificationNotice
+		f.wait("the run's notification", func([]protocol.ConversationRun, map[string]any) bool {
+			all, failures = snapshotFixture(t, f.node).Notifications, nil
+			for _, notice := range all {
+				if notice.Content.Kind != protocol.NotificationKindSuccess {
+					failures = append(failures, notice)
+				}
+			}
+			return len(failures) != 0
+		})
+		if len(failures) != 1 || failures[0].Package != "" || failures[0].Content.Kind != protocol.NotificationKindError ||
+			failures[0].Content.Session == nil || *failures[0].Content.Session != f.session.ID || len(all) != 2 || len(f.notices()) != 0 {
+			t.Fatalf("notifications of the failed goal turn = %+v", all)
+		}
+		// Edit is gone and Clear is End: the old kinds are refused, and End
+		// moves the goal to the history under its stored outcome.
+		for _, kind := range []string{"edit", "clear"} {
+			body, _ := json.Marshal(map[string]any{"kind": kind, "goal_id": goal["id"]})
+			request := protocol.NewRequest(f.node.ID(), protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: "control", Input: body}})
+			request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "workspace"}, Package: f.reference, Worktree: new(f.session.Worktree), Session: new(f.session.ID)}
+			if response := dispatchFixture(t, f.node, f.node.ID(), request); response.Fault == nil {
+				t.Fatalf("control %q was accepted", kind)
+			}
+		}
+		f.control("end")
+		var view struct {
+			Goal    map[string]any   `json:"goal"`
+			History []map[string]any `json:"history"`
+		}
+		if err := json.Unmarshal(f.call("read_plugin_callback", "inspect", map[string]any{}), &view); err != nil {
+			t.Fatal(err)
+		}
+		if view.Goal != nil || len(view.History) != 1 || view.History[0]["outcome"] != "cleared" || view.History[0]["objective"] != "Make the fixture pass and prove it" || len(f.notices()) != 0 {
+			t.Fatalf("after End = %+v, notices %+v", view, f.notices())
+		}
+	})
+
+	t.Run("the model cannot pause, resume, replace or end on its own", func(t *testing.T) {
 		t.Parallel()
 		f := newGoalFixture(t, protocol.WorkModeCode)
 		f.script.push(
@@ -733,8 +793,8 @@ func TestGoalLoop(t *testing.T) {
 			goalStep{calls: [][3]string{
 				{"pause", update, `{"status":"paused"}`},
 				{"resume", update, `{"status":"active"}`},
-				{"edit", update, `{"status":"blocked","note":"Shrink it","objective":"A smaller goal"}`},
-				{"clear", operations.Alias("goals", "clear_goal"), `{}`},
+				{"replace", update, `{"status":"blocked","note":"Shrink it","objective":"A smaller goal"}`},
+				{"end", operations.Alias("goals", "end_goal"), `{}`},
 			}},
 			goalStep{calls: block("Only the user can decide")},
 			goalStep{text: "Blocked"},
@@ -742,7 +802,7 @@ func TestGoalLoop(t *testing.T) {
 		f.send("/goal Make the fixture pass and prove it")
 		_, goal := f.settled("blocked", nil)
 		f.finished()
-		for call, refusal := range map[string]string{"pause": "Only the user can pause the goal", "resume": "Only the user can resume the goal", "edit": "invalid tool arguments", "clear": "not handled"} {
+		for call, refusal := range map[string]string{"pause": "Only the user can pause the goal", "resume": "Only the user can resume the goal", "replace": "invalid tool arguments", "end": "not handled"} {
 			if result := f.result(call); !strings.Contains(result, refusal) {
 				t.Errorf("%s was not refused with %q: %q", call, refusal, result)
 			}
