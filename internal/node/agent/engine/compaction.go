@@ -187,7 +187,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if limited {
 		return failed(protocol.ConversationCompactionStageSummary, protocol.ConversationCompactionReasonTruncatedSummary, fmt.Errorf("compaction summary reached its output limit"))
 	}
-	summary, err := handoff.Parse(text.String())
+	summary, err := handoff.Parse(text.String(), handoff.Cap(uint64(selected.Context), uint64(output)))
 	if err != nil {
 		reason := protocol.ConversationCompactionReasonUnexpectedOutput
 		if strings.TrimSpace(text.String()) == "" {

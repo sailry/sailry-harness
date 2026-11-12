@@ -297,8 +297,20 @@ replaced the earlier 5 to 60 second exponential schedule that followed
 requests and malformed/truncated streams are terminal. Every attempted request
 reports timing, optional usage and failure facts once through the engine observer.
 Unknown token counts remain unknown; an explicitly reported zero remains known.
-Summary requests retain provider/model/auth and use at most 8,000 output tokens or
-the smaller advertised limit, with the lowest declared reasoning choice.
+Summary requests retain provider/model/auth, with the lowest declared reasoning
+choice. The handoff's cap follows the window (`compact.Cap`): 2% of the
+context window, at least 4,000 and at most 12,000 tokens, and the prompt names
+it with a soft target of 75% of it. The request's output limit is twice the cap
+(`compact.Output`, through `model.OutputLimit`), because the JSON document is
+larger than the text rendered from it, or the model's smaller advertised limit;
+the cap is then half of that limit, never under 4,000. A model that lists no
+output limit keeps 8,000 and a 4,000 cap. The same figure is the reserve of
+`compact.Prepare` and the `summary_output` that `store.AgentCompactionBudget`
+reports. A window up to 200,000 tokens is unchanged: 8,000 output, cap 4,000,
+target 3,000. Deviation, by the user's decision of 2026-11-12: Goose and the
+reference use a fixed 4,000 token cap and 8,000 output tokens on every window
+(`compact.TestSummaryCapFollowsWindow`,
+`engine.TestCompactionHandoff/cap follows the window`).
 
 ## Desktop channel editor
 

@@ -15,7 +15,34 @@ var promptText string
 
 const Request = "Please summarize the conversation history provided in the system prompt."
 
+// Output is the output limit a summary request asks for in a context window:
+// twice the handoff's cap, since the JSON document is larger than the text
+// rendered from it. The model's own output limit bounds it.
+func Output(contextLimit uint64) uint64 {
+	return 2 * min(max(contextLimit*2/100, 4000), 12000)
+}
+
+// Cap is the rendered handoff's token limit: 2% of the context window, at
+// least 4,000 and at most 12,000 tokens, and no more than half the output the
+// summary request may write once that leaves the 4,000 of every window.
+func Cap(contextLimit, outputLimit uint64) uint64 {
+	return max(4000, min(Output(contextLimit), outputLimit)/2)
+}
+
+// instructions is the prompt with its handoff limits: the soft target is three
+// quarters of the cap.
+func instructions(limit uint64, messages string) string {
+	figure := func(value uint64) string {
+		if value < 1000 {
+			return fmt.Sprint(value)
+		}
+		return fmt.Sprintf("%d,%03d", value/1000, value%1000)
+	}
+	return strings.TrimSpace(strings.NewReplacer("{{ target }}", figure(limit*3/4), "{{ cap }}", figure(limit), "{{ messages }}", messages).Replace(promptText))
+}
+
 func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, request ...string) (string, error) {
+	limit := Cap(contextLimit, outputLimit)
 	records = Visible(records)
 	filtered := records[:0]
 	for _, record := range records {
@@ -24,7 +51,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 		}
 	}
 	records = filtered
-	base := strings.TrimSpace(strings.ReplaceAll(promptText, "{{ messages }}", ""))
+	base := instructions(limit, "")
 	requestReserve := uint64(256)
 	if len(request) > 0 {
 		requestReserve = max(requestReserve, tokens.Text(request[0])+7)
@@ -42,7 +69,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 		turns[len(turns)-1] = append(turns[len(turns)-1], record)
 	}
 	if len(turns) == 0 {
-		return strings.TrimSpace(strings.ReplaceAll(promptText, "{{ messages }}", "")), nil
+		return base, nil
 	}
 	last := len(turns) - 1
 	history := make([]string, len(turns))
@@ -107,7 +134,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	}
 	// The source summary request serializes its user transcript once more.
 	body = "[user]: " + body
-	return strings.TrimSpace(strings.ReplaceAll(promptText, "{{ messages }}", body)), nil
+	return instructions(limit, body), nil
 }
 
 // kickoff reports a message the user wrote, which starts a turn.

@@ -32,7 +32,7 @@ func TestCompactionHandoff(t *testing.T) {
 			{"prose example", `A quoted example {"user_intent":["Wrong"]} is not a handoff`, ""},
 		} {
 			t.Run(row.name, func(t *testing.T) {
-				summary, err := handoff.Parse(row.document)
+				summary, err := handoff.Parse(row.document, 4000)
 				if row.want == "" {
 					if err == nil {
 						t.Fatal("unusable document replaced the handoff")
@@ -156,9 +156,43 @@ func TestCompactionHandoff(t *testing.T) {
 			t.Fatal("summary coverage timestamps describe the model request instead of the replaced history")
 		}
 		usage := compacted.Summary.Usage
-		normalized, _ := handoff.Parse(string(document))
+		normalized, _ := handoff.Parse(string(document), 4000)
 		if usage.Input == nil || *usage.Input != 123 || usage.Output == nil || *usage.Output != tokens.Text(normalized.Document()) || usage.Total == nil || *usage.Total != 123+*usage.Output || saved.Metadata.Execution.Source.ID != binding.Provider.ID {
 			t.Fatal("summary lost reported optional usage, normalized output estimate or captured scope")
+		}
+	})
+	t.Run("cap follows the window", func(t *testing.T) {
+		var concepts []string
+		for range 600 {
+			concepts = append(concepts, strings.Repeat("Reference kept by a large window ", 6))
+		}
+		document, _ := json.Marshal(map[string]any{"user_intent": []string{"Fix parser"}, "technical_concepts": concepts})
+		for _, row := range []struct {
+			context        uint32
+			output         int64
+			limit          uint64
+			target, cutoff string
+		}{{200000, 8000, 4000, "under 3,000 tokens", "beyond 4,000 tokens"}, {1000000, 24000, 12000, "under 9,000 tokens", "beyond 12,000 tokens"}} {
+			m := &scriptedModel{scripts: []script{response(text(string(document)), finish())}}
+			f, x, binding, state := compactionFixture(t, m)
+			binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = row.context, 64000
+			if err := f.r.compact(x, binding, state, true); err != nil {
+				t.Fatal(err)
+			}
+			request := m.calls[0]
+			system := request.Prompt[0].Content[0].(fantasy.TextPart).Text
+			if request.MaxOutputTokens == nil || *request.MaxOutputTokens != row.output || !strings.Contains(system, row.target) || !strings.Contains(system, row.cutoff) {
+				t.Fatalf("%d window: output limit %v or prompt limits are wrong", row.context, request.MaxOutputTokens)
+			}
+			budget := store.AgentCompactionBudget(binding.Provider.Models[0], 80)
+			if int64(budget.SummaryOutput) != row.output || budget.SummaryInput != uint64(row.context)-uint64(row.output) || budget.OutputReserve != 64000 {
+				t.Fatalf("%d window: reported budget = %+v", row.context, budget)
+			}
+			after := f.state()
+			rendered := after.Records[len(state.Records)].Data.(*canonical.Compaction).Summary.Content[0].Data.(*canonical.TextContent).Text
+			if size := tokens.Text(rendered); size > row.limit || row.limit > 4000 && size <= 4000 {
+				t.Fatalf("%d window: handoff is %d tokens under a cap of %d", row.context, size, row.limit)
+			}
 		}
 	})
 	t.Run("failed summaries retain usage", func(t *testing.T) {
