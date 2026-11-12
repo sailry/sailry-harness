@@ -182,6 +182,7 @@ func composerParityCommands(t *testing.T) {
 		}
 		settle()
 	}
+	settle() // the tray has come in: its header is where a click finds it
 	if _, ok := queueFolded(tester); ok {
 		if tester.HasText("Queued plain message") {
 			t.Error("the folded tray shows its rows")
@@ -502,6 +503,7 @@ func childTray(t *testing.T) {
 		}
 		settle()
 	}
+	settle() // the tray has come in: its header is where a click finds it
 	unfoldQueue(t, tester)
 	settle()
 	if !tester.HasText("Guidance for the subagent") {

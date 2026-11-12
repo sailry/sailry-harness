@@ -37,14 +37,15 @@ func queueFolded(tt *ui.Tester) (header ui.AccessInfo, ok bool) {
 	return header, false
 }
 
-// unfoldQueue clicks the folded tray's header, which shows its rows.
+// unfoldQueue clicks the folded tray's header, which shows its rows: at its
+// chevron, clear of a toast over the window's middle.
 func unfoldQueue(t *testing.T, tt *ui.Tester) {
 	t.Helper()
 	header, ok := queueFolded(tt)
 	if !ok {
 		t.Fatalf("no folded queue tray: %q", tt.Texts())
 	}
-	tt.ClickAt(header.Bounds.X+header.Bounds.W/2, header.Bounds.Y+header.Bounds.H/2)
+	tt.ClickAt(header.Bounds.X+20, header.Bounds.Y+header.Bounds.H/2)
 	tt.Frame()
 	tt.Advance(300 * time.Millisecond)
 	tt.Frame()
