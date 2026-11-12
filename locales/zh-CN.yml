@@ -2807,3 +2807,4 @@ git_copy_commit_id: 复制提交 ID
 git_cherry_pick_confirm: 将此提交应用到当前分支
 git_diff_split: 并排
 git_diff_unified: 统一
+port_count: "%{count} 个端口"

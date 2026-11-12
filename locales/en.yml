@@ -373,3 +373,4 @@ git_copy_commit_id: Copy commit ID
 git_cherry_pick_confirm: Apply this commit to the current branch
 git_diff_split: Split
 git_diff_unified: Unified
+port_count: "%{count} ports"
