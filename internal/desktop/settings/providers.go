@@ -491,6 +491,12 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 			}
 		}
 	}
+	// A setting the channel saved without a value shows the one in use.
+	for i, value := range e.method.OAuth {
+		if e.oauth[i] == "" {
+			e.oauth[i] = value
+		}
+	}
 	if e.brand == nil {
 		e.method = preview.Method{ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key", Custom: ch.Endpoint != ""}
 	}
@@ -609,6 +615,7 @@ func (e *providerEditor) configure(x preview.Method) {
 	e.method, e.route, e.step = x, 0, stepConfigure
 	e.name, e.endpoint = x.Name, e.current().Endpoint
 	e.models, e.def = nil, 0
+	e.oauth = x.OAuth
 	e.apiVersion = ""
 	if e.azure() {
 		e.apiVersion = azureDefaultVersion
@@ -1015,7 +1022,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			})
 			b.Children(func() { ui.Text(c, t("provider_get_key")).FontSize(12).TextColor(p.Link) })
 		}
-		if e.method.OAuthFields {
+		if e.method.OAuth != ([4]string{}) {
 			// A disclosure: the chevron turns down while the settings show.
 			label, chevron := t("provider_oauth_advanced"), icons.ChevronRight
 			if e.advanced {
@@ -1028,7 +1035,10 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				}).OnClick(func() { e.advanced = !e.advanced })
 			if e.advanced {
 				for i, k := range []string{"provider_oauth_catalog_version", "provider_oauth_user_agent", "provider_oauth_editor_version", "provider_oauth_editor_plugin_version"} {
-					input(k, t(k), "", &e.oauth[i], false)
+					// Only the settings this sign-in has.
+					if e.method.OAuth[i] != "" {
+						input(k, t(k), "", &e.oauth[i], false)
+					}
 				}
 			}
 		}

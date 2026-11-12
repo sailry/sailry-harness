@@ -209,6 +209,25 @@ func testProviderFlow(t *testing.T) {
 	if got := methods("openai"); !slices.Equal(got, []string{"ChatGPT OAuth", "OpenAI", "OpenAI Compatible"}) {
 		t.Errorf("OpenAI's methods %q", got)
 	}
+	// A sign-in's advanced settings are its own, at the Node's values: the
+	// catalog version and user agent for ChatGPT OAuth, the editor identity
+	// for Copilot alone, and none for an API key.
+	oauth := map[string][4]string{}
+	for _, b := range m.Brands {
+		for _, x := range b.Methods {
+			oauth[x.ID] = x.OAuth
+		}
+	}
+	for id, want := range map[string][4]string{
+		"builtin:chat-gpt-oauth": {providers.DefaultCatalogVersion, "Sailry/0.1"},
+		"builtin:claude-oauth":   {1: providers.DefaultClaudeAgent},
+		"builtin:copilot":        {1: providers.DefaultCopilotAgent, 2: providers.DefaultCopilotEditor, 3: providers.DefaultCopilotEditorPlugin},
+		"builtin:openai":         [4]string{},
+	} {
+		if got, ok := oauth[id]; !ok || got != want {
+			t.Errorf("method %q starts its advanced settings on %q (listed %v), want %q", id, got, ok, want)
+		}
+	}
 
 	// The saved channels belong to those brands, a channel without a preset
 	// by its protocol, and one whose preset is no longer offered by it.

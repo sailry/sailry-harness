@@ -83,7 +83,7 @@ func ProvidersData() *Providers {
 		},
 		Brands: []Brand{
 			{ID: "anthropic", Name: "Anthropic", Methods: []Method{
-				{ID: "claude-login", Name: "Claude", Access: "provider_access_login", API: "Anthropic Messages", Login: "provider_login_claude", OAuthFields: true, Icon: "claude"},
+				{ID: "claude-login", Name: "Claude", Access: "provider_access_login", API: "Anthropic Messages", Login: "provider_login_claude", OAuth: [4]string{1: "claude-cli/2.1.280 (external, cli)"}, Icon: "claude"},
 				{ID: "anthropic-key", Name: "Anthropic API", Access: "provider_access_key", API: "Anthropic Messages", KeyURL: "https://console.anthropic.com/settings/keys"},
 				{ID: "bedrock", Name: "Amazon Bedrock", Access: "provider_access_cloud", API: "Anthropic Messages"},
 			}},
