@@ -1983,3 +1983,20 @@ func testSessionForwarding(t *testing.T) {
 		}
 	}
 }
+
+// TestTurnOwners covers the one owner map of the transcript, references,
+// published files and search: a run joined to a turn before the loaded page
+// is drawn as its own turn everywhere.
+func TestTurnOwners(t *testing.T) {
+	t.Parallel()
+	first, joined, orphan, absent := protocol.TurnID{1}, protocol.TurnID{2}, protocol.TurnID{3}, protocol.TurnID{9}
+	owners := turnOwners([]protocol.ConversationRun{
+		{Turn: joined, Joined: &first}, {Turn: first}, {Turn: orphan, Joined: &absent},
+	})
+	if len(owners) != 3 || owners[first] != first || owners[joined] != first {
+		t.Fatalf("owners on the page: %v", owners)
+	}
+	if owners[orphan] != orphan {
+		t.Fatalf("a run joined to a turn off the page is owned by %v", owners[orphan])
+	}
+}
