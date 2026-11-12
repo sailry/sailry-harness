@@ -257,7 +257,8 @@ func Selected(settings *protocol.ModelsLocalSettings, kind protocol.ModelsKind) 
 	return *choice.Model
 }
 
-func sameChoice(left, right protocol.ModelsLocalChoice) bool {
+// SameChoice reports whether two choices enable the same model.
+func SameChoice(left, right protocol.ModelsLocalChoice) bool {
 	return left.Enabled == right.Enabled && (left.Model == nil) == (right.Model == nil) && (left.Model == nil || *left.Model == *right.Model)
 }
 
