@@ -36,6 +36,9 @@ type Launch struct {
 	Directory string
 }
 
+// errAbandoned ends a step whose consumer stopped reading.
+var errAbandoned = errors.New("model stream was abandoned")
+
 // ErrNotInstalled is the launcher's answer when the user has no Claude Code.
 var ErrNotInstalled = errors.New("Claude Code is not installed")
 
@@ -158,7 +161,8 @@ func (value *routeModel) Stream(ctx context.Context, call fantasy.Call) (fantasy
 		return nil, err
 	}
 	return func(yield func(fantasy.StreamPart) bool) {
-		if err := value.route.step(ctx, request, yield); err != nil {
+		// A consumer that stopped reading is never called again.
+		if err := value.route.step(ctx, request, yield); err != nil && !errors.Is(err, errAbandoned) {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: model.Classify(err)})
 		}
 	}, nil
@@ -368,10 +372,9 @@ func (route *Route) release(current *run, request stepRequest, keep bool, pendin
 	current.timer = time.AfterFunc(route.options.Idle, func() { route.expire(current) })
 	var evicted *run
 	if len(route.runs) > route.options.Limit {
-		for key, candidate := range route.runs {
+		for _, candidate := range route.runs {
 			if candidate != current && !candidate.busy && (evicted == nil || candidate.used.Before(evicted.used)) {
 				evicted = candidate
-				_ = key
 			}
 		}
 		if evicted != nil {
@@ -501,11 +504,11 @@ func (route *Route) receive(ctx context.Context, current *run, request stepReque
 				delta.Delta = received.text
 				said = true
 				if !yield(delta) {
-					return nil, stopped
+					return nil, errAbandoned
 				}
 			case eventReasoningEnd:
 				if !yield(part(fantasy.StreamPartTypeReasoningEnd, received.index)) {
-					return nil, stopped
+					return nil, errAbandoned
 				}
 			case eventCall:
 				declared, offered := request.names[strings.TrimPrefix(received.name, toolPrefix)]
@@ -519,12 +522,12 @@ func (route *Route) receive(ctx context.Context, current *run, request stepReque
 				calls = append(calls, received.identity)
 				said = true
 				if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: received.identity, ToolCallName: declared, ToolCallInput: string(received.arguments)}) {
-					return nil, stopped
+					return nil, errAbandoned
 				}
 			case eventMessageEnd:
 				if len(calls) > 0 {
 					if !finish(fantasy.FinishReasonToolCalls) {
-						return nil, stopped
+						return nil, errAbandoned
 					}
 					return calls, nil
 				}
@@ -548,7 +551,7 @@ func (route *Route) receive(ctx context.Context, current *run, request stepReque
 					reason = fantasy.FinishReasonLength
 				}
 				if !finish(reason) {
-					return nil, stopped
+					return nil, errAbandoned
 				}
 				return nil, nil
 			}
