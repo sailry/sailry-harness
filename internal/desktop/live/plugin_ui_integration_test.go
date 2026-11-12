@@ -178,7 +178,6 @@ func TestPluginUIIntegration(t *testing.T) {
 		return runtime.pluginViews != nil && len(runtime.pluginViews.navigation) > 0 && runtime.packages.infos["gomoku"].Extension != nil
 	})
 	auditContextRing(t, runtime, tester, session.ID.String(), wait)
-	auditSessionOverview(t, runtime, tester, session.ID, wait)
 	order, pins := runtime.App.FeaturePreferences()
 	gameID := "plugin:" + controller.Target().String() + "/gomoku"
 	pins[gameID] = true
@@ -273,6 +272,22 @@ func TestPluginUIIntegration(t *testing.T) {
 	}
 	t.Log("goals: original scoped slash command revealed the hidden status popover without a model call")
 	click("Goal")
+	// The header offers the overview once the conversation has a turn: one
+	// plain message, answered by the fixture, with no tool and no output.
+	runtime.enqueue(func(view *ui.Context) {
+		conversation := runtime.App.Data.Find(session.ID.String())
+		input := runtime.App.Composer(conversation.ID)
+		_, actions := runtime.conversation(view, conversation, input)
+		actions.Send(composer.Message{
+			Text: "Say nothing", Model: input.Model, Effort: input.EffortName(view, input.Chosen(runtime.models())),
+			Mode: input.Mode, Permission: input.Permission, Features: input.Features,
+		})
+	})
+	wait("the session's first turn", func() bool {
+		conversation := runtime.App.Data.Find(session.ID.String())
+		return requests.Load() == 2 && conversation != nil && len(conversation.Turns) == 1 && !runtime.App.Composer(conversation.ID).Running
+	})
+	auditSessionOverview(t, runtime, tester, session.ID, wait)
 	runtime.App.PanelOpen = true
 	runtime.App.Panel.Open(panel.Terminal)
 	var terminalID protocol.TerminalID

@@ -12,8 +12,9 @@ import (
 )
 
 // auditSessionOverview opens the header's overview on a session of the real
-// Node: its inventory read is answered and accepted, an untouched session
-// lists nothing, and ⌘L then focuses the composer. It is a step of
+// Node, which the header offers once the conversation has a turn: its
+// inventory read is answered and accepted, a session whose turns used no
+// tool lists nothing, and ⌘L then focuses the composer. It is a step of
 // TestPluginUIIntegration.
 func auditSessionOverview(t *testing.T, runtime *Runtime, tester *ui.Tester, session protocol.SessionID, wait func(string, func() bool)) {
 	t.Helper()
