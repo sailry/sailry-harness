@@ -793,7 +793,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	menu := tt.Menu()
-	want := []string{"workspace_project", "workspace_new_session", "workspace_new_terminal", "workspace_records", "project_edit", "project_trust",
+	want := []string{"workspace_project", "workspace_new_session", "workspace_new_terminal", "workspace_records", "project_edit",
 		"workspace_copy_path", "worktree_manage", "project_remove", "cli_launch"}
 	at := 0
 	for _, key := range want {
@@ -823,19 +823,15 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	}
 	snapshot(t, tt, "project-sidebar")
 
-	// Trust is the preview's record alone, asked first.
+	// A project is trusted as it is added: its menu offers no trust entry.
 	if err := tt.RightClick("new-project"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem(en("project_trust")); err != nil {
-		t.Fatal(err)
+	if slices.Contains(tt.Menu(), "Manage project trust") {
+		t.Fatalf("the project menu offers trust: %q", tt.Menu())
 	}
+	tt.Key(0, ui.KeyEscape)
 	settle(tt)
-	clickButton(t, tt, en("project_grant"))
-	settle(tt)
-	if !added.Trusted {
-		t.Fatal("granting trust did not record it")
-	}
 
 	// Open folder opens the project already at the chosen directory, or adds
 	// one named after it.

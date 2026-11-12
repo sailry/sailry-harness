@@ -8,6 +8,9 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/jonboulle/clockwork"
 
 	"github.com/sailry/sailry-harness/internal/node/knowledge"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -17,6 +20,9 @@ const (
 	// vectorBudget bounds the vectors of all collections kept in memory. A
 	// vector costs its dimension in bytes plus about 100 for its key and norm.
 	vectorBudget = 256 << 20
+	// vectorIdle is how long a collection's vectors are kept after its last
+	// query.
+	vectorIdle = 10 * time.Minute
 	// keyBytes is the kept size of a chunk key: its text and string header.
 	keyBytes = 96
 	// streamBlock is the number of vectors a scan that reads the database holds
@@ -159,23 +165,61 @@ type cached struct {
 	sources map[int64][]span
 	size    int64
 	used    uint64
+	queried time.Time
 }
 
 // vectors keeps the vectors of collections between queries. Every writer of
 // a collection's chunks brackets its transaction with change, so a reader
 // that saw the same idle stamp before its read transaction began and after
-// it loaded knows that no write was committed in between.
+// it loaded knows that no write was committed in between. An entry no query
+// used for vectorIdle is dropped, so a Node without queries keeps none.
 type vectors struct {
 	mu      sync.Mutex
 	stamps  map[string]stamp
 	entries map[string]*cached
 	size    int64
 	budget  int64
-	clock   uint64
+	uses    uint64
+	clock   clockwork.Clock
+	// waiting is set while a timer for the next release is pending.
+	waiting bool
 }
 
-func newVectors() *vectors {
-	return &vectors{stamps: map[string]stamp{}, entries: map[string]*cached{}, budget: vectorBudget}
+func newVectors(clock clockwork.Clock) *vectors {
+	if clock == nil {
+		clock = clockwork.NewRealClock()
+	}
+	return &vectors{stamps: map[string]stamp{}, entries: map[string]*cached{}, budget: vectorBudget, clock: clock}
+}
+
+// release drops the entries no query used for vectorIdle and waits for the
+// next one to become idle. No timer is pending while nothing is kept.
+func (vectors *vectors) release() {
+	vectors.mu.Lock()
+	defer vectors.mu.Unlock()
+	vectors.waiting = false
+	now := vectors.clock.Now()
+	for id, entry := range vectors.entries {
+		if now.Sub(entry.queried) >= vectorIdle {
+			vectors.size -= entry.size
+			delete(vectors.entries, id)
+		}
+	}
+	vectors.waitLocked()
+}
+
+func (vectors *vectors) waitLocked() {
+	if vectors.waiting || len(vectors.entries) == 0 {
+		return
+	}
+	var next time.Time
+	for _, entry := range vectors.entries {
+		if next.IsZero() || entry.queried.Before(next) {
+			next = entry.queried
+		}
+	}
+	vectors.waiting = true
+	vectors.clock.AfterFunc(next.Add(vectorIdle).Sub(vectors.clock.Now()), vectors.release)
 }
 
 // change marks a write to the chunks of one collection, or of any collection
@@ -228,8 +272,8 @@ func (vectors *vectors) get(id string, at stamp) *cached {
 	if entry == nil || entry.stamp != at || vectors.stampLocked(id) != at {
 		return nil
 	}
-	vectors.clock++
-	entry.used = vectors.clock
+	vectors.uses++
+	entry.used, entry.queried = vectors.uses, vectors.clock.Now()
 	return entry
 }
 
@@ -255,10 +299,11 @@ func (vectors *vectors) put(id string, entry *cached) {
 		vectors.size -= vectors.entries[oldest].size
 		delete(vectors.entries, oldest)
 	}
-	vectors.clock++
-	entry.used = vectors.clock
+	vectors.uses++
+	entry.used, entry.queried = vectors.uses, vectors.clock.Now()
 	vectors.entries[id] = entry
 	vectors.size += entry.size
+	vectors.waitLocked()
 }
 
 // load reads the vectors of one collection inside the caller's read

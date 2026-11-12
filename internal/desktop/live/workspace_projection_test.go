@@ -56,18 +56,28 @@ func TestPanelProjection(t *testing.T) {
 			t.Fatal("unrecognized remote was accepted as a pull target")
 		}
 	})
-	t.Run("history projects actual page offset without mutating canonical head", func(t *testing.T) {
+	t.Run("history lists the pages read as one list and reads the next", func(t *testing.T) {
 		data := &viewmodel.Workspace{}
-		p := &workspaceProject{data: data, gitLogPages: []protocol.GitLog{{Entries: []protocol.GitLogEntry{{ID: "head", Message: "latest"}}}, {Offset: 100, ReferencesTruncated: true, Entries: []protocol.GitLogEntry{{ID: "older", Message: "older", Parents: []string{}}}}}, gitLogPage: 1}
+		cursor := &protocol.GitLogCursor{}
+		p := &workspaceProject{data: data, loading: map[string]bool{"git-log": true}, gitLogPages: []protocol.GitLog{
+			{Next: cursor, Entries: []protocol.GitLogEntry{{ID: "head", Message: "latest", Timestamp: 1700000000, Parents: []string{"older"}}, {ID: "older", Message: "older"}}},
+			{Offset: 100, ReferencesTruncated: true, Entries: []protocol.GitLogEntry{{ID: "older", Message: "older"}, {ID: "root", Message: "first", Parents: []string{}}}}}}
 		p.panel = panel.NewLiveProject("worktree", data, &panel.Actions{})
 		p.projectGitHistory(false)
-		// A root's parents are known and none; an earlier Node's are not known.
-		if len(data.Repo.Commits) != 1 || data.Repo.Commits[0].ID != "older" || data.Repo.Commits[0].Parents == nil {
-			t.Fatalf("history projection=%#v", data.Repo.Commits)
+		// A commit both pages hold is listed once. A root's parents are known
+		// and none; an earlier Node's are not known.
+		commits := data.Repo.Commits
+		if len(commits) != 3 || commits[0].ID != "head" || commits[1].ID != "older" || commits[2].ID != "root" {
+			t.Fatalf("history projection=%#v", commits)
 		}
-		p.gitHistoryPage(false)
-		if data.Repo.Commits[0].ID != "head" || data.Repo.Commits[0].Parents != nil {
-			t.Fatal("previous page did not restore cached canonical page")
+		if commits[0].Time.Unix() != 1700000000 || !commits[1].Time.IsZero() || commits[1].Parents != nil || commits[2].Parents == nil {
+			t.Fatalf("history projection=%#v", commits)
+		}
+		// The last page read has no cursor: there is nothing more to read, and
+		// a read under way is not started again.
+		p.gitHistoryMore()
+		if len(p.gitLogPages) != 2 {
+			t.Fatal("a read started while one was under way")
 		}
 	})
 	t.Run("directory refresh preserves visible references and deduplicates pages", func(t *testing.T) {
