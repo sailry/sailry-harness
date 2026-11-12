@@ -16,10 +16,21 @@ GuidancePreview? outgoingGuidance(
     ? null
     : preview;
 
-typedef QueueState = ({int count, bool paused, bool guiding});
+typedef QueueState = ({int count, bool paused, String? reason, bool guiding});
+
+/// The paused queue's label: a queue the Node halted after a stop, a lost turn
+/// or an unrecorded input does not read as paused by the user. A missing or
+/// unknown reason keeps the plain paused label.
+String pausedKey(Object? reason) => switch (reason) {
+  'stopped' => 'queueHaltStopped',
+  'interrupted' => 'queueHaltInterrupted',
+  'unrecorded' => 'queueHaltUnsent',
+  _ => 'queuePaused',
+};
 
 /// Counts queued input with guidance still awaiting admission; [guiding]
-/// marks input waiting to join the running turn.
+/// marks input waiting to join the running turn and [reason] says why a paused
+/// queue stopped sending.
 QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
   final queue = object(object(object(view['snapshot'])['page'])['queue']);
   final items = objects(queue['items']);
@@ -28,6 +39,9 @@ QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
   return (
     count: items.length + (preview == null ? 0 : 1),
     paused: queue['paused'] == true,
+    reason: queue['paused'] == true && queue['pause_reason'] is String
+        ? queue['pause_reason'] as String
+        : null,
     guiding:
         preview != null ||
         items.any((item) => guidance[item['turn']] == 'pending'),
@@ -37,7 +51,7 @@ QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
 /// Speaks the count and the icon-only pending-guidance mark.
 String describe(QueueState state, Translator tr) {
   final queue = tr(
-    state.paused ? 'queuePaused' : 'queueCount',
+    state.paused ? pausedKey(state.reason) : 'queueCount',
   ).replaceAll('{count}', '${state.count}');
   return state.guiding
       ? tr('queueGuidance').replaceAll('{queue}', queue)
@@ -70,7 +84,11 @@ class QueueChip extends StatelessWidget {
             children: [
               AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
               if (state.paused)
-                Text(context.tr('queuePaused').replaceAll('{count}', count))
+                Text(
+                  context
+                      .tr(pausedKey(state.reason))
+                      .replaceAll('{count}', count),
+                )
               else ...[
                 Text(context.tr('queueShort')),
                 Text(count, style: TextStyle(color: colors.onSurface)),
