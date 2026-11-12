@@ -210,6 +210,10 @@ type ConversationBackgroundTask struct {
 	Recovered  bool                           `json:"recovered"`
 	Suppressed bool                           `json:"suppressed"`
 	Hold       *ConversationBackgroundHold    `json:"hold,omitempty"`
+	// ExitCode is the exit status of a command that ran to its end. It is
+	// absent for an agent, a command that has not exited and a peer that
+	// does not state it.
+	ExitCode *int32 `json:"exit_code,omitempty"`
 }
 
 func DefaultConversationBackgroundTask() ConversationBackgroundTask {
@@ -229,6 +233,7 @@ func DefaultConversationBackgroundTask() ConversationBackgroundTask {
 		Recovered:  false,
 		Suppressed: false,
 		Hold:       nil,
+		ExitCode:   nil,
 	}
 }
 func (value *ConversationBackgroundTask) UnmarshalJSON(data []byte) error { return Decode(data, value) }

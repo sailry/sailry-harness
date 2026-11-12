@@ -578,6 +578,9 @@ background_outcome_stalled: 最近の出力なし
 background_outcome_stopped: 停止済み
 background_outcome_timed_out: タイムアウト
 background_outcome_unknown: 結果は不確定
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 圧縮中止
 chat_compact_failed: 圧縮に失敗しました
 chat_compact_queued: コンパクト化を待っています
@@ -2231,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder

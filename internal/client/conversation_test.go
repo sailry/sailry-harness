@@ -175,6 +175,12 @@ func testConversationProjectionOrder(t *testing.T) {
 		if p.snapshot.Statistics != nil || faultCode(p.statisticsErr) != statisticsFailure.Code {
 			t.Fatal("statistics failure did not retain its fault")
 		}
+		// A controller reads the failure with the conversation's state.
+		session := p.snapshot.Page.Session
+		watching := &Client{conversations: map[protocol.SessionID]*conversationWatch{session: {projection: p}}}
+		if state, ok := watching.Conversation(session); !ok || faultCode(state.StatisticsErr) != statisticsFailure.Code {
+			t.Fatal("the conversation state omits the statistics failure")
+		}
 		if _, err := p.Apply(1, conversationFrame(*p.Snapshot(), "statistics", protocol.DefaultConversationStatistics())); err != nil {
 			t.Fatal(err)
 		}

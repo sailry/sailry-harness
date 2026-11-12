@@ -578,6 +578,9 @@ background_outcome_stalled: 최근 출력 없음
 background_outcome_stopped: 중지됨
 background_outcome_timed_out: 시간 초과
 background_outcome_unknown: 결과 불확실
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 압축 취소됨
 chat_compact_failed: 압축 실패
 chat_compact_queued: 압축을 기다리는 중
@@ -2231,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder

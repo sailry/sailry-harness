@@ -515,6 +515,86 @@ func TestAgentManagementTools(t *testing.T) {
 		})
 	}
 
+	// A written artifact is a conversation fact: a conversation opened later
+	// reads it in its snapshot, and an open one is told when the write commits.
+	t.Run("an artifact reaches its conversation", func(t *testing.T) {
+		write := func(title string) func(int, map[string]string) [][3]string {
+			return func(step int, _ map[string]string) [][3]string {
+				switch step {
+				case 1:
+					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief"}`}}
+				case 2:
+					return [][3]string{{"brief", "write_brief", `{"title":"` + title + `","html":"<p>Outline</p>"}`}}
+				}
+				return nil
+			}
+		}
+		session, _, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+			t.Errorf("an artifact write asked the user: %+v", approval)
+			return "deny"
+		}, write("First"))
+		ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+		defer cancel()
+		stream, err := node.subscribeConversation(ctx, session.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		update, err := stream.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, ok := update.Data.(protocol.ConversationSnapshot)
+		if !ok || len(snapshot.Artifacts.Items) != 1 || snapshot.Artifacts.Items[0].Title != "First" || snapshot.Artifacts.Items[0].Session != session.ID {
+			t.Fatalf("the snapshot lists artifacts %+v", update.Data)
+		}
+		script.reset(write("Second"))
+		current := commandFixture(t, node, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session.ID}}).Data.(protocol.Session)
+		commandFixture(t, node, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
+			Session: session.ID, ExpectedRevision: current.Revision, Message: protocol.ConversationInput{Text: "Write another"},
+		}})
+		var written []protocol.ArtifactSummary
+		for finished := false; !finished; {
+			update, err := stream.Next(ctx)
+			if err != nil {
+				t.Fatalf("the conversation ended after artifacts %+v: %v", written, err)
+			}
+			if update.Kind != "conversation_frame" {
+				t.Fatalf("unexpected conversation update %+v", update)
+			}
+			// The frame is read as a controller reads it from the wire.
+			body, err := json.Marshal(update.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var frame protocol.ConversationFrame
+			if err = json.Unmarshal(body, &frame); err != nil {
+				t.Fatal(err)
+			}
+			switch value := frame.Change.Data.(type) {
+			case *protocol.ArtifactSummary:
+				written = append(written, *value)
+			case *protocol.ConversationRun:
+				if slices.ContainsFunc(snapshot.Page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == value.Turn }) {
+					continue
+				}
+				switch value.Status {
+				case protocol.ConversationStatusCompleted:
+					finished = true
+				case protocol.ConversationStatusFailed, protocol.ConversationStatusInterrupted, protocol.ConversationStatusCancelled:
+					t.Fatalf("the artifact turn failed: %+v", value)
+				}
+			}
+		}
+		if len(written) != 1 || written[0].Title != "Second" || written[0].Revision != 1 || written[0].Session != session.ID || written[0].ID == snapshot.Artifacts.Items[0].ID {
+			t.Fatalf("the open conversation was told %+v", written)
+		}
+		listed := commandFixture(t, node, protocol.Command{Kind: "list_artifacts", Data: protocol.CommandListArtifactsPayload{Session: session.ID, Limit: 64}}).Data.(protocol.ArtifactPage)
+		if len(listed.Items) != 2 || listed.Items[0] != written[0] {
+			t.Fatalf("the stored artifacts are %+v", listed.Items)
+		}
+	})
+
 	// With the sandbox setting off a command is an ordinary approval the
 	// session can remember, and each command reads the setting as it is now.
 	// The fixture launches nothing: the calls fail after their approval.

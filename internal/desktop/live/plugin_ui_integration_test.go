@@ -114,7 +114,13 @@ func TestPluginUIIntegration(t *testing.T) {
 		Package: gameSettings.Package, Values: gameSettings.Values, Secrets: map[string]protocol.PluginSettingsSecretUpdate{},
 	}})
 	goal := protocol.NewRequestID()
-	value, _ := json.Marshal(map[string]any{"id": goal.String(), "description": "Exercise the real plugin status lifecycle", "state": "active", "after": nil})
+	// An active goal as the package stores it; no turn runs, so its loop
+	// stays where the seed left it.
+	started := time.Now().UnixMilli()
+	value, _ := json.Marshal(map[string]any{"id": goal.String(), "objective": "Exercise the real plugin status lifecycle", "version": 1,
+		"status": "active", "reason": nil, "detail": nil, "seq": 0, "waiting": false, "claim": nil, "evidence": nil, "edited": false,
+		"wrap": nil, "idle": 0, "notice": nil, "turns": 0, "chain": 0, "tokens": 0, "window_tokens": 0, "elapsed_ms": 0, "window_ms": 0,
+		"since_ms": started, "created_ms": started, "finished_ms": nil})
 	seed := controller.Prepare(protocol.Command{Kind: "write_plugin_conversation_value", Data: protocol.CommandWritePluginConversationValuePayload{
 		Key: "goal", Value: value,
 	}})
@@ -194,24 +200,51 @@ func TestPluginUIIntegration(t *testing.T) {
 	runtime.OpenSession(session.ID.String())
 	// Coming back to the conversation, the badge is drawn disabled until its
 	// status watch reconnects, and its tooltip repeats the goal: the click waits
-	// for the watch and the popover is recognized by its own action.
+	// for the watch and the popover is recognized by its own action. The
+	// capsule is the state and the time after the icon; the word Goal is the
+	// badge's name only.
 	wait("goal badge", func() bool {
 		for _, feed := range runtime.pluginStatus {
-			if feed.scope.Session != nil && *feed.scope.Session == session.ID {
-				return tester.HasText("Goal") && feed.view.Connected
+			if feed.scope.Session == nil || *feed.scope.Session != session.ID || !feed.view.Connected {
+				continue
+			}
+			for _, entry := range feed.view.Entries {
+				if entry.Package.Name != "goals" || !entry.State.Visible {
+					continue
+				}
+				segments := entry.State.Segments
+				if len(segments) != 2 || segments[0].Label.Label != "Running" || segments[1].Label.Label != "<1m" || entry.State.Label == nil || entry.State.Label.Label != "Goal" {
+					t.Fatalf("the goal badge is %+v, named %+v", segments, entry.State.Label)
+				}
+				return tester.HasText("Running") && tester.HasText("<1m")
 			}
 		}
 		return false
 	})
 	tester.Frame()
-	click("Goal")
+	if _, named := tester.AccessByRole(ui.RoleButton, "Goal"); !named {
+		t.Fatalf("no button is named Goal: %q", tester.Texts())
+	}
+	click("Running")
 	wait("goal popover", func() bool {
-		return tester.HasText("Exercise the real plugin status lifecycle") && tester.HasText("Stop")
+		return tester.HasText("Exercise the real plugin status lifecycle") && tester.HasText("Pause") && tester.HasText("End")
 	})
-	click("Stop")
-	wait("goal pause", func() bool { return tester.HasText("Stopped") && tester.HasText("Resume") })
+	// The panel has Pause or Resume and End, nothing else.
+	for _, gone := range []string{"Edit", "Clear", "Reopen", "Save"} {
+		if tester.HasText(gone) {
+			t.Fatalf("the goal panel offers %s: %q", gone, tester.Texts())
+		}
+	}
+	click("Pause")
+	wait("goal pause", func() bool {
+		return tester.HasText("Paused · Paused by you") && tester.HasText("Resume") && tester.HasText("End")
+	})
+	// The capsule follows with the state and its reason.
+	wait("paused goal badge", func() bool {
+		return tester.HasText("Paused") && tester.HasText("Paused by you") && !tester.HasText("Running")
+	})
 	t.Log("goals: Node-owned badge opened the mounted popover and persisted pause through the SDK")
-	click("Clear")
+	click("End")
 	wait("hidden goal status", func() bool {
 		for _, feed := range runtime.pluginStatus {
 			if feed.scope.Session == nil || *feed.scope.Session != session.ID {
@@ -234,7 +267,7 @@ func TestPluginUIIntegration(t *testing.T) {
 			Mode: input.Mode, Permission: input.Permission, Features: input.Features,
 		})
 	})
-	wait("command reveals hidden status popover", func() bool { return tester.HasText("No goal") && tester.HasText("Goal") })
+	wait("command reveals hidden status popover", func() bool { return tester.HasText("No goal") })
 	if requests.Load() != 1 {
 		t.Fatal("plugin slash command started an extra model request")
 	}

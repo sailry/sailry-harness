@@ -140,8 +140,11 @@ type Runtime struct {
 	// join its recipient is reported once.
 	guidanceSent map[string]map[protocol.TurnID]sentGuidance
 	// queueHalts is the last halt read for each conversation's queue, by
-	// conversation: a halt is reported when it begins, once.
+	// conversation: a halt is reported once, when it is first read.
 	queueHalts map[string]protocol.ConversationQueuePause
+	// usageFailed is whether each conversation's statistics were last read
+	// failed, by conversation: a failure is reported when it begins, once.
+	usageFailed map[string]bool
 	// overviews are the asset inventories the overview popover read.
 	overviews map[protocol.SessionID]*overviewRead
 }

@@ -578,6 +578,9 @@ background_outcome_stalled: Нет нового вывода
 background_outcome_stopped: Остановлено
 background_outcome_timed_out: Время истекло
 background_outcome_unknown: Результат неизвестен
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Уплотнение отменено
 chat_compact_failed: Уплотнение не удалось
 chat_compact_queued: Ожидание уплотнения
@@ -2231,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
