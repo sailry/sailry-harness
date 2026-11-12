@@ -85,11 +85,15 @@ and a package's conversation panel. `View` is `Docked` without a dock.
   pane's bottom, so its scroll bar runs the pane's height at the pane's
   edge, and the turns pass behind the dock.
 - **Dock**: an absolute column at the pane's bottom, full width,
-  `PassThrough`. What it holds lies on a sheet `theme.ContentWidth` wide,
-  centred: `kit.Frost` over `background` at `kit.SurfaceTint`, its top
-  corners at `radius_2xl`, so no turn shows sharp between the dock's parts
-  or behind the context bar. With Reduce Transparency the sheet is the
-  opaque background.
+  `PassThrough`. What it holds lies in a column `theme.ContentWidth` wide,
+  centred, with no fill of its own (user decision 2026-11-12: no sheet
+  behind the composer).
+- **Fade**: the list is masked (`fadeUnder`, MyGo's `Masks`) so the turns
+  fade out over the 24 DIPs above the dock and nothing of them shows
+  behind it or between its parts; the last turn keeps 24 DIPs over the
+  list's end, so nothing fades there. A second mask layer keeps the 16 DIP
+  strip at the trailing edge whole, where the scroll bar runs the pane's
+  height.
 - **Reserve**: the list's bottom padding is the dock's height as the last
   frame laid it out (`dock.box`, a `ui.Handle`), so at its end the last
   turn rests on the dock with the gap it kept over the list's own bottom
@@ -98,8 +102,8 @@ and a package's conversation panel. `View` is `Docked` without a dock.
   paints), so a growing or shrinking dock moves the end in the next frame.
   `FollowEnd` does the rest: at its end the list follows the dock, scrolled
   away it holds its place.
-- **Pointer**: beside the sheet the wheel, the touchpad and presses reach
-  the transcript; over the sheet they are the dock's. The dock is outside
+- **Pointer**: beside the column the wheel, the touchpad and presses reach
+  the transcript; over the column they are the dock's. The dock is outside
   the box that watches the transcript's presses, so a press on it dismisses
   the selection pill as a press on the composer did.
 - **What shows**: `State.area` is the list less the reserve. The selection
@@ -1070,7 +1074,7 @@ appearance (icon and color).
   dock lies in its bottom; the last turn rests on the dock with the gap it
   keeps over a list without one; the end follows a dock that grows and
   shrinks, and a place scrolled to holds; the wheel and a press beside the
-  dock's sheet reach the transcript, the wheel over it does not; the jump
+  dock's column reach the transcript, the wheel over it does not; the jump
   button and the selection pill stay over the dock.
 - `live_test.go`: `Cite`, `Mark` outside code, `Find`, the viewer's zoom
   limits and steps, `Quote`, `Count`; every scene's blocks in en/zh-CN and
@@ -1100,7 +1104,7 @@ destination, the rewind toast's backup action, and
 
 | Deviation | Reason |
 |---|---|
-| The transcript fills the pane and the composer floats over its end on a frosted sheet (`Docked`); the scroll bar runs the pane's height (user decision 2026-11-12) | The reference stacks the transcript (`flex_1`) over the composer in a column (`conversation/mod.rs`, `live.rs`), so its scroll bar ends where the composer begins: a short stub over a tall composer |
+| The transcript fills the pane and the composer floats over its end, the turns fading out as they reach it (`Docked`); the scroll bar runs the pane's height (user decision 2026-11-12) | The reference stacks the transcript (`flex_1`) over the composer in a column (`conversation/mod.rs`, `live.rs`), so its scroll bar ends where the composer begins: a short stub over a tall composer |
 | A file link of a reply resolves against the session's current worktree | The reference resolves against the worktree the turn ran in; the page projects no per-turn worktree path |
 | The web search result is a dialog over the window, and the provider's suggestions show as their links | The reference opens a second window with the suggestions in a scriptless web view; the transcript owns no window, and the dialog is the existing host for content over it |
 | The search result's links follow the content's rule (panel on a click, system with the modifier) | The reference's result window sends every link to the system browser; the user's rule is one behaviour for every link of a conversation |

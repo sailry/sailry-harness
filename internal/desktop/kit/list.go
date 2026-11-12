@@ -14,7 +14,7 @@ func List(c *ui.Context, n int, row func(i int), empty func()) {
 	}
 	Card(c, func() {
 		for i := range n {
-			row(i)
+			Bleed(c, i, func() { row(i) })
 		}
 	})
 }
