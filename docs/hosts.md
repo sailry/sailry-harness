@@ -61,7 +61,7 @@ remote service before starting another installation.
 
 The fresh installer refuses an existing Host installation or data profile.
 Do not delete these to retry. Existing service controls and profile-preserving
-updates are described in [Host automation](../../CONTRIBUTING.md#host-automation).
+updates are described in [Host automation](../CONTRIBUTING.md#host-automation).
 
 ## Telemetry and privacy
 
@@ -114,6 +114,6 @@ category.
 
 Release builds compile the destinations in through the Go linker variables
 `telemetry.BuildDSN`, `telemetry.BuildKey` and `telemetry.BuildRevision`, as
-described in [Release packages](../../CONTRIBUTING.md#release-packages). GitHub
+described in [Release packages](../CONTRIBUTING.md#release-packages). GitHub
 release builds receive the values through repository Secrets with the same
 names; actual values do not belong in source, build metadata or documentation.

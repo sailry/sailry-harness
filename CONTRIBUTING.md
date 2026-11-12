@@ -108,7 +108,7 @@ installed release profile. Tests use `t.TempDir()`.
 | `internal/desktop/{live,preferences,preview}` | Live action adapters, profile controller settings and isolated simulation |
 | `bundled.go` | Root embedded themes and plugin snapshot from pinned submodules |
 | `locales/` | Source catalogs for local i18n generation |
-| `docs/guides/` | Public user guides linked from the README |
+| `docs/` | Public user guides linked from the README and published on the website |
 | `schemas/` | Published v1 plugin contract schemas and the Agent Plugins manifest schema |
 | `third_party_licenses/` | Index of third-party notices, shared license texts and the Go module list |
 | `justfile` | Local recipes for the commands in this document |
