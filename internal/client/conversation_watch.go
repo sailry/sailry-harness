@@ -93,6 +93,11 @@ func (c *Client) WatchConversation(ctx context.Context, session protocol.Session
 			delete(w.callbacks, id)
 			if len(w.callbacks) == 0 {
 				w.cancel()
+				// A live session keeps its state for the next observer; a
+				// removed one has none to come.
+				if w.state.Removed && c.conversations[session] == w {
+					delete(c.conversations, session)
+				}
 			}
 			c.conversationMu.Unlock()
 		})
@@ -163,6 +168,10 @@ func (c *Client) reconcileConversations() {
 			w.state.Removed = true
 			w.state.Err = fault(protocol.ErrorCodeNotFound, "conversation was removed")
 			w.cancel()
+			if len(w.callbacks) == 0 {
+				delete(c.conversations, id)
+				continue
+			}
 			removed = append(removed, w)
 		}
 	}
@@ -217,7 +226,7 @@ func (c *Client) observeConversation(w *conversationWatch) {
 			w.state.Connected = false
 			c.conversationMu.Unlock()
 			c.conversationChanged(w)
-			// Only Node removal may prune this owner. Explicit reconnect can retry.
+			// Only Node removal prunes this owner. Explicit reconnect can retry.
 			select {
 			case <-w.ctx.Done():
 				return

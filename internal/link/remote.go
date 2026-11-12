@@ -101,9 +101,20 @@ func (remote *Remote) dispatchStream(ctx context.Context, request protocol.Reque
 		defer stream.Close()
 		defer close(completed)
 		reader := wire.NewReader(compressed)
-		ctx, cancel := remote.link.operation(remote.link.ctx, false)
+		// A durable command outlives its caller. The Node runs any other
+		// command under the caller's context, which reaches a remote Node
+		// only as the stop this stream's close sends.
+		owner, bound := remote.link.ctx, !request.Command.Durable()
+		if bound {
+			owner = ctx
+		}
+		scoped, cancel := remote.link.operation(owner, false)
 		defer cancel()
-		reply, err := reader.Reply(scopedReader{ctx, stream})
+		reply, err := reader.Reply(scopedReader{scoped, stream})
+		if err != nil && bound && ctx.Err() != nil {
+			completed <- Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "request was cancelled before its completion"}}
+			return
+		}
 		if err != nil || reply.Kind != wire.ReplyCompleted || reply.Completed == nil {
 			completed <- Response{Fault: unknownCompletion()}
 			return
