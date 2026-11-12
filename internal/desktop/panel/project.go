@@ -239,12 +239,17 @@ func NewProjects(w *preview.Workspace) *Projects {
 
 // Of returns the project's state, the same object for every call. Nothing
 // is open at first; the file and the change a host shows first are the
-// README and the first change.
+// README at the root of the workspace's tree, where it has one, and the
+// first change.
 func (ps *Projects) Of(id string) *Project {
 	if p, ok := ps.of[id]; ok {
 		return p
 	}
-	p := &Project{ID: id, Data: ps.data, Files: FileView{file: "sailry-go/README.md", items: map[string]*fileItem{},
+	readme := ""
+	if root := ps.data.Files; root != nil && findFile(root, root.Path+"/README.md") != nil {
+		readme = root.Path + "/README.md"
+	}
+	p := &Project{ID: id, Data: ps.data, Files: FileView{file: readme, items: map[string]*fileItem{},
 		folders: map[string]*bool{}, sel: selection{selected: map[string]bool{}}, side: sideWidth},
 		Git: GitView{side: sideWidth, scope: "all", nav: defaultNav, expanded: map[string]*bool{}, folded: map[string]bool{}, after: "none"}}
 	if len(ps.data.Changes) > 0 {

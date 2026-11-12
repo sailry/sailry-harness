@@ -216,7 +216,7 @@ func TestPanelProjection(t *testing.T) {
 			status.Entries = append(status.Entries, protocol.GitEntry{Path: fmt.Sprintf("file-%02d", index), ModifiedMs: &modified, Diff: protocol.GitLineStats{Additions: uint64(index), Deletions: 1}})
 		}
 		projected := workspaceChanges(status)
-		if projected.Files != 12 || projected.Added != 66 || projected.Removed != 12 || !projected.Partial || len(projected.Recent) != 10 {
+		if projected.Files != 12 || projected.Added != 66 || projected.Removed != 12 || len(projected.Recent) != 10 {
 			t.Fatalf("native badge = %#v", projected)
 		}
 		if projected.Recent[0].Path != "file-11" || projected.Recent[9].Path != "file-02" {

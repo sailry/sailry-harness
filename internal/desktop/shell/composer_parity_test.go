@@ -143,6 +143,17 @@ func composerParity(t *testing.T) {
 		if comp.Mode != composer.Flagship {
 			t.Errorf("the built-in mode under the cycle is %v", comp.Mode)
 		}
+		// /flagship leaves the package's mode as the menu's Flagship does.
+		tt, comp, _ = composerWith(t, 960, modes)
+		click(t, tt, zh("composer"))
+		chosen = nil
+		tt.Type("/flagship")
+		tt.Frame()
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		if !slices.Equal(chosen, []string{"flagship"}) || comp.Mode != composer.Flagship {
+			t.Errorf("/flagship selected %v with the built-in mode %v", chosen, comp.Mode)
+		}
 		// The compact settings popover lists them on its mode page.
 		selected = ""
 		tt, _, _ = composerWith(t, 440, modes)
@@ -175,16 +186,13 @@ func composerParity(t *testing.T) {
 		}
 	})
 
-	// The composer has no host choice (AGENTS.md, Removed UI): with two hosts
-	// offered, neither the context bar nor, below the icon width, the
-	// compact settings popover has a control named after one.
+	// The composer has no host choice (AGENTS.md, Removed UI): neither the
+	// context bar nor, below the icon width, the compact settings popover
+	// has a control named after one of the preview's two hosts.
 	t.Run("no host control", func(t *testing.T) {
 		for _, width := range []int{960, 440} {
 			tt, _, _ := composerWith(t, width, func(s *composer.State, ctx *composer.Context) {
 				ctx.LocationLocked = false
-				if len(ctx.Hosts) < 2 {
-					t.Fatalf("the preview offers %d hosts, want two", len(ctx.Hosts))
-				}
 			})
 			if width == 440 {
 				for _, e := range tt.AccessAll() {

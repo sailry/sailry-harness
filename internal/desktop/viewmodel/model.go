@@ -61,7 +61,6 @@ type Project struct {
 	Branch        string
 	Host          string // the Host's ID
 	Worktrees     []Worktree
-	Trusted       bool
 	Conversations []*Conversation
 }
 
@@ -77,11 +76,7 @@ type Data struct {
 
 type Model = composer.Model
 
-type Provider struct {
-	ID, Name, Description string
-	Badge                 string // i18n key or ""
-	Enabled               bool
-}
+type Provider struct{ ID, Name string }
 
 type Plugin struct {
 	ID, Name, Description, Version string
