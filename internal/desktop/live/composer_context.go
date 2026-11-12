@@ -122,6 +122,7 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 	}
 	x.settleGuidance()
 	x.reportHalt()
+	x.reportUsage()
 	if outgoing, sending := r.composerOutgoing[x.cv.ID]; sending {
 		if outgoing.Text == "" {
 			outgoing.Text = i18n.T(x.c, "chat_attachment_count", "count", len(outgoing.Attachments))
@@ -271,15 +272,43 @@ func queueHalt(page protocol.ConversationPage) protocol.ConversationQueuePause {
 }
 
 // haltBegan records the halt read for a conversation's queue and reports
-// whether it began since the last read. The state a conversation is first
-// read in is recorded only, so a restart does not repeat an old halt.
+// whether it is new to this window: it began since the last read, or the
+// conversation is read for the first time and is halted. Only a shown
+// conversation is read, so a halt that happened off screen, or before this
+// window started, is said once when its conversation is opened and nothing
+// is said at startup for the conversations that stay closed.
 func (r *Runtime) haltBegan(id string, halt protocol.ConversationQueuePause) bool {
-	seen, known := r.queueHalts[id]
+	seen := r.queueHalts[id]
 	if r.queueHalts == nil {
 		r.queueHalts = map[string]protocol.ConversationQueuePause{}
 	}
 	r.queueHalts[id] = halt
-	return known && halt != seen && halt != ""
+	return halt != seen && halt != ""
+}
+
+// usageFailureBegan records whether a conversation's statistics are failed
+// and reports whether that began since the last read.
+func (r *Runtime) usageFailureBegan(id string, failed bool) bool {
+	seen := r.usageFailed[id]
+	if r.usageFailed == nil {
+		r.usageFailed = map[string]bool{}
+	}
+	r.usageFailed[id] = failed
+	return failed && !seen
+}
+
+// reportUsage says once that the Node could not refresh the conversation's
+// statistics (the `statistics_failed` change). The usage keeps its place and
+// shows again with the next statistics.
+func (x *conversationActions) reportUsage() {
+	session, ok := x.r.session(x.cv.ID)
+	if !ok || !x.owned() {
+		return
+	}
+	state, ok := x.r.conversationState(session.ID)
+	if ok && x.r.usageFailureBegan(x.cv.ID, state.StatisticsErr != nil) {
+		kit.Toast(x.c, kit.Failed, i18n.T(x.c, "usage_read_failed"))
+	}
 }
 
 // reportHalt says once that the queue stopped sending: a warning after an

@@ -368,7 +368,10 @@ compaction, so the handoff is excluded from answer copying and speech. Current
 draft text, reasoning and compacting resources determine the phase independently
 of older work blocks. The latest failed run supplies the diagnostic card, and
 summary context estimates use their captured budget limit when reported context
-usage is absent.
+usage is absent. A failed statistics refresh (the `statistics_failed` change,
+`client.ConversationState.StatisticsErr`) is the error toast
+`usage_read_failed`, once when the failure begins for the shown conversation
+(`reportUsage`), as in the reference.
 
 A compaction that ends without a summary (`engine/compaction.go`) saves, after
 its billed attempts, one system record whose `metadata.compaction.failure`

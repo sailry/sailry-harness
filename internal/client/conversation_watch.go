@@ -15,6 +15,9 @@ type ConversationState struct {
 	Snapshot                                  protocol.ConversationSnapshot
 	Connected, Loading, LoadingOlder, Removed bool
 	Err, OlderErr                             error
+	// StatisticsErr is the fault of the Node's last statistics refresh, until
+	// statistics or a snapshot arrive.
+	StatisticsErr error
 }
 
 type conversationWatch struct {
@@ -39,6 +42,7 @@ func (c *Client) Conversation(session protocol.SessionID) (ConversationState, bo
 		return ConversationState{}, false
 	}
 	s := w.state
+	s.StatisticsErr = w.projection.statisticsErr
 	if w.projection.snapshot != nil {
 		s.Snapshot = copyValue(*w.projection.snapshot)
 	}

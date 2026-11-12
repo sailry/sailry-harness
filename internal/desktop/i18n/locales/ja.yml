@@ -2203,6 +2203,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder

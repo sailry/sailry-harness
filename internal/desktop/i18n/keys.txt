@@ -2215,6 +2215,7 @@ directory_trash_confirm
 queue_guidance_outlived
 queue_halt_interrupted
 queue_halt_unsent
+usage_read_failed
 chat_output_limit
 start_failed
 start_profile_in_use

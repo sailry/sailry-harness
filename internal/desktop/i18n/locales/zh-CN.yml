@@ -2203,6 +2203,7 @@ directory_trash_confirm: 将“%{name}”移到废纸篓
 queue_guidance_outlived: 回复已结束，已排队为新消息
 queue_halt_interrupted: 回复已中断，排队消息已保留
 queue_halt_unsent: 消息未发送，已保留在队列中
+usage_read_failed: 无法读取用量，请重试
 chat_output_limit: 回复已达输出上限
 start_failed: Sailry 无法启动
 start_profile_in_use: Sailry 已在使用此数据目录运行

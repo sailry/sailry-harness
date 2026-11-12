@@ -88,7 +88,7 @@ func TestQueueStates(t *testing.T) {
 			t.Fatalf("an empty queue halts on %q", got)
 		}
 	})
-	t.Run("a halt is reported when it begins, once", func(t *testing.T) {
+	t.Run("a halt is reported once", func(t *testing.T) {
 		const interrupted, unsent = protocol.ConversationQueuePauseInterrupted, protocol.ConversationQueuePauseUnrecorded
 		r := &Runtime{}
 		for step, row := range []struct {
@@ -96,7 +96,7 @@ func TestQueueStates(t *testing.T) {
 			halt protocol.ConversationQueuePause
 			want bool
 		}{
-			{"old", interrupted, false}, // halted before this desktop read it: a restart repeats nothing
+			{"old", interrupted, true}, // halted while it was not shown: said when it is opened
 			{"old", interrupted, false},
 			{"new", "", false},
 			{"new", unsent, true},
@@ -109,6 +109,24 @@ func TestQueueStates(t *testing.T) {
 		} {
 			if got := r.haltBegan(row.id, row.halt); got != row.want {
 				t.Fatalf("step %d: %s reads %q: reported %v, want %v", step, row.id, row.halt, got, row.want)
+			}
+		}
+	})
+	t.Run("a statistics failure is reported when it begins, once", func(t *testing.T) {
+		r := &Runtime{}
+		for step, row := range []struct {
+			id           string
+			failed, want bool
+		}{
+			{"a", false, false},
+			{"a", true, true},
+			{"a", true, false}, // every later frame
+			{"b", true, true},  // failed before it was opened
+			{"a", false, false},
+			{"a", true, true}, // refreshed, and failed again
+		} {
+			if got := r.usageFailureBegan(row.id, row.failed); got != row.want {
+				t.Fatalf("step %d: %s reads %v: reported %v, want %v", step, row.id, row.failed, got, row.want)
 			}
 		}
 	})
