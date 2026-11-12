@@ -425,7 +425,9 @@ func TestConnectionBanner(t *testing.T) {
 		{"reconnecting", conversation.Reconnecting, "chat_reconnecting"},
 		{"offline", conversation.Offline, "plugins_view_offline"},
 	} {
-		for _, turns := range [][]conversation.Turn{nil, preview.Turns("scenes", 1, 0)} {
+		// The last turn may be a compaction: the banner follows it too.
+		compacted := append(preview.Turns("scenes", 1, 0), conversation.Turn{ID: "compacted", Compaction: &conversation.Compaction{State: conversation.Compacted}})
+		for _, turns := range [][]conversation.Turn{nil, preview.Turns("scenes", 1, 0), compacted} {
 			t.Run(fmt.Sprintf("%s/%d turns", row.name, len(turns)), func(t *testing.T) {
 				s, sess := conversation.New(), &conversation.Session{Connection: row.connection}
 				tt := ui.NewTester(func(c *ui.Context) {

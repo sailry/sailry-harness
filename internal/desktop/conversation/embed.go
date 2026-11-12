@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -66,7 +67,8 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 		var pictures []Image
 		flush := func(n int) {
 			if len(pictures) > 0 {
-				s.thumbnails(c, "embed-images-"+pictures[0].ID, pictures, false)
+				// The place too: a paragraph may embed a target twice.
+				s.thumbnails(c, fmt.Sprintf("embed-images-%d-%s", n, pictures[0].ID), pictures, false)
 				pictures = nil
 			}
 		}
@@ -81,7 +83,7 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 			case e.Missing:
 				ui.Text(c.Key(n), i18n.T(c, "chat_image_missing")).FontSize(textSize(c)).TextColor(p.MutedForeground)
 			case e.File != nil:
-				fileCard(c, "embed-file-"+e.File.ID, *e.File, actions)
+				fileCard(c, fmt.Sprintf("embed-file-%d-%s", n, e.File.ID), *e.File, actions)
 			default:
 				ui.ButtonBase(c.Key(n)).AlignSelf(ui.Start).MaxWidthPercent(100).Cursor(ui.CursorPointer).Children(func() {
 					ui.Text(c, dest).FontSize(textSize(c)).SingleLine().TextColor(p.Primary)

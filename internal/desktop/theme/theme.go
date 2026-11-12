@@ -41,13 +41,10 @@ type Palette struct {
 	TitleBar       ui.Color // the outer material of the title bar and rail
 	TitleBarBorder ui.Color
 
-	Sidebar                  ui.Color // navigation surfaces
-	SidebarForeground        ui.Color
-	SidebarBorder            ui.Color
-	SidebarAccent            ui.Color
-	SidebarAccentForeground  ui.Color
-	SidebarPrimary           ui.Color
-	SidebarPrimaryForeground ui.Color
+	Sidebar                 ui.Color // navigation surfaces
+	SidebarForeground       ui.Color
+	SidebarBorder           ui.Color
+	SidebarAccentForeground ui.Color
 
 	Surface           ui.Color // group_box: settings groups, cards
 	SurfaceForeground ui.Color
@@ -60,7 +57,7 @@ type Palette struct {
 	Input  ui.Color // input.border
 	Ring   ui.Color
 
-	Link, LinkHover, LinkActive ui.Color
+	Link ui.Color
 
 	Primary           ui.Color // emphasis: tags, checked controls
 	PrimaryHover      ui.Color
@@ -80,34 +77,22 @@ type Palette struct {
 	SecondaryForeground ui.Color
 	SecondaryHover      ui.Color
 
-	Button, ButtonForeground, ButtonHover, ButtonActive ui.Color // ghost
+	Button ui.Color // ghost
 
 	ButtonSecondary, ButtonSecondaryForeground  ui.Color // outline
 	ButtonSecondaryHover, ButtonSecondaryActive ui.Color
 
-	Tab              ui.Color
-	TabForeground    ui.Color
-	TabActive        ui.Color
-	TabActiveText    ui.Color
-	TabBarBackground ui.Color // tab_bar.background
-	TabBar           ui.Color // tab_bar.segmented.background
+	Tab           ui.Color
+	TabActive     ui.Color
+	TabActiveText ui.Color
 
-	Switch, SwitchThumb ui.Color
+	SwitchThumb         ui.Color
 	Slider, SliderThumb ui.Color
 	Progress            ui.Color
-	ScrollbarTrack      ui.Color
-	ScrollbarThumb      ui.Color
 	ScrollbarThumbHover ui.Color
 	Selection, Caret    ui.Color
 	List, ListHover     ui.Color
-	ListActive          ui.Color
-	ListActiveBorder    ui.Color
-	Table, TableHead    ui.Color
-	TableHeadForeground ui.Color
-	TableHover          ui.Color
-	TableActive         ui.Color
-	TableActiveBorder   ui.Color
-	TableRowBorder      ui.Color
+	Table               ui.Color
 
 	// Kit's status and base colors; packages do not set them.
 	Info, Danger, DangerForeground, Success, Warning ui.Color

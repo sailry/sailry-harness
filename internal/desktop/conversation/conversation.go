@@ -37,23 +37,24 @@ type State struct {
 	open          map[string]bool    // the disclosures open
 	work          map[string]bool    // work regions the user opened or closed
 	built         map[string]bool    // lists built once, so laid out
-	press         press              // the pointer's button over the transcript
+	presses       map[string]*press  // the pointer's button over each conversation's transcript
 	spans         []textSpan         // the turn being built's text boxes, for its selection pill
 	area          map[string]ui.Rect // each conversation's list above its dock: what shows of it
 	docks         map[string]*dock   // what floats over each conversation's end (Docked)
 	md            markdown.Options   // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
-	light         float32            // the welcome wordmark's beam, in window DIPs
-	lit           bool               // the pointer has moved over the welcome page
-	view          Viewer             // the image viewer
-	edits         map[string]*edit   // the open message editor of each conversation
-	rewind        string             // the turn whose rewind waits to be confirmed
-	reading       string             // the turn read aloud
-	finds         map[string]*search // the search bar of each conversation
-	wantOlder     bool               // the start came into view this frame
-	nav           navigation         // the message navigation rail
-	navigated     bool               // the transcript built last has one, not built yet
+	light         float32                // the welcome wordmark's beam, in window DIPs
+	lit           bool                   // the pointer has moved over the welcome page
+	views         map[string]*Viewer     // the image viewer of each conversation
+	edits         map[string]*edit       // the open message editor of each conversation
+	rewind        string                 // the turn whose rewind waits to be confirmed
+	rewindOf      string                 // the conversation it is of
+	reading       string                 // the turn read aloud
+	finds         map[string]*search     // the search bar of each conversation
+	wantOlder     bool                   // the start came into view this frame
+	navs          map[string]*navigation // the message navigation rail of each conversation
+	navigated     string                 // the transcript built last, when it has one not built yet
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split            bool
@@ -129,10 +130,39 @@ func (s *State) List(id string) *ui.ListState {
 // height rather than in the list's. It builds nothing for a transcript
 // without one.
 func Navigation(c *ui.Context, s *State) {
-	if s.navigated {
-		s.navigated = false
-		s.nav.view(c, s.nav.list, s.nav.turns)
+	if id := s.navigated; id != "" {
+		s.navigated = ""
+		nav := s.navs[id]
+		nav.view(c, nav.list, nav.turns)
 	}
+}
+
+// pressOf returns the press tracker of a conversation: two transcripts on
+// screen each watch their own pane.
+func (s *State) pressOf(id string) *press {
+	p := s.presses[id]
+	if p == nil {
+		p = &press{}
+		if s.presses == nil {
+			s.presses = map[string]*press{}
+		}
+		s.presses[id] = p
+	}
+	return p
+}
+
+// viewOf returns the image viewer of a conversation, so the transcript
+// that opened it builds it and takes its actions.
+func (s *State) viewOf(id string) *Viewer {
+	v := s.views[id]
+	if v == nil {
+		v = &Viewer{}
+		if s.views == nil {
+			s.views = map[string]*Viewer{}
+		}
+		s.views[id] = v
+	}
+	return v
 }
 
 // View builds the transcript of conversation id: its turns in a list that
@@ -231,8 +261,8 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	if s.wantOlder && !sess.LoadingOlder {
 		actions.LoadOlder()
 	}
-	s.viewer(c, actions)
-	s.confirmRewind(c, actions)
+	s.viewer(c, id, actions)
+	s.confirmRewind(c, id, actions)
 	s.searchResult(c, id)
 	s.referenceDialog(c, id)
 }
@@ -243,7 +273,7 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Turn, sess *Session, actions Actions, reserve float32) {
 	l, n := s.List(id), len(turns)
 	kit.Draws(pane, kit.Backdrop(c, "conversation"))
-	s.press.watch(pane)
+	s.pressOf(id).watch(pane)
 	pane.Children(func() {
 		// What shows of the transcript is the list above the dock.
 		list := ui.List(c, l, n, func(i int) {
@@ -255,9 +285,18 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 		s.area[id] = area
 		// A delegated session's transcript, the child panel's (no session), is
 		// read-only and has no navigation. The pane builds it (Navigation).
-		s.navigated = sess != nil && n > 0 && !s.Split
-		if s.navigated {
-			s.nav.list, s.nav.turns = l, turns
+		s.navigated = ""
+		if sess != nil && n > 0 && !s.Split {
+			nav := s.navs[id]
+			if nav == nil {
+				nav = &navigation{}
+				if s.navs == nil {
+					s.navs = map[string]*navigation{}
+				}
+				s.navs[id] = nav
+			}
+			nav.list, nav.turns = l, turns
+			s.navigated = id
 		}
 		jump(c, l, n, !s.built[id], reserve)
 		s.built[id] = true
@@ -310,7 +349,15 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 	s.spans = s.spans[:0]
 	col.Children(func() {
 		// The pill is built last, over the turn and knowing its text boxes.
-		defer func() { s.selection(c, session, col, sess != nil && sess.ReadOnly, actions) }()
+		// The session's state follows the last turn whatever it is, a
+		// compaction too.
+		defer func() {
+			if last && sess != nil {
+				diagnostic(c, sess.Diagnostic)
+				banner(c, sess)
+			}
+			s.selection(c, session, col, sess != nil && sess.ReadOnly, actions)
+		}()
 		if first {
 			s.older(c, sess, actions)
 		}
@@ -354,10 +401,6 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 				mark = q
 			}
 			s.reply(c, t, mark, actions)
-		}
-		if last && sess != nil {
-			diagnostic(c, sess.Diagnostic)
-			banner(c, sess)
 		}
 	})
 }

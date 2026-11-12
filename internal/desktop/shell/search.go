@@ -55,23 +55,6 @@ func Filter(groups []Group, query string) []Group {
 	return out
 }
 
-// Next moves the selection among n rows, round at either end; with none, down
-// goes to the first and up to the last. It returns -1 for no rows.
-func Next(n, selected int, reverse bool) int {
-	switch {
-	case n == 0:
-		return -1
-	case selected < 0 || selected >= n:
-		if reverse {
-			return n - 1
-		}
-		return 0
-	case reverse:
-		return (selected - 1 + n) % n
-	}
-	return (selected + 1) % n
-}
-
 // search is the overlay's state: its folder, query and selected row.
 type search struct {
 	open   bool

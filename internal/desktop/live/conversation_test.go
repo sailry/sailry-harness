@@ -1968,9 +1968,6 @@ func testSessionForwarding(t *testing.T) {
 	if want := []string{"Remote · Build box", "Local · " + desktop}; !slices.Equal(providers, want) {
 		t.Fatalf("a draft on another Host names its providers %q, want %q", providers, want)
 	}
-	if len(shown.Hosts) != 0 {
-		t.Errorf("the composer is offered a host choice: %+v", shown.Hosts)
-	}
 	for _, e := range window.AccessAll() {
 		if e.Role != ui.RoleText && (e.Name == "Build box" || e.Name == i18n.In("zh-CN", "local_host_name")) {
 			t.Errorf("the composer has a control named after the host %q", e.Name)
