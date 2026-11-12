@@ -612,6 +612,7 @@ chat_rewind_confirm: 保留此回合并移除后续消息？文件不变
 chat_search: 搜索对话
 chat_search_result: 搜索结果
 chat_status_unsynced: 状态未同步
+chat_sync_failed: 会话同步失败
 compact_reason_unknown: 此次失败未记录具体原因
 composer_cache: 缓存率
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）

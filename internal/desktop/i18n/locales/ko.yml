@@ -612,6 +612,7 @@ chat_rewind_confirm: 이 턴을 남기고 이후 메시지를 제거할까요? �
 chat_search: 대화 검색
 chat_search_result: 검색 결과
 chat_status_unsynced: 상태가 동기화되지 않음
+chat_sync_failed: 대화 동기화 실패
 compact_reason_unknown: 이 오류의 자세한 원인은 기록되지 않았습니다
 composer_cache: 캐시
 composer_compression_hint: '컨텍스트 압축: 런타임 데이터 없음(UI 미리보기)'

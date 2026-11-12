@@ -612,6 +612,7 @@ chat_rewind_confirm: Diesen Schritt behalten und spätere Nachrichten entfernen?
 chat_search: Nach Konversation suchen
 chat_search_result: 'Suchergebnisse für:'
 chat_status_unsynced: Status nicht synchronisiert
+chat_sync_failed: Konversationssynchronisation fehlgeschlagen
 compact_reason_unknown: Für diesen Fehler wurden keine weiteren Details aufgezeichnet
 composer_cache: Cache
 composer_compression_hint: 'Kontextkomprimierung: keine Laufzeitdaten (UI-Vorschau)'

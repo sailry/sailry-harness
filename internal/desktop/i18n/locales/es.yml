@@ -612,6 +612,7 @@ chat_rewind_confirm: ¿Conservar este turno y quitar los mensajes posteriores? L
 chat_search: Buscar una conversación
 chat_search_result: Resultados de la búsqueda
 chat_status_unsynced: Estado no sincronizado
+chat_sync_failed: Falló la sincronización de conversación
 compact_reason_unknown: No se registraron más detalles sobre este fallo
 composer_cache: Caché
 composer_compression_hint: 'Compactación de contexto: sin datos de tiempo de ejecución (vista previa de la interfaz de usuario)'

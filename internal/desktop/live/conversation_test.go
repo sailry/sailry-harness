@@ -375,6 +375,45 @@ func TestConversationProjection(t *testing.T) {
 			t.Fatal("a padded image index was accepted")
 		}
 	})
+	t.Run("connection state follows the observation's report", func(t *testing.T) {
+		fault := func(code protocol.ErrorCode) error {
+			return &link.FaultError{Fault: protocol.Fault{Code: code, Message: "internal fault text"}}
+		}
+		for _, row := range []struct {
+			name       string
+			connected  bool
+			err        error
+			connection conversation.Connection
+			title      string
+		}{
+			// Opening or reopening an observation is not a reconnect.
+			{"opening", false, nil, conversation.Connected, ""},
+			{"connected", true, nil, conversation.Connected, ""},
+			// A lasting interruption the Client keeps retrying: no fault text.
+			{"retrying", false, fault(protocol.ErrorCodeUnavailable), conversation.Reconnecting, ""},
+			{"busy", true, fault(protocol.ErrorCodeBusy), conversation.Connected, "live_read_busy"},
+			{"ended", false, fault(protocol.ErrorCodeInvalidRequest), conversation.Offline, "chat_sync_failed"},
+			{"removed", false, fault(protocol.ErrorCodeNotFound), conversation.Offline, "chat_sync_failed"},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				state := client.ConversationState{Connected: row.connected, Err: row.err}
+				state.Snapshot.Page = protocol.DefaultConversationPage()
+				_, session, _, _ := Conversation(state)
+				if session.Connection != row.connection {
+					t.Fatal("connection", session.Connection)
+				}
+				if row.title == "" {
+					if session.Diagnostic != nil {
+						t.Fatal("a quiet or retried observation reported a diagnostic", session.Diagnostic)
+					}
+					return
+				}
+				if session.Diagnostic == nil || session.Diagnostic.Title != row.title || session.Diagnostic.Detail != "internal fault text" || i18n.In("zh-CN", row.title) == row.title {
+					t.Fatal("diagnostic", session.Diagnostic)
+				}
+			})
+		}
+	})
 	t.Run("connection references", testConnectionReferences)
 	t.Run("context_estimate_and_bound_mentions", func(t *testing.T) {
 		count, estimate := uint64(80), uint64(20)

@@ -612,6 +612,7 @@ chat_rewind_confirm: Keep this turn and remove later messages? Files stay unchan
 chat_search: Search conversation
 chat_search_result: Search results
 chat_status_unsynced: Status not synced
+chat_sync_failed: Conversation sync failed
 compact_reason_unknown: No further details were recorded for this failure
 composer_cache: Cache
 composer_compression_hint: 'Context compaction: no runtime data (UI preview)'

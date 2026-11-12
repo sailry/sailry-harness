@@ -629,6 +629,7 @@ chat_rewind_confirm
 chat_search
 chat_search_result
 chat_status_unsynced
+chat_sync_failed
 compact_reason_unknown
 composer_cache
 composer_compression_hint

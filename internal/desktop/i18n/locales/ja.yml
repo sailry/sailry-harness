@@ -612,6 +612,7 @@ chat_rewind_confirm: このターンを残して後のメッセージを削除�
 chat_search: 会話を検索
 chat_search_result: 検索結果
 chat_status_unsynced: 状態が同期されていません
+chat_sync_failed: 会話の同期に失敗しました
 compact_reason_unknown: この失敗の詳細は記録されていません
 composer_cache: キャッシュ
 composer_compression_hint: 'コンテキスト圧縮: ランタイムデータなし (UI プレビュー)'
