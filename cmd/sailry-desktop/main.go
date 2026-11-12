@@ -20,7 +20,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
-	"github.com/sailry/sailry-harness/internal/node/claudecli"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 )
@@ -43,10 +42,6 @@ func main() {
 
 func run() error {
 	computer.Trampoline()
-	if claudecli.IsHelper(os.Args[1:]) {
-		// Claude Code started this executable as its tool relay.
-		os.Exit(claudecli.RunHelper(os.Args[1:]))
-	}
 	options, err := parseOptions(os.Args[1:])
 	if err != nil {
 		return err

@@ -14,7 +14,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
-	"github.com/sailry/sailry-harness/internal/node/claudecli"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
@@ -23,9 +22,6 @@ import (
 
 func main() {
 	computer.Trampoline()
-	if claudecli.IsHelper(os.Args[1:]) {
-		os.Exit(claudecli.RunHelper(os.Args[1:]))
-	}
 	code, err := run(os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "sailry-host: "+err.Error())
