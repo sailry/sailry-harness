@@ -69,7 +69,7 @@ func (s *State) View(c *ui.Context) {
 			// entries; the sidebar alone keeps the frost.
 			ui.Column(c.Key("content")).Grow(1).MinWidth(0).Background(kit.Opaque(p.Popover)).Children(func() {
 				if !wide {
-					ui.Row(c.Key("title")).Height(44).Shrink(0).Padding(0, 48, 0, 16).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
+					s.grip(ui.Row(c.Key("title")).Height(44).Shrink(0).Padding(0, 48, 0, 16).Gap(8).AlignItems(ui.Center)).Children(func() {
 						s.heading(c, title)
 						// Without the sidebar, whose first group names a
 						// remote host, the title's line does.
@@ -102,6 +102,14 @@ func (s *State) View(c *ui.Context) {
 			})
 		})
 	}, kit.DialogOptions{Bleed: true}).Label(title)
+	// The dialog follows a drag of its top band, kept where the band can
+	// still be reached: no further than its own size from the centre, and
+	// never above the window's top.
+	s.moved[0] = min(max(s.moved[0], -(w+width)/2+96), (w+width)/2-96)
+	s.moved[1] = min(max(s.moved[1], -(h-height)/2), (h+height)/2-52)
+	if panel != (ui.Element{}) {
+		panel.Translate(s.moved[0], s.moved[1])
+	}
 	if valid && !s.busy {
 		if panel.Shortcut(ui.Cmd, ui.KeyL) {
 			s.editing, s.address = true, s.target
@@ -213,7 +221,7 @@ func (s *State) places(c *ui.Context, valid bool, title string) {
 	// The wash is the step the window's sidebar takes off its background,
 	// translucent so the dialog's frost shows through it.
 	ui.Column(c.Key("places")).Width(204).Shrink(0).Background(p.Muted).Children(func() {
-		ui.Row(c.Key("title")).Height(52).Shrink(0).PaddingX(16).AlignItems(ui.Center).DragWindow().Children(func() { s.heading(c, title) })
+		s.grip(ui.Row(c.Key("title")).Height(52).Shrink(0).PaddingX(16).AlignItems(ui.Center)).Children(func() { s.heading(c, title) })
 		ui.Scroll(c.Key("locations")).Grow(1).MinHeight(0).Padding(0, 8, 12, 8).Gap(2).Children(func() {
 			groups, near := s.groups()
 			for n, g := range groups {
@@ -317,8 +325,8 @@ func (s *State) toolbar(c *ui.Context, valid, wide bool) {
 	if wide {
 		end = 48
 	}
-	ui.Row(c.Key("toolbar")).FillWidth().Height(52).Shrink(0).Padding(0, end, 0, 12).Gap(4).AlignItems(ui.Center).
-		BorderWidth(0, 0, 1, 0).BorderColor(p.Border).DragWindow().Children(func() {
+	s.grip(ui.Row(c.Key("toolbar")).FillWidth().Height(52).Shrink(0).Padding(0, end, 0, 12).Gap(4).AlignItems(ui.Center).
+		BorderWidth(0, 0, 1, 0).BorderColor(p.Border)).Children(func() {
 		kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "directory_back"), 28, false).
 			Disabled(off || s.cursor == 0).OnClick(func() { s.step(false) })
 		kit.IconButton(c.Key("forward"), icons.ArrowRight, i18n.T(c, "directory_forward"), 28, false).
@@ -896,4 +904,14 @@ func (s *State) jumpDialog(c *ui.Context) {
 	}
 	kit.Command(c, "picker-go", &j.open, &j.query, &j.row, items, kit.CommandProps{Placeholder: i18n.T(c, "directory_address")},
 		func(int) { s.navigate(strings.TrimSpace(j.query), goTo, 0) })
+}
+
+// grip makes a band of the dialog's top the handle that moves the dialog: a
+// drag on the band itself, not on its controls.
+func (s *State) grip(band ui.Element) ui.Element {
+	if dx, dy, held := band.Dragged(); held {
+		s.moved[0] += dx
+		s.moved[1] += dy
+	}
+	return band
 }

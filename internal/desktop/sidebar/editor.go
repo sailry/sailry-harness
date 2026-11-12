@@ -236,11 +236,18 @@ func (s *State) editorDialog(c *ui.Context) {
 				}
 			}
 			kit.Field(c, "path", label, hint, func() {
-				ui.Row(c).Gap(6).Children(func() {
-					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1).Disabled(e.Pending)
+				// Browse is the field's trailing control, inside its frame, as
+				// the appearance is the name's leading one.
+				box := ui.Row(c.Key("box")).Height(32).PaddingStart(10).PaddingEnd(2).Gap(4).Radius(p.Radius).Border(1, p.Input).AlignItems(ui.Center)
+				if box.FocusWithin() {
+					box.Border(1, p.Ring)
+				}
+				box.Children(func() {
+					ui.TextInputBase(c.Key("input"), &e.Path).Grow(1).FontSize(14).Placeholder(i18n.T(c, "project_path_placeholder")).
+						PlaceholderColor(p.MutedForeground).Label(label).Disabled(e.Pending)
 					// The demo browses the sample catalog, as the preview does.
-					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
-						Border(1, p.Input).Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
+					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 28, false).
+						Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
 				})
 			})
 		})

@@ -70,8 +70,11 @@ type State struct {
 	Grid, Hidden bool
 	Changed      func()
 
-	open       bool
-	o          Options
+	open bool
+	o    Options
+	// moved is how far the user dragged the dialog from the window's
+	// centre, by its top band; a new opening starts at the centre.
+	moved      [2]float32
 	generation int
 	busy       bool   // a file action runs, and the directory waits for its outcome
 	reading    bool   // a directory is being read; navigating elsewhere replaces the read
