@@ -7,13 +7,16 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -374,6 +377,7 @@ func TestLiveBlocks(t *testing.T) {
 	t.Run("diagrams", checkDiagrams)
 	t.Run("math", checkMath)
 	t.Run("transcript", checkTranscript)
+	t.Run("search sources", checkSearchSources)
 	for _, lang := range []string{"en", "zh-CN"} {
 		for _, dark := range []bool{false, true} {
 			_, _, r, tt := scenesTester(t, dark, lang)
@@ -450,5 +454,107 @@ func TestSearchBar(t *testing.T) {
 	tt.Frame()
 	if s.SearchOpen() {
 		t.Error("Escape left the bar open")
+	}
+}
+
+// A search result's numbered sources are CrychicUI's source cards: one for
+// each web page, named by its title or else its host, numbered by its place
+// among the sources, in the message text size, and opening its page. An
+// address that is not a web page's has no card. The frames go to
+// $SAILRY_SNAPSHOTS/conversation-search-sources-<mode>.png at 2x.
+func checkSearchSources(t *testing.T) {
+	crychic.Setup()
+	const first = "https://go.dev/blog/range-functions"
+	turns := []conversation.Turn{{ID: "search", User: "What changed in Go 1.23?", Reply: conversation.Reply{Status: conversation.Completed, Blocks: []conversation.Block{
+		{Kind: conversation.SearchBlock, Text: "Go 1.23 added iterators: a `for range` loop can range over a function.",
+			Sources: []conversation.Citation{
+				{URI: first, Title: "Range over function types"},
+				{URI: "https://pkg.go.dev/iter"},
+				{URI: "mailto:gopher@example.com", Title: "Write to us"},
+				{URI: "https://user:secret@evil.example/", Title: "Signed in"},
+				{URI: "https://tip.golang.org/doc/go1.23", Title: "Go 1.23 Release Notes: language changes, tools, runtime and the standard library"},
+			},
+			Suggestions: []conversation.Citation{{URI: "https://example.com/search?q=go", Title: "go iterators"}}},
+	}}}}
+	open := func(tt *ui.Tester) {
+		t.Helper()
+		// The finished turn's work is folded under its status.
+		for _, key := range []string{"turn_completed", "chat_search_result"} {
+			if err := tt.Click(i18n.In("en", key)); err != nil {
+				t.Fatal(err, tt.Texts())
+			}
+			tt.Frame()
+		}
+		tt.Advance(time.Second)
+		tt.Frame()
+	}
+	for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+		name := map[theme.Mode]string{theme.Light: "light", theme.Dark: "dark"}[mode]
+		s := conversation.New()
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", mode)
+			ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { conversation.View(c, s, "sources", turns, nil, noActions{}) })
+		}, 900, 640, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Frame()
+		open(tt)
+		for _, title := range []string{"Range over function types", "pkg.go.dev", "Go 1.23 Release Notes: language changes, tools, runtime and the standard library"} {
+			if card, ok := tt.AccessByRole(ui.RoleLink, title); !ok || !card.Focusable {
+				t.Fatalf("%s: no source card %q: %+v", name, title, tt.Texts())
+			}
+		}
+		texts := tt.Texts()
+		for _, want := range []string{"go.dev", "tip.golang.org", first, "1", "2", "5", "go iterators"} {
+			if !slices.Contains(texts, want) {
+				t.Errorf("%s: no %q in the result: %q", name, want, texts)
+			}
+		}
+		for _, text := range texts {
+			if strings.Contains(text, "mailto") || strings.Contains(text, "evil.example") || text == "Write to us" || text == "3" || text == "4" {
+				t.Errorf("%s: an address that is not a web page shows as %q", name, text)
+			}
+		}
+		if dir := os.Getenv("SAILRY_SNAPSHOTS"); dir != "" {
+			tt.Move(4, 4)
+			tt.SetScale(2)
+			tt.Advance(time.Second)
+			tt.Frame()
+			f, err := os.Create(filepath.Join(dir, "conversation-search-sources-"+name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := png.Encode(f, tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+			f.Close()
+			tt.SetScale(1)
+			tt.Frame()
+		}
+		if err := tt.Click("Range over function types"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if opened := tt.OpenedURLs(); len(opened) != 1 || opened[0] != first {
+			t.Fatalf("%s: the first source opened %q", name, opened)
+		}
+		tt.Advance(3 * time.Second)
+		tt.Frame()
+		tt.Move(4, 4)
+		tt.Advance(3 * time.Second)
+		if tt.FramePending() {
+			t.Errorf("%s: the open result asks for frames at rest", name)
+		}
+	}
+	// The cards follow the message text size: a host's line is as high as
+	// that of a text four fifths of it.
+	for _, size := range []float32{12, 18} {
+		tt, _ := sized(size, turns)
+		open(tt)
+		host, shown := tt.Find("go.dev")
+		m := ui.Font{Size: size * 0.8}.Metrics()
+		if want := m.Ascent + m.Descent; !shown || host.H < want-1.5 || host.H > want+1.5 {
+			t.Errorf("size %v: a card's host is %v high (shown %v), want %v as text of %v", size, host.H, shown, want, size*0.8)
+		}
 	}
 }

@@ -7,11 +7,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ELY-Open-Source/CrychicUI/agent"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -273,9 +275,28 @@ func (s *State) searchResult(c *ui.Context) {
 				if strings.TrimSpace(b.Text) != "" {
 					kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Options: s.resultMD})
 				}
-				links := func(key string, list []Citation, numbered bool) {
-					ui.Column(c.Key(key)).FillWidth().Gap(4).Children(func() {
-						for i, src := range list {
+				// The numbered sources are CrychicUI's source cards, two
+				// across: the number, the host, the title and the address,
+				// in the message text size (the library's sizes are shares
+				// of its theme's), each opening its page.
+				sized := *c.Theme()
+				sized.FontSize = size
+				ui.Themed(c.Key("sources"), &sized).FillWidth().Background(ui.Transparent).Children(func() {
+					ui.Row(c).FillWidth().Wrap().Gap(8).AlignItems(ui.Stretch).Children(func() {
+						for i, src := range b.Sources {
+							if !webLink(src.URI) {
+								continue
+							}
+							ui.Column(c.Key(i)).Grow(1).Shrink(1).Basis(280).MinWidth(0).Children(func() {
+								crychic.SourceCard(c, i+1, agent.Source{Title: src.Title, URL: src.URI})
+							})
+						}
+					})
+				})
+				if len(b.Suggestions) > 0 {
+					ui.Box(c).Height(1).FillWidth().Background(p.Border)
+					ui.Column(c.Key("suggestions")).FillWidth().Gap(4).Children(func() {
+						for i, src := range b.Suggestions {
 							if !webLink(src.URI) {
 								continue
 							}
@@ -283,19 +304,9 @@ func (s *State) searchResult(c *ui.Context) {
 							if title == "" {
 								title = src.URI
 							}
-							ui.Row(c.Key(i)).Gap(8).MinWidth(0).Children(func() {
-								if numbered {
-									ui.Text(c, fmt.Sprint(i+1)).FontSize(size - 2).Shrink(0).TextColor(p.MutedForeground)
-								}
-								ui.Link(c, title, src.URI).FontSize(size).SingleLine().Shrink(1).MinWidth(0)
-							})
+							ui.Link(c.Key(i), title, src.URI).FontSize(size).SingleLine().Shrink(1).MinWidth(0)
 						}
 					})
-				}
-				links("sources", b.Sources, true)
-				if len(b.Suggestions) > 0 {
-					ui.Box(c).Height(1).FillWidth().Background(p.Border)
-					links("suggestions", b.Suggestions, false)
 				}
 			})
 		})
