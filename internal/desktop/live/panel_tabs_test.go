@@ -225,13 +225,13 @@ func panelTabs(t *testing.T) {
 	}
 	// launcherLists checks the launcher's rows and the "+" menu against the
 	// kinds the conversation offers.
-	// offered is what a conversation lists: History and Documents belong to
-	// a session, and a terminal needs a worktree.
+	// offered is what a conversation lists: the reference's four kinds,
+	// never History or Documents, and a terminal needs a worktree.
 	offered := func(kind panel.Kind, session, terminal bool) bool {
 		if kind == panel.Terminal {
 			return terminal
 		}
-		return session || kind != panel.History && kind != panel.Documents
+		return kind != panel.History && kind != panel.Documents
 	}
 	launcherLists := func(state string, session, terminal bool) {
 		t.Helper()
@@ -430,8 +430,9 @@ func panelTabs(t *testing.T) {
 	launcherLists("session", true, true)
 	shot("panel-launcher-session")
 
-	// History and Documents open from the launcher and show their empty
-	// state; each closes.
+	// History and Documents are not launcher rows. Their tabs, which a
+	// turn's Undo and a document's card open, show their empty state; each
+	// closes.
 	for _, resource := range []struct {
 		kind  panel.Kind
 		empty string
@@ -440,12 +441,7 @@ func panelTabs(t *testing.T) {
 		label := panel.ResourceOf(resource.kind).Label
 		closes("session "+label, text(resource.empty), func() panel.Tab {
 			app.PanelOpen = true
-			settle()
-			launch, listed := row(label)
-			if !listed {
-				t.Fatalf("the session's launcher does not list %q", label)
-			}
-			tester.ClickAt(launch.Bounds.X+launch.Bounds.W/2, launch.Bounds.Y+launch.Bounds.H/2)
+			app.Panel.Show(panel.Tab{Kind: resource.kind})
 			settle()
 			wait("the empty "+label+" tab", func() bool { return shown(text(resource.empty)) })
 			shot(resource.frame)

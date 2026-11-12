@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -26,7 +27,9 @@ func (s *State) notice(c *ui.Context) {
 
 // sessionMenu is a session row's right-click menu, the system's, with the
 // reference's items in its order. Actions on the preview's rows change them
-// in memory; the rest tell the preview notice.
+// in memory; the rest tell the preview notice. The demo, which says nothing
+// of itself, forks in memory and leaves out what needs a Node or the system:
+// Export, Open folder and New window.
 func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if cv.Archived {
@@ -83,23 +86,29 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 			c.WriteClipboard(sessionPath(pr, cv))
 		}
 	})
-	m.Submenu(t("conversation_export"), func(m *ui.Menu) {
-		for format, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
-			if m.Item(t(key)).Disabled(!conversation.ExportSupported(conversation.ExportFormat(format))).Chosen() {
-				if s.Actions != nil && s.Actions.Export != nil {
-					s.Actions.Export(cv, conversation.ExportFormat(format))
-				} else {
-					s.notice(c)
+	// The demo's sessions have no file to write.
+	demo := s.Actions == nil && kit.Demo(c)
+	if !demo {
+		m.Submenu(t("conversation_export"), func(m *ui.Menu) {
+			for format, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
+				if m.Item(t(key)).Disabled(!conversation.ExportSupported(conversation.ExportFormat(format))).Chosen() {
+					if s.Actions != nil && s.Actions.Export != nil {
+						s.Actions.Export(cv, conversation.ExportFormat(format))
+					} else {
+						s.notice(c)
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 	m.Separator()
 	busy := cv.Status == preview.Running || cv.Status == preview.Waiting
 	m.Submenu(t("session_fork"), func(m *ui.Menu) {
 		if m.Item(t("session_fork_here")).Disabled(busy || pr == nil).Chosen() {
 			if s.Actions != nil && s.Actions.ForkHere != nil {
 				s.Actions.ForkHere(cv)
+			} else if demo {
+				s.fork(pr, cv, false)
 			} else {
 				s.notice(c)
 			}
@@ -107,11 +116,17 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		if m.Item(t("session_fork_worktree")).Disabled(busy || pr == nil).Chosen() {
 			if s.Actions != nil && s.Actions.ForkWorktree != nil {
 				s.Actions.ForkWorktree(cv)
+			} else if demo {
+				s.fork(pr, cv, true)
 			} else {
 				s.notice(c)
 			}
 		}
 	})
+	if demo {
+		// Its folders are not on this disk, and it opens no second window.
+		return
+	}
 	m.Separator()
 	if m.Item(t("files_open")).Disabled(pr == nil).Chosen() {
 		if s.Actions != nil && s.Actions.OpenWorkspace != nil {
@@ -165,13 +180,7 @@ func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation
 // actions, as the reference's header menu.
 func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
-	worktrees := func(action string) {
-		if s.Actions != nil && s.Actions.Worktrees != nil {
-			s.Actions.Worktrees(pr, action, "")
-		} else {
-			s.notice(c)
-		}
-	}
+	worktrees := func(action string) { s.worktrees(c, pr, action, "") }
 	if m.Item(t("project_edit")).Icon(icons.Settings2).Chosen() {
 		s.OpenEditor(pr)
 	}
@@ -187,89 +196,179 @@ func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) 
 	if m.Item(t("project_remove")).Icon(icons.Trash).Danger().Chosen() {
 		s.AskRemove(c, pr)
 	}
-	if m.Item(t("cli_launch")).Icon(icons.Terminal).Chosen() {
-		if s.Actions != nil && s.Actions.CLI != nil {
-			s.Actions.CLI(pr)
-		} else {
-			s.notice(c)
-		}
-	}
 }
 
-// projectMenu is a project row's right-click menu, the system's.
+// projectMenu is a project row's right-click menu, the system's, with the
+// reference's groups in its order: the project's page and editor, what is
+// made in it, its path, its removal. The reference's own items are Project
+// overview, Edit project, New session, Copy path and Remove project; what
+// follows New session is the project_menu slot's, the enabled packages'
+// entries. The live window fills the slot through Actions.ProjectMenu; a
+// sample dataset has the bundled packages' two, New terminal and the
+// worktrees, which act on it in memory.
 func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if m.Item(t("workspace_project")).Chosen() {
-		if s.Actions != nil && s.Actions.Overview != nil {
-			s.Actions.Overview(pr)
-		} else {
-			s.notice(c)
-		}
+		s.OpenOverview(c, pr)
+	}
+	if m.Item(t("project_edit")).Chosen() {
+		s.OpenEditor(pr)
 	}
 	m.Separator()
 	if m.Item(t("workspace_new_session")).Chosen() {
 		s.newIn(pr)
 	}
-	for _, key := range []string{"workspace_new_terminal", "workspace_records"} {
-		if m.Item(t(key)).Chosen() {
-			if key == "workspace_records" && s.Actions != nil && s.Actions.Records != nil {
-				s.Actions.Records(pr)
-			} else if key == "workspace_new_terminal" && s.Actions != nil && s.Actions.NewTerminal != nil {
-				s.Actions.NewTerminal(pr)
-			} else {
-				s.notice(c)
-			}
-		}
-	}
-	if s.Actions != nil && s.Actions.ProjectMenu != nil {
+	if s.Actions == nil {
+		s.TerminalItem(c, m, pr)
+		s.WorktreeMenu(c, m, pr)
+	} else if s.Actions.ProjectMenu != nil {
 		s.Actions.ProjectMenu(c, m, pr)
 	}
-	if m.Item(t("project_edit")).Chosen() {
-		s.OpenEditor(pr)
-	}
+	m.Separator()
 	if m.Item(t("workspace_copy_path")).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}
-	m.Submenu(t("worktree_manage"), func(m *ui.Menu) {
-		if m.Item(t("worktree_create")).Chosen() {
-			if s.Actions != nil && s.Actions.Worktrees != nil {
-				s.Actions.Worktrees(pr, "create", "")
-			} else {
-				s.notice(c)
-			}
-		}
-		m.Separator()
-		for _, w := range pr.Worktrees {
-			if m.Item(w.Branch).Checked(w.Main).Chosen() {
-				if s.Actions != nil && s.Actions.Worktrees != nil {
-					s.Actions.Worktrees(pr, "select", w.Path)
-				} else {
-					s.notice(c)
-				}
-			}
-		}
-		if len(pr.Worktrees) > 1 {
-			m.Separator()
-			if m.Item(t("worktree_remove")).Chosen() {
-				if s.Actions != nil && s.Actions.Worktrees != nil {
-					s.Actions.Worktrees(pr, "remove", "")
-				} else {
-					s.notice(c)
-				}
-			}
-		}
-	})
 	m.Separator()
 	if m.Item(t("project_remove")).Chosen() {
 		s.AskRemove(c, pr)
 	}
-	if m.Item(t("cli_launch")).Chosen() {
-		if s.Actions != nil && s.Actions.CLI != nil {
-			s.Actions.CLI(pr)
-		} else {
-			s.notice(c)
-		}
+}
+
+// OpenOverview shows a project's page: the live adapter's, or the sample
+// dataset's through the window.
+func (s *State) OpenOverview(c *ui.Context, pr *preview.Project) {
+	switch {
+	case s.Actions != nil && s.Actions.Overview != nil:
+		s.Actions.Overview(pr)
+	case s.Actions == nil && s.Sample.Overview != nil:
+		s.Sample.Overview(pr)
+	default:
+		s.notice(c)
 	}
+}
+
+// TerminalItem is the project menu's New terminal, the commands package's
+// entry in the project_menu slot, which the application draws itself as it
+// owns the terminals.
+func (s *State) TerminalItem(c *ui.Context, m *ui.Menu, pr *preview.Project) {
+	if !m.Item(i18n.T(c, "workspace_new_terminal")).Chosen() {
+		return
+	}
+	switch {
+	case s.Actions != nil && s.Actions.NewTerminal != nil:
+		s.Actions.NewTerminal(pr)
+	case s.Actions == nil && s.Sample.NewTerminal != nil:
+		s.Sample.NewTerminal(pr)
+	default:
+		s.notice(c)
+	}
+}
+
+// WorktreeMenu is the project menu's worktrees submenu, the worktrees
+// package's entry in the project_menu slot, which the application draws
+// itself: create one, open one's page, remove one.
+func (s *State) WorktreeMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
+	t := func(key string) string { return i18n.T(c, key) }
+	m.Submenu(t("worktree_manage"), func(m *ui.Menu) {
+		if m.Item(t("worktree_create")).Chosen() {
+			s.worktrees(c, pr, "create", "")
+		}
+		m.Separator()
+		for _, w := range pr.Worktrees {
+			if m.Item(w.Branch).Checked(w.Main).Chosen() {
+				s.worktrees(c, pr, "select", w.Path)
+			}
+		}
+		if len(pr.Worktrees) < 2 {
+			return
+		}
+		m.Separator()
+		if s.Actions != nil || !kit.Demo(c) {
+			if m.Item(t("worktree_remove")).Chosen() {
+				s.worktrees(c, pr, "remove", "")
+			}
+			return
+		}
+		// The live window picks the worktree in the Git panel; the demo
+		// names them here.
+		m.Submenu(t("worktree_remove"), func(m *ui.Menu) {
+			for _, w := range pr.Worktrees {
+				if !w.Main && m.Item(w.Branch).Chosen() {
+					s.worktrees(c, pr, "remove", w.Path)
+				}
+			}
+		})
+	})
+}
+
+// worktrees runs a worktree operation of a project's menus: the live
+// adapter's, or the demo's in memory. Creating adds a worktree and opens a
+// new session in the project, as the live window does; selecting opens the
+// project's page; removing asks first, naming the worktree. The preview
+// tells its notice.
+func (s *State) worktrees(c *ui.Context, pr *preview.Project, op, path string) {
+	if s.Actions != nil && s.Actions.Worktrees != nil {
+		s.Actions.Worktrees(pr, op, path)
+		return
+	}
+	if s.Actions != nil || !kit.Demo(c) {
+		s.notice(c)
+		return
+	}
+	switch op {
+	case "create":
+		s.addWorktree(pr)
+		s.newIn(pr)
+	case "select":
+		s.OpenOverview(c, pr)
+	case "remove":
+		i := slices.IndexFunc(pr.Worktrees, func(w preview.Worktree) bool { return !w.Main && (path == "" || w.Path == path) })
+		if i < 0 {
+			return
+		}
+		tree := pr.Worktrees[i]
+		s.confirm = confirm{open: true, title: i18n.T(c, "worktree_remove"), message: tree.Path + "\n" + i18n.T(c, "worktree_remove_confirm"),
+			action: i18n.T(c, "worktree_remove"), run: func() {
+				pr.Worktrees = slices.DeleteFunc(pr.Worktrees, func(w preview.Worktree) bool { return w == tree })
+			}}
+	}
+}
+
+// addWorktree adds a worktree to a sample project, in memory: a branch named
+// after the project's sessions made here, beside the project's folder.
+func (s *State) addWorktree(pr *preview.Project) preview.Worktree {
+	if len(pr.Worktrees) == 0 {
+		branch := pr.Branch
+		if branch == "" {
+			branch = "main"
+		}
+		pr.Worktrees = []preview.Worktree{{Branch: branch, Path: pr.Path, Main: true}}
+	}
+	s.created++
+	tree := preview.Worktree{Branch: fmt.Sprintf("worktree-%d", s.created), Path: fmt.Sprintf("%s-worktree-%d", pr.Path, s.created)}
+	pr.Worktrees = append(pr.Worktrees, tree)
+	return tree
+}
+
+// fork copies a sample session beside itself, in memory, and shows the copy:
+// in the session's own worktree, or in a new one.
+func (s *State) fork(pr *preview.Project, cv *preview.Conversation, worktree bool) {
+	if pr == nil {
+		return
+	}
+	s.created++
+	fork := *cv
+	fork.ID = fmt.Sprintf("%s/fork-%d", pr.ID, s.created)
+	fork.Turns = slices.Clone(cv.Turns)
+	fork.Pinned, fork.Updated, fork.Created = false, preview.Now, 10000+s.created
+	if worktree {
+		tree := s.addWorktree(pr)
+		fork.Worktree, fork.WorktreePath = tree.Branch, tree.Path
+	}
+	at := slices.Index(pr.Conversations, cv)
+	pr.Conversations = slices.Insert(pr.Conversations, max(at, 0), &fork)
+	*s.opened("project/" + pr.ID) = true
+	s.show(fork.ID)
 }
 
 // archive asks before archiving, which in the preview only hides the row
@@ -318,11 +417,13 @@ func (s *State) delete(cv *preview.Conversation) {
 }
 
 // AskRemove confirms a project's removal, naming it and what follows. The
-// preview keeps a project its sessions still use, and says so instead.
+// preview keeps a project its sessions still use, and says so instead; the
+// demo removes it as a live window does, its sessions leaving the list with
+// it.
 func (s *State) AskRemove(c *ui.Context, pr *preview.Project) {
 	message := i18n.T(c, "project_remove_named", "name", pr.Path)
 	if s.Actions == nil {
-		if len(pr.Conversations) > 0 {
+		if len(pr.Conversations) > 0 && !kit.Demo(c) {
 			kit.Toast(c, kit.Failed, i18n.T(c, "project_remove_sessions"))
 			return
 		}

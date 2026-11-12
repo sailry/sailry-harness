@@ -202,7 +202,6 @@ func (r *Runtime) initB8Packages() {
 	r.App.SetInstallations(&r.packages.queue)
 	r.App.Hooks.PackageDialogs = r.packageDialogs
 	r.initLiveTerminals()
-	r.App.Sidebar.Actions.CLI = func(project *viewmodel.Project) { r.openCLILauncher(project, "") }
 	r.readInstalledThemes()
 	r.packagesFrame(nil)
 }

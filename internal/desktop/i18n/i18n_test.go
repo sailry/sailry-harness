@@ -57,7 +57,8 @@ func TestCatalogKeys(t *testing.T) {
 			"queue_wait_held", "queue_wait_paused", "queue_wait_stopped", "queue_wait_interrupted", "queue_wait_unsent", "queue_wait_limit", "queue_wait_failed",
 			// the text size's value beside its slider, and the stepped sizes the slider replaced
 			"message_text_size_value", "message_text_small", "message_text_standard", "message_text_large", "message_text_extra_large",
-			"settings_language_restart", // the note that a language change needs a restart
+			"settings_language_restart",              // the note that a language change needs a restart
+			"project_trust", "project_trust_preview", // trust management in the project menu
 		} {
 			if _, listed := catalogs["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see docs/removed-ui.md", key)

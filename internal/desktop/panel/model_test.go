@@ -23,8 +23,10 @@ func TestTabsModel(t *testing.T) {
 	t.Run("EmptyStates", testEmptyStates)
 }
 
-// History and Documents belong to a session: the live launcher and "+" menu
-// offer them only with one, the preview always. Documents without a document
+// The launcher and the "+" menu list the reference's four kinds, Browser,
+// Terminal, Files and Git, in the preview, the demo and the live window:
+// never History or Documents, which keep their tabs and open from a turn and
+// from a document's card. Documents without a document
 // opens a tab that takes the first document once there is one, and a change
 // named as the one to show first opens no diff.
 func testSessionResources(t *testing.T) {
@@ -37,10 +39,16 @@ func testSessionResources(t *testing.T) {
 		}
 		return out
 	}
+	four := []Kind{Browser, Terminal, Files, Changes}
 	s := New(&viewmodel.Workspace{})
-	if got := kinds(s); len(got) != len(Resources) {
+	if got := kinds(s); !slices.Equal(got, four) {
 		t.Fatalf("the preview lists %v", got)
 	}
+	s.Demo = true
+	if got := kinds(s); !slices.Equal(got, four) {
+		t.Fatalf("the demo lists %v", got)
+	}
+	s.Demo = false
 	s.Live = true
 	// A terminal needs a worktree: an unsent chat without a project has
 	// none, so Terminal is neither listed nor opened by its shortcut there.
@@ -104,7 +112,7 @@ func testSessionResources(t *testing.T) {
 	s.Mount(nil, Tab{}, false)
 	s.TerminalActions = nil
 	s.Session = true
-	if got := kinds(s); len(got) != len(Resources) {
+	if got := kinds(s); !slices.Equal(got, four) || s.Offers(History) || s.Offers(Documents) {
 		t.Fatalf("a live session lists %v", got)
 	}
 	s.Open(Documents)

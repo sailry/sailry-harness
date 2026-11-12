@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // page is a browser tab's chrome state: the address as typed and the
@@ -51,14 +52,43 @@ func (s *State) pageOf(id string) *page {
 	if b == nil {
 		b = &page{at: -1}
 		s.pagesOf[id] = b
+		// A dataset with a page of its own opens its browser on it.
+		if !s.Live && s.Data != nil {
+			b.Go(s.Data.Page.Address)
+		}
 	}
 	return b
 }
 
+// sample is the dataset's own page when the tab shows its address, nil
+// otherwise: the demo's browser shows that one page and loads nothing.
+func (s *State) sample(b *page) *viewmodel.WebPage {
+	if s.Live || s.Data == nil || s.Data.Page.Address == "" || b.at < 0 {
+		return nil
+	}
+	bare := func(address string) string {
+		if _, rest, ok := strings.Cut(address, "://"); ok {
+			address = rest
+		}
+		return strings.TrimRight(address, "/")
+	}
+	if bare(b.history[b.at]) != bare(s.Data.Page.Address) {
+		return nil
+	}
+	return &s.Data.Page
+}
+
+// samples reports whether the dataset has a page of its own, as the demo's:
+// its browser then behaves as one, without the preview's toasts.
+func (s *State) samples() bool { return !s.Live && s.Data != nil && s.Data.Page.Address != "" }
+
 // browser is a browser tab: its toolbar, Back and Forward through the tab's
 // history, Reload and the address, which goes on Enter, over the page's
 // placeholder. ⌘T opens another tab and ⌘R reloads while the focus is in it;
-// the panel's "+" is the one button that opens a tab. The preview loads nothing: going and reloading toast so.
+// the panel's "+" is the one button that opens a tab. The preview loads
+// nothing: going and reloading toast so. The demo opens on its dataset's
+// page, drawn here from the dataset, and any other address fails to load, as
+// it reaches no network.
 func (s *State) browser(c *ui.Context, t Tab) {
 	if s.Live && s.BrowserActions != nil {
 		s.liveBrowser(c, t)
@@ -70,22 +100,39 @@ func (s *State) browser(c *ui.Context, t Tab) {
 	if col.Shortcut(ui.Cmd, ui.KeyT) && !c.ShortcutRepeated() {
 		s.New(Browser)
 	}
-	if col.Shortcut(ui.Cmd, ui.KeyR) && !c.ShortcutRepeated() {
+	sampled := s.samples()
+	if col.Shortcut(ui.Cmd, ui.KeyR) && !c.ShortcutRepeated() && !sampled {
 		notice(c)
 	}
 	col.Children(func() {
 		toolbar(c, "toolbar", func() {
 			kit.Action(c.Key("back"), icons.ArrowLeft, i18n.T(c, "browser_back"), b.at <= 0).OnClick(func() { b.Step(-1) })
 			kit.Action(c.Key("forward"), icons.ArrowRight, i18n.T(c, "browser_forward"), b.at >= len(b.history)-1).OnClick(func() { b.Step(1) })
-			kit.Action(c.Key("reload"), icons.Reload, i18n.T(c, "browser_reload"), b.at < 0).OnClick(func() { notice(c) })
+			kit.Action(c.Key("reload"), icons.Reload, i18n.T(c, "browser_reload"), b.at < 0).OnClick(func() {
+				if !sampled {
+					notice(c)
+				}
+			})
 			label := i18n.T(c, "browser_address")
 			ui.TextInput(c.Key("address"), &b.address).Placeholder(label).Label(label).Grow(1).Height(28).
 				OnSubmit(func() {
-					if b.Go(b.address) {
+					if b.Go(b.address) && !sampled {
 						notice(c)
 					}
 				})
 		})
+		if sampled {
+			if page := s.sample(b); page != nil {
+				ui.Scroll(c.Key("page")).Grow(1).MinHeight(0).Background(p.Background).Children(func() {
+					ui.Column(c).Padding(24).FillWidth().Children(func() {
+						kit.Markdown(c, page.Text, kit.MarkdownProps{})
+					})
+				})
+			} else if b.at >= 0 {
+				kit.Result(c, kit.ResultProps{Icon: icons.Web, Title: i18n.T(c, "browser_load_failed"), SubTitle: b.history[b.at]}).Grow(1).Justify(ui.Center)
+			}
+			return
+		}
 		text := i18n.T(c, "resource_browser_preview")
 		if b.at >= 0 {
 			text = b.history[b.at] + "\n" + text
@@ -159,6 +206,8 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
 			if s.TerminalActions != nil && s.TerminalActions.View != nil {
 				s.TerminalActions.View(c, t.ID)
+			} else if s.Data != nil && len(s.Data.Screen) > 0 {
+				screen(c, s.Data.Screen)
 			} else {
 				placeholder(c, icons.Terminal, i18n.T(c, "workspace_terminal_preview"), p.Muted)
 			}
@@ -171,6 +220,35 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 				Absolute().Top(4).Right(8).Width(min(420, w-32)).Radius(p.Radius)
 			if bar.OverlayShortcut(0, ui.KeyEscape) {
 				x.find = false
+			}
+		})
+	})
+}
+
+// screen draws a dataset's terminal screen: its lines in the terminal's
+// face and the theme's semantic colors, the cursor after the last, which is
+// the prompt. No shell runs behind it, so it takes no input.
+func screen(c *ui.Context, lines viewmodel.Screen) {
+	p := theme.Of(c)
+	tones := map[viewmodel.ScreenTone]ui.Color{
+		viewmodel.TonePlain: p.Foreground, viewmodel.ToneMuted: p.MutedForeground, viewmodel.ToneAccent: p.Info,
+		viewmodel.ToneGood: p.Success, viewmodel.ToneBad: p.Danger, viewmodel.ToneNote: p.Warning,
+	}
+	ui.Scroll(c.Key("sample")).Grow(1).MinHeight(0).Background(p.Background).Children(func() {
+		ui.Column(c).Padding(10, 12).Gap(2).FillWidth().Children(func() {
+			for i, line := range lines {
+				spans := make([]ui.Span, len(line))
+				for j, span := range line {
+					spans[j] = ui.Span{Text: span.Text, Font: "monospace", Size: 13, Color: tones[span.Tone]}
+				}
+				if i < len(lines)-1 {
+					ui.RichText(c, spans...)
+					continue
+				}
+				ui.Row(c).Children(func() {
+					ui.RichText(c, spans...)
+					ui.Box(c).Width(8).Height(16).Background(p.Foreground)
+				})
 			}
 		})
 	})

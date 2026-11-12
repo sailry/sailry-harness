@@ -2165,8 +2165,6 @@ project_removed
 project_revoke
 project_revoke_description
 project_revoke_title
-project_trust
-project_trust_preview
 task_completed
 artifact_export_failed
 chat_compact_incomplete

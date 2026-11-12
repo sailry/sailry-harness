@@ -2153,8 +2153,6 @@ project_removed: 專案已移除
 project_revoke: 撤銷信任
 project_revoke_description: 撤銷後停止專案任務，保留歷史和草稿
 project_revoke_title: 撤銷專案信任
-project_trust: 管理專案信任
-project_trust_preview: 僅修改示例
 task_completed: 已完成
 artifact_export_failed: 匯出失敗
 chat_compact_incomplete: 摘要未完整返回
