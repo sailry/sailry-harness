@@ -104,7 +104,7 @@ func providers(c *ui.Context, s *State) {
 	})
 	if w := &m.loginWarning; w.open {
 		proceed := w.proceed
-		if confirm(c, "login-warning", &w.open, i18n.T(c, "provider_reconnect")+" "+w.title, w.text, i18n.T(c, "provider_login_continue")) && proceed != nil {
+		if confirm(c, "login-warning", &w.open, i18n.T(c, w.verb)+" "+w.title, w.text, i18n.T(c, "provider_login_continue")) && proceed != nil {
 			proceed()
 		}
 		if !w.open {
@@ -785,7 +785,7 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 			case stepBrand:
 				brandPicker(c, m, nil, nil)
 			case stepMethod:
-				methodList(c, e)
+				methodList(c, m)
 			default:
 				providerForm(c, m, e)
 			}
@@ -884,7 +884,6 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 		}
 	}
 	slices.SortStableFunc(logins, func(a, b login) int { return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label)) })
-	e := &m.provider
 	ui.Column(c.Key("picker")).Gap(20).Padding(10, 12, 28, 12).Children(func() {
 		group("provider_access_login", len(logins), func() {
 			for _, x := range logins {
@@ -892,12 +891,12 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 				if mark == "" {
 					mark = x.brand.ID
 				}
-				chip("login-"+x.method.ID, x.label, mark, func() { e.choose(x.brand, []preview.Method{x.method}) })
+				chip("login-"+x.method.ID, x.label, mark, func() { m.chooseProvider(x.brand, []preview.Method{x.method}) })
 			}
 		})
 		group("provider_access_key", len(brands), func() {
 			for _, b := range brands {
-				chip("api-"+b.ID, b.Name, b.ID, func() { e.choose(b, apiMethods(b)) })
+				chip("api-"+b.ID, b.Name, b.ID, func() { m.chooseProvider(b, apiMethods(b)) })
 			}
 		})
 	})
@@ -905,7 +904,8 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 
 // methodList is the brand over the methods its choice offered, each a row
 // with how it is accessed and a chevron.
-func methodList(c *ui.Context, e *providerEditor) {
+func methodList(c *ui.Context, m *Model) {
+	e := &m.provider
 	if e.brand == nil {
 		return
 	}
@@ -916,7 +916,7 @@ func methodList(c *ui.Context, e *providerEditor) {
 		})
 		modalList(c, "list", "", "", "", len(e.methods), func() {
 			for _, x := range e.methods {
-				listRow{subtitle: i18n.T(c, x.Access), chevron: true, onClick: func() { e.configure(x) }}.row(c, x.ID, x.Name)
+				listRow{subtitle: i18n.T(c, x.Access), chevron: true, onClick: func() { m.configureProvider(x) }}.row(c, x.ID, x.Name)
 			}
 		}, nil)
 	})

@@ -316,6 +316,34 @@ func TestModelAuthWarning(t *testing.T) {
 			t.Fatalf("widened entry: %v", err)
 		}
 	})
+	t.Run("a preset declares one, strictly when authored and tolerantly from a peer", func(t *testing.T) {
+		plain := `{"id":"local","name":"Local","routes":[{"protocol":"plugin","endpoint":"https://example.test"}],"auth":{"kind":"none"}`
+		var preset, again ConversationPresetsPreset
+		if err := json.Unmarshal([]byte(plain+`}`), &preset); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(preset)
+		if err != nil || preset.Warning != nil || bytes.Contains(encoded, []byte(`"warning"`)) {
+			t.Fatalf("absent warning: %v %s", err, encoded)
+		}
+		if err := json.Unmarshal([]byte(plain+`,"warning":{"text":"Risk","locales":{"zh-CN":"风险"}}}`), &preset); err != nil {
+			t.Fatal(err)
+		}
+		if preset.Warning == nil || preset.Warning.Text != "Risk" || preset.Warning.Locales["zh-CN"] != "风险" {
+			t.Fatalf("warning: %+v", preset.Warning)
+		}
+		if encoded, err = json.Marshal(preset); err != nil || json.Unmarshal(encoded, &again) != nil || !reflect.DeepEqual(preset, again) {
+			t.Fatalf("round trip: %v %s", err, encoded)
+		}
+		if json.Unmarshal([]byte(plain+`,"warning":{"text":"Risk","title":"extra"}}`), &again) == nil {
+			t.Fatal("authored preset warning accepted an unknown member")
+		}
+		// A newer peer's preset may widen the warning; it still decodes.
+		widened := bytes.Replace(encoded, []byte(`"text":"Risk"`), []byte(`"text":"Risk","severity":"high"`), 1)
+		if err := DecodeAs(PeerData, widened, &again); err != nil || again.Warning == nil || again.Warning.Text != "Risk" {
+			t.Fatalf("widened preset: %v", err)
+		}
+	})
 }
 
 func must(data []byte, err error) []byte {
