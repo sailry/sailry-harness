@@ -246,6 +246,14 @@ func TestDemoMode(t *testing.T) {
 			r.workers.Wait()
 			tester.Frame()
 		}
+		// after follows a press or a key, which drew its own frames: another
+		// is drawn only for what the Runtime has asked for since.
+		after := func() {
+			r.workers.Wait()
+			if asked.Swap(false) {
+				tester.Frame()
+			}
+		}
 		// The theme's animated effects change no text.
 		effects := r.App.Effects
 		r.App.Effects = false
@@ -265,7 +273,7 @@ func TestDemoMode(t *testing.T) {
 		// and checks what did.
 		await := func(id, where, expect string) {
 			t.Helper()
-			step()
+			after()
 			for range 8 {
 				if expect == "" || shows(expect) {
 					break
@@ -298,7 +306,7 @@ func TestDemoMode(t *testing.T) {
 					}
 				}
 				tester.Key(0, ui.KeyEscape)
-				step()
+				after()
 				return true
 			}
 			return false
