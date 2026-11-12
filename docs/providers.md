@@ -139,6 +139,10 @@ and package presets are not vendors. The Rust source prices by wire protocol
 alone, which leaves every Chat Completions vendor other than OpenAI, and the
 DeepSeek, OpenCode and Azure protocols, without a cost.
 
+Claude subscriptions are moving from the Claude OAuth transport to the
+user's own Claude Code ([claude-cli.md](claude-cli.md)). The OAuth path
+described here stays until that route is accepted with a real account.
+
 ## Model requests
 
 Model capture copies provider, session configuration, secret and session identity.

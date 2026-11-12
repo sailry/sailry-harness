@@ -14,7 +14,9 @@ behavior below is taken from magpie or from the binary's strings and is
 unverified until the user's acceptance run.
 
 Status: the `-p` route, its codec and the tool bridge are built in
-`internal/node/claudecli` against fakes. The interactive mode, the provider
+`internal/node/claudecli` against fakes, and both executables enter the
+hidden relay mode. No Node code constructs the route yet, so nothing starts
+`claude`. The interactive mode, the provider
 declaration and the wiring into `node.newModel` are designed here and not
 built ([what blocks them](#interactive-mode)).
 
@@ -198,8 +200,10 @@ files in acceptance.
 Sailry's tools are native MCP tools of the `claude` process.
 
 - The Node runs the MCP server itself (the pinned go-sdk `mcp.Server`), one
-  `Bridge` per child, listening on a Unix socket inside a private `0700`
-  folder of the run.
+  `Bridge` per child, listening on a Unix socket inside its own `0700`
+  folder under the route's folder. A Unix socket path is short on every
+  system, so a profile path too deep for one puts that folder in the
+  system's temporary folder instead.
 - `--mcp-config` names one stdio server, `sailry`, whose command is the
   running Sailry binary in a hidden mode: `<sailry> claude-bridge <folder>`.
   `cmd/sailry-desktop` and `cmd/sailry-host` enter it before anything else.
