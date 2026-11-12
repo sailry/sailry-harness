@@ -143,14 +143,21 @@ func (r *Runtime) beginProviderLogin(id string) {
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
-		text := entry.LoginWarning.Text
-		if translated := entry.LoginWarning.Locales[i18n.Match(r.packageLocale())]; translated != "" {
-			text = translated
-		}
-		r.App.Settings.WarnProviderAuthorization(provider.Name, text, func() { r.startProviderLogin(id) })
+		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLogin(id) })
 		return
 	}
 	r.startProviderLogin(id)
+}
+
+// loginWarning is an entry's warning in the package locale, "" for none.
+func (r *Runtime) loginWarning(entry protocol.ConversationPresetsEntry) string {
+	if entry.LoginWarning == nil {
+		return ""
+	}
+	if translated := entry.LoginWarning.Locales[i18n.Match(r.packageLocale())]; translated != "" {
+		return translated
+	}
+	return entry.LoginWarning.Text
 }
 
 func (r *Runtime) startProviderLogin(id string) {

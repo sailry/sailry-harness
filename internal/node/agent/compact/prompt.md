@@ -20,7 +20,7 @@ Keep only what is needed to continue the work correctly:
 - Keep key identifiers exact. Never state an unverified guess as a fact; mark uncertainty explicitly
 - List only the files needed to continue, usually no more than 15, not every file touched during the session
 - Order every list most important first
-- Keep the whole handoff under 3,000 tokens, and much less for a simple task. Anything beyond 4,000 tokens is cut from the end of the least essential sections
+- Keep the whole handoff under {{ target }} tokens, and much less for a simple task. Anything beyond {{ cap }} tokens is cut from the end of the least essential sections
 
 ## Output
 Output exactly one ```json code block and nothing else, matching this schema:

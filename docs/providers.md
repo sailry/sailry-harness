@@ -290,15 +290,33 @@ wait 9 minutes, for a main request and a summary alike. A provider's
 `Retry-After` is parsed and neither shortens nor lengthens the wait, as in the
 reference. Stopping the turn ends a wait at once. The retry record carries the
 limit and the wait (`limit`, `delay_ms`), so a record written under an earlier
-limit still shows its own. The reference waits the same fixed 60 seconds five
+limit still shows its own. A summary request's waiting attempt writes the same
+record (`engine.retryRecord`, purpose `compaction`) when the wait begins, so
+the conversation shows the retry row under the compacting phase instead of
+nine silent minutes; it is that attempt's only observation, so usage and
+timing are counted once. Deviation, by the user's decision of 2026-11-12: the
+reference shows nothing for a summary's retry
+(`engine.TestSummaryRetryRecord`). The reference waits the same fixed 60 seconds five
 times, and 5 seconds once for a summary; Go retries nine times by the user's decision of 2026-11-12, which also
 replaced the earlier 5 to 60 second exponential schedule that followed
 `Retry-After`. Authentication, quota, invalid
 requests and malformed/truncated streams are terminal. Every attempted request
 reports timing, optional usage and failure facts once through the engine observer.
 Unknown token counts remain unknown; an explicitly reported zero remains known.
-Summary requests retain provider/model/auth and use at most 8,000 output tokens or
-the smaller advertised limit, with the lowest declared reasoning choice.
+Summary requests retain provider/model/auth, with the lowest declared reasoning
+choice. The handoff's cap follows the window (`compact.Cap`): 2% of the
+context window, at least 4,000 and at most 12,000 tokens, and the prompt names
+it with a soft target of 75% of it. The request's output limit is twice the cap
+(`compact.Output`, through `model.OutputLimit`), because the JSON document is
+larger than the text rendered from it, or the model's smaller advertised limit;
+the cap is then half of that limit, never under 4,000. A model that lists no
+output limit keeps 8,000 and a 4,000 cap. The same figure is the reserve of
+`compact.Prepare` and the `summary_output` that `store.AgentCompactionBudget`
+reports. A window up to 200,000 tokens is unchanged: 8,000 output, cap 4,000,
+target 3,000. Deviation, by the user's decision of 2026-11-12: Goose and the
+reference use a fixed 4,000 token cap and 8,000 output tokens on every window
+(`compact.TestSummaryCapFollowsWindow`,
+`engine.TestCompactionHandoff/cap follows the window`).
 
 ## Desktop channel editor
 
@@ -336,13 +354,34 @@ starts at once. The text is the package's own, chosen by the package locale.
 The Mobile mirror displays channels and does not start sign-in, so it shows no
 warning. `testProviderLoginWarning` drives this against a fake Node.
 
+A channel that has no sign-in (a preset with `auth` `none` or `api_key`, such
+as one served by a local program over ACP) has no attempt to ask before, so the
+preset itself can declare the same `warning`. It is declared on the preset
+because the preset is what the directory already lists and what the user picks;
+an adapter or `acp` declaration is not projected to a controller and may serve
+several presets. The directory carries it in the same `login_warning` member
+and removes it from the listed preset, so there is one carrier. Where a preset
+has a sign-in, `login_warning` is the flow's warning, else the preset's.
+A built-in preset whose sign-in an enabled package supplies (a flow declaring
+`authentication`, as `claude-auth` and `copilot-auth` do) carries that flow's
+warning the same way.
+
+The Desktop shows a preset warning of a channel without a sign-in in the same
+dialog, titled "Add" and the preset's name, once when the user picks that preset
+in the add editor (also from the welcome guide): Continue opens the form exactly
+as before, Cancel leaves the editor on the step it was on, and nothing is saved
+or sent either way. Picking it again asks again; editing a saved channel does
+not ask. `testProviderPresetWarning` drives this against a fake Node,
+`TestPackagePresetWarning` covers the directory and `TestProviderEditor` the
+editor's steps.
+
 A plugin translation receives the installed package's resolved settings, may
 record per-model `options` at discovery and may refuse a request from `prepare`
 with its own class and message before any HTTP. Recorded options are saved on
 the model's capabilities, replaced by a later discovery and merged under the
 provider's policies. Discovery runs on "Update models" and on validation only.
 
-Deviations: the reviewed source has no sign-in warning, no settings input and no
+Deviations: the reviewed source has no sign-in or preset warning, no settings input and no
 refusal result; these three are additions for packages whose provider may
 suspend accounts or charge for some models. Setting titles are looked up by
 field name first, as the source does, then by English title as before.

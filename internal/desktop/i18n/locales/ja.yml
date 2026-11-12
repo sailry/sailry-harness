@@ -582,6 +582,7 @@ background_exit: Exit code %{code}
 background_result_waiting: Result not delivered
 chat_compact_cancelled: 圧縮中止
 chat_compact_failed: 圧縮に失敗しました
+chat_compact_failed_paused: Compaction failed, automatic compaction paused
 chat_compact_queued: コンパクト化を待っています
 chat_compact_unneeded: 圧縮は不要
 chat_compacted: コンテキスト圧縮

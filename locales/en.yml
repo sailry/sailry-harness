@@ -380,3 +380,4 @@ session_delete_private_files: Its private workspace files are deleted too
 port_count: "%{count} ports"
 queue_messages_one: 1 queued message
 queue_messages_count: "%{count} queued messages"
+chat_compact_failed_paused: Compaction failed, automatic compaction paused

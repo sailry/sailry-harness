@@ -245,6 +245,34 @@ func TestBundledPackageContracts(t *testing.T) {
 			}
 		})
 	}
+	// The account-based channels ask the user to accept their risk: a
+	// sign-in on its flow, a channel without one on its preset.
+	t.Run("account warnings", func(t *testing.T) {
+		for name, placement := range map[string]string{"copilot-auth": "flow", "claude-auth": "flow", "workbuddy": "flow", "agy": "preset"} {
+			info, err := manager.InspectBundled(t.Context(), name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var warnings []*protocol.PluginModelAuthWarning
+			if placement == "flow" {
+				for _, flow := range info.Extension.ModelAuth {
+					warnings = append(warnings, flow.Warning)
+				}
+			} else {
+				for _, preset := range info.Extension.ModelProviders {
+					warnings = append(warnings, preset.Warning)
+				}
+			}
+			if len(warnings) == 0 {
+				t.Errorf("%s declares no %s", name, placement)
+			}
+			for _, warning := range warnings {
+				if warning == nil || warning.Text == "" || len(warning.Locales) != 9 || warning.Locales["zh-CN"] == "" {
+					t.Errorf("%s %s warning: %+v", name, placement, warning)
+				}
+			}
+		}
+	})
 	if len(BundledDefaults()) != 27 {
 		t.Fatal("initial distribution changed")
 	}

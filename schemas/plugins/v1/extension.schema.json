@@ -1524,6 +1524,10 @@
               "type": "null"
             }
           ]
+        },
+        "warning": {
+          "$ref": "#/$defs/Warning",
+          "description": "Asked before every sign-in attempt of a channel using this flow."
         }
       },
       "required": [
@@ -3040,6 +3044,10 @@
             "$ref": "#/$defs/Route"
           },
           "type": "array"
+        },
+        "warning": {
+          "$ref": "#/$defs/Warning",
+          "description": "Asked once when the user picks this preset to add a channel that has no sign-in, and before every sign-in attempt where its flow declares none."
         }
       },
       "required": [
@@ -3971,6 +3979,31 @@
       },
       "required": [
         "template"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "description": "Plain text the user accepts before continuing: no control characters, at most 1024 bytes each and 32 locales.",
+      "properties": {
+        "locales": {
+          "additionalProperties": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "default": {},
+          "maxProperties": 32,
+          "type": "object"
+        },
+        "text": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
       ],
       "type": "object"
     }

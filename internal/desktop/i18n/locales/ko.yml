@@ -582,6 +582,7 @@ background_exit: Exit code %{code}
 background_result_waiting: Result not delivered
 chat_compact_cancelled: 압축 취소됨
 chat_compact_failed: 압축 실패
+chat_compact_failed_paused: Compaction failed, automatic compaction paused
 chat_compact_queued: 압축을 기다리는 중
 chat_compact_unneeded: 압축이 필요하지 않음
 chat_compacted: 컨텍스트 압축됨
