@@ -36,20 +36,9 @@ func checkpointVersion(text string) protocol.ConversationCheckpointVersion {
 	return protocol.ConversationCheckpointVersion{Revision: fmt.Sprintf("%x", blake3.Sum256([]byte(text))), Size: uint64(len(text))}
 }
 
-// CaptureFileCheckpoints reads the already admitted immutable request. Call it in
-// the admission transaction before releasing the prepared filesystem effect.
-func CaptureFileCheckpoints(ctx context.Context, db *sql.Conn, turn protocol.TurnID, approval protocol.ApprovalID, prepared *files.Prepared) error {
-	var body []byte
-	err := db.QueryRowContext(ctx, "SELECT r.body FROM agent_approvals a JOIN turns t ON t.id=a.turn JOIN requests r ON r.caller=t.caller AND r.id=a.request WHERE a.id=?1 AND a.turn=?2", approval.String(), turn.String()).Scan(&body)
-	if err != nil {
-		return err
-	}
-	var request protocol.Request
-	if err = json.Unmarshal(body, &request); err != nil {
-		return err
-	}
-	return CaptureFileCheckpointsRequest(ctx, db, turn, approval, request, prepared)
-}
+// CaptureFileCheckpointsRequest records what the approved request's prepared
+// change replaces. Call it in the admission transaction before releasing the
+// prepared filesystem effect.
 func CaptureFileCheckpointsRequest(ctx context.Context, db *sql.Conn, turn protocol.TurnID, approval protocol.ApprovalID, request protocol.Request, prepared *files.Prepared) error {
 	if prepared == nil || prepared.Rejected != nil {
 		return invalid("checkpoint requires prepared file content")
