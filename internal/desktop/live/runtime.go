@@ -27,7 +27,10 @@ import (
 )
 
 type Runtime struct {
-	pluginViews              *pluginViewState
+	pluginViews *pluginViewState
+	// demoModels is the model each demo conversation's composer is set to,
+	// by conversation: what the statistics package reads as its model.
+	demoModels               sync.Map
 	pluginStatus             map[string]*pluginStatusFeed
 	pluginControls           map[string]*pluginControlPresentation
 	pluginCards              *pluginCardState

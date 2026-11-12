@@ -324,8 +324,11 @@ occupancy once the model changed since the last request. A model the provider
 no longer lists keeps its name and has no window.
 
 Figures need a session: a draft shows none. Demo mode mounts the statistics
-package alone over a demo conversation, with a composer state built from the
-conversation's own usage (`live/plugin_demo.go`; see `docs/shell.md`).
+package alone over a demo conversation, with the composer state of a session
+that recorded what the conversation shows, built from its usage, its
+transcript and its composer's model (`live/plugin_demo.go`; see
+`docs/shell.md`). There `revealComposerEntry` scrolls the demo's own
+transcript and asks no Node.
 
 The persistent moejs owner retains the View, callbacks, modules and Promise
 continuations across frames. Render and layout never execute arbitrary queued
