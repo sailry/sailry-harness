@@ -686,6 +686,26 @@ func (model *acpModel) finish(agent *acpAgent, digests []string, parser *acpPars
 	if rest != "" {
 		deltas = append(deltas, protocol.PluginModelAdapterWireDelta{Kind: "text", Data: &protocol.PluginModelAdapterWireDeltaTextPayload{Text: rest}})
 	}
+	if usage := prompted.Usage; usage != nil {
+		// The agent counts cached tokens beside its input and thought tokens
+		// inside its output; a prompt's input is all three input counts.
+		count := func(values ...*int64) *uint64 {
+			var total uint64
+			for _, value := range values {
+				if value != nil && *value > 0 {
+					total += uint64(*value)
+				}
+			}
+			if values[0] == nil {
+				return nil
+			}
+			return &total
+		}
+		deltas = append(deltas, protocol.PluginModelAdapterWireDelta{Kind: "usage", Data: &protocol.PluginModelAdapterWireDeltaUsagePayload{
+			InputTokens: count(usage.InputTokens, usage.CachedReadTokens, usage.CachedWriteTokens), OutputTokens: count(usage.OutputTokens),
+			CachedInputTokens: count(usage.CachedReadTokens), ReasoningTokens: count(usage.ThoughtTokens),
+		}})
+	}
 	if len(parser.calls) > 0 && reason == protocol.PluginModelAdapterWireFinishStop {
 		reason = protocol.PluginModelAdapterWireFinishToolCalls
 	}
