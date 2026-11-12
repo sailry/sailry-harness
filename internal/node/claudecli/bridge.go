@@ -106,6 +106,8 @@ type Bridge struct {
 	parked   map[string]chan Result
 	answered map[string]Result
 	listed   chan struct{}
+	// arrived, when set, is told each call as it parks.
+	arrived func(arrival)
 }
 
 // NewBridge listens in a new private folder under parent. A Unix socket path
@@ -277,6 +279,20 @@ func (bridge *Bridge) Listed(ctx context.Context, wait time.Duration) {
 	}
 }
 
+// report has the bridge tell each call as it parks.
+func (bridge *Bridge) report(arrived func(arrival)) {
+	bridge.mu.Lock()
+	bridge.arrived = arrived
+	bridge.mu.Unlock()
+}
+
+// listedNow reports whether Claude Code has listed the tools as they stand.
+func (bridge *Bridge) listedNow() bool {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	return bridge.listed == nil
+}
+
 // call parks one tools/call until its result arrives.
 func (bridge *Bridge) call(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	identity, _ := request.Params.Meta[callIdentity].(string)
@@ -292,9 +308,13 @@ func (bridge *Bridge) call(ctx context.Context, request *mcp.CallToolRequest) (*
 		waiting = make(chan Result, 1)
 		bridge.parked[identity] = waiting
 	}
+	arrived := bridge.arrived
 	bridge.mu.Unlock()
 	if ready {
 		return toolResult(result), nil
+	}
+	if arrived != nil {
+		arrived(arrival{identity: identity, name: request.Params.Name, arguments: request.Params.Arguments})
 	}
 	select {
 	case result = <-waiting:

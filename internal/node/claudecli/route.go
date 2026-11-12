@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/program"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -33,6 +35,14 @@ type Capture struct {
 	Pool *program.Pool
 	// Executable is the Sailry binary Claude Code starts as the tool relay.
 	Executable string
+	// Interactive runs the terminal interface where it can (interactive.go);
+	// print mode serves every other request.
+	Interactive bool
+}
+
+// stopped is the failure of a step whose request was cancelled.
+func stopped() error {
+	return &model.Failure{Kind: model.Cancelled, Message: "model request was cancelled"}
 }
 
 // errAbandoned ends a step whose consumer stopped reading.
@@ -60,6 +70,14 @@ type run struct {
 	taken    int
 	prefix   string
 	pending  []string
+
+	// The terminal interface's state; screen is nil in print mode.
+	screen *screen
+	calls  chan arrival
+	rows   chan struct{}
+	mu     sync.Mutex
+	// prompts counts the user messages the transcript holds.
+	prompts int
 }
 
 // close removes what the run keeps beside its process.
@@ -93,8 +111,8 @@ func (run *run) read() {
 }
 
 // follows reports whether the request goes on in this run.
-func (run *run) follows(request stepRequest) bool {
-	return request.key != "" && run.key == request.key && run.settings == request.settings &&
+func (run *run) follows(request stepRequest, interactive bool) bool {
+	return request.key != "" && run.key == request.key && run.settings == request.settings && (run.screen != nil) == interactive &&
 		continues(run.taken, run.prefix, run.pending, request.messages)
 }
 
@@ -173,10 +191,18 @@ func (*routeModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.Ob
 	return nil, &model.Failure{Kind: model.Unsupported, Message: "structured generation is not configured"}
 }
 
+// interactive reports whether the request runs in the terminal interface: a
+// conversation with tools and no file of its own, on a system with terminals.
+// A request without tools (a summary, a title) is a one-off print run, which
+// leaves no session in the user's Claude Code data.
+func (value *routeModel) interactive(request stepRequest) bool {
+	return value.capture.Interactive && program.Terminal && request.key != "" && !request.media
+}
+
 // lease takes the conversation's child when the request extends what it has
 // taken, else a new one told the whole conversation. A child the request
 // diverged from is ended.
-func (value *routeModel) lease(request stepRequest) (*program.Entry, *run, bool, error) {
+func (value *routeModel) lease(ctx context.Context, request stepRequest, interactive bool) (*program.Entry, *run, bool, error) {
 	command := value.capture.Program.Command
 	for {
 		fresh := false
@@ -185,13 +211,13 @@ func (value *routeModel) lease(request stepRequest) (*program.Entry, *run, bool,
 			switch {
 			case !ok || request.key == "" || current.key != request.key:
 				return 0
-			case current.follows(request):
+			case current.follows(request, interactive):
 				return 2
 			}
 			return 1
 		}, func() (*program.Process, any, error) {
 			fresh = true
-			process, started, err := value.start(request)
+			process, started, err := value.start(ctx, request, interactive)
 			return process, started, err
 		})
 		if errors.Is(err, program.ErrBusy) {
@@ -201,7 +227,7 @@ func (value *routeModel) lease(request stepRequest) (*program.Entry, *run, bool,
 			return nil, nil, false, err
 		}
 		current := entry.Value.(*run)
-		if fresh || current.follows(request) {
+		if fresh || current.follows(request, interactive) {
 			return entry, current, fresh, nil
 		}
 		value.capture.Pool.Release(entry, false)
@@ -209,7 +235,7 @@ func (value *routeModel) lease(request stepRequest) (*program.Entry, *run, bool,
 }
 
 // start launches a child for the request and tells it the whole conversation.
-func (value *routeModel) start(request stepRequest) (*program.Process, *run, error) {
+func (value *routeModel) start(ctx context.Context, request stepRequest, interactive bool) (*program.Process, *run, error) {
 	declared := value.capture.Program
 	if err := os.MkdirAll(value.capture.Scratch, 0o700); err != nil {
 		return nil, nil, err
@@ -228,6 +254,15 @@ func (value *routeModel) start(request stepRequest) (*program.Process, *run, err
 		if started.bridge, err = NewBridge(value.capture.Scratch); err != nil {
 			return fail(err)
 		}
+		if interactive {
+			started.calls = make(chan arrival, 16)
+			started.bridge.report(func(call arrival) {
+				select {
+				case started.calls <- call:
+				case <-started.done:
+				}
+			})
+		}
 		if _, err := started.bridge.SetTools(request.tools); err != nil {
 			return fail(&model.Failure{Kind: model.InvalidRequest, Message: err.Error()})
 		}
@@ -239,7 +274,7 @@ func (value *routeModel) start(request stepRequest) (*program.Process, *run, err
 			return fail(err)
 		}
 	}
-	spec := program.Spec{Command: declared.Command, Args: Arguments(settings), Dir: value.capture.Dir, Host: value.capture.Host,
+	spec := program.Spec{Command: declared.Command, Dir: value.capture.Dir, Host: value.capture.Host,
 		Env: map[string]string{}, Log: value.capture.Owner + "/" + declared.ID}
 	for _, entry := range value.capture.Host {
 		if name, text, ok := strings.Cut(entry, "="); ok && slices.Contains(passed, name) {
@@ -255,7 +290,16 @@ func (value *routeModel) start(request stepRequest) (*program.Process, *run, err
 	for name, text := range Environment() {
 		spec.Env[name] = text
 	}
-	process, err := program.Start(spec)
+	var process *program.Process
+	session := ""
+	if interactive {
+		session = uuid.NewString()
+		spec.Args, spec.Env["TERM"] = InteractiveArguments(settings, session), "xterm-256color"
+		process, err = program.StartTerminal(spec, screenColumns, screenRows)
+	} else {
+		spec.Args = Arguments(settings)
+		process, err = program.Start(spec)
+	}
 	if errors.Is(err, program.ErrNotInstalled) {
 		return fail(&model.Failure{Kind: model.NotConfigured, Message: fmt.Sprintf("%s is not installed or not on the search path", declared.Command)})
 	}
@@ -268,6 +312,21 @@ func (value *routeModel) start(request stepRequest) (*program.Process, *run, err
 		<-process.Done()
 		started.close()
 	}()
+	if interactive {
+		started.screen, started.rows = &screen{changed: make(chan struct{}, 1)}, make(chan struct{}, 1)
+		go started.screen.watch(struct {
+			io.Reader
+			io.Writer
+		}{process.Stdout, process.Stdin})
+		go started.follow(transcripts(value.capture.Host), session)
+		if err := value.ready(ctx, started); err != nil {
+			return process, nil, err
+		}
+		if err := value.send(ctx, started, replay(request.messages)); err != nil {
+			return process, nil, err
+		}
+		return process, started, nil
+	}
 	go started.read()
 	line, err := userLine(replay(request.messages))
 	if err == nil {
@@ -303,6 +362,9 @@ func (value *routeModel) resume(ctx context.Context, current *run, request stepR
 			current.bridge.Listed(ctx, listWait)
 		}
 	}
+	if len(current.pending) == 0 && current.screen != nil {
+		return value.send(ctx, current, following(users))
+	}
 	if len(current.pending) == 0 {
 		line, err := userLine(following(users))
 		if err == nil {
@@ -328,6 +390,10 @@ func (value *routeModel) resume(ctx context.Context, current *run, request stepR
 func (value *routeModel) ended(current *run) error {
 	current.process.Kill()
 	text := strings.TrimSpace(current.process.Diagnostic())
+	if current.screen != nil {
+		// A program in a terminal draws its error output.
+		text = current.screen.last()
+	}
 	classified := value.failure(text, 0)
 	if classified.Kind != model.Other {
 		return classified
@@ -349,9 +415,24 @@ func (value *routeModel) failure(text string, status int) *model.Failure {
 	return classified
 }
 
-// step runs one inference step: until Claude calls a Sailry tool or its turn ends.
+// step runs one inference step: until Claude calls a Sailry tool or its turn
+// ends. A step the terminal interface was refused for its content is asked
+// once more in print mode, when nothing of it was shown yet.
 func (value *routeModel) step(ctx context.Context, request stepRequest, yield func(fantasy.StreamPart) bool) error {
-	entry, current, fresh, err := value.lease(request)
+	interactive := value.interactive(request)
+	shown := false
+	err := value.attempt(ctx, request, interactive, func(part fantasy.StreamPart) bool {
+		shown = true
+		return yield(part)
+	})
+	if failure := new(model.Failure); interactive && !shown && errors.As(err, &failure) && failure.Kind == model.Quota {
+		return value.attempt(ctx, request, false, yield)
+	}
+	return err
+}
+
+func (value *routeModel) attempt(ctx context.Context, request stepRequest, interactive bool, yield func(fantasy.StreamPart) bool) error {
+	entry, current, fresh, err := value.lease(ctx, request, interactive)
 	if err != nil {
 		return err
 	}
@@ -385,7 +466,6 @@ func (value *routeModel) receive(ctx context.Context, current *run, request step
 		rejected bool
 		resets   time.Time
 	)
-	stopped := &model.Failure{Kind: model.Cancelled, Message: "model request was cancelled"}
 	part := func(kind fantasy.StreamPartType, index int) fantasy.StreamPart {
 		return fantasy.StreamPart{Type: kind, ID: fmt.Sprintf("claude-%d-%d", ordinal, index)}
 	}
@@ -419,12 +499,12 @@ func (value *routeModel) receive(ctx context.Context, current *run, request step
 		var open bool
 		select {
 		case <-ctx.Done():
-			return nil, stopped
+			return nil, stopped()
 		case batch, open = <-current.events:
 		}
 		if !open {
 			if ctx.Err() != nil {
-				return nil, stopped
+				return nil, stopped()
 			}
 			return nil, value.ended(current)
 		}

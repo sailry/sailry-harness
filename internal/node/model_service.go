@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,7 +26,7 @@ func (node *Node) newModel(ctx context.Context, binding model.Binding) (fantasy.
 		if captured, bound, err := node.captureProgramModel(ctx, binding); err != nil {
 			return nil, err
 		} else if bound && captured.adapter.ClaudeCode != nil {
-			capture, err := node.claudeCapture(captured)
+			capture, err := node.claudeCapture(ctx, captured)
 			if err != nil {
 				return nil, err
 			}
@@ -70,21 +71,7 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 		return captured, err
 	}
 	captured.Bundle = plugins.ScriptBundle{Entry: captured.Declaration.Script.Entry, Files: files}
-	// A setting is the user's current choice, so the installed package's
-	// values are read now, not those of the provider's captured revision.
-	captured.Settings = plugins.SettingDefaults(info.Settings)
-	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		current, err := store.ReadPlugin(ctx, db, selection.Package.Name)
-		if err != nil || current == nil || current.Settings == nil {
-			return err
-		}
-		resolved, err := store.ResolvePluginSettings(ctx, db, plugins.PackageReference(*current))
-		if err == nil {
-			captured.Settings = resolved.Values
-		}
-		return err
-	})
-	if err != nil {
+	if captured.Settings, err = node.packageSettings(ctx, selection.Package.Name, info.Settings); err != nil {
 		return captured, err
 	}
 	if binding.Provider.Authentication == protocol.AuthenticationApiKey {
@@ -107,12 +94,34 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 	return captured, nil
 }
 
+// packageSettings are a package's public setting values. A setting is the
+// user's current choice, so the installed package's values are read now, not
+// those of the provider's captured revision, whose defaults stand in for a
+// package that keeps none.
+func (node *Node) packageSettings(ctx context.Context, name string, captured *protocol.PluginSettingsSchema) (map[string]json.RawMessage, error) {
+	values := plugins.SettingDefaults(captured)
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadPlugin(ctx, db, name)
+		if err != nil || current == nil || current.Settings == nil {
+			return err
+		}
+		resolved, err := store.ResolvePluginSettings(ctx, db, plugins.PackageReference(*current))
+		if err == nil {
+			values = resolved.Values
+		}
+		return err
+	})
+	return values, err
+}
+
 // programModel is a captured adapter whose transport is a declared program.
 type programModel struct {
 	adapter protocol.PluginModelAdapterDeclaration
 	program protocol.PluginProgramDeclaration
 	// owner is the package; dir is the program's directory in its data.
 	owner, dir string
+	// settings is the captured revision's settings schema.
+	settings *protocol.PluginSettingsSchema
 }
 
 // captureProgramModel captures an adapter whose transport is a declared
@@ -153,7 +162,7 @@ func (node *Node) captureProgramModel(ctx context.Context, binding model.Binding
 		for _, declared := range info.Extension.Programs {
 			if declared.ID == name {
 				return programModel{adapter: declaration, program: declared, owner: info.Summary.Name,
-					dir: filepath.Join(node.profile.Ownership.Path, "plugins", "data", info.Summary.Name, "programs", declared.ID)}, true, nil
+					dir: filepath.Join(node.profile.Ownership.Path, "plugins", "data", info.Summary.Name, "programs", declared.ID), settings: info.Settings}, true, nil
 			}
 		}
 		return captured, false, unavailable
@@ -166,15 +175,23 @@ func (node *Node) agentCapture(captured programModel) model.ACPCapture {
 		Dir: captured.dir, Host: node.environment.TerminalValues(), Pool: node.plugins.programs}
 }
 
+// claudeTerminalSetting is the package setting that turns on the route's
+// terminal interface. It is off unless the user turns it on.
+const claudeTerminalSetting = "terminal"
+
 // claudeCapture is the capture of the Claude Code route. Its run files live
 // in the profile's scratch space, which the Node empties when it starts; the
 // tool relay is this executable in its hidden mode.
-func (node *Node) claudeCapture(captured programModel) (claudecli.Capture, error) {
+func (node *Node) claudeCapture(ctx context.Context, captured programModel) (claudecli.Capture, error) {
 	executable, err := os.Executable()
+	if err != nil {
+		return claudecli.Capture{}, err
+	}
+	settings, err := node.packageSettings(ctx, captured.owner, captured.settings)
 	if err != nil {
 		return claudecli.Capture{}, err
 	}
 	return claudecli.Capture{Adapter: captured.adapter, Program: captured.program, Owner: captured.owner, Dir: captured.dir,
 		Scratch: filepath.Join(node.profile.Ownership.Path, "tmp", "claude-cli"), Host: node.environment.TerminalValues(),
-		Pool: node.plugins.programs, Executable: executable}, nil
+		Pool: node.plugins.programs, Executable: executable, Interactive: string(settings[claudeTerminalSetting]) == "true"}, nil
 }

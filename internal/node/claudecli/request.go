@@ -27,15 +27,13 @@ type Settings struct {
 // reasoning shown as summaries.
 const childSettings = `{"disableDeepLinkRegistration":"disable","showThinkingSummaries":true}`
 
-// Arguments is the -p command line. docs/claude-cli.md records where each
-// flag was verified.
-func Arguments(settings Settings) []string {
+// shared are the arguments both modes take. docs/claude-cli.md records
+// where each flag was verified.
+func shared(settings Settings) []string {
 	arguments := []string{
-		"-p", "--input-format", "stream-json", "--output-format", "stream-json",
-		"--include-partial-messages", "--verbose",
 		"--model", settings.Model, "--tools", "", "--strict-mcp-config",
 		"--setting-sources", "", "--settings", childSettings, "--disable-slash-commands",
-		"--no-session-persistence", "--permission-mode", "dontAsk",
+		"--permission-mode", "dontAsk",
 	}
 	if settings.Config != "" {
 		arguments = append(arguments, "--mcp-config", settings.Config, "--allowedTools", "mcp__"+ServerName)
@@ -43,6 +41,15 @@ func Arguments(settings Settings) []string {
 	if settings.System != "" {
 		arguments = append(arguments, "--append-system-prompt-file", settings.System)
 	}
+	return arguments
+}
+
+// Arguments is the -p command line.
+func Arguments(settings Settings) []string {
+	arguments := append([]string{
+		"-p", "--input-format", "stream-json", "--output-format", "stream-json",
+		"--include-partial-messages", "--verbose", "--no-session-persistence",
+	}, shared(settings)...)
 	if settings.Effort != "" {
 		arguments = append(arguments, "--effort", settings.Effort, "--thinking-display", "summarized")
 	}
@@ -106,6 +113,9 @@ type stepRequest struct {
 	tools    []Tool
 	// names maps an offered tool name back to its declared one.
 	names map[string]string
+	// media reports a file among the conversation's own messages; the
+	// terminal interface takes text only.
+	media bool
 }
 
 func prepare(binding model.Binding, call fantasy.Call) (stepRequest, error) {
@@ -132,6 +142,13 @@ func prepare(binding model.Binding, call fantasy.Call) (stepRequest, error) {
 			continue
 		}
 		request.messages = append(request.messages, reduce(message))
+		if message.Role != fantasy.MessageRoleTool {
+			for _, part := range message.Content {
+				if _, file := fantasy.AsMessagePart[fantasy.FilePart](part); file {
+					request.media = true
+				}
+			}
+		}
 	}
 	if len(request.messages) == 0 {
 		return request, &model.Failure{Kind: model.InvalidRequest, Message: "model request has no message"}

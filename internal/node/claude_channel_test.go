@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -84,5 +85,29 @@ func TestClaudeCodeChannel(t *testing.T) {
 		t.Fatal("structured generation was accepted")
 	} else if failure := new(model.Failure); !errors.As(err, &failure) || failure.Kind != model.Unsupported {
 		t.Fatalf("structured generation: %v", err)
+	}
+
+	// The terminal interface is the user's to turn on in the package's settings.
+	terminal := func() bool {
+		t.Helper()
+		captured, bound, err := node.captureProgramModel(t.Context(), binding)
+		if err != nil || !bound {
+			t.Fatalf("capture: %v, %v", bound, err)
+		}
+		capture, err := node.claudeCapture(t.Context(), captured)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return capture.Interactive
+	}
+	if terminal() {
+		t.Fatal("the terminal interface is on by default")
+	}
+	commandFixture(t, node, protocol.Command{Kind: "save_plugin_settings", Data: protocol.CommandSavePluginSettingsPayload{
+		Package: *(**saved.Binding).Package, Values: map[string]json.RawMessage{"terminal": json.RawMessage(`true`)},
+		Secrets: map[string]protocol.PluginSettingsSecretUpdate{},
+	}})
+	if !terminal() {
+		t.Fatal("the saved setting did not turn the terminal interface on")
 	}
 }

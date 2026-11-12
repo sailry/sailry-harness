@@ -9,8 +9,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -49,6 +51,9 @@ func fixtureChild(socket string) {
 	if _, err := connection.Write(append(hello, '\n')); err != nil {
 		os.Exit(2)
 	}
+	if slices.Contains(os.Args, "--session-id") {
+		fixtureTerminal(connection)
+	}
 	go func() {
 		_, _ = io.Copy(connection, os.Stdin)
 		os.Exit(0)
@@ -64,6 +69,37 @@ func fixtureChild(socket string) {
 		if err != nil {
 			os.Exit(0)
 		}
+	}
+}
+
+// fixtureTerminal makes the child a terminal program: its keys arrive as they
+// are typed and go to the test a line per read.
+func fixtureTerminal(connection net.Conn) {
+	settings := exec.Command("/bin/stty", "raw", "-echo")
+	settings.Stdin = os.Stdin
+	if err := settings.Run(); err != nil {
+		os.Exit(4)
+	}
+	go func() {
+		keys := make([]byte, 64<<10)
+		for {
+			count, err := os.Stdin.Read(keys)
+			if count > 0 {
+				line, _ := json.Marshal(string(keys[:count]))
+				_, _ = connection.Write(append(line, '\n'))
+			}
+			if err != nil {
+				os.Exit(0)
+			}
+		}
+	}()
+	reader := bufio.NewReaderSize(connection, 1<<20)
+	for {
+		line, err := reader.ReadString('\n')
+		if _, exit := strings.CutPrefix(line, fixtureExit); exit || err != nil {
+			os.Exit(1)
+		}
+		_, _ = io.WriteString(os.Stdout, line)
 	}
 }
 
@@ -1130,4 +1166,381 @@ func TestDiscover(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != model.NotConfigured || !strings.Contains(failure.Message, "claude is not installed") {
 		t.Fatalf("discovery without the executable: %v", err)
 	}
+}
+
+// The terminal interface's side of fakeClaude.
+
+// option is the value of a launch argument.
+func (fake *fakeClaude) option(name string) string {
+	if index := slices.Index(fake.launch.Arguments, name); index >= 0 && index+1 < len(fake.launch.Arguments) {
+		return fake.launch.Arguments[index+1]
+	}
+	return ""
+}
+
+// list connects Claude Code's MCP client and lists the tools, as its
+// interface does while it draws its prompt.
+func (fake *fakeClaude) list() bool {
+	session, stop := connectClient(fake.ctx, fake.t, fake.directory())
+	if session == nil {
+		return false
+	}
+	go func() {
+		<-fake.closed
+		stop()
+	}()
+	fake.session = session
+	_, err := session.ListTools(fake.ctx, nil)
+	return err == nil
+}
+
+// pasted waits for one bracketed paste followed by Enter and returns its text.
+func (fake *fakeClaude) pasted() (string, bool) {
+	keys := ""
+	for {
+		if _, rest, found := strings.Cut(keys, "\x1b[200~"); found {
+			if text, after, ended := strings.Cut(rest, "\x1b[201~"); ended && strings.Contains(after, "\r") {
+				return text, true
+			}
+		}
+		raw, open := <-fake.inputs
+		if !open {
+			return "", false
+		}
+		var chunk string
+		if err := json.Unmarshal(raw, &chunk); err != nil {
+			fake.t.Errorf("keys line: %s", raw)
+			return "", false
+		}
+		keys += chunk
+	}
+}
+
+// write appends rows to the session's transcript where Claude Code keeps it.
+func (fake *fakeClaude) write(rows ...string) {
+	home := ""
+	for _, entry := range fake.launch.Environment {
+		if value, found := strings.CutPrefix(entry, "HOME="); found {
+			home = value
+		}
+	}
+	folder := filepath.Join(home, ".claude", "projects", "-sailry-programs-claude")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		fake.t.Error(err)
+		return
+	}
+	file, err := os.OpenFile(filepath.Join(folder, fake.option("--session-id")+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		fake.t.Error(err)
+		return
+	}
+	defer file.Close()
+	for _, row := range rows {
+		_, _ = io.WriteString(file, row+"\n")
+	}
+}
+
+// Transcript rows as Claude Code writes them: one per content block.
+func userRow(text string) string {
+	quoted, _ := json.Marshal(text)
+	return fmt.Sprintf(`{"type":"user","message":{"role":"user","content":%s}}`, quoted)
+}
+
+func blockRow(message, stop string, input, output int, block string) string {
+	reason := "null"
+	if stop != "" {
+		reason = fmt.Sprintf("%q", stop)
+	}
+	return fmt.Sprintf(`{"type":"assistant","message":{"id":%q,"model":"claude-test","stop_reason":%s,"usage":{"input_tokens":%d,"output_tokens":%d},"content":[%s]}}`, message, reason, input, output, block)
+}
+
+func textRow(message, stop string, input, output int, text string) string {
+	quoted, _ := json.Marshal(text)
+	return blockRow(message, stop, input, output, fmt.Sprintf(`{"type":"text","text":%s}`, quoted))
+}
+
+const turnEnded = `{"type":"system","subtype":"turn_duration","durationMs":10}`
+
+// interactiveRoute is newTestRoute with the terminal interface turned on and
+// its waits shortened.
+func interactiveRoute(t *testing.T, scripts ...func(*fakeClaude)) (*testRoute, *fakeLauncher) {
+	t.Helper()
+	if !program.Terminal {
+		t.Skip("this system gives a program no terminal")
+	}
+	settle, paste, ready := readySettle, pasteSettle, readyWait
+	readySettle, pasteSettle, readyWait = 10*time.Millisecond, 10*time.Millisecond, testWait
+	t.Cleanup(func() { readySettle, pasteSettle, readyWait = settle, paste, ready })
+	route, launcher := newTestRoute(t, scripts...)
+	route.capture.Interactive = true
+	return route, launcher
+}
+
+func TestInteractive(t *testing.T) {
+	t.Run("arguments", func(t *testing.T) {
+		arguments := InteractiveArguments(Settings{Model: "claude-test", Effort: "high", Config: `{"mcpServers":{}}`, System: "/tmp/system.md"}, "00000000-0000-4000-8000-000000000000")
+		joined := strings.Join(arguments, "\x00")
+		for _, want := range []string{
+			"--session-id\x0000000000-0000-4000-8000-000000000000", "--no-chrome", "--model\x00claude-test", "--tools\x00\x00--strict-mcp-config",
+			"--setting-sources\x00\x00--settings", "--permission-mode\x00dontAsk", "--allowedTools\x00mcp__sailry",
+			"--append-system-prompt-file\x00/tmp/system.md", "--effort\x00high",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("arguments lack %q: %q", want, arguments)
+			}
+		}
+		for _, refused := range []string{"-p", "--print", "--output-format", "--input-format", "--verbose", "--include-partial-messages",
+			"--no-session-persistence", "--thinking-display", "--dangerously-skip-permissions", "--system-prompt", "--bare", "--resume"} {
+			if slices.Contains(arguments, refused) {
+				t.Errorf("arguments contain %s", refused)
+			}
+		}
+	})
+
+	t.Run("a turn with a tool call, then a second turn in the same terminal", func(t *testing.T) {
+		second := make(chan string, 1)
+		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
+			if fake.option("--session-id") == "" || slices.Contains(fake.launch.Arguments, "-p") {
+				fake.t.Errorf("arguments = %q", fake.launch.Arguments)
+			}
+			fake.emit("\x1b[2J\x1b[1;1HWelcome to Claude Code", "\x1b[38;5;2m❯\x1b[0m ")
+			if !fake.list() {
+				return
+			}
+			text, ok := fake.pasted()
+			if !ok || text != "read it" {
+				fake.t.Errorf("pasted %q, %v", text, ok)
+				return
+			}
+			fake.write(userRow(text),
+				blockRow("m1", "", 20, 1, `{"type":"thinking","thinking":"which file"}`),
+				textRow("m1", "", 20, 1, "reading"))
+			result, ok := fake.call("toolu_1", "read", map[string]any{"path": "a"})
+			if !ok {
+				return
+			}
+			// Claude Code may write the calling block only after the call returned.
+			fake.write(blockRow("m1", "tool_use", 20, 9, `{"type":"tool_use","id":"toolu_1","name":"mcp__sailry__read","input":{"path":"a"}}`),
+				`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"x"}]}}`,
+				textRow("m2", "end_turn", 30, 4, "done: "+result), turnEnded)
+			text, ok = fake.pasted()
+			if !ok {
+				return
+			}
+			second <- text
+			fake.write(userRow(text), textRow("m3", "end_turn", 40, 2, "again"), turnEnded)
+			fake.pasted()
+		})
+		binding := testBinding()
+		tools := []fantasy.Tool{readTool}
+		first := userMessage("read it")
+		output := runStep(t, context.Background(), route, binding, fantasy.Call{Prompt: fantasy.Prompt{first}, Tools: tools})
+		if output.failure != nil {
+			t.Fatalf("failure: %v", output.failure)
+		}
+		// Whole messages, not deltas: the text before the call, then the call.
+		if output.text != "reading" || output.reasoning != "which file" || len(output.calls) != 1 || output.finish == nil || output.finish.FinishReason != fantasy.FinishReasonToolCalls {
+			t.Fatalf("first step = %+v", output)
+		}
+		if call := output.calls[0]; call.ID != "toolu_1" || call.ToolCallName != "read" || call.ToolCallInput != `{"path":"a"}` {
+			t.Fatalf("call = %+v", call)
+		}
+		prompt := fantasy.Prompt{first, callMessage(fantasy.ToolCallPart{ToolCallID: "toolu_1", ToolName: "read", Input: `{"path":"a"}`}), resultMessage("toolu_1", "alpha")}
+		output = runStep(t, context.Background(), route, binding, fantasy.Call{Prompt: prompt, Tools: tools})
+		if output.failure != nil {
+			t.Fatalf("failure: %v", output.failure)
+		}
+		if output.text != "done: alpha" || len(output.calls) != 0 || output.finish == nil || output.finish.FinishReason != fantasy.FinishReasonStop {
+			t.Fatalf("second step = %+v", output)
+		}
+		if usage := output.finish.Usage; usage.InputTokens != 30 || usage.OutputTokens != 4 {
+			t.Fatalf("usage = %+v", usage)
+		}
+		reply := fantasy.Message{Role: fantasy.MessageRoleAssistant, Content: []fantasy.MessagePart{fantasy.TextPart{Text: "done: alpha"}}}
+		prompt = append(prompt, reply, userMessage("and again"))
+		output = runStep(t, context.Background(), route, binding, fantasy.Call{Prompt: prompt, Tools: tools})
+		if output.failure != nil || output.text != "again" {
+			t.Fatalf("third step = %+v", output)
+		}
+		if told := <-second; told != "and again" {
+			t.Fatalf("second turn was told %q", told)
+		}
+		if launcher.count() != 1 {
+			t.Fatalf("%d children were launched", launcher.count())
+		}
+		child := launcher.child(0)
+		if !slices.Contains(child.launch.Environment, "TERM=xterm-256color") {
+			t.Fatalf("environment = %v", child.launch.Environment)
+		}
+	})
+
+	t.Run("text written after its call returned is dropped, not misplaced", func(t *testing.T) {
+		route, _ := interactiveRoute(t, func(fake *fakeClaude) {
+			fake.emit("❯ ")
+			if !fake.list() {
+				return
+			}
+			text, ok := fake.pasted()
+			if !ok {
+				return
+			}
+			fake.write(userRow(text))
+			result, ok := fake.call("toolu_1", "read", map[string]any{"path": "a"})
+			if !ok {
+				return
+			}
+			fake.write(textRow("m1", "", 20, 1, "late words"),
+				blockRow("m1", "tool_use", 20, 9, `{"type":"tool_use","id":"toolu_1","name":"mcp__sailry__read","input":{"path":"a"}}`),
+				textRow("m2", "end_turn", 30, 4, "done: "+result), turnEnded)
+			fake.pasted()
+		})
+		binding := testBinding()
+		tools := []fantasy.Tool{readTool}
+		first := userMessage("read it")
+		output := runStep(t, context.Background(), route, binding, fantasy.Call{Prompt: fantasy.Prompt{first}, Tools: tools})
+		if output.failure != nil || output.text != "" || len(output.calls) != 1 {
+			t.Fatalf("first step = %+v", output)
+		}
+		prompt := fantasy.Prompt{first, callMessage(fantasy.ToolCallPart{ToolCallID: "toolu_1", ToolName: "read", Input: `{"path":"a"}`}), resultMessage("toolu_1", "alpha")}
+		output = runStep(t, context.Background(), route, binding, fantasy.Call{Prompt: prompt, Tools: tools})
+		if output.failure != nil || output.text != "done: alpha" {
+			t.Fatalf("second step = %+v", output)
+		}
+	})
+
+	t.Run("the trust question is the user's to answer", func(t *testing.T) {
+		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
+			fake.emit("Do you trust this folder?", "❯ No, exit", "  Yes, I trust this folder")
+			// Any key Sailry pressed would arrive here.
+			if raw, open := <-fake.inputs; open {
+				fake.t.Errorf("a key was pressed on the trust question: %s", raw)
+			}
+		})
+		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}, Tools: []fantasy.Tool{readTool}})
+		requireFailure(t, output, model.NotConfigured, "Run claude once in that folder")
+		if !strings.Contains(output.failure.Message, route.capture.Dir) {
+			t.Fatalf("failure does not name the folder: %q", output.failure.Message)
+		}
+		waitClosed(t, launcher.child(0))
+	})
+
+	t.Run("a sign-in screen is not signed in", func(t *testing.T) {
+		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
+			fake.emit("Select login method:", "❯ 1. Claude account with subscription")
+			if raw, open := <-fake.inputs; open {
+				fake.t.Errorf("a key was pressed on the sign-in screen: %s", raw)
+			}
+		})
+		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}, Tools: []fantasy.Tool{readTool}})
+		requireFailure(t, output, model.Authentication, "not signed in: Run claude in a terminal and sign in")
+		waitClosed(t, launcher.child(0))
+	})
+
+	t.Run("a turn refused for its content is asked once in print mode", func(t *testing.T) {
+		const refusal = "API Error: 400 Third-party apps now draw from your extra usage, not your plan limits."
+		quoted, _ := json.Marshal(refusal)
+		route, launcher := interactiveRoute(t,
+			func(fake *fakeClaude) {
+				fake.emit("❯ ")
+				if !fake.list() {
+					return
+				}
+				text, ok := fake.pasted()
+				if !ok {
+					return
+				}
+				fake.write(userRow(text),
+					fmt.Sprintf(`{"type":"assistant","isApiErrorMessage":true,"apiErrorStatus":400,"message":{"id":"e1","model":"<synthetic>","content":[{"type":"text","text":%s}]}}`, quoted),
+					turnEnded)
+				fake.pasted()
+			},
+			func(fake *fakeClaude) {
+				if !slices.Contains(fake.launch.Arguments, "-p") {
+					fake.t.Errorf("fallback arguments = %q", fake.launch.Arguments)
+				}
+				fake.next()
+				fake.emit(messageStart("m1", 5, 0))
+				fake.emit(textBlock(0, "from print mode")...)
+				fake.emit(messageEnd("end_turn", 2)...)
+				fake.emit(turnSucceeded)
+				fake.next()
+			},
+			func(fake *fakeClaude) {
+				fake.next()
+				fake.emit(turnFailed(refusal, 400))
+				fake.next()
+			})
+		tools := []fantasy.Tool{readTool}
+		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}, Tools: tools})
+		if output.failure != nil || output.text != "from print mode" {
+			t.Fatalf("output = %+v", output)
+		}
+		if launcher.count() != 2 {
+			t.Fatalf("%d children were launched", launcher.count())
+		}
+		waitClosed(t, launcher.child(0))
+		// A refusal in print mode is the turn's failure; nothing asks again.
+		route.capture.Interactive = false
+		output = runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}, Tools: tools})
+		requireFailure(t, output, model.Quota, "Third-party apps")
+		if launcher.count() != 3 {
+			t.Fatalf("%d children were launched", launcher.count())
+		}
+	})
+
+	t.Run("a request without tools is a print run", func(t *testing.T) {
+		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
+			fake.next()
+			fake.emit(messageStart("m1", 5, 0))
+			fake.emit(textBlock(0, "a title")...)
+			fake.emit(messageEnd("end_turn", 2)...)
+			fake.emit(turnSucceeded)
+			fake.next()
+		})
+		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("name it")}})
+		if output.failure != nil || output.text != "a title" {
+			t.Fatalf("output = %+v", output)
+		}
+		if arguments := launcher.child(0).launch.Arguments; !slices.Contains(arguments, "-p") || !slices.Contains(arguments, "--no-session-persistence") {
+			t.Fatalf("arguments = %q", arguments)
+		}
+	})
+
+	t.Run("stopping a step ends the terminal", func(t *testing.T) {
+		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
+			fake.emit("❯ ")
+			if !fake.list() {
+				return
+			}
+			text, ok := fake.pasted()
+			if !ok {
+				return
+			}
+			fake.write(userRow(text), textRow("m1", "", 5, 1, "partial"), blockRow("m1", "", 5, 1, `{"type":"tool_use","id":"toolu_own","name":"Other","input":{}}`))
+			fake.pasted()
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stream, err := route.Model(testBinding()).Stream(ctx, fantasy.Call{Prompt: fantasy.Prompt{userMessage("long task")}, Tools: []fantasy.Tool{readTool}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var failure *model.Failure
+		text := ""
+		for part := range stream {
+			switch part.Type {
+			case fantasy.StreamPartTypeTextDelta:
+				text += part.Delta
+				cancel()
+			case fantasy.StreamPartTypeError:
+				if !errors.As(part.Error, &failure) {
+					t.Fatalf("error = %v", part.Error)
+				}
+			}
+		}
+		if text != "partial" || failure == nil || failure.Kind != model.Cancelled {
+			t.Fatalf("text %q, failure %+v", text, failure)
+		}
+		waitClosed(t, launcher.child(0))
+	})
 }

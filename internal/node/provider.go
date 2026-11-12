@@ -57,7 +57,7 @@ func (node *Node) discoverPackageModels(ctx context.Context, binding model.Bindi
 		return protocol.ConversationDiscoveryCatalog{}, err
 	case bound && captured.adapter.ClaudeCode != nil:
 		// Claude Code's models are the package's; no process starts.
-		capture, err := node.claudeCapture(captured)
+		capture, err := node.claudeCapture(ctx, captured)
 		if err != nil {
 			return protocol.ConversationDiscoveryCatalog{}, err
 		}
