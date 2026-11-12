@@ -8,7 +8,7 @@
 # -artifacts is the CI native job's directory of the Windows iroh and capture
 # libraries, which only Windows builds.
 #
-# .runtime/b14/out/windows-amd64 receives the application directory, the
+# .runtime/package/out/windows-amd64 receives the application directory, the
 # installer Sailry-x86_64-pc-windows-msvc-setup.exe and the portable
 # Sailry-x86_64-pc-windows-msvc.zip, whose top folder is Sailry. Nothing is
 # code signed.
@@ -25,13 +25,13 @@ unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 platform=windows/amd64
 triple=x86_64-pc-windows-msvc
-out=.runtime/b14/out/windows-amd64
+out=.runtime/package/out/windows-amd64
 resources=cmd/sailry-desktop/resources/windows-amd64
 installer=$out/Sailry-$triple-setup.exe
 portable=$out/Sailry-$triple.zip
 
 go run ./native/fetch -target "$platform" -artifacts "$2" -bundle "$resources"
-go build -o .runtime/b14/bin/mygo github.com/egoist/mygo/cmd/mygo
+go build -o .runtime/package/bin/mygo github.com/egoist/mygo/cmd/mygo
 
 # Everything the package ships is staged before the build, because the build
 # also writes the installer: the dependency notices, the build record and the
@@ -54,7 +54,7 @@ test -z "${SAILRY_SENTRY_DSN:-}" || flags="$flags -X $telemetry.BuildDSN=$SAILRY
 test -z "${SAILRY_TELEMETRY_KEY:-}" || flags="$flags -X $telemetry.BuildKey=$SAILRY_TELEMETRY_KEY"
 
 rm -rf -- "$out"
-MYGO_LDFLAGS=$flags .runtime/b14/bin/mygo build -platform "$platform" cmd/sailry-desktop
+MYGO_LDFLAGS=$flags .runtime/package/bin/mygo build -platform "$platform" cmd/sailry-desktop
 for name in Sailry.exe native-seal.json build.json; do
   test -f "$out/$name" || { echo "the package has no $name" >&2; exit 1; }
 done

@@ -295,7 +295,7 @@ the portable `Sailry-x86_64-pc-windows-msvc.zip`.
 unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 bash cmd/sailry-desktop/macos/package.sh                    # ad hoc, not notarized
-go run ./native/fetch -seal .runtime/b14/out/darwin-arm64/Sailry.app   # the seal step alone
+go run ./native/fetch -seal .runtime/package/out/darwin-arm64/Sailry.app   # the seal step alone
 ```
 
 `go run ./native/fetch -seal <path> [-sign <identity>] [-host]` is the step

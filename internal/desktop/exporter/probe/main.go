@@ -21,9 +21,9 @@ import (
 func main() {
 	previewOnly := flag.Bool("preview", false, "Capture an opaque authored preview")
 	flag.Parse()
-	destination := ".runtime/b4/export"
+	destination := ".runtime/exporter/export"
 	if *previewOnly {
-		destination = ".runtime/b5/preview"
+		destination = ".runtime/exporter/preview"
 	}
 	directory, err := filepath.Abs(destination)
 	if err != nil {
