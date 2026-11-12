@@ -166,6 +166,14 @@ func TestAgentStatistics(t *testing.T) {
 						usage.Totals.Cost == nil || usage.Totals.Cost.UsdMicros != 357 || len(usage.Groups) != 1 || len(usage.Requests.Items) != 1 || usage.PricingUpdatedAtMs == nil || *usage.PricingUpdatedAtMs != 1234 {
 						t.Fatalf("usage report = %#v", output)
 					}
+					// Grouping by project labels the group, not the request's provider.
+					query.Dimension = protocol.UsageDimensionProject
+					if output, err = ReadAgentCommand(ctx, db, node, protocol.Command{Kind: "read_usage", Data: &query}); err != nil {
+						return fmt.Errorf("read_usage by project: %w", err)
+					}
+					if usage = output.Data.(protocol.UsageReport); len(usage.Requests.Items) != 1 || usage.Requests.Items[0].ProviderName != "Fixture" {
+						return fmt.Errorf("project report requests = %#v", usage.Requests.Items)
+					}
 					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
 						return err
 					}

@@ -68,13 +68,15 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 	}
 	if pr.Actions != nil && pr.Data.Files != nil && len(pr.Data.Files.Children) == 0 {
 		state := v.directories[""]
-		if state.Loading {
-			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
-			return
-		}
+		// A folder read before stays as it is while it is read again: the
+		// loader is for the first read alone, or every refresh would flash.
 		if state.Loaded && !state.Failed {
 			kit.Result(c, kit.ResultProps{Icon: icons.Folder, Title: i18n.T(c, "files_directory_empty")}).Grow(1).Justify(ui.Center)
 			pr.directoryTail(c, "")
+			return
+		}
+		if state.Loading {
+			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
 			return
 		}
 	}

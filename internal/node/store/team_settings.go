@@ -37,7 +37,7 @@ func ReadTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Command
 	}
 	return protocol.Output{}, invalid("unsupported team read")
 }
-func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, command protocol.Command) (protocol.Output, []protocol.Event, error) {
+func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Command) (protocol.Output, []protocol.Event, error) {
 	switch v := command.Data.(type) {
 	case *protocol.CommandPutRolePayload:
 		value, err := putRole(ctx, db, v.Role, v.ExpectedRevision)
@@ -126,6 +126,5 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 		_, err = db.ExecContext(ctx, "INSERT INTO team_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
 		return protocol.Output{Kind: "team_settings", Data: value}, []protocol.Event{{Kind: "team_settings_changed", Data: protocol.EventTeamSettingsChangedPayload{Revision: value.Revision}}}, err
 	}
-	_ = node
 	return protocol.Output{}, nil, invalid("unsupported team command")
 }

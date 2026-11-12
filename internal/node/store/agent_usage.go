@@ -167,10 +167,11 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			group = &g
 			groups[keyText] = group
 		}
-		name := row.provider
+		providerName := row.provider
 		if row.providerName.Valid {
-			name = row.providerName.String
+			providerName = row.providerName.String
 		}
+		name := providerName
 		if index == 2 {
 			name = row.scope
 		}
@@ -230,7 +231,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		request.ScopeName = row.scope
 		request.Worktree = worktree
 		request.Provider = provider
-		request.ProviderName = name
+		request.ProviderName = providerName
 		request.Model = row.model
 		request.Tokens = row.tokens
 		request.ElapsedUs = elapsed

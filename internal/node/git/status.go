@@ -165,7 +165,6 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 			}
 		}
 	}
-	times := map[string]int64{}
 	filtered := result.Entries[:0]
 	// Line statistics share the status deadline with Git itself. Past their
 	// share the remaining entries keep the uncounted marker they were parsed with.
@@ -201,7 +200,6 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		}
 		info, statErr := os.Lstat(path)
 		if statErr == nil {
-			times[entry.Path] = info.ModTime().UnixMilli()
 			if info.ModTime().UnixMilli() >= 0 {
 				entry.ModifiedMs = ptr(uint64(info.ModTime().UnixMilli()))
 			}
@@ -244,9 +242,6 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		filtered = append(filtered, entry)
 	}
 	result.Entries = filtered
-	s.mu.Lock()
-	s.times[root] = times
-	s.mu.Unlock()
 	return result, nil
 }
 

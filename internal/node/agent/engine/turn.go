@@ -151,7 +151,7 @@ func (r *Runtime) execute(x *execution) {
 	}
 	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
 	if successor != nil {
-		next := &delegatedChild{parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true}
+		next := &delegatedChild{root: child.root, parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true}
 		r.mu.Lock()
 		child.successor = next
 		delete(r.children, child.turn)

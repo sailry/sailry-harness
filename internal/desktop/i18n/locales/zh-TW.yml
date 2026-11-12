@@ -985,8 +985,6 @@ settings_runtime: 執行環境
 settings_runtime_description: 設定目前節點
 settings_save: 儲存
 settings_seconds: '%{count} 秒'
-settings_session_order: 會話排序
-settings_sessions: 會話列表
 settings_shortcuts_description: 檢視應用全域性命令與鍵盤快捷鍵
 settings_sidebar_metrics: 效能指示器
 settings_skills_description: 管理可供會話使用的技能

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -335,14 +334,4 @@ func (s *Service) Output(root string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.journal[root]
-}
-func publicRemoteURL(value string) string {
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return ""
-	}
-	parsed.User = nil
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String()
 }

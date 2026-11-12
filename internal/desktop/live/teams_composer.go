@@ -176,8 +176,12 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 		if exists {
 			r.applyTeamComposer(comp, session, ctx.Models)
 		} else {
-			if comp.Team == "" {
-				comp.Team = defaultTeamID
+			// A new conversation starts as the last message was sent: with
+			// that team while it exists, else with one model, as a new
+			// profile does.
+			comp.Team = ""
+			if saved := r.localRuntime().Preferences.Data.Composer; saved != nil && slices.ContainsFunc(ctx.Teams, func(team composer.Team) bool { return team.ID == saved.Team }) {
+				comp.Team = saved.Team
 			}
 			comp.MemberModels = map[string]*composer.MemberModel{}
 			for _, role := range snapshot.Roles {

@@ -129,20 +129,6 @@ func TestRetryTransient(t *testing.T) {
 			}
 		}
 	})
-	// The wait is fixed: a provider's Retry-After neither shortens nor
-	// lengthens it.
-	t.Run("retry_after_is_not_followed", func(t *testing.T) {
-		for _, after := range []time.Duration{time.Second, 7 * time.Second, time.Hour, 0, -time.Second} {
-			t.Run(after.String(), func(t *testing.T) {
-				limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: RateLimited, Message: "slow down", RetryAfter: &after}}
-				fake := &policyModel{responses: [][]fantasy.StreamPart{{limited}, {textPart("result"), finishPart()}}}
-				timer := &policyClock{}
-				if err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, nil); err != nil || len(timer.delays) != 1 || timer.delays[0] != 60*time.Second {
-					t.Fatalf("delays=%v error=%v", timer.delays, err)
-				}
-			})
-		}
-	})
 	t.Run("summary_discards_failed_output", func(t *testing.T) {
 		fake := &policyModel{responses: [][]fantasy.StreamPart{{textPart("discard"), errorPart(Network)}, {textPart("keep"), finishPart()}}}
 		var texts []string
@@ -227,7 +213,7 @@ func TestErrorMapping(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			raw, _ := json.Marshal(map[string]any{"error": map[string]any{"code": row.code, "message": "private-long and private"}})
 			failure := Classify(&fantasy.ProviderError{Message: "failed", StatusCode: row.status, ResponseBody: raw, ResponseHeaders: map[string]string{"retry-after": "7"}}, protocol.NewSecret("private"), protocol.NewSecret("private-long"))
-			if failure.Kind != row.kind || strings.Contains(failure.Message, "private") || failure.RetryAfter == nil || *failure.RetryAfter != 7*time.Second {
+			if failure.Kind != row.kind || strings.Contains(failure.Message, "private") {
 				t.Fatalf("classification = %+v", failure)
 			}
 			fault := Fault(failure)
@@ -248,13 +234,6 @@ func TestErrorMapping(t *testing.T) {
 		failure := Classify(&fantasy.ProviderError{StatusCode: 400, ResponseBody: []byte(`{"response":{"error":{"code":"invalid_request","message":"nested diagnostic"}}}`)})
 		if !strings.Contains(failure.Message, "nested diagnostic") {
 			t.Fatalf("diagnostic = %s", failure.Message)
-		}
-	})
-	t.Run("retry_date", func(t *testing.T) {
-		now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-		duration := parseRetryAfter("Fri, 02 Jan 2026 03:04:12 GMT", now)
-		if duration == nil || *duration != 7*time.Second {
-			t.Fatalf("date delay = %v", duration)
 		}
 	})
 }

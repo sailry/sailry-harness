@@ -264,6 +264,7 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 	}
 	s.syncReferences()
 	s.dropChipped(actions)
+	s.offer(ctx.Interactions.Approvals)
 	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
 		s.activity(c, ctx, actions)
 		// the queue tray and the reference picker over the surface, the context bar

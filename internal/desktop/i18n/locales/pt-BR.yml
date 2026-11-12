@@ -985,8 +985,6 @@ settings_runtime: Ambiente de execução
 settings_runtime_description: Configurar este nó
 settings_save: Salvar
 settings_seconds: '%{count} segundos'
-settings_session_order: Ordem das sessões
-settings_sessions: Sessões
 settings_shortcuts_description: Ver comandos globais e atalhos de teclado
 settings_sidebar_metrics: Indicador de desempenho
 settings_skills_description: Gerir competências disponíveis para sessões

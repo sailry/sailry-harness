@@ -985,8 +985,6 @@ settings_runtime: Среда выполнения
 settings_runtime_description: Настройка этого узла
 settings_save: Сохранить
 settings_seconds: '%{count} секунд'
-settings_session_order: Порядок сеансов
-settings_sessions: Сеансы
 settings_shortcuts_description: Просмотр глобальных команд и сочетаний клавиш
 settings_sidebar_metrics: Индикатор производительности
 settings_skills_description: Управление навыками, доступными для сеансов

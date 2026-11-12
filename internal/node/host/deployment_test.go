@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -174,4 +176,20 @@ func TestSSHInstallationContracts(t *testing.T) {
 			})
 		}
 	})
+}
+
+// A target without python3 fails the staging command with the cause, before
+// a staging directory exists.
+func TestStageCommandRequiresPython(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the staging command runs in a POSIX shell")
+	}
+	command := exec.Command("/bin/sh", "-c", stageCommand)
+	command.Env = []string{"PATH=" + t.TempDir()}
+	var stderr strings.Builder
+	command.Stderr = &stderr
+	output, err := command.Output()
+	if err == nil || len(output) != 0 || !strings.Contains(stderr.String(), "python3 is required") {
+		t.Fatalf("staging without python3: %v, %q, %q", err, output, stderr.String())
+	}
 }
