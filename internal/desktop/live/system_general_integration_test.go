@@ -305,7 +305,7 @@ func menuItem(items []*mygo.MenuItem, id string) *mygo.MenuItem {
 	return nil
 }
 
-// TestSystemGeneralUI is the B13 acceptance of Settings › General's power
+// TestSystemGeneralUI is the acceptance of Settings › General's power
 // and diagnostics groups and of Help › Logs: SGEN-002 (power), SGEN-011,
 // SGEN-012 and SHELL-068, with the telemetry switches.
 //

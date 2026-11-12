@@ -6,7 +6,7 @@
   "copyright": "Copyright © 2026 Sailry",
   "icon": "../../assets/branding/sailry.png",
   "main": ".",
-  "out": "../../.runtime/b14/out",
+  "out": "../../.runtime/package/out",
   "macos": {
     "minimumSystemVersion": "13.0",
     "entitlements": "macos/app.entitlements.plist",

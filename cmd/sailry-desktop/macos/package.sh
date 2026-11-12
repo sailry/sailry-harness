@@ -8,7 +8,7 @@
 # -artifacts is the CI native job's directory of iroh and capture libraries;
 # without it the libraries already built in .runtime/native are used.
 #
-# .runtime/b14/out/darwin-<arch> receives Sailry.app, the disk image
+# .runtime/package/out/darwin-<arch> receives Sailry.app, the disk image
 # Sailry-<triple>.dmg and Sailry-<triple>-unsigned.zip, the archive of the
 # finished application that the update feed command signs.
 #
@@ -65,7 +65,7 @@ case "$(uname -m)" in
   *) echo 'unsupported architecture' >&2; exit 1 ;;
 esac
 platform=darwin/$arch
-out=.runtime/b14/out/darwin-$arch
+out=.runtime/package/out/darwin-$arch
 app=$out/Sailry.app
 image=$out/Sailry-$triple.dmg
 update=$out/Sailry-$triple-unsigned.zip
@@ -86,7 +86,7 @@ if test -n "${APPLE_SIGNING_KEYCHAIN:-}"; then
 fi
 
 go run ./native/fetch -target "$platform" ${artifacts[@]+"${artifacts[@]}"} -bundle "$resources"
-go build -o .runtime/b14/bin/mygo github.com/egoist/mygo/cmd/mygo
+go build -o .runtime/package/bin/mygo github.com/egoist/mygo/cmd/mygo
 
 # Shipped beside the runtimes: the dependency notices and the build record
 # the updater requires of every package it installs.
@@ -109,7 +109,7 @@ test -z "${SAILRY_TELEMETRY_KEY:-}" || flags="$flags -X $telemetry.BuildKey=$SAI
 rm -rf -- "$app" "$image" "$update"
 # mygo signs nested code and the bundle. Notarization and the disk image
 # follow the seal, which changes the bundle after mygo has signed it.
-MYGO_LDFLAGS=$flags .runtime/b14/bin/mygo build -platform "$platform" -sign "$identity" -skip-notarize -skip-dmg cmd/sailry-desktop
+MYGO_LDFLAGS=$flags .runtime/package/bin/mygo build -platform "$platform" -sign "$identity" -skip-notarize -skip-dmg cmd/sailry-desktop
 test -d "$app"
 
 # mygo names the executable after the product. The updater, like every

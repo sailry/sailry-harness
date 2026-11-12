@@ -277,7 +277,7 @@ func (w *terminalUI) close() {
 	_ = w.controller.Close()
 }
 
-// TestLiveTerminalIntegration is the B10 terminal acceptance against a real
+// TestLiveTerminalIntegration is the terminal acceptance against a real
 // Node and real PTYs: creation by the shortcut, input and output, the folder
 // label, split panes, pane and terminal closing, reattachment by a new
 // window and the Node's terminal settings. terminalFindAndSettings goes on

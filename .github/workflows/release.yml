@@ -128,7 +128,7 @@ jobs:
           TRIPLE: ${{ matrix.triple }}
         run: |
           mkdir -p .runtime/release
-          cp ".runtime/b14/out/$TARGET/Sailry-$TRIPLE.dmg" ".runtime/b14/out/$TARGET/Sailry-$TRIPLE-unsigned.zip" \
+          cp ".runtime/package/out/$TARGET/Sailry-$TRIPLE.dmg" ".runtime/package/out/$TARGET/Sailry-$TRIPLE-unsigned.zip" \
             ".runtime/host/$TRIPLE/sailry-host-$TRIPLE.tar.gz" ".runtime/host/$TRIPLE/SHA256SUMS-$TRIPLE" .runtime/release/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -172,8 +172,8 @@ jobs:
         run: |
           bash cmd/sailry-desktop/windows/package.sh -artifacts "$RUNNER_TEMP/native"
           mkdir -p .runtime/release
-          cp .runtime/b14/out/windows-amd64/Sailry-x86_64-pc-windows-msvc-setup.exe \
-            .runtime/b14/out/windows-amd64/Sailry-x86_64-pc-windows-msvc.zip .runtime/release/
+          cp .runtime/package/out/windows-amd64/Sailry-x86_64-pc-windows-msvc-setup.exe \
+            .runtime/package/out/windows-amd64/Sailry-x86_64-pc-windows-msvc.zip .runtime/release/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows

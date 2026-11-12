@@ -29,7 +29,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// acceptanceWait bounds every wait of the B12 acceptance tests that does not
+// acceptanceWait bounds every wait of the acceptance tests that does not
 // load a local model.
 const acceptanceWait = 15 * time.Second
 

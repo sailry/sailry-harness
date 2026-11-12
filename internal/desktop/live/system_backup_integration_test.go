@@ -281,7 +281,7 @@ func backupUISealedFiles(t *testing.T, root string, plain ...string) (sealed, fi
 	return sealed, files
 }
 
-// TestSystemBackupUI is the B13 acceptance of Settings › Backup against a
+// TestSystemBackupUI is the acceptance of Settings › Backup against a
 // real Node: SBAK-001 to SBAK-021.
 //
 // Substitutions: the native save panel and file picker are the Runtime's own

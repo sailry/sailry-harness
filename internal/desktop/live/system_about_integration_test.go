@@ -31,7 +31,7 @@ func topButton(w *terminalUI, name string, count int) (ui.AccessInfo, bool) {
 	return found[0], true
 }
 
-// TestSystemAboutUI is the B13 acceptance of Settings › About against the
+// TestSystemAboutUI is the acceptance of Settings › About against the
 // real update service: SABOUT-001 to SABOUT-007, SABOUT-010 and SABOUT-011.
 //
 // Substitutions: the release source is updater.FixtureFeed, a loopback feed
