@@ -323,10 +323,13 @@ type Model struct {
 
 	// Runtime and OCR (runtime/*, models/*).
 	PythonVersion string
-	Indexes       []string
-	Python        Stored[Python]
-	OCR           LocalModels
-	Knowledge     LocalModels // embedding models (knowledge-settings)
+	// PythonPreparing are the packages whose Python dependencies the Node
+	// is preparing now, with the stage each is at.
+	PythonPreparing []PythonPreparation
+	Indexes         []string
+	Python          Stored[Python]
+	OCR             LocalModels
+	Knowledge       LocalModels // embedding models (knowledge-settings)
 	// Collections are the selected host's knowledge collections; the
 	// preview has none.
 	Collections []viewmodel.KnowledgeCollection

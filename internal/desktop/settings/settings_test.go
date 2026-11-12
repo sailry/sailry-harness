@@ -2066,6 +2066,25 @@ func TestExtensions(t *testing.T) {
 	})
 	// An update that asks for more than the installed version has says so,
 	// in the review and on the details' newest version.
+	// The Runtime page names each package whose Python dependencies are
+	// being prepared with its stage, and no row when none is.
+	t.Run("python preparing", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		tt := ui.NewTesterWith(func(c *ui.Context) { runtimePage(c, m) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		title := i18n.In("en", "runtime_python_preparing")
+		if tt.HasText(title) {
+			t.Fatalf("an idle Node shows the row: %q", tt.Texts())
+		}
+		m.PythonPreparing = []PythonPreparation{{Package: "charts", Stage: "installing"}, {Package: "ocr", Stage: "validating"}}
+		tt.Frame()
+		for _, want := range []string{title, "charts", i18n.In("en", "python_installing"), "ocr", i18n.In("en", "python_validating")} {
+			if !tt.HasText(want) {
+				t.Fatalf("no %q: %q", want, tt.Texts())
+			}
+		}
+	})
 	t.Run("update permissions", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		s := &State{Model: m}

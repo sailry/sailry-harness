@@ -421,6 +421,17 @@ hover style.
   Node or project it failed for. The reference offers Reload on some of
   these; our pages read again by themselves after such a save. A conflict
   toast has no action.
+- Runtime, Preparing: while the shown Node prepares packages' Python
+  dependencies the Python card has a Preparing row naming each package and
+  its stage (`runtime_python_preparing`, `python_creating`,
+  `python_installing`, `python_validating`), from the Node's `python`
+  topic (`Runtime.observePython`), as the reference's Runtime page. The
+  reference's same stage on a plugin's row is not shown. A stage this
+  build does not name is left out.
+- The `provider` slot is not mounted: a package's metric on a provider's
+  row (`provider-status`, `workbuddy`) needs the provider-context reads
+  (`sailry/ui.readProviderContexts`, `nextProviderContexts`) and a
+  provider-surface registry on the Providers page, which are not built.
 - Teams: the model field is a select of Follow and the enabled channels'
   models with an effort select and one select per feature the model
   declares (Auto follows, Off, the feature's options; `Role.Features`,

@@ -2229,3 +2229,7 @@ content_link_address: リンクアドレス
 content_link_edit: リンクを編集
 content_image_address: 画像アドレス
 content_image_alt: 代替テキスト
+runtime_python_preparing: 準備中
+python_creating: 依存関係を準備中
+python_installing: 依存関係をインストール中
+python_validating: 依存関係を確認中

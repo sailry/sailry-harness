@@ -2229,3 +2229,7 @@ content_link_address: 링크 주소
 content_link_edit: 링크 편집
 content_image_address: 이미지 주소
 content_image_alt: 대체 텍스트
+runtime_python_preparing: 준비 중
+python_creating: 의존성 준비 중
+python_installing: 의존성 설치 중
+python_validating: 의존성 확인 중

@@ -537,6 +537,12 @@ func (r *Runtime) failPluginView(view *ui.Context, mounted *pluginMountedView, f
 		return
 	}
 	root.pluginViews.failures[mounted.key] = signature
+	// A view that could not start is the Node's notice too; a callback's
+	// failure is reported by the Node that ran it.
+	if title == "plugin_initialization_failed" && mounted.owner != nil {
+		mounted.owner.reportDiagnostic(pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginInitialization,
+			signature.code, mounted.scope.Package.Name, mounted.info.Summary.Version, "view_initialize", mounted.scope))
+	}
 	view.AddToast(ui.Toast{
 		Type: "error", Title: i18n.T(view, title), Description: failure.Error(), Timeout: -1,
 		Action: i18n.T(view, "chat_retry"), OnAction: func() {

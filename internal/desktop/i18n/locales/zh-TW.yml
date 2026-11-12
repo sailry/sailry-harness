@@ -2229,3 +2229,7 @@ content_link_address: 連結位址
 content_link_edit: 編輯連結
 content_image_address: 圖片位址
 content_image_alt: 替代文字
+runtime_python_preparing: 正在準備
+python_creating: 準備相依套件
+python_installing: 安裝相依套件
+python_validating: 檢查相依套件

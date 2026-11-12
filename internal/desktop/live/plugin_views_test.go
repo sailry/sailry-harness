@@ -489,3 +489,31 @@ func testPluginViewOwnership(t *testing.T) {
 		}
 	})
 }
+
+// A failed metadata read or view start is reported in the shape the Node
+// records: a failure of its own phase, coded, naming the package only with
+// a version, and placed where the view was.
+func testPluginDiagnostic(t *testing.T) {
+	version, session, worktree := "1.2.0", protocol.NewSessionID(), protocol.NewWorktreeID()
+	scope := protocol.PluginContext{Session: &session, Worktree: &worktree}
+	started := pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginInitialization, "", "notes", &version, "view_initialize", scope)
+	if started.Phase != protocol.NotificationSystemDiagnosticPhaseInitialization || started.Reason != protocol.NotificationSystemDiagnosticReasonFailure ||
+		started.Code != protocol.ErrorCodeInternal || started.Plugin == nil || *started.Plugin != (protocol.NotificationSystemDiagnosticPlugin{Name: "notes", Version: version}) ||
+		started.Session == nil || *started.Session != session || started.Worktree == nil || *started.Worktree != worktree ||
+		started.Operation == nil || *started.Operation != "view_initialize" || started.Version == "" || started.Platform == "" || started.Incident == (protocol.RequestID{}) {
+		t.Fatalf("initialization report = %#v", started)
+	}
+	read := pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginMetadata, protocol.ErrorCodeNotFound, "notes", nil, "metadata_read", protocol.PluginContext{})
+	if read.Phase != protocol.NotificationSystemDiagnosticPhaseMetadata || read.Code != protocol.ErrorCodeNotFound || read.Plugin != nil || read.Session != nil || read.Incident == started.Incident {
+		t.Fatalf("metadata report = %#v", read)
+	}
+	// The command is one the protocol decodes strictly.
+	encoded, err := json.Marshal(protocol.Command{Kind: "report_diagnostic", Data: started})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded protocol.Command
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("the Node would refuse the report: %v", err)
+	}
+}

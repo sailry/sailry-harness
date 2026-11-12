@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -33,6 +34,56 @@ func (r *Runtime) observeInstallations() {
 			r.enqueue(func(*ui.Context) { state.connected, state.tasks = true, value.Tasks })
 		}
 	})
+}
+
+// observePython follows the Node's Python topic: the packages whose
+// dependencies it prepares now, shown on the Runtime page of the Node the
+// settings show (settings/runtime/view.rs). A stream that ends leaves none.
+func (r *Runtime) observePython() {
+	state := r.packages
+	show := func(preparations []settings.PythonPreparation) {
+		r.enqueue(func(*ui.Context) {
+			if r.packages != state {
+				return
+			}
+			state.preparations = preparations
+			if root := r.localRuntime(); root.packages != nil && root.packages.selectedNode == r.controller.Target().String() {
+				root.App.Settings.PythonPreparing = preparations
+			}
+		})
+	}
+	r.observe(func() {
+		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "python"})
+		if err != nil {
+			return
+		}
+		defer stream.Close()
+		for {
+			update, err := stream.Next(r.ctx)
+			if err != nil {
+				show(nil)
+				return
+			}
+			value, valid := detail[protocol.UpdatePythonPayload](update.Data)
+			if !valid || update.Kind != "python" || value.Node != r.controller.Target() {
+				continue
+			}
+			show(pythonPreparations(value.Preparations))
+		}
+	})
+}
+
+// pythonPreparations are the preparations at a stage the page names; one
+// at a stage a newer Node added is left out.
+func pythonPreparations(list []protocol.PythonPreparation) []settings.PythonPreparation {
+	var out []settings.PythonPreparation
+	for _, preparation := range list {
+		switch preparation.Stage {
+		case protocol.PythonStageCreating, protocol.PythonStageInstalling, protocol.PythonStageValidating:
+			out = append(out, settings.PythonPreparation{Package: preparation.Package, Stage: string(preparation.Stage)})
+		}
+	}
+	return out
 }
 
 func installationEntry(node string, task protocol.InstallationTask, connected bool) transfers.Entry {

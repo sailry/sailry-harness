@@ -44,6 +44,7 @@ type packageState struct {
 	tasks              []protocol.InstallationTask
 	connected          bool
 	observing          bool
+	preparations       []settings.PythonPreparation
 	queue              transfers.Queue
 	pythonRead         bool
 	pythonRevision     uint64
@@ -230,6 +231,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		}
 		root.packages.selectedNode = node
 		r.App.Settings.Python, r.App.Settings.PythonVersion = owner.packages.pythonDraft, owner.packages.pythonVersion
+		r.App.Settings.PythonPreparing = owner.packages.preparations
 		root.App.Settings.MarketPlugins, root.App.Settings.MarketSkills = nil, nil
 		owner.packages.marketKey = ""
 		root.App.Settings.CloseDetails()
@@ -238,6 +240,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	owner.projectPackages()
 	if !owner.packages.observing {
 		owner.observeInstallations()
+		owner.observePython()
 	}
 	if !owner.packages.pythonRead {
 		owner.readPython()
@@ -497,6 +500,13 @@ func (r *Runtime) readPackage(name, version string, done func(bool)) {
 			} else {
 				r.packages.failures[name] = version
 				r.packageReport(c, err)
+				var released *string
+				for _, summary := range r.snapshot().Plugins {
+					if summary.Name == name {
+						released = summary.Version
+					}
+				}
+				r.reportDiagnostic(pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginMetadata, faultCode(err), name, released, "metadata_read", protocol.PluginContext{}))
 			}
 			if done != nil {
 				done(err == nil)

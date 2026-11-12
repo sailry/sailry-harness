@@ -2229,3 +2229,7 @@ content_link_address: 链接地址
 content_link_edit: 编辑链接
 content_image_address: 图片地址
 content_image_alt: 替代文本
+runtime_python_preparing: 正在准备
+python_creating: 准备依赖
+python_installing: 安装依赖
+python_validating: 检查依赖

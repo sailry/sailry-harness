@@ -2229,3 +2229,7 @@ content_link_address: Dirección del enlace
 content_link_edit: Editar enlace
 content_image_address: Dirección de la imagen
 content_image_alt: Texto alternativo
+runtime_python_preparing: Preparando
+python_creating: Preparando dependencias
+python_installing: Instalando dependencias
+python_validating: Comprobando dependencias
