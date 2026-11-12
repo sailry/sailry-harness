@@ -34,17 +34,18 @@ func NewPool(limit int, idle time.Duration) *Pool {
 	return &Pool{Limit: limit, Idle: idle, entries: map[*Entry]struct{}{}}
 }
 
-// Lease returns an idle program of owner that match accepts, else starts
-// one. At the limit it replaces the owner's longest-idle program; when every
-// one is in use it fails with ErrBusy. The caller must Release the entry.
-func (pool *Pool) Lease(owner string, match func(*Entry) bool, start func() (*Process, any, error)) (*Entry, error) {
+// Lease returns the idle program of owner that rank values highest above
+// zero, else starts one. At the limit it replaces the owner's longest-idle
+// program; when every one is in use it fails with ErrBusy. The caller must
+// Release the entry.
+func (pool *Pool) Lease(owner string, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, error) {
 	pool.mu.Lock()
 	if pool.closed {
 		pool.mu.Unlock()
 		return nil, errors.New("programs are stopped")
 	}
-	var oldest *Entry
-	count := 0
+	var oldest, best *Entry
+	count, score := 0, 0
 	for entry := range pool.entries {
 		if entry.owner != owner {
 			continue
@@ -60,14 +61,17 @@ func (pool *Pool) Lease(owner string, match func(*Entry) bool, start func() (*Pr
 			continue
 		default:
 		}
-		if match(entry) {
-			entry.leased = true
-			pool.mu.Unlock()
-			return entry, nil
+		if value := rank(entry); value > score {
+			best, score = entry, value
 		}
 		if oldest == nil || entry.used.Before(oldest.used) {
 			oldest = entry
 		}
+	}
+	if best != nil {
+		best.leased = true
+		pool.mu.Unlock()
+		return best, nil
 	}
 	if count >= pool.Limit {
 		if oldest == nil {

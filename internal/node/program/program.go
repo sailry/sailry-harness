@@ -79,7 +79,10 @@ func Resolve(name string, environment map[string]string) (string, error) {
 	return "", ErrNotInstalled
 }
 
-// Process is a running program with piped standard streams.
+// Process is a running program with piped standard streams. A program that
+// needs a terminal instead of pipes is not built: it would be a second start
+// function here returning the same Process over the PTY that
+// internal/node/terminal owns, with Pool unchanged.
 type Process struct {
 	Stdin  io.WriteCloser
 	Stdout io.Reader

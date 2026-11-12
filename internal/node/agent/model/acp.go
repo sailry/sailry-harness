@@ -465,23 +465,23 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 	if model.capture.Adapter.Acp.ModelArgument && !discovery {
 		argument = model.binding.Config.Model
 	}
-	match := func(entry *program.Entry) bool {
+	// The session's own program is preferred over one no session has used.
+	rank := func(entry *program.Entry) int {
 		agent, ok := entry.Value.(*acpAgent)
-		return ok && agent.argument == argument && (discovery || !agent.claimed || agent.owner == model.binding.Session)
+		switch {
+		case !ok || agent.argument != argument:
+			return 0
+		case !discovery && agent.claimed && agent.owner == model.binding.Session:
+			return 2
+		case discovery || !agent.claimed:
+			return 1
+		}
+		return 0
 	}
-	// The session's own program is preferred over an unclaimed one.
-	own := func(entry *program.Entry) bool {
-		agent, ok := entry.Value.(*acpAgent)
-		return ok && !discovery && agent.argument == argument && agent.claimed && agent.owner == model.binding.Session
-	}
-	start := func() (*program.Process, any, error) {
+	entry, err := model.capture.Pool.Lease(model.capture.Owner, rank, func() (*program.Process, any, error) {
 		process, agent, err := model.start(ctx, argument)
 		return process, agent, err
-	}
-	entry, err := model.capture.Pool.Lease(model.capture.Owner, own, func() (*program.Process, any, error) { return nil, nil, errACPMiss })
-	if errors.Is(err, errACPMiss) || errors.Is(err, program.ErrBusy) {
-		entry, err = model.capture.Pool.Lease(model.capture.Owner, match, start)
-	}
+	})
 	if errors.Is(err, program.ErrBusy) {
 		return nil, nil, &Failure{Kind: Unavailable, Message: fmt.Sprintf("every %s process is busy", model.capture.Program.Command)}
 	}
@@ -490,8 +490,6 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 	}
 	return entry, entry.Value.(*acpAgent), nil
 }
-
-var errACPMiss = errors.New("no program serves the session")
 
 type acpEvent struct {
 	reasoning bool
