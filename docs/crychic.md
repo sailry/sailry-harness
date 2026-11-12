@@ -478,6 +478,35 @@ It draws what it is given and computes nothing. Per commit, newest first:
   scroll of its own: put it in a `ui.Scroll`, and page the history rather
   than give it thousands of commits.
 
+In use: the Git history, in the panel's tab and the Git page
+(`internal/desktop/panel/git_history.go`, [panel.md](panel.md#layout)).
+
+- The Node sends each commit's parents and names `HEAD` among the references
+  at its commit; `graphLanes` assigns the lanes. A lane is held for the
+  commit it awaits, so every line the component draws down a lane ends at the
+  next dot in it; a merge's second parent takes the first free lane, and a
+  branch that joins a commit another child already awaits curves into that
+  child's lane.
+- The rows over the graph are ours: a `ui.RoleListBox` of options laid at the
+  component's rows (`crychic.CommitGraphRows`, held to the component by a
+  test) that take the click, the selection (`theme.Palette.Selected()`, painted
+  under the graph), the tooltip and the OS-native right-click menu.
+- The component draws every name it is given on the subject's line, so the
+  caller budgets them: `crychic.CommitGraphLanes` and `CommitGraphPad` say
+  what the lanes and padding take, the names get up to half of the rest, a
+  long first name is cut and the ones left out are counted (`+2`). The row's
+  tooltip says the full subject, ID, author and names.
+- The history stays paged by the Node, 100 commits a page, so a page builds
+  at most 100 rows whatever the repository's size. Lanes are worked out per
+  page: a line that crosses from the page before is not drawn at the top of
+  the next one, since the component draws edges only from commits it lists.
+- A page it cannot draw (an earlier Node that sends no parents, a parent
+  listed before its child) is the plain list, with the same rows and menu.
+- The lane colours are the component's, from the theme's accent, success,
+  warning and danger tokens through the adapter rule; there is no page
+  palette. The halo around a dot is the theme's background, which shows as a
+  thin ring on the selected row.
+
 ### `code.DiffView`
 
 MyGo's `editor.DiffView` under a file bar: a file glyph, `Name`, `+N` and
@@ -494,6 +523,22 @@ MyGo's `editor.DiffView` under a file bar: a file glyph, `Name`, `+N` and
   bar duplicate any `+N −N` the caller shows.
 - Empty, binary and partial states are not its concern: build it only for a
   text diff.
+
+Not used. The panel's Unified and Split choice is ours: `kit.DiffLayout`, a
+small `kit.Segmented` in the diff's toolbar, and `kit.DiffOptions.Split`,
+which sets the same MyGo layout (`editor.DiffSplit`) this component sets.
+Nothing of the viewer differs, so per-change Revert, Keep and Stage, the
+selection, the highlighting, long lines and the text size are the same in
+both. What decided it:
+
+- The choice covers every diff of the window: a file's, All changes, and a
+  commit's or stash's documents. The last two are several viewers as tall as
+  their text in one scroll; a fixed-height bordered card with a bar and an
+  arrival for each does not fit them, so `code.DiffView` could serve one of
+  the three and the choice would need a second control anyway.
+- Its bar repeats the file's name and `+N −N`, which the tab and the status
+  bar already show, and its switch is a pair of buttons rather than the
+  segmented control the header asks for.
 
 ## Compared with ours
 
@@ -526,10 +571,11 @@ findings about components not in this document were not.
 
 The audit's decisions stand where ours does more; none was overturned here.
 
-- **Replace, in part:** the panel's single-file diff may take
-  `code.DiffView` for its bar and Split and Unified switch, keeping
-  `kit.Diff`'s state, hunk actions and its empty, binary and partial states.
-  The height question is settled above.
+- **Ours stays, with what it lacked added:** the panel's diffs keep
+  `kit.Diff` and gained the Split and Unified choice themselves
+  ([`code.DiffView`](#codediffview) says why not the component).
+- **In use:** `code.CommitGraph` draws the Git history
+  ([`code.CommitGraph`](#codecommitgraph)).
 - **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
   cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
   when those features are added.
