@@ -282,16 +282,16 @@ reference, all deliberate:
   the catalog value until a turn has asked the server.
 
 Main transport attempts have at most nine additional transient retries before
-any output event escapes. Summary output stays buffered and has one additional
-transient retry. `model.Run` is the only retry loop: the provider SDKs run with
+any output event escapes. Summary output stays buffered, a failed attempt's
+output is discarded, and it has the same nine retries. `model.Run` is the only retry loop: the provider SDKs run with
 their own retries off. A main retry waits a fixed 60 seconds
 (`model.MainRetries`, `cenkalti/backoff` constant schedule), so nine retries
-wait 9 minutes; a summary's one retry waits 5 seconds. A provider's
+wait 9 minutes, for a main request and a summary alike. A provider's
 `Retry-After` is parsed and neither shortens nor lengthens the wait, as in the
 reference. Stopping the turn ends a wait at once. The retry record carries the
 limit and the wait (`limit`, `delay_ms`), so a record written under an earlier
 limit still shows its own. The reference waits the same fixed 60 seconds five
-times; Go retries nine times by the user's decision of 2026-11-12, which also
+times, and 5 seconds once for a summary; Go retries nine times by the user's decision of 2026-11-12, which also
 replaced the earlier 5 to 60 second exponential schedule that followed
 `Retry-After`. Authentication, quota, invalid
 requests and malformed/truncated streams are terminal. Every attempted request

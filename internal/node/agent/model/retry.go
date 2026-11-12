@@ -77,24 +77,18 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 	return previous
 }
 
-// MainRetries is how often a main request is sent again after a transient
-// failure, each time after retryDelay: a fixed wait, which a provider's
-// Retry-After neither shortens nor lengthens. A summary is sent again once,
-// after summaryRetryDelay.
+// MainRetries is how often a request, a main one or a summary, is sent again
+// after a transient failure, each time after retryDelay: a fixed wait, which
+// a provider's Retry-After neither shortens nor lengthens.
 const (
-	MainRetries       = 9
-	retryDelay        = 60 * time.Second
-	summaryRetries    = 1
-	summaryRetryDelay = 5 * time.Second
+	MainRetries = 9
+	retryDelay  = 60 * time.Second
 )
 
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool) error {
-	retries, delay := uint64(MainRetries), retryDelay
+	retries := uint64(MainRetries)
 	buffered := purpose == SummaryPurpose
-	if buffered {
-		retries, delay = summaryRetries, summaryRetryDelay
-	}
-	schedule := backoff.NewConstantBackOff(delay)
+	schedule := backoff.NewConstantBackOff(retryDelay)
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	var secrets []protocol.Secret
 	if sdk, ok := languageModel.(*sdkModel); ok {

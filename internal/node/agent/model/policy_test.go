@@ -79,11 +79,8 @@ func TestRetryTransient(t *testing.T) {
 				if err != nil || fake.calls != 2 || len(observations) != 2 || len(output) != 2 {
 					t.Fatalf("retry result: calls=%d observations=%d output=%d error=%v", fake.calls, len(observations), len(output), err)
 				}
-				// A main request waits 60 seconds, a summary 5.
+				// A main request and a summary wait alike.
 				want := 60 * time.Second
-				if purpose == SummaryPurpose {
-					want = 5 * time.Second
-				}
 				if len(timer.delays) != 1 || timer.delays[0] != want {
 					t.Errorf("retry delays = %v", timer.delays)
 				}
@@ -117,11 +114,19 @@ func TestRetryTransient(t *testing.T) {
 			}
 		}
 	})
-	t.Run("summary_retries_once", func(t *testing.T) {
-		fake := &policyModel{responses: [][]fantasy.StreamPart{{errorPart(Network)}, {errorPart(Network)}}}
+	t.Run("summary_retries_as_a_main_request", func(t *testing.T) {
+		fake := &policyModel{}
+		for i := 0; i < 11; i++ {
+			fake.responses = append(fake.responses, []fantasy.StreamPart{errorPart(Network)})
+		}
 		timer := &policyClock{}
-		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil); err == nil || fake.calls != 2 || len(timer.delays) != 1 || timer.delays[0] != 5*time.Second {
+		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil); err == nil || fake.calls != 10 || len(timer.delays) != 9 {
 			t.Fatalf("summary: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
+		}
+		for index, delay := range timer.delays {
+			if delay != 60*time.Second {
+				t.Fatalf("summary delay %d = %v", index, delay)
+			}
 		}
 	})
 	// The wait is fixed: a provider's Retry-After neither shortens nor
