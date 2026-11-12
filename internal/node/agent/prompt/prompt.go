@@ -60,12 +60,12 @@ func Workflow(mode protocol.WorkMode, child bool) string {
 }
 
 // System never includes current environment, time, turn title or user input.
-func System(instruction string, context canonical.Context, capability *string) string {
-	return strings.Join(SystemParts(instruction, context, capability), "\n\n")
+func System(instruction string, context canonical.Context) string {
+	return strings.Join(SystemParts(instruction, context), "\n\n")
 }
 
 // SystemParts keeps provenance on the same fragments used by serialization.
-func SystemParts(instruction string, context canonical.Context, capability *string) []string {
+func SystemParts(instruction string, context canonical.Context) []string {
 	parts := []string{instruction}
 	for _, value := range []*string{context.Policy, context.Personal} {
 		if value != nil && *value != "" {
@@ -82,9 +82,6 @@ func SystemParts(instruction string, context canonical.Context, capability *stri
 		for _, key := range keys {
 			parts = append(parts, context.Guides[key].Content)
 		}
-	}
-	if capability != nil {
-		parts = append(parts, *capability)
 	}
 	return parts
 }

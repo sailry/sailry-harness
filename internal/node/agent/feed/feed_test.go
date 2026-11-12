@@ -112,10 +112,7 @@ func TestConversationFeed(t *testing.T) {
 				}
 				if scenario == "stop seals late partials" {
 					before := h.Sequence(session)
-					sealed := h.Seal(session, turn)
-					if len(sealed) != 1 {
-						t.Fatal("partial was not available for sealing")
-					}
+					h.Seal(session, turn)
 					_ = h.Delta(session, draft)
 					if h.Sequence(session) != before {
 						t.Fatal("late partial escaped sealing")

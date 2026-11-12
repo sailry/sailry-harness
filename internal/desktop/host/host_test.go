@@ -67,7 +67,7 @@ func TestFormats(t *testing.T) {
 
 // Each phase offers its action; a stale click does nothing.
 func TestUpdatePhases(t *testing.T) {
-	for _, ph := range []Phase{Checking, Downloading, Verifying, Applying, RestartWait, UpdateLoading} {
+	for _, ph := range []Phase{Checking, Downloading, Verifying, Applying, RestartWait} {
 		if _, _, ok := (&Update{Phase: ph}).Primary(); ok {
 			t.Errorf("%s has an action", ph)
 		}

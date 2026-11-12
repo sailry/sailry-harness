@@ -129,7 +129,7 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 					Worktree: worktree.ID, Action: protocol.GitAction{Kind: "initialize"},
 					ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head, ExpectedBranch: status.Branch,
 				}}
-				workspace.mutate(command, func(c *ui.Context, out protocol.Output) {
+				workspace.mutateNamed(workspaceAction, command, func(c *ui.Context, out protocol.Output) {
 					ok := out.Kind != ""
 					if ok {
 						workspace.readGit()

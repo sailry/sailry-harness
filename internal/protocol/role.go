@@ -184,35 +184,3 @@ func (value RoleProfile) MarshalJSON() ([]byte, error) {
 	encoded.Tools = normalizeCollections(encoded.Tools)
 	return json.Marshal(encoded)
 }
-
-type RoleBuiltin struct {
-	Key         string `json:"key"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Icon        string `json:"icon"`
-	Color       string `json:"color"`
-}
-
-func DefaultRoleBuiltin() RoleBuiltin {
-	return RoleBuiltin{
-		Key:         "",
-		Name:        "",
-		Description: "",
-		Icon:        "",
-		Color:       "",
-	}
-}
-func (value *RoleBuiltin) UnmarshalJSON(data []byte) error {
-	type plain RoleBuiltin
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"key", "name", "description", "icon", "color"}, false); err != nil {
-		return err
-	}
-	*value = RoleBuiltin(decoded)
-	return nil
-}
-func (value RoleBuiltin) MarshalJSON() ([]byte, error) {
-	type plain RoleBuiltin
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}

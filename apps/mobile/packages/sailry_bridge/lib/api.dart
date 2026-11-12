@@ -53,14 +53,6 @@ class Controller extends NativeHandle {
   Future<String> notifications() async =>
       await invoke('notifications') as String;
 
-  Future<void> markNotificationRead({required String id}) async {
-    await invoke('mark_notification_read', {'id': id});
-  }
-
-  Future<void> markNotificationsRead() async {
-    await invoke('mark_notifications_read');
-  }
-
   Future<OverviewUpdates> watchUsage({
     required List<String> addresses,
     required String query,

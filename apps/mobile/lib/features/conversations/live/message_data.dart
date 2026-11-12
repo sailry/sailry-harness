@@ -3,17 +3,6 @@ import '../../../runtime/json.dart';
 String turnOwner(Map<String, dynamic> view, String turn) =>
     text(object(view['owners'])[turn], turn);
 
-String turnWorktree(
-  Map<String, dynamic> page,
-  Map<String, dynamic> session,
-  Object? turn,
-) => text(
-  objects(
-    page['runs'],
-  ).where((run) => run['turn'] == turn).firstOrNull?['worktree'],
-  text(session['worktree']),
-);
-
 typedef InputContent = ({
   String turn,
   String text,

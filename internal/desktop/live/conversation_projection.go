@@ -94,16 +94,10 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		}
 		return cmp.Compare(a.Sequence, b.Sequence)
 	})
-	owners := map[protocol.TurnID]protocol.TurnID{}
+	owners := turnOwners(runs)
 	pending := map[protocol.TurnID]bool{}
 	for _, p := range page.Queue.Items {
 		pending[p.Turn] = true
-	}
-	for _, r := range runs {
-		owners[r.Turn] = r.Turn
-		if r.Joined != nil && slices.ContainsFunc(runs, func(v protocol.ConversationRun) bool { return v.Turn == *r.Joined }) {
-			owners[r.Turn] = *r.Joined
-		}
 	}
 	var turns []conversation.Turn
 	positions := map[protocol.TurnID]int{}
@@ -1129,4 +1123,22 @@ func projectSteps(p protocol.ConversationProgress) []conversation.Step {
 		out = append(out, conversation.Step{Text: s.Description, State: state})
 	}
 	return out
+}
+
+// turnOwners maps each run's turn to the turn it is drawn under: the turn it
+// joined when that turn is on the page, itself otherwise.
+func turnOwners(runs []protocol.ConversationRun) map[protocol.TurnID]protocol.TurnID {
+	owners := make(map[protocol.TurnID]protocol.TurnID, len(runs))
+	for _, run := range runs {
+		owners[run.Turn] = run.Turn
+	}
+	for _, run := range runs {
+		if run.Joined == nil {
+			continue
+		}
+		if _, listed := owners[*run.Joined]; listed {
+			owners[run.Turn] = *run.Joined
+		}
+	}
+	return owners
 }

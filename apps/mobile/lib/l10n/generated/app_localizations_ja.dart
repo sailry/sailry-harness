@@ -104,22 +104,6 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String conversationToolsCount(String count) {
-    return '$count ツールコール';
-  }
-
-  @override
-  String get conversationGoal => '目標';
-
-  @override
-  String get conversationGoalBlocked => 'ブロック';
-
-  @override
-  String conversationGoalBudget(String count) {
-    return '予算$countトークン';
-  }
-
-  @override
   String get conversationStepSkipped => 'スキップ済み';
 
   @override
@@ -183,12 +167,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationQueued => 'キュー';
 
   @override
-  String get conversationProcessing => '処理';
-
-  @override
-  String get conversationUnsynced => '同期されていない状態';
-
-  @override
   String get conversationGenerating => '応答';
 
   @override
@@ -206,22 +184,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationCompacting => 'コンパクト化文脈';
 
   @override
-  String get conversationForkConfirm => 'このレコードからチャットをフォークする？';
-
-  @override
   String get conversationCompacted => 'コンテキスト圧縮';
 
   @override
   String get conversationToolWaiting => '待機中';
-
-  @override
-  String get conversationToolRunning => '実行中';
-
-  @override
-  String get conversationToolReturned => '応答済み';
-
-  @override
-  String get conversationUnsupportedInput => 'この入力をデスクトップで扱う';
 
   @override
   String get conversationStartCoding => '実行を開始';
@@ -236,9 +202,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationSubmit => '送信';
 
   @override
-  String get conversationSource => 'ソース';
-
-  @override
   String get conversationMode => 'ワークモード';
 
   @override
@@ -251,9 +214,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationFlagship => 'フラッグシップ';
 
   @override
-  String get conversationPermission => '権限';
-
-  @override
   String get conversationAsk => '毎回尋ねる';
 
   @override
@@ -263,43 +223,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationFull => 'フルアクセス';
 
   @override
-  String get conversationReasoning => '推論努力';
-
-  @override
-  String get conversationDefault => 'デフォルト';
-
-  @override
-  String get conversationNone => 'オフ';
-
-  @override
-  String get conversationMinimal => '最小';
-
-  @override
-  String get conversationLow => '低';
-
-  @override
-  String get conversationMedium => '中';
-
-  @override
-  String get conversationHigh => '高';
-
-  @override
-  String get conversationXHigh => 'ハイアー';
-
-  @override
-  String get conversationMax => '最大';
-
-  @override
   String get conversationBudget => '推論予算';
 
   @override
   String get conversationAttachment => '添付ファイル';
-
-  @override
-  String get conversationAttachmentTooLarge => '添付ファイルが読み込めないか、64MB 以上です';
-
-  @override
-  String get conversationDownload => '添付ファイルを表示';
 
   @override
   String get conversationImageFailed => '画像を表示できません';
@@ -309,9 +236,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get conversationDownloadFailed => '添付ファイルを読み込めません';
-
-  @override
-  String get conversationReadonly => 'このチャットはアーカイブされています';
 
   @override
   String get conversationMicrophoneDenied => 'マイクにアクセスできません';
@@ -430,15 +354,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get codePlain => 'プレーンテキスト';
 
   @override
-  String get toolArguments => '引数';
-
-  @override
-  String get toolResult => '結果';
-
-  @override
-  String get toolRaw => '原始結果';
-
-  @override
   String get turnChanges => 'ターン変更';
 
   @override
@@ -530,15 +445,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get toolFailed => '失敗';
 
   @override
-  String get toolQuestionAnswered => '回答済み';
-
-  @override
-  String get toolQuestionDeclined => '拒否';
-
-  @override
-  String get toolQuestionCancelled => 'キャンセル済み';
-
-  @override
   String get fileLinkUnavailable => 'リンクを開けません';
 
   @override
@@ -604,9 +510,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resourceNoWorkspace => '接続されたホストのワークツリーを選択';
 
   @override
-  String get resourceDisconnected => 'ホストは接続されていません';
-
-  @override
   String get resourceRoot => 'ルート';
 
   @override
@@ -667,16 +570,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resourceTerminalClaiming => 'コントロールを取る';
 
   @override
-  String get resourceTerminalReadOnly => '読み取り専用端末';
-
-  @override
   String get resourceTerminalEnded => 'ターミナル終了';
 
   @override
   String get resourceTerminalConnecting => '接続端子';
-
-  @override
-  String get resourceTerminalInput => '端末入力';
 
   @override
   String get resourceTerminalPaste => '貼り付け';
@@ -985,24 +882,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get filterProjects => 'フィルタプロジェクト';
 
   @override
-  String get closeSearch => '検索を閉じる';
-
-  @override
-  String onlineHostCount(String count) {
-    return '$count ネットワーク';
-  }
-
-  @override
-  String get taskActions => 'タスクアクション';
-
-  @override
   String get archiveShort => 'ファイル';
 
   @override
   String get archiveTab => 'アーカイブ';
-
-  @override
-  String get archivedTasks => 'アーカイブ';
 
   @override
   String get delete => '削除';
@@ -1014,12 +897,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get deleteWarning => 'このチャットは削除後は再開できません';
 
   @override
-  String get busyDelete => 'このチャットを削除する前にタスクを停止';
-
-  @override
-  String get stopBeforeDelete => 'タスクを停止';
-
-  @override
   String get restored => '帰国';
 
   @override
@@ -1029,19 +906,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get archiveEmpty => 'アーカイブされたチャットはありません';
 
   @override
-  String get archiveKeepsRunning => 'アーカイブは実行中のタスクを停止しません';
-
-  @override
   String get brand => 'Sailry';
 
   @override
   String get mobile => 'モバイルワークスペース';
-
-  @override
-  String get edition => 'モバイル・エクスプロレーション';
-
-  @override
-  String get intro => 'タスク、チャット、リモートワークスペース';
 
   @override
   String get preview => 'プレビュー';
@@ -1056,19 +924,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get light => 'ライト';
 
   @override
-  String get gallery => '概要';
-
-  @override
   String get focus => 'シングルスクリーン';
 
   @override
   String get page => 'ページを選択';
-
-  @override
-  String get experience => 'ページを開く';
-
-  @override
-  String get backGallery => '概要に戻る';
 
   @override
   String get design => '特徴・デザイン';
@@ -1113,34 +972,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get worktree => 'ワークツリー';
 
   @override
-  String get subtitleTasks => 'ホスト間のタスク · 承認と応答が先';
-
-  @override
-  String get subtitleChat => '連続チャット · 必要に応じてツール活動を拡張';
-
-  @override
-  String get subtitleHosts => '接続、ホストリソース、プロセス';
-
-  @override
-  String get subtitleResources => 'ホスト → プロジェクト → ワークトリー';
-
-  @override
-  String get subtitleChanges => 'ファイルの差分、ステージング、コミット';
-
-  @override
-  String get subtitleTerminal => 'リモート端末・明示的入力制御';
-
-  @override
-  String get subtitleUsage => 'Sailry チャット · ホスト間で集計';
-
-  @override
-  String get subtitleSettings => 'ローカル設定と実行 Node 設定';
-
-  @override
   String get allHosts => '全ホスト';
-
-  @override
-  String get connectedHosts => '2つのオンライン';
 
   @override
   String get all => 'すべて';
@@ -1155,31 +987,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get completed => '完了';
 
   @override
-  String get taskProgress => '現在のタスク';
-
-  @override
-  String get taskWait => '君の決断を待つ';
-
-  @override
-  String get taskRecent => '最近完成した';
-
-  @override
   String get search => '検索';
 
   @override
   String get searchTasks => 'タスクとプロジェクトを検索';
 
   @override
-  String get filterTasks => 'フィルタタスク';
-
-  @override
   String get noResults => 'マッチするタスクがありません';
 
   @override
   String get notification => '通知';
-
-  @override
-  String get newTask => '新しいタスク';
 
   @override
   String get newConversation => '新しいチャット';
@@ -1194,15 +1011,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get approval => '承認';
 
   @override
-  String get viewRequest => 'ビュー要求';
-
-  @override
-  String get ago => 'さっき';
-
-  @override
-  String get minutesAgo => '12分前';
-
-  @override
   String get allow => '一度許可';
 
   @override
@@ -1210,12 +1018,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get working => '作業中';
-
-  @override
-  String get viewChanges => '変更を表示';
-
-  @override
-  String get viewConversation => 'チャットを表示';
 
   @override
   String get branch => 'feature/sign-in';
@@ -1260,19 +1062,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get queueShort => 'キュー';
 
   @override
-  String get replyingNow => '応答';
-
-  @override
-  String get readFileProgress => 'ファイルを読み込み';
-
-  @override
   String get questionPending => '返事を待っています';
-
-  @override
-  String get testTool => 'プロジェクトのテストを実行';
-
-  @override
-  String get testFailed => 'テスト失敗';
 
   @override
   String queueCount(String count) {
@@ -1296,28 +1086,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resumeQueue => 'キューを再開';
 
   @override
-  String get enqueue => 'キューに追加';
-
-  @override
   String get moveUp => '上へ移動';
 
   @override
   String get thinkingNow => '思考';
 
   @override
-  String get toolsNow => '実行中';
-
-  @override
   String get thought => '推論';
-
-  @override
-  String get toolDiff => 'ファイルの違いを検査';
-
-  @override
-  String get approvalResolved => '承認解決';
-
-  @override
-  String get chatContinue => 'タスクの説明を続けて';
 
   @override
   String get describeTask => 'あなたのタスクを説明';
@@ -1380,9 +1155,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get stoppedStatus => '停止済み';
 
   @override
-  String get hostSubtitle => '実行ノード';
-
-  @override
   String get pair => 'ホストに接続';
 
   @override
@@ -1429,21 +1201,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get selectHost => 'ホストを選択';
-
-  @override
-  String get selectProject => 'プロジェクトを選択';
-
-  @override
-  String get selectBranch => 'ワークツリーを選択';
-
-  @override
-  String get mainBranch => 'メインのワークツリー';
-
-  @override
-  String get connectionTools => 'コネクション';
-
-  @override
-  String get workspaceResources => 'ワークスペース';
 
   @override
   String get confirm => '確認';
@@ -1510,11 +1267,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get fileTrash => 'ゴミ箱に移動';
 
   @override
-  String gitLineChanges(String added, String removed) {
-    return '$added行追加、$removed行削除';
-  }
-
-  @override
   String get gitActions => 'Git アクション';
 
   @override
@@ -1545,25 +1297,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get gitDeleteBranch => 'ブランチを削除';
 
   @override
-  String get gitSwitchNote => 'このワークツリーのブランチを切り替えます。シミュレーションのみ';
-
-  @override
-  String get gitDeleteNote => '選択したブランチを削除します。シミュレーションのみ';
-
-  @override
   String get review => 'レビュー';
-
-  @override
-  String get reviewFiles => 'コードの変更を表示';
 
   @override
   String get selectWorkspace => 'プロジェクトとワークトリー';
 
   @override
   String get searchFiles => 'ファイルを検索';
-
-  @override
-  String get recentFiles => 'ファイル';
 
   @override
   String get src => 'ソース';
@@ -1573,9 +1313,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get modified => '変更済み';
-
-  @override
-  String get filePreview => 'ファイルのプレビュー';
 
   @override
   String get edit => '編集';
@@ -1602,13 +1339,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get browser => 'ウェブプレビュー';
 
   @override
-  String get openTerminal => 'ターミナルを開く';
-
-  @override
   String get openFile => 'ファイルを開く';
-
-  @override
-  String get tables => 'テーブル';
 
   @override
   String get closePort => 'クローズ・フォーワード';
@@ -1641,22 +1372,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get terminalEnter => 'Enter';
 
   @override
-  String get terminalOutputLabel => '端末出力';
-
-  @override
   String get readOnly => '読み取り専用';
-
-  @override
-  String get takeControl => 'コントロールを取る';
-
-  @override
-  String get hasControl => '入力制御';
-
-  @override
-  String get releaseControl => 'リリース制御';
-
-  @override
-  String get usageSubtitle => 'Sailry チャットだけ';
 
   @override
   String get tokens => 'Tokens';
@@ -1688,27 +1404,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get cached => 'キャッシュヒット';
 
   @override
-  String get hostUsage => 'ホスト利用率';
-
-  @override
-  String get recentRequests => '最近の応答';
-
-  @override
-  String get allUsage => '使用例';
-
-  @override
-  String get usageNote => 'コストは推定値であり、一部の応答には価格が付けられていません';
-
-  @override
-  String get sourceNote => 'オフラインのホストは最後に知られたデータを保持します';
-
-  @override
-  String get profileSubtitle => 'モバイルコントローラ';
-
-  @override
-  String get localSettings => 'ローカルの設定';
-
-  @override
   String get appearance => '外観';
 
   @override
@@ -1733,9 +1428,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get configModels => 'モデル';
 
   @override
-  String get configInstructions => '指示';
-
-  @override
   String get configEmpty => 'エントリなし';
 
   @override
@@ -1750,27 +1442,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get speechInput => '音声入力';
 
   @override
-  String get developerInstructions => 'タスクのコードを変更し、結果を確認します';
-
-  @override
-  String get reviewerInstructions => 'コードの変更を見直し、問題を特定します';
-
-  @override
-  String get projectConventions => 'プロジェクト規約';
-
-  @override
-  String get memoryContent => '既存のコードスタイルを保持';
-
-  @override
   String get providers => 'モデルとプロバイダ';
 
   @override
   String get speech => 'スピーチ';
-
-  @override
-  String nodeSettingsNote(String host) {
-    return '$host に保存された設定';
-  }
 
   @override
   String get about => 'Sailryについて';
@@ -1794,63 +1469,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get memberReset => 'モデルをリセット';
 
   @override
-  String get nodeDefaults => 'Nodeデフォルト';
-
-  @override
   String get auto => '自動';
 
   @override
   String get manual => '毎回尋ねる';
 
   @override
-  String get speechNote => '実行 Node 音声設定を使用';
-
-  @override
   String get required => 'まずタスクを説明してください';
-
-  @override
-  String get notificationsEmpty => '新しい通知はありません';
-
-  @override
-  String get reviewTitle => '設計参照';
-
-  @override
-  String get reviewConversation => 'チャット、承認、質問、キュー';
-
-  @override
-  String get reviewConversationText =>
-      'タスクはホスト、プロジェクト、ワークトリーの所有権を保持し、チャット内のツールレコードと承認を拡張します';
-
-  @override
-  String get reviewResources => 'ファイル、Git、端子と接続';
-
-  @override
-  String get reviewResourcesText =>
-      'ファイル編集、ステージング、コミット、ポートはエントリポイントを保持します。詳細は二次ページで開きます';
-
-  @override
-  String get reviewHosts => 'ホスト接続とモニタリング';
-
-  @override
-  String get reviewHostsText =>
-      'ペアのノード、6 桁のコード、リソース使用量、プロセス; オフライン状態はライブでは表示されません';
-
-  @override
-  String get reviewUsage => '使用量と Node 設定';
-
-  @override
-  String get reviewUsageText =>
-      'Sailry チャットのみ; 集計された使用量は完全性を保持し、コストは推定値とカバー率を示します';
-
-  @override
-  String get reviewBoundary => '移動境界';
-
-  @override
-  String get reviewVisual => '視覚的参照';
-
-  @override
-  String get reviewVisualText =>
-      'リファレンス１：チャット階層，リファレンス２：ソフトカードと浮動ナビゲーション，リファレンス３：コンパクトモニタリング';
 
   @override
   String get hostConnectPrompt => 'ホストに接続';
@@ -1916,25 +1541,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get completionAlerts => '完了警告';
 
   @override
-  String get notificationsReadAll => 'すべてを既読としてマーク';
-
-  @override
-  String get notificationsOpen => '開く';
-
-  @override
   String get preferencesFailed => '設定が保存されませんでした。やり直します';
 
   @override
-  String get connectFirst => '開始するホストに接続';
-
-  @override
-  String get initializing => '起動中';
-
-  @override
   String get startupFailed => '起動に失敗';
-
-  @override
-  String get retryConnection => '再試行';
 
   @override
   String get pairAction => '接続';
@@ -1947,9 +1557,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get pairing => '接続中';
-
-  @override
-  String get hostUnavailable => 'ホストは接続されていません';
 
   @override
   String get hostRemove => 'ホストを削除';
@@ -1994,12 +1601,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get hostProjectPath => 'ホスト上のプロジェクトパス';
-
-  @override
-  String get hostProjectFailed => 'プロジェクトを追加できません';
-
-  @override
-  String get hostUnknown => 'データなし';
 
   @override
   String get hostRefresh => '更新';
@@ -2053,12 +1654,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsSpeechFailed => '音声モデルが準備ができていません。やり直します';
 
   @override
-  String get settingsNoHost => 'まずホストに接続';
-
-  @override
-  String get settingsUnavailable => '利用できません';
-
-  @override
   String get settingsLoadFailed => '読み込めませんでした';
 
   @override
@@ -2069,9 +1664,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsUnknown => '結果は確認されていません。チェックするために更新します';
-
-  @override
-  String get settingsLoading => '読み込み中';
 
   @override
   String get settingsRequired => '値を入力';
@@ -2247,15 +1839,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get providerLimitsInvalid => '最大出力はコンテキスト長以下にしてください';
 
   @override
-  String get settingsDriver => 'サービス';
-
-  @override
-  String get settingsModel => 'モデル';
-
-  @override
-  String get settingsArchived => 'アーカイブ';
-
-  @override
   String get settingsUsageUnknown => '不明';
 
   @override
@@ -2397,9 +1980,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get backgroundUnknown => '結果は不確定';
-
-  @override
-  String get backgroundPending => 'バックグラウンドの結果を処理できます';
 
   @override
   String conversationSteps(String count) {
@@ -2562,21 +2142,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => '速度';
-
-  @override
-  String queueHaltStopped(String count) {
-    return '停止済み · キュー $count 件';
-  }
-
-  @override
-  String queueHaltInterrupted(String count) {
-    return '返信が中断されました · キュー $count 件';
-  }
-
-  @override
-  String queueHaltUnsent(String count) {
-    return 'メッセージ未送信 · キュー $count 件';
-  }
 
   @override
   String get backgroundHeld => '結果は未配信';

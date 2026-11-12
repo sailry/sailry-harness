@@ -96,10 +96,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 			mounted.release()
 			delete(state.terminals, identity)
 		}
-		for identity, mounted := range state.conversations {
-			state.releaseConversation(mounted)
-			delete(state.conversations, identity)
-		}
+		state.releaseConversations()
 		clear(state.artifactViews)
 	}
 	binding.Components = []plugins.NativeComponent{

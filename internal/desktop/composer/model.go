@@ -25,9 +25,9 @@ type Context struct {
 	Activity Activity
 	// Queue is the messages waiting for the reply to end, oldest first.
 	Queue []Queued
-	// Hosts, Projects and Repository locate the conversation: where it
-	// runs, its project and worktree, and the worktree's checkout.
-	Hosts      []Host
+	// Projects and Repository locate the conversation: its project and
+	// worktree, and the worktree's checkout. The composer draws no host
+	// choice (AGENTS.md, Removed UI).
 	Projects   []Project
 	Repository Repository
 	// References is the @ picker's root page; Commands the / picker's.
@@ -146,6 +146,9 @@ type Member struct {
 	ID, Name string
 	// Overridden marks a member whose model differs from the team's.
 	Overridden bool
+	// Avatar is the role's avatar (icons.Avatar), "" for the bot on its
+	// color.
+	Avatar string
 }
 
 // Queued is a message waiting for the reply to end (live/queue).
@@ -170,14 +173,6 @@ type Queued struct {
 	// now stays enabled on it, as on a row not guiding. Guidance aimed at
 	// another turn has it disabled.
 	Joining bool
-}
-
-// Host is a computer the conversation can run on: execution-owner metadata.
-// The composer draws no host choice (AGENTS.md, Removed UI).
-type Host struct {
-	ID    string
-	Name  string
-	Local bool
 }
 
 // Project is a location choice: a project and its worktrees.

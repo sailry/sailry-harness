@@ -861,12 +861,23 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 				messages++
 			}
 		}
-		if a.noticeDetail != second || !second.Read || !row(second).Expanded || messages != 1 || !facts() || !tt.HasText(en("notification_source")) {
-			t.Fatalf("the row did not open its details: open %v, read %v, texts %q", a.noticeDetail == second, second.Read, tt.Texts())
+		if a.noticeDetail != second.ID || !second.Read || !row(second).Expanded || messages != 1 || !facts() || !tt.HasText(en("notification_source")) {
+			t.Fatalf("the row did not open its details: open %v, read %v, texts %q", a.noticeDetail == second.ID, second.Read, tt.Texts())
 		}
+		// A live window projects its notices anew when one is read: the
+		// details stay open over the new value of the same notice.
+		at := slices.Index(a.Data.Notices, second)
+		again := *second
+		a.Data.Notices[at] = &again
+		tt.Frame()
+		if !tt.HasText(en("notification_source")) {
+			t.Fatal("the details closed when the notices were projected again")
+		}
+		a.Data.Notices[at] = second
+		tt.Frame()
 		tt.ClickAt(target.X+target.W/2, target.Y+target.H/2)
 		tt.Frame()
-		if a.noticeDetail != nil || tt.HasText(en("notification_source")) || !tt.HasText(second.Message) || facts() {
+		if a.noticeDetail != "" || tt.HasText(en("notification_source")) || !tt.HasText(second.Message) || facts() {
 			t.Fatal("a second click left the details open")
 		}
 		// Unread hides what was read.
@@ -880,15 +891,15 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 		// The row's own buttons act without opening its details.
 		clickButton(t, tt, en("notification_open_conversation"))
 		tt.Frame()
-		if a.Page != ConversationPage || a.Sidebar.Selected != first.Session || !first.Read || a.noticeDetail != nil {
+		if a.Page != ConversationPage || a.Sidebar.Selected != first.Session || !first.Read || a.noticeDetail != "" {
 			t.Fatalf("Open conversation: page %v, selected %q, read %v", a.Page, a.Sidebar.Selected, first.Read)
 		}
 		a.Navigate(NotificationsPage)
 		tt.Frame()
 		clickButton(t, tt, en("settings_delete"))
 		tt.Frame()
-		if slices.Contains(a.Data.Notices, first) || len(a.Data.Notices) != len(notices)-1 || a.noticeDetail != nil {
-			t.Fatalf("Delete left %d of %d notices, details open %v", len(a.Data.Notices), len(notices), a.noticeDetail != nil)
+		if slices.Contains(a.Data.Notices, first) || len(a.Data.Notices) != len(notices)-1 || a.noticeDetail != "" {
+			t.Fatalf("Delete left %d of %d notices, details open %v", len(a.Data.Notices), len(notices), a.noticeDetail != "")
 		}
 	})
 }
@@ -937,15 +948,6 @@ func testSearchRules(t *testing.T) {
 	}
 	if got := Filter(groups, ""); len(got) != 2 {
 		t.Errorf("empty query: %+v", got)
-	}
-	for _, c := range []struct {
-		n, sel int
-		rev    bool
-		want   int
-	}{{3, 2, false, 0}, {3, 0, true, 2}, {3, -1, false, 0}, {3, -1, true, 2}, {0, 0, false, -1}} {
-		if got := Next(c.n, c.sel, c.rev); got != c.want {
-			t.Errorf("Next(%d, %d, %v) = %d", c.n, c.sel, c.rev, got)
-		}
 	}
 }
 

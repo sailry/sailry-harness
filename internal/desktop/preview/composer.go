@@ -30,8 +30,8 @@ var Families = []composer.Family{
 
 // Teams are the preview's teams (teams settings).
 var Teams = []composer.Team{
-	{ID: "review", Name: "Review crew", Members: []composer.Member{{ID: "reader", Name: "Reader"}, {ID: "critic", Name: "Critic", Overridden: true}}},
-	{ID: "ship", Name: "Ship it", Members: []composer.Member{{ID: "builder", Name: "Builder"}, {ID: "tester", Name: "Tester"}, {ID: "writer", Name: "Writer"}}},
+	{ID: "review", Name: "Review crew", Members: []composer.Member{{ID: "reader", Name: "Reader", Avatar: "avatar-rabbit"}, {ID: "critic", Name: "Critic", Overridden: true, Avatar: "avatar-owl"}}},
+	{ID: "ship", Name: "Ship it", Members: []composer.Member{{ID: "builder", Name: "Builder", Avatar: "avatar-bear"}, {ID: "tester", Name: "Tester"}, {ID: "writer", Name: "Writer", Avatar: "avatar-penguin"}}},
 }
 
 // models are the preview's models: families, made-up scores and the
@@ -65,9 +65,6 @@ func models() []Model {
 func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := &composer.Context{
 		Models: d.Models, Families: Families, Teams: Teams, Interactions: c.Waiting, Queue: c.Queue,
-	}
-	for _, h := range d.Hosts {
-		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
 	}
 	for _, p := range d.Projects {
 		pr := composer.Project{ID: p.ID, Name: p.Name, Host: p.Host}
@@ -475,7 +472,7 @@ func Overview(c *Conversation) *composer.Overview {
 		case conversation.ChildrenBlock:
 			for _, k := range b.Children {
 				if k.Status == conversation.ChildRunning {
-					o.Children = append(o.Children, composer.OverviewChild{ID: k.ID, Name: k.Title, Status: "chat_running", Running: true})
+					o.Children = append(o.Children, composer.OverviewChild{ID: k.ID, Name: k.Title, Status: "chat_running", Running: true, Avatar: k.Avatar})
 				}
 			}
 		}

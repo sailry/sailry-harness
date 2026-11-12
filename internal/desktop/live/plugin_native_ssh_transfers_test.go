@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -511,6 +512,48 @@ func testSshTransferBridge(t *testing.T) {
 		}
 		if _, err := state.sshTransferAccess(stale, false, false); err != nil {
 			t.Fatal("a queued job could not be cancelled after its profile changed", err)
+		}
+	})
+	t.Run("synchronous operations answer without the window's queue", func(t *testing.T) {
+		f := start(t)
+		info := protocol.PluginInfo{Extension: &protocol.PluginExtension{Actions: []protocol.PluginAction{protocol.PluginActionReadSsh, protocol.PluginActionControlSsh}}}
+		info.Summary.Name, info.Summary.Digest = reference.Name, reference.Digest
+		info.Summary.SettingsRevision, info.Summary.Enabled, info.Summary.Compatibility.Kind = reference.SettingsRevision, true, "compatible"
+		f.runtime.packages = newPackageState()
+		f.runtime.packages.infos[reference.Name] = info
+		native := plugins.NewNativeBinding(f.ctx)
+		native.Operations = map[string]plugins.HostOperation{}
+		state := &pluginNativeState{runtime: f.runtime, scope: scope, native: &native}
+		state.sshTransferOperations()
+		arguments := func(values ...any) []json.RawMessage {
+			encoded := make([]json.RawMessage, len(values))
+			for index, value := range values {
+				body, err := json.Marshal(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				encoded[index] = body
+			}
+			return encoded
+		}
+		// Nothing drains the Runtime's queue here, as on the UI thread during a
+		// synchronous export, and the context is already over: an operation
+		// that waited for the queue would answer with the context's error.
+		ctx, cancel := context.WithCancel(f.ctx)
+		cancel()
+		id := f.store.insert(f.access, true, filepath.Join(t.TempDir(), "upload.bin"), false, "/srv/upload.bin")
+		if _, err := native.Operations["sailry/ssh-transfers.transferAction"](ctx, arguments(id.String(), "dismiss")); err != nil {
+			t.Fatal("a synchronous transfer action waited for the window's queue", err)
+		}
+		if values, _ := f.store.values(node, reference); len(values) != 0 {
+			t.Fatal("dismissed transfer stayed listed", values)
+		}
+		_, err := native.Operations["sailry/ssh-transfers.uploadDropped"](ctx, arguments(profile, "/srv", "unknown"))
+		if faultCode(err) != protocol.ErrorCodeInvalidRequest {
+			t.Fatal("a synchronous dropped upload waited for the window's queue", err)
+		}
+		if queued := len(f.runtime.queue); queued != 0 {
+			t.Fatal("synchronous operations posted to the window's queue", queued)
 		}
 	})
 }

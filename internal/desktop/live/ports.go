@@ -34,15 +34,12 @@ type desktopForward struct {
 	restores int
 }
 
-// restoreStep is what a frame does with one forward. A forward fails when
+// restoreStep is what a frame does with one failed forward. A forward fails when
 // its Host's connection is lost and never recovers by itself; it is created
 // again on its local port once the Host is connected, at most forwardRestores
 // times, and the count starts over when the Host is lost again. A forward
 // that closed (the user or its service ended it) is left alone.
-func restoreStep(kind string, connected bool, restores int) (attempt bool, next int) {
-	if kind != "failed" {
-		return false, restores
-	}
+func restoreStep(connected bool, restores int) (attempt bool, next int) {
 	if !connected {
 		return false, 0
 	}
@@ -102,7 +99,7 @@ func (r *Runtime) restoreForwards() {
 	for key, restores := range failed {
 		owner := r.runtimeFor(key.node)
 		connected := owner != nil && owner.controller.Connected() && (key.node == "" || owner.controller.Target().String() == key.node)
-		attempt, next := restoreStep("failed", connected, restores)
+		attempt, next := restoreStep(connected, restores)
 		state.mu.Lock()
 		item, found := state.forwards[key]
 		if !found || state.closed || state.busy[key] || item.forward.State().Kind != "failed" {

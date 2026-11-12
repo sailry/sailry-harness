@@ -169,30 +169,6 @@ func (value ConversationCompactionFailure) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-type ConversationCompactionProgress struct {
-	StartedMs int64 `json:"started_ms"`
-}
-
-func DefaultConversationCompactionProgress() ConversationCompactionProgress {
-	return ConversationCompactionProgress{
-		StartedMs: 0,
-	}
-}
-func (value *ConversationCompactionProgress) UnmarshalJSON(data []byte) error {
-	type plain ConversationCompactionProgress
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"started_ms"}, true); err != nil {
-		return err
-	}
-	*value = ConversationCompactionProgress(decoded)
-	return nil
-}
-func (value ConversationCompactionProgress) MarshalJSON() ([]byte, error) {
-	type plain ConversationCompactionProgress
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
 type ConversationCompactionBudget struct {
 	Model         string `json:"model"`
 	ContextLimit  uint32 `json:"context_limit"`

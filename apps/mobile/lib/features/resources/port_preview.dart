@@ -69,7 +69,12 @@ class _PortPreviewPageState extends State<PortPreviewPage> {
           },
         ),
       );
-      if (!mounted || !widget.listening.value) return;
+      if (!mounted) return;
+      if (!widget.listening.value) {
+        // Refresh starts over once the forward listens again.
+        setState(() => _loading = false);
+        return;
+      }
       setState(() => _controller = controller);
       await controller.loadRequest(widget.uri);
     } catch (_) {

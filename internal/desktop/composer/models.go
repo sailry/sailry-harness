@@ -492,9 +492,9 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 			return
 		}
 		lead := i18n.T(c, "composer_team_lead")
-		memberButton(c, "lead", lead, icons.Crown, p.Primary, false, s.member == "", func() { s.member = "" })
+		memberButton(c, "lead", lead, "", icons.Crown, p.Primary, false, s.member == "", func() { s.member = "" })
 		for _, m := range team.Members {
-			memberButton(c, m.ID, m.Name, icons.Bot, kit.AgentColor(c, m.ID), m.Overridden, s.member == m.ID,
+			memberButton(c, m.ID, m.Name, m.Avatar, icons.Bot, kit.AgentColor(c, m.ID), m.Overridden, s.member == m.ID,
 				func() { s.member = m.ID })
 		}
 	})
@@ -503,11 +503,28 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 	ui.Box(c.Key("team-divider")).FillWidth().Height(1).Shrink(0).Background(p.Border)
 }
 
-func memberButton(c *ui.Context, key, name string, icon *ui.SVG, fill ui.Color, overridden, selected bool, pick func()) {
+// memberButton is a member of the row: the role's avatar (picture, an
+// identifier of icons.Avatar) where it has one, else icon on fill.
+func memberButton(c *ui.Context, key, name, picture string, icon *ui.SVG, fill ui.Color, overridden, selected bool, pick func()) {
 	b := ui.ButtonBase(c.Key("member-" + key)).Label(name)
 	kit.Tooltip(c, b, name)
 	b.Size(member, member).Radius(member / 2).Cursor(ui.CursorPointer).AccessSelected(selected)
-	b.Children(func() { avatar(c, icon, fill, member, selected, overridden) }).OnClick(pick)
+	b.Children(func() {
+		if icons.Avatar(picture) == nil {
+			avatar(c, icon, fill, member, selected, overridden)
+			return
+		}
+		// The picture stands for the icon on its fill: faded unless
+		// selected, with the same dot.
+		ui.Box(c).Size(member, member).Shrink(0).Children(func() {
+			if face, _ := kit.Avatar(c, picture, member); !selected {
+				face.Opacity(0.35)
+			}
+			if overridden {
+				ui.Box(c).Absolute().Top(-1).Right(-1).Size(8, 8).Radius(4).Background(theme.Of(c).Primary).Border(1, theme.Of(c).Floating())
+			}
+		})
+	}).OnClick(pick)
 }
 
 // avatar is the identity's icon on its fill, faded unless selected, with a

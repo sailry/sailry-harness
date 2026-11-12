@@ -107,22 +107,6 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
-  String conversationToolsCount(String count) {
-    return '$count вызовов инструментов';
-  }
-
-  @override
-  String get conversationGoal => 'Цель';
-
-  @override
-  String get conversationGoalBlocked => 'Заблокировано';
-
-  @override
-  String conversationGoalBudget(String count) {
-    return 'Бюджет $count жетонов';
-  }
-
-  @override
   String get conversationStepSkipped => 'Пропущено';
 
   @override
@@ -188,12 +172,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationQueued => 'В очереди';
 
   @override
-  String get conversationProcessing => 'Обработка';
-
-  @override
-  String get conversationUnsynced => 'Состояние не синхронизировано';
-
-  @override
   String get conversationGenerating => 'Реагирование';
 
   @override
@@ -211,23 +189,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationCompacting => 'Сжатие контекста';
 
   @override
-  String get conversationForkConfirm => 'Выделить чат из этой записи?';
-
-  @override
   String get conversationCompacted => 'Контекст уплотнён';
 
   @override
   String get conversationToolWaiting => 'В ожидании';
-
-  @override
-  String get conversationToolRunning => 'Выполняется';
-
-  @override
-  String get conversationToolReturned => 'Возвращено';
-
-  @override
-  String get conversationUnsupportedInput =>
-      'Обрабатывать этот ввод на рабочем столе';
 
   @override
   String get conversationStartCoding => 'Начало исполнения';
@@ -242,9 +207,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationSubmit => 'Отправить';
 
   @override
-  String get conversationSource => 'Источник';
-
-  @override
   String get conversationMode => 'Режим работы';
 
   @override
@@ -257,9 +219,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationFlagship => 'Флагман';
 
   @override
-  String get conversationPermission => 'Разрешения';
-
-  @override
   String get conversationAsk => 'Задавайте каждый раз';
 
   @override
@@ -269,44 +228,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationFull => 'Полный доступ';
 
   @override
-  String get conversationReasoning => 'Усилия по размышлению';
-
-  @override
-  String get conversationDefault => 'По умолчанию';
-
-  @override
-  String get conversationNone => 'Выкл';
-
-  @override
-  String get conversationMinimal => 'Минимальный';
-
-  @override
-  String get conversationLow => 'Низкий';
-
-  @override
-  String get conversationMedium => 'Средний';
-
-  @override
-  String get conversationHigh => 'Высокий';
-
-  @override
-  String get conversationXHigh => 'Выше';
-
-  @override
-  String get conversationMax => 'Максимум';
-
-  @override
   String get conversationBudget => 'Обоснование бюджета';
 
   @override
   String get conversationAttachment => 'Вложение';
-
-  @override
-  String get conversationAttachmentTooLarge =>
-      'Вложение нечитаемое или больше 64 МБ';
-
-  @override
-  String get conversationDownload => 'Посмотреть приложение';
 
   @override
   String get conversationImageFailed => 'Не удается отобразить изображение';
@@ -316,9 +241,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get conversationDownloadFailed => 'Не удалось загрузить вложение';
-
-  @override
-  String get conversationReadonly => 'Этот чат архивирован';
 
   @override
   String get conversationMicrophoneDenied =>
@@ -441,15 +363,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get codePlain => 'Обычный текст';
 
   @override
-  String get toolArguments => 'Аргументы';
-
-  @override
-  String get toolResult => 'Результат';
-
-  @override
-  String get toolRaw => 'Исходный результат';
-
-  @override
   String get turnChanges => 'Изменения поворотов';
 
   @override
@@ -546,15 +459,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get toolFailed => 'Ошибка';
 
   @override
-  String get toolQuestionAnswered => 'Ответы';
-
-  @override
-  String get toolQuestionDeclined => 'Отклонено';
-
-  @override
-  String get toolQuestionCancelled => 'Отменено';
-
-  @override
   String get fileLinkUnavailable => 'Не удается открыть эту ссылку';
 
   @override
@@ -623,9 +527,6 @@ class AppLocalizationsRu extends AppLocalizations {
       'Выбор рабочего дерева на подключенном узле';
 
   @override
-  String get resourceDisconnected => 'Узел не подключен';
-
-  @override
   String get resourceRoot => 'Корень';
 
   @override
@@ -688,16 +589,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get resourceTerminalClaiming => 'Взятие под контроль';
 
   @override
-  String get resourceTerminalReadOnly => 'Терминал только для чтения';
-
-  @override
   String get resourceTerminalEnded => 'Терминал закрыт';
 
   @override
   String get resourceTerminalConnecting => 'Соединительная клемма';
-
-  @override
-  String get resourceTerminalInput => 'Вход терминала';
 
   @override
   String get resourceTerminalPaste => 'Вставить';
@@ -1007,24 +902,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get filterProjects => 'Фильтр проектов';
 
   @override
-  String get closeSearch => 'Закрыть поиск';
-
-  @override
-  String onlineHostCount(String count) {
-    return '$count онлайн';
-  }
-
-  @override
-  String get taskActions => 'Действия по задачам';
-
-  @override
   String get archiveShort => 'Архив';
 
   @override
   String get archiveTab => 'Архивировано';
-
-  @override
-  String get archivedTasks => 'Архивировано';
 
   @override
   String get delete => 'Удалить';
@@ -1037,12 +918,6 @@ class AppLocalizationsRu extends AppLocalizations {
       'Этот чат не может быть возобновлен после удаления';
 
   @override
-  String get busyDelete => 'Остановить задачу перед удалением этого чата';
-
-  @override
-  String get stopBeforeDelete => 'Остановить задачу';
-
-  @override
   String get restored => 'Возвращение домой';
 
   @override
@@ -1052,20 +927,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get archiveEmpty => 'Нет архивированных чатов';
 
   @override
-  String get archiveKeepsRunning =>
-      'Архивация не останавливает выполнение заданий';
-
-  @override
   String get brand => 'Sailry';
 
   @override
   String get mobile => 'Мобильная рабочая зона';
-
-  @override
-  String get edition => 'Мобильное исследование / 01';
-
-  @override
-  String get intro => 'Задачи, чаты и удаленные рабочие места';
 
   @override
   String get preview => 'Предварительный просмотр';
@@ -1080,19 +945,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get light => 'Светлая';
 
   @override
-  String get gallery => 'Общий обзор';
-
-  @override
   String get focus => 'Один экран';
 
   @override
   String get page => 'Выберите страницу';
-
-  @override
-  String get experience => 'Открыть страницу';
-
-  @override
-  String get backGallery => 'Вернуться к обзору';
 
   @override
   String get design => 'Особенности и дизайн';
@@ -1137,37 +993,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get worktree => 'Рабочее дерево';
 
   @override
-  String get subtitleTasks =>
-      'Задачи между узлами · Сначала утверждения и ответы';
-
-  @override
-  String get subtitleChat =>
-      'Постоянный чат · Расширение активности инструмента по мере необходимости';
-
-  @override
-  String get subtitleHosts => 'Подключения, ресурсы узла и процессы';
-
-  @override
-  String get subtitleResources => 'Узел → Проект → Рабочее дерево';
-
-  @override
-  String get subtitleChanges => 'Различия файлов, подготовка и фиксации';
-
-  @override
-  String get subtitleTerminal => 'Удаленный терминал · Явное управление входом';
-
-  @override
-  String get subtitleUsage => 'Sailry чатов · Агрегированные по хостам';
-
-  @override
-  String get subtitleSettings =>
-      'Локальные настройки и параметры выполнения Node';
-
-  @override
   String get allHosts => 'Все хосты';
-
-  @override
-  String get connectedHosts => '2 онлайн';
 
   @override
   String get all => 'Все';
@@ -1182,31 +1008,16 @@ class AppLocalizationsRu extends AppLocalizations {
   String get completed => 'Завершено';
 
   @override
-  String get taskProgress => 'Текущая задача';
-
-  @override
-  String get taskWait => 'В ожидании вашего решения';
-
-  @override
-  String get taskRecent => 'Недавно завершенные';
-
-  @override
   String get search => 'Поиск';
 
   @override
   String get searchTasks => 'Поиск задач и проектов';
 
   @override
-  String get filterTasks => 'Задачи фильтра';
-
-  @override
   String get noResults => 'Нет соответствующих задач';
 
   @override
   String get notification => 'Уведомления';
-
-  @override
-  String get newTask => 'Новая задача';
 
   @override
   String get newConversation => 'Новый чат';
@@ -1221,15 +1032,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get approval => 'Официальное утверждение';
 
   @override
-  String get viewRequest => 'Посмотреть запрос';
-
-  @override
-  String get ago => 'Только сейчас';
-
-  @override
-  String get minutesAgo => '12 минут назад';
-
-  @override
   String get allow => 'Разрешить один раз';
 
   @override
@@ -1237,12 +1039,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get working => 'В работе';
-
-  @override
-  String get viewChanges => 'Просмотр изменений';
-
-  @override
-  String get viewConversation => 'Посмотреть чат';
 
   @override
   String get branch => 'feature/sign-in';
@@ -1287,19 +1083,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get queueShort => 'Очередь';
 
   @override
-  String get replyingNow => 'Реагирование';
-
-  @override
-  String get readFileProgress => 'Чтение файла';
-
-  @override
   String get questionPending => 'В ожидании вашего ответа';
-
-  @override
-  String get testTool => 'Запуск тестов проекта';
-
-  @override
-  String get testFailed => 'Неудачные испытания';
 
   @override
   String queueCount(String count) {
@@ -1323,28 +1107,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get resumeQueue => 'Возобновление очереди';
 
   @override
-  String get enqueue => 'Добавить в очередь';
-
-  @override
   String get moveUp => 'Движение вверх';
 
   @override
   String get thinkingNow => 'Мысли';
 
   @override
-  String get toolsNow => 'Выполнение';
-
-  @override
   String get thought => 'Обоснование';
-
-  @override
-  String get toolDiff => 'Проверка различий файлов';
-
-  @override
-  String get approvalResolved => 'Утверждение решено';
-
-  @override
-  String get chatContinue => 'Продолжайте описывать свою задачу';
 
   @override
   String get describeTask => 'Опишите свою задачу';
@@ -1407,9 +1176,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get stoppedStatus => 'Остановлено';
 
   @override
-  String get hostSubtitle => 'Ваши узлы исполнения';
-
-  @override
   String get pair => 'Подключить узел';
 
   @override
@@ -1456,21 +1222,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get selectHost => 'Выберите хост';
-
-  @override
-  String get selectProject => 'Выберите проект';
-
-  @override
-  String get selectBranch => 'Выберите рабочее дерево';
-
-  @override
-  String get mainBranch => 'Основное рабочее дерево';
-
-  @override
-  String get connectionTools => 'Соединения';
-
-  @override
-  String get workspaceResources => 'Рабочее пространство';
 
   @override
   String get confirm => 'Подтвердить';
@@ -1537,11 +1288,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get fileTrash => 'В корзину';
 
   @override
-  String gitLineChanges(String added, String removed) {
-    return '$added строк добавлено · $removed удалено';
-  }
-
-  @override
   String get gitActions => 'Git акции';
 
   @override
@@ -1572,26 +1318,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitDeleteBranch => 'Исключить ветвь';
 
   @override
-  String get gitSwitchNote =>
-      'Переключить ветку в этом рабочем дереве; только моделирование';
-
-  @override
-  String get gitDeleteNote => 'Удалить выбранную ветку; только моделирование';
-
-  @override
   String get review => 'Проверка';
-
-  @override
-  String get reviewFiles => 'Просмотр изменений кода';
 
   @override
   String get selectWorkspace => 'Проект и рабочее дерево';
 
   @override
   String get searchFiles => 'Поиск файлов';
-
-  @override
-  String get recentFiles => 'Файлы';
 
   @override
   String get src => 'Источник';
@@ -1601,9 +1334,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get modified => 'Изменено';
-
-  @override
-  String get filePreview => 'Просмотр файла';
 
   @override
   String get edit => 'Изменить';
@@ -1630,13 +1360,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get browser => 'Веб-предварительный просмотр';
 
   @override
-  String get openTerminal => 'Открытый терминал';
-
-  @override
   String get openFile => 'Открыть файл';
-
-  @override
-  String get tables => 'Таблицы';
 
   @override
   String get closePort => 'Закрыть вперед';
@@ -1669,22 +1393,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get terminalEnter => 'Enter';
 
   @override
-  String get terminalOutputLabel => 'Выход терминала';
-
-  @override
   String get readOnly => 'Только чтение';
-
-  @override
-  String get takeControl => 'Взять под контроль';
-
-  @override
-  String get hasControl => 'Контроль ввода';
-
-  @override
-  String get releaseControl => 'Контроль выбросов';
-
-  @override
-  String get usageSubtitle => 'Sailry только чаты';
 
   @override
   String get tokens => 'Tokens';
@@ -1716,29 +1425,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get cached => 'Поиски в кэше';
 
   @override
-  String get hostUsage => 'Использование хоста';
-
-  @override
-  String get recentRequests => 'Последние ответы';
-
-  @override
-  String get allUsage => 'Детали использования';
-
-  @override
-  String get usageNote =>
-      'Расходы являются оценочными; некоторые ответы не имеют цены';
-
-  @override
-  String get sourceNote =>
-      'Автономные узлы сохраняют свои последние известные данные';
-
-  @override
-  String get profileSubtitle => 'Мобильный контроллер';
-
-  @override
-  String get localSettings => 'Местные предпочтения';
-
-  @override
   String get appearance => 'Внешний вид';
 
   @override
@@ -1763,9 +1449,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get configModels => 'Модели';
 
   @override
-  String get configInstructions => 'Инструкции';
-
-  @override
   String get configEmpty => 'Нет записей';
 
   @override
@@ -1780,29 +1463,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get speechInput => 'Голосовой ввод';
 
   @override
-  String get developerInstructions =>
-      'Изменить код для задачи и проверить результат';
-
-  @override
-  String get reviewerInstructions =>
-      'Обзор изменений в коде и выявление проблем';
-
-  @override
-  String get projectConventions => 'Проектные конвенции';
-
-  @override
-  String get memoryContent => 'Сохранить существующий стиль кода';
-
-  @override
   String get providers => 'Модели и поставщики';
 
   @override
   String get speech => 'Речь';
-
-  @override
-  String nodeSettingsNote(String host) {
-    return 'Конфигурация сохранена на $host';
-  }
 
   @override
   String get about => 'О Sailry';
@@ -1826,63 +1490,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get memberReset => 'Сбросить модель';
 
   @override
-  String get nodeDefaults => 'Node по умолчанию';
-
-  @override
   String get auto => 'Автоматически';
 
   @override
   String get manual => 'Задавайте каждый раз';
 
   @override
-  String get speechNote => 'Использует конфигурацию речи выполнения Node';
-
-  @override
   String get required => 'Опишете сначала свою задачу';
-
-  @override
-  String get notificationsEmpty => 'Новых уведомлений нет';
-
-  @override
-  String get reviewTitle => 'Справочные материалы по конструкции';
-
-  @override
-  String get reviewConversation => 'Чаты, утверждения, вопросы и очередь';
-
-  @override
-  String get reviewConversationText =>
-      'Задачи сохраняют владение хостом, проектом и рабочим деревом; расширяют записи инструментов и утверждения в чатах';
-
-  @override
-  String get reviewResources => 'Файл, Git, клемм и соединений';
-
-  @override
-  String get reviewResourcesText =>
-      'Редактирование файлов, подготовка, фиксации и порты сохраняют свои входные точки; подробности открываются на вторичных страницах';
-
-  @override
-  String get reviewHosts => 'Подключения к хостам и мониторинг';
-
-  @override
-  String get reviewHostsText =>
-      'Парные узлы, 6-значные коды, использование ресурсов и процессы; автономное состояние не отображается как активное';
-
-  @override
-  String get reviewUsage => 'Использование и параметры Node';
-
-  @override
-  String get reviewUsageText =>
-      'Sailry только чаты; агрегированные данные об использовании сохраняют полноту, а расходы указывают на оценки и охват';
-
-  @override
-  String get reviewBoundary => 'Подвижная граница';
-
-  @override
-  String get reviewVisual => 'Визуальные ссылки';
-
-  @override
-  String get reviewVisualText =>
-      'Справочная информация 1: иерархия чата; справочная информация 2: мягкие карты и плавающая навигация; справочная информация 3: компактный мониторинг';
 
   @override
   String get hostConnectPrompt => 'Подключение узла';
@@ -1950,25 +1564,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get completionAlerts => 'Уведомления о завершении';
 
   @override
-  String get notificationsReadAll => 'Отметить все как прочитанные';
-
-  @override
-  String get notificationsOpen => 'Открыть';
-
-  @override
   String get preferencesFailed => 'Настройки не сохранены; повторите попытку';
 
   @override
-  String get connectFirst => 'Подключите узел, чтобы начать';
-
-  @override
-  String get initializing => 'Запуск';
-
-  @override
   String get startupFailed => 'Не удалось запустить';
-
-  @override
-  String get retryConnection => 'Повторить';
 
   @override
   String get pairAction => 'Подключить';
@@ -1982,9 +1581,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get pairing => 'Подключение';
-
-  @override
-  String get hostUnavailable => 'Узел не подключен';
 
   @override
   String get hostRemove => 'Удалить хост';
@@ -2029,12 +1625,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get hostProjectPath => 'Путь проекта на узле';
-
-  @override
-  String get hostProjectFailed => 'Не удается добавить проект';
-
-  @override
-  String get hostUnknown => 'Данные отсутствуют';
 
   @override
   String get hostRefresh => 'Обновить';
@@ -2090,12 +1680,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settingsSpeechFailed => 'Модель речи не готова; повторите попытку';
 
   @override
-  String get settingsNoHost => 'Сначала подключите узел';
-
-  @override
-  String get settingsUnavailable => 'Недоступно';
-
-  @override
   String get settingsLoadFailed => 'Не удалось загрузить';
 
   @override
@@ -2108,9 +1692,6 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get settingsUnknown =>
       'Результат не подтвержден; обновить для проверки';
-
-  @override
-  String get settingsLoading => 'Загрузка';
 
   @override
   String get settingsRequired => 'Введите значение';
@@ -2289,15 +1870,6 @@ class AppLocalizationsRu extends AppLocalizations {
       'Макс. вывод не может превышать длину контекста';
 
   @override
-  String get settingsDriver => 'Служба';
-
-  @override
-  String get settingsModel => 'Модель';
-
-  @override
-  String get settingsArchived => 'Архивировано';
-
-  @override
   String get settingsUsageUnknown => 'Неизвестно';
 
   @override
@@ -2439,9 +2011,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get backgroundUnknown => 'Результат неизвестен';
-
-  @override
-  String get backgroundPending => 'Фоновые результаты готовы';
 
   @override
   String conversationSteps(String count) {
@@ -2604,21 +2173,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => 'Скорость';
-
-  @override
-  String queueHaltStopped(String count) {
-    return 'Остановлено · в очереди: $count';
-  }
-
-  @override
-  String queueHaltInterrupted(String count) {
-    return 'Ответ прерван · в очереди: $count';
-  }
-
-  @override
-  String queueHaltUnsent(String count) {
-    return 'Сообщение не отправлено · в очереди: $count';
-  }
 
   @override
   String get backgroundHeld => 'Результат не доставлен';

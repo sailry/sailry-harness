@@ -281,13 +281,7 @@ func connectorAvailability(info protocol.PluginInfo, declarations []protocol.Plu
 		})
 		if index < 0 {
 			// Manual headers and anonymous custom servers need no account.
-			optional := info.McpSource != nil || !slices.ContainsFunc(declaration.Auth, func(auth protocol.PluginConnectorAuth) bool {
-				value, declared := dispatchPayload[protocol.PluginConnectorAuthSecretPayload](auth.Data)
-				return !declared || auth.Kind != "secret" || slices.ContainsFunc(value.Fields, func(name string) bool {
-					return !slices.ContainsFunc(declaration.Fields, func(field protocol.PluginConnectorField) bool { return field.Name == name && field.Optional })
-				})
-			})
-			if optional {
+			if info.McpSource != nil || connectorOptional(declaration) {
 				continue
 			}
 			return protocol.PluginMcpAvailabilityConnectionRequired
@@ -309,4 +303,15 @@ func connectorAvailability(info protocol.PluginInfo, declarations []protocol.Plu
 		}
 	}
 	return protocol.PluginMcpAvailabilityAvailable
+}
+
+// connectorOptional reports whether every credential a connector declares is
+// optional, so its servers start without an account.
+func connectorOptional(declaration protocol.PluginConnectorDeclaration) bool {
+	return !slices.ContainsFunc(declaration.Auth, func(auth protocol.PluginConnectorAuth) bool {
+		value, declared := dispatchPayload[protocol.PluginConnectorAuthSecretPayload](auth.Data)
+		return !declared || auth.Kind != "secret" || slices.ContainsFunc(value.Fields, func(name string) bool {
+			return !slices.ContainsFunc(declaration.Fields, func(field protocol.PluginConnectorField) bool { return field.Name == name && field.Optional })
+		})
+	})
 }

@@ -194,7 +194,13 @@ func (process *Process) Diagnostic() string {
 func (process *Process) Kill() {
 	process.once.Do(func() {
 		_ = process.Stdin.Close()
-		process.kill()
+		select {
+		case <-process.done:
+			// The program was reaped and its group killed when it exited:
+			// its process ID may belong to another group by now.
+		default:
+			process.kill()
+		}
 	})
 	<-process.done
 }

@@ -215,6 +215,9 @@ func TestRemoteAdmissionAndUncertainty(t *testing.T) {
 	t.Run("receipt_then_completion_survives_caller", func(t *testing.T) {
 		link := newFixtureLink(t)
 		remote := link.Remote(EndpointAddress{ID: target})
+		// Only a durable command outlives the caller that dispatched it.
+		request := protocol.NewRequest(target, protocol.Command{Kind: "dismiss_read_notifications", Data: &protocol.CommandDismissReadNotificationsPayload{}})
+		receipt := protocol.Receipt{ID: request.ID, Durable: true}
 		stream := newFixtureStream(fixtureFrames(t,
 			wire.Reply{Kind: wire.ReplyReceipt, Receipt: &receipt},
 			wire.Reply{Kind: wire.ReplyCompleted, Completed: &completed},
@@ -235,6 +238,31 @@ func TestRemoteAdmissionAndUncertainty(t *testing.T) {
 		}
 		if envelope.Call.Request == nil || envelope.Call.Request.ID != request.ID {
 			t.Fatal("dispatch changed the captured request identifier")
+		}
+	})
+	t.Run("cancelled_caller_stops_a_command_that_is_not_durable", func(t *testing.T) {
+		link := newFixtureLink(t)
+		admitted := fixtureFrames(t, wire.Reply{Kind: wire.ReplyReceipt, Receipt: &receipt})
+		stream := newFixtureStream(append(admitted, fixtureFrames(t, wire.Reply{Kind: wire.ReplyCompleted, Completed: &completed})...))
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		// The caller gives up between the receipt and the completion.
+		stream.afterRead = func(total int) {
+			if total == len(admitted) {
+				cancel()
+			}
+		}
+		admission, err := link.Remote(EndpointAddress{ID: target}).dispatchStream(ctx, request, stream, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := <-admission.Completion
+		if response.Fault == nil || response.Fault.Code != protocol.ErrorCodeCancelled {
+			t.Fatalf("completion after cancellation: %#v", response)
+		}
+		// Closing the stream is the stop the serving Node observes.
+		if _, err := stream.WaitStopped(t.Context()); err != nil {
+			t.Fatal(err)
 		}
 	})
 	t.Run("missing_completion", func(t *testing.T) {

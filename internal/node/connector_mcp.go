@@ -208,8 +208,11 @@ func (node *Node) authorizeMCP(ctx context.Context, info protocol.PluginInfo, se
 			return err
 		})
 		if err != nil {
+			// A server added by hand needs no account, and neither does a
+			// connector nobody connected whose every credential is optional:
+			// the availability shown for the server says the same.
 			var failure *protocol.Fault
-			if info.McpSource != nil && errors.As(err, &failure) && failure.Code == protocol.ErrorCodeNotConfigured {
+			if errors.As(err, &failure) && failure.Code == protocol.ErrorCodeNotConfigured && (info.McpSource != nil || record.Plugin == "" && connectorOptional(declaration)) {
 				continue
 			}
 			return nil, err

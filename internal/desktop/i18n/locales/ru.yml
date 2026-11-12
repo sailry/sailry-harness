@@ -156,10 +156,6 @@ approval_reject: Отклонить
 approval_allow_once: Разрешить
 approval_allow_session: Разрешить для этой сессии
 approval_live_count: '%{count} ожидает утверждения'
-file_changes_added: Добавлен
-file_changes_modified: Изменён
-file_changes_deleted: Удалён
-file_changes_renamed: Переименован
 subagent_count: 'Субагенты: %{completed}/%{total}'
 chat_child: Субагент
 question_reply: Ожидание ответа
@@ -190,7 +186,6 @@ tool_find_tools: Поиск инструментов
 tool_read_output: Читать вывод инструмента
 approval_allow_prefix: Разрешить префикс «%{prefix}»
 approval_preview_result: Утверждение предварительного просмотра зарегистрировано. Никакие файлы, команды или модели не использовались.
-file_changes_shortened: Diff сокращён
 interaction_input: Введите ответ или подробности
 approval_unrestricted: Полный доступ к файловой системе и сети
 close: Закрыть
@@ -337,7 +332,6 @@ git_action_conflict: Git состояние изменено, обновить
 git_action_failed: Git операция не удалась
 git_action_unknown: Git результат не подтвержден, обновить перед продолжением
 git_auth_failed: Git ошибка проверки подлинности
-cli_launch: Запустить CLI ИИ
 workspace_memory_only: Только предварительный просмотр изменений
 workspace_confirm: Подтвердить
 project_remove_named: Удалить проект «%{name}»? Его терминалы будут закрыты; файлы и сессии сохранятся
@@ -651,7 +645,6 @@ composer_permission_ask_description: Задавать вопрос перед р
 composer_permission_project_description: Редактировать файлы проекта автоматически; спрашивать перед запуском команд
 composer_permission_full_description: Редактирование файлов и автоматическое выполнение команд, в том числе вне проекта
 composer_host_local: Локальное устройство
-composer_host_remote: Удалённый
 composer_no_project: Чаты
 composer_branch_none: Отделения нет
 composer_settings: Настройки сеанса
@@ -733,7 +726,6 @@ directory_documents: Документация
 directory_downloads: Загрузки
 directory_applications: Applications
 directory_locations: Расположения
-directory_count_directories: '%{count} папок'
 directory_count_files: '%{count} файлов'
 directory_name: Имя
 directory_size: Размер
@@ -992,8 +984,6 @@ settings_runtime: Среда выполнения
 settings_runtime_description: Настройка этого узла
 settings_save: Сохранить
 settings_seconds: '%{count} секунд'
-settings_session_order: Порядок сеансов
-settings_sessions: Сеансы
 settings_shortcuts_description: Просмотр глобальных команд и сочетаний клавиш
 settings_sidebar_metrics: Индикатор производительности
 settings_skills_description: Управление навыками, доступными для сеансов
@@ -1329,6 +1319,32 @@ teams_model: Модель
 role_instructions: Инструкции
 role_save: Сохранить
 teams_role_saved: Роль сохранена
+role_avatar: Avatar
+role_avatar_none: No avatar
+avatar_fox: Fox
+avatar_panda: Panda
+avatar_bear: Bear
+avatar_rabbit: Rabbit
+avatar_cat: Cat
+avatar_dog: Dog
+avatar_penguin: Penguin
+avatar_owl: Owl
+avatar_koala: Koala
+avatar_frog: Frog
+avatar_lion: Lion
+avatar_tiger: Tiger
+avatar_elephant: Elephant
+avatar_whale: Whale
+avatar_duck: Duck
+avatar_pig: Pig
+avatar_monkey: Monkey
+avatar_deer: Deer
+avatar_hedgehog: Hedgehog
+avatar_seal: Seal
+avatar_octopus: Octopus
+avatar_sheep: Sheep
+avatar_raccoon: Raccoon
+avatar_dino: Dinosaur
 market_plugin_details: Сведения о плагине
 market_skill_details: Сведения о навыке
 market_theme_details: Сведения о теме
@@ -1787,8 +1803,6 @@ files_wrap: Soft wrap
 location_copy_changes: Копирование изменений
 location_fork: Форк-дерево
 refresh: Refresh
-artifact_next_page: Следующая страница
-artifact_previous_page: Предыдущая страница
 git_commit_scope: Сфера действия обязательства
 git_commit_tracked: Завершение отслеживаемых файлов
 git_continue: Продолжить
@@ -2129,9 +2143,6 @@ live_request_failed: Запрос неполный; проверьте Node по
 plugins_loading: Загрузка
 project_appearance: Внешний вид проекта
 project_clone_failed: Клонирование не завершено; проверьте место назначения
-project_grant: Доверяй и продолжай
-project_grant_description: Инструкции и инструменты проекта могут выполнять код во всех рабочих деревьях
-project_grant_title: Доверьтесь этому проекту
 project_outcome_unknown: Результат не подтвержден; проверьте назначение. Повторная попытка проверяет первоначальный запрос.
 project_path_in_use: Этот путь используется сессией или рабочим деревом
 project_remove_busy: Проект занят; повторите попытку
@@ -2143,9 +2154,6 @@ project_remove_tasks: Остановите активные задачи пер�
 project_remove_tasks_partial: Проект сохранён; остановите задачи перед повторной попыткой. Некоторые терминалы уже могут быть закрыты
 project_remove_unknown: Удаление не подтверждено; проверьте проект и его терминалы
 project_removed: Проект удалён
-project_revoke: Отзыв доверия
-project_revoke_description: Остановить задачи проекта; сохранить историю и черновики
-project_revoke_title: Отзыв доверия к проекту
 task_completed: Завершено
 artifact_export_failed: Не удалось экспортировать
 chat_compact_incomplete: Резюме неполное

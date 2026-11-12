@@ -76,11 +76,13 @@ const (
 
 // App is the window's state.
 type App struct {
-	Data         *viewmodel.Data
-	Preview      bool
-	Hooks        Hooks
-	noticeTab    int
-	noticeDetail *viewmodel.Notice
+	Data      *viewmodel.Data
+	Preview   bool
+	Hooks     Hooks
+	noticeTab int
+	// noticeDetail is the ID of the notice whose details are open: the
+	// notices are projected anew when one is read, so it is not a pointer.
+	noticeDetail string
 	// frosted is whether this frame's theme has window art, which the
 	// columns blur (kit.Pane).
 	frosted bool

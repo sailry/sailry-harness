@@ -220,8 +220,9 @@ type Actions interface {
 type interaction struct {
 	approvals, question bool // the popovers are open
 	at                  int  // the approval shown
-	// offered are the pending approvals the popover has opened for: a
-	// request that arrives opens it once, and closing it keeps it closed.
+	// offered are the approvals the popover has opened for, or first showed
+	// with: a request that arrives opens it once, and closing it keeps it
+	// closed.
 	offered map[string]bool
 	asked   string // the question the draft is for
 	chosen  int
@@ -274,6 +275,30 @@ func place(c *ui.Context, panel, anchor ui.Element, gap float32) {
 	}
 }
 
+// offer opens the approval popover on a request that arrives while the
+// composer shows, so a run does not wait behind a capsule nobody pressed.
+// The requests a composer first shows with stay behind their capsule: a
+// popover opening by itself over a window just opened, or a dialog, would
+// take the first click meant for something else. It runs every frame, also
+// with no request, so the first one to arrive is known as new.
+func (s *State) offer(list []Approval) {
+	first := s.in.offered == nil
+	if first {
+		s.in.offered = map[string]bool{}
+	}
+	for i, a := range list {
+		if a.Receipt || s.in.offered[a.ID] {
+			continue
+		}
+		// Once for each request: one that leaves the list and returns, as
+		// while its host reconnects, does not open the popover again.
+		s.in.offered[a.ID] = true
+		if !first {
+			s.in.approvals, s.in.at = true, i
+		}
+	}
+}
+
 // approvals shows one pending request at a time; with several, a "1/2"
 // position and previous and next buttons page through them. With only
 // receipts left the capsule says so.
@@ -289,19 +314,6 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	if pending > 0 {
 		label = i18n.T(c, "approval_live_count", "count", pending)
 	}
-	// A request that arrives opens the popover on itself, so a run does not
-	// wait behind a capsule nobody pressed.
-	offered := map[string]bool{}
-	for i, a := range list {
-		if a.Receipt {
-			continue
-		}
-		offered[a.ID] = true
-		if !s.in.offered[a.ID] {
-			s.in.approvals, s.in.at = true, i
-		}
-	}
-	s.in.offered = offered
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
 	s.in.at = min(max(s.in.at, 0), len(list)-1)
 	place(c, kit.Popover(c, trigger, &s.in.approvals, func() {

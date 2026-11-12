@@ -48,7 +48,9 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		runs[childSession.ID.String()] = child.Run
 		if child.Run.Status == "queued" || child.Run.Status == "running" || child.Run.Status == "stopping" {
 			if child.Run.Status == protocol.ConversationStatusRunning {
-				ctx.Activity.Children = append(ctx.Activity.Children, childView(&state.Snapshot.Page, child, childSession, language))
+				view := childView(&state.Snapshot.Page, child, childSession, language)
+				view.Avatar = childAvatar(r.snapshot().Roles, child)
+				ctx.Activity.Children = append(ctx.Activity.Children, view)
 			}
 			// The parent's page carries each child's run. Only a child waiting
 			// on approval needs its own conversation, for the pending cards.
@@ -156,7 +158,9 @@ func enrichChildModels(cv *viewmodel.Conversation, page protocol.ConversationPag
 	views := map[string]conversation.Child{}
 	for _, child := range client.LatestConversationChildren(page.Children) {
 		if session, ok := client.ConversationChildSession(snapshot, parent, child); ok {
-			views[session.ID.String()] = childView(&page, child, session, locale)
+			view := childView(&page, child, session, locale)
+			view.Avatar = childAvatar(snapshot.Roles, child)
+			views[session.ID.String()] = view
 		}
 	}
 	for ti := range cv.Turns {
@@ -164,7 +168,7 @@ func enrichChildModels(cv *viewmodel.Conversation, page protocol.ConversationPag
 			for ci := range cv.Turns[ti].Reply.Blocks[bi].Children {
 				child := &cv.Turns[ti].Reply.Blocks[bi].Children[ci]
 				if view, ok := views[child.ID]; ok {
-					child.Model, child.Effort = view.Model, view.Effort
+					child.Model, child.Effort, child.Avatar = view.Model, view.Effort, view.Avatar
 				}
 			}
 		}

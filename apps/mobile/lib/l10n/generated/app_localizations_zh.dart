@@ -102,22 +102,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String conversationToolsCount(String count) {
-    return '$count 个工具调用';
-  }
-
-  @override
-  String get conversationGoal => '目标';
-
-  @override
-  String get conversationGoalBlocked => '受阻';
-
-  @override
-  String conversationGoalBudget(String count) {
-    return '预算 $count tokens';
-  }
-
-  @override
   String get conversationStepSkipped => '已跳过';
 
   @override
@@ -181,12 +165,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationQueued => '等待处理';
 
   @override
-  String get conversationProcessing => '正在处理';
-
-  @override
-  String get conversationUnsynced => '状态未同步';
-
-  @override
   String get conversationGenerating => '正在回复';
 
   @override
@@ -204,22 +182,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationCompacting => '正在压缩上下文';
 
   @override
-  String get conversationForkConfirm => '从当前记录创建分支会话？';
-
-  @override
   String get conversationCompacted => '上下文已压缩';
 
   @override
   String get conversationToolWaiting => '等待执行';
-
-  @override
-  String get conversationToolRunning => '正在执行';
-
-  @override
-  String get conversationToolReturned => '已返回';
-
-  @override
-  String get conversationUnsupportedInput => '请在桌面端处理此输入';
 
   @override
   String get conversationStartCoding => '开始执行';
@@ -234,9 +200,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationSubmit => '提交';
 
   @override
-  String get conversationSource => '来源';
-
-  @override
   String get conversationMode => '工作模式';
 
   @override
@@ -249,9 +212,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationFlagship => '旗舰';
 
   @override
-  String get conversationPermission => '权限';
-
-  @override
   String get conversationAsk => '每次询问';
 
   @override
@@ -261,43 +221,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationFull => '完全访问';
 
   @override
-  String get conversationReasoning => '思考强度';
-
-  @override
-  String get conversationDefault => '默认';
-
-  @override
-  String get conversationNone => '关闭';
-
-  @override
-  String get conversationMinimal => '最低';
-
-  @override
-  String get conversationLow => '低';
-
-  @override
-  String get conversationMedium => '中';
-
-  @override
-  String get conversationHigh => '高';
-
-  @override
-  String get conversationXHigh => '更高';
-
-  @override
-  String get conversationMax => '最高';
-
-  @override
   String get conversationBudget => '思考预算';
 
   @override
   String get conversationAttachment => '附件';
-
-  @override
-  String get conversationAttachmentTooLarge => '附件不可读或超过 64 MB';
-
-  @override
-  String get conversationDownload => '查看附件';
 
   @override
   String get conversationImageFailed => '图片无法显示';
@@ -307,9 +234,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get conversationDownloadFailed => '附件加载失败';
-
-  @override
-  String get conversationReadonly => '此会话已归档';
 
   @override
   String get conversationMicrophoneDenied => '无法访问麦克风';
@@ -428,15 +352,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get codePlain => '纯文本';
 
   @override
-  String get toolArguments => '参数';
-
-  @override
-  String get toolResult => '结果';
-
-  @override
-  String get toolRaw => '原始结果';
-
-  @override
   String get turnChanges => '本轮变更';
 
   @override
@@ -528,15 +443,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get toolFailed => '失败';
 
   @override
-  String get toolQuestionAnswered => '已回答';
-
-  @override
-  String get toolQuestionDeclined => '已拒绝';
-
-  @override
-  String get toolQuestionCancelled => '已取消';
-
-  @override
   String get fileLinkUnavailable => '无法打开此链接';
 
   @override
@@ -602,9 +508,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resourceNoWorkspace => '请选择已连接主机的工作树';
 
   @override
-  String get resourceDisconnected => '主机未连接';
-
-  @override
   String get resourceRoot => '根目录';
 
   @override
@@ -665,16 +568,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resourceTerminalClaiming => '正在接管';
 
   @override
-  String get resourceTerminalReadOnly => '只读终端';
-
-  @override
   String get resourceTerminalEnded => '终端已结束';
 
   @override
   String get resourceTerminalConnecting => '正在连接终端';
-
-  @override
-  String get resourceTerminalInput => '终端输入';
 
   @override
   String get resourceTerminalPaste => '粘贴';
@@ -983,24 +880,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get filterProjects => '筛选项目';
 
   @override
-  String get closeSearch => '收起搜索';
-
-  @override
-  String onlineHostCount(String count) {
-    return '$count 台在线';
-  }
-
-  @override
-  String get taskActions => '任务操作';
-
-  @override
   String get archiveShort => '存档';
 
   @override
   String get archiveTab => '归档';
-
-  @override
-  String get archivedTasks => '已存档';
 
   @override
   String get delete => '删除';
@@ -1012,12 +895,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deleteWarning => '删除后无法继续此会话';
 
   @override
-  String get busyDelete => '请先停止任务，再删除会话';
-
-  @override
-  String get stopBeforeDelete => '停止任务';
-
-  @override
   String get restored => '已恢复到首页';
 
   @override
@@ -1027,19 +904,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get archiveEmpty => '暂无存档';
 
   @override
-  String get archiveKeepsRunning => '存档不会停止正在执行的任务';
-
-  @override
   String get brand => 'Sailry';
 
   @override
   String get mobile => '移动工作台';
-
-  @override
-  String get edition => '移动端预览 / 01';
-
-  @override
-  String get intro => '任务、会话与远程工作空间';
 
   @override
   String get preview => '预览';
@@ -1054,19 +922,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get light => '浅色';
 
   @override
-  String get gallery => '总览';
-
-  @override
   String get focus => '单屏体验';
 
   @override
   String get page => '选择页面';
-
-  @override
-  String get experience => '体验此页';
-
-  @override
-  String get backGallery => '返回总览';
 
   @override
   String get design => '功能与设计';
@@ -1111,34 +970,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get worktree => '工作树';
 
   @override
-  String get subtitleTasks => '跨主机任务 · 审批与回复优先';
-
-  @override
-  String get subtitleChat => '连续对话 · 工具过程按需展开';
-
-  @override
-  String get subtitleHosts => '连接状态 · 主机资源与运行进程';
-
-  @override
-  String get subtitleResources => '主机 → 项目 → 工作树';
-
-  @override
-  String get subtitleChanges => '文件差异 · 暂存与提交';
-
-  @override
-  String get subtitleTerminal => '远端终端 · 明确输入控制权';
-
-  @override
-  String get subtitleUsage => 'Sailry 会话 · 跨主机聚合';
-
-  @override
-  String get subtitleSettings => '本机偏好 · 执行节点配置';
-
-  @override
   String get allHosts => '全部主机';
-
-  @override
-  String get connectedHosts => '2 台在线';
 
   @override
   String get all => '全部';
@@ -1153,31 +985,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get completed => '已完成';
 
   @override
-  String get taskProgress => '当前任务';
-
-  @override
-  String get taskWait => '等待你的决定';
-
-  @override
-  String get taskRecent => '最近完成';
-
-  @override
   String get search => '搜索';
 
   @override
   String get searchTasks => '搜索任务、项目';
 
   @override
-  String get filterTasks => '任务筛选';
-
-  @override
   String get noResults => '没有匹配的任务';
 
   @override
   String get notification => '通知';
-
-  @override
-  String get newTask => '新建任务';
 
   @override
   String get newConversation => '新会话';
@@ -1192,15 +1009,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get approval => '审批';
 
   @override
-  String get viewRequest => '查看请求';
-
-  @override
-  String get ago => '刚刚';
-
-  @override
-  String get minutesAgo => '12 分钟前';
-
-  @override
   String get allow => '允许一次';
 
   @override
@@ -1208,12 +1016,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get working => '正在处理';
-
-  @override
-  String get viewChanges => '查看变更';
-
-  @override
-  String get viewConversation => '查看会话';
 
   @override
   String get branch => 'feature/sign-in';
@@ -1258,19 +1060,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get queueShort => '队列';
 
   @override
-  String get replyingNow => '正在回复';
-
-  @override
-  String get readFileProgress => '正在读取文件';
-
-  @override
   String get questionPending => '等待你的回复';
-
-  @override
-  String get testTool => '运行项目测试';
-
-  @override
-  String get testFailed => '测试未通过';
 
   @override
   String queueCount(String count) {
@@ -1294,28 +1084,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resumeQueue => '继续队列';
 
   @override
-  String get enqueue => '加入队列';
-
-  @override
   String get moveUp => '上移';
 
   @override
   String get thinkingNow => '正在思考';
 
   @override
-  String get toolsNow => '正在执行';
-
-  @override
   String get thought => '思考过程';
-
-  @override
-  String get toolDiff => '检查文件差异';
-
-  @override
-  String get approvalResolved => '审批已处理';
-
-  @override
-  String get chatContinue => '继续描述你的任务';
 
   @override
   String get describeTask => '描述你的任务';
@@ -1378,9 +1153,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get stoppedStatus => '已停止';
 
   @override
-  String get hostSubtitle => '你的执行节点';
-
-  @override
   String get pair => '连接主机';
 
   @override
@@ -1427,21 +1199,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get selectHost => '选择主机';
-
-  @override
-  String get selectProject => '选择项目';
-
-  @override
-  String get selectBranch => '选择工作树';
-
-  @override
-  String get mainBranch => '主工作树';
-
-  @override
-  String get connectionTools => '连接';
-
-  @override
-  String get workspaceResources => '工作区';
 
   @override
   String get confirm => '确认';
@@ -1508,11 +1265,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get fileTrash => '移到回收站';
 
   @override
-  String gitLineChanges(String added, String removed) {
-    return '$added 行新增 · $removed 行删除';
-  }
-
-  @override
   String get gitActions => 'Git 操作';
 
   @override
@@ -1543,25 +1295,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get gitDeleteBranch => '删除分支';
 
   @override
-  String get gitSwitchNote => '在当前工作树切换分支；本次仅模拟';
-
-  @override
-  String get gitDeleteNote => '删除所选分支；本次仅模拟';
-
-  @override
   String get review => '评审';
-
-  @override
-  String get reviewFiles => '查看代码变更';
 
   @override
   String get selectWorkspace => '项目与工作树';
 
   @override
   String get searchFiles => '搜索文件';
-
-  @override
-  String get recentFiles => '文件';
 
   @override
   String get src => '源代码';
@@ -1571,9 +1311,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get modified => '已修改';
-
-  @override
-  String get filePreview => '文件预览';
 
   @override
   String get edit => '编辑';
@@ -1600,13 +1337,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get browser => '网页预览';
 
   @override
-  String get openTerminal => '打开终端';
-
-  @override
   String get openFile => '打开文件';
-
-  @override
-  String get tables => '数据表';
 
   @override
   String get closePort => '关闭转发';
@@ -1639,22 +1370,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get terminalEnter => '回车';
 
   @override
-  String get terminalOutputLabel => '终端输出';
-
-  @override
   String get readOnly => '只读观察';
-
-  @override
-  String get takeControl => '接管输入';
-
-  @override
-  String get hasControl => '输入控制中';
-
-  @override
-  String get releaseControl => '释放控制';
-
-  @override
-  String get usageSubtitle => '仅 Sailry 会话';
 
   @override
   String get tokens => 'Tokens';
@@ -1686,27 +1402,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get cached => '缓存命中';
 
   @override
-  String get hostUsage => '主机用量';
-
-  @override
-  String get recentRequests => '最近响应';
-
-  @override
-  String get allUsage => '用量详情';
-
-  @override
-  String get usageNote => '费用为估算，部分响应未计价';
-
-  @override
-  String get sourceNote => '离线主机保留上次已知数据';
-
-  @override
-  String get profileSubtitle => '移动控制端';
-
-  @override
-  String get localSettings => '本机偏好';
-
-  @override
   String get appearance => '外观';
 
   @override
@@ -1731,9 +1426,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get configModels => '模型';
 
   @override
-  String get configInstructions => '指令';
-
-  @override
   String get configEmpty => '暂无条目';
 
   @override
@@ -1748,27 +1440,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get speechInput => '语音输入';
 
   @override
-  String get developerInstructions => '根据任务修改代码并验证结果';
-
-  @override
-  String get reviewerInstructions => '检查代码变更并指出问题';
-
-  @override
-  String get projectConventions => '项目约定';
-
-  @override
-  String get memoryContent => '保持现有代码风格';
-
-  @override
   String get providers => '模型与渠道';
 
   @override
   String get speech => '语音';
-
-  @override
-  String nodeSettingsNote(String host) {
-    return '配置保存在 $host';
-  }
 
   @override
   String get about => '关于 Sailry';
@@ -1792,58 +1467,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get memberReset => '重置模型';
 
   @override
-  String get nodeDefaults => '节点默认配置';
-
-  @override
   String get auto => '自动';
 
   @override
   String get manual => '每次询问';
 
   @override
-  String get speechNote => '使用执行节点的语音配置';
-
-  @override
   String get required => '请先填写任务';
-
-  @override
-  String get notificationsEmpty => '没有新通知';
-
-  @override
-  String get reviewTitle => '本次设计依据';
-
-  @override
-  String get reviewConversation => '会话、审批、提问与队列';
-
-  @override
-  String get reviewConversationText => '任务聚合入口保留主机、项目和工作树归属；会话内展开工具记录与审批';
-
-  @override
-  String get reviewResources => '文件、Git、终端与连接资源';
-
-  @override
-  String get reviewResourcesText => '文件编辑、暂存提交和端口保留入口；高频操作优先，详情进入二级页面';
-
-  @override
-  String get reviewHosts => '主机连接与监控';
-
-  @override
-  String get reviewHostsText => '已配对节点、6 位码连接、资源用量和进程；离线状态不显示为实时在线';
-
-  @override
-  String get reviewUsage => '用量与节点配置';
-
-  @override
-  String get reviewUsageText => '仅统计 Sailry 会话；跨主机汇总保留不完整状态，费用标明估算及覆盖范围';
-
-  @override
-  String get reviewBoundary => '移动端边界';
-
-  @override
-  String get reviewVisual => '视觉参考';
-
-  @override
-  String get reviewVisualText => '参考图 1 的会话层次、图 2 的柔和深浅色卡片与悬浮导航、图 3 的紧凑监控面板';
 
   @override
   String get hostConnectPrompt => '请连接主机';
@@ -1909,25 +1539,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get completionAlerts => '完成提示';
 
   @override
-  String get notificationsReadAll => '全部已读';
-
-  @override
-  String get notificationsOpen => '查看';
-
-  @override
   String get preferencesFailed => '偏好未保存，请重试';
 
   @override
-  String get connectFirst => '连接主机以开始';
-
-  @override
-  String get initializing => '正在启动';
-
-  @override
   String get startupFailed => '启动失败';
-
-  @override
-  String get retryConnection => '重试';
 
   @override
   String get pairAction => '连接';
@@ -1940,9 +1555,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get pairing => '正在连接';
-
-  @override
-  String get hostUnavailable => '主机未连接';
 
   @override
   String get hostRemove => '移除主机';
@@ -1987,12 +1599,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get hostProjectPath => '主机上的项目路径';
-
-  @override
-  String get hostProjectFailed => '无法添加项目';
-
-  @override
-  String get hostUnknown => '暂无数据';
 
   @override
   String get hostRefresh => '刷新';
@@ -2046,12 +1652,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSpeechFailed => '语音模型未就绪，请重试';
 
   @override
-  String get settingsNoHost => '请先连接主机';
-
-  @override
-  String get settingsUnavailable => '暂未提供';
-
-  @override
   String get settingsLoadFailed => '读取失败';
 
   @override
@@ -2062,9 +1662,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsUnknown => '结果未确认，请先刷新查看';
-
-  @override
-  String get settingsLoading => '正在读取';
 
   @override
   String get settingsRequired => '请填写内容';
@@ -2240,15 +1837,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get providerLimitsInvalid => '最大输出不能超过上下文长度';
 
   @override
-  String get settingsDriver => '服务';
-
-  @override
-  String get settingsModel => '模型';
-
-  @override
-  String get settingsArchived => '已归档';
-
-  @override
   String get settingsUsageUnknown => '未知';
 
   @override
@@ -2390,9 +1978,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get backgroundUnknown => '结果不确定';
-
-  @override
-  String get backgroundPending => '后台结果待处理';
 
   @override
   String conversationSteps(String count) {
@@ -2557,21 +2142,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get modelFeatureSpeed => '速度';
 
   @override
-  String queueHaltStopped(String count) {
-    return '已停止 · $count 条排队';
-  }
-
-  @override
-  String queueHaltInterrupted(String count) {
-    return '回复已中断 · $count 条排队';
-  }
-
-  @override
-  String queueHaltUnsent(String count) {
-    return '消息未发送 · $count 条排队';
-  }
-
-  @override
   String get backgroundHeld => '结果待送达';
 
   @override
@@ -2729,22 +2299,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String conversationToolsCount(String count) {
-    return '$count 個工具呼叫';
-  }
-
-  @override
-  String get conversationGoal => '目標';
-
-  @override
-  String get conversationGoalBlocked => '受阻';
-
-  @override
-  String conversationGoalBudget(String count) {
-    return '預算 $count tokens';
-  }
-
-  @override
   String get conversationStepSkipped => '已跳過';
 
   @override
@@ -2808,12 +2362,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationQueued => '等待處理';
 
   @override
-  String get conversationProcessing => '正在處理';
-
-  @override
-  String get conversationUnsynced => '狀態未同步';
-
-  @override
   String get conversationGenerating => '正在回覆';
 
   @override
@@ -2831,22 +2379,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationCompacting => '正在壓縮上下文';
 
   @override
-  String get conversationForkConfirm => '從當前記錄建立分支會話？';
-
-  @override
   String get conversationCompacted => '上下文已壓縮';
 
   @override
   String get conversationToolWaiting => '等待執行';
-
-  @override
-  String get conversationToolRunning => '正在執行';
-
-  @override
-  String get conversationToolReturned => '已返回';
-
-  @override
-  String get conversationUnsupportedInput => '請在桌面端處理此輸入';
 
   @override
   String get conversationStartCoding => '開始執行';
@@ -2861,9 +2397,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationSubmit => '提交';
 
   @override
-  String get conversationSource => '來源';
-
-  @override
   String get conversationMode => '工作模式';
 
   @override
@@ -2876,9 +2409,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationFlagship => '旗艦';
 
   @override
-  String get conversationPermission => '許可權';
-
-  @override
   String get conversationAsk => '每次詢問';
 
   @override
@@ -2888,43 +2418,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationFull => '完全訪問';
 
   @override
-  String get conversationReasoning => '思考強度';
-
-  @override
-  String get conversationDefault => '預設';
-
-  @override
-  String get conversationNone => '關閉';
-
-  @override
-  String get conversationMinimal => '最低';
-
-  @override
-  String get conversationLow => '低';
-
-  @override
-  String get conversationMedium => '中';
-
-  @override
-  String get conversationHigh => '高';
-
-  @override
-  String get conversationXHigh => '更高';
-
-  @override
-  String get conversationMax => '最高';
-
-  @override
   String get conversationBudget => '思考預算';
 
   @override
   String get conversationAttachment => '附件';
-
-  @override
-  String get conversationAttachmentTooLarge => '附件不可讀或超過 64 MB';
-
-  @override
-  String get conversationDownload => '檢視附件';
 
   @override
   String get conversationImageFailed => '圖片無法顯示';
@@ -2934,9 +2431,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationDownloadFailed => '附件載入失敗';
-
-  @override
-  String get conversationReadonly => '此會話已歸檔';
 
   @override
   String get conversationMicrophoneDenied => '無法訪問麥克風';
@@ -3055,15 +2549,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get codePlain => '純文字';
 
   @override
-  String get toolArguments => '引數';
-
-  @override
-  String get toolResult => '結果';
-
-  @override
-  String get toolRaw => '原始結果';
-
-  @override
   String get turnChanges => '本輪變更';
 
   @override
@@ -3155,15 +2640,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get toolFailed => '失敗';
 
   @override
-  String get toolQuestionAnswered => '已回答';
-
-  @override
-  String get toolQuestionDeclined => '已拒絕';
-
-  @override
-  String get toolQuestionCancelled => '已取消';
-
-  @override
   String get fileLinkUnavailable => '無法開啟此連結';
 
   @override
@@ -3229,9 +2705,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get resourceNoWorkspace => '請選擇已連線主機的工作樹';
 
   @override
-  String get resourceDisconnected => '主機未連線';
-
-  @override
   String get resourceRoot => '根目錄';
 
   @override
@@ -3292,16 +2765,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get resourceTerminalClaiming => '正在接管';
 
   @override
-  String get resourceTerminalReadOnly => '只讀終端';
-
-  @override
   String get resourceTerminalEnded => '終端已結束';
 
   @override
   String get resourceTerminalConnecting => '正在連線終端';
-
-  @override
-  String get resourceTerminalInput => '終端輸入';
 
   @override
   String get resourceTerminalPaste => '貼上';
@@ -3610,24 +3077,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get filterProjects => '篩選專案';
 
   @override
-  String get closeSearch => '收起搜尋';
-
-  @override
-  String onlineHostCount(String count) {
-    return '$count 臺線上';
-  }
-
-  @override
-  String get taskActions => '任務操作';
-
-  @override
   String get archiveShort => '存檔';
 
   @override
   String get archiveTab => '歸檔';
-
-  @override
-  String get archivedTasks => '已存檔';
 
   @override
   String get delete => '刪除';
@@ -3639,12 +3092,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get deleteWarning => '刪除後無法繼續此會話';
 
   @override
-  String get busyDelete => '請先停止任務，再刪除會話';
-
-  @override
-  String get stopBeforeDelete => '停止任務';
-
-  @override
   String get restored => '已恢復到首頁';
 
   @override
@@ -3654,19 +3101,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get archiveEmpty => '暫無存檔';
 
   @override
-  String get archiveKeepsRunning => '存檔不會停止正在執行的任務';
-
-  @override
   String get brand => 'Sailry';
 
   @override
   String get mobile => '移動工作臺';
-
-  @override
-  String get edition => '移動端預覽 / 01';
-
-  @override
-  String get intro => '任務、會話與遠端工作空間';
 
   @override
   String get preview => '預覽';
@@ -3681,19 +3119,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get light => '淺色';
 
   @override
-  String get gallery => '總覽';
-
-  @override
   String get focus => '單屏體驗';
 
   @override
   String get page => '選擇頁面';
-
-  @override
-  String get experience => '體驗此頁';
-
-  @override
-  String get backGallery => '返回總覽';
 
   @override
   String get design => '功能與設計';
@@ -3738,34 +3167,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get worktree => '工作樹';
 
   @override
-  String get subtitleTasks => '跨主機任務 · 審批與回覆優先';
-
-  @override
-  String get subtitleChat => '連續對話 · 工具過程按需展開';
-
-  @override
-  String get subtitleHosts => '連線狀態 · 主機資源與執行程序';
-
-  @override
-  String get subtitleResources => '主機 → 專案 → 工作樹';
-
-  @override
-  String get subtitleChanges => '檔案差異 · 暫存與提交';
-
-  @override
-  String get subtitleTerminal => '遠端終端 · 明確輸入控制權';
-
-  @override
-  String get subtitleUsage => 'Sailry 會話 · 跨主機聚合';
-
-  @override
-  String get subtitleSettings => '本機偏好 · 執行節點配置';
-
-  @override
   String get allHosts => '全部主機';
-
-  @override
-  String get connectedHosts => '2 臺線上';
 
   @override
   String get all => '全部';
@@ -3780,31 +3182,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get completed => '已完成';
 
   @override
-  String get taskProgress => '當前任務';
-
-  @override
-  String get taskWait => '等待你的決定';
-
-  @override
-  String get taskRecent => '最近完成';
-
-  @override
   String get search => '搜尋';
 
   @override
   String get searchTasks => '搜尋任務、專案';
 
   @override
-  String get filterTasks => '任務篩選';
-
-  @override
   String get noResults => '沒有匹配的任務';
 
   @override
   String get notification => '通知';
-
-  @override
-  String get newTask => '新建任務';
 
   @override
   String get newConversation => '新會話';
@@ -3819,15 +3206,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get approval => '審批';
 
   @override
-  String get viewRequest => '檢視請求';
-
-  @override
-  String get ago => '剛剛';
-
-  @override
-  String get minutesAgo => '12 分鐘前';
-
-  @override
   String get allow => '允許一次';
 
   @override
@@ -3835,12 +3213,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get working => '正在處理';
-
-  @override
-  String get viewChanges => '檢視變更';
-
-  @override
-  String get viewConversation => '檢視會話';
 
   @override
   String get branch => 'feature/sign-in';
@@ -3885,19 +3257,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get queueShort => '佇列';
 
   @override
-  String get replyingNow => '正在回覆';
-
-  @override
-  String get readFileProgress => '正在讀取檔案';
-
-  @override
   String get questionPending => '等待你的回覆';
-
-  @override
-  String get testTool => '執行專案測試';
-
-  @override
-  String get testFailed => '測試未透過';
 
   @override
   String queueCount(String count) {
@@ -3921,28 +3281,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get resumeQueue => '繼續佇列';
 
   @override
-  String get enqueue => '加入佇列';
-
-  @override
   String get moveUp => '上移';
 
   @override
   String get thinkingNow => '正在思考';
 
   @override
-  String get toolsNow => '正在執行';
-
-  @override
   String get thought => '思考過程';
-
-  @override
-  String get toolDiff => '檢查檔案差異';
-
-  @override
-  String get approvalResolved => '審批已處理';
-
-  @override
-  String get chatContinue => '繼續描述你的任務';
 
   @override
   String get describeTask => '描述你的任務';
@@ -4005,9 +3350,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get stoppedStatus => '已停止';
 
   @override
-  String get hostSubtitle => '你的執行節點';
-
-  @override
   String get pair => '連線主機';
 
   @override
@@ -4054,21 +3396,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get selectHost => '選擇主機';
-
-  @override
-  String get selectProject => '選擇專案';
-
-  @override
-  String get selectBranch => '選擇工作樹';
-
-  @override
-  String get mainBranch => '主工作樹';
-
-  @override
-  String get connectionTools => '連線';
-
-  @override
-  String get workspaceResources => '工作區';
 
   @override
   String get confirm => '確認';
@@ -4135,11 +3462,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get fileTrash => '移到資源回收筒';
 
   @override
-  String gitLineChanges(String added, String removed) {
-    return '$added 行新增 · $removed 行刪除';
-  }
-
-  @override
   String get gitActions => 'Git 操作';
 
   @override
@@ -4170,25 +3492,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get gitDeleteBranch => '刪除分支';
 
   @override
-  String get gitSwitchNote => '在當前工作樹切換分支；本次僅模擬';
-
-  @override
-  String get gitDeleteNote => '刪除所選分支；本次僅模擬';
-
-  @override
   String get review => '評審';
-
-  @override
-  String get reviewFiles => '檢視程式碼變更';
 
   @override
   String get selectWorkspace => '專案與工作樹';
 
   @override
   String get searchFiles => '搜尋檔案';
-
-  @override
-  String get recentFiles => '檔案';
 
   @override
   String get src => '原始碼';
@@ -4198,9 +3508,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get modified => '已修改';
-
-  @override
-  String get filePreview => '檔案預覽';
 
   @override
   String get edit => '編輯';
@@ -4227,13 +3534,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get browser => '網頁預覽';
 
   @override
-  String get openTerminal => '開啟終端';
-
-  @override
   String get openFile => '開啟檔案';
-
-  @override
-  String get tables => '資料表';
 
   @override
   String get closePort => '關閉轉發';
@@ -4266,22 +3567,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get terminalEnter => '回車';
 
   @override
-  String get terminalOutputLabel => '終端輸出';
-
-  @override
   String get readOnly => '只讀觀察';
-
-  @override
-  String get takeControl => '接管輸入';
-
-  @override
-  String get hasControl => '輸入控制中';
-
-  @override
-  String get releaseControl => '釋放控制';
-
-  @override
-  String get usageSubtitle => '僅 Sailry 會話';
 
   @override
   String get tokens => 'Tokens';
@@ -4313,27 +3599,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get cached => '快取命中';
 
   @override
-  String get hostUsage => '主機用量';
-
-  @override
-  String get recentRequests => '最近響應';
-
-  @override
-  String get allUsage => '用量詳情';
-
-  @override
-  String get usageNote => '費用為估算，部分響應未計價';
-
-  @override
-  String get sourceNote => '離線主機保留上次已知資料';
-
-  @override
-  String get profileSubtitle => '移動控制端';
-
-  @override
-  String get localSettings => '本機偏好';
-
-  @override
   String get appearance => '外觀';
 
   @override
@@ -4358,9 +3623,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get configModels => '模型';
 
   @override
-  String get configInstructions => '指令';
-
-  @override
   String get configEmpty => '暫無條目';
 
   @override
@@ -4375,27 +3637,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get speechInput => '語音輸入';
 
   @override
-  String get developerInstructions => '根據任務修改程式碼並驗證結果';
-
-  @override
-  String get reviewerInstructions => '檢查程式碼變更並指出問題';
-
-  @override
-  String get projectConventions => '專案約定';
-
-  @override
-  String get memoryContent => '保持現有程式碼風格';
-
-  @override
   String get providers => '模型與渠道';
 
   @override
   String get speech => '語音';
-
-  @override
-  String nodeSettingsNote(String host) {
-    return '配置儲存在 $host';
-  }
 
   @override
   String get about => '關於 Sailry';
@@ -4419,58 +3664,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get memberReset => '重設模型';
 
   @override
-  String get nodeDefaults => '節點預設配置';
-
-  @override
   String get auto => '自動';
 
   @override
   String get manual => '每次詢問';
 
   @override
-  String get speechNote => '使用執行節點的語音配置';
-
-  @override
   String get required => '請先填寫任務';
-
-  @override
-  String get notificationsEmpty => '沒有新通知';
-
-  @override
-  String get reviewTitle => '本次設計依據';
-
-  @override
-  String get reviewConversation => '會話、審批、提問與佇列';
-
-  @override
-  String get reviewConversationText => '任務聚合入口保留主機、專案和工作樹歸屬；會話內展開工具記錄與審批';
-
-  @override
-  String get reviewResources => '檔案、Git、終端與連線資源';
-
-  @override
-  String get reviewResourcesText => '檔案編輯、暫存提交和埠保留入口；高頻操作優先，詳情進入二級頁面';
-
-  @override
-  String get reviewHosts => '主機連線與監控';
-
-  @override
-  String get reviewHostsText => '已配對節點、6 位碼連線、資源用量和程序；離線狀態不顯示為實時線上';
-
-  @override
-  String get reviewUsage => '用量與節點配置';
-
-  @override
-  String get reviewUsageText => '僅統計 Sailry 會話；跨主機彙總保留不完整狀態，費用標明估算及覆蓋範圍';
-
-  @override
-  String get reviewBoundary => '移動端邊界';
-
-  @override
-  String get reviewVisual => '視覺參考';
-
-  @override
-  String get reviewVisualText => '參考圖 1 的會話層次、圖 2 的柔和深淺色卡片與懸浮導航、圖 3 的緊湊監控面板';
 
   @override
   String get hostConnectPrompt => '請連線主機';
@@ -4536,25 +3736,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get completionAlerts => '完成提示';
 
   @override
-  String get notificationsReadAll => '全部已讀';
-
-  @override
-  String get notificationsOpen => '檢視';
-
-  @override
   String get preferencesFailed => '偏好未儲存，請重試';
 
   @override
-  String get connectFirst => '連線主機以開始';
-
-  @override
-  String get initializing => '正在啟動';
-
-  @override
   String get startupFailed => '啟動失敗';
-
-  @override
-  String get retryConnection => '重試';
 
   @override
   String get pairAction => '連線';
@@ -4567,9 +3752,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get pairing => '正在連線';
-
-  @override
-  String get hostUnavailable => '主機未連線';
 
   @override
   String get hostRemove => '移除主機';
@@ -4614,12 +3796,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostProjectPath => '主機上的專案路徑';
-
-  @override
-  String get hostProjectFailed => '無法新增專案';
-
-  @override
-  String get hostUnknown => '暫無資料';
 
   @override
   String get hostRefresh => '重新整理';
@@ -4673,12 +3849,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsSpeechFailed => '語音模型未就緒，請重試';
 
   @override
-  String get settingsNoHost => '請先連線主機';
-
-  @override
-  String get settingsUnavailable => '暫未提供';
-
-  @override
   String get settingsLoadFailed => '讀取失敗';
 
   @override
@@ -4689,9 +3859,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsUnknown => '結果未確認，請先重新整理檢視';
-
-  @override
-  String get settingsLoading => '正在讀取';
 
   @override
   String get settingsRequired => '請填寫內容';
@@ -4867,15 +4034,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get providerLimitsInvalid => '最大輸出不能超過上下文長度';
 
   @override
-  String get settingsDriver => '服務';
-
-  @override
-  String get settingsModel => '模型';
-
-  @override
-  String get settingsArchived => '已歸檔';
-
-  @override
   String get settingsUsageUnknown => '未知';
 
   @override
@@ -5017,9 +4175,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get backgroundUnknown => '結果不確定';
-
-  @override
-  String get backgroundPending => '背景結果待處理';
 
   @override
   String conversationSteps(String count) {
@@ -5182,21 +4337,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get modelFeatureSpeed => '速度';
-
-  @override
-  String queueHaltStopped(String count) {
-    return '已停止 · $count 條排隊';
-  }
-
-  @override
-  String queueHaltInterrupted(String count) {
-    return '回覆已中斷 · $count 條排隊';
-  }
-
-  @override
-  String queueHaltUnsent(String count) {
-    return '訊息未傳送 · $count 條排隊';
-  }
 
   @override
   String get backgroundHeld => '結果待送達';

@@ -156,10 +156,6 @@ approval_reject: 拒絕
 approval_allow_once: 允許
 approval_allow_session: 本會話允許
 approval_live_count: 待審批 %{count} 項
-file_changes_added: 新增
-file_changes_modified: 修改
-file_changes_deleted: 刪除
-file_changes_renamed: 重新命名
 subagent_count: '%{completed}/%{total} 子代理'
 chat_child: 子代理
 question_reply: 等待回答
@@ -190,7 +186,6 @@ tool_find_tools: 尋找工具
 tool_read_output: 讀取工具輸出
 approval_allow_prefix: 允許前綴「%{prefix}」
 approval_preview_result: 已記錄本回合的示例審批選擇。未修改檔案、執行命令或呼叫模型。
-file_changes_shortened: 差異已截斷
 interaction_input: 輸入回答或補充說明…
 approval_unrestricted: 完整檔案系統和網路存取
 close: 關閉
@@ -337,7 +332,6 @@ git_action_conflict: 操作存在衝突，請重新整理並解決衝突後繼�
 git_action_failed: Git 操作失敗，請檢查倉庫狀態和遠端配置
 git_action_unknown: Git 操作結果未確認，請重新整理檢查後再繼續
 git_auth_failed: 遠端認證失敗，請檢查執行主機的 Git 憑據
-cli_launch: 啟動 AI CLI
 workspace_memory_only: 僅修改示例
 workspace_confirm: 確認
 project_remove_named: 確認移除專案“%{name}”？將關閉其終端，檔案和會話會保留
@@ -651,7 +645,6 @@ composer_permission_ask_description: 修改檔案和執行命令前詢問
 composer_permission_project_description: 自動修改專案檔案，執行命令前詢問
 composer_permission_full_description: 自動修改檔案和執行命令，可影響專案外檔案
 composer_host_local: 本機
-composer_host_remote: 遠端
 composer_no_project: 對話
 composer_branch_none: 無 worktree
 composer_settings: 會話設定
@@ -733,7 +726,6 @@ directory_documents: 文件
 directory_downloads: 下載
 directory_applications: Applications
 directory_locations: 位置
-directory_count_directories: '%{count} 資料夾'
 directory_count_files: '%{count} 檔案'
 directory_name: 名稱
 directory_size: 大小
@@ -992,8 +984,6 @@ settings_runtime: 執行環境
 settings_runtime_description: 設定目前節點
 settings_save: 儲存
 settings_seconds: '%{count} 秒'
-settings_session_order: 會話排序
-settings_sessions: 會話列表
 settings_shortcuts_description: 檢視應用全域性命令與鍵盤快捷鍵
 settings_sidebar_metrics: 效能指示器
 settings_skills_description: 管理可供會話使用的技能
@@ -1329,6 +1319,32 @@ teams_model: 模型
 role_instructions: 提示詞
 role_save: 儲存
 teams_role_saved: 已儲存角色
+role_avatar: Avatar
+role_avatar_none: No avatar
+avatar_fox: Fox
+avatar_panda: Panda
+avatar_bear: Bear
+avatar_rabbit: Rabbit
+avatar_cat: Cat
+avatar_dog: Dog
+avatar_penguin: Penguin
+avatar_owl: Owl
+avatar_koala: Koala
+avatar_frog: Frog
+avatar_lion: Lion
+avatar_tiger: Tiger
+avatar_elephant: Elephant
+avatar_whale: Whale
+avatar_duck: Duck
+avatar_pig: Pig
+avatar_monkey: Monkey
+avatar_deer: Deer
+avatar_hedgehog: Hedgehog
+avatar_seal: Seal
+avatar_octopus: Octopus
+avatar_sheep: Sheep
+avatar_raccoon: Raccoon
+avatar_dino: Dinosaur
 market_plugin_details: 外掛詳情
 market_skill_details: 技能詳情
 market_theme_details: 主題詳情
@@ -1787,8 +1803,6 @@ files_wrap: Soft wrap
 location_copy_changes: 帶入未提交修改
 location_fork: 在獨立工作樹中派生會話
 refresh: Refresh
-artifact_next_page: 下一頁
-artifact_previous_page: 上一頁
 git_commit_scope: 尚未暫存更改
 git_commit_tracked: 提交已跟蹤檔案
 git_continue: 繼續操作
@@ -2129,9 +2143,6 @@ live_request_failed: 請求未完成，請檢查節點連線和目錄；重試�
 plugins_loading: 正在讀取
 project_appearance: 專案外觀
 project_clone_failed: 克隆未完成，請檢查目標目錄
-project_grant: 信任並繼續
-project_grant_description: 信任後，專案指令和工具可能執行程式碼，適用於所有 worktree
-project_grant_title: 信任此專案
 project_outcome_unknown: 結果未確認，請先檢查目標目錄，重試將查詢原請求
 project_path_in_use: 路徑已關聯會話或 worktree，不能直接修改
 project_remove_busy: 專案使用中，請稍後重試
@@ -2143,9 +2154,6 @@ project_remove_tasks: 請先停止執行中的任務再移除專案
 project_remove_tasks_partial: 專案已保留，請先停止任務再重試，部分終端可能已關閉
 project_remove_unknown: 移除結果未確認，請檢查專案和終端
 project_removed: 專案已移除
-project_revoke: 撤銷信任
-project_revoke_description: 撤銷後停止專案任務，保留歷史和草稿
-project_revoke_title: 撤銷專案信任
 task_completed: 已完成
 artifact_export_failed: 匯出失敗
 chat_compact_incomplete: 摘要未完整返回

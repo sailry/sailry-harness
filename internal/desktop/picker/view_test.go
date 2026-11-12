@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -1018,4 +1019,27 @@ func views(t *testing.T) {
 		b.settle()
 		b.has(en("directory_trash_confirm", "name", "scratch"))
 	})
+}
+
+// Another directory opens at its top, not at the row offset the one before
+// was scrolled to.
+func TestDirectoryOpensAtItsTop(t *testing.T) {
+	catalog := NewCatalog(false)
+	for i := range 300 {
+		catalog.Add(fmt.Sprintf("/Users/alex/big/file-%03d.txt", i), true, 1, CatalogNow)
+		catalog.Add(fmt.Sprintf("/Users/alex/big/sub/file-%03d.txt", i), true, 1, CatalogNow)
+	}
+	b := newBench(t, Options{Mode: File, Source: catalog.Source(), Preview: true})
+	b.s.navigate("/Users/alex/big", push, 0)
+	b.settle()
+	b.s.list.ScrollTo(200, ui.Start)
+	b.settle()
+	if first, _ := b.s.list.Visible(); first < 100 {
+		t.Fatalf("the list did not scroll: row %d first", first)
+	}
+	b.s.navigate("/Users/alex/big/sub", push, 0)
+	b.settle()
+	if first, _ := b.s.list.Visible(); b.s.listing.Path != "/Users/alex/big/sub" || first != 0 {
+		t.Fatalf("%q opens at row %d", b.s.listing.Path, first)
+	}
 }

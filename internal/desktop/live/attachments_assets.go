@@ -78,12 +78,9 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 		worktree protocol.WorktreeID
 	}
 	owners := map[protocol.TurnID]owner{}
+	displayed := turnOwners(page.Runs)
 	for _, run := range page.Runs {
-		displayed := run.Turn
-		if run.Joined != nil {
-			displayed = *run.Joined
-		}
-		owners[run.Turn] = owner{turn: displayed.String(), worktree: run.Worktree}
+		owners[run.Turn] = owner{turn: displayed[run.Turn].String(), worktree: run.Worktree}
 	}
 	positions := map[string]int{}
 	for index, turn := range cv.Turns {

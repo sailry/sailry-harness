@@ -45,7 +45,12 @@ func (r *Runtime) readModelScores() {
 		return
 	}
 	r.execute(protocol.Command{Kind: "read_model_scores", Data: refs}, func(_ *ui.Context, out protocol.Output, err error) {
-		if err != nil || r.modelScoreKey != key {
+		if r.modelScoreKey != key {
+			return
+		}
+		if err != nil {
+			// The next projection reads again.
+			r.modelScoreKey = ""
 			return
 		}
 		result, ok := detail[protocol.ConversationCatalogScores](out.Data)

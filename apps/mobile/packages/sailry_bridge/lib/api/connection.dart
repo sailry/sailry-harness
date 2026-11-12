@@ -1,8 +1,6 @@
 import '../src/native.dart';
 import 'commands.dart';
-import 'connectors.dart';
 import 'conversation.dart';
-import 'login.dart';
 import 'ports.dart';
 import 'status.dart';
 import 'terminal.dart';
@@ -85,30 +83,12 @@ class Connection extends NativeHandle {
     return CommandUpdates.internal(bridge, nativeHandle(value, 'command_updates'));
   }
 
-  Future<ConnectionsUpdates> watchConnections() async {
-    final value = await invoke('watch_connections');
-    return ConnectionsUpdates.internal(
-      bridge,
-      nativeHandle(value, 'connections_updates'),
-    );
-  }
-
-  Future<LoginUpdates> watchConnectorLogin({required String attempt}) async {
-    final value = await invoke('watch_connector_login', {'attempt': attempt});
-    return LoginUpdates.internal(bridge, nativeHandle(value, 'login_updates'));
-  }
-
   Future<ConversationUpdates> watchConversation({required String session}) async {
     final value = await invoke('watch_conversation', {'session': session});
     return ConversationUpdates.internal(
       bridge,
       nativeHandle(value, 'conversation_updates'),
     );
-  }
-
-  Future<LoginUpdates> watchLogin({required String attempt}) async {
-    final value = await invoke('watch_login', {'attempt': attempt});
-    return LoginUpdates.internal(bridge, nativeHandle(value, 'login_updates'));
   }
 
   Future<StatusUpdates> watchStatus({required String scope}) async {

@@ -42,7 +42,6 @@ type Activity struct {
 // changed last.
 type Changes struct {
 	Added, Removed, Files int
-	Partial               bool          // the status was cut short
 	Recent                []ChangedFile // the files changed last, newest first, at most RecentChanges
 }
 
@@ -549,7 +548,7 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 func (s *State) subagentRow(c *ui.Context, k conversation.Child, name string, actions Actions) ui.Element {
 	row := kit.Ghost(c.Key(k.ID), name, false).Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
 		Children(func() {
-			kit.Identicon(c, k.ID, k.Status.Active(), 16)
+			kit.RoleIdenticon(c, k.ID, k.Avatar, k.Status.Active(), 16)
 			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 			if s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
 				if elapsed := s.ActivityCallbacks.ChildElapsed(k.ID, c.Now()); elapsed != "" {

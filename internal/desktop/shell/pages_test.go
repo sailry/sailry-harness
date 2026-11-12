@@ -161,7 +161,7 @@ func TestRailOpensPages(t *testing.T) {
 		// Launch AI CLI is neither an item of the menu nor a button of the
 		// page (AGENTS.md, Removed UI).
 		for _, info := range tester.AccessAll() {
-			if info.Name == i18n.In("en", "cli_launch") {
+			if info.Name == "Launch AI CLI" {
 				t.Fatalf("the project page offers Launch AI CLI: %+v", info)
 			}
 		}

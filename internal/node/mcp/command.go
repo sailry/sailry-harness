@@ -42,7 +42,7 @@ func (transport commandTransport) Connect(ctx context.Context) (sdk.Connection, 
 	}
 	owner := &commandOwner{command: transport.command, input: input, output: output, group: group, waited: make(chan struct{})}
 	go func() {
-		owner.waitErr = owner.command.Wait()
+		_ = owner.command.Wait()
 		close(owner.waited)
 	}()
 	wire, err := (&sdk.IOTransport{Reader: io.NopCloser(output), Writer: owner, MaxLineLength: maxMessage}).Connect(ctx)
@@ -59,7 +59,6 @@ type commandOwner struct {
 	output  io.ReadCloser
 	group   *commandGroup
 	waited  chan struct{}
-	waitErr error
 	once    sync.Once
 	err     error
 }
@@ -95,7 +94,10 @@ func (owner *commandOwner) Close() error {
 			owner.err = errors.New("MCP subprocess cleanup could not be confirmed")
 			return
 		}
-		owner.err = errors.Join(inputErr, owner.waitErr, killErr, groupErr)
+		// How the child exited is not a cleanup failure: a server ended by
+		// the signal above, or one that exits non-zero when its input
+		// closes, is gone all the same.
+		owner.err = errors.Join(inputErr, killErr, groupErr)
 	})
 	return owner.err
 }

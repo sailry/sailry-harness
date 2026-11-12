@@ -156,10 +156,6 @@ approval_reject: Negar
 approval_allow_once: Permitir
 approval_allow_session: Permitir nesta sessão
 approval_live_count: '%{count} aguardando aprovação'
-file_changes_added: Adicionado
-file_changes_modified: Modificado
-file_changes_deleted: Excluído
-file_changes_renamed: Renomeado
 subagent_count: '%{completed}/%{total} subagentes'
 chat_child: Subagente
 question_reply: À espera de resposta
@@ -190,7 +186,6 @@ tool_find_tools: Buscar ferramentas
 tool_read_output: Ler saída da ferramenta
 approval_allow_prefix: Permitir o prefixo "%{prefix}"
 approval_preview_result: Aprovação de visualização registrada. Nenhum arquivo, comando ou modelo foi usado.
-file_changes_shortened: Diff abreviado
 interaction_input: Digite uma resposta ou detalhes
 approval_unrestricted: Acesso completo ao sistema de arquivos e à rede
 close: Fechar
@@ -337,7 +332,6 @@ git_action_conflict: Git estado alterado, atualizar
 git_action_failed: Git operação falhou
 git_action_unknown: Git resultado não confirmado, atualize antes de continuar
 git_auth_failed: Git falha na autenticação
-cli_launch: Iniciar CLI de IA
 workspace_memory_only: Apenas pré-visualização de alterações
 workspace_confirm: Confirmar
 project_remove_named: Remover o projeto “%{name}”? Seus terminais serão fechados; arquivos e sessões serão mantidos
@@ -651,7 +645,6 @@ composer_permission_ask_description: Perguntar antes de editar arquivos ou execu
 composer_permission_project_description: Edite arquivos de projeto automaticamente; pergunte antes de executar comandos
 composer_permission_full_description: Edite arquivos e execute comandos automaticamente, inclusive fora do projeto
 composer_host_local: Dispositivo local
-composer_host_remote: Remoto
 composer_no_project: Conversas
 composer_branch_none: Sem ramo
 composer_settings: Configurações da sessão
@@ -733,7 +726,6 @@ directory_documents: Documentação
 directory_downloads: Downloads
 directory_applications: Applications
 directory_locations: Locais
-directory_count_directories: '%{count} pastas'
 directory_count_files: '%{count} arquivos'
 directory_name: Nome
 directory_size: Tamanho
@@ -992,8 +984,6 @@ settings_runtime: Ambiente de execução
 settings_runtime_description: Configurar este nó
 settings_save: Salvar
 settings_seconds: '%{count} segundos'
-settings_session_order: Ordem das sessões
-settings_sessions: Sessões
 settings_shortcuts_description: Ver comandos globais e atalhos de teclado
 settings_sidebar_metrics: Indicador de desempenho
 settings_skills_description: Gerir competências disponíveis para sessões
@@ -1329,6 +1319,32 @@ teams_model: Modelo
 role_instructions: Instruções
 role_save: Salvar
 teams_role_saved: Função salva
+role_avatar: Avatar
+role_avatar_none: No avatar
+avatar_fox: Fox
+avatar_panda: Panda
+avatar_bear: Bear
+avatar_rabbit: Rabbit
+avatar_cat: Cat
+avatar_dog: Dog
+avatar_penguin: Penguin
+avatar_owl: Owl
+avatar_koala: Koala
+avatar_frog: Frog
+avatar_lion: Lion
+avatar_tiger: Tiger
+avatar_elephant: Elephant
+avatar_whale: Whale
+avatar_duck: Duck
+avatar_pig: Pig
+avatar_monkey: Monkey
+avatar_deer: Deer
+avatar_hedgehog: Hedgehog
+avatar_seal: Seal
+avatar_octopus: Octopus
+avatar_sheep: Sheep
+avatar_raccoon: Raccoon
+avatar_dino: Dinosaur
 market_plugin_details: Detalhes do plugin
 market_skill_details: Detalhes do skill
 market_theme_details: Detalhes do tema
@@ -1787,8 +1803,6 @@ files_wrap: Soft wrap
 location_copy_changes: Copiar as alterações
 location_fork: Fork worktree
 refresh: Refresh
-artifact_next_page: Próxima página
-artifact_previous_page: Página anterior Página seguinte
 git_commit_scope: Escopo do commit
 git_commit_tracked: Confirmar arquivos rastreados
 git_continue: Continuar
@@ -2129,9 +2143,6 @@ live_request_failed: Solicitação incompleta; verifique a conexão e o diretór
 plugins_loading: Carregando
 project_appearance: Aparência do projeto
 project_clone_failed: Clonar incompleto; verifique o destino
-project_grant: Confie e continue
-project_grant_description: As instruções e ferramentas do projeto podem executar código em todas as árvores de trabalho
-project_grant_title: Confie neste projeto
 project_outcome_unknown: Resultado não confirmado; verifique o destino. Retentar verifica a solicitação original.
 project_path_in_use: Este caminho é usado por uma sessão ou árvore de trabalho
 project_remove_busy: O projeto está em uso; tente novamente
@@ -2143,9 +2154,6 @@ project_remove_tasks: Pare as tarefas ativas antes de remover o projeto
 project_remove_tasks_partial: Projeto mantido; pare as tarefas antes de tentar novamente. Alguns terminais podem estar fechados
 project_remove_unknown: Remoção não confirmada; confira o projeto e seus terminais
 project_removed: Projeto removido
-project_revoke: Revogar a confiança
-project_revoke_description: Parar tarefas de projeto; manter histórico e rascunhos
-project_revoke_title: Revogar confiança de projeto
 task_completed: Concluído
 artifact_export_failed: Não foi possível exportar
 chat_compact_incomplete: Resumo incompleto

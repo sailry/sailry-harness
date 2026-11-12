@@ -100,11 +100,11 @@ func Load() *Data {
 	simulation(big).queued = 2
 	big.Commands, big.Badges = background(), []composer.StatusBadge{goal()}
 	for _, p := range d.Projects {
-		p.Host, p.Trusted = "local", true
+		p.Host = "local"
 		p.Worktrees = []Worktree{{Branch: p.Branch, Path: p.Path, Main: true}}
 	}
 	d.Projects[0].Worktrees = append(d.Projects[0].Worktrees, Worktree{Branch: "split-view", Path: "~/Web/sailry-go-split-view"})
-	d.Projects[3].Host, d.Projects[3].Trusted = "remote", false
+	d.Projects[3].Host = "remote"
 	d.Workspace = workspace()
 	d.Unassigned = []*Conversation{
 		conv("chat/regex", "Regex for semantic versions", Idle, 15*time.Minute, 4),
@@ -129,12 +129,12 @@ func Load() *Data {
 	d.Unassigned[len(d.Unassigned)-1].Session.Loading = true
 	d.Models = models()
 	d.Providers = []Provider{
-		{ID: "anthropic", Name: "Anthropic", Description: "Claude models with OAuth or an API key", Badge: "provider_auth_oauth", Enabled: true},
-		{ID: "openai", Name: "OpenAI", Description: "GPT models through the Responses API", Badge: "provider_auth_key", Enabled: true},
-		{ID: "google", Name: "Google", Description: "Gemini models through AI Studio", Badge: "provider_status_missing_key", Enabled: false},
-		{ID: "openrouter", Name: "OpenRouter", Description: "Hundreds of models behind one key", Badge: "provider_auth_key", Enabled: false},
-		{ID: "ollama", Name: "Ollama", Description: "Local models on this computer", Badge: "provider_auth_plugin", Enabled: true},
-		{ID: "deepseek", Name: "DeepSeek", Description: "DeepSeek chat and reasoning models", Badge: "provider_status_signed_out", Enabled: false},
+		{ID: "anthropic", Name: "Anthropic"},
+		{ID: "openai", Name: "OpenAI"},
+		{ID: "google", Name: "Google"},
+		{ID: "openrouter", Name: "OpenRouter"},
+		{ID: "ollama", Name: "Ollama"},
+		{ID: "deepseek", Name: "DeepSeek"},
 	}
 	d.Plugins = []Plugin{
 		{ID: "git", Name: "Git", Description: "Branches, diffs and commits in conversations", Version: "0.3.2", Official: true, Enabled: true},

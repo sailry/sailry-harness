@@ -61,9 +61,6 @@ func (s *Service) read(ctx context.Context, root string, command protocol.Comman
 	case "list_git_branches":
 		v, e := s.Branches(ctx, root)
 		return protocol.Output{Kind: "git_branches", Data: v}, e
-	case "list_worktrees":
-		v, e := s.ListWorktrees(ctx, root)
-		return protocol.Output{Kind: "git_worktrees", Data: v}, e
 	case "read_git_output":
 		return protocol.Output{Kind: "git_output", Data: protocol.OutputGitOutputPayload{Text: s.Output(root)}}, nil
 	case "list_git_remote_tags":

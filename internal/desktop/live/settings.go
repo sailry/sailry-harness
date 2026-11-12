@@ -138,19 +138,15 @@ func (r *Runtime) saveTelemetry() {
 // While the outcome is still open the toast is Uncertain and the same save,
 // sent again unchanged, carries the same request and resolves it.
 func (r *Runtime) saveSetting(command protocol.Command, messages settings.Messages, done func(protocol.Output, bool)) {
-	r.saveSettingChecked(command, messages, nil, done)
+	r.saveSettingRetry(command, messages, nil, nil, done)
 }
 
-// saveSettingChecked also reads the section again, through reread, when the
+// saveSettingRetry also reads the section again, through reread, when the
 // Node can never tell whether the save was applied: the page would otherwise
-// keep a revision that the next save may be refused for.
-func (r *Runtime) saveSettingChecked(command protocol.Command, messages settings.Messages, reread func(), done func(protocol.Output, bool)) {
-	r.saveSettingRetry(command, messages, reread, nil, done)
-}
-
-// saveSettingRetry also offers Retry on the toast of a save that failed or
-// whose outcome is unknown. again saves the section's draft anew, at the
-// revision the page then holds, rather than sending this request again.
+// keep a revision that the next save may be refused for. It offers Retry on
+// the toast of a save that failed or whose outcome is unknown. again saves
+// the section's draft anew, at the revision the page then holds, rather than
+// sending this request again.
 func (r *Runtime) saveSettingRetry(command protocol.Command, messages settings.Messages, reread, again func(), done func(protocol.Output, bool)) {
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		if reread != nil && client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {

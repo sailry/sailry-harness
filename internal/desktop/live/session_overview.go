@@ -76,7 +76,7 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 			}
 			if childSession, valid := client.ConversationChildSession(r.snapshot(), session.ID, child); valid {
 				view.Children = append(view.Children, composer.OverviewChild{ID: childSession.ID.String(),
-					Name: childTitle(page, child, c.Locale()), Status: "chat_running", Running: true})
+					Name: childTitle(page, child, c.Locale()), Status: "chat_running", Running: true, Avatar: childAvatar(r.snapshot().Roles, child)})
 			}
 		}
 		if read.revision != page.Revision || read.head != state.Snapshot.Sequence {

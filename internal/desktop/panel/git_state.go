@@ -120,7 +120,8 @@ func (pr *Project) gitEmpty(c *ui.Context, details bool) bool {
 				}
 			})
 		}
-		if state.Kind == "directory" {
+		// The details column has the button; the main area only says so.
+		if state.Kind == "directory" && details {
 			label := i18n.T(c, "git_initialize")
 			kit.Primary(c.Key("initialize"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { pr.gitAction(c, GitAction{Kind: "git_initialize"}) })
 		}

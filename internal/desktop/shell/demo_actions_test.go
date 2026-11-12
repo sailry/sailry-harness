@@ -155,7 +155,7 @@ func TestDemoActions(t *testing.T) {
 		a, tt, _ := open(t, flaky)
 		cv := a.Data.Find(flaky)
 		n := len(cv.Turns)
-		a.Messages.AskRewind(cv.Turns[0].ID)
+		a.Messages.AskRewind(cv.ID, cv.Turns[0].ID)
 		settle(tt)
 		if !tt.HasText(en("chat_rewind_confirm")) || len(cv.Turns) != n {
 			t.Fatalf("Rewind did not ask first: %q", tt.Texts())

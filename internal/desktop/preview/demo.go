@@ -224,21 +224,21 @@ const DemoStart = "harbor-api/rate-limit"
 func Demo(locale, host string) *Data {
 	b := &demo{locale: locale, host: host}
 	d := &Data{Models: DemoModels(), Workspace: b.workspace()}
-	d.Providers = []Provider{{ID: demoFamily, Name: DemoProvider, Description: b.t("provider.description"), Badge: "provider_auth_key", Enabled: true}}
+	d.Providers = []Provider{{ID: demoFamily, Name: DemoProvider}}
 	d.Plugins = []Plugin{
 		{ID: "git", Name: "Git", Description: b.t("plugin.git"), Version: "0.3.2", Official: true, Enabled: true},
 		{ID: "knowledge", Name: "Knowledge", Description: b.t("plugin.knowledge"), Version: "0.1.1", Official: true, Enabled: true},
 		{ID: "goals", Name: "Goals", Description: b.t("plugin.goals"), Version: "0.2.2", Official: true, Enabled: true},
 	}
 	d.Projects = []*Project{
-		{ID: "harbor-api", Name: "harbor-api", Path: "~/Web/harbor-api", Branch: "main", Host: host, Trusted: true,
+		{ID: "harbor-api", Name: "harbor-api", Path: "~/Web/harbor-api", Branch: "main", Host: host,
 			Worktrees:     []Worktree{{Branch: "main", Path: "~/Web/harbor-api", Main: true}, {Branch: "feature/rate-limit", Path: "~/Web/harbor-api-rate-limit"}},
 			Conversations: []*Conversation{b.rateLimit(), b.deploy(), b.webhooks(), b.flakyTest(), b.invoices()}},
-		{ID: "lumen-web", Name: "lumen-web", Path: "~/Web/lumen-web", Branch: "main", Host: host, Trusted: true,
+		{ID: "lumen-web", Name: "lumen-web", Path: "~/Web/lumen-web", Branch: "main", Host: host,
 			Worktrees:     []Worktree{{Branch: "main", Path: "~/Web/lumen-web", Main: true}},
 			Conversations: []*Conversation{b.review(), b.audit(), b.onboarding(), b.tracker(), b.metrics(), b.pursuit(), b.pursuitLimit()}},
 		// A plain folder, which has no repository and no worktrees.
-		{ID: "notes", Name: "growth-notes", Path: "~/Documents/growth-notes", Branch: "main", Host: host, Trusted: true,
+		{ID: "notes", Name: "growth-notes", Path: "~/Documents/growth-notes", Branch: "main", Host: host,
 			Worktrees:     []Worktree{{Branch: "main", Path: "~/Documents/growth-notes", Main: true}},
 			Conversations: []*Conversation{b.signIn()}},
 	}

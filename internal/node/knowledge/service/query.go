@@ -94,9 +94,6 @@ func (index Index) Candidates(ctx context.Context, query protocol.KnowledgeQuery
 // ranks orders the admitted chunks. The stamps are those of the collections
 // before the read transaction of db began.
 func (index Index) ranks(ctx context.Context, db *sql.Conn, stamps map[string]stamp, query protocol.KnowledgeQuery, allowed []Binding, embeddings []Embedding, alternatives []string) ([]knowledge.Ranked, protocol.KnowledgeMode, error) {
-	if err := knowledge.ValidateQuery(query); err != nil {
-		return nil, "", err
-	}
 	if err := searchCancelled(ctx); err != nil {
 		return nil, "", err
 	}

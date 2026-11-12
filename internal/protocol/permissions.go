@@ -43,34 +43,6 @@ func (value *PermissionsKind) UnmarshalText(data []byte) error {
 	return value.UnmarshalJSON(encoded)
 }
 
-type PermissionsIdentity struct {
-	Device  NodeID          `json:"device"`
-	Subject string          `json:"subject"`
-	Kind    PermissionsKind `json:"kind"`
-}
-
-func DefaultPermissionsIdentity() PermissionsIdentity {
-	return PermissionsIdentity{
-		Device:  NodeID{},
-		Subject: "",
-		Kind:    PermissionsKind(""),
-	}
-}
-func (value *PermissionsIdentity) UnmarshalJSON(data []byte) error {
-	type plain PermissionsIdentity
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"device", "subject", "kind"}, false); err != nil {
-		return err
-	}
-	*value = PermissionsIdentity(decoded)
-	return nil
-}
-func (value PermissionsIdentity) MarshalJSON() ([]byte, error) {
-	type plain PermissionsIdentity
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
 type PermissionsContribution struct {
 	Kind         PermissionsKind `json:"kind"`
 	Subject      string          `json:"subject"`
