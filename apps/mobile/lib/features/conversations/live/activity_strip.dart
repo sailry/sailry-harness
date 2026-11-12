@@ -10,6 +10,7 @@ import '../../../ui/identicon.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/session_services.dart';
+import 'background_data.dart';
 import 'presentation.dart';
 import 'progress.dart';
 import 'status_chips.dart';
@@ -18,7 +19,8 @@ import 'glass_chip.dart';
 import 'tool_row.dart';
 import 'turn_frame.dart';
 
-/// Core activity still running for a conversation.
+/// Core activity still running for a conversation, and the background results
+/// the Node holds for the user's next message.
 class _Activity {
   _Activity(
     HostConnection host,
@@ -50,18 +52,21 @@ class _Activity {
             object(task['kind'])['kind'] != 'agent',
       ),
     );
+    held.addAll(objects(page['background']).where(backgroundHeld));
     ports.addAll(services.sources(running: true));
   }
 
   Map<String, dynamic>? progress;
   final children = <(Map<String, dynamic>, Map<String, dynamic>)>[];
   final background = <Map<String, dynamic>>[];
+  final held = <Map<String, dynamic>>[];
   final ports = <Map<String, dynamic>>[];
 
   bool get isEmpty =>
       progress == null &&
       children.isEmpty &&
       background.isEmpty &&
+      held.isEmpty &&
       ports.isEmpty;
 }
 
@@ -201,12 +206,12 @@ class _ActivityStripState extends State<ActivityStrip> {
                   value: '${activity.children.length}',
                   onPressed: _open,
                 ),
-              if (activity.background.isNotEmpty)
+              if (activity.background.isNotEmpty || activity.held.isNotEmpty)
                 _Chip(
                   icon: 'clock',
-                  running: true,
+                  running: activity.background.isNotEmpty,
                   label: context.tr('activityBackground'),
-                  value: '${activity.background.length}',
+                  value: '${activity.background.length + activity.held.length}',
                   onPressed: _open,
                 ),
               if (ports.isNotEmpty)
@@ -362,10 +367,17 @@ class _ActivitySheet extends StatelessWidget {
                   : () => _leave(context, () => onOpenChild!(reference)),
             ),
         ],
-        if (activity.background.isNotEmpty) ...[
+        if (activity.background.isNotEmpty || activity.held.isNotEmpty) ...[
           group('activityBackground'),
           for (final task in activity.background)
             ToolRow(icon: 'clock', label: text(task['title']), running: true),
+          for (final task in activity.held)
+            ToolRow(
+              icon: object(task['kind'])['kind'] == 'agent' ? 'spark' : 'clock',
+              label: text(task['title']),
+              detail: backgroundHoldText(task, context.tr),
+              tone: RowTone.pending,
+            ),
         ],
         if (activity.ports.isNotEmpty) ...[
           group('activityPorts'),
