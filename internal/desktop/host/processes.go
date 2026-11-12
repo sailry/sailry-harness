@@ -3,7 +3,6 @@ package host
 import (
 	"math"
 	"strconv"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -13,21 +12,21 @@ import (
 )
 
 // The processes' table is as tall as its rows up to processHeight, past
-// which it scrolls them: MyGo's table head is 32 DIP, and a row is its
-// 22 DIP cell in the table's 6 DIP padding.
+// which it scrolls them; a row is processRow high, the compact row of the
+// application's tables (kit.TableCell).
 const (
 	processHeight = 360
-	processHead   = 32
-	processCell   = 22
-	processRow    = processCell + 12
+	processRow    = 36
 )
 
 // processPanel is the host's busiest processes, as the reference's
 // (live/host/monitor.rs, processes.rs): Kit's toolbar with the count of
 // every process and a search, a note when the sample lists fewer than run,
-// then MyGo's table of the name, the processor's load over the last minute,
-// the memory and the PID, sorted by a click on a header and by the load at
-// first. A row is its process (its PID and start), so the system's menu a
+// then MyGo's table in Kit's table look (kit.TableFrame: the frame, the
+// filled header, compact separated rows, as a package's tables) of the
+// name, the processor's load over the last minute, the memory and the PID,
+// the three figures at the end of their columns, sorted by a click on a
+// header and by the load at first. A row is its process (its PID and start), so the system's menu a
 // right-click opens on it (processMenu) acts on that process however the
 // samples sort the rows meanwhile, and the table stays where it is scrolled.
 // The table is built under the neutral theme: nothing in it draws the
@@ -69,72 +68,72 @@ func processPanel(c *ui.Context, s *State, h *Host, m *Metrics, t tones, act Act
 		}
 		columns := []ui.TableColumn{
 			{Title: i18n.T(c, "host_process_name"), ID: "name", MinWidth: 160, Sortable: true},
-			{Title: i18n.T(c, "metrics_cpu"), ID: "cpu", Width: 200, Sortable: true},
-			{Title: i18n.T(c, "metrics_memory"), ID: "memory", Width: 140, Sortable: true},
+			{Title: i18n.T(c, "metrics_cpu"), ID: "cpu", Width: 200, Align: ui.End, Sortable: true},
+			{Title: i18n.T(c, "metrics_memory"), ID: "memory", Width: 120, Align: ui.End, Sortable: true},
 			{Title: i18n.T(c, "host_pid"), ID: "pid", Width: 72, Align: ui.End, Sortable: true},
 		}
-		height := min(processHeight, processHead+float32(len(rows))*processRow+2)
-		ui.Themed(c.Key("neutral"), theme.Neutral(c)).Background(ui.Transparent).FillWidth().Height(height).Children(func() {
-			processTable(c, s, m, t, columns, rows).Fill().Label(i18n.T(c, "metrics_processes"))
+		height := min(processHeight, kit.TableHeight(c, len(rows), processRow))
+		kit.TableFrame(c, ui.Column(c.Key("frame")).FillWidth().Height(height)).Children(func() {
+			ui.Themed(c.Key("neutral"), theme.Neutral(c)).Background(ui.Transparent).Grow(1).FillWidth().MinHeight(0).Children(func() {
+				processTable(c, s, t, columns, rows).Fill().Label(i18n.T(c, "metrics_processes"))
+			})
 		})
 	})
 }
 
-// processTable is the processes' table over its sorted rows.
-func processTable(c *ui.Context, s *State, m *Metrics, t tones, columns []ui.TableColumn, rows []Process) ui.Element {
+// processTable is the processes' table over its sorted rows. A cell is
+// plain text: the name has no letter tile before it and the memory no bar
+// of its share (docs/removed-ui.md); the load keeps its last minute before
+// its figure.
+func processTable(c *ui.Context, s *State, t tones, columns []ui.TableColumn, rows []Process) ui.Element {
 	p := theme.Of(c)
 	return ui.Table(c.Key("table"), &s.processes, columns, len(rows), func(row, col int) {
 		x := rows[row]
-		switch col {
-		case 0:
-			ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
-				initial, _ := utf8.DecodeRuneInString(x.Name)
-				ui.Row(c).Size(22, 22).Shrink(0).Radius(11).Center().Background(p.Secondary).Children(func() {
-					ui.Text(c, string(initial)).FontSize(11).FontWeight(600).SingleLine().TextColor(p.MutedForeground)
-				})
-				ui.Text(c, x.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-			})
-		case 1:
-			ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
-				top := 100.0
-				for _, v := range x.History {
-					if !math.IsNaN(v) {
-						top = max(top, v)
-					}
-				}
-				sparkline(c, x.History, top, t.cpu, 96, 20)
-				ui.Text(c, orDash(Percent(x.CPU))).FontSize(12).Font("monospace").SingleLine()
-			})
-		case 2:
-			ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
-				share, _ := Usage(x.Memory, m.Memory)
-				ui.Progress(c.Key("memory"), share/100).Width(44).Shrink(0).Height(4).Label(x.Name).TextColor(t.memory)
-				ui.Text(c, orDash(Bytes(float64(x.Memory)))).FontSize(12).Font("monospace").SingleLine()
-			})
-		case 3:
-			pid := dash
-			if x.PID != 0 {
-				pid = strconv.FormatUint(uint64(x.PID), 10)
-			}
-			ui.Text(c, pid).FontSize(12).Font("monospace").SingleLine().TextColor(p.MutedForeground)
+		cell := kit.TableCell(c, processRow, row+1 == len(rows))
+		if col > 0 {
+			cell.AlignItems(ui.End)
 		}
+		cell.Children(func() {
+			switch col {
+			case 0:
+				ui.Text(c, x.Name).FontSize(14).SingleLine()
+			case 1:
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					top := 100.0
+					for _, v := range x.History {
+						if !math.IsNaN(v) {
+							top = max(top, v)
+						}
+					}
+					sparkline(c, x.History, top, t.cpu, 96, 20)
+					ui.Text(c, orDash(Percent(x.CPU))).FontSize(12).Font("monospace").SingleLine().MinWidth(48).TextAlign(ui.End)
+				})
+			case 2:
+				ui.Text(c, orDash(Bytes(float64(x.Memory)))).FontSize(12).Font("monospace").SingleLine()
+			case 3:
+				pid := dash
+				if x.PID != 0 {
+					pid = strconv.FormatUint(uint64(x.PID), 10)
+				}
+				ui.Text(c, pid).FontSize(12).Font("monospace").SingleLine().TextColor(p.MutedForeground)
+			}
+		})
 	})
 }
 
-// processSkeleton holds the processes table's place until the first sample:
-// five 32 DIP rows, the first on the table head, of three blocks and one at
-// the end, half a row high.
+// processSkeleton holds the processes table's place until the first sample
+// in the table's look: the frame, the filled 32 DIP head and four separated
+// rows, each of three blocks and one at the end.
 func processSkeleton(c *ui.Context) {
 	p := theme.Of(c)
-	const row = 32
-	block := func(w float32) { kit.Skeleton(c, kit.SkeletonProps{Width: w, Height: row / 2}) }
-	ui.Column(c.Key("process-skeleton")).FillWidth().Busy(true).Children(func() {
+	block := func(w float32) { kit.Skeleton(c, kit.SkeletonProps{Width: w, Height: 16}) }
+	ui.Column(c.Key("process-skeleton")).FillWidth().Busy(true).Border(1, p.Border).Radius(p.Radius).Clip().Children(func() {
 		for i := range 5 {
-			r := ui.Row(c.Key(i)).Height(row).PaddingX(12).Gap(12).ClipX().Justify(ui.SpaceBetween)
+			r := ui.Row(c.Key(i)).Height(processRow).PaddingX(12).Gap(12).ClipX().AlignItems(ui.Center).Justify(ui.SpaceBetween)
 			if i == 0 {
-				r.Background(p.TableHead)
+				r.Height(32).Background(p.Muted)
 			} else {
-				r.BorderWidth(1, 0, 0, 0).BorderColor(p.TableRowBorder)
+				r.BorderWidth(1, 0, 0, 0).BorderColor(p.Border)
 			}
 			r.Children(func() {
 				ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).ClipX().Children(func() {

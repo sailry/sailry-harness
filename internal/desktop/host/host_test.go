@@ -582,6 +582,61 @@ func TestPage(t *testing.T) {
 		m.GPUs, st.gpu = gpus[:1], ""
 		tt.Frame()
 	})
+	t.Run("process table look", func(t *testing.T) {
+		// The application's table look (kit.TableFrame, kit.TableCell), as a
+		// package's tables: rows exactly 36 apart under a filled header, a
+		// line between them, and plain cells.
+		title, headed := tt.Find(en("host_process_name"))
+		first, shown := tt.Find("sailry-node")
+		second, also := tt.Find("launchd")
+		if !headed || !shown || !also {
+			t.Fatalf("the table lists no processes: %q", tt.Texts())
+		}
+		if pitch := second.Y - first.Y; pitch < 35.5 || pitch > 36.5 {
+			t.Errorf("rows are %v apart, want 36", pitch)
+		}
+		// Past the name only the table's own fills are drawn.
+		at := func(y float32) [3]uint8 {
+			pixel := tt.Image().RGBAAt(int(first.X+first.W+40), int(y))
+			return [3]uint8{pixel.R, pixel.G, pixel.B}
+		}
+		middle := first.Y + first.H/2
+		ground := at(middle)
+		if at(title.Y+title.H/2) == ground {
+			t.Errorf("the header is not filled: %v", ground)
+		}
+		separated := false
+		for y := middle + 12; y <= middle+24; y++ {
+			separated = separated || at(y) != ground
+		}
+		if !separated {
+			t.Error("no separator between the first two rows")
+		}
+		// No letter tile before a name and no bar of the memory's share
+		// (docs/removed-ui.md).
+		texts := count()
+		if texts["s"] != 0 || texts["l"] != 0 {
+			t.Errorf("a process has a letter tile: %q", tt.Texts())
+		}
+		for _, info := range tt.AccessAll() {
+			if info.Role == ui.RoleProgress && (info.Name == "sailry-node" || info.Name == "launchd") {
+				t.Errorf("the process %s has a memory bar", info.Name)
+			}
+		}
+		// The loads end their column: each row's ends where the other's does,
+		// before the PID's column.
+		edge := func(text string, row ui.Rect) float32 {
+			r, ok := tt.Find(text)
+			if !ok || r.Y+r.H/2 < row.Y || r.Y+r.H/2 > row.Y+row.H {
+				t.Fatalf("no %q in its process's row at %v: %v %v", text, row, ok, r)
+			}
+			return r.X + r.W
+		}
+		pid, _ := tt.Find(en("host_pid"))
+		if a, b := edge(Percent(3), first), edge(Percent(1), second); a != b || a <= first.X+first.W || a >= pid.X {
+			t.Errorf("the loads end at %v and %v, want one edge before the PID's column at %v", a, b, pid.X)
+		}
+	})
 	t.Run("process menu", func(t *testing.T) {
 		stop, force := en("host_process_stop"), en("host_process_force_stop")
 		menu := func(name string) {
