@@ -670,8 +670,10 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		}, func(prompt string) { comp.Draft = prompt })
 		return
 	}
-	conversation.View(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act)
-	composer.View(c, comp, ctx, act)
+	// The composer floats over the transcript's end, which fills the pane.
+	conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
+		composer.View(c, comp, ctx, act)
+	})
 	conversation.Navigation(c, a.Messages)
 }
 

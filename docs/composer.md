@@ -6,7 +6,8 @@ settings through `Context.SelectModel`, and Send is disabled.
 Live adapters supply models and submission actions from the execution Node;
 an unavailable catalog never seeds a fixture model or starts work.
 
-The input under the transcript and on the welcome page: the capsules of
+The input over the transcript's end (the page docks it there,
+`conversation.Docked`; its own root is unchanged) and on the welcome page: the capsules of
 what the run waits on, the queue strip, the draft with its file cards and
 inline reference chips, the `@` and `/` pickers, the toolbar (attach, mode,
 permission, model controls, dictation, send/stop) and the context bar
