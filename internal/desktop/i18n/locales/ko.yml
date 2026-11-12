@@ -266,7 +266,6 @@ session_window_failed: 창을 열 수 없음Name
 project_edit: 프로젝트 편집
 project_remove: 프로젝트 삭제
 workspace_new_terminal: 터미널 만들기
-workspace_records: 세션 기록
 worktree_manage: 작업 트리 관리
 worktree_create: 새 작업 트리
 worktree_remove: 작업 트리 삭제

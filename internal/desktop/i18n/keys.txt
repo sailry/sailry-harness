@@ -280,7 +280,6 @@ session_window_failed
 project_edit
 project_remove
 workspace_new_terminal
-workspace_records
 worktree_manage
 worktree_create
 worktree_remove

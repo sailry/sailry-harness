@@ -42,6 +42,7 @@ Commits are in this repository. Dates are the removal's.
 | 22 | "Launch AI CLI" and the CLI submenu | The project's right-click menu and the project page's More menu (`sidebar/menus.go` `projectMenu`, `ProjectActions`) | In the reference it is the `commands` package's `terminal-menu-cli` entry in the `project_menu` slot, not a core item; it is not mounted here and core draws none | User decision, 2026-11-12 |
 | 23 | History and Documents as launcher entries | The right panel's launcher and its "+" menu (`panel/model.go` `lists`) | The launcher lists Browser, Terminal, Files and Git, as the reference's does. Both tab kinds and their views stay: checkpoints open from a turn's Undo, a session's documents from their cards | User decision, 2026-11-12 |
 | 24 | The "Launch AI CLI" button | The project page's actions (`shell/project.go` `projectView`) and `ProjectActions.CLI` | The project's surfaces offer no AI CLI entry in core; only the `commands` package may bring one back through its slot. The launcher dialog (`live` `openCLILauncher`, `cliFrame`) stays in the source without an entry | User decision, 2026-11-12 |
+| 25 | The Session records dialog (a project's sessions in a dialog, archived ones restored on opening) | The sidebar's dialogs (`sidebar/records.go`), `sidebar.Actions.Records` and `live` `projectRecords` | The project page lists the project's sessions and terminals with search, and opens an archived one the same way. The reference reaches the dialog only from its preview menu's Session records item, which the live menu does not have | User decision, 2026-11-12 |
 
 ## Guards
 
@@ -61,7 +62,7 @@ subtests of the feature's existing tests.
 | The file picker's heading is one line and names no local host | `picker` `TestModel/view/heading` |
 | The queue strip draws no wait reason, and no strip without queued input | `composer` `TestQueueTray`; `live` `TestQueueStates/held results are not rows`; the `queue_wait_*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
 | The text size row has no value and no stepped sizes; a language change says nothing of a restart | The `message_text_*` and `settings_language_restart` keys in `i18n` `TestCatalogKeys/RemovedControls` |
-| The project menu has no trust, AI CLI or Records item, and the project page neither an AI CLI item nor button | `shell` `TestProjectMenu/Items`, `TestRailOpensPages` (no control named `cli_launch`); `live` `firstRunProjects` (the menu's exact items); the `project_trust*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
+| The project menu has no trust, AI CLI or Records item, and the project page neither an AI CLI item nor button | `shell` `TestProjectMenu/Items`, `TestRailOpensPages` (no control named `cli_launch`); `live` `firstRunProjects` (the menu's exact items); the `project_trust*` and `workspace_records` keys in `i18n` `TestCatalogKeys/RemovedControls` |
 | The launcher and "+" list neither History nor Documents | `panel` `TestTabsModel/SessionResources`; `shell` `TestPanelLauncherCentred`, `TestProjectMenu/Launcher`; `live` `TestPanelProjection` (`launcherLists`) |
 
 A key on the guard's list cannot be added to `keys.txt` without editing the

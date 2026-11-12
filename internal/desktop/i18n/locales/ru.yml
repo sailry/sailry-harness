@@ -266,7 +266,6 @@ session_window_failed: Не удалось открыть окно
 project_edit: Редактировать проект
 project_remove: Удалить проект
 workspace_new_terminal: Создать терминал
-workspace_records: Отчеты о заседаниях
 worktree_manage: Управление рабочими деревьями
 worktree_create: Новое рабочее дерево
 worktree_remove: Удалить рабочее дерево

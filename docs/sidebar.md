@@ -302,7 +302,7 @@ none once no session runs.
 | The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
 | The project menu's New terminal and worktrees entries are the application's own controls, not mounted package entries | The application owns terminals and worktrees. They sit in the `project_menu` slot at their packages' orders and show only while `commands` and `worktrees` are enabled, as the reference's contributed entries do. The worktrees entry is a submenu (create, the list, remove) where the reference has one item opening its manager |
 | The project menu has no CLI submenu and no Manage branches | The user's decision of 2026-11-12 for the CLI ([removed-ui](removed-ui.md)); the `git` package is not mounted and branches are managed in the Git panel |
-| The project menu has no Records entry | The reference's live menu has none; the project page lists the project's sessions and terminals. `State.ShowRecords` and its dialog remain, opened by nothing in the menu |
+| The project menu has no Records entry | The reference's live menu has none; the project page lists the project's sessions and terminals. The reference's records dialog (`session_records`) opens only from its preview menu's Session records item, so the dialog, `Actions.Records` and the live adapter behind it are removed ([removed-ui](removed-ui.md)) |
 | The running row's loader is MyGo's `loading.Swirl` in one color | The user's decision; the dot matrix in the info, warning and danger colors is removed ([components.md](components.md#deviations)) |
 | The appearance popover lays the icons out six to a row | `kit.Popover` with Kit ghost buttons; the reference's popover wraps them freely |
 

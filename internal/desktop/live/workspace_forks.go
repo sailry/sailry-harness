@@ -160,43 +160,6 @@ func (p *workspaceProject) managedWorktree(status protocol.GitStatus, session *p
 	}, panel.PromptToggle{Label: "location_copy_changes", Value: &includeChanges})
 }
 
-func (r *Runtime) projectRecords(project *viewmodel.Project) {
-	if project == nil {
-		return
-	}
-	if owner := r.runtimeFor(project.Host); owner == nil {
-		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
-		return
-	} else if owner != r {
-		owner.projectRecords(project)
-		return
-	}
-	r.App.Sidebar.ShowRecords(project.ID, func(cv *viewmodel.Conversation, done func(bool)) {
-		if r.runtimeFor(project.Host) != r {
-			r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
-			done(false)
-			return
-		}
-		session, ok := r.session(cv.ID)
-		if !ok {
-			done(false)
-			return
-		}
-		if !session.Archived {
-			r.OpenSession(cv.ID)
-			done(true)
-			return
-		}
-		r.command(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: session.Revision, Archived: false}}, "session_changed", func(_ protocol.Output, ok bool) {
-			if ok {
-				r.project()
-				r.OpenSession(cv.ID)
-			}
-			done(ok)
-		})
-	})
-}
-
 func (r *Runtime) canMoveWorkspace(cv *viewmodel.Conversation, comp *composer.State) bool {
 	session, exists := r.session(cv.ID)
 	if !exists {
