@@ -219,7 +219,10 @@ Memory is bounded at 256 MiB of kept vectors across all collections
 (`vectorBudget`). A vector costs its dimension in bytes plus about 100 for its
 key and norm: about 48 MB for 100,000 vectors of 384 components and 97 MB for
 200,000, so the budget holds about 550,000 of them. When a collection does not
-fit beside the others, those used longest ago are dropped. A collection that
+fit beside the others, those used longest ago are dropped. A collection's
+vectors are also dropped ten minutes after its last query (`vectorIdle`), so a
+Node without queries keeps none and no timer; the next query loads them again.
+A collection that
 alone exceeds the budget is never kept: every query reads it from SQLite in
 blocks of 16,384 vectors (about 8 MB) and scans each block the same way. A
 collection that is being written is read the same way for that query. The

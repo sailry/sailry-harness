@@ -579,7 +579,7 @@ func (pr *Project) diff(c *ui.Context, path string) {
 	}
 	metadata := pr.Git.diffStates[pr.Git.scope+"/"+path]
 	if metadata.Binary {
-		ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
+		ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(12).TextColor(p.MutedForeground)
 		return
 	}
 	old, new := ch.Texts()

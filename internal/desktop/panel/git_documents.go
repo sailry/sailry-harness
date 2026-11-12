@@ -16,6 +16,8 @@ import (
 type GitDocumentFile struct {
 	viewmodel.FileChange
 	Binary, Truncated bool
+	// Size is the length in bytes of a binary file.
+	Size uint64
 }
 
 type gitDocument struct {
@@ -84,7 +86,7 @@ func (pr *Project) gitDocumentLabel(id, fallback string) string {
 func gitDocumentFile(c *ui.Context, box ui.Element, file GitDocumentFile, fit bool) {
 	if file.Binary {
 		box.Children(func() {
-			ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+			ui.Text(c, binaryDiff(c, file.Size)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 		})
 		return
 	}

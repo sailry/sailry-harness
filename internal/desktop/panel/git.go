@@ -525,7 +525,7 @@ func (pr *Project) combined(c *ui.Context) {
 					old, new := ch.Texts()
 					metadata := v.diffStates["all/"+ch.Path]
 					if metadata.Binary {
-						ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
+						ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 					} else {
 						kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
 							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true, Split: *kit.DiffSplit(c)})
