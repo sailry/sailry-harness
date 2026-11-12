@@ -992,8 +992,6 @@ settings_runtime: 运行时
 settings_runtime_description: 配置当前节点
 settings_save: 保存
 settings_seconds: '%{count} 秒'
-settings_session_order: 会话排序
-settings_sessions: 会话列表
 settings_shortcuts_description: 查看应用全局命令与键盘快捷键
 settings_sidebar_metrics: 性能指示器
 settings_skills_description: 管理可供会话使用的技能

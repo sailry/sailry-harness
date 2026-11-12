@@ -642,7 +642,10 @@ func interactionKinds(t *testing.T) {
 		return count
 	}
 	closed := fields()
-	click(approvals)
+	// The popover opens by itself for a request that arrives.
+	if !tester.HasText(text("approval_allow_once")) {
+		click(approvals)
+	}
 	wait("the approval's details", func() bool {
 		waiting := r.App.Sidebar.Data.Find(session.String()).Waiting.Approvals
 		return len(waiting) == 1 && tester.HasText(text("approval_allow_once")) && !button(text("approval_allow_once")).Disabled

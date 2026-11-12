@@ -992,8 +992,6 @@ settings_runtime: 실행 환경
 settings_runtime_description: 현재 노드 설정
 settings_save: 저장
 settings_seconds: '%{count}초'
-settings_session_order: 세션 정렬
-settings_sessions: 세션
 settings_shortcuts_description: 전역 명령 및 키보드 단축키 보기
 settings_sidebar_metrics: 성능 표시기
 settings_skills_description: 세션에 사용 가능한 기술 관리

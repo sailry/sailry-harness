@@ -157,7 +157,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Settings › Providers: a preview note in the editor; Add model as a footer
   row of the model list (it is a button beside Refresh)
 - Settings › Conversation: the value beside the text size slider and the
-  stepped sizes (Small to Extra large) it replaced
+  stepped sizes (Small to Extra large) it replaced; the Sessions group and
+  its Session order row (the sidebar's sort menu sets the order)
 - Settings › General: the toast that a language change applies after a restart
 - Welcome guide: the telemetry or diagnostics note and a Settings button
 - Theme packages: transparency or blur values (the Appearance page owns them)
