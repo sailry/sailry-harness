@@ -12,20 +12,26 @@ PickedAttachment attachment(String id) =>
     (attachment: {'id': id}, preview: null);
 
 void main() {
-  for (final (code, rejected) in const [
-    ('revision_conflict', true),
-    ('invalid_request', true),
-    ('conflict', true),
-    ('not_found', true),
-    ('not_configured', true),
-    ('outcome_unknown', false),
-    ('unavailable', false),
-    ('permission_denied', false),
-    ('busy', false),
+  // A released failure ends its request whatever its code: the request never
+  // reached the Node, or the Node can never tell what it did.
+  for (final (code, released, rejected) in const [
+    ('revision_conflict', false, true),
+    ('invalid_request', false, true),
+    ('conflict', false, true),
+    ('not_found', false, true),
+    ('not_configured', false, true),
+    ('outcome_unknown', false, false),
+    ('unavailable', false, false),
+    ('permission_denied', false, false),
+    ('busy', false, false),
+    ('unavailable', true, true),
+    ('outcome_unknown', true, true),
   ]) {
-    group(code, () {
+    group(released ? '$code released' : code, () {
       test('creation permits correction only after rejection', () async {
-        final connection = RecoveryConnection()..code = code;
+        final connection = RecoveryConnection()
+          ..code = code
+          ..released = released;
         var submissions = 0;
         final host = HostConnection.test(
           id: 'host',
@@ -65,7 +71,9 @@ void main() {
       });
 
       test('turn input survives unresolved admission', () async {
-        final connection = RecoveryConnection()..code = code;
+        final connection = RecoveryConnection()
+          ..code = code
+          ..released = released;
         var submissions = 0;
         final host = HostConnection.test(
           id: 'host',

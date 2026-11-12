@@ -22,7 +22,7 @@ func TestActivityStrip(t *testing.T) {
 	git := []string{fmt.Sprintf("+%d", added), fmt.Sprintf("-%d", removed)}
 	running := ": " + i18n.In("en", "chat_running")
 	terminals := i18n.In("en", "background_count", "count", 2)
-	want := append([]string{"Goal", "Running", i18n.In("en", "composer_todo_count", "completed", 1, "total", 3),
+	want := append([]string{"Running", i18n.In("en", "composer_todo_count", "completed", 1, "total", 3),
 		terminals, "5173", i18n.In("en", "composer_subagent_one")}, git...)
 	for _, s := range want {
 		if !tt.HasText(s) {
@@ -74,10 +74,23 @@ func TestActivityStrip(t *testing.T) {
 	open(i18n.In("en", "composer_subagent_one")+running, "Measure scroll frames", "composer-activity-subagents")
 	open(i18n.In("en", "task_progress"), "Run the benchmarks", "composer-activity-progress")
 
+	// The ports are one capsule that lists them: a press on it opens no
+	// service, a press on a port's row does.
+	ports := i18n.In("en", "port_mappings") + ": 5173"
+	open(ports, "npx vite --port 5173", "composer-activity-services")
+	if capsule, ok := tt.AccessByRole(ui.RoleButton, ports); !ok || !capsule.Expanded {
+		t.Fatalf("the ports capsule is not open: %+v", capsule)
+	}
+	clickButton(t, tt, "5173")
+	tt.Frame()
+	if capsule, _ := tt.AccessByRole(ui.RoleButton, ports); capsule.Expanded {
+		t.Errorf("opening a service leaves the ports open")
+	}
+
 	// An idle conversation in a repository: the Git badge alone.
 	click(t, tt, "Port the neutral theme tokens")
 	tt.Frame()
-	if !tt.HasText(git[0]) || tt.HasText("Goal") || tt.HasText(terminals) {
+	if !tt.HasText(git[0]) || tt.HasText("12m") || tt.HasText(terminals) {
 		t.Fatalf("the idle conversation's strip: %q", tt.Texts())
 	}
 	badge, _ := tt.Find(git[0]) // the rail has a Git button too

@@ -40,7 +40,7 @@ Map<String, dynamic> diff() => {
 class RecoveryConnection extends Fake implements Connection {
   final reconciled = <String>[];
   @override
-  Future<String> execute({required String request}) async {
+  Future<String> resolve({required String request}) async {
     reconciled.add(request);
     return jsonEncode({'Ok': restored('new')});
   }

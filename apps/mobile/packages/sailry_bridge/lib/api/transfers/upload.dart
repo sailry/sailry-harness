@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../src/native.dart';
 
 class Upload extends NativeHandle {
@@ -6,7 +8,7 @@ class Upload extends NativeHandle {
   Future<void> close() => closeNative();
 
   Future<void> write({required List<int> bytes}) async {
-    await invoke('write', {'bytes': bytes});
+    await invoke('write', {'bytes': base64Encode(bytes)});
   }
 
   Future<void> finish() async {
