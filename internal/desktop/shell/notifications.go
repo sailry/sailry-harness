@@ -71,7 +71,8 @@ func (a *App) noticeIDs(read bool) []string {
 	return ids
 }
 
-// notificationCenter uses the same cards and notice presentation as the bell.
+// notificationCenter is the bell's notices as one card of rows, newest
+// first, under the All and Unread filter and the bell's two actions.
 func (a *App) notificationCenter(c *ui.Context) {
 	kit.Page(c, "notification-center", i18n.T(c, "notification_center"), "", func() {
 		ui.Row(c.Key("toolbar")).Gap(8).Children(func() {
@@ -84,56 +85,95 @@ func (a *App) notificationCenter(c *ui.Context) {
 				a.dismissRead()
 			})
 		})
-		shown := 0
+		var shown []*viewmodel.Notice
 		for _, n := range SortNotices(a.Data.Notices) {
-			expanded := a.noticeDetail != nil && a.noticeDetail.ID == n.ID
-			if a.noticeTab == 1 && n.Read && !expanded {
+			// The notice open stays under Unread though opening it read it.
+			if a.noticeTab == 1 && n.Read && a.noticeDetail != n {
 				continue
 			}
-			shown++
-			kit.Card(c.Key(n.ID), func() {
-				p := theme.Of(c)
-				glyph, color, _ := noticeLook(p, n.Kind)
-				ui.Row(c.Key("heading")).Padding(12).Gap(8).Children(func() {
-					ui.Icon(c, glyph).FontSize(16).TextColor(color)
-					b := kit.Ghost(c.Key("details"), noticeTitle(c, n), expanded).Grow(1).Justify(ui.Start).Children(func() {
-						text := ui.Text(c, noticeTitle(c, n)).FontSize(14).SingleLine()
-						if !n.Read {
-							text.FontWeight(500)
-						}
-					}).OnClick(func() {
-						if expanded {
-							a.noticeDetail = nil
-						} else {
-							a.noticeDetail = n
-							a.readNotice(n)
-						}
-					})
-					_ = b
-					if n.Session != "" && a.Data.Find(n.Session) != nil {
-						kit.IconButton(c.Key("open"), icons.ChevronRight, i18n.T(c, "notification_open_conversation"), 28, false).OnClick(func() {
-							a.readNotice(n)
-							a.selectConversation(n.Session)
-						})
-					}
-					kit.IconButton(c.Key("dismiss"), icons.Trash, i18n.T(c, "settings_delete"), 28, false).OnClick(func() {
-						a.dismissNotice(n)
-					})
-				})
-				if expanded {
-					a.notificationDetails(c, n)
-				}
-			})
+			shown = append(shown, n)
 		}
-		if shown == 0 {
+		if len(shown) == 0 {
 			kit.Result(c, kit.ResultProps{Icon: icons.Bell, Title: i18n.T(c, "notifications_empty"), Card: true})
+			return
 		}
+		kit.Card(c.Key("list"), func() {
+			for _, n := range shown {
+				kit.Bleed(c, n.ID, func() {
+					expanded := a.noticeDetail == n
+					a.notificationRow(c, n, expanded)
+					if expanded {
+						a.notificationDetails(c, n)
+					}
+				})
+			}
+		})
 	})
 }
 
-func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
+// notificationRow is a notice in the centre's card, at the row metrics: the
+// kind's glyph in the lead slot, the title (medium while unread) over a
+// muted line of its kind, host and age, then the unread dot and the quiet
+// actions. The whole row is the button that opens the notice's details and
+// fills to the card's edges under the pointer.
+func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool) {
 	p := theme.Of(c)
-	ui.Column(c.Key("body")).Padding(12).Gap(12).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Children(func() {
+	title := noticeTitle(c, n)
+	glyph, color, kind := noticeLook(p, n.Kind)
+	var facts []string
+	if n.Kind != preview.NoticeInfo {
+		facts = append(facts, i18n.T(c, kind))
+	}
+	facts = append(facts, a.noticeSource(c, n))
+	if !n.Time.IsZero() {
+		facts = append(facts, a.noticeAge(c, n))
+	}
+	row := ui.ButtonBase(c.Key("row")).Label(title).Expanded(expanded).Padding(kit.RowPad, 16).Margin(0, -16).Gap(kit.RowIconGap).
+		MinHeight(kit.RowMinHeight).Justify(ui.Start).Cursor(ui.CursorPointer).TextColor(p.SurfaceForeground)
+	if row.Hovered() {
+		row.Background(p.Hover)
+	}
+	row.Children(func() {
+		ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
+			ui.Icon(c, glyph).FontSize(18).TextColor(color)
+		})
+		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
+			text := ui.Text(c, title).FontSize(kit.RowFont).SingleLine()
+			if !n.Read {
+				text.FontWeight(500)
+			}
+			ui.Text(c, strings.Join(facts, " · ")).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
+		})
+		ui.Row(c.Key("actions")).Shrink(0).Gap(4).Children(func() {
+			// The dot's room stays when read, so the actions line up.
+			dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0).Margin(0, 6)
+			if !n.Read {
+				dot.Background(p.Primary)
+			}
+			if n.Session != "" && a.Data.Find(n.Session) != nil {
+				kit.IconButton(c.Key("open"), icons.ChevronRight, i18n.T(c, "notification_open_conversation"), 28, false).TextColor(p.MutedForeground).OnClick(func() {
+					a.readNotice(n)
+					a.selectConversation(n.Session)
+				})
+			}
+			kit.IconButton(c.Key("dismiss"), icons.Trash, i18n.T(c, "settings_delete"), 28, false).TextColor(p.MutedForeground).OnClick(func() {
+				a.dismissNotice(n)
+			})
+		})
+	}).OnClick(func() {
+		if expanded {
+			a.noticeDetail = nil
+			return
+		}
+		a.noticeDetail = n
+		a.readNotice(n)
+	})
+}
+
+// notificationDetails is an open notice's text, facts and report under its
+// row, in line with the row's title.
+func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
+	ui.Column(c.Key("body")).Padding(0, 0, kit.RowPad, kit.RowIcon+kit.RowIconGap).Gap(12).Children(func() {
 		for _, text := range []string{n.Message, n.DetailText} {
 			if text != "" {
 				ui.Text(c, text).FontSize(14).Selectable()

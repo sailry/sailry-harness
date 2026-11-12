@@ -413,6 +413,29 @@ with the kind's glyph and color (completed, failed, approval, input,
 info), the title (medium while unread), `NoticeAge`, the unread dot. A
 click reads it and opens its conversation, or its knowledge source.
 
+### Notification centre
+
+The centre's page (`notificationCenter`, `shell/notifications.go`) is the
+All/Unread filter, Mark all as read and Delete read over one `kit.Card` of the
+notices, newest first, apart by the card's inset separators; with none to show
+it is the card-shaped `notifications_empty` result. Each notice is a
+`kit.Bleed` row at the row metrics (`notificationRow`):
+
+- the kind's glyph and color in the lead slot;
+- the title, medium while unread, over one muted line of the kind's label
+  (not for an info notice), the notice's host (`noticeSource`) and its age
+  (`noticeAge`, as the bell writes it);
+- the unread dot, whose room stays when read, then the quiet 28 DIP icon
+  buttons with tooltips: Open conversation (the chevron, only for a notice
+  whose conversation is listed) and Delete.
+
+The whole row is one button: under the pointer it takes the neutral hover fill
+from one edge of the card to the other, as the project page's records do, and
+a click opens the notice's details under it and reads it; a second click closes
+them. The details (`notificationDetails`) are indented to the title: message
+and detail text, the facts as `kit.Record`s, and the report with its copy
+button. Under Unread the open notice stays listed though opening it read it.
+
 The header's strip (shell/activity/strip.rs) shows waiting, running and
 finished-unread sessions, chats included, in groups 12 DIPs apart: 28 DIP
 text buttons 4 apart, each a 20 DIP agent mark (`kit.Agent`, the
@@ -801,7 +824,8 @@ and a stale captured version cannot overwrite a newer edit. Welcome state is in
 collapsed projects, rail state, tabs and pane layout; its legacy welcome field is
 used only by the preview. Closing a live guide persists the profile choice.
 
-The new notification centre uses existing Kit page/card/segmented controls. Live
+The notification centre uses existing Kit page/card/segmented controls
+([Notification centre](#notification-centre)). Live
 host views hide preview-only notes; B7 supplies their real facts and metrics.
 In the preview, terminal panes retain the accepted static placeholder and never
 start a process.

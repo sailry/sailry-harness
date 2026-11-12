@@ -739,6 +739,137 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 			t.Errorf("Delete read left %d of %d notices", len(a.Data.Notices), total)
 		}
 	})
+	// The centre is one card of rows: each row is the button, across the
+	// card, that holds its actions and fills from edge to edge under the
+	// pointer.
+	t.Run("center rows", func(t *testing.T) {
+		a, tt := newTester(t)
+		a.Navigate(NotificationsPage)
+		tt.Frame()
+		en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
+		named := func(name string) (found []ui.AccessInfo) {
+			for _, info := range tt.AccessAll() {
+				if b := info.Bounds; info.Role == ui.RoleButton && info.Name == name && b.W > 0 && b.Y >= HeaderHeight {
+					found = append(found, info)
+				}
+			}
+			return found
+		}
+		row := func(n *preview.Notice) ui.AccessInfo {
+			t.Helper()
+			found := named(n.Title)
+			if len(found) != 1 {
+				t.Fatalf("%d row buttons named %q: %q", len(found), n.Title, tt.Texts())
+			}
+			return found[0]
+		}
+		notices := SortNotices(a.Data.Notices)
+		if len(notices) < 3 || notices[1].Read || notices[1].Kind != preview.NoticeCompleted {
+			t.Fatalf("the preview's notices changed: %d", len(notices))
+		}
+		first, second := notices[0], notices[1]
+		var rows []ui.Rect
+		for _, n := range notices {
+			rows = append(rows, row(n).Bounds)
+		}
+		for i, b := range rows {
+			if b.X != rows[0].X || b.W != rows[0].W {
+				t.Errorf("row %d spans %v+%v, the first %v+%v", i, b.X, b.W, rows[0].X, rows[0].W)
+			}
+			if b.H < kit.RowMinHeight || b.H > 72 {
+				t.Errorf("row %d is %v tall", i, b.H)
+			}
+			// Only a separator lies between two rows of the one card.
+			if i > 0 {
+				if gap := b.Y - (rows[i-1].Y + rows[i-1].H); gap < 0 || gap > 1.5 {
+					t.Errorf("row %d starts %v below row %d", i, gap, i-1)
+				}
+			}
+		}
+		deletes := named(en("settings_delete"))
+		if len(deletes) != len(notices) {
+			t.Fatalf("%d delete buttons for %d notices", len(deletes), len(notices))
+		}
+		for i, d := range deletes {
+			b := d.Bounds
+			if inset := rows[0].X + rows[0].W - (b.X + b.W); inset < 15.5 || inset > 16.5 || b.Y < rows[i].Y || b.Y+b.H > rows[i].Y+rows[i].H {
+				t.Errorf("delete %d at %+v is not inside its row %+v, 16 from its end", i, b, rows[i])
+			}
+		}
+		// The second line: the kind, the host and the age.
+		line := false
+		for _, text := range tt.Texts() {
+			line = line || strings.HasPrefix(text, en("activity_completed")+" · ") && strings.HasSuffix(text, " · "+en("notifications_time_minutes", "count", 5))
+		}
+		if !line {
+			t.Errorf("no kind, host and age under the second notice: %q", tt.Texts())
+		}
+		// The hover fill reaches both ends of the row, before the glyph and
+		// under the delete button, not only the title.
+		target := rows[1]
+		tt.Move(target.X+target.W/2, 816)
+		tt.Frame()
+		rest := tt.Image()
+		tt.Move(target.X+20, target.Y+target.H/2)
+		tt.Frame()
+		hovered := tt.Image()
+		snapshot(t, tt, "notifications-hover")
+		scale := float32(rest.Bounds().Dx()) / 1280
+		differs := func(r ui.Rect) (n int) {
+			for y := int(r.Y * scale); y < int((r.Y+r.H)*scale); y++ {
+				for x := int(r.X * scale); x < int((r.X+r.W)*scale); x++ {
+					if rest.RGBAAt(x, y) != hovered.RGBAAt(x, y) {
+						n++
+					}
+				}
+			}
+			return n
+		}
+		for name, strip := range map[string]ui.Rect{
+			"start": {X: target.X + 2, Y: target.Y + 4, W: 8, H: 8},
+			"end":   {X: target.X + target.W - 10, Y: target.Y + 4, W: 8, H: 8},
+		} {
+			if differs(strip) == 0 {
+				t.Errorf("the hover fill does not reach the row's %s", name)
+			}
+		}
+		if n := differs(rows[2]); n != 0 {
+			t.Errorf("hovering one row changes %d pixels of the next", n)
+		}
+		// A click anywhere on the row opens its details and reads it; a
+		// second closes them.
+		tt.ClickAt(target.X+target.W/2, target.Y+target.H/2)
+		tt.Frame()
+		if a.noticeDetail != second || !second.Read || !row(second).Expanded || !tt.HasText(second.Message) {
+			t.Fatalf("the row did not open its details: open %v, read %v, texts %q", a.noticeDetail == second, second.Read, tt.Texts())
+		}
+		tt.ClickAt(target.X+target.W/2, target.Y+target.H/2)
+		tt.Frame()
+		if a.noticeDetail != nil || tt.HasText(second.Message) {
+			t.Fatal("a second click left the details open")
+		}
+		// Unread hides what was read.
+		a.noticeTab = 1
+		tt.Frame()
+		if tt.HasText(second.Title) || !tt.HasText(first.Title) {
+			t.Errorf("the Unread filter shows %q", tt.Texts())
+		}
+		a.noticeTab = 0
+		tt.Frame()
+		// The row's own buttons act without opening its details.
+		clickButton(t, tt, en("notification_open_conversation"))
+		tt.Frame()
+		if a.Page != ConversationPage || a.Sidebar.Selected != first.Session || !first.Read || a.noticeDetail != nil {
+			t.Fatalf("Open conversation: page %v, selected %q, read %v", a.Page, a.Sidebar.Selected, first.Read)
+		}
+		a.Navigate(NotificationsPage)
+		tt.Frame()
+		clickButton(t, tt, en("settings_delete"))
+		tt.Frame()
+		if slices.Contains(a.Data.Notices, first) || len(a.Data.Notices) != len(notices)-1 || a.noticeDetail != nil {
+			t.Fatalf("Delete left %d of %d notices, details open %v", len(a.Data.Notices), len(notices), a.noticeDetail != nil)
+		}
+	})
 }
 
 // The shell's pure rules: a knowledge link's parts, and a feature's move in
