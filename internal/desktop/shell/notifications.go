@@ -114,8 +114,10 @@ func (a *App) notificationCenter(c *ui.Context) {
 // notificationRow is a notice in the centre's card, at the row metrics: the
 // kind's glyph in the lead slot, the title (medium while unread) over a
 // muted line of its kind, host and age, then the unread dot and the quiet
-// actions. The whole row is the button that opens the notice's details and
-// fills to the card's edges under the pointer.
+// actions. The row's box fills to the card's edges under the pointer,
+// whichever part it is over. The button that opens the notice's details
+// takes all of it before the actions, which are its siblings: MyGo does not
+// expose a button built inside a button to assistive technology.
 func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool) {
 	p := theme.Of(c)
 	title := noticeTitle(c, n)
@@ -128,21 +130,30 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 	if !n.Time.IsZero() {
 		facts = append(facts, a.noticeAge(c, n))
 	}
-	row := ui.ButtonBase(c.Key("row")).Label(title).Expanded(expanded).Padding(kit.RowPad, 16).Margin(0, -16).Gap(kit.RowIconGap).
-		MinHeight(kit.RowMinHeight).Justify(ui.Start).Cursor(ui.CursorPointer).TextColor(p.SurfaceForeground)
+	row := ui.Row(c.Key("row")).Margin(0, -16).PaddingEnd(16).Gap(kit.RowIconGap).AlignItems(ui.Center).TextColor(p.SurfaceForeground)
 	if row.Hovered() {
 		row.Background(p.Hover)
 	}
 	row.Children(func() {
-		ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
-			ui.Icon(c, glyph).FontSize(18).TextColor(color)
-		})
-		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
-			text := ui.Text(c, title).FontSize(kit.RowFont).SingleLine()
-			if !n.Read {
-				text.FontWeight(500)
+		ui.ButtonBase(c.Key("details")).Label(title).Expanded(expanded).Grow(1).Shrink(1).MinWidth(0).Padding(kit.RowPad, 0, kit.RowPad, 16).
+			Gap(kit.RowIconGap).MinHeight(kit.RowMinHeight).Justify(ui.Start).Cursor(ui.CursorPointer).Children(func() {
+			ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
+				ui.Icon(c, glyph).FontSize(18).TextColor(color)
+			})
+			ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
+				text := ui.Text(c, title).FontSize(kit.RowFont).SingleLine()
+				if !n.Read {
+					text.FontWeight(500)
+				}
+				ui.Text(c, strings.Join(facts, " · ")).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
+			})
+		}).OnClick(func() {
+			if expanded {
+				a.noticeDetail = nil
+				return
 			}
-			ui.Text(c, strings.Join(facts, " · ")).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
+			a.noticeDetail = n
+			a.readNotice(n)
 		})
 		ui.Row(c.Key("actions")).Shrink(0).Gap(4).Children(func() {
 			// The dot's room stays when read, so the actions line up.
@@ -155,18 +166,14 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 					a.readNotice(n)
 					a.selectConversation(n.Session)
 				})
+			} else {
+				// Its room stays too, so the dots line up.
+				ui.Box(c.Key("open")).Size(28, 28).Shrink(0)
 			}
 			kit.IconButton(c.Key("dismiss"), icons.Trash, i18n.T(c, "settings_delete"), 28, false).TextColor(p.MutedForeground).OnClick(func() {
 				a.dismissNotice(n)
 			})
 		})
-	}).OnClick(func() {
-		if expanded {
-			a.noticeDetail = nil
-			return
-		}
-		a.noticeDetail = n
-		a.readNotice(n)
 	})
 }
 
