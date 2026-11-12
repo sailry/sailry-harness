@@ -1283,10 +1283,27 @@ func TestGuidanceBatchOverflow(t *testing.T) {
 	late := guide(f, turn, three)
 	close(second)
 	failed := f.waitRun(turn, protocol.ConversationStatusFailed)
-	// The run's fault is a protocol code; the failed step's record names the
-	// overflow.
+	// The run's fault is a protocol code whose detail states the overflow;
+	// the failed step's record names it too.
 	if failed.Error == nil || failed.Error.Code != protocol.ErrorCodeUnavailable {
 		t.Fatalf("turn error = %+v", failed.Error)
+	}
+	if encoded, err := json.Marshal(failed.Error.Details); err != nil || !strings.Contains(string(encoded), `"reason":"request"`) || !strings.Contains(string(encoded), `"context_overflow":true`) {
+		t.Fatalf("turn error details = %s, %v", encoded, err)
+	}
+	// The run list, which a package reads, tells the overflow from an outage.
+	var listed protocol.Output
+	if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		var err error
+		listed, err = store.ReadAgentCommand(f.ctx, db, f.node, protocol.Command{Kind: "read_conversation_runs", Data: &protocol.CommandReadConversationRunsPayload{Session: f.session.ID, Limit: 100}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range listed.Data.(protocol.ConversationRunsPage).Runs {
+		if run.ContextOverflow != (run.Turn == turn) {
+			t.Fatalf("run %s context_overflow = %v", run.Turn, run.ContextOverflow)
+		}
 	}
 	if n := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); n != 2 {
 		t.Fatalf("compactions=%d", n)

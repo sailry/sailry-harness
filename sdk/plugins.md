@@ -1511,8 +1511,11 @@ schema, not a model provider's normalized declaration or enforcement.
 `readConversationRuns(before = null, limit = 100)` returns bounded lifecycle
 metadata for the captured session: `{session, revision, runs, next_before,
 queue_revision, background}`. Each run contains only `{turn, sequence, status,
-origin, error_code, recovered}`; `recovered` is present and true when the run
-ended before this Node started, so no callback for it is still to come.
+origin, error_code, recovered, context_overflow}`; `recovered` is present and
+true when the run ended before this Node started, so no callback for it is
+still to come, and `context_overflow` is present and true when the run failed
+because its request exceeds the model's context window (its `error_code` is
+`unavailable`, as for an outage).
 `background` is `{running, pending}`: the session's background tasks still
 running, and finished results still to be delivered to a turn; a result the
 user stopped or the queue holds is in neither. A page without `background`

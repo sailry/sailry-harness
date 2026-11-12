@@ -16,6 +16,10 @@ type ConversationRunsSummary struct {
 	// started: whatever was to follow its end in that process, a callback or
 	// an automatic turn, did not survive. Absent otherwise.
 	Recovered bool `json:"recovered,omitempty"`
+	// ContextOverflow is set for a run that failed because its request
+	// exceeds the model's context window (the model_request detail of its
+	// fault says so). Absent otherwise.
+	ContextOverflow bool `json:"context_overflow,omitempty"`
 }
 
 // ConversationRunsBackground counts the session's background work as an
@@ -31,12 +35,13 @@ type ConversationRunsBackground struct {
 
 func DefaultConversationRunsSummary() ConversationRunsSummary {
 	return ConversationRunsSummary{
-		Turn:      TurnID{},
-		Sequence:  0,
-		Status:    ConversationStatus(""),
-		Origin:    nil,
-		ErrorCode: nil,
-		Recovered: false,
+		Turn:            TurnID{},
+		Sequence:        0,
+		Status:          ConversationStatus(""),
+		Origin:          nil,
+		ErrorCode:       nil,
+		Recovered:       false,
+		ContextOverflow: false,
 	}
 }
 func (value *ConversationRunsSummary) UnmarshalJSON(data []byte) error {
