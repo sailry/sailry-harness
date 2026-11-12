@@ -10,7 +10,8 @@ The input under the transcript and on the welcome page: the capsules of
 what the run waits on, the queue strip, the draft with its file cards and
 inline reference chips, the `@` and `/` pickers, the toolbar (attach, mode,
 permission, model controls, dictation, send/stop) and the context bar
-(project, worktree, metrics), plus the file picker
+(project, worktree, metrics). Files are chosen in the window's file picker
+([files.md](files.md#host-file-picker)), which the composer asks for
 (the reference implementation `conversation/live/composer.rs`, `live/queue*`,
 `live/assets*`, `live/mode.rs`, `live/context.rs`, `live/sessions.rs`,
 `live/attachments.rs`, `live/references*`, `live/commands`, `live/mode.rs`,
@@ -23,7 +24,7 @@ permission, model controls, dictation, send/stop) and the context bar
 
 | File | Holds |
 |---|---|
-| `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
+| `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
 | `options.go` | Mode and permission menus (with the packages' modes), project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, the controls' score tooltip |
@@ -32,7 +33,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
 | `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
-| `files.go` | File picker dialog; its table is built under `theme.Neutral`, so a chosen file has the neutral `Palette.Selected` fill, not the accent |
+| `live_attachments.go` | `AttachmentCallbacks{Pick, Remove, Image}`: the attach button and the `@` picker's Attach files entry call `Pick`, which opens the window's file picker for this composer; `AttachPaths` takes what was chosen. The composer has no picker of its own (`files.go`, removed by the user's decision of 2026-11-12) |
 | `dictation.go` | Dictation button and level meter |
 | `interactions.go` | Interactions contract, `Actions`, approval and question capsules |
 | `activity.go` | The activity strip: Git changes, plugin Status badges, task progress, background commands and ports, running subagents |
@@ -67,7 +68,7 @@ rebuilt each frame from backend data.
 | `Context.Projects`, `Project{ID, Name, Host, Worktrees}`, `Worktree{Branch, Main}` | Project and worktree menus; `Host` is the execution Node identity |
 | `Context.Repository{Kind, Branch}` | `Inspecting`, `Git`, `Directory`, `Unavailable`: branch label and New worktree |
 | `Context.References`, `Commands`, `Reference{ID, Kind, Label, Key, Description, Icon, Alias, Insert, Children}` | The `@` and `/` catalogs; `Page`/`Folder` have `Children`; `Key` marks i18n labels; `Insert` is the prompt key, mode, model ID or effort |
-| `Context.Files`, `Entry{Name, Path, Size, Modified, Mime, Children}` | The file picker's root folder; nil disables attaching |
+| `AttachmentCallbacks.Pick` (on `State`, `SetAttachmentCallbacks`) | Opens the window's file picker; nil, or a read-only conversation, disables the attach button. `Context.Files` and `Entry` are removed with the composer's own picker |
 | `Context.Last` | Up in an empty draft recalls it |
 | `Context.Readonly` | Disables input and controls |
 | `Context.Indicators`, `Indicator{ID, Percent, Loading, Tone, Hint, Start, Panel, Open, Toggle, Disabled}` | The toolbar's progress rings in order (below); empty for a draft without a session |
@@ -463,8 +464,7 @@ type Actions interface {
 ## Preview
 
 `internal/desktop/preview/composer.go` builds the `Context` (families, made-up
-scores and features, two teams, the `@`/`/` catalogs, the file picker's
-folder from the files panel tree), the queue operations (guidance
+scores and features, two teams, the `@`/`/` catalogs), the queue operations (guidance
 stays pending until withdrawn or the reply ends: the preview's run takes
 none), `Transfers`
 (preparing 200 ms, sending 1.5 s, publishing 300 ms; a name with "fail"
@@ -779,7 +779,7 @@ details dialog.
 
 | UI state (`State`) | Backend data (`Context`) |
 |---|---|
-| Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs, files |
+| Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs |
 | Pickers, popovers, dialogs, queue editor, the queue tray's fold | Queue, `Running`, attachment status and progress, dictation phase |
 | Question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
 | Selected project before admission and window-owned port actions | Project-to-Node identity, command services and Forwarder state from the captured Client |
@@ -795,8 +795,26 @@ to the Host that owns the draft or session. A dropped or pasted folder is
 attached by its path and refused by the upload (`files_upload_source`), as the
 reference has no folder upload either.
 
-`live/attachments_*.go` owns draft transfer state and optional native picker,
-remove and image callbacks through `composer.AttachmentCallbacks`. Existing
+Add attachment and the `@` picker's Attach files entry open the window's
+in-app file picker in its multi-file mode (`live.Runtime.chooseAttachments`
+through `sidebar.State.ChooseFiles`), not the system's dialog. An attachment
+is read on the controller's machine (`localSource`) and uploaded, so the
+picker lists the local Node's files whichever Host the conversation runs on.
+It opens at the session's worktree, or an unsent draft's project directory,
+when that is on this machine, and at the home otherwise; the sidebar's
+Projects group lists the local projects. Each pane's and each plugin
+conversation's composer opens the one picker with its own callback, so the
+chosen files reach the composer that asked. A conversation that became
+read-only while the picker was open attaches nothing.
+
+In the preview and in Demo mode `shell.App.sampleAttach` opens the same picker
+on the sample tree (`sidebar.State.Catalog`: the sample account's folders and
+this host's sample projects, the project the right panel shows with its
+files). The chosen files become cards with the tree's sizes through the
+sample transfer; nothing is read or sent.
+
+`live/attachments_*.go` owns draft transfer state and the pick, remove and
+image callbacks through `composer.AttachmentCallbacks`. Existing
 `Actions` and card layout stay unchanged. The first attachment captures a real
 session and worktree without submitting a turn. At most two uploads run at once;
 source size and BLAKE3 are verified before durable publication. Failures keep
@@ -905,6 +923,25 @@ only while unfolded; the header on the rows' edges. `SAILRY_UI_SHOTS` set
 saves `queue-{folded,folded-hover,unfolded}-{dark,light}.png`. The tests of
 rows in `shell` and `live` unfold the tray through its header first.
 
+The attachment picker: `internal/desktop/composer/attach_test.go`
+(`TestAttachAsksTheWindowPicker`: the button and the `@` entry call `Pick`
+once and build no dialog; both are off without it and in a read-only
+conversation); `internal/desktop/shell/attach_test.go` (`attachmentPicker`,
+a step of `TestComposerGuidesRunningTurn`: the preview's and the demo's
+picker on the sample project, Cancel, two files with Cmd, Enter on a folder
+and on a file, the limit's toast, a split pane's own composer, no sample
+notice in the demo; `SAILRY_SNAPSHOTS` set saves
+`attach-picker-demo-{dark,light}.png` and
+`attach-picker-demo-chips-{dark,light}.png`);
+`internal/desktop/sidebar/editor_test.go` (`TestEditorChecks/SampleTree`);
+`internal/desktop/live/attach_picker_test.go`, steps of
+`TestComposerSendRouting` (`attachmentPickerCommands`: the listing goes to
+the local Node at the worktree, no system dialog opens, Cancel uploads
+nothing, two chosen files are uploaded; `attachmentPickerHost`: a paired
+Host's conversation lists this machine's files). The composer's own dialog's
+test, `TestFileSelectionIsNeutral`, went with the dialog; the picker's
+neutral selection is covered by `picker` `TestModel/view`.
+
 ## Deviations
 
 | Deviation | Reason |
@@ -932,7 +969,7 @@ rows in `shell` and `live` unfold the tray through its header first.
 | Enter and Tab leave the editor what the owner left in `State.Draft` | The live owner keeps the draft until the send is confirmed; clearing the editor after the action lost it on the keyboard path only |
 | The model name truncates at its end | The reference truncates it in the middle and measures the chip to fold the effort into an icon (`model_controls/fit.rs`); a MyGo text has an end ellipsis only |
 | Member badges are initials; collision handling is left to the logic half | UI-first scope |
-| File picker: list view only, no grid, context menu or go-to address | Kept to the attach flow |
+| Add attachment opens the in-app file picker in its multi-file mode (user decision 2026-11-12) | The reference's `choose_attachments` opens the system's dialog; one picker serves the project folder, the settings forms and attachments |
 | Drop target tint is `Muted` mixed 12% with `Primary` | No Kit drop-zone slot in the theme |
 | Plugin indicators draw their progress arc using the shared semantic palette | Pinned MyGo has no matching progress-circle control |
 | Plugin menu groups use disabled Kit rows and the standard menu row height | Kit has no separate menu-heading control; existing menu styling is retained |
@@ -956,6 +993,6 @@ Files owner. Opening an `@ Files` page loads that directory lazily; the open pag
 reads its current shared listing rather than retaining a stale copy. Folder
 selection records a canonical `directory` reference; file selection records a
 `file` reference. Both retain their exact relative paths when an edited or queued
-message is restored. Attachment picks use the operating system's local file
-chooser, matching the reference's `choose_attachments`; selected local bytes are
-uploaded to the execution Node. The fixture browser remains isolated preview UI.
+message is restored. Attachment picks use the window's in-app file picker on
+this machine's files ([Live attachments](#live-attachments)); the selected
+local bytes are uploaded to the execution Node.
