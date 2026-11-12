@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -256,18 +257,26 @@ func (r *Runtime) finishAttachmentDiscard(a *composer.Attachment, record *attach
 			r.removeDraftAttachment(a, record)
 			return
 		}
-		record.pending = &pending
 		a.Status, a.Error = composer.Failed, "chat_attachment_remove_failed"
 		if attachmentRequestUncertain(err) {
+			record.pending = &pending
 			a.Status, a.Error = composer.Uncertain, "chat_attachment_unknown"
 			kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_attachment_unknown"))
 			return
 		}
+		// The request ended: the next removal is a new one.
+		record.pending = nil
 		r.attachmentOutcome(c, err)
 	})
 }
 
+// attachmentRequestUncertain reports whether a publication's request is kept
+// to be asked about again. A released request is not: the Node holds nothing
+// more for it.
 func attachmentRequestUncertain(err error) bool {
+	if client.Released(err) {
+		return false
+	}
 	code := faultCode(err)
 	return code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == protocol.ErrorCodeInternal
 }

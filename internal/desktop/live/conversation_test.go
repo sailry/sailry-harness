@@ -1594,11 +1594,22 @@ func testSessionForwarding(t *testing.T) {
 	// refusal answers the next forward; forwarded counts the sessions made.
 	var refusal protocol.ErrorCode
 	forwarded := byte(0)
+	// unconfirmed is the forward the local Node recorded as not known.
+	var unconfirmed *protocol.RequestID
 	transports[0].handle = func(request protocol.Request) (link.Response, bool) {
+		if inspected, valid := detail[protocol.CommandInspectRequestPayload](request.Command.Data); valid && request.Command.Kind == "inspect_request" && unconfirmed != nil && inspected.ID == *unconfirmed {
+			// The local Node's ledger holds that outcome as final; only the
+			// same request, sent again, asks the target.
+			recorded := protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "remote session creation could not be confirmed"}}
+			return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: inspected.ID, Outcome: protocol.RequestOutcome{Kind: "completed", Data: recorded}}}}, true
+		}
 		if request.Command.Kind != "create_session_at" {
 			return link.Response{}, false
 		}
 		if refusal != "" {
+			if refusal == protocol.ErrorCodeOutcomeUnknown {
+				unconfirmed = &request.ID
+			}
 			return link.Response{Fault: &protocol.Fault{Code: refusal, Message: "Claude sign-in is required on the execution Node"}}, true
 		}
 		input := request.Command.Data.(protocol.CommandCreateSessionAtPayload)

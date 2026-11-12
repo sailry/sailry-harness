@@ -683,7 +683,12 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, key)
 			code := faultCode(err)
-			if client.Retained(err) || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
+			// A forwarded creation is the one request a Node resolves by
+			// replay (docs/node.md, Session forwarding): its unknown outcome
+			// is final in the local Node's ledger until the target answers,
+			// so the request is kept and the next Send asks the target.
+			forwarded := command.Kind == "create_session_at" && code == protocol.ErrorCodeOutcomeUnknown
+			if client.Retained(err) || forwarded || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
 				r.uncertain[key] = request
 			} else {
 				delete(r.uncertain, key)

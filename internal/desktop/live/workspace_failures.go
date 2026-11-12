@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/node/git"
@@ -174,7 +175,7 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 	encoded, _ := json.Marshal(command)
 	key := string(encoded)
 	p.runtime.executeScoped("workspace-action/"+p.owner.ID.String(), command, func(c *ui.Context, out protocol.Output, err error) {
-		unknown := faultCode(err) == protocol.ErrorCodeOutcomeUnknown
+		unknown := client.Retained(err)
 		p.panel.SetPromptUncertain(unknown)
 		if unknown {
 			if p.uncertainOperations == nil {

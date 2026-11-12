@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -558,10 +559,12 @@ func (r *Runtime) packageCommandReport(command protocol.Command, failed string, 
 		r.packages.requests[request.ID.String()] = request
 	}
 	r.async(func() {
-		output, err := r.controller.Execute(r.ctx, request)
+		// An unobserved outcome is resolved by its request, which is kept
+		// only while the Node still runs it or cannot be asked.
+		output, err := r.controller.Settle(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, "packages/"+key)
-			if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			if client.Retained(err) {
 				r.packages.pending[key] = request
 			} else {
 				delete(r.packages.pending, key)

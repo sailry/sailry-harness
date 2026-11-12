@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -47,14 +48,14 @@ func (location *pluginNativeLocation) confirm(ctx context.Context, cursor string
 	if err != nil {
 		return protocol.Worktree{}, err
 	}
-	outcome, err := state.runtime.controller.Outcome(ctx, request)
-	if err == nil && outcome.Kind == "completed" {
-		result, valid := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-		if valid && result.Err == nil && result.Ok != nil && result.Ok.Kind == "worktree" {
-			tree, valid := detail[protocol.Worktree](result.Ok.Data)
-			if valid && tree.ID == *expected && tree.Project != nil && *tree.Project == *project {
-				return tree, nil
-			}
+	output, err := state.runtime.resolvedRequest(ctx, request)
+	if err != nil {
+		return protocol.Worktree{}, err
+	}
+	if output.Kind == "worktree" {
+		tree, valid := detail[protocol.Worktree](output.Data)
+		if valid && tree.ID == *expected && tree.Project != nil && *tree.Project == *project {
+			return tree, nil
 		}
 	}
 	return protocol.Worktree{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "worktree handoff is not confirmed")
@@ -99,20 +100,29 @@ func (location *pluginNativeLocation) release(ctx context.Context, arguments []j
 	if err != nil {
 		return nil, err
 	}
-	outcome, err := state.runtime.controller.Outcome(ctx, request)
-	confirmed := false
-	if err == nil && outcome.Kind == "completed" {
-		result, valid := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-		if valid && result.Err == nil && result.Ok != nil && result.Ok.Kind == "worktree_removed" {
-			value, valid := detail[protocol.OutputWorktreeRemovedPayload](result.Ok.Data)
-			confirmed = valid && value.ID == tree
-		}
+	output, err := state.runtime.resolvedRequest(ctx, request)
+	if err != nil {
+		return nil, err
 	}
-	if !confirmed {
+	value, valid := detail[protocol.OutputWorktreeRemovedPayload](output.Data)
+	if output.Kind != "worktree_removed" || !valid || value.ID != tree {
 		return nil, pluginNativeFault(protocol.ErrorCodeUnavailable, "worktree removal is not confirmed")
 	}
 	return state.update(ctx, func(*ui.Context) (json.RawMessage, error) {
 		location.releasePresentation(tree)
 		return json.RawMessage("null"), nil
 	})
+}
+
+// resolvedRequest answers a package that asks what became of the request it
+// sent. A stored result is returned as it is, a stored failure as its fault,
+// and an outcome the Node can never tell as outcome_unknown, so the package
+// reports each once. A request the Node still runs, one that never arrived
+// and a Node that cannot be asked are unavailable: the package asks again.
+func (r *Runtime) resolvedRequest(ctx context.Context, request protocol.Request) (protocol.Output, error) {
+	resolution, err := r.controller.Resolve(ctx, request)
+	if err == nil && resolution.State != client.RequestPending && resolution.State != client.RequestAbsent {
+		return resolution.Result()
+	}
+	return protocol.Output{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "request outcome is not confirmed")
 }

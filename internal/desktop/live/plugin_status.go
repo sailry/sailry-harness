@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -292,14 +293,14 @@ func (r *Runtime) invokePluginStatus(scope protocol.PluginContext, id string) bo
 		pending.active = true
 		request := pending.request
 		if !r.async(func() {
-			_, err := r.controller.Execute(r.ctx, request)
+			_, err := r.controller.Settle(r.ctx, request)
 			r.enqueue(func(view *ui.Context) {
 				current := feed.pending[id]
 				if current != pending || current.request.ID != request.ID {
 					return
 				}
 				current.active = false
-				if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+				if !client.Retained(err) {
 					delete(feed.pending, id)
 				}
 				if err != nil {

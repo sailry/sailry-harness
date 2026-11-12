@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -126,7 +127,7 @@ func (t *workspaceTransfer) start(destination string, check bool) {
 	t.project.runtime.executeScoped("workspace-action/"+t.project.owner.ID.String(), t.active, func(c *ui.Context, out protocol.Output, err error) {
 		if err != nil {
 			t.view.Status = transfers.EntryFailed
-			if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			if client.Retained(err) {
 				t.view.Status = transfers.EntryUncertain
 			}
 			t.project.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")

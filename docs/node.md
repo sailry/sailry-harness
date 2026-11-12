@@ -122,10 +122,22 @@ request once and, on an unknown outcome, asks the Node by request ID:
 | `admitted`, or the Node cannot be asked | OutcomeUnknown, `client.Retained` | keeps the request; the same request settled again resolves it |
 
 The Desktop's `Runtime.execute` uses it for every command it sends that way
-(sends, queue actions, settings saves, provider and package commands) and
-keeps a request only while `client.Retained` holds. Flows that poll their own
-long operation (Host installation, uploads, plugin requests) call
-`Client.Resolve` or `Client.Outcome` directly.
+(sends, queue actions, settings saves, provider and package commands, local
+model installations, plugin status actions) and keeps a request only while
+`client.Retained` holds. A workspace action offers "Check result", and a
+transfer shows as uncertain, only for such a kept request; a released one is
+toasted once as uncertain and its next attempt is a new request. Flows that
+keep their own request (Host installation, attachment and file uploads,
+package installations, SSH transfers, a card's sign-in, a package's worktree
+handoff, the Retry of an approval or an answer) ask with `Client.Resolve` and
+read the answer with `Resolution.Result`, which is what `Settle` returns: a
+stored failure or an outcome the Node can never tell ends the request, so no
+flow asks about the same request forever.
+
+The one request kept although its outcome is final in the ledger is a
+forwarded session creation ([Session forwarding](#session-forwarding)): the
+Node that forwarded it resolves it only when the same request is sent again,
+so the Desktop keeps it with its draft until the target answers.
 
 Differences from Rust, deliberate:
 

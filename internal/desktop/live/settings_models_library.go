@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -309,14 +310,14 @@ func (r *Runtime) installLocalModel(kind protocol.ModelsKind, id string) {
 	}
 	s.installing[id] = true
 	started := r.async(func() {
-		_, err := r.controller.Execute(r.ctx, request)
+		_, err := r.controller.Settle(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			delete(s.installing, id)
 			s.stale = true
-			switch faultCode(err) {
-			case protocol.ErrorCodeOutcomeUnknown:
+			switch {
+			case client.Retained(err):
 				s.requests[id] = request
-			case protocol.ErrorCodeCancelled:
+			case faultCode(err) == protocol.ErrorCodeCancelled:
 				delete(s.requests, id)
 				return
 			default:

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -249,8 +250,8 @@ func (r *Runtime) sendPluginCardLogin(card *pluginCardInstance, inspect bool) {
 		var err error
 		confirmed := false
 		if inspect {
-			outcome, failure := card.owner.controller.Outcome(ctx, request)
-			output, err, confirmed = pluginCardInspected(outcome, failure)
+			resolution, failure := card.owner.controller.Resolve(ctx, request)
+			output, err, confirmed = pluginCardInspected(resolution, failure)
 		} else {
 			output, err = card.owner.controller.Execute(ctx, request)
 			confirmed = err == nil || !pluginCardUncertain(faultCode(err))
@@ -271,11 +272,18 @@ func (r *Runtime) sendPluginCardLogin(card *pluginCardInstance, inspect bool) {
 					login.suspend()
 					login.attempt, login.state = nil, "cancelled"
 				}
-			} else if err != nil && confirmed {
+			} else if confirmed {
+				// The request is over: it failed, it returned something
+				// else, or the Node can never tell what it did, which is
+				// said once as uncertain.
 				login.request = nil
 				login.suspend()
 				login.state = "failed"
-				r.pluginCardToast(view, i18n.T(view, "mcp_oauth_failed"), true)
+				if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+					kit.Toast(view, kit.Uncertain, i18n.T(view, "plugins_unknown"))
+				} else {
+					r.pluginCardToast(view, i18n.T(view, "mcp_oauth_failed"), true)
+				}
 			} else {
 				login.state = "unconfirmed"
 				login.url, login.browser = "", nil
@@ -296,20 +304,14 @@ func pluginCardUncertain(code protocol.ErrorCode) bool {
 	return false
 }
 
-func pluginCardInspected(outcome protocol.RequestOutcome, err error) (protocol.Output, error, bool) {
+// pluginCardInspected reads what the Node holds for a kept login request. It
+// is confirmed once the Node's answer ends the request: its stored result, a
+// request that never arrived, or an outcome the Node can never tell. Only a
+// request the Node still runs, or a Node that cannot be asked, keeps it.
+func pluginCardInspected(resolution client.Resolution, err error) (protocol.Output, error, bool) {
 	if err != nil {
 		return protocol.Output{}, err, false
 	}
-	if outcome.Kind == "completed" {
-		result, valid := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-		if valid {
-			if result.Err != nil {
-				return protocol.Output{}, result.Err, true
-			}
-			if result.Ok != nil {
-				return *result.Ok, nil, true
-			}
-		}
-	}
-	return protocol.Output{}, pluginNativeFault(protocol.ErrorCodeOutcomeUnknown, "login outcome is unknown"), false
+	output, err := resolution.Result()
+	return output, err, !client.Retained(err)
 }
