@@ -24,7 +24,7 @@ func monitor(c *ui.Context, s *State, h *Host, act Actions) {
 	// blocks side by side divide them only while both fit.
 	room := column.Bounds().W - 2*panelPad
 	column.Children(func() {
-		if !h.Live {
+		if !h.plain(c) {
 			ui.Text(c.Key("preview"), i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
 		}
 		m := h.Metrics
@@ -60,7 +60,7 @@ const sectionGap = 14
 // and the memory's cards as blocks, then the processes' table.
 func pending(c *ui.Context, h *Host) {
 	loading := "metrics_loading"
-	if h.Live {
+	if h.plain(c) {
 		loading = "live_metrics_loading"
 	}
 	label := i18n.T(c, loading)

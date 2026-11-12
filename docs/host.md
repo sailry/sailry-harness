@@ -108,6 +108,17 @@ has no End process, because its Node offers only the forced stop. Either
 asks once, naming the process, its PID and the consequence
 (`host_process_stop_confirm`, `host_process_force_confirm`).
 
+In Demo mode the hosts stay the window's own (docs/shell.md), so a live
+window shows its live hosts. Over the preview's hosts the page speaks as a
+live host's does (`Host.plain`): the status is the connection's, the
+loading, update and failure texts are the live ones, the preview's notes
+(`workspace_host_status`, `metrics_preview`, `host_activity_hint`,
+`host_runtime_preview`, `update_preview`) are left out, the example
+processes show as programs (`demoProcesses`) and an action raises no
+`preview_notice` (`kit.PreviewNotice`). What the actions do is still the
+preview's. The preview's example values (its version, platform line and
+mount) are data and stay.
+
 The summary column (its title is in the header band, docs/shell.md, without
 the chart icon): the preview note, the host, the processor and the memory
 each with its bar and its last minute, the network rates, the real volumes
@@ -380,8 +391,10 @@ Check, the summary column closed until toggled, closing the page;
 `testHostLayout`: the side column beside the page, the sections' order, the
 header once, the summary's volumes, the hosts in the rail's picker; the rail
 menu's forwards, Update and Remove pairing with its confirmation, cancel and
-busy state. `internal/desktop/shell/hosts_snapshot_test.go` writes the review
-sheets when `SAILRY_SNAPSHOTS` is set. `internal/desktop/live/hosts_metrics_test.go`:
+busy state; `testHostDemo`: no preview note on the page, its summary, its
+update dialog or the rail's picker in Demo mode.
+`internal/desktop/shell/hosts_snapshot_test.go` writes the review sheets,
+the Demo mode page among them, when `SAILRY_SNAPSHOTS` is set. `internal/desktop/live/hosts_metrics_test.go`:
 a sample's mapping, a stop request's outcomes; `ssh_hosts_test.go`: a stop
 request sent once to the host's Node, the host's time zone.
 `internal/node/host/metrics_test.go`: the sampler's volumes, accelerators

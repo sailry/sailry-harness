@@ -105,10 +105,22 @@ func Platform(os string) *ui.SVG {
 // happens to spell.
 func (h *Host) label(c *ui.Context, text string) string {
 	if !h.Live || text == "local_host_name" {
+		if name := demoProcesses[text]; name != "" && kit.Demo(c) {
+			return name
+		}
 		return i18n.T(c, text)
 	}
 	return text
 }
+
+// demoProcesses are the programs the preview's example processes run as
+// while the demo shows: their catalog names say that they are a preview's.
+var demoProcesses = map[string]string{"metrics_worker": "sailry-node", "metrics_indexer": "gopls"}
+
+// plain reports whether the page speaks of the host as a live one: a live
+// host, or the preview's while the demo shows, which says nowhere that its
+// data is a sample. What the page does is the preview's all the same.
+func (h *Host) plain(c *ui.Context) bool { return h.Live || kit.Demo(c) }
 
 // Connection is a live host's connection as its header shows it.
 func (h *Host) Connection() feedback.Connection {
@@ -137,13 +149,13 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 			ui.Column(c.Key("name")).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, h.label(c, h.Name)).FontSize(18).FontWeight(600).SingleLine().Shrink(1).MinWidth(0)
-					if h.Live {
+					if h.plain(c) {
 						feedback.ConnectionStatus(c, h.Connection(), feedback.ConnectionStatusOptions{
 							Online: i18n.T(c, "live_connected"), Reconnecting: i18n.T(c, "connection_connecting"), Offline: i18n.T(c, "connections_offline"),
 						}).Shrink(0).AlignSelf(ui.Center)
 					}
 				})
-				if !h.Live {
+				if !h.plain(c) {
 					ui.Text(c, i18n.T(c, "workspace_host_status")).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 				}
 				ui.Text(c.Key("platform"), h.label(c, h.Detail)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
@@ -213,7 +225,7 @@ func activity(c *ui.Context, h *Host, act Actions) {
 	}
 	p := theme.Of(c)
 	description := ""
-	if !h.Live {
+	if !h.plain(c) {
 		description = i18n.T(c, "host_activity_hint")
 	}
 	kit.Group(c, "activity", i18n.T(c, "workspace_running"), description, nil, func() {
@@ -279,7 +291,7 @@ func runtime(c *ui.Context, h *Host) {
 	p := theme.Of(c)
 	r := h.Runtime
 	note := ""
-	if !r.Live {
+	if !r.Live && !kit.Demo(c) {
 		note = "workspace_runtime_preview"
 		if r.Known {
 			note = "host_runtime_preview"
@@ -289,7 +301,7 @@ func runtime(c *ui.Context, h *Host) {
 	kit.Group(c, "runtime", i18n.T(c, "workspace_runtime"), note, nil, func() {
 		if r.Loading {
 			loading := "host_runtime_loading"
-			if r.Live {
+			if r.Live || kit.Demo(c) {
 				loading = "live_host_runtime_loading"
 			}
 			kit.Shimmer(c, i18n.T(c, loading), 14, p.MutedForeground)
@@ -299,7 +311,7 @@ func runtime(c *ui.Context, h *Host) {
 			typ = "composer_host_local"
 		}
 		active := "host_active_preview"
-		if h.Live {
+		if h.plain(c) {
 			active = "workspace_running"
 		}
 		facts := []Fact{
@@ -357,7 +369,7 @@ func small(c *ui.Context, key any, icon *ui.SVG, label string, disabled, outline
 func (s *State) report(c *ui.Context, h *Host) {
 	if e := h.Runtime.Error; e != "" && e != s.runtimeFailed {
 		key := "host_runtime_error"
-		if h.Live {
+		if h.plain(c) {
 			key = "live_host_runtime_error"
 		}
 		kit.Error(c, i18n.T(c, key), e)

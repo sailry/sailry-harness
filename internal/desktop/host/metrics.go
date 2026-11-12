@@ -27,7 +27,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 	p := theme.Of(c)
 	t := tonesOf(p)
 	ui.Scroll(c.Key("metrics")).Grow(1).MinHeight(0).Padding(16).Gap(16).Children(func() {
-		if !h.Live {
+		if !h.plain(c) {
 			ui.Text(c, i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
 		}
 		ui.Text(c, h.label(c, h.Name)).FontSize(14).SingleLine()
@@ -38,7 +38,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		if m == nil {
 			if h.MetricsError == "" {
 				loading := "metrics_loading"
-				if h.Live {
+				if h.plain(c) {
 					loading = "live_metrics_loading"
 				}
 				ui.Progress(c.Key("loading"), -1).FillWidth().Height(4).Label(i18n.T(c, loading))
@@ -106,7 +106,11 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		})
 	})
 	if !h.Live && h.MetricsError != "" && s.metricsFailed != h.MetricsError {
-		kit.Error(c, i18n.T(c, "metrics_error"), h.MetricsError)
+		key := "metrics_error"
+		if h.plain(c) {
+			key = "live_metrics_error"
+		}
+		kit.Error(c, i18n.T(c, key), h.MetricsError)
 	}
 	s.metricsFailed = h.MetricsError
 }
