@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +101,22 @@ func TestStoredContentIntegration(t *testing.T) {
 		}
 		return value
 	}
+	// objects lists every loose object and pack file of the repository.
+	objects := func() []string {
+		t.Helper()
+		found := []string{}
+		directory := filepath.Join(root, ".git", "objects")
+		err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() {
+				found = append(found, strings.TrimPrefix(path, directory))
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return found
+	}
 	write(".gitattributes", "*.dat filter=upper\n*.txt text=auto eol=lf\n", time.Hour)
 	write("stored.dat", "abc\ndef\n", time.Hour)
 	// The index records the size of the CRLF file with its LF blob, as after a
@@ -136,26 +153,40 @@ func TestStoredContentIntegration(t *testing.T) {
 		if got := runs(); got != 2 {
 			t.Fatalf("filter runs after the change inventory = %d, want 2", got)
 		}
-		if value := diff("stored.dat"); value.Text != "" || value.Additions != 0 || value.Deletions != 0 {
-			t.Fatalf("diff of an unchanged filtered file = %+v", value)
-		}
 	})
 	t.Run("changed_filtered_file_is_modified", func(t *testing.T) {
 		write("stored.dat", "abc\nxyz\n", 30*time.Minute)
+		before, ran := objects(), runs()
 		entry, found := status()["stored.dat"]
 		if !found || entry.Unstaged == nil || *entry.Unstaged != protocol.GitChangeKindModified {
 			t.Fatalf("status entry = %+v %v", entry, found)
 		}
-		// Counting lines never stores a blob, so this side stays uncounted.
-		if !entry.UnstagedDiff.Truncated {
-			t.Fatalf("line statistics = %+v", entry.UnstagedDiff)
+		// A filtered file counts no lines, and counting does not run the filter
+		// again after Git's own comparison.
+		if entry.UnstagedDiff != (protocol.GitLineStats{}) || entry.Diff != (protocol.GitLineStats{}) {
+			t.Fatalf("line statistics = %+v %+v", entry.UnstagedDiff, entry.Diff)
+		}
+		if got := runs() - ran; got != 1 {
+			t.Fatalf("status ran the filter %d times for one changed file", got)
 		}
 		if list := changes(); len(list.Entries) != 1 || list.Entries[0].Path != "stored.dat" {
 			t.Fatalf("changes = %+v", list.Entries)
 		}
-		// The diff is between stored forms, as git diff shows it.
-		if value := diff("stored.dat"); value.Additions != 1 || value.Deletions != 1 || !strings.Contains(value.Text, "-DEF\n+XYZ\n") {
-			t.Fatalf("diff = %+v", value)
+		// The diff is not compared as text: it says the size of the file, and
+		// reading it runs no filter.
+		ran = runs()
+		for _, scope := range []protocol.GitDiffScope{protocol.GitDiffScopeUnstaged, protocol.GitDiffScopeAll} {
+			value, err := s.Diff(ctx, root, "stored.dat", scope)
+			if err != nil || !value.Binary || value.Size != 8 || value.Additions != 0 || value.Deletions != 0 || strings.Contains(value.Text, "XYZ") || strings.Contains(value.Text, "xyz") {
+				t.Fatalf("%s diff = %+v, %v", scope, value, err)
+			}
+		}
+		if got := runs() - ran; got != 0 {
+			t.Fatalf("the diff ran the filter %d times", got)
+		}
+		// Status, the inventory and the diff store nothing in the repository.
+		if after := objects(); !slices.Equal(before, after) {
+			t.Fatalf("repository objects changed from %d to %d: %v", len(before), len(after), after)
 		}
 		write("stored.dat", "abc\ndef\n", 30*time.Minute)
 	})
@@ -263,8 +294,12 @@ func TestStoredContentIntegration(t *testing.T) {
 		}
 		write("stored.dat", "abc\ndef\n", 20*time.Minute)
 		// Without the filter Git compares the file's bytes with the stored form.
-		if entry, found := status()["stored.dat"]; !found || entry.Unstaged == nil {
+		if entry, found := status()["stored.dat"]; !found || entry.Unstaged == nil || entry.Diff != (protocol.GitLineStats{}) {
 			t.Fatalf("status entry = %+v %v", entry, found)
+		}
+		// The diff is the same as when the filter runs.
+		if value := diff("stored.dat"); !value.Binary || value.Size != 8 || value.Additions != 0 || value.Deletions != 0 {
+			t.Fatalf("diff = %+v", value)
 		}
 	})
 }

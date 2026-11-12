@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -33,7 +35,31 @@ type GitHistoryState struct {
 	Loading, Next, Previous, Partial bool
 	Offset                           uint64
 }
-type GitDiffState struct{ Binary, Partial bool }
+type GitDiffState struct {
+	Binary, Partial bool
+	// Size is the length in bytes of a file that is not compared as text.
+	Size uint64
+}
+
+// binaryDiff says that a file is not compared as text, with its size when
+// that is known.
+func binaryDiff(c *ui.Context, size uint64) string {
+	return i18n.T(c, "git_diff_binary") + binarySize(size)
+}
+
+func binarySize(size uint64) string {
+	switch {
+	case size == 0:
+		return ""
+	case size >= 1_000_000_000:
+		return fmt.Sprintf(" · %.1f GB", float64(size)/1e9)
+	case size >= 1_000_000:
+		return fmt.Sprintf(" · %.1f MB", float64(size)/1e6)
+	case size >= 1_000:
+		return fmt.Sprintf(" · %.1f KB", float64(size)/1e3)
+	}
+	return fmt.Sprintf(" · %d B", size)
+}
 
 func (pr *Project) SetGitDiffState(path, scope string, state GitDiffState) {
 	if pr.Git.diffStates == nil {

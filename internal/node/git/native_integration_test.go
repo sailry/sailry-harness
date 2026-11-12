@@ -65,7 +65,8 @@ func TestNativeGitIntegration(t *testing.T) {
 		for _, entry := range status.Entries {
 			if entry.Path == "file.txt" {
 				found = true
-				if entry.Diff.Additions != 1 || entry.Diff.Deletions != 1 || entry.ModifiedMs == nil {
+				// A file behind a filter driver counts no lines.
+				if entry.Diff != (protocol.GitLineStats{}) || entry.ModifiedMs == nil {
 					t.Fatal(entry)
 				}
 			}
@@ -73,9 +74,17 @@ func TestNativeGitIntegration(t *testing.T) {
 		if !found {
 			t.Fatal(status)
 		}
+		// Its diff is not compared as text and runs no filter.
 		actual, err := s.Diff(ctx, root, "file.txt", protocol.GitDiffScopeUnstaged)
-		if err != nil {
+		if err != nil || !actual.Binary || actual.Size != 18 || actual.Additions != 0 || actual.Deletions != 0 {
+			t.Fatal(actual, err)
+		}
+		// Without the attribute the same change is the patch Git prints.
+		if err := os.WriteFile(filepath.Join(root, ".gitattributes"), nil, 0644); err != nil {
 			t.Fatal(err)
+		}
+		if actual, err = s.Diff(ctx, root, "file.txt", protocol.GitDiffScopeUnstaged); err != nil || actual.Additions != 1 || actual.Deletions != 1 {
+			t.Fatal(actual, err)
 		}
 		capture, err := s.command(ctx, root, []string{"-c", "filter.fixture.clean=", "-c", "filter.fixture.required=false", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--", "file.txt"}, nil, true)
 		if err != nil {
