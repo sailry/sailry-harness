@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -319,6 +320,213 @@ func TestProjectMenu(t *testing.T) {
 		fork = a.Data.Find(a.Sidebar.Selected)
 		if len(pr.Conversations) != n+2 || len(pr.Worktrees) <= trees || fork.Worktree != pr.Worktrees[len(pr.Worktrees)-1].Branch {
 			t.Fatalf("Fork in new worktree: %d sessions, %d worktrees, fork %+v", len(pr.Conversations), len(pr.Worktrees), fork.Worktree)
+		}
+	})
+
+	// last clicks the topmost button of a name: a dialog's over a row's.
+	last := func(t *testing.T, tt *ui.Tester, label string) {
+		t.Helper()
+		all := tt.AccessAll()
+		for i := len(all) - 1; i >= 0; i-- {
+			if all[i].Role == ui.RoleButton && all[i].Name == label {
+				b := all[i].Bounds
+				tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+				settle(tt)
+				return
+			}
+		}
+		t.Fatalf("no button %q: %q", label, tt.Texts())
+	}
+
+	// Every other item of a session's menu changes the demo's memory: pin,
+	// read state, the copies, rename, and archive and delete after their
+	// confirmation.
+	t.Run("SessionItems", func(t *testing.T) {
+		a, tt := demo(t)
+		cv := a.Data.Find(name + "/flaky-test")
+		pr := a.Data.ProjectOf(cv.ID)
+		title := cv.Title
+		choose(t, tt, title, en("workspace_pin"))
+		if !cv.Pinned || cv.PinOrder == nil {
+			t.Fatal("Pin left the session unpinned")
+		}
+		choose(t, tt, title, en("workspace_unpin"))
+		if cv.Pinned {
+			t.Fatal("Unpin left the session pinned")
+		}
+		cv.Status = preview.Idle
+		settle(tt)
+		choose(t, tt, title, en("session_mark_unread"))
+		if cv.Status != preview.Unread {
+			t.Fatalf("Mark unread left status %d", cv.Status)
+		}
+		choose(t, tt, title, en("session_mark_read"))
+		if cv.Status != preview.Idle {
+			t.Fatalf("Mark read left status %d", cv.Status)
+		}
+		for key, want := range map[string]string{"workspace_copy_title": title, "session_copy_id": cv.ID, "workspace_copy_path": pr.Path} {
+			choose(t, tt, title, en("content_copy"), en(key))
+			if got := tt.Clipboard(); got != want {
+				t.Fatalf("%s copied %q, want %q", key, got, want)
+			}
+		}
+		choose(t, tt, title, en("workspace_rename"))
+		tt.Key(ui.Cmd, ui.KeyA)
+		tt.Type("Stabilize the suite")
+		tt.Key(0, ui.KeyEnter)
+		settle(tt)
+		if cv.Title != "Stabilize the suite" {
+			t.Fatalf("Rename left %q", cv.Title)
+		}
+		title = cv.Title
+		choose(t, tt, title, en("workspace_archive"))
+		if !tt.HasText(en("session_archive_named", "name", title)) || cv.Archived {
+			t.Fatalf("Archive did not ask: %q", tt.Texts())
+		}
+		last(t, tt, en("workspace_archive"))
+		if !cv.Archived || a.Data.Find(a.Sidebar.Selected) == nil {
+			t.Fatalf("Archive: archived %v, selected %q", cv.Archived, a.Sidebar.Selected)
+		}
+		other := pr.Conversations[0]
+		if other == cv {
+			other = pr.Conversations[1]
+		}
+		n := len(pr.Conversations)
+		choose(t, tt, other.Title, en("session_delete"))
+		if !tt.HasText(en("session_delete_named", "name", other.Title)) || len(pr.Conversations) != n {
+			t.Fatalf("Delete did not ask: %q", tt.Texts())
+		}
+		last(t, tt, en("session_delete"))
+		if len(pr.Conversations) != n-1 || slices.Contains(pr.Conversations, other) {
+			t.Fatalf("Delete left %d of %d sessions", len(pr.Conversations), n)
+		}
+	})
+
+	// The groups' headers: the chats' "+", the projects' sort menu and Add
+	// project, and a project's rows dragged into another order.
+	t.Run("Groups", func(t *testing.T) {
+		a, tt := demo(t)
+		press := func(label string) {
+			t.Helper()
+			found := sidebarNamed(tt, label)
+			if len(found) == 0 {
+				t.Fatalf("the sidebar has no %q: %q", label, tt.Texts())
+			}
+			b := found[0].Bounds
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			settle(tt)
+		}
+		chats := len(a.Data.Unassigned)
+		press(en("workspace_new_session"))
+		if len(a.Data.Unassigned) != chats+1 || a.Sidebar.Selected != a.Data.Unassigned[0].ID {
+			t.Fatalf("the chats' + made %d chats, selected %q", len(a.Data.Unassigned)-chats, a.Sidebar.Selected)
+		}
+		press(en("sidebar_sort"))
+		clickItem(t, tt, en("session_order_name"))
+		settle(tt)
+		if *a.Sidebar.Sort != int(sidebar.SortName) {
+			t.Fatalf("the sort menu left order %d", *a.Sidebar.Sort)
+		}
+		projects := len(a.Data.Projects)
+		press(en("project_add"))
+		if !a.Sidebar.Draft().Open {
+			t.Fatal("Add project opened no editor")
+		}
+		clickField(t, tt, en("project_path"))
+		tt.Type("~/Work/demo-tool")
+		tt.Frame()
+		last(t, tt, en("settings_save"))
+		if len(a.Data.Projects) != projects+1 || a.Data.Projects[projects].Name != "demo-tool" {
+			t.Fatalf("the editor added %d projects", len(a.Data.Projects)-projects)
+		}
+		// Under the creation order a project's row drags to another place.
+		*a.Sidebar.Sort = int(sidebar.SortCreated)
+		pr := a.Data.ProjectOf(name + "/flaky-test")
+		var rows []*preview.Conversation
+		for _, cv := range pr.Conversations {
+			if !cv.Archived && !cv.Pinned {
+				rows = append(rows, cv)
+			}
+		}
+		a.Sidebar.Reveal(pr.ID)
+		// Tall enough for the project's rows to be clear of the window's edge.
+		tt.SetSize(1280, 1400)
+		settle(tt)
+		from, to := sidebarNamed(tt, rows[0].Title), sidebarNamed(tt, rows[1].Title)
+		if len(from) == 0 || len(to) == 0 {
+			t.Fatalf("rows not shown: %q", tt.Texts())
+		}
+		dragTo(t, tt, from[0], from[0].Bounds.X+from[0].Bounds.W/2, to[0].Bounds.Y+to[0].Bounds.H-4, nil)
+		if at := slices.Index(pr.Conversations, rows[0]); at != slices.Index(pr.Conversations, rows[1])+1 {
+			t.Fatalf("the drag left %q at %d", rows[0].ID, at)
+		}
+	})
+
+	// The rail's host menu over the demo: Host information and Add project
+	// work; Edit, which is the controller's, is absent where the preview
+	// would only tell its notice.
+	t.Run("HostMenu", func(t *testing.T) {
+		open := func(tt *ui.Tester) []string {
+			t.Helper()
+			info, ok := tt.AccessByRole(ui.RoleMenuButton, en("hosts"))
+			if !ok {
+				t.Fatalf("no host picker: %q", tt.Texts())
+			}
+			tt.RightClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+			tt.Frame()
+			return tt.Menu()
+		}
+		a, tt := demo(t)
+		items := open(tt)
+		if slices.Contains(items, en("connection_action_edit")) {
+			t.Fatalf("the demo's host menu offers Edit: %q", items)
+		}
+		for _, key := range []string{"workspace_host", "project_add", "port_mappings"} {
+			if !slices.Contains(items, en(key)) {
+				t.Fatalf("the demo's host menu lacks %q: %q", en(key), items)
+			}
+		}
+		if err := tt.ChooseMenuItem(en("workspace_host")); err != nil {
+			t.Fatal(err)
+		}
+		settle(tt)
+		if a.Page != HostPage {
+			t.Fatalf("Host information showed page %d", a.Page)
+		}
+		open(tt)
+		if err := tt.ChooseMenuItem(en("project_add")); err != nil {
+			t.Fatal(err)
+		}
+		settle(tt)
+		if !a.Sidebar.Draft().Open {
+			t.Fatal("Add project opened no editor")
+		}
+		_, pt := newTester(t)
+		if items := open(pt); !slices.Contains(items, en("connection_action_edit")) {
+			t.Fatalf("the preview's host menu lost Edit: %q", items)
+		}
+	})
+
+	// The search palette's project opens the demo project's page, as the
+	// menu's Project overview does.
+	t.Run("Search", func(t *testing.T) {
+		a, tt := demo(t)
+		tt.Key(ui.Cmd, ui.KeyK)
+		tt.Frame()
+		tt.Frame()
+		tt.Key(0, ui.KeyDown) // Projects, the second folder
+		tt.Frame()
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		if a.search.folder != "projects" {
+			t.Fatalf("the search is in folder %q", a.search.folder)
+		}
+		tt.Type("lumen")
+		tt.Frame()
+		tt.Key(0, ui.KeyEnter)
+		settle(tt)
+		if _, id, shown := a.ProjectOwner(); !shown || id != "lumen-web" || a.search.open {
+			t.Fatalf("the project choice showed page %d, project %q", a.Page, id)
 		}
 	})
 

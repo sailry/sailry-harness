@@ -573,3 +573,6 @@ notice.approval: "Waiting for approval to connect to the bastion"
 notice.completed: "Completed in 6m 40s"
 notice.failed: "Paused at the turn limit with 4 tests failing"
 notice.migrated: "Completed in 12m 05s"
+
+# What the microphone hears (shell.go)
+dictation.text: "Add a test for the burst case as well"

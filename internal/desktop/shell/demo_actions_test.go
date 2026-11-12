@@ -2,6 +2,7 @@ package shell
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,6 +239,115 @@ func TestDemoActions(t *testing.T) {
 		act(func(x *actions) { x.Badge(id, "goal-end") })
 		if len(cv.Badges) != 0 {
 			t.Fatal("End kept the goal")
+		}
+	})
+
+	// Voice input plays on the clock and ends with the demo's words in the
+	// draft: no microphone opens and nothing is said of it.
+	t.Run("Dictation", func(t *testing.T) {
+		a, tt, act := open(t, flaky)
+		comp := a.Composer(flaky)
+		act(func(x *actions) { x.Dictate(&comp.Dictation, composer.StartDictation) })
+		play(tt)
+		if comp.Dictation.Phase != composer.Recording {
+			t.Fatalf("the dictation is in phase %d", comp.Dictation.Phase)
+		}
+		act(func(x *actions) { x.Dictate(&comp.Dictation, composer.FinishDictation) })
+		play(tt)
+		heard := preview.DemoCatalog("en")["dictation.text"]
+		if comp.Dictation.Phase != composer.Idle || heard == "" || !strings.HasSuffix(comp.Draft, heard) {
+			t.Fatalf("the dictation ended in phase %d with the draft %q", comp.Dictation.Phase, comp.Draft)
+		}
+		if tt.HasText(en("preview_notice")) {
+			t.Fatal("the dictation tells the preview's notice")
+		}
+	})
+
+	// A cited page of the session overview opens in the panel's browser, and
+	// a file without a native preview opens a tab that names it: neither
+	// leaves the window.
+	t.Run("SourcesAndFiles", func(t *testing.T) {
+		const metrics = "lumen-web/metrics"
+		a, tt, act := open(t, metrics)
+		cv := a.Data.Find(metrics)
+		cited := 0
+		act(func(x *actions) {
+			o := a.sessionOverview(x.c, cv)
+			if cited = len(o.Citations); cited > 0 {
+				o.OpenSource(o.Citations[0].URI)
+			}
+		})
+		if cited == 0 {
+			t.Fatal("the demo's metrics conversation cites no page")
+		}
+		if !a.PanelOpen || a.Panel.Active.Kind != panel.Browser {
+			t.Fatalf("the cited page opened %+v", a.Panel.Active)
+		}
+		var pdf *conversation.File
+		for i := range cv.Turns {
+			for _, b := range cv.Turns[i].Reply.Blocks {
+				for j := range b.Files {
+					if b.Files[j].Kind == conversation.OtherFile {
+						pdf = &b.Files[j]
+					}
+				}
+			}
+		}
+		if pdf == nil {
+			t.Fatal("the demo has no file without a native preview")
+		}
+		for _, open := range []func(x *actions){
+			func(x *actions) { x.OpenFile(*pdf) },
+			func(x *actions) { x.FileAction(*pdf, conversation.OpenExternal) },
+		} {
+			a.Panel.Close(a.Panel.Active)
+			act(open)
+			settle(tt)
+			if a.Panel.Active != (panel.Tab{Kind: panel.Artifact, ID: pdf.ID}) || tt.HasText(en("files_open_failed")) || len(tt.OpenedURLs()) != 0 {
+				t.Fatalf("the file opened %+v, urls %q: %q", a.Panel.Active, tt.OpenedURLs(), tt.Texts())
+			}
+			if !slices.Contains(tt.Texts(), pdf.Name()) || tt.HasText(en("artifact_preview_failed")) {
+				t.Fatalf("the file's tab does not name it: %q", tt.Texts())
+			}
+		}
+	})
+
+	// Open folder lists the sample catalog's directories and adds the one
+	// chosen to the demo; the selection dialog offers no Read aloud where no
+	// voice would read.
+	t.Run("OpenFolderAndSelection", func(t *testing.T) {
+		a, tt, _ := open(t, flaky)
+		n := len(a.Data.Projects)
+		a.Do("folder.open")
+		settle(tt)
+		if !a.Sidebar.Picker.Showing() || tt.HasText(en("directory_preview")) {
+			t.Fatalf("Open folder: picker %v: %q", a.Sidebar.Picker.Showing(), tt.Texts())
+		}
+		click(t, tt, "sailry")
+		settle(tt)
+		all := tt.AccessAll()
+		for i := len(all) - 1; i >= 0; i-- {
+			if all[i].Role == ui.RoleButton && all[i].Name == en("directory_open") {
+				tt.ClickAt(all[i].Bounds.X+all[i].Bounds.W/2, all[i].Bounds.Y+all[i].Bounds.H/2)
+				break
+			}
+		}
+		settle(tt)
+		if len(a.Data.Projects) != n+1 || a.Data.Projects[n].Name != "sailry" || a.Sidebar.Picker.Showing() {
+			t.Fatalf("Open folder added %d projects", len(a.Data.Projects)-n)
+		}
+		// The dialog is modal: what is named while it shows is its own.
+		a.Page, a.Sidebar.Selected = ConversationPage, flaky
+		settle(tt)
+		a.captureSelection()
+		settle(tt)
+		if _, quote := tt.AccessByRole(ui.RoleButton, en("message_quote")); !a.selected.open || !quote {
+			t.Fatalf("the selection dialog: open %v, Quote %v", a.selected.open, quote)
+		}
+		for _, info := range tt.AccessAll() {
+			if info.Name == en("reader_read") {
+				t.Fatalf("the demo's selection dialog offers Read aloud: %+v", info.Bounds)
+			}
 		}
 	})
 

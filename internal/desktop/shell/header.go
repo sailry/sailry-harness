@@ -241,7 +241,15 @@ func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer
 		}
 		act.notice()
 	}
-	o.OpenSource = func(string) { act.notice() }
+	o.OpenSource = func(uri string) {
+		// The demo's cited page opens in the panel's browser, as a link of
+		// the reply does.
+		if a.Demo() {
+			a.sampleLink(c, cv.ID, uri)
+			return
+		}
+		act.notice()
+	}
 	return o
 }
 

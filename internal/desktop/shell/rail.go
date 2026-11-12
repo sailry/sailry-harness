@@ -337,7 +337,9 @@ func (a *App) hostPicker(c *ui.Context) {
 		if m.Item(i18n.T(c, "workspace_host")).Chosen() {
 			a.openHost(a.Host, false)
 		}
-		if m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
+		// Edit is the controller's. The preview tells its notice; the demo
+		// over a preview window, which tells none, has no such item.
+		if (a.Hooks.EditHost != nil || !a.Demo()) && m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
 			if a.Hooks.EditHost != nil {
 				a.Hooks.EditHost(a.Host)
 			} else {

@@ -571,3 +571,6 @@ notice.approval: "等待批准连接堡垒机"
 notice.completed: "已完成，用时 6 分 40 秒"
 notice.failed: "已在轮次上限处暂停，仍有 4 个测试失败"
 notice.migrated: "已完成，用时 12 分 05 秒"
+
+# What the microphone hears (shell.go)
+dictation.text: "再给突发流量的情况补一个测试"

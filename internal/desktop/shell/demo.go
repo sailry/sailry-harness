@@ -107,6 +107,14 @@ func (a *App) DemoUsage() *preview.Usage {
 	return a.demo.usage
 }
 
+// demoLocale is the language the demo is written in, "" without the demo.
+func (a *App) demoLocale() string {
+	if a.demo == nil {
+		return ""
+	}
+	return a.demo.locale
+}
+
 // sampled reports whether the conversations shown are sample data, whose
 // actions stay in memory: the preview's, or the demo's.
 func (a *App) sampled() bool { return a.Preview || a.Demo() }

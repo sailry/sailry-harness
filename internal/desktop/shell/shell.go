@@ -627,7 +627,16 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		if changing, done := a.voice.Advance(&comp.Dictation, c.Now()); changing {
 			c.After(preview.Tick)
 		} else if done {
-			kit.PreviewNotice(c)
+			// The demo hears what its catalog says; the preview says that no
+			// microphone opened.
+			if text := preview.DemoCatalog(a.demoLocale())["dictation.text"]; a.Demo() && text != "" {
+				if comp.Draft != "" && !strings.HasSuffix(comp.Draft, " ") && !strings.HasSuffix(comp.Draft, "\n") {
+					comp.Draft += " "
+				}
+				comp.Draft += text
+			} else {
+				kit.PreviewNotice(c)
+			}
 		}
 	}
 	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
@@ -1117,6 +1126,12 @@ func (x *actions) LoadOlder() {
 func (x *actions) FileAction(f conversation.File, a conversation.FileAction) {
 	switch a {
 	case conversation.OpenExternal:
+		// The demo's files are on no disk: the click with the platform
+		// modifier opens the tab too.
+		if x.a.Demo() {
+			x.OpenFile(f)
+			return
+		}
 		x.openSystem(f)
 	case conversation.Download:
 		if !x.a.Demo() {
@@ -1151,9 +1166,10 @@ func (x *actions) openSystem(f conversation.File) {
 }
 
 // OpenFile shows a file's preview as a tab of the right panel; a file
-// without a native preview opens in the system's app (WebView later).
+// without a native preview opens in the system's app (WebView later). The
+// demo's, which is on no disk, opens a tab that names it.
 func (x *actions) OpenFile(f conversation.File) {
-	if f.Kind == conversation.OtherFile {
+	if f.Kind == conversation.OtherFile && !x.a.Demo() {
 		x.openSystem(f)
 		return
 	}
