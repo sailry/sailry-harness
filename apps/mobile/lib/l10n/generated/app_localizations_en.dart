@@ -1064,6 +1064,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get preview => 'Preview';
 
   @override
+  String get mixed => 'Light and dark';
+
+  @override
   String get dark => 'Dark';
 
   @override
@@ -1740,7 +1743,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get add => 'Add';
 
   @override
+  String get configName => 'Name';
+
+  @override
+  String get configEndpoint => 'Endpoint';
+
+  @override
+  String get configModels => 'Models';
+
+  @override
   String get configInstructions => 'Instructions';
+
+  @override
+  String get configEmpty => 'No entries';
+
+  @override
+  String get configDuplicate => 'Name already exists';
+
+  @override
+  String configDelete(String name) {
+    return 'Delete “$name”?';
+  }
 
   @override
   String get speechInput => 'Voice input';
@@ -1757,6 +1780,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get memoryContent => 'Preserve the existing code style';
+
+  @override
+  String get providers => 'Models and providers';
 
   @override
   String get speech => 'Speech';
@@ -2068,6 +2094,181 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsLoading => 'Loading';
+
+  @override
+  String get settingsRequired => 'Enter a value';
+
+  @override
+  String get settingsApi => 'API format';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'API Key';
+
+  @override
+  String get settingsEnabled => 'Enabled';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'Plugin';
+
+  @override
+  String get providerNew => 'New provider';
+
+  @override
+  String get providerEmpty => 'No providers';
+
+  @override
+  String get providerDesktopHint =>
+      'Add presets and account logins on Desktop; their models are editable here';
+
+  @override
+  String get providerConnection => 'Connection';
+
+  @override
+  String get providerKeyUnset => 'Not set';
+
+  @override
+  String get providerShowKey => 'Show key';
+
+  @override
+  String get providerHideKey => 'Hide key';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count models';
+  }
+
+  @override
+  String get providerFetch => 'Fetch';
+
+  @override
+  String get providerFetchTitle => 'Fetch models';
+
+  @override
+  String providerFetched(String count) {
+    return '$count returned';
+  }
+
+  @override
+  String get providerSelectAll => 'Select all';
+
+  @override
+  String get providerSelectNone => 'Deselect all';
+
+  @override
+  String get providerSearch => 'Search models';
+
+  @override
+  String get providerAdded => 'Added';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens context';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return 'Add $count';
+  }
+
+  @override
+  String get providerModelId => 'Model ID';
+
+  @override
+  String get providerModelExists => 'Model already added';
+
+  @override
+  String get providerDisplayName => 'Display name';
+
+  @override
+  String get providerDefault => 'Default';
+
+  @override
+  String get providerBasic => 'Basic';
+
+  @override
+  String get providerContextTitle => 'Context';
+
+  @override
+  String get providerContextLength => 'Context length';
+
+  @override
+  String get providerMaxOutput => 'Max output';
+
+  @override
+  String get providerCompaction => 'Auto-compaction';
+
+  @override
+  String get providerCapabilities => 'Capabilities';
+
+  @override
+  String get providerVision => 'Image input';
+
+  @override
+  String get providerTools => 'Tool calls';
+
+  @override
+  String get providerReasoning => 'Reasoning';
+
+  @override
+  String get providerEfforts => 'Reasoning effort';
+
+  @override
+  String get providerEffortPlaceholder => 'Effort or token budget';
+
+  @override
+  String get providerEffortInvalid =>
+      'Invalid reasoning effort; check names, duplicates and API support';
+
+  @override
+  String get providerEffortDefault => 'Default effort';
+
+  @override
+  String get providerEffortSetDefault => 'Set as default';
+
+  @override
+  String get providerSetDefault => 'Set as default model';
+
+  @override
+  String get providerIsDefault => 'Default model';
+
+  @override
+  String get providerDeleteModel => 'Delete model';
+
+  @override
+  String get providerDelete => 'Delete provider';
+
+  @override
+  String get providerNumberInvalid => 'Enter a positive whole number';
+
+  @override
+  String get providerLimitsInvalid => 'Max output can\'t exceed context length';
 
   @override
   String get settingsDriver => 'Service';

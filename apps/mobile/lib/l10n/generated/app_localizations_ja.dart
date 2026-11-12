@@ -1047,6 +1047,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get preview => 'プレビュー';
 
   @override
+  String get mixed => 'ライト・アンド・ダーク';
+
+  @override
   String get dark => 'ダーク';
 
   @override
@@ -1721,7 +1724,27 @@ class AppLocalizationsJa extends AppLocalizations {
   String get add => '追加';
 
   @override
+  String get configName => '名前';
+
+  @override
+  String get configEndpoint => 'エンドポイント';
+
+  @override
+  String get configModels => 'モデル';
+
+  @override
   String get configInstructions => '指示';
+
+  @override
+  String get configEmpty => 'エントリなし';
+
+  @override
+  String get configDuplicate => '名前は既に存在します';
+
+  @override
+  String configDelete(String name) {
+    return '“$name” を削除しますか？';
+  }
 
   @override
   String get speechInput => '音声入力';
@@ -1737,6 +1760,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get memoryContent => '既存のコードスタイルを保持';
+
+  @override
+  String get providers => 'モデルとプロバイダ';
 
   @override
   String get speech => 'スピーチ';
@@ -2046,6 +2072,179 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsLoading => '読み込み中';
+
+  @override
+  String get settingsRequired => '値を入力';
+
+  @override
+  String get settingsApi => 'APIフォーマット';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'API キー';
+
+  @override
+  String get settingsEnabled => '有効';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'プラグイン';
+
+  @override
+  String get providerNew => '新しいサービス';
+
+  @override
+  String get providerEmpty => 'モデルサービスはありません';
+
+  @override
+  String get providerDesktopHint => 'プリセットとアカウントログインはデスクトップで追加し、ここでもモデルを編集できます';
+
+  @override
+  String get providerConnection => '接続';
+
+  @override
+  String get providerKeyUnset => '未設定';
+
+  @override
+  String get providerShowKey => 'キーを表示';
+
+  @override
+  String get providerHideKey => 'キーを隠す';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count 個のモデル';
+  }
+
+  @override
+  String get providerFetch => '取得';
+
+  @override
+  String get providerFetchTitle => 'モデルを取得';
+
+  @override
+  String providerFetched(String count) {
+    return '$count 件取得';
+  }
+
+  @override
+  String get providerSelectAll => 'すべて選択';
+
+  @override
+  String get providerSelectNone => '選択解除';
+
+  @override
+  String get providerSearch => 'モデルを検索';
+
+  @override
+  String get providerAdded => '追加済み';
+
+  @override
+  String providerContext(String tokens) {
+    return 'コンテキスト $tokens';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '$count 件を追加';
+  }
+
+  @override
+  String get providerModelId => 'モデル ID';
+
+  @override
+  String get providerModelExists => 'モデルは追加済みです';
+
+  @override
+  String get providerDisplayName => '表示名';
+
+  @override
+  String get providerDefault => 'デフォルト';
+
+  @override
+  String get providerBasic => '基本';
+
+  @override
+  String get providerContextTitle => 'コンテキスト';
+
+  @override
+  String get providerContextLength => 'コンテキスト長';
+
+  @override
+  String get providerMaxOutput => '最大出力';
+
+  @override
+  String get providerCompaction => '自動圧縮';
+
+  @override
+  String get providerCapabilities => '機能';
+
+  @override
+  String get providerVision => '画像入力';
+
+  @override
+  String get providerTools => 'ツール呼び出し';
+
+  @override
+  String get providerReasoning => '推論';
+
+  @override
+  String get providerEfforts => '推論の強度';
+
+  @override
+  String get providerEffortPlaceholder => '強度またはトークン予算';
+
+  @override
+  String get providerEffortInvalid => '推論の強度が無効です。名前、重複、API の対応を確認してください';
+
+  @override
+  String get providerEffortDefault => 'デフォルトの強度';
+
+  @override
+  String get providerEffortSetDefault => 'デフォルトに設定';
+
+  @override
+  String get providerSetDefault => 'デフォルトモデルに設定';
+
+  @override
+  String get providerIsDefault => 'デフォルトモデル';
+
+  @override
+  String get providerDeleteModel => 'モデルを削除';
+
+  @override
+  String get providerDelete => 'サービスを削除';
+
+  @override
+  String get providerNumberInvalid => '正の整数を入力してください';
+
+  @override
+  String get providerLimitsInvalid => '最大出力はコンテキスト長以下にしてください';
 
   @override
   String get settingsDriver => 'サービス';

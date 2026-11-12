@@ -1072,6 +1072,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get preview => 'Pré- visualização';
 
   @override
+  String get mixed => 'Luz e escuridão';
+
+  @override
   String get dark => 'Escuro';
 
   @override
@@ -1753,7 +1756,27 @@ class AppLocalizationsPt extends AppLocalizations {
   String get add => 'Adicionar';
 
   @override
+  String get configName => 'Nome';
+
+  @override
+  String get configEndpoint => 'Ponto final';
+
+  @override
+  String get configModels => 'Modelos';
+
+  @override
   String get configInstructions => 'Instruções';
+
+  @override
+  String get configEmpty => 'Não há entradas';
+
+  @override
+  String get configDuplicate => 'O nome já existe';
+
+  @override
+  String configDelete(String name) {
+    return 'Excluir “$name”?';
+  }
 
   @override
   String get speechInput => 'Entrada de voz';
@@ -1771,6 +1794,9 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get memoryContent => 'Preservar o estilo de código existente';
+
+  @override
+  String get providers => 'Modelos e fornecedores';
 
   @override
   String get speech => 'Discurso';
@@ -2087,6 +2113,182 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get settingsLoading => 'Carregando';
+
+  @override
+  String get settingsRequired => 'Digite um valor';
+
+  @override
+  String get settingsApi => 'Formato API';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'Chave de API';
+
+  @override
+  String get settingsEnabled => 'Ativado';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'Plugin';
+
+  @override
+  String get providerNew => 'Novo serviço';
+
+  @override
+  String get providerEmpty => 'Nenhum serviço';
+
+  @override
+  String get providerDesktopHint =>
+      'Adicione predefinições e logins de conta no Desktop; os modelos podem ser editados aqui';
+
+  @override
+  String get providerConnection => 'Conexão';
+
+  @override
+  String get providerKeyUnset => 'Não definido';
+
+  @override
+  String get providerShowKey => 'Mostrar chave';
+
+  @override
+  String get providerHideKey => 'Ocultar chave';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count modelos';
+  }
+
+  @override
+  String get providerFetch => 'Buscar';
+
+  @override
+  String get providerFetchTitle => 'Buscar modelos';
+
+  @override
+  String providerFetched(String count) {
+    return '$count retornados';
+  }
+
+  @override
+  String get providerSelectAll => 'Selecionar tudo';
+
+  @override
+  String get providerSelectNone => 'Desmarcar tudo';
+
+  @override
+  String get providerSearch => 'Pesquisar modelos';
+
+  @override
+  String get providerAdded => 'Adicionado';
+
+  @override
+  String providerContext(String tokens) {
+    return 'Contexto $tokens';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return 'Adicionar $count';
+  }
+
+  @override
+  String get providerModelId => 'ID do modelo';
+
+  @override
+  String get providerModelExists => 'Modelo já adicionado';
+
+  @override
+  String get providerDisplayName => 'Nome de exibição';
+
+  @override
+  String get providerDefault => 'Padrão';
+
+  @override
+  String get providerBasic => 'Básico';
+
+  @override
+  String get providerContextTitle => 'Contexto';
+
+  @override
+  String get providerContextLength => 'Tamanho do contexto';
+
+  @override
+  String get providerMaxOutput => 'Saída máxima';
+
+  @override
+  String get providerCompaction => 'Compactação automática';
+
+  @override
+  String get providerCapabilities => 'Recursos';
+
+  @override
+  String get providerVision => 'Entrada de imagem';
+
+  @override
+  String get providerTools => 'Chamadas de ferramentas';
+
+  @override
+  String get providerReasoning => 'Raciocínio';
+
+  @override
+  String get providerEfforts => 'Esforço de raciocínio';
+
+  @override
+  String get providerEffortPlaceholder => 'Esforço ou orçamento de tokens';
+
+  @override
+  String get providerEffortInvalid =>
+      'Esforço de raciocínio inválido; verifique nomes, duplicados e suporte da API';
+
+  @override
+  String get providerEffortDefault => 'Esforço padrão';
+
+  @override
+  String get providerEffortSetDefault => 'Definir como padrão';
+
+  @override
+  String get providerSetDefault => 'Definir como modelo padrão';
+
+  @override
+  String get providerIsDefault => 'Modelo padrão';
+
+  @override
+  String get providerDeleteModel => 'Excluir modelo';
+
+  @override
+  String get providerDelete => 'Excluir serviço';
+
+  @override
+  String get providerNumberInvalid => 'Insira um número inteiro positivo';
+
+  @override
+  String get providerLimitsInvalid =>
+      'A saída máxima não pode exceder o contexto';
 
   @override
   String get settingsDriver => 'Serviço';

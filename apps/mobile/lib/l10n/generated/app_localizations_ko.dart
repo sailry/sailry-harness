@@ -1049,6 +1049,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get preview => '미리 보기';
 
   @override
+  String get mixed => '빛과 어둠';
+
+  @override
   String get dark => '다크';
 
   @override
@@ -1723,7 +1726,27 @@ class AppLocalizationsKo extends AppLocalizations {
   String get add => '추가';
 
   @override
+  String get configName => '이름';
+
+  @override
+  String get configEndpoint => '끝점';
+
+  @override
+  String get configModels => '모델';
+
+  @override
   String get configInstructions => '지침';
+
+  @override
+  String get configEmpty => '항목 없음';
+
+  @override
+  String get configDuplicate => '이름이 이미 존재합니다';
+
+  @override
+  String configDelete(String name) {
+    return '“$name”을 삭제하시겠습니까?';
+  }
 
   @override
   String get speechInput => '음성 입력';
@@ -1739,6 +1762,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get memoryContent => '기존 코드 스타일 유지';
+
+  @override
+  String get providers => '모델과 제공자';
 
   @override
   String get speech => '음성';
@@ -2048,6 +2074,180 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsLoading => '로딩 중';
+
+  @override
+  String get settingsRequired => '값 입력';
+
+  @override
+  String get settingsApi => 'API 포맷';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'API 키';
+
+  @override
+  String get settingsEnabled => '활성화';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => '플러그인';
+
+  @override
+  String get providerNew => '새 서비스';
+
+  @override
+  String get providerEmpty => '모델 서비스 없음';
+
+  @override
+  String get providerDesktopHint =>
+      '프리셋과 계정 로그인은 데스크톱에서 추가하며 여기서도 모델을 편집할 수 있습니다';
+
+  @override
+  String get providerConnection => '연결';
+
+  @override
+  String get providerKeyUnset => '설정 안 됨';
+
+  @override
+  String get providerShowKey => '키 표시';
+
+  @override
+  String get providerHideKey => '키 숨기기';
+
+  @override
+  String providerModelCount(String count) {
+    return '모델 $count개';
+  }
+
+  @override
+  String get providerFetch => '가져오기';
+
+  @override
+  String get providerFetchTitle => '모델 가져오기';
+
+  @override
+  String providerFetched(String count) {
+    return '$count개 반환됨';
+  }
+
+  @override
+  String get providerSelectAll => '모두 선택';
+
+  @override
+  String get providerSelectNone => '모두 해제';
+
+  @override
+  String get providerSearch => '모델 검색';
+
+  @override
+  String get providerAdded => '추가됨';
+
+  @override
+  String providerContext(String tokens) {
+    return '컨텍스트 $tokens';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '$count개 추가';
+  }
+
+  @override
+  String get providerModelId => '모델 ID';
+
+  @override
+  String get providerModelExists => '이미 추가된 모델';
+
+  @override
+  String get providerDisplayName => '표시 이름';
+
+  @override
+  String get providerDefault => '기본';
+
+  @override
+  String get providerBasic => '기본 정보';
+
+  @override
+  String get providerContextTitle => '컨텍스트';
+
+  @override
+  String get providerContextLength => '컨텍스트 길이';
+
+  @override
+  String get providerMaxOutput => '최대 출력';
+
+  @override
+  String get providerCompaction => '자동 압축';
+
+  @override
+  String get providerCapabilities => '기능';
+
+  @override
+  String get providerVision => '이미지 입력';
+
+  @override
+  String get providerTools => '도구 호출';
+
+  @override
+  String get providerReasoning => '추론';
+
+  @override
+  String get providerEfforts => '추론 강도';
+
+  @override
+  String get providerEffortPlaceholder => '강도 또는 토큰 예산';
+
+  @override
+  String get providerEffortInvalid => '추론 강도가 잘못되었습니다. 이름, 중복 및 API 지원을 확인하세요';
+
+  @override
+  String get providerEffortDefault => '기본 강도';
+
+  @override
+  String get providerEffortSetDefault => '기본값으로 설정';
+
+  @override
+  String get providerSetDefault => '기본 모델로 설정';
+
+  @override
+  String get providerIsDefault => '기본 모델';
+
+  @override
+  String get providerDeleteModel => '모델 삭제';
+
+  @override
+  String get providerDelete => '서비스 삭제';
+
+  @override
+  String get providerNumberInvalid => '양의 정수를 입력하세요';
+
+  @override
+  String get providerLimitsInvalid => '최대 출력은 컨텍스트 길이를 넘을 수 없습니다';
 
   @override
   String get settingsDriver => '서비스';

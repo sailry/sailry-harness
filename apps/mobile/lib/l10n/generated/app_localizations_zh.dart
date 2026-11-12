@@ -1045,6 +1045,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get preview => '预览';
 
   @override
+  String get mixed => '深浅对照';
+
+  @override
   String get dark => '深色';
 
   @override
@@ -1719,7 +1722,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get add => '添加';
 
   @override
+  String get configName => '名称';
+
+  @override
+  String get configEndpoint => '接口地址';
+
+  @override
+  String get configModels => '模型';
+
+  @override
   String get configInstructions => '指令';
+
+  @override
+  String get configEmpty => '暂无条目';
+
+  @override
+  String get configDuplicate => '名称已存在';
+
+  @override
+  String configDelete(String name) {
+    return '删除“$name”？';
+  }
 
   @override
   String get speechInput => '语音输入';
@@ -1735,6 +1758,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get memoryContent => '保持现有代码风格';
+
+  @override
+  String get providers => '模型与渠道';
 
   @override
   String get speech => '语音';
@@ -2039,6 +2065,179 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsLoading => '正在读取';
+
+  @override
+  String get settingsRequired => '请填写内容';
+
+  @override
+  String get settingsApi => 'API 格式';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'API 密钥';
+
+  @override
+  String get settingsEnabled => '启用';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => '插件';
+
+  @override
+  String get providerNew => '新建服务';
+
+  @override
+  String get providerEmpty => '暂无模型服务';
+
+  @override
+  String get providerDesktopHint => '预设服务和账号登录在桌面端添加，这里也会列出并可编辑模型';
+
+  @override
+  String get providerConnection => '连接';
+
+  @override
+  String get providerKeyUnset => '未设置';
+
+  @override
+  String get providerShowKey => '显示密钥';
+
+  @override
+  String get providerHideKey => '隐藏密钥';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count 个模型';
+  }
+
+  @override
+  String get providerFetch => '获取';
+
+  @override
+  String get providerFetchTitle => '获取模型';
+
+  @override
+  String providerFetched(String count) {
+    return '接口返回 $count 个';
+  }
+
+  @override
+  String get providerSelectAll => '全选';
+
+  @override
+  String get providerSelectNone => '取消全选';
+
+  @override
+  String get providerSearch => '搜索模型';
+
+  @override
+  String get providerAdded => '已添加';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens 上下文';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '添加 $count 个';
+  }
+
+  @override
+  String get providerModelId => '模型 ID';
+
+  @override
+  String get providerModelExists => '模型已存在';
+
+  @override
+  String get providerDisplayName => '显示名称';
+
+  @override
+  String get providerDefault => '默认';
+
+  @override
+  String get providerBasic => '基本';
+
+  @override
+  String get providerContextTitle => '上下文';
+
+  @override
+  String get providerContextLength => '上下文长度';
+
+  @override
+  String get providerMaxOutput => '最大输出';
+
+  @override
+  String get providerCompaction => '自动压缩';
+
+  @override
+  String get providerCapabilities => '能力';
+
+  @override
+  String get providerVision => '图片输入';
+
+  @override
+  String get providerTools => '工具调用';
+
+  @override
+  String get providerReasoning => '思考';
+
+  @override
+  String get providerEfforts => '思考强度';
+
+  @override
+  String get providerEffortPlaceholder => '强度或 Token 预算';
+
+  @override
+  String get providerEffortInvalid => '思考强度无效，请检查名称、重复项和接口支持';
+
+  @override
+  String get providerEffortDefault => '默认强度';
+
+  @override
+  String get providerEffortSetDefault => '设为默认';
+
+  @override
+  String get providerSetDefault => '设为默认模型';
+
+  @override
+  String get providerIsDefault => '默认模型';
+
+  @override
+  String get providerDeleteModel => '删除模型';
+
+  @override
+  String get providerDelete => '删除服务';
+
+  @override
+  String get providerNumberInvalid => '请输入正整数';
+
+  @override
+  String get providerLimitsInvalid => '最大输出不能超过上下文长度';
 
   @override
   String get settingsDriver => '服务';
@@ -3473,6 +3672,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get preview => '預覽';
 
   @override
+  String get mixed => '深淺對照';
+
+  @override
   String get dark => '深色';
 
   @override
@@ -4147,7 +4349,27 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get add => '新增';
 
   @override
+  String get configName => '名稱';
+
+  @override
+  String get configEndpoint => '介面地址';
+
+  @override
+  String get configModels => '模型';
+
+  @override
   String get configInstructions => '指令';
+
+  @override
+  String get configEmpty => '暫無條目';
+
+  @override
+  String get configDuplicate => '名稱已存在';
+
+  @override
+  String configDelete(String name) {
+    return '刪除“$name”？';
+  }
 
   @override
   String get speechInput => '語音輸入';
@@ -4163,6 +4385,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get memoryContent => '保持現有程式碼風格';
+
+  @override
+  String get providers => '模型與渠道';
 
   @override
   String get speech => '語音';
@@ -4467,6 +4692,179 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsLoading => '正在讀取';
+
+  @override
+  String get settingsRequired => '請填寫內容';
+
+  @override
+  String get settingsApi => 'API 格式';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'API 金鑰';
+
+  @override
+  String get settingsEnabled => '啟用';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => '外掛';
+
+  @override
+  String get providerNew => '新增服務';
+
+  @override
+  String get providerEmpty => '尚無模型服務';
+
+  @override
+  String get providerDesktopHint => '預設服務和帳號登入在桌面端新增，這裡也會列出並可編輯模型';
+
+  @override
+  String get providerConnection => '連線';
+
+  @override
+  String get providerKeyUnset => '未設定';
+
+  @override
+  String get providerShowKey => '顯示金鑰';
+
+  @override
+  String get providerHideKey => '隱藏金鑰';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count 個模型';
+  }
+
+  @override
+  String get providerFetch => '取得';
+
+  @override
+  String get providerFetchTitle => '取得模型';
+
+  @override
+  String providerFetched(String count) {
+    return '介面回傳 $count 個';
+  }
+
+  @override
+  String get providerSelectAll => '全選';
+
+  @override
+  String get providerSelectNone => '取消全選';
+
+  @override
+  String get providerSearch => '搜尋模型';
+
+  @override
+  String get providerAdded => '已新增';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens 上下文';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '新增 $count 個';
+  }
+
+  @override
+  String get providerModelId => '模型 ID';
+
+  @override
+  String get providerModelExists => '模型已存在';
+
+  @override
+  String get providerDisplayName => '顯示名稱';
+
+  @override
+  String get providerDefault => '預設';
+
+  @override
+  String get providerBasic => '基本';
+
+  @override
+  String get providerContextTitle => '上下文';
+
+  @override
+  String get providerContextLength => '上下文長度';
+
+  @override
+  String get providerMaxOutput => '最大輸出';
+
+  @override
+  String get providerCompaction => '自動壓縮';
+
+  @override
+  String get providerCapabilities => '能力';
+
+  @override
+  String get providerVision => '圖片輸入';
+
+  @override
+  String get providerTools => '工具呼叫';
+
+  @override
+  String get providerReasoning => '思考';
+
+  @override
+  String get providerEfforts => '思考強度';
+
+  @override
+  String get providerEffortPlaceholder => '強度或 Token 預算';
+
+  @override
+  String get providerEffortInvalid => '思考強度無效，請檢查名稱、重複項和介面支援';
+
+  @override
+  String get providerEffortDefault => '預設強度';
+
+  @override
+  String get providerEffortSetDefault => '設為預設';
+
+  @override
+  String get providerSetDefault => '設為預設模型';
+
+  @override
+  String get providerIsDefault => '預設模型';
+
+  @override
+  String get providerDeleteModel => '刪除模型';
+
+  @override
+  String get providerDelete => '刪除服務';
+
+  @override
+  String get providerNumberInvalid => '請輸入正整數';
+
+  @override
+  String get providerLimitsInvalid => '最大輸出不能超過上下文長度';
 
   @override
   String get settingsDriver => '服務';

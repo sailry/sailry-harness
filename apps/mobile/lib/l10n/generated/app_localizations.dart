@@ -2142,6 +2142,12 @@ abstract class AppLocalizations {
   /// **'Preview'**
   String get preview;
 
+  /// No description provided for @mixed.
+  ///
+  /// In en, this message translates to:
+  /// **'Light and dark'**
+  String get mixed;
+
   /// No description provided for @dark.
   ///
   /// In en, this message translates to:
@@ -3450,11 +3456,47 @@ abstract class AppLocalizations {
   /// **'Add'**
   String get add;
 
+  /// No description provided for @configName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get configName;
+
+  /// No description provided for @configEndpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'Endpoint'**
+  String get configEndpoint;
+
+  /// No description provided for @configModels.
+  ///
+  /// In en, this message translates to:
+  /// **'Models'**
+  String get configModels;
+
   /// No description provided for @configInstructions.
   ///
   /// In en, this message translates to:
   /// **'Instructions'**
   String get configInstructions;
+
+  /// No description provided for @configEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No entries'**
+  String get configEmpty;
+
+  /// No description provided for @configDuplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Name already exists'**
+  String get configDuplicate;
+
+  /// No description provided for @configDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete “{name}”?'**
+  String configDelete(String name);
 
   /// No description provided for @speechInput.
   ///
@@ -3485,6 +3527,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Preserve the existing code style'**
   String get memoryContent;
+
+  /// No description provided for @providers.
+  ///
+  /// In en, this message translates to:
+  /// **'Models and providers'**
+  String get providers;
 
   /// No description provided for @speech.
   ///
@@ -4085,6 +4133,336 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Loading'**
   String get settingsLoading;
+
+  /// No description provided for @settingsRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a value'**
+  String get settingsRequired;
+
+  /// No description provided for @settingsApi.
+  ///
+  /// In en, this message translates to:
+  /// **'API format'**
+  String get settingsApi;
+
+  /// No description provided for @settingsOpenCodeGo.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode Go'**
+  String get settingsOpenCodeGo;
+
+  /// No description provided for @settingsOpenCodeZen.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode Zen'**
+  String get settingsOpenCodeZen;
+
+  /// No description provided for @settingsApiKey.
+  ///
+  /// In en, this message translates to:
+  /// **'API Key'**
+  String get settingsApiKey;
+
+  /// No description provided for @settingsEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Enabled'**
+  String get settingsEnabled;
+
+  /// No description provided for @apiChatCompletions.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat Completions'**
+  String get apiChatCompletions;
+
+  /// No description provided for @apiResponses.
+  ///
+  /// In en, this message translates to:
+  /// **'Responses'**
+  String get apiResponses;
+
+  /// No description provided for @apiAnthropic.
+  ///
+  /// In en, this message translates to:
+  /// **'Anthropic'**
+  String get apiAnthropic;
+
+  /// No description provided for @apiGemini.
+  ///
+  /// In en, this message translates to:
+  /// **'Gemini'**
+  String get apiGemini;
+
+  /// No description provided for @apiDeepSeek.
+  ///
+  /// In en, this message translates to:
+  /// **'DeepSeek'**
+  String get apiDeepSeek;
+
+  /// No description provided for @apiAzureOpenAi.
+  ///
+  /// In en, this message translates to:
+  /// **'Azure OpenAI'**
+  String get apiAzureOpenAi;
+
+  /// No description provided for @apiAzureAi.
+  ///
+  /// In en, this message translates to:
+  /// **'Azure AI'**
+  String get apiAzureAi;
+
+  /// No description provided for @apiPlugin.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin'**
+  String get apiPlugin;
+
+  /// No description provided for @providerNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New provider'**
+  String get providerNew;
+
+  /// No description provided for @providerEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No providers'**
+  String get providerEmpty;
+
+  /// No description provided for @providerDesktopHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add presets and account logins on Desktop; their models are editable here'**
+  String get providerDesktopHint;
+
+  /// No description provided for @providerConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection'**
+  String get providerConnection;
+
+  /// No description provided for @providerKeyUnset.
+  ///
+  /// In en, this message translates to:
+  /// **'Not set'**
+  String get providerKeyUnset;
+
+  /// No description provided for @providerShowKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Show key'**
+  String get providerShowKey;
+
+  /// No description provided for @providerHideKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide key'**
+  String get providerHideKey;
+
+  /// No description provided for @providerModelCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} models'**
+  String providerModelCount(String count);
+
+  /// No description provided for @providerFetch.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetch'**
+  String get providerFetch;
+
+  /// No description provided for @providerFetchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetch models'**
+  String get providerFetchTitle;
+
+  /// No description provided for @providerFetched.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} returned'**
+  String providerFetched(String count);
+
+  /// No description provided for @providerSelectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get providerSelectAll;
+
+  /// No description provided for @providerSelectNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Deselect all'**
+  String get providerSelectNone;
+
+  /// No description provided for @providerSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search models'**
+  String get providerSearch;
+
+  /// No description provided for @providerAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'Added'**
+  String get providerAdded;
+
+  /// No description provided for @providerContext.
+  ///
+  /// In en, this message translates to:
+  /// **'{tokens} context'**
+  String providerContext(String tokens);
+
+  /// No description provided for @providerAddCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Add {count}'**
+  String providerAddCount(String count);
+
+  /// No description provided for @providerModelId.
+  ///
+  /// In en, this message translates to:
+  /// **'Model ID'**
+  String get providerModelId;
+
+  /// No description provided for @providerModelExists.
+  ///
+  /// In en, this message translates to:
+  /// **'Model already added'**
+  String get providerModelExists;
+
+  /// No description provided for @providerDisplayName.
+  ///
+  /// In en, this message translates to:
+  /// **'Display name'**
+  String get providerDisplayName;
+
+  /// No description provided for @providerDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get providerDefault;
+
+  /// No description provided for @providerBasic.
+  ///
+  /// In en, this message translates to:
+  /// **'Basic'**
+  String get providerBasic;
+
+  /// No description provided for @providerContextTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Context'**
+  String get providerContextTitle;
+
+  /// No description provided for @providerContextLength.
+  ///
+  /// In en, this message translates to:
+  /// **'Context length'**
+  String get providerContextLength;
+
+  /// No description provided for @providerMaxOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Max output'**
+  String get providerMaxOutput;
+
+  /// No description provided for @providerCompaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-compaction'**
+  String get providerCompaction;
+
+  /// No description provided for @providerCapabilities.
+  ///
+  /// In en, this message translates to:
+  /// **'Capabilities'**
+  String get providerCapabilities;
+
+  /// No description provided for @providerVision.
+  ///
+  /// In en, this message translates to:
+  /// **'Image input'**
+  String get providerVision;
+
+  /// No description provided for @providerTools.
+  ///
+  /// In en, this message translates to:
+  /// **'Tool calls'**
+  String get providerTools;
+
+  /// No description provided for @providerReasoning.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning'**
+  String get providerReasoning;
+
+  /// No description provided for @providerEfforts.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning effort'**
+  String get providerEfforts;
+
+  /// No description provided for @providerEffortPlaceholder.
+  ///
+  /// In en, this message translates to:
+  /// **'Effort or token budget'**
+  String get providerEffortPlaceholder;
+
+  /// No description provided for @providerEffortInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid reasoning effort; check names, duplicates and API support'**
+  String get providerEffortInvalid;
+
+  /// No description provided for @providerEffortDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default effort'**
+  String get providerEffortDefault;
+
+  /// No description provided for @providerEffortSetDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Set as default'**
+  String get providerEffortSetDefault;
+
+  /// No description provided for @providerSetDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Set as default model'**
+  String get providerSetDefault;
+
+  /// No description provided for @providerIsDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default model'**
+  String get providerIsDefault;
+
+  /// No description provided for @providerDeleteModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete model'**
+  String get providerDeleteModel;
+
+  /// No description provided for @providerDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete provider'**
+  String get providerDelete;
+
+  /// No description provided for @providerNumberInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a positive whole number'**
+  String get providerNumberInvalid;
+
+  /// No description provided for @providerLimitsInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Max output can\'t exceed context length'**
+  String get providerLimitsInvalid;
 
   /// No description provided for @settingsDriver.
   ///
