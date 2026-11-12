@@ -3,6 +3,9 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -151,6 +154,130 @@ func TestMobileClosedConnectionLeavesNoClient(t *testing.T) {
 	}
 	if _, kept := owner.clients[node]; kept {
 		t.Fatal("a closed Client stayed reachable for notification commands")
+	}
+}
+
+// topicStream yields its updates and then waits for its reader to stop.
+type topicStream struct {
+	updates chan protocol.Update
+}
+
+func (stream topicStream) Next(ctx context.Context) (protocol.Update, error) {
+	select {
+	case update := <-stream.updates:
+		return update, nil
+	case <-ctx.Done():
+		return protocol.Update{}, ctx.Err()
+	}
+}
+func (topicStream) Close() error { return nil }
+
+// topicTransport serves each topic kind the updates a test gives it.
+type topicTransport struct {
+	noticeTransport
+	topics map[string][]protocol.Update
+}
+
+func (transport topicTransport) Subscribe(_ context.Context, topic protocol.Topic) (link.Subscription, error) {
+	updates, served := transport.topics[topic.Kind]
+	if !served {
+		return nil, unavailable("test subscription is unavailable")
+	}
+	stream := topicStream{updates: make(chan protocol.Update, len(updates))}
+	for _, update := range updates {
+		stream.updates <- update
+	}
+	return stream, nil
+}
+
+// The four topic observers reach Dart as a handle of the kind its API names
+// and a JSON string per next, with exactly the members its readers take.
+func TestMobileTopicObservers(t *testing.T) {
+	t.Parallel()
+	node := protocol.NodeID{1}
+	terminal := protocol.DefaultTerminalInfo()
+	terminal.ID, terminal.Revision, terminal.Status = protocol.NewTerminalID(), 3, protocol.TerminalStatus{Kind: "running"}
+	screen := protocol.DefaultTerminalScreen()
+	screen.Columns, screen.Rows = 80, make([]protocol.TerminalScreenLine, 24)
+	provider := protocol.ConversationLoginAttempt{ID: protocol.NewRequestID(), Provider: protocol.NewProviderID()}
+	connector := protocol.PluginConnectorAttempt{ID: protocol.NewRequestID(), Connection: protocol.NewRequestID(), Package: protocol.PluginReference{Name: "mail", Digest: strings.Repeat("a", 64)}, Revision: 1}
+	changes := protocol.DefaultPluginConnectorChanges()
+	changes.Cursor = 7
+	transport := topicTransport{noticeTransport: noticeTransport{node: node}, topics: map[string][]protocol.Update{
+		"terminal":        {{Kind: "terminal_snapshot", Data: protocol.TerminalSnapshot{Node: node, Info: terminal, Screen: screen}}},
+		"provider_login":  {{Kind: "provider_login", Data: protocol.ConversationLoginUpdate{Attempt: provider, Revision: 1, State: protocol.ConversationLoginState{Kind: "starting"}}}},
+		"connector_login": {{Kind: "connector_login", Data: protocol.PluginConnectorLoginUpdate{Attempt: connector, Revision: 1, State: protocol.PluginConnectorLoginState{Kind: "starting"}}}},
+		"connections":     {{Kind: "connections_changed", Data: changes}},
+	}}
+	encoded := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, test := range []struct {
+		method    string
+		arguments map[string]string
+		kind      string
+		members   []string
+		content   string // a member holding an object, and what that object has
+		inside    []string
+	}{
+		{"watch_terminal", map[string]string{"terminal": terminal.ID.String()}, "terminal_updates",
+			[]string{"connected", "error", "recovering", "snapshot"}, "snapshot", []string{"info", "node", "screen", "sequence"}},
+		{"watch_login", map[string]string{"attempt": encoded(provider)}, "login_updates",
+			[]string{"connected", "error", "update"}, "update", []string{"attempt", "revision", "state"}},
+		{"watch_connector_login", map[string]string{"attempt": encoded(connector)}, "login_updates",
+			[]string{"connected", "error", "update"}, "update", []string{"attempt", "revision", "state"}},
+		{"watch_connections", nil, "connections_updates", []string{"connections", "cursor", "types"}, "", nil},
+	} {
+		t.Run(test.method, func(t *testing.T) {
+			t.Parallel()
+			shared := client.New(transport)
+			runtime := New(nil)
+			t.Cleanup(func() { runtime.Close(1); _ = shared.Close() })
+			owner := &connection{client: shared, controller: &controller{}}
+			opened, err := owner.invoke(t.Context(), runtime, 0, test.method, json.RawMessage(encoded(test.arguments)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			handle := opened.(Handle)
+			if handle.Kind != test.kind || handle.Handle != "1" {
+				t.Fatalf("handle = %#v", handle)
+			}
+			runtime.mu.Lock()
+			updates := runtime.handles[1].object
+			runtime.mu.Unlock()
+			value, err := updates.invoke(t.Context(), runtime, 1, "next", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			members := func(data string) (map[string]json.RawMessage, []string) {
+				t.Helper()
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(data), &object); err != nil {
+					t.Fatalf("%s: %v", data, err)
+				}
+				return object, slices.Sorted(maps.Keys(object))
+			}
+			view, names := members(value.(string))
+			if !slices.Equal(names, test.members) {
+				t.Fatalf("view %s has members %v, want %v", value, names, test.members)
+			}
+			if test.content == "" {
+				if string(view["cursor"]) != "7" || string(view["types"]) != "[]" || string(view["connections"]) != "[]" {
+					t.Fatalf("connections = %s", value)
+				}
+				return
+			}
+			if string(view["connected"]) != "true" || string(view["error"]) != "null" {
+				t.Fatalf("view = %s", value)
+			}
+			if _, names := members(string(view[test.content])); !slices.Equal(names, test.inside) {
+				t.Fatalf("%s has members %v, want %v", test.content, names, test.inside)
+			}
+		})
 	}
 }
 
