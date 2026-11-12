@@ -21,7 +21,9 @@ type anthropicBlock struct {
 
 func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fantasy.Call, emitter *sdkEmitter) {
 	endpoint := strings.TrimSuffix(strings.TrimSuffix(model.config.Endpoint, "/messages"), "/v1")
-	opts := []option.RequestOption{option.WithHTTPClient(model.client), option.WithBaseURL(endpoint), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
+	// WithoutEnvironmentDefaults keeps the SDK from adding ANTHROPIC_* variables
+	// or a local profile of the machine to a request for the configured provider.
+	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithHTTPClient(model.client), option.WithBaseURL(endpoint), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
 	for key, value := range model.config.Headers {
 		opts = append(opts, option.WithHeader(key, value))
 	}
