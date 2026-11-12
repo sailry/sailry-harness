@@ -1631,7 +1631,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Adicionar
+reference_group_context: Contexto
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1872,7 +1872,7 @@ authorization_connected: Conectado
 connector_bound: Vinculado
 connector_checked: Conexão normal
 connector_mcp_reconnected: Conectado, %{n} ferramentas
-connector_consent_effect: Revise os destinos alterados antes de continuar
+connector_consent_effect: Permitir as permissões de conexão alteradas
 connector_changed_origins: Origens
 connector_changed_scopes: Permissões
 connector_changed_client: Cliente

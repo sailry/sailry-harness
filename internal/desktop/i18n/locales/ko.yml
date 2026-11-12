@@ -1631,7 +1631,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 추가
+reference_group_context: 컨텍스트
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1872,7 +1872,7 @@ authorization_connected: 연결됨
 connector_bound: 연동됨
 connector_checked: 연결 정상
 connector_mcp_reconnected: 연결됨, 도구 %{n}개
-connector_consent_effect: 계속하기 전에 변경된 인증 대상을 확인하세요
+connector_consent_effect: 변경된 연결 권한 허용
 connector_changed_origins: 출처
 connector_changed_scopes: 권한 범위
 connector_changed_client: 클라이언트

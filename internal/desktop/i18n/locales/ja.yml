@@ -1631,7 +1631,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 追加
+reference_group_context: コンテキスト
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1872,7 +1872,7 @@ authorization_connected: 接続しました
 connector_bound: 関連付けました
 connector_checked: 接続は正常です
 connector_mcp_reconnected: 接続済み、%{n} 個のツール
-connector_consent_effect: 続行する前に認可先の変更を確認してください
+connector_consent_effect: 変更された接続の権限を許可
 connector_changed_origins: オリジン
 connector_changed_scopes: 権限範囲
 connector_changed_client: クライアント

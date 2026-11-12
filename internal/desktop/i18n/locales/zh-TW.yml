@@ -1631,7 +1631,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 新增
+reference_group_context: 上下文
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1872,7 +1872,7 @@ authorization_connected: 已連線
 connector_bound: 已綁定
 connector_checked: 連線正常
 connector_mcp_reconnected: 已連線，%{n} 個工具
-connector_consent_effect: 繼續前請確認授權目標的變更
+connector_consent_effect: 允許變更後的連線權限
 connector_changed_origins: 來源
 connector_changed_scopes: 權限範圍
 connector_changed_client: 用戶端

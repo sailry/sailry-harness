@@ -1631,7 +1631,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Добавить
+reference_group_context: Контекст
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1872,7 +1872,7 @@ authorization_connected: Подключено
 connector_bound: Привязано
 connector_checked: Подключение работает
 connector_mcp_reconnected: 'Подключено, инструментов: %{n}'
-connector_consent_effect: Проверьте изменённые адреса авторизации перед продолжением
+connector_consent_effect: Разрешить изменённые права подключения
 connector_changed_origins: Источники
 connector_changed_scopes: Разрешения
 connector_changed_client: Клиент
