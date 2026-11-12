@@ -5,6 +5,7 @@ package program
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -132,7 +133,10 @@ func Start(spec Spec) (*Process, error) {
 		}
 	}
 	root.Close()
-	command := exec.Command(executable, spec.Args...)
+	// StartGroup sets the command's Cancel, which os/exec accepts only on a
+	// command made with a context. The program outlives the call that starts
+	// it and ends by Kill, so the context is never done.
+	command := exec.CommandContext(context.Background(), executable, spec.Args...)
 	command.Dir = spec.Dir
 	for name, value := range environment {
 		command.Env = append(command.Env, name+"="+value)
