@@ -88,7 +88,8 @@ func TestDemoMode(t *testing.T) {
 	defer owner.Stop(context.Background())
 	var mu sync.Mutex
 	var kinds []string
-	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds})
+	var flying atomic.Int64
+	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds, flying: &flying})
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +103,8 @@ func TestDemoMode(t *testing.T) {
 	var asked atomic.Bool
 	r.SetUpdate(func(func()) { asked.Store(true) })
 	// Tall enough for the whole settings navigation.
-	tester := ui.NewTester(r.App.View, 1280, 1600)
+	tester := ui.NewTesterWith(r.App.View, 1280, 1600, liveTesterOptions("SAILRY_SNAPSHOTS"))
+	window := liveWindow{tester: tester, asked: &asked, flying: &flying}
 	tester.SetLocale("en")
 	text := func(key string, args ...any) string { return i18n.In("en", key, args...) }
 	sent := func() []string {
@@ -111,16 +113,17 @@ func TestDemoMode(t *testing.T) {
 		return slices.Clone(kinds)
 	}
 	settle := func() {
-		for range 4 {
+		// The demo's running conversations move in every frame, so a frame
+		// here is the Tester's twenty: after the first, another is drawn only
+		// for what the workers' answers asked for.
+		for round := range 4 {
 			r.workers.Wait()
+			if round > 0 && !asked.Swap(false) {
+				break
+			}
 			tester.Frame()
 		}
-		for end := time.Now().Add(200 * time.Millisecond); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
-			tester.Advance(16 * time.Millisecond)
-			if asked.Swap(false) || tester.FramePending() {
-				tester.Frame()
-			}
-		}
+		window.rest(200 * time.Millisecond)
 		r.workers.Wait()
 		tester.Frame()
 	}
@@ -247,6 +250,14 @@ func TestDemoMode(t *testing.T) {
 			r.workers.Wait()
 			tester.Frame()
 		}
+		// after follows a press or a key, which drew its own frames: another
+		// is drawn only for what the Runtime has asked for since.
+		after := func() {
+			r.workers.Wait()
+			if asked.Swap(false) {
+				tester.Frame()
+			}
+		}
 		// The theme's animated effects change no text.
 		effects := r.App.Effects
 		r.App.Effects = false
@@ -266,7 +277,7 @@ func TestDemoMode(t *testing.T) {
 		// and checks what did.
 		await := func(id, where, expect string) {
 			t.Helper()
-			step()
+			after()
 			for range 8 {
 				if expect == "" || shows(expect) {
 					break
@@ -299,7 +310,7 @@ func TestDemoMode(t *testing.T) {
 					}
 				}
 				tester.Key(0, ui.KeyEscape)
-				step()
+				after()
 				return true
 			}
 			return false
@@ -989,7 +1000,6 @@ func TestDemoMode(t *testing.T) {
 				break
 			}
 			tester.Advance(preview.Tick)
-			tester.Frame()
 		}
 		reply := idle.Turns[turns].Reply
 		if reply.Status != conversation.Completed || len(reply.Blocks) == 0 {
@@ -1159,7 +1169,6 @@ func TestDemoMode(t *testing.T) {
 					break
 				}
 				tester.Advance(preview.Tick)
-				tester.Frame()
 			}
 			if got := idle.Turns[turns].Reply.Status; got != conversation.Completed {
 				t.Fatalf("the retried reply ended with status %d", got)

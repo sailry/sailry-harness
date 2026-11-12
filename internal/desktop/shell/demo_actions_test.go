@@ -55,8 +55,14 @@ func TestDemoActions(t *testing.T) {
 		}
 		return a, tt, act
 	}
-	play := func(tt *ui.Tester) {
+	// play lets the demo's clock run until done holds, the state the caller
+	// then asserts, for forty seconds at most; without done, for all forty,
+	// where what is asserted is a state that must last.
+	play := func(tt *ui.Tester, done func() bool) {
 		for range 40 {
+			if done != nil && done() {
+				return
+			}
 			tt.Advance(time.Second)
 			tt.Frame()
 		}
@@ -76,7 +82,7 @@ func TestDemoActions(t *testing.T) {
 			t.Fatalf("Stop left the reply %d", cv.Turns[last].Reply.Status)
 		}
 		act(func(x *actions) { x.Retry(cv.Turns[last].ID) })
-		play(tt)
+		play(tt, func() bool { return cv.Turns[last].Reply.Status == conversation.Completed && !cv.Running() })
 		if r := cv.Turns[last].Reply; r.Status != conversation.Completed || cv.Running() {
 			t.Fatalf("the retried reply ended %d", r.Status)
 		}
@@ -95,7 +101,7 @@ func TestDemoActions(t *testing.T) {
 		if len(cv.Turns) != n+1 || !cv.Running() || cv.Turns[n].Reply.Status == conversation.Completed {
 			t.Fatalf("Enter: %d turns, running %v, status %d", len(cv.Turns), cv.Running(), cv.Turns[n].Reply.Status)
 		}
-		play(tt)
+		play(tt, func() bool { return cv.Turns[n].Reply.Status == conversation.Completed })
 		if cv.Turns[n].Reply.Status != conversation.Completed {
 			t.Fatalf("the reply ended %d", cv.Turns[n].Reply.Status)
 		}
@@ -110,7 +116,7 @@ func TestDemoActions(t *testing.T) {
 		if len(cv.Turns) != 1 || cv.Turns[0].User != "Fix the other test" || !cv.Running() {
 			t.Fatalf("the edit did not resend: %d turns, %q, running %v", len(cv.Turns), cv.Turns[0].User, cv.Running())
 		}
-		play(tt)
+		play(tt, func() bool { return cv.Turns[0].Reply.Status == conversation.Completed })
 		if cv.Turns[0].Reply.Status != conversation.Completed {
 			t.Fatalf("the resent reply ended %d", cv.Turns[0].Reply.Status)
 		}
@@ -169,7 +175,10 @@ func TestDemoActions(t *testing.T) {
 		if len(cv.Turns) != n+1 || cv.Turns[n].Compaction == nil || cv.Turns[n].Compaction.State != conversation.CompactionRunning {
 			t.Fatalf("Compact added no running compaction")
 		}
-		play(tt)
+		play(tt, func() bool {
+			k := cv.Turns[n].Compaction
+			return k.State == conversation.Compacted && k.Summary != "" && !cv.Running()
+		})
 		if k := cv.Turns[n].Compaction; k.State != conversation.Compacted || k.Summary == "" || cv.Running() {
 			t.Fatalf("the compaction ended as %+v", k)
 		}
@@ -262,13 +271,16 @@ func TestDemoActions(t *testing.T) {
 		a, tt, act := open(t, flaky)
 		comp := a.Composer(flaky)
 		act(func(x *actions) { x.Dictate(&comp.Dictation, composer.StartDictation) })
-		play(tt)
+		// Recording lasts until it is finished: the whole of the time.
+		play(tt, nil)
 		if comp.Dictation.Phase != composer.Recording {
 			t.Fatalf("the dictation is in phase %d", comp.Dictation.Phase)
 		}
 		act(func(x *actions) { x.Dictate(&comp.Dictation, composer.FinishDictation) })
-		play(tt)
 		heard := preview.DemoCatalog("en")["dictation.text"]
+		play(tt, func() bool {
+			return comp.Dictation.Phase == composer.Idle && heard != "" && strings.HasSuffix(comp.Draft, heard)
+		})
 		if comp.Dictation.Phase != composer.Idle || heard == "" || !strings.HasSuffix(comp.Draft, heard) {
 			t.Fatalf("the dictation ended in phase %d with the draft %q", comp.Dictation.Phase, comp.Draft)
 		}
