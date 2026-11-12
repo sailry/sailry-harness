@@ -16,9 +16,12 @@ import (
 // Actions are what the page asks of the window: open a project or a
 // session, and add a project (the project editor). Revoke removes the
 // host's pairing, nil for a host that has none to remove (this computer, the
-// preview's).
+// preview's). StopProcess asks the host's Node to end a process, by force
+// when force is set, after the page's confirmation; nil where no Node is
+// asked (the preview), which leaves the menu's two items disabled.
 type Actions struct {
 	Revoke      func()
+	StopProcess func(process Process, force bool)
 	OpenProject func(id string)
 	OpenSession func(id string)
 	AddProject  func()
@@ -35,12 +38,18 @@ type State struct {
 	updating bool       // the update dialog
 	revoking bool       // the Remove pairing confirmation
 	ports    portPicker // the port picker and the new forward dialog
-	// disk is the volume the disk card follows, "" for the root; query, sort
-	// and processes are the processes' search, order and table.
-	disk      string
+	// disk is the volume the disk card follows, "" for the root; gpu the
+	// accelerator the GPU card follows, "" for the first; query, sort and
+	// processes are the processes' search, order and table.
+	disk, gpu string
 	query     string
 	sort      ui.SortOrder
 	processes ui.ListState
+	// stop is the request to end a process that waits for its confirmation;
+	// detail is the process whose details show while detailed.
+	stop     processStop
+	detail   Process
+	detailed bool
 	// The failures toasted already, so a redraw does not repeat them.
 	failed, metricsFailed, runtimeFailed string
 }
@@ -60,7 +69,7 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	ui.Scroll(c.Key("host-" + h.ID)).Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c.Key("content")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(24).Gap(sectionGap).Children(func() {
 			header(c, s, h, act)
-			monitor(c, s, h)
+			monitor(c, s, h, act)
 			activity(c, h, act)
 			projects(c, h, act)
 			runtime(c, h)
@@ -70,6 +79,7 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	updateDialog(c, s, h, act)
 	portDialogs(c, s, h, act)
 	revokeDialog(c, s, h, act)
+	processDialogs(c, s, h, act)
 	if act.Dialogs != nil {
 		act.Dialogs(c)
 	}

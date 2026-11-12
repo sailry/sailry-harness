@@ -1543,6 +1543,20 @@ host_process_name: 程序
 host_pid: PID
 host_process_empty: 暫無程序
 host_process_no_matches: 無匹配程序
+host_process_details: 檢視詳情
+host_process_copy_pid: 複製 PID
+host_process_copy_name: 複製名稱
+host_process_stop: 結束程序
+host_process_force_stop: 強制結束
+host_process_stop_confirm: 向此程序傳送結束請求，可能中斷正在進行的任務
+host_process_force_confirm: 立即結束此程序，未儲存的資料可能丟失
+host_process_stop_sent: 已傳送結束請求
+host_process_gone: 此程序已退出
+host_process_changed: 程序已變化，請重新整理後重試
+host_process_protected: 無法結束系統程序或當前主機服務
+host_process_uncertain: 結束結果未知，請檢查程序狀態
+host_process_stop_failed: 無法結束程序，可能已退出、許可權不足或主機不支援此操作
+metrics_gpu: GPU
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發

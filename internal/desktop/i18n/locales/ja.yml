@@ -1543,6 +1543,20 @@ host_process_name: プロセス
 host_pid: PID
 host_process_empty: プロセスなし
 host_process_no_matches: マッチングプロセスなし
+host_process_details: 詳細を表示
+host_process_copy_pid: PID をコピー
+host_process_copy_name: 名前をコピー
+host_process_stop: エンドプロセス
+host_process_force_stop: 強制終了
+host_process_stop_confirm: 停止要求を送信します。これは実行中のタスクを中断するかもしれません
+host_process_force_confirm: このプロセスを今すぐ終了します。未保存のデータが失われる可能性があります
+host_process_stop_sent: 停止要求が送られました
+host_process_gone: プロセスが終了しました
+host_process_changed: プロセスが変更されました。更新してやり直してください
+host_process_protected: システムプロセスや現在のホストサービスを停止できません
+host_process_uncertain: 停止結果不明;プロセスの状態をチェック
+host_process_stop_failed: プロセスを停止できませんでした。終了したか、アクセスが拒否されたか、ホストがサポートしていないかもしれません
+metrics_gpu: GPU
 port_title: ポートフォワード
 port_mappings: ポートマッピング
 port_add: ニュー・フォワード

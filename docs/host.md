@@ -13,11 +13,12 @@ port forwards (the reference implementation `live/host.rs`,
 
 | File | Holds |
 |---|---|
-| `model.go` | **The view model**: `Host`, `Project`, `Activity`, `Runtime` (`Facts`, `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics`, `Disk`, `Process` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
-| `sample.go` | What the monitor makes of the samples: the history (`Point`, `Metrics.Follow`, `HistoryLimit`), the real volumes (`RealVolume`, `Metrics.Volumes`, `Metrics.Volume`), `SortProcesses`, `Scaled`, `Clock`, `Load` |
+| `model.go` | **The view model**: `Host`, `Project`, `Activity`, `Runtime` (`Facts`, `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics`, `Disk`, `GPU`, `Process` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
+| `sample.go` | What the monitor makes of the samples: the history (`Point`, `Metrics.Follow`, `HistoryLimit`), the chosen volume and accelerator (`Metrics.Volume`, `Metrics.GPU`), `SortProcesses`, `Scaled`, `Clock`, `Load` |
 | `page.go` | `State`, `Actions`, `Page`: header (`Host.Connection`), running agents, projects, runtime; `Platform`; failure toasts |
-| `monitor.go` | The monitor's cards: processor and cores, memory, utilization, network, the chosen volume's transfers, storage; their place until the first sample |
+| `monitor.go` | The monitor's cards: processor and cores, the accelerator, memory, utilization, network, the chosen volume's transfers, storage; their place until the first sample |
 | `processes.go` | The processes: toolbar, search, the sortable table, its skeleton |
+| `process_actions.go` | A process's right-click menu (`State.processMenu`), its details and the stop confirmation (`processDialogs`), `Process.Stoppable` |
 | `charts.go` | The series' tones and the drawing on MyGo's `ui/chart`: area charts, sparklines, rings |
 | `update.go` | The update dialog, `OpenUpdate` |
 | `metrics.go` | `MetricsPanel`, the right column's summary |
@@ -65,11 +66,12 @@ centered, padded 24, its parts 14 apart, in the reference's order:
 |---|---|---|
 | Header | The platform logo in a 44 round tile; the name (18 semibold) beside the status; the platform line once; `host_uptime` (the computer's), `host_node_uptime` (Sailry's) and the processes' count; the first three forwards and Port forwarding; Update host on a host updated from here | MyGo rows and text; CrychicUI `feedback.ConnectionStatus` for a live host's status (`live_connected`, `connection_connecting`, `connections_offline`); `portsHeader`; the preview shows `workspace_host_status` |
 | Processor | The load (32 bold, code font), `host_cores`, `host_load` with the three averages and their rings; every core's load after a divider | `kit.Card`; MyGo `ui.Progress` per core; rings on `ui/chart` sectors |
+| GPU | Only when the sample has an accelerator: its load (32 bold), its name, the load's bar and the last minute; a `kit.Select` chooses among several | `kit.Card`, `kit.Select`; MyGo `ui.Progress`; `ui/chart` |
 | Memory | Used of the whole with its ring of used and cached; used, cached and swap; the last minute | `kit.Card`; `ui/chart` |
-| Utilization | The processor's and the memory's use over the last minute, 0 to 100%, the samples' times under it | `kit.Card`; `ui/chart` `Plot`, `Area`, `Line` |
+| Utilization | The processor's, the chosen accelerator's and the memory's use over the last minute, 0 to 100%, the samples' times under it | `kit.Card`; `ui/chart` `Plot`, `Area`, `Line` |
 | Network, Disk | Side by side, each wrapping under the other below 380: download and upload rates over the totals since boot; the chosen volume's write and read rates; both over the last minute | `kit.Card`, `kit.Tag` for the mount; `ui/chart` |
 | Storage | `host_partition_count` and one tile per real volume: mount, read and write rates, file system, used of total, a capacity bar. A click chooses the volume the Disk card follows | `kit.Card`; MyGo toggle buttons with `kit.GhostLook`; `ui.Progress` |
-| Processes | The count of every process, a search, a note when the sample lists fewer than run, and the table: name, the load with its last minute, the memory with its share, the PID. A header sorts; the load sorts first | `kit.Card`, `kit.Toolbar`, `kit.Result` when empty; MyGo `ui.Table` |
+| Processes | The count of every process, a search, a note when the sample lists fewer than run, and the table: name, the load with its last minute, the memory with its share, the PID. A header sorts; the load sorts first. The selected row is the neutral fill. A right-click opens the OS-native menu: Details, Copy PID, Copy name, End process, Force quit | `kit.Card`, `kit.Toolbar`, `kit.Result` when empty; MyGo `ui.Table` in `theme.Neutral`, `ListState.CellMenu`; `kit.AlertDialog`, `kit.Dialog` |
 | Running Agents | The running and waiting sessions (agent or waiting user, title, project / branch, model, status); a click opens the session. Absent when there are none | `kit.Group`, `kit.Card`, `kit.Badge` |
 | Projects | Rows opening the project's first conversation, Add project in the group's header; the empty state with Add project | `kit.Group`, `kit.List`, `kit.Result`, `kit.Primary` |
 | Runtime | The host's type, its counts (projects, worktrees, sessions, terminals, running agents), the version, the time zone and the protocol, `host_unknown` for unknown ones | `kit.Group`, `kit.Card` |
@@ -90,12 +92,21 @@ Settings › Connections uses); a failure toasts, and a host whose pairing is
 removed leaves the menu. The preview's tunnels section is not ported: the
 live host has none.
 
-Only real volumes show (`host.RealVolume`): the Go sampler lists every
-mount, the reference's lists the volumes a file browser shows. Device,
-memory and kernel file systems, the system's own mounts (`/System/Volumes`,
-`/private/var`, `/dev`, `/proc`, `/sys`, `/run` except `/run/media`) and
-volumes of no size are left out of the page, of its summary and of the
-partition count.
+Only real volumes show, and the Node decides which: its sampler lists the
+mounts `files.IsVolume` keeps (`internal/node/files/browser_volumes.go`),
+the rule the file picker's volume list uses. Device, memory and kernel file
+systems, macOS mounts marked `nobrowse`, the system's own mounts
+(`/System/Volumes`, `/private/var`, `/dev`, `/proc`, `/sys`, `/run` except
+`/run/media`) and volumes of no size are never sampled, so the page, its
+summary and the partition count show every disk of a sample.
+
+A process's menu follows the process, not its row (`ListState.Key` is the
+PID with its start). End process and Force quit are disabled for a process
+the Node always refuses (PID 0 and 1, one without a start), while another
+stop request is on its way, and where no action is bound; a Windows host
+has no End process, because its Node offers only the forced stop. Either
+asks once, naming the process, its PID and the consequence
+(`host_process_stop_confirm`, `host_process_force_confirm`).
 
 The summary column (its title is in the header band, docs/shell.md, without
 the chart icon): the preview note, the host, the processor and the memory
@@ -115,6 +126,8 @@ delivers after `preview.LoadAfter`.
 | Forward: copy address | the clipboard |
 | Forward: close | removed |
 | New forward, Create | `AddPort` (port_invalid, port_exists), listed, preview_notice |
+| Process: Details, Copy PID, Copy name | the dialog, the clipboard |
+| Process: End process, Force quit | disabled: `Actions.StopProcess` is unbound |
 
 Failures show only as toasts, once each (`State.report`): the runtime's
 detail, the update's and the metrics' detail.
@@ -132,8 +145,11 @@ handshake supplies a remote Node's advertised software and protocol versions;
 the local Node uses the running build's versions. A controller and a Host are
 compatible when their protocol versions are equal (`internal/link/compatibility.go`);
 the software version is shown and offered for update, never compared for
-compatibility. The frozen HostInfo contract
-has no remote timezone, so that fact stays unknown. Runtime read failures toast
+compatibility. The time zone is the computer's own: `HostInfo.timezone`, an
+optional member its Node fills with the zone's abbreviation and offset
+(`CST +08:00`, or `UTC+08:00` for a zone without a name). A Node that
+reports none leaves the fact unknown; the controller's zone is never shown
+in its place, for the local host either. Runtime read failures toast
 once without replacing the page. Remembered offline execution peers remain in
 the host list; nonexecution controllers do not receive Node reads.
 
@@ -152,7 +168,7 @@ their outstanding read; there is no invented metrics subscription topic.
 `hostMetrics` maps every value of the sample: the load, the cores, the load
 averages, memory (used is what is not available, cached what is available
 and not free), swap, the network's rates and totals, every disk with its
-transfer rates, and the processes with their PID and start. Missing values
+transfer rates, the accelerators with their load, and the processes with their PID and start. Missing values
 remain unknown and show as a dash or a gap in a chart.
 
 The history is the desktop's: each sample follows the one before
@@ -164,10 +180,26 @@ sample remains private for ordering and for the history, but failed sampling
 or a disconnected owner hides its values in the page, the summary and the
 sidebar.
 
-The execution Node routes `stop_host_process` for its own machine, although
-the page has no control that sends it. It refuses plugin callers, PID 0,
-PID 1 and the Node's own process, signals only a process whose start time still
-equals the listed one, and offers only the forced stop on Windows.
+`Actions.StopProcess` (`Runtime.stopHostProcess`) sends `stop_host_process`
+to the Node of the host the page shows, with the listed PID and start and
+whether to force. The execution Node routes it for its own machine: it
+refuses plugin callers, PID 0, PID 1 and the Node's own process, signals only
+a process whose start time still equals the listed one, and offers only the
+forced stop on Windows. One request runs for a host at a time
+(`Host.Stopping`), and its outcome is one toast (`processStopOutcome`):
+`host_process_stop_sent`; a failure for a process that exited
+(`host_process_gone`), is protected (`host_process_protected`) or could not
+be signalled (`host_process_stop_failed`); a conflict when the PID now
+belongs to another process (`host_process_changed`); uncertain when the
+result did not arrive (`host_process_uncertain`). A request whose result is
+unknown is not sent again.
+
+The Node's sampler reads the accelerators on macOS only: each
+`IOAccelerator` service's `Device Utilization %` and model, through IOKit
+by purego (`internal/node/host/gpu_darwin.go`), as the reference's
+`gpu.rs` does there. gopsutil has no GPU reading, and the pure-Go ways on
+Linux and Windows are per vendor or need a helper process, so those Nodes
+report none and their hosts have no GPU card.
 
 `Actions.Update` captures the displayed Update and rejects stale clicks.
 Check reads the remote handshake and compares its version with the local Host
@@ -332,15 +364,17 @@ original request and its recorded outcome.
 
 | UI state (`State`, `App.Host`, `App.Metrics`) | Backend data (`Host`) |
 |---|---|
-| The dialogs, their drafts, the picker's query and choice, the failures already toasted, the chosen host, the summary column, the chosen volume, the processes' search and sort | Everything in `Host`, the samples' history included |
+| The dialogs, their drafts, the picker's query and choice, the failures already toasted, the chosen host, the summary column, the chosen volume and accelerator, the processes' search and sort, the process whose details or confirmation is open | Everything in `Host`, the samples' history included |
 
 ## Tests
 
 `internal/desktop/host/host_test.go`: formats, the runtime's facts, the
-header's status, the history (`TestFollow`), the real volumes, the processes'
+header's status, the history (`TestFollow`), the chosen volume and accelerator
+(`TestChoices`), the processes'
 sort and search, the update's phases and stale clicks, new forwards, and
-`TestPage`: a live host's sections in order, the header once, real volumes
-only in the page and its summary, the offline page.
+`TestPage`: a live host's sections in order, the header once, every volume
+in the page and its summary, the accelerator's card and choice, the
+process menu with its confirmation and details, the offline page.
 `internal/desktop/shell/hosts_test.go`: the host page, the update dialog's
 Check, the summary column closed until toggled, closing the page;
 `testHostLayout`: the side column beside the page, the sections' order, the
@@ -348,7 +382,10 @@ header once, the summary's volumes, the hosts in the rail's picker; the rail
 menu's forwards, Update and Remove pairing with its confirmation, cancel and
 busy state. `internal/desktop/shell/hosts_snapshot_test.go` writes the review
 sheets when `SAILRY_SNAPSHOTS` is set. `internal/desktop/live/hosts_metrics_test.go`:
-a sample's mapping.
+a sample's mapping, a stop request's outcomes; `ssh_hosts_test.go`: a stop
+request sent once to the host's Node, the host's time zone.
+`internal/node/host/metrics_test.go`: the sampler's volumes, accelerators
+and time zone; `internal/node/files/browser_test.go`: the volume rule.
 
 ## Deviations
 
@@ -356,12 +393,12 @@ a sample's mapping.
 |---|---|
 | One page serves the preview and the live host: the live monitor (`live/host.rs`) followed by the overview's projects and runtime (`workspace/host.rs`) | The reference has two pages; the live one has no projects list or runtime facts, which the accepted page shows and its Add project needs |
 | Port forwards and the monitor show on the preview page, on example samples | The reference shows them only on a live host |
-| No GPU card; the memory card takes the row | The Go Node's sampler reads no GPU, so `HostMetricsSample.gpus` is always empty |
-| A process has no right-click menu (Details, Copy PID, End process, Force quit) | The Node routes `stop_host_process`, but no desktop action sends it: wiring it is backend work outside this page |
+| A host without an accelerator in its sample has no GPU card, and the card takes a row of its own | The reference shows the card beside the memory with "unavailable"; the Node reads accelerators only on macOS, so a Linux or Windows host would always show an empty card, and the accepted memory card keeps its row |
+| A Windows host's process menu has no End process | The reference offers it and the Node refuses it there; only the forced stop exists on Windows |
 | Cores are MyGo progress bars with their percentage, and a volume's capacity is a horizontal bar | The reference draws lit cells per core and a vertical capacity bar by hand; MyGo's `ui.Progress` shows the same values |
 | Charts and rings are drawn on MyGo's `ui/chart` in `charts.go` | MyGo has the scales, areas, lines and sectors but no finished card chart; CrychicUI's `chart` package is not used ([crychic.md](crychic.md#charts)) |
 | The right column stays, as a summary, closed until toggled | The reference's column is the preview's metrics panel, also closed by default; the accepted toggle and ⌥⌘B keep working |
-| The desktop filters the sampler's mounts to real volumes | The Go sampler lists device and system mounts that the reference's never did; the Node is not changed here |
+| The Node's sampler filters its mounts by the file picker's volume rule | The reference's sampler lists what `sysinfo` calls disks; gopsutil lists every mount, so the Node leaves the device and system ones out. A Host built before this still lists them, and the desktop no longer hides them |
 | The rail's host rows have no Update button; the picker's right-click menu offers Update for each host that has one | The approved picker rows are a name and a check; the reference's trailing Update would change them |
 | The rail's Add host opens Settings › Connections | The add dialog lives with the Connections page |
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
@@ -371,5 +408,5 @@ a sample's mapping.
 | Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
 | An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
 | Update confirmation drops the cached connection after each unconfirmed probe as well as before the first | Rust disconnects once before probing; a probe that reached the old process would otherwise leave its connection for the next |
-| Remote timezone remains unknown | HostInfo and the Link handshake do not expose it; the controller does not substitute its own timezone |
+| The time zone is an abbreviation with its offset, not an IANA name | Go's standard library exposes the local zone's abbreviation and offset on every platform; the IANA name is not available without `TZ` or a platform call. A Host built before `HostInfo.timezone` shows it as unknown |
 | The sidebar footer keeps its summary samples | It shows the selected Node's load without the page's detail |

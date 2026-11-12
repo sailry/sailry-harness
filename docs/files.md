@@ -151,8 +151,10 @@ the Node's account may list are sent, in this order:
 | `root` | `/`, named as the startup volume (`Macintosh HD`) | `/`, unnamed: the desktop calls it Root | None |
 | `volume` | The mounted, browsable volumes directly under `/Volumes` | The mounts directly under `/media/<account>`, `/run/media/<account>` and `/mnt` | Every mounted drive letter, named by its label (`Data (D:)`) or its letter |
 
-Volumes are the mounts of gopsutil's `disk.Partitions`, the list the host
-metrics use, so pseudo file systems are left out; a failure to list them
+Volumes are the mounts of gopsutil's `disk.Partitions` that `files.IsVolume`
+keeps, the one rule the host metrics' sampler uses too: pseudo file
+systems, macOS `nobrowse` mounts and the system's own mounts are left out;
+a failure to list them
 leaves the places and the root. The optional `medium` of a location is
 `internal`, `external` or `network` where the system tells: the startup
 volume and a fixed Windows drive are internal, a volume under `/media` or

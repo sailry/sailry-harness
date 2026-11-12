@@ -137,15 +137,15 @@ func testHostLayout(t *testing.T) {
 		}
 	})
 	t.Run("summary volumes", func(t *testing.T) {
-		// The sampler lists every mount; neither the page nor its summary
-		// shows a device or a system one.
+		// The Node lists only real volumes, so the page and its summary
+		// show every one of a sample.
 		real := h.Metrics.Disks[0].Mount
-		h.Metrics.Disks = append(h.Metrics.Disks,
-			host.Disk{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
-			host.Disk{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39})
+		disks := h.Metrics.Disks
+		h.Metrics.Disks = append(disks[:len(disks):len(disks)],
+			host.Disk{Mount: "/Volumes/Backup", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39})
 		tt.Frame()
 		before := count()
-		if before[real] == 0 || before["/dev"] != 0 || before["/System/Volumes/VM"] != 0 {
+		if before[real] == 0 || before["/Volumes/Backup"] == 0 {
 			t.Fatalf("the page's volumes: %q", tt.Texts())
 		}
 		a.togglePanel()
@@ -155,12 +155,13 @@ func testHostLayout(t *testing.T) {
 		if !a.Metrics || after[en("metrics_title")] == 0 {
 			t.Fatalf("the summary did not open: %q", tt.Texts())
 		}
-		if after[real] <= before[real] || after["/dev"] != 0 || after["/System/Volumes/VM"] != 0 {
-			t.Errorf("the summary's volumes: %q %d then %d, /dev %d, /System/Volumes/VM %d", real, before[real], after[real], after["/dev"], after["/System/Volumes/VM"])
+		if after[real] <= before[real] || after["/Volumes/Backup"] <= before["/Volumes/Backup"] {
+			t.Errorf("the summary's volumes: %q %d then %d, /Volumes/Backup %d then %d", real, before[real], after[real], before["/Volumes/Backup"], after["/Volumes/Backup"])
 		}
 		a.togglePanel()
 		tt.Frame()
 		settle(tt)
+		h.Metrics.Disks = disks
 	})
 	t.Run("hosts in the rail", func(t *testing.T) {
 		// The reference lists hosts in the rail's picker, not in the side

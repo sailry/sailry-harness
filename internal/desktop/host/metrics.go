@@ -17,7 +17,7 @@ const summaryProcesses = 5
 // the window's header and closed until the user opens it: the preview's
 // note, the host, then the processor and the memory as a value over a bar
 // and the last minute's line, the network's rates over theirs, the real
-// volumes (Metrics.Volumes) each with how full it is, and the busiest
+// volumes each with how full it is, and the busiest
 // processes. A loading bar holds its place until the first sample. A
 // failure shows only as a toast.
 func MetricsPanel(c *ui.Context, s *State, h *Host) {
@@ -76,7 +76,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		})
 		ui.Column(c.Key("disks")).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_disks")).FontSize(14).FontWeight(600)
-			volumes := m.Volumes()
+			volumes := m.Disks
 			if len(volumes) == 0 {
 				kit.Result(c, kit.ResultProps{Icon: icons.HardDrive, Title: i18n.T(c, "metrics_no_disks"), Card: true})
 			}

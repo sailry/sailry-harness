@@ -1543,6 +1543,20 @@ host_process_name: Процессы
 host_pid: PID
 host_process_empty: Отсутствие процессов
 host_process_no_matches: Отсутствие процессов сопоставления
+host_process_details: Посмотреть детали
+host_process_copy_pid: Копировать PID
+host_process_copy_name: Копировать имя
+host_process_stop: Конечный процесс
+host_process_force_stop: Принудительно завершить
+host_process_stop_confirm: Отправить запрос остановки; это может прервать выполнение заданий
+host_process_force_confirm: Прекратите этот процесс сейчас; несохраненные данные могут быть потеряны
+host_process_stop_sent: Отправлен запрос на остановку
+host_process_gone: Процесс завершен
+host_process_changed: Изменение процесса; обновление и повторная попытка
+host_process_protected: Не удается остановить системные процессы или службу текущего узла
+host_process_uncertain: Результат остановки неизвестен; проверить состояние процесса
+host_process_stop_failed: Не удалось остановить процесс; возможно, процесс завершился, доступ запрещен или этот узел не поддерживает процесс
+metrics_gpu: GPU
 port_title: Перенаправление портов
 port_mappings: Сопоставления портов
 port_add: Новый форвард
