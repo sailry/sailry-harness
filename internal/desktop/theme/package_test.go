@@ -76,6 +76,7 @@ func TestPaletteOverlaysNeutral(t *testing.T) {
 	if n.Variant != nil {
 		t.Error("built-in: no variant")
 	}
+	t.Run("chart colors", testChartColors)
 }
 
 // Installing replaces the set whole: a frame of another window reads the

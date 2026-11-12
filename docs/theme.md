@@ -37,7 +37,7 @@ them.
 |---|---|
 | `theme/theme.go` | `Palette`, `Of`, `Apply`, `Look`, `Widget`, `IsDark`, the MyGo theme built from a palette |
 | `theme/package.go` | **The contract**: `Package` and `Variant` read from theme.json v1, `Parse`, `Packages`, `Find`, `Builtin` |
-| `theme/neutral.go` | The built-in theme's colors by theme.json key, Kit's fallbacks, status and base colors, emblem tints |
+| `theme/neutral.go` | The built-in theme's colors by theme.json key, Kit's fallbacks, status and base colors, chart colors, emblem tints |
 | `theme/color.go` | `Color`, an optional package color |
 | `themes/`, `bundled.go` | The pinned official theme submodule, embedded as `sailry.Themes`: `great-sage`, `ink-dragon`, `holographic-rhythm` (`theme.json`, `assets/`, `ARTWORK.md`, `README.md`), `LICENSE`, `NOTICE` |
 | `kit/art.go` | `Picture`, `Corners`, `Backdrop`, `Banner`, `ArtIcon`, `NewSessionArt` |
@@ -100,6 +100,45 @@ opaque. Every package and mode is built once, at start-up.
 | `Popover`, `PopoverForeground` | Dialogs, the model picker, interaction popovers |
 | `Link`, `Primary` | Reply links, emphasis |
 | `Radius`, `RadiusLg`, `Radius2xl()` | Controls; cards and popovers; the composer, tool cards and mode cards |
+
+### Chart colors
+
+`Palette.Chart` is the categorical palette, `chart.1` to `chart.8`: the
+series of one chart, the rows of one legend. Hues differ so the entries
+read as different things; a tonal scale of one hue does not belong here.
+
+| Token | Hue | Light | Dark |
+|---|---|---|---|
+| `chart.1` | amber | `#d07c06` | `#f89a2b` |
+| `chart.2` | blue | `#3e90fd` | `#77b0fe` |
+| `chart.3` | emerald | `#099562` | `#02b77f` |
+| `chart.4` | violet | `#7e5bd6` | `#a284f3` |
+| `chart.5` | rose | `#ec5a78` | `#ff7c92` |
+| `chart.6` | cyan | `#0886a4` | `#01afc6` |
+| `chart.7` | pink | `#cd67ce` | `#e782d6` |
+| `chart.8` | gray, for "other" | `#8b9198` | `#b9bec6` |
+
+Each mode is tuned on its own surface: every entry has at least 3:1
+contrast against the popover and the background, the colored entries sit
+in one lightness band, any two are apart by hue and by OKLab distance, and
+their lightness is staggered so that they stay apart with protanopia and
+deuteranopia. Rose stays clear of the danger red. The order puts the hues
+that are easiest to tell apart first.
+
+A theme package's `chart.1` to `chart.5` replace the built-in values;
+`chart.6` to `chart.8` are not theme.json keys and keep them. No shipped
+package sets a chart color.
+
+Consumers take the tokens, never a color of their own:
+
+| Consumer | Colors |
+|---|---|
+| Package views (`chart_1` to `chart_8` in `sailry/ui` theme and chart tones) | `Palette.Chart` in order |
+| Conversation charts (`conversation/chart.go`) | `Palette.Series(i)`: blue, violet, emerald, amber, rose, cyan, pink, gray, then a step toward the background each lap |
+| Host page (`host/charts.go`) | CPU `Success`, memory `Warning`, GPU and download `chart.2`, upload `chart.4`, disk write `Warning`, read `Success` |
+
+Mermaid diagrams keep CrychicUI's own accents and the Git history lanes
+their own colors.
 
 ### Surfaces
 
@@ -174,7 +213,11 @@ package and its palettes there (not in this prototype).
 `internal/desktop/theme/package_test.go`: every embedded package parses with both
 variants and every asset decodes; malformed JSON, a missing variant and a
 invalid color fail; the palette overlays neutral, falls back for links and the
-switch thumb, and fades popovers. `TestThemeInvalidFixtures` covers the source invalid metadata, styles, resources
+switch thumb, and fades popovers; the chart colors (`chart_test.go`) keep
+their contrast against the popover and background, their distance from each
+other by hue, by OKLab and under simulated protanopia and deuteranopia, one
+lightness band, the series order and a package's overrides, in both modes.
+`TestThemeInvalidFixtures` covers the source invalid metadata, styles, resources
 and effects with their rejection reasons. `TestEffectSimulation` checks seed
 variation, bounds, loop continuity and hidden travel endpoints.
 `internal/desktop/kit/effects_test.go`: effects
@@ -194,4 +237,5 @@ applies a package, shows its details and turns effects off.
 | Petals are quadratic curves | Close to the reference's cubic petals at their few-DIP size |
 | Import, export, uninstall and update actions are unavailable in live mode until B8 | Package installation belongs to the market service; gallery Apply and the native menu/details dialog already work |
 | `message.assistant.*`, `banner.*`, `brand`, `button.send/stop` art and `icon.*` of the rail are read but not drawn | No shipped package uses them |
+| `chart.1` to `chart.5` keep the reference's hue order (amber, blue, emerald, violet, rose) but not its values, and `chart.6` to `chart.8` are added | The reference uses Tailwind's 500 step in both modes; each mode is tuned for contrast on its surfaces and for color-vision deficiency, and seven-row legends need more than five entries |
 | Pinned conversations use `icon.group.recent` | The reference declares the group icons but draws none |
