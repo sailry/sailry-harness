@@ -3,12 +3,14 @@ package node
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"slices"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/claudecli"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -20,10 +22,16 @@ func (node *Node) newModel(ctx context.Context, binding model.Binding) (fantasy.
 		return node.modelFactory(ctx, binding)
 	}
 	if model.PluginBound(binding.Provider) {
-		if agent, bound, err := node.captureAgentModel(ctx, binding); err != nil {
+		if captured, bound, err := node.captureProgramModel(ctx, binding); err != nil {
 			return nil, err
+		} else if bound && captured.adapter.ClaudeCode != nil {
+			capture, err := node.claudeCapture(captured)
+			if err != nil {
+				return nil, err
+			}
+			return claudecli.New(binding, capture)
 		} else if bound {
-			return model.NewACP(binding, agent)
+			return model.NewACP(binding, node.agentCapture(captured))
 		}
 		capture, err := node.capturePluginModel(ctx, binding)
 		if err != nil {
@@ -99,9 +107,18 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 	return captured, nil
 }
 
-// captureAgentModel captures an adapter whose transport is a declared
-// program. bound is false for an adapter that translates HTTP.
-func (node *Node) captureAgentModel(ctx context.Context, binding model.Binding) (captured model.ACPCapture, bound bool, err error) {
+// programModel is a captured adapter whose transport is a declared program.
+type programModel struct {
+	adapter protocol.PluginModelAdapterDeclaration
+	program protocol.PluginProgramDeclaration
+	// owner is the package; dir is the program's directory in its data.
+	owner, dir string
+}
+
+// captureProgramModel captures an adapter whose transport is a declared
+// program: an Agent Client Protocol agent or the user's Claude Code. bound
+// is false for an adapter that translates HTTP.
+func (node *Node) captureProgramModel(ctx context.Context, binding model.Binding) (captured programModel, bound bool, err error) {
 	unavailable := &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "captured model adapter is unavailable"}
 	if !model.PluginBound(binding.Provider) || (**binding.Provider.Binding).Package == nil {
 		return captured, false, unavailable
@@ -115,7 +132,15 @@ func (node *Node) captureAgentModel(ctx context.Context, binding model.Binding) 
 		return captured, false, unavailable
 	}
 	for _, declaration := range info.Extension.ModelAdapters {
-		if declaration.ID != selection.Adapter.Adapter || declaration.Acp == nil {
+		name := ""
+		switch {
+		case declaration.ID != selection.Adapter.Adapter:
+			continue
+		case declaration.Acp != nil:
+			name = declaration.Acp.Program
+		case declaration.ClaudeCode != nil:
+			name = declaration.ClaudeCode.Program
+		default:
 			continue
 		}
 		if declaration.Capabilities != selection.Adapter.Capabilities {
@@ -126,15 +151,30 @@ func (node *Node) captureAgentModel(ctx context.Context, binding model.Binding) 
 			return captured, false, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin may not run programs"}
 		}
 		for _, declared := range info.Extension.Programs {
-			if declared.ID == declaration.Acp.Program {
-				return model.ACPCapture{
-					Adapter: declaration, Program: declared, Owner: info.Summary.Name, Version: link.ProductVersion,
-					Dir:  filepath.Join(node.profile.Ownership.Path, "plugins", "data", info.Summary.Name, "programs", declared.ID),
-					Host: node.environment.TerminalValues(), Pool: node.plugins.programs,
-				}, true, nil
+			if declared.ID == name {
+				return programModel{adapter: declaration, program: declared, owner: info.Summary.Name,
+					dir: filepath.Join(node.profile.Ownership.Path, "plugins", "data", info.Summary.Name, "programs", declared.ID)}, true, nil
 			}
 		}
 		return captured, false, unavailable
 	}
 	return captured, false, nil
+}
+
+func (node *Node) agentCapture(captured programModel) model.ACPCapture {
+	return model.ACPCapture{Adapter: captured.adapter, Program: captured.program, Owner: captured.owner, Version: link.ProductVersion,
+		Dir: captured.dir, Host: node.environment.TerminalValues(), Pool: node.plugins.programs}
+}
+
+// claudeCapture is the capture of the Claude Code route. Its run files live
+// in the profile's scratch space, which the Node empties when it starts; the
+// tool relay is this executable in its hidden mode.
+func (node *Node) claudeCapture(captured programModel) (claudecli.Capture, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return claudecli.Capture{}, err
+	}
+	return claudecli.Capture{Adapter: captured.adapter, Program: captured.program, Owner: captured.owner, Dir: captured.dir,
+		Scratch: filepath.Join(node.profile.Ownership.Path, "tmp", "claude-cli"), Host: node.environment.TerminalValues(),
+		Pool: node.plugins.programs, Executable: executable}, nil
 }
