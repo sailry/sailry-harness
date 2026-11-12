@@ -578,6 +578,9 @@ background_outcome_stalled: Aucune sortie récente
 background_outcome_stopped: Arrêté
 background_outcome_timed_out: Délai dépassé
 background_outcome_unknown: Résultat incertain
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Compactage annulé
 chat_compact_failed: Compactation a échoué
 chat_compact_queued: En attente de compacter
@@ -2229,6 +2232,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: Impossible de charger l'utilisation, réessayez
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2244,6 +2248,10 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host est plus ancien ; mettez Host à jour
+host_version_newer: Host est plus récent ; mettez Desktop à jour
+host_version_unknown: Version de Host invérifiable ; mettez Host à jour
+controller_version_unknown: Version de Desktop invérifiable ; mettez Desktop à jour
 content_link_address: Adresse du lien
 content_link_edit: Modifier le lien
 content_image_address: Adresse de l’image

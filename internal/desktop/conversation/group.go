@@ -121,7 +121,7 @@ func Summary(calls []Call) Call {
 		s.Warning = false
 	}
 	if active {
-		s.State = StateNone
+		s.State, s.Background = StateNone, nil
 	}
 	return s
 }

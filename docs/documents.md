@@ -32,6 +32,12 @@ opaque previews retain authored source. Physical publication and SQL receipts ar
 separate, preserve immutable referenced revisions and can replace only an
 unreferenced orphan. Package view resources retain their owning package reference.
 
+A committed write publishes the `artifact` conversation change to the open
+conversation after its receipt is stored (`recordWorkspaceEffect`), and a
+conversation subscribed later receives the first `list_artifacts` page (64) in
+its snapshot's `artifacts`, as the reference does. The desktop rereads the
+session's documents when either changes.
+
 Removing a session deletes its artifacts in the same transaction unless a
 remaining conversation still shows a published revision, as a fork does. The
 artifact directory of a removed session that keeps no artifact is deleted after

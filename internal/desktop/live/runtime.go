@@ -140,8 +140,11 @@ type Runtime struct {
 	// join its recipient is reported once.
 	guidanceSent map[string]map[protocol.TurnID]sentGuidance
 	// queueHalts is the last halt read for each conversation's queue, by
-	// conversation: a halt is reported when it begins, once.
+	// conversation: a halt is reported once, when it is first read.
 	queueHalts map[string]protocol.ConversationQueuePause
+	// usageFailed is whether each conversation's statistics were last read
+	// failed, by conversation: a failure is reported when it begins, once.
+	usageFailed map[string]bool
 	// overviews are the asset inventories the overview popover read.
 	overviews map[protocol.SessionID]*overviewRead
 }
@@ -683,7 +686,12 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, key)
 			code := faultCode(err)
-			if client.Retained(err) || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
+			// A forwarded creation is the one request a Node resolves by
+			// replay (docs/node.md, Session forwarding): its unknown outcome
+			// is final in the local Node's ledger until the target answers,
+			// so the request is kept and the next Send asks the target.
+			forwarded := command.Kind == "create_session_at" && code == protocol.ErrorCodeOutcomeUnknown
+			if client.Retained(err) || forwarded || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
 				r.uncertain[key] = request
 			} else {
 				delete(r.uncertain, key)
@@ -691,6 +699,14 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 			finished(c, output, err)
 		})
 	})
+}
+
+// forgetCommand drops the request kept for an unscoped command whose outcome
+// was not confirmed, so the same command sent later is a new request.
+func (r *Runtime) forgetCommand(command protocol.Command) {
+	if b, err := json.Marshal(command); err == nil {
+		delete(r.uncertain, "\x00"+string(b))
+	}
 }
 
 func (r *Runtime) command(command protocol.Command, conflict string, done func(protocol.Output, bool)) {

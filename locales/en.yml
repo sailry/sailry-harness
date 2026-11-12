@@ -57,6 +57,9 @@ approval_command: Run command
 background_read: Read command output
 background_stop: Stop command
 background_end: Stop
+background_running: Running in background
+background_exit: "Exit code %{code}"
+background_result_waiting: Result not delivered
 tool_browser_tabs: Browser tabs
 tool_browser_read: Read page
 tool_browser_navigate: Open page

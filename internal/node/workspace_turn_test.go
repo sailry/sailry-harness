@@ -209,4 +209,13 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 	if restored, ok := repeated.Data.(protocol.ConversationCheckpointRestored); !ok || restored.Revision == nil || *restored.Revision != checkpoints.Files[0].Before.Revision {
 		t.Fatal("repeated restore did not report the restored revision", repeated)
 	}
+	// That the change was undone is the Node's fact: the checkpoint list says
+	// so to a controller that restarted or switched sessions.
+	if checkpoints.Files[0].Restored {
+		t.Fatal("the checkpoint was listed restored before its restore")
+	}
+	listed := commandFixture(t, node, protocol.Command{Kind: "list_file_checkpoints", Data: protocol.CommandListFileCheckpointsPayload{Session: session.ID, Turn: turn, Limit: 50}}).Data.(protocol.ConversationCheckpointPage)
+	if len(listed.Files) != 1 || !listed.Files[0].Restored || listed.Files[0].ID != checkpoints.Files[0].ID {
+		t.Fatalf("the restored checkpoint is listed %+v", listed.Files)
+	}
 }

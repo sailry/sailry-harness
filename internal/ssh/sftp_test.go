@@ -2,6 +2,10 @@ package ssh
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -10,15 +14,19 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/pkg/sftp"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 type fakeFileInfo struct {
@@ -319,6 +327,199 @@ func TestSftpPaths(t *testing.T) {
 			if dialFailed(test.err) != test.dial {
 				t.Fatalf("dialFailed(%v) = %v", test.err, !test.dial)
 			}
+		}
+	})
+}
+
+// memoryConn is one end of a buffered in-memory connection. net.Pipe has no
+// buffer, and both sides of an SSH handshake write before they read.
+type memoryConn struct {
+	net.Conn
+	incoming, outgoing chan []byte
+	rest               []byte
+	closed, peer       chan struct{}
+	once               *sync.Once
+}
+
+func memoryPipe() (*memoryConn, *memoryConn) {
+	first, second := make(chan []byte, 4096), make(chan []byte, 4096)
+	near, far := make(chan struct{}), make(chan struct{})
+	return &memoryConn{incoming: first, outgoing: second, closed: near, peer: far, once: new(sync.Once)},
+		&memoryConn{incoming: second, outgoing: first, closed: far, peer: near, once: new(sync.Once)}
+}
+
+func (conn *memoryConn) Read(data []byte) (int, error) {
+	if len(conn.rest) == 0 {
+		select {
+		case conn.rest = <-conn.incoming:
+		default:
+			select {
+			case conn.rest = <-conn.incoming:
+			case <-conn.closed:
+				return 0, net.ErrClosed
+			case <-conn.peer:
+				return 0, io.EOF
+			}
+		}
+	}
+	count := copy(data, conn.rest)
+	conn.rest = conn.rest[count:]
+	return count, nil
+}
+
+func (conn *memoryConn) Write(data []byte) (int, error) {
+	select {
+	case <-conn.closed:
+		return 0, net.ErrClosed
+	case <-conn.peer:
+		return 0, io.ErrClosedPipe
+	case conn.outgoing <- append([]byte(nil), data...):
+		return len(data), nil
+	}
+}
+
+func (conn *memoryConn) Close() error {
+	conn.once.Do(func() { close(conn.closed) })
+	return nil
+}
+
+func (*memoryConn) LocalAddr() net.Addr  { return &net.UnixAddr{Name: "fixture"} }
+func (*memoryConn) RemoteAddr() net.Addr { return &net.UnixAddr{Name: "fixture"} }
+
+// memoryServer answers one SSH handshake over an in-memory connection with
+// the given host keys and returns the client's end; served receives the
+// server's global requests once the handshake is done.
+func memoryServer(served func(<-chan *cryptossh.Request), keys ...cryptossh.Signer) net.Conn {
+	config := &cryptossh.ServerConfig{NoClientAuth: true}
+	for _, key := range keys {
+		config.AddHostKey(key)
+	}
+	near, far := memoryPipe()
+	go func() {
+		_, channels, requests, err := cryptossh.NewServerConn(far, config)
+		if err != nil {
+			_ = far.Close()
+			return
+		}
+		go func() {
+			for channel := range channels {
+				_ = channel.Reject(cryptossh.Prohibited, "fixture")
+			}
+		}()
+		served(requests)
+	}()
+	return near
+}
+
+func TestConnection(t *testing.T) {
+	_, edwards, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	curve, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cryptossh.NewSignerFromKey(edwards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cryptossh.NewSignerFromKey(curve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("the trusted host key's algorithm is preferred", func(t *testing.T) {
+		// The server holds two keys; whichever the library would choose by
+		// itself, the one that was trusted is the one presented.
+		for _, trusted := range []cryptossh.Signer{first, second} {
+			t.Run(trusted.PublicKey().Type(), func(t *testing.T) {
+				near := memoryServer(cryptossh.DiscardRequests, first, second)
+				defer near.Close()
+				profile := protocol.SshProfile{Username: "fixture", HostKey: &protocol.SshHostKey{
+					Algorithm: trusted.PublicKey().Type(), Fingerprint: cryptossh.FingerprintSHA256(trusted.PublicKey()),
+				}}
+				connection, _, _, err := cryptossh.NewClientConn(near, "fixture", clientConfig(profile, cryptossh.Password("")))
+				if err != nil {
+					t.Fatalf("a server with a second key type read as changed: %v", err)
+				}
+				_ = connection.Close()
+			})
+		}
+		if hostKeyAlgorithms(nil) != nil {
+			t.Fatal("an unknown host restricted the library's order")
+		}
+		// An RSA key signs with SHA-2; the library does not offer SHA-1.
+		if got := hostKeyAlgorithms(&protocol.SshHostKey{Algorithm: cryptossh.KeyAlgoRSA}); len(got) < 3 ||
+			got[0] != cryptossh.KeyAlgoRSASHA512 || got[1] != cryptossh.KeyAlgoRSASHA256 || slices.Contains(got, cryptossh.KeyAlgoRSA) {
+			t.Fatalf("a trusted RSA key prefers %v", got)
+		}
+		if got := hostKeyAlgorithms(&protocol.SshHostKey{Algorithm: "fixture-unsupported"}); got != nil {
+			t.Fatalf("an unsupported trusted algorithm prefers %v", got)
+		}
+	})
+	t.Run("keepalive", func(t *testing.T) {
+		trust := &protocol.SshHostKey{Algorithm: first.PublicKey().Type(), Fingerprint: cryptossh.FingerprintSHA256(first.PublicKey())}
+		for _, test := range []struct {
+			name    string
+			answers bool
+		}{
+			{"a server that answers stays connected", true},
+			{"a server that stopped answering is closed", false},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					asked := make(chan string, 64)
+					release := make(chan struct{})
+					near := memoryServer(func(requests <-chan *cryptossh.Request) {
+						for request := range requests {
+							asked <- request.Type
+							if !test.answers {
+								// The request stays unanswered until the test ends.
+								<-release
+							}
+							if request.WantReply {
+								_ = request.Reply(false, nil)
+							}
+						}
+					}, first)
+					defer near.Close()
+					connection, channels, requests, err := cryptossh.NewClientConn(near, "fixture", clientConfig(protocol.SshProfile{Username: "fixture", HostKey: trust}, cryptossh.Password("")))
+					if err != nil {
+						t.Fatal(err)
+					}
+					client := cryptossh.NewClient(connection, channels, requests)
+					ended := make(chan struct{})
+					go func() { _ = client.Wait(); close(ended) }()
+					started := time.Now()
+					go keepAlive(client, keepaliveInterval, keepaliveMisses)
+					if test.answers {
+						time.Sleep(10*keepaliveInterval + time.Second)
+						synctest.Wait()
+						select {
+						case <-ended:
+							t.Fatal("an answering server was disconnected")
+						default:
+						}
+						if len(asked) != 10 {
+							t.Fatalf("%d keepalives in ten intervals", len(asked))
+						}
+						_ = client.Close()
+					}
+					<-ended
+					if !test.answers {
+						if elapsed, want := time.Since(started), (1+keepaliveMisses)*keepaliveInterval; elapsed != want || len(asked) != 1 {
+							t.Fatalf("closed after %v and %d keepalives, want %v", elapsed, len(asked), want)
+						}
+					}
+					if kind := <-asked; kind != "keepalive@openssh.com" {
+						t.Fatalf("keepalive request = %q", kind)
+					}
+					close(release)
+				})
+			})
+		}
+		if keepaliveInterval != 15*time.Second || keepaliveMisses != 3 {
+			t.Fatalf("keepalive = %v x %d", keepaliveInterval, keepaliveMisses)
 		}
 	})
 }

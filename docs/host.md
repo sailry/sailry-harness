@@ -156,7 +156,12 @@ handshake supplies a remote Node's advertised software and protocol versions;
 the local Node uses the running build's versions. A controller and a Host are
 compatible when their protocol versions are equal (`internal/link/compatibility.go`);
 the software version is shown and offered for update, never compared for
-compatibility. The time zone is the computer's own: `HostInfo.timezone`, an
+compatibility. A mismatch toasts the reference's copy chosen from the fault's
+details (`host_version_older`, `host_version_newer`, `host_version_unknown`,
+`controller_version_unknown`; `feedback.rs` `fault_message`) rather than the
+fault's English message, and a Link failure of any kind leaves the page once
+the Link reaches the host again.
+The time zone is the computer's own: `HostInfo.timezone`, an
 optional member its Node fills with the zone's abbreviation and offset
 (`CST +08:00`, or `UTC+08:00` for a zone without a name). A Node that
 reports none leaves the fact unknown; the controller's zone is never shown
@@ -421,5 +426,6 @@ and time zone; `internal/node/files/browser_test.go`: the volume rule.
 | Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
 | An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
 | Update confirmation drops the cached connection after each unconfirmed probe as well as before the first | Rust disconnects once before probing; a probe that reached the old process would otherwise leave its connection for the next |
+| An SSH connection prefers its trusted host key's algorithm and sends `keepalive@openssh.com` every 15 seconds, closing after 45 seconds without a reply (`internal/ssh/connect.go`) | Rust connects with russh's default configuration: a server that added a key type the library prefers read as a changed key, and a connection whose route died stayed open. The order and the interval are OpenSSH's (`HostKeyAlgorithms` from known keys, `ServerAliveInterval` 15 with `ServerAliveCountMax` 3) |
 | The time zone is an abbreviation with its offset, not an IANA name | Go's standard library exposes the local zone's abbreviation and offset on every platform; the IANA name is not available without `TZ` or a platform call. A Host built before `HostInfo.timezone` shows it as unknown |
 | The sidebar footer keeps its summary samples | It shows the selected Node's load without the page's detail |

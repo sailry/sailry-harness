@@ -391,10 +391,20 @@ func testPluginLocationHandoffs(t *testing.T) {
 					tree.Project = new(protocol.ProjectID{9})
 					fixture.source.outcome = pluginLocationTestOutcome(protocol.Output{Kind: "worktree", Data: tree})
 				}
+				// A request that is over says how it ended, so the package
+				// reports it once instead of asking again: its stored
+				// fault, or that the Node can never tell what it did.
+				want := protocol.ErrorCodeUnavailable
+				switch name {
+				case "fault":
+					want = protocol.ErrorCodeConflict
+				case "unknown":
+					want = protocol.ErrorCodeOutcomeUnknown
+				}
 				_, err := fixture.call(t, "sailry/ui.worktreeHasDrafts", pluginLocationTestArguments(t, fixture.target.ID, request.ID))
-				if faultCode(err) != protocol.ErrorCodeUnavailable ||
+				if faultCode(err) != want ||
 					len(fixture.source.commands) != 1 || len(fixture.root.workspace.admitted) != 0 {
-					t.Fatalf("unconfirmed handoff admitted a worktree or replayed its command: %v, %v", err, fixture.source.commands)
+					t.Fatalf("unconfirmed handoff admitted a worktree or replayed its command: %v, want %s, %v", err, want, fixture.source.commands)
 				}
 			})
 		})

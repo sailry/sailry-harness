@@ -595,6 +595,9 @@ background_outcome_stalled
 background_outcome_stopped
 background_outcome_timed_out
 background_outcome_unknown
+background_running
+background_exit
+background_result_waiting
 chat_compact_cancelled
 chat_compact_failed
 chat_compact_queued
@@ -2241,6 +2244,7 @@ directory_trash_confirm
 queue_guidance_outlived
 queue_halt_interrupted
 queue_halt_unsent
+usage_read_failed
 chat_output_limit
 start_failed
 start_profile_in_use
@@ -2256,6 +2260,10 @@ backup_restart_restored
 backup_restart_consequence
 backup_restart_invalid
 backup_restart_failed
+host_version_older
+host_version_newer
+host_version_unknown
+controller_version_unknown
 content_link_address
 content_link_edit
 content_image_address

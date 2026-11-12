@@ -21,6 +21,10 @@ type checkpointRecord struct {
 	After    protocol.ConversationCheckpointVersion  `json:"after"`
 	Digest   string                                  `json:"digest"`
 	Set      bool                                    `json:"set,omitempty"`
+	// Restored is set once restore_file_checkpoint undid the change. It
+	// lives in the checkpoint's row, so it goes when the row is pruned with
+	// its removed session.
+	Restored bool `json:"restored,omitempty"`
 }
 
 // turnCheckpoints lists the files of turn ?1 in the order their changes were
@@ -180,7 +184,32 @@ func readCheckpointFile(ctx context.Context, db *sql.Conn, id protocol.Checkpoin
 	}
 	out.Outcome, err = admission.Inspect(ctx, db, node, requestID, record.Digest)
 	out.ID, out.Turn, out.Worktree, out.Path, out.Before, out.After = id, turnID, record.Worktree, record.Path, record.Before, record.After
+	out.Restored = record.Restored
 	return out, err
+}
+
+// MarkCheckpointRestored records that a checkpoint's change was undone, in
+// the transaction that stores the restore's receipt, so the fact survives a
+// restart and reaches every controller with the checkpoint list.
+func MarkCheckpointRestored(ctx context.Context, db *sql.Conn, id protocol.CheckpointID) error {
+	for _, table := range []string{"file_checkpoints", "file_checkpoint_entries"} {
+		// Only this member changes; the rest of the record is kept as stored.
+		record, err := readBody[map[string]json.RawMessage](ctx, db, "SELECT body FROM "+table+" WHERE id=?1", id.String())
+		if err != nil {
+			return err
+		}
+		if record == nil {
+			continue
+		}
+		(*record)["restored"] = json.RawMessage("true")
+		body, err := encode(record)
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "UPDATE "+table+" SET body=?2 WHERE id=?1", id.String(), body)
+		return err
+	}
+	return fault(protocol.ErrorCodeNotFound, "file checkpoint does not exist")
 }
 func ListFileCheckpoints(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID, before *protocol.CheckpointID, limit uint16) (protocol.ConversationCheckpointPage, error) {
 	out := protocol.ConversationCheckpointPage{Session: session, Turn: turn, Files: []protocol.ConversationCheckpointFile{}}

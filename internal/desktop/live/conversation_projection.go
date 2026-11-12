@@ -156,6 +156,8 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		turns = append(turns, t)
 	}
 	associations := map[string][]toolAssociation{}
+	// started is the background task each call started, by the call's row.
+	started := map[string]string{}
 	// User entries replace the captured pending input once canonical history arrives.
 	canonicalUsers := map[protocol.TurnID]bool{}
 	summarized := map[int]bool{}
@@ -231,7 +233,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 			// Search is work in the accepted layout, so it precedes the answer.
 			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources, Suggestions: searchSuggestions(*entry.SearchSuggestions)})
 		}
-		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, language)
+		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, language)
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
@@ -267,7 +269,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	for _, draft := range snapshot.Drafts {
 		if position, ok := positions[owners[draft.Turn]]; ok {
 			t := &turns[position]
-			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, language)
+			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, language)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
 			}
@@ -320,6 +322,15 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 					calls[call.ID] = call
 				}
 			}
+		}
+	}
+	// A command sent to the background says where it is on the row of the
+	// call that started it, so a result no turn has taken is still in the
+	// transcript. A task the Node no longer lists leaves the row as it was.
+	for id, task := range started {
+		index := slices.IndexFunc(page.Background, func(t protocol.ConversationBackgroundTask) bool { return t.ID == task })
+		if call := calls[id]; call != nil && index >= 0 {
+			call.Background = projectBackground(page.Background[index])
 		}
 	}
 	var interactions composer.Interactions
@@ -563,6 +574,21 @@ scan:
 	return count
 }
 
+// projectBackground is a background command's state for the row of the call
+// that started it: running, or how it ended, the exit code of one that
+// failed, and whether its result still waits for a turn to take it.
+func projectBackground(task protocol.ConversationBackgroundTask) *conversation.Background {
+	background := &conversation.Background{Running: task.State == protocol.ConversationBackgroundStateRunning, Waiting: task.State == protocol.ConversationBackgroundStatePending}
+	if task.Outcome != nil {
+		background.Outcome = noticeOutcome(*task.Outcome)
+	}
+	if task.ExitCode != nil && *task.ExitCode != 0 {
+		code := int(*task.ExitCode)
+		background.Exit = &code
+	}
+	return background
+}
+
 func noticeOutcome(outcome protocol.ConversationBackgroundOutcome) conversation.NoticeOutcome {
 	switch outcome {
 	case "failed":
@@ -639,7 +665,7 @@ func projectedCall(reply *conversation.Reply, id string) *conversation.Call {
 	return nil
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, language string) {
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, language string) {
 	for index, part := range parts {
 		switch part.Kind {
 		case "thinking":
@@ -724,6 +750,9 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 				projected.Standalone, projected.Terminal = call.Standalone, terminalInteraction(result.Name)
 				*call = projected
 				call.Running = false
+				if result.Summary != nil && result.Summary.Task != nil {
+					started[call.ID] = *result.Summary.Task
+				}
 				// The pictures a tool returned show under its output.
 				for _, image := range result.Images {
 					if call.Output == nil {

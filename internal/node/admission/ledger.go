@@ -33,7 +33,8 @@ var settleRetry = time.Second
 // A request is in one of three states. "admitted": it is running, or its
 // result is being stored. "completed": it ended and its success or fault is
 // stored. "unknown": the Node stopped while it ran, so nobody can tell what it
-// did. The last two are final; nothing changes such a row except Prune.
+// did. The last two are final; nothing changes such a row except Prune, and
+// Resolve for a request that another Node holds too.
 
 // CredentialBody is the ledger identity of a request that carries a secret:
 // its digest, so replay is exact and the secret is never retained.
@@ -110,6 +111,13 @@ func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request
 // Complete stores the result of a running request inside the caller's
 // transaction. A caller whose transaction then fails uses Settle.
 func Complete(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, response link.Response) error {
+	return record(ctx, db, caller, id, response, "status='admitted'")
+}
+
+// unresolved selects a request whose stored outcome is that it is not known.
+const unresolved = "(status='unknown' OR status='completed' AND json_extract(result,'$.Err.code')='outcome_unknown')"
+
+func record(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, response link.Response, state string) error {
 	value := protocol.Result[protocol.Output, protocol.Fault]{Err: response.Fault}
 	if response.Fault == nil {
 		value.Ok = &response.Output
@@ -118,7 +126,7 @@ func Complete(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id prot
 	if err != nil {
 		return err
 	}
-	changed, err := db.ExecContext(ctx, "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'", caller[:], id.String(), string(body))
+	changed, err := db.ExecContext(ctx, "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND "+state, caller[:], id.String(), string(body))
 	if err != nil {
 		return err
 	}
@@ -136,9 +144,22 @@ func Complete(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id prot
 // start), when the store can no longer confirm a commit, and when the request
 // is not running.
 func Settle(ctx context.Context, write func(context.Context, func(*sql.Conn) error) error, caller protocol.NodeID, id protocol.RequestID, response link.Response) error {
+	return settle(ctx, write, caller, id, response, "status='admitted'")
+}
+
+// Resolve replaces an outcome that was stored as not known with the answer
+// obtained later from the one party that knows it: the Node a request was
+// forwarded to, which holds the request under the same identifier. It writes
+// as Settle does. Nothing else changes a final row, and a row that holds a
+// success or any other fault is left alone (ErrNotAdmitted).
+func Resolve(ctx context.Context, write func(context.Context, func(*sql.Conn) error) error, caller protocol.NodeID, id protocol.RequestID, response link.Response) error {
+	return settle(ctx, write, caller, id, response, unresolved)
+}
+
+func settle(ctx context.Context, write func(context.Context, func(*sql.Conn) error) error, caller protocol.NodeID, id protocol.RequestID, response link.Response, state string) error {
 	recording := context.WithoutCancel(ctx)
 	for {
-		err := write(recording, func(db *sql.Conn) error { return Complete(recording, db, caller, id, response) })
+		err := write(recording, func(db *sql.Conn) error { return record(recording, db, caller, id, response, state) })
 		if err == nil || errors.Is(err, ErrNotAdmitted) {
 			return err
 		}

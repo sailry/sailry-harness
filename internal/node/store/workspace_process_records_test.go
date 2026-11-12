@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +44,24 @@ func TestCommandEvidenceRecovery(t *testing.T) {
 		}
 		if record == nil || !record.FollowUp || record.Task.Revision != 2 || record.Task.State != protocol.ConversationBackgroundStatePending || record.Task.Outcome == nil || *record.Task.Outcome != protocol.ConversationBackgroundOutcomeCompleted || record.ElapsedMs == nil || *record.ElapsedMs != 12 || record.Stdout == nil || !strings.HasSuffix(*record.Stdout, "中") || len(*record.Stdout) > 2048 {
 			return errors.New("durable command completion changed")
+		}
+		if record.Task.ExitCode == nil || *record.Task.ExitCode != 0 {
+			return fmt.Errorf("a command that exited states exit code %v", record.Task.ExitCode)
+		}
+		// The call that started the command names its task, and no other call does.
+		for result, want := range map[string]string{
+			`{"kind":"command_started","data":{"id":"` + request.ID.String() + `"}}`: record.Task.ID,
+			`{"kind":"command_result","data":{"id":"` + request.ID.String() + `"}}`:  "",
+			`{"kind":"command_started","data":{"id":"elsewhere"}}`:                   "",
+		} {
+			body := json.RawMessage(result)
+			summary, err := (&rawAgentTool{Arguments: json.RawMessage("null"), Result: &body, Presentation: protocol.ToolPresentationSummary, Grouping: protocol.ToolGroupingSequence, Images: []protocol.ConversationImage{}}).summary()
+			if err != nil {
+				return err
+			}
+			if got := summary.Task; got == nil && want != "" || got != nil && *got != want {
+				return fmt.Errorf("the summary of %s names the task %v, want %q", result, got, want)
+			}
 		}
 		return nil
 	}); err != nil {

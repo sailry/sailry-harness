@@ -578,6 +578,9 @@ background_outcome_stalled: 近期無輸出
 background_outcome_stopped: 已停止
 background_outcome_timed_out: 逾時
 background_outcome_unknown: 結果不確定
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 壓縮已取消
 chat_compact_failed: 壓縮失敗
 chat_compact_queued: 等待壓縮
@@ -2229,6 +2232,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 無法讀取用量，請重試
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2244,6 +2248,10 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host 版本較舊，請更新 Host
+host_version_newer: Host 版本較新，請更新桌面端
+host_version_unknown: 無法確認 Host 版本，請更新 Host
+controller_version_unknown: 無法確認桌面端版本，請更新桌面端
 content_link_address: 連結位址
 content_link_edit: 編輯連結
 content_image_address: 圖片位址

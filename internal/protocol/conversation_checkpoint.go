@@ -77,6 +77,10 @@ type ConversationCheckpointFile struct {
 	Before   *ConversationCheckpointVersion `json:"before"`
 	After    ConversationCheckpointVersion  `json:"after"`
 	Outcome  RequestOutcome                 `json:"outcome"`
+	// Restored is set once the change was undone by restore_file_checkpoint.
+	// It is absent for a change that was not, and from a peer that does not
+	// state it.
+	Restored bool `json:"restored,omitempty"`
 }
 
 func DefaultConversationCheckpointFile() ConversationCheckpointFile {
@@ -88,6 +92,7 @@ func DefaultConversationCheckpointFile() ConversationCheckpointFile {
 		Before:   nil,
 		After:    DefaultConversationCheckpointVersion(),
 		Outcome:  RequestOutcome{},
+		Restored: false,
 	}
 }
 func (value *ConversationCheckpointFile) UnmarshalJSON(data []byte) error {

@@ -578,6 +578,9 @@ background_outcome_stalled: 最近の出力なし
 background_outcome_stopped: 停止済み
 background_outcome_timed_out: タイムアウト
 background_outcome_unknown: 結果は不確定
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 圧縮中止
 chat_compact_failed: 圧縮に失敗しました
 chat_compact_queued: コンパクト化を待っています
@@ -2229,6 +2232,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2244,6 +2248,10 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host が古いため、Host を更新してください
+host_version_newer: Host が新しいため、デスクトップを更新してください
+host_version_unknown: Host のバージョンを確認できません。Host を更新してください
+controller_version_unknown: デスクトップのバージョンを確認できません。更新してください
 content_link_address: リンクアドレス
 content_link_edit: リンクを編集
 content_image_address: 画像アドレス

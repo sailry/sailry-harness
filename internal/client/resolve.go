@@ -83,9 +83,19 @@ func (client *Client) Settle(ctx context.Context, request protocol.Request) (pro
 		return output, unknown
 	}
 	resolution, err := client.Resolve(ctx, request)
-	if err != nil {
+	if err != nil || resolution.State == RequestPending {
 		return protocol.Output{}, unknown
 	}
+	return resolution.Result()
+}
+
+// Result is the answer a resolution gives its request, as Settle returns it:
+// the stored output, the stored fault, an error that satisfies Released when
+// the request never reached the Node (Unavailable) or the Node can never
+// tell what it did (OutcomeUnknown), and an OutcomeUnknown that satisfies
+// Retained while the Node still runs the request. A flow that keeps its own
+// request and asks with Resolve reads the answer here.
+func (resolution Resolution) Result() (protocol.Output, error) {
 	switch resolution.State {
 	case RequestApplied:
 		return resolution.Output, nil
@@ -96,7 +106,7 @@ func (client *Client) Settle(ctx context.Context, request protocol.Request) (pro
 	case RequestUnknown:
 		return protocol.Output{}, &releasedError{FaultError: &link.FaultError{Fault: *resolution.Fault}}
 	default:
-		return protocol.Output{}, unknown
+		return protocol.Output{}, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the Node is still running the request"}}
 	}
 }
 

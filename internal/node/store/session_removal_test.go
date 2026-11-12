@@ -42,6 +42,14 @@ func TestRemovedSessionStorage(t *testing.T) {
 			if _, err = db.ExecContext(ctx, "INSERT INTO file_checkpoint_entries(id,checkpoint,position,body,before_text,after_text) VALUES(?1,?2,1,'{}','before','after')", protocol.NewCheckpointID().String(), checkpoint.String()); err != nil {
 				return err
 			}
+			// That a change was undone lives in its checkpoint's row and goes with it.
+			if err = MarkCheckpointRestored(ctx, db, checkpoint); err != nil {
+				return err
+			}
+			var stored string
+			if err = db.QueryRowContext(ctx, "SELECT body FROM file_checkpoints WHERE id=?1", checkpoint.String()).Scan(&stored); err != nil || stored != `{"restored":true}` {
+				return fmt.Errorf("restored checkpoint was stored %q: %v", stored, err)
+			}
 			for index := range 2 {
 				attachment := protocol.Attachment{ID: protocol.NewAttachmentID(), Spec: protocol.AttachmentSpec{Worktree: session.Worktree, Name: "input.txt", MediaType: "text/plain", Size: 5, Revision: fmt.Sprintf("%x", blake3.Sum256([]byte("input")))}}
 				if err = InsertAttachment(ctx, db, node, attachment); err != nil {

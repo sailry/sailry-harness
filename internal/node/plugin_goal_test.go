@@ -28,6 +28,8 @@ type goalStep struct {
 	calls [][3]string
 	text  string
 	gate  chan struct{}
+	// fail ends the request with a fault no retry can mend.
+	fail bool
 }
 
 // goalScript answers the main session's model requests in order and keeps
@@ -79,6 +81,9 @@ func (script *goalScript) Stream(ctx context.Context, call fantasy.Call) (fantas
 	step := script.steps[0]
 	script.steps = script.steps[1:]
 	script.mu.Unlock()
+	if step.fail {
+		return nil, &fantasy.ProviderError{Title: "unauthorized", Message: "fixture key rejected", StatusCode: 401}
+	}
 	if step.gate != nil {
 		script.gated.Add(1)
 		select {
@@ -271,7 +276,9 @@ func (f *goalFixture) read() ([]protocol.ConversationRun, map[string]any) {
 
 func (f *goalFixture) wait(name string, done func([]protocol.ConversationRun, map[string]any) bool) ([]protocol.ConversationRun, map[string]any) {
 	f.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	// A chain of 25 turns beside the Nodes of the other subtests outgrows
+	// half a minute on a loaded machine; the fixture context bounds the test.
+	deadline := time.Now().Add(90 * time.Second)
 	for {
 		runs, goal := f.read()
 		if done(runs, goal) {
@@ -557,6 +564,133 @@ func TestGoalLoop(t *testing.T) {
 		}
 	})
 
+	// shown is the goal as the panel reads it.
+	shown := func(f *goalFixture) (status, reason, state string) {
+		f.t.Helper()
+		var view struct {
+			Goal struct {
+				Status string `json:"status"`
+				Reason string `json:"reason"`
+				State  string `json:"state"`
+			} `json:"goal"`
+		}
+		if err := json.Unmarshal(f.call("read_plugin_callback", "inspect", map[string]any{}), &view); err != nil {
+			f.t.Fatal(err)
+		}
+		return view.Goal.Status, view.Goal.Reason, view.Goal.State
+	}
+	// facts is what the Node states of the session's runs and background work.
+	facts := func(f *goalFixture) protocol.ConversationRunsPage {
+		f.t.Helper()
+		return commandFixture(f.t, f.node, protocol.Command{Kind: "read_conversation_runs", Data: protocol.CommandReadConversationRunsPayload{Session: f.session.ID, Limit: 8}}).Data.(protocol.ConversationRunsPage)
+	}
+	// waiting starts a goal whose first turn delegates a background child
+	// and leaves it waiting for the child's result.
+	waiting := func(t *testing.T) *goalFixture {
+		t.Helper()
+		f := newGoalFixture(t, protocol.WorkModeCode)
+		f.script.push(
+			goalStep{calls: [][3]string{{"spawn", "spawn_agent", `{"task":"Check the fixture","background":true}`}}},
+			goalStep{text: "Delegated"},
+		)
+		f.send("/goal Make the fixture pass and prove it")
+		f.wait("the wait for background work", func(runs []protocol.ConversationRun, goal map[string]any) bool {
+			return len(runs) == 1 && runs[0].Status == protocol.ConversationStatusCompleted && goal != nil && goal["waiting"] == true
+		})
+		if status, _, state := shown(f); status != "active" || state != "waiting" {
+			t.Fatalf("a goal whose background work runs is shown %s, %s", status, state)
+		}
+		if page := facts(f); page.Background == nil || page.Background.Running != 1 || page.Background.Pending != 0 || len(page.Runs) != 1 || page.Runs[0].Recovered {
+			t.Fatalf("run facts while the child runs = %+v, %+v", page.Background, page.Runs)
+		}
+		return f
+	}
+
+	t.Run("background work the user stops leaves the goal paused until a reply", func(t *testing.T) {
+		t.Parallel()
+		f := waiting(t)
+		// The stopped child reports nothing by itself: no notice turn follows.
+		stopped := false
+		for _, session := range snapshotFixture(t, f.node).Sessions {
+			if session.Delegation == nil || *session.Delegation == nil {
+				continue
+			}
+			var history protocol.ConversationHistory
+			if err := f.node.profile.Store.Node.Read(f.ctx, func(db *sql.Conn) error {
+				var err error
+				history, err = store.ReadConversation(f.ctx, db, session.ID, nil, 10)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, run := range history.Page.Runs {
+				commandFixture(t, f.node, protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}})
+				stopped = true
+			}
+		}
+		if !stopped {
+			t.Fatal("the background child has no turn to stop")
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			status, reason, state := shown(f)
+			if status == "paused" && reason == "stopped" && state == "paused" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the goal whose background work was stopped is shown %s, %s, %s", status, reason, state)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if page := facts(f); page.Background == nil || page.Background.Running != 0 || page.Background.Pending != 0 || page.Runs[0].Recovered {
+			t.Fatalf("run facts after the stop = %+v, %+v", page.Background, page.Runs)
+		}
+		// Nothing was started for it, and the stored goal is what a reply continues.
+		if runs, goal := f.read(); len(runs) != 1 || goal["status"] != "active" {
+			t.Fatalf("after the stop: %+v, %v", runs, goal)
+		}
+		f.finished()
+		f.script.push(goalStep{text: "Going on without it"}, goalStep{calls: block("Need a review")}, goalStep{text: "Blocked"})
+		f.send("Carry on without the check")
+		runs, _ := f.settled("blocked", nil)
+		f.finished()
+		if len(runs) != 3 || runs[1].Notice || runs[1].Continuation != nil || runs[2].Continuation == nil {
+			t.Fatalf("turns after the reply = %+v", runs)
+		}
+	})
+
+	t.Run("a restart while the goal waits for background work leaves it paused", func(t *testing.T) {
+		t.Parallel()
+		f := waiting(t)
+		if err := f.node.Stop(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		script := newGoalScript()
+		script.main.Store(&f.session.ID)
+		f.start(script)
+		// The goal's last turn completed and was handled; it ended before
+		// this Node started, so nothing of its loop is left.
+		if page := facts(f); len(page.Runs) != 1 || page.Runs[0].Status != protocol.ConversationStatusCompleted || !page.Runs[0].Recovered ||
+			page.Background == nil || page.Background.Running != 0 || page.Background.Pending != 0 {
+			t.Fatalf("run facts after the restart = %+v, %+v", page.Background, page.Runs)
+		}
+		if status, reason, state := shown(f); status != "paused" || reason != "restart" || state != "paused" {
+			t.Fatalf("goal after the restart = %s, %s, %s", status, reason, state)
+		}
+		time.Sleep(300 * time.Millisecond)
+		if runs, _ := f.read(); len(runs) != 1 {
+			t.Fatalf("turns after the restart = %+v", runs)
+		}
+		f.finished()
+		f.script.push(goalStep{calls: block("Need a decision")}, goalStep{text: "Blocked"})
+		f.control("resume")
+		runs, _ := f.settled("blocked", nil)
+		f.finished()
+		if len(runs) != 2 || runs[1].Continuation == nil || !runs[1].Continuation.User {
+			t.Fatalf("Resume after the restart = %+v", runs)
+		}
+	})
+
 	t.Run("a restart leaves the goal paused until Resume", func(t *testing.T) {
 		t.Parallel()
 		f := newGoalFixture(t, protocol.WorkModeCode)
@@ -598,7 +732,60 @@ func TestGoalLoop(t *testing.T) {
 		}
 	})
 
-	t.Run("the model cannot pause, resume, edit or clear on its own", func(t *testing.T) {
+	t.Run("a failed goal turn is notified once, by the Node, and End closes the goal", func(t *testing.T) {
+		t.Parallel()
+		f := newGoalFixture(t, protocol.WorkModeCode)
+		f.script.push(goalStep{text: "Started"}, goalStep{fail: true})
+		f.send("/goal Make the fixture pass and prove it")
+		runs, goal := f.settled("paused", "error")
+		f.finished()
+		if len(runs) != 2 || runs[1].Status != protocol.ConversationStatusFailed || runs[1].Continuation == nil || goal["detail"] == nil {
+			t.Fatalf("failed goal turn = %+v, goal %v", runs, goal)
+		}
+		// The panel and badge show the reason; the one notification of the
+		// failure is the Node's, of the run. (The user's own turn that set
+		// the goal has the Node's ordinary completion notice.)
+		if status, reason, _ := shown(f); status != "paused" || reason != "error" {
+			t.Fatalf("the goal after its failed turn is shown %s, %v", status, reason)
+		}
+		var all, failures []protocol.NotificationNotice
+		f.wait("the run's notification", func([]protocol.ConversationRun, map[string]any) bool {
+			all, failures = snapshotFixture(t, f.node).Notifications, nil
+			for _, notice := range all {
+				if notice.Content.Kind != protocol.NotificationKindSuccess {
+					failures = append(failures, notice)
+				}
+			}
+			return len(failures) != 0
+		})
+		if len(failures) != 1 || failures[0].Package != "" || failures[0].Content.Kind != protocol.NotificationKindError ||
+			failures[0].Content.Session == nil || *failures[0].Content.Session != f.session.ID || len(all) != 2 || len(f.notices()) != 0 {
+			t.Fatalf("notifications of the failed goal turn = %+v", all)
+		}
+		// Edit is gone and Clear is End: the old kinds are refused, and End
+		// moves the goal to the history under its stored outcome.
+		for _, kind := range []string{"edit", "clear"} {
+			body, _ := json.Marshal(map[string]any{"kind": kind, "goal_id": goal["id"]})
+			request := protocol.NewRequest(f.node.ID(), protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: "control", Input: body}})
+			request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "workspace"}, Package: f.reference, Worktree: new(f.session.Worktree), Session: new(f.session.ID)}
+			if response := dispatchFixture(t, f.node, f.node.ID(), request); response.Fault == nil {
+				t.Fatalf("control %q was accepted", kind)
+			}
+		}
+		f.control("end")
+		var view struct {
+			Goal    map[string]any   `json:"goal"`
+			History []map[string]any `json:"history"`
+		}
+		if err := json.Unmarshal(f.call("read_plugin_callback", "inspect", map[string]any{}), &view); err != nil {
+			t.Fatal(err)
+		}
+		if view.Goal != nil || len(view.History) != 1 || view.History[0]["outcome"] != "cleared" || view.History[0]["objective"] != "Make the fixture pass and prove it" || len(f.notices()) != 0 {
+			t.Fatalf("after End = %+v, notices %+v", view, f.notices())
+		}
+	})
+
+	t.Run("the model cannot pause, resume, replace or end on its own", func(t *testing.T) {
 		t.Parallel()
 		f := newGoalFixture(t, protocol.WorkModeCode)
 		f.script.push(
@@ -606,8 +793,8 @@ func TestGoalLoop(t *testing.T) {
 			goalStep{calls: [][3]string{
 				{"pause", update, `{"status":"paused"}`},
 				{"resume", update, `{"status":"active"}`},
-				{"edit", update, `{"status":"blocked","note":"Shrink it","objective":"A smaller goal"}`},
-				{"clear", operations.Alias("goals", "clear_goal"), `{}`},
+				{"replace", update, `{"status":"blocked","note":"Shrink it","objective":"A smaller goal"}`},
+				{"end", operations.Alias("goals", "end_goal"), `{}`},
 			}},
 			goalStep{calls: block("Only the user can decide")},
 			goalStep{text: "Blocked"},
@@ -615,7 +802,7 @@ func TestGoalLoop(t *testing.T) {
 		f.send("/goal Make the fixture pass and prove it")
 		_, goal := f.settled("blocked", nil)
 		f.finished()
-		for call, refusal := range map[string]string{"pause": "Only the user can pause the goal", "resume": "Only the user can resume the goal", "edit": "invalid tool arguments", "clear": "not handled"} {
+		for call, refusal := range map[string]string{"pause": "Only the user can pause the goal", "resume": "Only the user can resume the goal", "replace": "invalid tool arguments", "end": "not handled"} {
 			if result := f.result(call); !strings.Contains(result, refusal) {
 				t.Errorf("%s was not refused with %q: %q", call, refusal, result)
 			}

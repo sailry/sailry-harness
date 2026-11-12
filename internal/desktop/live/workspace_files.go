@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -28,7 +29,8 @@ func (p *workspaceProject) mutate(command protocol.Command, done func(*ui.Contex
 		if git {
 			p.gitRunning--
 		}
-		unknown := faultCode(err) == protocol.ErrorCodeOutcomeUnknown
+		// Only a request the Runtime kept can be checked again.
+		unknown := client.Retained(err)
 		p.panel.SetPromptUncertain(unknown)
 		if unknown {
 			if p.uncertainOperations == nil {

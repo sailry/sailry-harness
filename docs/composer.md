@@ -527,9 +527,14 @@ decide it. `interrupted` over a queue that holds user input is the warning
 uncertain); `unrecorded` is the error `queue_halt_unsent` (a turn ended before
 its input reached history, and the message is a row again). The user's own
 Stop (`stopped`) and pause (`user`) are not reported. `Runtime.queueHalts`
-keeps the last halt read per conversation, so a halt is reported when it
-begins and not on later frames; the state a conversation is first read in is
-only recorded, so a restart repeats nothing. The rows stay ordinary rows the
+keeps the last halt read per conversation, so a halt is reported once and not
+on later frames. Only a shown conversation is read: a halt that happened while
+its conversation was closed, or before the window started (the Node pauses
+every queue with pending input as `interrupted` when it starts), is reported
+when that conversation is first opened, and nothing is said at startup for the
+conversations that stay closed. The memory is the window's: no per-conversation
+desktop state is stored, so a queue that is still halted is reported once more
+after the application restarts. The rows stay ordinary rows the
 user sends, edits or removes; Send now or a new message resumes the queue.
 The Go desktop has no paused-queue strip and no resume action: the root
 catalogs' `queue_paused` and `queue_paused_count` are the Rust application's.

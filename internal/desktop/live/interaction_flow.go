@@ -49,18 +49,25 @@ func (r *Runtime) interactionFlow(id string) *interactionFlow {
 
 // sendInteraction executes the attempt's request. Success settles it; a
 // closed, changed or rejected request is dropped with its toast; an unknown
-// outcome keeps the request for Retry.
+// outcome keeps the request for Retry, which resolves it.
 func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
 	if a.busy || f.approval != a && f.question != a {
 		return
 	}
+	// Retry sends the kept request again and asks the Node what became of
+	// it, so an outcome that can never be known ends the request.
+	again := a.retained
 	a.busy, a.retained = true, false
 	r.async(func() {
-		output, err := r.controller.Execute(r.ctx, a.request)
+		send := r.controller.Execute
+		if again {
+			send = r.controller.Settle
+		}
+		output, err := send(r.ctx, a.request)
 		r.enqueue(func(c *ui.Context) {
 			a.busy = false
 			code := faultCode(err)
-			a.retained = err != nil && (code == "" || code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == protocol.ErrorCodeBusy)
+			a.retained = err != nil && !client.Released(err) && (code == "" || code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == protocol.ErrorCodeBusy)
 			if !a.retained {
 				if f.approval == a {
 					f.approval = nil
@@ -95,6 +102,9 @@ func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
 				kit.Toast(c, kit.Conflict, i18n.T(c, "plan_config_changed"))
 			case a.question && code == protocol.ErrorCodeInvalidRequest:
 				kit.Toast(c, kit.Failed, i18n.T(c, "question_invalid_answer"))
+			case code == protocol.ErrorCodeOutcomeUnknown:
+				// Released: the Node can never tell what the request did.
+				kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_action_unknown"))
 			default:
 				kit.Toast(c, kit.Failed, i18n.T(c, "chat_action_failed"))
 			}
