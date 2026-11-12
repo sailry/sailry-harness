@@ -345,6 +345,19 @@ func validateModels(extension protocol.PluginExtension) error {
 			(auth.Exchange != nil || auth.Flow.Kind == "script") && !has(protocol.PluginActionInspectCredentials) {
 			return packageFault("plugin model sign-in requires an undeclared action")
 		}
+		if warning := auth.Warning; warning != nil {
+			text := func(value string) bool {
+				return strings.TrimSpace(value) != "" && len(value) <= 1024 && !strings.ContainsFunc(value, unicode.IsControl)
+			}
+			if !text(warning.Text) || len(warning.Locales) > 32 {
+				return packageFault("invalid plugin model sign-in warning")
+			}
+			for locale, value := range warning.Locales {
+				if strings.TrimSpace(locale) == "" || len(locale) > 32 || !text(value) {
+					return packageFault("invalid plugin model sign-in warning")
+				}
+			}
+		}
 	}
 	for index, resource := range extension.ModelResources {
 		if slices.ContainsFunc(extension.ModelResources[:index], func(other protocol.PluginModelAuthResource) bool {

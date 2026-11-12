@@ -260,3 +260,67 @@ func TestDenyUnknownFields(t *testing.T) {
 		})
 	}
 }
+
+func TestModelAuthWarning(t *testing.T) {
+	t.Parallel()
+	polling := `"flow":{"kind":"polling","start":{"url":"https://example.test/start"},"state":"/state","verification_url":"/url","token":{"url":"https://example.test/token"},"success":{"pointer":"/code","values":[0]}}`
+	t.Run("a declaration without one decodes as before and omits it", func(t *testing.T) {
+		var declaration PluginModelAuthDeclaration
+		if err := json.Unmarshal([]byte(`{"id":"account","display":{"label":"Account"},`+polling+`}`), &declaration); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(declaration)
+		if err != nil || declaration.Warning != nil || bytes.Contains(encoded, []byte(`"warning"`)) {
+			t.Fatalf("absent warning: %v %s", err, encoded)
+		}
+	})
+	t.Run("a declared one round trips and refuses unknown members", func(t *testing.T) {
+		source := `{"id":"account","display":{"label":"Account"},` + polling + `,"warning":{"text":"Risk","locales":{"zh-CN":"风险"}}}`
+		var declaration, again PluginModelAuthDeclaration
+		if err := json.Unmarshal([]byte(source), &declaration); err != nil {
+			t.Fatal(err)
+		}
+		if declaration.Warning == nil || declaration.Warning.Text != "Risk" || declaration.Warning.Locales["zh-CN"] != "风险" {
+			t.Fatalf("warning: %+v", declaration.Warning)
+		}
+		encoded, err := json.Marshal(declaration)
+		if err != nil || json.Unmarshal(encoded, &again) != nil || !reflect.DeepEqual(declaration, again) {
+			t.Fatalf("round trip: %v %s", err, encoded)
+		}
+		var warning PluginModelAuthWarning
+		if json.Unmarshal([]byte(`{"text":"Risk","title":"extra"}`), &warning) == nil {
+			t.Fatal("authored warning accepted an unknown member")
+		}
+		if json.Unmarshal([]byte(`{"locales":{}}`), &warning) == nil {
+			t.Fatal("warning without text was accepted")
+		}
+	})
+	t.Run("a presets entry carries it and an older peer's entry has none", func(t *testing.T) {
+		older := `{"source":{"kind":"builtin"},"preset":` + string(must(json.Marshal(DefaultConversationPresetsPreset()))) + `,"provenance":"bundled","package":null,"origin":null}`
+		var entry ConversationPresetsEntry
+		if err := DecodeAs(PeerData, []byte(older), &entry); err != nil || entry.LoginWarning != nil {
+			t.Fatalf("older entry: %v %+v", err, entry.LoginWarning)
+		}
+		entry.LoginWarning = &PluginModelAuthWarning{Text: "Risk", Locales: map[string]string{"zh-CN": "风险"}}
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var again ConversationPresetsEntry
+		if err := DecodeAs(PeerData, encoded, &again); err != nil || !reflect.DeepEqual(entry.LoginWarning, again.LoginWarning) {
+			t.Fatalf("entry round trip: %v %s", err, encoded)
+		}
+		// A newer peer's member this build does not know is ignored.
+		widened := bytes.Replace(encoded, []byte(`"text":"Risk"`), []byte(`"text":"Risk","severity":"high"`), 1)
+		if err := DecodeAs(PeerData, widened, &again); err != nil || again.LoginWarning.Text != "Risk" {
+			t.Fatalf("widened entry: %v", err)
+		}
+	})
+}
+
+func must(data []byte, err error) []byte {
+	if err != nil {
+		panic(err)
+	}
+	return data
+}

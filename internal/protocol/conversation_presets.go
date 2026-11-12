@@ -631,18 +631,21 @@ type ConversationPresetsEntry struct {
 	Requested  ConversationConsentScopes     `json:"requested"`
 	Icon       *string                       `json:"icon,omitempty"`
 	Login      *PluginModelAuthPresentation  `json:"login,omitempty"`
+	// LoginWarning is the declaration's warning, absent when it has none.
+	LoginWarning *PluginModelAuthWarning `json:"login_warning,omitempty"`
 }
 
 func DefaultConversationPresetsEntry() ConversationPresetsEntry {
 	return ConversationPresetsEntry{
-		Source:     ConversationPresetsSource{},
-		Preset:     DefaultConversationPresetsPreset(),
-		Provenance: ConversationPresetsProvenance(""),
-		Package:    nil,
-		Origin:     nil,
-		Requested:  DefaultConversationConsentScopes(),
-		Icon:       nil,
-		Login:      nil,
+		Source:       ConversationPresetsSource{},
+		Preset:       DefaultConversationPresetsPreset(),
+		Provenance:   ConversationPresetsProvenance(""),
+		Package:      nil,
+		Origin:       nil,
+		Requested:    DefaultConversationConsentScopes(),
+		Icon:         nil,
+		Login:        nil,
+		LoginWarning: nil,
 	}
 }
 func (value *ConversationPresetsEntry) UnmarshalJSON(data []byte) error {
@@ -652,6 +655,7 @@ func (value *ConversationPresetsEntry) UnmarshalJSON(data []byte) error {
 	decoded.Requested = DefaultConversationConsentScopes()
 	decoded.Icon = nil
 	decoded.Login = nil
+	decoded.LoginWarning = nil
 	if err := DecodeObject(data, &decoded, []string{"source", "preset", "provenance"}, false); err != nil {
 		return err
 	}
