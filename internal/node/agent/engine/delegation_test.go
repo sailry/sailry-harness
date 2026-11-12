@@ -237,6 +237,13 @@ func TestDelegationHandoff(t *testing.T) {
 				case <-f.ctx.Done():
 					t.Fatal(f.ctx.Err())
 				}
+				// stopChildren and settleChildren find a child by its root.
+				f.r.mu.Lock()
+				next := f.r.children[successor]
+				f.r.mu.Unlock()
+				if next == nil || next.root != parent.inv.Session.ID {
+					t.Fatalf("guided successor is not a child of its parent session: %+v", next)
+				}
 				parent.cancel()
 				f.waitRun(successor, protocol.ConversationStatusCancelled)
 			}
