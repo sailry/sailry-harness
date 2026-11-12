@@ -161,6 +161,10 @@ func acpDigest(value any) string {
 // acpReply identifies an assistant message by its text and call identifiers,
 // the two things both the agent's reply and the stored history carry.
 func acpReply(text string, calls []string) string {
+	// A reply without calls is one value, whether its list is nil or empty.
+	if calls == nil {
+		calls = []string{}
+	}
 	return acpDigest([]any{strings.TrimSpace(text), calls})
 }
 

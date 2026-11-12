@@ -598,6 +598,15 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		if err != nil {
 			return false, err
 		}
+		// The finish delta ends the reply: the accumulated calls, the usage
+		// and the finish reason follow it.
+		if accumulator.finished {
+			ended, err := accumulator.finish()
+			if err != nil {
+				return false, err
+			}
+			parts = append(parts, ended...)
+		}
 		for _, part := range parts {
 			if !yield(part) {
 				return false, nil
