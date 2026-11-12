@@ -51,11 +51,12 @@ func TestCodeLooks(t *testing.T) {
 	// A diff is unified until its window's choice splits it, in place: the
 	// same state, so what was expanded and scrolled stays.
 	t.Run("DiffSplits", func(t *testing.T) {
+		var split *bool
 		tt := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
+			split = DiffSplit(c)
 			ui.Column(c).Fill().Children(func() {
-				DiffLayout(c, "layout")
-				Diff(c, ui.Column(c.Key("diff")).Grow(1).MinHeight(0), "a\nb\n", "a\nc\n", DiffOptions{Split: *DiffSplit(c)})
+				Diff(c, ui.Column(c.Key("diff")).Grow(1).MinHeight(0), "a\nb\n", "a\nc\n", DiffOptions{Split: *split})
 			})
 		}, 600, 300)
 		tt.SetLocale("en")
@@ -71,21 +72,17 @@ func TestCodeLooks(t *testing.T) {
 		if divided() {
 			t.Fatal("a diff starts split")
 		}
-		if err := tt.Click("Split"); err != nil {
-			t.Fatal(err)
-		}
+		*split = true
 		tt.Frame()
 		tt.Frame()
 		if !divided() {
-			t.Fatal("Split leaves the diff unified")
+			t.Fatal("the window's choice leaves the diff unified")
 		}
-		if err := tt.Click("Unified"); err != nil {
-			t.Fatal(err)
-		}
+		*split = false
 		tt.Frame()
 		tt.Frame()
 		if divided() {
-			t.Fatal("Unified leaves the diff split")
+			t.Fatal("the window's choice leaves the diff split")
 		}
 	})
 }

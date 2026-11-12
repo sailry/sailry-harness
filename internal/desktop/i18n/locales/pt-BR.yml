@@ -1446,8 +1446,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Escolher pasta
 skill_source_choose_archive: Escolher arquivo
 git_diff: Diferenças
-git_diff_split: Split
-git_diff_unified: Unified
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: Ler alterações do Git
 market_permission_git_write: Alterar Git
 market_permission_files_read: Ler arquivos

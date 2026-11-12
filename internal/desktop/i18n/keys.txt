@@ -1457,8 +1457,9 @@ skill_source_hub_hint
 skill_source_choose_directory
 skill_source_choose_archive
 git_diff
-git_diff_split
-git_diff_unified
+git_diff_side_by_side
+git_diff_inline
+git_diff_needs_width
 market_permission_git_read
 market_permission_git_write
 market_permission_files_read

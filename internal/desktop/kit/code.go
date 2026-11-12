@@ -202,7 +202,7 @@ type DiffOptions struct {
 	NoNumbers bool
 	// Split shows the old text on the left and the new on the right, their
 	// lines aligned, in place of the unified text; the panel's diffs pass
-	// the window's choice (DiffSplit).
+	// the window's choice (DiffSplit) where they have the width for it.
 	Split bool
 	// Actions builds the actions of the change under the pointer, around
 	// editor.DefaultHunkActions; nil shows none. Changed is called after
@@ -280,24 +280,12 @@ func BindDiffSplit(c *ui.Context, split *bool) {
 }
 
 // DiffSplit is the window's diff layout: true shows the old and the new
-// text side by side. Every diff of the panel follows it.
+// text side by side. Every diff of the panel follows it, and the button at
+// the end of a diff's footer writes it.
 func DiffSplit(c *ui.Context) *bool {
 	v := ui.Local(c.Root(), diffSplitKey{}, func() diffSplit { return diffSplit{} })
 	if v.bound != nil {
 		return v.bound
 	}
 	return &v.own
-}
-
-// DiffLayout is the Unified | Split choice of the window's diffs, a small
-// segmented control for a diff's toolbar.
-func DiffLayout(c *ui.Context, key any) ui.Element {
-	split := DiffSplit(c)
-	at := 0
-	if *split {
-		at = 1
-	}
-	e := Segmented(c, key, &at, []string{i18n.T(c, "git_diff_unified"), i18n.T(c, "git_diff_split")}, SegmentedProps{Size: SizeSmall})
-	*split = at == 1
-	return e
 }

@@ -1446,8 +1446,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 폴더 선택
 skill_source_choose_archive: 압축 파일 선택
 git_diff: 차이
-git_diff_split: Split
-git_diff_unified: Unified
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: Git 변경 사항 읽기
 market_permission_git_write: Git 변경
 market_permission_files_read: 파일 읽기

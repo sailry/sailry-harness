@@ -49,6 +49,9 @@ type Prefs struct {
 	// DiffSplit is the window's diff layout: side by side when set, else
 	// unified, as before the choice.
 	DiffSplit bool `json:"diffSplit,omitempty"`
+	// ListShare is the stacked list's share of the height (panel.pair);
+	// absent, as in a file from before, is the first share.
+	ListShare float32 `json:"listShare,omitempty"`
 }
 
 // PrefsFile is the preferences' file name in the app's user data folder,
@@ -102,7 +105,7 @@ func (a *App) prefs() Prefs {
 		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
 		Panels:   a.savedPanels(),
 		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
-		Panes: a.panes.Saved(), DiffSplit: a.DiffSplit,
+		Panes: a.panes.Saved(), DiffSplit: a.DiffSplit, ListShare: a.ListShare,
 	}
 	if keeps(a.Panel.Active) {
 		p.PanelTab = a.Panel.Active
@@ -127,7 +130,7 @@ func (a *App) prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
-	a.DiffSplit = p.DiffSplit
+	a.DiffSplit, a.ListShare = p.DiffSplit, p.ListShare
 	a.restorePanels(p)
 	a.Sidebar.SetCollapsed(p.Collapsed)
 	if a.Preview {
