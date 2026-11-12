@@ -115,13 +115,13 @@ mono worktree path.
 | Mark read / unread | menu | `Status` Unread ↔ Idle |
 | Archive | hover button, menu | Confirm (`workspace_archive`, `workspace_memory_only`, `workspace_confirm`), then hidden in memory |
 | Delete | menu | Confirm naming the session once (`session_delete`, `session_delete_named`), and for a chat without a project that its private workspace's files go with it (`session_delete_private_files`), then removed from memory; its split pane leaves with it |
-| Export, Fork, Open file, New window | menu | `preview_notice` toast. In Demo mode, which says nothing of itself: Fork conversation copies the session beside itself in memory and shows the copy, Fork in new worktree does so in a worktree added to the project in memory; Export, Open folder and New window are not offered, as they need a Node, the system's file manager or a second window (`fork`) |
+| Export, Fork, Open file, New window | menu | `preview_notice` toast. In Demo mode, which says nothing of itself: Fork conversation copies the session beside itself in memory and shows the copy, Fork in new worktree does so in a worktree added to the project in memory; Export, Open folder and New window are not offered, as they need a Node, the system's file manager or a second window (`fork`). Every other item of the menu, the hover buttons, the header's Sort and "+" and the drags act on the demo's memory as on the preview's |
 | Copy title, ID, path | menu › `content_copy` | Clipboard |
 | New session | project menu | The project's unsent conversation when it has one, otherwise an empty one in the project, in memory |
 | Project overview, New terminal, Worktrees | project menu | `preview_notice` toast in the preview. In Demo mode they act on the demo ([Project menu](#project-menu)) |
 | Edit project | project menu | The editor with its name, path and appearance |
 | Remove project | project menu | A project with sessions is refused with the toast `project_remove_sessions`; otherwise confirm naming the path once (`project_remove_sample`, `project_remove_preview`), then removed from memory. Demo mode asks as the live window does (`project_remove_named`) and removes the project with its sessions from the demo's memory |
-| Open folder | `folder.open` (the menu, the shortcut) | The directory picker titled `menu_open_folder`; the choice opens the project already at that path on the shown host, otherwise adds one named after the directory |
+| Open folder | `folder.open` (the menu, the shortcut) | The directory picker titled `menu_open_folder`; the choice opens the project already at that path on the shown host, otherwise adds one named after the directory. Demo mode does the same over the sample catalog, without the preview's note |
 
 Right-click menus are the system's (`Element.ContextMenu`); their items and
 order follow the reference's live menus, `live/menus/session_actions.rs` and
@@ -254,7 +254,10 @@ Open folder adding and reopening, the refusal to remove a project
 with sessions and the removal of one without. `TestProjectMenu`
 (`shell/project_menu_test.go`) covers the menus over the demo: the item list
 in the preview and the demo, every project item's effect on the demo's data,
-the session menu's forks and its absent items, and the panel launcher.
+the session menu's forks and its absent items, every other session item
+(`SessionItems`), the groups' "+", Sort, Add project and a row's drag
+(`Groups`), the rail's host menu (`HostMenu`), the search palette's project
+(`Search`), and the panel launcher.
 `firstRunProjects` checks the live menu's exact items and separators against
 a real Node, Copy path, Project overview, that New terminal and Create
 worktree reach their adapters, and that New terminal leaves with the
