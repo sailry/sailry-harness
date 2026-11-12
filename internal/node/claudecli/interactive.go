@@ -36,6 +36,8 @@ const (
 	followEvery = 50 * time.Millisecond
 	// sendTries is how often Enter is pressed for one message.
 	sendTries = 4
+	// trustTries is how often the folder-trust question is answered.
+	trustTries = 3
 )
 
 // The waits of the terminal interface, variables so that a test can shorten them.
@@ -48,6 +50,11 @@ var (
 	pasteSettle = 150 * time.Millisecond
 	// sentWait is how long one Enter may take to reach the transcript.
 	sentWait = 3 * time.Second
+	// trustSettle is how long the Yes stays chosen before Enter is pressed on
+	// it: a key sent as the question is first drawn can be lost.
+	trustSettle = 300 * time.Millisecond
+	// trustMove is the least time between two moves of the choice.
+	trustMove = time.Second
 )
 
 var (
@@ -56,6 +63,9 @@ var (
 	signInScreen = regexp.MustCompile(`Select login method|Log in with your Claude account|claude\.ai/oauth/authorize`)
 	// firstRunScreen is one of the screens a Claude Code that was never run shows.
 	firstRunScreen = regexp.MustCompile(`Security notes:.*Press Enter to continue|Choose the text style|terminal setup\?.*Esc to skip`)
+	// The folder-trust question's two choices, as drawn when chosen.
+	trustNo  = regexp.MustCompile(`❯\s*No,\s*exit`)
+	trustYes = regexp.MustCompile(`❯\s*Yes,\s*I trust`)
 )
 
 const (
@@ -121,6 +131,22 @@ func (screen *screen) text() string {
 	return strings.Join(strings.Fields(escapes.ReplaceAllString(drawn, " ")), " ")
 }
 
+// clear forgets what was drawn, so that an answered question is not read again.
+func (screen *screen) clear() {
+	screen.mu.Lock()
+	screen.drawn = nil
+	screen.mu.Unlock()
+}
+
+// lastAt is where the pattern's last match in text starts, or -1.
+func lastAt(pattern *regexp.Regexp, text string) int {
+	matches := pattern.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return -1
+	}
+	return matches[len(matches)-1][0]
+}
+
 // last is the end of the drawn output, for a failure to quote.
 func (screen *screen) last() string {
 	text := screen.text()
@@ -134,18 +160,44 @@ func (screen *screen) last() string {
 }
 
 // ready waits until the interface can take a message: its prompt is drawn
-// and, where tools are offered, it has listed them. A question only the user
-// may answer ends the start with what the user has to do; Sailry presses no
-// key on such a screen.
+// and, where tools are offered, it has listed them. The folder-trust question
+// is answered yes: the folder is Sailry's own program folder under the
+// profile, never a project, and Claude Code then records the answer itself.
+// The choice starts on "No, exit", so it is moved until the Yes is the one
+// drawn last, and Enter goes only to a Yes that stayed chosen. The sign-in
+// and first-run screens are the user's and end the start with what to do.
 func (value *routeModel) ready(ctx context.Context, started *run) error {
 	deadline := time.NewTimer(readyWait)
 	defer deadline.Stop()
 	prompted := false
+	answered := 0
+	var chosen, moved time.Time
 	for {
 		text := started.screen.text()
 		switch {
+		case strings.Contains(text, trustScreen) && answered < trustTries:
+			no, yes := lastAt(trustNo, text), lastAt(trustYes, text)
+			switch {
+			case yes > no:
+				if chosen.IsZero() {
+					chosen = time.Now()
+				}
+				if time.Since(chosen) < trustSettle {
+					break
+				}
+				answered++
+				chosen = time.Time{}
+				started.screen.clear()
+				_, _ = io.WriteString(started.process.Stdin, "\r")
+			case no >= 0:
+				chosen = time.Time{}
+				if time.Since(moved) >= trustMove {
+					moved = time.Now()
+					_, _ = io.WriteString(started.process.Stdin, "\x1b[B")
+				}
+			}
 		case strings.Contains(text, trustScreen):
-			return &model.Failure{Kind: model.NotConfigured, Message: fmt.Sprintf("Claude Code asks whether to trust the folder %s. Run claude once in that folder and answer it", value.capture.Dir)}
+			return &model.Failure{Kind: model.NotConfigured, Message: fmt.Sprintf("Claude Code keeps asking whether to trust the folder %s. Run claude once in that folder and answer it", value.capture.Dir)}
 		case signInScreen.MatchString(text):
 			return value.failure("Not logged in", 0)
 		case firstRunScreen.MatchString(text):

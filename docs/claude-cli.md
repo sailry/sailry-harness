@@ -97,11 +97,16 @@ It is viable on those terms, with these costs, all taken from magpie:
   terminal would.
 - **Readiness.** The prompt mark is drawn and, where tools are offered, the
   bridge has seen `tools/list`; 45 seconds at most.
-- **Questions are the user's.** Sailry presses no key on the folder-trust
-  question, the sign-in screen or the first-run screens. The step fails with
-  what to do: `not_configured` naming the folder to run `claude` in once, or
-  `authentication` with the package's sign-in instruction. This is option 2
-  of the earlier design, and it means Sailry writes no trust entry by itself.
+- **The folder-trust question is answered yes.** The folder is Sailry's own
+  program folder under the profile, never a project, so the user decided
+  that Sailry answers it. The choice starts on "No, exit": Down is pressed
+  until the Yes is the choice drawn last, and Enter goes only to a Yes that
+  stayed chosen for 300 ms. Claude Code then records the trusted folder in
+  `~/.claude.json` itself; Sailry writes no file there. A question that
+  returns after three answers fails as `not_configured` naming the folder.
+- **Sign-in and first-run screens are the user's.** Sailry presses no key on
+  them. The step fails with what to do: `not_configured`, or
+  `authentication` with the package's sign-in instruction.
 - **Sending.** One bracketed paste, cleaned of control characters and of an
   opening `/`, `!`, `#` or `&`, then Enter, repeated up to four times until
   the transcript shows the user row.
@@ -118,7 +123,7 @@ It is viable on those terms, with these costs, all taken from magpie:
 
 Not built: images and PDF in interactive mode (such a turn runs in `-p`),
 the Esc interrupt, Windows (ConPTY; `program.Terminal` is false there), and
-any answer to a dialog. A dialog this list does not name shows as
+an answer to any dialog other than folder trust. A dialog this list does not name shows as
 "showed no prompt in 45 seconds" with the end of the screen.
 
 ### Defaults taken for the open questions
@@ -126,7 +131,7 @@ any answer to a dialog. A dialog this list does not name shows as
 | Question | Default |
 | --- | --- |
 | Which mode is the default | `-p`. The user asked for interactive; it stays off until it has run against a real account |
-| Who answers the trust question | The user, once, in the named folder |
+| Who answers the trust question | Sailry, yes, for its own program folder |
 | Session residue | Accepted for interactive conversations only; one-off requests stay in `-p` with `--no-session-persistence` |
 | Where the switch lives | The package setting `terminal`, read at each request |
 | Fallback | Once per step, only for the third-party refusal, only before output |

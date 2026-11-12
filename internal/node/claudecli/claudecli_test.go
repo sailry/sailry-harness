@@ -1216,6 +1216,24 @@ func (fake *fakeClaude) pasted() (string, bool) {
 	}
 }
 
+// keys reads the keys pressed until they contain want and returns them all.
+func (fake *fakeClaude) keys(want string) string {
+	keys := ""
+	for !strings.Contains(keys, want) {
+		raw, open := <-fake.inputs
+		if !open {
+			return keys
+		}
+		var chunk string
+		if err := json.Unmarshal(raw, &chunk); err != nil {
+			fake.t.Errorf("keys line: %s", raw)
+			return keys
+		}
+		keys += chunk
+	}
+	return keys
+}
+
 // write appends rows to the session's transcript where Claude Code keeps it.
 func (fake *fakeClaude) write(rows ...string) {
 	home := ""
@@ -1268,9 +1286,11 @@ func interactiveRoute(t *testing.T, scripts ...func(*fakeClaude)) (*testRoute, *
 	if !program.Terminal {
 		t.Skip("this system gives a program no terminal")
 	}
-	settle, paste, ready := readySettle, pasteSettle, readyWait
-	readySettle, pasteSettle, readyWait = 10*time.Millisecond, 10*time.Millisecond, testWait
-	t.Cleanup(func() { readySettle, pasteSettle, readyWait = settle, paste, ready })
+	settle, paste, ready, trust, move := readySettle, pasteSettle, readyWait, trustSettle, trustMove
+	readySettle, pasteSettle, readyWait, trustSettle, trustMove = 10*time.Millisecond, 10*time.Millisecond, testWait, 10*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() {
+		readySettle, pasteSettle, readyWait, trustSettle, trustMove = settle, paste, ready, trust, move
+	})
 	route, launcher := newTestRoute(t, scripts...)
 	route.capture.Interactive = true
 	return route, launcher
@@ -1408,13 +1428,43 @@ func TestInteractive(t *testing.T) {
 		}
 	})
 
-	t.Run("the trust question is the user's to answer", func(t *testing.T) {
+	t.Run("the trust question for Sailry's own folder is answered yes", func(t *testing.T) {
 		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
 			fake.emit("Do you trust this folder?", "❯ No, exit", "  Yes, I trust this folder")
-			// Any key Sailry pressed would arrive here.
-			if raw, open := <-fake.inputs; open {
-				fake.t.Errorf("a key was pressed on the trust question: %s", raw)
+			keys := fake.keys("\x1b[B")
+			if strings.Contains(keys, "\r") {
+				fake.t.Errorf("Enter was pressed on No: %q", keys)
 			}
+			fake.emit("Do you trust this folder?", "  No, exit", "❯ Yes, I trust this folder")
+			if keys = fake.keys("\r"); strings.Contains(keys, "\x1b[B") {
+				fake.t.Errorf("the choice was moved off Yes: %q", keys)
+			}
+			fake.emit("\x1b[2J\x1b[1;1HWelcome to Claude Code", "\x1b[38;5;2m❯\x1b[0m ")
+			if !fake.list() {
+				return
+			}
+			text, ok := fake.pasted()
+			if !ok {
+				return
+			}
+			fake.write(userRow(text), textRow("m1", "end_turn", 5, 2, "hello"), turnEnded)
+			<-fake.ctx.Done()
+		})
+		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}, Tools: []fantasy.Tool{readTool}})
+		if output.failure != nil || output.text != "hello" {
+			t.Fatalf("step = %+v", output)
+		}
+		_ = launcher
+	})
+
+	t.Run("a trust question that keeps returning names the folder", func(t *testing.T) {
+		route, launcher := interactiveRoute(t, func(fake *fakeClaude) {
+			for range trustTries {
+				fake.emit("Do you trust this folder?", "  No, exit", "❯ Yes, I trust this folder")
+				fake.keys("\r")
+			}
+			fake.emit("Do you trust this folder?", "  No, exit", "❯ Yes, I trust this folder")
+			<-fake.ctx.Done()
 		})
 		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}, Tools: []fantasy.Tool{readTool}})
 		requireFailure(t, output, model.NotConfigured, "Run claude once in that folder")

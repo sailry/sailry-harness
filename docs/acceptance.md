@@ -187,7 +187,7 @@ All in Settings › Models › Add provider.
 - [ ] **[account]** **[macOS]** **[Linux]** Claude Code, experimental: turn on
       the package setting "Use the terminal interface (experimental)" and
       repeat the five items above. Record whether the folder-trust question
-      appears and which folder it names, whether bridge tools run without a
+      appears and is answered without a failure, whether bridge tools run without a
       dialog, how often text written before a tool call is lost, and what
       `/resume` shows afterwards. The setting stays off by default until this
       item passes
