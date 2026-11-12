@@ -97,6 +97,7 @@ Disconnecting a controller does not stop admitted work.
 | `internal/core` | Node errors, profile ownership, workspace layout and confined file primitives | Storage, agents and transport |
 | `internal/localmodels` | Local model registry, Hub discovery and CPU scheduling | Node storage, admission and controllers |
 | `internal/localmodels/{embedding,ocr,decision,assets}` | CPU inference, model decoding and verified downloads | Node persistence and controller state |
+| `internal/node/program` | Declared package executables: scrubbed start, process group, bound and idle stop | Protocols, vendors, shells and sockets |
 | `internal/office` | Office and PDF text extraction | File access and OCR |
 | `internal/databases` | External database drivers and SSH tunnels | Stored connections and approvals |
 | `internal/ssh` | Verified SSH connection setup | Remote commands, files and terminals |
@@ -132,6 +133,10 @@ link         → protocol + transport dependencies
 - Desktop UI never imports Node except through `internal/desktop/live` and
   `cmd/sailry-desktop`. Preview and live actions are separate implementations;
   live never imports preview.
+- `internal/node/program` starts the executables a package declares and knows
+  no protocol. The Agent Client Protocol model route in
+  `internal/node/agent/model` is its one user. Packages reach neither from
+  script.
 - `internal/node/terminal` uses the pinned MyGo terminal package for its headless
   PTY and Mirror owner. That dependency imports MyGo UI types internally, but the
   Node creates no application, window or view. The verified headless prerequisite
@@ -390,6 +395,14 @@ dispatch service and require an online Node.
 - **Streaming.** Partial text and reasoning use a bounded in-memory feed. Canonical
   messages commit before durable changes publish. Stopped or failed runs seal
   visible text as interrupted canonical output.
+- **Agent programs.** The user's November 12, 2026 decision authorizes one more
+  per-step model transport beside Fantasy and package translations: an
+  installed command-line agent reached over the Agent Client Protocol through
+  pinned `github.com/coder/acp-go-sdk`, used as a plain model. Sailry still
+  owns the loop, tools, history and compaction; the route offers the agent no
+  file, terminal or MCP capability and refuses its permission requests. The
+  route names no vendor; a package declares the executable and its differences
+  ([details](docs/agy.md)).
 - **Background work.** Background children and commands record durable completion
   evidence. An idle session continues automatically only for completions that opt
   in.

@@ -309,6 +309,15 @@ two groups and their members, a mark for every preset and brand, distinct
 method rows, the family filter's options, the protocol switch and the command
 a save sends.
 
+## Agent programs
+
+A package channel may be served by an installed command-line agent over the
+Agent Client Protocol instead of an HTTP translation. The channel editor,
+discovery and validation commands are the same; the Node routes them to
+`model.DiscoverACP` and `model.NewACP` when the captured adapter declares `acp`.
+Such a channel has no key (`auth: none`) or passes its key to the program's
+declared environment. Its contract is [agy.md](agy.md).
+
 ## Validation and current boundaries
 
 The model tests cover semantic provider requests, stable prompt fields,

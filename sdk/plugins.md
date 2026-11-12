@@ -575,6 +575,48 @@ can use `translationInput` and `translate` from `scripts/test-host.mjs` with an
 explicit current `SAILRY_PLUGIN_TEST_HOST`; that bridge runs the production pure
 VM without installing an SDK.
 
+### Agent programs
+
+A package may instead provide models through an installed command-line agent
+that speaks the Agent Client Protocol. The Node owns the process and the
+protocol; the package only declares. Packages get no process or standard-stream
+API. The agent is used as a plain model: its own tools are refused and Sailry
+keeps the loop, tools and history. See [docs/agy.md](../docs/agy.md).
+
+`programs` (at most four) requires the `process.run` action:
+
+| Member | Meaning |
+| --- | --- |
+| `id` | Name within the package |
+| `command` | Executable name, resolved on the Node's search path. No path, no shell |
+| `args` | Up to 32 fixed arguments. `{dir}` is the program directory, `{model}` the selected model |
+| `env` | Up to 8 variables the Node does not own. `{dir}`, and `{key}` for the channel's API key |
+| `files` | Up to 8 files of at most 64 KiB, written into the program directory before each start |
+
+The program directory is the package's own
+`programs/<id>` data directory and the working directory. The program inherits
+only the search path, account directories, locale, temporary directory and proxy
+variables. The Node starts it on demand, stops it after ten idle minutes and
+kills it with its children when the package changes, is disabled or removed.
+
+A model adapter names a program with `acp` instead of `script`. It declares
+`framing: "ndjson"`, `origins: []` and no `files` capability:
+
+| `acp` member | Meaning |
+| --- | --- |
+| `program` | The `programs` entry to run |
+| `replay_bytes` | Largest prompt in bytes, 4096 to 8 MiB. A larger history is a context overflow |
+| `sign_in` | The instruction shown when the agent reports that it is signed out |
+| `system_meta` | Dotted `_meta` path of `session/new` that takes the system text. Without it, or when the agent does not advertise it, the system text opens the first prompt |
+| `efforts` | Effort level (`minimal` to `max`) to model identifier suffix. Variants fold into one model |
+| `model_argument` | The model is the program's `{model}` argument, one process per model. Required exactly when an argument has `{model}` |
+| `auth_method` | The `authenticate` method the agent is asked to use once when it requires authentication |
+| `failure_markers` | Up to four texts that mark a reply as a failure |
+
+The preset uses a `plugin` route, `models: {"kind": "discover"}` and `auth`
+`none` or `api_key`. Its `endpoint` is required and is not contacted. Models are
+the ones the agent lists; none is invented.
+
 ## Storage
 
 Declare `storage.read` and/or `storage.write` in `extensions.dev.sailry.platform.actions`. The Node derives the namespace from the authenticated plugin context; the caller cannot choose another plugin's namespace. Data belongs to the execution Node and plugin name, surviving package updates, configuration edits, removal and reinstallation. No localStorage, filesystem path or credential access is provided.
