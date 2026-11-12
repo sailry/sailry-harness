@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../runtime/session.dart' show AppSession, HostConnection;
+import '../../runtime/session.dart' show HostConnection;
 export '../../runtime/json.dart' show object, objects, text, number, newId;
-import '../../ui/kit.dart';
-import '../../ui/connection_status.dart';
 
 int integer(Object? value) => value is num ? value.toInt() : 0;
 String string(Object? value) => value is String ? value : '';
@@ -16,48 +14,6 @@ String failure(Object error, {bool saving = false, Translator translate = tr}) {
   }
   if (detail.contains('outcome_unknown')) return translate('settingsUnknown');
   return translate(saving ? 'settingsSaveFailed' : 'settingsLoadFailed');
-}
-
-Future<void> pickSettingsHost(BuildContext context, AppSession session) async {
-  final selected = await showAppSheet<String>(
-    context,
-    context.tr('selectHost'),
-    child: ListenableBuilder(
-      listenable: session,
-      builder: (context, _) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final host in session.hosts)
-            ListTile(
-              title: Text(
-                host.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              leading: const AppIcon('server'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ConnectionStatus(
-                    connected: host.connected,
-                    transport: host.transport,
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 20,
-                    child: session.selectedHost?.id == host.id
-                        ? const AppIcon('check')
-                        : null,
-                  ),
-                ],
-              ),
-              onTap: () => Navigator.pop(context, host.id),
-            ),
-        ],
-      ),
-    ),
-  );
-  if (selected != null) session.selectHost(selected);
 }
 
 Widget settingsError(String? error) => error == null

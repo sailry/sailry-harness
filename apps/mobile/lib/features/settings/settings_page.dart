@@ -7,9 +7,7 @@ import '../../ui/toast.dart';
 import '../../runtime/session.dart';
 import '../updates/presentation.dart';
 import '../updates/service.dart';
-import 'live.dart';
 import 'speech_sheet.dart';
-import 'providers/provider_list.dart';
 import 'usage_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -37,13 +35,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  void _providers() {
-    final host = AppSession.maybeOf(context)?.selectedHost;
-    if (host?.connected == true) {
-      pushPage(context, ProvidersPage(host: host!));
-    }
-  }
-
   void _appearance() {
     showAppSheet(
       context,
@@ -159,19 +150,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final session = AppSession.maybeOf(context);
-    final host = session?.selectedHost;
-    final connected = host?.connected == true;
     return PageFrame(
       title: context.tr('settings'),
-      actions: [
-        RoundButton(
-          icon: 'server',
-          tooltip: '${context.tr('selectHost')}: ${host?.label ?? ''}',
-          onPressed: session?.hosts.isNotEmpty == true
-              ? () => pickSettingsHost(context, session!)
-              : null,
-        ),
-      ],
       child: Column(
         children: [
           _group([
@@ -225,13 +205,9 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ]),
           const SizedBox(height: 16),
-          Semantics(
-            label: host?.label ?? '',
-            child: _group([
-              _row('spark', 'providers', connected ? _providers : null),
-              _row('mic', 'speech', session?.speech == null ? null : _speech),
-            ]),
-          ),
+          _group([
+            _row('mic', 'speech', session?.speech == null ? null : _speech),
+          ]),
           const SizedBox(height: 16),
           UpdateSettings(updates: widget.updates),
         ],

@@ -1071,9 +1071,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get preview => 'Предварительный просмотр';
 
   @override
-  String get mixed => 'Свет и темнота';
-
-  @override
   String get dark => 'Тёмная';
 
   @override
@@ -1754,27 +1751,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get add => 'Добавить';
 
   @override
-  String get configName => 'Имя';
-
-  @override
-  String get configEndpoint => 'Конечная точка';
-
-  @override
-  String get configModels => 'Модели';
-
-  @override
   String get configInstructions => 'Инструкции';
-
-  @override
-  String get configEmpty => 'Нет записей';
-
-  @override
-  String get configDuplicate => 'Имя уже существует';
-
-  @override
-  String configDelete(String name) {
-    return 'Исключить \"$name\"?';
-  }
 
   @override
   String get speechInput => 'Голосовой ввод';
@@ -1792,9 +1769,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get memoryContent => 'Сохранить существующий стиль кода';
-
-  @override
-  String get providers => 'Модели и поставщики';
 
   @override
   String get speech => 'Речь';
@@ -2111,182 +2085,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get settingsLoading => 'Загрузка';
-
-  @override
-  String get settingsRequired => 'Введите значение';
-
-  @override
-  String get settingsApi => 'API формат';
-
-  @override
-  String get settingsOpenCodeGo => 'OpenCode Go';
-
-  @override
-  String get settingsOpenCodeZen => 'OpenCode Zen';
-
-  @override
-  String get settingsApiKey => 'Ключ API';
-
-  @override
-  String get settingsEnabled => 'Включено';
-
-  @override
-  String get apiChatCompletions => 'Chat Completions';
-
-  @override
-  String get apiResponses => 'Responses';
-
-  @override
-  String get apiAnthropic => 'Anthropic';
-
-  @override
-  String get apiGemini => 'Gemini';
-
-  @override
-  String get apiDeepSeek => 'DeepSeek';
-
-  @override
-  String get apiAzureOpenAi => 'Azure OpenAI';
-
-  @override
-  String get apiAzureAi => 'Azure AI';
-
-  @override
-  String get apiPlugin => 'Плагин';
-
-  @override
-  String get providerNew => 'Новый сервис';
-
-  @override
-  String get providerEmpty => 'Нет сервисов';
-
-  @override
-  String get providerDesktopHint =>
-      'Пресеты и входы в аккаунт добавляются на Desktop; их модели можно изменить здесь';
-
-  @override
-  String get providerConnection => 'Подключение';
-
-  @override
-  String get providerKeyUnset => 'Не задан';
-
-  @override
-  String get providerShowKey => 'Показать ключ';
-
-  @override
-  String get providerHideKey => 'Скрыть ключ';
-
-  @override
-  String providerModelCount(String count) {
-    return 'Моделей: $count';
-  }
-
-  @override
-  String get providerFetch => 'Получить';
-
-  @override
-  String get providerFetchTitle => 'Получить модели';
-
-  @override
-  String providerFetched(String count) {
-    return 'Найдено: $count';
-  }
-
-  @override
-  String get providerSelectAll => 'Выбрать все';
-
-  @override
-  String get providerSelectNone => 'Снять выбор';
-
-  @override
-  String get providerSearch => 'Поиск моделей';
-
-  @override
-  String get providerAdded => 'Добавлена';
-
-  @override
-  String providerContext(String tokens) {
-    return 'Контекст $tokens';
-  }
-
-  @override
-  String providerAddCount(String count) {
-    return 'Добавить $count';
-  }
-
-  @override
-  String get providerModelId => 'ID модели';
-
-  @override
-  String get providerModelExists => 'Модель уже добавлена';
-
-  @override
-  String get providerDisplayName => 'Отображаемое имя';
-
-  @override
-  String get providerDefault => 'По умолчанию';
-
-  @override
-  String get providerBasic => 'Основное';
-
-  @override
-  String get providerContextTitle => 'Контекст';
-
-  @override
-  String get providerContextLength => 'Длина контекста';
-
-  @override
-  String get providerMaxOutput => 'Макс. вывод';
-
-  @override
-  String get providerCompaction => 'Автосжатие';
-
-  @override
-  String get providerCapabilities => 'Возможности';
-
-  @override
-  String get providerVision => 'Ввод изображений';
-
-  @override
-  String get providerTools => 'Вызов инструментов';
-
-  @override
-  String get providerReasoning => 'Рассуждение';
-
-  @override
-  String get providerEfforts => 'Сила рассуждения';
-
-  @override
-  String get providerEffortPlaceholder => 'Сила или бюджет токенов';
-
-  @override
-  String get providerEffortInvalid =>
-      'Недопустимая сила рассуждения; проверьте названия, дубликаты и поддержку API';
-
-  @override
-  String get providerEffortDefault => 'Сила по умолчанию';
-
-  @override
-  String get providerEffortSetDefault => 'Сделать по умолчанию';
-
-  @override
-  String get providerSetDefault => 'Сделать моделью по умолчанию';
-
-  @override
-  String get providerIsDefault => 'Модель по умолчанию';
-
-  @override
-  String get providerDeleteModel => 'Удалить модель';
-
-  @override
-  String get providerDelete => 'Удалить сервис';
-
-  @override
-  String get providerNumberInvalid => 'Введите целое положительное число';
-
-  @override
-  String get providerLimitsInvalid =>
-      'Макс. вывод не может превышать длину контекста';
 
   @override
   String get settingsDriver => 'Служба';

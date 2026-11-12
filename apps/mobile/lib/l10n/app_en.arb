@@ -421,7 +421,6 @@
   "edition": "MOBILE EXPLORATION / 01",
   "intro": "Tasks, chats and remote workspaces",
   "preview": "Preview",
-  "mixed": "Light and dark",
   "dark": "Dark",
   "light": "Light",
   "gallery": "Overview",
@@ -716,26 +715,12 @@
   "enabled": "On",
   "disabled": "Off",
   "add": "Add",
-  "configName": "Name",
-  "configEndpoint": "Endpoint",
-  "configModels": "Models",
   "configInstructions": "Instructions",
-  "configEmpty": "No entries",
-  "configDuplicate": "Name already exists",
-  "configDelete": "Delete “{name}”?",
-  "@configDelete": {
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
   "speechInput": "Voice input",
   "developerInstructions": "Change the code for the task and verify the result",
   "reviewerInstructions": "Review code changes and identify issues",
   "projectConventions": "Project conventions",
   "memoryContent": "Preserve the existing code style",
-  "providers": "Models and providers",
   "speech": "Speech",
   "nodeSettingsNote": "Configuration saved on {host}",
   "@nodeSettingsNote": {
@@ -850,89 +835,6 @@
   "settingsConflict": "Settings changed; reopen and retry",
   "settingsUnknown": "Outcome unconfirmed; refresh to check",
   "settingsLoading": "Loading",
-  "settingsRequired": "Enter a value",
-  "settingsApi": "API format",
-  "settingsOpenCodeGo": "OpenCode Go",
-  "settingsOpenCodeZen": "OpenCode Zen",
-  "settingsApiKey": "API Key",
-  "settingsEnabled": "Enabled",
-  "apiChatCompletions": "Chat Completions",
-  "apiResponses": "Responses",
-  "apiAnthropic": "Anthropic",
-  "apiGemini": "Gemini",
-  "apiDeepSeek": "DeepSeek",
-  "apiAzureOpenAi": "Azure OpenAI",
-  "apiAzureAi": "Azure AI",
-  "apiPlugin": "Plugin",
-  "providerNew": "New provider",
-  "providerEmpty": "No providers",
-  "providerDesktopHint": "Add presets and account logins on Desktop; their models are editable here",
-  "providerConnection": "Connection",
-  "providerKeyUnset": "Not set",
-  "providerShowKey": "Show key",
-  "providerHideKey": "Hide key",
-  "providerModelCount": "{count} models",
-  "@providerModelCount": {
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
-  "providerFetch": "Fetch",
-  "providerFetchTitle": "Fetch models",
-  "providerFetched": "{count} returned",
-  "@providerFetched": {
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
-  "providerSelectAll": "Select all",
-  "providerSelectNone": "Deselect all",
-  "providerSearch": "Search models",
-  "providerAdded": "Added",
-  "providerContext": "{tokens} context",
-  "@providerContext": {
-    "placeholders": {
-      "tokens": {
-        "type": "String"
-      }
-    }
-  },
-  "providerAddCount": "Add {count}",
-  "@providerAddCount": {
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
-  "providerModelId": "Model ID",
-  "providerModelExists": "Model already added",
-  "providerDisplayName": "Display name",
-  "providerDefault": "Default",
-  "providerBasic": "Basic",
-  "providerContextTitle": "Context",
-  "providerContextLength": "Context length",
-  "providerMaxOutput": "Max output",
-  "providerCompaction": "Auto-compaction",
-  "providerCapabilities": "Capabilities",
-  "providerVision": "Image input",
-  "providerTools": "Tool calls",
-  "providerReasoning": "Reasoning",
-  "providerEfforts": "Reasoning effort",
-  "providerEffortPlaceholder": "Effort or token budget",
-  "providerEffortInvalid": "Invalid reasoning effort; check names, duplicates and API support",
-  "providerEffortDefault": "Default effort",
-  "providerEffortSetDefault": "Set as default",
-  "providerSetDefault": "Set as default model",
-  "providerIsDefault": "Default model",
-  "providerDeleteModel": "Delete model",
-  "providerDelete": "Delete provider",
-  "providerNumberInvalid": "Enter a positive whole number",
-  "providerLimitsInvalid": "Max output can't exceed context length",
   "settingsDriver": "Service",
   "settingsModel": "Model",
   "settingsArchived": "Archived",
