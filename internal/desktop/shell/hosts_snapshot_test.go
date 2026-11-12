@@ -13,7 +13,8 @@ import (
 // The host page's review sheets, written only when $SAILRY_SNAPSHOTS names a
 // directory: a connected local host with projects and running agents, a
 // paired host that is offline and one with an update to install, each in
-// both themes, in a window tall enough for the whole page. The preview's
+// both themes, in a window tall enough for the whole page, and the page in
+// Demo mode. The preview's
 // hosts stand in for live ones: marked live, they show a Node's own name and
 // platform and none of the preview's notes.
 func TestHostPageSnapshots(t *testing.T) {
@@ -72,6 +73,22 @@ func TestHostPageSnapshots(t *testing.T) {
 			tt.Frame()
 			snapshot(t, tt, "host-"+state.name+"-"+mode)
 		}
+	}
+	// Demo mode over the preview's hosts: the page says nowhere that its
+	// data is a sample.
+	for _, mode := range []string{"light", "dark"} {
+		a := New(preview.Load())
+		a.Settings.Model.DemoMode = true
+		tt := ui.NewTesterWith(a.View, 1440, 1960, opaque)
+		tt.SetLocale("en")
+		tt.SetDark(mode == "dark")
+		a.openHost("local", false)
+		tt.Frame()
+		tt.Advance(2 * time.Second)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		snapshot(t, tt, "host-demo-"+mode)
 	}
 	// The window as it opens, at twice the scale: the side column, the
 	// header and the first cards.

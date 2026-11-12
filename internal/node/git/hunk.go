@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/go-git/go-git/v5/plumbing/filemode"
@@ -59,7 +60,13 @@ func (s *Service) ApplyHunk(ctx context.Context, root string, input protocol.Com
 	if !after.exists || !regular(before) || !regular(after) || before.binary || after.binary || !utf8.Valid(before.data) || !utf8.Valid(after.data) || bytes.IndexByte(before.data, 0) >= 0 || bytes.IndexByte(after.data, 0) >= 0 {
 		return result, invalid("only complete ordinary text files support Git hunk actions")
 	}
-	if string(after.data) != current {
+	if after.converted {
+		// Git stores this file with other line endings: the diff and its hunks
+		// are lines of the stored form. Any other conversion has no hunks.
+		if string(after.data) != strings.ReplaceAll(current, "\r\n", "\n") {
+			return result, invalid("Git converts this file when it stores it; stage or discard the whole file")
+		}
+	} else if string(after.data) != current {
 		return result, conflict()
 	}
 	diff, err := renderDiff(input.Path, input.Scope, before, after)
@@ -100,9 +107,16 @@ func (s *Service) ApplyHunk(ctx context.Context, root string, input protocol.Com
 	if err := s.requireUnfiltered(ctx, root, input.Path); err != nil {
 		return result, err
 	}
-	text, err := files.ApplyHunkText(current, selected.After, selected.Before)
+	text, err := files.ApplyHunkText(string(after.data), selected.After, selected.Before)
 	if err != nil {
 		return result, err
+	}
+	if after.converted {
+		// The reverted lines take the file's line ending, which has to be one.
+		if current != strings.ReplaceAll(string(after.data), "\n", "\r\n") {
+			return result, invalid("this file mixes line endings; discard the whole file")
+		}
+		text = strings.ReplaceAll(text, "\n", "\r\n")
 	}
 	written, err := fs.RestoreText(ctx, input.Path, text, input.ExpectedRevision)
 	if err != nil {

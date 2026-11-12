@@ -274,14 +274,9 @@ What to use instead, with the surface Kit's:
 - `SourceCard` and `Citation` open the address themselves through
   `c.OpenURL` when `ui.SafeToOpen` allows it (http, https, mailto) and report
   the click as `Changed`.
-- `SourceCard` is the numbered sources of the web search result dialog
-  (`conversation/content.go`, [conversation.md](conversation.md)), in place
-  of numbered `ui.Link` rows: it adds the source's host under its title. It
-  is content inside `kit.Dialog`, so the frost stays. The cards keep the
-  numbers of the sources as the reply cites them, skip an address that is
-  not http(s) without credentials, and are built under a theme whose font
-  size is the message text size, because the component sizes by `Rem`. The
-  provider's suggestions stay plain links: they have no number.
+- `SourceCard` is not used: the web search result dialog keeps its numbered
+  `ui.Link` rows, one source a line (the user's decision of 2026-11-12: the
+  sources are a folded tool's detail and need no cards).
 - `JumpToLatest` builds an empty box at zero and does not scroll: read
   `Clicked`.
 - `Lightbox` has nothing `kit.ImageViewer` lacks. Its adapter is kept and
@@ -607,22 +602,15 @@ findings about components not in this document were not.
 
 The audit's decisions stand where ours does more; none was overturned here.
 
-- **Replace, in part:** the panel's single-file diff may take
-  `code.DiffView` for its bar and Split and Unified switch, keeping
-  `kit.Diff`'s state, hunk actions and its empty, binary and partial states.
-  The height question is settled above.
-- **Use theirs for something we lack:** `code.CommitGraph` for lanes;
-  `code.Blame` and `devtools.LogView` when those features are added. The
-  audit also named `files.FileIcon` for the picker's grid cells; reading
-  both declined it ([below](#declined-page-by-page)).
+- **Use theirs for something we lack:** `code.Blame` and `devtools.LogView`
+  when those features are added. The audit also named `files.FileIcon` for
+  the picker's grid cells; reading both declined it
+  ([below](#declined-page-by-page)).
 - **Ours stays, with what it lacked added:** the panel's diffs keep
   `kit.Diff` and gained the Split and Unified choice themselves
   ([`code.DiffView`](#codediffview) says why not the component).
 - **In use:** `code.CommitGraph` draws the Git history
   ([`code.CommitGraph`](#codecommitgraph)).
-- **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
-  cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
-  when those features are added.
 - **Replaced:** limu's renderer in the conversation by `diagram.Mermaid`,
   at the user's request. What the conversation's own wrapper did stays ours
   and is kept: code while the block streams and when it cannot be drawn, no
@@ -632,8 +620,7 @@ The audit's decisions stand where ours does more; none was overturned here.
   component does not: lay a diagram out for the reply's width, keep one
   layout across remounts, and repaint without a layout on a theme switch.
 - **Used beside ours:** `feedback.ConnectionStatus` for the host page's
-  status and the rows of Settings › Connections; `agent.SourceCard` for the
-  sources of the web search result dialog.
+  status and the rows of Settings › Connections.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
   rows and editors, the composer and conversation components, the

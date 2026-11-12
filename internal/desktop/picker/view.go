@@ -279,6 +279,17 @@ func (s *State) arrange(c *ui.Context) {
 	if s.row < 0 {
 		s.current = ""
 	}
+	// A new order keeps the chosen entry in view, or starts at its top with
+	// none: the list would otherwise follow the row that was first.
+	if s.sort != s.sorted {
+		s.sorted = s.sort
+		switch {
+		case s.row >= 0:
+			s.list.ScrollIntoView(s.row)
+		case len(s.rows) > 0:
+			s.list.ScrollTo(0, ui.Start)
+		}
+	}
 	if s.chosen.Len() > 0 {
 		shown := make(map[string]bool, len(s.rows))
 		for _, i := range s.rows {

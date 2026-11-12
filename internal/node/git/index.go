@@ -260,7 +260,10 @@ func (s *Service) EditIndex(ctx context.Context, root, path, expectedIndex strin
 			return err
 		}
 		dropIndexEntries(idx, path, true)
-		idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash, Mode: source.mode, Size: uint32(len(result))})
+		// No size is recorded, as after git update-index --cacheinfo: Git then
+		// compares content. A size that is not the worktree file's makes git
+		// status list the file without comparing it.
+		idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash, Mode: source.mode})
 		return nil
 	}, verify)
 }

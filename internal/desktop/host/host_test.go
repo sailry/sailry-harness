@@ -3,6 +3,7 @@ package host
 import (
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,33 +219,16 @@ func TestFollow(t *testing.T) {
 	}
 }
 
-// Only volumes that hold the user's files show: the sampler's device,
-// memory and system mounts do not, nor a volume of no size.
-func TestRealVolumes(t *testing.T) {
+// The disk card follows the chosen volume, else the root, else the first,
+// and the GPU card the chosen accelerator, else the first. The Node lists
+// only real volumes, so every disk of a sample is one.
+func TestChoices(t *testing.T) {
 	m := &Metrics{Disks: []Disk{
-		{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
-		{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40},
-		{Mount: "/System/Volumes/Data", FileSystem: "apfs", Total: 1 << 40},
-		{Mount: "/private/var/vm", FileSystem: "apfs", Total: 1 << 40},
 		{Mount: "/Volumes/Web", FileSystem: "apfs", Total: 1 << 40},
 		{Mount: "/", FileSystem: "APFS", Total: 1 << 40},
-		{Mount: "/run/user/1000", FileSystem: "tmpfs", Total: 1 << 30},
-		{Mount: "/run/media/me/usb", FileSystem: "vfat", Total: 1 << 30},
-		{Mount: "/snap/core/1", FileSystem: "squashfs", Total: 1 << 20},
 		{Mount: "/boot", FileSystem: "ext4", Total: 1 << 30},
-		{Mount: "/mnt/empty", FileSystem: "ext4"},
-		{Mount: "", FileSystem: "ext4", Total: 1},
 	}}
-	var mounts []string
-	for _, d := range m.Volumes() {
-		mounts = append(mounts, d.Mount)
-	}
-	if want := []string{"/Volumes/Web", "/", "/run/media/me/usb", "/boot"}; !slices.Equal(mounts, want) {
-		t.Errorf("volumes %v, want %v", mounts, want)
-	}
-	// The disk card follows the chosen volume, else the root, else the first;
-	// a mount that is not a real volume is not one to choose.
-	for chosen, want := range map[string]string{"": "/", "/boot": "/boot", "/dev": "/", "/gone": "/"} {
+	for chosen, want := range map[string]string{"": "/", "/boot": "/boot", "/gone": "/"} {
 		if d, ok := m.Volume(chosen); !ok || d.Mount != want {
 			t.Errorf("chosen %q: %q %v, want %q", chosen, d.Mount, ok, want)
 		}
@@ -252,8 +236,28 @@ func TestRealVolumes(t *testing.T) {
 	if d, ok := (&Metrics{Disks: []Disk{{Mount: "/data", Total: 1}, {Mount: "/more", Total: 1}}}).Volume(""); !ok || d.Mount != "/data" {
 		t.Errorf("without a root: %q %v", d.Mount, ok)
 	}
-	if _, ok := (&Metrics{Disks: []Disk{{Mount: "/dev", FileSystem: "devfs", Total: 1}}}).Volume(""); ok {
-		t.Error("a host without a real volume has one")
+	if _, ok := (&Metrics{}).Volume(""); ok {
+		t.Error("a host without a volume has one")
+	}
+
+	first := &Metrics{At: time.Unix(100, 0), GPUs: []GPU{{ID: "a", Name: "Integrated", Usage: 12.5}, {ID: "b", Name: "Discrete", Usage: math.NaN()}}}
+	first.Follow(nil)
+	for chosen, want := range map[string]string{"": "a", "b": "b", "gone": "a"} {
+		if g, ok := first.GPU(chosen); !ok || g.ID != want {
+			t.Errorf("chosen accelerator %q: %q %v, want %q", chosen, g.ID, ok, want)
+		}
+	}
+	if _, ok := (&Metrics{}).GPU(""); ok {
+		t.Error("a host without an accelerator has one")
+	}
+	// The history keeps each accelerator's load, and none for one unknown.
+	next := &Metrics{At: time.Unix(101, 0), GPUs: []GPU{{ID: "a", Usage: 50}, {ID: "b", Usage: 75}}}
+	next.Follow(first)
+	if got := gpuHistory(next, "a"); len(got) != 2 || got[0] != 12.5 || got[1] != 50 {
+		t.Errorf("the first accelerator's history: %v", got)
+	}
+	if got := gpuHistory(next, "b"); len(got) != 2 || !math.IsNaN(got[0]) || got[1] != 75 {
+		t.Errorf("the second accelerator's history: %v", got)
 	}
 }
 
@@ -313,8 +317,10 @@ func follows(texts, want []string) (string, bool) {
 // computer's and Sailry's uptimes apart and the platform on one line; then
 // the processor, the memory, the utilization, the network, the storage and
 // the processes; then the running agents, the projects and the runtime.
-// Only real volumes show, and no preview note. An offline host keeps what
-// is known under a warning.
+// Every volume the Node lists shows, and no preview note. The accelerator
+// has its card where the sample has one. A process's right-click menu is the
+// system's and asks before it ends one. An offline host keeps what is known
+// under a warning.
 func TestPage(t *testing.T) {
 	const platform = "darwin · 27.2 · arm64"
 	m := &Metrics{
@@ -323,10 +329,13 @@ func TestPage(t *testing.T) {
 		Received: 1024, Transmitted: 512, Interval: time.Second, Totals: true,
 		Disks: []Disk{
 			{Mount: "/", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39},
-			{Mount: "/dev", FileSystem: "devfs", Total: 1 << 20},
-			{Mount: "/System/Volumes/VM", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 39},
+			{Mount: "/Volumes/Web", FileSystem: "apfs", Total: 1 << 40, Available: 1 << 38},
 		},
-		Processes: []Process{{Name: "sailry-node", PID: 41, Started: 1, CPU: 3, Memory: 1 << 20}}, ProcessCount: 1,
+		GPUs: []GPU{{ID: "7", Name: "Apple M4 Pro", Usage: 37.5}},
+		Processes: []Process{
+			{Name: "sailry-node", PID: 41, Started: 9, CPU: 3, Memory: 1 << 20},
+			{Name: "launchd", PID: 1, Started: 2, CPU: 1, Memory: 1 << 20},
+		}, ProcessCount: 2,
 	}
 	m.Follow(nil)
 	h := &Host{
@@ -340,12 +349,18 @@ func TestPage(t *testing.T) {
 		Metrics: m,
 	}
 	st := &State{}
+	type stopped struct {
+		process Process
+		force   bool
+	}
+	var stops []stopped
+	act := Actions{StopProcess: func(x Process, force bool) { stops = append(stops, stopped{x, force}) }}
 	// Reduce Transparency keeps the shader interpreter out of the headless
 	// frames; the window is tall enough for the whole page.
 	opaque := ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}}
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Children(func() { Page(c, st, h, Actions{}) })
+		ui.Column(c).Fill().Children(func() { Page(c, st, h, act) })
 	}, 1200, 2400, opaque)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -362,7 +377,7 @@ func TestPage(t *testing.T) {
 	t.Run("sections in order", func(t *testing.T) {
 		order := []string{
 			"studio", en("live_connected"), platform, en("host_uptime"), en("host_node_uptime"),
-			en("metrics_cpu"), en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
+			en("metrics_cpu"), en("metrics_gpu"), "Apple M4 Pro", en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
 			en("host_storage"), en("host_process_search"), en("host_pid"),
 			en("workspace_running"), "Rebuild the host page", en("projects"), "sailry-harness", en("workspace_runtime"), en("host_version"),
 		}
@@ -390,13 +405,152 @@ func TestPage(t *testing.T) {
 			t.Error("the page has a Remove pairing button")
 		}
 	})
-	t.Run("real volumes", func(t *testing.T) {
+	t.Run("volumes", func(t *testing.T) {
 		shown := count()
-		if shown["/"] == 0 || shown["/dev"] != 0 || shown["/System/Volumes/VM"] != 0 {
-			t.Errorf("volumes: / %d, /dev %d, /System/Volumes/VM %d", shown["/"], shown["/dev"], shown["/System/Volumes/VM"])
+		if shown["/"] == 0 || shown["/Volumes/Web"] == 0 {
+			t.Errorf("volumes: / %d, /Volumes/Web %d", shown["/"], shown["/Volumes/Web"])
 		}
-		if !tt.HasText(en("host_partition_count", "count", 1)) {
-			t.Errorf("the storage counts every mount: %q", tt.Texts())
+		if !tt.HasText(en("host_partition_count", "count", 2)) {
+			t.Errorf("the storage does not count its volumes: %q", tt.Texts())
+		}
+	})
+	t.Run("accelerator", func(t *testing.T) {
+		// The card's figure and the utilization's legend; a host with one
+		// accelerator has no choice of it.
+		shown := count()
+		if shown["37.5"] != 1 || shown["37.5%"] != 1 || shown["Apple M4 Pro"] != 1 {
+			t.Errorf("the accelerator's load: %q", tt.Texts())
+		}
+		if _, ok := tt.AccessByRole(ui.RoleMenuButton, en("metrics_gpu")); ok {
+			t.Error("one accelerator has a choice")
+		}
+		// Several: the card follows the chosen one.
+		m.GPUs = append(m.GPUs, GPU{ID: "8", Name: "Radeon Pro", Usage: math.NaN()})
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleMenuButton, en("metrics_gpu")); !ok || !tt.HasText("Apple M4 Pro") {
+			t.Errorf("two accelerators have no choice: %q", tt.Texts())
+		}
+		st.gpu = "8"
+		tt.Frame()
+		if shown := count(); shown["37.5"] != 0 || !tt.HasText("Radeon Pro") {
+			t.Errorf("the chosen accelerator: %q", tt.Texts())
+		}
+		// A sample without one has no card and no series: the Node reads
+		// only macOS's.
+		gpus := m.GPUs
+		m.GPUs = nil
+		tt.Frame()
+		if tt.HasText(en("metrics_gpu")) {
+			t.Errorf("a host without an accelerator shows one: %q", tt.Texts())
+		}
+		m.GPUs, st.gpu = gpus[:1], ""
+		tt.Frame()
+	})
+	t.Run("process menu", func(t *testing.T) {
+		stop, force := en("host_process_stop"), en("host_process_force_stop")
+		menu := func(name string) {
+			t.Helper()
+			r, ok := tt.Find(name)
+			if !ok {
+				t.Fatalf("no process %q: %q", name, tt.Texts())
+			}
+			tt.RightClickAt(r.X+2, r.Y+r.H/2)
+		}
+		menu("sailry-node")
+		want := []string{en("host_process_details"), en("host_process_copy_pid"), en("host_process_copy_name"), "-", stop, force}
+		if got := tt.Menu(); !slices.Equal(got, want) {
+			t.Fatalf("the process menu is %q, want %q", got, want)
+		}
+		if err := tt.ChooseMenuItem(en("host_process_copy_pid")); err != nil || tt.Clipboard() != "41" {
+			t.Errorf("Copy PID: %v, clipboard %q", err, tt.Clipboard())
+		}
+		// End process asks first, naming the process and what follows once;
+		// Cancel sends nothing.
+		shows := func(part string) int {
+			n := 0
+			for _, text := range tt.Texts() {
+				if strings.Contains(text, part) {
+					n++
+				}
+			}
+			return n
+		}
+		menu("sailry-node")
+		if err := tt.ChooseMenuItem(stop); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if shows("sailry-node · PID 41") != 1 || shows(en("host_process_stop_confirm")) != 1 {
+			t.Fatalf("the confirmation: %q", tt.Texts())
+		}
+		if err := tt.Click(en("settings_cancel")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		tt.Frame()
+		if len(stops) != 0 || shows(en("host_process_stop_confirm")) != 0 {
+			t.Fatalf("cancel: %+v %q", stops, tt.Texts())
+		}
+		// The rows sort again under an open menu: the item acts on the
+		// process the menu was opened on.
+		menu("sailry-node")
+		st.sort = ui.SortOrder{Column: "cpu"}
+		tt.Frame()
+		if err := tt.ChooseMenuItem(force); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if shows("sailry-node · PID 41") != 1 || shows(en("host_process_force_confirm")) != 1 {
+			t.Fatalf("the forced stop's confirmation: %q", tt.Texts())
+		}
+		var confirm ui.Rect
+		for _, info := range tt.AccessAll() {
+			if info.Role == ui.RoleButton && info.Name == force {
+				confirm = info.Bounds
+			}
+		}
+		tt.ClickAt(confirm.X+confirm.W/2, confirm.Y+confirm.H/2)
+		tt.Frame()
+		tt.Frame()
+		if len(stops) != 1 || stops[0].process.PID != 41 || stops[0].process.Started != 9 || !stops[0].force {
+			t.Fatalf("the confirmed stop: %+v", stops)
+		}
+		// The system's first process is not one to end, and no second
+		// request is sent while one runs.
+		menu("launchd")
+		if tt.ChooseMenuItem(stop) == nil {
+			t.Error("PID 1 could be ended")
+		}
+		tt.CloseMenu()
+		h.Stopping = true
+		tt.Frame()
+		menu("sailry-node")
+		if tt.ChooseMenuItem(force) == nil {
+			t.Error("a second stop could be asked while one runs")
+		}
+		tt.CloseMenu()
+		h.Stopping = false
+		// A Windows host has only the forced stop.
+		h.OS = "windows"
+		tt.Frame()
+		menu("sailry-node")
+		if got := tt.Menu(); slices.Contains(got, stop) || !slices.Contains(got, force) {
+			t.Errorf("a Windows host's process menu is %q", got)
+		}
+		// The details name the process as it was.
+		if err := tt.ChooseMenuItem(en("host_process_details")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if !tt.HasText(en("host_process_details")) || !tt.HasText("41") {
+			t.Errorf("the details: %q", tt.Texts())
+		}
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		h.OS = "macos"
+		tt.Frame()
+		if len(stops) != 1 {
+			t.Errorf("stops: %+v", stops)
 		}
 	})
 	t.Run("summary column", func(t *testing.T) {
@@ -410,7 +564,7 @@ func TestPage(t *testing.T) {
 		for _, text := range panel.Texts() {
 			shown[text]++
 		}
-		if shown["/"] == 0 || shown["/dev"] != 0 || shown["/System/Volumes/VM"] != 0 || shown["sailry-node"] == 0 {
+		if shown["/"] == 0 || shown["/Volumes/Web"] == 0 || shown["sailry-node"] == 0 {
 			t.Errorf("the summary's volumes and processes: %q", panel.Texts())
 		}
 	})

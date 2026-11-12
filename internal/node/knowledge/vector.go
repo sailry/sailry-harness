@@ -63,25 +63,70 @@ func (vector Vector) Encode() []byte {
 
 // DecodeVector reads a stored vector of the collection's dimension.
 func DecodeVector(bytes []byte, dimension int) (Vector, error) {
+	values, norm, err := AppendVector(make([]int8, 0, max(dimension, 0)), bytes, dimension)
+	if err != nil {
+		return Vector{}, err
+	}
+	return Vector{values: values, scale: math.Float32frombits(binary.LittleEndian.Uint32(bytes)), norm: norm}, nil
+}
+
+// AppendVector checks a stored vector as DecodeVector does and appends its
+// components to values, so that many vectors share one allocation. It
+// returns the norm of the appended components.
+func AppendVector(values []int8, bytes []byte, dimension int) ([]int8, float32, error) {
 	if dimension == 0 || len(bytes) != dimension+4 {
-		return Vector{}, invalid("invalid knowledge vector dimension")
+		return values, 0, invalid("invalid knowledge vector dimension")
 	}
 	scale := math.Float32frombits(binary.LittleEndian.Uint32(bytes))
 	if !finite(scale) || scale <= 0 {
-		return Vector{}, invalid("invalid knowledge vector scale")
+		return values, 0, invalid("invalid knowledge vector scale")
 	}
-	values := make([]int8, dimension)
-	for index, value := range bytes[4:] {
-		values[index] = int8(value)
-		if values[index] == math.MinInt8 {
-			return Vector{}, invalid("invalid knowledge vector value")
+	start := len(values)
+	for _, value := range bytes[4:] {
+		if int8(value) == math.MinInt8 {
+			return values[:start], 0, invalid("invalid knowledge vector value")
 		}
+		values = append(values, int8(value))
 	}
-	norm := length(values)
+	norm := length(values[start:])
 	if norm == 0 {
-		return Vector{}, invalid("knowledge vector has no direction")
+		return values[:start], 0, invalid("knowledge vector has no direction")
 	}
-	return Vector{values: values, scale: scale, norm: norm}, nil
+	return values, norm, nil
+}
+
+// Direction is a query embedding checked once for many comparisons.
+type Direction struct {
+	values []float32
+	norm   float32
+}
+
+// NewDirection checks a query embedding as Vector.Cosine does.
+func NewDirection(values []float32) (Direction, error) {
+	var sum float32
+	for _, value := range values {
+		if !finite(value) {
+			return Direction{}, invalid("knowledge query dimension differs from its index")
+		}
+		sum += value * value
+	}
+	norm := float32(math.Sqrt(float64(sum)))
+	if norm == 0 || !finite(norm) {
+		return Direction{}, invalid("knowledge query embedding has no direction")
+	}
+	return Direction{values: values, norm: norm}, nil
+}
+
+// Cosine compares the query with the components and norm of one stored
+// vector of its dimension. It is the arithmetic of Vector.Cosine, in the same
+// order, so both give the same bits.
+func (query Direction) Cosine(values []int8, norm float32) float32 {
+	values = values[:len(query.values)]
+	var dot float32
+	for index, value := range query.values {
+		dot += float32(values[index]) * value
+	}
+	return min(max(dot/(norm*query.norm), -1), 1)
 }
 
 // Cosine compares the stored direction with a query embedding.

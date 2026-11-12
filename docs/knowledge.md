@@ -189,37 +189,74 @@ untrusted, and hits of a collection that is still indexing are marked stale.
 
 ### Scale
 
-There is no vector index: a semantic or hybrid query reads, decodes and
+The search is exact: there is no approximate index. A semantic or hybrid query
 scores every vector of the admitted collections that was built with the
-query's model and dimension (`service/query.go`), and the keyword side ranks
-every chunk that contains the query's words. Both grow with the corpus.
+query's model and dimension, and returns what scoring them one by one with
+`Vector.Cosine` and sorting all of them returns, to the bit
+(`TestSemanticScan`). It is fast because of how the scan runs
+(`service/scan.go`), not because it skips vectors:
+
+- A collection's vectors are read from SQLite once and kept in memory as one
+  contiguous slice of their stored bytes, with their keys and their norms. The
+  norm of each vector is computed when it is loaded, so a comparison is one dot
+  product and one division. The stored form stays the quantized direction with
+  its scale: normalizing the bytes themselves would change scores in the last
+  bits.
+- The scan runs on up to 8 goroutines over runs of 2,048 vectors. Each keeps
+  its own nearest 100 and the merge orders them again by score and then by
+  key. Keys are unique, so the order is total and the result does not depend
+  on the number of workers.
+- Every write to a collection's chunks (`Bind`, `Replace`, `Prune`, and
+  `Retain` for all collections) drops its kept vectors; the next query reads
+  them again. A query uses kept vectors only when no write to the collection
+  began between the moment before its read transaction and its check, so the
+  vectors and the rows it reads are one state.
+- Without a source filter (tags, path prefix, modification times) a query asks
+  SQLite only for the admitted collections. With one it asks for the admitted
+  sources, one row per source, and scans their runs.
+
+Memory is bounded at 256 MiB of kept vectors across all collections
+(`vectorBudget`). A vector costs its dimension in bytes plus about 100 for its
+key and norm: about 48 MB for 100,000 vectors of 384 components and 97 MB for
+200,000, so the budget holds about 550,000 of them. When a collection does not
+fit beside the others, those used longest ago are dropped. A collection that
+alone exceeds the budget is never kept: every query reads it from SQLite in
+blocks of 16,384 vectors (about 8 MB) and scans each block the same way. A
+collection that is being written is read the same way for that query. The
+memory is held until a write or eviction; nothing releases it by time.
+
+The keyword side asks the full-text index for the chunks that contain the
+query's words, so chunks without them are not touched. The index scores every
+match (SQLite's `bm25` has no early termination), which is the remaining cost
+of a query whose words occur everywhere. The grants and source filters are now
+evaluated once per source and joined to the matches, instead of once per
+matching chunk.
+
 `BenchmarkSemanticScan` (`service/query_bench_test.go`) measures one query
 against one collection of 384-component vectors, the default model's
-dimension. On an Apple M4 Pro, darwin-arm64, 30 queries each:
+dimension. Apple M4 Pro, darwin-arm64, mean of 20 queries, before and after
+this design in one session on a machine shared with other work (the earlier
+record of the old scan on a quiet machine was 190 ms at 100,000):
 
-| Chunks | Semantic | Hybrid | Hybrid, words in every chunk |
-|---|---|---|---|
-| 10,000 | 19 ms | 20 ms | 52 ms |
-| 25,000 | 46 ms | 52 ms | 135 ms |
-| 50,000 | 110 ms | 100 ms | 269 ms |
-| 100,000 | 190 ms | 206 ms | 547 ms |
-| 200,000 | 367 ms | 379 ms | 1,076 ms |
+| Chunks | Semantic | Hybrid | Hybrid, words in every chunk | Semantic, not kept |
+|---|---|---|---|---|
+| 10,000 | 30 → 3 ms | 28 → 2 ms | 79 → 24 ms | 21 ms |
+| 25,000 | 67 → 7 ms | 65 → 4 ms | 180 → 46 ms | 49 ms |
+| 50,000 | 137 → 9 ms | 137 → 5 ms | 464 → 93 ms | 71 ms |
+| 100,000 | 304 → 17 ms | 306 → 11 ms | 904 → 197 ms | 155 ms |
+| 200,000 | 503 → 35 ms | 515 → 16 ms | 1,332 → 332 ms | 258 ms |
 
-A query costs about 2 µs per vector and passes 100 ms at about 50,000 chunks
-across the collections it may read; a chunk is at most 256 tokens, so that is
-on the order of ten million tokens of text. Of the 2 µs, reading the rows
-takes about 0.7 µs (the same statement run alone); the rest is decoding,
-scoring and ranking. A query whose words occur in every chunk adds about
-3 µs per chunk for the keyword ranking and passes 100 ms at about 20,000
-chunks. The time excludes encoding the query text. Nothing caps a
-collection's size; beyond these sizes queries slow down, they do not fail.
-
-The limit is recorded, not removed. The standard next step, when corpora of
-that size matter, is an approximate nearest-neighbour index (HNSW) over the
-stored vectors, kept as derived data per collection binding like the vectors
-themselves, with the exact scan retained for small or heavily filtered
-candidate sets. It needs a dependency and a plan decision, so it is not part
-of this change.
+The semantic column runs first after the collection grew, so its mean includes
+reading the vectors once; the hybrid column is the steady state. Reading
+100,000 vectors into memory takes on the order of 150 ms, which the first query
+after a write pays. On one core the kept scan takes 31 ms at 100,000 vectors
+(0.3 µs per vector); the eight workers bring it to the figures above. "Not
+kept" is a collection over the budget or being written: it pays SQLite's row
+reads, about 0.9 µs per vector, as every query did before. A query whose words
+occur in every chunk costs 1.5 to 2 µs per chunk, of which the full-text
+scoring is about 1.1 µs, and passes 100 ms at about 50,000 chunks. The time
+excludes encoding the query text. Nothing caps a collection's size; beyond
+these sizes queries slow down, they do not fail.
 
 ## Citations
 

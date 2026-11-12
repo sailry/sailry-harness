@@ -12,19 +12,19 @@ import (
 )
 
 // monitor is the host's live load, as the reference's Monitor
-// (live/host/monitor.rs): the processor with its cores, the memory, the
-// utilization over the last minute, the network beside the chosen volume's
+// (live/host/monitor.rs): the processor with its cores, the accelerator
+// where the Node reads one, the memory, the utilization over the last minute, the network beside the chosen volume's
 // transfers, the storage and the processes, 14 apart. Until the first sample
 // its cards hold their place; a failure shows as a warning over them and
 // leaves the last sample out.
-func monitor(c *ui.Context, s *State, h *Host) {
+func monitor(c *ui.Context, s *State, h *Host, act Actions) {
 	p := theme.Of(c)
 	column := ui.Column(c.Key("monitor")).Gap(sectionGap)
 	// The room inside a card, as laid out last: the cards that put two
 	// blocks side by side divide them only while both fit.
 	room := column.Bounds().W - 2*panelPad
 	column.Children(func() {
-		if !h.Live {
+		if !h.plain(c) {
 			ui.Text(c.Key("preview"), i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
 		}
 		m := h.Metrics
@@ -40,14 +40,15 @@ func monitor(c *ui.Context, s *State, h *Host) {
 		}
 		t := tonesOf(p)
 		cpuCard(c, m, t, room)
+		gpuCard(c, s, h, m, t, room)
 		memoryCard(c, m, t, room)
-		trendCard(c, m, t)
+		trendCard(c, s, m, t)
 		ui.Row(c.Key("transfers")).Wrap().Gap(sectionGap).AlignItems(ui.Stretch).Children(func() {
 			networkCard(c, m, t)
 			diskCard(c, s, h, m, t)
 		})
 		storageCard(c, s, h, m, t)
-		processPanel(c, s, h, m, t)
+		processPanel(c, s, h, m, t, act)
 	})
 }
 
@@ -59,7 +60,7 @@ const sectionGap = 14
 // and the memory's cards as blocks, then the processes' table.
 func pending(c *ui.Context, h *Host) {
 	loading := "metrics_loading"
-	if h.Live {
+	if h.plain(c) {
 		loading = "live_metrics_loading"
 	}
 	label := i18n.T(c, loading)
@@ -264,6 +265,65 @@ func cores(c *ui.Context, loads []float64, t tones) {
 	})
 }
 
+// gpuCard is the accelerator's load beside its ring, with its name, then the
+// load over the last minute. A host with several chooses the one the card
+// and the utilization follow. A sample without one has no such card: the
+// Node reads only macOS's.
+func gpuCard(c *ui.Context, s *State, h *Host, m *Metrics, t tones, room float32) {
+	g, ok := m.GPU(s.gpu)
+	if !ok {
+		return
+	}
+	s.gpu = g.ID
+	p := theme.Of(c)
+	label := i18n.T(c, "metrics_gpu")
+	panel(c, "gpu", false, func() {
+		ui.Row(c).Wrap().GapX(blockGap).GapY(20).AlignItems(ui.Center).Children(func() {
+			ui.Row(c.Key("load")).Basis(summaryBasis).Shrink(1).MinWidth(0).Gap(16).AlignItems(ui.Center).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+					heading(c, label, t.gpu)
+					value, unit := dash, ""
+					if !math.IsNaN(g.Usage) {
+						value, unit = fmt.Sprintf("%.1f", g.Usage), "%"
+					}
+					figure(c, value, unit)
+					if len(m.GPUs) > 1 {
+						names, ids := make([]string, len(m.GPUs)), make([]string, len(m.GPUs))
+						for i, x := range m.GPUs {
+							names[i], ids[i] = x.Name, x.ID
+						}
+						kit.Select(c.Key("choice"), "host-gpu-"+h.ID, label, &s.gpu, names, false, ids)
+					} else {
+						ui.Text(c, g.Name).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+					}
+				})
+				if !math.IsNaN(g.Usage) {
+					ring(c, 84, 9, t.track, label, func() {
+						ui.Text(c, strconv.Itoa(int(math.Round(g.Usage)))+"%").FontSize(14).FontWeight(600).Font("monospace").SingleLine()
+					}, arc{g.Usage / 100, t.load(g.Usage, t.gpu)})
+				}
+			})
+			detail(c, "history", room).Children(func() {
+				areaChart(c, "chart", 56, 100, nil, nil, label, series{gpuHistory(m, g.ID), t.gpu})
+			})
+		})
+	})
+}
+
+// gpuHistory is an accelerator's load over the history, NaN where a sample
+// had none.
+func gpuHistory(m *Metrics, id string) []float64 {
+	loads := make([]float64, len(m.History))
+	for i, point := range m.History {
+		v, sampled := point.GPUs[id]
+		if !sampled {
+			v = math.NaN()
+		}
+		loads[i] = v
+	}
+	return loads
+}
+
 // memoryCard is the memory: what is used of the whole beside its ring of
 // used and cached, then the used, cached and swap sizes over the last
 // minute's use.
@@ -311,16 +371,21 @@ func memoryCard(c *ui.Context, m *Metrics, t tones, room float32) {
 }
 
 // trendCard is the processor's and the memory's use over the last minute,
-// from 0 to 100%, the samples' times under it.
-func trendCard(c *ui.Context, m *Metrics, t tones) {
+// from 0 to 100%, the samples' times under it, with the chosen
+// accelerator's between them where the sample has one.
+func trendCard(c *ui.Context, s *State, m *Metrics, t tones) {
 	panel(c, "trend", false, func() {
 		var cpu, memory []float64
 		for _, point := range m.History {
 			cpu, memory = append(cpu, point.CPU), append(memory, point.Memory)
 		}
+		g, hasGPU := m.GPU(s.gpu)
 		ui.Row(c.Key("head")).Wrap().GapX(20).GapY(6).AlignItems(ui.Center).Children(func() {
 			title(c, i18n.T(c, "host_utilization")).Grow(1)
 			legend(c, i18n.T(c, "metrics_cpu"), orDash(Percent(m.CPU)), t.cpu)
+			if hasGPU {
+				legend(c, i18n.T(c, "metrics_gpu"), orDash(Percent(g.Usage)), t.gpu)
+			}
 			used, ok := Usage(m.MemoryUsed, m.Memory)
 			value := dash
 			if ok {
@@ -328,8 +393,11 @@ func trendCard(c *ui.Context, m *Metrics, t tones) {
 			}
 			legend(c, i18n.T(c, "metrics_memory"), value, t.memory)
 		})
-		areaChart(c, "chart", 180, 100, percentTicks(), clockTicks(m.History, 5), i18n.T(c, "host_utilization"),
-			series{cpu, t.cpu}, series{memory, t.memory})
+		all := []series{{cpu, t.cpu}, {memory, t.memory}}
+		if hasGPU {
+			all = []series{{cpu, t.cpu}, {gpuHistory(m, g.ID), t.gpu}, {memory, t.memory}}
+		}
+		areaChart(c, "chart", 180, 100, percentTicks(), clockTicks(m.History, 5), i18n.T(c, "host_utilization"), all...)
 	})
 }
 
@@ -417,13 +485,13 @@ func transfer(c *ui.Context, h *Host, v uint64) string {
 	return orDash(Bytes(float64(v)))
 }
 
-// storageCard is the host's real volumes (Metrics.Volumes): each a tile of
+// storageCard is the host's volumes: each a tile of
 // its mount, file system, used of total and how full it is over a MyGo
 // progress bar, with its read and write beside the mount. A tile chooses
 // the volume the disk card follows.
 func storageCard(c *ui.Context, s *State, h *Host, m *Metrics, t tones) {
 	p := theme.Of(c)
-	volumes := m.Volumes()
+	volumes := m.Disks
 	chosen, _ := m.Volume(s.disk)
 	panel(c, "storage", false, func() {
 		ui.Row(c.Key("head")).Gap(8).AlignItems(ui.Center).Children(func() {
