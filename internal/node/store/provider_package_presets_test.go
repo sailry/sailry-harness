@@ -11,7 +11,8 @@ import (
 
 // TestPackagePresetWarning lists a package's presets: the entry's
 // login_warning is the warning of the preset's sign-in, else the preset's
-// own, and the listed preset does not repeat it.
+// own, and the listed preset does not repeat it. A built-in preset whose
+// sign-in a package supplies carries that sign-in's warning.
 func TestPackagePresetWarning(t *testing.T) {
 	t.Parallel()
 	_, _, storage := schemaFixture(t)
@@ -31,7 +32,10 @@ func TestPackagePresetWarning(t *testing.T) {
 			}}
 			return declaration
 		}
-		extension.ModelAuth = []protocol.PluginModelAuthDeclaration{flow("account", flowWarning), flow("quiet", nil)}
+		// A package may also supply the sign-in of a built-in preset.
+		subscription, authentication := flow("subscription", flowWarning), protocol.AuthenticationClaudeOAuth
+		subscription.Authentication = &authentication
+		extension.ModelAuth = []protocol.PluginModelAuthDeclaration{flow("account", flowWarning), flow("quiet", nil), subscription}
 		preset := func(id, sign string, warning *protocol.PluginModelAuthWarning) protocol.ConversationPresetsPreset {
 			value := protocol.DefaultConversationPresetsPreset()
 			value.ID, value.Name, value.Offered, value.Warning = id, id, true, warning
@@ -50,7 +54,16 @@ func TestPackagePresetWarning(t *testing.T) {
 		if _, err := InstallPlugin(ctx, db, info, 0, true); err != nil {
 			return err
 		}
-		listing, err := appendPackagePresets(ctx, db, protocol.DefaultConversationPresetsListing())
+		builtin := func(id string, authentication protocol.Authentication) protocol.ConversationPresetsEntry {
+			entry := protocol.DefaultConversationPresetsEntry()
+			entry.Source, entry.Provenance = protocol.ConversationPresetsSource{Kind: "builtin"}, protocol.ConversationPresetsProvenanceOfficial
+			entry.Preset.ID, entry.Preset.Name = id, id
+			entry.Preset.Auth = protocol.ConversationPresetsAuth{Kind: "builtin", Data: protocol.ConversationPresetsAuthBuiltinPayload{Authentication: authentication}}
+			return entry
+		}
+		base := protocol.DefaultConversationPresetsListing()
+		base.Entries = []protocol.ConversationPresetsEntry{builtin("claude-oauth", protocol.AuthenticationClaudeOAuth), builtin("chatgpt", protocol.AuthenticationChatGpt)}
+		listing, err := appendPackagePresets(ctx, db, base)
 		if err != nil {
 			return err
 		}
@@ -60,6 +73,7 @@ func TestPackagePresetWarning(t *testing.T) {
 		}{
 			"local": {presetWarning, false}, "plain": {nil, false},
 			"signed": {flowWarning, true}, "fallback": {presetWarning, true}, "silent": {nil, true},
+			"claude-oauth": {flowWarning, true}, "chatgpt": {nil, false},
 		}
 		if len(listing.Entries) != len(want) {
 			return fmt.Errorf("listed %d entries", len(listing.Entries))

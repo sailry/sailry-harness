@@ -49,7 +49,7 @@ func appendPackagePresets(ctx context.Context, db *sql.Conn, listing protocol.Co
 			for _, declaration := range info.Extension.ModelAuth {
 				if declaration.Authentication != nil && *declaration.Authentication == auth.Authentication {
 					presentation := accountPresentation(declaration)
-					listing.Entries[index].Login = &presentation
+					listing.Entries[index].Login, listing.Entries[index].LoginWarning = &presentation, declaration.Warning
 				}
 			}
 		}

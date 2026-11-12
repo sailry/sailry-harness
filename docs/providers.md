@@ -344,6 +344,9 @@ an adapter or `acp` declaration is not projected to a controller and may serve
 several presets. The directory carries it in the same `login_warning` member
 and removes it from the listed preset, so there is one carrier. Where a preset
 has a sign-in, `login_warning` is the flow's warning, else the preset's.
+A built-in preset whose sign-in an enabled package supplies (a flow declaring
+`authentication`, as `claude-auth` and `copilot-auth` do) carries that flow's
+warning the same way.
 
 The Desktop shows a preset warning of a channel without a sign-in in the same
 dialog, titled "Add" and the preset's name, once when the user picks that preset
