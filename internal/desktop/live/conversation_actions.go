@@ -185,6 +185,16 @@ func (x *conversationActions) question(id string, response protocol.Conversation
 	x.r.sendInteraction(f, f.question)
 }
 
+// questionLink is the address a link question may open. The link came from an
+// MCP server through a Node, so this Desktop checks it again.
+func questionLink(input protocol.ConversationQuestionInput) (string, bool) {
+	link, ok := detail[protocol.ConversationQuestionInputUrlPayload](input.Data)
+	if !ok || !protocol.QuestionLinkAllowed(link.Url) {
+		return "", false
+	}
+	return link.Url, true
+}
+
 // Answer answers the waiting question in the shape its kind takes: a plan
 // review starts coding or continues planning, a form sends its fields'
 // values, a link opens its page and says so, a choice its options and a free
@@ -224,13 +234,12 @@ func (x *conversationActions) Answer(id string, a composer.Answer) {
 		answer = protocol.ConversationQuestionAnswer{Kind: "form", Data: formAnswer(form, a.Values)}
 	case "url":
 		if f := x.r.interactionFlow(x.cv.ID); f.question == nil && x.r.controller.Connected() {
-			link, ok := detail[protocol.ConversationQuestionInputUrlPayload](spec.Input.Data)
-			if !ok || !protocol.QuestionLinkAllowed(link.Url) {
-				// The link came from an MCP server through a Node; one this
-				// Desktop would not open is not answered as opened.
+			link, ok := questionLink(spec.Input)
+			if !ok {
+				// One this Desktop would not open is not answered as opened.
 				return
 			}
-			x.c.OpenURL(link.Url)
+			x.c.OpenURL(link)
 		}
 		answer = protocol.ConversationQuestionAnswer{Kind: "opened"}
 	case "choice":
