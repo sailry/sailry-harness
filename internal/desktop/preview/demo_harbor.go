@@ -59,7 +59,7 @@ func (b *demo) rateLimit() *Conversation {
 		reasoning(b.t("limit.1.think")),
 		tools(config, test),
 		{Kind: cv.ChildrenBlock, Children: []cv.Child{
-			{ID: run.ID + "/load", Title: load, Model: demoFast, Effort: "low", Status: cv.ChildRunning},
+			{ID: run.ID + "/load", Title: load, Model: demoFast, Effort: "low", Status: cv.ChildRunning, Avatar: "avatar-tiger"},
 			{ID: run.ID + "/audit", Title: b.t("limit.child.audit"), Model: demoFast, Effort: "low", Status: cv.ChildCompleted},
 			{ID: run.ID + "/docs", Title: b.t("limit.child.docs"), Model: DemoModel, Effort: "medium", Status: cv.ChildQueued},
 		}},

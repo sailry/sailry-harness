@@ -22,7 +22,7 @@ func (b *demo) review() *Conversation {
 	first.Reply = done(cv.Completed, 372)
 	first.Reply.Blocks = []cv.Block{
 		{Kind: cv.ChildrenBlock, Children: []cv.Child{
-			{ID: first.ID + "/visual", Title: b.t("review.child.visual"), Model: DemoModel, Effort: "high", Status: cv.ChildCompleted},
+			{ID: first.ID + "/visual", Title: b.t("review.child.visual"), Model: DemoModel, Effort: "high", Status: cv.ChildCompleted, Avatar: "avatar-cat"},
 			{ID: first.ID + "/a11y", Title: b.t("review.child.a11y"), Model: demoFast, Effort: "low", Status: cv.ChildFailed},
 			{ID: first.ID + "/copy", Title: b.t("review.child.copy"), Model: demoFast, Effort: "low", Status: cv.ChildInterrupted},
 			{ID: first.ID + "/legacy", Title: b.t("review.child.legacy"), Model: demoFast, Status: cv.ChildCancelled},
@@ -37,8 +37,8 @@ func (b *demo) review() *Conversation {
 	rerun.Reply.Blocks = []cv.Block{
 		tools(delegate),
 		{Kind: cv.ChildrenBlock, Children: []cv.Child{
-			{ID: rerun.ID + "/a11y", Title: b.t("review.child.a11y"), Model: DemoModel, Effort: "medium", Status: cv.ChildRunning},
-			{ID: rerun.ID + "/perf", Title: b.t("review.child.perf"), Model: demoFast, Effort: "low", Status: cv.ChildRunning},
+			{ID: rerun.ID + "/a11y", Title: b.t("review.child.a11y"), Model: DemoModel, Effort: "medium", Status: cv.ChildRunning, Avatar: "avatar-owl"},
+			{ID: rerun.ID + "/perf", Title: b.t("review.child.perf"), Model: demoFast, Effort: "low", Status: cv.ChildRunning, Avatar: "avatar-penguin"},
 			{ID: rerun.ID + "/copy", Title: b.t("review.child.copy"), Model: demoFast, Effort: "low", Status: cv.ChildStopping},
 			{ID: rerun.ID + "/summary", Title: b.t("review.child.summary"), Model: DemoModel, Effort: "medium", Status: cv.ChildQueued},
 		}},

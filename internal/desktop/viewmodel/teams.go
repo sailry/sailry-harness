@@ -12,6 +12,9 @@ type Role struct {
 	ReadOnly     bool
 	Instructions string
 	Builtin      bool
+	// Avatar is the identifier of the role's picture (icons.Avatar), as
+	// "avatar-fox"; "" shows the mark the role's ID picks.
+	Avatar string
 }
 
 // Team keeps its stored revision with the editable presentation fields.

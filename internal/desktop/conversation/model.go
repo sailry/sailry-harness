@@ -469,6 +469,9 @@ type Child struct {
 	ID, Title     string
 	Model, Effort string
 	Status        ChildStatus
+	// Avatar is the avatar of the role it runs as (icons.Avatar), "" for
+	// its identicon.
+	Avatar string
 }
 
 // StepState is the state of a task step.

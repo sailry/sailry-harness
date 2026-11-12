@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -64,7 +65,31 @@ func (r *Runtime) teamsFrame() {
 
 func roleView(role protocol.RoleProfile) viewmodel.Role {
 	model, effort := roleModelView(role.Model)
-	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Builtin: role.Key == "explore" || role.Key == "research", Features: roleFeatures(role.Model)}
+	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Builtin: role.Key == "explore" || role.Key == "research", Features: roleFeatures(role.Model), Avatar: roleAvatar(role.Appearance)}
+}
+
+// roleAvatar is the avatar a role's appearance names: its icon, when that
+// is an avatar this build has the picture of. Any other icon, one a newer
+// peer stored too, is "" and the role shows its mark.
+func roleAvatar(appearance *protocol.ProjectsAppearance) string {
+	if appearance == nil || icons.Avatar(appearance.Icon) == nil {
+		return ""
+	}
+	return appearance.Icon
+}
+
+// childAvatar is the avatar of the role a child was delegated to, "" for
+// a child without a role or whose role the Node no longer has.
+func childAvatar(roles []protocol.RoleProfile, child protocol.ConversationChild) string {
+	if child.Origin.Role == nil {
+		return ""
+	}
+	for _, role := range roles {
+		if role.ID == *child.Origin.Role {
+			return roleAvatar(role.Appearance)
+		}
+	}
+	return ""
 }
 
 // roleFeatures are the feature options a profile's model sets; nil when it
