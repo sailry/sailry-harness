@@ -104,7 +104,7 @@ func TestRailOpensPages(t *testing.T) {
 				t.Fatalf("overview is missing %q: %q", text, tester.Texts())
 			}
 		}
-		for _, text := range []string{"Local project", "/local/project", "Resource session", "Wrong owner", i18n.In("en", "workspace_preview"), i18n.In("en", "workspace_runtime")} {
+		for _, text := range []string{"Local project", "/local/project", "Resource session", "Wrong owner", i18n.In("en", "workspace_preview"), "Runtime"} {
 			if tester.HasText(text) {
 				t.Fatalf("overview shows unrelated content %q: %q", text, tester.Texts())
 			}

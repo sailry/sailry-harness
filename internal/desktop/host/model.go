@@ -1,8 +1,8 @@
 // Package host is a host's page: the header with the host's status and
-// uptimes, the monitor (processor, memory, utilization, network, disks,
-// storage and processes), the running sessions, the projects and the
-// runtime, with the update dialog, the port forwards and the metrics summary
-// in the right column. See docs/host.md.
+// uptimes, its platform and versions, the monitor (processor, memory,
+// utilization, network, disks, storage and processes), the running sessions
+// and the projects, with the update dialog, the port forwards and the
+// metrics summary in the right column. See docs/host.md.
 package host
 
 import (
@@ -21,15 +21,15 @@ type Host struct {
 	Local bool
 	// OS names the platform's logo: "macos", "windows", "linux" or "" for the
 	// generic one.
-	OS     string
-	Detail string // the platform line, an i18n key in the preview
+	OS string
+	// Detail is the platform line, an i18n key in the preview. The header
+	// shows it before the Runtime's versions.
+	Detail string
 	// Offline is whether a live host's Node is not connected: its page keeps
 	// what is known and samples nothing.
 	Offline bool
-	// Projects are the host's projects; the counts are its worktrees,
-	// sessions and terminals.
-	Projects                       []Project
-	Worktrees, Sessions, Terminals int
+	// Projects are the host's projects.
+	Projects []Project
 	// Activity is the host's running and waiting sessions.
 	Activity []Activity
 	Runtime  Runtime
@@ -62,39 +62,21 @@ type Activity struct {
 }
 
 // Runtime is what the host's Node tells of itself: empty fields are unknown.
+// The header shows the version and the protocol after the platform, and the
+// two uptimes as its facts.
 type Runtime struct {
-	Live bool
-	// System is the preview's system version. A live host's platform is its
-	// header's line (Host.Detail) and is not repeated here.
-	Version, System, Timezone string
+	Version string
 	// Uptime is the computer's, since it started; NodeUptime is Sailry's on
 	// it, since its Node started. Each is < 0 when unknown.
 	Uptime, NodeUptime       time.Duration
 	ProtocolMin, ProtocolMax int // 0 unknown
-	Loading                  bool
 	Error                    string
-	// Known is whether a snapshot came at all (host_runtime_preview), or
-	// the workspace only knows of the host (workspace_runtime_preview).
+	// Known is whether a snapshot came at all.
 	Known bool
 }
 
-// Fact is a runtime row: its label's i18n key and its value, "" for
-// unknown.
+// Fact is a row of a process's details: its label's i18n key and its value.
 type Fact struct{ Label, Value string }
-
-// Facts are the runtime's rows (Snapshot::facts): the version, the time zone
-// and the protocol, and for the preview its system version. The uptimes are
-// the header's, and a live host's platform is the header's line: neither
-// shows twice.
-func (r Runtime) Facts() []Fact {
-	facts := []Fact{{"host_version", strings.TrimSpace(r.Version)}}
-	if !r.Live {
-		facts = append(facts, Fact{"host_system_version", strings.TrimSpace(r.System)})
-	}
-	return append(facts,
-		Fact{"host_timezone", strings.TrimSpace(r.Timezone)},
-		Fact{"host_protocol", Protocol(r.ProtocolMin, r.ProtocolMax)})
-}
 
 // UptimeParts are the uptime's two largest nonzero units, days, hours and
 // minutes, as (i18n key, count) pairs; minutes when both others are zero. nil

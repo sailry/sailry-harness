@@ -1476,24 +1476,17 @@ workspace_host_status: Disconnected · UI preview
 local_host_detail: macOS · aarch64 · Preview
 remote_host_detail: Linux · x86_64 · Preview
 host_update: Update host
-workspace_host_type: Host type
 workspace_worktrees: Worktrees
 workspace_sessions: Sessions
-host_active_preview: Active sessions (preview)
 project_empty: No projects on this host; add one to create sessions or terminals
-workspace_runtime: Runtime
 host_runtime_loading: Reading runtime (preview)
 host_version: Host version
-host_system_version: System version
-host_timezone: Time zone
 host_uptime: Uptime
 host_protocol: Protocol version
 host_unknown: Unknown
 host_uptime_days: '%{count} days'
 host_uptime_hours: '%{count} hours'
 host_uptime_minutes: '%{count} minutes'
-host_runtime_preview: UI snapshot only; existing values remain while loading or on failure. Live runtime data requires the shared Node.
-workspace_runtime_preview: Live OS, runtime versions and host metrics require the shared Node
 workspace_running: Running Agents
 host_activity_hint: Session activity preview only; no real Agent or CLI process is started
 host_runtime_error: 'Could not read runtime (preview): %{error}'
@@ -1857,7 +1850,6 @@ ssh_key_changed: Host key changed, verify the fingerprint
 ssh_trust: Trust
 ssh_trust_title: Trust host key
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics

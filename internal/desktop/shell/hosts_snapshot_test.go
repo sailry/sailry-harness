@@ -36,17 +36,16 @@ func TestHostPageSnapshots(t *testing.T) {
 	}{
 		{"local", "local", func(h *host.Host, _ *host.State) {
 			live(h, "sailry-mac.local", "macOS · 26.1 · arm64")
-			h.Runtime.Live = true
 		}},
 		{"offline", "remote", func(h *host.Host, _ *host.State) {
 			live(h, "design-node.local", "Linux · 6.8 · x86_64")
-			h.Runtime = host.Runtime{Live: true, Uptime: -1, NodeUptime: -1, Error: "Host is disconnected"}
+			h.Runtime = host.Runtime{Uptime: -1, NodeUptime: -1, Error: "Host is disconnected"}
 			h.Offline, h.Metrics, h.MetricsError, h.Update = true, nil, "Host is disconnected", nil
 		}},
 		{"update", "remote", func(h *host.Host, st *host.State) {
 			live(h, "design-node.local", "Linux · 6.8 · x86_64")
 			h.Runtime = host.Runtime{
-				Live: true, Version: "0.1.0", Timezone: "UTC", Uptime: 9*24*time.Hour + 3*time.Hour, NodeUptime: 26 * time.Hour,
+				Version: "0.1.0", Uptime: 9*24*time.Hour + 3*time.Hour, NodeUptime: 26 * time.Hour,
 				ProtocolMin: 1, ProtocolMax: 1, Known: true,
 			}
 			h.Update = &host.Update{Phase: host.Available, Current: "0.1.0", Target: "0.2.0", Progress: -1}
@@ -102,7 +101,6 @@ func TestHostPageSnapshots(t *testing.T) {
 		tt.Frame()
 		h, _ := a.hostPage()
 		live(h, "sailry-mac.local", "macOS · 26.1 · arm64")
-		h.Runtime.Live = true
 		tt.Frame()
 		snapshot(t, tt, "host-window-"+mode)
 		a.togglePanel()
