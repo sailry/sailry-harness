@@ -35,6 +35,7 @@ func (r *Runtime) execute(x *execution) {
 	if r.working != nil {
 		defer r.working()()
 	}
+	x.timeline = newTimeline(r.clock)
 	if r.hooksForTurn != nil {
 		x.hooks = r.hooksForTurn(x.ctx, x.inv)
 	}
@@ -81,6 +82,11 @@ func (r *Runtime) execute(x *execution) {
 			status = protocol.ConversationStatusFailed
 			failure = model.Fault(hookErr)
 		}
+	}
+	// The turn's phases are stored once its work has ended, before its end.
+	if phasesErr := r.save(ctx, x.inv.Session.ID, r.phasesRecord(x)); phasesErr != nil && status == protocol.ConversationStatusCompleted {
+		status = protocol.ConversationStatusFailed
+		failure = model.Fault(phasesErr)
 	}
 	r.mu.Lock()
 	child := r.children[x.inv.Run.Turn]

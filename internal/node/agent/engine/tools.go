@@ -398,7 +398,10 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					results[i] = toolFault(err)
 					return
 				}
-				results[i] = findTool(x.tools, calls[i].Name).Execute(x.ctx, calls[i])
+				tool := findTool(x.tools, calls[i].Name)
+				finished := x.timeline.tool(calls[i], tool.Delegation)
+				results[i] = tool.Execute(x.ctx, calls[i])
+				finished()
 				x.hooks.After(x.ctx, calls[i].Name, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
 			}(i)
 		}

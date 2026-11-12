@@ -148,6 +148,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		metric := r.telemetry.Capture()
 		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			r.observeModel(metric, binding, attempt)
+			x.timeline.attempt(attempt)
 			if attempt.RetryDelay != nil {
 				record := r.observationRecord(x, binding, purpose, attempt)
 				limit, delay := uint64(5), uint64(attempt.RetryDelay.Milliseconds())

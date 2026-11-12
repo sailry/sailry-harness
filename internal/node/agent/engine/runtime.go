@@ -108,6 +108,7 @@ type execution struct {
 	operationsDone    chan struct{}
 	attachments       map[protocol.AttachmentID]*attachmentMaterial
 	hooks             *hooks.Binding
+	timeline          *timeline
 	inv               *store.AgentInvocation
 	ctx               context.Context
 	cancel            context.CancelFunc

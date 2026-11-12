@@ -453,6 +453,27 @@ func interactionKinds(t *testing.T) {
 		}
 		return false
 	})
+	// The finished turn's statistics carry what the package's context panel
+	// draws beyond the figures: the compaction budget of the selected model,
+	// the request with its turn, the latency and the turn's phases, where the
+	// answer the turn waited for is not active time.
+	wait("the finished turn's statistics", func() bool {
+		history, _ := r.controller.Conversation(session)
+		statistics := history.Snapshot.Statistics
+		if statistics == nil || statistics.Observations.Phases.ActiveUs == nil {
+			return false
+		}
+		observed, phases := statistics.Observations, statistics.Observations.Phases
+		if statistics.Budget == nil || statistics.Budget.TriggerTokens == 0 || statistics.Budget.OutputReserve == 0 ||
+			len(observed.Recent) != 1 || observed.Recent[0].TurnIndex == nil || *observed.Recent[0].TurnIndex != 1 ||
+			observed.Latency.FirstTokenUs == nil || observed.Latency.ElapsedUs == nil || observed.Tools["ask_user"] != 1 ||
+			phases.WaitingUs == nil || phases.OutputUs == nil || phases.ToolsUs == nil || phases.OtherUs == nil ||
+			*phases.WaitingUs+*phases.OutputUs+*phases.ToolsUs+*phases.OtherUs != *phases.ActiveUs {
+			body, _ := json.Marshal(statistics)
+			t.Fatalf("the finished turn's statistics are incomplete: %s", body)
+		}
+		return true
+	})
 	if _, compact := tester.AccessByRole(ui.RoleButton, text("composer_statistics")); !compact && !slices.Contains(tester.Texts(), turns) {
 		t.Fatalf("the context bar shows neither the turns figure %q nor the statistics button: %q", turns, tester.Texts())
 	}
