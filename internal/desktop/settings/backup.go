@@ -264,6 +264,14 @@ func (m *Model) keepBackups(c *ui.Context, keep int) {
 func storageDialog(c *ui.Context, m *Model) {
 	d := &m.backups
 	if !d.editing {
+		// The dialog closed on a save that did not succeed: its kept
+		// request, if any, goes with its draft.
+		if d.unconfirmed {
+			d.unconfirmed = false
+			if a := m.BackupActions; a != nil && a.Forget != nil {
+				a.Forget()
+			}
+		}
 		return
 	}
 	t := func(k string) string { return i18n.T(c, k) }

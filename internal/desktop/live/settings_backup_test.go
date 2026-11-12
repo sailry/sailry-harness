@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -185,6 +187,54 @@ func checkBackupSettingsHelpers(t *testing.T) {
 		}
 		if outcome, key := failure(test.err); outcome != test.outcome || key != test.key {
 			t.Errorf("%v = %v %q, want %v %q", test.err, outcome, key, test.outcome, test.key)
+		}
+	}
+
+	// Closing the storage dialog on an unconfirmed save drops the request
+	// kept for it, and no other: the same draft sent later is a new request.
+	{
+		r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}), uncertain: map[string]protocol.Request{}}
+		state := &r.backupSettings
+		state.shown, state.known = r, true
+		state.actions = r.backupActions()
+		storage, other := protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, saved)}, protocol.Command{Kind: "export_backup", Data: protocol.DefaultCommandExportBackupPayload()}
+		key := func(command protocol.Command) string {
+			encoded, err := json.Marshal(command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return "\x00" + string(encoded)
+		}
+		r.uncertain[key(storage)], r.uncertain[key(other)] = protocol.Request{}, protocol.Request{}
+		state.storage, state.retry, state.actions.Retry = &storage, true, true
+		state.actions.Forget()
+		if _, kept := r.uncertain[key(storage)]; kept || len(r.uncertain) != 1 || state.retry || state.actions.Retry || state.storage != nil {
+			t.Errorf("a closed storage dialog kept its request: %d kept, retry %v", len(r.uncertain), state.retry)
+		}
+		state.actions.Forget()
+		if len(r.uncertain) != 1 {
+			t.Error("a dialog without a kept request dropped another")
+		}
+	}
+
+	// An upload whose publication the Node answered with something else is
+	// over: the answer cannot change, so its request is not kept to be
+	// asked about again.
+	{
+		r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+		item, record := &composer.Attachment{}, &attachmentRecord{running: true}
+		r.attachments = &attachmentState{items: map[*composer.Attachment]*attachmentRecord{item: record}}
+		pending, expected := protocol.Request{}, protocol.AttachmentSpec{Name: "notes.txt", Size: 4}
+		r.finishAttachment(item, record, protocol.Output{Kind: "attachment", Data: protocol.Attachment{Spec: protocol.AttachmentSpec{Name: "other.txt"}}}, nil, &pending, expected)
+		ui.NewTesterWith(func(c *ui.Context) {
+			queue := r.queue
+			r.queue = nil
+			for _, f := range queue {
+				f(c)
+			}
+		}, 320, 240, ui.TesterOptions{}).Frame()
+		if record.pending != nil || record.running || record.ready != nil || item.Status != composer.Failed {
+			t.Errorf("an unexpected publication left pending %v, status %v", record.pending != nil, item.Status)
 		}
 	}
 

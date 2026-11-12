@@ -136,10 +136,14 @@ func (r *Runtime) finishAttachment(a *composer.Attachment, record *attachmentRec
 		if pending != nil {
 			record.pending, record.expected = pending, expected
 		}
+		// unexpected is an answer the Node gave that is not this
+		// attachment: asking about the request again reads the same answer,
+		// so the request ends with an uncertain toast and is not kept.
+		unexpected := false
 		if err == nil {
 			attachment, ok := detail[protocol.Attachment](output.Data)
 			if output.Kind != "attachment" || !ok || attachment.Spec != expected {
-				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "attachment publication result is unavailable")
+				err, unexpected = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "attachment publication result is unavailable"), true
 			} else {
 				record.ready, record.pending = &attachment, nil
 				a.ID, a.Name, a.Mime, a.Size, a.Status, a.Progress, a.Error = attachment.ID.String(), attachment.Spec.Name, attachment.Spec.MediaType, int64(attachment.Spec.Size), composer.Ready, 1, ""
@@ -164,6 +168,15 @@ func (r *Runtime) finishAttachment(a *composer.Attachment, record *attachmentRec
 		}
 		if faultCode(err) == protocol.ErrorCodeRevisionConflict {
 			a.Error = "files_upload_changed"
+		}
+		if unexpected {
+			record.pending = nil
+			if record.removing {
+				r.removeDraftAttachment(a, record)
+				return
+			}
+			kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_attachment_unknown"))
+			return
 		}
 		if pending != nil && attachmentRequestUncertain(err) {
 			a.Status, a.Error = composer.Uncertain, "chat_attachment_unknown"

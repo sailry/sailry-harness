@@ -698,6 +698,14 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 	})
 }
 
+// forgetCommand drops the request kept for an unscoped command whose outcome
+// was not confirmed, so the same command sent later is a new request.
+func (r *Runtime) forgetCommand(command protocol.Command) {
+	if b, err := json.Marshal(command); err == nil {
+		delete(r.uncertain, "\x00"+string(b))
+	}
+}
+
 func (r *Runtime) command(command protocol.Command, conflict string, done func(protocol.Output, bool)) {
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		if err != nil {

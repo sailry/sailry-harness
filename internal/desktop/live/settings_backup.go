@@ -37,6 +37,8 @@ type backupSettingsState struct {
 	// retry is whether the storage save sent last is a request the Node
 	// has not confirmed (client.Retained), which the same save sends again.
 	retry bool
+	// storage is that save's command while its dialog may send it again.
+	storage *protocol.Command
 
 	records []settings.BackupRecord
 	partial bool
@@ -470,11 +472,29 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				return
 			}
 			command := protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, saved)}
+			s := &owner.backupSettings
+			s.storage = &command
 			owner.submitBackup(command, "backup_saved", backupFailure, func(err error) {
-				owner.backupSettings.retry = client.Retained(err)
-				state.actions.Retry = owner.backupSettings.retry
+				if s.storage != &command {
+					// The dialog closed, or sent another draft, meanwhile.
+					owner.forgetCommand(command)
+				} else if s.retry = client.Retained(err); !s.retry {
+					s.storage = nil
+				}
+				state.actions.Retry = s.retry
 				done(err == nil)
 			})
+		},
+		Forget: func() {
+			owner := state.shown
+			if owner == nil {
+				return
+			}
+			s := &owner.backupSettings
+			if s.storage != nil {
+				owner.forgetCommand(*s.storage)
+			}
+			s.storage, s.retry, state.actions.Retry = nil, false, false
 		},
 		Keep: func(keep int) {
 			if owner := ready(); owner != nil && keep >= 0 && uint32(keep) != owner.backupSettings.saved.Keep {

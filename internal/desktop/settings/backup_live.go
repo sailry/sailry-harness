@@ -43,6 +43,9 @@ type BackupActions struct {
 	// reads Retry, which sends that request again
 	// (settings/backup/editor.rs).
 	Retry bool
+	// Forget drops that unconfirmed save when its dialog closes, so that
+	// a later identical draft is a new request.
+	Forget func()
 	// Keep saves how many of the Node's backups stay stored; 0 keeps all.
 	Keep         func(keep int)
 	ChooseFolder func(initial string, selected func(string))
