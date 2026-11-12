@@ -244,6 +244,7 @@ knowledge_slide: Diapositiva %{slide}
 workspace_archive: Sesión de archivo
 session_delete: Eliminar sesión
 session_delete_named: Eliminar sesión “%{name}” y sus sub-agentes permanentemente
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Renombrar
 session_title_required: Ingrese un nombre
 session_mark_read: Marcar como leído

@@ -244,6 +244,7 @@ knowledge_slide: Слайд %{slide}
 workspace_archive: Архивная сессия
 session_delete: Исключить &quot; сессия &quot;
 session_delete_named: Исключить сессию “%{name}” и ее субагентов навсегда
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Переименовать
 session_title_required: Введите имя
 session_mark_read: Отметить как прочитанное

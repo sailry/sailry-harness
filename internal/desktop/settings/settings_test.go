@@ -2146,6 +2146,32 @@ func TestExtensions(t *testing.T) {
 		m.Backup.Saved.Keep = 5
 		tt.Frame()
 		shows(i18n.In("en", "backup_keep_last", "count", 5))
+		// Deleting an archived session names its consequence once; one
+		// without a project is told that its private workspace's files go
+		// too, and one of a project is not.
+		var deleted []string
+		m.BackupActions.Delete = func(id string) { deleted = append(deleted, id) }
+		consequence, private := i18n.In("en", "backup_delete_session_consequence"), i18n.In("en", "session_delete_private_files")
+		for _, x := range []viewmodel.Archived{{ID: "project", Title: "Project notes"}, {ID: "chat", Title: "Chat notes", Private: true}} {
+			m.Archived, m.backups.archives = []viewmodel.Archived{x}, true
+			tt.Frame()
+			clickButton(t, tt, i18n.In("en", "backup_delete"))
+			tt.Frame()
+			want := consequence
+			if x.Private {
+				want += "\n" + private
+			}
+			if texts := tt.Texts(); !slices.Contains(texts, x.Title+"?") || !slices.Contains(texts, want) {
+				t.Fatalf("deleting %q asks %q, want %q", x.Title, texts, want)
+			}
+			m.backups.archives = false
+			tt.Frame()
+			clickButton(t, tt, i18n.In("en", "backup_delete"))
+			tt.Frame()
+		}
+		if !slices.Equal(deleted, []string{"project", "chat"}) {
+			t.Fatalf("the confirmed deletions: %v", deleted)
+		}
 		// A restored profile is offered in place of the one in use; the
 		// restart happens only when it is confirmed.
 		var restarted []string

@@ -244,6 +244,7 @@ knowledge_slide: 슬라이드 %{slide}
 workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: 이름 바꾸기
 session_title_required: 이름 입력
 session_mark_read: 읽은 것으로 표시

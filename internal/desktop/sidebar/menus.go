@@ -56,7 +56,13 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		s.archive(c, cv)
 	}
 	if m.Item(t("session_delete")).Chosen() {
-		s.confirm = confirm{open: true, title: t("session_delete"), message: i18n.T(c, "session_delete_named", "name", Title(c, cv)),
+		// A session without a project keeps its files in a private
+		// workspace, which goes with it: the confirmation says so once.
+		message := i18n.T(c, "session_delete_named", "name", Title(c, cv))
+		if s.Data.ProjectOf(cv.ID) == nil {
+			message += "\n" + t("session_delete_private_files")
+		}
+		s.confirm = confirm{open: true, title: t("session_delete"), message: message,
 			action: t("session_delete"), run: func() { s.delete(cv) }}
 	}
 	m.Separator()

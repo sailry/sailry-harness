@@ -244,6 +244,7 @@ knowledge_slide: Slide %{slide}
 workspace_archive: Archive session
 session_delete: Delete session
 session_delete_named: Delete session “%{name}” and its subagents permanently
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Rename
 session_title_required: Enter a name
 session_mark_read: Mark as read

@@ -258,6 +258,7 @@ knowledge_slide
 workspace_archive
 session_delete
 session_delete_named
+session_delete_private_files
 workspace_rename
 session_title_required
 session_mark_read

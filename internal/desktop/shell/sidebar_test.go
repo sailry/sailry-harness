@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -902,10 +903,32 @@ func testSidebarDeleteConfirms(t *testing.T) {
 	if a.Data.Find("sailry-go/theme") == nil {
 		t.Fatal("Delete removed the session before the confirmation")
 	}
-	if !tt.HasText(i18n.In("en", "session_delete_named", "name", title)) {
-		t.Fatalf("the confirmation does not name the session: %q", tt.Texts())
+	// A session of a project keeps its files in the project.
+	if private := i18n.In("en", "session_delete_private_files"); !tt.HasText(i18n.In("en", "session_delete_named", "name", title)) || strings.Contains(strings.Join(tt.Texts(), "\n"), private) {
+		t.Fatalf("the confirmation does not name the session alone: %q", tt.Texts())
 	}
 	clickButton(t, tt, i18n.In("en", "session_delete"))
+	tt.Frame()
+	// A chat without a project is told once that its private workspace's
+	// files go with it.
+	for _, cv := range a.Data.Unassigned {
+		if a.Data.ProjectOf(cv.ID) != nil {
+			t.Fatalf("the chat %q has a project", cv.ID)
+		}
+	}
+	chat := a.Data.Unassigned[0]
+	name := chat.Title
+	if err := tt.RightClick(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem(i18n.In("en", "session_delete")); err != nil {
+		t.Fatalf("%v: %q", err, tt.Menu())
+	}
+	tt.Frame()
+	if want := i18n.In("en", "session_delete_named", "name", name) + "\n" + i18n.In("en", "session_delete_private_files"); !tt.HasText(want) {
+		t.Fatalf("the chat's confirmation: %q, want %q", tt.Texts(), want)
+	}
+	clickButton(t, tt, i18n.In("en", "settings_cancel"))
 	tt.Frame()
 	if a.Data.Find("sailry-go/theme") != nil {
 		t.Fatal("the session was not deleted")

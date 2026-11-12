@@ -244,6 +244,7 @@ knowledge_slide: 第 %{slide} 張
 workspace_archive: 歸檔會話
 session_delete: 刪除會話
 session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: 重新命名
 session_title_required: 請輸入名稱
 session_mark_read: 標記為已讀
