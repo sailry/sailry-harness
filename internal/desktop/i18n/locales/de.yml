@@ -266,7 +266,6 @@ session_window_failed: Fenster konnte nicht geöffnet werden
 project_edit: Projekt bearbeiten
 project_remove: Projekt entfernen
 workspace_new_terminal: Terminal erstellen
-workspace_records: Sitzungsaufzeichnungen
 worktree_manage: Verwalten von Arbeitsbäumen
 worktree_create: Neuer Arbeitsbaum
 worktree_remove: Worktree entfernen

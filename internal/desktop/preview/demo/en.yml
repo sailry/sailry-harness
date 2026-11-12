@@ -28,6 +28,7 @@ reply.answer: |-
   - Changes land through a pull request with one approving review.
 
   Tell me which part to take first and I will start with a short plan.
+reply.summary: "The conversation so far is summarized. Done: the work of the turns above, with their decisions and open points kept. Next: continue from the latest request."
 
 goal.label: "Goal"
 goal.running: "Running"
@@ -566,3 +567,12 @@ limited.text: "Make the checkout end-to-end suite pass on main without skipping 
 limited.0.user: "Make the checkout end-to-end suite pass on main without skipping a test"
 limited.0.answer: "The suite has 35 tests and 11 fail on main. I will fix them in order of how many others they block."
 limited.1.answer: "This was the last automatic turn. Done: 7 of the 11 failures are fixed and merged into the branch. Remaining: 4 tests, all in the gift card and sign-in flows. Next step: the gift card total is rounded before the coupon applies, in `cart/totals.ts`."
+
+# The bell's notices (demo_workspace.go)
+notice.approval: "Waiting for approval to connect to the bastion"
+notice.completed: "Completed in 6m 40s"
+notice.failed: "Paused at the turn limit with 4 tests failing"
+notice.migrated: "Completed in 12m 05s"
+
+# What the microphone hears (shell.go)
+dictation.text: "Add a test for the burst case as well"

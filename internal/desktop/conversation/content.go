@@ -110,13 +110,16 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 				if m.Item(i18n.T(c, label)).Chosen() {
 					actions.OpenFile(f)
 				}
-				if m.Item(i18n.T(c, "files_open_system")).Chosen() {
+				// The demo's files are on no disk: nothing opens, saves or
+				// exports them.
+				demo := kit.Demo(c)
+				if !demo && m.Item(i18n.T(c, "files_open_system")).Chosen() {
 					actions.FileAction(f, OpenExternal)
 				}
-				if m.Item(i18n.T(c, "files_download")).Chosen() {
+				if !demo && m.Item(i18n.T(c, "files_download")).Chosen() {
 					actions.FileAction(f, Download)
 				}
-				if f.Document {
+				if f.Document && !demo {
 					if m.Item(i18n.T(c, "conversation_export_html")).Disabled(!f.Exportable).Chosen() {
 						actions.FileAction(f, ExportDocumentHTML)
 					}

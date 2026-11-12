@@ -68,6 +68,10 @@ func (g gitMenus) repo() *preview.Repository { return &g.pr.Data.Repo }
 
 func (g gitMenus) entries() []preview.FileChange { return g.pr.Data.Changes }
 
+// demo reports the demo's repository, whose actions are carried out in
+// memory: what needs a Node or the network is not offered there.
+func (g gitMenus) demo() bool { return g.pr.Actions == nil && kit.Demo(g.c) }
+
 // item is an action labeled key's text.
 func (g gitMenus) item(key string, run func(c *ui.Context), enabled bool) action {
 	return action{label: g.t(key), disabled: !enabled, run: run}
@@ -183,7 +187,8 @@ func (g gitMenus) branchActions() []action {
 // then the branch actions.
 func (g gitMenus) checkout() []action { return append(g.branches("switch"), g.branchActions()...) }
 
-// management is Manage branches: each branch opens the actions on it.
+// management is Manage branches: each branch opens the actions on it. The
+// demo's has no Rebase, which would show nothing on its history.
 func (g gitMenus) management() []action {
 	var out []action
 	for _, b := range g.repo().Branches {
@@ -193,7 +198,7 @@ func (g gitMenus) management() []action {
 			ok      bool
 		}{{"git_checkout", "switch", !b.Current}, {"git_copy_branch", "copy", true}, {"git_branch_from_open", "create", true},
 			{"git_rename_branch", "rename", !b.Remote}, {"git_delete_branch", "delete", !b.Remote && !b.Current},
-			{"git_merge_branch", "merge", !b.Current}, {"git_rebase", "rebase", !b.Current}} {
+			{"git_merge_branch", "merge", !b.Current}, {"git_rebase", "rebase", !b.Current && !g.demo()}} {
 			if o.ok {
 				items = append(items, action{label: g.t(o.key), run: g.branch(o.op, b)})
 			}
@@ -205,9 +210,12 @@ func (g gitMenus) management() []action {
 				}}
 			}})
 		}
-		items = append(items, action{label: g.t("worktree_create"), run: func(c *ui.Context) {
-			g.pr.gitAction(c, GitAction{Kind: "worktree_create", Target: b.Name, Secondary: b.Commit})
-		}})
+		// The demo's worktrees are made from the sidebar and the composer.
+		if !g.demo() {
+			items = append(items, action{label: g.t("worktree_create"), run: func(c *ui.Context) {
+				g.pr.gitAction(c, GitAction{Kind: "worktree_create", Target: b.Name, Secondary: b.Commit})
+			}})
+		}
 		group := "git_local_branches"
 		if b.Remote {
 			group = "git_remote_branches"
@@ -423,11 +431,15 @@ func (g gitMenus) stashes() []action {
 			g.v.confirm = confirm{open: true, title: g.t("git_stash_drop"), message: g.t("git_delete_confirm"), target: choice.label, run: choice.run}
 		}})
 	}
-	return append(out, separatorItem, g.choose("git_stash_drop", drop, "git_stash_drop"),
-		g.confirm("git_stash_drop_all", "git_delete_confirm", strings.Join(stashes, "\n"), len(stashes) > 0, "git_stash_drop_all_open"),
-		separatorItem, g.choose("git_stash_view", choices(func(id string) func(*ui.Context) {
-			return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_stash_view", Target: id}) }
-		}), "git_stash_view_open"))
+	out = append(out, separatorItem, g.choose("git_stash_drop", drop, "git_stash_drop"),
+		g.confirm("git_stash_drop_all", "git_delete_confirm", strings.Join(stashes, "\n"), len(stashes) > 0, "git_stash_drop_all_open"))
+	if g.demo() {
+		// The demo's stashes hold no patch to show.
+		return out
+	}
+	return append(out, separatorItem, g.choose("git_stash_view", choices(func(id string) func(*ui.Context) {
+		return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_stash_view", Target: id}) }
+	}), "git_stash_view_open"))
 }
 
 func (g gitMenus) tags() []action {
@@ -451,16 +463,25 @@ func (g gitMenus) tags() []action {
 		}), "git_tag_push_open")}
 }
 
-// root is the ⋯ menu.
+// root is the ⋯ menu. The demo's has no Clone, worktree manager or Git
+// output: they clone over the network, and list a Node's worktrees and its
+// commands' output.
 func (g gitMenus) root() []action {
 	repo := g.repo()
-	return []action{g.section("git_view_options", g.viewOptions()), separatorItem,
-		g.run("git_pull", repo.Upstream != ""), g.push(false), g.run("git_clone", true),
-		g.choose("git_checkout", g.checkout(), "git_checkout_open"), g.run("git_fetch", len(repo.Remotes) > 0), separatorItem,
+	demo := g.demo()
+	out := []action{g.section("git_view_options", g.viewOptions()), separatorItem,
+		g.run("git_pull", repo.Upstream != ""), g.push(false)}
+	if !demo {
+		out = append(out, g.run("git_clone", true))
+	}
+	out = append(out, g.choose("git_checkout", g.checkout(), "git_checkout_open"), g.run("git_fetch", len(repo.Remotes) > 0), separatorItem,
 		g.section("git_commit", g.commits()), g.section("git_changes_menu", g.changes()), g.section("git_pull_push", g.network()),
 		g.choose("git_manage_branches", g.management(), "git_manage_branches"), g.section("git_remotes", g.remotes()),
-		g.section("git_stash_menu", g.stashes()), g.section("git_tags", g.tags()), g.run("worktree_manage", true), separatorItem,
-		g.run("git_output", true)}
+		g.section("git_stash_menu", g.stashes()), g.section("git_tags", g.tags()))
+	if demo {
+		return out
+	}
+	return append(out, g.run("worktree_manage", true), separatorItem, g.run("git_output", true))
 }
 
 // files is a change's, a folder's or a group's right-click menu, acting

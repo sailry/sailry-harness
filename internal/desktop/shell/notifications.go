@@ -78,20 +78,10 @@ func (a *App) notificationCenter(c *ui.Context) {
 			kit.Segmented(c, "filter", &a.noticeTab, []string{i18n.T(c, "notification_all"), i18n.T(c, "notification_unread")}, kit.SegmentedProps{})
 			ui.Spacer(c)
 			kit.Secondary(c.Key("read"), i18n.T(c, "notifications_read_all")).Disabled(len(a.noticeIDs(false)) == 0).OnClick(func() {
-				if a.Hooks.ReadNotices != nil {
-					a.Hooks.ReadNotices(a.noticeIDs(false))
-					return
-				}
-				for _, n := range a.Data.Notices { // the preview, as the bell's
-					n.Read = true
-				}
+				a.readNotices()
 			})
 			kit.Secondary(c.Key("delete"), i18n.T(c, "notification_delete_read")).Disabled(len(a.noticeIDs(true)) == 0).OnClick(func() {
-				if a.Hooks.DismissRead != nil {
-					a.Hooks.DismissRead(a.noticeIDs(true))
-					return
-				}
-				a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
+				a.dismissRead()
 			})
 		})
 		shown := 0
@@ -116,24 +106,18 @@ func (a *App) notificationCenter(c *ui.Context) {
 							a.noticeDetail = nil
 						} else {
 							a.noticeDetail = n
-							if a.Hooks.ReadNotice != nil {
-								a.Hooks.ReadNotice(n.ID)
-							}
+							a.readNotice(n)
 						}
 					})
 					_ = b
 					if n.Session != "" && a.Data.Find(n.Session) != nil {
 						kit.IconButton(c.Key("open"), icons.ChevronRight, i18n.T(c, "notification_open_conversation"), 28, false).OnClick(func() {
-							if a.Hooks.ReadNotice != nil {
-								a.Hooks.ReadNotice(n.ID)
-							}
+							a.readNotice(n)
 							a.selectConversation(n.Session)
 						})
 					}
 					kit.IconButton(c.Key("dismiss"), icons.Trash, i18n.T(c, "settings_delete"), 28, false).OnClick(func() {
-						if a.Hooks.DismissNotices != nil {
-							a.Hooks.DismissNotices([]string{n.ID})
-						}
+						a.dismissNotice(n)
 					})
 				})
 				if expanded {
@@ -205,5 +189,46 @@ func statusKey(status protocol.ConversationStatus) string {
 		return "chat_interrupted"
 	default:
 		return "activity_failed"
+	}
+}
+
+// The notices' actions go to the Node through the window's hooks. Where
+// none is set, and in the demo, whose notices are its own and reach no
+// Node, they change the list in memory.
+
+func (a *App) readNotice(n *preview.Notice) {
+	if !a.Demo() && a.Hooks.ReadNotice != nil {
+		a.Hooks.ReadNotice(n.ID)
+		return
+	}
+	n.Read = true
+}
+
+func (a *App) readNotices() {
+	if !a.Demo() && a.Hooks.ReadNotices != nil {
+		a.Hooks.ReadNotices(a.noticeIDs(false))
+		return
+	}
+	for _, n := range a.Data.Notices {
+		n.Read = true
+	}
+}
+
+func (a *App) dismissRead() {
+	if !a.Demo() && a.Hooks.DismissRead != nil {
+		a.Hooks.DismissRead(a.noticeIDs(true))
+		return
+	}
+	a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
+}
+
+func (a *App) dismissNotice(n *preview.Notice) {
+	if !a.Demo() && a.Hooks.DismissNotices != nil {
+		a.Hooks.DismissNotices([]string{n.ID})
+		return
+	}
+	a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(x *preview.Notice) bool { return x == n })
+	if a.noticeDetail == n {
+		a.noticeDetail = nil
 	}
 }

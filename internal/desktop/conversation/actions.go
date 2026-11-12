@@ -163,7 +163,10 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 				kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).OnClick(func() { actions.Retry(t.ID) })
 			}
 		}
-		exportMenu(c, "export-"+t.ID, t.ID, t.Controls.NoExport, actions)
+		// The demo's conversations are in no file: it has no export menu.
+		if !kit.Demo(c) {
+			exportMenu(c, "export-"+t.ID, t.ID, t.Controls.NoExport, actions)
+		}
 		if hovered && !t.Reply.Finished.IsZero() {
 			ui.Text(c, t.Reply.Finished.Format("15:04")).FontSize(14).SingleLine()
 		}
@@ -237,3 +240,7 @@ func (s *State) confirmRewind(c *ui.Context, actions Actions) {
 		s.rewind = ""
 	}
 }
+
+// AskRewind opens the rewind confirmation for a turn, as the fork menu's
+// Rewind does.
+func (s *State) AskRewind(turn string) { s.rewind = turn }
