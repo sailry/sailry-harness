@@ -38,7 +38,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/speech/models"
 )
 
-// The B11 desktop acceptance drives the headless App over a real Node with
+// The desktop acceptance drives the headless App over a real Node with
 // the pinned native runtimes and the real model files. A loopback TLS server
 // stands in for Hugging Face and ModelScope and serves the real files.
 //
@@ -686,7 +686,7 @@ func searchLibrary(w *terminalUI, hub *modelsUIHub, query string) {
 	})
 }
 
-// TestModelSettingsUI is the B11 acceptance of Settings › Knowledge, OCR and
+// TestModelSettingsUI is the acceptance of Settings › Knowledge, OCR and
 // Decisions and of the model library dialog, against a real Node that runs
 // the real ONNX Runtime and llama.cpp engines.
 func TestModelSettingsUI(t *testing.T) {
@@ -1121,7 +1121,7 @@ func (m *fixtureMicrophone) open(*string) (dictationSource, error) {
 	}, nil
 }
 
-// TestDictationUI is the B11 acceptance of Settings › Voice input and of the
+// TestDictationUI is the acceptance of Settings › Voice input and of the
 // composer's microphone button: the recommended speech model installs from
 // the hub into the desktop data directory, Select persists, and a dictation
 // prepares, records, transcribes and inserts with the real sherpa-onnx

@@ -131,7 +131,7 @@ func permissionButtons(w *terminalUI, label, name string) []ui.AccessInfo {
 	return found
 }
 
-// TestSystemPermissionsUI is the B13 acceptance of Settings › Permissions:
+// TestSystemPermissionsUI is the acceptance of Settings › Permissions:
 // SSYS-001 to SSYS-005.
 //
 // Substitutions and limits: this process's grants are an injected
