@@ -34,10 +34,13 @@ type State struct {
 	toolCards     map[string]map[string]func(*ui.Context)
 	renderSession string
 	lists         map[string]*ui.ListState
-	open          map[string]bool  // the disclosures open
-	work          map[string]bool  // work regions the user opened or closed
-	built         map[string]bool  // lists built once, so laid out
-	md            markdown.Options // the replies' (kit.Markdown fills the rest)
+	open          map[string]bool    // the disclosures open
+	work          map[string]bool    // work regions the user opened or closed
+	built         map[string]bool    // lists built once, so laid out
+	press         press              // the pointer's button over the transcript
+	spans         []textSpan         // the turn being built's text boxes, for its selection pill
+	area          map[string]ui.Rect // each conversation's list, the transcript's visible area
+	md            markdown.Options   // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
 	light         float32            // the welcome wordmark's beam, in window DIPs
@@ -106,7 +109,7 @@ func pathLink(path string) string {
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}, area: map[string]ui.Rect{}}
 }
 
 // List returns the list state of a conversation.
@@ -160,10 +163,12 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	s.wantOlder = false
 	banner(c, sess, actions)
 	// The theme's conversation effects lie under the turns.
-	kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation")).Children(func() {
-		ui.List(c, l, n, func(i int) {
+	pane := kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation"))
+	s.press.watch(pane)
+	pane.Children(func() {
+		s.area[id] = ui.List(c, l, n, func(i int) {
 			s.turn(c, id, i, &turns[i], n, sess, actions)
-		}).Fill().Role(ui.RoleLog)
+		}).Fill().Role(ui.RoleLog).Bounds()
 		// A delegated session's transcript, the child panel's (no session), is
 		// read-only and has no navigation. The pane builds it (Navigation).
 		s.navigated = sess != nil && n > 0 && !s.Split
@@ -194,11 +199,13 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 	}
 	q, current, marked := s.highlight(session, i, t)
 	col := ui.Column(c).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Padding(top, padX, bottom, padX).Gap(turnGap).Selectable()
+	s.spans = s.spans[:0]
 	col.Children(func() {
+		// The pill is built last, over the turn and knowing its text boxes.
+		defer func() { s.selection(c, session, col, sess != nil && sess.ReadOnly, actions) }()
 		if first {
 			s.older(c, sess, actions)
 		}
-		selection(c, col, sess != nil && sess.ReadOnly, actions)
 		if t.Compaction != nil {
 			s.compaction(c, t)
 			return
@@ -216,7 +223,8 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 					if marked {
 						hl = spans(t.User, q, current, theme.Of(c))
 					}
-					userMessage(c, t.User, hl, s.references[session][t.ID])
+					text := userMessage(c, t.User, hl, s.references[session][t.ID])
+					s.span(text, text.ID(), 9, 14)
 				}
 				if len(t.Images) > 0 {
 					s.thumbnails(c, "user-images", t.Images, true)
@@ -247,10 +255,11 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 
 // userMessage is the muted bubble on the right, in the package's user message
 // colors, border and radius, with its corner art; marks, when set, are its
-// text with the search's matches marked.
-func userMessage(c *ui.Context, text string, marks []ui.Span, references []Reference) {
+// text with the search's matches marked. It returns the bubble, its text's
+// paragraph.
+func userMessage(c *ui.Context, text string, marks []ui.Span, references []Reference) ui.Element {
+	var b ui.Element
 	ui.Row(c).Justify(ui.End).Children(func() {
-		var b ui.Element
 		if len(references) > 0 {
 			b = referenceText(c, text, marks, references)
 		} else if marks != nil {
@@ -260,6 +269,7 @@ func userMessage(c *ui.Context, text string, marks []ui.Span, references []Refer
 		}
 		bubble(c, b.FontSize(textSize(c)).LineHeight(1.6).Padding(9, 14).MaxWidth(bubbleMax))
 	})
+	return b
 }
 
 // bubble gives b the user message's look: the theme's colors, border, radius
@@ -423,7 +433,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 		ui.Column(c.Key(key)).Children(func() {
 			switch b.Kind {
 			case TextBlock:
-				kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Animated: continuing && last, Options: &s.md})
+				s.span(kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Animated: continuing && last, Options: &s.md}), 0, 0, 0)
 			case ReasoningBlock:
 				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
 				s.disclosure(c, "reasoning-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
