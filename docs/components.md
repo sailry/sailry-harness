@@ -98,6 +98,7 @@ MyGo bases.
 | `Result` | Lobe `pkg/feedback/result.go` | Empty and unavailable states, load failures, centered | Operation outcomes | composer, conversation, host, panel, settings, shell, transfers |
 | `Alert` | Lobe `pkg/feedback/alert.go` | An inline persistent notice in a tone | Operation outcomes | settings |
 | `Skeleton`, `SkeletonText`, `SkeletonAvatar` | Lobe `pkg/display/skeleton.go` | Content that is loading | Running work (`Loader`, `Shimmer`) | host, settings |
+| `TableFrame`, `TableCell`, `TableHeight` | Own | The table look around MyGo's `ui.Table`: a bordered frame at the base radius, a `Muted` header, separated rows of one exact height | Lists of settings or records (`List`, `Card`) | host, plugins |
 
 ### Content
 

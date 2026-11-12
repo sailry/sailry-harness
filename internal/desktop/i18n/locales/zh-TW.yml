@@ -1479,7 +1479,6 @@ remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主機
 workspace_worktrees: worktree
 workspace_sessions: 會話
-project_empty: 此主機還沒有專案。新增專案後即可建立會話或終端。
 host_runtime_loading: 正在讀取執行環境（示例）
 host_version: 主機版本
 host_uptime: 執行時長

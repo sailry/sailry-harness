@@ -262,7 +262,6 @@ func localHost(snapshot protocol.Snapshot, d *viewmodel.Data) *host.Host {
 	}
 	h := &host.Host{Live: true, ID: id, Name: "local_host_name", Local: true, OS: osName, Runtime: host.Runtime{Uptime: -1, ProtocolMin: 1, ProtocolMax: 1, Known: true}}
 	for _, p := range d.Projects {
-		h.Projects = append(h.Projects, host.Project{ID: p.ID, Name: p.Name})
 		for _, cv := range p.Conversations {
 			if cv.Status == viewmodel.Running || cv.Status == viewmodel.Waiting {
 				h.Activity = append(h.Activity, host.Activity{Session: cv.ID, Title: cv.Title, Location: p.Name, Waiting: cv.Status == viewmodel.Waiting})

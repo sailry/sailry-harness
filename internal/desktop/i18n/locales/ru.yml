@@ -1479,7 +1479,6 @@ remote_host_detail: Linux · x86_64 · Предварительный просм
 host_update: Узел обновления
 workspace_worktrees: Рабочие деревья
 workspace_sessions: Сессии
-project_empty: На этом узле нет проектов; добавьте один для создания сеансов или терминалов
 host_runtime_loading: Чтение времени выполнения (предварительный просмотр)
 host_version: Версия хоста
 host_uptime: Время работы

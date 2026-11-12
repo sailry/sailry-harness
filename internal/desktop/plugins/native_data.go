@@ -200,17 +200,12 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 			}
 		}
 	}
-	// MyGo's Table has no frame, header fill or row separators, and pads
-	// each cell itself: the frame and the header's fill are drawn around it,
-	// and each cell draws its row's separator across that padding.
-	palette, neutral := theme.Of(view), theme.Neutral(view)
-	headerHeight, cellPad := neutral.Space(8), neutral.Space(1.5)
+	// The frame, the header's fill and the rows' separators are Kit's table
+	// look (kit.TableFrame, kit.TableCell), shared with the host's processes.
 	rowHeight := nativeProp(props, "row_height", float32(32))
 	result := ui.Column(view).Fill().MinWidth(0)
 	if count > 0 {
-		result.Border(1, palette.Border).Radius(palette.Radius).Clip().Draw(func(painter *ui.Painter, bounds ui.Rect) {
-			painter.FillRadii(ui.Rect{X: bounds.X, Y: bounds.Y, W: bounds.W, H: headerHeight + 1}, [4]float32{palette.Radius, palette.Radius, 0, 0}, palette.Muted)
-		})
+		kit.TableFrame(view, result)
 	}
 	result.Children(func() {
 		if count == 0 {
@@ -234,13 +229,7 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 				absolute := first + row
 				// A row is row_height high with the cell's padding, and
 				// its content is centered in it.
-				cell := ui.Column(view).Gap(3).MinHeight(rowHeight - 2*cellPad).AlignSelf(ui.Stretch).Justify(ui.Center)
-				if row+1 < count {
-					cell.Draw(func(painter *ui.Painter, bounds ui.Rect) {
-						// The cell's own box clips the line to the column.
-						painter.Fill(ui.Rect{X: bounds.X - 4096, Y: bounds.Y + bounds.H + cellPad - 1, W: 8192, H: 1}, palette.Border, 0)
-					})
-				}
+				cell := kit.TableCell(view, rowHeight, row+1 == count).Gap(3)
 				if index := column; index < len(alignments) && alignments[index] == "end" {
 					cell.AlignItems(ui.End)
 				}

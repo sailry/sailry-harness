@@ -1,8 +1,8 @@
 // Package host is a host's page: the header with the host's status and
 // uptimes, its platform and versions, the monitor (processor, memory,
-// utilization, network, disks, storage and processes), the running sessions
-// and the projects, with the update dialog, the port forwards and the
-// metrics summary in the right column. See docs/host.md.
+// utilization, network, disks, storage and processes) and the running
+// sessions, with the update dialog, the port forwards and the metrics
+// summary in the right column. See docs/host.md.
 package host
 
 import (
@@ -28,8 +28,6 @@ type Host struct {
 	// Offline is whether a live host's Node is not connected: its page keeps
 	// what is known and samples nothing.
 	Offline bool
-	// Projects are the host's projects.
-	Projects []Project
 	// Activity is the host's running and waiting sessions.
 	Activity []Activity
 	Runtime  Runtime
@@ -47,9 +45,6 @@ type Host struct {
 	// runs: no other is sent meanwhile.
 	Stopping bool
 }
-
-// Project is a project on the host.
-type Project struct{ ID, Name string }
 
 // Activity is a running or waiting session.
 type Activity struct {

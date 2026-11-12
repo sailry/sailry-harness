@@ -393,7 +393,6 @@ func TestPage(t *testing.T) {
 	m.Follow(nil)
 	h := &Host{
 		Live: true, ID: "local", Name: "studio", Local: true, OS: "macos", Detail: platform,
-		Projects: []Project{{ID: "p", Name: "sailry-harness"}},
 		Activity: []Activity{{Session: "s", Title: "Rebuild the host page", Location: "sailry-harness / main", Status: "turn_thinking"}},
 		Runtime: Runtime{
 			Version: "0.1.0",
@@ -434,7 +433,7 @@ func TestPage(t *testing.T) {
 			"studio", en("live_connected"), line, en("host_uptime"), en("host_node_uptime"),
 			en("metrics_cpu"), en("metrics_gpu"), "Apple M4 Pro", en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
 			en("host_storage"), en("host_process_search"), en("host_pid"),
-			en("workspace_running"), "Rebuild the host page", en("projects"), "sailry-harness",
+			en("workspace_running"), "Rebuild the host page", "sailry-harness / main",
 		}
 		if missing, ok := follows(tt.Texts(), order); !ok {
 			t.Errorf("no %q in its place: %q", missing, tt.Texts())
@@ -473,10 +472,6 @@ func TestPage(t *testing.T) {
 				t.Errorf("the page shows %q of the removed runtime section: %q", text, tt.Texts())
 			}
 		}
-		// Projects stays, as the page's last section.
-		if shown[en("projects")] != 1 || shown["sailry-harness"] != 1 {
-			t.Errorf("the projects: %q", tt.Texts())
-		}
 		// A version not known is left out of the line.
 		version := h.Runtime.Version
 		h.Runtime.Version, h.Runtime.ProtocolMax = "", 0
@@ -485,6 +480,42 @@ func TestPage(t *testing.T) {
 			t.Errorf("the line without versions: %q", tt.Texts())
 		}
 		h.Runtime.Version, h.Runtime.ProtocolMax = version, 1
+		tt.Frame()
+	})
+	t.Run("no projects section", func(t *testing.T) {
+		// The section's title, its rows, its empty state and Add project
+		// (docs/removed-ui.md): the page ends with the running sessions. The
+		// empty state's copy is out of the catalog, so it is named as it reads.
+		absent := func(when string) {
+			t.Helper()
+			shown := count()
+			for _, text := range []string{en("projects"), en("project_add"), "sailry-harness", "No projects on this host"} {
+				if shown[text] != 0 {
+					t.Errorf("%s: the page shows %q of the removed projects section: %q", when, text, tt.Texts())
+				}
+			}
+			for _, text := range tt.Texts() {
+				if strings.Contains(text, "Add a project") {
+					t.Errorf("%s: the page shows the removed empty state %q", when, text)
+				}
+			}
+			if _, ok := tt.AccessByRole(ui.RoleButton, en("project_add")); ok {
+				t.Errorf("%s: the page has an Add project button", when)
+			}
+		}
+		absent("with running sessions")
+		if texts := tt.Texts(); len(texts) == 0 || texts[len(texts)-1] != en("turn_thinking") {
+			t.Errorf("the page does not end with the running session's row: %q", texts)
+		}
+		// A host with no running session has no section after the monitor.
+		activity := h.Activity
+		h.Activity = nil
+		tt.Frame()
+		absent("without running sessions")
+		if tt.HasText(en("workspace_running")) {
+			t.Errorf("a host with no running session shows their section: %q", tt.Texts())
+		}
+		h.Activity = activity
 		tt.Frame()
 	})
 	t.Run("chart tip", func(t *testing.T) {
@@ -550,6 +581,61 @@ func TestPage(t *testing.T) {
 		}
 		m.GPUs, st.gpu = gpus[:1], ""
 		tt.Frame()
+	})
+	t.Run("process table look", func(t *testing.T) {
+		// The application's table look (kit.TableFrame, kit.TableCell), as a
+		// package's tables: rows exactly 36 apart under a filled header, a
+		// line between them, and plain cells.
+		title, headed := tt.Find(en("host_process_name"))
+		first, shown := tt.Find("sailry-node")
+		second, also := tt.Find("launchd")
+		if !headed || !shown || !also {
+			t.Fatalf("the table lists no processes: %q", tt.Texts())
+		}
+		if pitch := second.Y - first.Y; pitch < 35.5 || pitch > 36.5 {
+			t.Errorf("rows are %v apart, want 36", pitch)
+		}
+		// Past the name only the table's own fills are drawn.
+		at := func(y float32) [3]uint8 {
+			pixel := tt.Image().RGBAAt(int(first.X+first.W+40), int(y))
+			return [3]uint8{pixel.R, pixel.G, pixel.B}
+		}
+		middle := first.Y + first.H/2
+		ground := at(middle)
+		if at(title.Y+title.H/2) == ground {
+			t.Errorf("the header is not filled: %v", ground)
+		}
+		separated := false
+		for y := middle + 12; y <= middle+24; y++ {
+			separated = separated || at(y) != ground
+		}
+		if !separated {
+			t.Error("no separator between the first two rows")
+		}
+		// No letter tile before a name and no bar of the memory's share
+		// (docs/removed-ui.md).
+		texts := count()
+		if texts["s"] != 0 || texts["l"] != 0 {
+			t.Errorf("a process has a letter tile: %q", tt.Texts())
+		}
+		for _, info := range tt.AccessAll() {
+			if info.Role == ui.RoleProgress && (info.Name == "sailry-node" || info.Name == "launchd") {
+				t.Errorf("the process %s has a memory bar", info.Name)
+			}
+		}
+		// The loads end their column: each row's ends where the other's does,
+		// before the PID's column.
+		edge := func(text string, row ui.Rect) float32 {
+			r, ok := tt.Find(text)
+			if !ok || r.Y+r.H/2 < row.Y || r.Y+r.H/2 > row.Y+row.H {
+				t.Fatalf("no %q in its process's row at %v: %v %v", text, row, ok, r)
+			}
+			return r.X + r.W
+		}
+		pid, _ := tt.Find(en("host_pid"))
+		if a, b := edge(Percent(3), first), edge(Percent(1), second); a != b || a <= first.X+first.W || a >= pid.X {
+			t.Errorf("the loads end at %v and %v, want one edge before the PID's column at %v", a, b, pid.X)
+		}
 	})
 	t.Run("process menu", func(t *testing.T) {
 		stop, force := en("host_process_stop"), en("host_process_force_stop")
@@ -683,8 +769,11 @@ func TestPage(t *testing.T) {
 		if tt.HasText(en("host_utilization")) || tt.HasText("Host is disconnected") {
 			t.Errorf("an offline host shows a sample or the error's text in the page: %q", tt.Texts())
 		}
-		if missing, ok := follows(tt.Texts(), []string{"studio", line, en("workspace_running"), en("projects")}); !ok {
+		if missing, ok := follows(tt.Texts(), []string{"studio", line, en("workspace_running"), "Rebuild the host page"}); !ok {
 			t.Errorf("no %q offline: %q", missing, tt.Texts())
+		}
+		if tt.HasText(en("projects")) || tt.HasText(en("project_add")) {
+			t.Errorf("an offline host shows the removed projects section: %q", tt.Texts())
 		}
 	})
 }

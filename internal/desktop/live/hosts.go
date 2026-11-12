@@ -216,7 +216,7 @@ func hostOS(value string) string {
 
 func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	view := state.view
-	view.Projects, view.Activity = nil, nil
+	view.Activity = nil
 	view.Runtime.Error = state.infoError
 	if state.linkError != "" {
 		view.Runtime.Error = state.linkError
@@ -250,11 +250,6 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 		return
 	}
 	snapshot, revision := state.owner.snapshotAt()
-	for _, project := range d.Projects {
-		if project.Host == view.ID {
-			view.Projects = append(view.Projects, host.Project{ID: project.ID, Name: project.Name})
-		}
-	}
 	// The lanes follow from the Node snapshot alone and are found once for each.
 	if state.activeOwner != state.owner || state.activeRevision != revision {
 		state.active, state.activeOwner, state.activeRevision = nil, state.owner, revision

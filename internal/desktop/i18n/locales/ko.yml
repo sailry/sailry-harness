@@ -1479,7 +1479,6 @@ remote_host_detail: Linux · x86_64 · 미리보기
 host_update: 호스트 업데이트
 workspace_worktrees: 작업 트리
 workspace_sessions: 세션
-project_empty: 이 호스트에 프로젝트가 없습니다. 세션이나 터미널을 만들려면 하나 추가하십시오
 host_runtime_loading: 런타임 읽기 (미리보기)
 host_version: 호스트버전
 host_uptime: 가동 시간

@@ -504,7 +504,7 @@ for that concept, at the same sizes and tokens:
 | `SegmentedTabs` | `kit.Segmented` (`fill` is `Block`) |
 | `EmptyState`, empty `CardList`, empty `DataTable` | `kit.Result` (`Card` for the dashed list card) |
 | `DataTable` rows | MyGo `ui.Table` under `theme.Neutral`: a chosen row takes the neutral selected fill, not the accent |
-| `DataTable` frame | A 1 DIP `Border` frame at the base radius around the table, the header filled `Muted`, a `Border` line between rows. A row is exactly `row_height` high (36 to 40 reads compact) with its content centered; the header is 32. A table that shows every row without scrolling is 35 + rows × `row_height` high: the header, its divider and the frame |
+| `DataTable` frame | Kit's table look (`kit.TableFrame`, `kit.TableCell`), shared with the host page's processes: a 1 DIP `Border` frame at the base radius around the table, the header filled `Muted`, a `Border` line between rows. A row is exactly `row_height` high (36 to 40 reads compact) with its content centered; the header is 32. A table that shows every row without scrolling is 35 + rows × `row_height` high: the header, its divider and the frame |
 | loading `CardList` | a card of `kit.Skeleton` lines |
 | `ModelPopup` trigger | `kit.SecondaryLook`, full width, title and caret |
 | `chart_1` to `chart_8` (theme colors, chart series, `ProgressBar`, tones) | The application theme's categorical chart colors, `theme.Palette.Chart`, in order ([theme](theme.md#chart-colors)) |
@@ -554,8 +554,8 @@ empty so the text remains aligned.
   table, a filled header, compact separated rows) but stays MyGo's `ui.Table`:
   theirs has no row selection, copy, cell menu, column resizing, sideways
   scroll or cell tooltips ([crychic.md](crychic.md#declined-page-by-page)).
-  `ui.Table` has no frame, header fill or row separator of its own, so the
-  renderer draws them: the frame and the header's fill around the table, and
+  `ui.Table` has no frame, header fill or row separator of its own, so
+  Kit draws them (`kit/table.go`): the frame and the header's fill around the table, and
   the separator from each cell across the padding MyGo gives it. The table's
   hover and chosen fills are MyGo's.
 - `SettingsRow` `description`, `icon`, `wide` and `SettingsGroup` `sortable`,

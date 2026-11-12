@@ -11,7 +11,7 @@ import (
 )
 
 // The host page's review sheets, written only when $SAILRY_SNAPSHOTS names a
-// directory: a connected local host with projects and running agents, a
+// directory: a connected local host with running agents, a
 // paired host that is offline and one with an update to install, each in
 // both themes, in a window tall enough for the whole page, and the page in
 // Demo mode. The preview's
