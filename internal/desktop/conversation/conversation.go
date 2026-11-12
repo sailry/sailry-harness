@@ -39,7 +39,8 @@ type State struct {
 	built         map[string]bool    // lists built once, so laid out
 	press         press              // the pointer's button over the transcript
 	spans         []textSpan         // the turn being built's text boxes, for its selection pill
-	area          map[string]ui.Rect // each conversation's list, the transcript's visible area
+	area          map[string]ui.Rect // each conversation's list above its dock: what shows of it
+	docks         map[string]*dock   // what floats over each conversation's end (Docked)
 	md            markdown.Options   // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
@@ -109,7 +110,7 @@ func pathLink(path string) string {
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}, area: map[string]ui.Rect{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}, area: map[string]ui.Rect{}, docks: map[string]*dock{}}
 }
 
 // List returns the list state of a conversation.
@@ -139,6 +140,39 @@ func Navigation(c *ui.Context, s *State) {
 // the jump button over it, and the image viewer and rewind confirmation
 // over the window. sess may be nil.
 func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions) {
+	Docked(c, s, id, turns, sess, actions, nil)
+}
+
+// dock is what floats over a transcript's end: its element, for its height
+// as the last frame laid it out, and the check that the frame left that
+// much room, bound once.
+type dock struct {
+	box     ui.Handle
+	c       *ui.Context
+	reserve float32
+	check   func(*ui.Painter, ui.Rect)
+}
+
+// settle asks for another frame when the dock was laid out at another height
+// than the list left room for, so the end rests on the dock in the frame
+// after it grew or shrank.
+func (d *dock) settle(*ui.Painter, ui.Rect) {
+	if h := d.box.Bounds(d.c).H - d.reserve; h > 0.5 || h < -0.5 {
+		d.c.Invalidate()
+	}
+}
+
+// Docked is View with below, the composer and what goes with it, floating
+// over the transcript's end rather than under the transcript: the list fills
+// the pane, so its scroll bar runs the pane's height at the pane's edge and
+// the turns pass behind what floats. The list ends with room as tall as the
+// dock was laid out last, so its end rests on the dock, and follows it as the
+// dock grows or shrinks while the list shows its end. Beside the content
+// column the dock lets the pointer through: the wheel and presses there are
+// the transcript's. What it holds lies on a frosted sheet as wide as the
+// turns, so nothing of a turn shows sharp between the dock's parts. A
+// session still loading has below under its loader.
+func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions, below func()) {
 	previousSession := s.renderSession
 	s.renderSession = id
 	defer func() { s.renderSession = previousSession }()
@@ -155,7 +189,22 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	s.md.OnLink = func(link string) { s.follow(c, id, link) }
 	if sess != nil && sess.Loading {
 		loading(c)
+		if below != nil {
+			below()
+		}
 		return
+	}
+	var d *dock
+	var reserve float32
+	if below != nil {
+		d = s.docks[id]
+		if d == nil {
+			d = &dock{}
+			d.check = d.settle
+			s.docks[id] = d
+		}
+		reserve = d.box.Bounds(c).H
+		d.c, d.reserve = c, reserve
 	}
 	l := s.List(id)
 	l.Key = func(i int) any { return turns[i].ID }
@@ -166,23 +215,22 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	if n == 0 {
 		banner(c, sess, actions)
 	}
-	// The theme's conversation effects lie under the turns.
-	pane := kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation"))
-	s.press.watch(pane)
-	pane.Children(func() {
-		s.area[id] = ui.List(c, l, n, func(i int) {
-			s.turn(c, id, i, &turns[i], n, sess, actions)
-		}).Fill().Role(ui.RoleLog).Bounds()
-		// A delegated session's transcript, the child panel's (no session), is
-		// read-only and has no navigation. The pane builds it (Navigation).
-		s.navigated = sess != nil && n > 0 && !s.Split
-		if s.navigated {
-			s.nav.list, s.nav.turns = l, turns
-		}
-		jump(c, l, n, !s.built[id])
-		s.built[id] = true
-		s.searchBar(c, id, turns)
-	})
+	// The dock is not in the box that watches the transcript's presses: a
+	// press on it is one the transcript does not see.
+	pane := ui.Box(c.Key(id)).Grow(1)
+	if d == nil {
+		s.transcript(c, pane, id, turns, sess, actions, 0)
+	} else {
+		pane.DrawOver(d.check).Children(func() {
+			s.transcript(c, ui.Box(c.Key("transcript")).Fill(), id, turns, sess, actions, reserve)
+			ui.Column(c.Key("dock")).Absolute().Left(0).Right(0).Bottom(0).PassThrough().Bind(&d.box).Children(func() {
+				p := theme.Of(c)
+				r := p.Radius2xl()
+				kit.Frost(c, ui.Column(c.Key("sheet")).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Radius(r, r, 0, 0), p.Background, kit.SurfaceTint).
+					Children(below)
+			})
+		})
+	}
 	if s.wantOlder && !sess.LoadingOlder {
 		actions.LoadOlder()
 	}
@@ -190,6 +238,32 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	s.confirmRewind(c, actions)
 	s.searchResult(c, id)
 	s.referenceDialog(c, id)
+}
+
+// transcript fills pane with the list of turns, the jump button and the
+// search bar, over the theme's conversation effects. reserve is the room the
+// list leaves under its last turn: the height of what floats over its end.
+func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Turn, sess *Session, actions Actions, reserve float32) {
+	l, n := s.List(id), len(turns)
+	kit.Draws(pane, kit.Backdrop(c, "conversation"))
+	s.press.watch(pane)
+	pane.Children(func() {
+		// What shows of the transcript is the list above the dock.
+		area := ui.List(c, l, n, func(i int) {
+			s.turn(c, id, i, &turns[i], n, sess, actions)
+		}).Fill().Padding(0, 0, reserve, 0).Role(ui.RoleLog).Bounds()
+		area.H = max(area.H-reserve, 0)
+		s.area[id] = area
+		// A delegated session's transcript, the child panel's (no session), is
+		// read-only and has no navigation. The pane builds it (Navigation).
+		s.navigated = sess != nil && n > 0 && !s.Split
+		if s.navigated {
+			s.nav.list, s.nav.turns = l, turns
+		}
+		jump(c, l, n, !s.built[id], reserve)
+		s.built[id] = true
+		s.searchBar(c, id, turns)
+	})
 }
 
 func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess *Session, actions Actions) {
