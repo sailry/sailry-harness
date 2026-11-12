@@ -15,6 +15,47 @@ import (
 // testKitMapping asserts that package components are the application's own
 // Kit controls: a step of TestElementMapping.
 func testKitMapping(t *testing.T) {
+	t.Run("a chosen table row is neutral", func(t *testing.T) {
+		native := NewNativeBinding(t.Context())
+		var failure error
+		tester := ui.NewTesterWith(func(view *ui.Context) {
+			theme.Apply(view, theme.BuiltinID, theme.Light) // the application's theme, which the neutral one is made of
+			ui.Column(view).Fill().Children(func() {
+				if _, err := native.renderTable(view, NativeElement{ID: 1, Module: "sailry/ui", Export: "DataTable",
+					Props: json.RawMessage(`["table",{"columns":["Name","Size"],"rows":[["alpha","1"],["beta","2"]]}]`)}, nil, nil); err != nil && failure == nil {
+					failure = err
+				}
+			})
+		}, 600, 300, ui.TesterOptions{})
+		tester.Frame()
+		tester.Frame()
+		if failure != nil {
+			t.Fatal(failure)
+		}
+		chosen, shown := tester.Find("alpha")
+		other, also := tester.Find("beta")
+		if !shown || !also {
+			t.Fatalf("the table lists no rows: %q", tester.Texts())
+		}
+		tester.ClickAt(chosen.X+chosen.W/2, chosen.Y+chosen.H/2)
+		tester.Move(2, 2)
+		tester.Frame()
+		tester.Frame()
+		// A point of each row past its cell's text, where only the row's
+		// fill is drawn.
+		at := func(row ui.Rect) [3]int {
+			pixel := tester.Image().RGBAAt(int(row.X+row.W+40), int(row.Y+row.H/2))
+			return [3]int{int(pixel.R), int(pixel.G), int(pixel.B)}
+		}
+		fill, ground := at(chosen), at(other)
+		if fill == ground {
+			t.Fatalf("the chosen row is not filled: %v", fill)
+		}
+		d := [3]int{fill[0] - ground[0], fill[1] - ground[1], fill[2] - ground[2]}
+		if max(d[0], d[1], d[2])-min(d[0], d[1], d[2]) > 3 {
+			t.Fatalf("the chosen row is filled %v over %v, want a neutral gray", fill, ground)
+		}
+	})
 	t.Run("page, select and empty list", func(t *testing.T) {
 		native := NewNativeBinding(t.Context())
 		name := ""

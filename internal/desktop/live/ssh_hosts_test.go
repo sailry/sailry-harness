@@ -99,6 +99,48 @@ func testSSHHostInstall(t *testing.T) {
 		local := root.hostState(root.controller.Target().String())
 		results := []bool{}
 		completed := func(ok bool) { results = append(results, ok) }
+
+		// A process the page lists is stopped on the host that listed it,
+		// by the identity it was listed with, one request at a time; a
+		// process the Node always refuses is never asked for.
+		stop := root.hostActions(local.view.ID).StopProcess
+		answers["stop_host_process"] = link.Response{Output: protocol.Output{Kind: "host_process_signalled", Data: protocol.OutputHostProcessSignalledPayload{Pid: 41, StartedAtSecs: 9}}}
+		stop(host.Process{Name: "node", PID: 41, Started: 9}, true)
+		if !local.view.Stopping {
+			t.Fatal("a sent stop request is not pending")
+		}
+		stop(host.Process{Name: "node", PID: 41, Started: 9}, true)
+		stop(host.Process{Name: "launchd", PID: 1, Started: 9}, true)
+		settle()
+		signals := source.sent("stop_host_process")
+		if len(signals) != 1 || local.view.Stopping {
+			t.Fatalf("stop requests: %d sent, pending %v", len(signals), local.view.Stopping)
+		}
+		if signal, _ := detail[protocol.CommandStopHostProcessPayload](signals[0].Data); signal != (protocol.CommandStopHostProcessPayload{Pid: 41, StartedAtSecs: 9, Force: true}) {
+			t.Fatalf("the stop request: %+v", signal)
+		}
+		// A refused request ends too, and the next is a request to end.
+		answers["stop_host_process"] = fault(protocol.ErrorCodeConflict)
+		stop(host.Process{Name: "node", PID: 41, Started: 9}, false)
+		settle()
+		signals = source.sent("stop_host_process")
+		if signal, _ := detail[protocol.CommandStopHostProcessPayload](signals[len(signals)-1].Data); len(signals) != 2 || signal.Force || local.view.Stopping {
+			t.Fatalf("a refused stop request: %d sent, %+v, pending %v", len(signals), signal, local.view.Stopping)
+		}
+		// The time zone is the one the host's Node reports, and unknown
+		// from a Node that reports none: never the controller's own.
+		zone, info := "JST +09:00", protocol.DefaultHostInfo()
+		local.info = &info
+		root.projectHosts(root.App.Data)
+		if local.view.Runtime.Timezone != "" {
+			t.Fatalf("a Node without a time zone shows %q", local.view.Runtime.Timezone)
+		}
+		info.Timezone = &zone
+		root.projectHosts(root.App.Data)
+		if local.view.Runtime.Timezone != zone {
+			t.Fatalf("the host's time zone: %q", local.view.Runtime.Timezone)
+		}
+		local.info = nil
 		count := func(kind string) int { return len(source.sent(kind)) }
 		project := protocol.ProjectID{1}
 		draft := settings.ConnectionDraft{

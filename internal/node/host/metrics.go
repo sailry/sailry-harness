@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
@@ -73,6 +74,7 @@ func (sampler *Sampler) Inspect(ctx context.Context, node protocol.NodeID) (prot
 		info.OsVersion = nonempty(system.PlatformVersion)
 		info.HostUptimeSecs = system.Uptime
 	}
+	info.Timezone = timezone(now)
 	if memory, err := mem.VirtualMemoryWithContext(ctx); err == nil && memory.Total > 0 {
 		info.Memory = &protocol.MemoryUsage{TotalBytes: memory.Total, AvailableBytes: min(memory.Available, memory.Total), FreeBytes: min(memory.Free, memory.Total)}
 	}
@@ -81,6 +83,20 @@ func (sampler *Sampler) Inspect(ctx context.Context, node protocol.NodeID) (prot
 	}
 	sampler.info, sampler.infoAt = info, now
 	return clone(info), nil
+}
+
+// timezone is the computer's time zone as its clock names it at now, with
+// its offset from UTC: "CST +08:00". A zone the system has no name for is
+// its offset alone, "UTC+08:00".
+func timezone(now time.Time) *string {
+	name, _ := now.Zone()
+	offset := now.Format("-07:00")
+	if name == "" || name[0] == '+' || name[0] == '-' {
+		name = "UTC" + offset
+	} else {
+		name += " " + offset
+	}
+	return &name
 }
 
 func (sampler *Sampler) Sample(ctx context.Context, node protocol.NodeID, detailed bool) (protocol.HostMetricsSample, error) {
@@ -161,6 +177,7 @@ func (sampler *Sampler) details(ctx context.Context, sample *protocol.HostMetric
 	}
 	sampler.sampleNetwork(ctx, sample, interval, ready)
 	sampler.sampleDisks(ctx, sample, interval, ready)
+	sample.Gpus = sampleGPUs()
 	sampler.sampleProcesses(ctx, sample, interval, ready)
 }
 
@@ -209,9 +226,13 @@ func (sampler *Sampler) sampleDisks(ctx context.Context, sample *protocol.HostMe
 		return
 	}
 	counters, _ := disk.IOCountersWithContext(ctx)
+	// Only the volumes the user stores files on, as the file browser's
+	// devices (files.IsVolume): gopsutil lists /dev and the system's hidden
+	// volumes on macOS. A volume of no size is not one either.
+	partitions = slices.DeleteFunc(partitions, func(partition disk.PartitionStat) bool { return !files.IsVolume(runtime.GOOS, partition) })
 	for _, partition := range partitions[:min(len(partitions), 128)] {
 		usage, err := disk.UsageWithContext(ctx, partition.Mountpoint)
-		if err != nil {
+		if err != nil || usage.Total == 0 {
 			continue
 		}
 		item := protocol.HostMetricsDisk{Mount: partition.Mountpoint, Name: partition.Device, FileSystem: partition.Fstype, TotalBytes: usage.Total, AvailableBytes: min(usage.Free, usage.Total)}

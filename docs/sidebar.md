@@ -113,7 +113,7 @@ mono worktree path.
 | Reorder pins | drag a pinned row | `MovePin`; a 2 DIP primary line shows before or after the target; every pin gets its index as order |
 | Mark read / unread | menu | `Status` Unread ↔ Idle |
 | Archive | hover button, menu | Confirm (`workspace_archive`, `workspace_memory_only`, `workspace_confirm`), then hidden in memory |
-| Delete | menu | Confirm naming the session once (`session_delete`, `session_delete_named`), then removed from memory; its split pane leaves with it |
+| Delete | menu | Confirm naming the session once (`session_delete`, `session_delete_named`), and for a chat without a project that its private workspace's files go with it (`session_delete_private_files`), then removed from memory; its split pane leaves with it |
 | Export, Fork, Open file, New window | menu | `preview_notice` toast |
 | Copy title, ID, path | menu › `content_copy` | Clipboard |
 | New session | project menu | The project's unsent conversation when it has one, otherwise an empty one in the project, in memory |

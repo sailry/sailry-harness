@@ -244,6 +244,7 @@ knowledge_slide: 슬라이드 %{slide}
 workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: 이름 바꾸기
 session_title_required: 이름 입력
 session_mark_read: 읽은 것으로 표시
@@ -1548,6 +1549,20 @@ host_process_name: 프로세스
 host_pid: PID
 host_process_empty: 프로세스 없음
 host_process_no_matches: 일치하는 프로세스 없음
+host_process_details: 세부 정보 보기
+host_process_copy_pid: PID 복사
+host_process_copy_name: 이름 복사
+host_process_stop: 프로세스 종료
+host_process_force_stop: 강제 종료
+host_process_stop_confirm: 중지 요청 보내기; 실행 중인 작업을 중단시킬 수 있습니다
+host_process_force_confirm: 지금이 프로세스를 종료; 저장되지 않은 데이터가 손실 될 수 있습니다
+host_process_stop_sent: 중지 요청 보내기
+host_process_gone: 프로세스 종료됨
+host_process_changed: 프로세스가 변경되었습니다. 새로 고치고 다시 시도하십시오
+host_process_protected: 시스템 프로세스 또는 현재 호스트 서비스를 중지할 수 없음
+host_process_uncertain: 중지 결과 알 수 없음; 프로세스 상태 확인
+host_process_stop_failed: 프로세스를 중지할 수 없습니다. 프로세스가 종료되었거나, 접근이 거부되었거나, 이 호스트가 지원하지 않을 수 있습니다
+metrics_gpu: GPU
 port_title: 포트 전달
 port_mappings: 포트 매핑
 port_add: 새 전달
@@ -1621,7 +1636,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 추가
+reference_group_context: 컨텍스트
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1862,7 +1877,7 @@ authorization_connected: 연결됨
 connector_bound: 연동됨
 connector_checked: 연결 정상
 connector_mcp_reconnected: 연결됨, 도구 %{n}개
-connector_consent_effect: 계속하기 전에 변경된 인증 대상을 확인하세요
+connector_consent_effect: 변경된 연결 권한 허용
 connector_changed_origins: 출처
 connector_changed_scopes: 권한 범위
 connector_changed_client: 클라이언트

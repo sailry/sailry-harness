@@ -27,8 +27,12 @@ const (
 // every process and a search, a note when the sample lists fewer than run,
 // then MyGo's table of the name, the processor's load over the last minute,
 // the memory and the PID, sorted by a click on a header and by the load at
-// first.
-func processPanel(c *ui.Context, s *State, h *Host, m *Metrics, t tones) {
+// first. A row is its process (its PID and start), so the system's menu a
+// right-click opens on it (processMenu) acts on that process however the
+// samples sort the rows meanwhile, and the table stays where it is scrolled.
+// The table is built under the neutral theme: nothing in it draws the
+// accent.
+func processPanel(c *ui.Context, s *State, h *Host, m *Metrics, t tones, act Actions) {
 	p := theme.Of(c)
 	if s.sort.Column == "" {
 		s.sort = ui.SortOrder{Column: "cpu", Descending: true}
@@ -40,6 +44,12 @@ func processPanel(c *ui.Context, s *State, h *Host, m *Metrics, t tones) {
 		named[i] = x
 	}
 	rows := SortProcesses(named, s.query, s.sort.Column, s.sort.Descending)
+	s.processes.Key, s.processes.KeepOffset = func(row int) any { return rows[row].id() }, true
+	s.processes.CellMenu = func(menu *ui.Menu, row, _ int) {
+		if row < len(rows) {
+			s.processMenu(c, menu, h, rows[row], act)
+		}
+	}
 	total := len(m.Processes)
 	if m.ProcessCount >= 0 {
 		total = m.ProcessCount
@@ -63,42 +73,51 @@ func processPanel(c *ui.Context, s *State, h *Host, m *Metrics, t tones) {
 			{Title: i18n.T(c, "metrics_memory"), ID: "memory", Width: 140, Sortable: true},
 			{Title: i18n.T(c, "host_pid"), ID: "pid", Width: 72, Align: ui.End, Sortable: true},
 		}
-		ui.Table(c.Key("table"), &s.processes, columns, len(rows), func(row, col int) {
-			x := rows[row]
-			switch col {
-			case 0:
-				ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
-					initial, _ := utf8.DecodeRuneInString(x.Name)
-					ui.Row(c).Size(22, 22).Shrink(0).Radius(11).Center().Background(p.Secondary).Children(func() {
-						ui.Text(c, string(initial)).FontSize(11).FontWeight(600).SingleLine().TextColor(p.MutedForeground)
-					})
-					ui.Text(c, x.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		height := min(processHeight, processHead+float32(len(rows))*processRow+2)
+		ui.Themed(c.Key("neutral"), theme.Neutral(c)).Background(ui.Transparent).FillWidth().Height(height).Children(func() {
+			processTable(c, s, m, t, columns, rows).Fill().Label(i18n.T(c, "metrics_processes"))
+		})
+	})
+}
+
+// processTable is the processes' table over its sorted rows.
+func processTable(c *ui.Context, s *State, m *Metrics, t tones, columns []ui.TableColumn, rows []Process) ui.Element {
+	p := theme.Of(c)
+	return ui.Table(c.Key("table"), &s.processes, columns, len(rows), func(row, col int) {
+		x := rows[row]
+		switch col {
+		case 0:
+			ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
+				initial, _ := utf8.DecodeRuneInString(x.Name)
+				ui.Row(c).Size(22, 22).Shrink(0).Radius(11).Center().Background(p.Secondary).Children(func() {
+					ui.Text(c, string(initial)).FontSize(11).FontWeight(600).SingleLine().TextColor(p.MutedForeground)
 				})
-			case 1:
-				ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
-					top := 100.0
-					for _, v := range x.History {
-						if !math.IsNaN(v) {
-							top = max(top, v)
-						}
+				ui.Text(c, x.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+			})
+		case 1:
+			ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
+				top := 100.0
+				for _, v := range x.History {
+					if !math.IsNaN(v) {
+						top = max(top, v)
 					}
-					sparkline(c, x.History, top, t.cpu, 96, 20)
-					ui.Text(c, orDash(Percent(x.CPU))).FontSize(12).Font("monospace").SingleLine()
-				})
-			case 2:
-				ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
-					share, _ := Usage(x.Memory, m.Memory)
-					ui.Progress(c.Key("memory"), share/100).Width(44).Shrink(0).Height(4).Label(x.Name).TextColor(t.memory)
-					ui.Text(c, orDash(Bytes(float64(x.Memory)))).FontSize(12).Font("monospace").SingleLine()
-				})
-			case 3:
-				pid := dash
-				if x.PID != 0 {
-					pid = strconv.FormatUint(uint64(x.PID), 10)
 				}
-				ui.Text(c, pid).FontSize(12).Font("monospace").SingleLine().TextColor(p.MutedForeground)
+				sparkline(c, x.History, top, t.cpu, 96, 20)
+				ui.Text(c, orDash(Percent(x.CPU))).FontSize(12).Font("monospace").SingleLine()
+			})
+		case 2:
+			ui.Row(c).Gap(8).MinHeight(processCell).AlignItems(ui.Center).Children(func() {
+				share, _ := Usage(x.Memory, m.Memory)
+				ui.Progress(c.Key("memory"), share/100).Width(44).Shrink(0).Height(4).Label(x.Name).TextColor(t.memory)
+				ui.Text(c, orDash(Bytes(float64(x.Memory)))).FontSize(12).Font("monospace").SingleLine()
+			})
+		case 3:
+			pid := dash
+			if x.PID != 0 {
+				pid = strconv.FormatUint(uint64(x.PID), 10)
 			}
-		}).FillWidth().Height(min(processHeight, processHead+float32(len(rows))*processRow+2)).Label(i18n.T(c, "metrics_processes"))
+			ui.Text(c, pid).FontSize(12).Font("monospace").SingleLine().TextColor(p.MutedForeground)
+		}
 	})
 }
 

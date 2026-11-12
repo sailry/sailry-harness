@@ -142,12 +142,12 @@ func checkBackupSettingsHelpers(t *testing.T) {
 	sessions := []protocol.Session{
 		{ID: first, Revision: 2},
 		{ID: second, Revision: 3, Archived: true, Activity: protocol.ActivitySummary{Title: "Archived", Run: &protocol.ConversationRun{FinishedMs: &finished}}},
-		{ID: third, Revision: 4, Archived: true},
+		{ID: third, Revision: 4, Archived: true, Project: &protocol.ProjectID{1}},
 		{ID: fourth, Revision: 5, Delegation: &delegation},
 	}
 	archived, active := backupSessions(sessions, "Untitled")
 	if active != 1 || len(archived) != 2 || archived[0].ID != second.String() || archived[0].Title != "Archived" || !archived[0].At.Equal(time.UnixMilli(finished)) ||
-		archived[1].Title != "Untitled" || !archived[1].At.IsZero() {
+		archived[1].Title != "Untitled" || !archived[1].At.IsZero() || !archived[0].Private || archived[1].Private {
 		t.Errorf("sessions = %+v, %d", archived, active)
 	}
 	if got := backupRevisions(sessions, false); !reflect.DeepEqual(got, []protocol.SessionRevision{{Session: first, Revision: 2}}) {
