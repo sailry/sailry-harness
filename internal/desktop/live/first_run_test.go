@@ -40,6 +40,9 @@ type firstRunTransport struct {
 	hold  map[string]chan struct{}
 	// gate, when set, keeps create_project from the Node until it is closed.
 	gate *atomic.Pointer[chan struct{}]
+	// flying, when set, counts the commands the Node has not answered yet. A
+	// held command is not one: it waits for the test, not for the Node.
+	flying *atomic.Int64
 }
 
 func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
@@ -57,13 +60,96 @@ func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Reques
 		}
 		return link.Admission{}, errors.New("held command released")
 	}
+	if t.flying == nil {
+		if t.gate != nil && name == "create_project" {
+			if gate := t.gate.Load(); gate != nil {
+				<-*gate
+			}
+		}
+		return t.Transport.Dispatch(ctx, request)
+	}
+	t.flying.Add(1)
 	if t.gate != nil && name == "create_project" {
 		if gate := t.gate.Load(); gate != nil {
 			<-*gate
 		}
 	}
-	return t.Transport.Dispatch(ctx, request)
+	admission, err := t.Transport.Dispatch(ctx, request)
+	if err != nil || admission.Completion == nil {
+		t.flying.Add(-1)
+		return admission, err
+	}
+	// The answer passes through unchanged; the count falls as it arrives.
+	answer, completion := admission.Completion, make(chan link.Response, 1)
+	admission.Completion = completion
+	go func() {
+		response, ok := <-answer
+		if ok {
+			completion <- response
+		} else {
+			close(completion)
+		}
+		t.flying.Add(-1)
+	}()
+	return admission, nil
 }
+
+// liveWindow shows a Runtime's window in a Tester the way the display would:
+// a frame only when one was asked for, by the Runtime (asked) or by the view.
+type liveWindow struct {
+	tester *ui.Tester
+	asked  *atomic.Bool
+	flying *atomic.Int64
+}
+
+// run shows the window for d of real time, the window's clock moving 16 ms
+// each 5 ms, and returns the frames drawn. It is for what must be seen not
+// to happen: nothing ends it early.
+func (w liveWindow) run(d time.Duration) int {
+	frames := 0
+	for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		w.tester.Advance(16 * time.Millisecond)
+		if w.asked.Swap(false) || w.tester.FramePending() {
+			w.tester.Frame()
+			frames++
+		}
+	}
+	return frames
+}
+
+// rest shows the window as run does until it is at rest, for at most limit:
+// the Node has answered every command, the view asks for no further frame
+// (what moved has arrived) and the Runtime has asked for none for liveQuiet
+// of real time. A view that never comes to rest is shown for limit, as run
+// shows it.
+func (w liveWindow) rest(limit time.Duration) {
+	start := time.Now()
+	calm := start
+	for {
+		w.tester.Advance(16 * time.Millisecond)
+		working := w.asked.Swap(false)
+		drawn := working || w.tester.FramePending()
+		if drawn {
+			w.tester.Frame()
+		}
+		now := time.Now()
+		if working || w.tester.FramePending() || w.flying.Load() > 0 {
+			calm = now
+		}
+		if now.Sub(start) >= limit || now.Sub(calm) >= liveQuiet {
+			return
+		}
+		if !drawn {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+// liveQuiet is how long nothing may arrive before a window is taken to be at
+// rest. What arrives after an answer comes from goroutines already runnable
+// (an update's delivery, a page's script going on), not from a timer, so it
+// is a scheduling allowance: ten of rest's polls.
+const liveQuiet = 50 * time.Millisecond
 
 // firstRun drives the whole desktop against a real Node on a new profile
 // without a provider. It runs as a step of TestComposerSendRouting.
@@ -81,8 +167,9 @@ func firstRun(t *testing.T) {
 	// The catalog refresh would ask the network: it is held, then fails.
 	refresh := make(chan struct{})
 	var gate atomic.Pointer[chan struct{}]
+	var flying atomic.Int64
 	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds,
-		hold: map[string]chan struct{}{"refresh_model_catalog": refresh}, gate: &gate})
+		hold: map[string]chan struct{}{"refresh_model_catalog": refresh}, gate: &gate, flying: &flying})
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -116,25 +203,16 @@ func firstRun(t *testing.T) {
 		}
 		return total
 	}
-	// run shows the window for a while the way the display would: a frame
-	// only when one was asked for. It returns the frames drawn.
-	run := func(d time.Duration) int {
-		frames := 0
-		for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
-			tester.Advance(16 * time.Millisecond)
-			if asked.Swap(false) || tester.FramePending() {
-				tester.Frame()
-				frames++
-			}
-		}
-		return frames
-	}
+	// run shows the window for a while and returns the frames drawn: the
+	// idle checks count them. settle waits for what is in flight instead.
+	window := liveWindow{tester: tester, asked: &asked, flying: &flying}
+	run := window.run
 	settle := func() {
 		for range 4 {
 			r.workers.Wait()
 			tester.Frame()
 		}
-		run(300 * time.Millisecond)
+		window.rest(300 * time.Millisecond)
 	}
 	// idle lets what is in flight end on the window's own clock, then shows
 	// the window for a second and returns the frames it drew. The toasts and
@@ -144,11 +222,20 @@ func firstRun(t *testing.T) {
 	// a time, are past a toast's five and its motion; a view that never
 	// settles still asks for frames afterwards.
 	idle := func() int {
-		settle()
+		// Nothing may be asked for afterwards, so what is in flight has the
+		// whole of run's time to end, not rest's quiet.
+		full := func() {
+			for range 4 {
+				r.workers.Wait()
+				tester.Frame()
+			}
+			run(300 * time.Millisecond)
+		}
+		full()
 		for range 480 {
 			tester.Advance(17 * time.Millisecond)
 		}
-		settle()
+		full()
 		return run(time.Second)
 	}
 	listed := func(id string) bool {
@@ -272,7 +359,7 @@ func firstRun(t *testing.T) {
 	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
-	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate)
+	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate, &flying)
 
 	// The Chinese pass ends on a conversation; Update is on the providers'
 	// settings.
@@ -294,7 +381,9 @@ func firstRun(t *testing.T) {
 		info := update()
 		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 		tester.Frame()
-		run(200 * time.Millisecond)
+		// The held refresh is not in flight for rest: this ends once the
+		// press has been drawn and nothing else arrives.
+		window.rest(200 * time.Millisecond)
 	}
 	if info := update(); info.Busy || info.Disabled {
 		t.Fatalf("Update is busy before a press: %+v", info)
@@ -318,7 +407,7 @@ func firstRun(t *testing.T) {
 // ring, the header's buttons, New session's refocus, a plugin page entered
 // once, and no English where the catalog has Chinese. It is a step of
 // firstRun; SAILRY_UI_SHOTS names a directory that receives its frames.
-func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}]) {
+func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}], flying *atomic.Int64) {
 	// shots saves the frame in the light and the dark theme.
 	shots := func(name string) {
 		dir := os.Getenv("SAILRY_UI_SHOTS")
@@ -501,7 +590,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	tester.SetSize(1280, 820)
 	firstRunConnectors(t, r, tester, settle, sent, shots)
 	firstRunLocation(t, r, tester, settle, shots)
-	firstRunProjects(t, r, tester, settle, sent, shots, hold)
+	firstRunProjects(t, r, tester, settle, sent, shots, hold, flying)
 }
 
 // firstRunProjects adds, edits and removes a project through the editor
@@ -509,7 +598,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 // in-app picker lists a real directory tree through browse_files, Save is
 // pending while the Node works, and a second real Node bound as a remote
 // Host is browsed through its own controller. It is a step of firstRun.
-func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}]) {
+func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}], flying *atomic.Int64) {
 	zh := func(key string, a ...any) string { return i18n.In("zh-CN", key, a...) }
 	count := func(kind string) (n int) {
 		for _, name := range sent() {
@@ -796,7 +885,7 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 	defer other.Stop(context.Background())
 	var mu sync.Mutex
 	var kinds []string
-	remote := client.New(firstRunTransport{Transport: link.NewLocal(other.ID(), other.ID(), other), mu: &mu, kinds: &kinds})
+	remote := client.New(firstRunTransport{Transport: link.NewLocal(other.ID(), other.ID(), other), mu: &mu, kinds: &kinds, flying: flying})
 	if err := remote.Start(r.ctx); err != nil {
 		t.Fatal(err)
 	}
