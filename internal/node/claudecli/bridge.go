@@ -87,6 +87,9 @@ func ToolName(name string) string {
 	return short + "_" + hex.EncodeToString(sum[:6])
 }
 
+// Directory is the folder the helper is pointed at.
+func (bridge *Bridge) Directory() string { return bridge.directory }
+
 // Bridge is the Node side of the tool boundary: an MCP server on a private
 // Unix socket whose tools/call requests park until the next step brings their
 // results.
@@ -105,22 +108,36 @@ type Bridge struct {
 	listed   chan struct{}
 }
 
-// NewBridge listens inside directory, which must be private to the Node.
-func NewBridge(directory string) (*Bridge, error) {
+// NewBridge listens in a new private folder under parent. A Unix socket path
+// is short on every system, so a parent too deep for one gives way to the
+// system's temporary folder; the folder is owner-only either way.
+func NewBridge(parent string) (*Bridge, error) {
+	directory, err := os.MkdirTemp(parent, "b")
+	if err != nil {
+		return nil, err
+	}
+	if parent != "" && len(filepath.Join(directory, socketFile)) > socketLimit {
+		_ = os.Remove(directory)
+		return NewBridge("")
+	}
 	path := filepath.Join(directory, socketFile)
 	if len(path) > socketLimit {
+		_ = os.Remove(directory)
 		return nil, fmt.Errorf("tool bridge socket path is longer than %d bytes", socketLimit)
 	}
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
+		_ = os.RemoveAll(directory)
 		return nil, err
 	}
 	token := hex.EncodeToString(secret)
 	if err := os.WriteFile(filepath.Join(directory, tokenFile), []byte(token), 0o600); err != nil {
+		_ = os.RemoveAll(directory)
 		return nil, err
 	}
 	listener, err := net.Listen("unix", path)
 	if err != nil {
+		_ = os.RemoveAll(directory)
 		return nil, err
 	}
 	bridge := &Bridge{directory: directory, token: token, listener: listener, closed: make(chan struct{}),
@@ -311,11 +328,12 @@ func (bridge *Bridge) Config(executable string) string {
 	return string(raw)
 }
 
-// Close ends the sessions and releases every parked call.
+// Close ends the sessions, releases every parked call and removes the folder.
 func (bridge *Bridge) Close() {
 	bridge.once.Do(func() {
 		close(bridge.closed)
 		_ = bridge.listener.Close()
+		_ = os.RemoveAll(bridge.directory)
 	})
 }
 

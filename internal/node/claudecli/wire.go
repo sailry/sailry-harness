@@ -265,6 +265,13 @@ func userLine(content []map[string]any) ([]byte, error) {
 	return append(raw, '\n'), nil
 }
 
+// marked reports whether a result that is not flagged as an error still
+// carries one of the refusals Claude Code prints as text.
+func marked(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(text, refusedPersonal) || strings.Contains(text, refusedWorkspace) || strings.Contains(lower, "not logged in")
+}
+
 // failure classifies the text Claude Code ends a failed turn or run with.
 // The text is Claude Code's or Anthropic's own and names no credential.
 func failure(text string, status int) *model.Failure {
