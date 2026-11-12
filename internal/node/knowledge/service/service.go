@@ -85,7 +85,7 @@ type Service struct {
 
 // New prepares a service; Start runs its worker.
 func New(options Options) *Service {
-	service := &Service{options: options, index: Index{options.Index}, wake: make(chan struct{}, 1), done: make(chan struct{}), failures: map[protocol.KnowledgeID]*failures{}}
+	service := &Service{options: options, index: newIndex(options.Index), wake: make(chan struct{}, 1), done: make(chan struct{}), failures: map[protocol.KnowledgeID]*failures{}}
 	service.stop, service.halt = context.WithCancel(context.Background())
 	service.pass, service.cancel = context.WithCancel(service.stop)
 	return service

@@ -414,7 +414,10 @@ git_commit_staged: 提交已暫存更改
 git_commit_staged_amend: 提交已暫存更改（修改上次提交）
 git_commit_staged_signoff: 提交已暫存更改（簽署宣告）
 git_commit_sync: 提交併同步
+git_cherry_pick: 揀選提交
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: 複製分支名
+git_copy_commit_id: Copy commit ID
 git_copy_path: 複製路徑
 git_delete_branch: 刪除分支
 git_delete_confirm: 確認刪除？無法撤銷
@@ -1446,6 +1449,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 選擇資料夾
 skill_source_choose_archive: 選擇壓縮檔
 git_diff: 差異
+git_diff_split: Split
+git_diff_unified: Unified
 market_permission_git_read: 讀取 Git 變更
 market_permission_git_write: 修改 Git
 market_permission_files_read: 讀取檔案
@@ -2219,3 +2224,4 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+port_count: '%{count} ports'

@@ -2806,3 +2806,8 @@ backup_restart_restored: 使用恢复的数据重启
 backup_restart_consequence: Sailry 将使用恢复的数据重启，当前数据目录会以带日期的名称保留在其旁边
 backup_restart_invalid: 恢复的数据无法使用，未做任何更改
 backup_restart_failed: Sailry 无法切换到恢复的数据
+git_copy_commit_id: 复制提交 ID
+git_cherry_pick_confirm: 将此提交应用到当前分支
+git_diff_split: 并排
+git_diff_unified: 统一
+port_count: "%{count} 个端口"

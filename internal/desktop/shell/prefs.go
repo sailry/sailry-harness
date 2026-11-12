@@ -46,6 +46,9 @@ type Prefs struct {
 	WelcomeSeen *bool `json:"welcomeSeen,omitempty"`
 	// Panes are the split workspace's groups, each a layout tree.
 	Panes []*panes.Node `json:"panes,omitempty"`
+	// DiffSplit is the window's diff layout: side by side when set, else
+	// unified, as before the choice.
+	DiffSplit bool `json:"diffSplit,omitempty"`
 }
 
 // PrefsFile is the preferences' file name in the app's user data folder,
@@ -99,7 +102,7 @@ func (a *App) prefs() Prefs {
 		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
 		Panels:   a.savedPanels(),
 		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
-		Panes: a.panes.Saved(),
+		Panes: a.panes.Saved(), DiffSplit: a.DiffSplit,
 	}
 	if keeps(a.Panel.Active) {
 		p.PanelTab = a.Panel.Active
@@ -124,6 +127,7 @@ func (a *App) prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
+	a.DiffSplit = p.DiffSplit
 	a.restorePanels(p)
 	a.Sidebar.SetCollapsed(p.Collapsed)
 	if a.Preview {

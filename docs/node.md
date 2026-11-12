@@ -114,6 +114,11 @@ keeps a request only while `client.Retained` holds. Flows that poll their own
 long operation (Host installation, uploads, plugin requests) call
 `Client.Resolve` or `Client.Outcome` directly.
 
+The Mobile adapter's `execute` is `Client.Settle`, and its `resolve` (the
+phone's "check result") is `Client.Resolve`, which never sends the request.
+Both mark a failure that ends its request with `released`; see
+[Mobile](mobile.md#uncertain-outcomes).
+
 Differences from Rust, deliberate:
 
 - Rust has no final state: an `admitted` request whose result write failed
@@ -191,7 +196,15 @@ An earlier build already accepts `ConversationContinuation.kind`, `limit` and
 `user`, `KnowledgeProgress.failed` and `failures`, `KnowledgeFailure`, the
 `output_limit` resource part and `CommandContinueTurnPayload`. The protocol
 version is unchanged: from this build on, each of the values above decodes.
-The Flutter controller's Dart mirror is separate and still exact.
+
+The Flutter controller has no decoder of its own. Everything a Node sends is
+decoded by the Go Client inside the adapter, at `PeerData`, and reaches Dart
+as JSON that Dart reads as plain maps by key: an unknown member is ignored and
+an unknown enum value or variant falls to a default branch. So a newer Node
+does not break the phone at decode; what the phone lacks for the values above
+is display only ([Mobile](mobile.md#known-display-gaps)). The one exact decode
+is `Authored`, of the commands Dart builds (`prepare` in
+`internal/mobile/connection.go`); Dart and that decoder ship in one build.
 
 Each database mutation uses a command savepoint. Business failure rolls back its
 partial SQL while the completed fault remains durable. Successful business SQL,
@@ -402,7 +415,12 @@ declares more than 256 MiB (sixteen maximum frames) before allocating. A
 frame's buffer grows with the bytes that arrive, in 64 KiB steps, so a declared
 length alone reserves no more than one step. The
 Client has one observation owner, which reconnects after a transient loss with a
-250 ms to 5 s backoff and ends only on a permanent fault. `Refresh` keeps the
+250 ms to 5 s backoff and ends only on a permanent fault. The first observation
+is retried the same way: `Client.Start` returns the first attempt's failure, and
+after Unavailable or Busy the owner keeps trying until the Client is closed, so
+a controller opened while it or the Node is offline connects when the route
+returns. The Desktop's remote peers close such a Client and inspect the peer
+again every 10 s, so only one of the two retries runs. `Refresh` keeps the
 existing observation when the new subscription cannot be opened; when the new
 subscription's first read fails, the Client is disconnected and the same
 reconnection continues. `Client.Revision` advances with each change of the Node

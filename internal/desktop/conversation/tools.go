@@ -548,7 +548,13 @@ func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 			icon, color = icons.CircleX, p.Danger
 		}
 		ui.Row(c.Key(i)).Height(rowHeight(size)+8).Padding(4, 8, 4, 0).Gap(8).Children(func() {
-			ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(color)
+			// The step in progress turns while the run does, and stands
+			// still once it stopped.
+			if st.State == StepInProgress && active {
+				kit.BusySized(c, rowIcon(size)).Label(i18n.T(c, "chat_running"))
+			} else {
+				ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(color)
+			}
 			switch {
 			case st.State == StepInProgress && active:
 				levelSpan(c, kit.Shimmer(c, st.Text, size, p.Foreground), ui.Span{Size: size}, size, false)

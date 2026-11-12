@@ -110,8 +110,14 @@ func changedCollection() error {
 	return newFault(protocol.ErrorCodeCancelled, "knowledge collection changed")
 }
 
-// Index is the derived retrieval data of every collection.
-type Index struct{ db *store.Handle }
+// Index is the derived retrieval data of every collection. It keeps the
+// vectors of queried collections in memory between writes.
+type Index struct {
+	db      *store.Handle
+	vectors *vectors
+}
+
+func newIndex(db *store.Handle) Index { return Index{db: db, vectors: newVectors()} }
 
 func (index Index) read(ctx context.Context, callback func(*sql.Conn) error) error {
 	return failure(index.db.Read(ctx, callback))
@@ -119,6 +125,13 @@ func (index Index) read(ctx context.Context, callback func(*sql.Conn) error) err
 
 func (index Index) write(ctx context.Context, callback func(*sql.Conn) error) error {
 	return failure(index.db.Write(ctx, callback))
+}
+
+// publish runs a write that changes the chunks of one collection, or of any
+// collection for an empty id, and drops the vectors kept for it.
+func (index Index) publish(ctx context.Context, id string, callback func(*sql.Conn) error) error {
+	defer index.vectors.change(id)()
+	return index.write(ctx, callback)
 }
 
 func current(ctx context.Context, db *sql.Conn, binding Binding) (found bool, err error) {
@@ -149,7 +162,7 @@ func (index Index) Bind(ctx context.Context, binding Binding) error {
 	}
 	model, dimension := binding.model()
 	id := binding.ID.String()
-	return index.write(ctx, func(db *sql.Conn) error {
+	return index.publish(ctx, id, func(db *sql.Conn) error {
 		var previousModel sql.NullString
 		var previousDimension sql.NullInt64
 		var previousScope []byte
@@ -212,7 +225,7 @@ func (index Index) Replace(ctx context.Context, binding Binding, document Docume
 	if err != nil {
 		return err
 	}
-	return index.write(ctx, func(db *sql.Conn) error {
+	return index.publish(ctx, binding.ID.String(), func(db *sql.Conn) error {
 		found, err := current(ctx, db, binding)
 		if err != nil {
 			return err
@@ -257,7 +270,7 @@ func (index Index) Replace(ctx context.Context, binding Binding, document Docume
 // Prune drops the sources a scan no longer found. Sources below a kept
 // prefix stay: the scan could not enter their directory.
 func (index Index) Prune(ctx context.Context, binding Binding, locators, kept []string) error {
-	return index.write(ctx, func(db *sql.Conn) error {
+	return index.publish(ctx, binding.ID.String(), func(db *sql.Conn) error {
 		found, err := current(ctx, db, binding)
 		if err != nil {
 			return err
@@ -276,7 +289,7 @@ func (index Index) Retain(ctx context.Context, ids []protocol.KnowledgeID) error
 	if ids == nil {
 		ids = []protocol.KnowledgeID{}
 	}
-	return index.write(ctx, func(db *sql.Conn) error {
+	return index.publish(ctx, "", func(db *sql.Conn) error {
 		_, err := db.ExecContext(ctx, "DELETE FROM collections WHERE id NOT IN (SELECT value FROM json_each(?1))", encoded(ids))
 		return err
 	})

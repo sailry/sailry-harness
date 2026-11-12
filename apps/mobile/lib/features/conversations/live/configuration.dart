@@ -28,7 +28,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
   late final _session = ValueNotifier<Map<String, dynamic>>(widget.session);
   late final _commands = ConfigurationCommands(
     command: widget.host.command,
-    execute: widget.host.execute,
+    resolve: widget.host.check,
     accept: _accept,
     active: () => mounted,
   );

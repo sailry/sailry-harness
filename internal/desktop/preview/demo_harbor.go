@@ -110,7 +110,7 @@ func (b *demo) rateLimit() *Conversation {
 			Output: "running (1m20.0s), 50/50 VUs, 18240 complete iterations"},
 	}
 	c.Badges = []composer.StatusBadge{b.goalBadge("goal.running", kit.Info, composer.Text{Label: "8m"},
-		"goal.text", "0 / 25", "8m", "48.2k", "pause", "edit", "clear")}
+		"goal.text", "0 / 25", "8m", "48.2k", "pause", "end")}
 	return c
 }
 

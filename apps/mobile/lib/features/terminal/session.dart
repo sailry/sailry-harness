@@ -8,7 +8,7 @@ class TerminalSession {
   TerminalSession({
     required this.controller,
     required this.command,
-    required this.execute,
+    required this.resolve,
     this.terminal,
     this.worktree,
     this.createNew = false,
@@ -16,7 +16,8 @@ class TerminalSession {
 
   final String controller;
   final CommandHandler command;
-  final Future<Map<String, dynamic>> Function(String request) execute;
+  // Asks about a retained request without sending it again.
+  final Future<Map<String, dynamic>> Function(String request) resolve;
   final String? worktree;
   final bool createNew;
   String? terminal;
@@ -48,7 +49,7 @@ class TerminalSession {
     }
     try {
       final response = _pending != null
-          ? await execute(_pending!)
+          ? await resolve(_pending!)
           : terminal == null
           ? await command('create_terminal', {
               ...launch,
@@ -61,7 +62,7 @@ class TerminalSession {
       _pending = null;
       return info;
     } on CommandFailure catch (error) {
-      if (error.code == 'outcome_unknown') _pending = error.request;
+      _pending = error.retained ? error.request : null;
       rethrow;
     }
   }

@@ -25,14 +25,15 @@ func (b *demo) goalBadge(state string, tone kit.Tone, tail composer.Text, object
 	return goalStatus(state, tone, tail, b.both(objective), b.t(objective), turns, spent, tokens, buttons...)
 }
 
-// goalStatus is the plugin's Status badge: Goal, the state and what follows
-// it (the time while it runs, the reason once paused), the counters as its
+// goalStatus is the plugin's Status badge: its icon, the state and what
+// follows it (the time while it runs, the reason once paused), without the
+// word Goal, which the icon and the badge's name say, the counters as its
 // tooltip, and the panel with the objective and its buttons. shown is the
 // objective as the tooltip reads it.
 func goalStatus(state string, tone kit.Tone, tail, objective composer.Text, shown, turns, spent, tokens string, buttons ...string) composer.StatusBadge {
 	label := (&demo{}).both // the package's labels, which carry their translations
 	badge := composer.StatusBadge{ID: "goals/status", Label: label("goal.label"), Icon: icons.Target,
-		Segment: []composer.Segment{{Text: label("goal.label"), Tone: kit.Neutral}, {Text: label(state), Tone: tone}, {Text: tail, Tone: kit.Neutral}},
+		Segment: []composer.Segment{{Text: label(state), Tone: tone}, {Text: tail, Tone: kit.Neutral}},
 		Details: []composer.Detail{
 			{Label: label("goal.label"), Value: shown},
 			{Label: label("pursuit.turns"), Value: turns},
@@ -71,7 +72,7 @@ func (b *demo) pursuit() *Conversation {
 
 	c := b.conv(id, "pursuit.title", Running, time.Minute, cv.Usage{Tokens: 184000, Speed: 71.4, Cost: 0.0932, Cached: 121000, Context: 0.21}, set, first, second)
 	c.Badges = []composer.StatusBadge{b.goalBadge("goal.running", kit.Info, composer.Text{Label: "12m"},
-		"pursuit.text", "2 / 25", "12m", "184.0k", "pause", "edit", "clear")}
+		"pursuit.text", "2 / 25", "12m", "184.0k", "pause", "end")}
 	return c
 }
 
@@ -91,6 +92,6 @@ func (b *demo) pursuitLimit() *Conversation {
 
 	c := b.conv(id, "limited.title", Unread, 26*time.Minute, cv.Usage{Tokens: 2410000, Speed: 66.9, Cost: 1.2140, Cached: 1930000, Context: 0.58}, set, last)
 	c.Badges = []composer.StatusBadge{b.goalBadge("pursuit.paused", kit.Caution, b.both("pursuit.reason.turns"),
-		"limited.text", "25 / 25", "1h 12m", "2.4M", "resume", "edit", "clear")}
+		"limited.text", "25 / 25", "1h 12m", "2.4M", "resume", "end")}
 	return c
 }

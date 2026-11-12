@@ -260,6 +260,24 @@ func CommitGraph(c *ui.Context, label string, commits []code.GraphCommit) (ui.El
 	return code.CommitGraph(c, label, kept), true
 }
 
+// CommitGraphRows is where code.CommitGraph lays its rows, for a caller that
+// puts a row of its own over each (the graph's rows take no click): the
+// first starts top below the graph's top edge and each is height tall.
+func CommitGraphRows(c *ui.Context) (top, height float32) {
+	t := c.Theme()
+	return t.Space(1), t.Space(9)
+}
+
+// CommitGraphLanes is the width code.CommitGraph keeps for lanes drawn side
+// by side before a row's text, and CommitGraphPad the space at each end of
+// a row.
+func CommitGraphLanes(c *ui.Context, lanes int) float32 {
+	return float32(min(max(lanes, 0), 8)) * c.Theme().Space(4)
+}
+
+// CommitGraphPad is the space code.CommitGraph leaves at each end of a row.
+func CommitGraphPad(c *ui.Context) float32 { return c.Theme().Space(3) }
+
 // BranchPicker is code.BranchPicker for a repository's branches. Counts
 // below zero read as zero and the current index stays within the list. It
 // builds nothing for no branch, or for an unnamed or repeated one.

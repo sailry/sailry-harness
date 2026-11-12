@@ -200,6 +200,10 @@ type DiffOptions struct {
 	// NoNumbers leaves the gutter without numbers, as transcript
 	// previews.
 	NoNumbers bool
+	// Split shows the old text on the left and the new on the right, their
+	// lines aligned, in place of the unified text; the panel's diffs pass
+	// the window's choice (DiffSplit).
+	Split bool
 	// Actions builds the actions of the change under the pointer, around
 	// editor.DefaultHunkActions; nil shows none. Changed is called after
 	// Revert or Keep changed a text.
@@ -210,8 +214,9 @@ type DiffOptions struct {
 }
 
 // Diff is MyGo's diff viewer of old and new inside box, unified as
-// content diff view, read-only, keeping its state while box
-// stays.
+// content diff view or side by side (Split), read-only, keeping its state
+// while box stays: the layout changes in place, with the scroll, the lines
+// expanded and the hunk actions of the same state.
 func Diff(c *ui.Context, box ui.Element, old, new string, o DiffOptions) {
 	v := ui.Local(box, diffView{}, func() diffView {
 		d := &editor.DiffState{Old: editor.NewBuffer(old), New: editor.NewBuffer(new), Layout: editor.DiffUnified,
@@ -227,6 +232,10 @@ func Diff(c *ui.Context, box ui.Element, old, new string, o DiffOptions) {
 		v.d.New.Set(new)
 	}
 	v.d.Theme = codeTheme(c, lookDiff)
+	v.d.Layout = editor.DiffUnified
+	if o.Split {
+		v.d.Layout = editor.DiffSplit
+	}
 	v.d.HunkActions = o.Actions != nil
 	v.d.RenderHunkActions = nil
 	if o.Actions != nil {
@@ -253,4 +262,42 @@ func Diff(c *ui.Context, box ui.Element, old, new string, o DiffOptions) {
 			e.Grow(1).MinHeight(0)
 		}
 	})
+}
+
+// diffSplit is a window's choice between a unified diff and a side-by-side
+// one: its owner's (BindDiffSplit) or, in a window without one, its own.
+type diffSplit struct {
+	bound *bool
+	own   bool
+}
+
+type diffSplitKey struct{}
+
+// BindDiffSplit makes split the window's diff layout, which its owner
+// keeps across launches; it runs before the window's diffs are built.
+func BindDiffSplit(c *ui.Context, split *bool) {
+	ui.Local(c.Root(), diffSplitKey{}, func() diffSplit { return diffSplit{} }).bound = split
+}
+
+// DiffSplit is the window's diff layout: true shows the old and the new
+// text side by side. Every diff of the panel follows it.
+func DiffSplit(c *ui.Context) *bool {
+	v := ui.Local(c.Root(), diffSplitKey{}, func() diffSplit { return diffSplit{} })
+	if v.bound != nil {
+		return v.bound
+	}
+	return &v.own
+}
+
+// DiffLayout is the Unified | Split choice of the window's diffs, a small
+// segmented control for a diff's toolbar.
+func DiffLayout(c *ui.Context, key any) ui.Element {
+	split := DiffSplit(c)
+	at := 0
+	if *split {
+		at = 1
+	}
+	e := Segmented(c, key, &at, []string{i18n.T(c, "git_diff_unified"), i18n.T(c, "git_diff_split")}, SegmentedProps{Size: SizeSmall})
+	*split = at == 1
+	return e
 }

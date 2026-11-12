@@ -19,7 +19,42 @@ Controller, connection, observer, upload, download and forwarding handles are
 opaque native integers. Closing a parent cancels pending operations and releases
 its descendants. Closing observation never cancels an admitted command.
 Retained pairing claims and uncertain command requests preserve their original
-identifiers for explicit recovery.
+identifiers for explicit recovery. Handle 0 is the root: `close` and `dispose`
+on it are refused, and only `sailry_close` releases every handle. A closed
+connection is no longer its peer's Client for notification commands.
+
+The Node observation of a connection retries from the first attempt on
+(250 ms to 5 s, [Node](node.md#observation)): a phone opened while it or the
+Host is offline shows the failure and connects when the route returns, without
+a manual refresh.
+
+## Uncertain outcomes
+
+The phone never sends a request twice. The adapter has two operations for a
+prepared request, both answering `{"Ok": output}` or `{"Err": fault}`, with
+`"released": true` beside a fault that ends the request:
+
+| Operation | Client call | Use |
+| --- | --- | --- |
+| `execute` | `Client.Settle` | Sends the request once; a result that was not observed is looked up by request ID |
+| `resolve` | `Client.Resolve` | "Check result": asks what became of a retained request and never sends it |
+
+| Answer | Dart `CommandFailure` | The page |
+| --- | --- | --- |
+| stored output | none | continues as the success it is |
+| stored fault | its code | reports the failure and drops the request |
+| `outcome_unknown` (still running, or the Node cannot be asked) | `retained` | keeps the request and offers the check again |
+| `unavailable`, released (the request never reached the Node; a non-durable request has no stored outcome) | `released`, `rejected` | drops the request; nothing was sent twice, the user may send again |
+| `outcome_unknown`, released (the Node restarted while it ran, or the operation recorded that its effect could not be confirmed) | `released`, `rejected` | drops the request and says once that the result is unconfirmed |
+
+`HostConnection.execute` and `HostConnection.check` map these. Every page that
+keeps a request (turn and guidance drafts, session creation, history actions,
+session configuration, checkpoint restore, file save and trash, Git mutations,
+terminal launch) keeps it only while `CommandFailure.retained` holds and
+resolves it through `check`. A status action is the one exception: tapping it
+again is the user repeating that action, so it sends its retained request
+again through `execute`, which the Node answers from its ledger when it already
+ran.
 
 ## C ABI and callbacks
 
@@ -35,6 +70,10 @@ the original request ID. The synchronous `project_modes`, `select_mode` and
 `session_link` rules return C-owned JSON through the invoke out parameters,
 preserving the application's existing synchronous signatures without a Dart
 copy of those rules.
+
+Transfer chunks (digest `update`, upload `write`, download `next`) are at most
+64 KiB and cross the boundary as one base64 string; the adapter still reads a
+JSON number array.
 
 Native copies input before returning. Dart frees every returned C buffer exactly
 once in `finally`. Bridge shutdown cancels and joins operations, releases handles
@@ -131,4 +170,45 @@ paired or continued a conversation.
 | Root pure rules have an immediate result path | Their existing Dart signatures are synchronous; waiting on a listener would block the Dart isolate |
 | Claiming an invitation that was closed or replaced, or that already serves four claimants, fails with a network fault instead of `permission_denied` | The sharing Link closes such pairing connections before reading them, so silent connections cannot occupy its accept workers; a wrong code against an open invitation still answers `permission_denied` |
 | Speech operations may report unavailable until the speech phase | The adapter preserves operation names without adding another speech implementation |
-| `watch_terminal`, `watch_login` and `watch_connector_login` deliver a single disconnected view with an `unavailable` error, and `watch_connections` fails with `unavailable` | The shared Client does not observe terminals, authorization attempts or plugin connections; the adapter preserves the names the Dart API calls |
+| `watch_terminal`, `watch_login` and `watch_connector_login` deliver a single disconnected view with an `unavailable` error, and `watch_connections` fails with `unavailable` | The shared Client does not observe terminals, authorization attempts or plugin connections; the adapter preserves the names the Dart API calls. What each needs is listed under [Unbound observers](#unbound-observers) |
+| "Check result" asks the Node about the request (`inspect_request`) instead of executing the same request again, and a request the Node can never answer is released | Rust re-executes the request ID: a request that never arrived runs when the user checks, minutes later, and one interrupted by a Node restart answers `outcome_unknown` forever |
+| Transfer chunks are base64 strings instead of JSON number arrays | A number array is about four times the size of the bytes it carries |
+| `sailry_cancel` has no Dart caller | `NativeBridge.invoke` does not return its request ID; an operation ends with its handle. The export is kept for the ABI and covered by `TestMobileSubscribeCancel` |
+
+### Unbound observers
+
+The Node serves all four topics and the Desktop observes them in
+`internal/desktop/live`, which Mobile cannot import. `internal/client` has only
+the resuming `Client.Subscribe`; each observer needs a projection there and a
+case in `Client.Watch` (`internal/client/observer.go`). The adapter and the Dart
+API already carry the names and handle kinds.
+
+| Operation | Topic | Needed in `internal/client` | Rust source |
+| --- | --- | --- | --- |
+| `watch_terminal` | `terminal` (terminal ID) | A terminal projection: accept `terminal_snapshot` and `terminal_frame` updates for this Node and terminal, order them by info revision and sequence, validate the screen and ask for recovery on a gap; an observer that reconnects with the 250 ms to 5 s backoff and publishes `{snapshot, connected, recovering, error}` | `crates/client/src/terminal.rs`, `terminal/projection.rs` |
+| `watch_login` | `provider_login` (attempt request ID) | An attempt projection: refuse an update of another attempt or with revision 0, ignore an older revision, refuse a changed equal revision or a change after completion; publish `{update, connected, error}`, reconnect on a transient loss and end once the attempt is no longer active. The argument is the attempt, from which the topic takes the ID | `crates/client/src/login.rs`, `login/observer.rs` |
+| `watch_connector_login` | `connector_login` (attempt request ID) | The same projection over connector login updates | `crates/client/src/connectors.rs`, `login/observer.rs` |
+| `watch_connections` | `connections` | An observer whose `next` returns each `connections_changed` payload (a full list each time) and ends on any other update or a failure. No projection | `crates/mobile-bridge/src/api/connectors.rs` |
+
+## Known display gaps
+
+The phone decodes every value below (the Go Client decodes peer data
+tolerantly and Dart reads maps), but shows none of them; each is a display gap
+to close with Mobile UI work, not a compatibility fault.
+
+| Protocol value | Phone today |
+| --- | --- |
+| `ConversationQueue.pause_reason` (`user`, `stopped`, `interrupted`, `unrecorded`) | The queue shows paused or not; a queue paused by a stop or an interruption looks paused by the user |
+| `ConversationBackgroundTask.hold` (`limit`, `stopped`, `interrupted`, `failed`, `other`) | A held background task shows as an unknown outcome |
+| `ConversationContinuation.kind`, `limit`, `user` | A package-continued turn looks like any continuation |
+| `FaultDetails` kind `continuation` (`reason`, `count`, `limit`) and its refusal reasons | A refused continuation shows the generic failure |
+| `continue_turn` members `marker`, `limit`, `user`; `PluginExtension.continuation_markers` | Not sent and not read; the phone does not continue a turn with a marker |
+| `ToolHandler.approval` | Not read |
+| `FileBrowserLocation.medium`, location kind `applications` | Locations are listed without a kind or medium; the new kind still renders as a row |
+| `FileEntry.modified_ms` | Not shown |
+| `BackupSettings.keep` and `last`, `BackupOutcome`, `BackupRecord.skipped` | Not shown |
+| `KnowledgeFailure`, `KnowledgeProgress.failed` and `failures` | Not shown |
+| `count_feature`, `FeatureUse` | Not sent; the Node accepts feature counts from its own Desktop only |
+| Resource part `output_limit` | Not drawn (the timeline's default branch) |
+| Error code `context_overflow` | Shows the generic failure label |
+| A released request that never reached the Node | Shows the existing "Host not connected" or "failed" label; there is no "not sent" copy |

@@ -414,7 +414,10 @@ git_commit_staged: Confirmar cambios por etapas
 git_commit_staged_amend: Commit staged y amend
 git_commit_staged_signoff: Confirmar en etapa y cerrar sesión
 git_commit_sync: Confirmar y sincronizar
+git_cherry_pick: Cherry-pick commit
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Copiar nombre de sucursal
+git_copy_commit_id: Copy commit ID
 git_copy_path: Copiar la ruta
 git_delete_branch: Eliminar rama
 git_delete_confirm: Esto no se puede deshacer
@@ -1446,6 +1449,8 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Elegir carpeta
 skill_source_choose_archive: Elegir archivo
 git_diff: Diferencias
+git_diff_split: Split
+git_diff_unified: Unified
 market_permission_git_read: Leer cambios de Git
 market_permission_git_write: Cambiar Git
 market_permission_files_read: Leer archivos
@@ -2219,3 +2224,4 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+port_count: '%{count} ports'
