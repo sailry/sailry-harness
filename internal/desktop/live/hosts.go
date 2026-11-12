@@ -17,13 +17,16 @@ import (
 )
 
 type liveHost struct {
-	node           protocol.NodeID
-	view           *host.Host
-	owner          *Runtime
-	info           *protocol.HostInfo
-	infoPending    bool
-	infoNext       time.Time
-	infoError      string
+	node        protocol.NodeID
+	view        *host.Host
+	owner       *Runtime
+	info        *protocol.HostInfo
+	infoPending bool
+	infoNext    time.Time
+	infoError   string
+	// linkError is why the Link does not reach the host now, "" once it
+	// does: a copy key for a protocol mismatch, else the Link's own reason.
+	linkError      string
 	metricsCancel  context.CancelFunc
 	metricsPending bool
 	metricsNext    time.Time
@@ -148,9 +151,7 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 			if peer.info.Protocol != nil {
 				state.view.Runtime.ProtocolMin, state.view.Runtime.ProtocolMax = int(*peer.info.Protocol), int(*peer.info.Protocol)
 			}
-			if peer.err != nil {
-				state.infoError = peer.err.Error()
-			}
+			state.linkError = hostLinkError(peer.err)
 			order = append(order, id)
 		}
 	}
@@ -176,6 +177,30 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 	r.App.SetHosts(present)
 }
 
+// hostLinkError is what the host's page says of a Link failure: the copy
+// key that names which side to update when the protocol versions differ,
+// which alone decide compatibility, else the failure's own text.
+func hostLinkError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var failure *protocol.Fault
+	if errors.As(err, &failure) && failure.Details != nil {
+		if mismatch, ok := failure.Details.Data.(protocol.FaultDetailsVersionMismatchPayload); ok {
+			switch {
+			case mismatch.UpdateHost && mismatch.Unverified:
+				return "host_version_unknown"
+			case mismatch.UpdateHost:
+				return "host_version_older"
+			case mismatch.Unverified:
+				return "controller_version_unknown"
+			}
+			return "host_version_newer"
+		}
+	}
+	return err.Error()
+}
+
 func hostOS(value string) string {
 	switch strings.ToLower(value) {
 	case "darwin", "macos", "mac os", "mac os x":
@@ -194,6 +219,9 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	view.Worktrees, view.Sessions, view.Terminals = 0, 0, 0
 	view.Runtime.Loading = state.infoPending && state.info == nil
 	view.Runtime.Error = state.infoError
+	if state.linkError != "" {
+		view.Runtime.Error = state.linkError
+	}
 	if view.Update != nil && view.Update.Phase == host.Idle {
 		view.Update.Current = view.Runtime.Version
 	}

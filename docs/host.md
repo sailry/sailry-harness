@@ -132,7 +132,11 @@ handshake supplies a remote Node's advertised software and protocol versions;
 the local Node uses the running build's versions. A controller and a Host are
 compatible when their protocol versions are equal (`internal/link/compatibility.go`);
 the software version is shown and offered for update, never compared for
-compatibility. The frozen HostInfo contract
+compatibility. A mismatch toasts the reference's copy chosen from the fault's
+details (`host_version_older`, `host_version_newer`, `host_version_unknown`,
+`controller_version_unknown`; `feedback.rs` `fault_message`) rather than the
+fault's English message, and a Link failure of any kind leaves the page once
+the Link reaches the host again. The frozen HostInfo contract
 has no remote timezone, so that fact stays unknown. Runtime read failures toast
 once without replacing the page. Remembered offline execution peers remain in
 the host list; nonexecution controllers do not receive Node reads.

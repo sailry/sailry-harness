@@ -1453,6 +1453,38 @@ func TestComposerSendRouting(t *testing.T) {
 					t.Fatal("an unchanged Node snapshot had its Host lanes found again")
 				}
 			}
+			{
+				// A host on another protocol version says which side to update, in
+				// the page's language, and says nothing once the Link reaches it.
+				peer := protocol.NodeID{0xa7}
+				older, newer := uint16(protocol.VERSION)-1, uint16(protocol.VERSION)+1
+				network, kept := &Network{peers: map[protocol.NodeID]*networkPeer{peer: {}}, callbacks: map[uint64]func(){}}, r.network
+				network.peers[peer].address.ID = peer
+				r.network = network
+				for _, row := range []struct {
+					err  error
+					want string
+				}{
+					{link.CheckHost(&older, nil), "host_version_older"},
+					{link.CheckHost(&newer, nil), "host_version_newer"},
+					{link.CheckHost(nil, nil), "host_version_unknown"},
+					{os.ErrDeadlineExceeded, os.ErrDeadlineExceeded.Error()},
+					{nil, ""},
+				} {
+					network.peers[peer].err = row.err
+					r.projectHosts(r.App.Data)
+					if listed := r.hosts[peer.String()]; listed == nil || listed.view.Runtime.Error != row.want {
+						t.Fatalf("Host link failure %v reads %#v, want %q", row.err, listed, row.want)
+					}
+				}
+				for _, key := range []string{"host_version_older", "host_version_newer", "host_version_unknown", "controller_version_unknown"} {
+					if i18n.In("en", key) == key || i18n.In("zh-CN", key) == key || i18n.In("en", key) == i18n.In("zh-CN", key) {
+						t.Fatalf("%s has no copy in both languages", key)
+					}
+				}
+				r.network = kept
+				r.projectHosts(r.App.Data)
+			}
 			// An identical package command in flight is not sent again, and its second caller is told so.
 			remove := protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: "fixture"}}
 			r.busy["packages/"+packageCommandKey(remove)] = true
