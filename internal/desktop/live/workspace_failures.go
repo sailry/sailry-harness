@@ -27,6 +27,8 @@ const (
 	worktreeRemove = "worktree_remove"
 	worktreePrune  = "worktree_prune"
 	fileSave       = "file_save"
+	// workspaceAction is any other workspace mutation: the general copy.
+	workspaceAction = "workspace"
 )
 
 // workspaceFailure names the toast of a failed Git or worktree mutation. The
@@ -95,6 +97,14 @@ func workspaceFailure(kind string, err error) (kit.Outcome, string) {
 		case code == protocol.ErrorCodeConflict:
 			return outcome, "workspace_changed"
 		case code == protocol.ErrorCodeOutcomeUnknown:
+			return outcome, "workspace_action_unknown"
+		}
+		return outcome, "workspace_action_failed"
+	case workspaceAction:
+		switch outcome {
+		case kit.Conflict:
+			return outcome, "workspace_changed"
+		case kit.Uncertain:
 			return outcome, "workspace_action_unknown"
 		}
 		return outcome, "workspace_action_failed"
@@ -168,13 +178,23 @@ func worktreeFailureKey(code protocol.ErrorCode, conflict, missing, failed strin
 	return failed
 }
 
-// mutateNamed is mutate for a Git or worktree operation: the same admission,
+// mutateNamed sends one workspace mutation: admission by its worktree,
 // uncertain-outcome retention and refresh, with the failure toast named by
-// its kind instead of the general workspace copy.
+// its kind.
 func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, done func(*ui.Context, protocol.Output), failed ...func(*ui.Context, error)) {
 	encoded, _ := json.Marshal(command)
 	key := string(encoded)
-	p.runtime.executeScoped("workspace-action/"+p.owner.ID.String(), command, func(c *ui.Context, out protocol.Output, err error) {
+	scope := "workspace-action/" + p.owner.ID.String()
+	// A Git action that is sent, not one already in flight, counts as running.
+	git := command.Kind == "run_git_action" && !p.runtime.busy[scope+"\x00"+key]
+	if git {
+		p.gitRunning++
+	}
+	p.runtime.executeScoped(scope, command, func(c *ui.Context, out protocol.Output, err error) {
+		if git {
+			p.gitRunning--
+		}
+		// Only a request the Runtime kept can be checked again.
 		unknown := client.Retained(err)
 		p.panel.SetPromptUncertain(unknown)
 		if unknown {
