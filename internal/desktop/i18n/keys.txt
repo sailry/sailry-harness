@@ -591,6 +591,9 @@ background_outcome_stalled
 background_outcome_stopped
 background_outcome_timed_out
 background_outcome_unknown
+background_running
+background_exit
+background_result_waiting
 chat_compact_cancelled
 chat_compact_failed
 chat_compact_queued

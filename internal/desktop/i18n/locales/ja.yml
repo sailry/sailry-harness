@@ -574,6 +574,9 @@ background_outcome_stalled: 最近の出力なし
 background_outcome_stopped: 停止済み
 background_outcome_timed_out: タイムアウト
 background_outcome_unknown: 結果は不確定
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 圧縮中止
 chat_compact_failed: 圧縮に失敗しました
 chat_compact_queued: コンパクト化を待っています

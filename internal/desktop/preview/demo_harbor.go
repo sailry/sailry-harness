@@ -176,7 +176,8 @@ func (b *demo) flakyTest() *Conversation {
 }
 
 // invoices is a plan with a step in every state, calls that were denied,
-// interrupted and not executed, background results in every outcome, model
+// interrupted and not executed, background results in every outcome,
+// commands sent to the background (running, ended, failed), model
 // retries that gave up, and runs that were continued, cancelled and failed.
 func (b *demo) invoices() *Conversation {
 	const id = "harbor-api/invoices"
@@ -228,8 +229,16 @@ func (b *demo) invoices() *Conversation {
 	again := b.user(id+"/3", "invoice.3.user")
 	logs := b.call(again.ID, "read", "book-open", "logs/backfill-2026-11-08.log")
 	logs.Output = output("batch 07: 5000 rows ok\nbatch 08: 5000 rows ok\nbatch 09: ERROR null value in column \"currency\" violates not-null constraint\nbatch 09: rolled back")
+	// Commands sent to the background: one still running, one that ended
+	// and one that failed, whose results no turn has taken yet.
+	backfill := b.call(again.ID, "command", "command", "go run ./cmd/backfill --from-batch 9")
+	backfill.Background = &cv.Background{Running: true}
+	lint := b.call(again.ID, "command", "command", "make lint")
+	lint.Background = &cv.Background{Outcome: cv.OutcomeCompleted, Waiting: true}
+	verify := b.call(again.ID, "command", "command", "go test ./internal/billing/...")
+	verify.Background = &cv.Background{Outcome: cv.OutcomeFailed, Exit: new(1), Waiting: true}
 	again.Reply = done(cv.Continued, 184)
-	again.Reply.Blocks = []cv.Block{tools(logs), text(b.t("invoice.3.answer"))}
+	again.Reply.Blocks = []cv.Block{tools(logs, backfill, lint, verify), text(b.t("invoice.3.answer"))}
 
 	more := b.user(id+"/4", "invoice.4.user")
 	more.Reply = done(cv.Completed, 23)

@@ -574,6 +574,9 @@ background_outcome_stalled: Keine neue Ausgabe
 background_outcome_stopped: Gestoppt
 background_outcome_timed_out: Zeitüberschreitung
 background_outcome_unknown: Ergebnis ungewiss
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Verdichtung abgebrochen
 chat_compact_failed: Die Verdichtung ist fehlgeschlagen
 chat_compact_queued: Warten auf Kompaktierung

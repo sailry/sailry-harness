@@ -574,6 +574,9 @@ background_outcome_stalled: 近期无输出
 background_outcome_stopped: 已停止
 background_outcome_timed_out: 超时
 background_outcome_unknown: 结果不确定
+background_running: 后台运行中
+background_exit: 退出码 %{code}
+background_result_waiting: 结果待送达
 chat_compact_cancelled: 压缩已取消
 chat_compact_failed: 压缩失败
 chat_compact_queued: 等待压缩

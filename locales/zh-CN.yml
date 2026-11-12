@@ -2339,6 +2339,9 @@ background_one: "1 个终端"
 background_count: "%{count} 个终端"
 background_stop: 停止命令
 background_end: 结束
+background_running: 后台运行中
+background_exit: "退出码 %{code}"
+background_result_waiting: 结果待送达
 background_recent_output: 仅显示近期输出
 background_unavailable: 暂时无法读取后台终端
 background_stop_failed: 停止失败，请重试

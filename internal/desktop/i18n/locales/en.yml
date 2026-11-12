@@ -574,6 +574,9 @@ background_outcome_stalled: No recent output
 background_outcome_stopped: Stopped
 background_outcome_timed_out: Timed out
 background_outcome_unknown: Outcome uncertain
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Compaction cancelled
 chat_compact_failed: Compaction failed
 chat_compact_queued: Waiting to compact

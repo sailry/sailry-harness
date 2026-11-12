@@ -574,6 +574,9 @@ background_outcome_stalled: 최근 출력 없음
 background_outcome_stopped: 중지됨
 background_outcome_timed_out: 시간 초과
 background_outcome_unknown: 결과 불확실
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 압축 취소됨
 chat_compact_failed: 압축 실패
 chat_compact_queued: 압축을 기다리는 중

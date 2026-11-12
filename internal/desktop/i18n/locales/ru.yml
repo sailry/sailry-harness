@@ -574,6 +574,9 @@ background_outcome_stalled: Нет нового вывода
 background_outcome_stopped: Остановлено
 background_outcome_timed_out: Время истекло
 background_outcome_unknown: Результат неизвестен
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Уплотнение отменено
 chat_compact_failed: Уплотнение не удалось
 chat_compact_queued: Ожидание уплотнения
