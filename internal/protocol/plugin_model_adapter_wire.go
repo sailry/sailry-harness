@@ -943,37 +943,3 @@ func (value *PluginModelAdapterWireClass) UnmarshalText(data []byte) error {
 	}
 	return value.UnmarshalJSON(encoded)
 }
-
-type PluginModelAdapterWireDiagnostics struct {
-	Code             *string `json:"code,omitempty"`
-	ErrorType        *string `json:"error_type,omitempty"`
-	EventType        *string `json:"event_type,omitempty"`
-	IncompleteReason *string `json:"incomplete_reason,omitempty"`
-}
-
-func DefaultPluginModelAdapterWireDiagnostics() PluginModelAdapterWireDiagnostics {
-	return PluginModelAdapterWireDiagnostics{
-		Code:             nil,
-		ErrorType:        nil,
-		EventType:        nil,
-		IncompleteReason: nil,
-	}
-}
-func (value *PluginModelAdapterWireDiagnostics) UnmarshalJSON(data []byte) error {
-	type plain PluginModelAdapterWireDiagnostics
-	decoded := plain{}
-	decoded.Code = nil
-	decoded.ErrorType = nil
-	decoded.EventType = nil
-	decoded.IncompleteReason = nil
-	if err := DecodeObject(data, &decoded, []string{}, false); err != nil {
-		return err
-	}
-	*value = PluginModelAdapterWireDiagnostics(decoded)
-	return nil
-}
-func (value PluginModelAdapterWireDiagnostics) MarshalJSON() ([]byte, error) {
-	type plain PluginModelAdapterWireDiagnostics
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}

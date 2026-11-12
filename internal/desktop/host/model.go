@@ -108,17 +108,16 @@ func Protocol(lo, hi int) string {
 type Phase string
 
 const (
-	Idle          Phase = "update_idle"
-	Checking      Phase = "update_checking"
-	Current       Phase = "update_current"
-	Available     Phase = "update_available"
-	Downloading   Phase = "update_downloading"
-	Verifying     Phase = "update_verifying"
-	Staged        Phase = "update_staged"
-	Applying      Phase = "update_applying"
-	RestartWait   Phase = "update_restart"
-	UpdateFailed  Phase = "update_failed"
-	UpdateLoading Phase = "update_loading"
+	Idle         Phase = "update_idle"
+	Checking     Phase = "update_checking"
+	Current      Phase = "update_current"
+	Available    Phase = "update_available"
+	Downloading  Phase = "update_downloading"
+	Verifying    Phase = "update_verifying"
+	Staged       Phase = "update_staged"
+	Applying     Phase = "update_applying"
+	RestartWait  Phase = "update_restart"
+	UpdateFailed Phase = "update_failed"
 )
 
 // Action is what the update dialog's button does.

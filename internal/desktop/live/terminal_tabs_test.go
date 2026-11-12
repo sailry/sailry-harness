@@ -226,3 +226,45 @@ func testTerminalTabsProject(t *testing.T) {
 		}
 	})
 }
+
+// testTerminalTabsClosePending covers a tab closed before create_terminal
+// answered: the answer closes the terminal and the tab leaves.
+func testTerminalTabsClosePending(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		worktree := protocol.WorktreeID{1}
+		root, source := terminalTabsFixture(t)
+		source.respond = func(request protocol.Request) link.Response {
+			info := terminalTabsTestInfo(0, worktree, "running")
+			if request.Command.Kind == "close_terminal" {
+				payload, _ := detail[protocol.CommandCloseTerminalPayload](request.Command.Data)
+				info.ID, info.Status = payload.Terminal, protocol.TerminalStatus{Kind: "closed"}
+			} else {
+				info.ID = protocol.TerminalID(request.ID)
+			}
+			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
+		}
+		id, created := root.createLiveTerminal(root, worktree)
+		if !created {
+			t.Fatal("New terminal did not start")
+		}
+		root.closeLiveTerminal(id)
+		if !slices.Contains(terminalTabsTestTabs(root), id) {
+			t.Fatal("a pending terminal's tab left before its creation answered")
+		}
+		synctest.Wait()
+		pluginViewRunQueue(root)
+		synctest.Wait()
+		pluginViewRunQueue(root)
+		commands := source.sent("close_terminal")
+		if len(commands) != 1 {
+			t.Fatalf("close_terminal commands = %d, want 1", len(commands))
+		}
+		payload, valid := detail[protocol.CommandCloseTerminalPayload](commands[0].Data)
+		if !valid || payload.Worktree != worktree || payload.Terminal.String() != id {
+			t.Fatalf("unexpected close payload: %+v", payload)
+		}
+		if got := terminalTabsTestTabs(root); len(got) != 0 || root.packages.terminals[id] != nil || root.terminalInventory().pending[id] {
+			t.Fatalf("a terminal closed while pending stayed: %v", got)
+		}
+	})
+}

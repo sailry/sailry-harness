@@ -291,11 +291,7 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 			} else {
 				target.BorderColor(color)
 			}
-		case "border", "border_0", "border_1", "border_2", "border_4":
-			if argument == nil {
-				parsed, _ := strconv.ParseFloat(strings.TrimPrefix(name, "border_"), 32)
-				value = float32(parsed)
-			}
+		case "border":
 			border = [4]float32{value, value, value, value}
 			target.BorderWidth(border[0], border[1], border[2], border[3])
 		case "border_t":

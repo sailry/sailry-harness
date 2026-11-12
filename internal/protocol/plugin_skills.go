@@ -508,10 +508,6 @@ func (value PluginSkillsProvenanceImportedPayload) MarshalJSON() ([]byte, error)
 	return json.Marshal(encoded)
 }
 
-var pluginSkillsProvenanceVariants = variantFactories{"Git": func() any { return new(PluginSkillsGitProvenance) },
-	"Registry": func() any { return new(PluginSkillsProvenanceRegistryPayload) },
-	"Imported": func() any { return new(PluginSkillsProvenanceImportedPayload) }}
-
 func (value PluginSkillsProvenance) MarshalJSON() ([]byte, error) {
 	switch value.Kind {
 	case "Git", "Registry", "Imported":

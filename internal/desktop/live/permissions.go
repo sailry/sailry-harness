@@ -508,8 +508,12 @@ func (r *Runtime) requestPermission(resource string) {
 			steps = append(steps, r.permissionStep(card, false))
 		}
 		steps = append(steps, func() func(*ui.Context) {
-			_ = probe.settings(permissionKinds[card.kind].flow)
-			return nil
+			err := probe.settings(permissionKinds[card.kind].flow)
+			return func(*ui.Context) {
+				if err != nil {
+					state.failed = true
+				}
+			}
 		})
 	}
 	if len(steps) == 0 {

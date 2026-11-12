@@ -45,14 +45,19 @@ func (r *Runtime) saveQueued(item protocol.ConversationPending, text string, don
 }
 
 func (r *Runtime) readQueued(item protocol.ConversationPending, done func(protocol.ConversationQueuedMessage, bool)) {
-	r.execute(protocol.Command{Kind: "read_queued_turn", Data: protocol.CommandReadQueuedTurnPayload{Turn: item.Turn}}, func(c *ui.Context, out protocol.Output, err error) {
-		value, ok := detail[protocol.ConversationQueuedMessage](out.Data)
-		if err == nil && (!ok || value.Turn.ID != item.Turn || value.Revision != item.Revision) {
-			err = &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "Queued message changed before editing"}}
-		}
-		if err != nil {
-			r.report(c, err, "session_changed")
-		}
-		done(value, err == nil)
+	// Not execute, which answers one of two identical commands in flight: an
+	// editor reopened before its first read answered waits for its own.
+	r.async(func() {
+		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_queued_turn", Data: protocol.CommandReadQueuedTurnPayload{Turn: item.Turn}})
+		r.enqueue(func(c *ui.Context) {
+			value, ok := detail[protocol.ConversationQueuedMessage](out.Data)
+			if err == nil && (!ok || value.Turn.ID != item.Turn || value.Revision != item.Revision) {
+				err = &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "Queued message changed before editing"}}
+			}
+			if err != nil {
+				r.report(c, err, "session_changed")
+			}
+			done(value, err == nil)
+		})
 	})
 }

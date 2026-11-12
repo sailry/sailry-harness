@@ -1968,9 +1968,6 @@ func testSessionForwarding(t *testing.T) {
 	if want := []string{"Remote · Build box", "Local · " + desktop}; !slices.Equal(providers, want) {
 		t.Fatalf("a draft on another Host names its providers %q, want %q", providers, want)
 	}
-	if len(shown.Hosts) != 0 {
-		t.Errorf("the composer is offered a host choice: %+v", shown.Hosts)
-	}
 	for _, e := range window.AccessAll() {
 		if e.Role != ui.RoleText && (e.Name == "Build box" || e.Name == i18n.In("zh-CN", "local_host_name")) {
 			t.Errorf("the composer has a control named after the host %q", e.Name)
@@ -1981,5 +1978,22 @@ func testSessionForwarding(t *testing.T) {
 			_ = png.Encode(file, window.Image())
 			file.Close()
 		}
+	}
+}
+
+// TestTurnOwners covers the one owner map of the transcript, references,
+// published files and search: a run joined to a turn before the loaded page
+// is drawn as its own turn everywhere.
+func TestTurnOwners(t *testing.T) {
+	t.Parallel()
+	first, joined, orphan, absent := protocol.TurnID{1}, protocol.TurnID{2}, protocol.TurnID{3}, protocol.TurnID{9}
+	owners := turnOwners([]protocol.ConversationRun{
+		{Turn: joined, Joined: &first}, {Turn: first}, {Turn: orphan, Joined: &absent},
+	})
+	if len(owners) != 3 || owners[first] != first || owners[joined] != first {
+		t.Fatalf("owners on the page: %v", owners)
+	}
+	if owners[orphan] != orphan {
+		t.Fatalf("a run joined to a turn off the page is owned by %v", owners[orphan])
 	}
 }

@@ -31,7 +31,6 @@ type input struct {
 	PIN        string   `json:"pin"`
 	Address    string   `json:"address"`
 	Addresses  []string `json:"addresses"`
-	ID         string   `json:"id"`
 	Query      string   `json:"query"`
 	Command    string   `json:"command"`
 	Request    string   `json:"request"`
@@ -76,7 +75,7 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 		}
 		owner := &controller{endpoint: endpoint, clients: map[protocol.NodeID]*client.Client{}}
 		return runtime.add(0, "controller", owner, lifetime, cancel)
-	case "new", "default":
+	case "new":
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
 		detach()
 		switch values.Kind {
@@ -159,19 +158,6 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 			Notices []client.Notice `json:"notices"`
 			Unread  int             `json:"unread"`
 		}{Notices: owner.inbox.Notices(), Unread: owner.inbox.Unread()})
-	case "mark_notification_read", "mark_notifications_read":
-		clients, err := owner.notificationClients(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if method == "mark_notifications_read" {
-			return nil, owner.inbox.MarkAllRead(ctx, clients)
-		}
-		var id client.NoticeID
-		if err := json.Unmarshal([]byte(values.ID), &id); err != nil {
-			return nil, invalid("invalid notification identifier")
-		}
-		return nil, owner.inbox.MarkRead(ctx, id, clients)
 	case "watch_usage":
 		if len(values.Addresses) == 0 {
 			return nil, invalid("usage overview requires an execution Node")
@@ -199,25 +185,6 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		return runtime.add(handle, "overview_updates", &observation{observer: observer, clients: clients}, lifetime, cancel)
 	}
 	return nil, invalid("unknown controller operation")
-}
-
-func (owner *controller) notificationClients(ctx context.Context) (map[protocol.NodeID]*client.Client, error) {
-	peers, err := owner.endpoint.Peers(ctx)
-	if err != nil {
-		return nil, err
-	}
-	owner.mu.Lock()
-	defer owner.mu.Unlock()
-	result := map[protocol.NodeID]*client.Client{}
-	for _, address := range peers {
-		shared := owner.clients[address.ID]
-		if shared == nil {
-			shared = client.New(owner.endpoint.Remote(address))
-			owner.clients[address.ID] = shared
-		}
-		result[address.ID] = shared
-	}
-	return result, nil
 }
 
 func (owner *controller) close() error {

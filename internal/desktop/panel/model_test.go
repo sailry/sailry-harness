@@ -252,6 +252,19 @@ func testFlatTabs(t *testing.T) {
 	}
 }
 
+// The file a project shows first is its own tree's README: the demo's
+// Files tab opens on a file the demo has.
+func TestFirstFileIsTheWorkspaceReadme(t *testing.T) {
+	w := preview.Demo("en", "local").Workspace
+	pr := NewProjects(w).Of("harbor-api")
+	if got := pr.Files.File(); got != "harbor-api/README.md" || findFile(w.Files, got) == nil {
+		t.Fatalf("the demo's first file is %q", got)
+	}
+	if got := NewProjects(&preview.Workspace{}).Of("empty").Files.File(); got != "" {
+		t.Fatalf("a workspace without a tree shows %q first", got)
+	}
+}
+
 // Each open file and diff is its own tab, the same items as the page's
 // strip; another project's items replace them.
 func testItemTabs(t *testing.T) {

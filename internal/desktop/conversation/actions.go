@@ -111,6 +111,7 @@ func cited(blocks []Block, cites []Citation) []Block {
 func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
 	p := theme.Of(c)
 	text := AnswerText(blocks)
+	session := s.renderSession
 	row := ui.Row(c.Key("footer")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground)
 	hovered := row.Hovered()
 	row.Children(func() {
@@ -152,7 +153,7 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 						actions.Fork(t.ID)
 					}
 					if m.Item(i18n.T(c, "chat_rewind")).Icon(icons.Undo).Disabled(ctl.NoRewind).Chosen() {
-						s.rewind = t.ID
+						s.rewind, s.rewindOf = t.ID, session
 					}
 					if m.Item(i18n.T(c, "worktree_create")).Icon(icons.Plus).Disabled(ctl.NoWorktree).Chosen() {
 						actions.Worktree(t.ID)
@@ -219,8 +220,8 @@ func userFooter(c *ui.Context, t *Turn, actions Actions) {
 
 // confirmRewind asks before a rewind: the turn is kept, the later messages go
 // and the files stay.
-func (s *State) confirmRewind(c *ui.Context, actions Actions) {
-	open := s.rewind != ""
+func (s *State) confirmRewind(c *ui.Context, session string, actions Actions) {
+	open := s.rewind != "" && s.rewindOf == session
 	if !open {
 		return
 	}
@@ -241,6 +242,6 @@ func (s *State) confirmRewind(c *ui.Context, actions Actions) {
 	}
 }
 
-// AskRewind opens the rewind confirmation for a turn, as the fork menu's
-// Rewind does.
-func (s *State) AskRewind(turn string) { s.rewind = turn }
+// AskRewind opens the rewind confirmation for a turn of session, as the fork
+// menu's Rewind does.
+func (s *State) AskRewind(session, turn string) { s.rewind, s.rewindOf = turn, session }

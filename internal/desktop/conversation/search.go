@@ -190,7 +190,6 @@ func spans(text, q string, current int, p *theme.Palette) []ui.Span {
 // closed or open, so its query is there when the bar opens again.
 type search struct {
 	open           bool
-	conv           string
 	query          string
 	shown          string // the query the matches are of
 	matches        []Match
@@ -212,7 +211,7 @@ func (s *State) OpenSearch(id string) {
 		if s.finds == nil {
 			s.finds = map[string]*search{}
 		}
-		f = &search{conv: id, selected: -1}
+		f = &search{selected: -1}
 		s.finds[id] = f
 	}
 	if !f.open && s.Search != nil {
@@ -375,7 +374,7 @@ func (s *State) searchPage(id string) {
 	generation := f.generation
 	f.loading = true
 	f.cancel = s.Search(id, f.shown, f.before, func(page SearchPage) {
-		if f.generation != generation || !f.open || f.conv != id {
+		if f.generation != generation || !f.open {
 			return
 		}
 		f.loading = false

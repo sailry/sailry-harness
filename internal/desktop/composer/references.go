@@ -54,7 +54,7 @@ func parseTrigger(text string, caret int) trigger {
 	for i := caret - 1; i >= 0; i-- {
 		r := rs[i]
 		if r != '@' && r != '/' {
-			if unicode.IsSpace(r) || (r == '@') {
+			if unicode.IsSpace(r) {
 				return trigger{}
 			}
 			continue
@@ -254,7 +254,7 @@ func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference
 	case ModeCommand:
 		for i, m := range Modes {
 			if m.label == r.Insert {
-				s.Mode = Mode(i)
+				s.selectMode(ctx, Mode(i))
 			}
 		}
 		s.replace("")

@@ -156,10 +156,6 @@ approval_reject: Ablehnen
 approval_allow_once: Erlauben
 approval_allow_session: Für diese Sitzung erlauben
 approval_live_count: '%{count} wartet auf Genehmigung'
-file_changes_added: Hinzugefügt
-file_changes_modified: Geändert
-file_changes_deleted: Gelöscht
-file_changes_renamed: Umbenannt
 subagent_count: '%{completed}/%{total} Unteragenten'
 chat_child: Unteragent
 question_reply: Warten auf Antwort
@@ -190,7 +186,6 @@ tool_find_tools: Werkzeuge suchen
 tool_read_output: Werkzeugausgabe lesen
 approval_allow_prefix: Präfix „%{prefix}“ erlauben
 approval_preview_result: Es wurden keine Dateien, Befehle oder Modelle verwendet, um die Vorschau freizugeben.
-file_changes_shortened: Diff gekürzt
 interaction_input: Geben Sie eine Antwort oder Details
 approval_unrestricted: Voller Dateisystem- und Netzwerkzugriff
 close: Schließen
@@ -337,7 +332,6 @@ git_action_conflict: Git Zustand geändert, aktualisieren
 git_action_failed: Git Operation fehlgeschlagen
 git_action_unknown: Git Ergebnis nicht bestätigt, aktualisieren Sie vor dem Fortfahren
 git_auth_failed: Git Authentifizierung fehlgeschlagen
-cli_launch: AI-CLI starten
 workspace_memory_only: Nur Vorschau der Änderungen
 workspace_confirm: Bestätigen
 project_remove_named: Projekt „%{name}“ entfernen? Seine Terminals werden geschlossen; Dateien und Sitzungen bleiben erhalten
@@ -651,7 +645,6 @@ composer_permission_ask_description: Vor dem Bearbeiten von Dateien oder Ausfüh
 composer_permission_project_description: Projektdateien automatisch bearbeiten; vor Ausführung von Befehlen fragen
 composer_permission_full_description: Dateien bearbeiten und Befehle automatisch ausführen, auch außerhalb des Projekts
 composer_host_local: Lokales Gerät
-composer_host_remote: Remote
 composer_no_project: Chats
 composer_branch_none: Keine Niederlassung
 composer_settings: Sitzungseinstellungen
@@ -733,7 +726,6 @@ directory_documents: Dokumentation
 directory_downloads: Downloads
 directory_applications: Applications
 directory_locations: Orte
-directory_count_directories: '%{count} Ordner'
 directory_count_files: '%{count} Dateien'
 directory_name: Name
 directory_size: Größe
@@ -1811,8 +1803,6 @@ files_wrap: Soft wrap
 location_copy_changes: Kopieren von Änderungen
 location_fork: Gabel-Arbeitsbaum
 refresh: Refresh
-artifact_next_page: Nächste Seite
-artifact_previous_page: Vorherige Seite 1
 git_commit_scope: Commit-Bereich
 git_commit_tracked: Übertragen von verfolgten Dateien
 git_continue: Weiter
@@ -2153,9 +2143,6 @@ live_request_failed: Anforderung unvollständig; Überprüfen Sie Node Verbindun
 plugins_loading: Wird geladen
 project_appearance: Auftritt des Projekts
 project_clone_failed: Klonen unvollständig; Ziel überprüfen
-project_grant: Vertrauen und weitermachen
-project_grant_description: Projektanweisungen und Werkzeuge können Code in allen Arbeitsbäumen ausführen
-project_grant_title: Vertrauen Sie diesem Projekt
 project_outcome_unknown: Ergebnis nicht bestätigt; Ziel überprüfen. Wiederholen überprüft die ursprüngliche Anforderung.
 project_path_in_use: Dieser Pfad wird von einer Sitzung oder einem Arbeitsbaum verwendet
 project_remove_busy: Projekt wird verwendet; erneut versuchen
@@ -2167,9 +2154,6 @@ project_remove_tasks: Aktive Aufgaben vor dem Entfernen des Projekts stoppen
 project_remove_tasks_partial: Projekt bleibt erhalten; Aufgaben vor dem erneuten Versuch stoppen. Einige Terminals sind möglicherweise bereits geschlossen
 project_remove_unknown: Entfernen nicht bestätigt; Projekt und Terminals prüfen
 project_removed: Projekt entfernt
-project_revoke: Vertrauen widerrufen
-project_revoke_description: Projektaufgaben stoppen; Verlauf und Entwürfe aufbewahren
-project_revoke_title: Projektvertrauensstellung widerrufen
 task_completed: Abgeschlossen
 artifact_export_failed: Export fehlgeschlagen
 chat_compact_incomplete: Die Zusammenfassung ist unvollständig

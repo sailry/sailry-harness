@@ -164,10 +164,6 @@ approval_reject
 approval_allow_once
 approval_allow_session
 approval_live_count
-file_changes_added
-file_changes_modified
-file_changes_deleted
-file_changes_renamed
 subagent_count
 chat_child
 question_reply
@@ -198,7 +194,6 @@ tool_find_tools
 tool_read_output
 approval_allow_prefix
 approval_preview_result
-file_changes_shortened
 interaction_input
 approval_unrestricted
 # Floating layers
@@ -351,7 +346,6 @@ git_action_conflict
 git_action_failed
 git_action_unknown
 git_auth_failed
-cli_launch
 workspace_memory_only
 workspace_confirm
 project_remove_named
@@ -669,7 +663,6 @@ composer_permission_ask_description
 composer_permission_project_description
 composer_permission_full_description
 composer_host_local
-composer_host_remote
 composer_no_project
 composer_branch_none
 composer_settings
@@ -751,7 +744,6 @@ directory_documents
 directory_downloads
 directory_applications
 directory_locations
-directory_count_directories
 directory_count_files
 directory_name
 directory_size
@@ -1823,8 +1815,6 @@ files_wrap
 location_copy_changes
 location_fork
 refresh
-artifact_next_page
-artifact_previous_page
 git_commit_scope
 git_commit_tracked
 git_continue
@@ -2165,9 +2155,6 @@ live_request_failed
 plugins_loading
 project_appearance
 project_clone_failed
-project_grant
-project_grant_description
-project_grant_title
 project_outcome_unknown
 project_path_in_use
 project_remove_busy
@@ -2179,9 +2166,6 @@ project_remove_tasks
 project_remove_tasks_partial
 project_remove_unknown
 project_removed
-project_revoke
-project_revoke_description
-project_revoke_title
 task_completed
 artifact_export_failed
 chat_compact_incomplete

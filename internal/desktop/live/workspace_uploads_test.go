@@ -404,3 +404,89 @@ func testWorkspaceUploads(t *testing.T) {
 		}
 	})
 }
+
+// testWorkspaceGitBusy is grouped under the existing controller IO test.
+func testWorkspaceGitBusy(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
+	r := &Runtime{ctx: ctx, controller: client.New(transport), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+	updates := make(chan struct{}, 1)
+	r.invalidate = func() {
+		select {
+		case updates <- struct{}{}:
+		default:
+		}
+	}
+	defer func() { cancel(); r.workers.Wait() }()
+	p := &workspaceProject{runtime: r, owner: protocol.Worktree{ID: protocol.NewWorktreeID()}}
+	actions := p.actions()
+	p.panel = panel.NewLiveProject("fixture", &viewmodel.Workspace{Files: &viewmodel.FileNode{}}, actions)
+	var act func(*ui.Context)
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		r.mu.Lock()
+		queue := r.queue
+		r.queue = nil
+		r.mu.Unlock()
+		for _, complete := range queue {
+			complete(c)
+		}
+		if act != nil {
+			act(c)
+			act = nil
+		}
+	}, 600, 400)
+	if actions.GitBusy() {
+		t.Fatal("an idle project reported a Git action")
+	}
+	act = func(c *ui.Context) { actions.Git(c, panel.GitAction{Kind: "git_fetch"}) }
+	tester.Frame()
+	if !actions.GitBusy() {
+		t.Fatal("a panel Git action that was sent is not reported as running")
+	}
+	for actions.GitBusy() {
+		select {
+		case <-updates:
+			tester.Frame()
+		case <-ctx.Done():
+			t.Fatal("the Git action did not settle")
+		}
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if len(transport.requests) != 1 || transport.requests[0].Command.Kind != "run_git_action" {
+		t.Fatalf("requests = %+v", transport.requests)
+	}
+}
+
+// testQueuedReadRepeated is grouped under the existing controller IO test:
+// a queued message read again before the first read answered (its editor
+// reopened) is answered too.
+func testQueuedReadRepeated(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
+	r := &Runtime{ctx: ctx, controller: client.New(transport), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+	defer func() { cancel(); r.workers.Wait() }()
+	answered := 0
+	item := protocol.ConversationPending{Turn: protocol.TurnID{7}, Revision: 1}
+	for range 2 {
+		r.readQueued(item, func(protocol.ConversationQueuedMessage, bool) { answered++ })
+	}
+	r.workers.Wait()
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		r.mu.Lock()
+		queue := r.queue
+		r.queue = nil
+		r.mu.Unlock()
+		for _, complete := range queue {
+			complete(c)
+		}
+	}, 600, 400)
+	tester.Frame()
+	if answered != 2 {
+		t.Fatalf("two reads of one queued message answered %d times", answered)
+	}
+}

@@ -437,9 +437,6 @@ func (value PluginConnectorClientFieldsPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-var pluginConnectorClientVariants = variantFactories{"Bundled": func() any { return new(PluginConnectorClientBundledPayload) },
-	"Fields": func() any { return new(PluginConnectorClientFieldsPayload) }}
-
 func (value PluginConnectorClient) MarshalJSON() ([]byte, error) {
 	switch value.Kind {
 	case "Bundled", "Fields":
@@ -1117,32 +1114,6 @@ func (value *PluginConnectorChange) UnmarshalJSON(data []byte) error {
 	}
 	value.Kind, value.Data = kind, decoded
 	return nil
-}
-
-type PluginConnectorCapture struct {
-	ID       PluginConnectorID `json:"id"`
-	Revision uint64            `json:"revision"`
-}
-
-func DefaultPluginConnectorCapture() PluginConnectorCapture {
-	return PluginConnectorCapture{
-		ID:       RequestID{},
-		Revision: 0,
-	}
-}
-func (value *PluginConnectorCapture) UnmarshalJSON(data []byte) error {
-	type plain PluginConnectorCapture
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "revision"}, false); err != nil {
-		return err
-	}
-	*value = PluginConnectorCapture(decoded)
-	return nil
-}
-func (value PluginConnectorCapture) MarshalJSON() ([]byte, error) {
-	type plain PluginConnectorCapture
-	encoded := plain(value)
-	return json.Marshal(encoded)
 }
 
 type PluginConnectorAttempt struct {

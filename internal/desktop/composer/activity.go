@@ -42,7 +42,6 @@ type Activity struct {
 // changed last.
 type Changes struct {
 	Added, Removed, Files int
-	Partial               bool          // the status was cut short
 	Recent                []ChangedFile // the files changed last, newest first, at most RecentChanges
 }
 

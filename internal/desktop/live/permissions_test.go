@@ -229,6 +229,38 @@ func TestPermissionsMapping(t *testing.T) {
 			t.Fatalf("unsupported check: toasts %v, status %s", toasts, r.permissions.cards[1].status)
 		}
 	})
+	t.Run("a failed settings open among several grants toasts", func(t *testing.T) {
+		r := &Runtime{ctx: t.Context()}
+		r.permissions.probe = permissionProbe{goos: "darwin", settings: func(permissionflow.Permission) error { return errors.New("no settings") }}
+		r.permissions.cards = []permissionCard{
+			{device: local, subject: permissionApp, kind: microphone, status: "permission_denied", settings: true},
+			{device: local, subject: "dev.sailry.computer", kind: microphone, status: "permission_denied", settings: true},
+		}
+		r.requestPermission(permissionKinds[microphone].key)
+		r.workers.Wait()
+		var toasts []string
+		tester := ui.NewTester(func(view *ui.Context) {
+			r.mu.Lock()
+			queue := r.queue
+			r.queue = nil
+			r.mu.Unlock()
+			for _, apply := range queue {
+				apply(view)
+			}
+			ui.ToastViewportBase(view, func(_ ui.Element, shown []ui.Toast) {
+				toasts = toasts[:0]
+				for _, toast := range shown {
+					toasts = append(toasts, toast.Title)
+				}
+			})
+		}, 320, 200)
+		tester.SetLocale("en")
+		tester.Frame()
+		tester.Frame()
+		if !reflect.DeepEqual(toasts, []string{i18n.In("en", "permission_failed")}) || r.permissions.pending {
+			t.Fatalf("failed settings open: toasts %v, pending %v", toasts, r.permissions.pending)
+		}
+	})
 	t.Run("bundle", func(t *testing.T) {
 		if bundle := permissionBundle("/Applications/Sailry.app/Contents/MacOS/sailry-desktop"); bundle != "/Applications/Sailry.app" {
 			t.Fatal(bundle)

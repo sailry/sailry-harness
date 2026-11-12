@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../runtime/session.dart' show AppSession, HostConnection;
+import '../../runtime/session.dart' show AppSession;
 export '../../runtime/json.dart' show object, objects, text, number, newId;
 import '../../ui/kit.dart';
 import '../../ui/connection_status.dart';
 
 int integer(Object? value) => value is num ? value.toInt() : 0;
-String string(Object? value) => value is String ? value : '';
 
 String failure(Object error, {bool saving = false, Translator translate = tr}) {
   final detail = error.toString();
@@ -66,7 +65,3 @@ Widget settingsError(String? error) => error == null
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Semantics(liveRegion: true, child: Text(error)),
       );
-
-/// A settings sheet captures its execution host; switching the shell's host never
-/// redirects an in-progress save to another Node.
-typedef SettingsHost = HostConnection;

@@ -140,6 +140,14 @@ func testNativeAssistantDraft(t *testing.T) {
 		runtime.App.Data.Find(mounted.view.ID) != nil {
 		t.Fatal("assistant did not retain an isolated ordinary draft")
 	}
+	// A view that ends before its draft became a session leaves no composer.
+	ended := &pluginNativeState{runtime: runtime, scope: scope, native: &native, conversations: map[string]*pluginNativeConversation{}}
+	endedView, endedComposer := ended.newAssistantDraft("ended", *mounted.draft)
+	ended.conversations["ended"] = &pluginNativeConversation{view: endedView, composer: endedComposer, draftID: endedView.ID, draft: mounted.draft}
+	ended.releaseConversations()
+	if _, based := runtime.composerBases[endedComposer]; based || runtime.composerInitialized[endedView.ID] || runtime.App.DropComposer(endedView.ID) != nil || len(ended.conversations) != 0 {
+		t.Fatal("an ended assistant view left its draft composer behind")
+	}
 	draftID := mounted.view.ID
 	if runtime.pluginComposerView(draftID) != mounted.view {
 		t.Fatal("assistant contributions did not retain their exact presentation owner")

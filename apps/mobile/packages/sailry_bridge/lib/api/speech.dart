@@ -3,12 +3,9 @@ import '../src/native.dart';
 class SpeechInput extends NativeHandle {
   SpeechInput.internal(super.bridge, super.handle);
 
-  static Future<SpeechInput> newInstance({required String directory}) async {
+  static Future<SpeechInput> newInstance() async {
     final bridge = nativeBridge;
-    final value = await bridge.invoke(0, 'new', {
-      'kind': 'speech_input',
-      'directory': directory,
-    });
+    final value = await bridge.invoke(0, 'new', {'kind': 'speech_input'});
     return SpeechInput.internal(bridge, nativeHandle(value, 'speech_input'));
   }
 

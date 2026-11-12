@@ -27,7 +27,7 @@ func (p *workspaceProject) pendingGitOperations() []panel.PendingOperation {
 	for _, key := range keys {
 		command, settled := p.uncertainOperations[key], p.uncertainCallbacks[key]
 		operations = append(operations, panel.PendingOperation{Label: "git_check_result", Run: func(c *ui.Context) {
-			p.mutate(command, settled)
+			p.mutateNamed(workspaceAction, command, settled)
 		}})
 	}
 	return operations

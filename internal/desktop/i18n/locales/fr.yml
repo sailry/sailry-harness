@@ -156,10 +156,6 @@ approval_reject: Refuser
 approval_allow_once: Autoriser
 approval_allow_session: Autoriser pour cette session
 approval_live_count: '%{count} en attente d &apos; homologation'
-file_changes_added: Ajouté
-file_changes_modified: Modifié
-file_changes_deleted: Supprimé
-file_changes_renamed: Renommé
 subagent_count: '%{completed}/%{total} sous-agents'
 chat_child: Sous-agent
 question_reply: En attente de réponse
@@ -190,7 +186,6 @@ tool_find_tools: Rechercher des outils
 tool_read_output: Lire la sortie de l’outil
 approval_allow_prefix: Autoriser le préfixe « %{prefix} »
 approval_preview_result: Aucun fichier, commande ou modèle n'a été utilisé.
-file_changes_shortened: Diff abrégé
 interaction_input: Entrez une réponse ou des détails
 approval_unrestricted: Accès complet au système de fichiers et au réseau
 close: Fermer
@@ -337,7 +332,6 @@ git_action_conflict: Git état modifié, actualiser
 git_action_failed: Git opération a échoué
 git_action_unknown: Git résultat non confirmé, actualiser avant de continuer
 git_auth_failed: Git authentification échouée
-cli_launch: Lancer la CLI IA
 workspace_memory_only: Aperçu des modifications uniquement
 workspace_confirm: Confirmer
 project_remove_named: Retirer le projet « %{name} » ? Ses terminaux seront fermés ; les fichiers et sessions seront conservés
@@ -651,7 +645,6 @@ composer_permission_ask_description: Demander avant d'éditer des fichiers ou d'
 composer_permission_project_description: Modifier les fichiers de projet automatiquement; demander avant d'exécuter des commandes
 composer_permission_full_description: Modifier des fichiers et exécuter des commandes automatiquement, y compris en dehors du projet
 composer_host_local: Dispositif local
-composer_host_remote: Distant
 composer_no_project: Chats
 composer_branch_none: Aucune succursale
 composer_settings: Paramètres de session
@@ -733,7 +726,6 @@ directory_documents: Documentation
 directory_downloads: Téléchargements
 directory_applications: Applications
 directory_locations: Emplacements
-directory_count_directories: '%{count} dossiers'
 directory_count_files: '%{count} fichiers'
 directory_name: Nom
 directory_size: Taille
@@ -1811,8 +1803,6 @@ files_wrap: Soft wrap
 location_copy_changes: Copier les modifications
 location_fork: Dupliquer l’arbre de travail
 refresh: Refresh
-artifact_next_page: Page suivante »
-artifact_previous_page: Page précédente
 git_commit_scope: Portée des engagements
 git_commit_tracked: Valider les fichiers suivis
 git_continue: Continuer
@@ -2153,9 +2143,6 @@ live_request_failed: Demande incomplète; vérifier la connexion et le répertoi
 plugins_loading: Chargement
 project_appearance: Apparence du projet
 project_clone_failed: Cloner incomplet; vérifier la destination
-project_grant: Faites confiance et continuez
-project_grant_description: Les instructions et outils de projet peuvent exécuter du code dans tous les arbres de travail
-project_grant_title: Faire confiance à ce projet
 project_outcome_unknown: Résultat non confirmé ; vérifiez la destination. Réessayer vérifie la requête originale.
 project_path_in_use: Ce chemin est utilisé par une session ou une arborescence
 project_remove_busy: Le projet est occupé ; réessayez
@@ -2167,9 +2154,6 @@ project_remove_tasks: Arrêtez les tâches actives avant de retirer le projet
 project_remove_tasks_partial: Projet conservé ; arrêtez les tâches avant de réessayer. Certains terminaux peuvent déjà être fermés
 project_remove_unknown: Retrait non confirmé ; vérifiez le projet et ses terminaux
 project_removed: Projet retiré
-project_revoke: Révoquer la confiance
-project_revoke_description: Arrêter les tâches de projet; conserver l'historique et les brouillons
-project_revoke_title: Révoquer l'approbation du projet
 task_completed: Achevée
 artifact_export_failed: Échec de l’export
 chat_compact_incomplete: Résumé incomplet
