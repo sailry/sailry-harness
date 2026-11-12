@@ -552,24 +552,36 @@ type SelectProps struct {
 // while open. A select with a popup of its own (a searchable one) uses it
 // for the same control.
 func SelectTrigger(c *ui.Context, b ui.Element, shown string, placeholder, open bool) ui.Element {
+	p := theme.Of(c)
+	return selectFrame(c, b).Children(func() {
+		value := ui.Text(c, shown).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		if placeholder {
+			value.TextColor(p.MutedForeground)
+		}
+		selectChevron(c, open)
+	})
+}
+
+// selectFrame is the frame the select triggers share (SelectTrigger,
+// ModelSelect): the input's border on the surface and its padding.
+func selectFrame(c *ui.Context, b ui.Element) ui.Element {
 	p, t := theme.Of(c), c.Theme()
 	b.Padding(t.Space(1.5), t.Space(2.5)).Gap(8).MinWidth(140).Radius(p.Radius).
 		Border(1, p.Input).Background(t.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
 	if b.IsDisabled() {
 		b.Opacity(0.5)
 	}
-	return b.Children(func() {
-		value := ui.Text(c, shown).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-		if placeholder {
-			value.TextColor(p.MutedForeground)
-		}
-		turn := float32(0)
-		if open {
-			turn = 180
-		}
-		arrow := ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
-		arrow.Rotate(arrow.AnimateTo("turn", turn, chevronTurn))
-	})
+	return b
+}
+
+// selectChevron is a select trigger's chevron, turned while open.
+func selectChevron(c *ui.Context, open bool) {
+	turn := float32(0)
+	if open {
+		turn = 180
+	}
+	arrow := ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(theme.Of(c).MutedForeground).Shrink(0)
+	arrow.Rotate(arrow.AnimateTo("turn", turn, chevronTurn))
 }
 
 // SelectField is Select over options with values, a placeholder and
