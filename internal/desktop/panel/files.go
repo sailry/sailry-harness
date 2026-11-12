@@ -217,14 +217,19 @@ func (pr *Project) fileMenu(c *ui.Context, m *ui.Menu, visible []string, path st
 			pr.fileAction(c, FileAction{Kind: key, Paths: paths, Directory: pr.directory(path)})
 		}
 	}
+	// The demo's files are on no disk: nothing opens, reveals or downloads
+	// them, and its conversation takes no file from here.
+	demo := pr.Actions == nil && kit.Demo(c)
 	if len(paths) > 0 {
-		item("files_open_system")
-		m.Separator()
+		if !demo {
+			item("files_open_system")
+			m.Separator()
+		}
 		item("files_copy")
 		item("files_cut")
 	}
 	// Nothing was copied in the preview, so nothing pastes.
-	paste := pr.Actions != nil && pr.Actions.PasteReady != nil && pr.Actions.PasteReady()
+	paste := pr.Actions != nil && pr.Actions.PasteReady != nil && pr.Actions.PasteReady() || demo && len(pr.Files.sampleClip) > 0
 	if m.Item(t("files_paste")).Disabled(!paste).Chosen() {
 		pr.fileAction(c, FileAction{Kind: "files_paste", Directory: pr.directory(path)})
 	}
@@ -232,7 +237,9 @@ func (pr *Project) fileMenu(c *ui.Context, m *ui.Menu, visible []string, path st
 		if m.Item(t("files_copy_path")).Chosen() {
 			c.WriteClipboard(strings.Join(paths, "\n"))
 		}
-		item("files_insert_conversation")
+		if !demo {
+			item("files_insert_conversation")
+		}
 		m.Separator()
 		if len(paths) == 1 {
 			reveal := "files_reveal_manager"
@@ -242,9 +249,11 @@ func (pr *Project) fileMenu(c *ui.Context, m *ui.Menu, visible []string, path st
 			case "windows":
 				reveal = "files_reveal_explorer"
 			}
-			item(reveal)
+			if !demo {
+				item(reveal)
+			}
 			item("files_rename")
-			if f := findFile(pr.Data.Files, paths[0]); f != nil && f.Children == nil {
+			if f := findFile(pr.Data.Files, paths[0]); !demo && f != nil && f.Children == nil {
 				item("files_download")
 			}
 		}

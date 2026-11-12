@@ -266,7 +266,6 @@ session_window_failed: Could not open window
 project_edit: Edit project
 project_remove: Remove project
 workspace_new_terminal: Create terminal
-workspace_records: Session records
 worktree_manage: Manage worktrees
 worktree_create: New worktree
 worktree_remove: Remove worktree

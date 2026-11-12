@@ -266,7 +266,6 @@ session_window_failed: ウィンドウを開けませんでした
 project_edit: プロジェクトを編集
 project_remove: プロジェクトを削除
 workspace_new_terminal: ターミナルを作成
-workspace_records: セッションレコード
 worktree_manage: ワークトリーの管理
 worktree_create: 新しいワークトリー
 worktree_remove: ワークトリーを削除

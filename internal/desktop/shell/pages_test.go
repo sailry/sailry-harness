@@ -158,11 +158,11 @@ func TestRailOpensPages(t *testing.T) {
 				t.Fatalf("More lacks %q: %q", i18n.In("en", key), tester.Texts())
 			}
 		}
-		// Launch AI CLI is not an item of the menu (docs/removed-ui.md); the
-		// page's own button of that name is a plain button.
+		// Launch AI CLI is neither an item of the menu nor a button of the
+		// page (docs/removed-ui.md).
 		for _, info := range tester.AccessAll() {
-			if info.Name == i18n.In("en", "cli_launch") && info.Role != ui.RoleButton {
-				t.Fatalf("More offers Launch AI CLI: %+v", info)
+			if info.Name == i18n.In("en", "cli_launch") {
+				t.Fatalf("the project page offers Launch AI CLI: %+v", info)
 			}
 		}
 		click(t, tester, i18n.In("en", "workspace_copy_path"))

@@ -83,9 +83,13 @@ func (v *Viewer[T]) chrome(c *ui.Context, act func(ImageAction)) {
 			btn("rotate", icons.RotateCw, "chat_image_rotate", false, v.Rotate)
 			btn("flip-h", icons.FlipHorizontal, "chat_image_flip_horizontal", false, func() { v.FlipH = !v.FlipH })
 			btn("flip-v", icons.FlipVertical, "chat_image_flip_vertical", false, func() { v.FlipV = !v.FlipV })
-			btn("copy", icons.Copy, "content_copy", false, func() { act(ImageCopy) })
-			btn("save", icons.Save, "files_download", false, func() { act(ImageSave) })
-			btn("open", icons.ExternalLink, "files_open_system", false, func() { act(ImageOpen) })
+			// The demo's pictures are in no file: nothing copies, saves or
+			// opens them.
+			if !Demo(c) {
+				btn("copy", icons.Copy, "content_copy", false, func() { act(ImageCopy) })
+				btn("save", icons.Save, "files_download", false, func() { act(ImageSave) })
+				btn("open", icons.ExternalLink, "files_open_system", false, func() { act(ImageOpen) })
+			}
 		})
 	})
 }

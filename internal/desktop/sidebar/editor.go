@@ -419,11 +419,9 @@ func (s *State) browse(c *ui.Context, register bool) {
 }
 
 // OpenFolder chooses a directory of host and opens it as a project: the one
-// already registered there, or a new one named after the directory.
+// already registered there, or a new one named after the directory. A sample
+// dataset, the demo's too, lists the sample catalog's directories.
 func (s *State) OpenFolder(c *ui.Context, host string) {
-	if kit.Demo(c) {
-		return // the demo has no host whose directories it could list
-	}
 	s.editorGeneration++
 	s.editor = Editor{Icon: "folder", Color: "none", host: host, folder: true}
 	if host == "" && len(s.Data.Hosts) > 0 {

@@ -266,8 +266,9 @@ terminal, subagent and file-preview tabs are single-pane.
   (`State.lists`). History and Documents are not entries: they keep their
   tab kinds and views and open where the reference reaches them, the turns'
   checkpoints from a turn's Undo (`live/workspace_activity.go`) and a
-  session's documents from their cards in the transcript. The preview and
-  Demo mode have no control that opens the History tab.
+  session's documents from their cards in the transcript. The preview has no
+  control that opens the History tab; in Demo mode a change card's Undo
+  opens it and asks there, as the live window's does.
 - Demo mode's Terminal tab shows the demo's screen
   (`viewmodel.Workspace.Screen`, drawn by `screen` in `tools.go`): prompts,
   commands and output in the monospace face and the theme's semantic
