@@ -279,15 +279,37 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 	case "VResizable":
 		result = ui.Column(context)
 	case "Button", "Link", "Tab", "AccordionTrigger":
+		if element.Module == "gpui-base" {
+			// The reference's Base controls have no look: the package's own
+			// styles are all they draw, selected or not. A Button and a Tab
+			// center their content on a line as high as its text; a Link
+			// and an AccordionTrigger are plain blocks.
+			result = ui.ButtonBase(context).Label(label).Shrink(1).DimDisabled(false)
+			if element.Export == "Button" || element.Export == "Tab" {
+				result.LineHeight(1)
+			} else {
+				result.Column().AlignItems(ui.Stretch).Justify(ui.Start)
+			}
+			if len(element.Children) == 0 && label != "" {
+				result.Children(func() { ui.Text(context, label) })
+			}
+			break
+		}
 		variant := runtimeString(properties["variant"])
 		// labeled is whether the Kit button built its own label.
 		labeled := true
+		// The Kit look's edges, which the package's own styles refine edge
+		// by edge as the reference refines its Button's.
+		palette := theme.Of(context)
+		look := &elementLook{padding: [4]float32{0, 12, 0, 12}, radius: [4]float32{palette.Radius, palette.Radius, palette.Radius, palette.Radius}}
+		element.look = look
 		switch {
 		case variant == "primary" || runtimeBool(properties["primary"]):
 			result = kit.Primary(context, label, runtimeBool(properties["disabled"]))
 			labeled = false
 		case variant == "outline" || runtimeBool(properties["outline"]) || runtimeBool(properties["secondary"]):
 			result = kit.Secondary(context, label)
+			look.border = [4]float32{1, 1, 1, 1}
 		case variant == "danger" || runtimeBool(properties["danger"]):
 			result = kit.Danger(context, label)
 		case runtimeBool(properties["success"]):
@@ -299,13 +321,16 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 		case runtimeBool(properties["link"]):
 			result = kit.Ghost(context, label, false).TextColor(theme.Of(context).Link)
 			labeled = false
+			look.padding = [4]float32{}
 		case element.Export != "Button" || runtimeBool(properties["ghost"]) || runtimeBool(properties["text"]) || variant == "ghost":
 			result = kit.Ghost(context, label, runtimeBool(properties["selected"])).Padding(6, 10)
 			labeled = false
+			look.padding = [4]float32{6, 10, 6, 10}
 		default:
 			// The reference's Button without a variant is Kit's default
 			// button, as the application's own secondary actions.
 			result = kit.Secondary(context, label)
+			look.border = [4]float32{1, 1, 1, 1}
 		}
 		if !labeled && len(element.Children) == 0 && label != "" {
 			result.Children(func() { ui.Text(context, label).FontSize(14).SingleLine() })

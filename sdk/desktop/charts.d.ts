@@ -1,3 +1,5 @@
+/** The theme's categorical chart colors: distinct hues, in the order amber, blue, emerald, violet, rose, cyan, pink, gray unless a theme sets its own. */
+export type ChartColor = 'chart_1'|'chart_2'|'chart_3'|'chart_4'|'chart_5'|'chart_6'|'chart_7'|'chart_8';
 export interface ChartRow { label:string; value:string }
 export interface HeatmapProps {
   rows:number;
@@ -8,7 +10,7 @@ export interface HeatmapProps {
 /** Cells scale with the available width (pitch at most 24px) so every column stays visible. */
 export const Heatmap:{new(id:string, props:HeatmapProps):import("gpui-kit").Element};
 export interface StackedChartProps {
-  series:Array<{id:string; color:'chart_1'|'chart_2'|'chart_3'|'chart_4'|'chart_5'}>;
+  series:Array<{id:string; color:ChartColor}>;
   /** Empty labels leave a bucket unlabeled; known all-zero buckets show a baseline mark. */
   buckets:Array<{label:string; values:number[]|null;
     tooltip:{heading:string; rows:ChartRow[]; footer:ChartRow}}>;
@@ -19,4 +21,4 @@ export interface StackedChartProps {
 }
 export const StackedChart:{new(id:string, props:StackedChartProps):import("gpui-kit").Element};
 /** Native Kit Progress with a semantic chart color. */
-export const ProgressBar:{new(id:string,props:{value:number;color?:'chart_1'|'chart_2'|'chart_3'|'chart_4'|'chart_5';label:string}):import('gpui-kit').Element};
+export const ProgressBar:{new(id:string,props:{value:number;color?:ChartColor;label:string}):import('gpui-kit').Element};

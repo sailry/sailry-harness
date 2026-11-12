@@ -210,7 +210,9 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	case "TextLine":
 		return binding.renderTextLine(view, props)
 	case "Tooltip":
-		result := ui.Column(view).Children(children)
+		// The reference's trigger is a block filling its parent, so what
+		// it holds is laid out as if the trigger were not there.
+		result := ui.Column(view).Fill().MinWidth(0).MinHeight(0).Children(children)
 		kit.Tooltip(view, result, nativeProp(props, "text", ""))
 		return result, nil
 	case "Modal":
