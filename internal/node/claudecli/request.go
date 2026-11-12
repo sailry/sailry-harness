@@ -49,22 +49,22 @@ func Arguments(settings Settings) []string {
 	return arguments
 }
 
-// Environment is what a child's environment adds and drops. Every entry is
-// one a user could set for a headless run; none claims another entrypoint.
-func Environment() (set map[string]string, unset []string) {
+// Environment is what the route adds to a child's environment. Every entry
+// is one a user could set for a headless run; none claims another
+// entrypoint. The process layer inherits only the search path, the account's
+// directories, locale and proxy settings, so a stray API key, endpoint,
+// entrypoint mark or OAuth token of the Node's own environment never reaches
+// the child and nothing has to be removed.
+func Environment() map[string]string {
 	return map[string]string{
-			"ENABLE_CLAUDEAI_MCP_SERVERS":          "0",
-			"DISABLE_AUTO_COMPACT":                 "1",
-			"CLAUDE_CODE_DISABLE_AUTO_MEMORY":      "1",
-			"CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1",
-			"CLAUDE_CODE_DISABLE_CLAUDE_MDS":       "1",
-			"DISABLE_AUTOUPDATER":                  "1",
-			"DISABLE_ERROR_REPORTING":              "1",
-		}, []string{
-			"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_BETAS",
-			"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT",
-			"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_EXTRA_BODY",
-		}
+		"ENABLE_CLAUDEAI_MCP_SERVERS":          "0",
+		"DISABLE_AUTO_COMPACT":                 "1",
+		"CLAUDE_CODE_DISABLE_AUTO_MEMORY":      "1",
+		"CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1",
+		"CLAUDE_CODE_DISABLE_CLAUDE_MDS":       "1",
+		"DISABLE_AUTOUPDATER":                  "1",
+		"DISABLE_ERROR_REPORTING":              "1",
+	}
 }
 
 // effortFlag maps the captured effort to a level Claude Code accepts.

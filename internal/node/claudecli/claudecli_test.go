@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -17,54 +19,93 @@ import (
 	"charm.land/fantasy"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/program"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 const testWait = 10 * time.Second
 
+// The test binary is its own Claude Code: started with CLAUDE_FIXTURE it
+// reports its start to the test's socket, then joins its standard streams to
+// it, so the script of each child runs inside the test.
+func TestMain(suite *testing.M) {
+	if socket, fixture := os.LookupEnv("CLAUDE_FIXTURE"); fixture {
+		fixtureChild(socket)
+		return
+	}
+	os.Exit(suite.Run())
+}
+
+// fixtureExit opens a line that ends the child with the rest as its error output.
+const fixtureExit = "\x00"
+
+func fixtureChild(socket string) {
+	connection, err := net.Dial("unix", socket)
+	if err != nil {
+		os.Exit(2)
+	}
+	directory, _ := os.Getwd()
+	hello, _ := json.Marshal(fakeLaunch{Arguments: os.Args[1:], Directory: directory, Environment: os.Environ()})
+	if _, err := connection.Write(append(hello, '\n')); err != nil {
+		os.Exit(2)
+	}
+	go func() {
+		_, _ = io.Copy(connection, os.Stdin)
+		os.Exit(0)
+	}()
+	reader := bufio.NewReaderSize(connection, 1<<20)
+	for {
+		line, err := reader.ReadString('\n')
+		if rest, exit := strings.CutPrefix(line, fixtureExit); exit {
+			fmt.Fprint(os.Stderr, rest)
+			os.Exit(1)
+		}
+		_, _ = io.WriteString(os.Stdout, line)
+		if err != nil {
+			os.Exit(0)
+		}
+	}
+}
+
+// fakeLaunch is how a child was started.
+type fakeLaunch struct {
+	Arguments   []string `json:"arguments"`
+	Directory   string   `json:"directory"`
+	Environment []string `json:"environment"`
+}
+
 // fakeClaude is a scripted Claude Code: it reads stdin user lines, writes
 // stream-json stdout lines and calls tools through the real relay and bridge.
 type fakeClaude struct {
-	t      *testing.T
-	launch Launch
-	input  *io.PipeReader
-	stdin  *io.PipeWriter
-	output *io.PipeWriter
-	stdout *io.PipeReader
-	lines  *bufio.Reader
-	ctx    context.Context
-	cancel context.CancelFunc
-	closed chan struct{}
-	once   sync.Once
-
-	mu          sync.Mutex
-	diagnostics string
-	session     *mcp.ClientSession
+	t          *testing.T
+	launch     fakeLaunch
+	connection net.Conn
+	inputs     chan []byte
+	ctx        context.Context
+	cancel     context.CancelFunc
+	// closed closes when the process is gone.
+	closed  chan struct{}
+	session *mcp.ClientSession
 }
 
-func (fake *fakeClaude) Write(data []byte) (int, error) { return fake.stdin.Write(data) }
-func (fake *fakeClaude) Read(data []byte) (int, error)  { return fake.stdout.Read(data) }
-func (fake *fakeClaude) Diagnostics() string {
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	return fake.diagnostics
-}
-func (fake *fakeClaude) Close() error {
-	fake.once.Do(func() {
-		fake.cancel()
-		_ = fake.stdin.Close()
-		_ = fake.input.Close()
-		_ = fake.output.Close()
-		_ = fake.stdout.Close()
-		close(fake.closed)
-	})
-	return nil
+// pump forwards the child's stdin lines until the process ends.
+func (fake *fakeClaude) pump(reader *bufio.Reader) {
+	defer close(fake.closed)
+	defer fake.cancel()
+	defer close(fake.inputs)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		fake.inputs <- line
+	}
 }
 
 // next returns the text of the next stdin user message, or false at its end.
 func (fake *fakeClaude) next() (string, bool) {
-	raw, err := fake.lines.ReadBytes('\n')
-	if err != nil {
+	raw, open := <-fake.inputs
+	if !open {
 		return "", false
 	}
 	var line struct {
@@ -89,16 +130,13 @@ func (fake *fakeClaude) next() (string, bool) {
 
 func (fake *fakeClaude) emit(lines ...string) {
 	for _, line := range lines {
-		_, _ = io.WriteString(fake.output, line+"\n")
+		_, _ = io.WriteString(fake.connection, line+"\n")
 	}
 }
 
 // exit ends the process with this error output.
 func (fake *fakeClaude) exit(diagnostics string) {
-	fake.mu.Lock()
-	fake.diagnostics = diagnostics
-	fake.mu.Unlock()
-	_ = fake.output.Close()
+	_, _ = io.WriteString(fake.connection, fixtureExit+diagnostics+"\n")
 }
 
 // directory is the bridge folder the --mcp-config argument names.
@@ -175,7 +213,7 @@ func connectClient(ctx context.Context, t *testing.T, directory string) (*mcp.Cl
 	return session, stop
 }
 
-// fakeLauncher starts one scripted child per launch, in order.
+// fakeLauncher gives each started child its script, in order.
 type fakeLauncher struct {
 	t        *testing.T
 	mu       sync.Mutex
@@ -183,30 +221,52 @@ type fakeLauncher struct {
 	children []*fakeClaude
 }
 
-func (launcher *fakeLauncher) launch(launch Launch) (Child, error) {
-	launcher.mu.Lock()
-	defer launcher.mu.Unlock()
-	if len(launcher.children) >= len(launcher.scripts) {
-		return nil, errors.New("unexpected launch")
+func (launcher *fakeLauncher) accept(listener net.Listener) {
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		reader := bufio.NewReaderSize(connection, 1<<20)
+		hello, err := reader.ReadBytes('\n')
+		ctx, cancel := context.WithCancel(context.Background())
+		fake := &fakeClaude{t: launcher.t, connection: connection, inputs: make(chan []byte, 16), ctx: ctx, cancel: cancel, closed: make(chan struct{})}
+		if err != nil || json.Unmarshal(hello, &fake.launch) != nil {
+			launcher.t.Errorf("child did not report its start: %v", err)
+			cancel()
+			_ = connection.Close()
+			continue
+		}
+		launcher.mu.Lock()
+		if len(launcher.children) >= len(launcher.scripts) {
+			launcher.mu.Unlock()
+			launcher.t.Errorf("unexpected launch: %q", fake.launch.Arguments)
+			cancel()
+			_ = connection.Close()
+			continue
+		}
+		script := launcher.scripts[len(launcher.children)]
+		launcher.children = append(launcher.children, fake)
+		launcher.mu.Unlock()
+		go fake.pump(reader)
+		go script(fake)
 	}
-	script := launcher.scripts[len(launcher.children)]
-	input, stdin := io.Pipe()
-	stdout, output := io.Pipe()
-	ctx, cancel := context.WithCancel(context.Background())
-	fake := &fakeClaude{t: launcher.t, launch: launch, input: input, stdin: stdin, output: output, stdout: stdout,
-		lines: bufio.NewReaderSize(input, 1<<20), ctx: ctx, cancel: cancel, closed: make(chan struct{})}
-	launcher.children = append(launcher.children, fake)
-	go script(fake)
-	return fake, nil
 }
 
+// child waits for the launch with this index.
 func (launcher *fakeLauncher) child(index int) *fakeClaude {
-	launcher.mu.Lock()
-	defer launcher.mu.Unlock()
-	if index >= len(launcher.children) {
-		launcher.t.Fatalf("child %d was not launched", index)
+	launcher.t.Helper()
+	for deadline := time.Now().Add(testWait); ; time.Sleep(5 * time.Millisecond) {
+		launcher.mu.Lock()
+		if index < len(launcher.children) {
+			defer launcher.mu.Unlock()
+			return launcher.children[index]
+		}
+		launcher.mu.Unlock()
+		if time.Now().After(deadline) {
+			launcher.t.Fatalf("child %d was not launched", index)
+		}
 	}
-	return launcher.children[index]
 }
 
 func (launcher *fakeLauncher) count() int {
@@ -215,16 +275,74 @@ func (launcher *fakeLauncher) count() int {
 	return len(launcher.children)
 }
 
-func newTestRoute(t *testing.T, scripts ...func(*fakeClaude)) (*Route, *fakeLauncher) {
+// testRoute is the capture every model of one test shares.
+type testRoute struct{ capture Capture }
+
+func (route *testRoute) Model(binding model.Binding) fantasy.LanguageModel {
+	language, err := New(binding, route.capture)
+	if err != nil {
+		panic(err)
+	}
+	return language
+}
+
+// testCapture declares the fixture as the program `claude` of a package.
+func testCapture(t *testing.T, host ...string) Capture {
 	t.Helper()
+	declaration := protocol.DefaultPluginModelAdapterDeclaration()
+	declaration.ID, declaration.Framing = "claude", protocol.PluginModelAdapterFramingNdjson
+	declaration.Capabilities = protocol.PluginModelAdapterCapabilities{Vision: true, Tools: true, Reasoning: true}
+	context := uint32(200000)
+	declaration.ClaudeCode = &protocol.PluginModelAdapterClaudeCode{Program: "claude", SignIn: "Run claude in a terminal and sign in, then try again",
+		Models: []protocol.PluginModelAdapterClaudeCodeModel{{ID: "claude-test", Context: &context, Efforts: []string{"low", "medium", "high"}}, {ID: "claude-other"}}}
+	pool := program.NewPool(4, time.Minute)
+	t.Cleanup(pool.Close)
+	return Capture{Adapter: declaration, Program: protocol.PluginProgramDeclaration{ID: "claude", Command: "claude"},
+		Owner: "claude", Dir: filepath.Join(t.TempDir(), "programs", "claude"), Scratch: filepath.Join(t.TempDir(), "claude-cli"),
+		Host: host, Pool: pool, Executable: "sailry-test"}
+}
+
+func newTestRoute(t *testing.T, scripts ...func(*fakeClaude)) (*testRoute, *fakeLauncher) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture child is linked by a symbolic link")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(self, filepath.Join(bin, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	// A Unix socket path is short; the test's own folder may be too deep.
+	sockets, err := os.MkdirTemp("", "cc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockets) })
+	listener, err := net.Listen("unix", filepath.Join(sockets, "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
 	launcher := &fakeLauncher{t: t, scripts: scripts}
-	route := NewRoute(Options{Launcher: launcher.launch, Executable: "sailry-test", Directory: t.TempDir()})
-	t.Cleanup(route.Close)
-	return route, launcher
+	go launcher.accept(listener)
+	// The host has what a Node started from a Claude Code session or beside
+	// an API key would have; none of it may reach the child.
+	capture := testCapture(t, "PATH="+bin, "HOME="+t.TempDir(), "ANTHROPIC_API_KEY=stray", "ANTHROPIC_BASE_URL=https://stray.test",
+		"CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDECODE=1", "CLAUDE_CODE_OAUTH_TOKEN=stray", "SSH_CONNECTION=stray", "DISABLE_TELEMETRY=1")
+	capture.Program.Env = map[string]string{"CLAUDE_FIXTURE": filepath.Join(sockets, "s")}
+	return &testRoute{capture: capture}, launcher
 }
 
 func testBinding() model.Binding {
-	return model.Binding{Config: protocol.SessionConfig{Model: "claude-test", Effort: protocol.Effort{Kind: "high"}}, Session: protocol.NewSessionID()}
+	selection := protocol.DefaultConversationPresetsBinding()
+	selection.Adapter = &protocol.PluginModelAdapterBinding{Adapter: "claude", Capabilities: protocol.PluginModelAdapterCapabilities{Vision: true, Tools: true, Reasoning: true}}
+	captured := &selection
+	provider := protocol.DefaultConversationProvider()
+	provider.Binding = &captured
+	return model.Binding{Provider: provider, Config: protocol.SessionConfig{Model: "claude-test", Effort: protocol.Effort{Kind: "high"}}, Session: protocol.NewSessionID()}
 }
 
 var readTool = fantasy.FunctionTool{Name: "read", Description: "Read a file", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}
@@ -253,7 +371,7 @@ type stepOutput struct {
 	failure   *model.Failure
 }
 
-func runStep(t *testing.T, ctx context.Context, route *Route, binding model.Binding, call fantasy.Call) stepOutput {
+func runStep(t *testing.T, ctx context.Context, route *testRoute, binding model.Binding, call fantasy.Call) stepOutput {
 	t.Helper()
 	stream, err := route.Model(binding).Stream(ctx, call)
 	if err != nil {
@@ -405,14 +523,10 @@ func TestArguments(t *testing.T) {
 			t.Errorf("empty settings still pass %s", argument)
 		}
 	}
-	set, unset := Environment()
-	for name := range set {
-		if strings.Contains(name, "ENTRYPOINT") || name == "BUN_OPTIONS" || name == "IS_SANDBOX" || name == "CLAUDE_CONFIG_DIR" {
+	for name := range Environment() {
+		if strings.Contains(name, "ENTRYPOINT") || name == "BUN_OPTIONS" || name == "IS_SANDBOX" || name == "CLAUDE_CONFIG_DIR" || name == "SSH_CONNECTION" {
 			t.Errorf("environment sets %s", name)
 		}
-	}
-	if !strings.Contains(strings.Join(unset, ","), "ANTHROPIC_API_KEY") || !strings.Contains(strings.Join(unset, ","), "CLAUDE_CODE_ENTRYPOINT") {
-		t.Errorf("environment keeps a stray key or entrypoint: %v", unset)
 	}
 }
 
@@ -616,8 +730,22 @@ func TestRoute(t *testing.T) {
 		if strings.Contains(arguments, "--mcp-config") || !strings.Contains(arguments, "--effort\x00high") || !strings.Contains(arguments, "--append-system-prompt-file") {
 			t.Fatalf("arguments = %q", child.launch.Arguments)
 		}
-		if filepath.Base(child.launch.Directory) != "work" {
-			t.Fatalf("working folder = %q", child.launch.Directory)
+		// The child works in the package's program folder, never a project.
+		if resolved, _ := filepath.EvalSymlinks(route.capture.Dir); child.launch.Directory != resolved {
+			t.Fatalf("working folder = %q, want %q", child.launch.Directory, resolved)
+		}
+		environment := map[string]string{}
+		for _, entry := range child.launch.Environment {
+			name, value, _ := strings.Cut(entry, "=")
+			environment[name] = value
+		}
+		for _, name := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_ENTRYPOINT", "CLAUDECODE", "CLAUDE_CODE_OAUTH_TOKEN", "SSH_CONNECTION", "BUN_OPTIONS", "IS_SANDBOX"} {
+			if value, set := environment[name]; set {
+				t.Errorf("the child received %s=%s", name, value)
+			}
+		}
+		if environment["DISABLE_AUTO_COMPACT"] != "1" || environment["ENABLE_CLAUDEAI_MCP_SERVERS"] != "0" || environment["DISABLE_TELEMETRY"] != "1" {
+			t.Errorf("environment = %v", child.launch.Environment)
 		}
 	})
 
@@ -849,7 +977,7 @@ func TestRoute(t *testing.T) {
 			fake.next()
 		})
 		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}})
-		requireFailure(t, output, model.Authentication, "not signed in")
+		requireFailure(t, output, model.Authentication, "not signed in: Run claude in a terminal and sign in")
 		if output.text != "" {
 			t.Fatalf("the refusal was shown as a reply: %q", output.text)
 		}
@@ -885,10 +1013,12 @@ func TestRoute(t *testing.T) {
 	})
 
 	t.Run("not installed", func(t *testing.T) {
-		route := NewRoute(Options{Launcher: func(Launch) (Child, error) { return nil, ErrNotInstalled }, Executable: "sailry-test", Directory: t.TempDir()})
-		t.Cleanup(route.Close)
+		route := &testRoute{capture: testCapture(t, "PATH="+t.TempDir())}
 		output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("hi")}})
-		requireFailure(t, output, model.NotConfigured, "not installed")
+		requireFailure(t, output, model.NotConfigured, "claude is not installed")
+		if output.failure.Retryable() {
+			t.Fatal("a missing executable must not be retried")
+		}
 	})
 
 	t.Run("a reply cut at the output limit is an answer", func(t *testing.T) {
@@ -905,4 +1035,99 @@ func TestRoute(t *testing.T) {
 			t.Fatalf("output = %+v", output)
 		}
 	})
+}
+
+func TestRouteLimits(t *testing.T) {
+	t.Run("a conversation's child is ended when its package is invalidated", func(t *testing.T) {
+		script := func(fake *fakeClaude) {
+			fake.next()
+			fake.emit(messageStart("m1", 5, 0))
+			fake.emit(textBlock(0, "ok")...)
+			fake.emit(messageEnd("end_turn", 2)...)
+			fake.emit(turnSucceeded)
+			fake.next()
+		}
+		route, launcher := newTestRoute(t, script)
+		if output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("one")}, Tools: []fantasy.Tool{readTool}}); output.failure != nil {
+			t.Fatalf("failure: %v", output.failure)
+		}
+		child := launcher.child(0)
+		select {
+		case <-child.closed:
+			t.Fatal("a conversation's child was not kept")
+		case <-time.After(50 * time.Millisecond):
+		}
+		route.capture.Pool.Invalidate(route.capture.Owner)
+		waitClosed(t, child)
+		// What the run kept beside its process is gone with it.
+		for deadline := time.Now().Add(testWait); ; time.Sleep(5 * time.Millisecond) {
+			entries, err := os.ReadDir(route.capture.Scratch)
+			if err == nil && len(entries) == 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("run files remain: %v, %v", entries, err)
+			}
+		}
+	})
+
+	t.Run("every process busy is a failure, not a queue", func(t *testing.T) {
+		hold := func(fake *fakeClaude) {
+			fake.next()
+			fake.emit(messageStart("m1", 5, 0))
+			fake.emit(textBlock(0, "busy")...)
+			fake.next()
+		}
+		route, _ := newTestRoute(t, hold)
+		pool := program.NewPool(1, time.Minute)
+		t.Cleanup(pool.Close)
+		route.capture.Pool = pool
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stream, err := route.Model(testBinding()).Stream(ctx, fantasy.Call{Prompt: fantasy.Prompt{userMessage("first")}, Tools: []fantasy.Tool{readTool}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for part := range stream {
+			if part.Type != fantasy.StreamPartTypeTextDelta {
+				continue
+			}
+			// The first step holds the only process while the second asks.
+			output := runStep(t, context.Background(), route, testBinding(), fantasy.Call{Prompt: fantasy.Prompt{userMessage("second")}})
+			requireFailure(t, output, model.Unavailable, "every claude process is busy")
+			cancel()
+		}
+	})
+}
+
+func TestDiscover(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture child is linked by a symbolic link")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 9\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Discover("https://claude.ai", testCapture(t, "PATH="+bin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Endpoint != "https://claude.ai" || len(catalog.Models) != 2 {
+		t.Fatalf("catalog = %+v", catalog)
+	}
+	first, second := catalog.Models[0], catalog.Models[1]
+	if first.ID != "claude-test" || first.Context == nil || *first.Context != 200000 || first.Output != nil ||
+		!*first.Capabilities.Tools || !*first.Capabilities.Vision || !*first.Capabilities.Reasoning ||
+		len(*first.Capabilities.Efforts) != 3 || first.Capabilities.DefaultEffort.Kind != "medium" {
+		t.Fatalf("first model = %+v %+v", first, first.Capabilities)
+	}
+	// A model without declared levels offers none, and no limit is invented.
+	if second.ID != "claude-other" || second.Context != nil || *second.Capabilities.Reasoning || second.Capabilities.Efforts != nil {
+		t.Fatalf("second model = %+v %+v", second, second.Capabilities)
+	}
+	_, err = Discover("https://claude.ai", testCapture(t, "PATH="+t.TempDir()))
+	var failure *model.Failure
+	if !errors.As(err, &failure) || failure.Kind != model.NotConfigured || !strings.Contains(failure.Message, "claude is not installed") {
+		t.Fatalf("discovery without the executable: %v", err)
+	}
 }

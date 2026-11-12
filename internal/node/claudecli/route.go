@@ -5,108 +5,70 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/program"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Child is a started Claude Code: its standard input and output as byte
-// streams. It is the seam to the Node's process-owning layer, which owns the
-// executable, consent, the process group and the scrubbed environment.
-type Child interface {
-	io.Writer
-	io.Reader
-	// Diagnostics returns the end of the child's error output.
-	Diagnostics() string
-	// Close ends the process and its descendants; a blocked Read returns.
-	Close() error
-}
-
-// Launch is what the route asks the process layer to start.
-type Launch struct {
-	Arguments []string
-	Set       map[string]string
-	Unset     []string
-	Directory string
+// Capture is what the Node captured for one request to Claude Code.
+type Capture struct {
+	Adapter protocol.PluginModelAdapterDeclaration
+	Program protocol.PluginProgramDeclaration
+	// Owner is the package; Dir is the program's directory in its data and
+	// the child's working folder. It is never a project.
+	Owner, Dir string
+	// Scratch is a private folder of the Node for run files; the Node empties
+	// it when it starts.
+	Scratch string
+	// Host is the Node's environment as NAME=value entries.
+	Host []string
+	Pool *program.Pool
+	// Executable is the Sailry binary Claude Code starts as the tool relay.
+	Executable string
 }
 
 // errAbandoned ends a step whose consumer stopped reading.
 var errAbandoned = errors.New("model stream was abandoned")
 
-// ErrNotInstalled is the launcher's answer when the user has no Claude Code.
-var ErrNotInstalled = errors.New("Claude Code is not installed")
+// listWait is how long changed tools wait to be listed before results go on.
+const listWait = 5 * time.Second
 
-// Launcher starts the user's own claude with these arguments.
-type Launcher func(Launch) (Child, error)
+// passed are variables of the user's own environment that configure their
+// Claude Code and that the process layer does not inherit by itself.
+var passed = []string{"CLAUDE_CONFIG_DIR", "DISABLE_TELEMETRY", "DO_NOT_TRACK", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"}
 
-const (
-	defaultIdle  = 10 * time.Minute
-	defaultLimit = 4
-	// listWait is how long changed tools wait to be listed before results go on.
-	listWait = 5 * time.Second
-)
-
-type Options struct {
-	Launcher Launcher
-	// Executable is the Sailry binary Claude Code starts as the tool relay.
-	Executable string
-	// Directory is a private folder of the Node for run files.
-	Directory string
-	// Idle is how long an unused child is kept; Limit is how many are kept.
-	Idle  time.Duration
-	Limit int
-}
-
-// Route owns the children that serve conversations.
-type Route struct {
-	options Options
-	mu      sync.Mutex
-	runs    map[string]*run
-	closed  bool
-}
-
-func NewRoute(options Options) *Route {
-	if options.Idle <= 0 {
-		options.Idle = defaultIdle
-	}
-	if options.Limit <= 0 {
-		options.Limit = defaultLimit
-	}
-	return &Route{options: options, runs: make(map[string]*run)}
-}
-
-// run is one child and what it has taken of its conversation.
+// run is one child and what it has taken of its conversation. A step owns
+// it while it holds the pool's lease.
 type run struct {
-	child     Child
+	process   *program.Process
 	bridge    *Bridge
 	directory string
 	events    chan []event
 	done      chan struct{}
 	once      sync.Once
 
-	// The fields below are guarded by the Route's mutex.
-	busy     bool
+	key      string
 	settings string
 	taken    int
 	prefix   string
 	pending  []string
-	used     time.Time
-	timer    *time.Timer
 }
 
+// close removes what the run keeps beside its process.
 func (run *run) close() {
 	run.once.Do(func() {
 		close(run.done)
 		if run.bridge != nil {
 			run.bridge.Close()
 		}
-		_ = run.child.Close()
 		_ = os.RemoveAll(run.directory)
 	})
 }
@@ -114,7 +76,7 @@ func (run *run) close() {
 func (run *run) read() {
 	defer close(run.events)
 	decoder := newDecoder()
-	reader := bufio.NewReaderSize(run.child, 64<<10)
+	reader := bufio.NewReaderSize(run.process.Stdout, 64<<10)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if events := decoder.line(line); len(events) > 0 {
@@ -130,29 +92,27 @@ func (run *run) read() {
 	}
 }
 
-// Close ends every child.
-func (route *Route) Close() {
-	route.mu.Lock()
-	route.closed = true
-	runs := route.runs
-	route.runs = make(map[string]*run)
-	route.mu.Unlock()
-	for _, run := range runs {
-		run.close()
-	}
+// follows reports whether the request goes on in this run.
+func (run *run) follows(request stepRequest) bool {
+	return request.key != "" && run.key == request.key && run.settings == request.settings &&
+		continues(run.taken, run.prefix, run.pending, request.messages)
 }
 
-// Model returns the per-step model of one captured binding.
-func (route *Route) Model(binding model.Binding) fantasy.LanguageModel {
-	return &routeModel{route: route, binding: binding}
+// New returns the per-step model of one captured binding.
+func New(binding model.Binding, capture Capture) (fantasy.LanguageModel, error) {
+	if !model.PluginBound(binding.Provider) || capture.Adapter.ClaudeCode == nil || capture.Pool == nil ||
+		(**binding.Provider.Binding).Adapter.Adapter != capture.Adapter.ID || capture.Adapter.ClaudeCode.Program != capture.Program.ID {
+		return nil, &model.Failure{Kind: model.NotConfigured, Message: "captured model adapter is unavailable"}
+	}
+	return &routeModel{binding: binding, capture: capture}, nil
 }
 
 type routeModel struct {
-	route   *Route
 	binding model.Binding
+	capture Capture
 }
 
-func (*routeModel) Provider() string    { return "claude-code" }
+func (*routeModel) Provider() string    { return "sailry-plugin" }
 func (value *routeModel) Model() string { return value.binding.Config.Model }
 
 func (value *routeModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
@@ -162,12 +122,11 @@ func (value *routeModel) Stream(ctx context.Context, call fantasy.Call) (fantasy
 	}
 	return func(yield func(fantasy.StreamPart) bool) {
 		// A consumer that stopped reading is never called again.
-		if err := value.route.step(ctx, request, yield); err != nil && !errors.Is(err, errAbandoned) {
+		if err := value.step(ctx, request, yield); err != nil && !errors.Is(err, errAbandoned) {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: model.Classify(err)})
 		}
 	}, nil
 }
-
 func (value *routeModel) Generate(ctx context.Context, call fantasy.Call) (*fantasy.Response, error) {
 	stream, err := value.Stream(ctx, call)
 	if err != nil {
@@ -214,56 +173,65 @@ func (*routeModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.Ob
 	return nil, &model.Failure{Kind: model.Unsupported, Message: "structured generation is not configured"}
 }
 
-// claim returns the conversation's child when the request extends what it
-// has taken. A child the request diverged from is ended.
-func (route *Route) claim(request stepRequest) (*run, error) {
-	route.mu.Lock()
-	defer route.mu.Unlock()
-	if route.closed {
-		return nil, &model.Failure{Kind: model.Unavailable, Message: "Claude Code route is closed"}
+// lease takes the conversation's child when the request extends what it has
+// taken, else a new one told the whole conversation. A child the request
+// diverged from is ended.
+func (value *routeModel) lease(request stepRequest) (*program.Entry, *run, bool, error) {
+	command := value.capture.Program.Command
+	for {
+		fresh := false
+		entry, err := value.capture.Pool.Lease(value.capture.Owner, func(entry *program.Entry) int {
+			current, ok := entry.Value.(*run)
+			switch {
+			case !ok || request.key == "" || current.key != request.key:
+				return 0
+			case current.follows(request):
+				return 2
+			}
+			return 1
+		}, func() (*program.Process, any, error) {
+			fresh = true
+			process, started, err := value.start(request)
+			return process, started, err
+		})
+		if errors.Is(err, program.ErrBusy) {
+			return nil, nil, false, &model.Failure{Kind: model.Unavailable, Message: fmt.Sprintf("every %s process is busy", command)}
+		}
+		if err != nil {
+			return nil, nil, false, err
+		}
+		current := entry.Value.(*run)
+		if fresh || current.follows(request) {
+			return entry, current, fresh, nil
+		}
+		value.capture.Pool.Release(entry, false)
 	}
-	current := route.runs[request.key]
-	if request.key == "" || current == nil || current.busy {
-		return nil, nil
-	}
-	current.timer.Stop()
-	if current.settings == request.settings && continues(current.taken, current.prefix, current.pending, request.messages) {
-		current.busy = true
-		return current, nil
-	}
-	delete(route.runs, request.key)
-	go current.close()
-	return nil, nil
 }
 
 // start launches a child for the request and tells it the whole conversation.
-func (route *Route) start(request stepRequest) (*run, error) {
-	directory, err := os.MkdirTemp(route.options.Directory, "run")
-	if err != nil {
-		return nil, err
+func (value *routeModel) start(request stepRequest) (*program.Process, *run, error) {
+	declared := value.capture.Program
+	if err := os.MkdirAll(value.capture.Scratch, 0o700); err != nil {
+		return nil, nil, err
 	}
-	work := filepath.Join(route.options.Directory, "work")
-	if err := os.MkdirAll(work, 0o700); err != nil {
-		_ = os.RemoveAll(directory)
-		return nil, err
+	directory, err := os.MkdirTemp(value.capture.Scratch, "run")
+	if err != nil {
+		return nil, nil, err
 	}
 	settings := Settings{Model: request.model, Effort: request.effort}
-	started := &run{directory: directory, events: make(chan []event, 64), done: make(chan struct{}), settings: request.settings, busy: true}
-	fail := func(err error) (*run, error) {
-		if started.bridge != nil {
-			started.bridge.Close()
-		}
-		_ = os.RemoveAll(directory)
-		return nil, err
+	started := &run{directory: directory, events: make(chan []event, 64), done: make(chan struct{}), key: request.key, settings: request.settings}
+	fail := func(err error) (*program.Process, *run, error) {
+		started.close()
+		return nil, nil, err
 	}
 	if len(request.tools) > 0 {
-		if started.bridge, err = NewBridge(route.options.Directory); err != nil {
+		if started.bridge, err = NewBridge(value.capture.Scratch); err != nil {
 			return fail(err)
 		}
 		if _, err := started.bridge.SetTools(request.tools); err != nil {
 			return fail(&model.Failure{Kind: model.InvalidRequest, Message: err.Error()})
 		}
-		settings.Config = started.bridge.Config(route.options.Executable)
+		settings.Config = started.bridge.Config(value.capture.Executable)
 	}
 	if request.system != "" {
 		settings.System = filepath.Join(directory, "system.md")
@@ -271,29 +239,49 @@ func (route *Route) start(request stepRequest) (*run, error) {
 			return fail(err)
 		}
 	}
-	set, unset := Environment()
-	started.child, err = route.options.Launcher(Launch{Arguments: Arguments(settings), Set: set, Unset: unset, Directory: work})
-	if errors.Is(err, ErrNotInstalled) {
-		return fail(&model.Failure{Kind: model.NotConfigured, Message: ErrNotInstalled.Error()})
+	spec := program.Spec{Command: declared.Command, Args: Arguments(settings), Dir: value.capture.Dir, Host: value.capture.Host,
+		Env: map[string]string{}, Log: value.capture.Owner + "/" + declared.ID}
+	for _, entry := range value.capture.Host {
+		if name, text, ok := strings.Cut(entry, "="); ok && slices.Contains(passed, name) {
+			spec.Env[name] = text
+		}
+	}
+	for name, text := range declared.Env {
+		// This route holds no key, so a variable that asks for one is not set.
+		if !strings.Contains(text, "{key}") {
+			spec.Env[name] = strings.ReplaceAll(text, "{dir}", value.capture.Dir)
+		}
+	}
+	for name, text := range Environment() {
+		spec.Env[name] = text
+	}
+	process, err := program.Start(spec)
+	if errors.Is(err, program.ErrNotInstalled) {
+		return fail(&model.Failure{Kind: model.NotConfigured, Message: fmt.Sprintf("%s is not installed or not on the search path", declared.Command)})
 	}
 	if err != nil {
-		return fail(&model.Failure{Kind: model.Unavailable, Message: "Claude Code could not be started: " + err.Error()})
+		return fail(&model.Failure{Kind: model.Unavailable, Message: fmt.Sprintf("%s could not be started", declared.Command)})
 	}
+	started.process = process
+	// The pool ends the process; what the run keeps beside it goes then.
+	go func() {
+		<-process.Done()
+		started.close()
+	}()
 	go started.read()
 	line, err := userLine(replay(request.messages))
 	if err == nil {
-		_, err = started.child.Write(line)
+		_, err = process.Stdin.Write(line)
 	}
 	if err != nil {
-		started.close()
-		return nil, route.ended(started)
+		return process, nil, value.ended(started)
 	}
-	return started, nil
+	return process, started, nil
 }
 
 // resume hands a living child the results and messages it has not seen.
-func (route *Route) resume(ctx context.Context, current *run, request stepRequest, taken int, pending []string) error {
-	rest := request.messages[taken+1:]
+func (value *routeModel) resume(ctx context.Context, current *run, request stepRequest) error {
+	rest := request.messages[current.taken+1:]
 	results := map[string]Result{}
 	users := []turnMessage{}
 	for _, message := range rest {
@@ -315,19 +303,19 @@ func (route *Route) resume(ctx context.Context, current *run, request stepReques
 			current.bridge.Listed(ctx, listWait)
 		}
 	}
-	if len(pending) == 0 {
+	if len(current.pending) == 0 {
 		line, err := userLine(following(users))
 		if err == nil {
-			_, err = current.child.Write(line)
+			_, err = current.process.Stdin.Write(line)
 		}
 		if err != nil {
-			return route.ended(current)
+			return value.ended(current)
 		}
 		return nil
 	}
-	for index, identity := range pending {
+	for index, identity := range current.pending {
 		result := results[identity]
-		if index == len(pending)-1 {
+		if index == len(current.pending)-1 {
 			result = guidance(result, users)
 		}
 		current.bridge.Resolve(identity, result)
@@ -335,10 +323,12 @@ func (route *Route) resume(ctx context.Context, current *run, request stepReques
 	return nil
 }
 
-// ended is the failure of a child that stopped before its reply was complete.
-func (route *Route) ended(current *run) error {
-	text := strings.TrimSpace(current.child.Diagnostics())
-	classified := failure(text, 0)
+// ended is the failure of a child that stopped before its reply was
+// complete. The child is ended first, so its error output is whole.
+func (value *routeModel) ended(current *run) error {
+	current.process.Kill()
+	text := strings.TrimSpace(current.process.Diagnostic())
+	classified := value.failure(text, 0)
 	if classified.Kind != model.Other {
 		return classified
 	}
@@ -349,87 +339,43 @@ func (route *Route) ended(current *run) error {
 	return &model.Failure{Kind: model.Unavailable, Message: message}
 }
 
-// release keeps a conversation's child for its next step or ends it.
-func (route *Route) release(current *run, request stepRequest, keep bool, pending []string) {
-	route.mu.Lock()
-	keep = keep && request.key != "" && !route.closed
-	if keep {
-		if previous := route.runs[request.key]; previous != nil && previous != current {
-			// Another step of this conversation owns the slot; this child was a one-off.
-			keep = false
-		}
+// failure classifies Claude Code's own failure text; a signed-out child is
+// reported with the package's sign-in instruction.
+func (value *routeModel) failure(text string, status int) *model.Failure {
+	classified := failure(text, status)
+	if classified.Kind == model.Authentication {
+		classified.Message = "Claude Code is not signed in: " + value.capture.Adapter.ClaudeCode.SignIn
 	}
-	if !keep {
-		if route.runs[request.key] == current {
-			delete(route.runs, request.key)
-		}
-		route.mu.Unlock()
-		current.close()
-		return
-	}
-	current.busy, current.taken, current.prefix, current.pending, current.used = false, len(request.messages), chain(request.messages), pending, time.Now()
-	route.runs[request.key] = current
-	current.timer = time.AfterFunc(route.options.Idle, func() { route.expire(current) })
-	var evicted *run
-	if len(route.runs) > route.options.Limit {
-		for _, candidate := range route.runs {
-			if candidate != current && !candidate.busy && (evicted == nil || candidate.used.Before(evicted.used)) {
-				evicted = candidate
-			}
-		}
-		if evicted != nil {
-			for key, candidate := range route.runs {
-				if candidate == evicted {
-					delete(route.runs, key)
-				}
-			}
-			evicted.timer.Stop()
-		}
-	}
-	route.mu.Unlock()
-	if evicted != nil {
-		evicted.close()
-	}
-}
-
-func (route *Route) expire(current *run) {
-	route.mu.Lock()
-	if current.busy {
-		route.mu.Unlock()
-		return
-	}
-	for key, candidate := range route.runs {
-		if candidate == current {
-			delete(route.runs, key)
-		}
-	}
-	route.mu.Unlock()
-	current.close()
+	return classified
 }
 
 // step runs one inference step: until Claude calls a Sailry tool or its turn ends.
-func (route *Route) step(ctx context.Context, request stepRequest, yield func(fantasy.StreamPart) bool) error {
-	current, err := route.claim(request)
+func (value *routeModel) step(ctx context.Context, request stepRequest, yield func(fantasy.StreamPart) bool) error {
+	entry, current, fresh, err := value.lease(request)
 	if err != nil {
 		return err
 	}
-	if current != nil {
-		// taken and pending are stable while the run is busy.
-		if err := route.resume(ctx, current, request, current.taken, current.pending); err != nil {
-			route.release(current, request, false, nil)
+	keep := false
+	// A child that is not kept is ended: a stopped or failed step, and a
+	// request without tools.
+	defer func() { value.capture.Pool.Release(entry, keep) }()
+	if !fresh {
+		if err := value.resume(ctx, current, request); err != nil {
 			return err
 		}
-	} else if current, err = route.start(request); err != nil {
+	}
+	pending, err := value.receive(ctx, current, request, yield)
+	if err != nil {
 		return err
 	}
-	pending, err := route.receive(ctx, current, request, yield)
-	route.release(current, request, err == nil, pending)
-	return err
+	current.taken, current.prefix, current.pending = len(request.messages), chain(request.messages), pending
+	keep = request.key != ""
+	return nil
 }
 
 // receive forwards the child's events until the step ends. It returns the
 // identities of the calls the step ended on.
-func (route *Route) receive(ctx context.Context, current *run, request stepRequest, yield func(fantasy.StreamPart) bool) ([]string, error) {
+func (value *routeModel) receive(ctx context.Context, current *run, request stepRequest, yield func(fantasy.StreamPart) bool) ([]string, error) {
 	var (
 		counts   usage
 		stop     string
@@ -480,7 +426,7 @@ func (route *Route) receive(ctx context.Context, current *run, request stepReque
 			if ctx.Err() != nil {
 				return nil, stopped
 			}
-			return nil, route.ended(current)
+			return nil, value.ended(current)
 		}
 		for _, received := range batch {
 			switch received.kind {
@@ -537,7 +483,7 @@ func (route *Route) receive(ctx context.Context, current *run, request stepReque
 				}
 			case eventResult:
 				if received.failed || (!said && marked(received.text)) {
-					classified := failure(received.text, received.status)
+					classified := value.failure(received.text, received.status)
 					if rejected && (classified.Kind == model.Other || classified.Kind == model.RateLimited) {
 						classified.Kind = model.RateLimited
 						if wait := time.Until(resets); !resets.IsZero() && wait > 0 {
