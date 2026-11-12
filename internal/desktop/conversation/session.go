@@ -217,7 +217,8 @@ const selectionGap = 8
 // nearest box's edge. A selection made with the keyboard takes the boxes
 // themselves.
 func (s *State) selection(c *ui.Context, session string, turn ui.Element, readonly bool, actions Actions) {
-	at := ui.Local(turn, selectionKey{}, func() selectionAt { return selectionAt{downs: s.press.downs, ups: s.press.ups} })
+	button := s.pressOf(session)
+	at := ui.Local(turn, selectionKey{}, func() selectionAt { return selectionAt{downs: button.downs, ups: button.ups} })
 	turn.ObserveInput(func(ev ui.InputEvent) {
 		if ev.Kind != ui.InputKeyDown {
 			return
@@ -227,8 +228,8 @@ func (s *State) selection(c *ui.Context, session string, turn ui.Element, readon
 			at.hidden = true
 		}
 	})
-	if at.downs != s.press.downs {
-		at.downs = s.press.downs
+	if at.downs != button.downs {
+		at.downs = button.downs
 		x, y, _ := turn.PointerPosition()
 		at.onPill = at.placed && x >= at.pill.X && x < at.pill.X+at.pill.W && y >= at.pill.Y && y < at.pill.Y+at.pill.H
 		if !at.onPill {
@@ -239,8 +240,8 @@ func (s *State) selection(c *ui.Context, session string, turn ui.Element, readon
 			at.hidden = at.text != ""
 		}
 	}
-	released := at.ups != s.press.ups
-	at.ups = s.press.ups
+	released := at.ups != button.ups
+	at.ups = button.ups
 	if released && !at.onPill {
 		at.pointed = true
 	}
@@ -256,7 +257,7 @@ func (s *State) selection(c *ui.Context, session string, turn ui.Element, readon
 		at.text, at.hidden, at.keyboard, at.seen, at.placed = "", false, false, false, false
 		return
 	}
-	held := s.press.held && !at.onPill
+	held := button.held && !at.onPill
 	if text != at.text {
 		at.text, at.hidden = text, false
 		// MyGo tells the selection as of the last frame: a quick drag's shows
