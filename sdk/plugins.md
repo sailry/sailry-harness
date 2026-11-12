@@ -662,40 +662,12 @@ A model adapter names a program with `acp` instead of `script`. It declares
 | `system_meta` | Dotted `_meta` path of `session/new` that takes the system text. Without it, or when the agent does not advertise it, the system text opens the first prompt |
 | `efforts` | Effort level (`minimal` to `max`) to model identifier suffix. Variants fold into one model |
 | `model_argument` | The model is the program's `{model}` argument, one process per model. Required exactly when an argument has `{model}` |
-| `mode` | The session mode entered in every new session before a prompt, for example a read-only one. An agent that does not offer it is refused. Without it the session keeps the agent's mode |
 | `auth_method` | The `authenticate` method the agent is asked to use once when it requires authentication |
 | `failure_markers` | Up to four texts that mark a reply as a failure |
 
 The preset uses a `plugin` route, `models: {"kind": "discover"}` and `auth`
 `none` or `api_key`. Its `endpoint` is required and is not contacted. Models are
 the ones the agent lists; none is invented.
-
-### Claude Code
-
-An adapter may name a program with `claude_code` instead of `script` or
-`acp`. The Node then runs the user's installed Claude Code as a per-step
-model and owns its whole command line, so the named program declares no
-`args` and no `files`. The adapter declares `framing: "ndjson"`,
-`origins: []` and no `files` capability. See
-[docs/claude-cli.md](../docs/claude-cli.md).
-
-| `claude_code` member | Meaning |
-| --- | --- |
-| `program` | The `programs` entry to run |
-| `sign_in` | The instruction shown when Claude Code is signed out, at most 256 characters |
-| `models` | 1 to 32 models the channel offers |
-
-| `models` member | Meaning |
-| --- | --- |
-| `id` | A `--model` value: an alias or a full name |
-| `name` | Display name |
-| `context`, `output` | Token limits where the package knows them. Absent means unknown |
-| `efforts` | Effort levels the model takes, from `low`, `medium`, `high`, `xhigh`, `max` |
-
-`claude_code` is optional; within it `program`, `sign_in`, `models` and each
-`id` are required. The preset uses a `plugin` route,
-`models: {"kind": "discover"}` and `auth: none`. A boolean package setting
-named `terminal` turns on the experimental terminal mode.
 
 ## Storage
 

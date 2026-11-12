@@ -23,9 +23,8 @@ from 0.1.5 do not appear.
 - Keep the answer and complete tool calls of a reply cut at the output limit
 - Add GitHub Copilot sign-in by device code
 - Bundle WorkBuddy with a warning before sign-in, free models only by default and opt-in daily check-in
-- Use an installed command-line agent as a model over the Agent Client Protocol, with the Antigravity and Cursor packages in the Market
-- Use the Claude Code installed on this device as a Claude channel, with its own sign-in and Sailry's tools, from the Claude Code package in the Market
-- Warn before a Copilot or Claude sign-in, and before adding an Antigravity, Cursor or Claude Code channel, that the account's terms and limits apply
+- Use an installed command-line agent as a model over the Agent Client Protocol, with the Antigravity package in the Market
+- Warn before a Copilot or Claude sign-in, and before adding an Antigravity channel, that the account's terms and limits apply
 - Start a sign-in's advanced settings on the values in use
 - Ask an Azure OpenAI channel for its API version and name its models by deployment
 - Fold the model picker's groups and mark chosen rows with a neutral fill

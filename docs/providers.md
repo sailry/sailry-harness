@@ -145,11 +145,6 @@ and package presets are not vendors. The Rust source prices by wire protocol
 alone, which leaves every Chat Completions vendor other than OpenAI, and the
 DeepSeek, OpenCode and Azure protocols, without a cost.
 
-Claude subscriptions are moving from the Claude OAuth transport to the
-user's own Claude Code ([claude-cli.md](claude-cli.md)), offered by the
-`claude` package. The OAuth path described here stays until that route is
-accepted with a real account; the migration order is in that document.
-
 ## Model requests
 
 Model capture copies provider, session configuration, secret and session identity.
@@ -399,12 +394,6 @@ discovery and validation commands are the same; the Node routes them to
 `model.DiscoverACP` and `model.NewACP` when the captured adapter declares `acp`.
 Such a channel has no key (`auth: none`) or passes its key to the program's
 declared environment. Its contract is [agy.md](agy.md).
-
-An adapter that declares `claude_code` is served by the user's Claude Code
-instead (`claudecli.New`, `claudecli.Discover`). Its channel has no key, its
-models are the ones the package declares, and discovery starts no process. A
-discovery failure of any package channel reaches the editor with its own
-message. Its contract is [claude-cli.md](claude-cli.md).
 
 ## Validation and current boundaries
 

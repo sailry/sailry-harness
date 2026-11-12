@@ -240,9 +240,3 @@ func chatSchemaJSON(raw []byte) (json.RawMessage, error) {
 	}
 	return schemaJSON(fields), nil
 }
-
-// ToolSchema returns a tool's declared input schema in its authored key order,
-// for a transport that carries declarations outside a provider request.
-func ToolSchema(call fantasy.Call, tool fantasy.FunctionTool) (json.RawMessage, error) {
-	return declarationSchema(call, tool.Name, tool.InputSchema, false)
-}

@@ -145,19 +145,8 @@ func acpFixtureAgent(scenario string) {
 			case !has("unlisted"):
 				result["models"] = map[string]any{"availableModels": []any{map[string]any{"modelId": "captured", "name": "Captured"}}}
 			}
-			if has("modes") {
-				result["modes"] = map[string]any{"currentModeId": "agent", "availableModes": []any{
-					map[string]any{"id": "agent", "name": "Agent"}, map[string]any{"id": "ask", "name": "Ask"}}}
-			}
-			if has("mode-option") {
-				result["configOptions"] = []any{map[string]any{"id": "mode", "category": "mode", "type": "select", "currentValue": "agent", "options": []any{
-					map[string]any{"value": "agent", "name": "Agent"}, map[string]any{"value": "ask", "name": "Ask"}}}}
-			}
-			if has("asking") {
-				result["modes"] = map[string]any{"currentModeId": "ask", "availableModes": []any{map[string]any{"id": "ask", "name": "Ask"}}}
-			}
 			send(map[string]any{"id": message.ID, "result": result})
-		case "session/set_model", "session/set_mode":
+		case "session/set_model":
 			send(map[string]any{"id": message.ID, "result": map[string]any{}})
 		case "session/set_config_option":
 			send(map[string]any{"id": message.ID, "result": map[string]any{"configOptions": []any{}}})
@@ -447,48 +436,6 @@ func TestACPRoute(t *testing.T) {
 		}
 		if !answered {
 			t.Fatal("the permission request was not rejected")
-		}
-	})
-
-	t.Run("enters the declared mode or refuses the agent", func(t *testing.T) {
-		mode := "ask"
-		declared := func(capture *ACPCapture) { capture.Adapter.Acp.Mode = &mode }
-		params := func(fixture *acpFixture, method string) map[string]any {
-			t.Helper()
-			sent := fixture.received(method)
-			if len(sent) != 1 {
-				t.Fatalf("%s requests = %#v", method, sent)
-			}
-			return sent[0]["params"].(map[string]any)
-		}
-		listed := acpFixtureModel(t, "meta,modes", nil, declared)
-		if result := listed.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil || result.text != "ok" {
-			t.Fatalf("reply = %#v", result)
-		}
-		if set := params(listed, "session/set_mode"); set["modeId"] != "ask" || set["sessionId"] != params(listed, "session/prompt")["sessionId"] {
-			t.Fatalf("mode = %#v", set)
-		}
-		option := acpFixtureModel(t, "meta,mode-option", nil, declared)
-		if result := option.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
-			t.Fatal(result.failure)
-		}
-		if set := params(option, "session/set_config_option"); set["configId"] != "mode" || set["value"] != "ask" || len(option.received("session/set_mode")) != 0 {
-			t.Fatalf("mode = %#v", set)
-		}
-		// A session that starts in the mode is left alone.
-		current := acpFixtureModel(t, "meta,asking", nil, declared)
-		if result := current.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil || len(current.received("session/set_mode")) != 0 {
-			t.Fatalf("reply = %#v", result)
-		}
-		absent := acpFixtureModel(t, "meta", nil, declared)
-		if result := absent.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure == nil || result.failure.Kind != NotConfigured ||
-			result.failure.Message != "fixture-agent does not offer the mode ask" || len(absent.received("session/prompt")) != 0 {
-			t.Fatalf("failure = %#v", result.failure)
-		}
-		// Without a declared mode the session keeps the agent's own.
-		undeclared := acpFixtureModel(t, "meta,modes", nil, nil)
-		if result := undeclared.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil || len(undeclared.received("session/set_mode")) != 0 {
-			t.Fatalf("reply = %#v", result)
 		}
 	})
 

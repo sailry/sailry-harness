@@ -61,8 +61,6 @@ func TestProgramDeclarations(t *testing.T) {
 		{"metadata path with an empty name", func(extension *protocol.PluginExtension) {
 			extension.ModelAdapters[0].Acp.SystemMeta = new("vendor..append")
 		}, false},
-		{"declared session mode", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Mode = new("ask") }, true},
-		{"empty session mode", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Mode = new("") }, false},
 		{"model argument without its placeholder", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.ModelArgument = true }, false},
 		{"model placeholder without the model argument", func(extension *protocol.PluginExtension) {
 			extension.Programs[0].Args = []string{"acp", "--model", "{model}"}
@@ -91,65 +89,7 @@ func TestProgramDeclarations(t *testing.T) {
 			}
 		})
 	}
-	for _, current := range []struct {
-		name   string
-		change func(*protocol.PluginExtension)
-		valid  bool
-	}{
-		{"Claude Code adapter over a declared program", func(*protocol.PluginExtension) {}, true},
-		{"program with arguments of its own", func(extension *protocol.PluginExtension) {
-			extension.Programs[0].Args = []string{"--dangerously-skip-permissions"}
-		}, false},
-		{"program with files of its own", func(extension *protocol.PluginExtension) {
-			extension.Programs[0].Files = []protocol.PluginProgramFile{{Path: "CLAUDE.md", Content: "x"}}
-		}, false},
-		{"program without its action", func(extension *protocol.PluginExtension) {
-			extension.Actions = []protocol.PluginAction{protocol.PluginActionProvideModels}
-		}, false},
-		{"undeclared program", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].ClaudeCode.Program = "missing" }, false},
-		{"no model", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].ClaudeCode.Models = nil }, false},
-		{"model listed twice", func(extension *protocol.PluginExtension) {
-			route := extension.ModelAdapters[0].ClaudeCode
-			route.Models = append(route.Models, route.Models[0])
-		}, false},
-		{"model that is a flag", func(extension *protocol.PluginExtension) {
-			extension.ModelAdapters[0].ClaudeCode.Models[0].ID = "--bare"
-		}, false},
-		{"unknown effort level", func(extension *protocol.PluginExtension) {
-			extension.ModelAdapters[0].ClaudeCode.Models[0].Efforts = []string{"minimal"}
-		}, false},
-		{"no sign-in instruction", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].ClaudeCode.SignIn = "" }, false},
-		{"a script beside it", func(extension *protocol.PluginExtension) {
-			extension.ModelAdapters[0].Script.Entry = "dev.sailry.platform/adapter.js"
-		}, false},
-		{"an agent route beside it", func(extension *protocol.PluginExtension) {
-			extension.ModelAdapters[0].Acp = &protocol.PluginModelAdapterAcp{Program: "claude", ReplayBytes: 65536, SignIn: "x"}
-		}, false},
-		{"HTTP origins", func(extension *protocol.PluginExtension) {
-			extension.ModelAdapters[0].Origins = []string{"https://example.test"}
-		}, false},
-	} {
-		t.Run(current.name, func(t *testing.T) {
-			var extension protocol.PluginExtension
-			if err := json.Unmarshal([]byte(`{
-				"api_version":"v1","scope":"host","actions":["models.provide","process.run"],
-				"programs":[{"id":"claude","command":"claude","args":[],"env":{"DISABLE_AUTOUPDATER":"1"}}],
-				"model_adapters":[{"id":"claude","origins":[],"framing":"ndjson","discovery":true,"capabilities":{"tools":true,"reasoning":true,"vision":true},
-					"claude_code":{"program":"claude","sign_in":"Run claude once to sign in",
-						"models":[{"id":"opus","name":"Claude Opus","context":200000,"efforts":["low","high"]},{"id":"sonnet"}]}}]
-			}`), &extension); err != nil {
-				t.Fatal(err)
-			}
-			current.change(&extension)
-			if err := validateExtension(extension); (err == nil) != current.valid {
-				t.Fatalf("extension declaration: %v", err)
-			}
-		})
-	}
 	// An authored declaration is strict: an unknown member is refused.
-	if err := json.Unmarshal([]byte(`{"id":"claude","origins":[],"framing":"ndjson","claude_code":{"program":"claude","sign_in":"x","models":[{"id":"opus"}],"args":["--bare"]}}`), new(protocol.PluginModelAdapterDeclaration)); err == nil {
-		t.Fatal("unknown Claude Code member was accepted")
-	}
 	var adapter protocol.PluginModelAdapterDeclaration
 	if err := json.Unmarshal([]byte(`{"id":"agent","origins":[],"framing":"ndjson","acp":{"program":"agent","replay_bytes":65536,"sign_in":"x","shell":true}}`), &adapter); err == nil {
 		t.Fatalf("unknown member: %v", err)
