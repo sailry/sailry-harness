@@ -117,6 +117,26 @@ func (w liveWindow) run(d time.Duration) int {
 	return frames
 }
 
+// frame draws a frame of the window once what moves in it has arrived. The
+// Tester's clock stands still while it draws, so a motion under way would
+// have Frame, and every event after it, draw its twenty frames of one
+// instant: the clock moves on a refresh at a time until the view asks for no
+// further frame, for at most liveMotion.
+func (w liveWindow) frame() {
+	for moved := time.Duration(0); moved < liveMotion && w.tester.FramePending(); moved += liveRefresh {
+		w.tester.Advance(liveRefresh)
+	}
+	w.tester.Frame()
+}
+
+// liveRefresh is a little over a refresh of the Tester's display, so each
+// step draws the frame that is due; liveMotion is longer than the motions of
+// the shell and its menus and shorter than a tooltip's delay.
+const (
+	liveRefresh = 17 * time.Millisecond
+	liveMotion  = 400 * time.Millisecond
+)
+
 // rest shows the window as run does until it is at rest, for at most limit:
 // the Node has answered every command, the view asks for no further frame
 // (what moved has arrived) and the Runtime has asked for none for liveQuiet
@@ -218,7 +238,7 @@ func firstRun(t *testing.T) {
 	settle := func() {
 		for range 4 {
 			r.workers.Wait()
-			tester.Frame()
+			window.frame()
 		}
 		window.rest(300 * time.Millisecond)
 	}
