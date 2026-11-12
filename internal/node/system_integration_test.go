@@ -144,7 +144,7 @@ func computerPackage(t *testing.T, node *Node) protocol.PluginInfo {
 	return info
 }
 
-// TestSystemComputerIntegration is the B13 computer-use acceptance against a
+// TestSystemComputerIntegration is the computer-use acceptance against a
 // real Node and a stand-in helper executable built by the test: the locator,
 // the two permission commands through Node.Dispatch, and an agent turn that
 // is offered the helper's MCP tools, runs the read tool and waits for

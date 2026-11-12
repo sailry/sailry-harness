@@ -42,7 +42,7 @@ import (
 	"lukechampine.com/blake3"
 )
 
-// The B11 acceptance tests drive local models through Node.Dispatch with the
+// The acceptance tests drive local models through Node.Dispatch with the
 // pinned native runtimes and the real model files. A loopback TLS server
 // stands in for Hugging Face and ModelScope: the Node's outbound transport
 // sends every Hub request to it, and it serves the real files.

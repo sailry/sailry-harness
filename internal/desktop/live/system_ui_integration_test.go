@@ -17,11 +17,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// The B13 system acceptance drives the real Settings pages over a real
+// The system acceptance drives the real Settings pages over a real
 // temporary Node and Client. This file holds what its tests share; each
 // feature has its own system_*_integration_test.go.
 
-// systemUIWait bounds every wait of the B13 system tests.
+// systemUIWait bounds every wait of the system tests.
 const systemUIWait = 15 * time.Second
 
 // systemDesk is a temporary Node with a controller beside the window's.

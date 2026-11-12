@@ -20,7 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node"
 )
 
-// TestSystemShortcutsUI is the B13 acceptance of the system shortcuts'
+// TestSystemShortcutsUI is the acceptance of the system shortcuts'
 // Desktop side: KEY-022, KEY-023, KEY-024, SKEY-009, SHELL-035 and
 // SHELL-070, as far as the process can be driven without the system.
 //

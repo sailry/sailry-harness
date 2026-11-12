@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	directory, err := filepath.Abs(".runtime/b10/browser")
+	directory, err := filepath.Abs(".runtime/browserprobe")
 	if err != nil {
 		panic(err)
 	}
