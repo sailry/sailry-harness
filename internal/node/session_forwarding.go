@@ -27,7 +27,8 @@ func forwardUnknown() *protocol.Fault {
 // A replay whose recorded outcome is unknown sends the import again: the target
 // admits it under the same request identifier, so it answers an import it
 // already holds from its own ledger and creates the session only if the
-// earlier one never arrived.
+// earlier one never arrived. Its answer then replaces the unknown outcome in
+// this Node's ledger.
 func (node *Node) dispatchSessionForward(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, error) {
 	if err := node.begin(); err != nil {
 		return link.Admission{}, err
@@ -87,23 +88,23 @@ func (node *Node) dispatchSessionForward(ctx context.Context, caller protocol.No
 		defer node.work.Done()
 		defer close(completion)
 		defer node.releaseForward(request.ID)
-		result := node.runSessionForward(send, forwarded)
-		if previous != nil {
-			// The ledger keeps the unknown outcome it recorded. A conflict means
-			// the target holds an earlier import with other content, so its
-			// outcome is still not known here.
-			if result.Fault != nil && (result.Fault.Code == protocol.ErrorCodeOutcomeUnknown || result.Fault.Code == protocol.ErrorCodeConflict) {
-				result = *previous
-			}
-			completion <- result
+		result, answered := node.runSessionForward(send, forwarded)
+		if previous == nil {
+			completion <- node.settle(caller, request.ID, result)
 			return
 		}
-		err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
-			return admission.Complete(node.ctx, db, caller, request.ID, result)
-		})
-		if err != nil && (result.Fault == nil || result.Fault.Code != protocol.ErrorCodeOutcomeUnknown) {
-			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"})
+		// Only the target's own answer says what became of the earlier
+		// import. A send that failed here says nothing about it, and a
+		// conflict means the target holds an earlier import with other
+		// content: the outcome is still not known.
+		if !answered || result.Fault != nil && (result.Fault.Code == protocol.ErrorCodeOutcomeUnknown || result.Fault.Code == protocol.ErrorCodeConflict) {
+			completion <- *previous
+			return
 		}
+		// The answer replaces the unknown outcome, so a later replay and an
+		// inspection read it here. When it cannot be stored the row stays
+		// unknown and the next replay asks the target again.
+		_ = admission.Resolve(node.ctx, node.profile.Store.Node.Write, caller, request.ID, result)
 		completion <- result
 	}()
 	return accepted, nil
@@ -127,26 +128,27 @@ func (node *Node) releaseForward(id protocol.RequestID) {
 	node.forwarding.Delete(id)
 }
 
-// runSessionForward waits for the target's outcome. Once dispatch begins, a
-// lost response cannot establish that the target did not admit the import.
-func (node *Node) runSessionForward(send func(context.Context, protocol.Request) (link.Admission, error), forwarded protocol.Request) link.Response {
+// runSessionForward waits for the target's outcome and reports whether the
+// target answered. Once dispatch begins, a lost response cannot establish that
+// the target did not admit the import.
+func (node *Node) runSessionForward(send func(context.Context, protocol.Request) (link.Admission, error), forwarded protocol.Request) (link.Response, bool) {
 	ctx, cancel := context.WithTimeout(node.ctx, forwardLimit)
 	defer cancel()
 	accepted, err := send(ctx, forwarded)
 	if err != nil {
 		if ctx.Err() != nil {
-			return link.Response{Fault: forwardUnknown()}
+			return link.Response{Fault: forwardUnknown()}, false
 		}
-		return response(protocol.Output{}, err)
+		return response(protocol.Output{}, err), false
 	}
 	select {
 	case result, delivered := <-accepted.Completion:
 		if !delivered {
-			return link.Response{Fault: forwardUnknown()}
+			return link.Response{Fault: forwardUnknown()}, false
 		}
-		return result
+		return result, true
 	case <-ctx.Done():
-		return link.Response{Fault: forwardUnknown()}
+		return link.Response{Fault: forwardUnknown()}, false
 	}
 }
 

@@ -244,6 +244,7 @@ knowledge_slide: 第 %{slide} 張
 workspace_archive: 歸檔會話
 session_delete: 刪除會話
 session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: 重新命名
 session_title_required: 請輸入名稱
 session_mark_read: 標記為已讀
@@ -414,7 +415,10 @@ git_commit_staged: 提交已暫存更改
 git_commit_staged_amend: 提交已暫存更改（修改上次提交）
 git_commit_staged_signoff: 提交已暫存更改（簽署宣告）
 git_commit_sync: 提交併同步
+git_cherry_pick: 揀選提交
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: 複製分支名
+git_copy_commit_id: Copy commit ID
 git_copy_path: 複製路徑
 git_delete_branch: 刪除分支
 git_delete_confirm: 確認刪除？無法撤銷
@@ -574,6 +578,9 @@ background_outcome_stalled: 近期無輸出
 background_outcome_stopped: 已停止
 background_outcome_timed_out: 逾時
 background_outcome_unknown: 結果不確定
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 壓縮已取消
 chat_compact_failed: 壓縮失敗
 chat_compact_queued: 等待壓縮
@@ -1134,6 +1141,10 @@ provider_model_default: 預設
 provider_set_default: 設為預設
 provider_default: 預設模型
 provider_model_id: 模型 ID
+provider_deployment_id: 部署名
+provider_api_version: API 版本
+form_api_version_hint: 如 2024-10-21
+provider_cloud_required: 請填寫雲渠道配置
 form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
 form_tokens_hint: Token 數量
@@ -1342,6 +1353,7 @@ connector_tools_empty: 無工具
 plugins_no_skills: 暫無技能
 plugins_no_mcp: 暫無 MCP 服務
 market_details_permission_none: 不需要額外權限
+market_details_added_permissions: 新增權限
 market_installed: 已安裝
 model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭
@@ -1443,6 +1455,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 選擇資料夾
 skill_source_choose_archive: 選擇壓縮檔
 git_diff: 差異
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: 讀取 Git 變更
 market_permission_git_write: 修改 Git
 market_permission_files_read: 讀取檔案
@@ -1543,6 +1558,20 @@ host_process_name: 程序
 host_pid: PID
 host_process_empty: 暫無程序
 host_process_no_matches: 無匹配程序
+host_process_details: 檢視詳情
+host_process_copy_pid: 複製 PID
+host_process_copy_name: 複製名稱
+host_process_stop: 結束程序
+host_process_force_stop: 強制結束
+host_process_stop_confirm: 向此程序傳送結束請求，可能中斷正在進行的任務
+host_process_force_confirm: 立即結束此程序，未儲存的資料可能丟失
+host_process_stop_sent: 已傳送結束請求
+host_process_gone: 此程序已退出
+host_process_changed: 程序已變化，請重新整理後重試
+host_process_protected: 無法結束系統程序或當前主機服務
+host_process_uncertain: 結束結果未知，請檢查程序狀態
+host_process_stop_failed: 無法結束程序，可能已退出、許可權不足或主機不支援此操作
+metrics_gpu: GPU
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發
@@ -1616,7 +1645,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 新增
+reference_group_context: 上下文
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1857,7 +1886,7 @@ authorization_connected: 已連線
 connector_bound: 已綁定
 connector_checked: 連線正常
 connector_mcp_reconnected: 已連線，%{n} 個工具
-connector_consent_effect: 繼續前請確認授權目標的變更
+connector_consent_effect: 允許變更後的連線權限
 connector_changed_origins: 來源
 connector_changed_scopes: 權限範圍
 connector_changed_client: 用戶端
@@ -1984,7 +2013,12 @@ knowledge_saved: 已儲存
 knowledge_cancel_requested: 已要求取消
 model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: 此版本的檔案已變更
+model_library_version: 版本
+model_library_more: 載入更多
+model_library_query_prefix: 查詢前綴
+model_library_document_prefix: 文件前綴
+knowledge_up_to_date: 已是最新
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
@@ -2200,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 無法讀取用量，請重試
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2215,4 +2250,16 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host 版本較舊，請更新 Host
+host_version_newer: Host 版本較新，請更新桌面端
+host_version_unknown: 無法確認 Host 版本，請更新 Host
+controller_version_unknown: 無法確認桌面端版本，請更新桌面端
+content_link_address: 連結位址
+content_link_edit: 編輯連結
+content_image_address: 圖片位址
+content_image_alt: 替代文字
+runtime_python_preparing: 正在準備
+python_creating: 準備相依套件
+python_installing: 安裝相依套件
+python_validating: 檢查相依套件
 port_count: '%{count} ports'

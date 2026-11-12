@@ -134,7 +134,7 @@ func workspace() *Workspace {
 	w.Repo = Repository{
 		Branch: "main", Upstream: "origin/main",
 		Branches: []Branch{
-			{Name: "main", Current: true, Commit: "9f2c41ab07d3", Tracking: "↑1"},
+			{Name: "main", Current: true, Commit: "9f2c41ab07d3", Tracking: "↑2"},
 			{Name: "split-view", Commit: "4be81d20c9a7"},
 			{Name: "feature/git-panel", Commit: "c07d5e3318f2", Tracking: "↓2"},
 			{Name: "origin/main", Remote: true, Commit: "1a6e90f4b2c8"},
@@ -143,12 +143,15 @@ func workspace() *Workspace {
 		Remotes: []Remote{{Name: "origin", URL: "https://github.com/sailry/sailry-go.git"}},
 		Stashes: []string{"WIP on main: 9f2c41a Port the Git panel"},
 		Tags:    []string{"v0.1.0"},
+		// Newest first, every child before its parents: split-view was merged
+		// into main, which is two commits ahead of origin/main.
 		Commits: []Commit{
-			{ID: "9f2c41ab07d3e5f6", Message: "Port the Git panel's grouped changes", Author: "Ada Chen", Refs: []string{"heads/main"}},
-			{ID: "1a6e90f4b2c87d10", Message: "Share one theme across the right panel\n\nThe tabs and pages read the same tokens.", Author: "Ada Chen", Refs: []string{"remotes/origin/main"}},
-			{ID: "4be81d20c9a7e3b2", Message: "Split the workspace into panes", Author: "Lin Wei", Refs: []string{"heads/split-view", "remotes/origin/split-view"}},
-			{ID: "c07d5e3318f2a9d4", Message: "Draw the file tree with guides", Author: "Lin Wei", Refs: []string{"heads/feature/git-panel"}},
-			{ID: "77b0f2e6a1d94c35", Message: "Copy the shell's locale keys", Author: "Ada Chen", Refs: []string{"tags/v0.1.0"}},
+			{ID: "9f2c41ab07d3e5f6", Message: "Port the Git panel's grouped changes", Author: "Ada Chen", Time: Now.Add(-40 * time.Minute), Refs: []string{"HEAD", "heads/main"}, Parents: []string{"e5a31c7f9d0b4a68"}},
+			{ID: "e5a31c7f9d0b4a68", Message: "Merge branch 'split-view'", Author: "Ada Chen", Time: Now.Add(-3 * time.Hour), Refs: []string{}, Parents: []string{"1a6e90f4b2c87d10", "4be81d20c9a7e3b2"}},
+			{ID: "1a6e90f4b2c87d10", Message: "Share one theme across the right panel\n\nThe tabs and pages read the same tokens.", Author: "Ada Chen", Time: Now.Add(-6 * time.Hour), Refs: []string{"remotes/origin/main"}, Parents: []string{"c07d5e3318f2a9d4"}},
+			{ID: "4be81d20c9a7e3b2", Message: "Split the workspace into panes", Author: "Lin Wei", Time: Now.Add(-27 * time.Hour), Refs: []string{"heads/split-view", "remotes/origin/split-view"}, Parents: []string{"c07d5e3318f2a9d4"}},
+			{ID: "c07d5e3318f2a9d4", Message: "Draw the file tree with guides", Author: "Lin Wei", Time: Now.Add(-2 * 24 * time.Hour), Refs: []string{"heads/feature/git-panel"}, Parents: []string{"77b0f2e6a1d94c35"}},
+			{ID: "77b0f2e6a1d94c35", Message: "Copy the shell's locale keys", Author: "Ada Chen", Time: Now.Add(-5 * 24 * time.Hour), Refs: []string{"tags/v0.1.0"}, Parents: []string{}},
 		},
 	}
 	w.Checkpoints = []Checkpoint{

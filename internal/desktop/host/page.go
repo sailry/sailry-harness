@@ -16,9 +16,12 @@ import (
 // Actions are what the page asks of the window: open a project or a
 // session, and add a project (the project editor). Revoke removes the
 // host's pairing, nil for a host that has none to remove (this computer, the
-// preview's).
+// preview's). StopProcess asks the host's Node to end a process, by force
+// when force is set, after the page's confirmation; nil where no Node is
+// asked (the preview), which leaves the menu's two items disabled.
 type Actions struct {
 	Revoke      func()
+	StopProcess func(process Process, force bool)
 	OpenProject func(id string)
 	OpenSession func(id string)
 	AddProject  func()
@@ -35,12 +38,18 @@ type State struct {
 	updating bool       // the update dialog
 	revoking bool       // the Remove pairing confirmation
 	ports    portPicker // the port picker and the new forward dialog
-	// disk is the volume the disk card follows, "" for the root; query, sort
-	// and processes are the processes' search, order and table.
-	disk      string
+	// disk is the volume the disk card follows, "" for the root; gpu the
+	// accelerator the GPU card follows, "" for the first; query, sort and
+	// processes are the processes' search, order and table.
+	disk, gpu string
 	query     string
 	sort      ui.SortOrder
 	processes ui.ListState
+	// stop is the request to end a process that waits for its confirmation;
+	// detail is the process whose details show while detailed.
+	stop     processStop
+	detail   Process
+	detailed bool
 	// The failures toasted already, so a redraw does not repeat them.
 	failed, metricsFailed, runtimeFailed string
 }
@@ -60,7 +69,7 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	ui.Scroll(c.Key("host-" + h.ID)).Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c.Key("content")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(24).Gap(sectionGap).Children(func() {
 			header(c, s, h, act)
-			monitor(c, s, h)
+			monitor(c, s, h, act)
 			activity(c, h, act)
 			projects(c, h, act)
 			runtime(c, h)
@@ -70,6 +79,7 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	updateDialog(c, s, h, act)
 	portDialogs(c, s, h, act)
 	revokeDialog(c, s, h, act)
+	processDialogs(c, s, h, act)
 	if act.Dialogs != nil {
 		act.Dialogs(c)
 	}
@@ -95,10 +105,22 @@ func Platform(os string) *ui.SVG {
 // happens to spell.
 func (h *Host) label(c *ui.Context, text string) string {
 	if !h.Live || text == "local_host_name" {
+		if name := demoProcesses[text]; name != "" && kit.Demo(c) {
+			return name
+		}
 		return i18n.T(c, text)
 	}
 	return text
 }
+
+// demoProcesses are the programs the preview's example processes run as
+// while the demo shows: their catalog names say that they are a preview's.
+var demoProcesses = map[string]string{"metrics_worker": "sailry-node", "metrics_indexer": "gopls"}
+
+// plain reports whether the page speaks of the host as a live one: a live
+// host, or the preview's while the demo shows, which says nowhere that its
+// data is a sample. What the page does is the preview's all the same.
+func (h *Host) plain(c *ui.Context) bool { return h.Live || kit.Demo(c) }
 
 // Connection is a live host's connection as its header shows it.
 func (h *Host) Connection() feedback.Connection {
@@ -127,13 +149,13 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 			ui.Column(c.Key("name")).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, h.label(c, h.Name)).FontSize(18).FontWeight(600).SingleLine().Shrink(1).MinWidth(0)
-					if h.Live {
+					if h.plain(c) {
 						feedback.ConnectionStatus(c, h.Connection(), feedback.ConnectionStatusOptions{
 							Online: i18n.T(c, "live_connected"), Reconnecting: i18n.T(c, "connection_connecting"), Offline: i18n.T(c, "connections_offline"),
 						}).Shrink(0).AlignSelf(ui.Center)
 					}
 				})
-				if !h.Live {
+				if !h.plain(c) {
 					ui.Text(c, i18n.T(c, "workspace_host_status")).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 				}
 				ui.Text(c.Key("platform"), h.label(c, h.Detail)).FontSize(12).SingleLine().TextColor(p.MutedForeground)
@@ -203,7 +225,7 @@ func activity(c *ui.Context, h *Host, act Actions) {
 	}
 	p := theme.Of(c)
 	description := ""
-	if !h.Live {
+	if !h.plain(c) {
 		description = i18n.T(c, "host_activity_hint")
 	}
 	kit.Group(c, "activity", i18n.T(c, "workspace_running"), description, nil, func() {
@@ -269,7 +291,7 @@ func runtime(c *ui.Context, h *Host) {
 	p := theme.Of(c)
 	r := h.Runtime
 	note := ""
-	if !r.Live {
+	if !r.Live && !kit.Demo(c) {
 		note = "workspace_runtime_preview"
 		if r.Known {
 			note = "host_runtime_preview"
@@ -279,7 +301,7 @@ func runtime(c *ui.Context, h *Host) {
 	kit.Group(c, "runtime", i18n.T(c, "workspace_runtime"), note, nil, func() {
 		if r.Loading {
 			loading := "host_runtime_loading"
-			if r.Live {
+			if r.Live || kit.Demo(c) {
 				loading = "live_host_runtime_loading"
 			}
 			kit.Shimmer(c, i18n.T(c, loading), 14, p.MutedForeground)
@@ -289,7 +311,7 @@ func runtime(c *ui.Context, h *Host) {
 			typ = "composer_host_local"
 		}
 		active := "host_active_preview"
-		if h.Live {
+		if h.plain(c) {
 			active = "workspace_running"
 		}
 		facts := []Fact{
@@ -343,14 +365,15 @@ func small(c *ui.Context, key any, icon *ui.SVG, label string, disabled, outline
 }
 
 // report toasts the host's failures once each (Shell::observe_host_errors):
-// the runtime's with its detail.
+// the runtime's with its detail, which is a copy key for a protocol
+// mismatch (feedback.rs fault_message) and the Node's own text otherwise.
 func (s *State) report(c *ui.Context, h *Host) {
 	if e := h.Runtime.Error; e != "" && e != s.runtimeFailed {
 		key := "host_runtime_error"
-		if h.Live {
+		if h.plain(c) {
 			key = "live_host_runtime_error"
 		}
-		kit.Error(c, i18n.T(c, key), e)
+		kit.Error(c, i18n.T(c, key), i18n.T(c, e))
 	}
 	s.runtimeFailed = h.Runtime.Error
 }

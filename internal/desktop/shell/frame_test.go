@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -302,6 +303,11 @@ func testSideColumns(t *testing.T) {
 	a.NavWidth = 300
 	a.Navigate(MarketPage)
 	tt.Frame()
+	// The window's diff layout is saved with them: the choice above a diff
+	// writes the app's (kit.DiffSplit), and a file without it is unified.
+	a.Hooks.BeforeFrame = func(c *ui.Context) { *kit.DiffSplit(c) = true }
+	tt.Frame()
+	a.Hooks.BeforeFrame = nil
 	dir := t.TempDir()
 	if err := SavePrefs(dir, a.Prefs()); err != nil {
 		t.Fatal(err)
@@ -311,11 +317,14 @@ func testSideColumns(t *testing.T) {
 	if !b.NavOpen || b.NavWidth != 300 {
 		t.Errorf("the choice did not come back from a page without a column: %+v", b.Prefs())
 	}
+	if !a.DiffSplit || !b.DiffSplit {
+		t.Errorf("the split diff did not come back: chosen %v, restored %v", a.DiffSplit, b.DiffSplit)
+	}
 	if err := os.WriteFile(filepath.Join(dir, PrefsFile), []byte(`{"navWidth":280,"navOpen":false,"panelWidth":420,"panelOpen":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	b.SetPrefs(LoadPrefs(dir))
-	if b.NavOpen || b.NavWidth != 280 || !b.PanelOpen || b.PanelWidth != 420 {
+	if b.NavOpen || b.NavWidth != 280 || !b.PanelOpen || b.PanelWidth != 420 || b.DiffSplit {
 		t.Errorf("an earlier file did not load: %+v", b.Prefs())
 	}
 	bt := ui.NewTesterWith(b.View, 1280, 820, opaque)
@@ -360,6 +369,67 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	}
 	// A file's preview and a subagent's session are their conversation's:
 	// their tabs are not kept, neither from a file that has them.
+	// A narrow host stacks a list over its document. The handle between
+	// them sets the list's share of the height, the window's as the side
+	// columns' widths are: it is saved, restored, and absent from an
+	// earlier file, which loads the default.
+	t.Run("stacked list", func(t *testing.T) {
+		grip := func(tt *ui.Tester) ui.Rect {
+			t.Helper()
+			for _, e := range tt.AccessAll() {
+				if e.Role == ui.RoleSplitter && e.Bounds.H == 6 && e.Bounds.W > 6 {
+					return e.Bounds
+				}
+			}
+			t.Fatalf("no handle under the list: %q", tt.Texts())
+			return ui.Rect{}
+		}
+		open := func(a *App) *ui.Tester {
+			tt := ui.NewTesterWith(a.View, 700, 820, opaque)
+			tt.SetLocale("en")
+			a.Navigate(FilesPage)
+			tt.Frame()
+			tt.Frame()
+			return tt
+		}
+		a := New(preview.Load())
+		tt := open(a)
+		before := grip(tt)
+		if a.ListShare != panel.ListShare || a.Prefs().ListShare != panel.ListShare {
+			t.Fatalf("the list starts with share %v, saved %v", a.ListShare, a.Prefs().ListShare)
+		}
+		x, y := before.X+before.W/2, before.Y+before.H/2
+		tt.Press(x, y)
+		tt.Frame()
+		tt.Move(x, y-30)
+		tt.Frame()
+		tt.Move(x, y-60)
+		tt.Frame()
+		tt.Release(x, y-60)
+		tt.Frame()
+		tt.Frame()
+		after := grip(tt)
+		if after.Y != before.Y-60 || a.ListShare >= panel.ListShare {
+			t.Fatalf("dragging up 60 moved the handle from %v to %v, share %v", before.Y, after.Y, a.ListShare)
+		}
+		dir := t.TempDir()
+		if err := SavePrefs(dir, a.Prefs()); err != nil {
+			t.Fatal(err)
+		}
+		b := New(preview.Load())
+		b.SetPrefs(LoadPrefs(dir))
+		if got := grip(open(b)); b.ListShare != a.ListShare || got.Y != after.Y {
+			t.Errorf("the list came back with share %v at %v, want %v at %v", b.ListShare, got.Y, a.ListShare, after.Y)
+		}
+		if err := os.WriteFile(filepath.Join(dir, PrefsFile), []byte(`{"navWidth":280,"navOpen":true}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		d := New(preview.Load())
+		d.SetPrefs(LoadPrefs(dir))
+		if got := grip(open(d)); d.ListShare != panel.ListShare || got.Y != before.Y {
+			t.Errorf("an earlier file gave the list share %v at %v, want %v at %v", d.ListShare, got.Y, panel.ListShare, before.Y)
+		}
+	})
 	t.Run("conversation tabs", func(t *testing.T) {
 		a := New(preview.Load())
 		a.Panel.Open(panel.Changes)

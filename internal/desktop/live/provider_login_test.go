@@ -15,6 +15,7 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 	t.Run("canonical card contracts", testPluginCardContracts)
 	t.Run("native component authority", testNativeComponentAuthority)
 	t.Run("plugin view ownership", testPluginViewOwnership)
+	t.Run("plugin diagnostic report", testPluginDiagnostic)
 	t.Run("plugin location ownership", testPluginLocationOwnership)
 	t.Parallel()
 	t.Run("quota remains unknown after reset", func(t *testing.T) {

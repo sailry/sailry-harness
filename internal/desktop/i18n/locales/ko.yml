@@ -244,6 +244,7 @@ knowledge_slide: 슬라이드 %{slide}
 workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: 이름 바꾸기
 session_title_required: 이름 입력
 session_mark_read: 읽은 것으로 표시
@@ -414,7 +415,10 @@ git_commit_staged: 변경 사항 커밋
 git_commit_staged_amend: 스테이지된 커밋과 수정
 git_commit_staged_signoff: 스테이지된 커밋 및 종료
 git_commit_sync: 커밋 및 동기화
+git_cherry_pick: Cherry- pick 커밋
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: 브랜치 이름 복사
+git_copy_commit_id: Copy commit ID
 git_copy_path: 경로 복사
 git_delete_branch: 분기 삭제
 git_delete_confirm: 삭제하시겠습니까? 실행 취소할 수 없습니다
@@ -574,6 +578,9 @@ background_outcome_stalled: 최근 출력 없음
 background_outcome_stopped: 중지됨
 background_outcome_timed_out: 시간 초과
 background_outcome_unknown: 결과 불확실
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: 압축 취소됨
 chat_compact_failed: 압축 실패
 chat_compact_queued: 압축을 기다리는 중
@@ -1134,6 +1141,10 @@ provider_model_default: 기본값
 provider_set_default: 기본값으로 설정
 provider_default: 기본 모델
 provider_model_id: 모델 ID
+provider_deployment_id: 배포 이름
+provider_api_version: API 버전
+form_api_version_hint: 예를 들어 2024-10-21
+provider_cloud_required: 클라우드 공급자 구성 입력
 form_model_hint: 모델 ID
 provider_context: 컨텍스트 제한( 토큰)
 form_tokens_hint: 토큰 수
@@ -1342,6 +1353,7 @@ connector_tools_empty: 도구 없음
 plugins_no_skills: 기술 없음
 plugins_no_mcp: 아니 MCP 서버
 market_details_permission_none: 추가 권한이 필요하지 않음
+market_details_added_permissions: 새 권한
 market_installed: 설치됨
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -1443,6 +1455,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 폴더 선택
 skill_source_choose_archive: 압축 파일 선택
 git_diff: 차이
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: Git 변경 사항 읽기
 market_permission_git_write: Git 변경
 market_permission_files_read: 파일 읽기
@@ -1543,6 +1558,20 @@ host_process_name: 프로세스
 host_pid: PID
 host_process_empty: 프로세스 없음
 host_process_no_matches: 일치하는 프로세스 없음
+host_process_details: 세부 정보 보기
+host_process_copy_pid: PID 복사
+host_process_copy_name: 이름 복사
+host_process_stop: 프로세스 종료
+host_process_force_stop: 강제 종료
+host_process_stop_confirm: 중지 요청 보내기; 실행 중인 작업을 중단시킬 수 있습니다
+host_process_force_confirm: 지금이 프로세스를 종료; 저장되지 않은 데이터가 손실 될 수 있습니다
+host_process_stop_sent: 중지 요청 보내기
+host_process_gone: 프로세스 종료됨
+host_process_changed: 프로세스가 변경되었습니다. 새로 고치고 다시 시도하십시오
+host_process_protected: 시스템 프로세스 또는 현재 호스트 서비스를 중지할 수 없음
+host_process_uncertain: 중지 결과 알 수 없음; 프로세스 상태 확인
+host_process_stop_failed: 프로세스를 중지할 수 없습니다. 프로세스가 종료되었거나, 접근이 거부되었거나, 이 호스트가 지원하지 않을 수 있습니다
+metrics_gpu: GPU
 port_title: 포트 전달
 port_mappings: 포트 매핑
 port_add: 새 전달
@@ -1616,7 +1645,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: 추가
+reference_group_context: 컨텍스트
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1857,7 +1886,7 @@ authorization_connected: 연결됨
 connector_bound: 연동됨
 connector_checked: 연결 정상
 connector_mcp_reconnected: 연결됨, 도구 %{n}개
-connector_consent_effect: 계속하기 전에 변경된 인증 대상을 확인하세요
+connector_consent_effect: 변경된 연결 권한 허용
 connector_changed_origins: 출처
 connector_changed_scopes: 권한 범위
 connector_changed_client: 클라이언트
@@ -1984,7 +2013,12 @@ knowledge_saved: 저장됨
 knowledge_cancel_requested: 취소 요청됨
 model_library_failed: 모델을 불러올 수 없습니다
 model_library_partial: 일부 결과를 사용할 수 없습니다
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: 이 버전의 파일이 변경되었습니다
+model_library_version: 버전
+model_library_more: 더 보기
+model_library_query_prefix: 검색 접두사
+model_library_document_prefix: 문서 접두사
+knowledge_up_to_date: 이미 최신 버전
 local_models_unavailable: 사용 불가
 dictation_unavailable: 로컬 음성 입력을 사용할 수 없음
 dictation_model_missing: 먼저 음성 모델 다운로드하기
@@ -2200,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2215,4 +2250,16 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host 버전이 이전 버전입니다. Host를 업데이트하세요
+host_version_newer: Host 버전이 더 최신입니다. 데스크톱을 업데이트하세요
+host_version_unknown: Host 버전을 확인할 수 없습니다. Host를 업데이트하세요
+controller_version_unknown: 데스크톱 버전을 확인할 수 없습니다. 데스크톱을 업데이트하세요
+content_link_address: 링크 주소
+content_link_edit: 링크 편집
+content_image_address: 이미지 주소
+content_image_alt: 대체 텍스트
+runtime_python_preparing: 준비 중
+python_creating: 의존성 준비 중
+python_installing: 의존성 설치 중
+python_validating: 의존성 확인 중
 port_count: '%{count} ports'

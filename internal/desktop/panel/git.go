@@ -22,7 +22,9 @@ const allChanges = ":changes"
 // view.js details lays it out: the branch, the actions menu and Refresh;
 // Changes | History; then the changes' toolbar, their list and the commit
 // box, or the history. open shows a change's diff, source a file in
-// Files.
+// Files. Above its document (Project.stacked) the column keeps its height
+// for the rows: Changes | History joins the branch's bar and the commit box
+// is one line beside Commit.
 func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 	p := theme.Of(c)
 	v := &pr.Git
@@ -39,6 +41,10 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
 		}).OnClick(func() { g.choose("git_checkout", g.checkout(), "git_checkout").run(c) })
 		ui.Spacer(c)
+		if pr.stacked && !pr.gitVacant() {
+			kit.Segmented(c, "git-views", &v.view, []string{i18n.T(c, "git_view_changes"), i18n.T(c, "git_view_history")},
+				kit.SegmentedProps{Size: kit.SizeSmall}).Shrink(0).Margin(0, 4)
+		}
 		kit.MenuButton(c.Key("actions"), "git-actions-"+pr.ID, func(b ui.Element) {
 			b.Disabled(!pr.gitWritable())
 			kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "git_actions"), "", 28, false)
@@ -68,10 +74,12 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 			}
 		})
 	}
-	ui.Column(c.Key("views")).Padding(8, 8, 4, 8).Shrink(0).Children(func() {
-		kit.Segmented(c, "git-views", &v.view, []string{i18n.T(c, "git_view_changes"), i18n.T(c, "git_view_history")},
-			kit.SegmentedProps{Block: true})
-	})
+	if !pr.stacked {
+		ui.Column(c.Key("views")).Padding(8, 8, 4, 8).Shrink(0).Children(func() {
+			kit.Segmented(c, "git-views", &v.view, []string{i18n.T(c, "git_view_changes"), i18n.T(c, "git_view_history")},
+				kit.SegmentedProps{Block: true})
+		})
+	}
 	if v.view == 1 {
 		pr.history(c, own)
 	} else {
@@ -334,21 +342,44 @@ func (pr *Project) commitBox(c *ui.Context) {
 				}
 			})
 		}
+		// Beside the document the message is a box over Commit; above it,
+		// one line beside Commit until it is expanded.
+		line := pr.stacked && !v.tall
 		h := float32(86)
-		if v.tall {
+		switch {
+		case line:
+			h = 32
+		case pr.stacked:
+			h = 120
+		case v.tall:
 			h = 220
 		}
-		ui.Row(c.Key("message-box")).PaddingEnd(24).Children(func() {
-			label := i18n.T(c, "git_commit_message")
-			ui.TextAreaBase(c.Key("message"), &v.commit).Placeholder(label).Label(label).FillWidth().Height(h).FontSize(14)
-			kit.IconButton(c.Key("expand"), icons.Maximize, i18n.T(c, "git_expand_commit"), 20, v.tall).
-				Absolute().Top(0).Right(0).OnClick(func() { v.tall = !v.tall })
+		entry := ui.Column(c.Key("entry")).Gap(8)
+		if line {
+			entry.Row().AlignItems(ui.Center)
+		}
+		entry.Children(func() {
+			box := ui.Row(c.Key("message-box")).PaddingEnd(24)
+			if line {
+				box.Grow(1).Shrink(1).MinWidth(0)
+			}
+			box.Children(func() {
+				label := i18n.T(c, "git_commit_message")
+				area := ui.TextAreaBase(c.Key("message"), &v.commit).Placeholder(label).Label(label).FillWidth().Height(h).FontSize(14)
+				top := float32(0)
+				if line {
+					area.PaddingY(6)
+					top = 6
+				}
+				kit.IconButton(c.Key("expand"), icons.Maximize, i18n.T(c, "git_expand_commit"), 20, v.tall).
+					Absolute().Top(top).Right(0).OnClick(func() { v.tall = !v.tall })
+			})
+			head := pr.gitHasHead()
+			can := pr.gitCanCommit() && strings.TrimSpace(v.commit) != "" && (v.amend && head || !v.amend && len(pr.Data.Changes) > 0)
+			kit.SplitButton(c.Key("commit"), "git-commit-"+pr.ID, i18n.T(c, "git_commit"), i18n.T(c, "more"),
+				kit.SplitProps{Icon: icons.Check, Disabled: !can, Fill: !line}, func(m *kit.Menu) { fill(c, m, g.commitSplit()) }).
+				OnClick(func() { pr.commit(c, "auto", v.amend, v.signoff, v.after) })
 		})
-		head := pr.gitHasHead()
-		can := pr.gitCanCommit() && strings.TrimSpace(v.commit) != "" && (v.amend && head || !v.amend && len(pr.Data.Changes) > 0)
-		kit.SplitButton(c.Key("commit"), "git-commit-"+pr.ID, i18n.T(c, "git_commit"), i18n.T(c, "more"),
-			kit.SplitProps{Icon: icons.Check, Disabled: !can, Fill: true}, func(m *kit.Menu) { fill(c, m, g.commitSplit()) }).
-			OnClick(func() { pr.commit(c, "auto", v.amend, v.signoff, v.after) })
 	})
 }
 
@@ -432,83 +463,6 @@ func (pr *Project) gitKeys(c *ui.Context, e ui.Element) {
 			v.chord, v.second = false, true
 		}
 	})
-}
-
-// history is the commits, newest first (view.js history): a track with
-// a dot, the subject, and the short id, author and branch.
-func (pr *Project) history(c *ui.Context, own bool) {
-	p := theme.Of(c)
-	v := &pr.Git
-	repo := &pr.Data.Repo
-	if pr.Actions != nil && v.log.Loading && len(repo.Commits) == 0 {
-		ui.Column(c).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
-		return
-	}
-	if len(repo.Commits) == 0 {
-		kit.Result(c, kit.ResultProps{Icon: icons.Clock, Title: i18n.T(c, "git_history_empty")}).Grow(1).Justify(ui.Center)
-		return
-	}
-	ui.Scroll(c.Key("history")).TrackScroll(scroll(&v.history, own)).Grow(1).Padding(8).Children(func() {
-		for _, cm := range repo.Commits {
-			subject, _, _ := strings.Cut(cm.Message, "\n")
-			b := ui.ButtonBase(c.Key(cm.ID)).Label(subject).FillWidth().PaddingX(8).Gap(8).Radius(p.Radius).
-				Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-			switch {
-			case v.commitID == cm.ID:
-				b.Background(p.Hover).TextColor(p.HoverForeground).AccessSelected(true)
-			case b.Hovered():
-				b.TextColor(p.Foreground)
-			}
-			b.Children(func() {
-				ui.Column(c.Key("track")).Width(12).MinHeight(40).AlignSelf(ui.Stretch).Shrink(0).Center().Children(func() {
-					ui.Box(c).Absolute().Left(5.5).Top(0).Bottom(0).Width(1).Background(p.MutedForeground)
-					ui.Box(c).Size(8, 8).Radius(4).Background(p.MutedForeground)
-				})
-				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).PaddingY(6).Children(func() {
-					ui.Text(c, subject).FontSize(14).SingleLine()
-					ui.Row(c).Gap(8).MinWidth(0).TextColor(p.MutedForeground).Children(func() {
-						field := func(icon *ui.SVG, value string, shrink float32) {
-							ui.Row(c).Gap(4).MinWidth(0).Shrink(shrink).Children(func() {
-								ui.Icon(c, icon).FontSize(12).Shrink(0)
-								ui.Text(c, value).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
-							})
-						}
-						field(icons.Hash, cm.ID[:min(8, len(cm.ID))], 0)
-						field(icons.User, cm.Author, 1)
-						if branch := commitBranch(cm, repo.Branch); branch != "" {
-							field(icons.GitBranch, branch, 1)
-						}
-					})
-				})
-			}).OnClick(func() {
-				v.commitID = cm.ID
-				if pr.Actions != nil && pr.Actions.ReadCommit != nil {
-					pr.Actions.ReadCommit(cm.ID)
-				}
-			})
-		}
-	})
-	if pr.Actions != nil {
-		if v.log.Partial {
-			ui.Text(c, i18n.T(c, "git_history_partial")).FontSize(12).Padding(8).TextColor(p.MutedForeground)
-		}
-		if v.log.Previous || v.log.Next {
-			ui.Row(c.Key("history-pages")).PaddingX(8).Gap(4).Children(func() {
-				ui.Textf(c, "%d–%d", v.log.Offset+1, v.log.Offset+uint64(len(repo.Commits))).FontSize(12).TextColor(p.MutedForeground).Grow(1)
-				kit.IconButton(c.Key("previous"), icons.ChevronLeft, i18n.T(c, "artifact_previous_page"), 28, false).Disabled(!v.log.Previous || v.log.Loading).OnClick(func() {
-					if pr.Actions.GitHistory != nil {
-						pr.Actions.GitHistory(false)
-					}
-				})
-				ui.Textf(c, "%d", v.log.Offset/100+1).FontSize(12)
-				kit.IconButton(c.Key("next"), icons.ChevronRight, i18n.T(c, "artifact_next_page"), 28, false).Disabled(!v.log.Next || v.log.Loading).OnClick(func() {
-					if pr.Actions.GitHistory != nil {
-						pr.Actions.GitHistory(true)
-					}
-				})
-			})
-		}
-	}
 }
 
 // commitBranch is the local branch at a commit, the current one first.
@@ -601,10 +555,10 @@ func (pr *Project) combined(c *ui.Context) {
 					old, new := ch.Texts()
 					metadata := v.diffStates["all/"+ch.Path]
 					if metadata.Binary {
-						ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
+						ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 					} else {
 						kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
-							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true})
+							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true, Split: pr.diffSplit(c)})
 						if metadata.Partial {
 							ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 						}
@@ -613,5 +567,5 @@ func (pr *Project) combined(c *ui.Context) {
 			})
 		}
 	})
-	status(c, i18n.T(c, "git_all_changes"), func() { stats(c, p, add, del) })
+	pr.diffStatus(c, i18n.T(c, "git_all_changes"), func() { stats(c, p, add, del) })
 }

@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -249,20 +253,212 @@ func TestGitPage(t *testing.T) {
 			t.Fatalf("committing does not tell the preview: %q", tt.Texts())
 		}
 	})
-	// The history lists the commits with their id, author and branch.
+	// The history is a graph: each commit's subject and short ID, the names
+	// at it, and a row over it that says the rest and takes the click.
 	t.Run("History", func(t *testing.T) {
-		_, tt := pageTester(t, Changes)
+		pr, tt := pageTester(t, Changes)
 		if err := tt.Click(en("git_view_history")); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		for _, s := range []string{"Port the Git panel's grouped changes", "9f2c41ab", "Ada Chen", "split-view"} {
+		for _, s := range []string{"Port the Git panel's grouped changes", "9f2c41a", "Merge branch 'split-view'"} {
 			if !tt.HasText(s) {
 				t.Fatalf("the history has no %q: %q", s, tt.Texts())
 			}
 		}
+		if _, ok := tt.AccessByRole(ui.RoleList, en("git_view_history")); !ok {
+			t.Fatalf("the history is not the graph: %q", tt.Texts())
+		}
+		// At the list's first width the author, the age and the names are
+		// left to the tooltip, which also describes the row.
+		if row, _ := tt.AccessByRole(ui.RoleOption, "Port the Git panel's grouped changes"); row.Description != "Port the Git panel's grouped changes\n9f2c41ab · Ada Chen · 40 min ago · main" {
+			t.Fatalf("the row's tooltip %q", row.Description)
+		}
 		shot(t, tt, "git-history")
+		// A click chooses the commit and reads its changes.
+		var read string
+		var sent GitAction
+		pr.Actions = &Actions{ReadCommit: func(id string) { read = id }, Git: func(_ *ui.Context, a GitAction) { sent = a }}
+		pr.SetGitState(GitState{Known: true, Kind: "repository", Head: true})
+		tt.Frame()
+		merge := pr.Data.Repo.Commits[1]
+		mergeRow := func() ui.AccessInfo {
+			row, _ := tt.AccessByRole(ui.RoleOption, "Merge branch 'split-view'")
+			return row
+		}
+		clickRole(t, tt, ui.RoleOption, "Merge branch 'split-view'", 0)
+		if row := mergeRow(); pr.Git.commitID != merge.ID || read != merge.ID || !row.Selected {
+			t.Fatalf("chosen %q, read %q, selected %v", pr.Git.commitID, read, row.Selected)
+		}
+		// The right-click menu is the system's and acts at the commit.
+		menu := func(item string) {
+			t.Helper()
+			row := mergeRow()
+			tt.RightClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+			if err := tt.ChooseMenuItem(en(item)); err != nil {
+				t.Fatalf("%v: %q", err, tt.Menu())
+			}
+			tt.Frame()
+			tt.Advance(300 * time.Millisecond)
+			tt.Frame()
+		}
+		menu("git_copy_commit_id")
+		if got := tt.Clipboard(); got != merge.ID {
+			t.Fatalf("copied %q", got)
+		}
+		menu("git_cherry_pick")
+		if cf := pr.Git.confirm; !cf.open || cf.message != en("git_cherry_pick_confirm") || cf.target != "e5a31c7f Merge branch 'split-view'" {
+			t.Fatalf("the confirmation %+v", cf)
+		}
+		clickRole(t, tt, ui.RoleButton, en("git_cherry_pick"), 0)
+		if sent.Kind != "git_cherry_pick" || sent.Target != merge.ID {
+			t.Fatalf("sent %+v", sent)
+		}
+		// The list grows at its end while the repository has more commits.
+		more := 0
+		pr.Actions.GitHistory = func() { more++ }
+		pr.SetGitHistory(GitHistoryState{Next: true})
+		tt.Frame()
+		clickRole(t, tt, ui.RoleButton, en("files_load_more"), 0)
+		pr.SetGitHistory(GitHistoryState{Next: true, Loading: true})
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("files_load_more")); more != 1 || ok {
+			t.Fatalf("Load more read %d times, shown while reading %v", more, ok)
+		}
+		pr.SetGitHistory(GitHistoryState{})
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("files_load_more")); ok {
+			t.Fatal("Load more shows with nothing more to read")
+		}
+		// A Node that sends no parents has the plain list, with the same rows.
+		pr.Data.Repo.Commits[2].Parents = nil
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleList, en("git_view_history")); ok || !tt.HasText("Ada Chen") || !tt.HasText("9f2c41ab") {
+			t.Fatalf("no plain list without parents: %q", tt.Texts())
+		}
 	})
+	// A row takes its click in the frame the history first shows: the
+	// graph's arrival moves the graph's own rows, not the ones over them.
+	t.Run("HistoryClickAtOnce", func(t *testing.T) {
+		pr, tt := pageTester(t, Changes)
+		pr.Git.view = 1
+		tt.Frame()
+		row, ok := tt.AccessByRole(ui.RoleOption, "Merge branch 'split-view'")
+		if !ok {
+			t.Fatalf("no row in the first frame: %q", tt.Texts())
+		}
+		tt.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+		tt.Frame()
+		if pr.Git.commitID != pr.Data.Repo.Commits[1].ID {
+			t.Fatalf("the click chose %q", pr.Git.commitID)
+		}
+	})
+	// Lanes keep every line the graph draws ending at a dot; the names at
+	// a commit are ordered and cut to the room.
+	t.Run("HistoryLanes", func(t *testing.T) {
+		commit := func(id string, parents ...string) preview.Commit {
+			return preview.Commit{ID: id, Parents: append([]string{}, parents...)}
+		}
+		for _, o := range []struct {
+			name    string
+			commits []preview.Commit
+			want    []int
+		}{
+			{"line", []preview.Commit{commit("c", "b"), commit("b", "a"), commit("a")}, []int{0, 0, 0}},
+			{"merge", []preview.Commit{commit("m", "a", "b"), commit("a", "r"), commit("b", "r"), commit("r")}, []int{0, 0, 1, 0}},
+			{"two heads", []preview.Commit{commit("x", "r"), commit("y", "r"), commit("r")}, []int{0, 1, 0}},
+			{"parent beyond the page", []preview.Commit{commit("m", "a", "gone"), commit("a", "far"), commit("z", "far")}, []int{0, 0, 1}},
+			{"lines that leave the list keep their lanes", []preview.Commit{commit("x", "far"), commit("y", "far"), commit("z")}, []int{0, 1, 2}},
+			{"a freed lane is taken again", []preview.Commit{commit("m", "a", "b"), commit("b", "a"), commit("a", "r"), commit("n", "r", "q"), commit("q", "r"), commit("r")}, []int{0, 1, 0, 1, 1, 0}},
+		} {
+			if got, ok := graphLanes(o.commits); !ok || !slices.Equal(got, o.want) {
+				t.Errorf("%s: lanes %v (%v), want %v", o.name, got, ok, o.want)
+			}
+		}
+		if _, ok := graphLanes([]preview.Commit{commit("b", "a"), {ID: "a"}}); ok {
+			t.Error("lanes for a commit whose parents are not known")
+		}
+		refs := []string{"remotes/origin/main", "tags/v1", "heads/topic", "HEAD", "heads/main", "heads/main"}
+		if got := refLabels(refs, "main"); !slices.Equal(got, []string{"main", "v1", "topic", "origin/main"}) {
+			t.Errorf("names %q", got)
+		}
+		if got := refLabels([]string{"HEAD", "tags/v1"}, ""); !slices.Equal(got, []string{"HEAD", "v1"}) {
+			t.Errorf("detached names %q", got)
+		}
+		labels := []string{"feature/rate-limit", "v2", "origin/feature/rate-limit"}
+		for _, o := range []struct {
+			room float32
+			most int
+			want []string
+		}{{400, 3, labels}, {180, 3, []string{"feature/rate-limit", "v2"}}, {210, 3, []string{"feature/rate-limit", "v2", "+1"}},
+			{100, 3, []string{"feature/rat…"}}, {50, 3, nil}, {400, 1, []string{"feature/rate-limit", "+2"}}, {140, 1, []string{"feature/rate-limit"}}} {
+			if got := fitRefs(labels, o.room, o.most); !slices.Equal(got, o.want) {
+				t.Errorf("room %v, at most %d: names %q, want %q", o.room, o.most, got, o.want)
+			}
+		}
+	})
+	// The button at the end of a diff's footer chooses unified or side by
+	// side for every diff of the window; no row heads a diff.
+	t.Run("DiffLayout", testDiffFooter)
+	// The list beside its document or above it, by the host's width.
+	t.Run("Layout", testLayout)
+	t.Run("EmptyCentred", testEmptyCentred)
+	// The review's frames, written only when $SAILRY_SNAPSHOTS names a
+	// folder: the demo repository's history as a graph, at the list's first
+	// width and widened, and a change's diff unified and split, at 2x in
+	// both appearances.
+	t.Run("Snapshots", func(t *testing.T) {
+		if os.Getenv("SAILRY_SNAPSHOTS") == "" {
+			t.Skip("SAILRY_SNAPSHOTS is not set")
+		}
+		for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+			name := map[theme.Mode]string{theme.Light: "light", theme.Dark: "dark"}[mode]
+			pr := NewProjects(preview.Demo("en", "local").Workspace).Of("harbor-api")
+			split := false
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				theme.Apply(c, "", mode)
+				kit.BindDiffSplit(c, &split)
+				ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { Page(c, Changes, pr, func() {}) })
+			}, 1180, 760, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
+			tt.SetLocale("en")
+			tt.SetScale(2)
+			rest := func() {
+				tt.Frame()
+				tt.Advance(2 * time.Second)
+				tt.Frame()
+			}
+			pr.Git.view, pr.Git.commitID = 1, pr.Data.Repo.Commits[1].ID
+			rest()
+			shot(t, tt, "git-history-graph-"+name)
+			pr.Git.side = sideMax
+			rest()
+			shot(t, tt, "git-history-graph-wide-"+name)
+			// A history longer than one read of the Node (100 commits): a
+			// branch merged above the hundredth commit and forked below it,
+			// so its lane runs across where the second read begins.
+			demo := pr.Data.Repo.Commits
+			pr.Data.Repo.Commits = longHistory()
+			pr.Git.commitID = ""
+			rest()
+			list, _ := tt.AccessByRole(ui.RoleListBox, en("git_view_history"))
+			tt.Wheel(list.Bounds.X+40, list.Bounds.Y+200, 0, 92*36)
+			tt.Move(8, 400)
+			rest()
+			shot(t, tt, "git-history-graph-continued-"+name)
+			pr.Data.Repo.Commits = demo
+			pr.Git.side, pr.Git.view = sideWidth, 0
+			pr.showChange("internal/booking/reserve.go", "all")
+			rest()
+			shot(t, tt, "git-diff-unified-"+name)
+			split = true
+			rest()
+			shot(t, tt, "git-diff-split-"+name)
+			pr.showChange(allChanges, "all")
+			rest()
+			shot(t, tt, "git-diff-split-all-"+name)
+		}
+	})
+	t.Run("LayoutSnapshots", layoutShots)
 	// Ctrl+G then Down pulls, which the preview only tells. The key after
 	// Ctrl+G completes the chord or drops it: a Down the list took, or one
 	// pressed after another key, does not pull later.
@@ -421,4 +617,41 @@ func TestFileTree(t *testing.T) {
 			t.Fatalf("Enter showed %q", v.File())
 		}
 	})
+}
+
+// longHistory is 130 commits of a main line with a branch merged at the
+// 96th and forked from the 108th: its commits lie on both sides of the
+// hundredth, where the Node's second page begins.
+func longHistory() []preview.Commit {
+	id := func(kind string, n int) string {
+		sum := sha1.Sum(fmt.Append(nil, kind, n))
+		return hex.EncodeToString(sum[:8])
+	}
+	var out []preview.Commit
+	add := func(hash, message string, refs []string, parents ...string) {
+		out = append(out, preview.Commit{ID: hash, Message: message, Author: "Maya Lindqvist", Refs: refs,
+			Time: preview.Now.Add(-time.Duration(len(out)+1) * 3 * time.Hour), Parents: parents})
+	}
+	for n := 0; len(out) < 130; n++ {
+		switch {
+		case n == 95:
+			add(id("a", n), "Merge branch 'feature/export'", nil, id("a", n+1), id("b", 0))
+			for k := 0; k < 6; k++ {
+				add(id("a", n+1+k), fmt.Sprintf("Tune query %d of the report", k+1), nil, id("a", n+2+k))
+				parent := id("b", k+1)
+				if k == 5 {
+					parent = id("a", n+7)
+				}
+				var refs []string
+				if k == 0 {
+					refs = []string{"heads/feature/export"}
+				}
+				add(id("b", k), fmt.Sprintf("Export step %d", 6-k), refs, parent)
+			}
+			n += 6
+		default:
+			add(id("a", n), fmt.Sprintf("Change %d of the service", 130-n), nil, id("a", n+1))
+		}
+	}
+	return out
 }

@@ -503,6 +503,7 @@ for that concept, at the same sizes and tokens:
 | `CardRow`, `CardSummary` | a frosted card at Kit's row metrics (`RowPad`, `RowMinHeight`, `RowFont`, `TitleGap`) |
 | `SegmentedTabs` | `kit.Segmented` (`fill` is `Block`) |
 | `EmptyState`, empty `CardList`, empty `DataTable` | `kit.Result` (`Card` for the dashed list card) |
+| `DataTable` rows | MyGo `ui.Table` under `theme.Neutral`: a chosen row takes the neutral selected fill, not the accent |
 | loading `CardList` | a card of `kit.Skeleton` lines |
 | `ModelPopup` trigger | `kit.SecondaryLook`, full width, title and caret |
 | `Button` | `kit.Secondary`; `primary`, `danger` and `ghost` variants are `kit.Primary`, `kit.Danger`, `kit.Ghost`; sizes 20, 24, 32, 36 |

@@ -30,13 +30,16 @@ type connectionFixtureTransport struct {
 	gate      chan struct{}
 	conflict  bool
 	uncertain bool
-	specs     map[protocol.StreamID]protocol.SshUploadSpec
-	uploaded  map[protocol.StreamID][]byte
-	outcomes  map[protocol.RequestID]protocol.Output
-	remote    map[string][]byte
-	listings  map[string][]protocol.FileEntry
-	downloads map[protocol.StreamID][]byte
-	admitted  chan struct{}
+	// interrupted: the Node restarted while a publication ran, so it can
+	// never tell what the request did.
+	interrupted bool
+	specs       map[protocol.StreamID]protocol.SshUploadSpec
+	uploaded    map[protocol.StreamID][]byte
+	outcomes    map[protocol.RequestID]protocol.Output
+	remote      map[string][]byte
+	listings    map[string][]protocol.FileEntry
+	downloads   map[protocol.StreamID][]byte
+	admitted    chan struct{}
 }
 
 func newConnectionFixtureTransport(snapshot protocol.Snapshot) *connectionFixtureTransport {
@@ -144,6 +147,9 @@ func (f *connectionFixtureTransport) Dispatch(ctx context.Context, request proto
 		outcome := protocol.RequestOutcome{Kind: "not_admitted"}
 		if output, exists := f.outcomes[input.ID]; exists {
 			outcome = protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &output}}
+			if f.interrupted {
+				outcome = protocol.RequestOutcome{Kind: "unknown"}
+			}
 		}
 		response.Output = protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: input.ID, Outcome: outcome}}
 	case "cancel_file_transfer":
@@ -348,6 +354,57 @@ func testSshTransferBridge(t *testing.T) {
 		settle(t, f, ids[0], stage("done"))
 		if finishes, inspections, stages := f.transport.count("finish_ssh_upload"), f.transport.count("inspect_request"), f.transport.count("stage_ssh_upload"); finishes != 1 || inspections != 1 || stages != 1 {
 			t.Fatal("outcome inspection replayed staged IO", finishes, inspections, stages)
+		}
+	})
+	t.Run("an outcome the Node can never tell ends the request", func(t *testing.T) {
+		f := start(t)
+		f.transport.uncertain, f.transport.interrupted = true, true
+		ids, _ := f.store.insertUploads(f.access, "/srv", []string{source(t)})
+		if err := f.store.action(ids[0], "start"); err != nil {
+			t.Fatal(err)
+		}
+		settle(t, f, ids[0], func(value map[string]any) bool { return value["stage"] == "uncertain" && value["can_check"] == true })
+		if err := f.store.action(ids[0], "check"); err != nil {
+			t.Fatal(err)
+		}
+		// Said once as uncertain, with nothing left to check: the job can
+		// only be started again, under a new request.
+		final := settle(t, f, ids[0], func(value map[string]any) bool { return value["stage"] == "uncertain" && value["can_check"] == false })
+		if final["can_start"] != true || final["can_replace"] != false {
+			t.Fatalf("a final unknown upload = %+v", final)
+		}
+		if err := f.store.action(ids[0], "check"); err == nil {
+			t.Fatal("a released publication was checked again")
+		}
+		if inspections := f.transport.count("inspect_request"); inspections != 1 {
+			t.Fatalf("%d inspections of a final outcome", inspections)
+		}
+		f.transport.mu.Lock()
+		first := f.transport.requests[len(f.transport.requests)-2].ID
+		f.transport.uncertain, f.transport.interrupted = false, false
+		f.transport.mu.Unlock()
+		if err := f.store.action(ids[0], "start"); err != nil {
+			t.Fatal(err)
+		}
+		settle(t, f, ids[0], stage("done"))
+		f.transport.mu.Lock()
+		last := f.transport.requests[len(f.transport.requests)-1]
+		f.transport.mu.Unlock()
+		if last.Command.Kind != "finish_ssh_upload" || last.ID == first {
+			t.Fatalf("the new attempt sent %s as request %v, the released one was %v", last.Command.Kind, last.ID, first)
+		}
+
+		// The shared check of attachments, uploads and installations reads
+		// the same answer: released, so its owner drops the request.
+		f.transport.mu.Lock()
+		f.transport.interrupted = true
+		f.transport.mu.Unlock()
+		_, err := f.runtime.retryAttachmentRequest(f.ctx, last)
+		if !client.Released(err) || faultCode(err) != protocol.ErrorCodeOutcomeUnknown || attachmentRequestUncertain(err) {
+			t.Fatalf("a final unknown publication = %v, released %t, kept %t", err, client.Released(err), attachmentRequestUncertain(err))
+		}
+		if finishes := f.transport.count("finish_ssh_upload"); finishes != 2 {
+			t.Fatalf("the check sent the publication again: %d", finishes)
 		}
 	})
 	t.Run("existing destination waits for replace", func(t *testing.T) {

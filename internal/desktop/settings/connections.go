@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ELY-Open-Source/CrychicUI/feedback"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -220,17 +221,18 @@ func devices(c *ui.Context, m *Model, execution bool) {
 				})
 				ui.Row(c).Shrink(0).Gap(12).Children(func() {
 					if d.Online && !d.Local && d.RTT > 0 {
-						ui.Textf(c, "%d ms", d.RTT).FontSize(14).TextColor(p.MutedForeground)
+						// The size of the status beside it, which is the library's.
+						ui.Textf(c, "%d ms", d.RTT).FontSize(c.Theme().Rem(0.85)).TextColor(p.MutedForeground)
 					}
-					status := deviceStatus(d)
-					tone := kit.Neutral
+					// CrychicUI's status, as the host page's header: the dot
+					// in the success color for a device that is reachable
+					// and muted for one that is not, beside the label.
+					text, state := i18n.T(c, deviceStatus(d)), feedback.Offline
 					if d.Online {
-						tone = kit.Positive
+						state = feedback.Online
 					}
-					ui.Row(c).Gap(8).Children(func() {
-						kit.StatusDot(c, tone, i18n.T(c, status)).Size(6, 6)
-						ui.Text(c, i18n.T(c, status)).FontSize(14).TextColor(p.MutedForeground)
-					})
+					feedback.ConnectionStatus(c.Key("status"), state, feedback.ConnectionStatusOptions{Online: text, Reconnecting: text, Offline: text}).
+						Shrink(0).AlignSelf(ui.Center).AlignItems(ui.Center).TextColor(p.MutedForeground)
 					ui.Row(c).Width(28).Justify(ui.End).Children(func() {
 						if d.Local {
 							return

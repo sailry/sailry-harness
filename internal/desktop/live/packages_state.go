@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -44,6 +45,7 @@ type packageState struct {
 	tasks              []protocol.InstallationTask
 	connected          bool
 	observing          bool
+	preparations       []settings.PythonPreparation
 	queue              transfers.Queue
 	pythonRead         bool
 	pythonRevision     uint64
@@ -230,6 +232,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		}
 		root.packages.selectedNode = node
 		r.App.Settings.Python, r.App.Settings.PythonVersion = owner.packages.pythonDraft, owner.packages.pythonVersion
+		r.App.Settings.PythonPreparing = owner.packages.preparations
 		root.App.Settings.MarketPlugins, root.App.Settings.MarketSkills = nil, nil
 		owner.packages.marketKey = ""
 		root.App.Settings.CloseDetails()
@@ -238,6 +241,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	owner.projectPackages()
 	if !owner.packages.observing {
 		owner.observeInstallations()
+		owner.observePython()
 	}
 	if !owner.packages.pythonRead {
 		owner.readPython()
@@ -305,6 +309,9 @@ func (r *Runtime) projectPackages() {
 					if candidate, ok := detail[protocol.PluginInfo](report.Available.Data); ok {
 						view.Latest = stringValue(candidate.Summary.Version)
 						view.Notes = packageReleaseNotes(candidate.ReleaseNotes, r.packageLocale())
+						if candidate.Extension != nil {
+							view.AddedPermissions = addedPermissions(info.Extension, candidate.Extension.Actions)
+						}
 						if len(candidate.Versions) != 0 {
 							view.Versions = packageView(candidate, r.packageLocale()).Versions
 						}
@@ -313,6 +320,7 @@ func (r *Runtime) projectPackages() {
 					if candidate, ok := detail[protocol.PluginCatalogEntry](report.Available.Data); ok {
 						view.Latest = stringValue(candidate.Version)
 						view.Notes = packageReleaseNotes(candidate.ReleaseNotes, r.packageLocale())
+						view.AddedPermissions = addedPermissions(info.Extension, candidate.Permissions)
 						applyPackageCatalog(&view, candidate, r.packageLocale())
 					}
 				}
@@ -406,6 +414,18 @@ func packageOrigin(info protocol.PluginInfo) string {
 	return "market_details_source_local"
 }
 
+// addedPermissions are the labels of the actions an update asks that the
+// installed package does not have.
+func addedPermissions(installed *protocol.PluginExtension, candidate []protocol.PluginAction) []string {
+	var added []string
+	for _, action := range candidate {
+		if label, known := packagePermissionLabels[action]; known && (installed == nil || !slices.Contains(installed.Actions, action)) {
+			added = append(added, label)
+		}
+	}
+	return added
+}
+
 func packageView(info protocol.PluginInfo, locale string) viewmodel.Package {
 	summary := info.Summary
 	view := viewmodel.Package{ID: summary.Name, Name: summary.Name, Description: stringValue(summary.Description), Version: stringValue(summary.Version), Enabled: summary.Enabled, Installed: summary.Revision != 0, Source: packageOrigin(info)}
@@ -481,6 +501,13 @@ func (r *Runtime) readPackage(name, version string, done func(bool)) {
 			} else {
 				r.packages.failures[name] = version
 				r.packageReport(c, err)
+				var released *string
+				for _, summary := range r.snapshot().Plugins {
+					if summary.Name == name {
+						released = summary.Version
+					}
+				}
+				r.reportDiagnostic(pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginMetadata, faultCode(err), name, released, "metadata_read", protocol.PluginContext{}))
 			}
 			if done != nil {
 				done(err == nil)
@@ -558,10 +585,12 @@ func (r *Runtime) packageCommandReport(command protocol.Command, failed string, 
 		r.packages.requests[request.ID.String()] = request
 	}
 	r.async(func() {
-		output, err := r.controller.Execute(r.ctx, request)
+		// An unobserved outcome is resolved by its request, which is kept
+		// only while the Node still runs it or cannot be asked.
+		output, err := r.controller.Settle(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, "packages/"+key)
-			if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			if client.Retained(err) {
 				r.packages.pending[key] = request
 			} else {
 				delete(r.packages.pending, key)

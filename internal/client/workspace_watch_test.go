@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -91,6 +92,68 @@ func TestSharedWorkspaceAndCommandOwners(t *testing.T) {
 				}
 			} else if _, ok := controller.Workspace(worktree, kind == "repository"); ok {
 				t.Fatal("unobserved workspace watch was retained")
+			}
+		})
+	}
+	for _, kind := range []string{"files", "commands"} {
+		t.Run("a "+kind+" watch that ended is replaced", func(t *testing.T) {
+			ended := &clientSubscription{updates: make(chan protocol.Update, 4), closed: make(chan struct{})}
+			transport := &sharedResourceTransport{subscription: ended}
+			controller := New(transport)
+			defer controller.Close()
+			worktree, session := protocol.NewWorktreeID(), protocol.NewSessionID()
+			observe := func(ch chan struct{}) (func(), error) {
+				if kind == "commands" {
+					return controller.ObserveCommands(context.Background(), session, func() { ch <- struct{}{} })
+				}
+				return controller.ObserveWorkspace(context.Background(), worktree, false, func(protocol.Update) { ch <- struct{}{} })
+			}
+			state := func() (connected bool, failure error) {
+				if kind == "commands" {
+					state, _ := controller.Commands(session)
+					return state.Connected, state.Err
+				}
+				state, _ := controller.Workspace(worktree, false)
+				return state.Connected, state.Err
+			}
+			update := func(worktree protocol.WorktreeID, session protocol.SessionID) protocol.Update {
+				if kind == "commands" {
+					return protocol.Update{Kind: "commands", Data: protocol.UpdateCommandsPayload{Node: transport.Target(), Session: session}}
+				}
+				return protocol.Update{Kind: "files_changed", Data: protocol.UpdateFilesChangedPayload{Node: transport.Target(), Worktree: worktree}}
+			}
+			one, two := make(chan struct{}, 8), make(chan struct{}, 8)
+			releaseOne, err := observe(one)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer releaseOne()
+			// An update for another resource is no transient failure: the
+			// watch reports it and ends, once on the failure and once on
+			// leaving.
+			ended.updates <- update(protocol.NewWorktreeID(), protocol.NewSessionID())
+			<-one
+			<-one
+			if connected, failure := state(); connected || failure == nil {
+				t.Fatalf("ended watch is connected %v, failure %v", connected, failure)
+			}
+			current := &clientSubscription{updates: make(chan protocol.Update, 4), closed: make(chan struct{})}
+			transport.muResource.Lock()
+			transport.subscription = current
+			transport.muResource.Unlock()
+			releaseTwo, err := observe(two)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer releaseTwo()
+			current.updates <- update(worktree, session)
+			select {
+			case <-two:
+			case <-time.After(5 * time.Second):
+				t.Fatal("an observer joined a watch that had ended")
+			}
+			if connected, failure := state(); !connected || failure != nil {
+				t.Fatalf("new watch is connected %v, failure %v", connected, failure)
 			}
 		})
 	}

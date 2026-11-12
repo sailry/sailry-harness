@@ -279,6 +279,17 @@ func (s *State) arrange(c *ui.Context) {
 	if s.row < 0 {
 		s.current = ""
 	}
+	// A new order keeps the chosen entry in view, or starts at its top with
+	// none: the list would otherwise follow the row that was first.
+	if s.sort != s.sorted {
+		s.sorted = s.sort
+		switch {
+		case s.row >= 0:
+			s.list.ScrollIntoView(s.row)
+		case len(s.rows) > 0:
+			s.list.ScrollTo(0, ui.Start)
+		}
+	}
 	if s.chosen.Len() > 0 {
 		shown := make(map[string]bool, len(s.rows))
 		for _, i := range s.rows {
@@ -635,10 +646,10 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 					}
 					dim(e, cell)
 					cell.Children(func() {
-						tile(c, e, 44)
-						// Two lines keep a long name's start and its end, the
-						// extension; the tip has the rest.
-						kit.Tooltip(c, ui.Text(c, e.Name).FontSize(12).MaxLines(2).TruncateMiddle().TextAlign(ui.Center), e.Name)
+						tile(c, e, 36)
+						// Two lines within the cell keep a long name's start
+						// and its end, the extension; the tip has the rest.
+						kit.Tooltip(c, ui.Text(c, e.Name).FontSize(12).FillWidth().MinWidth(0).MaxLines(2).TruncateMiddle().TextAlign(ui.Center), e.Name)
 					})
 				}).Grow(1).Padding(8)
 			} else {
@@ -666,7 +677,7 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 						cell := ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center)
 						dim(e, cell)
 						cell.Children(func() {
-							tile(c, e, 20)
+							tile(c, e, 16)
 							name := ui.Text(c, e.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
 							if on(row) {
 								name.FontWeight(600)

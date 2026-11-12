@@ -69,10 +69,44 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 }
 
 // flagged is whether a row takes the warning color: a denied,
-// interrupted or unexecuted call. Only a failed call (Failed: the call
-// itself did not run) is red; an error the tool returned from a call that
-// ran (Warning without a state) reads as a plain row with its error line.
-func flagged(call Call) bool { return call.Warning && call.State != StateNone }
+// interrupted or unexecuted call, or one whose background command ended
+// badly. Only a failed call (Failed: the call itself did not run) is red;
+// an error the tool returned from a call that ran (Warning without a state)
+// reads as a plain row with its error line.
+func flagged(call Call) bool {
+	return call.Warning && call.State != StateNone || backgroundFailed(call.Background)
+}
+
+// backgroundFailed is a background command that did not end well: it
+// failed, timed out, was lost or ended unconfirmed. One the user stopped
+// reads plain.
+func backgroundFailed(b *Background) bool {
+	if b == nil || b.Running {
+		return false
+	}
+	switch b.Outcome {
+	case OutcomeFailed, OutcomeTimedOut, OutcomeInterrupted, OutcomeUnknown:
+		return true
+	}
+	return false
+}
+
+// backgroundText is the state of a call's background command: running, or
+// how it ended, a failed command's exit code, and that its result has not
+// reached the model yet.
+func backgroundText(c *ui.Context, b *Background) string {
+	if b.Running {
+		return i18n.T(c, "background_running")
+	}
+	text := i18n.T(c, outcomeKey(b.Outcome))
+	if b.Exit != nil && b.Outcome == OutcomeFailed {
+		text = i18n.T(c, "background_exit", "code", *b.Exit)
+	}
+	if b.Waiting {
+		text += " · " + i18n.T(c, "background_result_waiting")
+	}
+	return text
+}
 
 // stateText is the state a row names after its detail; pending and failed
 // rows say it by color instead.
@@ -151,6 +185,9 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	st := stateText(c, call.State)
 	if call.note != "" {
 		st = call.note
+	}
+	if st == "" && call.Background != nil {
+		st = backgroundText(c, call.Background)
 	}
 	if st != "" {
 		level(c, ui.Text(c, st).FontSize(size).SingleLine().Shrink(0).TextColor(color), size, call.wrap)

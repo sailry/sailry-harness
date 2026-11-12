@@ -88,7 +88,7 @@ func TestQueueStates(t *testing.T) {
 			t.Fatalf("an empty queue halts on %q", got)
 		}
 	})
-	t.Run("a halt is reported when it begins, once", func(t *testing.T) {
+	t.Run("a halt is reported once", func(t *testing.T) {
 		const interrupted, unsent = protocol.ConversationQueuePauseInterrupted, protocol.ConversationQueuePauseUnrecorded
 		r := &Runtime{}
 		for step, row := range []struct {
@@ -96,7 +96,7 @@ func TestQueueStates(t *testing.T) {
 			halt protocol.ConversationQueuePause
 			want bool
 		}{
-			{"old", interrupted, false}, // halted before this desktop read it: a restart repeats nothing
+			{"old", interrupted, true}, // halted while it was not shown: said when it is opened
 			{"old", interrupted, false},
 			{"new", "", false},
 			{"new", unsent, true},
@@ -109,6 +109,24 @@ func TestQueueStates(t *testing.T) {
 		} {
 			if got := r.haltBegan(row.id, row.halt); got != row.want {
 				t.Fatalf("step %d: %s reads %q: reported %v, want %v", step, row.id, row.halt, got, row.want)
+			}
+		}
+	})
+	t.Run("a statistics failure is reported when it begins, once", func(t *testing.T) {
+		r := &Runtime{}
+		for step, row := range []struct {
+			id           string
+			failed, want bool
+		}{
+			{"a", false, false},
+			{"a", true, true},
+			{"a", true, false}, // every later frame
+			{"b", true, true},  // failed before it was opened
+			{"a", false, false},
+			{"a", true, true}, // refreshed, and failed again
+		} {
+			if got := r.usageFailureBegan(row.id, row.failed); got != row.want {
+				t.Fatalf("step %d: %s reads %v: reported %v, want %v", step, row.id, row.failed, got, row.want)
 			}
 		}
 	})
@@ -168,6 +186,81 @@ func TestQueueStates(t *testing.T) {
 				}
 				if row.queued != (strips == 1) || row.queued != slices.Contains(tester.Texts(), "Next") {
 					t.Fatalf("%d strips drawn, texts %q", strips, tester.Texts())
+				}
+			})
+		}
+	})
+	// A command sent to the background says where it is on the row of the
+	// call that started it, so a result the Node holds is in the transcript
+	// before any turn takes it.
+	t.Run("a background command reads on its row", func(t *testing.T) {
+		completed, failed, stopped := protocol.ConversationBackgroundOutcomeCompleted, protocol.ConversationBackgroundOutcomeFailed, protocol.ConversationBackgroundOutcomeStopped
+		two, zero := int32(2), int32(0)
+		taker := protocol.TurnID{7}
+		limit := protocol.ConversationBackgroundHoldLimit
+		for _, row := range []struct {
+			name   string
+			change func(*protocol.ConversationBackgroundTask)
+			want   *conversation.Background
+		}{
+			{"running", func(task *protocol.ConversationBackgroundTask) {}, &conversation.Background{Running: true}},
+			{"finished, queue paused", func(task *protocol.ConversationBackgroundTask) {
+				task.State, task.Outcome, task.ExitCode = protocol.ConversationBackgroundStatePending, &completed, &zero
+			}, &conversation.Background{Outcome: conversation.OutcomeCompleted, Waiting: true}},
+			{"failed, held at the chain limit", func(task *protocol.ConversationBackgroundTask) {
+				task.State, task.Outcome, task.ExitCode = protocol.ConversationBackgroundStatePending, &failed, &two
+				task.Suppressed, task.Hold = true, &limit
+			}, &conversation.Background{Outcome: conversation.OutcomeFailed, Exit: new(2), Waiting: true}},
+			{"failed, delivered", func(task *protocol.ConversationBackgroundTask) {
+				task.State, task.Outcome, task.ExitCode, task.Delivery = protocol.ConversationBackgroundStateDelivered, &failed, &two, &taker
+			}, &conversation.Background{Outcome: conversation.OutcomeFailed, Exit: new(2)}},
+			{"stopped by the user", func(task *protocol.ConversationBackgroundTask) {
+				task.State, task.Outcome = protocol.ConversationBackgroundStateConsumed, &stopped
+			}, &conversation.Background{Outcome: conversation.OutcomeStopped}},
+			{"no longer listed", nil, nil},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				callID, id := "run", "command:"+protocol.NewRequestID().String()
+				page := base()
+				page.Entries = []protocol.ConversationEntry{
+					{ID: "call", Turn: ended, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "tool_call", Data: protocol.ConversationPartToolCallPayload{ID: &callID, Name: "run_command", Summary: &protocol.ToolDetailSummary{}}}}},
+					{ID: "result", Turn: ended, Author: "tool", Parts: []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{ID: &callID, Name: "run_command", Summary: &protocol.ToolDetailSummary{Task: &id}}}}},
+				}
+				// Evidence of another command and the stall evidence of this one are not its state.
+				other := protocol.DefaultConversationBackgroundTask()
+				other.ID, other.Session, other.Turn, other.State = "stall:"+strings.TrimPrefix(id, "command:"), session, ended, protocol.ConversationBackgroundStatePending
+				page.Background = []protocol.ConversationBackgroundTask{other}
+				if row.change != nil {
+					task := protocol.DefaultConversationBackgroundTask()
+					task.ID, task.Session, task.Turn, task.Title, task.State = id, session, ended, "make watch", protocol.ConversationBackgroundStateRunning
+					row.change(&task)
+					page.Background = append(page.Background, task)
+				}
+				turns, _, _, queue := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+				if len(queue) != 0 {
+					t.Fatalf("a background result is a queue row: %+v", queue)
+				}
+				var calls []conversation.Call
+				for _, turn := range turns {
+					for _, block := range turn.Reply.Blocks {
+						calls = append(calls, block.Calls...)
+					}
+				}
+				if len(calls) != 1 {
+					t.Fatalf("calls = %+v", calls)
+				}
+				got := calls[0].Background
+				if (got == nil) != (row.want == nil) {
+					t.Fatalf("background = %+v, want %+v", got, row.want)
+				}
+				if got == nil {
+					return
+				}
+				if got.Running != row.want.Running || got.Outcome != row.want.Outcome || got.Waiting != row.want.Waiting || (got.Exit == nil) != (row.want.Exit == nil) || got.Exit != nil && *got.Exit != *row.want.Exit {
+					t.Fatalf("background = %+v, want %+v", got, row.want)
+				}
+				if calls[0].Running || calls[0].Failed || calls[0].State != conversation.StateNone {
+					t.Fatalf("the call itself changed: %+v", calls[0])
 				}
 			})
 		}

@@ -85,7 +85,7 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 			p.manualDiffs = map[string]workspaceGitDiff{}
 		}
 		p.manualDiffs[key] = workspaceGitDiff{diff: diff, status: capturedStatus}
-		p.panel.SetGitDiffState(relative, scope, panel.GitDiffState{Binary: diff.Binary, Partial: diff.Truncated})
+		p.panel.SetGitDiffState(relative, scope, panel.GitDiffState{Binary: diff.Binary, Partial: diff.Truncated, Size: diff.Size})
 		if p.diffContents == nil {
 			p.diffContents = map[string][]viewmodel.Hunk{}
 		}

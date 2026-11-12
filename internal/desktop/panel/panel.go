@@ -293,14 +293,16 @@ func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(
 		}
 	}
 	pr.promptDialog(c)
+	// The page heads its main area; the panel's tabs do not.
+	page := head != nil
 	if k == Files {
-		split(c, "files", &pr.Files.side, main, func() { pr.tree(c, own, open) })
+		pr.pair(c, "files", page, &pr.Files.side, filesLeast, main, func() { pr.tree(c, own, open) })
 		return
 	}
 	box := ui.Column(c.Key("git")).Grow(1).MinHeight(0)
 	pr.gitKeys(c, box)
 	box.Children(func() {
-		split(c, "changes", &pr.Git.side, main, func() { pr.gitDetails(c, own, open) })
+		pr.pair(c, "changes", page, &pr.Git.side, gitLeast, main, func() { pr.gitDetails(c, own, open) })
 	})
 }
 
@@ -432,8 +434,51 @@ func separator(c *ui.Context) {
 
 // status is a column's 32 DIP footer: the path, and what goes after it.
 func status(c *ui.Context, path string, after func(), system ...func()) {
+	statusBar(c, path, 12, after, system...)
+}
+
+// diffStatus is a diff's footer: the path, the change's +N −M, and at the
+// far end the window's diff layout as one icon button (diffToggle). Every
+// view of a diff ends with it, a document of several diffs once.
+func (pr *Project) diffStatus(c *ui.Context, path string, counts func(), system ...func()) {
+	statusBar(c, path, 4, func() {
+		counts()
+		pr.diffToggle(c)
+	}, system...)
+}
+
+// diffSplit reports whether the host's diffs show side by side: the
+// window's choice, where the document has the width for two columns.
+func (pr *Project) diffSplit(c *ui.Context) bool { return *kit.DiffSplit(c) && !pr.narrow }
+
+// diffToggle is the window's choice between a unified diff and a
+// side-by-side one (kit.DiffSplit), named by what a press shows: the
+// columns while unified, the rows while side by side. A document too
+// narrow for two columns shows unified whatever the choice, which it
+// leaves alone: the button is disabled and its tooltip says why.
+func (pr *Project) diffToggle(c *ui.Context) {
+	split := kit.DiffSplit(c)
+	icon, label := icons.DiffColumns, i18n.T(c, "git_diff_side_by_side")
+	if pr.diffSplit(c) {
+		icon, label = icons.DiffRows, i18n.T(c, "git_diff_inline")
+	}
+	tip := label
+	if pr.narrow {
+		tip = i18n.T(c, "git_diff_needs_width")
+	}
+	b := kit.GhostLook(c, ui.ButtonBase(c.Key("diff-layout")).Label(label), false).Size(24, 24).Shrink(0).
+		TextColor(theme.Of(c).MutedForeground).Disabled(pr.narrow)
+	if b.Hovered() {
+		b.TextColor(theme.Of(c).Foreground)
+	}
+	kit.Tooltip(c, b, tip)
+	b.Children(func() { ui.Icon(c, icon).FontSize(15) }).OnClick(func() { *split = !*split })
+}
+
+// statusBar is status ending end DIPs before the column's edge.
+func statusBar(c *ui.Context, path string, end float32, after func(), system ...func()) {
 	p := theme.Of(c)
-	ui.Row(c.Key("footer")).Height(footer).Shrink(0).PaddingX(12).Gap(12).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).
+	ui.Row(c.Key("footer")).Height(footer).Shrink(0).PaddingStart(12).PaddingEnd(end).Gap(12).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).
 		TextColor(p.MutedForeground).Children(func() {
 		ui.Text(c, path).FontSize(12).SingleLine().Grow(1).Shrink(1).ContextMenu(func(m *ui.Menu) {
 			if m.Item(i18n.T(c, "files_copy_path")).Chosen() {
@@ -474,7 +519,7 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	}
 	f := findFile(pr.Data.Files, path)
 	if f == nil {
-		kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "file_empty")})
+		empty(c, icons.File, "file_empty")
 		return
 	}
 	v := pr.Files.item(path)
@@ -546,10 +591,10 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	})
 }
 
-// diff is a changed file in MyGo's unified diff viewer, with
-// content diff view, with the change under the pointer's Revert and Keep
-// (editor.DefaultHunkActions) and Stage: in the preview each toasts, as
-// they would write the file and the index.
+// diff is a changed file in MyGo's diff viewer over its footer, unified as
+// content diff view or side by side by the footer's choice, with the change under the
+// pointer's Revert and Keep (editor.DefaultHunkActions) and Stage: in the
+// preview each toasts, as they would write the file and the index.
 func (pr *Project) diff(c *ui.Context, path string) {
 	if pr.gitDocument(c, path) {
 		return
@@ -565,18 +610,27 @@ func (pr *Project) diff(c *ui.Context, path string) {
 		}
 	}
 	if ch == nil {
-		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "git_diff_empty")})
+		empty(c, icons.Network, "git_diff_empty")
 		return
 	}
 	metadata := pr.Git.diffStates[pr.Git.scope+"/"+path]
+	counts := func() {
+		ui.Textf(c, "+%d", ch.Added).FontSize(12).TextColor(p.Success)
+		ui.Textf(c, "−%d", ch.Removed).FontSize(12).TextColor(p.Danger)
+	}
+	system := func() { pr.fileAction(c, FileAction{Kind: "files_open_system", Paths: []string{ch.Path}}) }
 	if metadata.Binary {
-		ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
+		// No diff shows, so the footer has no layout to choose.
+		ui.Column(c.Key("binary")).Grow(1).MinHeight(0).Children(func() {
+			ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(12).TextColor(p.MutedForeground)
+		})
+		status(c, ch.Path, counts, system)
 		return
 	}
 	old, new := ch.Texts()
 	box := ui.Column(c.Key(ch.Path)).Grow(1).MinHeight(0)
 	selected := -1
-	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path),
+	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Split: pr.diffSplit(c),
 		Actions: func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
 			selected = diffHunkIndex(*ch, a.Hunk)
 			bar.Row().Gap(4)
@@ -609,10 +663,7 @@ func (pr *Project) diff(c *ui.Context, path string) {
 	if metadata.Partial {
 		ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 	}
-	status(c, ch.Path, func() {
-		ui.Textf(c, "+%d", ch.Added).FontSize(12).TextColor(p.Success)
-		ui.Textf(c, "−%d", ch.Removed).FontSize(12).TextColor(p.Danger)
-	}, func() { pr.fileAction(c, FileAction{Kind: "files_open_system", Paths: []string{ch.Path}}) })
+	pr.diffStatus(c, ch.Path, counts, system)
 }
 
 func diffHunkIndex(change preview.FileChange, native editor.DiffHunk) int {

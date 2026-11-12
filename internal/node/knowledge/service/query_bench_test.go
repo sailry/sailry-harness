@@ -14,13 +14,15 @@ import (
 
 // BenchmarkSemanticScan measures one query over a growing collection of
 // 384-component vectors, the dimension of the default embedding model. Every
-// semantic or hybrid query decodes and scores each admitted vector, so its
-// cost grows with the corpus; docs/knowledge.md records the measured limit.
-// The semantic and hybrid cases ask for a word that one chunk in 500 has;
-// the common case asks for words every chunk has, which adds the keyword
-// ranking of the whole corpus.
+// semantic or hybrid query scores each admitted vector, so its cost grows
+// with the corpus; docs/knowledge.md records the measured limit. The semantic
+// case runs first after the collection grew, so its mean includes reading the
+// vectors into memory once. The semantic and hybrid cases ask for a word that
+// one chunk in 500 has; the common case asks for words every chunk has, which
+// adds the keyword ranking of the whole corpus. The streamed case keeps no
+// vectors, as for a collection over the memory budget or one being written.
 //
-//	go test ./internal/node/knowledge/service -run '^$' -bench SemanticScan -benchtime 10x
+//	go test ./internal/node/knowledge/service -run '^$' -bench SemanticScan -benchtime 20x
 func BenchmarkSemanticScan(b *testing.B) {
 	const dimension, perSource = 384, 50
 	opened, err := store.Open(b.Context(), filepath.Join(b.TempDir(), "profile"), protocol.NodeID{1})
@@ -28,7 +30,7 @@ func BenchmarkSemanticScan(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer opened.Close()
-	index := Index{opened.Knowledge}
+	index := newIndex(opened.Knowledge, nil)
 	binding := Binding{ID: protocol.NewKnowledgeID(), Generation: 1, Model: localmodels.DefaultEmbedding, Dimension: dimension, Rebuild: 1}
 	if err := index.Bind(b.Context(), binding); err != nil {
 		b.Fatal(err)
@@ -69,9 +71,15 @@ func BenchmarkSemanticScan(b *testing.B) {
 			{"semantic", "subject123", protocol.KnowledgeModeSemantic},
 			{"hybrid", "subject123", protocol.KnowledgeModeHybrid},
 			{"common", "describes the collection", protocol.KnowledgeModeHybrid},
+			{"streamed", "subject123", protocol.KnowledgeModeSemantic},
 		}
 		for _, test := range cases {
 			b.Run(fmt.Sprintf("%s/%d", test.name, total), func(b *testing.B) {
+				if test.name == "streamed" {
+					index.vectors.budget = 1
+					index.vectors.change("")()
+					defer func() { index.vectors.budget = vectorBudget }()
+				}
 				query := protocol.DefaultKnowledgeQuery()
 				query.Query, query.Mode, query.Limit = test.text, test.mode, knowledge.DefaultLimit
 				for b.Loop() {

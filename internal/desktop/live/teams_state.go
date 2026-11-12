@@ -3,6 +3,7 @@ package live
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -63,12 +64,25 @@ func (r *Runtime) teamsFrame() {
 
 func roleView(role protocol.RoleProfile) viewmodel.Role {
 	model, effort := roleModelView(role.Model)
-	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Builtin: role.Key == "explore" || role.Key == "research"}
+	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Builtin: role.Key == "explore" || role.Key == "research", Features: roleFeatures(role.Model)}
+}
+
+// roleFeatures are the feature options a profile's model sets; nil when it
+// follows.
+func roleFeatures(model *protocol.RoleModel) map[string]string {
+	if model == nil || model.Features == nil {
+		return nil
+	}
+	features := maps.Clone(*model.Features)
+	if features == nil {
+		features = map[string]string{}
+	}
+	return features
 }
 
 func teamView(team protocol.TeamProfile) viewmodel.Team {
 	model, effort := roleModelView(team.Model)
-	view := viewmodel.Team{ID: team.ID.String(), Revision: team.Revision, Name: team.Name, Description: team.Description, Lead: model, Effort: effort, Instructions: team.Instructions}
+	view := viewmodel.Team{ID: team.ID.String(), Revision: team.Revision, Name: team.Name, Description: team.Description, Lead: model, Effort: effort, Instructions: team.Instructions, Features: roleFeatures(team.Model)}
 	for _, member := range team.Members {
 		view.Members = append(view.Members, member.String())
 	}
@@ -137,7 +151,11 @@ func (r *Runtime) saveConcurrency() {
 	m.Pending = true
 	r.executeScoped("teams/settings", protocol.Command{Kind: "save_team_settings", Data: value}, func(c *ui.Context, out protocol.Output, err error) {
 		outcome := teamOutcome(err)
-		settings.Report(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"})
+		settings.ReportRetry(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"}, func() {
+			if r.showsSettings() {
+				r.saveConcurrency()
+			}
+		})
 		// The slider is this Node's only while the page shows it.
 		if !r.showsSettings() {
 			return

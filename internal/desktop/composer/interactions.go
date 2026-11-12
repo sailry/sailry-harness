@@ -372,15 +372,14 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 			kit.Busy(c)
 		}
 		deny := i18n.T(c, "approval_reject")
-		kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Disabled(locked).
+		// The decision's buttons are one family: pills 28 tall, Deny and the
+		// options outlined, Allow filled.
+		kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).Border(1, theme.Of(c).Border).Disabled(locked).
 			Children(func() { ui.Text(c, deny).FontSize(14) }).
 			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		ui.Row(c.Key("allow-group")).Children(func() {
+		ui.Row(c.Key("allow-group")).Gap(4).AlignItems(ui.Center).Children(func() {
 			allow := i18n.T(c, "approval_allow_once")
-			b := kit.Primary(c.Key("allow"), allow, locked || a.Loading || a.Failed).Height(28)
-			if !a.Remember {
-				b.Radius(14)
-			}
+			b := kit.Primary(c.Key("allow"), allow, locked || a.Loading || a.Failed).Height(28).Radius(14)
 			if a.Unrestricted {
 				kit.Tooltip(c, b, i18n.T(c, "approval_unrestricted"))
 			}
@@ -388,7 +387,7 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 			if a.Remember {
 				kit.MenuButton(c.Key("allow-options"), "allow-"+a.ID, func(b ui.Element) {
 					kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_allow_session"), "", 28, false).
-						Disabled(locked || a.Loading || a.Failed)
+						Radius(14).Border(1, theme.Of(c).Border).Disabled(locked || a.Loading || a.Failed)
 				}, func(m *kit.Menu) {
 					if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
 						actions.Decide(a.ID, AllowSession, "")
@@ -417,33 +416,24 @@ func busyLabel(c *ui.Context, label string, busy bool) {
 	ui.Text(c, label).FontSize(14)
 }
 
-// changes is a change set's files: what each does, its path, +N −M.
+// changesShown is how many of a change set's files the approval lists.
+const changesShown = 5
+
+// changes is a change set's files, a path a line: the first changesShown,
+// then an ellipsis for the rest. What each change does and its counts are
+// the diff's to show.
 func changes(c *ui.Context, list []Change) {
 	p := theme.Of(c)
-	ui.Column(c).Gap(8).Children(func() {
-		for i, f := range list {
-			kind := [...]string{"file_changes_added", "file_changes_modified", "file_changes_renamed", "file_changes_deleted"}[f.Kind]
+	ui.Column(c).Gap(6).Children(func() {
+		for i, f := range list[:min(len(list), changesShown)] {
 			path := f.Path
 			if f.Destination != "" {
 				path += " → " + f.Destination
 			}
-			ui.Column(c.Key(i)).Gap(4).Children(func() {
-				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, i18n.T(c, kind)).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
-					ui.Text(c, path).Font("monospace").FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-					ui.Row(c).Gap(6).Shrink(0).Children(func() {
-						if f.Added > 0 || f.Removed == 0 {
-							ui.Textf(c, "+%d", f.Added).Font("monospace").FontSize(12).TextColor(p.Success)
-						}
-						if f.Removed > 0 {
-							ui.Textf(c, "−%d", f.Removed).Font("monospace").FontSize(12).TextColor(p.Danger)
-						}
-					})
-				})
-				if f.Truncated {
-					ui.Text(c, i18n.T(c, "file_changes_shortened")).FontSize(12).TextColor(p.MutedForeground)
-				}
-			})
+			ui.Text(c.Key(i), path).Font("monospace").FontSize(13).SingleLine().TruncateMiddle().FillWidth().MinWidth(0)
+		}
+		if len(list) > changesShown {
+			ui.Text(c.Key("more"), "…").FontSize(13).TextColor(p.MutedForeground)
 		}
 	})
 }

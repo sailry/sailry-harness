@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ func TestSidebarSessions(t *testing.T) {
 	t.Run("SidebarMenuPinsAndRenames", testSidebarMenuPinsAndRenames)
 	t.Run("SidebarRenameKeepsEmptyTitleOut", testSidebarRenameKeepsEmptyTitleOut)
 	t.Run("SidebarReordersPins", testSidebarReordersPins)
+	t.Run("SidebarReordersSessions", testSidebarReordersSessions)
 	t.Run("SidebarDeleteConfirms", testSidebarDeleteConfirms)
 	t.Run("SidebarNewSession", testSidebarNewSession)
 	t.Run("SidebarGroups", testSidebarGroups)
@@ -541,6 +543,73 @@ func testSidebarReordersPins(t *testing.T) {
 	}
 }
 
+// A project's session drags before or after another of its project while
+// the sidebar shows the creation order, the only one that shows the manual
+// order; under another order the drop does nothing.
+func testSidebarReordersSessions(t *testing.T) {
+	// Tall enough to show the project's rows under either order.
+	a := New(preview.Load())
+	tt := ui.NewTesterWith(a.View, 1280, 1600, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	var project *viewmodel.Project
+	var rows []*viewmodel.Conversation
+	for _, pr := range a.Data.Projects {
+		rows = nil
+		for _, cv := range pr.Conversations {
+			if !cv.Archived && !cv.Pinned && cv.Title != "" {
+				rows = append(rows, cv)
+			}
+		}
+		if len(rows) >= 2 {
+			project = pr
+			break
+		}
+	}
+	if project == nil {
+		t.Fatal("no project with two unpinned sessions")
+	}
+	a.Sidebar.Reveal(rows[0].ID)
+	ids := func() []string {
+		var out []string
+		for _, cv := range project.Conversations {
+			out = append(out, cv.ID)
+		}
+		return out
+	}
+	drag := func() {
+		t.Helper()
+		tt.Frame()
+		from, ok := tt.AccessByRole(ui.RoleButton, rows[0].Title)
+		to, found := tt.AccessByRole(ui.RoleButton, rows[1].Title)
+		if !ok || !found {
+			t.Fatalf("rows not shown: %q", tt.Texts())
+		}
+		dragTo(t, tt, from, from.Bounds.X+from.Bounds.W/2, to.Bounds.Y+to.Bounds.H-4, nil)
+	}
+	before := ids()
+	*a.Sidebar.Sort = int(sidebar.SortUpdated)
+	drag()
+	if got := ids(); !slices.Equal(got, before) {
+		t.Fatalf("the update order reordered %v to %v", before, got)
+	}
+	*a.Sidebar.Sort = int(sidebar.SortCreated)
+	drag()
+	got := ids()
+	if slices.Index(got, rows[0].ID) != slices.Index(got, rows[1].ID)+1 || len(got) != len(before) {
+		t.Fatalf("drag moved %v to %v, want %s after %s", before, got, rows[0].ID, rows[1].ID)
+	}
+	// A live window hands the move to its controller and keeps the rows.
+	var moved []string
+	a.Sidebar.Actions = &sidebar.Actions{MoveSession: func(source, target *viewmodel.Conversation, after bool) {
+		moved = []string{source.ID, target.ID, fmt.Sprint(after)}
+	}}
+	a.Sidebar.MoveSession(rows[1].ID, rows[0].ID, true)
+	if want := []string{rows[1].ID, rows[0].ID, "true"}; !slices.Equal(moved, want) || !slices.Equal(ids(), got) {
+		t.Fatalf("live move = %v, rows %v", moved, ids())
+	}
+}
+
 func TestProjectEditorAndRemoval(t *testing.T) {
 	a, tt := newTester(t)
 	en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
@@ -724,7 +793,7 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	menu := tt.Menu()
-	want := []string{"workspace_project", "workspace_new_session", "workspace_new_terminal", "workspace_records", "project_edit", "project_trust",
+	want := []string{"workspace_project", "workspace_new_session", "workspace_new_terminal", "workspace_records", "project_edit",
 		"workspace_copy_path", "worktree_manage", "project_remove", "cli_launch"}
 	at := 0
 	for _, key := range want {
@@ -754,19 +823,15 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	}
 	snapshot(t, tt, "project-sidebar")
 
-	// Trust is the preview's record alone, asked first.
+	// A project is trusted as it is added: its menu offers no trust entry.
 	if err := tt.RightClick("new-project"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem(en("project_trust")); err != nil {
-		t.Fatal(err)
+	if slices.Contains(tt.Menu(), "Manage project trust") {
+		t.Fatalf("the project menu offers trust: %q", tt.Menu())
 	}
+	tt.Key(0, ui.KeyEscape)
 	settle(tt)
-	clickButton(t, tt, en("project_grant"))
-	settle(tt)
-	if !added.Trusted {
-		t.Fatal("granting trust did not record it")
-	}
 
 	// Open folder opens the project already at the chosen directory, or adds
 	// one named after it.
@@ -902,10 +967,32 @@ func testSidebarDeleteConfirms(t *testing.T) {
 	if a.Data.Find("sailry-go/theme") == nil {
 		t.Fatal("Delete removed the session before the confirmation")
 	}
-	if !tt.HasText(i18n.In("en", "session_delete_named", "name", title)) {
-		t.Fatalf("the confirmation does not name the session: %q", tt.Texts())
+	// A session of a project keeps its files in the project.
+	if private := i18n.In("en", "session_delete_private_files"); !tt.HasText(i18n.In("en", "session_delete_named", "name", title)) || strings.Contains(strings.Join(tt.Texts(), "\n"), private) {
+		t.Fatalf("the confirmation does not name the session alone: %q", tt.Texts())
 	}
 	clickButton(t, tt, i18n.In("en", "session_delete"))
+	tt.Frame()
+	// A chat without a project is told once that its private workspace's
+	// files go with it.
+	for _, cv := range a.Data.Unassigned {
+		if a.Data.ProjectOf(cv.ID) != nil {
+			t.Fatalf("the chat %q has a project", cv.ID)
+		}
+	}
+	chat := a.Data.Unassigned[0]
+	name := chat.Title
+	if err := tt.RightClick(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem(i18n.In("en", "session_delete")); err != nil {
+		t.Fatalf("%v: %q", err, tt.Menu())
+	}
+	tt.Frame()
+	if want := i18n.In("en", "session_delete_named", "name", name) + "\n" + i18n.In("en", "session_delete_private_files"); !tt.HasText(want) {
+		t.Fatalf("the chat's confirmation: %q, want %q", tt.Texts(), want)
+	}
+	clickButton(t, tt, i18n.In("en", "settings_cancel"))
 	tt.Frame()
 	if a.Data.Find("sailry-go/theme") != nil {
 		t.Fatal("the session was not deleted")

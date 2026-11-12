@@ -244,6 +244,7 @@ knowledge_slide: Slide %{slide}
 workspace_archive: Archive session
 session_delete: Delete session
 session_delete_named: Delete session “%{name}” and its subagents permanently
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Rename
 session_title_required: Enter a name
 session_mark_read: Mark as read
@@ -414,7 +415,10 @@ git_commit_staged: Commit staged changes
 git_commit_staged_amend: Commit staged and amend
 git_commit_staged_signoff: Commit staged and sign off
 git_commit_sync: Commit and sync
+git_cherry_pick: Cherry-pick commit
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Copy branch name
+git_copy_commit_id: Copy commit ID
 git_copy_path: Copy path
 git_delete_branch: Delete branch
 git_delete_confirm: Delete? This cannot be undone
@@ -574,6 +578,9 @@ background_outcome_stalled: No recent output
 background_outcome_stopped: Stopped
 background_outcome_timed_out: Timed out
 background_outcome_unknown: Outcome uncertain
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Compaction cancelled
 chat_compact_failed: Compaction failed
 chat_compact_queued: Waiting to compact
@@ -1134,6 +1141,10 @@ provider_model_default: Default
 provider_set_default: Set as default
 provider_default: Default model
 provider_model_id: Model ID
+provider_deployment_id: Deployment name
+provider_api_version: API version
+form_api_version_hint: e.g. 2024-10-21
+provider_cloud_required: Enter cloud provider configuration
 form_model_hint: Model ID
 provider_context: Context limit (tokens)
 form_tokens_hint: Token count
@@ -1342,6 +1353,7 @@ connector_tools_empty: No tools
 plugins_no_skills: No skills
 plugins_no_mcp: No MCP servers
 market_details_permission_none: No extra permissions needed
+market_details_added_permissions: New permissions
 market_installed: Installed
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -1443,6 +1455,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Choose folder
 skill_source_choose_archive: Choose archive
 git_diff: Diff
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: Read Git changes
 market_permission_git_write: Change Git
 market_permission_files_read: Read files
@@ -1543,6 +1558,20 @@ host_process_name: Processes
 host_pid: PID
 host_process_empty: No processes
 host_process_no_matches: No matching processes
+host_process_details: View details
+host_process_copy_pid: Copy PID
+host_process_copy_name: Copy name
+host_process_stop: End process
+host_process_force_stop: Force quit
+host_process_stop_confirm: Send a stop request; this may interrupt running tasks
+host_process_force_confirm: Terminate this process now; unsaved data may be lost
+host_process_stop_sent: Stop request sent
+host_process_gone: Process exited
+host_process_changed: Process changed; refresh and retry
+host_process_protected: Cannot stop system processes or the current host service
+host_process_uncertain: Stop result unknown; check process status
+host_process_stop_failed: Could not stop process; it may have exited, access may be denied, or this host may not support it
+metrics_gpu: GPU
 port_title: Port forwarding
 port_mappings: Port mappings
 port_add: New forward
@@ -1984,7 +2013,12 @@ knowledge_saved: Saved
 knowledge_cancel_requested: Cancellation requested
 model_library_failed: Could not load models
 model_library_partial: Some results are unavailable
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: This version has different files
+model_library_version: Version
+model_library_more: Load more
+model_library_query_prefix: Query prefix
+model_library_document_prefix: Document prefix
+knowledge_up_to_date: Already up to date
 local_models_unavailable: Unavailable
 dictation_unavailable: Local voice input unavailable
 dictation_model_missing: Download a speech model first
@@ -2200,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: Could not load usage, try again
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2215,4 +2250,16 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host is older; update Host
+host_version_newer: Host is newer; update Desktop
+host_version_unknown: Cannot verify Host version; update Host
+controller_version_unknown: Cannot verify Desktop version; update Desktop
+content_link_address: Link address
+content_link_edit: Edit link
+content_image_address: Image address
+content_image_alt: Alt text
+runtime_python_preparing: Preparing
+python_creating: Preparing dependencies
+python_installing: Installing dependencies
+python_validating: Checking dependencies
 port_count: '%{count} ports'

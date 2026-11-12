@@ -823,7 +823,11 @@ type GitLogEntry struct {
 	Email      string   `json:"email"`
 	Timestamp  int64    `json:"timestamp"`
 	References []string `json:"references"`
-	Truncated  bool     `json:"truncated"`
+	// Parents are the commit's parent IDs, the first the line it continues.
+	// The member is optional: nil is a Node that sends none, so its history
+	// has no graph, and an empty list is a root commit.
+	Parents   []string `json:"parents,omitempty"`
+	Truncated bool     `json:"truncated"`
 }
 
 func DefaultGitLogEntry() GitLogEntry {
@@ -834,12 +838,14 @@ func DefaultGitLogEntry() GitLogEntry {
 		Email:      "",
 		Timestamp:  0,
 		References: []string{},
+		Parents:    nil,
 		Truncated:  false,
 	}
 }
 func (value *GitLogEntry) UnmarshalJSON(data []byte) error {
 	type plain GitLogEntry
 	decoded := plain{}
+	decoded.Parents = nil
 	if err := DecodeObject(data, &decoded, []string{"id", "message", "author", "email", "timestamp", "references", "truncated"}, false); err != nil {
 		return err
 	}
@@ -850,7 +856,16 @@ func (value GitLogEntry) MarshalJSON() ([]byte, error) {
 	type plain GitLogEntry
 	encoded := plain(value)
 	encoded.References = normalizeCollections(encoded.References)
-	return json.Marshal(encoded)
+	if encoded.Parents == nil {
+		return json.Marshal(encoded)
+	}
+	// A root commit's empty list is written: only a missing member means
+	// the parents are not known.
+	type known struct {
+		plain
+		Parents []string `json:"parents"`
+	}
+	return json.Marshal(known{plain: encoded, Parents: encoded.Parents})
 }
 
 type GitLogCursor struct {
@@ -1182,6 +1197,9 @@ type GitDiff struct {
 	Deletions uint64       `json:"deletions"`
 	Binary    bool         `json:"binary"`
 	Truncated bool         `json:"truncated"`
+	// Size is the length in bytes of a file that is not compared as text: the
+	// new side, or the old side of a deletion.
+	Size uint64 `json:"size,omitempty"`
 }
 
 func DefaultGitDiff() GitDiff {

@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/png"
 	"io/fs"
@@ -220,6 +221,39 @@ func TestDraftChecks(t *testing.T) {
 		}
 		if tt.HasText(local) || tt.HasText(remote) || tt.HasText(mobile) {
 			t.Fatalf("a row shows a whole Node ID: %q", tt.Texts())
+		}
+		// A row's status is CrychicUI's ConnectionStatus, named by its
+		// label: this computer, the route of a device that is reachable, and
+		// offline, each once here.
+		for _, key := range []string{"composer_host_local", "connection_route_p2p", "connection_route_relay", "connections_offline"} {
+			label := i18n.In("zh-CN", key)
+			status, ok := tt.AccessByRole(ui.RoleStatus, label)
+			if text, shown := tt.Find(label); !ok || !shown || text.Y < status.Bounds.Y || text.Y+text.H > status.Bounds.Y+status.Bounds.H {
+				t.Fatalf("no status %q holding its label: %+v, %q", label, status, tt.Texts())
+			}
+		}
+		// For review: $SAILRY_SNAPSHOTS/settings-connections-status-<mode>.png at 2x.
+		if dir := os.Getenv("SAILRY_SNAPSHOTS"); dir != "" {
+			for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+				sheet := ui.NewTesterWith(func(c *ui.Context) {
+					theme.Apply(c, "", mode)
+					ui.Column(c).Fill().Padding(24).Background(theme.Of(c).Background).Children(func() { connections(c, m) })
+				}, 760, 620, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
+				sheet.SetLocale("en")
+				sheet.SetScale(2)
+				sheet.Frame()
+				sheet.Advance(time.Second)
+				sheet.Frame()
+				name := map[theme.Mode]string{theme.Light: "light", theme.Dark: "dark"}[mode]
+				out, err := os.Create(filepath.Join(dir, "settings-connections-status-"+name+".png"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := png.Encode(out, sheet.Image()); err != nil {
+					t.Fatal(err)
+				}
+				out.Close()
+			}
 		}
 		shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
 		if err := os.MkdirAll(shots, 0o755); err != nil {
@@ -528,6 +562,58 @@ func TestProviderEditor(t *testing.T) {
 		}
 		if e.switchRoute(0); e.current().ID != "hosted/2" {
 			t.Errorf("an edited channel changed its route to %+v", e.current())
+		}
+	})
+	// An Azure OpenAI route asks for the API version, which a save carries,
+	// and names a model by its deployment.
+	t.Run("azure api version", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var saved []ProviderDraft
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		azure := preview.Method{ID: "azure", Name: "Azure OpenAI", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{{ID: "azure/0", API: "azure_open_ai", Custom: true}}}
+		e := &m.provider
+		e.add(m)
+		e.configure(azure)
+		if e.apiVersion != "2024-10-21" {
+			t.Fatalf("a new Azure form starts on version %q", e.apiVersion)
+		}
+		e.endpoint, e.key = "https://unit.openai.azure.com", "key"
+		e.models = []modelDraft{{id: "deployment", context: "128000"}}
+		e.apiVersion = " "
+		if got := e.Check(); got != "provider_cloud_required" {
+			t.Errorf("no version: %q", got)
+		}
+		e.apiVersion = " 2025-01-01-preview "
+		if got := e.save(m); got != "" || len(saved) != 1 || saved[0].Channel.APIVersion != "2025-01-01-preview" || saved[0].Channel.API != "azure_open_ai" {
+			t.Fatalf("save %q sent %+v", got, saved)
+		}
+		// A saved channel opens on its version; another API has none.
+		ch := preview.Channel{ID: "saved", Name: "Saved", Method: "builtin:azure-openai/0", API: "azure_open_ai", Endpoint: "https://unit.openai.azure.com", APIVersion: "2024-06-01", KeySet: true}
+		e.edit(m, &ch)
+		if !e.azure() || e.apiVersion != "2024-06-01" {
+			t.Errorf("edit opened azure %v on version %q", e.azure(), e.apiVersion)
+		}
+		tester := ui.NewTester(func(c *ui.Context) { providerEditorDialog(c, m) }, 900, 900)
+		tester.Frame()
+		version, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_api_version"))
+		if !ok || version.Value != "2024-06-01" {
+			t.Errorf("the form's version field is %+v, %v", version, ok)
+		}
+		e.models = []modelDraft{{id: "deployment", context: "128000", open: true}}
+		tester.Frame()
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_deployment_id")); !ok {
+			t.Error("an Azure model is not named by its deployment")
+		}
+		other := preview.Channel{ID: "other", Name: "Other", Method: "x", API: "chat_completions", Endpoint: "https://other.example/v1", KeySet: true, Models: []preview.ChannelModel{{ID: "a", Context: 128000}}}
+		e.edit(m, &other)
+		e.models[0].open = true
+		tester.Frame()
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_api_version")); ok || e.apiVersion != "" {
+			t.Errorf("another API asks for a version (%q)", e.apiVersion)
+		}
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_model_id")); !ok {
+			t.Error("another API's model is not named by its ID")
 		}
 	})
 	t.Run("removed model row", func(t *testing.T) {
@@ -1493,6 +1579,70 @@ func TestTeams(t *testing.T) {
 	if got := m.saveRole(preview.Role{Name: "X", Key: "tester"}); got != "role_duplicate" {
 		t.Errorf("duplicate key: %q", got)
 	}
+	// A model's features each have a select after the effort: Auto follows,
+	// Off sets none, an option sets it; another model starts from Auto.
+	t.Run("model features", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		var ch *preview.Channel
+		for i := range m.Channels {
+			if m.Channels[i].Enabled && len(m.Channels[i].Models) > 1 {
+				ch = &m.Channels[i]
+				break
+			}
+		}
+		if ch == nil {
+			t.Fatal("the preview has no enabled channel with two models")
+		}
+		ch.Models[0].Features = []preview.ModelFeature{{ID: "speed", Name: "Speed", Options: []viewmodel.FeatureOption{{ID: "fast", Name: "fast"}}}}
+		model, effort := ch.ID+"/"+ch.Models[0].ID, ""
+		var features map[string]string
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			modelField(c, m, "model", "Model", "role_inherit", &model, &effort, &features)
+		}, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		choose := func(option string) {
+			t.Helper()
+			tt.Frame()
+			var trigger ui.AccessInfo
+			for _, x := range tt.AccessAll() {
+				if x.Name == "Speed" && x.Bounds.H > trigger.Bounds.H {
+					trigger = x
+				}
+			}
+			tt.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
+			tt.Frame()
+			tt.Advance(time.Second)
+			for _, x := range tt.AccessAll() {
+				if x.Name == option && x.Bounds.Y > trigger.Bounds.Y+trigger.Bounds.H/2 {
+					tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(time.Second)
+					return
+				}
+			}
+			t.Fatalf("no %q option: %q", option, tt.Texts())
+		}
+		choose(i18n.In("en", "composer_feature_fast"))
+		if features["speed"] != "fast" {
+			t.Fatalf("Fast set %v", features)
+		}
+		choose(i18n.In("en", "composer_feature_off"))
+		if features == nil || len(features) != 0 {
+			t.Fatalf("Off set %v", features)
+		}
+		choose(i18n.In("en", "role_effort_inherit"))
+		if features != nil {
+			t.Fatalf("Auto set %v", features)
+		}
+		features = map[string]string{"speed": "fast"}
+		model = ch.ID + "/" + ch.Models[1].ID
+		tt.Frame()
+		for _, x := range tt.AccessAll() {
+			if x.Name == "Speed" {
+				t.Error("a model without features offers one")
+			}
+		}
+	})
 	// A team's deletion closes the editor it was deleted from, not one
 	// opened since for another team.
 	t.Run("late removal", func(t *testing.T) {
@@ -1942,9 +2092,176 @@ func TestExtensions(t *testing.T) {
 		m.library.info = m.Library[0].ID
 		tt.Frame()
 		tt.Advance(time.Second)
-		clickButton(t, tt, i18n.In("en", "close"))
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
 		if m.library.info != "" {
-			t.Error("Close left the library model's details open")
+			t.Error("Cancel left the library model's details open")
+		}
+	})
+	// An update that asks for more than the installed version has says so,
+	// in the review and on the details' newest version.
+	// The Runtime page names each package whose Python dependencies are
+	// being prepared with its stage, and no row when none is.
+	t.Run("python preparing", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		tt := ui.NewTesterWith(func(c *ui.Context) { runtimePage(c, m) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		title := i18n.In("en", "runtime_python_preparing")
+		if tt.HasText(title) {
+			t.Fatalf("an idle Node shows the row: %q", tt.Texts())
+		}
+		m.PythonPreparing = []PythonPreparation{{Package: "charts", Stage: "installing"}, {Package: "ocr", Stage: "validating"}}
+		tt.Frame()
+		for _, want := range []string{title, "charts", i18n.In("en", "python_installing"), "ocr", i18n.In("en", "python_validating")} {
+			if !tt.HasText(want) {
+				t.Fatalf("no %q: %q", want, tt.Texts())
+			}
+		}
+	})
+	t.Run("update permissions", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		s := &State{Model: m}
+		var pk *preview.Package
+		for i := range m.Packages {
+			if m.Packages[i].Installed && Update(&m.Packages[i]) {
+				pk = &m.Packages[i]
+				break
+			}
+		}
+		if pk == nil {
+			t.Fatal("the preview has no package with an update")
+		}
+		pk.AddedPermissions = []string{"market_permission_artifacts_write"}
+		want := i18n.In("en", "market_details_added_permissions") + ": " + i18n.In("en", "market_permission_artifacts_write")
+		m.updates = pluginUpdates{open: true, chosen: map[string]bool{}}
+		d := &Detail{Kind: DetailPlugin, ID: pk.ID, Tab: 3}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			if m.updates.open {
+				pluginUpdatesDialog(c, m)
+			} else {
+				pluginDetails(c, s, pk, d)
+			}
+		}, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		if !tt.HasText(want) {
+			t.Errorf("the review lacks %q: %q", want, tt.Texts())
+		}
+		m.updates.open = false
+		tt.Frame()
+		tt.Advance(time.Second)
+		if !tt.HasText(want) {
+			t.Errorf("the details lack %q: %q", want, tt.Texts())
+		}
+		pk.AddedPermissions = nil
+		tt.Frame()
+		if tt.HasText(i18n.In("en", "market_details_added_permissions")) {
+			t.Error("an update without new permissions names some")
+		}
+	})
+	// Dictation opens the library for speech models, as the other model
+	// pages do for theirs; the library's details install the version they
+	// show with the prefixes typed, and a managed model's details update
+	// and, after the confirmation, delete it.
+	t.Run("model library", func(t *testing.T) {
+		en := func(key string) string { return i18n.In("en", key) }
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var calls []string
+		m.ModelActions = &ModelActions{
+			LibraryInstall: func(id string, choice *LibraryChoice) {
+				if choice == nil {
+					calls = append(calls, "install "+id)
+				} else {
+					calls = append(calls, "install "+id+" "+choice.QueryPrefix+"|"+choice.DocumentPrefix)
+				}
+			},
+			LibraryDetails: func(id string) { calls = append(calls, "details "+id) },
+			LibraryVersion: func(id string, version int) { calls = append(calls, fmt.Sprint("version ", id, " ", version)) },
+			LibraryMore:    func() { calls = append(calls, "more") },
+			Update:         func(kind, id string) { calls = append(calls, "update "+kind+" "+id) },
+			Delete:         func(kind, id string) { calls = append(calls, "delete "+kind+" "+id) },
+			Cancel:         func(kind, id string) { calls = append(calls, "cancel "+kind+" "+id) },
+		}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			dictation(c, m)
+			libraryDialog(c, m)
+		}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		clickButton(t, tt, en("model_library_manage"))
+		if !m.library.open || m.library.kind != ModelsSpeech {
+			t.Fatalf("Manage models opened %+v", m.library)
+		}
+		m.Library = []preview.LibraryModel{{ID: "hub/a", Name: "Embedder", Repo: "org/a", Kind: ModelsEmbedding, Source: "model_library_huggingface",
+			Size: "1.0 MiB", License: "mit", Versions: []string{"main", "v1"}, Resolved: true, QueryPrefix: "query: "}}
+		m.LibraryLoad, m.LibraryMore = preview.Fetch{Loaded: true}, true
+		tt.Frame()
+		tt.Advance(time.Second)
+		clickButton(t, tt, en("model_library_more"))
+		clickButton(t, tt, en("knowledge_model_details"))
+		tt.Advance(time.Second)
+		for _, name := range []string{"model_library_query_prefix", "model_library_document_prefix"} {
+			if _, ok := tt.AccessByRole(ui.RoleTextField, en(name)); !ok {
+				t.Errorf("an embedding model's details have no %s", name)
+			}
+		}
+		if !tt.HasText(en("model_library_version")) || !tt.HasText("main") {
+			t.Errorf("the details show no version: %q", tt.Texts())
+		}
+		for _, x := range tt.AccessAll() {
+			// The row's icon button shares the name; the footer's is the text one.
+			if x.Role == ui.RoleButton && x.Name == en("knowledge_install") && x.Bounds.W > 48 {
+				tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+			}
+		}
+		tt.Frame()
+		if want := []string{"more", "details hub/a", "install hub/a query: |"}; !slices.Equal(calls, want) {
+			t.Fatalf("library calls = %q, want %q", calls, want)
+		}
+		// An unresolved version cannot be installed from the details.
+		m.Library[0].Resolved = false
+		tt.Frame()
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == en("knowledge_install") && x.Bounds.W > 48 && !x.Disabled {
+				t.Error("an unresolved model's Install takes a press")
+			}
+		}
+		m.library = library{}
+		calls = nil
+		m.info = &modelInfo{"Speech", ModelsSpeech, preview.LocalModel{ID: "x", Repo: "org/speech", Status: preview.ModelInstalled, Removable: true, Version: "0123abc", License: "mit", Size: "2.0 MiB"}}
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, want := range []string{"0123abc", "mit", "2.0 MiB", en("knowledge_installed")} {
+			if !tt.HasText(want) {
+				t.Errorf("a managed model's details lack %q: %q", want, tt.Texts())
+			}
+		}
+		clickButton(t, tt, en("settings_update"))
+		clickButton(t, tt, en("knowledge_delete"))
+		if m.dropping == nil || len(calls) != 1 {
+			t.Fatalf("Delete did not ask first: %q", calls)
+		}
+		tt.Advance(time.Second)
+		clickButton(t, tt, en("knowledge_delete"))
+		tt.Advance(time.Second)
+		if want := []string{"update " + ModelsSpeech + " x", "delete " + ModelsSpeech + " x"}; !slices.Equal(calls, want) || m.dropping != nil {
+			t.Fatalf("managed calls = %q, want %q", calls, want)
+		}
+		// The recommended model cannot be removed; a download can be canceled.
+		calls = nil
+		m.Speech[0].Status, m.Speech[0].Percent = preview.ModelDownloading, 40
+		m.info = &modelInfo{"Recommended", ModelsSpeech, m.Speech[0]}
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && (x.Name == en("knowledge_delete") || x.Name == en("settings_update")) {
+				t.Errorf("a download offers %s", x.Name)
+			}
+		}
+		clickButton(t, tt, en("settings_cancel"))
+		if !slices.Equal(calls, []string{"cancel " + ModelsSpeech + " "}) {
+			t.Fatalf("download calls = %q", calls)
 		}
 	})
 	// A button whose operation runs is busy and takes no second press; the
@@ -2146,6 +2463,95 @@ func TestExtensions(t *testing.T) {
 		m.Backup.Saved.Keep = 5
 		tt.Frame()
 		shows(i18n.In("en", "backup_keep_last", "count", 5))
+		// A storage save the Node has not confirmed keeps the dialog's draft
+		// as it was sent: Save reads Retry and sends it again. A save that
+		// failed is Save again.
+		var saves []BackupTarget
+		var answer func(bool)
+		m.BackupActions.Save = func(target BackupTarget, done func(bool)) { saves, answer = append(saves, target), done }
+		clickButton(t, tt, i18n.In("en", "backup_configure"))
+		clickButton(t, tt, i18n.In("en", "settings_save"))
+		if len(saves) != 1 {
+			t.Fatalf("the storage dialog saved %d times: %q", len(saves), tt.Texts())
+		}
+		m.BackupActions.Retry = true
+		answer(false)
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "settings_save")); ok || findButton(t, tt, i18n.In("en", "plugins_retry")).Disabled {
+			t.Fatalf("after an unconfirmed storage save: %q", tt.Texts())
+		}
+		if !findButton(t, tt, i18n.In("en", "backup_choose_directory")).Disabled {
+			t.Error("the draft of an unconfirmed storage save can change")
+		}
+		clickButton(t, tt, i18n.In("en", "plugins_retry"))
+		if len(saves) != 2 || saves[1] != saves[0] {
+			t.Fatalf("Retry sent %+v", saves)
+		}
+		m.BackupActions.Retry = false
+		answer(false)
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "plugins_retry")); ok || findButton(t, tt, i18n.In("en", "backup_choose_directory")).Disabled {
+			t.Fatalf("after a storage save that failed: %q", tt.Texts())
+		}
+		clickButton(t, tt, i18n.In("en", "settings_save"))
+		answer(true)
+		tt.Frame()
+		if len(saves) != 3 || m.backups.editing {
+			t.Fatalf("a confirmed storage save left the dialog open after %d saves", len(saves))
+		}
+		// Cancelling the dialog of an unconfirmed save gives its request up
+		// once; a confirmed or untouched dialog gives nothing up.
+		forgotten := 0
+		m.BackupActions.Forget = func() { forgotten++; m.BackupActions.Retry = false }
+		clickButton(t, tt, i18n.In("en", "backup_configure"))
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
+		tt.Frame()
+		if forgotten != 0 {
+			t.Fatal("a dialog that saved nothing gave a request up")
+		}
+		clickButton(t, tt, i18n.In("en", "backup_configure"))
+		clickButton(t, tt, i18n.In("en", "settings_save"))
+		m.BackupActions.Retry = true
+		answer(false)
+		tt.Frame()
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
+		tt.Frame()
+		tt.Frame()
+		if forgotten != 1 || m.backups.editing {
+			t.Fatalf("cancelling an unconfirmed storage save gave its request up %d times", forgotten)
+		}
+		clickButton(t, tt, i18n.In("en", "backup_configure"))
+		if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "plugins_retry")); ok || findButton(t, tt, i18n.In("en", "backup_choose_directory")).Disabled {
+			t.Fatalf("a reopened storage dialog still retries: %q", tt.Texts())
+		}
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
+		tt.Frame()
+		// Deleting an archived session names its consequence once; one
+		// without a project is told that its private workspace's files go
+		// too, and one of a project is not.
+		var deleted []string
+		m.BackupActions.Delete = func(id string) { deleted = append(deleted, id) }
+		consequence, private := i18n.In("en", "backup_delete_session_consequence"), i18n.In("en", "session_delete_private_files")
+		for _, x := range []viewmodel.Archived{{ID: "project", Title: "Project notes"}, {ID: "chat", Title: "Chat notes", Private: true}} {
+			m.Archived, m.backups.archives = []viewmodel.Archived{x}, true
+			tt.Frame()
+			clickButton(t, tt, i18n.In("en", "backup_delete"))
+			tt.Frame()
+			want := consequence
+			if x.Private {
+				want += "\n" + private
+			}
+			if texts := tt.Texts(); !slices.Contains(texts, x.Title+"?") || !slices.Contains(texts, want) {
+				t.Fatalf("deleting %q asks %q, want %q", x.Title, texts, want)
+			}
+			m.backups.archives = false
+			tt.Frame()
+			clickButton(t, tt, i18n.In("en", "backup_delete"))
+			tt.Frame()
+		}
+		if !slices.Equal(deleted, []string{"project", "chat"}) {
+			t.Fatalf("the confirmed deletions: %v", deleted)
+		}
 		// A restored profile is offered in place of the one in use; the
 		// restart happens only when it is confirmed.
 		var restarted []string

@@ -191,6 +191,9 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 			if err != nil {
 				return nil, err
 			}
+			// Paths whose stat data no longer vouches for them are compared by
+			// the blob Git would store, in batches.
+			reread := []string{}
 			for path := range paths {
 				if err := checkContext(ctx); err != nil {
 					return nil, err
@@ -222,9 +225,22 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 					// before the index was written instead of hashing the file again.
 					if entry := recorded[path]; entry != nil && *staged[path] == *before && entry.ModifiedAt.Before(idx.ModTime) && indexStat(entry, info) {
 						new[path] = before
-					} else if value, e := workingContent(root, path, maxFile); e == nil && value.hash.String() == before.Hash {
-						new[path] = before
+					} else {
+						reread = append(reread, path)
 					}
+				}
+			}
+			ids := s.storedIDs(ctx, root, reread, maxFile)
+			for _, path := range reread {
+				if err := checkContext(ctx); err != nil {
+					return nil, err
+				}
+				if id, known := ids[path]; known {
+					if id.String() == old[path].Hash {
+						new[path] = old[path]
+					}
+				} else if value, e := workingContent(root, path, maxFile); e == nil && value.hash.String() == old[path].Hash {
+					new[path] = old[path]
 				}
 			}
 		}
@@ -440,7 +456,7 @@ func (s *Service) Changes(ctx context.Context, root string, input protocol.Comma
 	result.Exhausted = !remaining && result.OmittedPaths == 0
 	return result, nil
 }
-func readResource(root, path string, r *gogit.Repository, value *resource) ([]byte, string, error) {
+func (s *Service) readResource(ctx context.Context, root, path string, r *gogit.Repository, value *resource) ([]byte, string, error) {
 	if value == nil {
 		return nil, "", nil
 	}
@@ -475,9 +491,13 @@ func readResource(root, path string, r *gogit.Repository, value *resource) ([]by
 	if stat.ModTime().UnixNano() != value.Modified || stat.Size() != value.Size || fileIdentity(stat) != value.Identity {
 		return nil, "", conflict()
 	}
-	c, err := workingContent(root, path, maxFile)
+	c, err := s.storedContent(ctx, root, r, path, maxFile)
 	if err != nil {
 		return nil, "", err
+	}
+	if c.binary {
+		// A file behind a filter driver is not compared as text.
+		return nil, "binary", nil
 	}
 	after, err := os.Lstat(target)
 	if err != nil || !os.SameFile(stat, after) || after.ModTime() != stat.ModTime() || after.Size() != stat.Size() {
@@ -507,11 +527,11 @@ func (s *Service) changeBytes(ctx context.Context, root string, snapshot protoco
 	if selected.entry.MetadataRevision != metadata {
 		return candidate{}, nil, nil, "", "", conflict()
 	}
-	a, sa, err := readResource(root, path, r, selected.old)
+	a, sa, err := s.readResource(ctx, root, path, r, selected.old)
 	if err != nil {
 		return candidate{}, nil, nil, "", "", err
 	}
-	b, sb, err := readResource(root, path, r, selected.new)
+	b, sb, err := s.readResource(ctx, root, path, r, selected.new)
 	if err != nil {
 		return candidate{}, nil, nil, "", "", err
 	}

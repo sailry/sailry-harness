@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ func TestGrouping(t *testing.T) {
 	t.Run("Elapsed", testElapsed)
 	t.Run("Disclosures", testDisclosures)
 	t.Run("TextSize", testTextSize)
+	t.Run("Background", testBackground)
 	t.Run("UsageSize", testUsageSize)
 }
 
@@ -328,6 +330,83 @@ func testSummary(t *testing.T) {
 	calls[2].Running, calls[2].State = true, NotExecuted
 	if s = Summary(calls); !s.Running || s.Failed || s.State != StateNone {
 		t.Errorf("running summary %+v", s)
+	}
+}
+
+// A command sent to the background names its state after the detail of the
+// call that started it, at the message text size: running, how it ended, a
+// failed command's exit code and that its result has not been delivered.
+// Only one that ended badly takes the warning color.
+func testBackground(t *testing.T) {
+	exit := 2
+	rows := []struct {
+		background Background
+		en, zh     string
+		flagged    bool
+	}{
+		{Background{Running: true}, "Running in background", "后台运行中", false},
+		{Background{Outcome: OutcomeCompleted, Waiting: true}, "Completed · Result not delivered", "已完成 · 结果待送达", false},
+		{Background{Outcome: OutcomeFailed, Exit: &exit, Waiting: true}, "Exit code 2 · Result not delivered", "退出码 2 · 结果待送达", true},
+		{Background{Outcome: OutcomeFailed, Waiting: true}, "Failed · Result not delivered", "失败 · 结果待送达", true},
+		{Background{Outcome: OutcomeTimedOut}, "Timed out", "超时", true},
+		{Background{Outcome: OutcomeStopped}, "Stopped", "已停止", false},
+	}
+	var calls []Call
+	for i := range rows {
+		calls = append(calls, Call{ID: strconv.Itoa(i), Name: "command", Label: "Run", Icon: "square-terminal", Detail: "make", Code: true, Standalone: true, Background: &rows[i].background})
+		if got := flagged(calls[i]); got != rows[i].flagged {
+			t.Errorf("%+v takes the warning color: %v, want %v", rows[i].background, got, rows[i].flagged)
+		}
+	}
+	if s := Summary(calls[:2]); s.Background != calls[1].Background || s.Running {
+		t.Errorf("a settled group is headed %+v, want its last call's state", s)
+	}
+	active := append([]Call{}, calls[:2]...)
+	active[0].Running = true
+	if s := Summary(active); s.Background != nil {
+		t.Errorf("a group at work names the state %+v", s.Background)
+	}
+	for _, lang := range []string{"en", "zh-CN"} {
+		for _, size := range []float32{12, 18} {
+			s := New()
+			// Standalone calls never group, so every row shows.
+			var blocks []Block
+			for _, call := range calls {
+				blocks = append(blocks, Block{Kind: ToolsBlock, Calls: []Call{call}})
+			}
+			turns := []Turn{{ID: "turn", User: "Go", Reply: Reply{Status: Completed, Blocks: append(blocks, Block{Kind: TextBlock, Text: "Done"})}}}
+			widths := map[string]float32{}
+			tt := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				kit.SetPreferences(c, kit.Preferences{MessageTextSize: uint8(size)})
+				for _, row := range rows {
+					for _, text := range []string{row.en, row.zh} {
+						widths[text], _ = c.MeasureText(0, ui.Span{Text: text, Size: size})
+					}
+				}
+				ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { View(c, s, "session", turns, nil, still{}) })
+			}, 900, 700)
+			tt.SetLocale(lang)
+			tt.Frame()
+			// The work region of an ended run is closed until it is opened.
+			if err := tt.Click(i18n.In(lang, "turn_completed")); err != nil {
+				t.Fatalf("%s size %v: no header to open in %q: %v", lang, size, tt.Texts(), err)
+			}
+			tt.Frame()
+			for _, row := range rows {
+				want := row.en
+				if lang == "zh-CN" {
+					want = row.zh
+				}
+				bounds, ok := tt.Find(want)
+				if !ok {
+					t.Fatalf("%s size %v: %q is not shown in %q", lang, size, want, tt.Texts())
+				}
+				if d := float64(bounds.W - widths[want]); math.Abs(d) > 1 {
+					t.Errorf("%s size %v: %q is %v wide, %v at the message text size", lang, size, want, bounds.W, widths[want])
+				}
+			}
+		}
 	}
 }
 

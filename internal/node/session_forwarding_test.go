@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -98,6 +99,18 @@ func storedProvider(t *testing.T, node *Node, id protocol.ProviderID) (string, b
 		t.Fatal(err)
 	}
 	return string(body), true
+}
+
+// inspectForward asks the Node what its ledger holds for a request of its own
+// controller.
+func inspectForward(t *testing.T, node *Node, request protocol.Request) protocol.RequestOutcome {
+	t.Helper()
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: request.ID, Digest: admission.Digest(body)}}
+	return commandFixture(t, node, query).Data.(protocol.OutputRequestOutcomePayload).Outcome
 }
 
 // A session created on a paired Node carries the local provider, its
@@ -353,9 +366,75 @@ func TestSessionForwarding(t *testing.T) {
 		if stored.Profile == nil || stored.Profile.Source != a.ID() || sessions(b) != before+1 {
 			t.Fatalf("resolved session = %#v, %d created", stored, sessions(b)-before)
 		}
+		// The target's answer replaced the unknown outcome in the source
+		// ledger: a replay and an inspection read it without another send.
+		sent := sends
+		replayed := dispatchFixture(t, a, a.ID(), uncertain)
+		again, valid := replayed.Output.Data.(*protocol.Session)
+		if replayed.Fault != nil || !valid || again.ID != recorded.ID || sends != sent {
+			t.Fatalf("replay after the answer = %#v, %v, %d sends", replayed.Output, replayed.Fault, sends-sent)
+		}
+		if outcome := inspectForward(t, a, uncertain); outcome.Kind != "completed" || outcome.Data.(protocol.Result[protocol.Output, protocol.Fault]).Ok == nil {
+			t.Fatalf("source ledger after the answer = %#v", outcome)
+		}
+		// A send that fails here is not the target's answer and settles nothing.
+		lost := forward(provider.Revision, config)
+		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
+			closed := make(chan link.Response)
+			close(closed)
+			return link.Admission{Completion: closed}, nil
+		}
+		fails(t, dispatchFixture(t, a, a.ID(), lost), protocol.ErrorCodeOutcomeUnknown, unknown)
+		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
+			return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "target Node is not paired"}
+		}
+		fails(t, dispatchFixture(t, a, a.ID(), lost), protocol.ErrorCodeOutcomeUnknown, unknown)
+		if outcome := inspectForward(t, a, lost); outcome.Kind != "completed" || outcome.Data.(protocol.Result[protocol.Output, protocol.Fault]).Err == nil {
+			t.Fatalf("source ledger without an answer = %#v", outcome)
+		}
 		a.forward = nil
 		fails(t, dispatchFixture(t, a, a.ID(), forward(provider.Revision, config)), protocol.ErrorCodeBusy, "Node operation queue is unavailable")
 		a.forward = paired
+	})
+
+	t.Run("a result that could not be stored is written again", func(t *testing.T) {
+		// The writer's connection refuses to store a result until the gate opens.
+		gate := func(statement string) {
+			t.Helper()
+			if err := a.profile.Store.Node.Write(context.Background(), func(db *sql.Conn) error {
+				_, err := db.ExecContext(context.Background(), statement)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gate("CREATE TEMP TABLE forward_gate AS SELECT 1 AS closed")
+		gate("CREATE TEMP TRIGGER forward_refused BEFORE UPDATE OF status ON requests WHEN (SELECT closed FROM forward_gate)=1 BEGIN SELECT RAISE(ABORT,'result write refused'); END")
+		defer gate("DROP TRIGGER forward_refused")
+		before := sessions(b)
+		unrecorded := forward(provider.Revision, config)
+		accepted, err := a.Dispatch(context.Background(), a.ID(), unrecorded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for sessions(b) == before && t.Context().Err() == nil {
+		}
+		select {
+		case early := <-accepted.Completion:
+			t.Fatalf("answered before the result was stored: %#v, %v", early.Output, early.Fault)
+		default:
+		}
+		if outcome := inspectForward(t, a, unrecorded); outcome.Kind != "admitted" {
+			t.Fatalf("while the result is unrecorded = %#v", outcome)
+		}
+		gate("UPDATE forward_gate SET closed=0")
+		result := <-accepted.Completion
+		if _, valid := result.Output.Data.(protocol.Session); result.Fault != nil || !valid {
+			t.Fatalf("result = %#v, %v", result.Output, result.Fault)
+		}
+		if outcome := inspectForward(t, a, unrecorded); outcome.Kind != "completed" || outcome.Data.(protocol.Result[protocol.Output, protocol.Fault]).Ok == nil {
+			t.Fatalf("stored outcome = %#v", outcome)
+		}
 	})
 
 	t.Run("removal deletes the private provider", func(t *testing.T) {

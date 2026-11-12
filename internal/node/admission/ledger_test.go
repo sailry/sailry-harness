@@ -130,6 +130,56 @@ func TestLedger(t *testing.T) {
 		}
 	})
 
+	t.Run("an unknown outcome resolved by the Node that holds the request", func(t *testing.T) {
+		unknown := link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "remote outcome could not be confirmed"}}
+		for name, lose := range map[string]func(protocol.Request){
+			"recorded": func(value protocol.Request) {
+				if err := admission.Settle(ctx, write, caller, value.ID, unknown); err != nil {
+					t.Fatal(err)
+				}
+			},
+			"interrupted": func(protocol.Request) { recover() },
+		} {
+			value, body := request()
+			admit(value, body)
+			// A running request is settled, never resolved.
+			if err := admission.Resolve(ctx, write, caller, value.ID, applied); !errors.Is(err, admission.ErrNotAdmitted) {
+				t.Fatalf("%s: resolving a running request = %v", name, err)
+			}
+			lose(value)
+			if previous := admit(value, body); previous == nil || previous.Fault == nil || previous.Fault.Code != protocol.ErrorCodeOutcomeUnknown {
+				t.Fatalf("%s: before the answer = %#v", name, previous)
+			}
+			if err := admission.Resolve(ctx, write, caller, value.ID, applied); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			outcome := inspect(value, body)
+			result, ok := outcome.Data.(protocol.Result[protocol.Output, protocol.Fault])
+			if outcome.Kind != "completed" || !ok || result.Ok == nil || result.Ok.Kind != "notifications_updated" {
+				t.Fatalf("%s: resolved = %#v", name, outcome)
+			}
+			if previous := admit(value, body); previous == nil || previous.Fault != nil || previous.Output.Kind != "notifications_updated" {
+				t.Fatalf("%s: replay after the answer = %#v", name, previous)
+			}
+			// A known result is final: a second answer does not replace it.
+			if err := admission.Resolve(ctx, write, caller, value.ID, failed); !errors.Is(err, admission.ErrNotAdmitted) {
+				t.Fatalf("%s: second answer = %v", name, err)
+			}
+			if previous := admit(value, body); previous == nil || previous.Fault != nil {
+				t.Fatalf("%s: a known result was replaced: %#v", name, previous)
+			}
+		}
+		// A stored failure of any other kind is known and stays.
+		value, body := request()
+		admit(value, body)
+		if err := admission.Settle(ctx, write, caller, value.ID, failed); err != nil {
+			t.Fatal(err)
+		}
+		if err := admission.Resolve(ctx, write, caller, value.ID, applied); !errors.Is(err, admission.ErrNotAdmitted) {
+			t.Fatalf("resolving a known failure = %v", err)
+		}
+	})
+
 	t.Run("failed result write", func(t *testing.T) {
 		defer admission.SetSettleRetry(time.Millisecond)()
 		value, body := request()

@@ -45,7 +45,7 @@ class Fixture {
           }
           return {'data': result};
         },
-        execute: (request) async {
+        resolve: (request) async {
           recovered.add(request);
           return {'data': result};
         },

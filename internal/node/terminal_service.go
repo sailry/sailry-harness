@@ -105,6 +105,8 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 	case *protocol.CommandOpenSshTerminalPayload:
 		outcome, err := node.openSSHTerminal(ctx, caller, request, *input)
 		if opened, valid := outcome.Data.(protocol.TerminalInfo); valid && err == nil {
+			// The remote shell runs whether or not its row is stored.
+			effect.external = true
 			effect.commit = func(ctx context.Context, db *sql.Conn, output protocol.Output) (protocol.Output, []protocol.Event, error) {
 				changes, err := store.SaveTerminal(ctx, db, opened, false)
 				return output, changes, err
@@ -160,6 +162,10 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	// The terminal was started, changed or closed already: a row that
+	// could not be stored leaves an outcome to inspect, not an unapplied
+	// request.
+	effect.external = true
 	effect.commit = func(ctx context.Context, db *sql.Conn, output protocol.Output) (protocol.Output, []protocol.Event, error) {
 		changes, err := store.SaveTerminal(ctx, db, info, false)
 		return output, changes, err

@@ -350,11 +350,26 @@ type Call struct {
 	Standalone, Terminal bool
 	// Output is what expanding the row shows; nil rows have no caret.
 	Output *Output
+	// Background is the command the call sent to the background; nil for a
+	// call that ran in place. The row names its state after the detail.
+	Background *Background
 	// Load requests revision-scoped details when this disclosure first opens.
 	Load func()
 
 	note string // view-only: state text in place of State's
 	wrap bool   // view-only: the label wraps rather than truncates
+}
+
+// Background is where a command that runs apart from its turn is: running,
+// or ended with an outcome, and whether its result has reached the model.
+type Background struct {
+	Running bool
+	// Outcome is how the command ended, once it is not running.
+	Outcome NoticeOutcome
+	// Exit is the exit code of a command that ran to its end and failed.
+	Exit *int
+	// Waiting is a result no turn has taken yet: it joins the next one.
+	Waiting bool
 }
 
 // Output is a call's result, one or more of its parts.

@@ -21,6 +21,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -1453,6 +1454,38 @@ func TestComposerSendRouting(t *testing.T) {
 					t.Fatal("an unchanged Node snapshot had its Host lanes found again")
 				}
 			}
+			{
+				// A host on another protocol version says which side to update, in
+				// the page's language, and says nothing once the Link reaches it.
+				peer := protocol.NodeID{0xa7}
+				older, newer := uint16(protocol.VERSION)-1, uint16(protocol.VERSION)+1
+				network, kept := &Network{peers: map[protocol.NodeID]*networkPeer{peer: {}}, callbacks: map[uint64]func(){}}, r.network
+				network.peers[peer].address.ID = peer
+				r.network = network
+				for _, row := range []struct {
+					err  error
+					want string
+				}{
+					{link.CheckHost(&older, nil), "host_version_older"},
+					{link.CheckHost(&newer, nil), "host_version_newer"},
+					{link.CheckHost(nil, nil), "host_version_unknown"},
+					{os.ErrDeadlineExceeded, os.ErrDeadlineExceeded.Error()},
+					{nil, ""},
+				} {
+					network.peers[peer].err = row.err
+					r.projectHosts(r.App.Data)
+					if listed := r.hosts[peer.String()]; listed == nil || listed.view.Runtime.Error != row.want {
+						t.Fatalf("Host link failure %v reads %#v, want %q", row.err, listed, row.want)
+					}
+				}
+				for _, key := range []string{"host_version_older", "host_version_newer", "host_version_unknown", "controller_version_unknown"} {
+					if i18n.In("en", key) == key || i18n.In("zh-CN", key) == key || i18n.In("en", key) == i18n.In("zh-CN", key) {
+						t.Fatalf("%s has no copy in both languages", key)
+					}
+				}
+				r.network = kept
+				r.projectHosts(r.App.Data)
+			}
 			// An identical package command in flight is not sent again, and its second caller is told so.
 			remove := protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: "fixture"}}
 			r.busy["packages/"+packageCommandKey(remove)] = true
@@ -1483,6 +1516,16 @@ func TestComposerSendRouting(t *testing.T) {
 	}
 	t.Run("a session on another Node is forwarded by the local Node", testSessionForwarding)
 	t.Run("a failed installation removal keeps its row and toasts", testInstallationRemoval)
+	t.Run("python preparations keep the stages the page names", func(t *testing.T) {
+		got := pythonPreparations([]protocol.PythonPreparation{
+			{Package: "charts", Stage: protocol.PythonStageInstalling},
+			{Package: "later", Stage: "linking"},
+			{Package: "ocr", Stage: protocol.PythonStageCreating},
+		})
+		if len(got) != 2 || got[0] != (settings.PythonPreparation{Package: "charts", Stage: "installing"}) || got[1] != (settings.PythonPreparation{Package: "ocr", Stage: "creating"}) {
+			t.Fatalf("preparations: %+v", got)
+		}
+	})
 	t.Run("projected_default_effort", func(t *testing.T) {
 		provider := protocol.ProviderID{1}
 		snapshot := protocol.DefaultSnapshot()
@@ -1594,11 +1637,22 @@ func testSessionForwarding(t *testing.T) {
 	// refusal answers the next forward; forwarded counts the sessions made.
 	var refusal protocol.ErrorCode
 	forwarded := byte(0)
+	// unconfirmed is the forward the local Node recorded as not known.
+	var unconfirmed *protocol.RequestID
 	transports[0].handle = func(request protocol.Request) (link.Response, bool) {
+		if inspected, valid := detail[protocol.CommandInspectRequestPayload](request.Command.Data); valid && request.Command.Kind == "inspect_request" && unconfirmed != nil && inspected.ID == *unconfirmed {
+			// The local Node's ledger holds that outcome as final; only the
+			// same request, sent again, asks the target.
+			recorded := protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "remote session creation could not be confirmed"}}
+			return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: inspected.ID, Outcome: protocol.RequestOutcome{Kind: "completed", Data: recorded}}}}, true
+		}
 		if request.Command.Kind != "create_session_at" {
 			return link.Response{}, false
 		}
 		if refusal != "" {
+			if refusal == protocol.ErrorCodeOutcomeUnknown {
+				unconfirmed = &request.ID
+			}
 			return link.Response{Fault: &protocol.Fault{Code: refusal, Message: "Claude sign-in is required on the execution Node"}}, true
 		}
 		input := request.Command.Data.(protocol.CommandCreateSessionAtPayload)

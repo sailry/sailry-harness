@@ -134,6 +134,7 @@ func FinishCommand(ctx context.Context, db *sql.Conn, finished process.Finished,
 			if code == 0 {
 				outcome = protocol.ConversationBackgroundOutcomeCompleted
 			}
+			record.Task.ExitCode = &code
 		case "timed_out":
 			outcome = protocol.ConversationBackgroundOutcomeTimedOut
 		case "cancelled":

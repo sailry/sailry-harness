@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -125,30 +126,26 @@ func (access sshTransferAccess) uploadEntries(ctx context.Context, source, remot
 		if !check {
 			return sshTransferUnknown("upload publication is unconfirmed")
 		}
-		outcome, err := controller.Outcome(ctx, *plan.pending)
+		resolution, err := controller.Resolve(ctx, *plan.pending)
 		if err != nil {
 			return sshTransferFault(err)
 		}
-		switch outcome.Kind {
-		case "completed":
-			result, ok := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-			if !ok || (result.Ok == nil) == (result.Err == nil) {
-				return sshTransferUnknown("upload publication is unconfirmed")
-			}
-			if result.Err != nil {
-				if result.Err.Code != protocol.ErrorCodeOutcomeUnknown {
-					plan.pending = nil
-				}
-				fault := *result.Err
-				return &fault
-			}
+		switch resolution.State {
+		case client.RequestFailed, client.RequestUnknown:
+			// A stored failure, or an outcome the Node can never tell: the
+			// request is over either way. The job reports it once and may
+			// be started again, which publishes under a new request.
 			plan.pending = nil
-			if !sshTransferPublished(*result.Ok) {
+			fault := *resolution.Fault
+			return &fault
+		case client.RequestApplied:
+			plan.pending = nil
+			if !sshTransferPublished(resolution.Output) {
 				return sshTransferKey("files_upload_failed")
 			}
 			plan.copied += plan.entries[plan.index].size
 			plan.index++
-		case "not_admitted":
+		case client.RequestAbsent:
 			if finish, ok := detail[protocol.CommandFinishSshUploadPayload](plan.pending.Command.Data); ok && plan.pending.Command.Kind == "finish_ssh_upload" {
 				access.release(finish.Stream)
 			}

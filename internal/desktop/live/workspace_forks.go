@@ -2,6 +2,7 @@ package live
 
 import (
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -136,7 +137,7 @@ func (p *workspaceProject) managedWorktree(status protocol.GitStatus, session *p
 		input := protocol.CommandCreateManagedWorktreePayload{Project: project, Source: p.owner.ID, Branch: values[0], ExpectedHead: *status.Head, ExpectedIndex: *status.IndexRevision, IncludeChanges: includeChanges}
 		p.runtime.executeScoped("managed-worktree/"+p.owner.ID.String(), protocol.Command{Kind: "create_managed_worktree", Data: input}, func(c *ui.Context, out protocol.Output, err error) {
 			if err != nil {
-				p.panel.LockPrompt(faultCode(err) == protocol.ErrorCodeOutcomeUnknown)
+				p.panel.LockPrompt(client.Retained(err))
 				outcome, key := workspaceFailure(worktreeCreate, err)
 				kit.Toast(c, outcome, i18n.T(c, key))
 				done(false)

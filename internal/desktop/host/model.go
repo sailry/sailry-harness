@@ -43,6 +43,9 @@ type Host struct {
 	Ports []Port
 	// Revoking is whether the removal of the host's pairing runs.
 	Revoking bool
+	// Stopping is whether a request to end one of the host's processes
+	// runs: no other is sent meanwhile.
+	Stopping bool
 }
 
 // Project is a project on the host.
@@ -243,7 +246,11 @@ type Metrics struct {
 	ReceivedTotal, TransmittedTotal uint64
 	Totals                          bool
 	Interval                        time.Duration
-	// Disks are every mount the sample lists; Volumes are the real ones.
+	// GPUs are the accelerators the sample lists, none where the Node reads
+	// none (it reads macOS's).
+	GPUs []GPU
+	// Disks are the volumes the sample lists: the Node leaves the device and
+	// system mounts out.
 	Disks     []Disk
 	Processes []Process
 	// ProcessCount is how many processes run, < 0 unknown: Processes are
@@ -252,6 +259,12 @@ type Metrics struct {
 	// History are the last samples' points, oldest first, this sample's
 	// last.
 	History []Point
+}
+
+// GPU is an accelerator and its load.
+type GPU struct {
+	ID, Name string
+	Usage    float64 // percent, NaN unknown
 }
 
 // Disk is a mounted volume.

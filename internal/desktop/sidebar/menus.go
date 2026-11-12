@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -28,6 +29,10 @@ func (s *State) notice(c *ui.Context) {
 // in memory; the rest tell the preview notice.
 func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
 	t := func(key string) string { return i18n.T(c, key) }
+	if cv.Archived {
+		s.archivedMenu(c, m, cv)
+		return
+	}
 	if m.Item(t("workspace_rename")).Chosen() {
 		s.StartRename(cv)
 	}
@@ -56,7 +61,13 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		s.archive(c, cv)
 	}
 	if m.Item(t("session_delete")).Chosen() {
-		s.confirm = confirm{open: true, title: t("session_delete"), message: i18n.T(c, "session_delete_named", "name", Title(c, cv)),
+		// A session without a project keeps its files in a private
+		// workspace, which goes with it: the confirmation says so once.
+		message := i18n.T(c, "session_delete_named", "name", Title(c, cv))
+		if s.Data.ProjectOf(cv.ID) == nil {
+			message += "\n" + t("session_delete_private_files")
+		}
+		s.confirm = confirm{open: true, title: t("session_delete"), message: message,
 			action: t("session_delete"), run: func() { s.delete(cv) }}
 	}
 	m.Separator()
@@ -118,6 +129,73 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 	}
 }
 
+// SessionMenu is the right-click menu of a session's row outside the
+// sidebar, as a project page's record.
+func (s *State) SessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
+	s.sessionMenu(c, m, cv)
+}
+
+// archivedMenu is an archived session's menu: it has no row to rename or
+// pin, so it restores, deletes or copies.
+func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
+	t := func(key string) string { return i18n.T(c, key) }
+	if m.Item(t("backup_unarchive")).Chosen() {
+		if s.Actions != nil && s.Actions.Unarchive != nil {
+			s.Actions.Unarchive(cv)
+		} else if s.Actions == nil {
+			cv.Archived = false
+		}
+	}
+	if m.Item(t("session_delete")).Chosen() {
+		s.confirm = confirm{open: true, title: t("session_delete"), message: i18n.T(c, "session_delete_named", "name", Title(c, cv)),
+			action: t("session_delete"), run: func() { s.delete(cv) }}
+	}
+	m.Separator()
+	m.Submenu(t("content_copy"), func(m *ui.Menu) {
+		if m.Item(t("workspace_copy_title")).Chosen() {
+			c.WriteClipboard(Title(c, cv))
+		}
+		if m.Item(t("session_copy_id")).Chosen() {
+			c.WriteClipboard(cv.ID)
+		}
+	})
+}
+
+// ProjectActions fills the project page's More menu with the project's
+// actions, as the reference's header menu.
+func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) {
+	t := func(key string) string { return i18n.T(c, key) }
+	worktrees := func(action string) {
+		if s.Actions != nil && s.Actions.Worktrees != nil {
+			s.Actions.Worktrees(pr, action, "")
+		} else {
+			s.notice(c)
+		}
+	}
+	if m.Item(t("project_edit")).Icon(icons.Settings2).Chosen() {
+		s.OpenEditor(pr)
+	}
+	if m.Item(t("worktree_create")).Icon(icons.Plus).Chosen() {
+		worktrees("create")
+	}
+	if m.Item(t("workspace_copy_path")).Icon(icons.Copy).Chosen() {
+		c.WriteClipboard(pr.Path)
+	}
+	if m.Item(t("worktree_remove")).Icon(icons.CircleX).Disabled(len(pr.Worktrees) < 2).Chosen() {
+		worktrees("remove")
+	}
+	if m.Item(t("project_remove")).Icon(icons.Trash).Danger().Chosen() {
+		s.AskRemove(c, pr)
+	}
+	if m.Item(t("cli_launch")).Icon(icons.Terminal).Chosen() {
+		if s.Actions != nil && s.Actions.CLI != nil {
+			s.Actions.CLI(pr)
+		} else {
+			s.notice(c)
+		}
+	}
+}
+
 // projectMenu is a project row's right-click menu, the system's.
 func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
@@ -148,9 +226,6 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 	if m.Item(t("project_edit")).Chosen() {
 		s.OpenEditor(pr)
-	}
-	if s.Actions == nil && m.Item(t("project_trust")).Chosen() {
-		s.trust(c, pr)
 	}
 	if m.Item(t("workspace_copy_path")).Chosen() {
 		c.WriteClipboard(pr.Path)
@@ -258,26 +333,6 @@ func (s *State) AskRemove(c *ui.Context, pr *preview.Project) {
 	}
 	s.confirm = confirm{open: true, title: i18n.T(c, "project_remove"), message: message, action: i18n.T(c, s.removeLabel(c)),
 		run: func() { s.remove(pr) }}
-}
-
-// trust asks before granting or revoking a sample project's trust, which
-// the preview only records.
-func (s *State) trust(c *ui.Context, pr *preview.Project) {
-	title, detail, action := "project_grant_title", "project_grant_description", "project_grant"
-	if pr.Trusted {
-		title, detail, action = "project_revoke_title", "project_revoke_description", "project_revoke"
-	}
-	trusted, path := pr.Trusted, pr.Path
-	message := pr.Name + "\n" + pr.Path + "\n" + i18n.T(c, detail)
-	if !kit.Demo(c) {
-		message += "\n" + i18n.T(c, "project_trust_preview")
-	}
-	s.confirm = confirm{open: true, title: i18n.T(c, title), message: message,
-		action: i18n.T(c, action), run: func() {
-			if pr.Path == path && pr.Trusted == trusted {
-				pr.Trusted = !trusted
-			}
-		}}
 }
 
 // remove takes a project out of its Node's inventory through the live

@@ -69,12 +69,21 @@ func (b *demo) workspace() *Workspace {
 		Remotes: []Remote{{Name: "origin", URL: "https://git.harbor.example/harbor/harbor-api.git"}},
 		Stashes: []string{"WIP on main: a3f07c1 Tune the booking indexes"},
 		Tags:    []string{"v2.3.1", "v2.4.0-rc.2"},
+		// Newest first, every child before its parents: the branch took main
+		// in, main took the reservation fix in, and both left the release
+		// candidate. The history goes on past the last commit listed.
 		Commits: []Commit{
-			{ID: "5c1e9a40b7d2f381", Message: "Add a token bucket for booking requests", Author: "Maya Lindqvist", Refs: []string{"heads/feature/rate-limit"}},
-			{ID: "9d42f6b1a0e7c254", Message: "Read plan limits from the configuration\n\nAnonymous, free and pro clients each get their own budget.", Author: "Maya Lindqvist", Refs: []string{"remotes/origin/feature/rate-limit"}},
-			{ID: "e81b2d6f03c5a917", Message: "Reserve seats in one serializable transaction", Author: "Jonas Okafor", Refs: []string{"heads/fix/reserve-race"}},
-			{ID: "a3f07c18e964b0d5", Message: "Tune the booking indexes", Author: "Jonas Okafor", Refs: []string{"heads/main", "remotes/origin/main"}},
-			{ID: "71c5d09e2ab84f63", Message: "Release 2.4.0-rc.2", Author: "Maya Lindqvist", Refs: []string{"tags/v2.4.0-rc.2"}},
+			{ID: "5c1e9a40b7d2f381", Message: "Add a token bucket for booking requests", Author: "Maya Lindqvist", Time: Now.Add(-25 * time.Minute), Refs: []string{"HEAD", "heads/feature/rate-limit"}, Parents: []string{"c4d81f0a7e3b5962"}},
+			{ID: "c4d81f0a7e3b5962", Message: "Merge branch 'main' into feature/rate-limit", Author: "Maya Lindqvist", Time: Now.Add(-2 * time.Hour), Refs: []string{}, Parents: []string{"9d42f6b1a0e7c254", "a3f07c18e964b0d5"}},
+			{ID: "9d42f6b1a0e7c254", Message: "Read plan limits from the configuration\n\nAnonymous, free and pro clients each get their own budget.", Author: "Maya Lindqvist", Time: Now.Add(-5 * time.Hour), Refs: []string{"remotes/origin/feature/rate-limit"}, Parents: []string{"2e6b0d94c1f7a835"}},
+			{ID: "2e6b0d94c1f7a835", Message: "Sketch the rate limit middleware", Author: "Maya Lindqvist", Time: Now.Add(-26 * time.Hour), Refs: []string{}, Parents: []string{"71c5d09e2ab84f63"}},
+			{ID: "a3f07c18e964b0d5", Message: "Tune the booking indexes", Author: "Jonas Okafor", Time: Now.Add(-29 * time.Hour), Refs: []string{"heads/main", "remotes/origin/main"}, Parents: []string{"f19c3a5d8b60e742"}},
+			{ID: "f19c3a5d8b60e742", Message: "Merge pull request #212 from fix/reserve-race", Author: "Jonas Okafor", Time: Now.Add(-2 * 24 * time.Hour), Refs: []string{}, Parents: []string{"71c5d09e2ab84f63", "e81b2d6f03c5a917"}},
+			{ID: "e81b2d6f03c5a917", Message: "Reserve seats in one serializable transaction", Author: "Jonas Okafor", Time: Now.Add(-53 * time.Hour), Refs: []string{"heads/fix/reserve-race"}, Parents: []string{"b60a4e17d92c3f58"}},
+			{ID: "b60a4e17d92c3f58", Message: "Reproduce the double booking in a test", Author: "Jonas Okafor", Time: Now.Add(-3 * 24 * time.Hour), Refs: []string{}, Parents: []string{"71c5d09e2ab84f63"}},
+			{ID: "71c5d09e2ab84f63", Message: "Release 2.4.0-rc.2", Author: "Maya Lindqvist", Time: Now.Add(-6 * 24 * time.Hour), Refs: []string{"tags/v2.4.0-rc.2"}, Parents: []string{"08d3b7f5a6c41e29"}},
+			{ID: "08d3b7f5a6c41e29", Message: "Paginate the invoice list", Author: "Jonas Okafor", Time: Now.Add(-8 * 24 * time.Hour), Refs: []string{}, Parents: []string{"4a9e6c2d17b3f085"}},
+			{ID: "4a9e6c2d17b3f085", Message: "Release 2.3.1", Author: "Maya Lindqvist", Time: Now.Add(-21 * 24 * time.Hour), Refs: []string{"tags/v2.3.1"}, Parents: []string{"d5f20b8e3a7c1946"}},
 		},
 	}
 	w.Checkpoints = []Checkpoint{

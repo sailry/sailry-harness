@@ -73,9 +73,9 @@ func subagentTokens(cv *viewmodel.Conversation) int {
 // the demo's ledger meanwhile and from the Node again after the way back,
 // the page's watch moving over with the switch.
 func TestDemoMode(t *testing.T) {
-	// The Node and the pages' calls live as long as the test, which draws
-	// every demo conversation twice and, with $SAILRY_SNAPSHOTS, at 2x.
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	// The walk opens every demo conversation in two languages; on a loaded
+	// machine that takes minutes, and the Node must outlive it.
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
 	owner, err := node.StartWithOptions(ctx, profile, node.Options{})

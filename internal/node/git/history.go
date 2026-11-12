@@ -15,6 +15,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// entry is a commit as the history lists it. Parents are its parent IDs in
+// Git's order, the first the line it continues: an empty list is a root
+// commit, so a graph can tell it from a build that sent none.
 func entry(commit *object.Commit, refs map[plumbing.Hash][]string) protocol.GitLogEntry {
 	message, partial := bounded(commit.Message, 4096)
 	author, a := bounded(commit.Author.Name, 256)
@@ -23,8 +26,16 @@ func entry(commit *object.Commit, refs map[plumbing.Hash][]string) protocol.GitL
 	if labels == nil {
 		labels = []string{}
 	}
-	return protocol.GitLogEntry{ID: commit.Hash.String(), Message: message, Author: author, Email: email, Timestamp: commit.Author.When.Unix(), References: labels, Truncated: partial || a || e}
+	parents := make([]string, len(commit.ParentHashes))
+	for i, parent := range commit.ParentHashes {
+		parents[i] = parent.String()
+	}
+	return protocol.GitLogEntry{ID: commit.Hash.String(), Message: message, Author: author, Email: email, Timestamp: commit.Author.When.Unix(), References: labels, Parents: parents, Truncated: partial || a || e}
 }
+
+// references are the names at each commit, without their refs/ prefix
+// (heads/main, remotes/origin/main, tags/v1), and HEAD at the commit checked
+// out, which a detached HEAD has no branch to say.
 func references(ctx context.Context, r *gogit.Repository) (map[plumbing.Hash][]string, bool, error) {
 	result := map[plumbing.Hash][]string{}
 	iter, err := r.References()
@@ -57,6 +68,9 @@ func references(ctx context.Context, r *gogit.Repository) (map[plumbing.Hash][]s
 	})
 	if err == io.EOF {
 		err = nil
+	}
+	if hash, e := resolve(r, "HEAD"); e == nil {
+		result[hash] = append(result[hash], "HEAD")
 	}
 	for hash := range result {
 		sort.Strings(result[hash])

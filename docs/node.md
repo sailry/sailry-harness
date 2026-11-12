@@ -31,13 +31,26 @@ Every admitted request ends in one of two final states
   same fault and the controller starts a new request.
 - `unknown`: the Node stopped while the request ran. Startup sets this for
   every request still `admitted`, and it never changes again. The Node cannot
-  tell which of them took effect, so it does not guess.
+  tell which of them took effect, so it does not guess. The one exception is
+  a request that another Node holds under the same identifier
+  ([Session forwarding](#session-forwarding)): that Node's answer replaces an
+  outcome stored as not known (`admission.Resolve`).
 
 `admitted` therefore always means "running, or its result is being stored".
 A result that could not be stored with its transaction is written again in a
 transaction of its own every second (`admission.Settle`) until it is stored or
 the Node stops; a stopping Node makes one last attempt. Only a commit that the
 store could not confirm leaves a request admitted until the next start.
+
+A workspace command (a file, Git, terminal or process effect, and the tool
+calls of a turn that run them) stores its resource metadata with its result.
+When that transaction fails, `recordWorkspaceEffect` settles the request by
+what was lost: an operation that failed, or one with only its result to
+store, keeps that result; an effect outside the database whose metadata was
+in the transaction is stored as `outcome_unknown` "operation completed but
+its resource metadata could not be recorded; inspect the target before
+retrying"; a command whose whole change was in the transaction is stored
+with that failure, as above.
 
 `InspectRequest` answers "what became of request X" for the controller that
 sent it: `not_admitted`, `admitted`, `completed` with the stored result, or
@@ -109,10 +122,27 @@ request once and, on an unknown outcome, asks the Node by request ID:
 | `admitted`, or the Node cannot be asked | OutcomeUnknown, `client.Retained` | keeps the request; the same request settled again resolves it |
 
 The Desktop's `Runtime.execute` uses it for every command it sends that way
-(sends, queue actions, settings saves, provider and package commands) and
-keeps a request only while `client.Retained` holds. Flows that poll their own
-long operation (Host installation, uploads, plugin requests) call
-`Client.Resolve` or `Client.Outcome` directly.
+(sends, queue actions, settings saves, provider and package commands, local
+model installations, plugin status actions) and keeps a request only while
+`client.Retained` holds. A workspace action offers "Check result", and a
+transfer shows as uncertain, only for such a kept request; a released one is
+toasted once as uncertain and its next attempt is a new request. Flows that
+keep their own request (Host installation, attachment and file uploads,
+package installations, SSH transfers, a card's sign-in, a package's worktree
+handoff, the Retry of an approval or an answer) ask with `Client.Resolve` and
+read the answer with `Resolution.Result`, which is what `Settle` returns: a
+stored failure or an outcome the Node can never tell ends the request, so no
+flow asks about the same request forever.
+
+The one request kept although its outcome is final in the ledger is a
+forwarded session creation ([Session forwarding](#session-forwarding)): the
+Node that forwarded it resolves it only when the same request is sent again,
+so the Desktop keeps it with its draft until the target answers.
+
+The Mobile adapter's `execute` is `Client.Settle`, and its `resolve` (the
+phone's "check result") is `Client.Resolve`, which never sends the request.
+Both mark a failure that ends its request with `released`; see
+[Mobile](mobile.md#uncertain-outcomes).
 
 Differences from Rust, deliberate:
 
@@ -181,11 +211,25 @@ it fails to decode these values, all added on November 12, 2026:
 | `PluginTransactionOperation` `continue` members `marker`, `limit`, `user` | a package | Node refuses the operation; a package needing them sets `min_sailry_version` |
 | any Node event or conversation frame change of a new kind | Node | controller faults its projection |
 
+Optional members added after the rule are ignored by a build that follows it
+and read as absent from a Node that does not send them:
+`ConversationBackgroundTask.exit_code`, `ToolDetailSummary.task`,
+`ConversationCheckpointFile.restored`, `ConversationRunsSummary.recovered` and
+`ConversationRunsPage.background`.
+
 An earlier build already accepts `ConversationContinuation.kind`, `limit` and
 `user`, `KnowledgeProgress.failed` and `failures`, `KnowledgeFailure`, the
 `output_limit` resource part and `CommandContinueTurnPayload`. The protocol
 version is unchanged: from this build on, each of the values above decodes.
-The Flutter controller's Dart mirror is separate and still exact.
+
+The Flutter controller has no decoder of its own. Everything a Node sends is
+decoded by the Go Client inside the adapter, at `PeerData`, and reaches Dart
+as JSON that Dart reads as plain maps by key: an unknown member is ignored and
+an unknown enum value or variant falls to a default branch. So a newer Node
+does not break the phone at decode; what the phone lacks for the values above
+is display only ([Mobile](mobile.md#known-display-gaps)). The one exact decode
+is `Authored`, of the commands Dart builds (`prepare` in
+`internal/mobile/connection.go`); Dart and that decoder ship in one build.
 
 Each database mutation uses a command savepoint. Business failure rolls back its
 partial SQL while the completed fault remains durable. Successful business SQL,
@@ -251,7 +295,13 @@ wake assertion or telemetry sender.
 
 `report_diagnostic` stores a controller's system report as a notification.
 Plugin callers are refused, a cancellation stores nothing, and a repeated
-incident answers with its first notice without another event.
+incident answers with its first notice without another event. The Desktop
+sends it when a package's metadata read (`plugin_metadata`, operation
+`metadata_read`) or a view's initialization (`plugin_initialization`,
+operation `view_initialize`) fails (`live/plugin_diagnostics.go`): once per
+failure the view shows, not for a cancellation or while disconnected, and
+its result is ignored. The package is named only when the snapshot gives its
+version.
 
 The Node writes its own notices in the transaction of the change they report
 (`internal/node/store/notifications_system.go`), as Rust's
@@ -342,8 +392,10 @@ session only if the earlier one never arrived; the controller receives that
 answer. The outcome stays unknown while the forward is still in flight, when the
 provider, its secret or the roles changed so the import cannot be rebuilt or the
 target answers `conflict` for different content, and when the target cannot be
-reached. The source ledger keeps the unknown outcome it recorded; the answer is
-read from the target on each replay. The Desktop keeps the request of an unknown
+reached or is no longer paired: only the target's own answer settles it. That
+answer, a session or a refusal, replaces the unknown outcome in the source
+ledger (`admission.Resolve`), so a later replay and `inspect_request` read it
+there and nothing is sent again. The Desktop keeps the request of an unknown
 creation with its draft and sends it again with the next Send.
 
 `import_session` is accepted only from the paired caller named as its source,
@@ -375,7 +427,7 @@ tool.
 | Deviation from Rust | Reason |
 |---|---|
 | `create_session_at` whose target is this Node still creates the session locally | The Desktop creates every session through it; Rust refuses a local target |
-| A replayed forward with an unknown outcome sends the identical import again | Rust records the unknown outcome as final and its replay never sends, so a draft could not create its session after one lost answer; the target deduplicates on the request ID, which makes the resend safe |
+| A replayed forward with an unknown outcome sends the identical import again, and the target's answer is stored in place of the unknown outcome | Rust records the unknown outcome as final and its replay never sends, so a draft could not create its session after one lost answer; the target deduplicates on the request ID, which makes the resend safe |
 | Private providers are deleted with their session | Rust retains them; a removed session should not leave a forwarded secret behind |
 | Removal deletes the checkpoint text and bound attachments that only removed sessions reach | Rust prunes artifacts only and never reclaims checkpoints or attachments; a deleted conversation should not keep file contents and uploads of up to 64 MiB each |
 | `save_backup_settings`, `save_search_settings`, `restore_backup`, `restore_backup_file`, `dispatch` and `plugin_transaction` are kept by digest | Rust stores them raw although they can carry a secret; the other digested commands match Rust |
@@ -396,7 +448,12 @@ declares more than 256 MiB (sixteen maximum frames) before allocating. A
 frame's buffer grows with the bytes that arrive, in 64 KiB steps, so a declared
 length alone reserves no more than one step. The
 Client has one observation owner, which reconnects after a transient loss with a
-250 ms to 5 s backoff and ends only on a permanent fault. `Refresh` keeps the
+250 ms to 5 s backoff and ends only on a permanent fault. The first observation
+is retried the same way: `Client.Start` returns the first attempt's failure, and
+after Unavailable or Busy the owner keeps trying until the Client is closed, so
+a controller opened while it or the Node is offline connects when the route
+returns. The Desktop's remote peers close such a Client and inspect the peer
+again every 10 s, so only one of the two retries runs. `Refresh` keeps the
 existing observation when the new subscription cannot be opened; when the new
 subscription's first read fails, the Client is disconnected and the same
 reconnection continues. `Client.Revision` advances with each change of the Node

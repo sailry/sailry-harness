@@ -244,6 +244,7 @@ knowledge_slide: Diapositive %{slide}
 workspace_archive: Session d'archive
 session_delete: Supprimer la session
 session_delete_named: Supprimer définitivement la session « %{name} » et ses sous-agents
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Renommer
 session_title_required: Entrez un nom
 session_mark_read: Marquer comme lu
@@ -414,7 +415,10 @@ git_commit_staged: Procéder à des modifications par étapes
 git_commit_staged_amend: Commit staged et amend
 git_commit_staged_signoff: Confirmer en étape et signer
 git_commit_sync: Valider et synchroniser
+git_cherry_pick: Cherry-pick commit
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Copier le nom de la branche
+git_copy_commit_id: Copy commit ID
 git_copy_path: Copier le chemin
 git_delete_branch: Supprimer la branche
 git_delete_confirm: Supprimer? Cela ne peut pas être annulé
@@ -574,6 +578,9 @@ background_outcome_stalled: Aucune sortie récente
 background_outcome_stopped: Arrêté
 background_outcome_timed_out: Délai dépassé
 background_outcome_unknown: Résultat incertain
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Compactage annulé
 chat_compact_failed: Compactation a échoué
 chat_compact_queued: En attente de compacter
@@ -1134,6 +1141,10 @@ provider_model_default: Par défaut
 provider_set_default: Définir comme par défaut
 provider_default: Modèle par défaut
 provider_model_id: Numéro de modèle
+provider_deployment_id: Nom du déploiement
+provider_api_version: Version API
+form_api_version_hint: par exemple 2024-10-21
+provider_cloud_required: Entrez la configuration du fournisseur de cloud
 form_model_hint: Numéro de modèle
 provider_context: Limite de contexte (tokens)
 form_tokens_hint: Nombre de jetons
@@ -1342,6 +1353,7 @@ connector_tools_empty: Aucun outil
 plugins_no_skills: Pas de compétences
 plugins_no_mcp: No MCP serveurs
 market_details_permission_none: Aucune autorisation supplémentaire requise
+market_details_added_permissions: Nouvelles autorisations
 market_installed: Installé
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -1443,6 +1455,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Choisir un dossier
 skill_source_choose_archive: Choisir une archive
 git_diff: Différences
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: Lire les modifications Git
 market_permission_git_write: Modifier Git
 market_permission_files_read: Lire les fichiers
@@ -1543,6 +1558,20 @@ host_process_name: Processus
 host_pid: PID
 host_process_empty: Pas de processus
 host_process_no_matches: Pas de processus de correspondance
+host_process_details: Voir les détails
+host_process_copy_pid: Copier le PID
+host_process_copy_name: Copier le nom
+host_process_stop: Fin du processus
+host_process_force_stop: Forcer la fermeture
+host_process_stop_confirm: Envoyer une demande d'arrêt; cela peut interrompre les tâches en cours d'exécution
+host_process_force_confirm: Terminez ce processus maintenant; les données non enregistrées peuvent être perdues
+host_process_stop_sent: Demande d'arrêt envoyée
+host_process_gone: Process quitted
+host_process_changed: Processus modifié; actualiser et réessayer
+host_process_protected: Impossible d'arrêter les processus système ou le service hôte actuel
+host_process_uncertain: Résultat d'arrêt inconnu; vérifier l'état du processus
+host_process_stop_failed: Impossible d'arrêter le processus ; il a peut-être quitté, l'accès peut être refusé ou cet hôte ne le prend pas en charge
+metrics_gpu: GPU
 port_title: Redirection de port
 port_mappings: Mappings de ports
 port_add: Nouveau tunnel
@@ -1616,7 +1645,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Ajouter
+reference_group_context: Contexte
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1857,7 +1886,7 @@ authorization_connected: Connecté
 connector_bound: Associé
 connector_checked: Connexion opérationnelle
 connector_mcp_reconnected: Connecté, %{n} outils
-connector_consent_effect: Vérifiez les changements de destinations avant de continuer
+connector_consent_effect: Autoriser les permissions de connexion modifiées
 connector_changed_origins: Origines
 connector_changed_scopes: Autorisations
 connector_changed_client: Client
@@ -1984,7 +2013,12 @@ knowledge_saved: Enregistré
 knowledge_cancel_requested: Annulation demandée
 model_library_failed: Impossible de charger les modèles
 model_library_partial: Certains résultats sont indisponibles
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Les fichiers de cette version ont changé
+model_library_version: Version
+model_library_more: Charger plus
+model_library_query_prefix: Préfixe de recherche
+model_library_document_prefix: Préfixe de document
+knowledge_up_to_date: Déjà à jour
 local_models_unavailable: Indisponible
 dictation_unavailable: Entrée vocale locale non disponible
 dictation_model_missing: Télécharger un modèle de discours en premier
@@ -2200,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: Impossible de charger l'utilisation, réessayez
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2215,4 +2250,16 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host est plus ancien ; mettez Host à jour
+host_version_newer: Host est plus récent ; mettez Desktop à jour
+host_version_unknown: Version de Host invérifiable ; mettez Host à jour
+controller_version_unknown: Version de Desktop invérifiable ; mettez Desktop à jour
+content_link_address: Adresse du lien
+content_link_edit: Modifier le lien
+content_image_address: Adresse de l’image
+content_image_alt: Texte alternatif
+runtime_python_preparing: Préparation
+python_creating: Préparation des dépendances
+python_installing: Installation des dépendances
+python_validating: Vérification des dépendances
 port_count: '%{count} ports'

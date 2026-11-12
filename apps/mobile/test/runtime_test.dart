@@ -121,8 +121,15 @@ class Channel extends Fake implements Connection {
   Future<void>? pendingClose;
   final closeStarted = Completer<void>();
   final requests = <String>[];
+  final resolved = <String>[];
   bool uncertain = false;
   String? response;
+  @override
+  Future<String> resolve({required String request}) async {
+    resolved.add(request);
+    return response!;
+  }
+
   @override
   Future<Updates> watch() async {
     watches++;
@@ -716,6 +723,43 @@ void main() {
           expect(channel.watches, 3, reason: caseName);
           await host.close();
           host.dispose();
+        },
+      ),
+      (
+        "result checks ask without sending again",
+        (caseName) async {
+          for (final (code, released, retained) in const [
+            ('outcome_unknown', false, true),
+            ('outcome_unknown', true, false),
+            ('unavailable', true, false),
+          ]) {
+            final channel = Channel()
+              ..response = jsonEncode({
+                'Err': {'code': code, 'message': 'Fixture'},
+                if (released) 'released': true,
+              });
+            final host = HostConnection.test(
+              id: 'node',
+              label: 'Node',
+              connection: channel,
+              command: (_, _) async => {},
+            );
+            await expectLater(
+              host.check('stable-request'),
+              throwsA(
+                isA<CommandFailure>()
+                    .having((error) => error.code, 'code', code)
+                    .having((error) => error.released, 'released', released)
+                    .having((error) => error.retained, 'retained', retained)
+                    .having((error) => error.rejected, 'rejected', released),
+              ),
+              reason: caseName,
+            );
+            expect(channel.resolved, ['stable-request'], reason: caseName);
+            expect(channel.requests, isEmpty, reason: caseName);
+            await host.close();
+            host.dispose();
+          }
         },
       ),
       (

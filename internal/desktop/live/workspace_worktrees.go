@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -271,7 +272,7 @@ func (p *workspaceProject) confirmWorktreePrune(tree protocol.GitWorktree) {
 					p.manageWorktrees()
 				}
 			}, func(_ *ui.Context, err error) {
-				if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+				if !client.Retained(err) {
 					retained = nil
 				}
 			})
@@ -329,7 +330,7 @@ func (p *workspaceProject) createWorktree(c *ui.Context, a panel.GitAction, stat
 				}
 				kit.Toast(c, kit.Done, i18n.T(c, "worktree_created"))
 			}, func(_ *ui.Context, err error) {
-				if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+				if !client.Retained(err) {
 					retained = nil
 				}
 			})

@@ -250,6 +250,25 @@ func (raw *rawAgentTool) delegation() protocol.ToolDetailDelegation {
 	value.Background = raw.Delegation && args["background"] == true
 	return value
 }
+
+// task is the background task a call started. A command sent to the
+// background, at its start or while it ran, answers with its process, whose
+// id names the command's evidence.
+func (raw *rawAgentTool) task() *string {
+	value := raw.value()
+	if agentObject(value)["kind"] != "command_started" {
+		return nil
+	}
+	id := agentString(agentPointer(value, "/data/id"))
+	if id == nil {
+		return nil
+	}
+	if _, err := protocol.ParseRequestID(*id); err != nil {
+		return nil
+	}
+	task := "command:" + *id
+	return &task
+}
 func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 	revision, err := raw.revision()
 	if err != nil {
@@ -334,6 +353,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 		}
 	}
 	value.Delegation = raw.delegation()
+	value.Task = raw.task()
 	if raw.Name == "ask_user" || raw.Name == "mcp_elicitation" || raw.Name == "plan_review" {
 		// An MCP request asks with a form or a link, which the model's own
 		// questions may not.

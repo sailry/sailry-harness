@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -132,25 +133,18 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 	success = true
 	return out, nil
 }
+
+// retryAttachmentRequest asks the Node what became of a kept request and
+// never repeats one the Node holds. A request that never arrived is sent with
+// its identifier. The error satisfies client.Released when the Node can never
+// tell what the request did: its owner drops it and reports that once.
 func (r *Runtime) retryAttachmentRequest(ctx context.Context, request protocol.Request) (protocol.Output, error) {
-	outcome, err := r.controller.Outcome(ctx, request)
+	resolution, err := r.controller.Resolve(ctx, request)
 	if err != nil {
 		return protocol.Output{}, err
 	}
-	switch outcome.Kind {
-	case "not_admitted":
+	if resolution.State == client.RequestAbsent {
 		return r.controller.Execute(ctx, request)
-	case "completed":
-		result, ok := detail[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-		if !ok {
-			return protocol.Output{}, fileActionFault(protocol.ErrorCodeOutcomeUnknown, "attachment outcome is unavailable")
-		}
-		if result.Err != nil {
-			return protocol.Output{}, &link.FaultError{Fault: *result.Err}
-		}
-		if result.Ok != nil {
-			return *result.Ok, nil
-		}
 	}
-	return protocol.Output{}, fileActionFault(protocol.ErrorCodeOutcomeUnknown, "attachment publication is still uncertain")
+	return resolution.Result()
 }

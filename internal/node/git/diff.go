@@ -29,6 +29,11 @@ type content struct {
 	binary bool
 	// large marks a side over the inspection limit, which is not read.
 	large bool
+	// converted marks a worktree side held with the line endings Git would
+	// store, which are not those of the file.
+	converted bool
+	// size is the length of the file or blob, also of a side that is not read.
+	size int64
 }
 
 func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode, limit int) (content, error) {
@@ -41,7 +46,7 @@ func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode
 	}
 	if blob.Size > int64(limit) {
 		if limit == 1024*1024 {
-			return content{hash: hash, mode: mode, exists: true, binary: true, large: true}, nil
+			return content{hash: hash, mode: mode, exists: true, binary: true, large: true, size: blob.Size}, nil
 		}
 		return content{}, invalid("Git file exceeds the operation size limit")
 	}
@@ -54,7 +59,7 @@ func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode
 	if err != nil {
 		return content{}, mapError(err)
 	}
-	return content{data: data, hash: hash, mode: mode, exists: true}, nil
+	return content{data: data, hash: hash, mode: mode, exists: true, size: blob.Size}, nil
 }
 func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int) (content, error) {
 	entry, err := headEntry(tree, path)
@@ -142,7 +147,7 @@ func workingContent(root, path string, limit int) (content, error) {
 		if info.Mode()&0111 != 0 {
 			mode = filemode.Executable
 		}
-		return content{hash: hash.Sum(), mode: mode, exists: true, binary: true, large: true}, nil
+		return content{hash: hash.Sum(), mode: mode, exists: true, binary: true, large: true, size: info.Size()}, nil
 	}
 	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
 	if err != nil {
@@ -155,7 +160,7 @@ func workingContent(root, path string, limit int) (content, error) {
 	if info.Mode()&0111 != 0 {
 		mode = filemode.Executable
 	}
-	return content{data: data, hash: plumbing.ComputeHash(plumbing.BlobObject, data), mode: mode, exists: true}, nil
+	return content{data: data, hash: plumbing.ComputeHash(plumbing.BlobObject, data), mode: mode, exists: true, size: int64(len(data))}, nil
 }
 func (s *Service) contents(ctx context.Context, root, path string, scope protocol.GitDiffScope) (content, content, error) {
 	if err := validPath(path); err != nil {
@@ -182,7 +187,7 @@ func (s *Service) contents(ctx context.Context, root, path string, scope protoco
 	case protocol.GitDiffScopeUnstaged:
 		before, err = indexContent(r, path, 1024*1024)
 		if err == nil {
-			after, err = workingContent(root, path, 1024*1024)
+			after, err = s.storedContent(ctx, root, r, path, 1024*1024)
 		}
 	case protocol.GitDiffScopeAll:
 		tree, e := headTree(r)
@@ -191,7 +196,7 @@ func (s *Service) contents(ctx context.Context, root, path string, scope protoco
 		}
 		before, err = treeContent(r, tree, path, 1024*1024)
 		if err == nil {
-			after, err = workingContent(root, path, 1024*1024)
+			after, err = s.storedContent(ctx, root, r, path, 1024*1024)
 		}
 	default:
 		err = invalid("invalid Git diff scope")
@@ -273,6 +278,15 @@ func renderDiff(path string, scope protocol.GitDiffScope, a, b content) (protoco
 		patch.to = patchFile{path, b}
 	}
 	result.Binary = patch.binary
+	if patch.binary {
+		// A file that is not compared as text is shown by its size.
+		if side := b; b.exists || a.exists {
+			if !b.exists {
+				side = a
+			}
+			result.Size = uint64(side.size)
+		}
+	}
 	if !patch.binary {
 		patch.chunks = chunks(a.data, b.data)
 		for _, c := range patch.chunks {

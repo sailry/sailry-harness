@@ -228,6 +228,12 @@ What to use instead, with the surface Kit's:
   `connection_connecting` and `connections_offline`. Kit has tags and badges
   but no status dot that pulses while a connection is coming up. It sits on
   the page, not in a floating surface, and needs no adapter.
+- `ConnectionStatus` is also the status of each row in Settings ›
+  Connections (`settings/connections.go`, [settings.md](settings.md)), in
+  place of `kit.StatusDot` and a text: `Online` for a device that is online
+  and `Offline` otherwise, never `Reconnecting`, so it is still. The three
+  texts are all the row's own status (this device, peer to peer, relay,
+  offline), and the element has the status role the dot and text lacked.
 
 ### Destructive confirmation
 
@@ -268,6 +274,9 @@ What to use instead, with the surface Kit's:
 - `SourceCard` and `Citation` open the address themselves through
   `c.OpenURL` when `ui.SafeToOpen` allows it (http, https, mailto) and report
   the click as `Changed`.
+- `SourceCard` is not used: the web search result dialog keeps its numbered
+  `ui.Link` rows, one source a line (the user's decision of 2026-11-12: the
+  sources are a folded tool's detail and need no cards).
 - `JumpToLatest` builds an empty box at zero and does not scroll: read
   `Clicked`.
 - `Lightbox` has nothing `kit.ImageViewer` lacks. Its adapter is kept and
@@ -478,6 +487,57 @@ It draws what it is given and computes nothing. Per commit, newest first:
   scroll of its own: put it in a `ui.Scroll`, and page the history rather
   than give it thousands of commits.
 
+In use: the Git history, in the panel's tab and the Git page
+(`internal/desktop/panel/git_history.go`, [panel.md](panel.md#layout)).
+
+- The Node sends each commit's parents and names `HEAD` among the references
+  at its commit; `graphLanes` assigns the lanes. A lane is held for the
+  commit it awaits, so every line the component draws down a lane ends at the
+  next dot in it; a merge's second parent takes the first free lane, and a
+  branch that joins a commit another child already awaits curves into that
+  child's lane.
+- A line to a parent that is not listed yet is drawn straight down the
+  commit's own lane to the end of the list, so `graphLanes` keeps that lane
+  for it and puts nothing in its way.
+- The rows over the graph are ours: a `ui.RoleListBox` of options laid at the
+  component's rows (`crychic.CommitGraphRows`, held to the component by a
+  test) that take the click, the selection, the tooltip and the OS-native
+  right-click menu. They take a click in the first frame: the component's
+  arrival moves its own rows and draws its lines in, not ours *(tested)*.
+- The selected and hovered fills (`theme.Palette.Selected()`, `Hover`) are
+  painted under the graph and start after the lanes. The component paints
+  the theme's background around each dot, which a fill under the dot shows
+  as a ring.
+- One line a commit. The component always shows the short ID first and puts
+  every name it is given before the subject, shrinking the names with the
+  subject when the line overflows, so the caller chooses what to give it
+  (`crychic.CommitGraphLanes` and `CommitGraphPad` say what the lanes and
+  padding take): under 200 DIP of text at most one name, the branch checked
+  out first, with the count of the others (`+2`) when it fits; from 200 the
+  names that fit in half of the line; from 340 also the author and the
+  commit's age after the subject. The row's tooltip says the full subject,
+  ID, author, age and names at any width.
+- The Node reads the history 100 commits at a time and the list grows by
+  Load more at its end, because the component draws a line only between
+  commits of one list: a page of its own would cut every line that crosses
+  into it. Keys are the hashes, so a longer list keeps its rows and the
+  component's lines are not drawn in again; only the new rows fade in. A
+  merge whose second parent is read later gets its lane then, which can
+  move the rows below it one lane over.
+- It is not virtual, so the cost grows with the list: a headless frame of
+  the Git page takes 0.3 ms with 100 commits, 1.7 ms with 500, 3.5 ms with
+  1,000 and 18 ms with 3,000 *(measured once, Apple silicon, not a test)*.
+  Nothing caps the list.
+- The arrival cannot be held still from outside as `crychic.Mermaid`'s is:
+  it is the trim of the lines in the component's painter and a keyframe on
+  each of its rows, not a pose of the root. It plays once when the history
+  shows, and again each time the History tab is chosen.
+- A history it cannot draw (an earlier Node that sends no parents, a parent
+  listed before its child) is the plain list, with the same rows and menu.
+- The lane colours are the component's, from the theme's accent, success,
+  warning and danger tokens through the adapter rule; there is no page
+  palette.
+
 ### `code.DiffView`
 
 MyGo's `editor.DiffView` under a file bar: a file glyph, `Name`, `+N` and
@@ -494,6 +554,22 @@ MyGo's `editor.DiffView` under a file bar: a file glyph, `Name`, `+N` and
   bar duplicate any `+N −N` the caller shows.
 - Empty, binary and partial states are not its concern: build it only for a
   text diff.
+
+Not used. The panel's Unified and Split choice is ours: `kit.DiffLayout`, a
+small `kit.Segmented` in the diff's toolbar, and `kit.DiffOptions.Split`,
+which sets the same MyGo layout (`editor.DiffSplit`) this component sets.
+Nothing of the viewer differs, so per-change Revert, Keep and Stage, the
+selection, the highlighting, long lines and the text size are the same in
+both. What decided it:
+
+- The choice covers every diff of the window: a file's, All changes, and a
+  commit's or stash's documents. The last two are several viewers as tall as
+  their text in one scroll; a fixed-height bordered card with a bar and an
+  arrival for each does not fit them, so `code.DiffView` could serve one of
+  the three and the choice would need a second control anyway.
+- Its bar repeats the file's name and `+N −N`, which the tab and the status
+  bar already show, and its switch is a pair of buttons rather than the
+  segmented control the header asks for.
 
 ## Compared with ours
 
@@ -526,13 +602,15 @@ findings about components not in this document were not.
 
 The audit's decisions stand where ours does more; none was overturned here.
 
-- **Replace, in part:** the panel's single-file diff may take
-  `code.DiffView` for its bar and Split and Unified switch, keeping
-  `kit.Diff`'s state, hunk actions and its empty, binary and partial states.
-  The height question is settled above.
-- **Use theirs for something we lack:** `files.FileIcon` in the picker's grid
-  cells; `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView`
-  when those features are added.
+- **Use theirs for something we lack:** `code.Blame` and `devtools.LogView`
+  when those features are added. The audit also named `files.FileIcon` for
+  the picker's grid cells; reading both declined it
+  ([below](#declined-page-by-page)).
+- **Ours stays, with what it lacked added:** the panel's diffs keep
+  `kit.Diff` and gained the Split and Unified choice themselves
+  ([`code.DiffView`](#codediffview) says why not the component).
+- **In use:** `code.CommitGraph` draws the Git history
+  ([`code.CommitGraph`](#codecommitgraph)).
 - **Replaced:** limu's renderer in the conversation by `diagram.Mermaid`,
   at the user's request. What the conversation's own wrapper did stays ours
   and is kept: code while the block streams and when it cannot be drawn, no
@@ -541,14 +619,49 @@ The audit's decisions stand where ours does more; none was overturned here.
   ([conversation.md](conversation.md#b10-visuals)). What limu did and the
   component does not: lay a diagram out for the reply's width, keep one
   layout across remounts, and repaint without a layout on a theme switch.
-  cells; `feedback.ConnectionStatus` for the host page's status;
-  `code.CommitGraph` for lanes; `code.Blame` and `devtools.LogView` when
-  those features are added.
+- **Used beside ours:** `feedback.ConnectionStatus` for the host page's
+  status and the rows of Settings › Connections.
 - **Ours stays:** the picker's list (`files.FileList` loses the functions
   listed above), every Kit overlay, the image viewer, the updater, settings
   rows and editors, the composer and conversation components, the
   conversation's chart painter ([Charts](#charts)) and the host monitor's
   (`host/charts.go`), both on MyGo's `ui/chart`.
+
+### Declined, page by page
+
+Each place the app could take a component was read against ours. These stay
+ours; the right column is the function the replacement would lose. The
+components marked *(read)* are not verified in this document: they were
+judged from their source alone and would need the steps under
+[Adding a component](#adding-a-component) before any use.
+
+| Component | Place | What it would lose |
+|---|---|---|
+| `feedback.EmptyState` *(read)* | `kit.Result` on every empty page | Our own icons (it takes a Lucide name), the second action, the dashed card and the error status; it panics on an empty title |
+| `feedback.ErrorState` | `kit.Result`'s error status | It always shows Retry, shakes and repeats what the toast said |
+| `feedback.Skeleton` family *(read)* | `kit.Skeleton` | The still state under Reduce Motion and the capped frame rate (its sheen asks for every frame), the sizes and the secondary tone |
+| `feedback.ProgressBar`, `QuotaBar`, `StorageBar` *(read)* | Usage, storage, downloads | MyGo's `ui.Progress` comes first. `QuotaBar` panics on a limit of zero, which a provider may report, and formats raw numbers itself |
+| `display.StatusBadge`, `Badge`, `Tag` *(read)* | `kit.Badge`, `kit.Tag` | Kit has them; theirs arrive with a motion and `StatusBadge` pulses without end in two states only |
+| `display.Presence` *(read)*, `feedback.ConnectionStatus` | Connector and provider statuses | The failed state in the destructive colour and the spinner while a command runs; `Reconnecting` pulses without end, wrong for a warning that does not change |
+| `display.Stat`, `StatCard`, `KPI` *(read)* | Host facts, usage totals | They take a `float64`; ours are formatted texts (uptime, sizes, token counts by locale) |
+| `display.DescriptionList` *(read)* | `settings/details.go` facts, notification details | Values that can be selected and copied, and a key column sized by its content (theirs is fixed at 10 rem); notifications use `kit.Record` |
+| `display.Timeline` *(read)* | none | No timeline is drawn by hand anywhere |
+| `typography.Kbd`, `KeyCombo`, `navigation.KeyHints` *(read)* | Settings › Shortcuts, menu shortcuts | Ours is the recorder button and the platform's chord text; there is no key hint footer to fill |
+| `display.Avatar`, `typography.Monogram` *(read)* | Project and session marks | `kit.Identicon` draws a mark from the ID; the provider badge belongs to the model picker, which is approved |
+| `color.SwatchGrid` | The project colour popover | The accepted single row of 11 round 16 DIP swatches (its squares are 32 DIPs), Kit's tooltip and the hidden tips setting |
+| `files.FileIcon` | The picker's grid, the conversation's file card | It cannot show a folder, knows fewer kinds than `picker/tile.go` and decides by extension where the card has the file's `Kind`; its extension pill overflows the 104 DIP cell; `conversation.FileIcon` is also the overview's and the panel tabs' icon |
+| `files.FileList` | The picker's list | As listed under [Files](#files) |
+| `navigation.ZoomControl` *(read)* | The image viewer's bar | Kit's tooltips in the frosted bar, zoom about the pointer, the disabled ends |
+| `form.FileField`, `files.Dropzone` | The SSH key file | Typing a path (`~/.ssh/id_ed25519`), the full path shown (it shows the base name), the disabled state while pairing |
+| `input.TagInput` | none | No list of free tags is edited: shared projects are checkboxes of offered projects. It also cannot remove a chosen chip or refuse a repeat |
+| `feedback.SaveStatus` | Settings saves | Nothing saves by itself; a save's outcome is a toast, and its spinner is not the approved loading mark |
+| `feedback.RetryIn` | The model retry row | The Node retries by itself and gives no time; a button would do nothing |
+| `form.TypeToConfirm` | Destructive dialogs | None asks for a typed name, and adding one is a second approval |
+| `agent.TaskProgress`, `RunTimeline` | The composer's overview progress | The list of every step with its skipped state; its opaque card would sit in the frosted popover; the composer is approved |
+| `agent.Citation` | Citations in a reply | They are numbered links inside the Markdown text (`Cite`), which wrap and select with it |
+| `agent.ImageGenerating`, `chat.LinkPreview`, `media.Waveform` and `Recorder` *(read)*, `devtools.LogView`, `code.Blame` | none | The app has no such data: no generation progress, no page preview, no blame; dictation's level is a 16 DIP glyph in a button |
+| `chat.JumpToLatest` | The transcript's jump button | We do not count unseen messages; ours fades with `AtEnd` |
+| `desktop.UpdatePrompt` *(read)* | The updater | Ours shows notes, progress and the restart |
 
 ## Size
 
@@ -568,6 +681,9 @@ already linked.
 6 MB before it was approved, while limu's layout, scene and style packages
 and `limumygo` are no longer linked. The table has not been measured again
 since: rebuild and add the row.
+
+The Connections rows and the search result sources add no package:
+`feedback` was linked by the host page and `agent` by the adapters.
 
 ## Adding a component
 

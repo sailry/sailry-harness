@@ -54,12 +54,10 @@ type workspaceProject struct {
 	worktrees                protocol.GitWorktrees
 	locationsLoaded          bool
 	turnChanges              map[string][]viewmodel.FileChange
-	turnUndone               map[string]map[string]bool
 	reviewTurns              map[string]protocol.TurnID
 	turnView                 *protocol.TurnID
 	branches                 protocol.GitBranches
 	gitLogPages              []protocol.GitLog
-	gitLogPage               int
 	gitLastRead              time.Time
 	gitRefreshTimer          *time.Timer
 	gitRefreshGeneration     uint64
@@ -181,7 +179,6 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		project.hunks = map[string]protocol.ConversationCheckpointHunkReview{}
 		project.resourceSignature = ""
 		project.turnChanges = map[string][]viewmodel.FileChange{}
-		project.turnUndone = map[string]map[string]bool{}
 		project.reviewTurns = map[string]protocol.TurnID{}
 		project.turnView = nil
 		project.readSessionResources()
@@ -218,7 +215,7 @@ func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	if project := r.workspace.projects[worktree.ID]; project != nil {
 		return project
 	}
-	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, checkpoints: map[string]protocol.ConversationCheckpointFile{}, checkpointOrder: map[string][]protocol.ConversationCheckpointFile{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, turnChanges: map[string][]viewmodel.FileChange{}, turnUndone: map[string]map[string]bool{}, reviewTurns: map[string]protocol.TurnID{}}
+	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, checkpoints: map[string]protocol.ConversationCheckpointFile{}, checkpointOrder: map[string][]protocol.ConversationCheckpointFile{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, turnChanges: map[string][]viewmodel.FileChange{}, reviewTurns: map[string]protocol.TurnID{}}
 	project.panel = panel.NewLiveProject(worktree.ID.String(), project.data, project.actions())
 	r.workspace.projects[worktree.ID] = project
 	return project
@@ -258,7 +255,7 @@ func (p *workspaceProject) actions() *panel.Actions {
 		ReadDirectory: func(path string) { p.readDirectory(path, false) }, NextDirectory: p.nextDirectory, RefreshDirectory: func(path string) { p.readDirectory(path, true) },
 		ReadFile: p.readFile, OpenFile: p.openFileKind, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
 		Search: p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
-		GitHistory: p.gitHistoryPage,
+		GitHistory: p.gitHistoryMore,
 		PendingGit: p.pendingGitOperations,
 		Loading:    p.resourcesLoading,
 		GitBusy:    func() bool { return p.gitRunning > 0 },

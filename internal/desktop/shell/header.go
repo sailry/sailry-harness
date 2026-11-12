@@ -71,6 +71,11 @@ func (a *App) header(c *ui.Context, f frame) {
 				a.band = band{}
 				a.trail(c)
 				ui.Spacer(c)
+				if project := a.overviewProject(); a.Page == ProjectPage && project != nil {
+					kit.MenuButton(c.Key("more"), "project-more", func(b ui.Element) {
+						kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", HeaderButton, false)
+					}, func(m *kit.Menu) { a.Sidebar.ProjectActions(c, m, project) }, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
+				}
 			} else {
 				// Find and the overview are one conversation's: the band
 				// has them while the conversation shows alone, and each

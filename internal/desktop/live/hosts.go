@@ -10,6 +10,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -17,13 +19,16 @@ import (
 )
 
 type liveHost struct {
-	node           protocol.NodeID
-	view           *host.Host
-	owner          *Runtime
-	info           *protocol.HostInfo
-	infoPending    bool
-	infoNext       time.Time
-	infoError      string
+	node        protocol.NodeID
+	view        *host.Host
+	owner       *Runtime
+	info        *protocol.HostInfo
+	infoPending bool
+	infoNext    time.Time
+	infoError   string
+	// linkError is why the Link does not reach the host now, "" once it
+	// does: a copy key for a protocol mismatch, else the Link's own reason.
+	linkError      string
 	metricsCancel  context.CancelFunc
 	metricsPending bool
 	metricsNext    time.Time
@@ -111,7 +116,6 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 	localID := r.controller.Target().String()
 	local := r.ensureHost(localID, r, true)
 	local.view.Runtime.Version = link.ProductVersion
-	local.view.Runtime.Timezone = time.Now().Format("MST -07:00")
 	local.view.Runtime.ProtocolMin, local.view.Runtime.ProtocolMax = int(protocol.VERSION), int(protocol.VERSION)
 	if local.view.OS == "" {
 		local.view.OS = hostOS(runtime.GOOS)
@@ -148,9 +152,7 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 			if peer.info.Protocol != nil {
 				state.view.Runtime.ProtocolMin, state.view.Runtime.ProtocolMax = int(*peer.info.Protocol), int(*peer.info.Protocol)
 			}
-			if peer.err != nil {
-				state.infoError = peer.err.Error()
-			}
+			state.linkError = hostLinkError(peer.err)
 			order = append(order, id)
 		}
 	}
@@ -176,6 +178,30 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 	r.App.SetHosts(present)
 }
 
+// hostLinkError is what the host's page says of a Link failure: the copy
+// key that names which side to update when the protocol versions differ,
+// which alone decide compatibility, else the failure's own text.
+func hostLinkError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var failure *protocol.Fault
+	if errors.As(err, &failure) && failure.Details != nil {
+		if mismatch, ok := failure.Details.Data.(protocol.FaultDetailsVersionMismatchPayload); ok {
+			switch {
+			case mismatch.UpdateHost && mismatch.Unverified:
+				return "host_version_unknown"
+			case mismatch.UpdateHost:
+				return "host_version_older"
+			case mismatch.Unverified:
+				return "controller_version_unknown"
+			}
+			return "host_version_newer"
+		}
+	}
+	return err.Error()
+}
+
 func hostOS(value string) string {
 	switch strings.ToLower(value) {
 	case "darwin", "macos", "mac os", "mac os x":
@@ -194,6 +220,9 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	view.Worktrees, view.Sessions, view.Terminals = 0, 0, 0
 	view.Runtime.Loading = state.infoPending && state.info == nil
 	view.Runtime.Error = state.infoError
+	if state.linkError != "" {
+		view.Runtime.Error = state.linkError
+	}
 	if view.Update != nil && view.Update.Phase == host.Idle {
 		view.Update.Current = view.Runtime.Version
 	}
@@ -217,6 +246,12 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 		// The computer's uptime and the Node's are two facts: a Node started
 		// minutes ago on a computer up for days shows both.
 		view.Runtime.Uptime, view.Runtime.NodeUptime = seconds(info.HostUptimeSecs), seconds(info.NodeUptimeSecs)
+		// The time zone is the computer's own, as its Node reports it: a Node
+		// that reports none leaves it unknown, never the controller's.
+		view.Runtime.Timezone = ""
+		if info.Timezone != nil {
+			view.Runtime.Timezone = *info.Timezone
+		}
 		view.Runtime.Known = true
 	}
 	view.Offline = state.owner == nil || !state.owner.controller.Connected()
@@ -359,6 +394,9 @@ func (r *Runtime) hostActions(id string) host.Actions {
 	if state := root.hosts[id]; state != nil && !state.view.Local && root.connections != nil && root.connections.endpoint != nil {
 		actions.Revoke = func() { root.revokeHost(state) }
 	}
+	if state := root.hosts[id]; state != nil {
+		actions.StopProcess = func(process host.Process, force bool) { root.stopHostProcess(state, process, force) }
+	}
 	actions.Dialogs = func(c *ui.Context) {
 		if state := r.hostState(id); state != nil && state.update != nil {
 			r.hostUpdateFrame(c, state)
@@ -376,6 +414,58 @@ func (r *Runtime) revokeHost(state *liveHost) {
 	}
 	state.view.Revoking = true
 	r.revokeNode(state.view.ID, func() { state.view.Revoking = false })
+}
+
+// stopHostProcess asks the host's own Node to end a process the page's
+// monitor listed, by force when force is set, as the reference's
+// stop_process (live/host/process_actions.rs). The Node signals it only
+// while its start is still the listed one. One request runs for a host at a
+// time; its outcome is a toast, and a request whose result is not known is
+// never sent again.
+func (r *Runtime) stopHostProcess(state *liveHost, process host.Process, force bool) {
+	owner := state.owner
+	if owner == nil || state.view.Stopping || !process.Stoppable() {
+		return
+	}
+	state.view.Stopping = true
+	r.async(func() {
+		output, err := owner.controller.Do(owner.ctx, protocol.Command{Kind: "stop_host_process", Data: protocol.CommandStopHostProcessPayload{
+			Pid: process.PID, StartedAtSecs: process.Started, Force: force,
+		}})
+		r.enqueue(func(c *ui.Context) {
+			state.view.Stopping = false
+			outcome, key := processStopOutcome(output, err)
+			if outcome == kit.Done {
+				kit.Message(c, i18n.T(c, key))
+				return
+			}
+			kit.Toast(c, outcome, i18n.T(c, key))
+		})
+	})
+}
+
+// processStopOutcome is how a stop request ended and its toast's i18n key.
+// A refusal the Node gives is a failure with its reason; a process whose
+// start changed is a conflict; a result that did not arrive, or is not the
+// signal's, is uncertain.
+func processStopOutcome(output protocol.Output, err error) (kit.Outcome, string) {
+	if err == nil {
+		if output.Kind == "host_process_signalled" {
+			return kit.Done, "host_process_stop_sent"
+		}
+		return kit.Uncertain, "host_process_uncertain"
+	}
+	switch faultCode(err) {
+	case protocol.ErrorCodeNotFound:
+		return kit.Failed, "host_process_gone"
+	case protocol.ErrorCodeConflict:
+		return kit.Conflict, "host_process_changed"
+	case protocol.ErrorCodePermissionDenied:
+		return kit.Failed, "host_process_protected"
+	case protocol.ErrorCodeOutcomeUnknown, "":
+		return kit.Uncertain, "host_process_uncertain"
+	}
+	return kit.Failed, "host_process_stop_failed"
 }
 
 func (r *Runtime) hostState(id string) *liveHost {

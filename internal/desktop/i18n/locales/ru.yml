@@ -244,6 +244,7 @@ knowledge_slide: Слайд %{slide}
 workspace_archive: Архивная сессия
 session_delete: Исключить &quot; сессия &quot;
 session_delete_named: Исключить сессию “%{name}” и ее субагентов навсегда
+session_delete_private_files: Its private workspace files are deleted too
 workspace_rename: Переименовать
 session_title_required: Введите имя
 session_mark_read: Отметить как прочитанное
@@ -414,7 +415,10 @@ git_commit_staged: Завершение поэтапных изменений
 git_commit_staged_amend: Завершение этапировано и изменено
 git_commit_staged_signoff: Завершение на стадии и отключение
 git_commit_sync: Завершение и синхронизация
+git_cherry_pick: Cherry-pick
+git_cherry_pick_confirm: Apply this commit to the current branch
 git_copy_branch: Копировать имя ветки
+git_copy_commit_id: Copy commit ID
 git_copy_path: Копировать путь
 git_delete_branch: Исключить ветвь
 git_delete_confirm: Удалить? Это нельзя отменить
@@ -574,6 +578,9 @@ background_outcome_stalled: Нет нового вывода
 background_outcome_stopped: Остановлено
 background_outcome_timed_out: Время истекло
 background_outcome_unknown: Результат неизвестен
+background_running: Running in background
+background_exit: Exit code %{code}
+background_result_waiting: Result not delivered
 chat_compact_cancelled: Уплотнение отменено
 chat_compact_failed: Уплотнение не удалось
 chat_compact_queued: Ожидание уплотнения
@@ -1134,6 +1141,10 @@ provider_model_default: По умолчанию
 provider_set_default: Установить по умолчанию
 provider_default: Модель по умолчанию
 provider_model_id: Идентификация модели
+provider_deployment_id: Имя развертывания
+provider_api_version: API версия
+form_api_version_hint: например 2024-10-21
+provider_cloud_required: Введите конфигурацию облачного поставщика
 form_model_hint: Идентификация модели
 provider_context: Контекстное ограничение (токен)
 form_tokens_hint: Число токенов
@@ -1342,6 +1353,7 @@ connector_tools_empty: Нет инструментов
 plugins_no_skills: Без навыков
 plugins_no_mcp: Нет MCP серверов
 market_details_permission_none: Дополнительные разрешения не нужны
+market_details_added_permissions: Новые разрешения
 market_installed: Установлено
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -1443,6 +1455,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Выбрать папку
 skill_source_choose_archive: Выбрать архив
 git_diff: Различия
+git_diff_side_by_side: Side by side
+git_diff_inline: Inline
+git_diff_needs_width: Side by side needs more width
 market_permission_git_read: Чтение изменений Git
 market_permission_git_write: Изменение Git
 market_permission_files_read: Чтение файлов
@@ -1543,6 +1558,20 @@ host_process_name: Процессы
 host_pid: PID
 host_process_empty: Отсутствие процессов
 host_process_no_matches: Отсутствие процессов сопоставления
+host_process_details: Посмотреть детали
+host_process_copy_pid: Копировать PID
+host_process_copy_name: Копировать имя
+host_process_stop: Конечный процесс
+host_process_force_stop: Принудительно завершить
+host_process_stop_confirm: Отправить запрос остановки; это может прервать выполнение заданий
+host_process_force_confirm: Прекратите этот процесс сейчас; несохраненные данные могут быть потеряны
+host_process_stop_sent: Отправлен запрос на остановку
+host_process_gone: Процесс завершен
+host_process_changed: Изменение процесса; обновление и повторная попытка
+host_process_protected: Не удается остановить системные процессы или службу текущего узла
+host_process_uncertain: Результат остановки неизвестен; проверить состояние процесса
+host_process_stop_failed: Не удалось остановить процесс; возможно, процесс завершился, доступ запрещен или этот узел не поддерживает процесс
+metrics_gpu: GPU
 port_title: Перенаправление портов
 port_mappings: Сопоставления портов
 port_add: Новый форвард
@@ -1616,7 +1645,7 @@ metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
 composer_group_modes: Modes
 composer_group_session: Session
-reference_group_context: Добавить
+reference_group_context: Контекст
 reference_group_connections: Connections
 reference_group_skills: Skills
 reference_group_plugins: Plugins
@@ -1857,7 +1886,7 @@ authorization_connected: Подключено
 connector_bound: Привязано
 connector_checked: Подключение работает
 connector_mcp_reconnected: 'Подключено, инструментов: %{n}'
-connector_consent_effect: Проверьте изменённые адреса авторизации перед продолжением
+connector_consent_effect: Разрешить изменённые права подключения
 connector_changed_origins: Источники
 connector_changed_scopes: Разрешения
 connector_changed_client: Клиент
@@ -1984,7 +2013,12 @@ knowledge_saved: Сохранено
 knowledge_cancel_requested: Запрошена отмена
 model_library_failed: Не удалось загрузить модели
 model_library_partial: Некоторые результаты недоступны
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Файлы этой версии изменились
+model_library_version: Версия
+model_library_more: Загрузить ещё
+model_library_query_prefix: Префикс запроса
+model_library_document_prefix: Префикс документа
+knowledge_up_to_date: Уже обновлено
 local_models_unavailable: Недоступно
 dictation_unavailable: Локальный голосовой ввод недоступен
 dictation_model_missing: Сначала загрузите модель речи
@@ -2200,6 +2234,7 @@ directory_trash_confirm: Move “%{name}” to the Trash
 queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
+usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
 chat_output_limit: Reply cut at the output limit
 start_failed: Sailry could not start
 start_profile_in_use: Sailry is already running with this data folder
@@ -2215,4 +2250,16 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+host_version_older: Host устарел; обновите Host
+host_version_newer: Host новее; обновите Desktop
+host_version_unknown: Не удалось проверить версию Host; обновите Host
+controller_version_unknown: Не удалось проверить версию Desktop; обновите Desktop
+content_link_address: Адрес ссылки
+content_link_edit: Изменить ссылку
+content_image_address: Адрес изображения
+content_image_alt: Альтернативный текст
+runtime_python_preparing: Подготовка
+python_creating: Подготовка зависимостей
+python_installing: Установка зависимостей
+python_validating: Проверка зависимостей
 port_count: '%{count} ports'

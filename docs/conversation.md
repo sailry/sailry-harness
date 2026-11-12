@@ -127,6 +127,7 @@ Queued, Running, Stopping or Unsynced.
 | `Standalone` | Never groups with neighbours |
 | `Terminal` | An interaction (`ask_user`, plan review, MCP elicitation): not work, never groups |
 | `Output` | What opening the row shows; `nil` rows have no caret |
+| `Background` | The command the call sent to the background (`Running`, `Outcome`, `Exit`, `Waiting`), nil for a call that ran in place. The row says its state after the detail, where no other state text shows: `background_running`; or the outcome's `background_outcome_*` label, `background_exit` with the code for a command that exited non-zero; then ` · ` and `background_result_waiting` while no turn has taken the result. Failed, timed out, interrupted and unconfirmed outcomes take the warning color; running, completed, stopped and cancelled read plain. A group's header carries its last call's, and none while the group is at work |
 
 ### Output
 
@@ -242,7 +243,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `Reply.Notice` | A notice-only run: no reply frame |
 | `ImagesBlock` / `Block.Images` | Thumbnails (`kit.Image`) up to 240 DIPs, wrapping; a Skeleton while `Source` is nil |
 | `FilesBlock` / `Block.Files` (`File`) | File cards; a document with `Image` shows it on top |
-| `SearchBlock` / `Block.Sources`, `Block.Suggestions` | Globe "Search results" row; it opens the result dialog: the answer as Markdown, the numbered sources and the links of the provider's suggestions. Only http(s) links without credentials open, in the system browser |
+| `SearchBlock` / `Block.Sources`, `Block.Suggestions` | Globe "Search results" row; it opens the result dialog: the answer as Markdown, the numbered sources as link rows, one a line, and the links of the provider's suggestions. Only http(s) links without credentials open, in the system browser |
 | `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`, `Stopped`) | Network row, shimmer while active, the provider's message when opened; a stopped recovery is a warning row with its reason after the label |
 | `Turn.Editing` (`Text`, `Pending`) | The user bubble is its editor (`edit.go`): a field of 1 to 12 lines, Cancel and Save. Enter or Save calls `SaveEdit`; Escape, Cancel or the focus leaving the editor calls `CancelEdit`. While `Pending` the field is read-only, Save and Cancel are disabled and a loader shows |
 | `Turn.Controls` (`ReadOnly`, `NoEdit`, `NoFork`, `NoRewind`, `NoWorktree`, `NoExport`, `Busy`) | `ReadOnly` hides Edit, Retry and the fork menu; the `No…` fields disable their control or menu item; `Busy` replaces the fork button with a loader while a fork or rewind of the turn is in flight |
@@ -367,7 +368,10 @@ compaction, so the handoff is excluded from answer copying and speech. Current
 draft text, reasoning and compacting resources determine the phase independently
 of older work blocks. The latest failed run supplies the diagnostic card, and
 summary context estimates use their captured budget limit when reported context
-usage is absent.
+usage is absent. A failed statistics refresh (the `statistics_failed` change,
+`client.ConversationState.StatisticsErr`) is the error toast
+`usage_read_failed`, once when the failure begins for the shown conversation
+(`reportUsage`), as in the reference.
 
 A compaction that ends without a summary (`engine/compaction.go`) saves, after
 its billed attempts, one system record whose `metadata.compaction.failure`
@@ -696,7 +700,9 @@ without an owner.
   and a child run report nothing. The Node cannot know at a turn's end whether
   another automatic turn follows, so every failed or interrupted automatic
   turn is reported, not only the last; the success that ends a chain is its
-  package's to report (`store.TestAutomaticRunNotices`).
+  package's to report (`store.TestAutomaticRunNotices`). The failure is the
+  Node's alone: a package adds no notification of its own for a failed or
+  interrupted turn ([goal](goal.md), `node.TestGoalLoop`).
 - **Durable end.** A turn keeps its owner until its end is stored. When the
   finishing transaction fails, it is repeated every second, logged once
   (`operation=finish`), until it succeeds or the Node stops; a stopped Node
@@ -754,9 +760,23 @@ without an owner.
   `failed` or `other`), so no result is suppressed without a reason. A result that is pending without `suppressed` and not
   delivered is waiting only for the session to be free; the queue's
   `pause_reason` says why when the queue is paused.
-  The desktop draws nothing for a held result: a background agent's state is
-  on its row under the turn that started it, and a result shows as the
-  Background results bubble of the turn that takes it.
+  A result that waits is in the transcript, never in the queue strip: a
+  background agent's state is on its row under the turn that started it, and
+  a background command's is on the row of the call that started it
+  (`Call.Background`): running, or how it ended, the exit code of one that
+  failed, and "Result not delivered" until a turn takes it, whatever holds
+  it (a paused queue, the chain limit, a stop). The Node states the link and
+  the code: the tool result's summary names the task it started (`task`, the
+  id `command:<request>`, for a `command_started` result, which a command
+  moved to the background while it ran answers too), and the task carries
+  the optional `exit_code` of a command that ran to its end. `live`
+  (`projectBackground`) reads both from `page.Background`; a task the Node no
+  longer lists (it keeps the unfinished ones and the 20 latest finished)
+  leaves the row plain, as before. The result then shows as the Background
+  results bubble of the turn that takes it. The reference draws nothing for
+  a finished background command until its notice turn
+  (`live.TestQueueStates/a background command reads on its row`,
+  `conversation.TestGrouping/Background`).
 - **Stalled commands.** A background command that asked for a follow-up and
   stays silent writes `stall:<id>` evidence with the outcome `stalled`
   ([process](process.md)). It is delivered by the same rules as any result:
@@ -937,7 +957,7 @@ model fails it until a demo conversation shows it.
 | `harbor-api/deploy` | Approvals in every state: an SSH host key to trust and one replacing a known key, details being read, a failed read with Retry, a decision on its way, one sent again and a receipt; a question whose answer is sent again; a rewind in flight |
 | `harbor-api/webhooks` | A plan awaiting review: Continue and Execute |
 | `harbor-api/flaky-test` | A message with a picture and a file; a failed call, a tool's own failure, a diff, a long command output, a partial table with a notice; the changes card with a file undone |
-| `harbor-api/invoices` | A step in every state; denied, interrupted and unexecuted calls; background results in every outcome; retries, one stopped by the provider and one exhausted, and the turn's error; interrupted, failed, continued and cancelled runs |
+| `harbor-api/invoices` | A step in every state; denied, interrupted and unexecuted calls; background results in every outcome; commands sent to the background, one running, one ended and one failed with its exit code, their results not delivered; retries, one stopped by the provider and one exhausted, and the turn's error; interrupted, failed, continued and cancelled runs |
 | `lumen-web/review` | Subagents in every status, a standalone call, a run waiting for two of them |
 | `lumen-web/onboarding` | Questions in every state, single and multiple choice; a plan review, a connector's form and its link; a declinable question with several choices waiting |
 | `lumen-web/audit` | A subagent's own session: read-only messages, no composer, the queue's read-only tray |
@@ -949,8 +969,8 @@ model fails it until a demo conversation shows it.
 | `chat/staging` | A connection recovering with a diagnostic, an unsynced run awaiting a response, a question that cannot be answered meanwhile, export disabled, an older page that did not load |
 | `chat/release-notes` | A run stopping while the model thinks |
 | `chat/translate` | An offline host |
-| `lumen-web/pursuit` | A goal in pursuit: the user's turn that set it, a finished continuation and a running one, each under the package's marker row in place of a user message; the badge Goal, Running and the time, its details (objective, turns, time, tokens) and panel (Pause, Edit, Clear) |
-| `lumen-web/pursuit-limit` | A goal paused at the turn limit: its wrap-up continuation, the badge Goal, Paused and the reason, and the panel (Resume, Edit, Clear) |
+| `lumen-web/pursuit` | A goal in pursuit: the user's turn that set it, a finished continuation and a running one, each under the package's marker row in place of a user message; the badge's icon with Running and the time, its details (objective, turns, time, tokens) and panel (Pause, End) |
+| `lumen-web/pursuit-limit` | A goal paused at the turn limit: its wrap-up continuation, the badge's icon with Paused and the reason, and the panel (Resume, End) |
 
 The first page loading (`Session.Loading`), an older page loading
 (`LoadingOlder`, which the preview plays on a timer), an answer on its way

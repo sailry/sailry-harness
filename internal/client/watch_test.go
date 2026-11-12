@@ -222,6 +222,102 @@ func TestRecoverAfterReset(t *testing.T) {
 			}
 		})
 	})
+	t.Run("first_observation_retries", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			// The Node is unreachable when the controller opens.
+			transport := &clientTransport{}
+			controller := New(transport)
+			if err := controller.Start(t.Context()); faultCode(err) != protocol.ErrorCodeUnavailable || controller.Connected() || faultCode(controller.Err()) != protocol.ErrorCodeUnavailable {
+				t.Fatalf("offline start = %v, connected %v, error %v", err, controller.Connected(), controller.Err())
+			}
+			observer, err := controller.Watch(t.Context(), "watch", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			view := func() (state struct {
+				Connected bool            `json:"connected"`
+				Error     *protocol.Fault `json:"error"`
+			}) {
+				t.Helper()
+				encoded, err := observer.Next(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(encoded, &state); err != nil {
+					t.Fatal(err)
+				}
+				return state
+			}
+			synctest.Wait()
+			if state := view(); state.Connected || state.Error == nil || state.Error.Code != protocol.ErrorCodeUnavailable {
+				t.Fatalf("offline view = %#v", state)
+			}
+			// A second Start and the view's own start join the one owner.
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatalf("second start = %v", err)
+			}
+			time.Sleep(time.Second)
+			synctest.Wait()
+			restored := testSubscription(projectionSnapshot(4))
+			later := testSubscription(projectionSnapshot(9))
+			transport.mu.Lock()
+			transport.subscriptions = []*clientSubscription{restored, later}
+			transport.mu.Unlock()
+			time.Sleep(5 * time.Second)
+			synctest.Wait()
+			if !controller.Connected() || controller.Err() != nil || controller.Snapshot().Cursor != 4 {
+				t.Fatalf("first observation was not retried: connected %v, error %v", controller.Connected(), controller.Err())
+			}
+			if state := view(); !state.Connected || state.Error != nil {
+				t.Fatalf("restored view = %#v", state)
+			}
+			time.Sleep(time.Minute)
+			synctest.Wait()
+			transport.mu.Lock()
+			unused := len(transport.subscriptions)
+			transport.mu.Unlock()
+			if unused != 1 || controller.Snapshot().Cursor != 4 {
+				t.Fatalf("a second owner observed: %d subscriptions left, cursor %d", unused, controller.Snapshot().Cursor)
+			}
+			if err := observer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := controller.Close(); err != nil {
+				t.Fatal(err)
+			}
+			<-restored.closed
+
+			// A permanent failure is not retried and leaves no owner behind.
+			revoked := &clientSubscription{closed: make(chan struct{}), failure: fault(protocol.ErrorCodePermissionDenied, "peer revoked access")}
+			transport = &clientTransport{subscriptions: []*clientSubscription{revoked, testSubscription(projectionSnapshot(2))}}
+			controller = New(transport)
+			if err := controller.Start(t.Context()); faultCode(err) != protocol.ErrorCodePermissionDenied {
+				t.Fatalf("revoked start = %v", err)
+			}
+			time.Sleep(time.Minute)
+			synctest.Wait()
+			if controller.Connected() || controller.Snapshot().Cursor != 0 {
+				t.Fatal("permanent first failure was retried")
+			}
+			// Closing during the wait between attempts ends the retry.
+			transport = &clientTransport{}
+			controller = New(transport)
+			if err := controller.Start(t.Context()); faultCode(err) != protocol.ErrorCodeUnavailable {
+				t.Fatalf("offline start = %v", err)
+			}
+			if err := controller.Close(); err != nil {
+				t.Fatal(err)
+			}
+			transport.mu.Lock()
+			transport.subscriptions = []*clientSubscription{testSubscription(projectionSnapshot(2))}
+			transport.mu.Unlock()
+			time.Sleep(time.Minute)
+			synctest.Wait()
+			if controller.Connected() {
+				t.Fatal("a closed Client kept retrying")
+			}
+		})
+	})
 	t.Run("close_interrupts_startup", func(t *testing.T) {
 		stalled := &clientSubscription{updates: make(chan protocol.Update), closed: make(chan struct{})}
 		transport := &clientTransport{subscriptions: []*clientSubscription{stalled}}
@@ -311,6 +407,11 @@ func TestRecoverAfterReset(t *testing.T) {
 						resolution, err := controller.Resolve(context.Background(), request)
 						if err != nil || resolution.State != test.state {
 							t.Fatalf("resolution = %#v, %v", resolution, err)
+						}
+						// A flow that keeps its request reads the same answer.
+						answer, failure := resolution.Result()
+						if (failure == nil) != (test.code == "") || failure != nil && faultCode(failure) != test.code || Released(failure) != test.released || (failure == nil) != (answer.Kind == stored.Kind) {
+							t.Fatalf("result = %#v, %v, released %t", answer, failure, Released(failure))
 						}
 					}
 				})

@@ -48,4 +48,42 @@ func TestCodeLooks(t *testing.T) {
 		}
 	})
 	t.Run("CopyIsAnIcon", testCodeCopy)
+	t.Run("RecoverOffersRetry", testRecover)
+	// A diff is unified until its window's choice splits it, in place: the
+	// same state, so what was expanded and scrolled stays.
+	t.Run("DiffSplits", func(t *testing.T) {
+		var split *bool
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			split = DiffSplit(c)
+			ui.Column(c).Fill().Children(func() {
+				Diff(c, ui.Column(c.Key("diff")).Grow(1).MinHeight(0), "a\nb\n", "a\nc\n", DiffOptions{Split: *split})
+			})
+		}, 600, 300)
+		tt.SetLocale("en")
+		tt.Frame()
+		divided := func() bool {
+			for _, e := range tt.AccessAll() {
+				if e.Role == ui.RoleSplitter {
+					return true
+				}
+			}
+			return false
+		}
+		if divided() {
+			t.Fatal("a diff starts split")
+		}
+		*split = true
+		tt.Frame()
+		tt.Frame()
+		if !divided() {
+			t.Fatal("the window's choice leaves the diff unified")
+		}
+		*split = false
+		tt.Frame()
+		tt.Frame()
+		if divided() {
+			t.Fatal("the window's choice leaves the diff split")
+		}
+	})
 }

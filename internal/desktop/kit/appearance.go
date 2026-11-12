@@ -57,10 +57,16 @@ func AppearancePicker(c *ui.Context, icon, color *string, disabled bool) ui.Elem
 	}
 	Popover(c, b, open, func() {
 		ui.Column(c.Key("appearance")).Width(248).Padding(4).Gap(8).Children(func() {
-			ui.Row(c.Key("colors")).Gap(6).Justify(ui.SpaceBetween).AlignItems(ui.Center).Children(func() {
+			// Ten swatches with room between them. Indigo, between blue and
+			// violet, is no longer offered; a project that has it keeps it
+			// and sees it here.
+			ui.Row(c.Key("colors")).Height(28).PaddingX(4).Gap(6).Justify(ui.SpaceBetween).AlignItems(ui.Center).Children(func() {
 				for _, name := range ProjectColors {
+					if name == "indigo" && *color != name {
+						continue
+					}
 					tint := ProjectColor(c, name)
-					swatch := ui.ButtonBase(c.Key(name)).Label(i18n.T(c, "project_color_"+name)).Size(16, 16).Radius(8).
+					swatch := ui.ButtonBase(c.Key(name)).Label(i18n.T(c, "project_color_"+name)).Size(18, 18).Radius(9).
 						Background(tint).Center().Selected(*color == name)
 					if *color == name {
 						swatch.Border(1, p.Foreground).Children(func() { ui.Icon(c, icons.Check).FontSize(10).TextColor(p.Background) })
