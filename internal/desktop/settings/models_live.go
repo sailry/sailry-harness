@@ -29,20 +29,34 @@ type ModelActions struct {
 	// Install downloads a registered model; Cancel stops its download.
 	Install func(kind, id string)
 	Cancel  func(kind, id string)
+	// Update looks for a newer version of an installed model and downloads
+	// it; Delete removes a registered model after the confirmation.
+	Update func(kind, id string)
+	Delete func(kind, id string)
 	// Microphone asks the system for microphone access.
 	Microphone func()
 	// The library's rows: Install resolves, registers and downloads the
 	// model, Cancel stops its download, Delete removes its files after the
-	// confirmation, Details reads its size and license.
-	LibraryInstall func(id string)
+	// confirmation, Details reads its versions, size and license. An
+	// install from the details passes its choice: the version shown and,
+	// for an embedding model, the prefixes typed; a row's install passes
+	// nil. Version shows another of the model's versions in the details;
+	// More reads the hub's next page.
+	LibraryInstall func(id string, choice *LibraryChoice)
 	LibraryCancel  func(id string)
 	LibraryDelete  func(id string)
 	LibraryDetails func(id string)
+	LibraryVersion func(id string, version int)
+	LibraryMore    func()
 	// The Knowledge page's collections: Pause sets or clears a collection's
 	// pause, Update reads its sources again.
 	CollectionPause  func(id string, paused bool)
 	CollectionUpdate func(id string)
 }
+
+// LibraryChoice is what the library's details install: the version they
+// show, with an embedding model's prefixes as typed.
+type LibraryChoice struct{ QueryPrefix, DocumentPrefix string }
 
 // CollectionMessages are the toasts of a collection's pause and update;
 // the row shows that either went through.
@@ -72,7 +86,7 @@ func (m *Model) LibraryRequest() LibraryRequest {
 // CloseModelDialogs closes the library and the models' details, as when
 // the page turns to another host.
 func (m *Model) CloseModelDialogs() {
-	m.library, m.info = library{}, nil
+	m.library, m.info, m.dropping = library{}, nil, nil
 }
 
 // openLibrary opens the library for a page's kind. A live library starts
@@ -85,6 +99,7 @@ func (m *Model) openLibrary(kind string) {
 			m.library.hub = 1
 		}
 		m.Library, m.LibraryLoad = nil, preview.Fetch{Loading: true}
+		m.LibraryMore, m.LibraryFailed = false, false
 	}
 	m.library.open, m.library.kind = true, kind
 }

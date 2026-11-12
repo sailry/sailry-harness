@@ -79,7 +79,7 @@ Callers, the reference's and ours:
 | Open folder (`menu_open_folder`) | Directory on the shown host | `sidebar.State.OpenFolder`; opens the registered project or adds one, the picker staying open while it saves |
 | Settings › Backup, local directory | Directory on the shown host | `live.Runtime.chooseDirectory` through `settings.BackupActions.ChooseFolder` |
 | (ours) Settings › Plugins, Install: package path | One file on the controller's machine | `live.Runtime.chooseFile` through `settings.PackageActions.Browse`: the package is read on this machine before its upload, so the picker browses the local Node whichever host is shown. It chooses a ZIP archive; a package directory is still typed |
-| Documents plugin, Markdown image (`content_image_choose`) | One file | Not wired: the Go editor's image prompt (`files_insert_image`) takes an address only and has no Choose file button |
+| Documents plugin, Markdown image (`content_image_choose`) | One file | Not wired: the Go editor's image prompt (`files_insert_image`) takes an address and alt text and has no Choose file button |
 
 Everything else that takes a path in the reference (attachments, SSH keys,
 imports, exports, package installs) uses the system's dialogs there and here.

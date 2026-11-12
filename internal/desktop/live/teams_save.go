@@ -2,6 +2,7 @@ package live
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -30,6 +31,19 @@ func modelDraft(id, effort string, previous *protocol.RoleModel) (*protocol.Role
 		value.Effort = &e
 	}
 	return &value, nil
+}
+
+// draftFeatures puts the editor's feature options on the model: nil
+// follows, a map (empty too) sets them.
+func draftFeatures(model *protocol.RoleModel, features map[string]string) {
+	if model == nil {
+		return
+	}
+	model.Features = nil
+	if features != nil {
+		set := maps.Clone(features)
+		model.Features = &set
+	}
 }
 
 func teamKey(name string, teams []protocol.TeamProfile) string {
@@ -77,6 +91,7 @@ func (r *Runtime) roleDraft(d viewmodel.Role) (protocol.RoleProfile, error) {
 	if err != nil {
 		return profile, err
 	}
+	draftFeatures(model, d.Features)
 	profile.Revision = d.Revision
 	profile.Key, profile.Name = strings.TrimSpace(d.Key), strings.TrimSpace(d.Name)
 	profile.Description, profile.Instructions, profile.ReadOnly, profile.Model = d.Description, d.Instructions, d.ReadOnly, model
@@ -99,6 +114,7 @@ func (r *Runtime) teamDraft(d viewmodel.Team) (protocol.TeamProfile, error) {
 	if err != nil {
 		return profile, err
 	}
+	draftFeatures(model, d.Features)
 	profile.Revision = d.Revision
 	profile.Name, profile.Description, profile.Instructions, profile.Model = strings.TrimSpace(d.Name), d.Description, d.Instructions, model
 	profile.Members = nil

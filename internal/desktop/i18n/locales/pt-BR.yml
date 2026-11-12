@@ -1138,6 +1138,10 @@ provider_model_default: Padrão
 provider_set_default: Definir como padrão
 provider_default: Modelo padrão
 provider_model_id: ID do modelo
+provider_deployment_id: Nome da implementação
+provider_api_version: Versão API
+form_api_version_hint: por exemplo 2024-10-21
+provider_cloud_required: Digite a configuração do provedor de nuvem
 form_model_hint: ID do modelo
 provider_context: Limite de contexto (tokens)
 form_tokens_hint: Contagem de tokens
@@ -1346,6 +1350,7 @@ connector_tools_empty: Sem ferramentas
 plugins_no_skills: Sem habilidades
 plugins_no_mcp: No MCP servidores
 market_details_permission_none: Nenhuma permissão extra necessária
+market_details_added_permissions: Novas permissões
 market_installed: Instalado
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2004,7 +2009,12 @@ knowledge_saved: Salvo
 knowledge_cancel_requested: Cancelamento solicitado
 model_library_failed: Não foi possível carregar os modelos
 model_library_partial: Alguns resultados estão indisponíveis
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Os arquivos desta versão mudaram
+model_library_version: Versão
+model_library_more: Carregar mais
+model_library_query_prefix: Prefixo de consulta
+model_library_document_prefix: Prefixo de documento
+knowledge_up_to_date: Já está atualizado
 local_models_unavailable: Indisponível
 dictation_unavailable: Entrada de voz local indisponível
 dictation_model_missing: Baixe primeiro um modelo de discurso
@@ -2235,4 +2245,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: Endereço do link
+content_link_edit: Editar link
+content_image_address: Endereço da imagem
+content_image_alt: Texto alternativo
+runtime_python_preparing: Preparando
+python_creating: Preparando dependências
+python_installing: Instalando dependências
+python_validating: Verificando dependências
 port_count: '%{count} ports'

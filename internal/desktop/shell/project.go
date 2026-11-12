@@ -226,7 +226,7 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 						ui.Text(c, title).FontSize(14).SingleLine()
 						ui.Text(c, path).FontSize(12).SingleLine().TextColor(palette.MutedForeground)
 					})
-				}).OnClick(func() {
+				}).ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
 					state.pending, state.opening = true, session.Node+"/"+session.ID
 					state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
 				})

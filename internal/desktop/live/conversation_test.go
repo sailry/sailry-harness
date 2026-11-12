@@ -21,6 +21,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -1483,6 +1484,16 @@ func TestComposerSendRouting(t *testing.T) {
 	}
 	t.Run("a session on another Node is forwarded by the local Node", testSessionForwarding)
 	t.Run("a failed installation removal keeps its row and toasts", testInstallationRemoval)
+	t.Run("python preparations keep the stages the page names", func(t *testing.T) {
+		got := pythonPreparations([]protocol.PythonPreparation{
+			{Package: "charts", Stage: protocol.PythonStageInstalling},
+			{Package: "later", Stage: "linking"},
+			{Package: "ocr", Stage: protocol.PythonStageCreating},
+		})
+		if len(got) != 2 || got[0] != (settings.PythonPreparation{Package: "charts", Stage: "installing"}) || got[1] != (settings.PythonPreparation{Package: "ocr", Stage: "creating"}) {
+			t.Fatalf("preparations: %+v", got)
+		}
+	})
 	t.Run("projected_default_effort", func(t *testing.T) {
 		provider := protocol.ProviderID{1}
 		snapshot := protocol.DefaultSnapshot()

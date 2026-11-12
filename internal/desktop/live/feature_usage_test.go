@@ -145,6 +145,15 @@ func testFeatureUsage(t *testing.T) {
 		if view := packageView(unknown, "en"); view.Icon != "" || view.Tint != "" {
 			t.Error("a package declaring no icon has one")
 		}
+		// An update names the permissions it asks beyond the installed ones.
+		had := &protocol.PluginExtension{Actions: []protocol.PluginAction{protocol.PluginActionReadArtifacts}}
+		asked := []protocol.PluginAction{protocol.PluginActionReadArtifacts, protocol.PluginActionWriteArtifacts}
+		if added := addedPermissions(had, asked); len(added) != 1 || added[0] != "market_permission_artifacts_write" {
+			t.Errorf("added permissions = %q", added)
+		}
+		if added := addedPermissions(nil, asked); len(added) != 2 {
+			t.Errorf("a package without an extension gains %q", added)
+		}
 
 		actions := &conversationActions{r: root, cv: &viewmodel.Conversation{ID: planted}, comp: composer.New("")}
 		actions.countDictation()

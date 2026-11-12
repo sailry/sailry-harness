@@ -1138,6 +1138,10 @@ provider_model_default: Default
 provider_set_default: Set as default
 provider_default: Default model
 provider_model_id: Model ID
+provider_deployment_id: Deployment name
+provider_api_version: API version
+form_api_version_hint: e.g. 2024-10-21
+provider_cloud_required: Enter cloud provider configuration
 form_model_hint: Model ID
 provider_context: Context limit (tokens)
 form_tokens_hint: Token count
@@ -1346,6 +1350,7 @@ connector_tools_empty: No tools
 plugins_no_skills: No skills
 plugins_no_mcp: No MCP servers
 market_details_permission_none: No extra permissions needed
+market_details_added_permissions: New permissions
 market_installed: Installed
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2004,7 +2009,12 @@ knowledge_saved: Saved
 knowledge_cancel_requested: Cancellation requested
 model_library_failed: Could not load models
 model_library_partial: Some results are unavailable
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: This version has different files
+model_library_version: Version
+model_library_more: Load more
+model_library_query_prefix: Query prefix
+model_library_document_prefix: Document prefix
+knowledge_up_to_date: Already up to date
 local_models_unavailable: Unavailable
 dictation_unavailable: Local voice input unavailable
 dictation_model_missing: Download a speech model first
@@ -2235,4 +2245,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: Link address
+content_link_edit: Edit link
+content_image_address: Image address
+content_image_alt: Alt text
+runtime_python_preparing: Preparing
+python_creating: Preparing dependencies
+python_installing: Installing dependencies
+python_validating: Checking dependencies
 port_count: '%{count} ports'

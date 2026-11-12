@@ -715,6 +715,7 @@ at its width.
 | The history's menu has no Checkout or Revert of a commit | The Node has no action for either; Cherry-pick, a branch and a tag at the commit are the ones it has |
 | At the list's first width a long branch name is left to the row's tooltip | The graph draws names on the subject's line; they get up to half of it |
 | PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
+| The editor's Link and Image are one prompt each: a link's address (`content_link_address`; the caret's link fills it in under `content_link_edit`, and an empty address removes the link), an image's address and alt text (`content_image_address`, `content_image_alt`) | The reference has a link popover (Open, Edit, Copy, Remove) and an image dialog with Choose file and a caption; those are not built: an image is inserted in Source, since the rich codec does not keep one (`richMarkdownSafe`) |
 | Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |
 | The column's strip is in the header band (user decision 2026-11-11) | The reference draws it as the column's first row; docs/shell.md |
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
