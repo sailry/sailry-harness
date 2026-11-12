@@ -82,11 +82,11 @@ func (value *usage) merge(next usage) {
 }
 
 type wireBlock struct {
-	Type     string   `json:"type"`
+	Type     string          `json:"type"`
 	ID       string          `json:"id"`
 	Name     string          `json:"name"`
-	Text     string   `json:"text"`
-	Thinking string   `json:"thinking"`
+	Text     string          `json:"text"`
+	Thinking string          `json:"thinking"`
 	Input    json.RawMessage `json:"input"`
 }
 
@@ -105,9 +105,9 @@ type wireLine struct {
 			Usage wireUsage `json:"usage"`
 		} `json:"message"`
 		ContentBlock wireBlock `json:"content_block"`
-		Delta struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+		Delta        struct {
+			Type        string `json:"type"`
+			Text        string `json:"text"`
 			Thinking    string `json:"thinking"`
 			PartialJSON string `json:"partial_json"`
 			StopReason  string `json:"stop_reason"`
@@ -115,7 +115,7 @@ type wireLine struct {
 		Usage wireUsage `json:"usage"`
 	} `json:"event"`
 	Message struct {
-		ID  string      `json:"id"`
+		ID         string      `json:"id"`
 		Model      string      `json:"model"`
 		StopReason string      `json:"stop_reason"`
 		Usage      wireUsage   `json:"usage"`
@@ -143,7 +143,9 @@ type decoder struct {
 }
 
 func newDecoder() *decoder {
-	return &decoder{streamed: map[string]bool{}, blocks: map[int]*openBlockn
+	return &decoder{streamed: make(map[string]bool), blocks: make(map[int]*openBlock)}
+}
+
 // line decodes one stdout line. A line this build does not know is ignored:
 // Claude Code adds line types between versions.
 func (decoder *decoder) line(raw []byte) []event {
