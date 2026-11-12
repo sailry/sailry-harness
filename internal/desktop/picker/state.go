@@ -101,7 +101,11 @@ type State struct {
 	list    ui.ListState
 	grid    ui.GridState
 	sort    ui.SortOrder
-	view    int
+	// sorted is the order the entries were last arranged in: a column
+	// header that changes it moves the list to the chosen entry, or to its
+	// top.
+	sorted ui.SortOrder
+	view   int
 
 	clipboard []string
 	cut       bool
