@@ -422,7 +422,7 @@ func validateAdapterTransport(adapter protocol.PluginModelAdapterDeclaration, ex
 	if adapter.Script.Entry != "" || len(adapter.Script.Resources) != 0 || len(adapter.Origins) != 0 || adapter.Capabilities.Files ||
 		adapter.Framing != protocol.PluginModelAdapterFramingNdjson || index < 0 || !text(agent.SignIn, 256) ||
 		agent.ReplayBytes < 4096 || agent.ReplayBytes > 8*1024*1024 || len(agent.Efforts) > 6 || len(agent.FailureMarkers) > 4 ||
-		agent.AuthMethod != nil && !text(*agent.AuthMethod, 64) {
+		agent.AuthMethod != nil && !text(*agent.AuthMethod, 64) || agent.Mode != nil && !text(*agent.Mode, 64) {
 		return packageFault("invalid plugin agent adapter")
 	}
 	if path := agent.SystemMeta; path != nil {
