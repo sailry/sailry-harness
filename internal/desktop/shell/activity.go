@@ -28,6 +28,17 @@ func NoticeAge(d time.Duration) (key string, count int) {
 	return "notifications_time_days", int(d / (24 * time.Hour))
 }
 
+// noticeAge writes a notice's age for the bell and the centre; the preview
+// counts from its own fixed time.
+func (a *App) noticeAge(c *ui.Context, n *preview.Notice) string {
+	now := c.Now()
+	if a.Preview {
+		now = preview.Now
+	}
+	key, count := NoticeAge(now.Sub(n.Time))
+	return i18n.T(c, key, "count", count)
+}
+
 // SortNotices orders notices newest first.
 func SortNotices(list []*preview.Notice) []*preview.Notice {
 	out := slices.Clone(list)
@@ -117,12 +128,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	p := theme.Of(c)
 	title := noticeTitle(c, n)
 	glyph, color, kind := noticeLook(p, n.Kind)
-	now := c.Now()
-	if a.Preview {
-		now = preview.Now
-	}
-	key, count := NoticeAge(now.Sub(n.Time))
-	age := i18n.T(c, key, "count", count)
+	age := a.noticeAge(c, n)
 	row := ui.ButtonBase(c.Key(n.ID)).Padding(8).Gap(8).Radius(p.Radius).Cursor(ui.CursorPointer).
 		Label(title + " · " + a.hostName(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
 	text := p.PopoverForeground
