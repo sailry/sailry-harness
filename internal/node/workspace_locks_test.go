@@ -91,6 +91,32 @@ func TestWorkspaceLocks(t *testing.T) {
 		// The same root twice is one lock.
 		locks.effect("/a", "/a")()
 	})
+	t.Run("a_worktree_change_holds_its_roots_and_project_commands_only", func(t *testing.T) {
+		var locks workspaceLocks
+		// Git creating or removing a worktree may run for a long time.
+		change := locks.change("/a")
+		other, ok := within(free, func() func() { return locks.effect("/b") })
+		if !ok {
+			t.Fatal("a worktree change stalled another root")
+		}
+		other()
+		same, ok := within(blocked, func() func() { return locks.effect("/a") })
+		if ok {
+			t.Fatal("an effect ran in a root that was being changed")
+		}
+		project, ok := within(blocked, locks.registration)
+		if ok {
+			t.Fatal("a project command ran between Git's work and the row")
+		}
+		change()
+		// The project command took its turn first; the effect that waited
+		// then sees that its root may be gone.
+		project()
+		same()
+		if locks.registrations.Load() != 2 {
+			t.Fatalf("registrations = %d, want the change and the project command", locks.registrations.Load())
+		}
+	})
 	t.Run("commands_without_a_root_run_together", func(t *testing.T) {
 		var locks workspaceLocks
 		// A web fetch holds no worktree; its cancellation must not wait for it.

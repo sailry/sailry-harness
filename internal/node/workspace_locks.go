@@ -8,8 +8,9 @@ import (
 
 // workspaceLocks orders durable workspace effects. Effects on one worktree
 // root run one at a time and effects on different roots run together. A
-// registration, which changes which roots exist, excludes every effect while
-// it is recorded.
+// registration, which changes which projects and roots exist, excludes every
+// effect while it is recorded. Creating or removing one worktree is an effect
+// of its own kind (change).
 type workspaceLocks struct {
 	registry sync.RWMutex
 	// registrations counts the recorded ones, so an effect that waited can
@@ -75,6 +76,26 @@ func (locks *workspaceLocks) effect(roots ...string) (release func()) {
 	return func() {
 		locks.registry.RUnlock()
 		unlock()
+	}
+}
+
+// change is the effect that creates or removes a worktree: Git works on disk
+// and the row follows. It holds its roots and joins the effects, from Git's
+// work to the row, so a slow checkout stalls those roots and not every effect
+// on the Node. A project command takes the registration and so still cannot
+// move or remove the project between the two. Its release counts as a
+// registration before the roots open, so an effect that waited for a removed
+// root resolves it again and finds it gone.
+//
+// Rust marks the worktree and its project busy in a table of pending removals
+// instead; the locks here already order the same commands. While a project
+// command waits for a change to end, new effects wait behind it, as they do
+// behind any running effect.
+func (locks *workspaceLocks) change(roots ...string) (release func()) {
+	release = locks.effect(roots...)
+	return func() {
+		locks.registrations.Add(1)
+		release()
 	}
 }
 
