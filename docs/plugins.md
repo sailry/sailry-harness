@@ -315,6 +315,14 @@ its content:
 | `status` | `live/plugin_status.go` | The activity strip's badges, from the Node's status feed |
 | `provider`, `project`, `project_menu` | Not mounted | The registry and the Node accept their surfaces; the desktop mounts neither (`docs/settings.md` records the provider's) |
 
+The composer state a package reads (`live/plugin_native_composer.go`) carries
+the composer's own selection as `model` and that model's window as
+`context_limit`, and the session's statistics beside them with the model and
+the window of the last request (`context_model`, `context_limit`). A package
+compares the two: the statistics package shows the new model's window and no
+occupancy once the model changed since the last request. A model the provider
+no longer lists keeps its name and has no window.
+
 Figures need a session: a draft shows none. Demo mode mounts the statistics
 package alone over a demo conversation, with a composer state built from the
 conversation's own usage (`live/plugin_demo.go`; see `docs/shell.md`).

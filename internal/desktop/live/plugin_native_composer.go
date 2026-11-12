@@ -204,7 +204,6 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 	snapshot := runtime.snapshot()
 	var statistics json.RawMessage = json.RawMessage("null")
 	compacting, hasMessages := false, len(view.Turns) > 0
-	var contextLimit *uint32
 	if state.scope.Session != nil {
 		if history, exists := runtime.controller.Conversation(*state.scope.Session); exists {
 			var err error
@@ -217,13 +216,17 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 				compacting = compacting || run.Kind == protocol.ConversationRunKindCompaction &&
 					(run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping)
 			}
-			if history.Snapshot.Statistics != nil {
-				contextLimit = history.Snapshot.Statistics.ContextLimit
-			}
 		}
 	}
+	// The model and the window are the composer's selection. The statistics
+	// carry the model and the window of the last request beside them, and a
+	// package compares the two to tell a model changed since.
 	modelTools := false
 	var model *string
+	var contextLimit *uint32
+	if config.Model != "" {
+		model = &config.Model
+	}
 	for _, provider := range snapshot.Providers {
 		if provider.ID != config.Provider {
 			continue
@@ -231,12 +234,8 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 		for _, selected := range provider.Models {
 			if selected.ID == config.Model {
 				modelTools = selected.Tools
-				selectedID := selected.ID
-				model = &selectedID
-				if contextLimit == nil {
-					limit := selected.Context
-					contextLimit = &limit
-				}
+				limit := selected.Context
+				contextLimit = &limit
 			}
 		}
 	}
