@@ -592,6 +592,11 @@ func (node *Node) recordWorkspaceEffect(ctx context.Context, caller protocol.Nod
 	if err == nil {
 		node.publish()
 		node.conversationEvents(changes)
+		// A committed artifact reaches the open conversation; one that opens
+		// later reads it in its snapshot.
+		if written, ok := output.Data.(protocol.OutputArtifactWrittenPayload); ok && effectErr == nil && output.Kind == "artifact_written" {
+			node.feed.Publish(written.Artifact.Session, protocol.ConversationChange{Kind: "artifact", Data: written.Artifact})
+		}
 	}
 	return output, effectErr, err
 }
