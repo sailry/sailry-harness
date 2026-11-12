@@ -2000,7 +2000,12 @@ knowledge_saved
 knowledge_cancel_requested
 model_library_failed
 model_library_partial
-model_library_speech_unsupported
+model_library_conflict
+model_library_version
+model_library_more
+model_library_query_prefix
+model_library_document_prefix
+knowledge_up_to_date
 local_models_unavailable
 dictation_unavailable
 dictation_model_missing

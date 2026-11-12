@@ -1988,7 +1988,12 @@ knowledge_saved: Enregistré
 knowledge_cancel_requested: Annulation demandée
 model_library_failed: Impossible de charger les modèles
 model_library_partial: Certains résultats sont indisponibles
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Les fichiers de cette version ont changé
+model_library_version: Version
+model_library_more: Charger plus
+model_library_query_prefix: Préfixe de recherche
+model_library_document_prefix: Préfixe de document
+knowledge_up_to_date: Déjà à jour
 local_models_unavailable: Indisponible
 dictation_unavailable: Entrée vocale locale non disponible
 dictation_model_missing: Télécharger un modèle de discours en premier

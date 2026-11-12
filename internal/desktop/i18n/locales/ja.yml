@@ -1988,7 +1988,12 @@ knowledge_saved: 保存しました
 knowledge_cancel_requested: キャンセルを要求しました
 model_library_failed: モデルを読み込めません
 model_library_partial: 一部の結果を取得できません
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: このバージョンのファイルが変更されています
+model_library_version: バージョン
+model_library_more: さらに読み込む
+model_library_query_prefix: 検索プレフィックス
+model_library_document_prefix: 文書プレフィックス
+knowledge_up_to_date: 最新です
 local_models_unavailable: 利用不可
 dictation_unavailable: ローカル音声入力が利用できません
 dictation_model_missing: まず音声モデルをダウンロード

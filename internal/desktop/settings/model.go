@@ -196,6 +196,7 @@ type Model struct {
 	SpeechQuery       string
 	Speech            []preview.LocalModel
 	info              *modelInfo // the model whose details show
+	dropping          *modelInfo // the model whose removal is asked
 
 	// Providers (settings/providers): the channels, the directory's
 	// brands, the catalog, the compaction threshold and the family
@@ -264,8 +265,12 @@ type Model struct {
 	// it runs, from the market's first frame.
 	MarketLoad preview.Fetch
 	// LibraryLoad is the model library's search: placeholder rows before
-	// its first page, a spinner over the results after.
+	// its first page, a spinner over the results after. LibraryMore marks
+	// a hub with a further page and LibraryFailed a search that failed,
+	// which Retry runs again.
 	LibraryLoad   preview.Fetch
+	LibraryMore   bool
+	LibraryFailed bool
 	config        pluginConfig
 	install       pluginInstall
 	download      pluginDownload

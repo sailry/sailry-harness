@@ -1988,7 +1988,12 @@ knowledge_saved: Сохранено
 knowledge_cancel_requested: Запрошена отмена
 model_library_failed: Не удалось загрузить модели
 model_library_partial: Некоторые результаты недоступны
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Файлы этой версии изменились
+model_library_version: Версия
+model_library_more: Загрузить ещё
+model_library_query_prefix: Префикс запроса
+model_library_document_prefix: Префикс документа
+knowledge_up_to_date: Уже обновлено
 local_models_unavailable: Недоступно
 dictation_unavailable: Локальный голосовой ввод недоступен
 dictation_model_missing: Сначала загрузите модель речи

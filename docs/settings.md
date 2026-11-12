@@ -84,7 +84,7 @@ model library and the extension details page.
 | `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes, uninstall |
 | `skills.go` | Skills: cards, install dialog by source, uninstall |
 | `market.go` | Market (`MarketPage`): plugins, skills and themes with search, source, filters and install/update states |
-| `library.go` | The model library dialog: hub, search, rows with download progress, details, delete |
+| `library.go` | The model library dialog: hub, search, rows with download progress, load more, details (version, prefixes, install), delete |
 | `details.go` | The extension details page (`Detail`, `ShowDetails`, `CloseDetails`, `DetailsPanel`) |
 | `lists.go` | Dialog pieces: `modalList`/`listRow` (ui/modal_list.rs), `authorization` (ui/authorization.rs), `iconButton`, `confirm` |
 | `ai.go` | `enabledOpacity` |
@@ -211,7 +211,7 @@ placeholder in an empty masked input.
 | Skills | install, re-import, update | preview_notice |
 | Market | install, update, apply theme | preview_notice |
 | Model library | search, details | in memory |
-| Model library | install, cancel | preview_notice; delete confirms |
+| Model library | install, cancel, update | preview_notice; delete confirms |
 
 ## Backend ownership
 
@@ -381,8 +381,11 @@ hover style.
   keystroke parser does.
 - The hook editor saves on Close after validation; the reference saves as
   fields change (debounced) and Close ends the edit.
-- The model details dialog shows the source and status only; size and
-  license come with the model library (phase 5b).
+- A managed model's details dialog shows its status, source, version,
+  license and size with its download's bar and percent, over Close and what
+  its state allows: Cancel for a download, Update for an installed model
+  and Delete, which asks first. The reference adds the download's speed,
+  which the Node's installation tasks do not report.
 - A downloading library row shows its bar and `Downloading`; the reference
   adds the percent as text.
 - Backup's local folder picker, restore from file and the records dialog
@@ -422,9 +425,9 @@ hover style.
   preview_notice rather than switching the window's theme.
 - The model library is a dialog opened by "Manage models" on the
   local-model pages; the Available tab still lists the kind's catalog
-  inline. Dictation has no Manage models: its speech models are in the
-  page's Installed and Available tabs, as the local-model pages show
-  theirs.
+  inline. Dictation has the same entry in its tabs' row, without a
+  heading of its own (the "local models" heading stays removed), and its
+  library lists speech models.
 
 ## B3 live wiring
 
@@ -766,13 +769,24 @@ repeat, so an older answer never replaces the event's registry.
 
 Deviations from the Rust reference:
 
-- The library loads the first hub page only; the accepted dialog has no
-  load-more control. An answer without a compatible model is followed at
-  most three times (`libraryAnswers`, nine hub pages with the Node's own
+- The library loads one hub page and offers `model_library_more` while the
+  hub names a further one. An answer without a compatible model is followed
+  at most three times (`libraryAnswers`, nine hub pages with the Node's own
   skipping) and then reported as `model_library_partial`, so a query that
   matches only other kinds of model does not read the hub's whole listing.
-- `refresh_local_model` is not called: the accepted details dialogs have no
-  Update control.
+  A search that failed is the `model_library_failed` toast; the empty
+  dialog then offers Retry without repeating the failure.
+- The library is searched for the kind of the page that opened it, as in
+  the reference; there is no search across kinds.
+- A result's details read its versions (`read_model_versions`) and resolve
+  the one chosen (`resolve_model`); Install registers the version shown,
+  with an embedding model's query and document prefixes as typed (empty is
+  none). A row's Install takes the model held or the result's own revision.
+- Update on a managed model resolves its source at `HEAD`
+  (`refresh_local_model` for OCR), keeps its prefixes, says
+  `knowledge_up_to_date` when that version is installed and otherwise
+  registers and downloads it. A Node's model can be deleted and updated
+  once installed, as in the reference.
 - Only the save locks the page; a running download does not.
 - The Knowledge page lists the collections with their state and Pause,
   Resume and Update; the reference shows no collection anywhere, so a paused
@@ -834,16 +848,15 @@ manager, not `ReadLocalModels`.
     `dictation_model_invalid`, `dictation_unavailable`).
   - SDICT-007: Select stores an installed row in `dictation.model`.
 - Only `resolve_model`, `search_models` and `read_model_versions` with the
-  speech kind reach a Node in the reference, from its model library. The
-  accepted Dictation page has no library, so nothing registers a speech model:
-  `Manager.Register` and `Manager.Remove` exist and are tested but have no
-  control. The library dialog opens only from the OCR, Knowledge and Decision
-  pages and searches that page's kind, so it lists no speech model; were a
-  result of the speech kind to appear, its Install answers
-  `model_library_speech_unsupported` instead of sending it to a Node, which
-  refuses the kind. Adding, deleting and updating a speech model from a hub
-  (settings audit D4, D7, D8) need a library entry on the Dictation page,
-  which is a layout decision and not part of the wiring.
+  speech kind reach a Node, as in the reference: Manage models on the
+  Dictation page opens the library for speech models, which the selected
+  host's Node searches and resolves. What it installs is the controller's:
+  `Manager.Register` then `Manager.Start`; the same source with other files
+  is the `model_library_conflict` toast. Delete (library row or the model's
+  details) is `Manager.Remove` after the confirmation and gives dictation
+  back the recommended model where it used the removed one; Update resolves
+  the source at `HEAD` through the Node. The recommended model cannot be
+  removed or updated.
 
 Deviations from the reference:
 

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -28,6 +29,11 @@ type library struct {
 	info, removing  string
 	kind            string
 	serial          uint64
+	// prefixes are an embedding model's prefixes as the details edit them,
+	// taken from the model each time it resolves another definition
+	// (prefixed).
+	prefixes [2]string
+	prefixed string
 }
 
 func (m *Model) libraryModel(id string) *preview.LibraryModel {
@@ -86,11 +92,25 @@ func libraryDialog(c *ui.Context, m *Model) {
 					return
 				}
 				if len(shown) == 0 {
-					kit.Result(c, kit.ResultProps{Icon: icons.Search, Title: t("model_library_empty"), Card: true})
+					props := kit.ResultProps{Icon: icons.Search, Title: t("model_library_empty"), Card: true}
+					if m.Live && m.LibraryFailed {
+						// The failure was the toast; the search runs again from here.
+						props.Extra = func() { kit.Secondary(c.Key("retry"), t("settings_retry")).OnClick(search) }
+					}
+					kit.Result(c, props)
 					return
 				}
-				ui.Column(c.Key("found")).FillWidth().Children(func() {
+				ui.Column(c.Key("found")).FillWidth().Gap(12).Children(func() {
 					libraryRows(c, m, shown)
+					if m.Live && m.LibraryMore {
+						ui.Row(c.Key("more")).Justify(ui.Center).Children(func() {
+							kit.Secondary(c.Key("load"), t("model_library_more")).OnClick(func() {
+								if m.ModelActions != nil && m.ModelActions.LibraryMore != nil && !load.Loading {
+									m.ModelActions.LibraryMore()
+								}
+							})
+						})
+					}
 					if load.Loading {
 						// A later search keeps the rows under a spinner.
 						ui.Box(c.Key("library-loading")).Absolute().Fill().Center().Busy(true).Children(func() { kit.Loader(c, 20) })
@@ -127,7 +147,7 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 				}
 			}, func() {
 				kit.Action(c.Key("info"), icons.Info, t("knowledge_model_details"), false).OnClick(func() {
-					e.info = x.ID
+					e.info, e.prefixed = x.ID, ""
 					if m.Live && m.ModelActions != nil {
 						m.ModelActions.LibraryDetails(x.ID)
 					}
@@ -135,7 +155,7 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 				switch x.Status {
 				case preview.ModelMissing:
 					kit.Action(c.Key("install"), icons.Download, t("knowledge_install"), false).OnClick(func() {
-						m.modelAction(c, func(a *ModelActions) { a.LibraryInstall(x.ID) })
+						m.modelAction(c, func(a *ModelActions) { a.LibraryInstall(x.ID, nil) })
 					})
 				case preview.ModelDownloading:
 					kit.Action(c.Key("cancel"), icons.CircleX, t("settings_cancel"), false).OnClick(func() {
@@ -165,24 +185,59 @@ func librarySkeleton(c *ui.Context) {
 	}).Busy(true)
 }
 
-// libraryDialogs are a model's details and its removal.
+// libraryDialogs are a model's details and its removal. The details show
+// the model's source, the version to install, its license and size and an
+// embedding model's prefixes, over Install for the version shown.
 func libraryDialogs(c *ui.Context, m *Model) {
 	e := &m.library
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	if x := m.libraryModel(e.info); x != nil {
 		open := true
+		embedding := x.Kind == ModelsEmbedding
+		// The prefixes follow the definition shown until the user types.
+		if shown := x.ID + "\x00" + fmt.Sprint(x.Version, x.Resolved); e.prefixed != shown {
+			e.prefixed, e.prefixes = shown, [2]string{x.QueryPrefix, x.DocumentPrefix}
+		}
+		resolved := !m.Live || x.Resolved
+		current := !m.Live || x.Current
 		kit.Dialog(c.Key("model-library-details"), &open, func() {
 			ui.Text(c, x.Name).FontSize(16).FontWeight(600)
 			rows := [][2]string{{t("model_library_source"), t(x.Source) + " · " + x.Repo}}
-			for _, row := range [][2]string{{t("knowledge_model_size"), x.Size}, {t("settings_license"), x.License}} {
+			for _, row := range [][2]string{{t("settings_license"), x.License}, {t("knowledge_model_size"), x.Size}} {
 				// A live model's size and license show once the hub resolved it.
 				if !m.Live || row[1] != "" {
 					rows = append(rows, row)
 				}
 			}
 			facts(c, rows)
-			ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
-				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { e.info = "" })
+			if len(x.Versions) > 0 {
+				version := x.Version
+				title := t("model_library_version")
+				kit.Field(c, "version", title, "", func() {
+					if pick(c, "select", title, &version, x.Versions, false).Fill().Changed() && m.ModelActions != nil && m.ModelActions.LibraryVersion != nil {
+						m.ModelActions.LibraryVersion(x.ID, version)
+					}
+				})
+			}
+			if embedding {
+				for i, key := range []string{"model_library_query_prefix", "model_library_document_prefix"} {
+					kit.Field(c, key, t(key), "", func() {
+						ui.TextInput(c.Key("input"), &e.prefixes[i]).Label(t(key)).FillWidth()
+					})
+				}
+			}
+			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+				kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() { e.info = "" })
+				label, installed := t("knowledge_install"), current && x.Status == preview.ModelInstalled
+				if installed {
+					label = t("knowledge_installed")
+				}
+				busy := current && x.Status == preview.ModelDownloading
+				kit.PrimaryBusy(c.Key("install"), label, !resolved || installed, busy).OnClick(func() {
+					m.modelAction(c, func(a *ModelActions) {
+						a.LibraryInstall(x.ID, &LibraryChoice{QueryPrefix: e.prefixes[0], DocumentPrefix: e.prefixes[1]})
+					})
+				})
 			})
 		}).Width(min(480, width(c)-48)).Label(x.Name)
 		if !open {

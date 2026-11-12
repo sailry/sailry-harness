@@ -1988,7 +1988,12 @@ knowledge_saved: Saved
 knowledge_cancel_requested: Cancellation requested
 model_library_failed: Could not load models
 model_library_partial: Some results are unavailable
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: This version has different files
+model_library_version: Version
+model_library_more: Load more
+model_library_query_prefix: Query prefix
+model_library_document_prefix: Document prefix
+knowledge_up_to_date: Already up to date
 local_models_unavailable: Unavailable
 dictation_unavailable: Local voice input unavailable
 dictation_model_missing: Download a speech model first

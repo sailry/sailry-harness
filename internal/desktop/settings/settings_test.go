@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/png"
 	"io/fs"
@@ -1994,9 +1995,114 @@ func TestExtensions(t *testing.T) {
 		m.library.info = m.Library[0].ID
 		tt.Frame()
 		tt.Advance(time.Second)
-		clickButton(t, tt, i18n.In("en", "close"))
+		clickButton(t, tt, i18n.In("en", "settings_cancel"))
 		if m.library.info != "" {
-			t.Error("Close left the library model's details open")
+			t.Error("Cancel left the library model's details open")
+		}
+	})
+	// Dictation opens the library for speech models, as the other model
+	// pages do for theirs; the library's details install the version they
+	// show with the prefixes typed, and a managed model's details update
+	// and, after the confirmation, delete it.
+	t.Run("model library", func(t *testing.T) {
+		en := func(key string) string { return i18n.In("en", key) }
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var calls []string
+		m.ModelActions = &ModelActions{
+			LibraryInstall: func(id string, choice *LibraryChoice) {
+				if choice == nil {
+					calls = append(calls, "install "+id)
+				} else {
+					calls = append(calls, "install "+id+" "+choice.QueryPrefix+"|"+choice.DocumentPrefix)
+				}
+			},
+			LibraryDetails: func(id string) { calls = append(calls, "details "+id) },
+			LibraryVersion: func(id string, version int) { calls = append(calls, fmt.Sprint("version ", id, " ", version)) },
+			LibraryMore:    func() { calls = append(calls, "more") },
+			Update:         func(kind, id string) { calls = append(calls, "update "+kind+" "+id) },
+			Delete:         func(kind, id string) { calls = append(calls, "delete "+kind+" "+id) },
+			Cancel:         func(kind, id string) { calls = append(calls, "cancel "+kind+" "+id) },
+		}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			dictation(c, m)
+			libraryDialog(c, m)
+		}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		clickButton(t, tt, en("model_library_manage"))
+		if !m.library.open || m.library.kind != ModelsSpeech {
+			t.Fatalf("Manage models opened %+v", m.library)
+		}
+		m.Library = []preview.LibraryModel{{ID: "hub/a", Name: "Embedder", Repo: "org/a", Kind: ModelsEmbedding, Source: "model_library_huggingface",
+			Size: "1.0 MiB", License: "mit", Versions: []string{"main", "v1"}, Resolved: true, QueryPrefix: "query: "}}
+		m.LibraryLoad, m.LibraryMore = preview.Fetch{Loaded: true}, true
+		tt.Frame()
+		tt.Advance(time.Second)
+		clickButton(t, tt, en("model_library_more"))
+		clickButton(t, tt, en("knowledge_model_details"))
+		tt.Advance(time.Second)
+		for _, name := range []string{"model_library_query_prefix", "model_library_document_prefix"} {
+			if _, ok := tt.AccessByRole(ui.RoleTextField, en(name)); !ok {
+				t.Errorf("an embedding model's details have no %s", name)
+			}
+		}
+		if !tt.HasText(en("model_library_version")) || !tt.HasText("main") {
+			t.Errorf("the details show no version: %q", tt.Texts())
+		}
+		for _, x := range tt.AccessAll() {
+			// The row's icon button shares the name; the footer's is the text one.
+			if x.Role == ui.RoleButton && x.Name == en("knowledge_install") && x.Bounds.W > 48 {
+				tt.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
+			}
+		}
+		tt.Frame()
+		if want := []string{"more", "details hub/a", "install hub/a query: |"}; !slices.Equal(calls, want) {
+			t.Fatalf("library calls = %q, want %q", calls, want)
+		}
+		// An unresolved version cannot be installed from the details.
+		m.Library[0].Resolved = false
+		tt.Frame()
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == en("knowledge_install") && x.Bounds.W > 48 && !x.Disabled {
+				t.Error("an unresolved model's Install takes a press")
+			}
+		}
+		m.library = library{}
+		calls = nil
+		m.info = &modelInfo{"Speech", ModelsSpeech, preview.LocalModel{ID: "x", Repo: "org/speech", Status: preview.ModelInstalled, Removable: true, Version: "0123abc", License: "mit", Size: "2.0 MiB"}}
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, want := range []string{"0123abc", "mit", "2.0 MiB", en("knowledge_installed")} {
+			if !tt.HasText(want) {
+				t.Errorf("a managed model's details lack %q: %q", want, tt.Texts())
+			}
+		}
+		clickButton(t, tt, en("settings_update"))
+		clickButton(t, tt, en("knowledge_delete"))
+		if m.dropping == nil || len(calls) != 1 {
+			t.Fatalf("Delete did not ask first: %q", calls)
+		}
+		tt.Advance(time.Second)
+		clickButton(t, tt, en("knowledge_delete"))
+		tt.Advance(time.Second)
+		if want := []string{"update " + ModelsSpeech + " x", "delete " + ModelsSpeech + " x"}; !slices.Equal(calls, want) || m.dropping != nil {
+			t.Fatalf("managed calls = %q, want %q", calls, want)
+		}
+		// The recommended model cannot be removed; a download can be canceled.
+		calls = nil
+		m.Speech[0].Status, m.Speech[0].Percent = preview.ModelDownloading, 40
+		m.info = &modelInfo{"Recommended", ModelsSpeech, m.Speech[0]}
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && (x.Name == en("knowledge_delete") || x.Name == en("settings_update")) {
+				t.Errorf("a download offers %s", x.Name)
+			}
+		}
+		clickButton(t, tt, en("settings_cancel"))
+		if !slices.Equal(calls, []string{"cancel " + ModelsSpeech + " "}) {
+			t.Fatalf("download calls = %q", calls)
 		}
 	})
 	// A button whose operation runs is busy and takes no second press; the

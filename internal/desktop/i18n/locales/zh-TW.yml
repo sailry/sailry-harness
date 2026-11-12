@@ -1988,7 +1988,12 @@ knowledge_saved: 已儲存
 knowledge_cancel_requested: 已要求取消
 model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: 此版本的檔案已變更
+model_library_version: 版本
+model_library_more: 載入更多
+model_library_query_prefix: 查詢前綴
+model_library_document_prefix: 文件前綴
+knowledge_up_to_date: 已是最新
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
