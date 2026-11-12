@@ -30,7 +30,7 @@ func BundledDefaults() []DefaultPackage {
 		{"reminders", true}, {"scheduled-tasks", true}, {"web-search", true}, {"progress", true}, {"goals", true},
 		{"commands", true}, {"external-browser", false}, {"browser", true}, {"computer", false},
 		{"brief", true}, {"memory", true}, {"files", true}, {"code", true}, {"statistics", true}, {"provider-status", true},
-		{"openai-auth", true}, {"claude-auth", true}, {"databases", true}, {"ssh", true}, {"worktrees", true},
+		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"databases", true}, {"ssh", true}, {"worktrees", true},
 		{"git", true}, {"context7", true}, {"github", true}, {"code-review", true}, {"office", true},
 	}
 }
