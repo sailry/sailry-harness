@@ -17,6 +17,7 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 	t.Run("plugin view ownership", testPluginViewOwnership)
 	t.Run("plugin diagnostic report", testPluginDiagnostic)
 	t.Run("plugin location ownership", testPluginLocationOwnership)
+	t.Run("a declared sign-in warning precedes the login command", testProviderLoginWarning)
 	t.Parallel()
 	t.Run("quota remains unknown after reset", func(t *testing.T) {
 		reset := uint64(100)

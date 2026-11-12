@@ -102,6 +102,15 @@ func providers(c *ui.Context, s *State) {
 			notice(c)
 		}
 	})
+	if w := &m.loginWarning; w.open {
+		proceed := w.proceed
+		if confirm(c, "login-warning", &w.open, i18n.T(c, "provider_reconnect")+" "+w.title, w.text, i18n.T(c, "provider_login_continue")) && proceed != nil {
+			proceed()
+		}
+		if !w.open {
+			*w = loginWarning{}
+		}
+	}
 	if ch := m.channel(m.removing); ch != nil {
 		open := true
 		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title")+" "+ch.Name, i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {

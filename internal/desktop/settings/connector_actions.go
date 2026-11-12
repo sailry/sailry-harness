@@ -102,6 +102,7 @@ func (m *Model) FailMCPConfiguration(id, detail string) {
 func (m *Model) CloseNodeDialogs() {
 	m.provider = providerEditor{generation: m.provider.generation + 1}
 	m.login, m.loginFor, m.removing, m.expanded = Authorization{}, "", "", ""
+	m.loginWarning = loginWarning{}
 	m.connector, m.mcp, m.connDetails, m.connRemoving = connectorEditor{}, mcpEditor{}, "", ""
 	m.teamEdit, m.roleEdit, m.teamRemoving, m.roleRemoving = teamEditor{}, roleEditor{}, "", ""
 }
