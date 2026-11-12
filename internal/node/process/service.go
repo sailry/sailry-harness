@@ -331,21 +331,6 @@ func (s *Service) append(entry *commandEntry, kind protocol.ProcessOutputOutputS
 	}()
 }
 
-func (s *Service) Promote(session protocol.SessionID, id protocol.RequestID) (protocol.ProcessInfo, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, err := s.entryLocked(session, id)
-	if err != nil {
-		return protocol.ProcessInfo{}, err
-	}
-	if entry.info.Status.Kind != "running" || entry.settling {
-		return protocol.ProcessInfo{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "command has already completed"}
-	}
-	s.promoteLocked(entry)
-	s.publishLocked(session)
-	return entry.info, nil
-}
-
 // promoteLocked moves a running foreground command to session ownership. A
 // background command has no timeout, so the foreground deadline ends here.
 func (s *Service) promoteLocked(entry *commandEntry) {

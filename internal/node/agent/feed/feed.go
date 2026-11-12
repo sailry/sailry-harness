@@ -101,21 +101,14 @@ func (h *Hub) Reset(id protocol.SessionID) {
 	}
 }
 
-func (h *Hub) Seal(id protocol.SessionID, turn protocol.TurnID) []protocol.ConversationDraft {
+func (h *Hub) Seal(id protocol.SessionID, turn protocol.TurnID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	f := h.sessions[id]
 	if f == nil || f.active == nil || *f.active != turn {
-		return nil
+		return
 	}
 	f.seal()
-	var drafts []protocol.ConversationDraft
-	for _, d := range f.drafts {
-		if d.Turn == turn {
-			drafts = append(drafts, copyValue(d))
-		}
-	}
-	return drafts
 }
 
 // Publish accepts a committed change. Delta uses its separate bounded path.

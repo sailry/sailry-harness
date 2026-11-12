@@ -240,3 +240,19 @@ func TestPool(t *testing.T) {
 		}
 	})
 }
+
+// A program that exited was reaped and its group killed: a later Kill does
+// not signal a process ID the program no longer owns.
+func TestKillAfterExit(t *testing.T) {
+	_, input, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	killed := 0
+	process := &Process{Stdin: input, kill: func() { killed++ }, done: make(chan struct{})}
+	close(process.done)
+	process.Kill()
+	if killed != 0 {
+		t.Fatal("Kill signalled the group of a program that had exited")
+	}
+}

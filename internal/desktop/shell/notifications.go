@@ -88,7 +88,7 @@ func (a *App) notificationCenter(c *ui.Context) {
 		var shown []*viewmodel.Notice
 		for _, n := range SortNotices(a.Data.Notices) {
 			// The notice open stays under Unread though opening it read it.
-			if a.noticeTab == 1 && n.Read && a.noticeDetail != n {
+			if a.noticeTab == 1 && n.Read && a.noticeDetail != n.ID {
 				continue
 			}
 			shown = append(shown, n)
@@ -100,7 +100,7 @@ func (a *App) notificationCenter(c *ui.Context) {
 		kit.Card(c.Key("list"), func() {
 			for _, n := range shown {
 				kit.Bleed(c, n.ID, func() {
-					expanded := a.noticeDetail == n
+					expanded := a.noticeDetail == n.ID
 					a.notificationRow(c, n, expanded)
 					if expanded {
 						a.notificationDetails(c, n)
@@ -152,10 +152,10 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 			}
 		}).OnClick(func() {
 			if expanded {
-				a.noticeDetail = nil
+				a.noticeDetail = ""
 				return
 			}
-			a.noticeDetail = n
+			a.noticeDetail = n.ID
 			a.readNotice(n)
 		})
 		ui.Row(c.Key("actions")).Shrink(0).Gap(4).Children(func() {
@@ -278,7 +278,7 @@ func (a *App) dismissNotice(n *preview.Notice) {
 		return
 	}
 	a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(x *preview.Notice) bool { return x == n })
-	if a.noticeDetail == n {
-		a.noticeDetail = nil
+	if a.noticeDetail == n.ID {
+		a.noticeDetail = ""
 	}
 }

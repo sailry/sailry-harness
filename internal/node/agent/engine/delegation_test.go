@@ -237,6 +237,13 @@ func TestDelegationHandoff(t *testing.T) {
 				case <-f.ctx.Done():
 					t.Fatal(f.ctx.Err())
 				}
+				// stopChildren and settleChildren find a child by its root.
+				f.r.mu.Lock()
+				next := f.r.children[successor]
+				f.r.mu.Unlock()
+				if next == nil || next.root != parent.inv.Session.ID {
+					t.Fatalf("guided successor is not a child of its parent session: %+v", next)
+				}
 				parent.cancel()
 				f.waitRun(successor, protocol.ConversationStatusCancelled)
 			}
@@ -452,7 +459,7 @@ func TestParentEndSettlesChildren(t *testing.T) {
 					return err
 				}
 				settings.ChildConcurrency = 1
-				_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+				_, _, err = store.ExecuteTeamCommand(f.ctx, db, protocol.Command{Kind: "save_team_settings", Data: &settings})
 				return err
 			}); err != nil {
 				t.Fatal(err)
@@ -554,7 +561,7 @@ func TestStopSingleChild(t *testing.T) {
 			return err
 		}
 		settings.ChildConcurrency = 1
-		_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+		_, _, err = store.ExecuteTeamCommand(f.ctx, db, protocol.Command{Kind: "save_team_settings", Data: &settings})
 		return err
 	}); err != nil {
 		t.Fatal(err)

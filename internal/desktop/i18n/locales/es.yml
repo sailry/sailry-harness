@@ -991,8 +991,6 @@ settings_runtime: Entorno de ejecución
 settings_runtime_description: Configurar este nodo
 settings_save: Guardar
 settings_seconds: '%{count} segundos'
-settings_session_order: Orden de sesiones
-settings_sessions: Sesiones
 settings_shortcuts_description: Ver comandos globales y métodos abreviados de teclado
 settings_sidebar_metrics: Indicador de rendimiento
 settings_skills_description: Gestionar las habilidades disponibles para las sesiones

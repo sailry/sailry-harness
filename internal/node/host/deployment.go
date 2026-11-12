@@ -156,6 +156,11 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	return protocol.SshOutcome{Kind: "host_installed", Data: protocol.SshOutcomeHostInstalledPayload{Node: address.ID}}, nil
 }
 
+// stageCommand makes the remote staging directory. The installer script
+// needs python3, so its absence fails here, before anything is uploaded,
+// and names the cause.
+const stageCommand = "umask 077; command -v python3 >/dev/null || { echo 'python3 is required' >&2; exit 1; }; mktemp -d /tmp/sailry-bootstrap-XXXXXX"
+
 // installLocal verifies and uploads the locally built Host artifacts of the
 // target, then activates them with the embedded deployment scripts.
 func (owner *Installations) installLocal(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, root, native string, paths DeploymentOptions, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
@@ -178,7 +183,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 			return err
 		}
 	}
-	stage, err := commandSSH(ctx, connection, "umask 077; command -v python3 >/dev/null; mktemp -d /tmp/sailry-bootstrap-XXXXXX", nil)
+	stage, err := commandSSH(ctx, connection, stageCommand, nil)
 	if err != nil {
 		return err
 	}
@@ -209,11 +214,13 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 	if err != nil {
 		return err
 	}
-	cleanupStage = false
 	if _, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(script)); err != nil {
+		// Only an installer whose outcome is unknown may still need the
+		// stage: it holds the backup of the files it replaced.
+		var fault *protocol.Fault
+		cleanupStage = !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown
 		return err
 	}
-	cleanupStage = true
 	return nil
 }
 

@@ -991,8 +991,6 @@ settings_runtime: 実行環境
 settings_runtime_description: このノードを設定
 settings_save: 保存
 settings_seconds: '%{count}秒'
-settings_session_order: セッションの並び順
-settings_sessions: セッション
 settings_shortcuts_description: グローバルコマンドとキーボードショートカットを表示Name
 settings_sidebar_metrics: パフォーマンスインジケーター
 settings_skills_description: セッションに利用可能なスキルを管理

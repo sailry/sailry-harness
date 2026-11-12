@@ -31,7 +31,7 @@ func providerStoreFixtures(t *testing.T) {
 			var output protocol.Output
 			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 				var err error
-				output, _, err = ExecuteProviderCommand(ctx, db, node, node, protocol.Request{Command: command}, nil)
+				output, _, err = ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: command}, nil)
 				return err
 			})
 			return output, err
@@ -97,7 +97,7 @@ func providerStoreFixtures(t *testing.T) {
 		provider := providerFixture()
 		var saved protocol.ConversationProvider
 		if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			output, _, err := ExecuteProviderCommand(ctx, db, node, node, protocol.Request{Command: protocol.Command{Kind: "put_provider", Data: &protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: 0}}}, nil)
+			output, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{Kind: "put_provider", Data: &protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: 0}}}, nil)
 			if err == nil {
 				saved = output.Data.(protocol.ConversationProvider)
 			}
@@ -109,7 +109,7 @@ func providerStoreFixtures(t *testing.T) {
 		var work *providers.Work
 		if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
-			work, err = PrepareProviderCommand(ctx, db, node, node, request)
+			work, err = PrepareProviderCommand(ctx, db, node, request)
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -118,14 +118,14 @@ func providerStoreFixtures(t *testing.T) {
 			t.Fatal("discovery did not capture the provider revision")
 		}
 		if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			_, _, err := ExecuteProviderCommand(ctx, db, node, node, protocol.Request{Command: protocol.Command{Kind: "put_provider", Data: &protocol.CommandPutProviderPayload{Provider: saved, ExpectedRevision: 1}}}, nil)
+			_, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{Kind: "put_provider", Data: &protocol.CommandPutProviderPayload{Provider: saved, ExpectedRevision: 1}}}, nil)
 			return err
 		}); err != nil {
 			t.Fatal(err)
 		}
 		preparedOutput := protocol.Output{Kind: "discovered_models", Data: protocol.DefaultConversationDiscoveryCatalog()}
 		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			_, _, err := ExecuteProviderCommand(ctx, db, node, node, request, &providers.Prepared{Output: &preparedOutput})
+			_, _, err := ExecuteProviderCommand(ctx, db, node, request, &providers.Prepared{Output: &preparedOutput})
 			return err
 		})
 		if !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
@@ -142,7 +142,7 @@ func providerStoreFixtures(t *testing.T) {
 		execute := func(prepared *providers.Prepared) (protocol.ConversationCatalogStatus, error) {
 			var status protocol.ConversationCatalogStatus
 			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-				output, _, err := ExecuteProviderCommand(ctx, db, node, node, protocol.Request{Command: protocol.Command{Kind: "refresh_model_catalog"}}, prepared)
+				output, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{Kind: "refresh_model_catalog"}}, prepared)
 				if err == nil {
 					status = output.Data.(protocol.ConversationCatalogStatus)
 				}
@@ -188,7 +188,7 @@ func providerStoreFixtures(t *testing.T) {
 				if command.Kind == "save_media_settings" {
 					output, _, err = saveMediaSettings(ctx, db, *command.Data.(*protocol.MediaSettings))
 				} else {
-					output, _, err = ExecuteProviderCommand(ctx, db, node, node, protocol.Request{Command: command}, prepared)
+					output, _, err = ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: command}, prepared)
 				}
 				return err
 			})

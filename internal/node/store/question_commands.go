@@ -246,6 +246,9 @@ func resolveQuestion(ctx context.Context, db *sql.Conn, node, caller protocol.No
 		if e != nil {
 			return protocol.Output{}, nil, e
 		}
+		if e = bindAgentAttachments(ctx, db, turn.ID, session.Worktree, response.Message.Attachments); e != nil {
+			return protocol.Output{}, nil, e
+		}
 		queue, e := ReadQueue(ctx, db, session.ID)
 		if e != nil {
 			return protocol.Output{}, nil, e

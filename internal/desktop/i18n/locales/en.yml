@@ -991,8 +991,6 @@ settings_runtime: Runtime
 settings_runtime_description: Configure this Node
 settings_save: Save
 settings_seconds: '%{count} seconds'
-settings_session_order: Session order
-settings_sessions: Sessions
 settings_shortcuts_description: View global commands and keyboard shortcuts
 settings_sidebar_metrics: Performance indicator
 settings_skills_description: Manage skills available to sessions

@@ -13,8 +13,8 @@ type Entry struct {
 	Script protocol.HooksScript
 }
 
-// Entries preserves the protocol's fixed slots followed by additional scripts.
-func Entries(settings protocol.HooksSettings) []Entry {
+// entries preserves the protocol's fixed slots followed by additional scripts.
+func entries(settings protocol.HooksSettings) []Entry {
 	entries := []Entry{}
 	for _, slot := range []struct {
 		phase  protocol.HooksPhase
@@ -37,7 +37,7 @@ func Entries(settings protocol.HooksSettings) []Entry {
 func Scripts(settings protocol.HooksSettings, phase protocol.HooksPhase) []Entry {
 	selected := []Entry{}
 	if settings.Enabled {
-		for _, entry := range Entries(settings) {
+		for _, entry := range entries(settings) {
 			if entry.Phase == phase && entry.Script.Enabled {
 				selected = append(selected, entry)
 			}
@@ -57,7 +57,7 @@ func Validate(settings protocol.HooksSettings) error {
 			return invalid("hook phase is invalid")
 		}
 	}
-	entries := Entries(settings)
+	entries := entries(settings)
 	for _, entry := range entries {
 		script := entry.Script
 		if len(script.Name) > 1024 || strings.ContainsRune(script.Name, 0) || strings.TrimSpace(script.Command) == "" || len(script.Command) > 64*1024 || strings.ContainsRune(script.Command, 0) || script.TimeoutMs < 1 || script.TimeoutMs > 60000 {

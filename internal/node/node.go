@@ -807,13 +807,13 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		if operationErr == nil {
 			switch {
 			case store.SupportsTeamCommand(job.request.Command.Kind):
-				output, changes, operationErr = store.ExecuteTeamCommand(node.ctx, db, node.ID(), job.request.Command)
+				output, changes, operationErr = store.ExecuteTeamCommand(node.ctx, db, job.request.Command)
 			case job.request.Command.Kind == "deliver_background" || job.request.Command.Kind == "continue_turn":
 				output, changes, operationErr = store.ExecuteBackgroundCommand(node.ctx, db, node.ID(), job.caller, job.request, time.Now())
 			case store.SupportsAgentCommand(job.request.Command.Kind):
 				output, changes, operationErr = store.ExecuteAgentCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.caller, job.request, time.Now())
 			case store.SupportsProviderCommand(job.request.Command.Kind):
-				output, changes, operationErr = store.ExecuteProviderCommand(node.ctx, db, node.ID(), job.caller, job.request, job.provider)
+				output, changes, operationErr = store.ExecuteProviderCommand(node.ctx, db, node.ID(), job.request, job.provider)
 			default:
 				output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}

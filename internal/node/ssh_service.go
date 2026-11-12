@@ -18,10 +18,6 @@ func (node *Node) runHost(caller protocol.NodeID, request protocol.Request) (pro
 		err := host.StopProcess(node.ctx, input.Pid, input.StartedAtSecs, input.Force)
 		return protocol.Output{Kind: "host_process_signalled", Data: protocol.OutputHostProcessSignalledPayload{Pid: input.Pid, StartedAtSecs: input.StartedAtSecs}}, err
 	}
-	if input, ok := request.Command.Data.(*protocol.CommandCancelSshPayload); ok {
-		err := node.hostInstalls.Cancel(caller, input.Request, request.Plugin)
-		return protocol.Output{Kind: "ssh_cancelled", Data: protocol.OutputSshCancelledPayload{Request: input.Request}}, err
-	}
 	var id protocol.SshID
 	var revision uint64
 	var expected *protocol.NodeID

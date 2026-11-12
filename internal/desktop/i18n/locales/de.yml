@@ -991,8 +991,6 @@ settings_runtime: Laufzeit
 settings_runtime_description: Diesen Knoten konfigurieren
 settings_save: Speichern
 settings_seconds: '%{count} Sekunden'
-settings_session_order: Sitzungsreihenfolge
-settings_sessions: Sitzungen
 settings_shortcuts_description: Globale Befehle und Tastenkombinationen anzeigen
 settings_sidebar_metrics: Leistungsanzeige
 settings_skills_description: Verwalten von Skills, die für Sitzungen verfügbar sind

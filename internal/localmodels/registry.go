@@ -170,7 +170,7 @@ func (registry *Registry) Apply(prepared *Prepared) {
 		}
 	}
 	for _, kind := range NodeKinds {
-		if !sameChoice(Choice(&registry.settings, kind), Choice(&prepared.settings, kind)) {
+		if !SameChoice(Choice(&registry.settings, kind), Choice(&prepared.settings, kind)) {
 			registry.scopes[kind].cancel()
 			registry.scopes[kind] = registry.scope()
 		}
@@ -480,7 +480,7 @@ func (registry *Registry) Resource(kind protocol.ModelsKind, id string, choice *
 		return none, err
 	}
 	registry.mu.Lock()
-	if choice != nil && !sameChoice(Choice(&registry.settings, kind), *choice) {
+	if choice != nil && !SameChoice(Choice(&registry.settings, kind), *choice) {
 		registry.mu.Unlock()
 		return none, conflict()
 	}
