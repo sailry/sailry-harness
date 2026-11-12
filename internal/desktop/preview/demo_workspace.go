@@ -93,6 +93,13 @@ func (b *demo) workspace() *Workspace {
 		{ID: "cp-2", Turn: b.t("flaky.1.user"), Time: Now.Add(-36 * time.Minute), Files: []string{"internal/booking/reserve.go", "internal/booking/reserve_test.go", "docs/booking.md"}, Added: 34, Removed: 6},
 		{ID: "cp-1", Turn: b.t("invoice.0.user"), Time: Now.Add(-4 * time.Hour), Files: []string{"migrations/0041_invoices_v2.sql"}, Added: 86},
 	}
+	// The bell's notices: what the demo's sessions wait on and finished.
+	w.Notices = []*Notice{
+		{ID: "demo-n1", Kind: NoticeApproval, Title: b.t("deploy.title"), Message: b.t("notice.approval"), Session: "harbor-api/deploy", Host: "local_host_name", Time: Now.Add(-2 * time.Minute)},
+		{ID: "demo-n2", Kind: NoticeCompleted, Title: b.t("flaky.title"), Message: b.t("notice.completed"), Session: "harbor-api/flaky-test", Host: "local_host_name", Time: Now.Add(-35 * time.Minute)},
+		{ID: "demo-n3", Kind: NoticeFailed, Title: b.t("limited.title"), Message: b.t("notice.failed"), Session: "lumen-web/pursuit-limit", Host: "local_host_name", Time: Now.Add(-26 * time.Minute)},
+		{ID: "demo-n4", Kind: NoticeCompleted, Title: b.t("invoice.title"), Message: b.t("notice.migrated"), Session: "harbor-api/invoices", Host: "local_host_name", Time: Now.Add(-4 * time.Hour), Read: true},
+	}
 	w.Documents = []Document{
 		{ID: "plan", Title: b.t("panel.plan.title"), Path: "plans/rate-limiting.md", Text: b.t("panel.plan.text")},
 		{ID: "report", Title: b.t("panel.report.title"), Path: "reports/load-test.md", Text: b.t("panel.report.text")},
