@@ -64,6 +64,10 @@ func TestPeerTolerance(t *testing.T) {
 	listing.Locations = []FileBrowserLocation{{Kind: FileBrowserLocationKindHome, Name: "Home", Path: "/home"}}
 	fault := Fault{Code: ErrorCodeConflict, Message: "continuation refused", Details: &FaultDetails{Kind: "storage_conflict"}}
 
+	paused := DefaultConversationCompactionFailure()
+	paused.Source, paused.Stage, paused.Reason = ConversationCompactionSourceAutomatic, ConversationCompactionStageRequest, ConversationCompactionReasonRequestFailed
+	paused.Paused = true
+
 	cases := []struct {
 		name string
 		data []byte
@@ -250,6 +254,30 @@ func TestPeerTolerance(t *testing.T) {
 				})
 			},
 			check: func(*testing.T, any) {},
+		},
+		{
+			name:   "compaction failure that paused, with an unknown member",
+			data:   future(t, paused, set("future_resume_ms", 5)),
+			target: func() any { return new(ConversationCompactionFailure) },
+			check: func(t *testing.T, value any) {
+				if got := value.(*ConversationCompactionFailure); !got.Paused || got.Reason != ConversationCompactionReasonRequestFailed {
+					t.Fatalf("failure = %+v", got)
+				}
+			},
+		},
+		{
+			// A build that does not declare the member writes none: as before.
+			name:   "compaction failure without its paused member",
+			data:   []byte(`{"source":"automatic","stage":"request","reason":"request_failed","continued":false,"status":null}`),
+			target: func() any { return new(ConversationCompactionFailure) },
+			check: func(t *testing.T, value any) {
+				got := value.(*ConversationCompactionFailure)
+				encoded, err := json.Marshal(got)
+				if err != nil || got.Paused || strings.Contains(string(encoded), "paused") {
+					t.Fatalf("failure = %+v, encoded %s: %v", got, encoded, err)
+				}
+			},
+			open: true,
 		},
 		{
 			name:   "unknown member of an open object",
