@@ -128,6 +128,13 @@ act (⌥⌘B still changes the choice). The resize handles are
 6 DIP strips over the edges (custom: `ui.Split` keeps both panes 40 DIPs
 wide and cannot close one to nothing, which the motion needs).
 
+A conversation pane (the main column, or a pane of a split) is the
+transcript filling it from under the header to its bottom, with the
+composer floating over the transcript's end (`conversation.Docked`, see
+`docs/conversation.md`), then the navigation rail over both. The welcome
+page hosts its composer itself, and the child transcript of the right panel
+has no dock.
+
 ### Side column per page
 
 The column beside the rail belongs to the page (`App.HasNavigation`, the
