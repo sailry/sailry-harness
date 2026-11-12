@@ -91,13 +91,16 @@ func (a *App) selectionDialog(c *ui.Context) {
 			if a.Hooks.ReaderActive != nil && a.Hooks.ReaderActive("selection/"+s.chat) {
 				icon, label = icons.Square, "reader_stop"
 			}
-			kit.IconButton(c.Key("read"), icon, i18n.T(c, label), 32, false).OnClick(func() {
-				if !a.Preview && a.Hooks.ReadSelection != nil {
-					a.Hooks.ReadSelection(s.chat, s.text)
-				} else {
-					a.notice(c)
-				}
-			})
+			// The demo over a preview window has no voice to read with.
+			if !a.Demo() || !a.Preview && a.Hooks.ReadSelection != nil {
+				kit.IconButton(c.Key("read"), icon, i18n.T(c, label), 32, false).OnClick(func() {
+					if !a.Preview && a.Hooks.ReadSelection != nil {
+						a.Hooks.ReadSelection(s.chat, s.text)
+					} else {
+						a.notice(c)
+					}
+				})
+			}
 			quote := kit.Secondary(c.Key("quote"), i18n.T(c, "message_quote"))
 			if s.chat == "" || a.Data.Find(s.chat) == nil {
 				quote.Disabled(true).Opacity(0.5)

@@ -266,7 +266,6 @@ session_window_failed: Não foi possível abrir a janela
 project_edit: Editar o projeto
 project_remove: Remover o projeto
 workspace_new_terminal: Criar um terminal
-workspace_records: Registros de sessão
 worktree_manage: Gerenciar árvores de trabalho
 worktree_create: Nova árvore de trabalho
 worktree_remove: Remover worktree
@@ -2261,3 +2260,5 @@ python_creating: Preparando dependências
 python_installing: Instalando dependências
 python_validating: Verificando dependências
 port_count: '%{count} ports'
+queue_messages_one: 1 queued message
+queue_messages_count: '%{count} queued messages'

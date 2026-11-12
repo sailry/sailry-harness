@@ -75,6 +75,11 @@ func (a *App) setStage(s stage) {
 // Demo reports whether the window shows the demo conversations.
 func (a *App) Demo() bool { return a.demo != nil && !a.demo.under }
 
+// DemoOn reports whether the demo is on. Unlike Demo it also answers while
+// the window's own stage is back on the fields, as in the controller's frame
+// hooks: what the user does then is still done in the demo.
+func (a *App) DemoOn() bool { return a.demo != nil }
+
 // DemoConversation is the demo's conversation of that ID, nil without the
 // demo. Unlike Demo it also answers while the window's own stage is back on
 // the fields: the controller's frame hooks keep what it mounted over a demo
@@ -105,6 +110,14 @@ func (a *App) DemoUsage() *preview.Usage {
 		return nil
 	}
 	return a.demo.usage
+}
+
+// demoLocale is the language the demo is written in, "" without the demo.
+func (a *App) demoLocale() string {
+	if a.demo == nil {
+		return ""
+	}
+	return a.demo.locale
 }
 
 // sampled reports whether the conversations shown are sample data, whose

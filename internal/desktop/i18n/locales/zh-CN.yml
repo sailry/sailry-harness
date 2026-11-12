@@ -266,7 +266,6 @@ session_window_failed: 无法打开新窗口
 project_edit: 编辑项目
 project_remove: 移除项目
 workspace_new_terminal: 创建终端
-workspace_records: 会话记录
 worktree_manage: 管理 worktree
 worktree_create: 创建 worktree
 worktree_remove: 删除 worktree
@@ -2261,3 +2260,5 @@ python_creating: 准备依赖
 python_installing: 安装依赖
 python_validating: 检查依赖
 port_count: '%{count} 个端口'
+queue_messages_one: 1 条消息排队
+queue_messages_count: '%{count} 条消息排队'

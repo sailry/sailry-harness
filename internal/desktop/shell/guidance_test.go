@@ -22,6 +22,33 @@ func queueButtons(tt *ui.Tester, name string) (all, disabled int) {
 	return all, disabled
 }
 
+// unfoldQueue clicks the queue tray's header, which shows its rows: the tray
+// is folded until the user unfolds it.
+func unfoldQueue(t *testing.T, tt *ui.Tester) {
+	t.Helper()
+	for _, e := range tt.AccessAll() {
+		if e.Role != ui.RoleButton || e.Expanded {
+			continue
+		}
+		for _, locale := range []string{"en", "zh-CN"} {
+			for n := 1; n < 40; n++ {
+				name := i18n.In(locale, "queue_messages_count", "count", n)
+				if n == 1 {
+					name = i18n.In(locale, "queue_messages_one")
+				}
+				if e.Name == name {
+					tt.ClickAt(e.Bounds.X+e.Bounds.W/2, e.Bounds.Y+e.Bounds.H/2)
+					tt.Frame()
+					tt.Advance(300 * time.Millisecond)
+					tt.Frame()
+					return
+				}
+			}
+		}
+	}
+	t.Fatalf("no folded queue tray: %q", tt.Texts())
+}
+
 // Enter with text while a reply runs guides it: the message waits in the
 // queue with its guidance pending, the button stays Stop, and the row
 // offers Withdraw with Edit, Send now and Remove disabled. Withdraw puts
@@ -33,6 +60,7 @@ func TestComposerGuidesRunningTurn(t *testing.T) {
 	if !cv.Running() {
 		t.Fatal("the big conversation does not run")
 	}
+	unfoldQueue(t, tt)
 	n, turns := len(cv.Queue), len(cv.Turns)
 	click(t, tt, i18n.In("en", "composer"))
 	tt.Type("Use the attached sample")
@@ -78,6 +106,7 @@ func TestQueueSendNowGuides(t *testing.T) {
 	a, tt := newTester(t)
 	cv := a.Data.Find(preview.Big)
 	first, text, second := cv.Queue[0].ID, cv.Queue[0].Text, cv.Queue[1].ID
+	unfoldQueue(t, tt)
 	var send ui.AccessInfo
 	for _, e := range tt.AccessAll() {
 		if e.Role == ui.RoleButton && e.Name == i18n.In("en", "queue_send_now") && (send.Name == "" || e.Bounds.Y < send.Bounds.Y) {

@@ -266,7 +266,6 @@ session_window_failed: 창을 열 수 없음Name
 project_edit: 프로젝트 편집
 project_remove: 프로젝트 삭제
 workspace_new_terminal: 터미널 만들기
-workspace_records: 세션 기록
 worktree_manage: 작업 트리 관리
 worktree_create: 새 작업 트리
 worktree_remove: 작업 트리 삭제
@@ -2261,3 +2260,5 @@ python_creating: 의존성 준비 중
 python_installing: 의존성 설치 중
 python_validating: 의존성 확인 중
 port_count: '%{count} ports'
+queue_messages_one: 1 queued message
+queue_messages_count: '%{count} queued messages'

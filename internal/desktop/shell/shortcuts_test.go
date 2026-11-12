@@ -325,18 +325,23 @@ func TestMenuCommandsScoped(t *testing.T) {
 	}
 	// KEY-002: any modal dialog holds the menu's commands, also one the shell
 	// does not open itself, and they run again once it closed.
-	t.Run("session records dialog", func(t *testing.T) {
+	t.Run("sidebar confirmation", func(t *testing.T) {
 		a, tt := newTester(t)
-		a.Sidebar.ShowRecords(a.Data.Projects[0].ID, nil)
+		if err := tt.RightClick("Port the neutral theme tokens"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem(i18n.In("en", "workspace_archive")); err != nil {
+			t.Fatal(err)
+		}
 		tt.Frame()
-		if !tt.HasText(i18n.In("en", "workspace_records")) {
-			t.Fatalf("no records dialog: %q", tt.Texts())
+		if !tt.HasText(i18n.In("en", "workspace_memory_only")) {
+			t.Fatalf("no archive confirmation: %q", tt.Texts())
 		}
 		a.Do("app.settings")
 		a.Do(CloseFocused.ID)
 		tt.Frame()
 		if a.Page != ConversationPage {
-			t.Fatalf("Settings opened behind the records dialog: page %d", a.Page)
+			t.Fatalf("Settings opened behind the confirmation: page %d", a.Page)
 		}
 		tt.Key(0, ui.KeyEscape)
 		settle(tt)

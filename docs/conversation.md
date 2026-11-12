@@ -71,6 +71,48 @@ usage); nil is a loaded, connected session at its start. `s` is UI state (`conve
 conversation, so each keeps its scroll place. `turns` is backend data in
 order, oldest first. The view never changes `turns`.
 
+```go
+func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions, below func())
+```
+
+`Docked` is `View` with `below`, the composer and what goes with it (the
+activity strip, the queue tray, the context bar), floating over the
+transcript's end instead of standing under the transcript. Every pane that
+has a composer uses it: the main column, a pane of a split, a subagent tab
+and a package's conversation panel. `View` is `Docked` without a dock.
+
+- **Scroll area**: the list fills the pane from under the header to the
+  pane's bottom, so its scroll bar runs the pane's height at the pane's
+  edge, and the turns pass behind the dock.
+- **Dock**: an absolute column at the pane's bottom, full width,
+  `PassThrough`. What it holds lies on a sheet `theme.ContentWidth` wide,
+  centred: `kit.Frost` over `background` at `kit.SurfaceTint`, its top
+  corners at `radius_2xl`, so no turn shows sharp between the dock's parts
+  or behind the context bar. With Reduce Transparency the sheet is the
+  opaque background.
+- **Reserve**: the list's bottom padding is the dock's height as the last
+  frame laid it out (`dock.box`, a `ui.Handle`), so at its end the last
+  turn rests on the dock with the gap it kept over the list's own bottom
+  (its 24 DIP padding). A frame that laid the dock out at another height
+  than it left room for asks for one more (`dock.settle`, read as the pane
+  paints), so a growing or shrinking dock moves the end in the next frame.
+  `FollowEnd` does the rest: at its end the list follows the dock, scrolled
+  away it holds its place.
+- **Pointer**: beside the sheet the wheel, the touchpad and presses reach
+  the transcript; over the sheet they are the dock's. The dock is outside
+  the box that watches the transcript's presses, so a press on it dismisses
+  the selection pill as a press on the composer did.
+- **What shows**: `State.area` is the list less the reserve. The selection
+  pill keeps inside it, the jump button stands 8 to 16 DIPs over the dock,
+  and the search bar keeps the pane's top. The navigation rail is the
+  pane's, as before.
+- **Loading**: a session still loading has `below` under its loader, as
+  before.
+- **Each pane measures its own dock**: docks are kept by conversation id,
+  and a conversation shows in one pane at most.
+- **Keys**: Page Up and Page Down move by the list's height, now the
+  pane's, so a page overlaps the last by the dock's height more than before.
+
 ## View model
 
 ### Turn and Reply
@@ -1024,6 +1066,12 @@ appearance (icon and color).
 - `jump_test.go`: appears on the smallest scroll and hides at the end;
   click scrolls to the end; stays pinned while streaming, stays put once
   scrolled up, and follows again after the click.
+- `dock_test.go` (`TestDock`): under a dock the list spans the pane and the
+  dock lies in its bottom; the last turn rests on the dock with the gap it
+  keeps over a list without one; the end follows a dock that grows and
+  shrinks, and a place scrolled to holds; the wheel and a press beside the
+  dock's sheet reach the transcript, the wheel over it does not; the jump
+  button and the selection pill stay over the dock.
 - `live_test.go`: `Cite`, `Mark` outside code, `Find`, the viewer's zoom
   limits and steps, `Quote`, `Count`; every scene's blocks in en/zh-CN and
   light/dark (snapshots to `$SAILRY_SNAPSHOTS`); a card's Open; the search
@@ -1052,7 +1100,7 @@ destination, the rewind toast's backup action, and
 
 | Deviation | Reason |
 |---|---|
-| The editor of a sent message edits its text only; its attachments and references show unchanged and are sent again | The reference's editor is the same text field; the bubble has no chip editor |
+| The transcript fills the pane and the composer floats over its end on a frosted sheet (`Docked`); the scroll bar runs the pane's height (user decision 2026-11-12) | The reference stacks the transcript (`flex_1`) over the composer in a column (`conversation/mod.rs`, `live.rs`), so its scroll bar ends where the composer begins: a short stub over a tall composer |
 | A file link of a reply resolves against the session's current worktree | The reference resolves against the worktree the turn ran in; the page projects no per-turn worktree path |
 | The web search result is a dialog over the window, and the provider's suggestions show as their links | The reference opens a second window with the suggestions in a scriptless web view; the transcript owns no window, and the dialog is the existing host for content over it |
 | The search result's links follow the content's rule (panel on a click, system with the modifier) | The reference's result window sends every link to the system browser; the user's rule is one behaviour for every link of a conversation |

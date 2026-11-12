@@ -266,7 +266,6 @@ session_window_failed: 無法開啟新視窗
 project_edit: 編輯專案
 project_remove: 移除專案
 workspace_new_terminal: 建立終端
-workspace_records: 會話記錄
 worktree_manage: 管理 worktree
 worktree_create: 建立 worktree
 worktree_remove: 刪除 worktree
@@ -2261,3 +2260,5 @@ python_creating: 準備相依套件
 python_installing: 安裝相依套件
 python_validating: 檢查相依套件
 port_count: '%{count} ports'
+queue_messages_one: 1 queued message
+queue_messages_count: '%{count} queued messages'

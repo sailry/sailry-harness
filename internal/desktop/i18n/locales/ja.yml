@@ -266,7 +266,6 @@ session_window_failed: ウィンドウを開けませんでした
 project_edit: プロジェクトを編集
 project_remove: プロジェクトを削除
 workspace_new_terminal: ターミナルを作成
-workspace_records: セッションレコード
 worktree_manage: ワークトリーの管理
 worktree_create: 新しいワークトリー
 worktree_remove: ワークトリーを削除
@@ -2261,3 +2260,5 @@ python_creating: 依存関係を準備中
 python_installing: 依存関係をインストール中
 python_validating: 依存関係を確認中
 port_count: '%{count} ports'
+queue_messages_one: 1 queued message
+queue_messages_count: '%{count} queued messages'

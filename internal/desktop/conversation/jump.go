@@ -11,8 +11,9 @@ import (
 // jump is Kit MessageScroller's button: it shows while the transcript is
 // scrolled off its end, with no threshold, as any scroll up stops the list
 // following its end. It fades in over 200 ms with an ease-out cubic as it
-// rises from 8 to 16 DIPs above the bottom, and a click shows the end at
-// once, which follows it again.
+// rises from 8 to 16 DIPs above the bottom of what shows of the transcript,
+// above DIPs over the list's own where a dock floats there, and a click
+// shows the end at once, which follows it again.
 //
 // The fade is Element.AnimateWith, which runs at the display's rate: MyGo
 // has no frame-rate parameter for element transitions (only
@@ -21,7 +22,7 @@ import (
 // It reads only AtEnd: Visible would build another frame each time the rows
 // in view change, doubling the cost of a scroll. A list not laid out yet
 // reads as off its end, so its first build shows no button.
-func jump(c *ui.Context, l *ui.ListState, n int, first bool) {
+func jump(c *ui.Context, l *ui.ListState, n int, first bool, above float32) {
 	p := theme.Of(c)
 	visible := n > 0 && !l.AtEnd() && !first
 	target := float32(0)
@@ -37,7 +38,7 @@ func jump(c *ui.Context, l *ui.ListState, n int, first bool) {
 		return // gone: nothing to hit or announce
 	}
 	label := i18n.T(c, "turn_latest")
-	wrap.Bottom(8 + 8*v).Opacity(v).Children(func() {
+	wrap.Bottom(above + 8 + 8*v).Opacity(v).Children(func() {
 		b := ui.ButtonBase(c.Key("latest"))
 		kit.Tooltip(c, b, label)
 		b.Label(label).Size(32, 32).Radius(16).

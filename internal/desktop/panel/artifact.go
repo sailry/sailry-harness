@@ -64,12 +64,15 @@ func (s *State) artifact(c *ui.Context, id string) {
 				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		}
-		kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(open)
+		// The demo's files are on no disk for another app to open.
+		if !s.Demo {
+			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(open)
+		}
 	})
 	state := func(key string) {
 		ui.Column(c.Key("state")).Grow(1).Padding(16).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(p.MutedForeground)
-			if key != "artifact_preview_loading" {
+			if key != "artifact_preview_loading" && !s.Demo {
 				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).AlignSelf(ui.Start).OnClick(open)
 			}
 		})
@@ -100,6 +103,11 @@ func (s *State) artifact(c *ui.Context, id string) {
 			notice(c)
 		}
 	})
+	if s.Demo && f.Kind == conversation.OtherFile {
+		// The demo's file is on no disk for its app to open: the tab names it.
+		kit.Result(c, kit.ResultProps{Icon: conversation.FileIcon(f), Title: f.Name(), SubTitle: conversation.Kind(c, f)}).Grow(1).Justify(ui.Center)
+		return
+	}
 	ui.Scroll(c.Key("artifact-" + id)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
 		case conversation.TextFile:

@@ -35,7 +35,6 @@ type State struct {
 	Actions  *Actions
 	Sample   Sample
 	Metrics  *Metrics
-	records  recordsState
 	Selected string // conversation ID
 	// Sort is the order of the projects and of the conversations in the
 	// chats and in each project, as a Sort: the session order preference,
