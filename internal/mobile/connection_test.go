@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -190,94 +189,70 @@ func (transport topicTransport) Subscribe(_ context.Context, topic protocol.Topi
 	return stream, nil
 }
 
-// The four topic observers reach Dart as a handle of the kind its API names
-// and a JSON string per next, with exactly the members its readers take.
-func TestMobileTopicObservers(t *testing.T) {
+// The terminal observer reaches Dart as a handle of the kind its API names and
+// a JSON string per next, with exactly the members its reader takes.
+func TestMobileTerminalObserver(t *testing.T) {
 	t.Parallel()
 	node := protocol.NodeID{1}
 	terminal := protocol.DefaultTerminalInfo()
 	terminal.ID, terminal.Revision, terminal.Status = protocol.NewTerminalID(), 3, protocol.TerminalStatus{Kind: "running"}
 	screen := protocol.DefaultTerminalScreen()
 	screen.Columns, screen.Rows = 80, make([]protocol.TerminalScreenLine, 24)
-	provider := protocol.ConversationLoginAttempt{ID: protocol.NewRequestID(), Provider: protocol.NewProviderID()}
-	connector := protocol.PluginConnectorAttempt{ID: protocol.NewRequestID(), Connection: protocol.NewRequestID(), Package: protocol.PluginReference{Name: "mail", Digest: strings.Repeat("a", 64)}, Revision: 1}
-	changes := protocol.DefaultPluginConnectorChanges()
-	changes.Cursor = 7
-	transport := topicTransport{noticeTransport: noticeTransport{node: node}, topics: map[string][]protocol.Update{
-		"terminal":        {{Kind: "terminal_snapshot", Data: protocol.TerminalSnapshot{Node: node, Info: terminal, Screen: screen}}},
-		"provider_login":  {{Kind: "provider_login", Data: protocol.ConversationLoginUpdate{Attempt: provider, Revision: 1, State: protocol.ConversationLoginState{Kind: "starting"}}}},
-		"connector_login": {{Kind: "connector_login", Data: protocol.PluginConnectorLoginUpdate{Attempt: connector, Revision: 1, State: protocol.PluginConnectorLoginState{Kind: "starting"}}}},
-		"connections":     {{Kind: "connections_changed", Data: changes}},
-	}}
-	encoded := func(value any) string {
-		data, err := json.Marshal(value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(data)
+	shared := client.New(topicTransport{noticeTransport: noticeTransport{node: node}, topics: map[string][]protocol.Update{
+		"terminal": {{Kind: "terminal_snapshot", Data: protocol.TerminalSnapshot{Node: node, Info: terminal, Screen: screen}}},
+	}})
+	runtime := New(nil)
+	t.Cleanup(func() { runtime.Close(1); _ = shared.Close() })
+	owner := &connection{client: shared, controller: &controller{}}
+	arguments, _ := json.Marshal(map[string]string{"terminal": terminal.ID.String()})
+	opened, err := owner.invoke(t.Context(), runtime, 0, "watch_terminal", arguments)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range []struct {
-		method    string
-		arguments map[string]string
-		kind      string
-		members   []string
-		content   string // a member holding an object, and what that object has
-		inside    []string
-	}{
-		{"watch_terminal", map[string]string{"terminal": terminal.ID.String()}, "terminal_updates",
-			[]string{"connected", "error", "recovering", "snapshot"}, "snapshot", []string{"info", "node", "screen", "sequence"}},
-		{"watch_login", map[string]string{"attempt": encoded(provider)}, "login_updates",
-			[]string{"connected", "error", "update"}, "update", []string{"attempt", "revision", "state"}},
-		{"watch_connector_login", map[string]string{"attempt": encoded(connector)}, "login_updates",
-			[]string{"connected", "error", "update"}, "update", []string{"attempt", "revision", "state"}},
-		{"watch_connections", nil, "connections_updates", []string{"connections", "cursor", "types"}, "", nil},
-	} {
-		t.Run(test.method, func(t *testing.T) {
-			t.Parallel()
-			shared := client.New(transport)
-			runtime := New(nil)
-			t.Cleanup(func() { runtime.Close(1); _ = shared.Close() })
-			owner := &connection{client: shared, controller: &controller{}}
-			opened, err := owner.invoke(t.Context(), runtime, 0, test.method, json.RawMessage(encoded(test.arguments)))
-			if err != nil {
-				t.Fatal(err)
-			}
-			handle := opened.(Handle)
-			if handle.Kind != test.kind || handle.Handle != "1" {
-				t.Fatalf("handle = %#v", handle)
-			}
-			runtime.mu.Lock()
-			updates := runtime.handles[1].object
-			runtime.mu.Unlock()
-			value, err := updates.invoke(t.Context(), runtime, 1, "next", nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			members := func(data string) (map[string]json.RawMessage, []string) {
-				t.Helper()
-				var object map[string]json.RawMessage
-				if err := json.Unmarshal([]byte(data), &object); err != nil {
-					t.Fatalf("%s: %v", data, err)
-				}
-				return object, slices.Sorted(maps.Keys(object))
-			}
-			view, names := members(value.(string))
-			if !slices.Equal(names, test.members) {
-				t.Fatalf("view %s has members %v, want %v", value, names, test.members)
-			}
-			if test.content == "" {
-				if string(view["cursor"]) != "7" || string(view["types"]) != "[]" || string(view["connections"]) != "[]" {
-					t.Fatalf("connections = %s", value)
-				}
-				return
-			}
-			if string(view["connected"]) != "true" || string(view["error"]) != "null" {
-				t.Fatalf("view = %s", value)
-			}
-			if _, names := members(string(view[test.content])); !slices.Equal(names, test.inside) {
-				t.Fatalf("%s has members %v, want %v", test.content, names, test.inside)
-			}
-		})
+	if handle := opened.(Handle); handle.Kind != "terminal_updates" || handle.Handle != "1" {
+		t.Fatalf("handle = %#v", handle)
+	}
+	runtime.mu.Lock()
+	updates := runtime.handles[1].object
+	runtime.mu.Unlock()
+	value, err := updates.invoke(t.Context(), runtime, 1, "next", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := func(data string) (map[string]json.RawMessage, []string) {
+		t.Helper()
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(data), &object); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		return object, slices.Sorted(maps.Keys(object))
+	}
+	view, names := members(value.(string))
+	if !slices.Equal(names, []string{"connected", "error", "recovering", "snapshot"}) ||
+		string(view["connected"]) != "true" || string(view["recovering"]) != "false" || string(view["error"]) != "null" {
+		t.Fatalf("view = %s", value)
+	}
+	if _, names := members(string(view["snapshot"])); !slices.Equal(names, []string{"info", "node", "screen", "sequence"}) {
+		t.Fatalf("snapshot has members %v", names)
+	}
+}
+
+// Sign-in and connection management are done on the computer: the phone has
+// no operation for them, so their names fail as any unknown operation does.
+func TestMobileHasNoAuthorizationObservers(t *testing.T) {
+	t.Parallel()
+	shared := client.New(noticeTransport{node: protocol.NodeID{1}})
+	t.Cleanup(func() { _ = shared.Close() })
+	owner := &connection{client: shared, controller: &controller{}}
+	_, unknown := owner.invoke(t.Context(), nil, 0, "missing", nil)
+	for _, method := range []string{"watch_login", "watch_connector_login", "watch_connections"} {
+		_, err := owner.invoke(t.Context(), nil, 0, method, json.RawMessage(`{"attempt":"{}"}`))
+		if failed := result(nil, err).Error; failed == nil || failed.Code != protocol.ErrorCodeInvalidRequest || err.Error() != unknown.Error() {
+			t.Fatalf("%s = %v, want %v", method, err, unknown)
+		}
+		if _, err := shared.Watch(t.Context(), method, json.RawMessage("null")); err == nil {
+			t.Fatalf("the Client observes %s", method)
+		}
 	}
 }
 
