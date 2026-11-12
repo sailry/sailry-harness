@@ -175,7 +175,18 @@ func composerParityCommands(t *testing.T) {
 		tester.ClickAt(b.X+b.W/2, b.Y+b.H/2)
 		settle()
 	}
-	for end := time.Now().Add(10 * time.Second); !tester.HasText("Queued plain message") && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	// The tray comes folded under its header; the rows show once unfolded.
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if _, ok := queueFolded(tester); ok {
+			break
+		}
+		settle()
+	}
+	if _, ok := queueFolded(tester); ok {
+		if tester.HasText("Queued plain message") {
+			t.Error("the folded tray shows its rows")
+		}
+		unfoldQueue(t, tester)
 		settle()
 	}
 	if state, ok := controller.Conversation(session); !ok || !state.Connected {
@@ -484,8 +495,17 @@ func childTray(t *testing.T) {
 			tester.Frame()
 		}
 	}
-	for end := time.Now().Add(10 * time.Second); !tester.HasText("Guidance for the subagent") && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	// A subagent's tray comes folded under its header, as any.
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if _, ok := queueFolded(tester); ok {
+			break
+		}
 		settle()
+	}
+	unfoldQueue(t, tester)
+	settle()
+	if !tester.HasText("Guidance for the subagent") {
+		t.Fatalf("the subagent's queue is not shown: %q", tester.Texts())
 	}
 	if !shown.Child || !shown.Readonly {
 		t.Fatalf("a subagent's session: child %v, read-only %v", shown.Child, shown.Readonly)

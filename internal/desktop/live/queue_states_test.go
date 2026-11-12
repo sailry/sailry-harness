@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -13,6 +14,41 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// queueFolded is the folded queue tray's header: the tray is folded until the
+// user unfolds it.
+func queueFolded(tt *ui.Tester) (header ui.AccessInfo, ok bool) {
+	for _, e := range tt.AccessAll() {
+		if e.Role != ui.RoleButton || e.Expanded {
+			continue
+		}
+		for _, locale := range []string{"en", "zh-CN"} {
+			for n := 1; n < 40; n++ {
+				name := i18n.In(locale, "queue_messages_count", "count", n)
+				if n == 1 {
+					name = i18n.In(locale, "queue_messages_one")
+				}
+				if e.Name == name {
+					return e, true
+				}
+			}
+		}
+	}
+	return header, false
+}
+
+// unfoldQueue clicks the folded tray's header, which shows its rows.
+func unfoldQueue(t *testing.T, tt *ui.Tester) {
+	t.Helper()
+	header, ok := queueFolded(tt)
+	if !ok {
+		t.Fatalf("no folded queue tray: %q", tt.Texts())
+	}
+	tt.ClickAt(header.Bounds.X+header.Bounds.W/2, header.Bounds.Y+header.Bounds.H/2)
+	tt.Frame()
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+}
 
 // TestQueueStates covers what the queue tray and the transcript read from the
 // Node's queue: plain rows whatever they wait on, the halt that is reported
@@ -167,6 +203,12 @@ func TestQueueStates(t *testing.T) {
 				tester.SetLocale("en")
 				tester.Frame()
 				tester.Frame()
+				if _, folded := queueFolded(tester); folded != row.queued {
+					t.Fatalf("a folded tray %v, queued %v: %q", folded, row.queued, tester.Texts())
+				}
+				if row.queued {
+					unfoldQueue(t, tester)
+				}
 				// The strip is named by its count: one row, or no strip.
 				strips := 0
 				for _, info := range tester.AccessAll() {

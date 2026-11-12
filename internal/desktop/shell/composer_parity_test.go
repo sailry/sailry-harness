@@ -224,6 +224,7 @@ func composerParity(t *testing.T) {
 			ctx.Queue = slices.Clone(queue)
 			ctx.Outgoing = &composer.Queued{Text: "正在发送的消息", Guided: true}
 		})
+		unfoldQueue(t, tt)
 		settled(t, tt, "parity-queue-states")
 		// Edit: the plain row's alone acts; both guided rows' and the
 		// outgoing row's are disabled; a notice has none.
@@ -256,6 +257,7 @@ func composerParity(t *testing.T) {
 			ctx.Queue = slices.Clone(queue[:2])
 			ctx.Outgoing = &composer.Queued{Text: "正在发送的消息", Guided: true}
 		})
+		unfoldQueue(t, tt)
 		row, ok := tt.Find("正在发送的消息")
 		if !ok || row.H == 0 {
 			t.Fatalf("the outgoing row is not shown: %q", tt.Texts())
@@ -270,6 +272,7 @@ func composerParity(t *testing.T) {
 			ctx.Activity.Connected = connected
 			ctx.Queue = slices.Clone(queue[:2])
 		})
+		unfoldQueue(t, tt)
 		settled(t, tt, "parity-child-session")
 		if _, ok := tt.Access(zh("composer")); ok {
 			t.Error("a child session shows the composer's input")
