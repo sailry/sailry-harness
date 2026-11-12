@@ -61,3 +61,28 @@ func TestSummaryCapFollowsWindow(t *testing.T) {
 		}
 	})
 }
+
+// Bound must arrive where dropping one entry at a time arrives.
+func TestBoundMatchesStepwiseTrim(t *testing.T) {
+	build := func() *Summary {
+		s := &Summary{UserIntent: []string{"Fix parser"}, PendingTasks: []string{"Add regression tests"}}
+		for i := range 40 {
+			s.TechnicalConcepts = append(s.TechnicalConcepts, strings.Repeat("concept ", i%7+1))
+			s.ErrorsAndFixes = append(s.ErrorsAndFixes, strings.Repeat("fault fixed ", i%5+1))
+			s.ProblemSolving = append(s.ProblemSolving, strings.Repeat("step taken ", i%3+1))
+		}
+		return s
+	}
+	full := tokens.Text(build().Render())
+	for _, limit := range []uint64{full, full - 1, full * 3 / 4, full / 2, full / 3, full / 8, 60, 20} {
+		stepwise, bisected := build(), build()
+		for tokens.Text(stepwise.Render()) > limit && stepwise.trim() {
+		}
+		bisected.Bound(limit)
+		if stepwise.Render() != bisected.Render() {
+			t.Fatalf("limit %d: bisection kept %d/%d/%d entries, stepwise %d/%d/%d", limit,
+				len(bisected.TechnicalConcepts), len(bisected.ErrorsAndFixes), len(bisected.ProblemSolving),
+				len(stepwise.TechnicalConcepts), len(stepwise.ErrorsAndFixes), len(stepwise.ProblemSolving))
+		}
+	}
+}
