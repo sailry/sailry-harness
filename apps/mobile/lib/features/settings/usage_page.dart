@@ -218,13 +218,13 @@ class _UsagePageState extends State<UsagePage> {
             ))
               for (final project in objects(host.snapshot['projects']))
                 ListTile(
-                  title: Text(string(project['name'])),
+                  title: Text(text(project['name'])),
                   subtitle: Text(host.label),
                   trailing: _project == project['id']
                       ? const AppIcon('check')
                       : null,
                   onTap: () =>
-                      Navigator.pop(context, (host.id, string(project['id']))),
+                      Navigator.pop(context, (host.id, text(project['id']))),
                 ),
           ],
         ),
@@ -269,7 +269,7 @@ class _UsagePageState extends State<UsagePage> {
             projects: {
               for (final source in session?.hosts ?? const <HostConnection>[])
                 for (final item in objects(source.snapshot['projects']))
-                  string(item['id']): string(item['name']),
+                  text(item['id']): text(item['name']),
             },
             unassigned: context.tr('usageUnassigned'),
           );
