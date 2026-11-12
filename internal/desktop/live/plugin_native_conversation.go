@@ -155,10 +155,12 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 			ui.Column(view.Key("session-empty")).Grow(1).MinHeight(0).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 				kit.Result(view, kit.ResultProps{Title: i18n.T(view, "chat_sidebar_empty"), Icon: icons.Bot})
 			})
+			composer.View(view, comp, &context, mounted.actions)
 		} else {
-			conversation.View(view, state.runtime.App.Messages, target.ID, target.Turns, &target.Session, mounted.actions)
+			conversation.Docked(view, state.runtime.App.Messages, target.ID, target.Turns, &target.Session, mounted.actions, func() {
+				composer.View(view, comp, &context, mounted.actions)
+			})
 		}
-		composer.View(view, comp, &context, mounted.actions)
 		conversation.Navigation(view, state.runtime.App.Messages)
 	})
 	return region, nil
