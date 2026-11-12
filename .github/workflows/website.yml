@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths:
       - 'assets/catalogs/**'
-      - 'docs/**'
+      - 'docs/guides/**'
       - 'sdk/plugins.md'
       - 'CHANGELOG.md'
   workflow_dispatch:

@@ -1,7 +1,7 @@
 # pele-go Mermaid renderer
 
 Desktop draws the Mermaid diagrams of a reply with CrychicUI's
-`diagram.Mermaid` ([docs/crychic.md](../docs/crychic.md#diagrams)), which lays
+`diagram.Mermaid`, which lays
 them out with `github.com/Broderick-Westrope/pele-go`. Desktop links pele-go at
 the version CrychicUI's `go.mod` requires and Sailry's `go.mod` pins (`v0.2.0`),
 unmodified, through that package and through

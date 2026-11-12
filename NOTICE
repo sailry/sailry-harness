@@ -54,8 +54,8 @@ third_party_licenses/adk-LICENSE.
 
 CrychicUI components
 Desktop links unmodified github.com/ELY-Open-Source/CrychicUI (MIT, Copyright
-2026 CrychicUI contributors) for the components listed in docs/crychic.md, with
-the Lucide icons it embeds (ISC). Provenance and the retained notices are in
+2026 CrychicUI contributors) for the components listed in AGENTS.md, with the
+Lucide icons it embeds (ISC). Provenance and the retained notices are in
 third_party_licenses/crychicui.md, third_party_licenses/crychicui-MIT.txt and
 third_party_licenses/crychicui-THIRD_PARTY_NOTICES.md.
 

@@ -633,7 +633,7 @@ A package may instead provide models through an installed command-line agent
 that speaks the Agent Client Protocol. The Node owns the process and the
 protocol; the package only declares. Packages get no process or standard-stream
 API. The agent is used as a plain model: its own tools are refused and Sailry
-keeps the loop, tools and history. See [docs/agy.md](../docs/agy.md).
+keeps the loop, tools and history.
 
 `programs` (at most four) requires the `process.run` action:
 

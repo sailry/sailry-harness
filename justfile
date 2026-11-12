@@ -1,5 +1,5 @@
-# Local development recipes. Commands and environment follow CONTRIBUTING.md
-# and docs/mobile.md. Run `just --list` for an overview.
+# Local development recipes. Commands and environment follow CONTRIBUTING.md.
+# Run `just --list` for an overview.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
