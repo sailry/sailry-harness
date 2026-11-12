@@ -247,6 +247,36 @@ type Citation struct {
 	Pages      []string
 }
 
+// ScreenTone is the color of a run of a sample terminal screen.
+type ScreenTone int
+
+const (
+	TonePlain ScreenTone = iota
+	ToneMuted
+	ToneAccent
+	ToneGood
+	ToneBad
+	ToneNote
+)
+
+// ScreenSpan is a run of one tone in a terminal line.
+type ScreenSpan struct {
+	Text string
+	Tone ScreenTone
+}
+
+// Screen is what a terminal shows where no shell runs: its lines, oldest
+// first, each a row of spans.
+type Screen [][]ScreenSpan
+
+// WebPage is the page a browser tab shows where nothing is loaded: its
+// address, title and content as markdown.
+type WebPage struct {
+	Address string
+	Title   string
+	Text    string
+}
+
 // Workspace is the window's hosts, notices and panel data.
 type Workspace struct {
 	Hosts       []Host
@@ -257,6 +287,10 @@ type Workspace struct {
 	Checkpoints []Checkpoint
 	Documents   []Document
 	Citations   []Citation
+	// Screen and Page are a terminal's screen and a browser's page of a
+	// dataset that reaches no Node: the demo's.
+	Screen Screen
+	Page   WebPage
 }
 
 // Find returns the conversation with id.

@@ -225,13 +225,13 @@ func panelTabs(t *testing.T) {
 	}
 	// launcherLists checks the launcher's rows and the "+" menu against the
 	// kinds the conversation offers.
-	// offered is what a conversation lists: History and Documents belong to
-	// a session, and a terminal needs a worktree.
+	// offered is what a conversation lists: the reference's four kinds,
+	// never History or Documents, and a terminal needs a worktree.
 	offered := func(kind panel.Kind, session, terminal bool) bool {
 		if kind == panel.Terminal {
 			return terminal
 		}
-		return session || kind != panel.History && kind != panel.Documents
+		return kind != panel.History && kind != panel.Documents
 	}
 	launcherLists := func(state string, session, terminal bool) {
 		t.Helper()

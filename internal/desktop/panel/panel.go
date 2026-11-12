@@ -151,6 +151,12 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 				return icons.Web, title
 			}
 		}
+		// The dataset's own page names its tab too.
+		if b := s.pagesOf[t.ID]; b != nil {
+			if page := s.sample(b); page != nil {
+				return icons.Web, page.Title
+			}
+		}
 	}
 	r := ResourceOf(t.Kind)
 	return r.Icon, i18n.T(c, r.Label)
@@ -318,8 +324,9 @@ func scroll(s *ui.ScrollState, own bool) *ui.ScrollState {
 // title, the active one in tab_active, a close button showing on hover; they
 // scroll sideways, and past four tabs a chevron lists them all. "+" opens
 // another resource or document. The tabs take only their own width, so the
-// row's gap before the chevron and "+" stays the host's. Without a tab it
-// builds nothing: the launcher lists the resources.
+// row's gap before the chevron and "+" stays the host's. "+" lists what the
+// launcher lists, with the same shortcuts. Without a tab it builds nothing:
+// the launcher lists the resources.
 func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	s.Sync(pr)
 	if len(s.Tabs) == 0 {
@@ -364,15 +371,6 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	}, func(m *kit.Menu) {
 		for _, r := range Resources {
 			if !s.lists(r.Kind) {
-				continue
-			}
-			if r.Kind == Documents && len(s.Data.Documents) > 0 {
-				for _, d := range s.Data.Documents {
-					t := Tab{Documents, d.ID}
-					if m.Item(d.Title).Icon(icons.FileText).Checked(t == s.Active).Chosen() {
-						s.Show(t)
-					}
-				}
 				continue
 			}
 			it := m.Item(i18n.T(c, r.Label)).Icon(r.Icon).Checked(r.Kind == s.Active.Kind)

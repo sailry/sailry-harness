@@ -3,11 +3,13 @@ package preview
 import (
 	"image"
 	"image/color"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	cv "github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The demo's right panel: the project's files, its Git changes, branches and
@@ -95,6 +97,37 @@ func (b *demo) workspace() *Workspace {
 		{ID: "plan", Title: b.t("panel.plan.title"), Path: "plans/rate-limiting.md", Text: b.t("panel.plan.text")},
 		{ID: "report", Title: b.t("panel.report.title"), Path: "reports/load-test.md", Text: b.t("panel.report.text")},
 	}
+	// A terminal after the tests and a look at the changes above, and the
+	// service's own documentation page on its local port.
+	span := func(tone viewmodel.ScreenTone, text string) viewmodel.ScreenSpan {
+		return viewmodel.ScreenSpan{Text: text, Tone: tone}
+	}
+	command := func(text string) []viewmodel.ScreenSpan {
+		return []viewmodel.ScreenSpan{span(viewmodel.ToneAccent, "harbor-api"), span(viewmodel.ToneMuted, " feature/rate-limit"), span(viewmodel.ToneGood, " ❯ "), span(viewmodel.TonePlain, text)}
+	}
+	passed := func(pkg, took string) []viewmodel.ScreenSpan {
+		return []viewmodel.ScreenSpan{span(viewmodel.ToneGood, "ok  \t"), span(viewmodel.TonePlain, "github.com/harbor/harbor-api/internal/"+pkg+"\t"), span(viewmodel.ToneMuted, took)}
+	}
+	status := func(tone viewmodel.ScreenTone, mark, path string) []viewmodel.ScreenSpan {
+		return []viewmodel.ScreenSpan{span(tone, mark), span(viewmodel.TonePlain, " "+path)}
+	}
+	w.Screen = viewmodel.Screen{
+		command("go test ./internal/..."),
+		passed("booking", "0.412s"), passed("http", "0.208s"), passed("middleware", "0.117s"),
+		command("git status --short"),
+		status(viewmodel.ToneGood, "M ", "internal/booking/reserve.go"),
+		status(viewmodel.ToneNote, "MM", "internal/http/router.go"),
+		status(viewmodel.ToneBad, "??", "internal/middleware/ratelimit.go"),
+		status(viewmodel.ToneBad, " D", "internal/middleware/burst.go"),
+		command("git log --oneline -3"),
+		{span(viewmodel.ToneNote, "5c1e9a4"), span(viewmodel.TonePlain, " Add a token bucket for booking requests")},
+		{span(viewmodel.ToneNote, "c4d81f0"), span(viewmodel.TonePlain, " Merge branch 'main' into feature/rate-limit")},
+		{span(viewmodel.ToneNote, "9d42f6b"), span(viewmodel.TonePlain, " Read plan limits from the configuration")},
+		command(""),
+	}
+	page := b.t("panel.file.booking")
+	title, _, _ := strings.Cut(strings.TrimPrefix(page, "# "), "\n")
+	w.Page = viewmodel.WebPage{Address: "http://localhost:8080/docs/booking", Title: title, Text: page}
 	w.Citations = []Citation{{
 		Link: "sailry-knowledge://handbook/rate-limits?revision=4", Title: b.t("panel.source.title"), Host: "local_host_name",
 		Path: "handbook/platform/rate-limits.md", Start: 8, End: 24,
