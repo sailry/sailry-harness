@@ -531,7 +531,7 @@ belongs to the family of its wire protocol.
 
 The Add provider dialog has two headed groups. Account sign-in lists every
 sign-in method by the account's product (ChatGPT, Claude), or by the method's
-name where the product has no label of its own (GitHub Copilot OAuth), and
+name where the product has no label of its own (Copilot), and
 opens its form.
 API key lists each brand that has a method other than a sign-in, once; a brand
 with one such method opens its form, and a brand with several asks which,

@@ -168,7 +168,7 @@ func (a *App) rail(c *ui.Context) {
 		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open).
 			OnClick(func() { a.openSearch() })
 		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage).
-			OnClick(func() { a.Navigate(SettingsPage) })
+			OnClick(a.ToggleSettings)
 	})
 }
 

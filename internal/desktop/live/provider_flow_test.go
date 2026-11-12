@@ -186,7 +186,7 @@ func testProviderFlow(t *testing.T) {
 	if listed := slices.Insert(slices.Clone(want), 6, "GitHub Copilot"); !slices.Equal(brands, listed) || !slices.Equal(keyed, want) {
 		t.Errorf("brands %q, with API methods %q, want %q", brands, keyed, want)
 	}
-	if slices.Sort(logins); !slices.Equal(logins, []string{"ChatGPT", "Claude", "GitHub Copilot OAuth"}) {
+	if slices.Sort(logins); !slices.Equal(logins, []string{"ChatGPT", "Claude", "Copilot"}) {
 		t.Errorf("sign-ins %q", logins)
 	}
 	// Every entry of the catalog, offered or not, has a mark in the
@@ -258,7 +258,7 @@ func testProviderFlow(t *testing.T) {
 	if !ok || !found || login.Y >= key.Y {
 		t.Fatalf("the brand step's headings are at %v and %v: %q", login, key, tester.Texts())
 	}
-	for _, name := range []string{"ChatGPT", "Claude", "GitHub Copilot OAuth"} {
+	for _, name := range []string{"ChatGPT", "Claude", "Copilot"} {
 		if chip, ok := tester.AccessByRole(ui.RoleButton, name); !ok || chip.Bounds.Y <= login.Y || chip.Bounds.Y >= key.Y {
 			t.Errorf("sign-in %q is at %v, outside its group", name, chip.Bounds)
 		}

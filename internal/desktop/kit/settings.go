@@ -57,11 +57,12 @@ func Group(c *ui.Context, key any, title, description string, actions, body func
 // Card is a group's box of rows (Kit's GroupBox): the group_box fill, a 1
 // DIP border, the large radius, 16 across, rows apart by separators. The
 // separators run between the rows' own edges, 16 short of the border on
-// both sides: they are the inner column's, as MyGo draws an element's
+// both sides, and a row's fill that reaches the border is cut to the
+// card's corners: they are the inner column's, as MyGo draws an element's
 // dividers across all of it inside its border, whatever its padding.
 func Card(c *ui.Context, rows func()) ui.Element {
 	p := theme.Of(c)
-	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16), p.Surface, CardTint).
+	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Clip(), p.Surface, CardTint).
 		TextColor(p.SurfaceForeground).Children(func() {
 		ui.Column(c).FillWidth().Dividers(1, p.Separator()).Children(rows)
 	})

@@ -854,7 +854,7 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 			return
 		}
 		ui.Column(c.Key(key)).Gap(8).FillWidth().Children(func() {
-			ui.Text(c, i18n.T(c, key)).FontSize(12).TextColor(p.MutedForeground)
+			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(p.MutedForeground)
 			ui.Row(c).Wrap().Gap(8).Children(fill)
 		})
 	}

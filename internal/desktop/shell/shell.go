@@ -156,6 +156,7 @@ type App struct {
 	activity     bool // the activity centre's popover
 	reading      *reading
 	shown        string // the conversation selected when a project page opened
+	before       Page   // the page Settings opened over, which its rail button goes back to
 	overview     *projectOverview
 	// The panes that take the focus: the main column, where the
 	// conversation or a page shows, and the right panel (pane).
