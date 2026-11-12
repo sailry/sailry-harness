@@ -799,13 +799,13 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 				t.Errorf("delete %d at %+v is not beside its row's button %+v, ending at %v", i, b, rows[i], end)
 			}
 		}
-		// The second line: the kind, the host and the age.
-		line := false
-		for _, text := range tt.Texts() {
-			line = line || strings.HasPrefix(text, en("activity_completed")+" · ") && strings.HasSuffix(text, " · "+en("notifications_time_minutes", "count", 5))
+		// The second line is the notice's message, and its age ends the
+		// row; its kind and host are not written while it is closed.
+		facts := func() bool {
+			return slices.ContainsFunc(tt.Texts(), func(text string) bool { return strings.HasPrefix(text, en("activity_completed")+" · ") })
 		}
-		if !line {
-			t.Errorf("no kind, host and age under the second notice: %q", tt.Texts())
+		if !tt.HasText(second.Message) || !tt.HasText(en("notifications_time_minutes", "count", 5)) || facts() {
+			t.Errorf("no message and age under the second notice: %q", tt.Texts())
 		}
 		// The hover fill reaches both ends of the row, before the glyph and
 		// under the delete button, not only the title.
@@ -853,12 +853,20 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 		// second closes them.
 		tt.ClickAt(target.X+target.W/2, target.Y+target.H/2)
 		tt.Frame()
-		if a.noticeDetail != second || !second.Read || !row(second).Expanded || !tt.HasText(second.Message) {
+		// The open notice's message is in its details alone, its kind and
+		// host on the row's second line.
+		messages := 0
+		for _, text := range tt.Texts() {
+			if text == second.Message {
+				messages++
+			}
+		}
+		if a.noticeDetail != second || !second.Read || !row(second).Expanded || messages != 1 || !facts() || !tt.HasText(en("notification_source")) {
 			t.Fatalf("the row did not open its details: open %v, read %v, texts %q", a.noticeDetail == second, second.Read, tt.Texts())
 		}
 		tt.ClickAt(target.X+target.W/2, target.Y+target.H/2)
 		tt.Frame()
-		if a.noticeDetail != nil || tt.HasText(second.Message) {
+		if a.noticeDetail != nil || tt.HasText(en("notification_source")) || !tt.HasText(second.Message) || facts() {
 			t.Fatal("a second click left the details open")
 		}
 		// Unread hides what was read.
