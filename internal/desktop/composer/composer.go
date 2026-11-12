@@ -105,7 +105,6 @@ type State struct {
 	queue      queueState
 	queueOpen  bool // the queue tray's rows show: folded until the user unfolds it; kept while the queue empties
 	ref        refState
-	files      fileState
 	caret      int // a caret to put in the draft next frame, -1 for none
 	focus      bool
 	area       ui.Element
@@ -275,7 +274,6 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.contextBar(c, ctx, actions)
 		})
 	})
-	s.filePicker(c, ctx, actions)
 }
 
 // surface is padding 12, radius_2xl, muted, the package's border width in the

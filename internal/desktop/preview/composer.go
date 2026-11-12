@@ -15,7 +15,7 @@ import (
 )
 
 // The composer's preview data: the model picker's families, scores and
-// features, the teams, the @ and / catalogs, the file picker's folder,
+// features, the teams, the @ and / catalogs,
 // the queue and the simulated transfers and dictation. Nothing here reads
 // a file, asks a model or records audio: transfers and voice input move
 // on the clock alone.
@@ -65,7 +65,6 @@ func models() []Model {
 func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := &composer.Context{
 		Models: d.Models, Families: Families, Teams: Teams, Interactions: c.Waiting, Queue: c.Queue,
-		Files: entries(d), Readonly: false,
 	}
 	for _, h := range d.Hosts {
 		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
@@ -213,35 +212,6 @@ func commands(list []Model) []composer.Reference {
 		composer.Reference{ID: "reasoning", Kind: composer.Page, Label: "/reasoning", Description: "composer_effort", Key: true, Icon: icons.Bot,
 			Alias: "reasoning", Children: efforts, Group: "composer_group_session"},
 		composer.Reference{ID: "compact", Kind: composer.Compact, Label: "/compact", Description: "chat_compact", Key: true, Icon: icons.Minimize, Group: "composer_group_session"})
-}
-
-// entries are the file picker's folder: the panel's tree, with made-up
-// sizes and times.
-func entries(d *Data) *composer.Entry {
-	var walk func(n *FileNode, depth int) *composer.Entry
-	walk = func(n *FileNode, depth int) *composer.Entry {
-		e := &composer.Entry{Name: n.Name, Path: "~/Web/" + n.Path, Modified: Now.Add(-time.Duration(depth*7+len(n.Name)) * time.Hour)}
-		if n.Children == nil {
-			e.Size, e.Mime = int64(len(n.Text))*37+512, mime(n.Name)
-			return e
-		}
-		e.Children = []*composer.Entry{}
-		for _, k := range n.Children {
-			e.Children = append(e.Children, walk(k, depth+1))
-		}
-		return e
-	}
-	return walk(d.Files, 0)
-}
-
-func mime(name string) string {
-	switch {
-	case strings.HasSuffix(name, ".md"):
-		return "text/markdown"
-	case strings.HasSuffix(name, ".go"), strings.HasSuffix(name, ".mod"):
-		return "text/x-source"
-	}
-	return "text/plain"
 }
 
 // Queue puts a message behind the running reply, or sends it at once

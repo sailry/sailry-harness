@@ -111,12 +111,39 @@ func (r *Runtime) bindComposerAttachments(x *conversationActions) {
 	}
 	r.projectDraftAttachmentImages(x)
 	callbacks := &composer.AttachmentCallbacks{Remove: func(a *composer.Attachment) { r.discardAttachment(x, a) }, Image: func(action kit.ImageAction, a *composer.Attachment) { r.draftImageAction(x, action, a) }}
-	if picker := r.attachments.native.PickFiles; picker != nil {
-		callbacks.Pick = func() {
-			picker(func(paths []string) { r.enqueue(func(c *ui.Context) { x.c = c; x.comp.AttachPaths(c, paths, x) }) })
+	callbacks.Pick = func() { r.chooseAttachments(x) }
+	x.comp.SetAttachmentCallbacks(callbacks)
+}
+
+// chooseAttachments opens the window's file picker in its multi-file mode
+// for a composer's Add attachment. An attachment is read on this machine and
+// uploaded to the conversation's Node, so the picker browses the local Node
+// whichever Host the conversation runs on, as the package path chooser
+// does. It opens at the conversation's worktree, or its draft's project,
+// when that is on this machine, and at the home otherwise.
+func (r *Runtime) chooseAttachments(x *conversationActions) {
+	root := r.localRuntime()
+	initial := ""
+	if r == root {
+		if session, ok := r.session(x.cv.ID); ok {
+			for _, worktree := range r.snapshot().Worktrees {
+				if worktree.ID == session.Worktree {
+					initial = worktree.Path
+				}
+			}
+		} else {
+			for _, project := range root.App.Data.Projects {
+				if project.ID == x.comp.Project && project.Host == x.cv.Node {
+					initial = project.Path
+				}
+			}
 		}
 	}
-	x.comp.SetAttachmentCallbacks(callbacks)
+	root.App.Sidebar.ChooseFiles(x.c, root.controller.Target().String(), initial, func(paths []string) {
+		if !x.readonly() {
+			x.comp.AttachPaths(x.c, paths, x)
+		}
+	})
 }
 func (r *Runtime) attachmentsCommitted(attachments []*composer.Attachment) {
 	if r.attachments == nil {

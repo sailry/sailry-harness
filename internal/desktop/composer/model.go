@@ -1,8 +1,6 @@
 package composer
 
 import (
-	"time"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -35,8 +33,6 @@ type Context struct {
 	// References is the @ picker's root page; Commands the / picker's.
 	References []Reference
 	Commands   []Reference
-	// Files is the file picker's root folder (the execution host's).
-	Files *Entry
 	// Last is the user's last message, which Up puts back in an empty
 	// draft; "" when it has none or it was more than text.
 	Last string
@@ -243,7 +239,7 @@ const (
 	ModelCommand                       // a / command choosing the model Insert names
 	EffortCommand                      // a / command choosing the effort Insert names
 	Compact                            // /compact: compacts the conversation
-	AttachFiles                        // opens the file picker
+	AttachFiles                        // opens the window's file picker
 )
 
 // Reference is a row of the @ and / pickers (live/references): a page of
@@ -265,16 +261,6 @@ type Reference struct {
 	// Group is the i18n key of the heading the picker shows over the
 	// first row of a run of rows sharing it; "" for none.
 	Group string
-}
-
-// Entry is a file or folder of the file picker.
-type Entry struct {
-	Name     string
-	Path     string
-	Size     int64
-	Modified time.Time
-	Mime     string
-	Children []*Entry // nil for a file
 }
 
 // AttachmentStatus is where an attachment is on its way to the host.
