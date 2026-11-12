@@ -149,7 +149,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		if !loaded {
 			continue
 		}
-		projected := &conversation.Changes{Undone: p.turnUndone[turn.ID]}
+		projected := &conversation.Changes{Undone: p.undone(turn.ID)}
 		for _, file := range changes {
 			projected.Files = append(projected.Files, conversation.ChangedFile{Path: file.Path, Added: file.Added, Removed: file.Removed})
 		}
@@ -336,6 +336,36 @@ func (r *Runtime) undoWorkspaceTurn(x *conversationActions, turn, relative strin
 		p.panel.Confirm("turn_changes_undo_all", target, func(done func(bool)) { p.restoreTurn(session.ID, turn, relative, done) }, "workspace_restore_confirm")
 	})
 }
+
+// undone reads the card's state from the Node's checkpoint list: a file is
+// undone once every change the turn made to it was restored, and the turn
+// (the empty path) once every file is. It is the same after a restart, a
+// session switch and on another controller.
+func (p *workspaceProject) undone(turn string) map[string]bool {
+	var out map[string]bool
+	all := false
+	for _, file := range p.checkpointOrder[turn] {
+		if file.Worktree != p.owner.ID {
+			continue
+		}
+		if out == nil {
+			out, all = map[string]bool{}, true
+		}
+		if restored, seen := out[file.Path]; !seen || restored {
+			out[file.Path] = file.Restored
+		}
+	}
+	for path, restored := range out {
+		if !restored {
+			delete(out, path)
+			all = false
+		}
+	}
+	if all {
+		out[""] = true
+	}
+	return out
+}
 func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relative string, done func(bool)) {
 	commands := []protocol.Command{}
 	for _, file := range p.checkpointOrder[turn] {
@@ -369,10 +399,13 @@ func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relativ
 	}
 	p.fileCommandsFinish(batch, commands, done, func() {
 		delete(p.restoreBatches, key)
-		if p.turnUndone[turn] == nil {
-			p.turnUndone[turn] = map[string]bool{}
+		// The Node answered every restore; its list says the same when read again.
+		for i := range p.checkpointOrder[turn] {
+			file := &p.checkpointOrder[turn][i]
+			if file.Worktree == p.owner.ID && (relative == "" || file.Path == relative) {
+				file.Restored = true
+			}
 		}
-		p.turnUndone[turn][relative] = true
 		p.refresh()
 	})
 }

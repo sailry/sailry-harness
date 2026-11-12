@@ -367,7 +367,7 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		effect.after = func() { node.collectAttachments(context.WithoutCancel(ctx)) }
 		return protocol.Output{Kind: "attachment_discarded", Data: protocol.OutputAttachmentDiscardedPayload{Attachment: input.Attachment}}, nil
 	case "restore_file_checkpoint":
-		return node.restoreWorkspaceCheckpoint(ctx, request, root)
+		return node.restoreWorkspaceCheckpoint(ctx, request, root, effect)
 	case "apply_turn_hunk":
 		return node.applyWorkspaceHunk(ctx, request, root)
 	case "read_hooks", "save_hooks", "read_sandbox_settings", "save_sandbox_settings":

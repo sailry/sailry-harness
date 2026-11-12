@@ -218,9 +218,16 @@ index writer with captured working, index and HEAD revisions. Restore refuses
 active turns and absent outcomes, and verifies the written after revision. A
 file that already holds what it had before the change, or before an earlier
 change of the same turn, is answered as restored and left untouched; any other
-content is a conflict. Rust refuses the repeated restore as a conflict; the
-changes card remembers an Undo only while its conversation stays open, so a
+content is a conflict. Rust refuses the repeated restore as a conflict; a
 repeated Undo has to succeed rather than report a conflict that does not exist.
+
+A successful `restore_file_checkpoint` sets `restored` in the checkpoint's own
+row (`store.MarkCheckpointRestored`) in the transaction that stores its
+receipt, and `list_file_checkpoints` returns it as the optional
+`ConversationCheckpointFile.restored`. The row is pruned with its removed
+session like every checkpoint. If the file was restored but the row could not
+be written the request ends as an unknown outcome. Rust keeps no such fact and
+its card forgets an Undo; this is a deliberate addition.
 
 A checkpoint is captured in the transaction that admits its request, so a
 replayed request is answered from the ledger before capture and an approval that
