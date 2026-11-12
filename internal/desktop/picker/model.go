@@ -200,9 +200,13 @@ func Crumbs(l Listing) []Crumb {
 			continue
 		}
 		if len(loc.Path) >= best {
-			best, root = len(loc.Path), loc.Path
-			if loc.Name != "" {
-				label = loc.Name
+			// A location without a name is told by its path, not by the
+			// name of a shorter one matched before it.
+			best, root, label = len(loc.Path), loc.Path, loc.Name
+			if label == "" {
+				if label = strings.TrimRight(loc.Path, sep); label == "" {
+					label = loc.Path
+				}
 			}
 		}
 	}

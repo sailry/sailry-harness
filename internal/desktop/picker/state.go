@@ -219,6 +219,10 @@ func (s *State) arrive(l Listing, how visit, cursor int) {
 	if changed {
 		s.filter, s.current, s.row = "", "", -1
 		s.chosen.Clear()
+		// MyGo keeps a list's place when it is built anew under another
+		// element: another directory starts at its top.
+		s.list.ScrollTo(0, ui.Start)
+		s.grid.ScrollTo(0, ui.Start)
 	} else if !slices.ContainsFunc(l.Entries, func(e Entry) bool { return e.Name == s.current }) {
 		s.current, s.row = "", -1
 	}

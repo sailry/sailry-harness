@@ -255,6 +255,9 @@ func (mounted *Mounted) renderAccordion(context *ui.Context, element *NativeElem
 	return result, renderErr
 }
 
+// maxVisiblePages bounds the page buttons of a Pagination.
+const maxVisiblePages = 9
+
 func (mounted *Mounted) renderPagination(context *ui.Context, element *NativeElement, properties map[string]any) (ui.Element, error) {
 	current, total, visible := 1, 1, 7
 	if value := int(runtimeFloat(properties["current_page"])); value > 0 {
@@ -263,8 +266,10 @@ func (mounted *Mounted) renderPagination(context *ui.Context, element *NativeEle
 	if value := int(runtimeFloat(properties["total_pages"])); value > 0 {
 		total = value
 	}
+	// The package gives the count: a frame builds no more page buttons
+	// than a row shows.
 	if value := int(runtimeFloat(properties["visible_pages"])); value > 0 {
-		visible = value
+		visible = min(value, maxVisiblePages)
 	}
 	result := ui.Row(context).Gap(4)
 	result.Children(func() {
