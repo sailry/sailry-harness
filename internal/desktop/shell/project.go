@@ -183,7 +183,7 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 					continue
 				}
 				rows = append(rows, func() {
-					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false).
+					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false, nil).
 						Disabled(state.actions.OpenTerminal == nil).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
 				})
 			}
@@ -202,7 +202,7 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 				}
 				id := session.Node + "/" + session.ID
 				rows = append(rows, func() {
-					projectRecord(c, id, title, path, icons.Bot, state.pending && state.opening == id).
+					projectRecord(c, id, title, path, nil, state.pending && state.opening == id, project).
 						Disabled(state.pending || state.actions.OpenSession == nil).
 						ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
 						state.pending, state.opening = true, id
@@ -222,8 +222,10 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 
 // projectRecord is a row of the records' card that opens something, at the
 // Settings row metrics: the icon in its slot (a spinner while busy), the
-// title over the path, and the neutral hover fill across the card.
-func projectRecord(c *ui.Context, key, title, path string, icon *ui.SVG, busy bool) ui.Element {
+// title over the path, and the neutral hover fill across the card. A
+// session's row leads with its project's glyph (user decision 2026-11-12)
+// in place of icon.
+func projectRecord(c *ui.Context, key, title, path string, icon *ui.SVG, busy bool, project *viewmodel.Project) ui.Element {
 	palette := theme.Of(c)
 	row := ui.ButtonBase(c.Key(key)).Label(title).Padding(kit.RowPad, 16).Margin(0, -16).Gap(kit.RowIconGap).MinHeight(kit.RowMinHeight).
 		Justify(ui.Start).Cursor(ui.CursorPointer).TextColor(palette.SurfaceForeground)
@@ -234,6 +236,8 @@ func projectRecord(c *ui.Context, key, title, path string, icon *ui.SVG, busy bo
 		ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
 			if busy {
 				kit.Busy(c)
+			} else if project != nil {
+				kit.ProjectGlyph(c, project.Icon, project.Color, 18)
 			} else {
 				ui.Icon(c, icon).FontSize(18).TextColor(palette.MutedForeground)
 			}

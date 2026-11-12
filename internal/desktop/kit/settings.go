@@ -63,7 +63,7 @@ func Card(c *ui.Context, rows func()) ui.Element {
 	p := theme.Of(c)
 	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16), p.Surface, CardTint).
 		TextColor(p.SurfaceForeground).Children(func() {
-		ui.Column(c).FillWidth().Dividers(1, p.Border).Children(rows)
+		ui.Column(c).FillWidth().Dividers(1, p.Separator()).Children(rows)
 	})
 }
 
