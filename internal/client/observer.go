@@ -162,24 +162,6 @@ func (client *Client) Watch(ctx context.Context, kind string, argument json.RawM
 			return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid terminal identifier")
 		}
 		return client.watchTerminalView(ctx, terminal), nil
-	case "watch_login":
-		var attempt protocol.ConversationLoginAttempt
-		if err := json.Unmarshal(argument, &attempt); err != nil {
-			return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid login attempt")
-		}
-		return watchLoginView(ctx, client, "provider_login", attempt.ID, attempt, func(update protocol.ConversationLoginUpdate) (protocol.ConversationLoginAttempt, uint64, string) {
-			return update.Attempt, update.Revision, update.State.Kind
-		}), nil
-	case "watch_connector_login":
-		var attempt protocol.PluginConnectorAttempt
-		if err := json.Unmarshal(argument, &attempt); err != nil {
-			return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid login attempt")
-		}
-		return watchLoginView(ctx, client, "connector_login", attempt.ID, attempt, func(update protocol.PluginConnectorLoginUpdate) (protocol.PluginConnectorAttempt, uint64, string) {
-			return update.Attempt, update.Revision, update.State.Kind
-		}), nil
-	case "watch_connections":
-		return client.watchConnectionsView(ctx)
 	}
 	return nil, fault(protocol.ErrorCodeInvalidRequest, "unknown Client observation")
 }

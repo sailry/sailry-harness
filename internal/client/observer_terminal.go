@@ -29,7 +29,7 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 		scoped, release := client.interruptible(observer.ctx)
 		defer release()
 		projection := newTerminalProjection(client.Target(), terminal)
-		err := reconnecting(scoped, func() (bool, bool, error) {
+		err := reconnecting(scoped, func() (bool, error) {
 			projection.reconnect()
 			stream, err := client.transport.Subscribe(scoped, protocol.Topic{Kind: "terminal", Data: terminal})
 			progressed := false
@@ -59,7 +59,7 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 				observer.mu.Unlock()
 				observer.notify()
 			}
-			return progressed, false, err
+			return progressed, err
 		})
 		observer.mu.Lock()
 		state.Connected, state.Recovering = false, false
@@ -69,15 +69,14 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 	return observer
 }
 
-// reconnecting runs attempt until it reports that it finished or fails with
-// anything but a transient fault, and returns that failure; it returns nil
-// once ctx ends. Attempts are 250 ms apart, doubling to 5 s; one that made
-// progress starts over at 250 ms.
-func reconnecting(ctx context.Context, attempt func() (progressed, finished bool, err error)) error {
+// reconnecting runs attempt until it fails with anything but a transient
+// fault, and returns that failure, or nil once ctx ends. Attempts are 250 ms
+// apart, doubling to 5 s; one that made progress starts over at 250 ms.
+func reconnecting(ctx context.Context, attempt func() (progressed bool, err error)) error {
 	delay := 250 * time.Millisecond
 	for {
-		progressed, finished, err := attempt()
-		if finished || ctx.Err() != nil {
+		progressed, err := attempt()
+		if ctx.Err() != nil {
 			return nil
 		}
 		if err != nil && !transient(err) {
