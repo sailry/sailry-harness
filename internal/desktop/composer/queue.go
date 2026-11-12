@@ -22,7 +22,9 @@ import (
 // row starts with the same slot (queueLead), so the labels share one edge. A child
 // session's strip is read-only: Read opens the text with Copy, Close and
 // Remove, and nothing is sent ahead or dragged (live/queue/render.rs). Rows
-// come in and go out collapsing, as the strip does. The strip lists queued
+// come in and go out collapsing, as the strip does. The strip's first row
+// counts the messages and folds the rest away; it is folded until the user
+// unfolds it, for each conversation's composer. The strip lists queued
 // input only: a row says nothing about why it waits, and background results
 // held back from delivery are not rows (docs/removed-ui.md).
 
@@ -65,8 +67,12 @@ func queueLabel(c *ui.Context, q Queued) string {
 }
 
 // queueTray is 12 in from the surface's sides, padding 4, the top corners
-// rounded 2xl, in the secondary color, the rows scrolling past 132 DIPs; or
-// the editor of one of them.
+// rounded 2xl, in the secondary color: the header naming how many messages
+// wait, which folds the tray to that one row and unfolds it again, then a
+// hairline and the rows, scrolling past 132 DIPs, or the editor of one of
+// them. The tray is folded until the user unfolds it (State.queueOpen), and
+// unfolded whatever that says while a message is edited, so an editor and
+// its draft are never hidden.
 func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 	q := &s.queue
 	if q.editing != "" && !queued(ctx, q.editing) {
@@ -84,32 +90,79 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 		if ctx.Child {
 			below = r
 		}
-		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Gap(4).Radius(r, r, below, below), p.Secondary, kit.SurfaceTint).
+		open := s.queueOpen || q.editing != ""
+		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Radius(r, r, below, below), p.Secondary, kit.SurfaceTint).
 			Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).Transition(queueMotion).Children(func() {
-			if q.editing != "" {
-				s.queueEditor(c, ctx, actions)
+			s.queueHeader(c, ctx, open)
+			if !open {
 				return
 			}
-			ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Gap(4).Children(func() {
-				if ctx.Child {
-					// Nothing is reordered from a child's strip.
-					for _, item := range ctx.Queue {
-						s.queueRow(c, ctx, actions, item, func() {})
-					}
-				} else if len(ctx.Queue) > 0 {
-					// Dragged by the handle into another place: the move goes
-					// to the conversation, before the message now after it.
-					list := slices.Clone(ctx.Queue)
-					kit.SortableList(c, &list, func(q Queued) string { return q.ID }, kit.SortableListProps{
-						Gap: 4, Handle: i18n.T(c, "queue_drag"), Disabled: queueBlocked(ctx),
-						OnMove: func(_, to int) { actions.MoveQueued(list[to].ID, after(list, list[to].ID)) },
-					}, func(item Queued, handle func()) { s.queueRow(c, ctx, actions, item, handle) })
+			// The hairline 4 under the header, then the rows 4 under it,
+			// coming and going as the rows do.
+			ui.Column(c.Key("queue-body")).FillWidth().Shrink(0).Padding(4, 0, 0, 0).Gap(4).Transition(queueMotion).Children(func() {
+				ui.Divider(c.Key("queue-line")).Background(p.Border)
+				if q.editing != "" {
+					s.queueEditor(c, ctx, actions)
+					return
 				}
-				if ctx.Outgoing != nil {
-					s.outgoingRow(c, *ctx.Outgoing)
-				}
+				s.queueList(c, ctx, actions)
 			})
 		})
+	})
+}
+
+// queueHeader is the tray's first row, as high as a message's and quieter:
+// a chevron in the rows' leading slot, pointing right while the tray is
+// folded and down while it is unfolded, then the number of messages waiting,
+// both muted. The whole row is the disclosure, as the transcript's: a click,
+// Enter or Space folds and unfolds the rows. It takes no fold while a
+// message is edited.
+func (s *State) queueHeader(c *ui.Context, ctx *Context, open bool) {
+	p := theme.Of(c)
+	n := len(ctx.Queue)
+	if ctx.Outgoing != nil {
+		n++ // on its way to the queue, and a row already
+	}
+	label := count(c, "queue_messages_one", "queue_messages_count", n)
+	editing := s.queue.editing != ""
+	t := ui.ButtonBase(c.Key("queue-header")).Label(label).Expanded(open).Disabled(editing).FillWidth().MinWidth(0).Height(32).
+		PaddingX(8).Gap(8).Radius(p.Radius2xl()).Shrink(0).Justify(ui.Start).AlignItems(ui.Center).TextColor(p.MutedForeground)
+	if !editing {
+		t.Cursor(ui.CursorPointer)
+		if t.Hovered() || t.FocusVisible() {
+			t.Background(p.Hover)
+		}
+	}
+	chevron := icons.ChevronRight
+	if open {
+		chevron = icons.ChevronDown
+	}
+	t.Children(func() {
+		queueLead(c, false, chevron)
+		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+	}).OnClick(func() { s.queueOpen = !s.queueOpen })
+}
+
+// queueList is the tray's rows, scrolling past 132 DIPs.
+func (s *State) queueList(c *ui.Context, ctx *Context, actions Actions) {
+	ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Gap(4).Children(func() {
+		if ctx.Child {
+			// Nothing is reordered from a child's strip.
+			for _, item := range ctx.Queue {
+				s.queueRow(c, ctx, actions, item, func() {})
+			}
+		} else if len(ctx.Queue) > 0 {
+			// Dragged by the handle into another place: the move goes
+			// to the conversation, before the message now after it.
+			list := slices.Clone(ctx.Queue)
+			kit.SortableList(c, &list, func(q Queued) string { return q.ID }, kit.SortableListProps{
+				Gap: 4, Handle: i18n.T(c, "queue_drag"), Disabled: queueBlocked(ctx),
+				OnMove: func(_, to int) { actions.MoveQueued(list[to].ID, after(list, list[to].ID)) },
+			}, func(item Queued, handle func()) { s.queueRow(c, ctx, actions, item, handle) })
+		}
+		if ctx.Outgoing != nil {
+			s.outgoingRow(c, *ctx.Outgoing)
+		}
 	})
 }
 
