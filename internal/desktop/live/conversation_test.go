@@ -297,6 +297,17 @@ func TestConversationProjection(t *testing.T) {
 		if blocks := compacting[0].Reply.Blocks; len(blocks) != 1 || blocks[0].Kind != conversation.ErrorBlock || blocks[0].Label != "chat_compact_failed" || blocks[0].Text != "Provider rejected the request" || reported.Diagnostic == nil {
 			t.Fatalf("failed compaction blocks = %+v", compacting[0].Reply.Blocks)
 		}
+		// The failure that paused automatic compaction says so in its title, still
+		// once; a member a later Node adds does not hide it.
+		page.Entries[0].Parts[0].Data = json.RawMessage(`{"type":"compaction_failure","failure":{"source":"automatic","stage":"request","reason":"request_failed","continued":false,"cause":"Provider rejected the request","paused":true,"future_member":1}}`)
+		paused, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+		if blocks := paused[0].Reply.Blocks; len(blocks) != 1 || blocks[0].Kind != conversation.ErrorBlock || blocks[0].Label != "chat_compact_failed_paused" || blocks[0].Text != "Provider rejected the request" {
+			t.Fatalf("paused compaction blocks = %+v", paused[0].Reply.Blocks)
+		}
+		if english, chinese := i18n.In("en", "chat_compact_failed_paused"), i18n.In("zh-CN", "chat_compact_failed_paused"); english != "Compaction failed, automatic compaction paused" || chinese != "压缩失败，已暂停自动压缩" {
+			t.Fatalf("paused title = %q, %q", english, chinese)
+		}
+		page.Entries[0].Parts[0].Data = json.RawMessage(`{"type":"compaction_failure","failure":{"source":"automatic","stage":"request","reason":"request_failed","continued":false,"cause":"Provider rejected the request"}}`)
 		// Compaction runs: a completed one without a summary compacted nothing,
 		// unless its entries are not loaded.
 		for _, row := range []struct {

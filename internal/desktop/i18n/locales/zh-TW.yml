@@ -582,6 +582,7 @@ background_exit: Exit code %{code}
 background_result_waiting: Result not delivered
 chat_compact_cancelled: 壓縮已取消
 chat_compact_failed: 壓縮失敗
+chat_compact_failed_paused: Compaction failed, automatic compaction paused
 chat_compact_queued: 等待壓縮
 chat_compact_unneeded: 無需壓縮
 chat_compacted: 上下文已壓縮

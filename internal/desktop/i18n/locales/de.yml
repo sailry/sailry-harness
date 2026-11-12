@@ -582,6 +582,7 @@ background_exit: Exit code %{code}
 background_result_waiting: Result not delivered
 chat_compact_cancelled: Verdichtung abgebrochen
 chat_compact_failed: Die Verdichtung ist fehlgeschlagen
+chat_compact_failed_paused: Compaction failed, automatic compaction paused
 chat_compact_queued: Warten auf Kompaktierung
 chat_compact_unneeded: Verdichtung nicht erforderlich
 chat_compacted: Kontext komprimiert

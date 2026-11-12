@@ -137,6 +137,8 @@ type ConversationCompactionFailure struct {
 	Continued bool                         `json:"continued"`
 	Status    *uint16                      `json:"status"`
 	Cause     *string                      `json:"cause,omitempty"`
+	// Paused says this failure paused automatic compaction for the session.
+	Paused bool `json:"paused,omitempty"`
 }
 
 func DefaultConversationCompactionFailure() ConversationCompactionFailure {
@@ -147,12 +149,14 @@ func DefaultConversationCompactionFailure() ConversationCompactionFailure {
 		Continued: false,
 		Status:    nil,
 		Cause:     nil,
+		Paused:    false,
 	}
 }
 func (value *ConversationCompactionFailure) UnmarshalJSON(data []byte) error {
 	type plain ConversationCompactionFailure
 	decoded := plain{}
 	decoded.Cause = nil
+	decoded.Paused = false
 	if err := DecodeObject(data, &decoded, []string{"source", "stage", "reason", "continued"}, true); err != nil {
 		return err
 	}

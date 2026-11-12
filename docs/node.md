@@ -315,10 +315,11 @@ The Node writes its own notices in the transaction of the change they report
   none. A failure is not reported twice: a compaction failure that stopped the
   turn, or a `system` diagnostic of the same incident and turn, is its notice.
 - A conversation entry the system writes with a compaction failure writes one
-  `diagnostic` notice naming that entry. The store writes it for any such
-  entry; the Go engine does not record compaction failures as entries yet (a
-  failed compaction fails its run, which the `task` notice reports), so this
-  notice has no producer in the engine today.
+  `diagnostic` notice naming that entry; the engine writes that entry for every
+  compaction that ends without a summary
+  ([conversation.md](conversation.md)). The failure's optional `paused` member
+  (user decision, 2026-11-12) marks the one that paused automatic compaction;
+  absent means not paused, and the notice itself is unchanged.
 - A turn that a dispatch job started and that begins to wait for an approval
   or an answer writes one `task` notice whose status is still `running`:
   warning for an approval, info for input. A scheduled run usually has no

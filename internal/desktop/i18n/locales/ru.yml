@@ -582,6 +582,7 @@ background_exit: Exit code %{code}
 background_result_waiting: Result not delivered
 chat_compact_cancelled: Уплотнение отменено
 chat_compact_failed: Уплотнение не удалось
+chat_compact_failed_paused: Compaction failed, automatic compaction paused
 chat_compact_queued: Ожидание уплотнения
 chat_compact_unneeded: Уплотнение не требуется
 chat_compacted: Контекст уплотнён

@@ -418,19 +418,62 @@ usage is absent. A failed statistics refresh (the `statistics_failed` change,
 `usage_read_failed`, once when the failure begins for the shown conversation
 (`reportUsage`), as in the reference.
 
-A compaction that ends without a summary (`engine/compaction.go`) saves, after
+A summary request that waits to be sent again writes the retry record of a
+main request ([providers.md](providers.md)), so the turn shows the `Retry` row
+while it compacts and keeps it afterwards; a turn stopped during the wait ends
+at once, keeps that row and records no failure, and the compacting draft goes
+with the run. A compaction that ends without a summary (`engine/compaction.go`) saves, after
 its billed attempts, one system record whose `metadata.compaction.failure`
 names the source (`manual` or `automatic`), the stage (`budget`, `request`,
 `summary`, `history`), the reason, the HTTP status of the last attempt and the
 cause; a stopped turn records none. The page carries it as the resource
 `{"type":"compaction_failure","failure":{…}}`, statistics report it as the last
 compaction with outcome `failed`, and the run still fails with the same error.
-The transcript shows it as the error block `chat_compact_failed` with the
+Automatic compaction pauses after three failures in a row (`engine.pauseAfter`,
+`automaticFailures`): the threshold no longer starts one for the session, so a
+message does not spend another summary request and its nine retries on a
+compaction that keeps failing. The count is read from the stored records, with
+no added storage: the automatic failure records since the last compaction
+record, manual or automatic, counting only those of the turn's provider and
+model (each failure record carries `metadata.execution.source`), so a
+successful `/compact`, a compaction that succeeds through overflow recovery or
+another provider or model starts it again, also after a restart. Manual
+compaction always runs and its failures are not counted; overflow recovery
+still compacts while paused, since nothing else can continue the turn. The
+third failure's record says so once with the optional member `paused: true`
+(absent means not paused, as before); later failures while paused do not
+repeat it. Deviation, by the user's decision of 2026-11-12: Goose and the
+reference try again on every message
+(`engine.TestCompactionHandoff/three automatic failures pause the threshold`).
+An edit of the same provider's endpoint or key is not a new binding and does
+not end the pause; `/compact` does.
+
+The transcript shows it as the error block `chat_compact_failed`, or
+`chat_compact_failed_paused` for the failure that paused automatic compaction
+(the same block, no added control or notice), with the
 cause, and then omits the run's own error block when it repeats that cause, so
 the failure reads once; the diagnostic card is unchanged. A manual compaction
 turn keeps its failed state and cause from the run. A completed compaction run
 whose loaded turn holds no summary shows `chat_compact_unneeded`; a turn whose
 entries are not loaded keeps `chat_compacted`.
+
+The summary input (`compact.Prepare`) shortens older turns first: tool
+responses to their first and last 1,000 characters, tool responses omitted,
+the user's messages only, then the turn dropped. When the latest turn alone
+is still over the budget it is shortened the same way and only as far as
+needed: whole, tool responses to their edges, tool responses omitted, and
+last the user's message that started it, the line
+`[N earlier records of this turn omitted]` and the newest records that fit.
+A kept tool response keeps its output reference line, so the model can read
+the output again. The budget stage fails only when the prompt and the output
+reserve exceed the window (`summary prompt and output exceed the context
+limit`), the user's latest message alone does not fit (`latest user message
+exceeds the summary context limit`) or, in a turn without one, its newest
+record does not (`latest record exceeds the summary context limit`).
+Deviation, by the user's decision of 2026-11-12: Goose and the reference
+never shorten the latest turn and fail with `latest turn exceeds the summary
+context limit`, which is the overflow recovery of one long turn of tool calls
+(`compact.TestPrepareShortensLatestTurn`).
 
 Differences from the reference, deliberate: the reference ends the turn
 normally with an English assistant message ("Ran into this error trying to
