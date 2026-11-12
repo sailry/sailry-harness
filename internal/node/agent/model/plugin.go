@@ -105,7 +105,15 @@ func (model *pluginModel) Stream(ctx context.Context, call fantasy.Call) (fantas
 	return func(yield func(fantasy.StreamPart) bool) {
 		owner, cancel := context.WithCancel(ctx)
 		defer cancel()
-		if err := model.stream(owner, input, yield); err != nil && ctx.Err() == nil {
+		// A consumer that stopped the iteration must not be yielded to again.
+		stopped := false
+		emit := func(part fantasy.StreamPart) bool {
+			stopped = !yield(part)
+			return !stopped
+		}
+		if err := model.stream(owner, input, emit); stopped {
+			return
+		} else if err != nil && ctx.Err() == nil {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: Classify(err, model.capture.Secrets...)})
 		} else if ctx.Err() != nil {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: Cancelled, Message: "model request was cancelled"}})

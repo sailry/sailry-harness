@@ -334,6 +334,34 @@ export function decode(input) { if(input.headers["set-cookie"] || input.headers.
 			t.Fatalf("single captured translation = %d, %+v", requests, parts)
 		}
 	})
+	t.Run("a consumer that stops on cancellation is not yielded to again", func(t *testing.T) {
+		model, binding, _ := pluginFixture(t, `
+export function prepare(input) { return {method:"POST",url:input.endpoint+"/messages",body:"{}"}; }
+export function decode(input) { return {state:null,deltas:input.events.map(event=>JSON.parse(event.data))}; }
+`, func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader("data: {\"kind\":\"text\",\"text\":\"Hello\"}\n\ndata: {\"kind\":\"finish\",\"reason\":\"stop\"}\n\n"))}, nil
+		})
+		call, err := BuildCall(binding, Request{System: "captured"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		stream, err := model.Stream(ctx, call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := 0
+		for range stream {
+			parts++
+			cancel()
+			break
+		}
+		if parts != 1 {
+			t.Fatalf("stopped consumer saw %d parts", parts)
+		}
+	})
 	t.Run("a refusal from prepare sends nothing and keeps its message", func(t *testing.T) {
 		requests := 0
 		model, binding, _ := pluginFixture(t, `
