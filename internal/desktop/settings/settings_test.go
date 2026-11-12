@@ -2146,6 +2146,42 @@ func TestExtensions(t *testing.T) {
 		m.Backup.Saved.Keep = 5
 		tt.Frame()
 		shows(i18n.In("en", "backup_keep_last", "count", 5))
+		// A storage save the Node has not confirmed keeps the dialog's draft
+		// as it was sent: Save reads Retry and sends it again. A save that
+		// failed is Save again.
+		var saves []BackupTarget
+		var answer func(bool)
+		m.BackupActions.Save = func(target BackupTarget, done func(bool)) { saves, answer = append(saves, target), done }
+		clickButton(t, tt, i18n.In("en", "backup_configure"))
+		clickButton(t, tt, i18n.In("en", "settings_save"))
+		if len(saves) != 1 {
+			t.Fatalf("the storage dialog saved %d times: %q", len(saves), tt.Texts())
+		}
+		m.BackupActions.Retry = true
+		answer(false)
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "settings_save")); ok || findButton(t, tt, i18n.In("en", "plugins_retry")).Disabled {
+			t.Fatalf("after an unconfirmed storage save: %q", tt.Texts())
+		}
+		if !findButton(t, tt, i18n.In("en", "backup_choose_directory")).Disabled {
+			t.Error("the draft of an unconfirmed storage save can change")
+		}
+		clickButton(t, tt, i18n.In("en", "plugins_retry"))
+		if len(saves) != 2 || saves[1] != saves[0] {
+			t.Fatalf("Retry sent %+v", saves)
+		}
+		m.BackupActions.Retry = false
+		answer(false)
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "plugins_retry")); ok || findButton(t, tt, i18n.In("en", "backup_choose_directory")).Disabled {
+			t.Fatalf("after a storage save that failed: %q", tt.Texts())
+		}
+		clickButton(t, tt, i18n.In("en", "settings_save"))
+		answer(true)
+		tt.Frame()
+		if len(saves) != 3 || m.backups.editing {
+			t.Fatalf("a confirmed storage save left the dialog open after %d saves", len(saves))
+		}
 		// A restored profile is offered in place of the one in use; the
 		// restart happens only when it is confirmed.
 		var restarted []string

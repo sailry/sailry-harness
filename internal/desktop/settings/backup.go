@@ -20,6 +20,9 @@ var backupMessages = Messages{"backup_saved", "backup_failed", "backup_conflict"
 type backupDialogs struct {
 	editing, archives, deleting bool
 	draft                       BackupTarget
+	// unconfirmed is whether the storage dialog's save did not succeed;
+	// with BackupActions.Retry its draft is locked and Save reads Retry.
+	unconfirmed bool
 	// keeping is the retention awaiting its confirmation.
 	keeping               bool
 	keep                  int
@@ -108,7 +111,7 @@ func backup(c *ui.Context, m *Model) {
 		})
 	}
 	configure := func() {
-		d.draft = b.Saved
+		d.draft, d.unconfirmed = b.Saved, false
 		d.draft.Passphrase, d.draft.Confirm, d.draft.Identity, d.draft.Secret, d.draft.Token = "", "", "", "", ""
 		d.editing = true
 	}
@@ -258,14 +261,20 @@ func storageDialog(c *ui.Context, m *Model) {
 	t := func(k string) string { return i18n.T(c, k) }
 	x := &d.draft
 	title := t("backup_destination")
+	// A save the Node has not confirmed keeps its draft as it was sent.
+	retry := m.BackupActions != nil && m.BackupActions.Retry && d.unconfirmed
+	action := t("settings_save")
+	if retry {
+		action = t("plugins_retry")
+	}
 	kit.Dialog(c.Key("storage"), &d.editing, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
-			kit.Segmented(c, "tabs", &x.Tab, []string{t("backup_webdav"), t("backup_s3"), t("backup_local")}, kit.SegmentedProps{Block: true}).Label(title)
+			kit.Segmented(c, "tabs", &x.Tab, []string{t("backup_webdav"), t("backup_s3"), t("backup_local")}, kit.SegmentedProps{Block: true, Disabled: retry}).Label(title)
 			input := func(key string, value *string, secret, kept bool) {
 				label := t(key)
 				kit.Field(c, key, label, "", func() {
-					in := ui.TextInput(c.Key("input"), value).Label(label).FillWidth()
+					in := ui.TextInput(c.Key("input"), value).Label(label).FillWidth().Disabled(retry)
 					if secret {
 						in.Password()
 					}
@@ -284,7 +293,7 @@ func storageDialog(c *ui.Context, m *Model) {
 					ui.Row(c).Gap(8).Children(func() {
 						ui.TextInput(c.Key("input"), &x.Directory).Label(label).ReadOnly(true).Grow(1)
 						// The folder picker browses the host's disk.
-						kit.Secondary(c.Key("choose"), t("backup_choose_directory")).OnClick(func() {
+						kit.Secondary(c.Key("choose"), t("backup_choose_directory")).Disabled(retry).OnClick(func() {
 							if a := m.BackupActions; a != nil {
 								a.ChooseFolder(x.Directory, func(path string) { x.Directory = path })
 								return
@@ -309,12 +318,12 @@ func storageDialog(c *ui.Context, m *Model) {
 			input("backup_passphrase", &x.Passphrase, true, x.PassphraseSet)
 			input("backup_confirm_passphrase", &x.Confirm, true, x.PassphraseSet)
 			if x.CredentialsSet && x.Tab < 2 {
-				kit.TextAction(c.Key("clear"), t("backup_clear_credentials"), false).AlignSelf(ui.Start).OnClick(func() {
+				kit.TextAction(c.Key("clear"), t("backup_clear_credentials"), retry).AlignSelf(ui.Start).OnClick(func() {
 					x.CredentialsSet = false
 				})
 			}
 		})
-		footer(c, t("settings_save"), func() { d.editing = false }, func() {
+		footer(c, action, func() { d.editing = false }, func() {
 			if problem := x.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
 				return
@@ -326,6 +335,7 @@ func storageDialog(c *ui.Context, m *Model) {
 					return
 				}
 				a.Save(*x, func(ok bool) {
+					d.unconfirmed = !ok
 					if ok {
 						d.editing, d.draft = false, BackupTarget{}
 					}
