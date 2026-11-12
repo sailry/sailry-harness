@@ -132,6 +132,9 @@ func rootPluginRegistryCurrent(root *Runtime, owner *pluginContributionOwner) bo
 	if !pluginViewScopeExists(owner.owner, owner.scope) {
 		return false
 	}
+	if owner.scope.Surface.Kind == "provider" {
+		return providerSlotShown(root.shownSettings(), owner.owner, root.App.Settings.DemoMode)
+	}
 	if owner.draft == "" {
 		return true
 	}
