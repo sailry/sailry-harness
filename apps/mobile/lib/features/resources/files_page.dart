@@ -9,6 +9,7 @@ import 'workspace.dart';
 import 'file_page.dart';
 import 'file_navigation.dart';
 import 'files/breadcrumb.dart';
+import 'files/entry_data.dart';
 import 'files/entry_row.dart';
 
 class FilesPage extends StatefulWidget {
@@ -219,6 +220,7 @@ class _FilesPageState extends State<FilesPage> {
                   name: text(entry['name']),
                   directory: entry['kind'] == 'directory',
                   size: fileSize(entry['size'] as int?),
+                  modified: entryModifiedLabel(context, entry),
                   divider: index < entries.length - 1,
                   onTap: enabled
                       ? () {

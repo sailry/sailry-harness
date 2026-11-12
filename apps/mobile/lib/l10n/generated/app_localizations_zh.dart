@@ -2555,6 +2555,80 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => '速度';
+
+  @override
+  String queueHaltStopped(String count) {
+    return '已停止 · $count 条排队';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return '回复已中断 · $count 条排队';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return '消息未发送 · $count 条排队';
+  }
+
+  @override
+  String get backgroundHeld => '结果待送达';
+
+  @override
+  String get backgroundHoldLimit => '未送达，已达自动轮次上限';
+
+  @override
+  String get backgroundHoldStopped => '未送达，回复已停止';
+
+  @override
+  String get backgroundHoldInterrupted => '未送达，回复已中断';
+
+  @override
+  String get backgroundHoldFailed => '未送达，回复失败';
+
+  @override
+  String get continuationRefused => '未继续执行';
+
+  @override
+  String get continuationPlan => '计划模式下不继续执行';
+
+  @override
+  String get continuationChild => '子任务不继续执行';
+
+  @override
+  String get continuationArchived => '已归档会话不继续执行';
+
+  @override
+  String get continuationWorktree => '未继续执行，工作树不存在';
+
+  @override
+  String get continuationQueuePaused => '未继续执行，队列已暂停';
+
+  @override
+  String get continuationQueuedInput => '未继续执行，队列中有消息';
+
+  @override
+  String get continuationRunning => '未继续执行，回复进行中';
+
+  @override
+  String get continuationInteraction => '未继续执行，有请求等待你处理';
+
+  @override
+  String get continuationLimit => '已达自动轮次上限';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return '已达自动轮次上限 · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => '未继续执行，会话已有新进展';
+
+  @override
+  String get conversationContextOverflow => '上下文超出模型限制';
+
+  @override
+  String get conversationOutputLimit => '回复已达输出上限';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5108,4 +5182,78 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get modelFeatureSpeed => '速度';
+
+  @override
+  String queueHaltStopped(String count) {
+    return '已停止 · $count 條排隊';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return '回覆已中斷 · $count 條排隊';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return '訊息未傳送 · $count 條排隊';
+  }
+
+  @override
+  String get backgroundHeld => '結果待送達';
+
+  @override
+  String get backgroundHoldLimit => '未送達，已達自動輪次上限';
+
+  @override
+  String get backgroundHoldStopped => '未送達，回覆已停止';
+
+  @override
+  String get backgroundHoldInterrupted => '未送達，回覆已中斷';
+
+  @override
+  String get backgroundHoldFailed => '未送達，回覆失敗';
+
+  @override
+  String get continuationRefused => '未繼續執行';
+
+  @override
+  String get continuationPlan => '計畫模式下不繼續執行';
+
+  @override
+  String get continuationChild => '子任務不繼續執行';
+
+  @override
+  String get continuationArchived => '已歸檔會話不繼續執行';
+
+  @override
+  String get continuationWorktree => '未繼續執行，工作樹不存在';
+
+  @override
+  String get continuationQueuePaused => '未繼續執行，佇列已暫停';
+
+  @override
+  String get continuationQueuedInput => '未繼續執行，佇列中有訊息';
+
+  @override
+  String get continuationRunning => '未繼續執行，回覆進行中';
+
+  @override
+  String get continuationInteraction => '未繼續執行，有請求等待你處理';
+
+  @override
+  String get continuationLimit => '已達自動輪次上限';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return '已達自動輪次上限 · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => '未繼續執行，會話已有新進展';
+
+  @override
+  String get conversationContextOverflow => '上下文超出模型限制';
+
+  @override
+  String get conversationOutputLimit => '回覆已達輸出上限';
 }

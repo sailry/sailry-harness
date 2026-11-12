@@ -1006,5 +1006,58 @@
   "hostNoMatches": "Keine Treffer",
   "modelFeatureOff": "Standard",
   "modelFeatureFast": "Schnell",
-  "modelFeatureSpeed": "Tempo"
+  "modelFeatureSpeed": "Tempo",
+  "queueHaltStopped": "Gestoppt · {count} in der Warteschlange",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "Antwort unterbrochen · {count} in der Warteschlange",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "Nachricht nicht gesendet · {count} in der Warteschlange",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "Ergebnis nicht zugestellt",
+  "backgroundHoldLimit": "Nicht zugestellt; Turn-Limit erreicht",
+  "backgroundHoldStopped": "Nicht zugestellt; Antwort gestoppt",
+  "backgroundHoldInterrupted": "Nicht zugestellt; Antwort unterbrochen",
+  "backgroundHoldFailed": "Nicht zugestellt; Antwort fehlgeschlagen",
+  "continuationRefused": "Nicht fortgesetzt",
+  "continuationPlan": "Im Planmodus nicht fortgesetzt",
+  "continuationChild": "Unteraufgaben werden nicht fortgesetzt",
+  "continuationArchived": "Archivierte Chats werden nicht fortgesetzt",
+  "continuationWorktree": "Nicht fortgesetzt; Worktree fehlt",
+  "continuationQueuePaused": "Nicht fortgesetzt; Warteschlange angehalten",
+  "continuationQueuedInput": "Nicht fortgesetzt; Nachrichten in der Warteschlange",
+  "continuationRunning": "Nicht fortgesetzt; eine Antwort läuft",
+  "continuationInteraction": "Nicht fortgesetzt; eine Anfrage wartet auf Sie",
+  "continuationLimit": "Limit automatischer Turns erreicht",
+  "continuationLimitCount": "Limit automatischer Turns erreicht · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "Nicht fortgesetzt; der Chat ist weitergegangen",
+  "conversationContextOverflow": "Kontextlimit des Modells überschritten",
+  "conversationOutputLimit": "Antwort am Ausgabelimit abgeschnitten"
 }

@@ -57,6 +57,7 @@ class FileEntryRow extends StatelessWidget {
     required this.directory,
     required this.size,
     required this.onTap,
+    this.modified,
     this.divider = true,
   });
 
@@ -65,6 +66,9 @@ class FileEntryRow extends StatelessWidget {
 
   /// Formatted size, shown for files only.
   final String size;
+
+  /// Formatted modification time; null when the host did not say.
+  final String? modified;
   final VoidCallback? onTap;
   final bool divider;
 
@@ -107,11 +111,18 @@ class FileEntryRow extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    if (directory)
-                      AppIcon('chevron', size: 14, color: dim)
-                    else
+                    if (directory) ...[
+                      if (modified != null) ...[
+                        Text(
+                          modified!,
+                          style: TextStyle(fontSize: 12, color: dim),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      AppIcon('chevron', size: 14, color: dim),
+                    ] else
                       Text(
-                        size,
+                        [?modified, size].join(' · '),
                         style: TextStyle(
                           fontSize: 12,
                           color: dim,

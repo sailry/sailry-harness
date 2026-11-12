@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
@@ -14,7 +12,8 @@ import 'tool_heading.dart';
 import 'tool_output.dart';
 import 'tool_row.dart';
 
-/// Approval arguments or an inline question's bounded specification.
+/// A call's loaded arguments, or an inline question's bounded specification.
+/// An approval card never shows them; a question card reads its prompt here.
 Map<String, dynamic> toolArguments(
   Map<String, dynamic> call,
   Map<String, dynamic> page,
@@ -128,7 +127,7 @@ class _ToolRecordState extends State<ToolRecord> {
         widget.interactive && approval['state'] == 'pending';
     final pendingQuestion =
         widget.interactive && object(question['state'])['kind'] == 'pending';
-    final arguments = pendingApproval || pendingQuestion
+    final arguments = pendingQuestion
         ? toolArguments(call, widget.page)
         : const <String, dynamic>{};
     final approvalView = object(call['approval_view']);
@@ -186,6 +185,8 @@ class _ToolRecordState extends State<ToolRecord> {
         if (pendingApproval)
           card([
             // The validated file list replaces the package's generic prompt.
+            // A tool that declares no display shows its name alone, never
+            // its arguments.
             if (approvalView['changes'] != null)
               ChangePreview(changes: object(approvalView['changes']))
             else if (approvalView['description'] != null)
@@ -193,9 +194,7 @@ class _ToolRecordState extends State<ToolRecord> {
                   ? code(capturedLabel(context, approvalView['description']))
                   : SelectableText(
                       capturedLabel(context, approvalView['description']),
-                    )
-            else if (toolDetail(call) != null)
-              code(const JsonEncoder.withIndent('  ').convert(arguments)),
+                    ),
             if (approvalView['context'] != null)
               SelectableText(text(approvalView['context']), style: muted),
             for (final prompt in objects(approvalView['notices']))

@@ -2565,4 +2565,78 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => '속도';
+
+  @override
+  String queueHaltStopped(String count) {
+    return '중지됨 · 대기 $count개';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return '응답 중단됨 · 대기 $count개';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return '메시지 전송 안 됨 · 대기 $count개';
+  }
+
+  @override
+  String get backgroundHeld => '결과 전달 안 됨';
+
+  @override
+  String get backgroundHoldLimit => '전달 안 됨 · 자동 턴 한도 도달';
+
+  @override
+  String get backgroundHoldStopped => '전달 안 됨 · 응답 중지됨';
+
+  @override
+  String get backgroundHoldInterrupted => '전달 안 됨 · 응답 중단됨';
+
+  @override
+  String get backgroundHoldFailed => '전달 안 됨 · 응답 실패';
+
+  @override
+  String get continuationRefused => '계속되지 않음';
+
+  @override
+  String get continuationPlan => '계획 모드에서는 계속되지 않음';
+
+  @override
+  String get continuationChild => '하위 작업은 계속되지 않음';
+
+  @override
+  String get continuationArchived => '보관된 채팅은 계속되지 않음';
+
+  @override
+  String get continuationWorktree => '계속되지 않음 · 작업 트리 없음';
+
+  @override
+  String get continuationQueuePaused => '계속되지 않음 · 대기열 일시 정지됨';
+
+  @override
+  String get continuationQueuedInput => '계속되지 않음 · 대기 중인 메시지 있음';
+
+  @override
+  String get continuationRunning => '계속되지 않음 · 응답 진행 중';
+
+  @override
+  String get continuationInteraction => '계속되지 않음 · 응답을 기다리는 요청 있음';
+
+  @override
+  String get continuationLimit => '자동 턴 한도에 도달함';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return '자동 턴 한도에 도달함 · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => '계속되지 않음 · 채팅이 이미 진행됨';
+
+  @override
+  String get conversationContextOverflow => '모델 컨텍스트 한도를 초과함';
+
+  @override
+  String get conversationOutputLimit => '출력 한도에서 응답이 잘림';
 }

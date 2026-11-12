@@ -2562,4 +2562,78 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => '速度';
+
+  @override
+  String queueHaltStopped(String count) {
+    return '停止済み · キュー $count 件';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return '返信が中断されました · キュー $count 件';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return 'メッセージ未送信 · キュー $count 件';
+  }
+
+  @override
+  String get backgroundHeld => '結果は未配信';
+
+  @override
+  String get backgroundHoldLimit => '未配信（自動ターンの上限）';
+
+  @override
+  String get backgroundHoldStopped => '未配信（返信を停止）';
+
+  @override
+  String get backgroundHoldInterrupted => '未配信（返信が中断）';
+
+  @override
+  String get backgroundHoldFailed => '未配信（返信に失敗）';
+
+  @override
+  String get continuationRefused => '続行されませんでした';
+
+  @override
+  String get continuationPlan => 'プランモードでは続行されません';
+
+  @override
+  String get continuationChild => 'サブタスクは続行されません';
+
+  @override
+  String get continuationArchived => 'アーカイブ済みのチャットは続行されません';
+
+  @override
+  String get continuationWorktree => '続行されません（ワークツリーがありません）';
+
+  @override
+  String get continuationQueuePaused => '続行されません（キューは一時停止中）';
+
+  @override
+  String get continuationQueuedInput => '続行されません（キューにメッセージあり）';
+
+  @override
+  String get continuationRunning => '続行されません（返信を実行中）';
+
+  @override
+  String get continuationInteraction => '続行されません（対応待ちのリクエストあり）';
+
+  @override
+  String get continuationLimit => '自動ターンの上限に達しました';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return '自動ターンの上限に達しました · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => '続行されません（チャットが先に進みました）';
+
+  @override
+  String get conversationContextOverflow => 'モデルのコンテキスト上限を超えました';
+
+  @override
+  String get conversationOutputLimit => '出力上限で返信が打ち切られました';
 }

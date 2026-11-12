@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/message_data.dart';
@@ -185,5 +186,16 @@ void main() {
     ]) {
       run(caseName);
     }
+  });
+
+  // The suite has no widget harness; the card is the only approval surface,
+  // so its source must hold no serializer for a call's arguments.
+  test('an approval card never prints a tool\'s raw arguments', () {
+    final source = File(
+      'lib/features/conversations/live/tool_record.dart',
+    ).readAsStringSync();
+    expect(source, isNot(contains('dart:convert')));
+    expect(source, isNot(contains('JsonEncoder')));
+    expect(source, isNot(contains('jsonEncode')));
   });
 }

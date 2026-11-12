@@ -5033,6 +5033,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Speed'**
   String get modelFeatureSpeed;
+
+  /// No description provided for @queueHaltStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped · {count} queued'**
+  String queueHaltStopped(String count);
+
+  /// No description provided for @queueHaltInterrupted.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply interrupted · {count} queued'**
+  String queueHaltInterrupted(String count);
+
+  /// No description provided for @queueHaltUnsent.
+  ///
+  /// In en, this message translates to:
+  /// **'Message not sent · {count} queued'**
+  String queueHaltUnsent(String count);
+
+  /// No description provided for @backgroundHeld.
+  ///
+  /// In en, this message translates to:
+  /// **'Result not delivered'**
+  String get backgroundHeld;
+
+  /// No description provided for @backgroundHoldLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Not delivered; turn limit reached'**
+  String get backgroundHoldLimit;
+
+  /// No description provided for @backgroundHoldStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Not delivered; reply stopped'**
+  String get backgroundHoldStopped;
+
+  /// No description provided for @backgroundHoldInterrupted.
+  ///
+  /// In en, this message translates to:
+  /// **'Not delivered; reply interrupted'**
+  String get backgroundHoldInterrupted;
+
+  /// No description provided for @backgroundHoldFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Not delivered; reply failed'**
+  String get backgroundHoldFailed;
+
+  /// No description provided for @continuationRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued'**
+  String get continuationRefused;
+
+  /// No description provided for @continuationPlan.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued in Plan mode'**
+  String get continuationPlan;
+
+  /// No description provided for @continuationChild.
+  ///
+  /// In en, this message translates to:
+  /// **'A subtask is not continued'**
+  String get continuationChild;
+
+  /// No description provided for @continuationArchived.
+  ///
+  /// In en, this message translates to:
+  /// **'An archived chat is not continued'**
+  String get continuationArchived;
+
+  /// No description provided for @continuationWorktree.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued; worktree missing'**
+  String get continuationWorktree;
+
+  /// No description provided for @continuationQueuePaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued; queue paused'**
+  String get continuationQueuePaused;
+
+  /// No description provided for @continuationQueuedInput.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued; messages queued'**
+  String get continuationQueuedInput;
+
+  /// No description provided for @continuationRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued; a reply is running'**
+  String get continuationRunning;
+
+  /// No description provided for @continuationInteraction.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued; a request awaits you'**
+  String get continuationInteraction;
+
+  /// No description provided for @continuationLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic turn limit reached'**
+  String get continuationLimit;
+
+  /// No description provided for @continuationLimitCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic turn limit reached · {count}/{limit}'**
+  String continuationLimitCount(String count, String limit);
+
+  /// No description provided for @continuationStale.
+  ///
+  /// In en, this message translates to:
+  /// **'Not continued; the chat has moved on'**
+  String get continuationStale;
+
+  /// No description provided for @conversationContextOverflow.
+  ///
+  /// In en, this message translates to:
+  /// **'Model context limit exceeded'**
+  String get conversationContextOverflow;
+
+  /// No description provided for @conversationOutputLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply cut at the output limit'**
+  String get conversationOutputLimit;
 }
 
 class _AppLocalizationsDelegate

@@ -89,6 +89,7 @@ func (r *Runtime) initNodeSettings() {
 		SubmitLogin:    func(callback string) { on(func(owner *Runtime) { owner.submitProviderLogin(callback) }) },
 		CancelLogin:    func() { on(func(owner *Runtime) { owner.cancelProviderLogin() }) },
 		RefreshCatalog: func() { on(func(owner *Runtime) { owner.refreshModelCatalog() }) },
+		Usage:          r.providerUsage,
 	}
 	m.TeamActions = &settings.TeamActions{
 		SaveConcurrency: func() { on(func(owner *Runtime) { owner.saveConcurrency() }) },

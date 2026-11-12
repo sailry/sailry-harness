@@ -255,7 +255,13 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 			b.Children(func() {
 				kit.MediaRow(c, ch.Name, desc, func() { kit.Tile(c, ch.Name, channelMark(ch)) }, nil)
 			})
-			if ch.Quota != nil && ch.Auth == preview.AuthOAuth {
+			var usage *ChannelUsage
+			if m.Live && m.ProviderActions.Usage != nil {
+				usage = m.ProviderActions.Usage(c, ch.ID)
+			}
+			if usage != nil {
+				channelUsage(c, ch, usage)
+			} else if ch.Quota != nil && ch.Auth == preview.AuthOAuth {
 				ui.Column(c.Key("usage")).Shrink(0).Gap(2).Opacity(enabledOpacity(ch.Enabled)).Children(func() {
 					for _, w := range []struct {
 						key string
@@ -287,6 +293,42 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 			channelModels(c, ch)
 		}
 	})
+}
+
+// channelUsageValue is the least width of a meter's value, which holds a
+// percentage with two decimals (list.rs PERCENT).
+const channelUsageValue = 36
+
+// channelUsage is the provider slot in the channel's row, where the login
+// quota is and in its place (settings/providers/list.rs provider_usage): the
+// account figure a package publishes for the channel, as up to two meters or
+// one value after the figure's icon, with every figure in a card on hover.
+// The meters are the login quota's. A meter under a fifth is not tinted as a
+// warning, as the login quota's is not here, and a value without a declared
+// icon has none, where the reference draws coins.
+func channelUsage(c *ui.Context, ch *preview.Channel, usage *ChannelUsage) {
+	p := theme.Of(c)
+	column := ui.Column(c.Key("usage")).Shrink(0).Gap(2).AlignItems(ui.End).Opacity(enabledOpacity(ch.Enabled))
+	column.Children(func() {
+		for i, line := range usage.Lines {
+			ui.Row(c.Key(i)).Gap(6).AlignItems(ui.Center).Children(func() {
+				if !line.Meter {
+					if usage.Icon != nil {
+						ui.Icon(c, usage.Icon).FontSize(14).TextColor(p.MutedForeground)
+					}
+					ui.Text(c, line.Value).FontSize(14).SingleLine().FontFeatures("tnum")
+					return
+				}
+				ui.Text(c, line.Label).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+				ui.Progress(c, line.Progress/100).Width(64).Height(4).Label(line.Label)
+				ui.Text(c, line.Value).FontSize(12).SingleLine().MinWidth(channelUsageValue).TextAlign(ui.End).
+					FontFeatures("tnum").TextColor(p.MutedForeground)
+			})
+		}
+	})
+	if usage.Card != nil {
+		usage.Card(c, column)
+	}
 }
 
 // channelModels is the default model first, then the others, as chips, at

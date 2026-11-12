@@ -2614,4 +2614,85 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => 'Tempo';
+
+  @override
+  String queueHaltStopped(String count) {
+    return 'Gestoppt · $count in der Warteschlange';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return 'Antwort unterbrochen · $count in der Warteschlange';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return 'Nachricht nicht gesendet · $count in der Warteschlange';
+  }
+
+  @override
+  String get backgroundHeld => 'Ergebnis nicht zugestellt';
+
+  @override
+  String get backgroundHoldLimit => 'Nicht zugestellt; Turn-Limit erreicht';
+
+  @override
+  String get backgroundHoldStopped => 'Nicht zugestellt; Antwort gestoppt';
+
+  @override
+  String get backgroundHoldInterrupted =>
+      'Nicht zugestellt; Antwort unterbrochen';
+
+  @override
+  String get backgroundHoldFailed => 'Nicht zugestellt; Antwort fehlgeschlagen';
+
+  @override
+  String get continuationRefused => 'Nicht fortgesetzt';
+
+  @override
+  String get continuationPlan => 'Im Planmodus nicht fortgesetzt';
+
+  @override
+  String get continuationChild => 'Unteraufgaben werden nicht fortgesetzt';
+
+  @override
+  String get continuationArchived =>
+      'Archivierte Chats werden nicht fortgesetzt';
+
+  @override
+  String get continuationWorktree => 'Nicht fortgesetzt; Worktree fehlt';
+
+  @override
+  String get continuationQueuePaused =>
+      'Nicht fortgesetzt; Warteschlange angehalten';
+
+  @override
+  String get continuationQueuedInput =>
+      'Nicht fortgesetzt; Nachrichten in der Warteschlange';
+
+  @override
+  String get continuationRunning => 'Nicht fortgesetzt; eine Antwort läuft';
+
+  @override
+  String get continuationInteraction =>
+      'Nicht fortgesetzt; eine Anfrage wartet auf Sie';
+
+  @override
+  String get continuationLimit => 'Limit automatischer Turns erreicht';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return 'Limit automatischer Turns erreicht · $count/$limit';
+  }
+
+  @override
+  String get continuationStale =>
+      'Nicht fortgesetzt; der Chat ist weitergegangen';
+
+  @override
+  String get conversationContextOverflow =>
+      'Kontextlimit des Modells überschritten';
+
+  @override
+  String get conversationOutputLimit => 'Antwort am Ausgabelimit abgeschnitten';
 }
