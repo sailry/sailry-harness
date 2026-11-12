@@ -56,7 +56,7 @@
             "worktrees.write",
             "process.read",
             "process.control",
-     "process.run",
+            "process.run",
             "terminals.read",
             "terminals.control",
             "conversation.read",
@@ -79,6 +79,53 @@
           "type": "string"
         }
       ]
+    },
+    "AgentProgram": {
+      "additionalProperties": false,
+      "description": "An Agent Client Protocol agent used as a plain model.",
+      "properties": {
+        "auth_method": {
+          "type": "string"
+        },
+        "efforts": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Effort level to model identifier suffix.",
+          "type": "object"
+        },
+        "failure_markers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "model_argument": {
+          "default": false,
+          "type": "boolean"
+        },
+        "program": {
+          "type": "string"
+        },
+        "replay_bytes": {
+          "maximum": 8388608,
+          "minimum": 4096,
+          "type": "integer"
+        },
+        "sign_in": {
+          "type": "string"
+        },
+        "system_meta": {
+          "description": "Dotted _meta path of session/new that takes the system text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "program",
+        "replay_bytes",
+        "sign_in"
+      ],
+      "type": "object"
     },
     "Align": {
       "enum": [
@@ -1485,6 +1532,9 @@
     "Declaration5": {
       "additionalProperties": false,
       "properties": {
+        "acp": {
+          "$ref": "#/$defs/AgentProgram"
+        },
         "capabilities": {
           "$ref": "#/$defs/Capabilities",
           "default": {
@@ -1520,7 +1570,6 @@
       },
       "required": [
         "id",
-        "script",
         "origins",
         "framing"
       ],
@@ -3036,6 +3085,62 @@
       ],
       "type": "object"
     },
+    "Program": {
+      "additionalProperties": false,
+      "description": "An installed executable the Node starts for the package.",
+      "properties": {
+        "args": {
+          "description": "Fixed arguments; {dir} and {model} are filled by the Node.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "description": "An executable name the Node resolves on its own search path.",
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Variables the Node does not own; {dir} and {key} are filled by the Node.",
+          "type": "object"
+        },
+        "files": {
+          "description": "Files written into the program directory before each start.",
+          "items": {
+            "$ref": "#/$defs/ProgramFile"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "args"
+      ],
+      "type": "object"
+    },
+    "ProgramFile": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "type": "object"
+    },
     "Prompt": {
       "additionalProperties": false,
       "properties": {
@@ -4055,6 +4160,14 @@
       "items": {
         "$ref": "#/$defs/Contribution"
       },
+      "type": "array"
+    },
+    "programs": {
+      "description": "Installed executables the Node may start for the package.",
+      "items": {
+        "$ref": "#/$defs/Program"
+      },
+      "maxItems": 4,
       "type": "array"
     },
     "scope": {

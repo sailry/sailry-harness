@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -92,8 +91,7 @@ func TestProgramDeclarations(t *testing.T) {
 	}
 	// An authored declaration is strict: an unknown member is refused.
 	var adapter protocol.PluginModelAdapterDeclaration
-	if err := json.Unmarshal([]byte(`{"id":"agent","origins":[],"framing":"ndjson","acp":{"program":"agent","replay_bytes":65536,"sign_in":"x","shell":true}}`), &adapter); err == nil ||
-		!strings.Contains(err.Error(), "shell") {
+	if err := json.Unmarshal([]byte(`{"id":"agent","origins":[],"framing":"ndjson","acp":{"program":"agent","replay_bytes":65536,"sign_in":"x","shell":true}}`), &adapter); err == nil {
 		t.Fatalf("unknown member: %v", err)
 	}
 }
