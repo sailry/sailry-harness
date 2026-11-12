@@ -2225,3 +2225,7 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: リンクアドレス
+content_link_edit: リンクを編集
+content_image_address: 画像アドレス
+content_image_alt: 代替テキスト

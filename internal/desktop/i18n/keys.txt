@@ -2237,3 +2237,7 @@ backup_restart_restored
 backup_restart_consequence
 backup_restart_invalid
 backup_restart_failed
+content_link_address
+content_link_edit
+content_image_address
+content_image_alt

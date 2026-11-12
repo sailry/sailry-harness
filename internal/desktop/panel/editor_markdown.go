@@ -115,12 +115,25 @@ func editMarkdownSource(source string, selection editor.Selection, action, value
 	return source[:lineStart] + text + source[lineEnd:], editor.Selection{Anchor: lineStart, Head: lineStart + len(text)}
 }
 
+// markdownImage is an image's Markdown: its alt text with the brackets
+// that would end it escaped, and its address, in angle brackets when it
+// has a space or a parenthesis.
+func markdownImage(address, alt string) string {
+	address = strings.TrimSpace(address)
+	if strings.ContainsAny(address, " ()") {
+		address = "<" + address + ">"
+	}
+	alt = strings.NewReplacer(`\`, `\\`, "[", `\[`, "]", `\]`, "\n", " ").Replace(strings.TrimSpace(alt))
+	return "![" + alt + "](" + address + ")"
+}
+
 func markdownInsertion(kind, value string) string {
 	switch kind {
 	case "table":
 		return "|  |  |\n| --- | --- |\n|  |  |"
 	case "image":
-		return "![](" + value + ")"
+		// The caller's markdownImage.
+		return value
 	case "rule":
 		return "---"
 	case "code":
