@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -24,7 +25,11 @@ type NativeBinding struct {
 	Components         []NativeComponent
 	ChooseSecretFile   func(context.Context, string) ([]byte, string, error)
 	Header             func(json.RawMessage) error
-	state              *nativeState
+	// Models are the Node's models as the application names them: a
+	// ModelPopup shows the names, marks and scores of the ones its catalog
+	// lists. Without it a model shows under its catalog's own identifiers.
+	Models func() []kit.ModelOption
+	state  *nativeState
 }
 
 type nativeState struct {

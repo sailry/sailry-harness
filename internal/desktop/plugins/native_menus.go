@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -255,51 +256,52 @@ func (binding *NativeBinding) renderAppearance(view *ui.Context, identity string
 func (binding *NativeBinding) renderModelPopup(view *ui.Context, identity string, props map[string]json.RawMessage) (ui.Element, error) {
 	catalog := nativeProp(props, "catalog", map[string]json.RawMessage{})
 	models := nativeProp(catalog, "models", []map[string]json.RawMessage{})
-	selected := nativeProp[*string](props, "selected", nil)
-	label := nativeProp(props, "label", "")
-	title := nativeProp(props, "placeholder", "")
-	for _, model := range models {
-		if selected != nil && nativeProp(model, "id", "") == *selected {
-			title = nativeProp(model, "name", *selected)
-		}
+	// The catalog's provider models as kit.ModelSelect offers them: under
+	// the application's names, marks and scores where it knows them
+	// (NativeBinding.Models), else under the catalog's provider and model.
+	// An effort is named by its text and sent as the catalog has it.
+	var known []kit.ModelOption
+	if binding.Models != nil {
+		known = binding.Models()
 	}
-	return kit.MenuButton(view, identity, func(button ui.Element) {
-		// The reference's trigger: a full-width outline button, its title
-		// taking the row before the chevron.
-		disabled := nativeProp(props, "disabled", false)
-		kit.SecondaryLook(view, button.Label(label).Disabled(disabled)).FillWidth().Gap(8).Children(func() {
-			nativeText(view, title).SingleLine().Grow(1).Basis(0).MinWidth(0)
-			ui.Icon(view, icons.ChevronDown).FontSize(14).Shrink(0)
-		})
-		if disabled {
-			button.Opacity(0.5)
+	level := func(effort json.RawMessage) string {
+		text := string(effort)
+		_ = json.Unmarshal(effort, &text)
+		return text
+	}
+	var offered []kit.ModelOption
+	sent := map[string]map[string]json.RawMessage{}
+	for _, model := range models {
+		if nativeProp(model, "kind", "") != "provider" {
+			continue
 		}
-	}, func(menu *kit.Menu) {
-		for _, model := range models {
-			if nativeProp(model, "kind", "") != "provider" {
-				continue
-			}
-			modelID := nativeProp(model, "id", "")
-			name := nativeProp(model, "name", modelID)
-			efforts := nativeProp(model, "efforts", []json.RawMessage{})
-			choose := func(effort any) {
-				binding.emit("control", map[string]any{"id": identity, "value": map[string]any{"model": modelID, "effort": effort}})
-			}
-			if len(efforts) == 0 {
-				if menu.Item(name).Checked(selected != nil && *selected == modelID).Chosen() {
-					choose(nil)
-				}
-				continue
-			}
-			menu.Submenu(name, func(sub *kit.Menu) {
-				for _, effort := range efforts {
-					text := string(effort)
-					_ = json.Unmarshal(effort, &text)
-					if sub.Item(text).Chosen() {
-						choose(effort)
-					}
-				}
-			})
+		id := nativeProp(model, "id", "")
+		option := kit.ModelOption{ID: id, Name: nativeProp(model, "name", nativeProp(model, "model", id)), Provider: nativeProp(model, "provider", "")}
+		if at := slices.IndexFunc(known, func(named kit.ModelOption) bool { return named.ID == id }); at >= 0 {
+			option.Name, option.Mark, option.Score = known[at].Name, known[at].Mark, known[at].Score
 		}
-	}), nil
+		sent[id] = map[string]json.RawMessage{}
+		for _, effort := range nativeProp(model, "efforts", []json.RawMessage{}) {
+			option.Efforts = append(option.Efforts, level(effort))
+			sent[id][level(effort)] = effort
+		}
+		option.DefaultEffort = level(model["default_effort"])
+		offered = append(offered, option)
+	}
+	selection := kit.ModelSelectProps{
+		Label: nativeProp(props, "label", ""), Placeholder: nativeProp(props, "placeholder", ""), Models: offered,
+		Effort: level(props["effort"]), Disabled: nativeProp(props, "disabled", false),
+		OnChange: func(model, effort string) {
+			// A model without efforts sends none, as its menu item did.
+			var value any
+			if raw, listed := sent[model][effort]; listed {
+				value = raw
+			}
+			binding.emit("control", map[string]any{"id": identity, "value": map[string]any{"model": model, "effort": value}})
+		},
+	}
+	if selected := nativeProp[*string](props, "selected", nil); selected != nil {
+		selection.Model = *selected
+	}
+	return kit.ModelSelect(view.Key(identity), selection).FillWidth(), nil
 }
