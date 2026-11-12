@@ -122,6 +122,30 @@ func NewCatalog(remote bool) *Catalog {
 // Home is the home directory of the tree's account, where its picker opens.
 func (c *Catalog) Home() string { return c.home }
 
+// Expand is path with a leading "~" as the account's home, the way the
+// sample projects write their directories.
+func (c *Catalog) Expand(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		return c.home + path[1:]
+	}
+	return path
+}
+
+// Add puts a directory, or a file of a size, in the tree with the
+// directories that lead to it: the sample projects and their files, so the
+// picker shows what the window's own data names.
+func (c *Catalog) Add(path string, file bool, size uint64, modified time.Time) {
+	for dir := parent(path); dir != ""; dir = parent(dir) {
+		if _, ok := c.entries[dir]; !ok {
+			c.entries[dir] = sample{modified: modified}
+		}
+	}
+	c.entries[path] = sample{file: file, size: size, modified: modified}
+}
+
+// Size is the size of the file at path, 0 for a directory or nothing.
+func (c *Catalog) Size(path string) uint64 { return c.entries[path].size }
+
 // Source is the catalog as a picker's host.
 func (c *Catalog) Source() Source {
 	return Source{

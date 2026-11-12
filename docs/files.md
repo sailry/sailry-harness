@@ -79,12 +79,14 @@ Callers, the reference's and ours:
 | Open folder (`menu_open_folder`) | Directory on the shown host | `sidebar.State.OpenFolder`; opens the registered project or adds one, the picker staying open while it saves |
 | Settings › Backup, local directory | Directory on the shown host | `live.Runtime.chooseDirectory` through `settings.BackupActions.ChooseFolder` |
 | (ours) Settings › Plugins, Install: package path | One file on the controller's machine | `live.Runtime.chooseFile` through `settings.PackageActions.Browse`: the package is read on this machine before its upload, so the picker browses the local Node whichever host is shown. It chooses a ZIP archive; a package directory is still typed |
+| (ours) Composer, Add attachment and the `@` picker's Attach files | Several files on the controller's machine | `live.Runtime.chooseAttachments` through `composer.AttachmentCallbacks.Pick` and `sidebar.State.ChooseFiles`: an attachment is read on this machine before its upload, so the picker browses the local Node whichever Host the conversation runs on, from the conversation's worktree when that is local. The preview and Demo mode open it on the sample tree (`shell.App.sampleAttach`) |
 | Documents plugin, Markdown image (`content_image_choose`) | One file | Not wired: the Go editor's image prompt (`files_insert_image`) takes an address and alt text and has no Choose file button |
 
-Everything else that takes a path in the reference (attachments, SSH keys,
-imports, exports, package installs) uses the system's dialogs there and here.
-The multi-file mode has no caller in the reference or here. Not ported, having
-no caller: the Save mode.
+Everything else that takes a path in the reference (SSH keys, imports,
+exports, theme and package archives, workspace uploads, backup restores)
+uses the system's dialogs there and here. Attachments use the system's dialog
+in the reference (`choose_attachments`) and the in-app picker here, its
+multi-file mode's one caller. Not ported, having no caller: the Save mode.
 
 Deviations from the reference, by the user's decision of November 11, 2026:
 the rows take the look of CrychicUI's `files.FileList` without its module: a
@@ -131,6 +133,12 @@ By the user's decision of November 12, 2026:
   them.
 - The demo (`kit.Demo`) shows no `directory_preview` notice; the plain
   preview keeps it.
+- The composer's Add attachment opens this picker in `Files` mode, titled
+  `composer_attachment` with `directory_open` to confirm, where the
+  reference opens the system's dialog: one picker for every file the window
+  chooses from a conversation or a form. The composer's own dialog (Back,
+  Forward, Up, crumbs, filter and a table over `composer.Context.Files`),
+  which only the preview and Demo mode showed, is removed.
 
 ### Locations and devices
 
@@ -176,7 +184,12 @@ local one is a macOS home, `/Users/alex`, with Home, Desktop, Documents,
 Downloads and Applications and the devices `Macintosh HD` (`/`) and `Backup`
 (`/Volumes/Backup`, external); the remote one is a Linux home,
 `/home/alex`, with Home, Documents and Downloads and the devices Root and
-`data` (`/mnt/data`).
+`data` (`/mnt/data`). `sidebar.State.Catalog` adds the directories of the
+host's sample projects, a leading `~` being the account's home
+(`Catalog.Expand`), and under the project the right panel shows, that
+panel's files with made-up sizes (`Catalog.Add`): the demo's `harbor-api`
+opens with `cmd`, `docs`, `internal`, `go.mod` and `README.md`, and the
+sidebar's Projects group lists the sample projects.
 
 ## Transfers
 

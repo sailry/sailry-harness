@@ -269,6 +269,37 @@ func (a *App) sampleComposer(cv *viewmodel.Conversation, comp *composer.State) *
 	return preview.Composer(a.Data, cv, comp.Worktree)
 }
 
+// sampleAttach opens the window's file picker for a sample conversation's
+// Add attachment, on the sample tree of this device: the conversation's
+// project directory first, where the tree holds it. The chosen files become
+// the draft's cards with the tree's sizes; nothing is read or sent.
+func (a *App) sampleAttach(c *ui.Context, cv *viewmodel.Conversation, comp *composer.State, act composer.Actions) {
+	pr := a.Data.ProjectOf(cv.ID)
+	host := a.Host
+	if pr != nil {
+		host = pr.Host
+	}
+	for _, h := range a.Data.Hosts {
+		if h.Local {
+			host = h.ID
+			break
+		}
+	}
+	initial := ""
+	if pr != nil && pr.Host == host {
+		initial = pr.Path
+	}
+	a.Sidebar.ChooseFiles(c, host, initial, func(paths []string) {
+		before := len(comp.Attachments)
+		comp.AttachPaths(c, paths, act)
+		if catalog := a.Sidebar.Catalog(host); catalog != nil {
+			for _, added := range comp.Attachments[before:] {
+				added.Size = int64(catalog.Size(added.Path))
+			}
+		}
+	})
+}
+
 // sampleLink opens a link or a file path of a sample conversation's content
 // (conversation.State.OpenLink), the preview's or the demo's. A web address
 // opens a browser tab of the right panel, which loads nothing, and in the

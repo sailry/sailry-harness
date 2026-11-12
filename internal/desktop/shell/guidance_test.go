@@ -97,6 +97,7 @@ func TestComposerGuidesRunningTurn(t *testing.T) {
 		t.Error("Withdraw stays after withdrawing")
 	}
 	t.Run("composer parity", composerParity)
+	t.Run("attachment picker", attachmentPicker)
 }
 
 // Send now joins a queued message to the running reply without stopping

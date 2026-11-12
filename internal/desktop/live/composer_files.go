@@ -34,7 +34,7 @@ func (r *Runtime) projectComposerFiles(cv *viewmodel.Conversation, comp *compose
 			})
 		}
 	}
-	if !ctx.Readonly && r.attachments != nil && r.attachments.native.PickFiles != nil {
+	if !ctx.Readonly && r.attachments != nil {
 		ctx.References = append(ctx.References, composer.Reference{ID: "attach", Kind: composer.AttachFiles, Label: "composer_attachment", Key: true, Group: "reference_group_attach", Icon: icons.Plus})
 	}
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// The draft's files: chosen in the file picker, dropped on the surface or
+// The draft's files: chosen in the window's file picker, dropped on the surface or
 // pasted, each a card in a row over the draft, a picture's showing its
 // thumbnail, with its transfer's progress, Retry once it failed and Remove. A
 // message carries up to MaxAttachments.

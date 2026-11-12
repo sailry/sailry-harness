@@ -278,7 +278,7 @@ func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference
 		s.compact(ctx, actions, focus)
 	case AttachFiles:
 		s.replace("")
-		s.openFiles(ctx)
+		s.openFiles(c, ctx)
 	default:
 		if r.Kind == Database && r.Key && r.Insert != "" {
 			// Select current: the database page itself.

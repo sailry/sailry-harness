@@ -625,6 +625,9 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
 	}
 	var act ConversationActions = &actions{a: a, c: c, cv: cv, comp: comp}
+	if a.sampled() {
+		comp.SetAttachmentCallbacks(&composer.AttachmentCallbacks{Pick: func() { a.sampleAttach(c, cv, comp, act) }})
+	}
 	if a.sampled() && a.transfers.Advance(comp.Attachments, c.Now()) {
 		c.After(preview.Tick)
 	}
