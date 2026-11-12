@@ -23,6 +23,9 @@ type interactionFlow struct {
 	settled map[string]bool
 	// failedDetails holds the approval details whose read failed.
 	failedDetails map[string]bool
+	// listed holds the approvals last drawn, a subagent's among them: the
+	// receipt of a decision is the card it was made on.
+	listed []composer.Approval
 }
 
 type interactionAttempt struct {
@@ -215,6 +218,7 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 		}
 	}
 	listed := map[string]bool{}
+	f.listed = ctx.Interactions.Approvals
 	approvals := make([]composer.Approval, 0, len(ctx.Interactions.Approvals))
 	for _, view := range ctx.Interactions.Approvals {
 		listed[view.ID] = true

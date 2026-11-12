@@ -150,7 +150,7 @@ func (x *conversationActions) Decide(id string, decision composer.Decision, reas
 		d.Kind, d.Data = "deny_with_reason", reason
 	}
 	attempt := &interactionAttempt{id: id, request: x.r.controller.Prepare(protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: approval.Session, Approval: approval.ID, Decision: d}})}
-	for _, view := range x.cv.Waiting.Approvals {
+	for _, view := range f.listed {
 		if view.ID == id {
 			attempt.receipt = view
 		}
