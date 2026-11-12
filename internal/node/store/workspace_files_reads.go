@@ -24,7 +24,7 @@ func ReadWorkspaceRoot(ctx context.Context, db *sql.Conn, worktree protocol.Work
 }
 func SupportsFilesCommand(kind string) bool {
 	switch kind {
-	case "read_attachment", "discard_attachment", "finish_attachment_upload", "list_file_checkpoints", "read_file_checkpoint", "read_turn_diff", "read_turn_hunks", "read_artifact", "list_artifacts", "list_artifact_revisions":
+	case "read_attachment", "discard_attachment", "finish_attachment_upload", "list_file_checkpoints", "read_turn_diff", "read_turn_hunks", "read_artifact", "list_artifacts", "list_artifact_revisions":
 		return true
 	}
 	return false
@@ -39,10 +39,6 @@ func ReadFilesCommand(ctx context.Context, db *sql.Conn, caller protocol.NodeID,
 		v := request.Command.Data.(*protocol.CommandListFileCheckpointsPayload)
 		value, err := ListFileCheckpoints(ctx, db, v.Session, v.Turn, v.Before, v.Limit)
 		return protocol.Output{Kind: "file_checkpoints", Data: value}, err
-	case "read_file_checkpoint":
-		v := request.Command.Data.(*protocol.CommandReadFileCheckpointPayload)
-		value, err := ReadFileCheckpoint(ctx, db, v.Session, v.Checkpoint)
-		return protocol.Output{Kind: "file_checkpoint", Data: value}, err
 	case "read_turn_diff":
 		v := request.Command.Data.(*protocol.CommandReadTurnDiffPayload)
 		value, err := ReadTurnDiff(ctx, db, v.Session, v.Turn)

@@ -13,7 +13,7 @@ import (
 
 func SupportsProviderCommand(kind string) bool {
 	switch kind {
-	case "list_providers", "read_provider_key", "put_provider", "save_provider", "remove_provider", "list_credentials", "read_catalog_status", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models":
+	case "list_providers", "read_provider_key", "put_provider", "save_provider", "remove_provider", "list_credentials", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models":
 		return true
 	}
 	return false
@@ -378,9 +378,6 @@ func ReadProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	case "list_credentials":
 		values, err := providerCredentials(ctx, db)
 		return protocol.Output{Kind: "credentials", Data: values}, err
-	case "read_catalog_status":
-		status, err := ReadProviderCatalogStatus(ctx, db)
-		return protocol.Output{Kind: "catalog_status", Data: status}, err
 	case "read_model_catalog":
 		input, err := providerPayload[protocol.ConversationCatalogQuery](command)
 		if err != nil {
