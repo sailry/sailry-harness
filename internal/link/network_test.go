@@ -509,6 +509,89 @@ func TestServerPreservesTransientRejection(t *testing.T) {
 	if reply.Kind != wire.ReplyRejected || reply.Rejected.Code != protocol.ErrorCodeNotFound {
 		t.Fatalf("transient rejection: %#v", reply)
 	}
+	// A command this build does not declare, such as one removed from the
+	// contract, never reaches the handler. While the request's identity
+	// decodes the peer is answered with a rejection, as for any refusal before
+	// admission; a frame whose identity does not decode is refused and the
+	// stream closes without a reply.
+	t.Run("undeclared_command_is_not_dispatched", func(t *testing.T) {
+		link := newFixtureLink(t)
+		link.trusted[caller] = true
+		envelope, err := json.Marshal(link.envelope(wire.Call{Kind: wire.CallCommand, Request: &request}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		declared := `"command":{"kind":"snapshot"}`
+		identity := `"id":"` + request.ID.String() + `"`
+		serve := func(t *testing.T, peer protocol.NodeID, old, replacement string) (error, []byte) {
+			t.Helper()
+			changed := bytes.Replace(envelope, []byte(old), []byte(replacement), 1)
+			if bytes.Equal(changed, envelope) {
+				t.Fatalf("envelope has no %s to replace: %s", old, envelope)
+			}
+			var incoming bytes.Buffer
+			if err := wire.Write(&incoming, json.RawMessage(changed), false); err != nil {
+				t.Fatal(err)
+			}
+			stream := newFixtureStream(incoming.Bytes())
+			link.handler = fixtureHandler{dispatch: func(context.Context, protocol.NodeID, protocol.Request) (Admission, error) {
+				t.Errorf("%s was dispatched", replacement)
+				return Admission{}, nil
+			}}
+			var compression atomic.Bool
+			err := link.serveRequest(t.Context(), peer, stream, make(chan struct{}, maxStreams-8), &compression)
+			return err, stream.written()
+		}
+		rejection := func(t *testing.T, peer protocol.NodeID, old, replacement string) protocol.Fault {
+			t.Helper()
+			err, written := serve(t, peer, old, replacement)
+			if err != nil {
+				t.Fatalf("%s: %v", replacement, err)
+			}
+			reader := bytes.NewReader(written)
+			var reply wire.Reply
+			if err := wire.Read(reader, &reply, false); err != nil || reply.Kind != wire.ReplyRejected || reply.Rejected == nil || reader.Len() != 0 {
+				t.Fatalf("%s: reply %#v, %v, %d bytes left", replacement, reply, err, reader.Len())
+			}
+			return *reply.Rejected
+		}
+		for _, command := range []string{
+			`"command":{"kind":"set_defaults","data":{}}`,
+			`"command":{"kind":"future_command","data":{}}`,
+			`"command":{"kind":"future_command"}`,
+			`"command":{"kind":"inspect_request","data":{"id":7}}`,
+			`"command":{"kind":"snapshot","data":{}}`,
+			`"command":7`,
+		} {
+			if fault := rejection(t, caller, declared, command); fault.Code != protocol.ErrorCodeInvalidRequest || fault.Message != "invalid command" {
+				t.Fatalf("%s: %#v", command, fault)
+			}
+		}
+		// The sender reads that rejection as a definite refusal, not as a
+		// request that may have been admitted.
+		_, written := serve(t, caller, declared, `"command":{"kind":"future_command","data":{}}`)
+		sender := newFixtureStream(written)
+		var refused *protocol.Fault
+		if _, err := link.Remote(EndpointAddress{ID: protocol.NodeID{1}}).dispatchStream(t.Context(), request, sender, false); !errors.As(err, &refused) || refused.Code != protocol.ErrorCodeInvalidRequest {
+			t.Fatalf("sender read %v", err)
+		}
+		// A peer that is no longer paired learns nothing about the command.
+		if fault := rejection(t, protocol.NodeID{3}, declared, `"command":{"kind":"future_command","data":{}}`); fault.Code != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("unpaired peer: %#v", fault)
+		}
+		for _, change := range [][2]string{
+			{identity, `"id":"not-an-identifier"`},
+			{identity, `"id":7`},
+			{identity + `,`, ``},
+			{`"kind":"command"`, `"kind":"future_call"`},
+			{declared, `"command":{"kind":"future_command"},"target":7`},
+		} {
+			err, written := serve(t, caller, change[0], change[1])
+			if fault := faultValue(err); err == nil || fault.Code != protocol.ErrorCodeInvalidRequest || fault.Message != "invalid Link frame" || len(written) != 0 {
+				t.Fatalf("%s: %v, %d bytes written", change[1], err, len(written))
+			}
+		}
+	})
 	t.Run("admitted_read_context_lives_through_completion", func(t *testing.T) {
 		link := newFixtureLink(t)
 		link.trusted[caller] = true

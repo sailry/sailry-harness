@@ -209,6 +209,11 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 		if p.KeyUrl != nil {
 			method.KeyURL = *p.KeyUrl
 		}
+		// A sign-in asks its warning before each attempt (beginProviderLogin);
+		// a method without one asks it when it is picked.
+		if method.Login == "" {
+			method.Warning = r.loginWarning(entry)
+		}
 		var static []string
 		if p.Models.Kind == "static" {
 			if models, ok := detail[protocol.ConversationPresetsModelsStaticPayload](p.Models.Data); ok {

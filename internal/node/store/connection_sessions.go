@@ -118,36 +118,3 @@ func connectionWorkspace(ctx context.Context, db *sql.Conn, profile string, reso
 	_, err = db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,NULL,?2,0)", id.String(), root)
 	return id, err
 }
-
-// bindConnectionSession turns an unused conversation into a connection
-// conversation. The binding is immutable afterwards.
-func bindConnectionSession(ctx context.Context, db *sql.Conn, profile string, input protocol.CommandBindConnectionSessionPayload) (protocol.Output, []protocol.Event, error) {
-	session, err := ReadSession(ctx, db, input.Session)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	if err := checkRevision(session.Revision, input.ExpectedRevision); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	if session.Delegation != nil {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
-	}
-	var used bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM turns WHERE session=?1)", input.Session.String()).Scan(&used); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	if session.Config.Resource != nil || session.Config.Assistant != nil || used || session.Archived {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "only a new conversation can bind a connection")
-	}
-	session.Worktree, err = connectionWorkspace(ctx, db, profile, input.Resource)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	session.Project = nil
-	resource := input.Resource
-	session.Config.Resource = &resource
-	if _, err := db.ExecContext(ctx, "UPDATE sessions SET project=NULL WHERE id=?1", input.Session.String()); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	return reviseSession(ctx, db, session)
-}

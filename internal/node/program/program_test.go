@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,6 +19,32 @@ import (
 func TestMain(suite *testing.M) {
 	if mode, fixture := os.LookupEnv("PROGRAM_FIXTURE"); fixture {
 		directory, _ := os.Getwd()
+		if mode == "terminal" {
+			// A terminal echoes and edits lines until its program says otherwise.
+			// The fixture's search path holds only itself.
+			stty := "/bin/stty"
+			if _, err := os.Stat(stty); err != nil {
+				stty = "/usr/bin/stty"
+			}
+			settings := exec.Command(stty, "raw", "-echo")
+			settings.Stdin = os.Stdin
+			if err := settings.Run(); err != nil {
+				os.Exit(4)
+			}
+			size := exec.Command(stty, "size")
+			size.Stdin = os.Stdin
+			drawn, _ := size.Output()
+			fmt.Fprintf(os.Stdout, "%d|%s|%s|%s\n", os.Getpid(), directory, strings.TrimSpace(string(drawn)), os.Getenv("TERM"))
+			fmt.Fprintln(os.Stderr, "fixture diagnostic")
+			input := make([]byte, 256)
+			for {
+				count, err := os.Stdin.Read(input)
+				if err != nil {
+					return
+				}
+				fmt.Fprintf(os.Stdout, "keys %q\n", input[:count])
+			}
+		}
 		fmt.Fprintf(os.Stdout, "%d|%s|%s|%s\n", os.Getpid(), directory, strings.Join(os.Args[1:], " "), os.Getenv("PROGRAM_LEAK"))
 		fmt.Fprintln(os.Stderr, "fixture diagnostic")
 		if mode == "exit" {
@@ -140,6 +167,57 @@ func TestStart(t *testing.T) {
 			t.Fatal("a file escaped the program directory")
 		}
 	})
+}
+
+func TestStartTerminal(t *testing.T) {
+	if !Terminal {
+		if _, err := StartTerminal(Spec{}, 80, 24); !errors.Is(err, ErrNoTerminal) {
+			t.Fatalf("start without terminals: %v", err)
+		}
+		return
+	}
+	spec := fixtureSpec(t, "terminal")
+	spec.Env["TERM"] = "xterm-256color"
+	process, err := StartTerminal(spec, 200, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, reader, fields := started(t, process)
+	directory, _ := filepath.EvalSymlinks(spec.Dir)
+	reported, _ := filepath.EvalSymlinks(fields[1])
+	// The program has a terminal of the asked size, in its own directory.
+	if reported != directory || fields[2] != "50 200" || fields[3] != "xterm-256color" {
+		t.Fatalf("start = %q", fields)
+	}
+	// Its error output is drawn on the same terminal.
+	if line, err := reader.ReadString('\n'); err != nil || strings.TrimSpace(line) != "fixture diagnostic" {
+		t.Fatalf("error output = %q, %v", line, err)
+	}
+	// Keys reach it as they are typed, an escape sequence and Enter included.
+	if _, err := process.Stdin.Write([]byte("\x1b[200~hi\x1b[201~\r")); err != nil {
+		t.Fatal(err)
+	}
+	typed := ""
+	for !strings.HasSuffix(typed, `\r`) {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("keys = %q, %v", typed, err)
+		}
+		var keys string
+		if _, err := fmt.Sscanf(strings.TrimSpace(line), "keys %q", &keys); err != nil {
+			t.Fatalf("line = %q: %v", line, err)
+		}
+		typed += strings.ReplaceAll(keys, "\r", `\r`)
+	}
+	if typed != "\x1b[200~hi\x1b[201~"+`\r` {
+		t.Fatalf("keys = %q", typed)
+	}
+	process.Kill()
+	gone(t, pid)
+	// The Node's end closes with the program: a read ends instead of waiting.
+	if _, err := process.Stdout.Read(make([]byte, 1)); err == nil {
+		t.Fatal("the terminal stayed open")
+	}
 }
 
 func TestPool(t *testing.T) {

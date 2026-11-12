@@ -1,4 +1,4 @@
-// Code generated from the reviewed v1 protocol declarations. DO NOT EDIT.
+// Hand-maintained v1 protocol declarations; keep them consistent with the fixtures and tolerance tests.
 
 package protocol
 
@@ -3569,32 +3569,6 @@ func (value CommandListChannelPresetsPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-type CommandValidateProviderPayload struct {
-	Provider         ProviderID `json:"provider"`
-	ExpectedRevision uint64     `json:"expected_revision"`
-}
-
-func DefaultCommandValidateProviderPayload() CommandValidateProviderPayload {
-	return CommandValidateProviderPayload{
-		Provider:         ProviderID{},
-		ExpectedRevision: 0,
-	}
-}
-func (value *CommandValidateProviderPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandValidateProviderPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"provider", "expected_revision"}, false); err != nil {
-		return err
-	}
-	*value = CommandValidateProviderPayload(decoded)
-	return nil
-}
-func (value CommandValidateProviderPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandValidateProviderPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
 type CommandPutProviderPayload struct {
 	Provider         ConversationProvider `json:"provider"`
 	ExpectedRevision uint64               `json:"expected_revision"`
@@ -3956,32 +3930,6 @@ func (value *CommandListFileCheckpointsPayload) UnmarshalJSON(data []byte) error
 }
 func (value CommandListFileCheckpointsPayload) MarshalJSON() ([]byte, error) {
 	type plain CommandListFileCheckpointsPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
-type CommandReadFileCheckpointPayload struct {
-	Session    SessionID    `json:"session"`
-	Checkpoint CheckpointID `json:"checkpoint"`
-}
-
-func DefaultCommandReadFileCheckpointPayload() CommandReadFileCheckpointPayload {
-	return CommandReadFileCheckpointPayload{
-		Session:    SessionID{},
-		Checkpoint: CheckpointID{},
-	}
-}
-func (value *CommandReadFileCheckpointPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandReadFileCheckpointPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"session", "checkpoint"}, false); err != nil {
-		return err
-	}
-	*value = CommandReadFileCheckpointPayload(decoded)
-	return nil
-}
-func (value CommandReadFileCheckpointPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandReadFileCheckpointPayload
 	encoded := plain(value)
 	return json.Marshal(encoded)
 }
@@ -7769,64 +7717,6 @@ func (value CommandTrashFilePayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-type CommandPutCredentialPayload struct {
-	ID               CredentialID `json:"id"`
-	Provider         ProviderID   `json:"provider"`
-	ExpectedRevision uint64       `json:"expected_revision"`
-	Secret           Secret       `json:"secret"`
-	ExpiresAtMs      *uint64      `json:"expires_at_ms"`
-}
-
-func DefaultCommandPutCredentialPayload() CommandPutCredentialPayload {
-	return CommandPutCredentialPayload{
-		ID:               CredentialID{},
-		Provider:         ProviderID{},
-		ExpectedRevision: 0,
-		Secret:           Secret{},
-		ExpiresAtMs:      nil,
-	}
-}
-func (value *CommandPutCredentialPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandPutCredentialPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "provider", "expected_revision", "secret"}, false); err != nil {
-		return err
-	}
-	*value = CommandPutCredentialPayload(decoded)
-	return nil
-}
-func (value CommandPutCredentialPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandPutCredentialPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
-type CommandRevokeCredentialPayload struct {
-	ID               CredentialID `json:"id"`
-	ExpectedRevision uint64       `json:"expected_revision"`
-}
-
-func DefaultCommandRevokeCredentialPayload() CommandRevokeCredentialPayload {
-	return CommandRevokeCredentialPayload{
-		ID:               CredentialID{},
-		ExpectedRevision: 0,
-	}
-}
-func (value *CommandRevokeCredentialPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandRevokeCredentialPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"id", "expected_revision"}, false); err != nil {
-		return err
-	}
-	*value = CommandRevokeCredentialPayload(decoded)
-	return nil
-}
-func (value CommandRevokeCredentialPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandRevokeCredentialPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
 type CommandRegisterProjectPayload struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
@@ -7903,60 +7793,6 @@ func (value *CommandRemoveProjectPayload) UnmarshalJSON(data []byte) error {
 }
 func (value CommandRemoveProjectPayload) MarshalJSON() ([]byte, error) {
 	type plain CommandRemoveProjectPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
-type CommandSetDefaultsPayload struct {
-	ExpectedRevision uint64        `json:"expected_revision"`
-	Config           SessionConfig `json:"config"`
-}
-
-func DefaultCommandSetDefaultsPayload() CommandSetDefaultsPayload {
-	return CommandSetDefaultsPayload{
-		ExpectedRevision: 0,
-		Config:           DefaultSessionConfig(),
-	}
-}
-func (value *CommandSetDefaultsPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandSetDefaultsPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"expected_revision", "config"}, false); err != nil {
-		return err
-	}
-	*value = CommandSetDefaultsPayload(decoded)
-	return nil
-}
-func (value CommandSetDefaultsPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandSetDefaultsPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
-type CommandBindConnectionSessionPayload struct {
-	Session          SessionID          `json:"session"`
-	ExpectedRevision uint64             `json:"expected_revision"`
-	Resource         ConnectionResource `json:"resource"`
-}
-
-func DefaultCommandBindConnectionSessionPayload() CommandBindConnectionSessionPayload {
-	return CommandBindConnectionSessionPayload{
-		Session:          SessionID{},
-		ExpectedRevision: 0,
-		Resource:         ConnectionResource{},
-	}
-}
-func (value *CommandBindConnectionSessionPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandBindConnectionSessionPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"session", "expected_revision", "resource"}, false); err != nil {
-		return err
-	}
-	*value = CommandBindConnectionSessionPayload(decoded)
-	return nil
-}
-func (value CommandBindConnectionSessionPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandBindConnectionSessionPayload
 	encoded := plain(value)
 	return json.Marshal(encoded)
 }
@@ -8591,13 +8427,11 @@ var commandVariants = variantFactories{"write_artifact": func() any { return new
 	"begin_provider_login":             func() any { return new(CommandBeginProviderLoginPayload) },
 	"complete_provider_login":          func() any { return new(CommandCompleteProviderLoginPayload) },
 	"cancel_provider_login":            func() any { return new(CommandCancelProviderLoginPayload) },
-	"read_catalog_status":              nil,
 	"list_channel_presets":             func() any { return new(CommandListChannelPresetsPayload) },
 	"refresh_model_catalog":            nil,
 	"read_model_catalog":               func() any { return new(ConversationCatalogQuery) },
 	"read_model_scores":                func() any { return new([]ConversationCatalogScoresModelRef) },
 	"discover_models":                  func() any { return new(ConversationDiscoverySource) },
-	"validate_provider":                func() any { return new(CommandValidateProviderPayload) },
 	"put_provider":                     func() any { return new(CommandPutProviderPayload) },
 	"read_session":                     func() any { return new(CommandReadSessionPayload) },
 	"list_associated_sessions":         func() any { return new(CommandListAssociatedSessionsPayload) },
@@ -8613,7 +8447,6 @@ var commandVariants = variantFactories{"write_artifact": func() any { return new
 	"list_conversation_assets":         func() any { return new(CommandListConversationAssetsPayload) },
 	"search_conversation":              func() any { return new(CommandSearchConversationPayload) },
 	"list_file_checkpoints":            func() any { return new(CommandListFileCheckpointsPayload) },
-	"read_file_checkpoint":             func() any { return new(CommandReadFileCheckpointPayload) },
 	"read_turn_diff":                   func() any { return new(CommandReadTurnDiffPayload) },
 	"read_turn_hunks":                  func() any { return new(CommandReadTurnHunksPayload) },
 	"apply_turn_hunk":                  func() any { return new(ConversationCheckpointHunkSelection) },
@@ -8786,14 +8619,10 @@ var commandVariants = variantFactories{"write_artifact": func() any { return new
 	"trash_entry":                      func() any { return new(CommandTrashEntryPayload) },
 	"trash_file":                       func() any { return new(CommandTrashFilePayload) },
 	"list_credentials":                 nil,
-	"put_credential":                   func() any { return new(CommandPutCredentialPayload) },
-	"revoke_credential":                func() any { return new(CommandRevokeCredentialPayload) },
 	"register_project":                 func() any { return new(CommandRegisterProjectPayload) },
 	"create_project":                   func() any { return new(ProjectsDraft) },
 	"update_project":                   func() any { return new(CommandUpdateProjectPayload) },
 	"remove_project":                   func() any { return new(CommandRemoveProjectPayload) },
-	"set_defaults":                     func() any { return new(CommandSetDefaultsPayload) },
-	"bind_connection_session":          func() any { return new(CommandBindConnectionSessionPayload) },
 	"create_session":                   func() any { return new(CommandCreateSessionPayload) },
 	"start_session":                    func() any { return new(ConversationStart) },
 	"read_project_catalog":             nil,
@@ -8828,7 +8657,7 @@ func (value *Command) DecodeJSON(decoder *Decoder) error {
 	return nil
 }
 func CommandKinds() []string {
-	return append([]string{"write_artifact", "read_artifact", "list_artifacts", "list_artifact_revisions", "plugin_transaction", "call_plugin", "read_plugin_callback", "cancel_plugin_call", "report_diagnostic", "publish_notification", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "dispatch", "stop_dispatch_turn", "use_browser", "use_external_browser", "complete_browser", "read_plugin_value", "read_plugin_conversation_value", "list_plugin_keys", "write_plugin_value", "write_indexed_plugin_value", "search_plugin_values", "remove_plugin_value", "write_plugin_conversation_value", "remove_plugin_conversation_value", "list_plugin_models", "resolve_plugin_model", "request_plugin_http", "request_provider_http", "execute_provider_http", "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "generate_plugin_text", "browse_files", "manage_files", "open_port", "cancel_port", "list_databases", "save_database", "remove_database", "test_database", "check_database", "browse_database", "query_database", "cancel_database", "modify_ssh_file", "browse_ssh_directory", "download_ssh_file", "stage_ssh_upload", "finish_ssh_upload", "list_ssh", "list_ssh_terminals", "save_ssh", "remove_ssh", "trust_ssh", "list_wsl_distributions", "install_wsl_host", "read_wsl_host_install", "cancel_wsl_host_install", "install_host", "update_ssh_host", "read_host_install", "check_ssh", "open_ssh_terminal", "close_ssh_terminal", "run_ssh", "cancel_ssh", "transfer_ssh", "list_plugins", "search_skill_catalog", "search_plugin_catalog", "read_catalog_plugin", "read_catalog_plugin_info", "inspect_plugin_source", "check_plugin_update", "check_plugin_updates", "dismiss_installation", "read_installations", "install_plugin_source", "install_bundled_plugin", "read_skill_document", "discover_skills", "discover_skill_upload", "discover_local_skills", "install_skill_upload", "discover_registry_skill", "install_registry_skill", "install_skill", "install_mcp", "upload_plugin", "inspect_plugin_upload", "install_plugin_upload", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_mcp", "set_plugin_mcp_allowed", "check_plugin_mcp", "list_connector_types", "inspect_connector_cli", "list_connections", "start_connector_login", "submit_connector_input", "cancel_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection", "save_plugin_mcp", "read_plugin_secret", "read_plugin_connection", "save_plugin_settings", "read_plugin_view", "install_plugin", "set_plugin_enabled", "remove_plugin", "list_roles", "put_role", "remove_role", "list_teams", "put_team", "remove_team", "read_compaction_settings", "save_compaction_settings", "read_team_settings", "save_team_settings", "list_providers", "read_provider_key", "begin_provider_login", "complete_provider_login", "cancel_provider_login", "read_catalog_status", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models", "validate_provider", "put_provider", "read_session", "list_associated_sessions", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_usage", "read_activity_catalog", "read_activity", "read_turn_capture", "read_turn", "read_tool_detail", "list_conversation_assets", "search_conversation", "list_file_checkpoints", "read_file_checkpoint", "read_turn_diff", "read_turn_hunks", "apply_turn_hunk", "restore_file_checkpoint", "fork_conversation", "rewind_conversation", "replace_turn", "save_provider", "remove_provider", "submit_turn", "submit_task", "guide_turn", "deliver_background", "continue_turn", "compact_context", "start_queued_turn", "stop_turn", "run_command", "list_commands", "read_command", "read_command_page", "read_tool_output", "stop_commands", "stop_command", "write_command", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_terminal_settings", "read_power_settings", "read_telemetry_settings", "save_telemetry_settings", "reset_telemetry_identity", "send_diagnostics", "read_network_settings", "list_network_presets", "probe_network", "save_network_settings", "read_sandbox_settings", "save_sandbox_settings", "read_search_settings", "save_search_settings", "read_backup_settings", "save_backup_settings", "list_backups", "export_backup", "download_backup", "upload_backup", "restore_backup_file", "restore_backup", "read_python_settings", "save_python_settings", "decide", "read_local_model_settings", "save_local_model_settings", "read_local_models", "refresh_local_model", "register_local_model", "install_local_model", "delete_local_model", "cancel_local_model", "list_shells", "save_terminal_settings", "save_power_settings", "list_media_models", "read_media_settings", "save_media_settings", "search_models", "read_model_versions", "resolve_model", "query_knowledge", "read_knowledge_citation", "list_knowledge_collections", "create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection", "rebuild_knowledge_collection", "pause_knowledge_collection", "create_terminal", "open_terminal", "open_tool_terminal", "list_terminal_tools", "close_terminal", "list_terminals", "inspect_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance", "snapshot", "inspect_host", "read_host_metrics", "use_media", "read_computer_permissions", "request_computer_permission", "stop_host_process", "inspect_request", "inspect_git", "read_git_head", "list_git_branches", "resolve_git_revision", "list_worktrees", "register_worktree", "create_worktree", "create_managed_worktree", "remove_worktree", "create_git_branch", "rename_git_branch", "delete_git_branch", "switch_git_branch", "merge_git_branch", "read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "list_git_changes", "read_git_change", "read_git_context", "read_git_show", "read_git_blame", "search_files", "run_git_action", "create_git_commit", "update_git_index", "read_git_diff", "list_directory", "read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "read_code_index_settings", "read_hooks", "save_hooks", "save_code_index_settings", "read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "edit_notebook", "download_file", "upload_file", "upload_attachment", "finish_attachment_upload", "read_attachment", "download_attachment", "download_image", "discard_attachment", "finish_file_upload", "cancel_file_transfer", "write_file", "edit_file", "delete_file", "move_file", "apply_changes", "create_directory", "rename_entry", "copy_entry", "copy_entry_to", "move_entry_to", "trash_entry", "trash_file", "list_credentials", "put_credential", "revoke_credential", "register_project", "create_project", "update_project", "remove_project", "set_defaults", "bind_connection_session", "create_session", "start_session", "read_project_catalog", "read_worktree_catalog", "create_session_at", "import_session", "rename_session", "set_session_read", "set_session_archived", "archive_sessions", "remove_sessions", "set_session_order", "remove_session", "move_conversation", "fork_conversation_at", "set_session_config", "set_session_roles", "set_session_team", "set_session_member_model", "queue_turn"}, "apply_git_hunk", "synthesize_speech", "count_feature")
+	return append([]string{"write_artifact", "read_artifact", "list_artifacts", "list_artifact_revisions", "plugin_transaction", "call_plugin", "read_plugin_callback", "cancel_plugin_call", "report_diagnostic", "publish_notification", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "dispatch", "stop_dispatch_turn", "use_browser", "use_external_browser", "complete_browser", "read_plugin_value", "read_plugin_conversation_value", "list_plugin_keys", "write_plugin_value", "write_indexed_plugin_value", "search_plugin_values", "remove_plugin_value", "write_plugin_conversation_value", "remove_plugin_conversation_value", "list_plugin_models", "resolve_plugin_model", "request_plugin_http", "request_provider_http", "execute_provider_http", "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "generate_plugin_text", "browse_files", "manage_files", "open_port", "cancel_port", "list_databases", "save_database", "remove_database", "test_database", "check_database", "browse_database", "query_database", "cancel_database", "modify_ssh_file", "browse_ssh_directory", "download_ssh_file", "stage_ssh_upload", "finish_ssh_upload", "list_ssh", "list_ssh_terminals", "save_ssh", "remove_ssh", "trust_ssh", "list_wsl_distributions", "install_wsl_host", "read_wsl_host_install", "cancel_wsl_host_install", "install_host", "update_ssh_host", "read_host_install", "check_ssh", "open_ssh_terminal", "close_ssh_terminal", "run_ssh", "cancel_ssh", "transfer_ssh", "list_plugins", "search_skill_catalog", "search_plugin_catalog", "read_catalog_plugin", "read_catalog_plugin_info", "inspect_plugin_source", "check_plugin_update", "check_plugin_updates", "dismiss_installation", "read_installations", "install_plugin_source", "install_bundled_plugin", "read_skill_document", "discover_skills", "discover_skill_upload", "discover_local_skills", "install_skill_upload", "discover_registry_skill", "install_registry_skill", "install_skill", "install_mcp", "upload_plugin", "inspect_plugin_upload", "install_plugin_upload", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_mcp", "set_plugin_mcp_allowed", "check_plugin_mcp", "list_connector_types", "inspect_connector_cli", "list_connections", "start_connector_login", "submit_connector_input", "cancel_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection", "save_plugin_mcp", "read_plugin_secret", "read_plugin_connection", "save_plugin_settings", "read_plugin_view", "install_plugin", "set_plugin_enabled", "remove_plugin", "list_roles", "put_role", "remove_role", "list_teams", "put_team", "remove_team", "read_compaction_settings", "save_compaction_settings", "read_team_settings", "save_team_settings", "list_providers", "read_provider_key", "begin_provider_login", "complete_provider_login", "cancel_provider_login", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models", "put_provider", "read_session", "list_associated_sessions", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_usage", "read_activity_catalog", "read_activity", "read_turn_capture", "read_turn", "read_tool_detail", "list_conversation_assets", "search_conversation", "list_file_checkpoints", "read_turn_diff", "read_turn_hunks", "apply_turn_hunk", "restore_file_checkpoint", "fork_conversation", "rewind_conversation", "replace_turn", "save_provider", "remove_provider", "submit_turn", "submit_task", "guide_turn", "deliver_background", "continue_turn", "compact_context", "start_queued_turn", "stop_turn", "run_command", "list_commands", "read_command", "read_command_page", "read_tool_output", "stop_commands", "stop_command", "write_command", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_terminal_settings", "read_power_settings", "read_telemetry_settings", "save_telemetry_settings", "reset_telemetry_identity", "send_diagnostics", "read_network_settings", "list_network_presets", "probe_network", "save_network_settings", "read_sandbox_settings", "save_sandbox_settings", "read_search_settings", "save_search_settings", "read_backup_settings", "save_backup_settings", "list_backups", "export_backup", "download_backup", "upload_backup", "restore_backup_file", "restore_backup", "read_python_settings", "save_python_settings", "decide", "read_local_model_settings", "save_local_model_settings", "read_local_models", "refresh_local_model", "register_local_model", "install_local_model", "delete_local_model", "cancel_local_model", "list_shells", "save_terminal_settings", "save_power_settings", "list_media_models", "read_media_settings", "save_media_settings", "search_models", "read_model_versions", "resolve_model", "query_knowledge", "read_knowledge_citation", "list_knowledge_collections", "create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection", "rebuild_knowledge_collection", "pause_knowledge_collection", "create_terminal", "open_terminal", "open_tool_terminal", "list_terminal_tools", "close_terminal", "list_terminals", "inspect_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance", "snapshot", "inspect_host", "read_host_metrics", "use_media", "read_computer_permissions", "request_computer_permission", "stop_host_process", "inspect_request", "inspect_git", "read_git_head", "list_git_branches", "resolve_git_revision", "list_worktrees", "register_worktree", "create_worktree", "create_managed_worktree", "remove_worktree", "create_git_branch", "rename_git_branch", "delete_git_branch", "switch_git_branch", "merge_git_branch", "read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "list_git_changes", "read_git_change", "read_git_context", "read_git_show", "read_git_blame", "search_files", "run_git_action", "create_git_commit", "update_git_index", "read_git_diff", "list_directory", "read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "read_code_index_settings", "read_hooks", "save_hooks", "save_code_index_settings", "read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "edit_notebook", "download_file", "upload_file", "upload_attachment", "finish_attachment_upload", "read_attachment", "download_attachment", "download_image", "discard_attachment", "finish_file_upload", "cancel_file_transfer", "write_file", "edit_file", "delete_file", "move_file", "apply_changes", "create_directory", "rename_entry", "copy_entry", "copy_entry_to", "move_entry_to", "trash_entry", "trash_file", "list_credentials", "register_project", "create_project", "update_project", "remove_project", "create_session", "start_session", "read_project_catalog", "read_worktree_catalog", "create_session_at", "import_session", "rename_session", "set_session_read", "set_session_archived", "archive_sessions", "remove_sessions", "set_session_order", "remove_session", "move_conversation", "fork_conversation_at", "set_session_config", "set_session_roles", "set_session_team", "set_session_member_model", "queue_turn"}, "apply_git_hunk", "synthesize_speech", "count_feature")
 }
 
 type Request struct {
@@ -9922,7 +9751,6 @@ var outputVariants = variantFactories{"retained_record": func() any { return new
 	"usage":                        func() any { return new(UsageReport) },
 	"activity":                     func() any { return new([]ActivityPreview) },
 	"discovered_models":            func() any { return new(ConversationDiscoveryCatalog) },
-	"provider_validation":          func() any { return new(ConversationDiscoveryValidation) },
 	"turn_history":                 func() any { return new(ConversationTurnHistory) },
 	"conversation_assets":          func() any { return new(ConversationAssetsPage) },
 	"conversation_matches":         func() any { return new(ConversationSearchPage) },
@@ -9930,7 +9758,6 @@ var outputVariants = variantFactories{"retained_record": func() any { return new
 	"turn_diff":                    func() any { return new(ConversationCheckpointTurnDiff) },
 	"turn_hunks":                   func() any { return new(ConversationCheckpointHunkReview) },
 	"hunk_applied":                 func() any { return new(ConversationCheckpointHunkApplied) },
-	"file_checkpoint":              func() any { return new(ConversationCheckpointContent) },
 	"file_restored":                func() any { return new(ConversationCheckpointRestored) },
 	"rewound":                      func() any { return new(ConversationRewind) },
 	"turn_replaced":                func() any { return new(OutputTurnReplacedPayload) },
@@ -10020,13 +9847,11 @@ var outputVariants = variantFactories{"retained_record": func() any { return new
 	"git_commit_created":           func() any { return new(OutputGitCommitCreatedPayload) },
 	"git_diff":                     func() any { return new(GitDiff) },
 	"git_index":                    func() any { return new(GitIndex) },
-	"credential":                   func() any { return new(Credential) },
 	"credentials":                  func() any { return new([]Credential) },
 	"project":                      func() any { return new(Project) },
 	"project_removed":              func() any { return new(OutputProjectRemovedPayload) },
 	"worktree":                     func() any { return new(Worktree) },
 	"worktree_removed":             func() any { return new(OutputWorktreeRemovedPayload) },
-	"defaults":                     func() any { return new(Defaults) },
 	"session":                      func() any { return new(Session) },
 	"associated_sessions":          func() any { return new(ConversationAssociationAssociatedSessions) },
 	"sessions_archived":            func() any { return new([]Session) },

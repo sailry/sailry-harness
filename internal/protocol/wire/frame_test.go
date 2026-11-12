@@ -539,8 +539,28 @@ func TestFrameTolerance(t *testing.T) {
 		} {
 			var envelope Envelope
 			data := `{"software_version":null,"protocol":1,"zstd":false,"future_flag":true,"kind":"command","data":` + fmt.Sprintf(request, item.command) + `}`
-			if err := read(t, data, &envelope); (err == nil) != item.accepted {
-				t.Errorf("%s: %v, want accepted = %v", name, err, item.accepted)
+			// A command this build cannot act on is never handed over as a
+			// request: the envelope names the request it cannot decode.
+			err := read(t, data, &envelope)
+			if accepted := envelope.Call.Request != nil && envelope.Undecoded == nil; err != nil || envelope.Call.Kind != CallCommand || accepted != item.accepted {
+				t.Errorf("%s: %v, %+v, want accepted = %v", name, err, envelope, item.accepted)
+			}
+			if refused := envelope.Undecoded != nil && envelope.Call.Request == nil && envelope.Undecoded.String() == "00000000-0000-0000-0000-000000000001"; refused == item.accepted {
+				t.Errorf("%s: undecoded request %v, want refused = %v", name, envelope.Undecoded, !item.accepted)
+			}
+		}
+		// Without a request identity there is nothing to answer.
+		for name, data := range map[string]string{
+			"no identifier":   `{"protocol":1,"kind":"command","data":{"version":1,"target":` + node + `,"command":{"kind":"future_command"}}}`,
+			"bad identifier":  `{"protocol":1,"kind":"command","data":{"version":1,"id":"x","target":` + node + `,"command":{"kind":"future_command"}}}`,
+			"bad target":      `{"protocol":1,"kind":"command","data":{"version":1,"id":"00000000-0000-0000-0000-000000000001","target":7,"command":{"kind":"future_command"}}}`,
+			"no command":      `{"protocol":1,"kind":"command","data":{"version":1,"id":"00000000-0000-0000-0000-000000000001","target":` + node + `}}`,
+			"undeclared call": `{"protocol":1,"kind":"future_call","data":{"version":1,"id":"00000000-0000-0000-0000-000000000001","target":` + node + `,"command":{"kind":"snapshot"}}}`,
+			"bad topic":       `{"protocol":1,"kind":"subscribe","data":{"kind":"future_topic"}}`,
+		} {
+			var envelope Envelope
+			if err := read(t, data, &envelope); err == nil {
+				t.Errorf("%s: accepted as %+v", name, envelope)
 			}
 		}
 	})

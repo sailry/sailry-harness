@@ -59,9 +59,10 @@ const checkpointWatermarkPending = "SELECT coalesce((SELECT max(rowid) FROM file
 const missingArtifactKind = "CASE WHEN json_valid(body) THEN json_type(body)='object' AND json_type(body,'$.kind') IS NULL ELSE 0 END"
 
 // rawSecretRequest selects the admissions of secret-bearing commands that an
-// earlier build stored as their serialized request.
+// earlier build stored as their serialized request. put_credential left the
+// contract on 2026-11-12; a row an earlier build kept for it still holds a key.
 var rawSecretRequest = func() string {
-	var kinds []string
+	kinds := []string{"'put_credential'"}
 	for _, kind := range protocol.CommandKinds() {
 		if admission.DigestOnly(kind) {
 			kinds = append(kinds, "'"+kind+"'")

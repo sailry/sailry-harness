@@ -50,7 +50,7 @@ func CredentialBody(body []byte) []byte {
 // and headers are free-form.
 func DigestOnly(kind string) bool {
 	switch kind {
-	case "put_credential", "save_provider", "complete_provider_login", "import_session",
+	case "save_provider", "complete_provider_login", "import_session",
 		"save_ssh", "save_database", "save_search_settings",
 		"save_plugin_settings", "save_plugin_mcp", "install_mcp",
 		"start_connector_login", "submit_connector_input", "update_connection",

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -107,12 +108,26 @@ func TestCommandKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := strings.Fields(string(data))
-	if len(want) != 362 {
-		t.Fatalf("Rust command inventory contains %d entries, want 362", len(want))
+	if len(want) != 355 {
+		t.Fatalf("command inventory contains %d entries, want the 362 of Rust less the 7 removed", len(want))
+	}
+	for _, removed := range []string{"put_credential", "revoke_credential", "set_defaults", "bind_connection_session", "validate_provider", "read_catalog_status", "read_file_checkpoint"} {
+		if slices.Contains(want, removed) {
+			t.Fatalf("removed command %s is in the inventory", removed)
+		}
+		for name, tolerance := range map[string]Tolerance{"authored": Authored, "peer command": PeerCommand, "peer data": PeerData} {
+			var command Command
+			if err := DecodeAs(tolerance, []byte(`{"kind":"`+removed+`","data":{}}`), &command); (err == nil) != (tolerance == PeerData) {
+				t.Fatalf("removed command %s decoded as %s: %v", removed, name, err)
+			}
+		}
+		if _, err := json.Marshal(Command{Kind: removed}); err == nil {
+			t.Fatalf("removed command %s was encoded", removed)
+		}
 	}
 	got := CommandKinds()
 	if extensions := []string{"apply_git_hunk", "synthesize_speech", "count_feature"}; len(got) != len(want)+len(extensions) || !reflect.DeepEqual(got[:len(want)], want) || !reflect.DeepEqual(got[len(want):], extensions) {
-		t.Fatalf("command kinds differ from the Rust inventory plus the documented native extensions\nwant: %v + %v\n got: %v", want, extensions, got)
+		t.Fatalf("command kinds differ from the captured inventory plus the documented native extensions\nwant: %v + %v\n got: %v", want, extensions, got)
 	}
 	t.Run("native Git hunk extension validates captured revisions", func(t *testing.T) {
 		input := CommandApplyGitHunkPayload{Worktree: NewWorktreeID(), Path: "source.go", Scope: GitDiffScopeUnstaged, Operation: GitHunkStage, Hunk: 0, DiffRevision: strings.Repeat("a", 64), ExpectedRevision: strings.Repeat("b", 64), ExpectedIndex: strings.Repeat("c", 64)}
@@ -314,6 +329,34 @@ func TestModelAuthWarning(t *testing.T) {
 		widened := bytes.Replace(encoded, []byte(`"text":"Risk"`), []byte(`"text":"Risk","severity":"high"`), 1)
 		if err := DecodeAs(PeerData, widened, &again); err != nil || again.LoginWarning.Text != "Risk" {
 			t.Fatalf("widened entry: %v", err)
+		}
+	})
+	t.Run("a preset declares one, strictly when authored and tolerantly from a peer", func(t *testing.T) {
+		plain := `{"id":"local","name":"Local","routes":[{"protocol":"plugin","endpoint":"https://example.test"}],"auth":{"kind":"none"}`
+		var preset, again ConversationPresetsPreset
+		if err := json.Unmarshal([]byte(plain+`}`), &preset); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(preset)
+		if err != nil || preset.Warning != nil || bytes.Contains(encoded, []byte(`"warning"`)) {
+			t.Fatalf("absent warning: %v %s", err, encoded)
+		}
+		if err := json.Unmarshal([]byte(plain+`,"warning":{"text":"Risk","locales":{"zh-CN":"风险"}}}`), &preset); err != nil {
+			t.Fatal(err)
+		}
+		if preset.Warning == nil || preset.Warning.Text != "Risk" || preset.Warning.Locales["zh-CN"] != "风险" {
+			t.Fatalf("warning: %+v", preset.Warning)
+		}
+		if encoded, err = json.Marshal(preset); err != nil || json.Unmarshal(encoded, &again) != nil || !reflect.DeepEqual(preset, again) {
+			t.Fatalf("round trip: %v %s", err, encoded)
+		}
+		if json.Unmarshal([]byte(plain+`,"warning":{"text":"Risk","title":"extra"}}`), &again) == nil {
+			t.Fatal("authored preset warning accepted an unknown member")
+		}
+		// A newer peer's preset may widen the warning; it still decodes.
+		widened := bytes.Replace(encoded, []byte(`"text":"Risk"`), []byte(`"text":"Risk","severity":"high"`), 1)
+		if err := DecodeAs(PeerData, widened, &again); err != nil || again.Warning == nil || again.Warning.Text != "Risk" {
+			t.Fatalf("widened preset: %v", err)
 		}
 	})
 }

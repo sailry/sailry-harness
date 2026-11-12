@@ -2814,3 +2814,4 @@ session_delete_private_files: 其私有工作区中的文件也会一并删除
 port_count: "%{count} 个端口"
 queue_messages_one: 1 条消息排队
 queue_messages_count: "%{count} 条消息排队"
+chat_compact_failed_paused: 压缩失败，已暂停自动压缩

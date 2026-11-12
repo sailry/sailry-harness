@@ -1,4 +1,4 @@
-// Code generated from the reviewed v1 protocol declarations. DO NOT EDIT.
+// Hand-maintained v1 protocol declarations; keep them consistent with the fixtures and tolerance tests.
 
 package protocol
 

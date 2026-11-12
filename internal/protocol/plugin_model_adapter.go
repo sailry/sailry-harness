@@ -1,4 +1,4 @@
-// Code generated from the reviewed v1 protocol declarations. DO NOT EDIT.
+// Hand-maintained v1 protocol declarations; keep them consistent with the fixtures and tolerance tests.
 
 package protocol
 
@@ -70,6 +70,7 @@ type PluginModelAdapterDeclaration struct {
 	Capabilities  PluginModelAdapterCapabilities `json:"capabilities"`
 	Discovery     bool                           `json:"discovery"`
 	Acp           *PluginModelAdapterAcp         `json:"acp,omitempty"`
+	ClaudeCode    *PluginModelAdapterClaudeCode  `json:"claude_code,omitempty"`
 }
 
 func DefaultPluginModelAdapterDeclaration() PluginModelAdapterDeclaration {
@@ -82,6 +83,7 @@ func DefaultPluginModelAdapterDeclaration() PluginModelAdapterDeclaration {
 		Capabilities:  DefaultPluginModelAdapterCapabilities(),
 		Discovery:     false,
 		Acp:           nil,
+		ClaudeCode:    nil,
 	}
 }
 func (value *PluginModelAdapterDeclaration) UnmarshalJSON(data []byte) error {
@@ -91,7 +93,8 @@ func (value *PluginModelAdapterDeclaration) UnmarshalJSON(data []byte) error {
 	decoded.Capabilities = DefaultPluginModelAdapterCapabilities()
 	decoded.Discovery = false
 	decoded.Acp = nil
-	// An adapter that names an agent program has no translation script.
+	decoded.ClaudeCode = nil
+	// An adapter that names a program has no translation script.
 	if err := DecodeObject(data, &decoded, []string{"id", "origins", "framing"}, true); err != nil {
 		return err
 	}

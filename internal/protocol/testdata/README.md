@@ -34,12 +34,16 @@ including browser screenshot options, question options and navigation locales.
 The maximum team concurrency fixture preserves the `u64::MAX` case from the
 Rust test and verifies that comparison does not round large integers.
 
-`commands.txt` records all 362 Command wire kinds in Rust declaration order,
-including the explicit `set_session_team` rename of `SetSessionExecution`.
+`commands.txt` records the Command wire kinds in Rust declaration order,
+including the explicit `set_session_team` rename of `SetSessionExecution`: the
+362 of that revision less the seven no controller sent, removed on 2026-11-12
+(`put_credential`, `revoke_credential`, `set_defaults`,
+`bind_connection_session`, `validate_provider`, `read_catalog_status`,
+`read_file_checkpoint`; see `docs/process.md`).
 The Go v1 inventory appends the documented `apply_git_hunk` extension for native
 working-tree review, `synthesize_speech` for read-aloud and `count_feature` for
 the desktop's anonymous feature counters. Their strict
-command/result cases live in the grouped Go tests; the captured Rust inventory and JSON fixture identities stay intact.
+command/result cases live in the grouped Go tests; the JSON fixture identities stay intact.
 Unknown and malformed input cases remain table entries in the Go tests instead
 of round-trip fixture files.
 

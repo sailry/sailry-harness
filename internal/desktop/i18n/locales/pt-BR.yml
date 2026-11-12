@@ -582,6 +582,7 @@ background_exit: Exit code %{code}
 background_result_waiting: Result not delivered
 chat_compact_cancelled: Compactação cancelada
 chat_compact_failed: A compactação falhou
+chat_compact_failed_paused: Compaction failed, automatic compaction paused
 chat_compact_queued: Esperando para compactar
 chat_compact_unneeded: Compactação não necessária
 chat_compacted: Contexto compactado

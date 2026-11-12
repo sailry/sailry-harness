@@ -77,7 +77,7 @@ with Conflict. Decoding accepts either order.
 
 The ledger keeps `credential-v1:<BLAKE3 hex>` of the serialized request instead
 of its body for every durable command whose payload can hold a secret
-(`admission.DigestOnly`): `put_credential`, `save_provider`,
+(`admission.DigestOnly`): `save_provider`,
 `complete_provider_login`, `import_session`, `save_ssh`, `save_database`,
 `save_search_settings`, `save_plugin_settings`, `save_plugin_mcp`, `install_mcp`,
 `start_connector_login`, `submit_connector_input`, `update_connection`,
@@ -165,6 +165,9 @@ and U+2029 escaped, so digests computed over retained values do not change.
 ### Values from another build
 
 The rule is in [ARCHITECTURE.md](../ARCHITECTURE.md#contract-and-storage-versions).
+The declarations in `internal/protocol` are hand-maintained: no generator
+writes them, so a change keeps the variant tables, `Durable`, the fixtures
+under `testdata` and the tolerance tests consistent by hand.
 A decode is exact unless the caller names its source with `protocol.DecodeAs`:
 
 | Level | Caller | Unknown member | Unknown enum value | Unknown variant |
@@ -189,6 +192,16 @@ member is refused at every level.
   that is neither `Ok` nor `Err`, pairing and rendezvous frames, package
   manifests (`plugins.ValidateManifest`), plugin transaction operations and
   script input, tool arguments, settings and stored rows, and required members.
+- A command request a Node cannot decode is refused definitely where it can
+  be. When the envelope and the request's `version`, `id` and `target` decode
+  and only its `command` does not (an undeclared kind, such as a removed
+  command, or a payload this build cannot read), the Link writes the ordinary
+  `rejected` reply with `invalid_request` "invalid command" after the same
+  pairing and protocol checks as any call, and the sender's dispatch fails
+  with that fault. Nothing is admitted or recorded, so `inspect_request` for
+  that identifier answers `not_admitted`. A frame whose request identity does
+  not decode is refused as before (`invalid_request` "invalid Link frame"):
+  the stream closes without a reply and the sender reads `outcome_unknown`.
 - Consumers: `client.Projection` and the conversation reducer skip an event or
   frame change of an undeclared kind and advance its sequence; a draft part of
   an undeclared kind is valid and not drawn; `live` reads an undeclared queue
@@ -315,10 +328,11 @@ The Node writes its own notices in the transaction of the change they report
   none. A failure is not reported twice: a compaction failure that stopped the
   turn, or a `system` diagnostic of the same incident and turn, is its notice.
 - A conversation entry the system writes with a compaction failure writes one
-  `diagnostic` notice naming that entry. The store writes it for any such
-  entry; the Go engine does not record compaction failures as entries yet (a
-  failed compaction fails its run, which the `task` notice reports), so this
-  notice has no producer in the engine today.
+  `diagnostic` notice naming that entry; the engine writes that entry for every
+  compaction that ends without a summary
+  ([conversation.md](conversation.md)). The failure's optional `paused` member
+  (user decision, 2026-11-12) marks the one that paused automatic compaction;
+  absent means not paused, and the notice itself is unchanged.
 - A turn that a dispatch job started and that begins to wait for an approval
   or an answer writes one `task` notice whose status is still `running`:
   warning for an approval, info for input. A scheduled run usually has no

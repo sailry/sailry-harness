@@ -566,8 +566,10 @@ conversations that stay closed. The memory is the window's: no per-conversation
 desktop state is stored, so a queue that is still halted is reported once more
 after the application restarts. The rows stay ordinary rows the
 user sends, edits or removes; Send now or a new message resumes the queue.
-The Go desktop has no paused-queue strip and no resume action: the root
-catalogs' `queue_paused` and `queue_paused_count` are the Rust application's.
+The Go desktop has no paused-queue strip, no "Queue paused" copy and no resume
+action, by the user's decision of 2026-11-12: sending is what continues. The
+root catalogs' `queue_paused` and `queue_paused_count` are the Rust
+application's and stay out of `keys.txt`.
 Demo conversations carry no pause reason and report nothing.
 
 Queue rows use optional `Load`/`Save` callbacks to read complete input and keep

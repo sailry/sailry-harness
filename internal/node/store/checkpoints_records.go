@@ -290,20 +290,6 @@ func checkpointContent(ctx context.Context, db *sql.Conn, session protocol.Sessi
 	}
 	return out, nil
 }
-func ReadFileCheckpoint(ctx context.Context, db *sql.Conn, session protocol.SessionID, id protocol.CheckpointID) (protocol.ConversationCheckpointContent, error) {
-	file, err := checkpointFile(ctx, db, session, id)
-	if err != nil {
-		return protocol.ConversationCheckpointContent{}, err
-	}
-	size := file.After.Size
-	if file.Before != nil {
-		size += file.Before.Size
-	}
-	if size > protocol.MAX_FRAME_BYTES/8 {
-		return protocol.ConversationCheckpointContent{}, invalid("checkpoint content exceeds the response limit; use the turn diff or restore the checkpoint")
-	}
-	return checkpointContent(ctx, db, session, file)
-}
 
 // PrepareCheckpointRestore captures a checkpoint's content for a restore and
 // the versions that already count as restored: what the file held before this

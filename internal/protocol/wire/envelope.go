@@ -71,6 +71,12 @@ type Envelope struct {
 	Protocol        *uint16
 	Zstd            bool
 	Call            Call
+	// Undecoded is set by decoding alone: the identifier of a command request
+	// whose version, identifier and target decoded and whose command did not,
+	// because this build does not declare its kind or cannot read its
+	// payload. Call is then a command without a Request. The receiver can
+	// answer such a request on its stream; it cannot run it.
+	Undecoded *protocol.RequestID
 }
 
 func (envelope Envelope) MarshalJSON() ([]byte, error) {
@@ -100,11 +106,40 @@ func (envelope *Envelope) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var call Call
+	var undecoded *protocol.RequestID
 	if err := call.UnmarshalJSON(data); err != nil {
-		return err
+		id, found := undecodedCommand(data)
+		if !found {
+			return err
+		}
+		call, undecoded = Call{Kind: CallCommand}, &id
 	}
-	*envelope = Envelope{metadata.SoftwareVersion, metadata.Protocol, metadata.Zstd, call}
+	*envelope = Envelope{metadata.SoftwareVersion, metadata.Protocol, metadata.Zstd, call, undecoded}
 	return nil
+}
+
+// undecodedCommand reads the identity of a command call that failed to
+// decode. It succeeds only when everything but the command is valid, checked
+// exactly, so the failure lies in the command itself.
+func undecodedCommand(data []byte) (protocol.RequestID, bool) {
+	var call struct {
+		Kind string          `json:"kind"`
+		Data json.RawMessage `json:"data"`
+	}
+	if protocol.DecodeObject(data, &call, []string{"kind", "data"}, false) != nil || call.Kind != string(CallCommand) {
+		return protocol.RequestID{}, false
+	}
+	var request struct {
+		Version uint16                  `json:"version"`
+		ID      protocol.RequestID      `json:"id"`
+		Target  protocol.NodeID         `json:"target"`
+		Command json.RawMessage         `json:"command"`
+		Plugin  *protocol.PluginContext `json:"plugin"`
+	}
+	if protocol.DecodeObject(call.Data, &request, []string{"version", "id", "target", "command"}, false) != nil {
+		return protocol.RequestID{}, false
+	}
+	return request.ID, true
 }
 
 type ReplyKind string

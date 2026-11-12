@@ -11,6 +11,7 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/compact"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -119,16 +120,21 @@ func metadata(binding Binding) *protocol.ConversationModel {
 	}
 	return nil
 }
+
+// OutputLimit is the model's listed output limit, 0 when it lists none. A
+// summary request asks for twice its handoff cap (compact.Output), which is
+// 8,000 tokens up to a 200,000 token window, and never more than the model's
+// limit; a model that lists none keeps 8,000.
 func OutputLimit(binding Binding, summary bool) int64 {
 	var limit int64
 	if model := metadata(binding); model != nil {
 		limit = int64(model.Output)
 	}
 	if summary {
-		if limit == 0 || limit > 8000 {
+		if limit == 0 {
 			return 8000
 		}
-		return limit
+		return min(limit, int64(compact.Output(uint64(ContextLimit(binding)))))
 	}
 	return limit
 }

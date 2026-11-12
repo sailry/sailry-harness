@@ -137,13 +137,11 @@ read_provider_key
 begin_provider_login
 complete_provider_login
 cancel_provider_login
-read_catalog_status
 list_channel_presets
 refresh_model_catalog
 read_model_catalog
 read_model_scores
 discover_models
-validate_provider
 put_provider
 read_session
 list_associated_sessions
@@ -159,7 +157,6 @@ read_tool_detail
 list_conversation_assets
 search_conversation
 list_file_checkpoints
-read_file_checkpoint
 read_turn_diff
 read_turn_hunks
 apply_turn_hunk
@@ -332,14 +329,10 @@ move_entry_to
 trash_entry
 trash_file
 list_credentials
-put_credential
-revoke_credential
 register_project
 create_project
 update_project
 remove_project
-set_defaults
-bind_connection_session
 create_session
 start_session
 read_project_catalog

@@ -505,22 +505,14 @@ func testConnectionWorkspaces(t *testing.T) {
 
 	t.Run("session binding", func(t *testing.T) {
 		write(t, func(db *sql.Conn) error {
-			output, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &used.Config})
-			if err != nil {
-				return err
-			}
-			fresh := output.Data.(protocol.Session)
-			bind := protocol.CommandBindConnectionSessionPayload{Session: fresh.ID, ExpectedRevision: fresh.Revision + 1, Resource: databaseTarget}
-			if _, _, err := bindConnectionSession(ctx, db, storage.Profile, bind); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
-				return fmt.Errorf("stale binding returned %v", err)
-			}
-			bind.ExpectedRevision = fresh.Revision
-			bind.Resource = databaseResource(protocol.NewDatabaseID())
-			if _, _, err := bindConnectionSession(ctx, db, storage.Profile, bind); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+			config := used.Config
+			config.Resource = &databaseTarget
+			absent, missing := config, databaseResource(protocol.NewDatabaseID())
+			absent.Resource = &missing
+			if _, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &absent}); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
 				return fmt.Errorf("binding a missing connection returned %v", err)
 			}
-			bind.Resource = databaseTarget
-			output, events, err := bindConnectionSession(ctx, db, storage.Profile, bind)
+			output, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &config})
 			if err != nil {
 				return err
 			}
@@ -529,30 +521,17 @@ func testConnectionWorkspaces(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if bound.Revision != fresh.Revision+1 || bound.Project != nil || bound.Worktree != workspace || bound.Config.Resource == nil ||
-				!sameConnection(*bound.Config.Resource, databaseTarget) || len(events) != 1 || events[0].Kind != "session_changed" {
+			if bound.Project != nil || bound.Worktree != workspace || bound.Config.Resource == nil || !sameConnection(*bound.Config.Resource, databaseTarget) {
 				return fmt.Errorf("bound session changed: %+v", bound)
 			}
-			stored, err := ReadSession(ctx, db, fresh.ID)
+			stored, err := ReadSession(ctx, db, bound.ID)
 			if err != nil {
 				return err
 			}
 			if stored.Worktree != workspace || stored.Config.Resource == nil || !sameConnection(*stored.Config.Resource, databaseTarget) {
 				return fmt.Errorf("binding was not stored")
 			}
-			bind.ExpectedRevision = bound.Revision
-			bind.Resource = sshTarget
-			if _, _, err := bindConnectionSession(ctx, db, storage.Profile, bind); !providerFixtureFault(err, protocol.ErrorCodeConflict) {
-				return fmt.Errorf("rebinding returned %v", err)
-			}
-			submitted, err := ReadSession(ctx, db, used.ID)
-			if err != nil {
-				return err
-			}
-			if _, _, err := bindConnectionSession(ctx, db, storage.Profile, protocol.CommandBindConnectionSessionPayload{Session: used.ID, ExpectedRevision: submitted.Revision, Resource: databaseTarget}); !providerFixtureFault(err, protocol.ErrorCodeConflict) {
-				return fmt.Errorf("binding a used conversation returned %v", err)
-			}
-			catalog, err := ReadConnectionCatalog(ctx, db, fresh.ID)
+			catalog, err := ReadConnectionCatalog(ctx, db, bound.ID)
 			if err != nil {
 				return err
 			}
