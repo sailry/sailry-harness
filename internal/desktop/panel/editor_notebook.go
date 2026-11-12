@@ -21,13 +21,16 @@ func (pr *Project) notebookEditorPreview(c *ui.Context, path string, own bool) {
 		pr.Actions.ReadNotebook(path, 0)
 	}
 	page := state.notebook
+	if page != nil && !page.Loading && len(page.Cells) == 0 && !page.Failed {
+		// A notebook without cells is an empty document: the state fills
+		// the area, which a scroll's content does not.
+		empty(c, icons.File, "notebook_empty")
+		return
+	}
 	ui.Scroll(c.Key("notebook")).Bind(state.focusFor(own)).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12).Gap(12).Children(func() {
 		if page == nil || page.Loading && len(page.Cells) == 0 {
 			kit.Skeleton(c, kit.SkeletonProps{Height: 48})
 			return
-		}
-		if len(page.Cells) == 0 && !page.Failed {
-			kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "notebook_empty")})
 		}
 		palette := theme.Of(c)
 		for _, cell := range page.Cells {

@@ -85,6 +85,13 @@ func (pr *Project) gitCanCommit() bool {
 func (pr *Project) gitBusy() bool {
 	return pr.Actions != nil && pr.Actions.GitBusy != nil && pr.Actions.GitBusy()
 }
+
+// gitVacant reports a live folder whose details show no repository: one
+// not read yet, or a plain directory (gitEmpty with details).
+func (pr *Project) gitVacant() bool {
+	return pr.Actions != nil && (!pr.Git.live.Known || pr.Git.live.Kind == "directory")
+}
+
 func (pr *Project) gitEmpty(c *ui.Context, details bool) bool {
 	state := pr.Git.live
 	if pr.Actions == nil {

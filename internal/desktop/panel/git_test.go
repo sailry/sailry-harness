@@ -397,54 +397,12 @@ func TestGitPage(t *testing.T) {
 			}
 		}
 	})
-	// A diff's toolbar chooses Unified or Split for every diff of the
-	// window.
-	t.Run("DiffLayout", func(t *testing.T) {
-		pr, tt := pageTester(t, Changes)
-		clickRole(t, tt, ui.RoleTreeItem, "README.md", 0)
-		split := false
-		tt2 := ui.NewTesterWith(func(c *ui.Context) {
-			theme.Apply(c, "", theme.Light)
-			kit.BindDiffSplit(c, &split)
-			ui.Column(c).Fill().Children(func() { Page(c, Changes, pr, func() {}) })
-		}, 1100, 760, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
-		tt2.SetLocale("en")
-		tt2.Frame()
-		splitters := func() (n int) {
-			for _, e := range tt2.AccessAll() {
-				if e.Role == ui.RoleSplitter && e.Bounds.X > pr.Git.side+40 {
-					n++
-				}
-			}
-			return n
-		}
-		if n := splitters(); n != 0 {
-			t.Fatalf("the diff starts with %d sides divided", n)
-		}
-		if err := tt2.Click(en("git_diff_split")); err != nil {
-			t.Fatal(err)
-		}
-		tt2.Frame()
-		tt2.Frame()
-		if n := splitters(); n != 1 || !split {
-			t.Fatalf("Split divides %d diffs (%v)", n, split)
-		}
-		clickRole(t, tt2, ui.RoleButton, en("git_diff"), 0)
-		if pr.Git.change != allChanges {
-			t.Fatalf("shown %q", pr.Git.change)
-		}
-		if n := splitters(); n < 2 {
-			t.Fatalf("the whole diff divides %d of its files", n)
-		}
-		if err := tt2.Click(en("git_diff_unified")); err != nil {
-			t.Fatal(err)
-		}
-		tt2.Frame()
-		tt2.Frame()
-		if n := splitters(); n != 0 || split {
-			t.Fatalf("Unified leaves %d diffs divided (%v)", n, split)
-		}
-	})
+	// The button at the end of a diff's footer chooses unified or side by
+	// side for every diff of the window; no row heads a diff.
+	t.Run("DiffLayout", testDiffFooter)
+	// The list beside its document or above it, by the host's width.
+	t.Run("Layout", testLayout)
+	t.Run("EmptyCentred", testEmptyCentred)
 	// The review's frames, written only when $SAILRY_SNAPSHOTS names a
 	// folder: the demo repository's history as a graph, at the list's first
 	// width and widened, and a change's diff unified and split, at 2x in
@@ -500,6 +458,7 @@ func TestGitPage(t *testing.T) {
 			shot(t, tt, "git-diff-split-all-"+name)
 		}
 	})
+	t.Run("LayoutSnapshots", layoutShots)
 	// Ctrl+G then Down pulls, which the preview only tells. The key after
 	// Ctrl+G completes the chord or drops it: a Down the list took, or one
 	// pressed after another key, does not pull later.
