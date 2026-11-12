@@ -124,8 +124,17 @@ func Quote(text string) string {
 	return strings.Join(lines, "\n") + "\n\n"
 }
 
+// selectionAt is where a turn's selection pill stands: the pointer's place
+// in the turn when the selection last changed, and that selection.
+type selectionAt struct {
+	x, y float32
+	text string
+}
+
+type selectionKey struct{}
+
 // selection is the pill over a turn holding a selection: Quote (disabled in a
-// read-only session), Copy and New conversation, at the turn's top end.
+// read-only session), Copy and New conversation, above the selected text.
 func selection(c *ui.Context, turn ui.Element, readonly bool, actions Actions) {
 	sel := turn.SelectedTexts()
 	if len(sel) == 0 {
@@ -140,7 +149,16 @@ func selection(c *ui.Context, turn ui.Element, readonly bool, actions Actions) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	kit.Floating(c, ui.Row(c.Key("selection"))).Absolute().Top(-4).Right(padX).Padding(4).Gap(4).Radius(18).Children(func() {
+	// The pill stands over the selection, where the pointer left it: above
+	// the line, so it covers none of the selected text, and inside the turn.
+	at := ui.Local(turn, selectionKey{}, func() selectionAt { return selectionAt{} })
+	if x, y, over := turn.PointerPosition(); text != at.text && over {
+		at.x, at.y = x, y
+	}
+	at.text = text
+	const pillWidth, pillHeight = 232, 36
+	left := min(max(at.x-pillWidth/2, 0), max(turn.Bounds().W-pillWidth, 0))
+	kit.Floating(c, ui.Row(c.Key("selection"))).Absolute().Top(at.y - textSize(c) - pillHeight - 6).Left(left).Padding(4).Gap(4).Radius(18).Children(func() {
 		pill := func(key, label string, do func()) ui.Element {
 			return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(10).Radius(14).
 				Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(do)

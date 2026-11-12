@@ -87,6 +87,8 @@ func testLoadingMarks(t *testing.T) {
 		a := New(preview.Load())
 		a.Mode = mode
 		a.Settings.Model.DemoMode = true
+		// The marks are measured at 14, the size they were drawn for.
+		a.Settings.TextSize = 14
 		tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 		tt.SetLocale("zh-CN")
 		tt.SetScale(2)
