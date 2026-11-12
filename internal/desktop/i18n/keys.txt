@@ -599,6 +599,7 @@ background_exit
 background_result_waiting
 chat_compact_cancelled
 chat_compact_failed
+chat_compact_failed_paused
 chat_compact_queued
 chat_compact_unneeded
 chat_compacted

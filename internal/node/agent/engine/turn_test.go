@@ -749,6 +749,126 @@ func TestTransientRetryRecord(t *testing.T) {
 		t.Fatalf("retries = %+v", retries)
 	}
 }
+
+// A summary request that waits to be sent again records its retry as a main
+// request does, once, and a turn stopped during the wait ends at once without
+// a failure and without its compacting draft.
+func TestSummaryRetryRecord(t *testing.T) {
+	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
+	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down"}}
+	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
+	compacting := func(f *engineFixture) int {
+		reservation := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
+		defer reservation.Close()
+		count := 0
+		for _, draft := range reservation.Drafts {
+			for _, part := range draft.Parts {
+				if raw, _ := json.Marshal(part.Data); strings.Contains(string(raw), `"compacting"`) {
+					count++
+				}
+			}
+		}
+		return count
+	}
+	// retries are the retry records of summary requests; observed counts every
+	// observation of one, which a retry record is.
+	summaries := func(f *engineFixture) (retries []protocol.ConversationRecoveryRetry, observed, failures int) {
+		for _, record := range f.state().Records {
+			if record.Metadata.Compaction != nil && record.Metadata.Compaction.Failure != nil {
+				failures++
+			}
+			execution := record.Metadata.Execution
+			if execution == nil || execution.Purpose == nil || *execution.Purpose != canonical.PurposeCompaction {
+				continue
+			}
+			if execution.Observation != nil {
+				observed++
+			}
+			if execution.Retry != nil {
+				if !record.Metadata.Runtime.UserVisible || record.Metadata.Runtime.AgentVisible {
+					t.Fatal("retry record has the wrong audience")
+				}
+				retries = append(retries, *execution.Retry)
+			}
+		}
+		return retries, observed, failures
+	}
+	wait := func(f *engineFixture) clockWait {
+		select {
+		case wait := <-f.r.clock.(*manualClock).waits:
+			if wait.duration != 60*time.Second {
+				t.Fatalf("retry wait = %s", wait.duration)
+			}
+			return wait
+		case <-f.ctx.Done():
+			t.Fatal("the failed summary request was not retried")
+		}
+		return clockWait{}
+	}
+	t.Run("retried", func(t *testing.T) {
+		f := newFixture(t, &scriptedModel{scripts: []script{response(overflow), response(limited), summary, response(text("Done"), finish())}})
+		f.start()
+		turn := f.submit("Task")
+		waiting := wait(f)
+		// The record is there during the wait, beside the compacting draft.
+		retries, observed, _ := summaries(f)
+		if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != 60000 || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" || observed != 1 {
+			t.Fatalf("retries during the wait = %+v, %d observations", retries, observed)
+		}
+		if compacting(f) != 1 {
+			t.Fatal("the compacting draft is not shown during the wait")
+		}
+		close(waiting.advance)
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		// One observation per attempt: the retry record and the summary's own.
+		retries, observed, failures := summaries(f)
+		if len(retries) != 1 || observed != 2 || failures != 0 || compacting(f) != 0 {
+			t.Fatalf("%d retries, %d observations, %d failures, %d drafts", len(retries), observed, failures, compacting(f))
+		}
+	})
+	t.Run("failed after a retry", func(t *testing.T) {
+		refused := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.Authentication, Message: "key revoked"}}
+		f := newFixture(t, &scriptedModel{scripts: []script{response(overflow), response(limited), response(refused)}})
+		f.start()
+		turn := f.submit("Task")
+		close(wait(f).advance)
+		for {
+			var run protocol.ConversationRun
+			if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err }); err != nil {
+				t.Fatal(err)
+			}
+			if run.Status == protocol.ConversationStatusFailed {
+				break
+			}
+			select {
+			case <-f.changed:
+			case <-f.ctx.Done():
+				t.Fatalf("waiting for the failed run: %+v", run)
+			}
+		}
+		// The retried attempt, the refused attempt and one failure.
+		retries, observed, failures := summaries(f)
+		if len(retries) != 1 || observed != 2 || failures != 1 || compacting(f) != 0 {
+			t.Fatalf("%d retries, %d observations, %d failures, %d drafts", len(retries), observed, failures, compacting(f))
+		}
+	})
+	t.Run("stopped during the wait", func(t *testing.T) {
+		m := &scriptedModel{scripts: []script{response(overflow), response(limited)}}
+		f := newFixture(t, m)
+		f.start()
+		turn := f.submit("Task")
+		wait(f) // never advanced: the stop alone ends the wait
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+		f.waitRun(turn, protocol.ConversationStatusCancelled)
+		retries, observed, failures := summaries(f)
+		if len(retries) != 1 || observed != 1 || failures != 0 || m.count() != 2 {
+			t.Fatalf("%d retries, %d observations, %d failures, %d requests", len(retries), observed, failures, m.count())
+		}
+		if compacting(f) != 0 {
+			t.Fatal("the stopped turn left its compacting draft")
+		}
+	})
+}
 func TestReactiveCompactionAtMostTwo(t *testing.T) {
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
