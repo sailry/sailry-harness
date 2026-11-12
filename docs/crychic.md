@@ -501,25 +501,47 @@ In use: the Git history, in the panel's tab and the Git page
   next dot in it; a merge's second parent takes the first free lane, and a
   branch that joins a commit another child already awaits curves into that
   child's lane.
+- A line to a parent that is not listed yet is drawn straight down the
+  commit's own lane to the end of the list, so `graphLanes` keeps that lane
+  for it and puts nothing in its way.
 - The rows over the graph are ours: a `ui.RoleListBox` of options laid at the
   component's rows (`crychic.CommitGraphRows`, held to the component by a
-  test) that take the click, the selection (`theme.Palette.Selected()`, painted
-  under the graph), the tooltip and the OS-native right-click menu.
-- The component draws every name it is given on the subject's line, so the
-  caller budgets them: `crychic.CommitGraphLanes` and `CommitGraphPad` say
-  what the lanes and padding take, the names get up to half of the rest, a
-  long first name is cut and the ones left out are counted (`+2`). The row's
-  tooltip says the full subject, ID, author and names.
-- The history stays paged by the Node, 100 commits a page, so a page builds
-  at most 100 rows whatever the repository's size. Lanes are worked out per
-  page: a line that crosses from the page before is not drawn at the top of
-  the next one, since the component draws edges only from commits it lists.
-- A page it cannot draw (an earlier Node that sends no parents, a parent
+  test) that take the click, the selection, the tooltip and the OS-native
+  right-click menu. They take a click in the first frame: the component's
+  arrival moves its own rows and draws its lines in, not ours *(tested)*.
+- The selected and hovered fills (`theme.Palette.Selected()`, `Hover`) are
+  painted under the graph and start after the lanes. The component paints
+  the theme's background around each dot, which a fill under the dot shows
+  as a ring.
+- One line a commit. The component always shows the short ID first and puts
+  every name it is given before the subject, shrinking the names with the
+  subject when the line overflows, so the caller chooses what to give it
+  (`crychic.CommitGraphLanes` and `CommitGraphPad` say what the lanes and
+  padding take): under 200 DIP of text at most one name, the branch checked
+  out first, with the count of the others (`+2`) when it fits; from 200 the
+  names that fit in half of the line; from 340 also the author and the
+  commit's age after the subject. The row's tooltip says the full subject,
+  ID, author, age and names at any width.
+- The Node reads the history 100 commits at a time and the list grows by
+  Load more at its end, because the component draws a line only between
+  commits of one list: a page of its own would cut every line that crosses
+  into it. Keys are the hashes, so a longer list keeps its rows and the
+  component's lines are not drawn in again; only the new rows fade in. A
+  merge whose second parent is read later gets its lane then, which can
+  move the rows below it one lane over.
+- It is not virtual, so the cost grows with the list: a headless frame of
+  the Git page takes 0.3 ms with 100 commits, 1.7 ms with 500, 3.5 ms with
+  1,000 and 18 ms with 3,000 *(measured once, Apple silicon, not a test)*.
+  Nothing caps the list.
+- The arrival cannot be held still from outside as `crychic.Mermaid`'s is:
+  it is the trim of the lines in the component's painter and a keyframe on
+  each of its rows, not a pose of the root. It plays once when the history
+  shows, and again each time the History tab is chosen.
+- A history it cannot draw (an earlier Node that sends no parents, a parent
   listed before its child) is the plain list, with the same rows and menu.
 - The lane colours are the component's, from the theme's accent, success,
   warning and danger tokens through the adapter rule; there is no page
-  palette. The halo around a dot is the theme's background, which shows as a
-  thin ring on the selected row.
+  palette.
 
 ### `code.DiffView`
 

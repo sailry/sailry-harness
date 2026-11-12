@@ -272,16 +272,19 @@ terminal, subagent and file-preview tabs are single-pane.
   selected; a row's right-click menu acts on every change in it. The
   history is a graph (CrychicUI's `code.CommitGraph` through
   `crychic.CommitGraph`, [crychic.md](crychic.md#codecommitgraph)): a lane
-  per line of work, merges, each commit's short ID, the names at it (the
-  branch checked out or a detached `HEAD` first, then tags, branches and
-  remote branches) and its subject, with the author where the list is wide
-  enough; a row's tooltip says all of it. A click opens the commit's
-  changes and keeps the row selected in the neutral fill; the right-click
-  menu, the system's, has Copy commit ID, New branch and Create tag at the
-  commit, and Cherry-pick, which asks first naming the commit. Pages are
-  the Node's, 100 commits each, with Previous and Next. A history without
-  parents (an earlier Node) is the plain list: subject, ID, author and
-  branch. The diff is MyGo's diff viewer (`kit.Diff`): highlighted, old
+  per line of work, merges, and on each commit's line its short ID, the
+  names at it (the branch checked out or a detached `HEAD` first, then
+  tags, branches and remote branches) and its subject. A narrow list gives
+  the line to the subject and shows at most one name with the count of the
+  others; a wider one shows the names that fit, and the widest the author
+  and the commit's age too. A row's tooltip says all of it. A click opens
+  the commit's changes and keeps the row selected in the neutral fill; the
+  right-click menu, the system's, has Copy commit ID, New branch and Create
+  tag at the commit, and Cherry-pick, which asks first naming the commit.
+  The list starts with the newest 100 commits and Load more at its end adds
+  the next 100, so a line of the graph runs on however far it goes. A
+  history without parents (an earlier Node) is the plain list: subject,
+  ID, author and branch. The diff is MyGo's diff viewer (`kit.Diff`): highlighted, old
   and new numbers, word changes, and on the change under the pointer
   Revert and Keep (`editor.DefaultHunkActions`) and Stage. Its toolbar has
   Unified | Split (`kit.DiffLayout`, a small `kit.Segmented`): unified as
@@ -362,8 +365,11 @@ forms retain values after failures. Destructive operations name their target
 in the existing confirmation. Pickers preserve full stash and tag identifiers.
 Output, commits and stashes open in the existing document tabs. A history
 entry carries the optional `parents` (absent from an earlier Node: not known,
-and the page is the plain list; `[]` for a root) and its references, which
-include `HEAD` at the commit checked out. The history's menu sends
+and the history is the plain list; `[]` for a root), its time and its
+references, which
+include `HEAD` at the commit checked out. The pages read are listed as one
+history, a commit two pages repeat once; `Actions.GitHistory` reads the next
+page, and a status change reads the first again. The history's menu sends
 `create_git_branch` and the `create_tag` and `cherry_pick` actions at the commit, with the
 generic Git toasts. Diff scope caches
 remain separate and invalidate with Repository updates. A native hunk's line
@@ -689,8 +695,9 @@ panel, the bound without a gesture and a closed tab's request.
 `internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
 confirmation, Commit's menu and amending, the history's graph, its rows'
-click and right-click menu and the plain list without parents, the lanes
-and the names' order and fit, Unified and Split, All changes; the
+click (also in the first frame), tooltip and right-click menu, Load more
+and the plain list without parents, the lanes and the names' order and
+fit, Unified and Split, All changes; the
 file tree's click, ⌘-click, ⇧-click, ⇧↓, ⌘A, right-click selection and
 Copy path, and its arrows, → and Enter.
 `internal/desktop/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
@@ -711,9 +718,10 @@ at its width.
 | Deviation | Reason |
 |---|---|
 | The history's rows are built over the graph, which is not interactive | `code.CommitGraph` has no click, selection or menu ([crychic.md](crychic.md#codecommitgraph)); ours are laid at its rows |
-| A line of the graph that crosses from the page before is not drawn at the top of a page | Lanes are worked out per page of 100 and the component draws edges only from commits it lists |
-| The history's menu has no Checkout or Revert of a commit | The Node has no action for either; Cherry-pick, a branch and a tag at the commit are the ones it has |
-| At the list's first width a long branch name is left to the row's tooltip | The graph draws names on the subject's line; they get up to half of it |
+| The history grows by Load more instead of the reference's pages | `code.CommitGraph` draws a line only between commits of one list; pages cut every line that crossed from one to the next (follow-up instruction of 2026-11-12) |
+| A commit's row is one line: short ID, names, subject | The component's row; the reference's second line (ID, author, branch) is the row's tooltip, and shows inline where the list is wide |
+| The history's menu has no Checkout or Revert of a commit | The reference has no menu on a commit at all, and its Node neither action (`plugins/git/dev.sailry.platform/desktop/view.js`, `crates/protocol/src/git.rs`); ours adds only what the Node already does: a branch or a tag at the commit and `cherry_pick` |
+| The graph draws itself in each time the History tab is chosen | The component's arrival is inside its painter and rows and cannot be held still from outside; the rows take clicks throughout |
 | PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
 | Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |
 | The column's strip is in the header band (user decision 2026-11-11) | The reference draws it as the column's first row; docs/shell.md |
