@@ -115,17 +115,68 @@ mono worktree path.
 | Mark read / unread | menu | `Status` Unread ↔ Idle |
 | Archive | hover button, menu | Confirm (`workspace_archive`, `workspace_memory_only`, `workspace_confirm`), then hidden in memory |
 | Delete | menu | Confirm naming the session once (`session_delete`, `session_delete_named`), and for a chat without a project that its private workspace's files go with it (`session_delete_private_files`), then removed from memory; its split pane leaves with it |
-| Export, Fork, Open file, New window | menu | `preview_notice` toast |
+| Export, Fork, Open file, New window | menu | `preview_notice` toast. In Demo mode, which says nothing of itself: Fork conversation copies the session beside itself in memory and shows the copy, Fork in new worktree does so in a worktree added to the project in memory; Export, Open folder and New window are not offered, as they need a Node, the system's file manager or a second window (`fork`) |
 | Copy title, ID, path | menu › `content_copy` | Clipboard |
 | New session | project menu | The project's unsent conversation when it has one, otherwise an empty one in the project, in memory |
-| New terminal, Records, Overview, Worktrees, AI CLI | project menu | `preview_notice` toast |
+| Project overview, New terminal, Worktrees | project menu | `preview_notice` toast in the preview. In Demo mode they act on the demo ([Project menu](#project-menu)) |
 | Edit project | project menu | The editor with its name, path and appearance |
-| Trust (`project_trust`) | project menu, preview only | Confirm (`project_grant_title` or `project_revoke_title`, the name, the path, the description and `project_trust_preview`), then `Trusted` flips in memory. The reference's live menu has no such item |
-| Remove project | project menu | A project with sessions is refused with the toast `project_remove_sessions`; otherwise confirm naming the path once (`project_remove_sample`, `project_remove_preview`), then removed from memory |
+| Remove project | project menu | A project with sessions is refused with the toast `project_remove_sessions`; otherwise confirm naming the path once (`project_remove_sample`, `project_remove_preview`), then removed from memory. Demo mode asks as the live window does (`project_remove_named`) and removes the project with its sessions from the demo's memory |
 | Open folder | `folder.open` (the menu, the shortcut) | The directory picker titled `menu_open_folder`; the choice opens the project already at that path on the shown host, otherwise adds one named after the directory |
 
 Right-click menus are the system's (`Element.ContextMenu`); their items and
-order follow `live/menus/session_actions.rs` and `workspace/menus.rs`.
+order follow the reference's live menus, `live/menus/session_actions.rs` and
+`live/menus/project.rs`.
+
+### Project menu
+
+The reference's live project menu (`render_project_menu`) has four groups.
+Its own items are core; what follows New session is the `project_menu` slot,
+the entries of the packages enabled on the project's Node in their declared
+order (`plugins/contributions/native.rs`).
+
+| Reference | Owner | Here |
+|---|---|---|
+| Project overview | core | Project overview (`workspace_project`) |
+| Edit project | core | Edit project (`project_edit`) |
+| separator | | separator |
+| New session | core | New session (`workspace_new_session`) |
+| New terminal | `commands` `terminal-menu-new`, order 10 | New terminal (`workspace_new_terminal`), while `commands` is enabled |
+| CLI ▸ | `commands` `terminal-menu-cli`, order 20 | Not shown ([removed-ui](removed-ui.md)) |
+| Manage branches | `git` `manage`, order 20 | Not shown: Git is native and its branch management is the Git panel's branch menu ([plugins](plugins.md#deviations)) |
+| Manage worktrees… | `worktrees` `manage`, order 30 | Manage worktrees ▸ (`worktree_manage`): Create worktree, the worktrees (the main one checked), Remove worktree; while `worktrees` is enabled |
+| other packages' entries | their package | Items and submenus of choices at their order (`live.projectPluginMenu`) |
+| separator | | separator |
+| Copy path | core | Copy path |
+| separator | | separator |
+| Remove project | core | Remove project |
+
+`State.projectMenu` draws the core items. The live window fills the slot
+through `Actions.ProjectMenu` (`live.projectPluginMenu`); the application
+owns terminals and worktrees, so the two bundled entries are its own
+controls, `State.TerminalItem` and `State.WorktreeMenu`, drawn at their
+packages' orders and only while the package is enabled and compatible in the
+Node's snapshot. There is no trust entry, no Records entry and no AI CLI
+entry.
+
+The preview and Demo mode have no `Actions`. Both show the two bundled
+entries; the preview's tell `preview_notice`. In Demo mode, where that
+notice is silent, the items act on the demo in memory through `State.Sample`,
+which the shell sets (`App.demoProject`, `App.demoTerminal`):
+
+| Item | Demo mode |
+|---|---|
+| Project overview | The project page over the demo project: its sessions open, New session and New terminal work, the Terminal records list the terminal tabs open beside the conversation. The search palette's project choices open it too |
+| Edit project | The editor; Save changes the demo's memory |
+| New session | An empty conversation in the project |
+| New terminal | A terminal tab beside the project's conversation, showing the demo's screen ([panel](panel.md)) |
+| Manage worktrees › Create worktree | Adds a worktree to the project and opens a new session in it |
+| Manage worktrees › a worktree | The project page |
+| Manage worktrees › Remove worktree | A submenu of the worktrees other than the main one; the choice is confirmed once, naming the path (`worktree_remove_confirm`), then removed from memory. The live window picks the worktree in the Git panel instead |
+| Copy path | Clipboard |
+| Remove project | Confirmed once, then removed from memory |
+
+The cause of the items that did nothing: they fell through to the preview
+notice whenever `Actions` was nil, and Demo mode silences that notice.
 
 ### New session
 
@@ -199,8 +250,15 @@ picker over the sample directories (filter, Enter, Backspace, Back, the
 entry menu, the hidden toggle, grid and list, the choice filling the path
 and the name), Clone with its repository, branch and destination, the saved
 appearance in the sidebar, editing, the project menu's items in order,
-trust, Open folder adding and reopening, the refusal to remove a project
-with sessions and the removal of one without. `firstRunProjects` in
+Open folder adding and reopening, the refusal to remove a project
+with sessions and the removal of one without. `TestProjectMenu`
+(`shell/project_menu_test.go`) covers the menus over the demo: the item list
+in the preview and the demo, every project item's effect on the demo's data,
+the session menu's forks and its absent items, and the panel launcher.
+`firstRunProjects` checks the live menu's exact items and separators against
+a real Node, Copy path, Project overview, that New terminal and Create
+worktree reach their adapters, and that New terminal leaves with the
+`commands` package disabled. `firstRunProjects` in
 `internal/desktop/live/first_run_test.go` does it against a real Node: the
 picker lists a temporary directory tree through `browse_files`, Save is
 pending while `create_project` is held, the appearance reaches
@@ -242,7 +300,9 @@ none once no session runs.
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
 | No terminals in the tree | Terminals come with the terminal work |
 | The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
-| The live project menu keeps New terminal, Records, Worktrees and AI CLI | They were accepted with the page; the reference's live menu has Overview, Edit, New session, Copy path and Remove, then the items packages contribute. Contributed items follow Records here; the bundled ones these four replace are not repeated ([plugins](plugins.md#deviations)) |
+| The project menu's New terminal and worktrees entries are the application's own controls, not mounted package entries | The application owns terminals and worktrees. They sit in the `project_menu` slot at their packages' orders and show only while `commands` and `worktrees` are enabled, as the reference's contributed entries do. The worktrees entry is a submenu (create, the list, remove) where the reference has one item opening its manager |
+| The project menu has no CLI submenu and no Manage branches | The user's decision of 2026-11-12 for the CLI ([removed-ui](removed-ui.md)); the `git` package is not mounted and branches are managed in the Git panel |
+| The project menu has no Records entry | The reference's live menu has none; the project page lists the project's sessions and terminals. `State.ShowRecords` and its dialog remain, opened by nothing in the menu |
 | The running row's loader is MyGo's `loading.Swirl` in one color | The user's decision; the dot matrix in the info, warning and danger colors is removed ([components.md](components.md#deviations)) |
 | The appearance popover lays the icons out six to a row | `kit.Popover` with Kit ghost buttons; the reference's popover wraps them freely |
 
@@ -315,7 +375,7 @@ session's (`SessionMenu`); an archived record's has Unarchive
 (`backup_unarchive`, `set_session_archived` at its revision), Delete and
 Copy alone, as it has no row to rename or pin. The header's More menu
 (`ProjectActions`) on the page has Edit, New worktree, Copy path, Remove
-worktree, Remove project and Launch CLI, the sidebar's project actions; the
+worktree and Remove project, the sidebar's project actions; the
 reference's Manage worktrees entry is the sidebar menu's submenu here.
 
 Dragging a project's row sends `set_session_order` with every session of

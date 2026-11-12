@@ -34,7 +34,7 @@ func (r *Runtime) applyPreferences() {
 	a, m := r.App, r.App.Settings.Model
 	m.Notify, m.SidebarMetrics, m.DemoMode = d.Notifications, d.SidebarMetrics, d.DemoMode
 	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, int(sidebar.SortUpdated), updateChannel(d.UpdateChannel, link.ProductVersion)
-	m.TextSize = 14
+	m.TextSize = 15
 	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
 	if d.Language != nil {
 		m.Language = max(0, slices.Index(preferences.Languages, *d.Language))
@@ -118,7 +118,7 @@ func (r *Runtime) savePreferences() {
 	// The sidebar orders its rows by the choice; a profile that never chose
 	// keeps none, which is updated.
 	setChoice(&d.SessionOrder, sidebar.Sort(m.SessionOrder).Preference(), sidebar.SortUpdated.Preference())
-	setChoice(&d.MessageTextSize, uint8(m.TextSize), uint8(14))
+	setChoice(&d.MessageTextSize, uint8(m.TextSize), uint8(15))
 	if language := preferences.DictationLanguages[min(max(m.SpeechLanguage, 0), 2)]; language != d.DictationLanguage() {
 		if d.Dictation == nil {
 			d.Dictation = &preferences.Dictation{}

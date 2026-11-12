@@ -37,8 +37,10 @@ type Resource struct {
 	Key   ui.Key
 }
 
-// Resources are the kinds in the launcher's order: the reference's
-// Browser, Terminal, Files and Review, then checkpoints and documents.
+// Resources are the kinds with a tab of their own. The launcher and the "+"
+// menu list the first four, in the reference's order: Browser, Terminal,
+// Files and Review. The turns' checkpoints and a session's documents open
+// from where they belong (lists) and keep their tabs.
 var Resources = []Resource{
 	{Browser, icons.Web, "resource_browser", ui.Cmd, ui.KeyT},
 	{Terminal, icons.Terminal, "terminal", ui.Ctrl, ui.KeyBackquote},
@@ -104,8 +106,9 @@ type State struct {
 	documentView    func(*ui.Context, string) bool
 	historyConfirm  confirm
 	Live            bool
-	// Demo is the demo conversations' panel: it has no terminal or browser,
-	// which would start a shell or load a page (lists).
+	// Demo is the demo conversations' panel: its terminal shows the demo's
+	// screen and its browser the demo's page, as no shell starts and nothing
+	// is loaded.
 	Demo       bool
 	HasProject bool
 	// Session reports that the live conversation shown has a session: an
@@ -297,22 +300,20 @@ func (s *State) Close(t Tab) bool {
 	return len(s.Tabs) > 0
 }
 
-// lists reports whether the launcher and the "+" menu offer k: the turns'
-// checkpoints and the documents belong to a session, which an unsent draft
-// of the live window does not have, and a terminal needs a worktree, which
-// an unsent chat without a project does not have (the reference's
-// Scope.offers).
+// lists reports whether the launcher and the "+" menu offer k: the
+// reference's four, Browser, Terminal, Files and Review. A terminal needs a
+// worktree, which an unsent chat of the live window without a project does
+// not have (the reference's Scope.offers). The turns' checkpoints open from
+// a turn's Undo and a session's documents from their cards, as the reference
+// reaches them; neither is a launcher entry.
 func (s *State) lists(k Kind) bool {
-	if s.Demo {
-		return k != Terminal && k != Browser
+	switch k {
+	case History, Documents:
+		return false
+	case Terminal:
+		return !s.Live || s.Worktree
 	}
-	if !s.Live {
-		return true
-	}
-	if k == Terminal {
-		return s.Worktree
-	}
-	return s.Session || k != History && k != Documents
+	return true
 }
 
 // Offers reports whether the conversation shown can open k: a shortcut opens

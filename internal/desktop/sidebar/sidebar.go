@@ -33,6 +33,7 @@ const (
 type State struct {
 	Data     *viewmodel.Data
 	Actions  *Actions
+	Sample   Sample
 	Metrics  *Metrics
 	records  recordsState
 	Selected string // conversation ID
@@ -717,6 +718,10 @@ func (s *State) newIn(pr *preview.Project) {
 	*s.opened("project/" + pr.ID) = true
 	s.Selected = cv.ID
 }
+
+// NewSession opens an empty conversation in a project, as the project
+// menu's New session does.
+func (s *State) NewSession(pr *preview.Project) { s.newIn(pr) }
 
 // Title is a conversation's title, or the "New conversation" copy while it
 // has none.

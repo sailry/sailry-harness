@@ -793,8 +793,8 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	menu := tt.Menu()
-	want := []string{"workspace_project", "workspace_new_session", "workspace_new_terminal", "workspace_records", "project_edit",
-		"workspace_copy_path", "worktree_manage", "project_remove", "cli_launch"}
+	want := []string{"workspace_project", "project_edit", "workspace_new_session", "workspace_new_terminal", "worktree_manage",
+		"workspace_copy_path", "project_remove"}
 	at := 0
 	for _, key := range want {
 		i := slices.Index(menu[at:], en(key))

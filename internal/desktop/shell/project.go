@@ -203,7 +203,7 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 				return
 			}
 			for _, session := range project.Conversations {
-				if (!a.Preview && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
+				if (!a.sampled() && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
 					continue
 				}
 				title := sidebar.Title(c, session)
