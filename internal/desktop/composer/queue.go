@@ -91,7 +91,7 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 			below = r
 		}
 		open := s.queueOpen || q.editing != ""
-		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Radius(r, r, below, below), p.Muted, kit.CardTint).
+		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Radius(r, r, below, below), p.Muted, kit.SurfaceTint).
 			Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).Transition(queueMotion).Children(func() {
 			s.queueHeader(c, ctx, open)
 			if !open {
