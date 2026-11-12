@@ -206,6 +206,11 @@ Stacked, Git's column is compact: Changes | History is a small segmented
 control in the branch's bar, and the message is one line beside Commit
 until expanded.
 
+A document with nothing to show (no file open, no change chosen, a file
+that is gone, a notebook without cells) fills its region with the empty
+state (`empty`: `kit.Result` grown and centred), centred both ways in the
+document's region: beside the list, or under it when stacked.
+
 A document under 640 DIPs has no room for two diff columns: its diffs
 show unified whatever the window's choice, which is left alone.
 
@@ -730,7 +735,9 @@ Copy path, and its arrows, → and Enter.
 footer's button after the counts, its toggle and its one place in every
 diff document; the list above its document at 560 and beside it at 900 for
 Git and Files, the threshold's slack, the divider's drag and bounds, and
-the narrow document's unified diff with the button disabled. With
+the narrow document's unified diff with the button disabled. The empty
+document centred in its region in both layouts and both hosts
+(`kittest.Centred`, also over the tabs' empty states in `model_test.go`). With
 `$SAILRY_SNAPSHOTS` set it writes the stacked and side-by-side frames at
 2x, dark and light.
 `internal/desktop/shell/frame_test.go`: the stacked list's share dragged,

@@ -365,6 +365,7 @@ func TestGitPage(t *testing.T) {
 	t.Run("DiffLayout", testDiffFooter)
 	// The list beside its document or above it, by the host's width.
 	t.Run("Layout", testLayout)
+	t.Run("EmptyCentred", testEmptyCentred)
 	// The review's frames, written only when $SAILRY_SNAPSHOTS names a
 	// folder: the demo repository's history as a graph, at the list's first
 	// width and widened, and a change's diff unified and split, at 2x in

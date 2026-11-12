@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"github.com/sailry/sailry-harness/internal/desktop/kit/kittest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -337,6 +339,72 @@ func testLayout(t *testing.T) {
 	})
 }
 
+// closeItems closes every open file and diff of the project and shows none.
+func closeItems(pr *Project) {
+	for _, id := range slices.Clone(pr.Files.open) {
+		pr.Files.Close(id)
+	}
+	for _, id := range slices.Clone(pr.Git.open) {
+		pr.Git.Close(id)
+	}
+	// A change named first is shown without being open.
+	pr.Files.file, pr.Git.change = "", ""
+}
+
+// An empty state standing for a document is centred both ways in the
+// document's region: beside the list, or under it when stacked, never the
+// whole panel and never at the region's top.
+func testEmptyCentred(t *testing.T) {
+	const height = 772
+	grip := func(tt *ui.Tester) ui.Rect {
+		t.Helper()
+		for _, e := range tt.AccessAll() {
+			if e.Role == ui.RoleSplitter && e.Bounds.H == handle && e.Bounds.W > handle {
+				return e.Bounds
+			}
+		}
+		t.Fatalf("no handle under the list: %q", tt.Texts())
+		return ui.Rect{}
+	}
+	split, share := false, float32(0)
+	s, pr, tt := viewTester(t, 560, &split, &share)
+	for _, o := range []struct {
+		tab  Tab
+		key  string
+		side *float32
+	}{
+		{Tab{Kind: Changes}, "git_diff_empty", &pr.Git.side},
+		{Tab{Kind: Files}, "file_empty", &pr.Files.side},
+	} {
+		closeItems(pr)
+		tt.SetSize(560, height)
+		s.Tabs, s.Active = []Tab{o.tab}, o.tab
+		tt.Frame()
+		tt.Frame()
+		top := grip(tt).Y + handle/2
+		kittest.Centred(t, tt, en(o.key), ui.Rect{Y: top, W: 560, H: height - top})
+		tt.SetSize(900, height)
+		tt.Frame()
+		tt.Frame()
+		kittest.Centred(t, tt, en(o.key), ui.Rect{W: 900 - *o.side, H: height})
+	}
+	// The rail's pages head the document with their strip of open items.
+	for _, o := range []struct {
+		kind Kind
+		key  string
+	}{{Files, "file_empty"}, {Changes, "git_diff_empty"}} {
+		pr, tt := pageTester(t, o.kind)
+		closeItems(pr)
+		tt.Frame()
+		tt.Frame()
+		side := pr.Files.side
+		if o.kind == Changes {
+			side = pr.Git.side
+		}
+		kittest.Centred(t, tt, en(o.key), ui.Rect{Y: barHeight, W: 1100 - side, H: 760 - barHeight})
+	}
+}
+
 // layoutShots writes the review's frames of the panel's two layouts, only
 // when $SAILRY_SNAPSHOTS names a folder: Git stacked at the panel's first
 // width with a diff, Git side by side at 900 with the diff split, and Files
@@ -379,5 +447,21 @@ func layoutShots(t *testing.T) {
 		rest()
 		rest()
 		shot(t, tt, "git-side-900-split-"+name)
+		// Nothing chosen: the empty state centred in the document's region.
+		closeItems(pr)
+		for _, o := range []struct {
+			kind Kind
+			name string
+		}{{Changes, "git"}, {Files, "files"}} {
+			s.Tabs, s.Active = []Tab{{Kind: o.kind}}, Tab{Kind: o.kind}
+			tt.SetSize(900, 772)
+			rest()
+			rest()
+			shot(t, tt, o.name+"-empty-side-900-"+name)
+			tt.SetSize(560, 772)
+			rest()
+			rest()
+			shot(t, tt, o.name+"-empty-stacked-560-"+name)
+		}
 	}
 }

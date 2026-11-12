@@ -168,7 +168,7 @@ func (s *State) filePicker(c *ui.Context, ctx *Context, actions Actions) {
 					if f.filter != "" {
 						key = "directory_no_matches"
 					}
-					kit.Result(c.Key("empty"), kit.ResultProps{Icon: icons.FolderOpen, Title: i18n.T(c, key)}).Grow(1)
+					kit.Result(c.Key("empty"), kit.ResultProps{Icon: icons.FolderOpen, Title: i18n.T(c, key)}).Grow(1).Justify(ui.Center)
 				} else {
 					// MyGo fills a chosen row with its theme's accent, the app's
 					// emphasis color: under the neutral theme it takes the

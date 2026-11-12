@@ -519,7 +519,7 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	}
 	f := findFile(pr.Data.Files, path)
 	if f == nil {
-		kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "file_empty")})
+		empty(c, icons.File, "file_empty")
 		return
 	}
 	v := pr.Files.item(path)
@@ -610,7 +610,7 @@ func (pr *Project) diff(c *ui.Context, path string) {
 		}
 	}
 	if ch == nil {
-		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "git_diff_empty")})
+		empty(c, icons.Network, "git_diff_empty")
 		return
 	}
 	metadata := pr.Git.diffStates[pr.Git.scope+"/"+path]
