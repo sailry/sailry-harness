@@ -479,9 +479,12 @@ redirect refusal, response budgets, PKCE proof validation, OIDC signature,
 issuer, audience, expiry and nonce checks remain in the shared Node owner.
 The existing absolute login deadline and cancellation cover every step and wait.
 
-The stable `chat_gpt`, `chat_gpt_oauth` and `claude_oauth` authentication IDs can
-be declared through optional `authentication`. Their existing private credential
-codecs stay unchanged. Default inventory metadata binds existing accounts to
+The stable `chat_gpt`, `chat_gpt_oauth`, `claude_oauth` and `copilot`
+authentication IDs can be declared through optional `authentication`. Their
+existing private credential codecs stay unchanged. A `copilot` flow finishes
+with `{kind, access, github, expires_at_ms, endpoint}`: the short-lived session
+token, the GitHub token that renews it, and a service endpoint under
+`githubcopilot.com`. Default inventory metadata binds existing accounts to
 their authorization package without rewriting credentials or sent-turn captures.
 Later admission checks the bound package, origin and authentication contract;
 ambiguous declarations or changed bindings fail rather than silently changing
@@ -506,7 +509,8 @@ accounts use only that installed package's own authentication declaration.
 
 A package can declare native account reads separately with optional
 `model_resources: [{authentication, requests}]`. Each authentication may appear
-once; supported values are `chat_gpt`, `chat_gpt_oauth` and `claude_oauth`.
+once; supported values are `chat_gpt`, `chat_gpt_oauth` and `claude_oauth`
+(`copilot` has no account resources).
 These declarations require `http.request`, expose no credentials, and cannot
 declare mutations. The native authentication owner permits GPT resources only
 at `https://chatgpt.com` and Claude resources only at

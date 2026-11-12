@@ -87,7 +87,13 @@ without embedded credentials, queries or fragments; redirects are refused.
 Account generation is confined to the grant's authorized destination. ChatGPT
 direct use requires its two plan scopes; Codex uses the captured catalog identity
 and account header, Claude uses its OAuth transport, and Copilot uses its
-authorized service endpoint. Native discovery preserves visible ChatGPT catalog
+authorized service endpoint with the editor identity in `providers/accounts.go`
+(`GitHubCopilotChat/0.68.0`, `vscode/1.140.0`, `copilot-chat/0.68.0`, API
+version `2026-01-09`). Each Copilot generation request also carries
+`openai-intent: conversation-agent`, its own `x-request-id`, `x-initiator`
+(`user` when the last message, turn context aside, is one the user wrote in a
+session that is not delegated; otherwise `agent`) and `copilot-vision-request`
+when it carries an image. Native discovery preserves visible ChatGPT catalog
 order, reported names, limits, reasoning and service tiers. Copilot catalogs filter
 by the selected chat or Responses endpoint. Plugin adapters use their declared
 discovery translation.
@@ -378,3 +384,44 @@ save completes its tags from the catalog as for a model never tagged.
 The provider editor requires a positive context limit within the v1 `uint32`
 range and at least the model's output limit. It rejects an empty or oversized
 field before narrowing values for the protocol, retaining the draft on failure.
+
+## GitHub Copilot sign-in
+
+The bundled `copilot-auth` package declares `authentication: "copilot"` with a
+script flow, so sign-in runs through the same owner as ChatGPT and Claude. The
+flow requests a GitHub device code, shows it with
+`https://github.com/login/device`, polls at GitHub's interval (five seconds
+more on `slow_down`), and exchanges the GitHub token at
+`https://api.github.com/copilot_internal/v2/token`. The grant keeps the session
+token as `access`, the GitHub token as `github`, and an expiry five minutes
+before the session's own. Renewal repeats the exchange with the stored GitHub
+token; `BeginProviderRenewal` captures the declaration from the enabled
+package, so the grant needs no saved authentication target.
+
+The `copilot` preset is offered with two routes of one channel, Chat
+Completions and Responses, at `https://api.githubcopilot.com`. Discovery lists
+a model on the route its `supported_endpoints` names, and a model that names
+none on Chat Completions. Claude models are used through Chat Completions.
+
+Differences from the reference, all deliberate:
+
+- The reference signs in natively and refuses a package that declares
+  `copilot`; Go has one sign-in owner, so the flow is a package.
+- The reference uses the service endpoint the exchange returns. The package
+  pins `https://api.githubcopilot.com`, since a channel's endpoint is fixed
+  when it is saved and a different returned endpoint would fail the
+  destination check. GitHub Enterprise Cloud with data residency
+  (`*.ghe.com`) is not supported.
+- The reference stores the session's own expiry; the package stores it five
+  minutes early, as current clients renew.
+- As in the reference, a Copilot renewal writes no `renewal_pending` marker:
+  the exchange is a read that does not rotate the GitHub token. A refusal
+  (401, 403 or 404) marks the grant `renewal_rejected`; any other failure
+  leaves it unmarked and a later use repeats the exchange.
+- The client identity follows current Copilot Chat rather than the reference's
+  older values.
+
+Not covered: a model served only on `/v1/messages` (the host has no
+Anthropic route at Copilot's origin), plan and quota status (account resources
+inject the session token, and the quota endpoint needs the GitHub token), and
+native web search, which Copilot channels do not offer.

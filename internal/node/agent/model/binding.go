@@ -31,6 +31,9 @@ type Request struct {
 	Temperature     *float64
 	Headers         map[string]string
 	Assets          map[string][]byte
+	// Delegated marks a request of a delegated session, which an account
+	// service counts as the agent's own.
+	Delegated bool
 }
 type transportConfig struct {
 	Kind, Model, Endpoint, Key string

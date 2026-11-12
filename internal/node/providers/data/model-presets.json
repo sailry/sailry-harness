@@ -266,8 +266,11 @@
       "homepage": null,
       "key_url": null,
       "badge": null,
-      "brand": null,
-      "offered": false,
+      "brand": "copilot",
+      "brand_display": {
+        "label": "GitHub Copilot"
+      },
+      "offered": true,
       "routes": [
         {
           "protocol": "openai-chat-completions",
@@ -313,7 +316,10 @@
       "homepage": null,
       "key_url": null,
       "badge": null,
-      "brand": null,
+      "brand": "copilot",
+      "brand_display": {
+        "label": "GitHub Copilot"
+      },
       "offered": false,
       "routes": [
         {

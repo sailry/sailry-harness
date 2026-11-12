@@ -427,7 +427,8 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 	var failure error
 	if err != nil {
 		var fault *protocol.Fault
-		plugin := renewal.Grant.Kind == protocol.AuthenticationPlugin && errors.As(err, &fault)
+		copilot := renewal.Grant.Kind == protocol.AuthenticationCopilot
+		plugin := (renewal.Grant.Kind == protocol.AuthenticationPlugin || copilot) && errors.As(err, &fault)
 		switch {
 		case plugin && fault.Code == protocol.ErrorCodeUnavailable && !transport.sent.Load():
 			// No request left this Node, so the grant was not consumed. It returns
@@ -438,6 +439,9 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 			// uses ask for a new sign-in instead of renewing again.
 			grant, failure = renewal.Grant, err
 			grant.RenewalRejected = true
+		case copilot:
+			// The grant was never marked: a later use repeats the exchange.
+			return err
 		default:
 			return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider authorization renewal did not complete; sign in again"}
 		}

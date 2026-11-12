@@ -483,11 +483,15 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			options.Data = protocol.ConversationOauthOptionsClaudeOAuthPayload{UserAgent: userAgent}
 		case protocol.AuthenticationCopilot:
 			editor, plugin := d.OAuth[2], d.OAuth[3]
+			// The Node's defaults (providers.DefaultCopilot*).
+			if d.OAuth[1] == "" {
+				userAgent = "GitHubCopilotChat/0.68.0"
+			}
 			if editor == "" {
-				editor = "vscode/1.107.0"
+				editor = "vscode/1.140.0"
 			}
 			if plugin == "" {
-				plugin = "copilot-chat/0.35.0"
+				plugin = "copilot-chat/0.68.0"
 			}
 			options.Data = protocol.ConversationOauthOptionsCopilotPayload{UserAgent: userAgent, EditorVersion: editor, EditorPluginVersion: plugin}
 		}
