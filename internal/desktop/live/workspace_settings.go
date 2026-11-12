@@ -259,7 +259,13 @@ func (r *Runtime) saveWorkspaceHooks() {
 			value.Additional = append(value.Additional, protocol.HooksEntry{ID: entry.ID, Phase: phase, Script: script})
 		}
 	}
-	r.saveSetting(protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Worktree: id, Settings: value, ExpectedRevision: m.Revision}}, settings.Messages{Done: "hooks_saved", Failed: "hooks_failed", Conflict: "hooks_conflict", Uncertain: "hooks_unknown"}, func(out protocol.Output, ok bool) {
+	// Retry saves the draft again while the page still shows this project.
+	again := func() {
+		if r.workspaceSettings.worktree == id {
+			r.saveWorkspaceHooks()
+		}
+	}
+	r.saveSettingRetry(protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Worktree: id, Settings: value, ExpectedRevision: m.Revision}}, settings.Messages{Done: "hooks_saved", Failed: "hooks_failed", Conflict: "hooks_conflict", Uncertain: "hooks_unknown"}, nil, again, func(out protocol.Output, ok bool) {
 		m.Pending = false
 		defer r.publishWorkspaceSettings()
 		if !ok {
@@ -316,7 +322,7 @@ func (r *Runtime) saveSandbox() {
 	}
 	m.Pending = true
 	r.publishWorkspaceSettings()
-	r.saveSetting(protocol.Command{Kind: "save_sandbox_settings", Data: protocol.SandboxSettings{Revision: m.Revision, Enabled: m.Draft}}, settings.Messages{Done: "sandbox_settings_saved", Failed: "sandbox_settings_failed", Conflict: "sandbox_settings_conflict", Uncertain: "sandbox_settings_unknown"}, func(out protocol.Output, ok bool) {
+	r.saveSettingRetry(protocol.Command{Kind: "save_sandbox_settings", Data: protocol.SandboxSettings{Revision: m.Revision, Enabled: m.Draft}}, settings.Messages{Done: "sandbox_settings_saved", Failed: "sandbox_settings_failed", Conflict: "sandbox_settings_conflict", Uncertain: "sandbox_settings_unknown"}, nil, r.saveSandbox, func(out protocol.Output, ok bool) {
 		m.Pending = false
 		defer r.publishWorkspaceSettings()
 		if !ok {

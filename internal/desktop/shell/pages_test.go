@@ -124,6 +124,45 @@ func TestRailOpensPages(t *testing.T) {
 		if opened != remote.Conversations[1] || !opened.Archived || app.overview.pending || app.Page != ProjectPage {
 			t.Fatalf("record opening lost its capture or failed-state page: opened=%v page=%v", opened, app.Page)
 		}
+		// An archived record's menu restores it; a session's own menu is
+		// the sidebar row's.
+		var restored *viewmodel.Conversation
+		app.Sidebar.Actions = &sidebar.Actions{Unarchive: func(session *viewmodel.Conversation) { restored = session }}
+		if err := tester.RightClick("Archived remote session"); err != nil {
+			t.Fatal(err)
+		}
+		unarchive := i18n.In("en", "backup_unarchive")
+		if menu := tester.Menu(); !slices.Contains(menu, unarchive) || slices.Contains(menu, i18n.In("en", "workspace_archive")) || slices.Contains(menu, i18n.In("en", "workspace_rename")) {
+			t.Fatalf("archived record menu = %q", menu)
+		}
+		if err := tester.ChooseMenuItem(unarchive); err != nil {
+			t.Fatal(err)
+		}
+		tester.Frame()
+		if restored != remote.Conversations[1] {
+			t.Fatalf("Unarchive restored %v", restored)
+		}
+		app.overview.search = ""
+		tester.Frame()
+		if err := tester.RightClick("Remote session"); err != nil {
+			t.Fatal(err)
+		}
+		if menu := tester.Menu(); !slices.Contains(menu, i18n.In("en", "workspace_archive")) || slices.Contains(menu, unarchive) {
+			t.Fatalf("record menu = %q", menu)
+		}
+		// The header's More menu acts on the page's project.
+		click(t, tester, i18n.In("en", "more"))
+		tester.Frame()
+		for _, key := range []string{"project_edit", "worktree_create", "workspace_copy_path", "worktree_remove", "project_remove", "cli_launch"} {
+			if !tester.HasText(i18n.In("en", key)) {
+				t.Fatalf("More lacks %q: %q", i18n.In("en", key), tester.Texts())
+			}
+		}
+		click(t, tester, i18n.In("en", "workspace_copy_path"))
+		tester.Frame()
+		if got := tester.Clipboard(); got != remote.Path {
+			t.Fatalf("Copy path wrote %q", got)
+		}
 		app.overview.search = "missing"
 		tester.Frame()
 		if !tester.HasText(i18n.In("en", "connection_search_empty")) || tester.HasText("Archived remote session") {

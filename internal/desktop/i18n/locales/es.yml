@@ -1138,6 +1138,10 @@ provider_model_default: Predeterminado
 provider_set_default: Establecer como predeterminado
 provider_default: Modelo por defecto
 provider_model_id: Identificación del modelo
+provider_deployment_id: Nombre de implementación
+provider_api_version: Versión API
+form_api_version_hint: por ejemplo 2024-10-21
+provider_cloud_required: Ingrese la configuración del proveedor de la nube
 form_model_hint: Identificación del modelo
 provider_context: Límite de contexto (token)
 form_tokens_hint: Recuento de tokens
@@ -1346,6 +1350,7 @@ connector_tools_empty: Sin herramientas
 plugins_no_skills: No hay habilidades
 plugins_no_mcp: No MCP servidores
 market_details_permission_none: No se necesitan permisos adicionales
+market_details_added_permissions: Nuevos permisos
 market_installed: Instalado
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
@@ -2004,7 +2009,12 @@ knowledge_saved: Guardado
 knowledge_cancel_requested: Cancelación solicitada
 model_library_failed: No se pudieron cargar los modelos
 model_library_partial: Algunos resultados no están disponibles
-model_library_speech_unsupported: Speech models cannot be added from the library
+model_library_conflict: Los archivos de esta versión han cambiado
+model_library_version: Versión
+model_library_more: Cargar más
+model_library_query_prefix: Prefijo de consulta
+model_library_document_prefix: Prefijo de documento
+knowledge_up_to_date: Ya está actualizado
 local_models_unavailable: No disponible
 dictation_unavailable: Entrada de voz local no disponible
 dictation_model_missing: Descargar primero un modelo de discurso
@@ -2235,4 +2245,12 @@ backup_restart_restored: Restart with restored profile
 backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
 backup_restart_invalid: The restored profile cannot be used; nothing was changed
 backup_restart_failed: Sailry could not switch to the restored profile
+content_link_address: Dirección del enlace
+content_link_edit: Editar enlace
+content_image_address: Dirección de la imagen
+content_image_alt: Texto alternativo
+runtime_python_preparing: Preparando
+python_creating: Preparando dependencias
+python_installing: Instalando dependencias
+python_validating: Comprobando dependencias
 port_count: '%{count} ports'

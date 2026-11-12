@@ -19,6 +19,7 @@ import (
 )
 
 func TestSidebarProjection(t *testing.T) {
+	t.Run("session order command", testSessionOrderCommand)
 	t.Parallel()
 	node := protocol.NodeID{1}
 	project := protocol.ProjectID{1}
@@ -228,5 +229,42 @@ func TestNoticesProjection(t *testing.T) {
 	}
 	if !slices.Equal(delivered, []string{notices[1].ID}) {
 		t.Fatalf("delivery without frames or category suppression failed: %v", delivered)
+	}
+}
+
+// A manual move names every session of the project in the Node's order,
+// the delegated and archived ones the sidebar does not list included, and
+// only the project's.
+func testSessionOrderCommand(t *testing.T) {
+	project, other := protocol.NewProjectID(), protocol.NewProjectID()
+	var sessions []protocol.Session
+	for i := range 5 {
+		session := protocol.Session{ID: protocol.NewSessionID(), Project: &project}
+		switch i {
+		case 1:
+			session.Archived = true
+		case 3:
+			session.Project = &other
+		case 4:
+			session.Project = nil
+		}
+		sessions = append(sessions, session)
+	}
+	id := func(i int) string { return sessions[i].ID.String() }
+	command, ok := sessionOrderCommand(sessions, id(0), id(2), true)
+	if !ok || command.Kind != "set_session_order" {
+		t.Fatalf("command = %#v, %v", command, ok)
+	}
+	payload := command.Data.(protocol.CommandSetSessionOrderPayload)
+	expected := []protocol.SessionID{sessions[0].ID, sessions[1].ID, sessions[2].ID}
+	order := []protocol.SessionID{sessions[1].ID, sessions[2].ID, sessions[0].ID}
+	if payload.Project != project || !slices.Equal(payload.Expected, expected) || !slices.Equal(payload.Sessions, order) {
+		t.Fatalf("payload = %#v", payload)
+	}
+	for _, move := range [][2]int{{0, 3}, {0, 4}, {4, 0}, {0, 0}, {0, 1}} {
+		after := move == [2]int{0, 1}
+		if _, ok := sessionOrderCommand(sessions, id(move[0]), id(move[1]), !after); ok {
+			t.Errorf("move %v made a command", move)
+		}
 	}
 }

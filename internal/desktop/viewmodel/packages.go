@@ -28,9 +28,12 @@ type Package struct {
 	Installed             bool
 	Tools, Skills, MCP    []string
 	Permissions           []string
-	Notes                 string
-	Settings              []Setting
-	Versions              []string
+	// AddedPermissions are the permissions the Latest version asks that
+	// the installed one does not have.
+	AddedPermissions []string
+	Notes            string
+	Settings         []Setting
+	Versions         []string
 	// Icon is the icon the package declares for itself: an icon name
 	// ("phosphor:<name>", "ailogo:<slug>", "reicon:<group>/<name>") or its
 	// own SVG markup. Tint is its declared tile color ("blue", "violet",

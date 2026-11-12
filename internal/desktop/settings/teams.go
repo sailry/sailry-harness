@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -76,6 +77,19 @@ func (m *Model) efforts(c *ui.Context, id string) []string {
 		}
 	}
 	return out
+}
+
+// modelFeatures are the features a model declares.
+func (m *Model) modelFeatures(id string) []preview.ModelFeature {
+	ch, model, _ := strings.Cut(id, "/")
+	if x := m.channel(ch); x != nil {
+		for _, y := range x.Models {
+			if y.ID == model {
+				return y.Features
+			}
+		}
+	}
+	return nil
 }
 
 // modelSummary is the model's label, or follow.
@@ -278,14 +292,16 @@ func roleRows(c *ui.Context, m *Model) {
 }
 
 // modelField is a model select of "" (labeled follow) and the channels'
-// models, with its effort select after it.
-func modelField(c *ui.Context, m *Model, key, label, follow string, model, effort *string) {
+// models, with its effort select and one select per feature the model
+// declares after it. A feature follows (Auto, features nil), is off (absent
+// from the map) or takes one of its options.
+func modelField(c *ui.Context, m *Model, key, label, follow string, model, effort *string, features *map[string]string) {
 	ids, names := m.modelChoices(c, follow)
 	kit.Field(c, key, label, "", func() {
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Wrap().Children(func() {
 			chosen := max(0, slices.Index(ids, *model))
 			if pick(c, "model", label, &chosen, names, false).Grow(1).Changed() {
-				*model, *effort = ids[chosen], ""
+				*model, *effort, *features = ids[chosen], "", nil
 			}
 			efs := m.efforts(c, *model)
 			if len(efs) > 1 {
@@ -299,6 +315,39 @@ func modelField(c *ui.Context, m *Model, key, label, follow string, model, effor
 				e := max(0, slices.Index(efs, *effort))
 				if pick(c, "effort", i18n.T(c, "provider_efforts"), &e, shown, false).Width(140).Changed() {
 					*effort = efs[e]
+				}
+			}
+			for _, f := range m.modelFeatures(*model) {
+				shown := []string{i18n.T(c, "role_effort_inherit"), i18n.T(c, "composer_feature_off")}
+				at := 0
+				if *features != nil {
+					at = 1
+				}
+				for i, o := range f.Options {
+					name := o.Name
+					if f.ID == "speed" && o.ID == "fast" {
+						name = i18n.T(c, "composer_feature_fast")
+					}
+					shown = append(shown, name)
+					if *features != nil && (*features)[f.ID] == o.ID {
+						at = i + 2
+					}
+				}
+				if pick(c, "feature-"+f.ID, f.Name, &at, shown, false).Width(140).Changed() {
+					switch at {
+					case 0:
+						*features = nil
+					default:
+						set := maps.Clone(*features)
+						if set == nil {
+							set = map[string]string{}
+						}
+						delete(set, f.ID)
+						if at > 1 {
+							set[f.ID] = f.Options[at-2].ID
+						}
+						*features = set
+					}
 				}
 			}
 		})
@@ -330,7 +379,7 @@ func teamDialog(c *ui.Context, m *Model) {
 				kit.Field(c, "description", t("teams_description"), "", func() {
 					ui.TextInput(c.Key("input"), &e.team.Description).Label(t("teams_description")).Placeholder(t("teams_description")).FillWidth()
 				})
-				modelField(c, m, "lead", t("team_lead_model"), "team_follow_conversation", &e.team.Lead, &e.team.Effort)
+				modelField(c, m, "lead", t("team_lead_model"), "team_follow_conversation", &e.team.Lead, &e.team.Effort, &e.team.Features)
 				kit.Field(c, "instructions", t("team_lead_instructions"), "", func() {
 					ui.TextArea(c.Key("input"), &e.team.Instructions).Label(t("team_lead_instructions")).FillWidth().MinHeight(80)
 				})
@@ -514,7 +563,9 @@ func roleDialog(c *ui.Context, m *Model) {
 			kit.Field(c, "description", t("teams_description"), "", func() {
 				ui.TextInput(c.Key("input"), &e.role.Description).Label(t("teams_description")).FillWidth().Disabled(locked)
 			})
-			ui.Column(c.Key("model-wrap")).Disabled(e.pending || e.locked).Children(func() { modelField(c, m, "model", t("teams_model"), "role_inherit", &e.role.Model, &e.role.Effort) })
+			ui.Column(c.Key("model-wrap")).Disabled(e.pending || e.locked).Children(func() {
+				modelField(c, m, "model", t("teams_model"), "role_inherit", &e.role.Model, &e.role.Effort, &e.role.Features)
+			})
 			ui.Row(c.Key("read-only")).Gap(8).Children(func() {
 				ui.Text(c, t("teams_read_only")).FontSize(14).Grow(1)
 				ui.Switch(c.Key("switch"), &e.role.ReadOnly).Label(t("teams_read_only")).Disabled(locked)

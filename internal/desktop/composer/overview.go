@@ -101,7 +101,8 @@ func (s *OverviewState) body(c *ui.Context, o *Overview) {
 	p := theme.Of(c)
 	section := func(key, label string, rows func()) {
 		ui.Column(c.Key(key)).FillWidth().MinWidth(0).Gap(2).Children(func() {
-			ui.Text(c, i18n.T(c, label)).FontSize(14).FontWeight(600).TextColor(p.PopoverForeground)
+			// The heading stands clear of its rows.
+			ui.Text(c, i18n.T(c, label)).FontSize(14).FontWeight(600).Padding(0, 0, 6, 0).TextColor(p.PopoverForeground)
 			rows()
 		})
 	}
