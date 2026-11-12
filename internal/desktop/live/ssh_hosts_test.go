@@ -3,6 +3,8 @@ package live
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -154,9 +156,20 @@ func testSSHHostInstall(t *testing.T) {
 			t.Fatalf("the live host's header has no %q: %q", line, header.Texts())
 		}
 		for _, text := range []string{"Runtime", "Host type", "Worktrees", "Time zone", zone, i18n.In("en", "host_version"), i18n.In("en", "host_protocol")} {
-			if header.HasText(text) {
+			// A text of its own: the header's line holds the versions' labels.
+			if slices.Contains(header.Texts(), text) {
 				t.Fatalf("the live host's page shows %q of the removed runtime section: %q", text, header.Texts())
 			}
+		}
+		// Nor a projects section: neither its title, its empty state nor Add
+		// project, whatever the host's projects.
+		for _, text := range header.Texts() {
+			if text == i18n.In("en", "projects") || text == i18n.In("en", "project_add") || strings.Contains(text, "No projects on this host") {
+				t.Fatalf("the live host's page shows %q of the removed projects section: %q", text, header.Texts())
+			}
+		}
+		if _, ok := header.AccessByRole(ui.RoleButton, i18n.In("en", "project_add")); ok {
+			t.Fatal("the live host's page has an Add project button")
 		}
 		local.info = nil
 		count := func(kind string) int { return len(source.sent(kind)) }

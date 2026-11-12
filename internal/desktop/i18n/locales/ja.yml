@@ -1478,7 +1478,6 @@ remote_host_detail: Linux · x86_64 · プレビュー
 host_update: 更新ホスト
 workspace_worktrees: ワークツリー
 workspace_sessions: セッション
-project_empty: このホストにはプロジェクトがありません。セッションまたはターミナルを作成するにはプロジェクトを追加してください
 host_runtime_loading: ランタイムを読み込み中 (プレビュー)
 host_version: ホスト版
 host_uptime: 稼働時間

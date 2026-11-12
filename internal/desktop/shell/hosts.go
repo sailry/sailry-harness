@@ -78,8 +78,8 @@ func (a *App) addHost() {
 	a.Settings.AddHost()
 }
 
-// hostView is the host page in the main column: a project opens its
-// first conversation, a session itself. The page is the host's monitor, so
+// hostView is the host page in the main column: a running session opens
+// its conversation. The page is the host's monitor, so
 // the preview's first sample plays while it shows.
 func (a *App) hostView(c *ui.Context) {
 	h, st := a.hostPage()
@@ -95,22 +95,8 @@ func (a *App) hostActions() host.Actions {
 	if a.Hooks.HostActions != nil {
 		actions = a.Hooks.HostActions(a.Host)
 	}
-	if actions.OpenProject == nil {
-		actions.OpenProject = func(id string) {
-			for _, pr := range a.Data.Projects {
-				if pr.ID == id && len(pr.Conversations) > 0 {
-					a.selectConversation(pr.Conversations[0].ID)
-				}
-			}
-		}
-	}
 	if actions.OpenSession == nil {
 		actions.OpenSession = a.selectConversation
-	}
-	if actions.AddProject == nil {
-		actions.AddProject = func() {
-			a.Sidebar.OpenEditorAtHost(a.Host)
-		}
 	}
 	return actions
 }

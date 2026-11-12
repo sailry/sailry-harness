@@ -1478,7 +1478,6 @@ remote_host_detail: Linux · x86_64 · Preview
 host_update: Update host
 workspace_worktrees: Worktrees
 workspace_sessions: Sessions
-project_empty: No projects on this host; add one to create sessions or terminals
 host_runtime_loading: Reading runtime (preview)
 host_version: Host version
 host_uptime: Uptime

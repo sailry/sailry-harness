@@ -13,8 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// Actions are what the page asks of the window: open a project or a
-// session, and add a project (the project editor). Revoke removes the
+// Actions are what the page asks of the window: open a session. Revoke removes the
 // host's pairing, nil for a host that has none to remove (this computer, the
 // preview's). StopProcess asks the host's Node to end a process, by force
 // when force is set, after the page's confirmation; nil where no Node is
@@ -22,9 +21,7 @@ import (
 type Actions struct {
 	Revoke      func()
 	StopProcess func(process Process, force bool)
-	OpenProject func(id string)
 	OpenSession func(id string)
-	AddProject  func()
 	Update      func(Update)
 	OpenPort    func(Port)
 	ClosePort   func(Port)
@@ -60,9 +57,10 @@ const Width = 1040
 
 // Page is the host's page, as the reference's live host page
 // (live/host.rs): the header with the platform, the status, the uptimes and
-// the forwards, the monitor, then the running sessions and the projects,
-// 1040 wide at most and centered, 14 apart. It has no runtime section
-// (docs/removed-ui.md): the header's line names the two versions.
+// the forwards, the monitor, then the running sessions, 1040 wide at most
+// and centered, 14 apart. It has neither a projects section nor a runtime
+// section (docs/removed-ui.md): projects are added from the sidebar, and the
+// header's line names the two versions.
 func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	if h == nil {
 		return
@@ -72,7 +70,6 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 			header(c, s, h, act)
 			monitor(c, s, h, act)
 			activity(c, h, act)
-			projects(c, h, act)
 		})
 	})
 	s.report(c, h)
@@ -267,32 +264,6 @@ func activity(c *ui.Context, h *Host, act Actions) {
 					kit.Badge(c, i18n.T(c, r.Status), tone).Shrink(0)
 				}).OnClick(func() { act.OpenSession(r.Session) })
 			}
-		})
-	})
-}
-
-// projects are the host's projects, a Kit group whose header adds one:
-// each a row opening its first conversation; with none, the empty state
-// with Add project.
-func projects(c *ui.Context, h *Host, act Actions) {
-	label := i18n.T(c, "project_add")
-	var add func()
-	if len(h.Projects) > 0 {
-		add = func() { small(c, "add", icons.Plus, label, false, true).OnClick(act.AddProject) }
-	}
-	kit.Group(c, "projects", i18n.T(c, "projects"), "", add, func() {
-		kit.List(c, len(h.Projects), func(i int) {
-			pr := h.Projects[i]
-			entry(c, pr.ID, pr.Name, icons.Folder, func() {
-				ui.Text(c, pr.Name).FontSize(kit.RowFont).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-			}).OnClick(func() { act.OpenProject(pr.ID) })
-		}, func() {
-			kit.Result(c, kit.ResultProps{Icon: icons.Folder, Title: i18n.T(c, "project_empty"), Extra: func() {
-				kit.Primary(c.Key("add"), label, false).Children(func() {
-					ui.Icon(c, icons.Plus).FontSize(16)
-					ui.Text(c, label).FontSize(14)
-				}).OnClick(act.AddProject)
-			}})
 		})
 	})
 }

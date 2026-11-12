@@ -13,9 +13,9 @@ port forwards (the reference implementation `live/host.rs`,
 
 | File | Holds |
 |---|---|
-| `model.go` | **The view model**: `Host`, `Project`, `Activity`, `Runtime` (the version, the protocol and the uptimes; `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics`, `Disk`, `GPU`, `Process` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
+| `model.go` | **The view model**: `Host`, `Activity`, `Runtime` (the version, the protocol and the uptimes; `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics`, `Disk`, `GPU`, `Process` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
 | `sample.go` | What the monitor makes of the samples: the history (`Point`, `Metrics.Follow`, `HistoryLimit`), the chosen volume and accelerator (`Metrics.Volume`, `Metrics.GPU`), `SortProcesses`, `Scaled`, `Clock`, `Load` |
-| `page.go` | `State`, `Actions`, `Page`: header (`Host.Connection`, the platform and versions line), running agents, projects; `Platform`; failure toasts |
+| `page.go` | `State`, `Actions`, `Page`: header (`Host.Connection`, the platform and versions line), running agents; `Platform`; failure toasts |
 | `monitor.go` | The monitor's cards: processor and cores, the accelerator, memory, utilization, network, the chosen volume's transfers, storage; their place until the first sample |
 | `processes.go` | The processes: toolbar, search, the sortable table, its skeleton |
 | `process_actions.go` | A process's right-click menu (`State.processMenu`), its details and the stop confirmation (`processDialogs`), `Process.Stoppable` |
@@ -26,7 +26,7 @@ port forwards (the reference implementation `live/host.rs`,
 | `ports.go` | The header's forwards, the port picker and the new forward dialog |
 
 Preview data: `preview.HostPages(d)` (`internal/desktop/preview/hosts.go`), one
-`Host` per `Data.Hosts` entry: projects and running sessions from
+`Host` per `Data.Hosts` entry: running sessions from
 the dataset, this host's runtime (its version, protocol and uptimes), the
 paired host's unknown runtime and update, a minute of example samples around the values of `Snapshot::sample`
 (cores, load averages, transfers and two processes, on a fixed clock) and two
@@ -73,9 +73,12 @@ centered, padded 24, its parts 14 apart, in the reference's order:
 | Storage | `host_partition_count` and one tile per real volume: mount, read and write rates, file system, used of total, a capacity bar. A click chooses the volume the Disk card follows | `kit.Card`; MyGo toggle buttons with `kit.GhostLook`; `ui.Progress` |
 | Processes | The count of every process, a search, a note when the sample lists fewer than run, and the table: name, the load with its last minute, the memory with its share, the PID. A header sorts; the load sorts first. The selected row is the neutral fill. A right-click opens the OS-native menu: Details, Copy PID, Copy name, End process, Force quit | `kit.Card`, `kit.Toolbar`, `kit.Result` when empty; MyGo `ui.Table` in `theme.Neutral`, `ListState.CellMenu`; `kit.AlertDialog`, `kit.Dialog` |
 | Running Agents | The running and waiting sessions (agent or waiting user, title, project / branch, model, status); a click opens the session. Absent when there are none | `kit.Group`, `kit.Card`, `kit.Badge` |
-| Projects | Rows opening the project's first conversation, Add project in the group's header; the empty state with Add project | `kit.Group`, `kit.List`, `kit.Result`, `kit.Primary` |
 
-The page ends with the projects. It has no runtime section
+The page ends with the running agents, or with the processes on a host
+that has none. It has no projects section ([removed-ui.md](removed-ui.md)):
+the host's information does not list its projects or add one; projects are
+added from the sidebar, the rail's host menu and the composer's project
+menu, and opened from the sidebar. It has no runtime section either
 ([removed-ui.md](removed-ui.md)): of that grid's facts the header's line
 keeps the host's version and the protocol's, and the rest (the host's type,
 its counts of projects, worktrees, sessions, terminals and running agents,
@@ -153,8 +156,7 @@ delivers after `preview.LoadAfter`.
 
 | Action | Preview |
 |---|---|
-| Open a project or a session | the conversation, revealed in the sidebar |
-| Add project | the project editor |
+| Open a session | the conversation, revealed in the sidebar |
 | Update host: Check, Download, Apply, Retry | `Update.Advance` moves between the reference's example states; a stale click does nothing |
 | Forward: open address | preview_notice |
 | Forward: copy address | the clipboard |
@@ -192,8 +194,8 @@ the desktop does not project it. Runtime read failures toast
 once without replacing the page. Remembered offline execution peers remain in
 the host list; nonexecution controllers do not receive Node reads.
 
-Projects come from that Node's own Client snapshot; its worktrees, sessions
-and terminals are no longer counted for the page. Running and waiting rows use Client's aggregate activity lanes,
+The page no longer lists that Node's projects, and its worktrees, sessions
+and terminals are no longer counted for it. Running and waiting rows use Client's aggregate activity lanes,
 found once per `Client.Revision`, excluding delegated and archived sessions. Their navigation retains the original
 Node identity. A shared Network owns one remote Client per execution peer, while
 each window retains its own presentation and selection.
@@ -437,7 +439,7 @@ and time zone; `internal/node/files/browser_test.go`: the volume rule.
 | Deviation | Reason |
 |---|---|
 | Upload is drawn in `chart.4` (violet) beside the download's `chart.2` (blue) | The reference draws upload in `info` and download in `chart_2`, the same blue, so the two series of one chart could not be told apart |
-| One page serves the preview and the live host: the live monitor (`live/host.rs`) followed by the overview's projects (`workspace/host.rs`) | The reference has two pages; the live one has no projects list, which the accepted page shows and its Add project needs |
+| One page serves the preview and the live host: the live monitor (`live/host.rs`), without the overview's projects (`workspace/host.rs`) | The reference has two pages; its overview lists the host's projects with Add project. User decision, 2026-11-12: the host's information does not show them ([removed-ui.md](removed-ui.md)), as the reference's live page does not |
 | No runtime section; the host's version and the protocol's end the header's platform line, after their labels | The reference's overview shows a grid of runtime facts (`workspace/host/runtime.rs`). User decision, 2026-11-12: the grid is removed and the two versions are enough ([removed-ui.md](removed-ui.md)). The labels are the grid's own copy, since two bare versions side by side read as one |
 | The charts' tip is built in `charts.go`: the pointer's sample from `PointerPosition` and `chart.Nearest`, MyGo's `chart.RuleX` and `chart.Point` marks, and a `kit.Floating` panel attached to the guide in `ui.Overlay` | The reference's `AreaChart` has a tooltip of its own (`tooltip_title`, `tooltip_value`). MyGo's `ui/chart` is headless and has none; its `chart.Select` keeps the chosen index while the pointer rests, so the guide would drift while the history fills, and makes each chart a stop of Tab. `kit.Tooltip` shows one text after a delay at its anchor's middle. The tip reads every series of the sample at once, each with its mark |
 | The memory card's tip reads the use as a size | The history holds the use in percent; the card's figure and legend write sizes, so its tip does too. The utilization's tip reads the same samples in percent, as its legend does |

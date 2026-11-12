@@ -8,7 +8,7 @@ import (
 )
 
 // HostPages are the host pages' data over the dataset: each host's
-// projects, its running sessions, this host's runtime (its versions and
+// running sessions, this host's runtime (its versions and
 // uptimes), the paired host's update, the metrics and a port forward. The
 // paired host's runtime is unknown, as the reference's preview leaves it.
 func HostPages(d *Data) map[string]*host.Host {
@@ -23,7 +23,6 @@ func HostPages(d *Data) map[string]*host.Host {
 			if pr.Host != h.ID {
 				continue
 			}
-			x.Projects = append(x.Projects, host.Project{ID: pr.ID, Name: pr.Name})
 			for _, cv := range pr.Conversations {
 				if cv.Status != Running {
 					continue

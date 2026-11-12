@@ -1478,7 +1478,6 @@ remote_host_detail: Linux · x86_64
 host_update: Mettre à jour l'hôte
 workspace_worktrees: Arbres de travail
 workspace_sessions: Sessions
-project_empty: Aucun projet sur cet hôte; ajoutez-en un pour créer des sessions ou des terminaux
 host_runtime_loading: Lecture de l'environnement d'exécution (aperçu)
 host_version: Version de l'hôte
 host_uptime: Temps de fonctionnement

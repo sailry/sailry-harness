@@ -393,7 +393,6 @@ func TestPage(t *testing.T) {
 	m.Follow(nil)
 	h := &Host{
 		Live: true, ID: "local", Name: "studio", Local: true, OS: "macos", Detail: platform,
-		Projects: []Project{{ID: "p", Name: "sailry-harness"}},
 		Activity: []Activity{{Session: "s", Title: "Rebuild the host page", Location: "sailry-harness / main", Status: "turn_thinking"}},
 		Runtime: Runtime{
 			Version: "0.1.0",
@@ -434,7 +433,7 @@ func TestPage(t *testing.T) {
 			"studio", en("live_connected"), line, en("host_uptime"), en("host_node_uptime"),
 			en("metrics_cpu"), en("metrics_gpu"), "Apple M4 Pro", en("metrics_memory"), en("host_utilization"), en("metrics_network"), en("metrics_disks"),
 			en("host_storage"), en("host_process_search"), en("host_pid"),
-			en("workspace_running"), "Rebuild the host page", en("projects"), "sailry-harness",
+			en("workspace_running"), "Rebuild the host page", "sailry-harness / main",
 		}
 		if missing, ok := follows(tt.Texts(), order); !ok {
 			t.Errorf("no %q in its place: %q", missing, tt.Texts())
@@ -473,10 +472,6 @@ func TestPage(t *testing.T) {
 				t.Errorf("the page shows %q of the removed runtime section: %q", text, tt.Texts())
 			}
 		}
-		// Projects stays, as the page's last section.
-		if shown[en("projects")] != 1 || shown["sailry-harness"] != 1 {
-			t.Errorf("the projects: %q", tt.Texts())
-		}
 		// A version not known is left out of the line.
 		version := h.Runtime.Version
 		h.Runtime.Version, h.Runtime.ProtocolMax = "", 0
@@ -485,6 +480,42 @@ func TestPage(t *testing.T) {
 			t.Errorf("the line without versions: %q", tt.Texts())
 		}
 		h.Runtime.Version, h.Runtime.ProtocolMax = version, 1
+		tt.Frame()
+	})
+	t.Run("no projects section", func(t *testing.T) {
+		// The section's title, its rows, its empty state and Add project
+		// (docs/removed-ui.md): the page ends with the running sessions. The
+		// empty state's copy is out of the catalog, so it is named as it reads.
+		absent := func(when string) {
+			t.Helper()
+			shown := count()
+			for _, text := range []string{en("projects"), en("project_add"), "sailry-harness", "No projects on this host"} {
+				if shown[text] != 0 {
+					t.Errorf("%s: the page shows %q of the removed projects section: %q", when, text, tt.Texts())
+				}
+			}
+			for _, text := range tt.Texts() {
+				if strings.Contains(text, "Add a project") {
+					t.Errorf("%s: the page shows the removed empty state %q", when, text)
+				}
+			}
+			if _, ok := tt.AccessByRole(ui.RoleButton, en("project_add")); ok {
+				t.Errorf("%s: the page has an Add project button", when)
+			}
+		}
+		absent("with running sessions")
+		if texts := tt.Texts(); len(texts) == 0 || texts[len(texts)-1] != en("turn_thinking") {
+			t.Errorf("the page does not end with the running session's row: %q", texts)
+		}
+		// A host with no running session has no section after the monitor.
+		activity := h.Activity
+		h.Activity = nil
+		tt.Frame()
+		absent("without running sessions")
+		if tt.HasText(en("workspace_running")) {
+			t.Errorf("a host with no running session shows their section: %q", tt.Texts())
+		}
+		h.Activity = activity
 		tt.Frame()
 	})
 	t.Run("chart tip", func(t *testing.T) {
@@ -683,8 +714,11 @@ func TestPage(t *testing.T) {
 		if tt.HasText(en("host_utilization")) || tt.HasText("Host is disconnected") {
 			t.Errorf("an offline host shows a sample or the error's text in the page: %q", tt.Texts())
 		}
-		if missing, ok := follows(tt.Texts(), []string{"studio", line, en("workspace_running"), en("projects")}); !ok {
+		if missing, ok := follows(tt.Texts(), []string{"studio", line, en("workspace_running"), "Rebuild the host page"}); !ok {
 			t.Errorf("no %q offline: %q", missing, tt.Texts())
+		}
+		if tt.HasText(en("projects")) || tt.HasText(en("project_add")) {
+			t.Errorf("an offline host shows the removed projects section: %q", tt.Texts())
 		}
 	})
 }
