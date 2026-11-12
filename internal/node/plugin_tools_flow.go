@@ -112,7 +112,7 @@ func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler pr
 		}
 		message = string(characters)
 	}
-	for step := uint64(0); step <= 8; step++ {
+	for step := uint64(0); ; step++ {
 		body, err := owner.evaluate(ctx, handler.Name, name, call.ID, map[string]any{
 			"arguments": arguments, "message": message, "state": state, "outcome": outcome, "step": step, "elapsed_ms": time.Since(started).Milliseconds(),
 		}, readOnly)
@@ -183,5 +183,4 @@ func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler pr
 			_ = json.Unmarshal(transition.State, &state)
 		}
 	}
-	return workspaceToolFault(&protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "plugin flow exceeds operation limit"})
 }
