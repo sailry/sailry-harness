@@ -1476,24 +1476,17 @@ workspace_host_status: UI プレビューを切断
 local_host_detail: macOS · aarch64 · プレビュー
 remote_host_detail: Linux · x86_64 · プレビュー
 host_update: 更新ホスト
-workspace_host_type: ホストタイプ
 workspace_worktrees: ワークツリー
 workspace_sessions: セッション
-host_active_preview: アクティブなセッション (プレビュー)
 project_empty: このホストにはプロジェクトがありません。セッションまたはターミナルを作成するにはプロジェクトを追加してください
-workspace_runtime: ランタイム
 host_runtime_loading: ランタイムを読み込み中 (プレビュー)
 host_version: ホスト版
-host_system_version: システムバージョン
-host_timezone: 標準時
 host_uptime: 稼働時間
 host_protocol: プロトコルバージョン
 host_unknown: 不明
 host_uptime_days: '%{count}日'
 host_uptime_hours: '%{count}時間'
 host_uptime_minutes: '%{count}分'
-host_runtime_preview: UI のスナップショットのみです。読み込み中や失敗時も既存の値は保持されます。実際の実行データには共有 Node が必要です。
-workspace_runtime_preview: ライブOS、ランタイムバージョンおよびホストメトリクスには共有 Node が必要です
 workspace_running: ランニング・エージェント
 host_activity_hint: セッション活動のプレビューのみ;実際のエージェントや CLI プロセスは起動されません
 host_runtime_error: 'ランタイム (プレビュー) を読み込めませんでした: %{error}'
@@ -1857,7 +1850,6 @@ ssh_key_changed: ホストキーが変更されました。指紋を確認して
 ssh_trust: 信頼
 ssh_trust_title: 信頼ホスト鍵
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics

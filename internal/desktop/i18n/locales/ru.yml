@@ -1476,24 +1476,17 @@ workspace_host_status: Отключено · Предварительный пр
 local_host_detail: macOS · aarch64 · Предварительный просмотр
 remote_host_detail: Linux · x86_64 · Предварительный просмотр
 host_update: Узел обновления
-workspace_host_type: Тип хоста
 workspace_worktrees: Рабочие деревья
 workspace_sessions: Сессии
-host_active_preview: Активные сеансы (предварительный просмотр)
 project_empty: На этом узле нет проектов; добавьте один для создания сеансов или терминалов
-workspace_runtime: Время выполнения
 host_runtime_loading: Чтение времени выполнения (предварительный просмотр)
 host_version: Версия хоста
-host_system_version: Версия системы
-host_timezone: Часовой пояс
 host_uptime: Время работы
 host_protocol: Версия протокола
 host_unknown: Неизвестно
 host_uptime_days: '%{count} дней'
 host_uptime_hours: '%{count} часов'
 host_uptime_minutes: '%{count} минут'
-host_runtime_preview: Только снимок интерфейса; существующие значения сохраняются при загрузке или ошибке. Для данных выполнения в реальном времени нужен общий Node.
-workspace_runtime_preview: Для реальной ОС, версий времени выполнения и метрик узла требуется общий Node
 workspace_running: Агенты
 host_activity_hint: Только предварительный просмотр активности сеанса; не запущен реальный агент или процесс CLI
 host_runtime_error: 'Не удалось прочитать время выполнения (предварительный просмотр): %{error}'
@@ -1857,7 +1850,6 @@ ssh_key_changed: Ключ хоста изменился, проверьте от
 ssh_trust: Доверять
 ssh_trust_title: Доверять ключу узла
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics

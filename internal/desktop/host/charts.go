@@ -6,12 +6,14 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/chart"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// The monitor's charts are MyGo's ui/chart: its Plot with the axes, and its
-// Line, Area and Sector paths painted in the plot's Draw. Kit and the
-// verified CrychicUI components have no chart (docs/crychic.md).
+// The monitor's charts are MyGo's ui/chart: its Plot with the axes, its
+// Line, Area and Sector paths painted in the plot's Draw, and its RuleX and
+// Point marks at the sample under the pointer. Kit and the verified
+// CrychicUI components have no chart (docs/crychic.md).
 
 // tones are the monitor's series colours, from the theme's status and chart
 // colours (the reference's Tones). The upload is the chart violet, where
@@ -55,10 +57,39 @@ func (t tones) capacity(percent float64) ui.Color {
 }
 
 // series is one line of a chart: its values, oldest first, NaN where a
-// sample had none, and its colour.
+// sample had none, its colour, and the name the chart's tip gives it.
 type series struct {
 	values []float64
 	color  ui.Color
+	name   string
+}
+
+// readout is what a chart's tip tells of the sample under the pointer: the
+// samples the series were taken from, for their times, how a value is
+// written, and the room the widest value takes, so the tip keeps its width
+// as the values change.
+type readout struct {
+	history []Point
+	text    func(v float64) string
+	width   float32
+}
+
+// percents reads a utilization chart's values as its legend writes them:
+// 12.5%.
+func percents(history []Point) readout {
+	return readout{history, func(v float64) string { return orDash(Percent(v)) }, 56}
+}
+
+// rates reads a transfer chart's values as its figures write them:
+// 512.0 KiB/s.
+func rates(c *ui.Context, history []Point) readout {
+	return readout{history, func(v float64) string { return rate(c, v) }, 104}
+}
+
+// sizes reads the values of a chart of a share of total bytes as sizes:
+// 8.0 GiB.
+func sizes(history []Point, total uint64) readout {
+	return readout{history, func(v float64) string { return orDash(Bytes(v / 100 * float64(total))) }, 80}
 }
 
 // fractions places n values evenly along a plot whose last value is at its
@@ -87,8 +118,10 @@ func heights(values []float64, top float64) []float32 {
 
 // areaChart is a plot of series over the history: grid lines at the left
 // ticks, each series a line over its area at 12%, from 0 to top. label names
-// it for assistive technology.
-func areaChart(c *ui.Context, key any, height float32, top float64, left, bottom []chart.Tick, label string, all ...series) ui.Element {
+// it for assistive technology. While the pointer is over the plot, a guide
+// stands at the nearest sample and a tip beside it reads that sample
+// (hover).
+func areaChart(c *ui.Context, key any, height float32, top float64, left, bottom []chart.Tick, label string, read readout, all ...series) ui.Element {
 	p := theme.Of(c)
 	t := tonesOf(p)
 	axes := chart.Axes{Left: left, Bottom: bottom, Label: func(_ chart.Side, tick chart.Tick) {
@@ -110,11 +143,64 @@ func areaChart(c *ui.Context, key any, height float32, top float64, left, bottom
 					pt.StrokePath(chart.Line(r, xs, ys, chart.CurveMonotone), 1.5, s.color)
 				}
 			})
+			hover(c, area, top, read, all)
 		}).Fill().Gap(6).Label(label)
 	})
 }
 
-// sparkline is a small line of values from 0 to top, without axes.
+// hover reads the sample under the pointer while it is over area, a plot's
+// area: a guide at the sample, a dot on each series there, and beside the
+// guide a tip of the sample's time over each series' mark, name and value,
+// on Kit's floating surface in the window's overlay. The sample is the one
+// nearest the pointer in every frame, so the guide stays under a resting
+// pointer as the history moves on and only the tip's text changes; the tip
+// goes when the pointer leaves, and neither it nor the marks take the
+// pointer, which scrolls the page through them.
+//
+// MyGo's chart.Select is not used: it keeps the chosen index while the
+// pointer rests, so the guide would drift with a history that still fills,
+// and it makes every chart a stop of Tab.
+func hover(c *ui.Context, area ui.Element, top float64, read readout, all []series) {
+	x, _, over := area.PointerPosition()
+	w := area.Bounds().W
+	if !over || w <= 0 || len(read.history) == 0 || kit.TipsHidden(c) {
+		return
+	}
+	xs := fractions(len(read.history))
+	at := chart.Nearest(xs, x/w)
+	p := theme.Of(c)
+	guide := chart.RuleX(c.Key("guide"), xs[at], 1).Background(p.MutedForeground.Alpha(0.5)).PassThrough()
+	for i, s := range all {
+		if at >= len(s.values) {
+			continue
+		}
+		if y := heights(s.values[at:at+1], top)[0]; !math.IsNaN(float64(y)) {
+			chart.Point(c.Key(i), xs[at], y, 6, 6).Radius(3).Background(s.color).PassThrough()
+		}
+	}
+	ui.Overlay(c, func() {
+		tip := ui.Column(c)
+		kit.Anchored(tip, guide, kit.TipLayer)
+		kit.Attach(kit.Floating(c, tip), guide, kit.Right, 8)
+		tip.Radius(p.Radius).Padding(6, 10).Gap(4).IgnoreInput(true).Children(func() {
+			ui.Text(c, Clock(read.history[at].At)).FontSize(12).Font("monospace").SingleLine().TextColor(p.MutedForeground)
+			for i, s := range all {
+				if at >= len(s.values) {
+					continue
+				}
+				ui.Row(c.Key(i)).Gap(6).AlignItems(ui.Center).Children(func() {
+					tick(c, s.color)
+					ui.Text(c, s.name).FontSize(12).SingleLine().Grow(1).TextColor(p.MutedForeground)
+					ui.Text(c, read.text(s.values[at])).FontSize(14).Font("monospace").SingleLine().MinWidth(read.width).TextAlign(ui.End)
+				})
+			}
+		})
+	})
+}
+
+// sparkline is a small line of values from 0 to top, without axes or a
+// tip: the processes' loads, which the reference does not read on hover
+// either.
 func sparkline(c *ui.Context, values []float64, top float64, color ui.Color, w, h float32) ui.Element {
 	return ui.Box(c).Size(w, h).Shrink(0).Draw(func(pt *ui.Painter, r ui.Rect) {
 		xs, ys := fractions(len(values)), heights(values, top)

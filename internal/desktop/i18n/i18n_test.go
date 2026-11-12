@@ -60,6 +60,9 @@ func TestCatalogKeys(t *testing.T) {
 			"settings_language_restart",              // the note that a language change needs a restart
 			"project_trust", "project_trust_preview", // trust management in the project menu
 			"workspace_records", // the project menu's Records item and its dialog
+			// the host page's runtime section: its title, notes and the labels of its grid
+			"workspace_runtime", "workspace_runtime_preview", "host_runtime_preview", "live_host_runtime_loading",
+			"workspace_host_type", "host_active_preview", "host_system_version", "host_timezone",
 		} {
 			if _, listed := catalogs["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see docs/removed-ui.md", key)

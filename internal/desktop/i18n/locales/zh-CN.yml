@@ -1476,24 +1476,17 @@ workspace_host_status: 未连接 · UI 预览
 local_host_detail: macOS · aarch64 · 示例
 remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主机
-workspace_host_type: 主机类型
 workspace_worktrees: worktree
 workspace_sessions: 会话
-host_active_preview: 活动会话（示例）
 project_empty: 此主机还没有项目。添加项目后即可创建会话或终端。
-workspace_runtime: 运行环境
 host_runtime_loading: 正在读取运行环境（示例）
 host_version: 主机版本
-host_system_version: 系统版本
-host_timezone: 时区
 host_uptime: 运行时长
 host_protocol: 协议版本
 host_unknown: 未获取
 host_uptime_days: '%{count} 天'
 host_uptime_hours: '%{count} 小时'
 host_uptime_minutes: '%{count} 分钟'
-host_runtime_preview: 此处仅展示 UI 示例快照；读取中或失败时保留已有值。真实环境将在公共节点接入后读取。
-workspace_runtime_preview: 真实操作系统、运行时版本与主机指标将在公共节点接入后读取
 workspace_running: 运行中的 Agent
 host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
 host_runtime_error: 运行环境读取失败（示例）：%{error}
@@ -1857,7 +1850,6 @@ ssh_key_changed: 主机密钥已变化，请核对指纹
 ssh_trust: 信任
 ssh_trust_title: 信任主机密钥
 usage_duration_ms: '%{value} ms'
-live_host_runtime_loading: 正在读取主机运行信息
 live_host_runtime_error: 无法读取主机运行信息
 live_metrics_loading: 正在读取指标
 live_metrics_error: 无法读取主机指标

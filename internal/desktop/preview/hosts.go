@@ -7,10 +7,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/host"
 )
 
-// HostPages are the host pages' data over the dataset: each host's projects
-// and counts, its running sessions, this host's runtime, the paired host's
-// update, the metrics and a port forward. The paired host's runtime is
-// unknown, as the reference's preview leaves it.
+// HostPages are the host pages' data over the dataset: each host's
+// projects, its running sessions, this host's runtime (its versions and
+// uptimes), the paired host's update, the metrics and a port forward. The
+// paired host's runtime is unknown, as the reference's preview leaves it.
 func HostPages(d *Data) map[string]*host.Host {
 	const gib = 1 << 30
 	out := map[string]*host.Host{}
@@ -24,8 +24,6 @@ func HostPages(d *Data) map[string]*host.Host {
 				continue
 			}
 			x.Projects = append(x.Projects, host.Project{ID: pr.ID, Name: pr.Name})
-			x.Worktrees += max(len(pr.Worktrees), 1)
-			x.Sessions += len(pr.Conversations)
 			for _, cv := range pr.Conversations {
 				if cv.Status != Running {
 					continue
@@ -48,10 +46,9 @@ func HostPages(d *Data) map[string]*host.Host {
 		mount, fs, cores := "/preview/remote-volume", "ext4", 4
 		if h.Local {
 			used, total, cpu, mount, fs, cores = 8*gib, 32*gib, 12.5, "/preview", "APFS", 10
-			x.Terminals = 1
 			x.Runtime = host.Runtime{
-				Version: "0.1.0-preview", System: "macOS 26.1", Timezone: "Asia/Shanghai",
-				Uptime: 3*24*time.Hour + 5*time.Hour + 12*time.Minute, NodeUptime: 42 * time.Minute,
+				Version: "0.1.0-preview",
+				Uptime:  3*24*time.Hour + 5*time.Hour + 12*time.Minute, NodeUptime: 42 * time.Minute,
 				ProtocolMin: 1, ProtocolMax: 1, Known: true,
 			}
 		} else {

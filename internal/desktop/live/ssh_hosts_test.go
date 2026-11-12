@@ -1,12 +1,14 @@
 package live
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -127,18 +129,34 @@ func testSSHHostInstall(t *testing.T) {
 		if signal, _ := detail[protocol.CommandStopHostProcessPayload](signals[len(signals)-1].Data); len(signals) != 2 || signal.Force || local.view.Stopping {
 			t.Fatalf("a refused stop request: %d sent, %+v, pending %v", len(signals), signal, local.view.Stopping)
 		}
-		// The time zone is the one the host's Node reports, and unknown
-		// from a Node that reports none: never the controller's own.
-		zone, info := "JST +09:00", protocol.DefaultHostInfo()
+		// The header's line names this computer's platform from its Node's
+		// facts, and the running build's version and protocol after it. The
+		// page has no runtime section (docs/removed-ui.md), so the time zone
+		// the Node reports is not projected.
+		system, release, machine, zone := "darwin", "27.2", "arm64", "JST +09:00"
+		info := protocol.DefaultHostInfo()
+		info.Os, info.OsVersion, info.Architecture, info.Timezone = &system, &release, &machine, &zone
 		local.info = &info
 		root.projectHosts(root.App.Data)
-		if local.view.Runtime.Timezone != "" {
-			t.Fatalf("a Node without a time zone shows %q", local.view.Runtime.Timezone)
+		if local.view.Detail != "darwin · 27.2 · arm64" || local.view.Runtime.Version != link.ProductVersion ||
+			host.Protocol(local.view.Runtime.ProtocolMin, local.view.Runtime.ProtocolMax) != fmt.Sprintf("v%d", protocol.VERSION) {
+			t.Fatalf("the header's facts: %q, version %q, protocol %d-%d", local.view.Detail, local.view.Runtime.Version, local.view.Runtime.ProtocolMin, local.view.Runtime.ProtocolMax)
 		}
-		info.Timezone = &zone
-		root.projectHosts(root.App.Data)
-		if local.view.Runtime.Timezone != zone {
-			t.Fatalf("the host's time zone: %q", local.view.Runtime.Timezone)
+		header := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Children(func() { host.Page(c, &host.State{}, local.view, host.Actions{}) })
+		}, 1200, 1600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		header.SetLocale("en")
+		header.Frame()
+		header.Frame()
+		line := fmt.Sprintf("darwin · 27.2 · arm64 · %s %s · %s v%d", i18n.In("en", "host_version"), link.ProductVersion, i18n.In("en", "host_protocol"), protocol.VERSION)
+		if !header.HasText(line) {
+			t.Fatalf("the live host's header has no %q: %q", line, header.Texts())
+		}
+		for _, text := range []string{"Runtime", "Host type", "Worktrees", "Time zone", zone, i18n.In("en", "host_version"), i18n.In("en", "host_protocol")} {
+			if header.HasText(text) {
+				t.Fatalf("the live host's page shows %q of the removed runtime section: %q", text, header.Texts())
+			}
 		}
 		local.info = nil
 		count := func(kind string) int { return len(source.sent(kind)) }
