@@ -2606,6 +2606,84 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => 'Velocidade';
+
+  @override
+  String queueHaltStopped(String count) {
+    return 'Parado · $count na fila';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return 'Resposta interrompida · $count na fila';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return 'Mensagem não enviada · $count na fila';
+  }
+
+  @override
+  String get backgroundHeld => 'Resultado não entregue';
+
+  @override
+  String get backgroundHoldLimit => 'Não entregue; limite de turnos atingido';
+
+  @override
+  String get backgroundHoldStopped => 'Não entregue; resposta parada';
+
+  @override
+  String get backgroundHoldInterrupted => 'Não entregue; resposta interrompida';
+
+  @override
+  String get backgroundHoldFailed => 'Não entregue; a resposta falhou';
+
+  @override
+  String get continuationRefused => 'Não continuado';
+
+  @override
+  String get continuationPlan => 'Não continuado no modo Plano';
+
+  @override
+  String get continuationChild => 'Uma subtarefa não é continuada';
+
+  @override
+  String get continuationArchived => 'Um chat arquivado não é continuado';
+
+  @override
+  String get continuationWorktree =>
+      'Não continuado; árvore de trabalho ausente';
+
+  @override
+  String get continuationQueuePaused => 'Não continuado; fila em pausa';
+
+  @override
+  String get continuationQueuedInput => 'Não continuado; há mensagens na fila';
+
+  @override
+  String get continuationRunning =>
+      'Não continuado; há uma resposta em andamento';
+
+  @override
+  String get continuationInteraction =>
+      'Não continuado; uma solicitação aguarda sua resposta';
+
+  @override
+  String get continuationLimit => 'Limite de turnos automáticos atingido';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return 'Limite de turnos automáticos atingido · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => 'Não continuado; o chat avançou';
+
+  @override
+  String get conversationContextOverflow =>
+      'Limite de contexto do modelo excedido';
+
+  @override
+  String get conversationOutputLimit => 'Resposta cortada no limite de saída';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).

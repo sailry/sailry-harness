@@ -1006,5 +1006,58 @@
   "hostNoMatches": "Aucun résultat",
   "modelFeatureOff": "Standard",
   "modelFeatureFast": "Rapide",
-  "modelFeatureSpeed": "Vitesse"
+  "modelFeatureSpeed": "Vitesse",
+  "queueHaltStopped": "Arrêté · {count} en attente",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "Réponse interrompue · {count} en attente",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "Message non envoyé · {count} en attente",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "Résultat non remis",
+  "backgroundHoldLimit": "Non remis ; limite de tours atteinte",
+  "backgroundHoldStopped": "Non remis ; réponse arrêtée",
+  "backgroundHoldInterrupted": "Non remis ; réponse interrompue",
+  "backgroundHoldFailed": "Non remis ; échec de la réponse",
+  "continuationRefused": "Non poursuivi",
+  "continuationPlan": "Non poursuivi en mode Plan",
+  "continuationChild": "Une sous-tâche n'est pas poursuivie",
+  "continuationArchived": "Un chat archivé n'est pas poursuivi",
+  "continuationWorktree": "Non poursuivi ; arbre de travail manquant",
+  "continuationQueuePaused": "Non poursuivi ; file d'attente en pause",
+  "continuationQueuedInput": "Non poursuivi ; messages en attente",
+  "continuationRunning": "Non poursuivi ; une réponse est en cours",
+  "continuationInteraction": "Non poursuivi ; une demande vous attend",
+  "continuationLimit": "Limite de tours automatiques atteinte",
+  "continuationLimitCount": "Limite de tours automatiques atteinte · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "Non poursuivi ; le chat a avancé",
+  "conversationContextOverflow": "Limite de contexte du modèle dépassée",
+  "conversationOutputLimit": "Réponse coupée à la limite de sortie"
 }

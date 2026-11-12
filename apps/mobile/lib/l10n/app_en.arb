@@ -1154,5 +1154,58 @@
   "hostNoMatches": "No matches",
   "modelFeatureOff": "Standard",
   "modelFeatureFast": "Fast",
-  "modelFeatureSpeed": "Speed"
+  "modelFeatureSpeed": "Speed",
+  "queueHaltStopped": "Stopped · {count} queued",
+  "@queueHaltStopped": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltInterrupted": "Reply interrupted · {count} queued",
+  "@queueHaltInterrupted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueHaltUnsent": "Message not sent · {count} queued",
+  "@queueHaltUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundHeld": "Result not delivered",
+  "backgroundHoldLimit": "Not delivered; turn limit reached",
+  "backgroundHoldStopped": "Not delivered; reply stopped",
+  "backgroundHoldInterrupted": "Not delivered; reply interrupted",
+  "backgroundHoldFailed": "Not delivered; reply failed",
+  "continuationRefused": "Not continued",
+  "continuationPlan": "Not continued in Plan mode",
+  "continuationChild": "A subtask is not continued",
+  "continuationArchived": "An archived chat is not continued",
+  "continuationWorktree": "Not continued; worktree missing",
+  "continuationQueuePaused": "Not continued; queue paused",
+  "continuationQueuedInput": "Not continued; messages queued",
+  "continuationRunning": "Not continued; a reply is running",
+  "continuationInteraction": "Not continued; a request awaits you",
+  "continuationLimit": "Automatic turn limit reached",
+  "continuationLimitCount": "Automatic turn limit reached · {count}/{limit}",
+  "@continuationLimitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "continuationStale": "Not continued; the chat has moved on",
+  "conversationContextOverflow": "Model context limit exceeded",
+  "conversationOutputLimit": "Reply cut at the output limit"
 }

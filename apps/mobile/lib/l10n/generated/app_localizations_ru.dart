@@ -2604,4 +2604,81 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get modelFeatureSpeed => 'Скорость';
+
+  @override
+  String queueHaltStopped(String count) {
+    return 'Остановлено · в очереди: $count';
+  }
+
+  @override
+  String queueHaltInterrupted(String count) {
+    return 'Ответ прерван · в очереди: $count';
+  }
+
+  @override
+  String queueHaltUnsent(String count) {
+    return 'Сообщение не отправлено · в очереди: $count';
+  }
+
+  @override
+  String get backgroundHeld => 'Результат не доставлен';
+
+  @override
+  String get backgroundHoldLimit => 'Не доставлено: достигнут лимит ходов';
+
+  @override
+  String get backgroundHoldStopped => 'Не доставлено: ответ остановлен';
+
+  @override
+  String get backgroundHoldInterrupted => 'Не доставлено: ответ прерван';
+
+  @override
+  String get backgroundHoldFailed => 'Не доставлено: ошибка ответа';
+
+  @override
+  String get continuationRefused => 'Не продолжено';
+
+  @override
+  String get continuationPlan => 'Не продолжено в режиме плана';
+
+  @override
+  String get continuationChild => 'Подзадача не продолжается';
+
+  @override
+  String get continuationArchived => 'Архивный чат не продолжается';
+
+  @override
+  String get continuationWorktree =>
+      'Не продолжено: рабочее дерево отсутствует';
+
+  @override
+  String get continuationQueuePaused => 'Не продолжено: очередь приостановлена';
+
+  @override
+  String get continuationQueuedInput =>
+      'Не продолжено: в очереди есть сообщения';
+
+  @override
+  String get continuationRunning => 'Не продолжено: ответ выполняется';
+
+  @override
+  String get continuationInteraction =>
+      'Не продолжено: запрос ожидает вашего ответа';
+
+  @override
+  String get continuationLimit => 'Достигнут лимит автоматических ходов';
+
+  @override
+  String continuationLimitCount(String count, String limit) {
+    return 'Достигнут лимит автоматических ходов · $count/$limit';
+  }
+
+  @override
+  String get continuationStale => 'Не продолжено: чат продвинулся дальше';
+
+  @override
+  String get conversationContextOverflow => 'Превышен предел контекста модели';
+
+  @override
+  String get conversationOutputLimit => 'Ответ обрезан по лимиту вывода';
 }
