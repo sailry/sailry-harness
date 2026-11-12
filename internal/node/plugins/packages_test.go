@@ -248,7 +248,7 @@ func TestBundledPackageContracts(t *testing.T) {
 	// The account-based channels ask the user to accept their risk: a
 	// sign-in on its flow, a channel without one on its preset.
 	t.Run("account warnings", func(t *testing.T) {
-		for name, placement := range map[string]string{"copilot-auth": "flow", "claude-auth": "flow", "workbuddy": "flow", "agy": "preset"} {
+		for name, placement := range map[string]string{"copilot-auth": "flow", "claude-auth": "flow", "workbuddy": "flow", "agy": "preset", "cursor": "preset"} {
 			info, err := manager.InspectBundled(t.Context(), name)
 			if err != nil {
 				t.Fatal(err)

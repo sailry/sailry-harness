@@ -61,6 +61,8 @@ func TestProgramDeclarations(t *testing.T) {
 		{"metadata path with an empty name", func(extension *protocol.PluginExtension) {
 			extension.ModelAdapters[0].Acp.SystemMeta = new("vendor..append")
 		}, false},
+		{"declared session mode", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Mode = new("ask") }, true},
+		{"empty session mode", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Mode = new("") }, false},
 		{"model argument without its placeholder", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.ModelArgument = true }, false},
 		{"model placeholder without the model argument", func(extension *protocol.PluginExtension) {
 			extension.Programs[0].Args = []string{"acp", "--model", "{model}"}

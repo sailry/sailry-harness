@@ -142,10 +142,11 @@ type acpInitialized struct {
 }
 
 type acpOption struct {
-	ID       string          `json:"id"`
-	Category string          `json:"category"`
-	Type     string          `json:"type"`
-	Options  json.RawMessage `json:"options"`
+	ID           string          `json:"id"`
+	Category     string          `json:"category"`
+	Type         string          `json:"type"`
+	CurrentValue string          `json:"currentValue"`
+	Options      json.RawMessage `json:"options"`
 }
 
 type acpSession struct {
@@ -156,6 +157,12 @@ type acpSession struct {
 			Name    string `json:"name"`
 		} `json:"availableModels"`
 	} `json:"models"`
+	Modes struct {
+		CurrentModeID  string `json:"currentModeId"`
+		AvailableModes []struct {
+			ID string `json:"id"`
+		} `json:"availableModes"`
+	} `json:"modes"`
 	ConfigOptions []acpOption `json:"configOptions"`
 }
 
@@ -375,6 +382,11 @@ func (model *acpModel) open(ctx context.Context, agent *acpAgent, system string)
 	if session.SessionID == "" {
 		return &Failure{Kind: InvalidResponse, Message: model.capture.Program.Command + " opened no session"}
 	}
+	if mode := model.capture.Adapter.Acp.Mode; mode != nil {
+		if err := model.enter(ctx, agent, session, *mode); err != nil {
+			return err
+		}
+	}
 	offers, thought := []acpOffer{}, acpThought{}
 	for _, option := range session.ConfigOptions {
 		if option.Type != "select" {
@@ -400,6 +412,35 @@ func (model *acpModel) open(ctx context.Context, agent *acpAgent, system string)
 	agent.mu.Unlock()
 	agent.offers, agent.thought = offers, thought
 	agent.system, agent.seen, agent.prefixed, agent.selected, agent.level = system, nil, false, "", ""
+	return nil
+}
+
+// enter puts a new session into the declared mode, through the session's
+// mode option or its mode list. A package declares a mode to bound what the
+// agent does by itself, so an agent that does not offer it is refused.
+func (model *acpModel) enter(ctx context.Context, agent *acpAgent, session acpSession, mode string) error {
+	method, params, current := "", map[string]any{"sessionId": session.SessionID}, ""
+	for _, option := range session.ConfigOptions {
+		if values, _ := acpChoices(option.Options); option.Type == "select" && (option.Category == "mode" || option.ID == "mode") && slices.Contains(values, mode) {
+			method, current = acp.AgentMethodSessionSetConfigOption, option.CurrentValue
+			params["configId"], params["value"] = option.ID, mode
+		}
+	}
+	for _, offered := range session.Modes.AvailableModes {
+		if method == "" && offered.ID == mode {
+			method, current = acp.AgentMethodSessionSetMode, session.Modes.CurrentModeID
+			params["modeId"] = mode
+		}
+	}
+	if method == "" {
+		return &Failure{Kind: NotConfigured, Message: fmt.Sprintf("%s does not offer the mode %s", model.capture.Program.Command, mode)}
+	}
+	if current == mode {
+		return nil
+	}
+	if _, err := acpCall[json.RawMessage](ctx, agent, method, params); err != nil {
+		return model.failure(ctx, agent, err)
+	}
 	return nil
 }
 

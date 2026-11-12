@@ -662,6 +662,7 @@ A model adapter names a program with `acp` instead of `script`. It declares
 | `system_meta` | Dotted `_meta` path of `session/new` that takes the system text. Without it, or when the agent does not advertise it, the system text opens the first prompt |
 | `efforts` | Effort level (`minimal` to `max`) to model identifier suffix. Variants fold into one model |
 | `model_argument` | The model is the program's `{model}` argument, one process per model. Required exactly when an argument has `{model}` |
+| `mode` | The session mode entered in every new session before a prompt, for example a read-only one. An agent that does not offer it is refused. Without it the session keeps the agent's mode |
 | `auth_method` | The `authenticate` method the agent is asked to use once when it requires authentication |
 | `failure_markers` | Up to four texts that mark a reply as a failure |
 
