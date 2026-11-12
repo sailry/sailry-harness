@@ -557,6 +557,133 @@ func TestGoalLoop(t *testing.T) {
 		}
 	})
 
+	// shown is the goal as the panel reads it.
+	shown := func(f *goalFixture) (status, reason, state string) {
+		f.t.Helper()
+		var view struct {
+			Goal struct {
+				Status string `json:"status"`
+				Reason string `json:"reason"`
+				State  string `json:"state"`
+			} `json:"goal"`
+		}
+		if err := json.Unmarshal(f.call("read_plugin_callback", "inspect", map[string]any{}), &view); err != nil {
+			f.t.Fatal(err)
+		}
+		return view.Goal.Status, view.Goal.Reason, view.Goal.State
+	}
+	// facts is what the Node states of the session's runs and background work.
+	facts := func(f *goalFixture) protocol.ConversationRunsPage {
+		f.t.Helper()
+		return commandFixture(f.t, f.node, protocol.Command{Kind: "read_conversation_runs", Data: protocol.CommandReadConversationRunsPayload{Session: f.session.ID, Limit: 8}}).Data.(protocol.ConversationRunsPage)
+	}
+	// waiting starts a goal whose first turn delegates a background child
+	// and leaves it waiting for the child's result.
+	waiting := func(t *testing.T) *goalFixture {
+		t.Helper()
+		f := newGoalFixture(t, protocol.WorkModeCode)
+		f.script.push(
+			goalStep{calls: [][3]string{{"spawn", "spawn_agent", `{"task":"Check the fixture","background":true}`}}},
+			goalStep{text: "Delegated"},
+		)
+		f.send("/goal Make the fixture pass and prove it")
+		f.wait("the wait for background work", func(runs []protocol.ConversationRun, goal map[string]any) bool {
+			return len(runs) == 1 && runs[0].Status == protocol.ConversationStatusCompleted && goal != nil && goal["waiting"] == true
+		})
+		if status, _, state := shown(f); status != "active" || state != "waiting" {
+			t.Fatalf("a goal whose background work runs is shown %s, %s", status, state)
+		}
+		if page := facts(f); page.Background == nil || page.Background.Running != 1 || page.Background.Pending != 0 || len(page.Runs) != 1 || page.Runs[0].Recovered {
+			t.Fatalf("run facts while the child runs = %+v, %+v", page.Background, page.Runs)
+		}
+		return f
+	}
+
+	t.Run("background work the user stops leaves the goal paused until a reply", func(t *testing.T) {
+		t.Parallel()
+		f := waiting(t)
+		// The stopped child reports nothing by itself: no notice turn follows.
+		stopped := false
+		for _, session := range snapshotFixture(t, f.node).Sessions {
+			if session.Delegation == nil || *session.Delegation == nil {
+				continue
+			}
+			var history protocol.ConversationHistory
+			if err := f.node.profile.Store.Node.Read(f.ctx, func(db *sql.Conn) error {
+				var err error
+				history, err = store.ReadConversation(f.ctx, db, session.ID, nil, 10)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, run := range history.Page.Runs {
+				commandFixture(t, f.node, protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}})
+				stopped = true
+			}
+		}
+		if !stopped {
+			t.Fatal("the background child has no turn to stop")
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			status, reason, state := shown(f)
+			if status == "paused" && reason == "stopped" && state == "paused" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the goal whose background work was stopped is shown %s, %s, %s", status, reason, state)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if page := facts(f); page.Background == nil || page.Background.Running != 0 || page.Background.Pending != 0 || page.Runs[0].Recovered {
+			t.Fatalf("run facts after the stop = %+v, %+v", page.Background, page.Runs)
+		}
+		// Nothing was started for it, and the stored goal is what a reply continues.
+		if runs, goal := f.read(); len(runs) != 1 || goal["status"] != "active" {
+			t.Fatalf("after the stop: %+v, %v", runs, goal)
+		}
+		f.finished()
+		f.script.push(goalStep{text: "Going on without it"}, goalStep{calls: block("Need a review")}, goalStep{text: "Blocked"})
+		f.send("Carry on without the check")
+		runs, _ := f.settled("blocked", nil)
+		f.finished()
+		if len(runs) != 3 || runs[1].Notice || runs[1].Continuation != nil || runs[2].Continuation == nil {
+			t.Fatalf("turns after the reply = %+v", runs)
+		}
+	})
+
+	t.Run("a restart while the goal waits for background work leaves it paused", func(t *testing.T) {
+		t.Parallel()
+		f := waiting(t)
+		if err := f.node.Stop(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		script := newGoalScript()
+		script.main.Store(&f.session.ID)
+		f.start(script)
+		// The goal's last turn completed and was handled; it ended before
+		// this Node started, so nothing of its loop is left.
+		if page := facts(f); len(page.Runs) != 1 || page.Runs[0].Status != protocol.ConversationStatusCompleted || !page.Runs[0].Recovered ||
+			page.Background == nil || page.Background.Running != 0 || page.Background.Pending != 0 {
+			t.Fatalf("run facts after the restart = %+v, %+v", page.Background, page.Runs)
+		}
+		if status, reason, state := shown(f); status != "paused" || reason != "restart" || state != "paused" {
+			t.Fatalf("goal after the restart = %s, %s, %s", status, reason, state)
+		}
+		time.Sleep(300 * time.Millisecond)
+		if runs, _ := f.read(); len(runs) != 1 {
+			t.Fatalf("turns after the restart = %+v", runs)
+		}
+		f.finished()
+		f.script.push(goalStep{calls: block("Need a decision")}, goalStep{text: "Blocked"})
+		f.control("resume")
+		runs, _ := f.settled("blocked", nil)
+		f.finished()
+		if len(runs) != 2 || runs[1].Continuation == nil || !runs[1].Continuation.User {
+			t.Fatalf("Resume after the restart = %+v", runs)
+		}
+	})
+
 	t.Run("a restart leaves the goal paused until Resume", func(t *testing.T) {
 		t.Parallel()
 		f := newGoalFixture(t, protocol.WorkModeCode)

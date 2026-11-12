@@ -38,7 +38,7 @@ audit).
 
 | Reason | Set when | Ends with | Notifies |
 |---|---|---|---|
-| `stopped` Stopped | The user stopped a goal turn, or the queue is paused | A reply, Resume | No |
+| `stopped` Stopped | The user stopped a goal turn, the queue is paused, or the background work the goal waited for ended with nothing to deliver (the user stopped it, or a restart lost it) | A reply, Resume | No |
 | `user` Paused by you | Pause, `/goal pause`, `update_goal(paused)` in a user turn | Resume, `/goal resume`, `update_goal(active)` in a user turn | No |
 | `turns` Turn limit reached | The wrap-up turn of the turn limit ended | A reply, Resume | Yes |
 | `tokens` Token budget reached | The wrap-up turn of the token budget ended | A reply, Resume: the budget is granted again | Yes |
@@ -46,7 +46,7 @@ audit).
 | `no_progress` No progress | Two automatic turns in a row made no tool call other than the package's own, with no background work pending | A reply, Resume | Yes |
 | `needs_you` Needs you | An approval or question expired unanswered in a goal turn | A reply, Resume | Yes |
 | `error` Error | A goal turn ended `failed` (the fault code is kept), or the session cannot take a continuation (archived, worktree gone) | A reply, Resume | Yes |
-| `restart` App restarted | A goal turn ended `interrupted`, or the goal is found active after its last turn was lost | A reply, Resume | No |
+| `restart` App restarted | A goal turn ended `interrupted`, the goal is found active after its last turn was lost, or its last turn ended before this Node started | A reply, Resume | No |
 | `plan` Plan mode | A turn ended in Plan mode, `/goal` or Resume in Plan mode | The next user turn outside Plan | No |
 | `restored` Restored from history | Fork or rewind | Resume | No |
 
@@ -67,6 +67,20 @@ A goal whose loop cannot be running is never shown as running. The package's
 reads derive `paused` when the stored status is `active` but the session's
 latest turn ended `interrupted`, `failed` or `cancelled`, or the value was
 restored by a fork or rewind; Resume or a reply then continues it.
+
+Two more cases have no turn to end and so no callback to act in. The Node
+states them on the run page (`read_conversation_runs`) and the reads derive
+the pause from them:
+
+| Node fact | Meaning | Shown |
+|---|---|---|
+| `runs[].recovered` | The run ended before this Node started (`store.RecoverRuns` stamps each start). A turn that finished as the Node stopped may never have reached `after_turn`, and nothing will deliver it now | Paused, App restarted |
+| `background` `{running, pending}` | Background tasks of the session still running, and finished results still to be delivered. A result the user stopped, or one a restart recovered, is in neither | A goal marked waiting whose last handled turn is still the latest and whose counts are both zero is Paused, Stopped (Turn limit reached when the chain is used up) |
+
+A derived pause changes nothing stored and publishes no notification: the
+user stopped the work, or the restart is already reported by the Node. A
+goal whose background command was stopped does not continue by itself; the
+user who stopped it decides, with a reply or Resume.
 
 ## Who may do what
 
@@ -138,6 +152,7 @@ for example a Pause, withdraws a continuation that has not started.
 | Service | Owner | Contract |
 |---|---|---|
 | Turn facts | `node.afterTurn`, `store.ReadTurnFacts`, `engine.TurnObservation` | `after_turn` receives the turn's `sequence`, `status` (`cancelled` is the user's Stop, `interrupted` a lost turn, `failed` with `error`), `mode`, `automatic`, `notice`, the package's own `continuation` marker, `tool_calls` and per-name `tools`, `expired` approvals and questions, `usage` and `session_usage`, `background.running` and `background.pending`, and the automatic `chain` |
+| Run page facts | `store.readConversationRuns`, `store.RecoverRuns` | `readConversationRuns` states `recovered` on a run that ended before this Node started, and `background` `{running, pending}` for the session; both are optional and absent from an older Node, where the package shows what it showed before |
 | Turn origin at start | `node.pluginTurnInput` | `turn.initialize` receives `automatic`, `notice` and the package's own `continuation` |
 | Automatic chain | `store.ReadAutomaticChain`, `store.admitContinuation`, `store.admitBackground` | Notice turns and continuations share one count since the last user input, eight by default. A continuation declares `limit` (1 to 100) for the chain it joins; notice turns follow the latest declared limit. A continuation with `user` set, one the user asked for, starts a new chain |
 | Refusal reasons | `store.automaticRefusal`, `store.continuationRefused` | A refused `continue_turn` carries `details: {kind: "continuation", reason}`: `plan`, `child`, `archived`, `worktree`, `queue_paused`, `queued_input`, `running`, `interaction`, `limit` (with `count`, `limit`) or `stale` |
@@ -157,7 +172,7 @@ a turn older than one it already handled, by `sequence`.
 
 | Covers | Test |
 |---|---|
-| The loop on a real Node with the bundled package and a scripted model: claim and audit, an inserted message, Stop and reply, Pause across a reply, the 25-turn limit, waiting for background work, restart, what the model cannot do, Plan mode, `create_goal` approval | `node.TestGoalLoop` |
+| The loop on a real Node with the bundled package and a scripted model: claim and audit, an inserted message, Stop and reply, Pause across a reply, the 25-turn limit, waiting for background work, background work the user stops, a restart while waiting, restart, what the model cannot do, Plan mode, `create_goal` approval | `node.TestGoalLoop` |
 | Turn facts and origin | `node.TestPluginTurnFacts` |
 | Chain count, declared limit, user-requested continuation, refusal reasons, markers, held results, attention | `store.TestAutomaticChain` |
 | A turn submitted inside a plugin transaction | `store.TestPluginTransactionSubmit` |
@@ -191,11 +206,10 @@ From Codex:
 
 ## Not covered
 
-- A goal waiting on background work that ends without a deliverable result
-  (for example a command the user cancelled) is not woken; it shows Waiting
-  until a reply or Pause and Resume.
-- A turn that completes at the instant the Node stops can lose its callback;
-  the goal then shows Running with no turn until a reply or Pause and Resume.
+- The lost-callback case is covered by its fact (`recovered`) and by the
+  package test, not by stopping a real Node at the instant a turn completes.
+  `recovered` compares the run's wall-clock end with the Node's start stamp; a
+  clock set back between the two hides it.
 - The no-progress rule counts tool calls; a model that calls a trivial tool
   every turn runs until the turn limit.
 - Real providers, Windows and Linux are not verified by the tests above.

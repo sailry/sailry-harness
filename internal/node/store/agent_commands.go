@@ -477,13 +477,27 @@ func readConversationRuns(ctx context.Context, db *sql.Conn, input protocol.Comm
 		id := runs[len(runs)-1].Turn
 		value.NextBefore = &id
 	}
+	started, err := readBody[int64](ctx, db, "SELECT body FROM agent_state WHERE owner='node' AND key=?1", recoveredKey)
+	if err != nil {
+		return value, err
+	}
 	for _, run := range runs {
 		if run.Session != input.Session {
 			origin := run.Session
 			run.Origin = &origin
 		}
-		value.Runs = append(value.Runs, summarizeRun(run))
+		summary := summarizeRun(run)
+		summary.Recovered = started != nil && run.FinishedMs != nil && *run.FinishedMs < *started
+		value.Runs = append(value.Runs, summary)
 	}
+	background := protocol.ConversationRunsBackground{}
+	if err = db.QueryRowContext(ctx, `SELECT
+ (SELECT count(*) FROM agent_background WHERE session=?1 AND state='running' AND (kind='agent' OR json_extract(body,'$.follow_up')=1)),
+ (SELECT count(*) FROM agent_background WHERE session=?1 AND state='pending' AND delivery IS NOT NULL)+
+ (SELECT count(*) FROM agent_background WHERE `+backgroundEligible+`)`, input.Session.String()).Scan(&background.Running, &background.Pending); err != nil {
+		return value, err
+	}
+	value.Background = &background
 	queue, err := ReadQueue(ctx, db, input.Session)
 	value.QueueRevision = queue.Revision
 	return value, err

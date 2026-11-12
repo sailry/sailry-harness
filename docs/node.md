@@ -183,8 +183,9 @@ it fails to decode these values, all added on November 12, 2026:
 
 Optional members added after the rule are ignored by a build that follows it
 and read as absent from a Node that does not send them:
-`ConversationBackgroundTask.exit_code`, `ToolDetailSummary.task` and
-`ConversationCheckpointFile.restored`.
+`ConversationBackgroundTask.exit_code`, `ToolDetailSummary.task`,
+`ConversationCheckpointFile.restored`, `ConversationRunsSummary.recovered` and
+`ConversationRunsPage.background`.
 
 An earlier build already accepts `ConversationContinuation.kind`, `limit` and
 `user`, `KnowledgeProgress.failed` and `failures`, `KnowledgeFailure`, the

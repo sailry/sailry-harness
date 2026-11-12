@@ -579,7 +579,19 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	events = append(events, changed...)
 	return run, events, err
 }
+
+// recoveredKey holds when the Node last started, in agent_state under the
+// owner "node": a run that finished earlier ended in an earlier process.
+const recoveredKey = "sailry.recovered_ms"
+
 func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
+	stamp, err := encode(now.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_state(owner,key,body) VALUES('node',?1,?2) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body", recoveredKey, stamp); err != nil {
+		return nil, err
+	}
 	// A queued child the user stopped before the restart was a deliberate
 	// stop: it ends cancelled, not as lost work.
 	events, err := SettleStoppedChildren(ctx, db, now)
