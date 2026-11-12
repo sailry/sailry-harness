@@ -235,7 +235,7 @@ func Demo(locale, host string) *Data {
 	d.Plugins = []Plugin{
 		{ID: "git", Name: "Git", Description: b.t("plugin.git"), Version: "0.3.2", Official: true, Enabled: true},
 		{ID: "knowledge", Name: "Knowledge", Description: b.t("plugin.knowledge"), Version: "0.1.1", Official: true, Enabled: true},
-		{ID: "goals", Name: "Goals", Description: b.t("plugin.goals"), Version: "0.2.0", Official: true, Enabled: true},
+		{ID: "goals", Name: "Goals", Description: b.t("plugin.goals"), Version: "0.2.2", Official: true, Enabled: true},
 	}
 	d.Projects = []*Project{
 		{ID: "harbor-api", Name: "harbor-api", Path: "~/Web/harbor-api", Branch: "main", Host: host, Trusted: true,

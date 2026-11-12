@@ -79,6 +79,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 					projected.Pending = call.Pending
 					projected.Running = call.Running
 					projected.Standalone, projected.Terminal = call.Standalone, call.Terminal
+					projected.Background = call.Background
 					if !projected.Failed {
 						projected.State = call.State
 					}

@@ -211,6 +211,12 @@ it fails to decode these values, all added on November 12, 2026:
 | `PluginTransactionOperation` `continue` members `marker`, `limit`, `user` | a package | Node refuses the operation; a package needing them sets `min_sailry_version` |
 | any Node event or conversation frame change of a new kind | Node | controller faults its projection |
 
+Optional members added after the rule are ignored by a build that follows it
+and read as absent from a Node that does not send them:
+`ConversationBackgroundTask.exit_code`, `ToolDetailSummary.task`,
+`ConversationCheckpointFile.restored`, `ConversationRunsSummary.recovered` and
+`ConversationRunsPage.background`.
+
 An earlier build already accepts `ConversationContinuation.kind`, `limit` and
 `user`, `KnowledgeProgress.failed` and `failures`, `KnowledgeFailure`, the
 `output_limit` resource part and `CommandContinueTurnPayload`. The protocol

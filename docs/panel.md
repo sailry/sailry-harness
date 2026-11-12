@@ -813,11 +813,11 @@ Final turn diffs populate conversation changes cards. Review captures that turn'
 patches and hunk identities in the existing Git surface; Undo confirms the target
 and restores matching checkpoints in source order. A partially confirmed restore
 resumes after its successful entries, whose files no longer match their
-checkpoints, and retains uncertain request identity. The card remembers which
-files it restored only while its conversation is shown
-(`workspaceProject.turnUndone`); after another conversation was shown it offers
-Undo for them again, and that second restore ends in the conflict toast because
-the files no longer hold the checkpoint's content.
+checkpoints, and retains uncertain request identity. The card's undone state
+is read from the Node's checkpoint list (`workspaceProject.undone`): a file is
+undone once every change the turn made to it in this worktree is `restored`,
+and the turn once every file is, so it is the same after another conversation
+was shown, after a restart and in another window.
 
 Project-backed unsent drafts resolve existing worktrees without creating a
 session or invoking a model. Composer location fields keep paths as identities;

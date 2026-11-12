@@ -70,6 +70,9 @@ func (node *Node) subscribeConversation(ctx context.Context, session protocol.Se
 		if statisticsErr == nil {
 			snapshot.Statistics = &statistics
 		}
+		if snapshot.Artifacts, err = store.ListArtifacts(ctx, db, session, nil, 64); err != nil {
+			return err
+		}
 		// Account for the rest of the enclosing snapshot when fitting the page.
 		snapshot.Drafts = reservation.Drafts
 		overhead := snapshot

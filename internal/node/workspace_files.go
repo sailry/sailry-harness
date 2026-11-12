@@ -74,7 +74,7 @@ func (node *Node) readWorkspaceArtifact(ctx context.Context, request protocol.Re
 	})
 	return protocol.Output{Kind: "artifact", Data: capture.Content}, err
 }
-func (node *Node) restoreWorkspaceCheckpoint(ctx context.Context, request protocol.Request, root string) (protocol.Output, error) {
+func (node *Node) restoreWorkspaceCheckpoint(ctx context.Context, request protocol.Request, root string, effect *workspaceCompletion) (protocol.Output, error) {
 	input := request.Command.Data.(*protocol.CommandRestoreFileCheckpointPayload)
 	var capture protocol.ConversationCheckpointContent
 	var settled []*protocol.ConversationCheckpointVersion
@@ -91,6 +91,13 @@ func (node *Node) restoreWorkspaceCheckpoint(ctx context.Context, request protoc
 	}
 	defer node.watches.changed(root, nil)
 	value, err := files.RestoreCheckpoint(ctx, root, capture, settled)
+	if err == nil {
+		// The file is restored; that it was undone is stored with the receipt.
+		effect.external = true
+		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
+			return out, nil, store.MarkCheckpointRestored(ctx, db, input.Checkpoint)
+		}
+	}
 	return protocol.Output{Kind: "file_restored", Data: value}, err
 }
 func (node *Node) applyWorkspaceHunk(ctx context.Context, request protocol.Request, root string) (protocol.Output, error) {

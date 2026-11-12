@@ -1417,9 +1417,14 @@ schema, not a model provider's normalized declaration or enforcement.
 
 `readConversationRuns(before = null, limit = 100)` returns bounded lifecycle
 metadata for the captured session: `{session, revision, runs, next_before,
-queue_revision}`. Each run contains only `{turn, sequence, status, origin,
-error_code}`; it never loads message bodies, admitted input or notices. Pages
-contain at most 100 runs, ordered by admission sequence within each page. Pass
+queue_revision, background}`. Each run contains only `{turn, sequence, status,
+origin, error_code, recovered}`; `recovered` is present and true when the run
+ended before this Node started, so no callback for it is still to come.
+`background` is `{running, pending}`: the session's background tasks still
+running, and finished results still to be delivered to a turn; a result the
+user stopped or the queue holds is in neither. A page without `background`
+comes from a Node that does not state it. The page never loads message
+bodies, admitted input or notices. Pages contain at most 100 runs, ordered by admission sequence within each page. Pass
 `next_before` to read older runs. `readConversationRun(turn, revision = null)`
 reads one visible run; a supplied structural history revision rejects stale
 fork/rewind membership. Both methods require `conversation.read` and the captured

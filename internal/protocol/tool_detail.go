@@ -61,6 +61,9 @@ type ToolDetailSummary struct {
 	Delegation  ToolDetailDelegation       `json:"delegation"`
 	Question    **ConversationQuestionSpec `json:"question,omitempty"`
 	Progress    *ConversationProgress      `json:"progress,omitempty"`
+	// Task is the id of the background task the call started: a command
+	// that was sent to the background. It is absent for any other call.
+	Task *string `json:"task,omitempty"`
 }
 
 func DefaultToolDetailSummary() ToolDetailSummary {
@@ -85,6 +88,7 @@ func DefaultToolDetailSummary() ToolDetailSummary {
 		Delegation:  DefaultToolDetailDelegation(),
 		Question:    nil,
 		Progress:    nil,
+		Task:        nil,
 	}
 }
 func (value *ToolDetailSummary) UnmarshalJSON(data []byte) error { return Decode(data, value) }
@@ -106,6 +110,7 @@ func (value *ToolDetailSummary) DecodeJSON(decoder *Decoder) error {
 	decoded.Delegation = DefaultToolDetailDelegation()
 	decoded.Question = nil
 	decoded.Progress = nil
+	decoded.Task = nil
 	if err := decoder.Object(&decoded, []string{"revision", "has_details", "diagnostics", "raw_result", "images"}, false); err != nil {
 		return err
 	}
