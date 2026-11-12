@@ -136,3 +136,23 @@ func count(texts []string, text string) int {
 	}
 	return n
 }
+
+// A paragraph that embeds the same file twice builds two cards under their
+// own keys: the tester panics on a duplicate key.
+func TestEmbedTwice(t *testing.T) {
+	turns := []conversation.Turn{answered("t", "Show it", "![one](notes/plan.txt)\n![two](notes/plan.txt)")}
+	s := conversation.New()
+	s.Embed = func(_, dest, _ string, image bool) (conversation.Embed, bool) {
+		return conversation.Embed{File: &conversation.File{ID: "file/" + dest, Path: dest}}, image
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { conversation.View(c, s, "t", turns, nil, noActions{}) })
+	}, 900, 700)
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Frame()
+	if n := count(tt.Texts(), "plan.txt"); n != 2 {
+		t.Fatalf("%d file cards: %q", n, tt.Texts())
+	}
+}

@@ -143,6 +143,17 @@ func composerParity(t *testing.T) {
 		if comp.Mode != composer.Flagship {
 			t.Errorf("the built-in mode under the cycle is %v", comp.Mode)
 		}
+		// /flagship leaves the package's mode as the menu's Flagship does.
+		tt, comp, _ = composerWith(t, 960, modes)
+		click(t, tt, zh("composer"))
+		chosen = nil
+		tt.Type("/flagship")
+		tt.Frame()
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		if !slices.Equal(chosen, []string{"flagship"}) || comp.Mode != composer.Flagship {
+			t.Errorf("/flagship selected %v with the built-in mode %v", chosen, comp.Mode)
+		}
 		// The compact settings popover lists them on its mode page.
 		selected = ""
 		tt, _, _ = composerWith(t, 440, modes)

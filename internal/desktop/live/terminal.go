@@ -23,6 +23,9 @@ type liveTerminal struct {
 	cancel   context.CancelFunc
 	reading  bool
 	failed   bool
+	// closing marks a tab closed before its create_terminal answered: the
+	// answer closes the terminal instead of attaching it.
+	closing bool
 	// claiming holds while claim_terminal is unanswered; claimed is the
 	// revision an unowned terminal was last claimed at, so one refused
 	// automatic claim is not repeated every frame.
@@ -295,8 +298,11 @@ func (r *Runtime) closeLiveTerminal(id string) {
 		owner, info, exists = state.owner, state.conn.current(), true
 	}
 	if !exists {
-		// Its creation has not answered yet: the tab leaves when it does.
-		if !inventory.pending[id] {
+		// Its creation has not answered yet: the answer closes it and the
+		// tab leaves then.
+		if state := root.packages.terminals[id]; inventory.pending[id] && state != nil {
+			state.closing = true
+		} else if !inventory.pending[id] {
 			root.dropTerminalTab(id)
 		}
 		return
