@@ -121,10 +121,11 @@ By the user's decision of November 12, 2026:
   Focus rings are unchanged.
 - The heading is the title alone. The reference's second line, the host's
   name under the title, is removed; a remote host is named as the table says.
-- The band at the dialog's top moves the window (`DragWindow` on the
+- The band at the dialog's top moves the dialog, not the window (the
   sidebar's title row, the narrow layout's title row and the header bar):
-  its empty parts start a drag and its controls keep their clicks. The
-  dialog stays 24 DIP clear of the window's edges and its title starts 16
+  a drag on its empty parts carries the dialog with the pointer, kept where
+  the band can still be reached, and its controls keep their clicks; a new
+  opening is centred again. At rest the dialog stays 24 DIP clear of the window's edges and its title starts 16
   further in, so the title is below and clear of macOS's window controls
   (12, 16; about 30 DIP tall) in every layout, and nothing is inset for
   them.
