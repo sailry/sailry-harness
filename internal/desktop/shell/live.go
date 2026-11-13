@@ -21,8 +21,11 @@ type Hooks struct {
 	WorkspaceProject func() *panel.Project
 	DownloadDialog   func(*ui.Context)
 	PackageDialogs   func(*ui.Context)
-	BeforeFrame      func(*ui.Context)
-	AfterFrame       func()
+	// FilePreview draws the preview dialog of a file outside a
+	// conversation.
+	FilePreview func(*ui.Context)
+	BeforeFrame func(*ui.Context)
+	AfterFrame  func()
 	// DemoChanged runs when Demo mode went on, off or into another
 	// language, before the frame's other hooks.
 	DemoChanged      func()

@@ -6,5 +6,7 @@ export function selectDownload(profile:Profile,entries:{path:string;directory:bo
 export function transferAction(id:string,action:'start'|'replace'|'check'|'cancel'|'dismiss'):void;
 export function nextTransfers(cursor:string):Promise<{cursor:string;transfers:{id:string;profile:string;kind:string;source:string;path:string;stage:string;error:unknown;progress:{copied:number;size:number}|null;can_start:boolean;can_replace:boolean;can_check:boolean;can_cancel:boolean}[]}>;
 
+/** Opens a remote file in the application's preview dialog; its bytes stay in the host. */
+export function previewFile(profile:Profile,path:string):void;
 /** Consumes a one-use native tree drop handle in this mounted view. */
 export function uploadDropped(profile:Profile,directory:string,handle:string):string[];

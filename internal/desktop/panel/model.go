@@ -10,8 +10,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
 
@@ -139,11 +139,11 @@ type State struct {
 	pages             int                          // browser pages and terminals opened, for their IDs
 	artifacts         map[string]conversation.File // the conversation files previewed, by ID
 	artifactCallbacks ArtifactCallbacks
-	view              kit.Viewer[conversation.Image] // the image viewer over a previewed picture
-	children          map[string]string              // the subagent sessions open, their titles by ID
-	pagesOf           map[string]*page               // the browser tabs' addresses and history, by ID
-	focusAddress      bool                           // the browser tab opened last has yet to focus its address
-	terms             map[string]*term               // the terminal tabs' state, by ID
+	view              fileview.View     // the previewed file's own state
+	children          map[string]string // the subagent sessions open, their titles by ID
+	pagesOf           map[string]*page  // the browser tabs' addresses and history, by ID
+	focusAddress      bool              // the browser tab opened last has yet to focus its address
+	terms             map[string]*term  // the terminal tabs' state, by ID
 	// Child builds a subagent's session in its tab, the transcript the shell
 	// owns.
 	Child func(c *ui.Context, id string)

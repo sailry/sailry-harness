@@ -77,16 +77,18 @@ type Runtime struct {
 	acknowledged map[string]uint64
 	// keptUnread is the shown session the user marked unread: it stays so
 	// until another one is shown.
-	keptUnread            string
-	composerRevisions     map[string]uint64
-	composerSaving        map[string]bool
-	composerWaiters       map[string][]func(bool)
-	composerBases         map[*composer.State]protocol.SessionConfig
-	sessionBases          map[*composer.State]*sessionBaseStart
-	App                   *shell.App
-	Preferences           *preferences.Store
-	controller            *client.Client
-	ctx                   context.Context
+	keptUnread        string
+	composerRevisions map[string]uint64
+	composerSaving    map[string]bool
+	composerWaiters   map[string][]func(bool)
+	composerBases     map[*composer.State]protocol.SessionConfig
+	sessionBases      map[*composer.State]*sessionBaseStart
+	App               *shell.App
+	Preferences       *preferences.Store
+	controller        *client.Client
+	ctx               context.Context
+	// filePreview is the window's preview dialog (file_preview.go).
+	filePreview           *filePreview
 	cancel                context.CancelFunc
 	unsubscribe           func()
 	unsubscribePrefs      func()
@@ -244,6 +246,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initCommands()
 	r.initAttachments()
 	r.App.Hooks.DownloadDialog = r.transferDialogs
+	r.App.Hooks.FilePreview = r.renderFilePreview
 	r.initWorkspace()
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
 	r.bindWorkspaceSettings()

@@ -2,12 +2,10 @@ package panel
 
 import (
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // Artifact is a tab previewing a file of the conversation, a card's, by the
@@ -37,101 +35,37 @@ func (s *State) ShowArtifact(f conversation.File) {
 	s.Show(Tab{Artifact, f.ID})
 }
 
-// artifact is a file's preview: the path bar, then the text in mono, the code
-// highlighted, the Markdown rendered, the picture fitted, or the state of a
-// preview that cannot show (loading, failed, too large, changed, unsupported)
-// with Open in another app.
+// artifact is a file's preview, the application's one (fileview): the path
+// bar with Copy and Open, then the file or the state of a preview that
+// cannot show.
 func (s *State) artifact(c *ui.Context, id string) {
-	p := theme.Of(c)
 	f, ok := s.artifacts[id]
 	if !ok {
 		empty(c, icons.File, "artifact_preview_failed")
 		return
 	}
-	open := func() {
-		if s.artifactCallbacks.OpenExternal != nil {
-			s.artifactCallbacks.OpenExternal(f)
-		} else {
-			notice(c)
-		}
-	}
-	toolbar(c, "artifact-bar", func() {
-		ui.Icon(c, conversation.FileIcon(f)).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
-		ui.Text(c, f.Path).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-		if f.Kind == conversation.CodeFile || f.Kind == conversation.TextFile || f.Kind == conversation.MarkdownFile {
-			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
-				c.WriteClipboard(f.Text)
-				kit.Message(c, i18n.T(c, "content_copied"))
-			})
-		}
-		// The demo's files are on no disk for another app to open.
-		if !s.Demo {
-			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(open)
-		}
-	})
-	state := func(key string) {
-		ui.Column(c.Key("state")).Grow(1).Padding(16).Gap(12).Children(func() {
-			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(p.MutedForeground)
-			if key != "artifact_preview_loading" && !s.Demo {
-				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).AlignSelf(ui.Start).OnClick(open)
-			}
-		})
-	}
-	switch f.State {
-	case conversation.PreviewLoading:
-		state("artifact_preview_loading")
-		return
-	case conversation.PreviewFailed:
-		state("artifact_preview_failed")
-		return
-	case conversation.PreviewLarge:
-		state("artifact_preview_large")
-		return
-	case conversation.PreviewChanged:
-		state("artifact_preview_changed")
-		return
-	}
-	if s.artifactCallbacks.Render != nil && s.artifactCallbacks.Render(c, f) {
-		return
-	}
-	kit.ImageViewer(c, &s.view, func(im conversation.Image) kit.ViewerItem {
-		return kit.ViewerItem{Source: im.Source, Name: im.Name}
-	}, func(action kit.ImageAction, image conversation.Image) {
+	cb := fileview.Callbacks{Render: s.artifactCallbacks.Render, Image: func(action kit.ImageAction, image conversation.Image) {
 		if s.artifactCallbacks.Image != nil {
 			s.artifactCallbacks.Image(action, image)
 		} else {
 			notice(c)
 		}
-	})
-	if s.Demo && f.Kind == conversation.OtherFile {
-		// The demo's file is on no disk for its app to open: the tab names it.
-		kit.Result(c, kit.ResultProps{Icon: conversation.FileIcon(f), Title: f.Name(), SubTitle: conversation.Kind(c, f)}).Grow(1).Justify(ui.Center)
-		return
-	}
-	ui.Scroll(c.Key("artifact-" + id)).Grow(1).MinHeight(0).Children(func() {
-		switch f.Kind {
-		case conversation.TextFile:
-			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Numbers: true})
-		case conversation.CodeFile:
-			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
-		case conversation.MarkdownFile:
-			ui.Column(c).Padding(16, 20).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
-		case conversation.ImageFile:
-			ui.Box(c).FillWidth().Padding(16).Center().Children(func() {
-				if f.Image == nil || f.Image.Source == nil {
-					kit.Image(c, nil, kit.ImageProps{Height: 240, Alt: i18n.T(c, "chat_image_loading")})
-					return
-				}
-				im := *f.Image
-				w, h := float32(im.Width), float32(im.Height)
-				img := kit.Image(c, im.Source, kit.ImageProps{Fill: true, Contain: true, Variant: kit.ImageBorderless, Alt: f.Path,
-					OnOpen: func() { s.view.Show([]conversation.Image{im}, 0) }}).FillWidth()
-				if w > 0 && h > 0 {
-					img.AspectRatio(w / h).MaxWidth(w)
-				}
-			})
+	}}
+	// The demo's files are on no disk for another app to open.
+	if !s.Demo {
+		cb.OpenExternal = func() {
+			if s.artifactCallbacks.OpenExternal != nil {
+				s.artifactCallbacks.OpenExternal(f)
+			} else {
+				notice(c)
+			}
 		}
+	}
+	toolbar(c, "artifact-bar", func() {
+		fileview.Title(c, f)
+		fileview.Tools(c, f, cb)
 	})
+	fileview.Content(c, &s.view, id, f, cb)
 }
 
 // Subagent is a tab holding a subagent's session.

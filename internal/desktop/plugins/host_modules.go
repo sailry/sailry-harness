@@ -36,7 +36,7 @@ var nativeModuleNames = []hostModuleNames{
 		"releaseWorktree", "openResource", "openFile", "openProjectCreation", "canInsertFileReferences",
 		"insertFileReferences", "confirmAction", "nextResourceTarget", "nextWindowActivation",
 	}},
-	{module: "sailry/ssh-transfers", sync: []string{"uploadDropped", "transferAction"}, async: []string{"selectUpload", "selectDownload", "nextTransfers"}},
+	{module: "sailry/ssh-transfers", sync: []string{"uploadDropped", "transferAction", "previewFile"}, async: []string{"selectUpload", "selectDownload", "nextTransfers"}},
 	{module: "sailry/file-transfers", sync: []string{"readClipboard", "systemFileManager", "readTransfers"}, async: []string{
 		"captureClipboard", "preparePaste", "prepareMove", "selectUpload", "startDownload", "openSystem", "revealSystem", "transferAction", "nextTransferChange",
 	}},

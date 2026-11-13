@@ -361,6 +361,25 @@ func (state *pluginNativeState) sshTransferOperations() {
 		}
 		return pluginNativeJSON(ids)
 	}
+	// previewFile opens a remote file in the application's preview dialog.
+	// Its bytes stay in the host: the package names the file alone.
+	operations["sailry/ssh-transfers.previewFile"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+		profile, err := pluginNativeArgument[protocol.SshProfile](arguments, 0)
+		if err != nil {
+			return nil, err
+		}
+		path, err := pluginNativeArgument[string](arguments, 1)
+		if err != nil {
+			return nil, err
+		}
+		access, err := state.sshTransferAccess(profile, false, true)
+		if err != nil {
+			return nil, err
+		}
+		return state.effect(func(*ui.Context) {
+			state.runtime.openFilePreview(path, func(ctx context.Context) ([]byte, error) { return access.readPreview(ctx, path) })
+		})
+	}
 	operations["sailry/ssh-transfers.selectUpload"] = func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		profile, err := pluginNativeArgument[protocol.SshProfile](arguments, 0)
 		if err != nil {
