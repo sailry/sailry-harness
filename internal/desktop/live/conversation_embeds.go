@@ -39,11 +39,12 @@ func imageReference(dest string) (string, bool) {
 	return call + "/" + number, true
 }
 
-// chatEmbed resolves a link or an image standing alone in a reply: a
-// picture a tool returned by its reference, a workspace picture, or a
-// workspace file's card. Links with a fragment or a query, and paths with a
-// line, keep their ordinary navigation.
+// chatEmbed resolves image markup: a tool's image reference, a workspace
+// picture or its file fallback. Markdown file links do not publish outputs.
 func (r *Runtime) chatEmbed(session, dest, _ string, image bool) (conversation.Embed, bool) {
+	if !image {
+		return conversation.Embed{}, false
+	}
 	cv := r.App.Data.Find(session)
 	if cv == nil {
 		return conversation.Embed{}, false
@@ -90,9 +91,6 @@ func (r *Runtime) chatEmbed(session, dest, _ string, image bool) (conversation.E
 		return conversation.Embed{}, false
 	}
 	kind := attachmentFileKind(target.path, "")
-	if !image && kind == conversation.ImageFile {
-		return conversation.Embed{}, false
-	}
 	id := "link/" + target.path
 	owner.registerWorkspaceFile(session, id, current.Worktree, target.path, nil)
 	if image && kind == conversation.ImageFile && owner.attachmentConversationVisible(session) {

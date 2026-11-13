@@ -45,14 +45,15 @@ func TestConversationAssetInventory(t *testing.T) {
 			}
 		}
 	})
-	t.Run("deliveries and navigation", func(t *testing.T) {
+	t.Run("publications and navigation", func(t *testing.T) {
 		for _, entry := range []struct {
 			input bool
 			text  string
 			want  []string
 		}{
-			{false, "[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt", []string{"report.md", "image.png"}},
-			{false, "[Line](src/main.rs:42)\n\n[Section](guide.md#intro)\n\n[One](a.json) [Two](b.json)\n\nSee [Report](report.pdf)\n\n> [Source](src/quoted.rs)\n\n> > [Nested](src/nested.rs)\n\n`[Code](code.py)`\n\n[Web](https://example.test) [Mixed](mixed.json)\n\n- [Report](report.pdf)\n- [Data](data.json)", []string{"report.pdf", "data.json"}},
+			{false, "[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt", []string{"image.png"}},
+			{false, "[Line](src/main.rs:42)\n\n[Section](guide.md#intro)\n\n[One](a.json) [Two](b.json)\n\nSee [Report](report.pdf)\n\n> [Source](src/quoted.rs)\n\n> > [Nested](src/nested.rs)\n\n`[Code](code.py)`\n\n[Web](https://example.test) [Mixed](mixed.json)\n\n- [Report](report.pdf)\n- [Data](data.json)", []string{}},
+			{false, "Review [Inline](export.py#L7).\n\n- [List](stock.py)\n\n> [Quoted](test_export.py)\n\n[Top level](export.py)", []string{}},
 			{true, "See [Input](input.txt)\n\n> [Quoted](quoted.txt)", []string{"input.txt", "quoted.txt"}},
 		} {
 			targets := &conversationAssetTargets{}
@@ -62,7 +63,7 @@ func TestConversationAssetInventory(t *testing.T) {
 				got = append(got, item.Data.(*protocol.ConversationAssetsTargetFilePayload).Path)
 			}
 			if targets.err != nil || !reflect.DeepEqual(got, entry.want) {
-				t.Fatalf("delivery classification changed: %v, %v", got, targets.err)
+				t.Fatalf("publication classification changed: %v, %v", got, targets.err)
 			}
 		}
 	})
@@ -135,11 +136,22 @@ func TestConversationAssetInventory(t *testing.T) {
 				return err
 			}
 			for i := 0; i < 260; i++ {
-				text := "No delivered resource"
-				if i == 259 {
-					text = "[New](new.txt)"
+				message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "No published resource"))
+				if i == 0 {
+					message = canonical.NewMessage(canonical.Assistant, canonical.Text(0,
+						"Review [Inline](export.py#L7).\n\n- [List](stock.py)\n\n> [Quoted](test_export.py)\n\n[Top level](export.py)"))
 				}
-				record := canonical.NewRecord(capture.ID, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, text))), now)
+				if i == 259 {
+					body, err := encode(agentJSON(json.RawMessage(`{"sailry_content":{"version":1,"blocks":[{"kind":"file","path":"new.txt","mime":"text/plain"}]}}`)))
+					if err != nil {
+						return err
+					}
+					message = canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_response", Data: &canonical.ToolResponse{
+						ID: "publish-new", Name: "fixture_publish", Status: canonical.ToolSuccess,
+						Revision: fmt.Sprintf("%x", blake3.Sum256(body)), Result: canonical.Payload{Value: body},
+					}})
+				}
+				record := canonical.NewRecord(capture.ID, "message", &message, now)
 				record.Provenance.Author = "assistant"
 				entry, _, err := AppendCanonical(ctx, db, session.ID, record)
 				if err != nil {
@@ -198,6 +210,13 @@ func TestConversationAssetInventory(t *testing.T) {
 			items, err := conversationAssetItems(ctx, db, plain, session.Worktree, ptr("/project"))
 			if err != nil || len(items) != 0 {
 				return fmt.Errorf("ordinary write receipt became a delivery: %+v, %v", items, err)
+			}
+			review := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0,
+				"Review [Inline](export.py#L7).\n\n- [List](stock.py)\n\n> [Quoted](test_export.py)\n\n[Top level](export.py)"))), now)
+			review.Provenance.Author = "assistant"
+			items, err = conversationAssetItems(ctx, db, review, session.Worktree, ptr("/project"))
+			if err != nil || len(items) != 0 {
+				return fmt.Errorf("review references became published outputs: %+v, %v", items, err)
 			}
 			return nil
 		})

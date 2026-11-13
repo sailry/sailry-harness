@@ -71,9 +71,9 @@ type State struct {
 	// false for one it leaves to the transcript: a heading anchor scrolls,
 	// and an address ui.SafeToOpen allows opens in the system.
 	OpenLink func(c *ui.Context, session, link string) bool
-	// Embed resolves a link (image false) or an image standing alone in a
-	// reply of session to what shows in its place; false leaves it as
-	// Markdown shows it.
+	// Embed resolves image markup standing alone in a reply of session to
+	// its picture or file fallback; false leaves it as Markdown shows it.
+	// Ordinary file links retain navigation rather than declaring a card.
 	Embed func(session, dest, label string, image bool) (Embed, bool)
 	// SessionLink reports a link that opens a session: it carries the
 	// agent's icon.

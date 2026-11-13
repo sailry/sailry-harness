@@ -15,70 +15,30 @@ import (
 func conversationAssetMarkdown(targets *conversationAssetTargets, markdown string, root *string, input bool) {
 	source := []byte(markdown)
 	document := goldmark.New().Parser().Parse(text.NewReader(source))
-	paragraph, standalone := false, false
-	quotes, links, linkDepth := 0, 0, 0
-	delivery := ""
-	link := func(destination string) {
-		if input {
-			if path, ok := conversationAssetPath(destination, root); ok {
-				targets.file(path)
-			}
-		} else if paragraph {
-			links++
-			if links > 1 {
-				standalone = false
-			}
-			delivery = ""
-			if !strings.ContainsAny(destination, "#?") && !assetSourceLine(destination) {
-				delivery, _ = conversationAssetPath(destination, root)
-			}
-		}
-	}
+	// Assistant Markdown references do not declare a published output. Only
+	// explicit tool file/artifact content and images own output inventory;
+	// user links still identify the input resources of the conversation.
 	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
 		switch value := node.(type) {
-		case *ast.Blockquote:
-			if entering {
-				quotes++
-			} else {
-				quotes--
-			}
-		case *ast.Paragraph, *ast.TextBlock, *ast.ListItem:
-			if entering {
-				paragraph, standalone, delivery, links = true, quotes == 0, "", 0
-			} else {
-				if standalone && delivery != "" {
-					targets.file(delivery)
-				}
-				paragraph, delivery = false, ""
-			}
 		case *ast.Link:
-			if entering {
-				linkDepth++
-				link(string(value.Destination))
-			} else {
-				linkDepth--
-			}
-		case *ast.AutoLink:
-			if entering {
-				link(string(value.URL(source)))
-			}
-		case *ast.Image:
-			if entering {
-				standalone = false
+			if input {
 				if path, ok := conversationAssetPath(string(value.Destination), root); ok {
 					targets.file(path)
 				}
 			}
-		case *ast.Text:
-			if entering && linkDepth == 0 && len(strings.TrimSpace(string(value.Segment.Value(source)))) > 0 {
-				standalone = false
+		case *ast.AutoLink:
+			if input {
+				if path, ok := conversationAssetPath(string(value.URL(source)), root); ok {
+					targets.file(path)
+				}
 			}
-		case *ast.String:
-			if entering && linkDepth == 0 && len(strings.TrimSpace(string(value.Value))) > 0 {
-				standalone = false
+		case *ast.Image:
+			if path, ok := conversationAssetPath(string(value.Destination), root); ok {
+				targets.file(path)
 			}
-		case *ast.RawHTML, *ast.HTMLBlock:
-			standalone = false
 		}
 		return ast.WalkContinue, nil
 	})

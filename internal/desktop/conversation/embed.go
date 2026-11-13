@@ -12,12 +12,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// Cards of a reply's Markdown (live/messages.rs on_file, on_image): a link
-// to a workspace file standing alone in its paragraph is a file card; a
-// paragraph of images shows the conversation's and the workspace's pictures
-// as thumbnails, a picture that is gone as a line of text, another workspace
-// file as a file card and anything else as a link. Web images stay
-// Markdown's.
+// A Markdown file reference is navigation, not a publication. Explicit file
+// and artifact blocks own file cards; image markup owns thumbnails and their
+// file fallback. Ordinary links retain Markdown's inline click behavior.
 
 // embed builds paragraph i of d as its cards and reports whether it did.
 func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, actions Actions) bool {
@@ -25,16 +22,10 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 		return false
 	}
 	inlines := d.Inlines(i)
-	var links, images []parser.Inline
-	label := ""
+	var images []parser.Inline
 	for at := 0; at < len(inlines); {
 		in := inlines[at]
 		switch {
-		case in.Kind == parser.Link && !in.Pending && !in.Auto:
-			links = append(links, in)
-			for _, child := range inlines[at+1 : in.Next] {
-				label += child.Text
-			}
 		case in.Kind == parser.Image && !in.Pending:
 			images = append(images, in)
 		case in.Kind == parser.SoftBreak, in.Kind == parser.LineBreak, in.Kind == parser.Text && strings.TrimSpace(in.Text) == "":
@@ -43,15 +34,7 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 		}
 		at = max(in.Next, at+1)
 	}
-	switch {
-	case len(links) == 1 && len(images) == 0:
-		e, ok := s.Embed(session, links[0].Dest, label, false)
-		if !ok || e.File == nil {
-			return false
-		}
-		fileCard(c, "embed-file-"+e.File.ID, *e.File, actions)
-		return true
-	case len(links) > 0 || len(images) == 0:
+	if len(images) == 0 {
 		return false
 	}
 	embeds := make([]Embed, len(images))

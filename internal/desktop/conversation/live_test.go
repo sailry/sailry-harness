@@ -153,6 +153,7 @@ func checkTranscript(t *testing.T) {
 	r.turns = []conversation.Turn{
 		{ID: "edit", User: "把主题迁移到新令牌", Reply: conversation.Reply{Status: conversation.Completed, Blocks: []conversation.Block{
 			{Kind: conversation.TextBlock, Text: "已完成，报告与截图如下。\n\n[迁移报告](docs/report.md)\n\n![截图](sailry-image:call/0)\n\n![缺失](sailry-image:call/9)\n\n其余内容见 [设计说明](docs/design.md) 一文。"},
+			{Kind: conversation.FilesBlock, Files: []conversation.File{{ID: "published/report", Path: "docs/report.md", Kind: conversation.MarkdownFile}}},
 		}}},
 		{ID: "tools", User: "截一张图", Reply: conversation.Reply{Status: conversation.Failed, Blocks: []conversation.Block{
 			{Kind: conversation.ToolsBlock, Calls: []conversation.Call{{ID: "shot", Name: "load_skill", LabelKey: "tool_load_skill", Icon: "book-open", Detail: "screenshot", Output: &conversation.Output{Text: "captured", Images: []conversation.Image{shot}}}}},
@@ -170,8 +171,6 @@ func checkTranscript(t *testing.T) {
 	s.Embed = func(_, dest, label string, image bool) (conversation.Embed, bool) {
 		embedded = append(embedded, dest)
 		switch {
-		case dest == "docs/report.md" && !image:
-			return conversation.Embed{File: &conversation.File{ID: "link/docs/report.md", Path: "docs/report.md", Kind: conversation.MarkdownFile}}, true
 		case dest == "sailry-image:call/0" && image:
 			return conversation.Embed{Image: &shot}, true
 		case image:
@@ -207,7 +206,8 @@ func checkTranscript(t *testing.T) {
 	if edits, forks := count(T("message_edit")), count(T("chat_fork")); edits != 2 || forks != 2 {
 		t.Fatalf("Edit shows %d times and the fork menu %d: %q", edits, forks, tt.Texts())
 	}
-	// Cards from Markdown: the standalone link is a file card, the conversation's picture a thumbnail, the unknown one a line; a link inside a sentence stays a link.
+	// Published files keep their card; Markdown references stay links, the
+	// conversation's picture a thumbnail and the unknown picture a line.
 	if !tt.HasText("report.md") || !tt.HasText(T("chat_image_missing")) || !tt.HasText("设计说明") {
 		t.Fatalf("Markdown cards: %q", tt.Texts())
 	}
@@ -217,8 +217,8 @@ func checkTranscript(t *testing.T) {
 		}
 	}
 	for _, dest := range embedded {
-		if dest == "docs/design.md" {
-			t.Fatal("a link inside a sentence was offered as a card")
+		if dest == "docs/design.md" || dest == "docs/report.md" {
+			t.Fatal("a Markdown file reference was offered as a card")
 		}
 	}
 	click(T("artifact_open"))

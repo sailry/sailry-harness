@@ -164,8 +164,8 @@ type Image struct {
 	Reference string
 }
 
-// Embed is what a link or an image standing alone in a reply's Markdown
-// shows as: a file card, a picture, or the line that its picture is gone.
+// Embed is what an image standing alone in a reply's Markdown shows as:
+// a picture, its file fallback, or the line that its picture is gone.
 type Embed struct {
 	File    *File
 	Image   *Image
