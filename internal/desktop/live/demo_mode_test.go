@@ -106,6 +106,7 @@ func TestDemoMode(t *testing.T) {
 	tester := ui.NewTesterWith(r.App.View, 1280, 1600, liveTesterOptions("SAILRY_SNAPSHOTS"))
 	window := liveWindow{tester: tester, asked: &asked, flying: &flying}
 	tester.SetLocale("en")
+	liveTesterScale(tester, "SAILRY_SNAPSHOTS")
 	text := func(key string, args ...any) string { return i18n.In("en", key, args...) }
 	sent := func() []string {
 		mu.Lock()

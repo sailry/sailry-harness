@@ -120,6 +120,7 @@ func composerParityCommands(t *testing.T) {
 	tester := ui.NewTesterWith(r.App.View, 1280, 820, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("zh-CN")
 	tester.SetDark(true)
+	liveTesterScale(tester, "SAILRY_UI_SHOTS")
 	text := func(key string, args ...any) string { return i18n.In("zh-CN", key, args...) }
 	settle := func() {
 		for range 6 {
@@ -488,6 +489,7 @@ func childTray(t *testing.T) {
 	}, 960, 520, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("zh-CN")
 	tester.SetDark(true)
+	liveTesterScale(tester, "SAILRY_UI_SHOTS")
 	text := func(key string) string { return i18n.In("zh-CN", key) }
 	settle := func() {
 		for range 6 {

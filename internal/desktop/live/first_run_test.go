@@ -181,6 +181,15 @@ func liveTesterOptions(shots string) ui.TesterOptions {
 	return ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: os.Getenv(shots) == ""}}
 }
 
+// liveTesterScale reduces software raster work for text and control checks.
+// Device pixels per DIP do not change the logical viewport or input coordinates;
+// requested screenshots retain their original resolution.
+func liveTesterScale(tester *ui.Tester, shots string) {
+	if os.Getenv(shots) == "" {
+		tester.SetScale(0.125)
+	}
+}
+
 // liveQuiet is how long nothing may arrive before a window is taken to be at
 // rest. What arrives after an answer comes from goroutines already runnable
 // (an update's delivery, a page's script going on), not from a timer, so it
@@ -224,6 +233,7 @@ func firstRun(t *testing.T) {
 		r.App.View(c)
 	}, 1280, 820, liveTesterOptions("SAILRY_UI_SHOTS"))
 	tester.SetLocale("en")
+	liveTesterScale(tester, "SAILRY_UI_SHOTS")
 	text := func(key string) string { return i18n.In("en", key) }
 	sent := func() []string {
 		mu.Lock()

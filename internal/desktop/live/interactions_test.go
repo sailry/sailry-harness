@@ -222,6 +222,7 @@ func interactionKinds(t *testing.T) {
 	r.App.Mode = theme.Dark
 	tester := ui.NewTesterWith(r.App.View, 1280, 820, ui.TesterOptions{Dark: true, Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("zh-CN")
+	liveTesterScale(tester, "SAILRY_UI_SHOTS")
 	text := func(key string, args ...any) string { return i18n.In("zh-CN", key, args...) }
 	frames := func() {
 		for range 3 {
