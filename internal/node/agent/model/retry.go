@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"charm.land/fantasy"
@@ -156,20 +155,28 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		cancel()
 		attempt.Finished = timer.Now()
 		capture.apply(&attempt)
+		exhausted := false
 		if err != nil {
 			attempt.Failure = Classify(err, secrets...)
 			if attempt.Failure.status != nil {
 				attempt.Status = attempt.Failure.status
 			}
-			if !released && !escaped && index < retries && attempt.Failure.Retryable() && !errors.Is(ctx.Err(), context.Canceled) {
-				delay := schedule.NextBackOff()
-				attempt.RetryDelay = &delay
+			if !released && !escaped && attempt.Failure.Retryable() && ctx.Err() == nil {
+				if index < retries {
+					delay := schedule.NextBackOff()
+					attempt.RetryDelay = &delay
+				} else {
+					exhausted = true
+				}
 			}
 		}
 		if observe != nil {
 			if observationErr := observe(attempt); observationErr != nil {
 				return observationErr
 			}
+		}
+		if contextErr := ctx.Err(); contextErr != nil {
+			return Classify(contextErr)
 		}
 		if err == nil {
 			if buffered && yield != nil {
@@ -182,6 +189,13 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			return nil
 		}
 		if attempt.RetryDelay == nil {
+			if exhausted {
+				// Observations retain the provider failure. Only the terminal
+				// result names the exhausted recovery for the turn's final fault.
+				failure := *attempt.Failure
+				failure.Exhausted = true
+				return &failure
+			}
 			return attempt.Failure
 		}
 		if err := timer.Sleep(ctx, *attempt.RetryDelay); err != nil {

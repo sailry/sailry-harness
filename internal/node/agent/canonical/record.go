@@ -54,6 +54,9 @@ const (
 type ResponseError struct {
 	Code    *string `json:"code,omitempty"`
 	Message string  `json:"message"`
+	// Keep the provider code and the recovery outcome independently so a
+	// reloaded turn retains both its cause and exhausted retry budget.
+	RetryExhausted bool `json:"retry_exhausted,omitempty"`
 }
 type Usage struct {
 	Input      *uint64         `json:"input,omitempty"`

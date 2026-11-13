@@ -35,6 +35,9 @@ type Failure struct {
 	Kind    FailureKind
 	Message string
 	status  *uint16
+	// Exhausted marks only Run's terminal recovery outcome. Kind still names
+	// the provider failure, including when a summary records why it failed.
+	Exhausted bool
 }
 
 func (f *Failure) Error() string { return f.Message }
@@ -103,7 +106,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Quota
 		case status == 429 || containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests"):
 			f.Kind = RateLimited
-		case status >= 500 && status <= 599 || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error", "server_is_overloaded", "overloaded_error"):
+		case status == 408 || status >= 500 && status <= 599 || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error", "server_is_overloaded", "overloaded_error"):
 			f.Kind = Unavailable
 		case errors.Is(provider.Cause, context.Canceled):
 			f.Kind = Cancelled
@@ -176,6 +179,9 @@ func Fault(err error) *protocol.Fault {
 	code := protocol.ErrorCodeUnavailable
 	if failure.Kind == NotConfigured {
 		code = protocol.ErrorCodeNotConfigured
+	}
+	if failure.Exhausted {
+		return &protocol.Fault{Code: code, Message: failure.Message, Details: &protocol.FaultDetails{Kind: "model_recovery", Data: protocol.FaultDetailsModelRecoveryPayload{Reason: protocol.ConversationRecoveryStopAttemptsExhausted}}}
 	}
 	reason := protocol.ModelFailureRequest
 	switch failure.Kind {

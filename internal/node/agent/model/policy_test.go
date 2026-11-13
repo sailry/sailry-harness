@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -19,11 +20,15 @@ type policyModel struct {
 	calls       int
 	responses   [][]fantasy.StreamPart
 	startErrors []error
+	onCall      func(int)
 }
 
 func (model *policyModel) Stream(context.Context, fantasy.Call) (fantasy.StreamResponse, error) {
 	index := model.calls
 	model.calls++
+	if model.onCall != nil {
+		model.onCall(index)
+	}
 	if index < len(model.startErrors) && model.startErrors[index] != nil {
 		return nil, model.startErrors[index]
 	}
@@ -40,9 +45,10 @@ func (model *policyModel) Stream(context.Context, fantasy.Call) (fantasy.StreamR
 }
 
 type policyClock struct {
-	now    time.Time
-	delays []time.Duration
-	cancel context.CancelFunc
+	now         time.Time
+	delays      []time.Duration
+	cancel      context.CancelFunc
+	beforeSleep func()
 }
 
 func (clock *policyClock) Now() time.Time {
@@ -50,6 +56,9 @@ func (clock *policyClock) Now() time.Time {
 	return clock.now
 }
 func (clock *policyClock) Sleep(ctx context.Context, duration time.Duration) error {
+	if clock.beforeSleep != nil {
+		clock.beforeSleep()
+	}
 	clock.delays = append(clock.delays, duration)
 	clock.now = clock.now.Add(duration)
 	if clock.cancel != nil {
@@ -107,6 +116,10 @@ func TestRetryTransient(t *testing.T) {
 		if err == nil || fake.calls != 10 || len(timer.delays) != 9 || len(announced) != 10 || announced[9] != nil {
 			t.Fatalf("exhaustion: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
 		}
+		fault := Fault(err)
+		if fault.Details.Kind != "model_recovery" || fault.Details.Data.(protocol.FaultDetailsModelRecoveryPayload).Reason != protocol.ConversationRecoveryStopAttemptsExhausted {
+			t.Fatalf("exhaustion lost its recovery reason: %+v", fault)
+		}
 		// Every wait is 60 seconds: no growth and no spread.
 		for index, delay := range timer.delays {
 			if delay != 60*time.Second || *announced[index] != delay {
@@ -153,6 +166,109 @@ func TestRetryTransient(t *testing.T) {
 		}
 	})
 }
+
+// Expiration is driven by the model call, not a real timer, so the request is
+// already in flight when its parent deadline ends.
+type policyDeadlineContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (ctx *policyDeadlineContext) Done() <-chan struct{} { return ctx.done }
+func (ctx *policyDeadlineContext) Err() error {
+	select {
+	case <-ctx.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func TestExpiredParentDoesNotAnnounceRetry(t *testing.T) {
+	for _, finalIndex := range []int{0, MainRetries} {
+		t.Run(fmt.Sprintf("attempt_%d", finalIndex+1), func(t *testing.T) {
+			ctx := &policyDeadlineContext{Context: t.Context(), done: make(chan struct{})}
+			fake := &policyModel{onCall: func(index int) {
+				if index == finalIndex {
+					close(ctx.done)
+				}
+			}}
+			for range MainRetries + 1 {
+				fake.responses = append(fake.responses, []fantasy.StreamPart{errorPart(Network)})
+			}
+			timer := &policyClock{}
+			var observed []Attempt
+			err := Run(ctx, fake, fantasy.Call{}, Main, timer, func(attempt Attempt) error {
+				observed = append(observed, attempt)
+				return nil
+			}, nil)
+			if err == nil || Classify(err).Kind != Network || fake.calls != finalIndex+1 || len(timer.delays) != finalIndex || len(observed) != finalIndex+1 {
+				t.Fatalf("expired parent: calls=%d waits=%v observed=%d error=%v", fake.calls, timer.delays, len(observed), err)
+			}
+			if observed[finalIndex].RetryDelay != nil || Fault(err).Details.Kind == "model_recovery" {
+				t.Fatalf("expired parent announced another retry or exhaustion: %+v", observed[finalIndex])
+			}
+		})
+	}
+}
+
+func TestRetryExhaustionRequiresUnescapedRetryableFailure(t *testing.T) {
+	for _, scenario := range []string{"transient", "partial", "keepalive", "permanent", "canceled", "consumer_release", "observer_canceled", "summary_partial"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			fake := &policyModel{}
+			for range MainRetries {
+				fake.responses = append(fake.responses, []fantasy.StreamPart{errorPart(Network)})
+			}
+			last, purpose := []fantasy.StreamPart{errorPart(Network)}, Main
+			switch scenario {
+			case "partial", "consumer_release", "summary_partial":
+				last = []fantasy.StreamPart{textPart("Visible only if unbuffered"), errorPart(Network)}
+				if scenario == "summary_partial" {
+					purpose = SummaryPurpose
+				}
+			case "keepalive":
+				last = []fantasy.StreamPart{{Type: fantasy.StreamPartTypeKeepalive}, errorPart(Network)}
+			case "permanent":
+				last = []fantasy.StreamPart{errorPart(Authentication)}
+			case "canceled":
+				fake.onCall = func(index int) {
+					if index == MainRetries {
+						cancel()
+					}
+				}
+			}
+			fake.responses = append(fake.responses, last)
+			timer := &policyClock{}
+			var observed []Attempt
+			err := Run(ctx, fake, fantasy.Call{}, purpose, timer, func(attempt Attempt) error {
+				observed = append(observed, attempt)
+				if scenario == "observer_canceled" && attempt.Index == MainRetries {
+					cancel()
+				}
+				return nil
+			}, func(fantasy.StreamPart) bool { return scenario != "consumer_release" })
+			if err == nil || fake.calls != MainRetries+1 || len(timer.delays) != MainRetries || len(observed) != MainRetries+1 {
+				t.Fatalf("unexpected recovery boundary: calls=%d waits=%v observed=%d error=%v", fake.calls, timer.delays, len(observed), err)
+			}
+			fault := Fault(err)
+			exhausted := fault.Details.Kind == "model_recovery"
+			if exhausted != (scenario == "transient" || scenario == "summary_partial") {
+				t.Fatalf("%s reported the wrong exhaustion outcome: %+v", scenario, fault)
+			}
+			if exhausted && (observed[MainRetries].Failure.Kind != Network || observed[MainRetries].RetryDelay != nil || fault.Message != string(Network)) {
+				t.Fatalf("exhaustion changed the underlying attempt or diagnostic: %+v, %+v", observed[MainRetries], fault)
+			}
+			if strings.Contains(scenario, "canceled") || scenario == "consumer_release" {
+				if Classify(err).Kind != Cancelled {
+					t.Fatalf("cancellation was replaced by %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestNoRetryAfterStreamEvent(t *testing.T) {
 	for _, event := range []fantasy.StreamPart{textPart("partial"), {Type: fantasy.StreamPartTypeToolInputDelta, ID: "call", Delta: "{"}, {Type: fantasy.StreamPartTypeKeepalive}} {
 		t.Run(string(event.Type), func(t *testing.T) {

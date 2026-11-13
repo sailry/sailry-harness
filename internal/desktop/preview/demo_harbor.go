@@ -216,12 +216,11 @@ func (b *demo) invoices() *Conversation {
 	results.Reply.Notice = true
 
 	why := b.user(id+"/2", "invoice.2.user")
-	why.Reply = done(cv.Failed, 75)
+	why.Reply = done(cv.Failed, 555)
 	why.Reply.Blocks = []cv.Block{
 		text(b.t("invoice.2.partial")),
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 2, Limit: 9, Reason: "chat_model_rate_limited"}},
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 3, Limit: 9, Reason: "chat_model_usage_exhausted", Stopped: true}},
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded", Exhausted: true,
+		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded"}},
+		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded", Stopped: true, Exhausted: true,
 			Detail: `503 {"error":{"type":"server_overloaded","message":"The service is temporarily overloaded"}}`}},
 		{Kind: cv.ErrorBlock, Label: b.t("invoice.error.label"), Text: b.t("invoice.error.text")},
 	}
