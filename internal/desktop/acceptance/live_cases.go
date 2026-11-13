@@ -33,25 +33,93 @@ func (w *liveWindow) visibleAnswer(text string) bool {
 	return shown
 }
 
+type liveStreamSamples struct {
+	turn        protocol.TurnID
+	first, last int
+}
+
+func (w *liveWindow) observeStreamFrame(c *ui.Context) {
+	if w.stream == nil || w.input == "" || w.app.Sidebar.Selected != w.session.ID.String() {
+		return
+	}
+	cv := w.app.Data.Find(w.session.ID.String())
+	if cv == nil || len(cv.Turns) != 1 {
+		return
+	}
+	turn := cv.Turns[0]
+	id, err := protocol.ParseTurnID(turn.ID)
+	if err != nil || id == (protocol.TurnID{}) || turn.User != w.input || !turn.Reply.Status.Active() ||
+		w.turn != (protocol.TurnID{}) && id != w.turn {
+		return
+	}
+	text := answerText(turn.Reply)
+	paragraphs := strings.Split(strings.TrimSpace(text), "\n\n")
+	sample := strings.TrimSpace(paragraphs[len(paragraphs)-1])
+	if sample == "" || strings.Contains(w.input, sample) {
+		return
+	}
+	// Shell's AfterFrame runs before layout. Tester.Frame may settle several
+	// frames, so observe each final build pass after its children paint instead.
+	// Capture this pass's projection, never a newer Controller draft; discarded
+	// build passes have no paint callback. Atlas repaints must not count twice.
+	stream, painted := w.stream, false
+	c.Root().DrawOver(func(*ui.Painter, ui.Rect) {
+		if painted || w.tester == nil {
+			return
+		}
+		painted = true
+		if !w.visibleStreamParagraph(sample) || stream.turn != (protocol.TurnID{}) && stream.turn != id {
+			return
+		}
+		stream.turn = id
+		if stream.first == 0 {
+			stream.first = len(text)
+		}
+		stream.last = max(stream.last, len(text))
+	})
+}
+
+func (w *liveWindow) visibleStreamParagraph(sample string) bool {
+	log, ok := w.tester.AccessByRole(ui.RoleLog, "")
+	if !ok || log.Offscreen || log.Bounds.W <= 0 || log.Bounds.H <= 0 {
+		return false
+	}
+	viewport := log.Bounds
+	if composer, present := w.tester.AccessByRole(ui.RoleTextField, label("composer")); present && composer.Bounds.Y > viewport.Y {
+		viewport.H = min(viewport.H, composer.Bounds.Y-viewport.Y)
+	}
+	clipped, shown := w.tester.Find(sample)
+	if !shown || clipped.W <= 0 || clipped.H <= 0 {
+		return false
+	}
+	for _, info := range w.tester.AccessAll() {
+		box := info.Bounds
+		// Exact paragraph text excludes matching prompt substrings. Requiring
+		// its whole box inside the transcript and its committed clip also keeps
+		// growth below the viewport from counting as visible streamed output.
+		if info.Role == ui.RoleText && info.Name == sample && !info.Offscreen && box.W > 0 && box.H > 0 &&
+			box.X >= viewport.X && box.Y >= viewport.Y && box.X+box.W <= viewport.X+viewport.W && box.Y+box.H <= viewport.Y+viewport.H &&
+			clipped.X <= box.X && clipped.Y <= box.Y && clipped.X+clipped.W >= box.X+box.W && clipped.Y+clipped.H >= box.Y+box.H {
+			return true
+		}
+	}
+	return false
+}
+
 func liveStream(w *liveWindow) error {
 	const marker = "SAILRY-E2E-STREAM"
+	samples := &liveStreamSamples{}
+	w.stream = samples
+	defer func() { w.stream = nil }()
 	if err := w.send("Do not call tools. Write a single plain-text paragraph of about 220 words describing a fictional red kite. Begin with SAILRY-E2E-STREAM and end with KITE-FINISHED. Do not use Markdown, lists or headings."); err != nil {
 		return err
 	}
-	partial, grew := 0, false
 	if err := w.wait(func() (bool, error) {
 		turn := w.uiTurn()
 		if turn == nil {
 			return false, nil
 		}
 		text := answerText(turn.Reply)
-		if turn.Reply.Status.Active() && w.visibleAnswer(text) {
-			if partial == 0 {
-				partial = len(text)
-			} else if len(text) > partial {
-				grew = true
-			}
-		}
 		canonical, known := w.canonicalRun()
 		if !known || activeLive(canonical.Status) || turn.Reply.Status.Active() {
 			return false, nil
@@ -59,13 +127,13 @@ func liveStream(w *liveWindow) error {
 		if canonical.Status != protocol.ConversationStatusCompleted || turn.Reply.Status != conversation.Completed {
 			return false, liveFail("The UI-sent streaming reply did not complete successfully")
 		}
-		if !grew {
+		if samples.turn != w.turn || samples.first == 0 || samples.last <= samples.first {
 			return false, unavailable("The provider completed before two growing visible stream samples could be observed")
 		}
 		if !strings.Contains(text, marker) || !strings.Contains(text, "KITE-FINISHED") || !w.visibleAnswer(text) {
 			return false, liveFail("The completed fixture reply is missing its markers or visible final text")
 		}
-		w.evidence("assertion", fmt.Sprintf("Typed and clicked Send; draft cleared; visible active text grew from %d to %d bytes; UI and Node both completed", partial, len(text)))
+		w.evidence("assertion", fmt.Sprintf("Typed and clicked Send; draft cleared; visible active text grew from %d to %d bytes; UI and Node both completed", samples.first, samples.last))
 		return true, nil
 	}); err != nil {
 		return err
@@ -279,7 +347,7 @@ func liveCommandResult(detail protocol.ToolDetail) (string, error) {
 }
 
 func liveStop(w *liveWindow) error {
-	if err := w.send("Do not call tools. Write one long plain-text paragraph of at least 1600 words describing an imaginary blue boat. Start immediately with BOAT-STREAM and keep writing the paragraph without headings or lists."); err != nil {
+	if err := w.sendWithEnter("Do not call tools. Write one long plain-text paragraph of at least 1600 words describing an imaginary blue boat. Start immediately with BOAT-STREAM and keep writing the paragraph without headings or lists."); err != nil {
 		return err
 	}
 	if err := w.wait(func() (bool, error) {
@@ -323,7 +391,7 @@ func liveStop(w *liveWindow) error {
 	if _, err := w.control(ui.RoleButton, label("send")); err != nil {
 		return err
 	}
-	w.evidence("assertion", fmt.Sprintf("Clicked Stop on visible streamed text; Node and UI canceled; %d bytes remained stable across real event frames; Send returned", len(stopped)))
+	w.evidence("assertion", fmt.Sprintf("Enter sent the fixture; clicked Stop on visible streamed text; Node and UI canceled; %d bytes remained stable across real event frames; Send returned", len(stopped)))
 	if err := w.capture(); err != nil {
 		return err
 	}
@@ -353,6 +421,14 @@ func (w *liveWindow) assertDurable(expected protocol.ConversationStatus) error {
 	if err != nil {
 		return err
 	}
+	if history.Page.NextBefore != nil || len(history.Missing) != 0 || len(history.Page.Queue.Items) != 0 {
+		return liveFail("The fixture history is incomplete or still queued; a single admission cannot be confirmed")
+	}
+	if _, admitted, err := w.admittedTurn(history.Page); err != nil {
+		return err
+	} else if !admitted {
+		return liveFail("The fixture history does not contain exactly one admitted task and user message")
+	}
 	for _, run := range history.Page.Runs {
 		if run.Turn != w.turn {
 			continue
@@ -378,7 +454,7 @@ func (w *liveWindow) assertDurable(expected protocol.ConversationStatus) error {
 		if turn := w.uiTurn(); turn == nil || answerText(turn.Reply) != canonical.String() {
 			return liveFail("The final UI answer differs from the durable canonical answer")
 		}
-		w.evidence("canonical", "Durable turn status and assistant text match the final UI reply")
+		w.evidence("canonical", "Exactly one task and user message retain the fixture input, session and turn; durable status and assistant text match the final UI reply")
 		return nil
 	}
 	return liveFail("The UI-sent turn was absent from durable history")

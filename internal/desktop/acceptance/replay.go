@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown/parser"
 	core "github.com/sailry/sailry-harness/internal/acceptance"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -115,6 +116,8 @@ func replayRecording(ctx context.Context, recording core.RecordingSession, resul
 	w.tester = ui.NewTesterWith(w.app.View, 1280, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
 	w.tester.SetLocale("en")
 	var at time.Duration
+	probe := &recordedReplyProbe{}
+	rendered := 0
 	for index, frame := range recording.Frames {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -126,6 +129,11 @@ func replayRecording(ctx context.Context, recording core.RecordingSession, resul
 		w.app.Messages.List(cv.ID).ScrollToEnd()
 		w.tester.Advance(frame.At - at)
 		w.tester.Frame()
+		if checked, err := probe.check(w, cv.Turns, frame.At-at); err != nil {
+			return fail(fmt.Errorf("Snapshot %d: %w", index+1, err))
+		} else if checked {
+			rendered++
+		}
 		at = frame.At
 	}
 	// Terminal history is independently recorded, rather than invented to
@@ -155,6 +163,11 @@ func replayRecording(ctx context.Context, recording core.RecordingSession, resul
 		cv.Turns, cv.Session, cv.Queue = []conversation.Turn{*turn}, session, nil
 		w.app.Messages.List(cv.ID).ScrollToEnd()
 		w.tester.Frame()
+		if checked, err := probe.check(w, cv.Turns, 0); err != nil {
+			return fail(err)
+		} else if checked {
+			rendered++
+		}
 		if !turn.Reply.Status.Active() {
 			if text := conversation.AnswerText(conversation.Compact(turn.Reply.Blocks)); text != "" {
 				if err := w.button(label("turn_copy")); err != nil {
@@ -174,6 +187,7 @@ func replayRecording(ctx context.Context, recording core.RecordingSession, resul
 		return fail(errors.New("Replay modified the source recording"))
 	}
 	w.evidence("assertion", fmt.Sprintf("Replayed %d snapshots in order and inspected %d recorded turns; answer and tool Copy actions preserve their text", len(recording.Frames), len(turns)))
+	w.evidence("rendered_text", fmt.Sprintf("Verified text by turn and role; checked %d plain reply tails in a focused production transcript", rendered))
 	w.evidence("thinking", "Recorded thinking stays in the source data; the production UI intentionally has no thinking row")
 	out.Status = "passed"
 	switch scope {
@@ -236,43 +250,180 @@ func validateRecordedPage(page protocol.ConversationPage) error {
 }
 
 func verifyRecordedText(snapshot protocol.ConversationSnapshot, turns []conversation.Turn) error {
-	var projected strings.Builder
-	for _, turn := range turns {
-		projected.WriteString(turn.User)
-		for _, block := range turn.Reply.Blocks {
-			projected.WriteString(block.Text)
-		}
+	type text struct {
+		input     string
+		users     []string
+		canonical bool
+		assistant strings.Builder
 	}
-	continued := map[protocol.TurnID]bool{}
+	runs := map[protocol.TurnID]protocol.ConversationRun{}
 	for _, run := range snapshot.Page.Runs {
-		continued[run.Turn] = run.Continuation != nil
+		runs[run.Turn] = run
 	}
-	check := func(parts []protocol.ConversationPart) error {
+	owner := func(turn protocol.TurnID) protocol.TurnID {
+		if run := runs[turn]; run.Joined != nil {
+			if _, listed := runs[*run.Joined]; listed {
+				return *run.Joined
+			}
+		}
+		return turn
+	}
+	expected := map[protocol.TurnID]*text{}
+	for _, run := range snapshot.Page.Runs {
+		if owner(run.Turn) != run.Turn || run.Status == protocol.ConversationStatusQueued && slices.ContainsFunc(snapshot.Page.Queue.Items, func(item protocol.ConversationPending) bool { return item.Turn == run.Turn }) {
+			continue
+		}
+		if run.Status == protocol.ConversationStatusContinued && run.Continuation != nil && !slices.ContainsFunc(snapshot.Page.Entries, func(entry protocol.ConversationEntry) bool { return entry.Turn == run.Turn && entry.Author != "user" }) {
+			continue
+		}
+		value := &text{}
+		if run.Continuation == nil && run.Input != nil {
+			value.input = run.Input.Message.Text
+		}
+		expected[run.Turn] = value
+	}
+	read := func(parts []protocol.ConversationPart) (string, error) {
+		var value strings.Builder
 		for _, part := range parts {
 			if part.Kind != "text" {
 				continue
 			}
-			text, err := copyLiveValue[string](part.Data)
-			if err != nil || !strings.Contains(projected.String(), text) {
-				return errors.New("The production projection lost recorded text")
+			partText, err := copyLiveValue[string](part.Data)
+			if err != nil {
+				return "", errors.New("The recording has invalid text")
 			}
+			value.WriteString(partText)
 		}
-		return nil
+		return value.String(), nil
 	}
 	for _, entry := range snapshot.Page.Entries {
-		if entry.Author == "user" && continued[entry.Turn] {
-			continue // A package continuation's prompt is deliberately not UI copy.
+		if _, known := runs[entry.Turn]; !known {
+			return errors.New("Recorded text belongs to an unknown turn")
 		}
-		if err := check(entry.Parts); err != nil {
+		id := owner(entry.Turn)
+		value := expected[id]
+		if value == nil {
+			continue // Queued and empty continued runs have no transcript row.
+		}
+		partText, err := read(entry.Parts)
+		if err != nil {
 			return err
+		}
+		if entry.Author == "user" {
+			if runs[id].Continuation != nil && entry.Turn == id {
+				continue // A package continuation's own prompt is not UI copy.
+			}
+			value.canonical = true
+			if partText != "" {
+				value.users = append(value.users, partText)
+			}
+		} else {
+			value.assistant.WriteString(partText)
 		}
 	}
 	for _, draft := range snapshot.Drafts {
-		if err := check(draft.Parts); err != nil {
+		if _, known := runs[draft.Turn]; !known {
+			return errors.New("Recorded draft text belongs to an unknown turn")
+		}
+		partText, err := read(draft.Parts)
+		if err != nil {
 			return err
 		}
+		if value := expected[owner(draft.Turn)]; value != nil {
+			value.assistant.WriteString(partText)
+		}
+	}
+	for _, turn := range turns {
+		id, err := protocol.ParseTurnID(turn.ID)
+		value := expected[id]
+		if err != nil || value == nil {
+			return errors.New("The production projection added or repeated a recorded turn")
+		}
+		user := value.input
+		if value.canonical {
+			user = strings.Join(value.users, "\n\n")
+		}
+		if turn.User != user {
+			return errors.New("The production projection changed recorded user text or its turn")
+		}
+		if answerText(turn.Reply) != value.assistant.String() {
+			return errors.New("The production projection changed recorded assistant text or its turn")
+		}
+		delete(expected, id)
+	}
+	if len(expected) != 0 {
+		return errors.New("The production projection lost a recorded turn")
 	}
 	return nil
+}
+
+// A focused transcript checks rendered reply text without asking historical or
+// folded content to be onscreen. Its source block is unchanged, but other turns
+// and the user's prompt cannot satisfy the assistant's visibility assertion.
+type recordedReplyProbe struct {
+	w  *window
+	cv *viewmodel.Conversation
+}
+
+func (probe *recordedReplyProbe) check(parent *window, turns []conversation.Turn, elapsed time.Duration) (bool, error) {
+	if len(turns) == 0 {
+		return false, nil
+	}
+	turn := turns[len(turns)-1]
+	blocks := turn.Reply.Blocks
+	if turn.Compaction != nil || len(blocks) == 0 || blocks[len(blocks)-1].Kind != conversation.TextBlock {
+		return false, nil
+	}
+	block := blocks[len(blocks)-1]
+	document := parser.Parse(block.Text)
+	last := 0
+	for index := range document.Children(0) {
+		last = index
+	}
+	if last == 0 || document.Block(last).Kind != parser.Paragraph {
+		return false, nil
+	}
+	inlines := document.Inlines(last)
+	for _, inline := range inlines {
+		if inline.Kind != parser.Text && inline.Kind != parser.SoftBreak {
+			return false, nil // Links, math and structured blocks have separate UI checks.
+		}
+	}
+	sample := parser.PlainText(inlines)
+	if strings.TrimSpace(sample) == "" {
+		return false, nil
+	}
+	if probe.w == nil {
+		probe.cv = &viewmodel.Conversation{ID: parent.result.Session, Title: "Recorded reply"}
+		probe.w = &window{ctx: parent.ctx, result: parent.result, app: shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{probe.cv}, Workspace: &viewmodel.Workspace{}})}
+		probe.w.app.Effects, probe.w.app.NavOpen = false, false
+		probe.w.app.Sidebar.Selected = probe.cv.ID
+		probe.w.tester = ui.NewTesterWith(probe.w.app.View, 1280, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
+		probe.w.tester.SetLocale("en")
+	}
+	probe.cv.Turns = []conversation.Turn{{ID: turn.ID, Reply: conversation.Reply{Status: turn.Reply.Status, Blocks: []conversation.Block{block}}}}
+	probe.w.app.Messages.List(probe.cv.ID).ScrollToEnd()
+	probe.w.tester.Advance(elapsed)
+	probe.w.tester.Frame()
+	if !recordedTextVisible(probe.w.tester, sample) {
+		return false, errors.New("The recorded assistant reply has no visible rendered text")
+	}
+	return true, nil
+}
+
+func recordedTextVisible(tester *ui.Tester, sample string) bool {
+	log, ok := tester.AccessByRole(ui.RoleLog, "")
+	if !ok {
+		return false
+	}
+	for _, info := range tester.AccessAll() {
+		box, viewport := info.Bounds, log.Bounds
+		if info.Name == sample && !info.Offscreen && box.W > 0 && box.H > 0 &&
+			box.X < viewport.X+viewport.W && box.X+box.W > viewport.X && box.Y < viewport.Y+viewport.H && box.Y+box.H > viewport.Y {
+			return true
+		}
+	}
+	return false
 }
 
 type recordedCall struct {

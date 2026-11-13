@@ -208,6 +208,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	}
 	var controller *client.Client
 	var closeBackend func() error
+	ownershipImported := false
 	offline := options.suite == "ui" || options.suite == "replay"
 	if !offline {
 		controller, closeBackend, err = acceptanceClient(scoped, options)
@@ -226,6 +227,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	}
 	if err == nil && controller != nil {
 		err = acceptance.ImportReportOwnership(options.reportDirectory, controller.Target())
+		ownershipImported = err == nil
 		if err != nil {
 			message = "Could not load recorded acceptance ownership: " + err.Error()
 		}
@@ -270,15 +272,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 			err = runAcceptanceChild(scoped, options.desktop, filepath.Join(options.reportDirectory, "controller"), socket, runOptions, emit)
 			if err != nil && controller != nil {
 				cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-				var sessions []protocol.SessionID
-				for _, result := range report.Cases {
-					for _, raw := range append(slices.Clone(result.OwnedSessions), result.Session) {
-						if id, e := protocol.ParseSessionID(raw); e == nil && !slices.Contains(sessions, id) {
-							sessions = append(sessions, id)
-						}
-					}
-				}
-				cleanupErr := cleanupAcceptanceSessions(cleanup, controller, sessions)
+				cleanupErr := cleanupAcceptanceSessions(cleanup, controller, options.reportDirectory)
 				stop()
 				err = errors.Join(err, cleanupErr)
 			}
@@ -314,6 +308,11 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	if options.suite == "ui" {
 		reportDirectory = filepath.Join(reportDirectory, "ui")
 	}
+	if !offline && !ownershipImported && !options.cleanup {
+		// A previous latest report may be the only evidence of legacy session
+		// ownership. Preserve it until its identities have entered the ledger.
+		reportDirectory = filepath.Join(reportDirectory, "setup")
+	}
 	paths, reportErr := acceptance.WriteReport(reportDirectory, report)
 	if reportErr != nil {
 		return 1, reportErr
@@ -321,7 +320,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	// Preserve evidence before removing temporary conversations. A failed
 	// publication leaves the recorded sessions available to the cleanup command.
 	republish := false
-	if controller != nil && !options.cleanup {
+	if controller != nil && ownershipImported && !options.cleanup {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		_, cleanupErr := acceptance.Cleanup(cleanup, controller, options.reportDirectory, nil)
 		stop()

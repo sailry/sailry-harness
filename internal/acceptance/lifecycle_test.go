@@ -91,6 +91,27 @@ func TestArchiveRejectsUnownedAndOtherNodeBeforeDispatch(t *testing.T) {
 	}
 }
 
+func TestOwnedSessionsRetainsUnreportedCreatesAndExcludesRemoved(t *testing.T) {
+	directory := testReportDirectory(t)
+	node := protocol.NodeID{1}
+	first, second := protocol.SessionID{1}, protocol.SessionID{2}
+	for _, id := range []protocol.SessionID{first, second} {
+		if err := Own(directory, node, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := markRemoved(directory, node, []protocol.SessionID{first}); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := OwnedSessions(directory, node)
+	if err != nil || !slices.Equal(sessions, []protocol.SessionID{second}) {
+		t.Fatalf("unreported owned sessions = %v, %v", sessions, err)
+	}
+	if _, err := OwnedSessions(directory, protocol.NodeID{2}); err == nil {
+		t.Fatal("another Node read cleanup ownership")
+	}
+}
+
 func TestCleanupUsesExplicitReportIDsAndCurrentRevision(t *testing.T) {
 	directory := testReportDirectory(t)
 	ids := []protocol.SessionID{{1}, {2}, {3}, {4}}
@@ -172,6 +193,62 @@ func TestCleanupNoopPasses(t *testing.T) {
 	report, err := Cleanup(t.Context(), controller, testReportDirectory(t), nil)
 	if err != nil || !report.OK() {
 		t.Fatalf("empty cleanup = %#v, %v", report, err)
+	}
+}
+
+func TestCleanupRetainsCompletedUnknownOutcome(t *testing.T) {
+	for _, kind := range []string{"create_session", "remove_session"} {
+		t.Run(kind, func(t *testing.T) {
+			directory := testReportDirectory(t)
+			session := lifecycleSession(protocol.SessionID{1})
+			command := protocol.Command{Kind: kind, Data: protocol.CommandCreateSessionPayload{Config: &session.Config}}
+			if kind == "remove_session" {
+				if err := Own(directory, protocol.NodeID{1}, session.ID); err != nil {
+					t.Fatal(err)
+				}
+				command.Data = protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: session.Revision}
+			}
+			var original protocol.RequestID
+			mutations, inspections := 0, 0
+			controller := client.New(&fixtureTransport{dispatch: func(_ context.Context, request protocol.Request) (link.Admission, error) {
+				if request.Command.Kind == kind {
+					mutations++
+					original = request.ID
+					return fixtureFault(request, protocol.ErrorCodeOutcomeUnknown), nil
+				}
+				if request.Command.Kind != "inspect_request" {
+					t.Fatalf("unresolved mutation allowed %q", request.Command.Kind)
+				}
+				inspections++
+				input := request.Command.Data.(*protocol.CommandInspectRequestPayload)
+				if input.ID != original || len(input.Digest) != 64 {
+					t.Fatal("cleanup lost the original request identity")
+				}
+				fault := protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "fixture unresolved outcome"}
+				outcome := protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Err: &fault}}
+				return fixtureResponse(request, protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: original, Outcome: outcome}}), nil
+			}})
+			t.Cleanup(func() { _ = controller.Close() })
+			if _, err := Execute(t.Context(), controller, directory, command); err == nil {
+				t.Fatal("a stored unknown outcome was accepted as success")
+			}
+			for range 2 {
+				report, err := Cleanup(t.Context(), controller, directory, nil)
+				if err == nil || report.OK() || len(report.Cases) == 0 || report.Cases[0].Status != "blocked" {
+					t.Fatalf("unresolved cleanup = %#v, %v", report, err)
+				}
+				ledger, err := loadOwnership(directory, controller.Target())
+				if err != nil || len(ledger.Requests) != 1 || ledger.Requests[0].ID != original {
+					t.Fatalf("cleanup forgot its unresolved request: %#v, %v", ledger.Requests, err)
+				}
+				if kind == "remove_session" && (len(ledger.Sessions) != 1 || ledger.Sessions[0].Removed) {
+					t.Fatal("unconfirmed removal was recorded as complete")
+				}
+			}
+			if mutations != 1 || inspections != 3 {
+				t.Fatalf("unresolved mutation was replayed: mutations=%d inspections=%d", mutations, inspections)
+			}
+		})
 	}
 }
 
@@ -399,5 +476,138 @@ func TestCleanupRecordsOwnedDescendantsBeforeCascadingRemoval(t *testing.T) {
 	report, err := Cleanup(t.Context(), controller, directory, nil)
 	if err != nil || !report.OK() || removals != 1 {
 		t.Fatalf("cascading cleanup = %#v, %v, removals=%d", report, err, removals)
+	}
+}
+
+func TestCleanupImportedChildPrecedesItsOwner(t *testing.T) {
+	for _, ownParent := range []bool{true, false} {
+		t.Run(map[bool]string{true: "owned_parent", false: "unowned_parent"}[ownParent], func(t *testing.T) {
+			directory := testReportDirectory(t)
+			parent, child := protocol.SessionID{1}, protocol.SessionID{2}
+			if err := Own(directory, protocol.NodeID{1}, child); err != nil {
+				t.Fatal(err)
+			}
+			if ownParent {
+				if err := Own(directory, protocol.NodeID{1}, parent); err != nil {
+					t.Fatal(err)
+				}
+			}
+			removals := 0
+			controller := client.New(&fixtureTransport{dispatch: func(_ context.Context, request protocol.Request) (link.Admission, error) {
+				var input struct {
+					Session protocol.SessionID `json:"session"`
+				}
+				data, _ := json.Marshal(request.Command.Data)
+				_ = json.Unmarshal(data, &input)
+				switch request.Command.Kind {
+				case "read_session":
+					session := lifecycleSession(input.Session)
+					if input.Session == child {
+						origin := &protocol.Delegation{Session: parent, Turn: protocol.TurnID{1}}
+						session.Delegation = &origin
+					}
+					return fixtureResponse(request, protocol.Output{Kind: "session", Data: session}), nil
+				case "read_conversation":
+					history := protocol.DefaultConversationHistory()
+					history.Page.Session = input.Session
+					if input.Session == parent {
+						run := protocol.DefaultConversationRun()
+						run.Worktree, run.Session, run.Turn = protocol.WorktreeID{1}, child, protocol.TurnID{2}
+						run.Kind, run.Status = protocol.ConversationRunKindTask, protocol.ConversationStatusCompleted
+						history.Page.Children = []protocol.ConversationChild{{Run: run, Origin: protocol.Delegation{Session: parent, Turn: protocol.TurnID{1}}}}
+					}
+					return fixtureResponse(request, protocol.Output{Kind: "conversation", Data: history}), nil
+				case "stop_commands", "list_commands":
+					if !ownParent {
+						t.Fatal("cleanup mutated a child with an unowned parent")
+					}
+					return fixtureResponse(request, protocol.Output{Kind: "commands", Data: []protocol.ProcessInfo{}}), nil
+				case "remove_session":
+					removals++
+					if input.Session != parent {
+						t.Fatal("cleanup tried to directly remove a read-only child")
+					}
+					for _, id := range []protocol.SessionID{parent, child} {
+						if _, err := ReadRecording(directory, id); err != nil {
+							t.Fatalf("cascade preceded recording: %v", err)
+						}
+					}
+					return fixtureResponse(request, protocol.Output{Kind: "sessions_removed", Data: []protocol.SessionID{parent, child}}), nil
+				default:
+					t.Fatalf("unexpected operation %q", request.Command.Kind)
+					return link.Admission{}, nil
+				}
+			}})
+			t.Cleanup(func() { _ = controller.Close() })
+			report, err := Cleanup(t.Context(), controller, directory, nil)
+			if ownParent {
+				if err != nil || !report.OK() || removals != 1 {
+					t.Fatalf("child-first cleanup = %#v, %v, removals=%d", report, err, removals)
+				}
+			} else if err == nil || report.OK() || removals != 0 {
+				t.Fatalf("unowned parent cleanup = %#v, %v, removals=%d", report, err, removals)
+			}
+		})
+	}
+}
+
+func TestCleanupPreservesUnconfirmedDescendantBeforeCascade(t *testing.T) {
+	directory := testReportDirectory(t)
+	parent, child := protocol.SessionID{1}, protocol.SessionID{2}
+	for _, id := range []protocol.SessionID{parent, child} {
+		if err := Own(directory, protocol.NodeID{1}, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var original protocol.RequestID
+	controller := client.New(&fixtureTransport{dispatch: func(_ context.Context, request protocol.Request) (link.Admission, error) {
+		if request.Command.Kind == "inspect_request" {
+			input := request.Command.Data.(*protocol.CommandInspectRequestPayload)
+			if input.ID != original {
+				t.Fatal("cleanup inspected another request")
+			}
+			fault := protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "fixture unresolved stop"}
+			outcome := protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Err: &fault}}
+			return fixtureResponse(request, protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: original, Outcome: outcome}}), nil
+		}
+		var input struct {
+			Session protocol.SessionID `json:"session"`
+		}
+		data, _ := json.Marshal(request.Command.Data)
+		_ = json.Unmarshal(data, &input)
+		if input.Session != parent {
+			t.Fatal("cleanup dispatched new work to an unresolved descendant")
+		}
+		switch request.Command.Kind {
+		case "read_session":
+			return fixtureResponse(request, protocol.Output{Kind: "session", Data: lifecycleSession(parent)}), nil
+		case "read_conversation":
+			history := protocol.DefaultConversationHistory()
+			history.Page.Session = parent
+			run := protocol.DefaultConversationRun()
+			run.Worktree, run.Session, run.Turn = protocol.WorktreeID{1}, child, protocol.TurnID{2}
+			run.Kind, run.Status = protocol.ConversationRunKindTask, protocol.ConversationStatusCompleted
+			history.Page.Children = []protocol.ConversationChild{{Run: run, Origin: protocol.Delegation{Session: parent, Turn: protocol.TurnID{1}}}}
+			return fixtureResponse(request, protocol.Output{Kind: "conversation", Data: history}), nil
+		case "stop_commands", "list_commands":
+			return fixtureResponse(request, protocol.Output{Kind: "commands", Data: []protocol.ProcessInfo{}}), nil
+		default:
+			t.Fatalf("unconfirmed descendant allowed %q", request.Command.Kind)
+			return link.Admission{}, nil
+		}
+	}})
+	t.Cleanup(func() { _ = controller.Close() })
+	request := controller.Prepare(protocol.Command{Kind: "stop_commands", Data: protocol.CommandStopCommandsPayload{Session: child}})
+	original = request.ID
+	if err := rememberRequest(directory, request); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Cleanup(t.Context(), controller, directory, nil)
+	if err == nil || report.OK() {
+		t.Fatalf("unconfirmed descendant was reported clean: %#v, %v", report, err)
+	}
+	ledger, err := loadOwnership(directory, controller.Target())
+	if err != nil || len(ledger.Requests) != 1 || ledger.Requests[0].ID != original || slices.ContainsFunc(ledger.Sessions, func(session ownershipSession) bool { return session.Removed }) {
+		t.Fatalf("cascade lost unresolved ownership: %#v, %v", ledger, err)
 	}
 }

@@ -157,7 +157,7 @@ func caseCommandInput(run *caseRun) error {
 	}
 	// Background commands have no process timeout. The explicit stop below and
 	// case cleanup own this fixture's lifetime, including approval/model waits.
-	turn, err := run.submit("Start run_command with command=\"cat\", access=\"workspace\", background=true, follow_up=false, timeout_ms=10000. Use write_command to send SAILRY-INPUT followed by one newline to its returned UUID. Use read_command with wait_ms=2000 and until=\"SAILRY-INPUT\", then stop_command for the same UUID. Wait for the requested input and stop approvals. You may use tool_search to discover write_command or stop_command if needed. Do not start another process or use another tool.")
+	turn, err := run.submit("Start exactly one run_command with command=\"cat\", access=\"workspace\", background=true, follow_up=false, timeout_ms=10000. run_command, read_command and stop_command are already listed tools; call them directly with the one UUID returned by run_command. If write_command is not listed, call tool_search exactly once with query=\"select:write_command\" and limit=1, then use write_command to send SAILRY-INPUT followed by one newline. Use read_command with wait_ms=2000 and until=\"SAILRY-INPUT\", then stop_command for that same UUID. Wait for the requested input and stop approvals. Do not start another process or use another tool.")
 	if err != nil {
 		return err
 	}

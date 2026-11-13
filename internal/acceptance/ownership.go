@@ -320,6 +320,13 @@ func recoverRequests(ctx context.Context, controller *client.Client, directory s
 				problems = append(problems, unconfirmedRequest(request, err))
 				continue
 			}
+			// A stored unknown-outcome fault is still unresolved. Keep the
+			// original identity just as Client.Resolve does, so another cleanup
+			// cannot treat a possibly admitted mutation as settled.
+			if completed.Err != nil && completed.Err.Code == protocol.ErrorCodeOutcomeUnknown {
+				problems = append(problems, unconfirmedRequest(request, completed.Err))
+				continue
+			}
 			result = completed.Ok
 		default:
 			problems = append(problems, unconfirmedRequest(request, nil))
@@ -333,6 +340,23 @@ func recoverRequests(ctx context.Context, controller *client.Client, directory s
 		}
 	}
 	return recovered, errors.Join(problems...)
+}
+
+// OwnedSessions returns only explicitly recorded sessions that have not been
+// confirmed removed. A runner uses it after a child exits before reporting its
+// created sessions; result rows never establish cleanup ownership.
+func OwnedSessions(directory string, node protocol.NodeID) ([]protocol.SessionID, error) {
+	ledger, err := loadOwnership(directory, node)
+	if err != nil {
+		return nil, err
+	}
+	var sessions []protocol.SessionID
+	for _, session := range ledger.Sessions {
+		if !session.Removed {
+			sessions = append(sessions, session.ID)
+		}
+	}
+	return sessions, nil
 }
 
 // ImportReportOwnership merges old reports from fixed acceptance paths and

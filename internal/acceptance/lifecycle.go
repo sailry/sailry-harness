@@ -203,6 +203,29 @@ func markRemoved(directory string, node protocol.NodeID, ids []protocol.SessionI
 }
 
 func removeOwnedSession(ctx context.Context, controller *client.Client, directory string, ledger ownershipLedger, id protocol.SessionID) error {
+	// Delegated sessions are read-only: their owner is removed once, together
+	// with its recorded descendants. Imports can list a child before its owner.
+	current, err := readOwnedSession(ctx, controller, id)
+	if err != nil {
+		if isNotFound(err) {
+			return markRemoved(directory, controller.Target(), []protocol.SessionID{id})
+		}
+		return err
+	}
+	for current.Delegation != nil && *current.Delegation != nil {
+		parent := (**current.Delegation).Session
+		if !ledger.owns(parent) {
+			return errors.New("acceptance delegated session has an owner outside its ownership ledger")
+		}
+		if pendingFor(ledger, parent) {
+			return errors.New("an unresolved request may still change the acceptance owner")
+		}
+		id = parent
+		current, err = readOwnedSession(ctx, controller, id)
+		if err != nil {
+			return err
+		}
+	}
 	if _, err := stopOwnedSession(ctx, controller, directory, id); err != nil {
 		if isNotFound(err) {
 			return markRemoved(directory, controller.Target(), []protocol.SessionID{id})
@@ -250,6 +273,9 @@ func removeOwnedSession(ctx context.Context, controller *client.Client, director
 	}
 	for index := 1; index < len(family); index++ {
 		descendant := family[index]
+		if pendingFor(ledger, descendant) {
+			return errors.New("an unresolved request may still change an acceptance descendant")
+		}
 		if _, err := stopOwnedSession(ctx, controller, directory, descendant); err != nil {
 			return err
 		}

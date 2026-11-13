@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/acceptance"
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/hostctl"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -179,6 +183,18 @@ func TestAcceptanceListSelectsCasesOutsideQuick(t *testing.T) {
 
 func TestAcceptanceMissingHostProducesBlockedReport(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "no-host")
+	directory := filepath.Join(profile, "acceptance")
+	previous, err := acceptance.WriteReport(directory, acceptance.Report{Version: 1, Suite: "backend", Node: protocol.NodeID{1}, Cases: []acceptance.CaseResult{{ID: "A01", Group: "backend", Session: (protocol.SessionID{1}).String(), Status: "failed"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := map[string][]byte{}
+	for _, path := range []string{previous.JSON, previous.HTML} {
+		original[path], err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	var output bytes.Buffer
 	provider := (protocol.ProviderID{1}).String()
 	code, err := runAcceptance(t.Context(), []string{"--data-dir", profile, "--provider", provider, "--model", "gpt-6-luna", "--effort", "medium", "--case", "A01"}, &output)
@@ -190,6 +206,9 @@ func TestAcceptanceMissingHostProducesBlockedReport(t *testing.T) {
 		t.Fatalf("missing Host events = %#v", events)
 	}
 	final := events[2]
+	if final.Files.JSON != filepath.Join(directory, "setup", "latest.json") {
+		t.Fatalf("setup failure did not get a separate diagnostic report: %#v", final.Files)
+	}
 	if final.Report.OK() || len(final.Report.Cases) != 1 || final.Report.Cases[0].Status != "blocked" || final.Report.Provider != provider || final.Report.Model != "gpt-6-luna" || final.Report.Effort == nil || final.Report.Effort.Kind != "medium" || final.Report.Started.IsZero() || final.Report.Finished.Before(final.Report.Started) || !strings.Contains(final.Error, "running Host") {
 		t.Fatalf("missing Host was reported as complete: %#v", final)
 	}
@@ -201,11 +220,129 @@ func TestAcceptanceMissingHostProducesBlockedReport(t *testing.T) {
 	if err := json.Unmarshal(data, &stored); err != nil || stored.OK() || len(stored.Cases) != 1 || stored.Cases[0].Status != "blocked" || stored.Effort == nil || stored.Effort.Kind != "medium" {
 		t.Fatalf("persisted setup report = %#v, %v", stored, err)
 	}
+	for path, before := range original {
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("failed Host connection replaced previous ownership evidence at %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(directory, "ownership.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed connection created an ownership ledger: %v", err)
+	}
 	entries, err := os.ReadDir(profile)
 	if err != nil || len(entries) != 1 || entries[0].Name() != "acceptance" || !entries[0].IsDir() {
 		t.Fatalf("attach opened a Node profile: %#v, %v", entries, err)
 	}
 }
+
+func TestAcceptanceImportFailureKeepsEvidence(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Host control requires a Unix socket")
+	}
+	if runtime.GOOS == "darwin" {
+		// Keep the test-owned socket below Darwin's Unix socket path limit.
+		t.Setenv("TMPDIR", "/tmp")
+	}
+	for _, variant := range []string{"other_node", "invalid_ledger"} {
+		t.Run(variant, func(t *testing.T) {
+			profile := filepath.Join(t.TempDir(), "profile")
+			if err := core.PrivateDirectory(profile); err != nil {
+				t.Fatal(err)
+			}
+			directory := filepath.Join(profile, "acceptance")
+			owner := protocol.NodeID{1}
+			if variant == "other_node" {
+				owner = protocol.NodeID{2}
+			}
+			previous, err := acceptance.WriteReport(directory, acceptance.Report{Version: 1, Suite: "backend", Node: owner, Cases: []acceptance.CaseResult{{ID: "A01", Group: "backend", Session: (protocol.SessionID{1}).String(), Status: "failed"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := acceptance.Own(directory, owner, protocol.SessionID{1}); err != nil {
+				t.Fatal(err)
+			}
+			ledgerPath := filepath.Join(directory, "ownership.json")
+			if variant == "invalid_ledger" {
+				if err := os.WriteFile(ledgerPath, []byte("{incomplete ownership evidence"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			original := map[string][]byte{}
+			for _, path := range []string{previous.JSON, previous.HTML, ledgerPath} {
+				original[path], err = os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			transport := &acceptanceSetupTransport{acceptanceCleanupTransport{dispatch: func(context.Context, protocol.Request) (protocol.Output, error) {
+				t.Error("a failed ownership import dispatched a Node command")
+				return protocol.Output{}, errors.New("ownership import must stop execution")
+			}}}
+			server, err := hostctl.Listen(profile, nil, transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			done := make(chan error, 1)
+			go func() { done <- server.Serve(ctx) }()
+			t.Cleanup(func() {
+				cancel()
+				_ = server.Close()
+				if err := <-done; err != nil {
+					t.Error(err)
+				}
+			})
+			var output bytes.Buffer
+			code, err := runAcceptance(ctx, []string{"--data-dir", profile, "--case", "A01"}, &output)
+			if err != nil || code != 1 {
+				t.Fatalf("ownership import failure = exit %d, %v", code, err)
+			}
+			events := decodeAcceptanceEvents(t, output.Bytes())
+			final := events[len(events)-1]
+			if final.Report == nil || final.Report.OK() || final.Files == nil || final.Files.JSON != filepath.Join(directory, "setup", "latest.json") || !strings.Contains(final.Error, "recorded acceptance ownership") {
+				t.Fatalf("ownership import failure lost its diagnostic report: %#v", final)
+			}
+			if _, err := os.ReadFile(final.Files.HTML); err != nil {
+				t.Fatalf("setup diagnostic HTML is unavailable: %v", err)
+			}
+			for path, before := range original {
+				after, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(before, after) {
+					t.Fatalf("ownership import failure changed %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+type acceptanceSetupTransport struct {
+	acceptanceCleanupTransport
+}
+
+func (*acceptanceSetupTransport) Subscribe(_ context.Context, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind != "node" {
+		return nil, errors.New("fixture only serves the Node snapshot")
+	}
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = protocol.NodeID{1}
+	return &acceptanceSetupSubscription{initial: &snapshot}, nil
+}
+
+type acceptanceSetupSubscription struct {
+	initial *protocol.Snapshot
+}
+
+func (subscription *acceptanceSetupSubscription) Next(ctx context.Context) (protocol.Update, error) {
+	if subscription.initial != nil {
+		snapshot := *subscription.initial
+		subscription.initial = nil
+		return protocol.Update{Kind: "snapshot", Data: snapshot}, nil
+	}
+	<-ctx.Done()
+	return protocol.Update{}, ctx.Err()
+}
+
+func (*acceptanceSetupSubscription) Close() error { return nil }
 
 func TestAcceptanceConcurrentRunKeepsPublishedReport(t *testing.T) {
 	profile := t.TempDir()

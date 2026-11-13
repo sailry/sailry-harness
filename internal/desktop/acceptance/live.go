@@ -147,11 +147,13 @@ type liveWindow struct {
 	wake            chan struct{}
 	lastFrame       time.Time
 	turn            protocol.TurnID
+	input           string
 	progress        func(core.CaseResult)
 	reportDirectory string
 	recorder        *core.Recorder
 	started         time.Time
 	recordErr       error
+	stream          *liveStreamSamples
 }
 
 func runLiveCase(ctx context.Context, controller *client.Client, config protocol.SessionConfig, profile string, options core.Options, scene liveScenario, emit func(core.CaseResult)) (core.CaseResult, bool) {
@@ -237,7 +239,7 @@ func (w *liveWindow) run(profile string, run func(*liveWindow) error) (err error
 	w.app.Sidebar.Selected = w.session.ID.String()
 	w.runtime.OpenSession(w.session.ID.String())
 	w.runtime.SetInvalidate(w.notify)
-	w.tester = ui.NewTesterWith(w.app.View, 1280, 820, ui.TesterOptions{
+	w.tester = ui.NewTesterWith(w.view, 1280, 820, ui.TesterOptions{
 		Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true},
 	})
 	w.tester.SetLocale("en")
@@ -256,6 +258,11 @@ func (w *liveWindow) run(profile string, run func(*liveWindow) error) (err error
 		return err
 	}
 	return run(w)
+}
+
+func (w *liveWindow) view(c *ui.Context) {
+	w.app.View(c)
+	w.observeStreamFrame(c)
 }
 
 func modelID(config protocol.SessionConfig) string {
@@ -415,62 +422,121 @@ func (w *liveWindow) newSession() error {
 }
 
 func (w *liveWindow) send(text string) error {
-	if err := w.typeMessage(liveScope + text); err != nil {
-		return err
-	}
-	if w.app.Composer(w.session.ID.String()).Draft != liveScope+text {
-		w.recordComposerInput(liveScope + text)
-		return liveFail("Typing into the live composer did not preserve the fixture message")
-	}
-	// Model/session projection can still be settling after the input frame.
-	// Observe the real enabled control before clicking, just as a user would.
-	if err := w.wait(func() (bool, error) {
-		button, err := w.control(ui.RoleButton, label("send"))
-		return err == nil && !button.Disabled, err
-	}); err != nil {
+	if err := w.prepareSend(text); err != nil {
 		return err
 	}
 	if err := w.button(label("send")); err != nil {
 		return err
 	}
+	return w.waitForSent()
+}
+
+func (w *liveWindow) sendWithEnter(text string) error {
+	if err := w.prepareSend(text); err != nil {
+		return err
+	}
+	field, err := w.control(ui.RoleTextField, label("composer"))
+	if err != nil {
+		return err
+	}
+	if !field.Focused || field.Disabled || field.ReadOnly {
+		w.recordComposerInput(w.input)
+		return liveFail("The live composer lost keyboard focus before Enter")
+	}
+	w.tester.Key(0, ui.KeyEnter)
+	w.tester.Frame()
+	return w.waitForSent()
+}
+
+func (w *liveWindow) prepareSend(text string) error {
+	w.input = liveScope + text
+	if err := w.typeMessage(w.input); err != nil {
+		return err
+	}
+	if w.app.Composer(w.session.ID.String()).Draft != w.input {
+		w.recordComposerInput(w.input)
+		return liveFail("Typing into the live composer did not preserve the fixture message")
+	}
+	// Model/session projection can still be settling after the input frame.
+	// Wait for the same deliverable state before clicking or pressing Enter.
+	return w.wait(func() (bool, error) {
+		button, err := w.control(ui.RoleButton, label("send"))
+		return err == nil && !button.Disabled, err
+	})
+}
+
+func (w *liveWindow) waitForSent() error {
 	return w.wait(func() (bool, error) {
 		state, known := w.controller.Conversation(w.session.ID)
 		if !known {
 			return false, nil
 		}
-		// Admitted input is a canonical user entry. Run.Input belongs to
-		// queued edits and may be absent once the real UI send is admitted.
-		for _, entry := range state.Snapshot.Page.Entries {
-			if entry.Author != "user" {
-				continue
-			}
-			var input string
-			for _, part := range entry.Parts {
-				if part.Kind == "text" {
-					value, err := copyLiveValue[string](part.Data)
-					if err != nil {
-						return false, liveFail("The UI-sent input has invalid canonical text")
-					}
-					input += value
-				}
-			}
-			if input != liveScope+text || !slices.ContainsFunc(state.Snapshot.Page.Runs, func(run protocol.ConversationRun) bool {
-				return run.Session == w.session.ID && run.Turn == entry.Turn
-			}) {
-				continue
-			}
-			if w.turn != entry.Turn {
-				w.turn = entry.Turn
-				w.result.Turns = []string{entry.Turn.String()}
-				w.emitProgress()
-			}
-			if w.app.Composer(w.session.ID.String()).Draft != "" {
-				return false, nil
-			}
-			return true, nil
+		turn, admitted, err := w.admittedTurn(state.Snapshot.Page)
+		if err != nil || !admitted {
+			return false, err
 		}
-		return false, nil
+		if w.turn != turn {
+			w.turn = turn
+			w.result.Turns = []string{turn.String()}
+			w.emitProgress()
+		}
+		return w.app.Composer(w.session.ID.String()).Draft == "", nil
 	})
+}
+
+func (w *liveWindow) admittedTurn(page protocol.ConversationPage) (protocol.TurnID, bool, error) {
+	var turn protocol.TurnID
+	if page.Session != w.session.ID {
+		return turn, false, liveFail("The UI-sent input belongs to another acceptance session")
+	}
+	tasks := 0
+	for _, run := range page.Runs {
+		if run.Kind != protocol.ConversationRunKindTask {
+			continue
+		}
+		tasks++
+		if run.Session != w.session.ID || run.Turn == (protocol.TurnID{}) {
+			return turn, false, liveFail("The UI-sent task has an invalid acceptance session or turn")
+		}
+		turn = run.Turn
+	}
+	if tasks > 1 {
+		return turn, false, liveFail("The live UI admitted more than one task for its single fixture message")
+	}
+	// Admitted input is a canonical user entry. Run.Input belongs to queued
+	// edits and may be absent after admission. Count every user entry so an
+	// extra send cannot be hidden by the first matching fixture prompt.
+	users := 0
+	var user protocol.ConversationEntry
+	for _, entry := range page.Entries {
+		if entry.Author == "user" {
+			users++
+			user = entry
+		}
+	}
+	if users > 1 {
+		return turn, false, liveFail("The live UI admitted more than one user message for its single fixture prompt")
+	}
+	if tasks == 0 || users == 0 {
+		return turn, false, nil
+	}
+	if user.Turn != turn || w.turn != (protocol.TurnID{}) && w.turn != turn {
+		return turn, false, liveFail("The UI-sent task and user message do not identify the same acceptance turn")
+	}
+	var input string
+	for _, part := range user.Parts {
+		if part.Kind == "text" {
+			value, err := copyLiveValue[string](part.Data)
+			if err != nil {
+				return turn, false, liveFail("The UI-sent input has invalid canonical text")
+			}
+			input += value
+		}
+	}
+	if w.input == "" || input != w.input {
+		return turn, false, liveFail("The admitted user message differs from the exact fixture input")
+	}
+	return turn, true, nil
 }
 
 func (w *liveWindow) emitProgress() {

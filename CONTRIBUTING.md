@@ -447,6 +447,8 @@ just acceptance-replay acceptance
 
 Replay preserves recorded text, structured output, tool results and the order of
 captured interface snapshots; it accelerates time through the headless clock.
+Text is checked by turn and author, including draft growth without a sequence
+change; plain reply tails are also checked in the production transcript.
 Reports distinguish a complete captured sequence, a truncated capture and a
 terminal-only recording. A historical final response cannot recover streaming
 chunks that were never recorded. Replay checks presentation and interactions; it

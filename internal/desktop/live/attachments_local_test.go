@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -13,9 +14,11 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -163,6 +166,94 @@ func TestAttachmentSourceProjection(t *testing.T) {
 		local.bindings = map[string]*Runtime{"remote": remote}
 		if !local.renderArtifactPreview(nil, file) || rendered != 1 {
 			t.Fatal("local navigation replaced the remote artifact owner")
+		}
+	})
+	t.Run("only published results add deduplicated file cards", func(t *testing.T) {
+		r := &Runtime{ctx: t.Context()}
+		r.initAttachments()
+		defer r.closeAttachments()
+		session, worktree, turn := protocol.SessionID{2}, protocol.WorktreeID{3}, protocol.TurnID{4}
+		snapshot := protocol.DefaultConversationSnapshot()
+		snapshot.Node, snapshot.Sequence, snapshot.Page.Session = protocol.NodeID{1}, 3, session
+		run := protocol.DefaultConversationRun()
+		run.Session, run.Worktree, run.Turn, run.Sequence = session, worktree, turn, 1
+		run.Kind, run.Status = protocol.ConversationRunKindTask, protocol.ConversationStatusCompleted
+		snapshot.Page.Runs = []protocol.ConversationRun{run}
+		const markdown = "Review [Source](source.go#L7) and [Report](output/report.pdf)."
+		entry := protocol.DefaultConversationEntry()
+		entry.ID, entry.Sequence, entry.Turn, entry.Author = "links", 1, turn, "assistant"
+		entry.Parts = []protocol.ConversationPart{{Kind: "text", Data: markdown}}
+		snapshot.Page.Entries = []protocol.ConversationEntry{entry}
+		summary := protocol.DefaultToolDetailSummary()
+		summary.Revision, summary.HasDetails = "result", true
+		for index, id := range []string{"older-result", "newer-result"} {
+			entry := protocol.DefaultConversationEntry()
+			entry.ID, entry.Sequence, entry.Turn, entry.Author = id, uint64(index+2), turn, "tool"
+			result := protocol.DefaultConversationPartToolResultPayload()
+			result.Name, result.Summary = "publish_file", &summary
+			entry.Parts = []protocol.ConversationPart{{Kind: "tool_result", Data: result}}
+			snapshot.Page.Entries = append(snapshot.Page.Entries, entry)
+		}
+		// Ready publication metadata exercises the production projection without
+		// a Client, file reads, a model, or thumbnail prefetches.
+		seed := func() {
+			for index, entry := range snapshot.Page.Entries[1:] {
+				ref := protocol.ToolDetailReference{Session: session, Turn: turn, Entry: entry.ID, Revision: summary.Revision}
+				revision := []string{"older-file", "newer-file"}[index]
+				detail := protocol.ToolDetail{Content: &protocol.ToolContent{Version: 1, Blocks: []protocol.ToolContentBlock{{Kind: "file", Data: protocol.ToolContentFile{Path: "output/report.pdf", Mime: "application/pdf", Revision: &revision}}}}}
+				key := fmt.Sprintf("publication/%s/%s/0/%s", session, entry.ID, summary.Revision)
+				r.attachments.publications[key] = &attachmentPublication{session: session, ready: true, items: projectPublishedItems(ref, worktree, detail)}
+			}
+		}
+		state := client.ConversationState{Snapshot: snapshot}
+		cv := &viewmodel.Conversation{ID: session.String()}
+		cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
+		for _, phase := range []struct {
+			name      string
+			published bool
+			seed      bool
+			cards     int
+		}{
+			{"ordinary links", false, true, 0},
+			{"published duplicate path", true, true, 1},
+			{"repeated projection", true, false, 1},
+			{"publication removed", false, false, 0},
+		} {
+			t.Run(phase.name, func(t *testing.T) {
+				summary.Published = phase.published
+				if phase.seed {
+					seed()
+				}
+				r.projectConversationAssets(cv, state)
+				var text string
+				var files []conversation.File
+				for _, block := range cv.Turns[0].Reply.Blocks {
+					if block.Kind == conversation.TextBlock {
+						text += block.Text
+					}
+					if block.Kind == conversation.FilesBlock {
+						files = append(files, block.Files...)
+					}
+				}
+				if text != markdown || len(files) != phase.cards {
+					t.Fatalf("publication projection changed ordinary links or its card count: %q, %+v", text, files)
+				}
+				if !phase.published {
+					if len(r.attachments.publications) != 0 {
+						t.Fatal("unpublished results retained their cached publication metadata")
+					}
+					return
+				}
+				file := files[0]
+				wantID := fmt.Sprintf("published/%s/newer-result/0/0", turn)
+				if file.ID != wantID || file.Path != "output/report.pdf" {
+					t.Fatalf("duplicate path did not retain its latest publication: %+v", file)
+				}
+				source, ok := r.attachmentDescriptor(cv.ID, file.ID)
+				if !ok || source.session != session || source.worktree != worktree || source.revision == nil || *source.revision != "newer-file" {
+					t.Fatalf("published card lost its captured owner or latest revision: %+v", source)
+				}
+			})
 		}
 	})
 	t.Parallel()
