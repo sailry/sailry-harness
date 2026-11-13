@@ -24,7 +24,7 @@ const (
 	turnGap    = 10 // user message to reply
 	turnBottom = 28 // between turns
 	bubbleMax  = 440
-	workGap    = 16 // between reply blocks and tool groups
+	workGap    = 16 // between the blocks of a reply
 )
 
 // State is the transcript's UI state: a list state per conversation, so

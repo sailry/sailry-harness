@@ -1,8 +1,10 @@
 package conversation
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -46,7 +48,9 @@ func TestReplyContentSpacing(t *testing.T) {
 					}
 				}
 			})
-			t.Run("adjacent tool groups", func(t *testing.T) {
+			// A sequence's rows sit one rail gap apart, the first under its
+			// summary as the others under each other.
+			t.Run("sequence rows", func(t *testing.T) {
 				state := New()
 				calls := []Call{
 					{ID: "scope-1", Name: "scope", Label: "Read scope", Output: &Output{Text: "First output"}},
@@ -54,17 +58,27 @@ func TestReplyContentSpacing(t *testing.T) {
 					{ID: "plan", Name: "plan", Label: "Update plan", Output: &Output{Text: "Plan output"}},
 					{ID: "command", Name: "command", Label: "Command", Output: &Output{Text: "Command output"}},
 				}
+				state.toggle("tool-sequence-scope-1")
 				tester := ui.NewTester(func(c *ui.Context) {
 					theme.Apply(c, "", theme.Light)
 					kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
-					state.groups(c, calls)
+					state.tools(c, calls, false)
 				}, 900, 700)
 				tester.Frame()
-				rows := []ui.Rect{spacingRow(t, tester, "Review scope"), spacingRow(t, tester, "Update plan"), spacingRow(t, tester, "Command")}
-				for index := 1; index < len(rows); index++ {
-					gap := rows[index].Y - (rows[index-1].Y + rows[index-1].H)
-					if math.Abs(float64(gap-workGap)) > 0.5 {
-						t.Fatalf("tool group spacing=%v, want %v", gap, workGap)
+				scope, plan := spacingRow(t, tester, "Review scope"), spacingRow(t, tester, "Update plan")
+				var rows []ui.Rect
+				for _, item := range tester.AccessAll() {
+					if item.Role == ui.RoleButton && item.Bounds.H > 0 {
+						rows = append(rows, item.Bounds)
+					}
+				}
+				slices.SortFunc(rows, func(a, b ui.Rect) int { return cmp.Compare(a.Y, b.Y) })
+				if len(rows) != 4 {
+					t.Fatalf("sequence rows=%d, want its summary and three runs", len(rows))
+				}
+				for index, gap := range []float32{scope.Y - (rows[0].Y + rows[0].H), plan.Y - (scope.Y + scope.H), rows[3].Y - (plan.Y + plan.H)} {
+					if math.Abs(float64(gap-railGap)) > 0.5 {
+						t.Fatalf("sequence row %d spacing=%v, want %v", index, gap, railGap)
 					}
 				}
 			})

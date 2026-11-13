@@ -289,9 +289,12 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 	})
 }
 
+// railGap is between the rows on a rail.
+const railGap = 8
+
 // Rail is the indented body of a disclosure: a 1 DIP line under the icon.
 func Rail(c *ui.Context) ui.Element {
-	return ui.Column(c).MarginStart(railMargin(textSize(c))).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(8)
+	return ui.Column(c).MarginStart(railMargin(textSize(c))).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(railGap)
 }
 
 // tools builds a tool block. continuing marks the last call running while
@@ -314,9 +317,11 @@ func (s *State) tools(c *ui.Context, calls []Call, continuing bool) {
 	s.groups(c, calls)
 }
 
-// groups gives adjacent runs the same spacing as the reply's other blocks.
+// groups builds runs of calls of the same name. More than one run only shows
+// on a sequence's rail, so they are a rail's 8 DIPs apart, as its rows are
+// from the summary above and as a group's own rows are once it opens.
 func (s *State) groups(c *ui.Context, calls []Call) {
-	ui.Column(c).Gap(workGap).Children(func() {
+	ui.Column(c).Gap(railGap).Children(func() {
 		for _, run := range Runs(calls) {
 			if len(run) == 1 && !pathList(run[0]) {
 				s.row(c, run[0])
