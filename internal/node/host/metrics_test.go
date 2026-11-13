@@ -9,11 +9,52 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/shirou/gopsutil/v4/disk"
 )
 
 func TestSampler(t *testing.T) {
 	t.Parallel()
 	node := protocol.NodeID{1}
+	t.Run("disk rates", func(t *testing.T) {
+		t.Parallel()
+		previous := map[string]disk.IOCountersStat{
+			"disk0": {ReadBytes: 100, WriteBytes: 200},
+			"disk4": {ReadBytes: 9000, WriteBytes: 18000},
+		}
+		current := map[string]disk.IOCountersStat{
+			"disk0": {ReadBytes: 300, WriteBytes: 800},
+			"disk4": {ReadBytes: 9400, WriteBytes: 19000},
+		}
+		for _, test := range []struct {
+			name     string
+			devices  []string
+			previous map[string]disk.IOCountersStat
+			current  map[string]disk.IOCountersStat
+			interval time.Duration
+			ready    bool
+			want     *protocol.HostMetricsIoRate
+		}{
+			{"root backing device", []string{"disk0"}, previous, current, 2 * time.Second, true, &protocol.HostMetricsIoRate{ReadBytesPerSec: 100, WrittenBytesPerSec: 300}},
+			{"external backing device", []string{"disk4"}, previous, current, 2 * time.Second, true, &protocol.HostMetricsIoRate{ReadBytesPerSec: 200, WrittenBytesPerSec: 500}},
+			{"multiple physical stores", []string{"disk0", "disk4"}, previous, current, 2 * time.Second, true, &protocol.HostMetricsIoRate{ReadBytesPerSec: 300, WrittenBytesPerSec: 800}},
+			{"idle drive", []string{"disk0"}, previous, previous, time.Second, true, &protocol.HostMetricsIoRate{}},
+			{"zero counters", []string{"disk0"}, map[string]disk.IOCountersStat{"disk0": {}}, map[string]disk.IOCountersStat{"disk0": {}}, time.Second, true, &protocol.HostMetricsIoRate{}},
+			{"first sample", []string{"disk0"}, previous, current, time.Second, false, nil},
+			{"no mapping", nil, previous, current, time.Second, true, nil},
+			{"missing device", []string{"disk3s1s1"}, previous, current, time.Second, true, nil},
+			{"missing baseline", []string{"disk0"}, nil, current, time.Second, true, nil},
+			{"new physical store", []string{"disk0", "disk4"}, map[string]disk.IOCountersStat{"disk0": previous["disk0"]}, current, time.Second, true, nil},
+			{"counter reset", []string{"disk0"}, current, previous, time.Second, true, nil},
+			{"invalid interval", []string{"disk0"}, previous, current, 0, true, nil},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				got := diskRate(test.devices, test.current, test.previous, test.interval, test.ready)
+				if (got == nil) != (test.want == nil) || got != nil && *got != *test.want {
+					t.Fatalf("disk rate = %+v, want %+v", got, test.want)
+				}
+			})
+		}
+	})
 
 	// The disks are the volumes the user stores files on: no device or
 	// kernel file system, none of the system's hidden mounts, none of no

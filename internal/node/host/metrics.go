@@ -225,7 +225,10 @@ func (sampler *Sampler) sampleDisks(ctx context.Context, sample *protocol.HostMe
 		sampler.disks = nil
 		return
 	}
-	counters, _ := disk.IOCountersWithContext(ctx)
+	counters, err := disk.IOCountersWithContext(ctx)
+	if err != nil {
+		counters = nil
+	}
 	// Only the volumes the user stores files on, as the file browser's
 	// devices (files.IsVolume): gopsutil lists /dev and the system's hidden
 	// volumes on macOS. A volume of no size is not one either.
@@ -237,14 +240,34 @@ func (sampler *Sampler) sampleDisks(ctx context.Context, sample *protocol.HostMe
 		}
 		item := protocol.HostMetricsDisk{Mount: partition.Mountpoint, Name: partition.Device, FileSystem: partition.Fstype, TotalBytes: usage.Total, AvailableBytes: min(usage.Free, usage.Total)}
 		device := filepath.Base(partition.Device)
-		current, exists := counters[device]
-		previous, seen := sampler.disks[device]
-		if ready && exists && seen && current.ReadBytes >= previous.ReadBytes && current.WriteBytes >= previous.WriteBytes && (current.ReadBytes > 0 || current.WriteBytes > 0) {
-			item.Io = &protocol.HostMetricsIoRate{ReadBytesPerSec: bytesPerSecond(current.ReadBytes-previous.ReadBytes, interval), WrittenBytesPerSec: bytesPerSecond(current.WriteBytes-previous.WriteBytes, interval)}
+		devices := []string{device}
+		if _, exists := counters[device]; !exists {
+			devices = physicalDisks(device, counters)
 		}
+		item.Io = diskRate(devices, counters, sampler.disks, interval, ready)
 		sample.Disks = append(sample.Disks, item)
 	}
 	sampler.disks = counters
+}
+
+// diskRate compares each backing device with its own baseline before combining
+// deltas. Summing cumulative counters first would create spikes when a volume's
+// backing devices change. A missing baseline or reset keeps the rate unknown.
+func diskRate(devices []string, current, previous map[string]disk.IOCountersStat, interval time.Duration, ready bool) *protocol.HostMetricsIoRate {
+	if !ready || len(devices) == 0 || interval <= 0 {
+		return nil
+	}
+	var read, written uint64
+	for _, device := range devices {
+		now, exists := current[device]
+		before, seen := previous[device]
+		if !exists || !seen || now.ReadBytes < before.ReadBytes || now.WriteBytes < before.WriteBytes {
+			return nil
+		}
+		read += now.ReadBytes - before.ReadBytes
+		written += now.WriteBytes - before.WriteBytes
+	}
+	return &protocol.HostMetricsIoRate{ReadBytesPerSec: bytesPerSecond(read, interval), WrittenBytesPerSec: bytesPerSecond(written, interval)}
 }
 
 func (sampler *Sampler) sampleProcesses(ctx context.Context, sample *protocol.HostMetricsSample, interval time.Duration, ready bool) {
