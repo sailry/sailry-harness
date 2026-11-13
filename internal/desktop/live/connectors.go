@@ -88,6 +88,23 @@ func (r *Runtime) connectorError(c *ui.Context, err error) {
 	r.reportKeys(c, err, "connector_failed", "connector_conflict", "connector_unknown")
 }
 
+// followConnectorPackages also follows runtime-only plugin changes: an MCP
+// connection can settle without changing its package's stored revision.
+func (r *Runtime) followConnectorPackages() {
+	summaries := r.snapshot().Plugins
+	if len(summaries) != len(r.authorizations.packagesObserved) {
+		r.readConnectorPackages()
+		return
+	}
+	for _, summary := range summaries {
+		cursor, seen := r.authorizations.packagesObserved[summary.Name]
+		if !seen || cursor != r.controller.PluginCursors(summary.Name, nil, nil).Package {
+			r.readConnectorPackages()
+			return
+		}
+	}
+}
+
 // readConnectorPackages reads every installed package once per pass. A call
 // during a pass asks for one more pass instead of a concurrent one.
 func (r *Runtime) readConnectorPackages() {
@@ -98,6 +115,10 @@ func (r *Runtime) readConnectorPackages() {
 	}
 	state.packagesReading = true
 	summaries, known := r.snapshot().Plugins, maps.Clone(state.packages)
+	state.packagesObserved = make(map[string]uint64, len(summaries))
+	for _, summary := range summaries {
+		state.packagesObserved[summary.Name] = r.controller.PluginCursors(summary.Name, nil, nil).Package
+	}
 	r.async(func() {
 		infos := map[string]protocol.PluginInfo{}
 		var failed error

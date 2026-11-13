@@ -29,6 +29,7 @@ type authorizationState struct {
 	connections                    map[string]protocol.PluginConnectorConnection
 	connectionsFailed              bool
 	packages                       map[string]protocol.PluginInfo
+	packagesObserved               map[string]uint64
 	packagesReading, packagesStale bool
 	quotaReset                     uint64
 	quotaCancel                    context.CancelFunc

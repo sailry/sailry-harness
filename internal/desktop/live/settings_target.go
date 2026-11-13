@@ -183,6 +183,7 @@ func (r *Runtime) nodeSettingsFrame() {
 		return
 	}
 	owner.teamsFrame()
+	owner.followConnectorPackages()
 	if owner.snapshot().PowerSettingsRevision != owner.powerObservedRevision && !root.App.Settings.Power.Pending {
 		owner.readPower()
 	}
