@@ -200,6 +200,22 @@ func (binding *NativeBinding) renderTabs(view *ui.Context, identity string, prop
 			for _, item := range items {
 				itemID := nativeProp(item, "id", "")
 				label := nativeProp(item, "label", "")
+				if navigation {
+					// A page's tabs are the right panel's strip tabs.
+					active := selected != nil && itemID == *selected
+					button, hovered := kit.StripTab(view, itemID, label, active, nativeProp(props, "max_width", float32(240)))
+					var close func()
+					if nativeProp(item, "closable", false) && !nativeProp(item, "close_disabled", false) {
+						close = func() {
+							binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": itemID, "kind": "close"})
+						}
+					}
+					kit.StripTabBody(view, button.Disabled(nativeProp(props, "disabled", false)), nativeIcon(nativeProp(item, "icon", "")), label, active, hovered,
+						nativeProp(item, "loading", false), nativeProp(item, "close_label", nativeProp(props, "close_label", "")), close).OnClick(func() {
+						binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": itemID, "kind": "select"})
+					})
+					continue
+				}
 				row := ui.Row(view.Key(itemID)).Gap(2).MaxWidth(nativeProp(props, "max_width", float32(240)))
 				row.Children(func() {
 					button := kit.Ghost(view, label, selected != nil && itemID == *selected).Padding(6, 10).Gap(6).MinWidth(0).Disabled(nativeProp(props, "disabled", false))

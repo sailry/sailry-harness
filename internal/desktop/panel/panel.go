@@ -21,7 +21,7 @@ import (
 // Panel layout metrics.
 const (
 	barHeight = 40
-	tabHeight = 28
+	tabHeight = kit.StripTabHeight
 	tabMax    = 180
 	rowHeight = 28
 	footer    = 32
@@ -234,35 +234,14 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 // it does. show and close run after the build, as MyGo runs OnClick: they act
 // themselves, as nothing set by them is read in the pass that built the tab.
 func tab(c *ui.Context, key any, icon *ui.SVG, label string, active, busy bool, drag *panes.Drag, show, close func()) {
-	p := theme.Of(c)
-	b := ui.ButtonBase(c.Key(key)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
-		Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-	hovered := b.Hovered()
-	switch {
-	case active:
-		b.Background(p.TabActive).TextColor(p.TabActiveText).AccessSelected(true).ScrollIntoView()
-	case hovered:
-		b.TextColor(p.Foreground)
-	}
+	b, hovered := kit.StripTab(c, key, label, active, tabMax)
 	if drag != nil {
 		b.Drag(*drag)
 		if kit.DragChip(c, b, label) {
 			return
 		}
 	}
-	b.Children(func() {
-		if busy {
-			// The tab's content is loading: the spinner stands for its icon.
-			kit.Busy(c)
-		} else {
-			ui.Icon(c, icon).FontSize(14).Shrink(0)
-		}
-		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1)
-		x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 20, false).OnClick(close)
-		if !hovered && !active && !x.FocusVisible() {
-			x.Opacity(0)
-		}
-	}).OnClick(show)
+	kit.StripTabBody(c, b, icon, label, active, hovered, busy, i18n.T(c, "close"), close).OnClick(show)
 }
 
 // view is the Files or Git component in either host for the item path,

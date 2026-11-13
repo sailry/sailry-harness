@@ -14,6 +14,12 @@ import (
 
 // elementLook is the edges a host look gave an element before its package's
 // styles: a style naming one edge keeps the others.
+// A resizable group's axis, set on its panels before they draw.
+const (
+	panelHorizontal = iota + 1
+	panelVertical
+)
+
 type elementLook struct {
 	padding, border, radius [4]float32
 }
@@ -40,6 +46,17 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 		}
 		if tail, exists := runtimeScaleStyle(name); exists {
 			name, argument = tail.name, tail.value
+		}
+		if name == "size" && element.Export == "ResizablePanel" && element.panelAxis != 0 {
+			// A panel's size is its extent along its group's axis.
+			if extent, ok := argument.(float64); ok {
+				if element.panelAxis == panelVertical {
+					target.Height(float32(extent)).Shrink(0)
+				} else {
+					target.Width(float32(extent)).Shrink(0)
+				}
+				continue
+			}
 		}
 		if name == "size" && element.Module == "gpui-component" {
 			if label, ok := argument.(string); ok {

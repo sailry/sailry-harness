@@ -118,7 +118,14 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 	}
 	region := ui.Column(view.Key(fmt.Sprintf("plugin-conversation-%s", identity))).Fill().MinWidth(0).MinHeight(0).Disabled(suspended)
 	region.Children(func() {
-		if request.Assistant != nil {
+		if request.Assistant != nil && heading != "" && state.native.DrawingDetails() {
+			// In the Shell's right sidebar the heading and the session
+			// controls are the sidebar header's.
+			state.native.SetDetailsHeading(func(header *ui.Context) {
+				ui.Text(header, heading).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+				state.sessionControls(header, identity, mounted, target, suspended)
+			})
+		} else if request.Assistant != nil {
 			// An assistant's panel moves between its own sessions: the
 			// heading, then New and the session history.
 			ui.Row(view.Key("session-controls")).FillWidth().MinWidth(0).Gap(4).AlignItems(ui.Center).Children(func() {

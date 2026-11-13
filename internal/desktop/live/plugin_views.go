@@ -59,23 +59,28 @@ type pluginViewState struct {
 }
 
 type pluginMountedView struct {
-	key             pluginMountKey
-	owner           *Runtime
-	info            protocol.PluginInfo
-	scope           protocol.PluginContext
-	locale          string
-	generation      uint64
-	ctx             context.Context
-	cancel          context.CancelFunc
-	registry        *desktopplugins.Registry
-	hooks           desktopplugins.ContributionHooks
-	host            *desktopplugins.Host
-	runtime         *desktopplugins.Runtime
-	mounted         *desktopplugins.Mounted
-	components      []desktopplugins.NativeComponent
-	headerFilters   map[string]*pluginHeaderFilterState
-	headerOverflow  bool
-	headerBody      string
+	key            pluginMountKey
+	owner          *Runtime
+	info           protocol.PluginInfo
+	scope          protocol.PluginContext
+	locale         string
+	generation     uint64
+	ctx            context.Context
+	cancel         context.CancelFunc
+	registry       *desktopplugins.Registry
+	hooks          desktopplugins.ContributionHooks
+	host           *desktopplugins.Host
+	runtime        *desktopplugins.Runtime
+	mounted        *desktopplugins.Mounted
+	components     []desktopplugins.NativeComponent
+	headerFilters  map[string]*pluginHeaderFilterState
+	headerOverflow bool
+	headerBody     string
+	// details is what the page's Workspace gave the right column in the
+	// frame being drawn.
+	details func(*ui.Context) error
+	// detailsHeading is what those details gave the column's header.
+	detailsHeading  func() func(*ui.Context)
 	activityVisible func(bool)
 	loading         bool
 	failure         error
@@ -410,6 +415,10 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 			root.wake()
 		}
 		return err
+	}
+	if mounted.key.role == "navigation" {
+		native.Details = func(render func(*ui.Context) error) { mounted.details = render }
+		mounted.detailsHeading = native.DetailsHeading
 	}
 	post := native.Post
 	native.Post = func(operation func(*ui.Context)) bool {

@@ -227,7 +227,7 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	case "Collapse", "CollapseSlot":
 		return binding.renderCollapse(view, element, identity, props, children)
 	case "Workspace":
-		return ui.Column(view).Fill().MinWidth(0).MinHeight(0).Children(children), nil
+		return binding.renderWorkspace(view, element, props, children)
 	case "CardButton", "ComposedButton":
 		return binding.renderActivityButton(view, element, identity, props, children), nil
 	case "ClampedText":
@@ -249,6 +249,74 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	}
 	return ui.Element{}, hostInvalid("unknown native layout")
 }
+
+// workspaceNavigation is the width of a Workspace's resource column.
+const workspaceNavigation = 260
+
+// renderWorkspace lays out a Workspace's children: its content, then the
+// details the Shell's right sidebar shows unless has_details is false, then a
+// resource column that stands before the content. A child with no place of
+// its own stays under the content.
+func (binding *NativeBinding) renderWorkspace(view *ui.Context, element NativeElement, props map[string]json.RawMessage, children func()) (ui.Element, error) {
+	count := len(element.Children)
+	details := binding.Details != nil && count > 1 && nativeProp(props, "has_details", true)
+	navigation := count > 2 && nativeProp(props, "navigation", "none") == "resource"
+	if binding.Details != nil {
+		if details {
+			child := element.Children[1:2]
+			binding.Details(func(target *ui.Context) error {
+				// What the details draw may claim the sidebar's header
+				// (DetailsHeading) each time it draws.
+				state := binding.state
+				had := state.detailsHeading != nil
+				state.detailsHeading, state.drawingDetails = nil, true
+				err := renderNativeChildren(target, element, child)
+				state.drawingDetails = false
+				if had != (state.detailsHeading != nil) && binding.Invalidate != nil {
+					binding.Invalidate()
+				}
+				return err
+			})
+		} else {
+			binding.Details(nil)
+		}
+	}
+	if !details && !navigation {
+		return ui.Column(view).Fill().MinWidth(0).MinHeight(0).Children(children), nil
+	}
+	content := element.Children[:min(count, 2)]
+	if details {
+		content = content[:1]
+	}
+	var renderErr error
+	result := ui.Row(view).Fill().MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
+		if navigation {
+			width := max(nativeProp(props, "min_navigation_width", float32(0)), workspaceNavigation)
+			ui.Column(view.Key("navigation")).Width(width).Shrink(0).MinHeight(0).BorderWidth(0, 1, 0, 0).BorderColor(theme.Of(view).Border).Children(func() {
+				renderErr = renderNativeChildren(view, element, element.Children[2:3])
+			})
+		}
+		ui.Column(view.Key("content")).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Children(func() {
+			if renderErr == nil {
+				renderErr = renderNativeChildren(view, element, content)
+			}
+		})
+	})
+	return result, renderErr
+}
+
+// DrawingDetails reports whether the element being drawn is in the details a
+// Workspace gave the Shell's right sidebar.
+func (binding *NativeBinding) DrawingDetails() bool { return binding.state.drawingDetails }
+
+// SetDetailsHeading gives the sidebar's header what the details being drawn
+// would otherwise show as their own first row.
+func (binding *NativeBinding) SetDetailsHeading(draw func(*ui.Context)) {
+	binding.state.detailsHeading = draw
+}
+
+// DetailsHeading is what the details last drawn gave the sidebar's header.
+func (binding *NativeBinding) DetailsHeading() func(*ui.Context) { return binding.state.detailsHeading }
 
 // rowIconSize is a row's leading icon inside Kit's RowIcon slot.
 const rowIconSize = 20

@@ -102,6 +102,17 @@ func (a *App) extensionDetails() bool {
 	return a.Settings.Details != nil && (a.Page == SettingsPage || a.Page == MarketPage)
 }
 
+// pluginDetails reports whether the right column shows what a package page's
+// Workspace gave it.
+func (a *App) pluginDetails() bool {
+	return a.Page == PluginPage && a.PluginDetails != nil
+}
+
+// RevealDetails shows the right column again after its toggle folded it.
+func (a *App) RevealDetails() {
+	a.PanelOpen, a.pluginDetailsFolded = true, false
+}
+
 // featurePage is a rail feature's page: Files and Git as the project's
 // resource, over the state the panel's tabs share, in the preview and live
 // alike; Activity and Market as the reference's preview shows them,

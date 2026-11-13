@@ -180,11 +180,42 @@ func (r *Runtime) renderPluginPage(view *ui.Context, id string) {
 	}
 	entry, exists := root.pluginViews.navigation[id]
 	if !exists || entry.options.Target == protocol.PluginDesktopNavigationTargetWorktree && entry.scope.Worktree == nil {
+		root.showPluginDetails(nil)
 		ui.Box(view).Fill()
 		return
 	}
 	mounted := root.ensurePluginView(view, entry.owner, entry.info, entry.scope, "navigation", nil)
-	if !root.renderMountedPlugin(view, mounted) {
-		ui.Box(view).Fill()
+	if mounted != nil {
+		mounted.details = nil
 	}
+	if !root.renderMountedPlugin(view, mounted) {
+		root.showPluginDetails(nil)
+		ui.Box(view).Fill()
+		return
+	}
+	root.showPluginDetails(mounted)
+}
+
+// showPluginDetails hands the Shell's right column the details the page's
+// Workspace supplied in this frame. The Shell sized the frame before the
+// page drew, so a change of whether there are any asks for another frame.
+func (r *Runtime) showPluginDetails(mounted *pluginMountedView) {
+	var details, heading func(*ui.Context)
+	if mounted != nil && mounted.details != nil {
+		heading = func(view *ui.Context) {
+			if draw := mounted.detailsHeading(); draw != nil {
+				draw(view.Key(mounted.generation))
+			}
+		}
+		render := mounted.details
+		details = func(view *ui.Context) {
+			if err := render(view.Key(mounted.generation)); err != nil {
+				r.failPluginView(view, mounted, err, "plugin_callback_failed")
+			}
+		}
+	}
+	if (details == nil) != (r.App.PluginDetails == nil) {
+		r.wake()
+	}
+	r.App.PluginDetails, r.App.PluginDetailsHeader = details, heading
 }

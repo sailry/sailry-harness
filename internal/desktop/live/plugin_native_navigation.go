@@ -144,7 +144,7 @@ func (state *pluginNativeState) navigationOperations() {
 		return state.effect(func(*ui.Context) { state.runtime.App.PanelOpen = false })
 	}
 	operations["sailry/ui.showWorkspaceDetails"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
-		return state.effect(func(*ui.Context) { state.runtime.App.PanelOpen = true })
+		return state.effect(func(*ui.Context) { state.runtime.App.RevealDetails() })
 	}
 	operations["sailry/ui.writeClipboard"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		text, err := pluginNativeArgument[string](arguments, 0)

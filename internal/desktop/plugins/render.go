@@ -245,6 +245,9 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 		default:
 			result = ui.Column(context)
 		}
+		if _, sized := properties["size"]; element.Export == "ResizablePanel" && element.panelAxis != 0 && !sized {
+			result.Grow(1).Basis(0).MinWidth(0).MinHeight(0)
+		}
 		if axes.x || axes.y {
 			// MyGo leaves a percentage of a scrolling axis unresolved, where
 			// the reference resolves it against the scroll viewport: keep
@@ -260,8 +263,23 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 				context.Invalidate()
 			}
 		}
-	case "HFlex", "ToggleGroup", "TableHeader", "TableRow", "HResizable", "Resizable":
+	case "HFlex", "ToggleGroup", "TableHeader", "TableRow":
 		result = ui.Row(context)
+	case "HResizable", "VResizable", "Resizable":
+		// A resizable group fills its place and lays its panels along its
+		// axis: a panel with a size keeps it there, the others share the
+		// rest. The panels are not dragged: MyGo's Split holds two panes
+		// and sizes the first, where a group sizes any of several.
+		vertical := element.Export == "VResizable" || element.Export == "Resizable" && runtimeString(properties["axis"]) == "vertical"
+		result = ui.Row(context)
+		axis := panelHorizontal
+		if vertical {
+			result, axis = ui.Column(context), panelVertical
+		}
+		result.Fill().MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
+		for _, child := range element.Children {
+			child.panelAxis = axis
+		}
 	case "Tabs", "TabBar":
 		return mounted.renderTabs(context, element, properties)
 	case "HorizontalRadioGroup", "RadioGroup":
@@ -276,8 +294,6 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 		return mounted.renderStatusBar(context, element, children)
 	case "Pagination":
 		return mounted.renderPagination(context, element, properties)
-	case "VResizable":
-		result = ui.Column(context)
 	case "Button", "Link", "Tab", "AccordionTrigger":
 		if element.Module == "gpui-base" {
 			// The reference's Base controls have no look: the package's own

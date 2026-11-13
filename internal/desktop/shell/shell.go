@@ -102,8 +102,16 @@ type App struct {
 	navigated bool
 	// PanelOpen is whether the user wants the right panel; a narrow window
 	// hides it without changing this.
-	PanelOpen  bool
-	PanelWidth float32
+	PanelOpen bool
+	// PluginDetails draws the details a package page's Workspace supplies
+	// to the right column, nil while the page shown offers none. They show
+	// until the toggle folds them; the conversation's PanelOpen is its own.
+	PluginDetails func(*ui.Context)
+	// PluginDetailsHeader draws what those details give the column's
+	// header segment: their title, then their own actions.
+	PluginDetailsHeader func(*ui.Context)
+	pluginDetailsFolded bool
+	PanelWidth          float32
 	// DiffSplit is the window's diff layout, side by side when set: the
 	// button at the end of a diff's footer writes it (kit.DiffSplit), and
 	// it is saved with the window's other choices (prefs.go).
@@ -390,7 +398,8 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	nav := f.navWidth * navTarget
 	f.panelW = ClampPanel(a.PanelWidth, w, nav)
 	f.fitted = PanelFits(w, nav, f.panelW)
-	f.showsPanel = (a.Page == ConversationPage && a.PanelOpen || a.Page == HostPage && a.Metrics || a.extensionDetails()) && f.fitted
+	f.showsPanel = (a.Page == ConversationPage && a.PanelOpen || a.Page == HostPage && a.Metrics || a.extensionDetails() ||
+		a.pluginDetails() && !a.pluginDetailsFolded) && f.fitted
 	target := float32(0)
 	if f.showsPanel {
 		target = 1
@@ -443,6 +452,11 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.Settings.CloseDetails()
 				return
 			}
+			if a.pluginDetails() {
+				a.pluginDetailsFolded = true
+				a.mainPane.Focus(c)
+				return
+			}
 			if a.Page == HostPage {
 				a.Metrics = false
 				a.mainPane.Focus(c)
@@ -453,6 +467,10 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 		col.Children(func() {
 			if a.extensionDetails() {
 				settings.DetailsPanel(c, a.Settings)
+				return
+			}
+			if a.pluginDetails() {
+				a.PluginDetails(c)
 				return
 			}
 			if a.Page == HostPage {
@@ -509,6 +527,10 @@ func (a *App) togglePanel() {
 	if a.extensionDetails() {
 		// The details show for a selected item: folding them deselects it.
 		a.Settings.CloseDetails()
+		return
+	}
+	if a.pluginDetails() {
+		a.pluginDetailsFolded = !a.pluginDetailsFolded
 		return
 	}
 	if a.Page == HostPage {

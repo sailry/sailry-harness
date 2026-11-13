@@ -25,6 +25,10 @@ type NativeBinding struct {
 	Components         []NativeComponent
 	ChooseSecretFile   func(context.Context, string) ([]byte, string, error)
 	Header             func(json.RawMessage) error
+	// Details receives what a Workspace supplies to the Shell's right
+	// sidebar each time it draws, nil when it supplies nothing. Without it
+	// a Workspace draws its details under its content.
+	Details func(func(*ui.Context) error)
 	// Models are the Node's models as the application names them: a
 	// ModelPopup shows the names, marks and scores of the ones its catalog
 	// lists. Without it a model shows under its catalog's own identifiers.
@@ -51,6 +55,9 @@ type nativeState struct {
 	droppedFiles map[string][]string
 	hoverGroups  map[string]bool
 	focus        string
+	// drawingDetails and detailsHeading belong to the frame's goroutine.
+	drawingDetails bool
+	detailsHeading func(*ui.Context)
 	// rowLead is set while a group whose rows have icons draws its rows;
 	// only the frame's own goroutine touches it.
 	rowLead         bool

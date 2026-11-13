@@ -9,9 +9,11 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -239,7 +241,8 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 		}
 	}
 	mounted, content := r.activePluginHeader()
-	if mounted == nil || len(content.Items) == 0 && len(content.Actions) == 0 && len(content.Filters) == 0 {
+	configure := root.pluginPageSettings()
+	if mounted == nil || len(content.Items) == 0 && len(content.Actions) == 0 && len(content.Filters) == 0 && configure == nil {
 		return
 	}
 	current := view.Key("plugin-header").Key(mounted.generation)
@@ -285,7 +288,7 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 				ui.Text(current, item.Value).FontSize(14).FontWeight(600).TextColor(color)
 			})
 		}
-		if len(content.Actions) == 0 {
+		if len(content.Actions) == 0 && configure == nil {
 			return
 		}
 		// The page's actions are header buttons like the native ones: the
@@ -302,8 +305,39 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 						OnClick(func() { r.emitPluginHeader(mounted, action.ID) })
 				}
 			}
+			if configure != nil {
+				// The host's own entry to the package's settings, after
+				// the page's actions.
+				kit.IconButton(current.Key("plugin-settings"), icons.Settings, i18n.T(current, "settings"), shell.HeaderButton, false).OnClick(configure)
+			}
 		})
 	})
+}
+
+// pluginPageSettings opens the settings of the package whose page shows:
+// its settings page, or its settings form. It is nil off a package page and
+// for a package with neither.
+func (r *Runtime) pluginPageSettings() func() {
+	root := r.localRuntime()
+	if root.pluginViews == nil || root.App.Page != shell.PluginPage {
+		return nil
+	}
+	entry, exists := root.pluginViews.navigation[root.App.PluginFeature()]
+	if !exists {
+		return nil
+	}
+	name := entry.info.Summary.Name
+	section := settings.Section("plugin:" + entry.owner.controller.Target().String() + "/" + name)
+	if _, paged := root.pluginViews.settings[section]; paged {
+		return func() {
+			root.App.Settings.Open(section)
+			root.App.Navigate(shell.SettingsPage)
+		}
+	}
+	if entry.info.Settings == nil || len(entry.info.Settings.Properties) == 0 {
+		return nil
+	}
+	return func() { entry.owner.configurePackage(name) }
 }
 
 func (r *Runtime) pluginHeaderMenu(menu *kit.Menu, mounted *pluginMountedView, items []pluginHeaderMenuItem) {
