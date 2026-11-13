@@ -166,3 +166,44 @@ func BenchmarkHover(b *testing.B) {
 		tt.Move(320, float32(40+(i%28)*24))
 	}
 }
+
+// BenchmarkDockResize changes the transcript's width a frame at a time,
+// as opening and closing the sidebar does, with the composer floating over
+// its end. The empty case supplies the baseline without conversation rows.
+func BenchmarkDockResize(b *testing.B) {
+	for _, count := range []int{0, 1000} {
+		name := "empty"
+		if count > 0 {
+			name = "conversation"
+		}
+		b.Run(name, func(b *testing.B) {
+			s := conversation.New()
+			turns := preview.PlainTurns("resize", count, 0)
+			nav := float32(240)
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Row(c).Fill().Children(func() {
+					ui.Box(c).Width(nav).Shrink(0)
+					ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+						conversation.Docked(c, s, "resize", turns, &conversation.Session{}, noActions{}, func() {
+							ui.Box(c).FillWidth().Height(180)
+						})
+					})
+				})
+			}, 1280, 760)
+			tt.Frame()
+			tt.Frame()
+			settle(tt)
+			step := 0
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				step = (step + 1) % 24
+				nav = float32(step * 20)
+				if step > 12 {
+					nav = float32((24 - step) * 20)
+				}
+				tt.Frame()
+			}
+		})
+	}
+}

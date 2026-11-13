@@ -316,19 +316,7 @@ func fadeUnder(list ui.Element, area ui.Rect, reserve float32) {
 	if reserve <= 0 || area.H <= reserve || area.W <= scrollStrip {
 		return
 	}
-	// A mask shows as much as its alpha, whatever its colour.
-	shown := ui.RGB(0, 0, 0)
-	end := (area.H - reserve) / area.H
-	start := max(end-dockFade/area.H, 0)
-	strip := (area.W - scrollStrip) / area.W
-	list.Masks(
-		ui.Mask{Image: ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-			{Color: ui.Transparent, At: 0}, {Color: ui.Transparent, At: strip}, {Color: shown, At: strip}, {Color: shown, At: 1},
-		}}},
-		ui.Mask{Image: ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
-			{Color: shown, At: 0}, {Color: shown, At: start}, {Color: ui.Transparent, At: end}, {Color: ui.Transparent, At: 1},
-		}}},
-	)
+	list.Effect(dockFadeEffect{reserve: reserve})
 }
 
 // scrollStrip is the width at the list's trailing edge the fade leaves
