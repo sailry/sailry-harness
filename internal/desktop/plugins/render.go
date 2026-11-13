@@ -419,6 +419,16 @@ func (mounted *Mounted) renderCore(context *ui.Context, element *NativeElement, 
 		}
 	case "Tag", "Badge":
 		result = kit.Tag(context, label)
+		// gpui-component's variants: secondary and outline are neutral, the
+		// status ones take their tone; primary keeps Kit's tag.
+		palette := theme.Of(context)
+		switch variant := runtimeString(properties["variant"]); variant {
+		case "secondary", "outline":
+			result.Background(palette.Muted).TextColor(palette.Foreground)
+		case "danger", "success", "warning", "info":
+			tone := map[string]ui.Color{"danger": palette.Danger, "success": palette.Success, "warning": palette.Warning, "info": palette.Info}[variant]
+			result.Background(tone.Alpha(0.12)).TextColor(tone)
+		}
 	case "Editor", "Input", "Textarea", "NumberInput", "OtpInput":
 		state, _ := properties["state"].(map[string]any)
 		if state == nil {

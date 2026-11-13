@@ -72,6 +72,10 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 							padding[1], padding[3] = 8, 8
 							target.Padding(padding[0], padding[1], padding[2], padding[3])
 						}
+					case "Tag", "Badge":
+						// A tag is as high as its text: gpui-component's
+						// sizes change its padding, not a control height,
+						// so it centers in a row lower than a control.
 					default:
 						target.MinHeight(size + 12)
 					}
