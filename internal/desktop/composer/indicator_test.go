@@ -53,3 +53,16 @@ func TestIndicators(t *testing.T) {
 		t.Error("the first ring reads as expanded")
 	}
 }
+
+// A docked assistant's composer draws no context bar: the location row the
+// page's composer shows under the input is not there.
+func TestDockedHasNoContextBar(t *testing.T) {
+	for _, docked := range []bool{false, true} {
+		tt := tray("en", func() *composer.Context {
+			return &composer.Context{Activity: composer.Activity{Connected: true}, Docked: docked}
+		})
+		if _, drawn := tt.Access("Chats"); drawn == docked {
+			t.Errorf("docked=%v: location shown=%v: %q", docked, drawn, tt.Texts())
+		}
+	}
+}

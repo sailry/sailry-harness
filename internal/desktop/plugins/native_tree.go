@@ -296,6 +296,9 @@ func (binding *NativeBinding) renderTreeContent(view *ui.Context, item nativeTre
 				glyph = "folder"
 			}
 		}
+		if glyph == "folder" && open != nil && *open {
+			glyph = "folder-open"
+		}
 		size := decoration.IconSize
 		if size == 0 {
 			size = 16

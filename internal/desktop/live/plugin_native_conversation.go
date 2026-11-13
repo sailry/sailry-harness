@@ -141,7 +141,7 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 			}
 			mounted.context, mounted.actions = state.runtime.conversation(view, target, comp)
 			if request.Assistant != nil {
-				mounted.context.LocationLocked = true
+				mounted.context.LocationLocked, mounted.context.Docked = true, true
 				if actions, valid := mounted.actions.(*conversationActions); valid {
 					actions.created = func(session protocol.Session) {
 						state.releaseConversation(mounted)

@@ -273,7 +273,9 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.queueTray(c, ctx, actions)
 			surface := s.surface(c, ctx, actions, submit)
 			s.referencePicker(c, ctx, actions, surface)
-			s.contextBar(c, ctx, actions)
+			if !ctx.Docked {
+				s.contextBar(c, ctx, actions)
+			}
 		})
 	})
 }

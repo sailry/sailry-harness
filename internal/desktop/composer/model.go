@@ -40,6 +40,9 @@ type Context struct {
 	Readonly bool
 	// LocationLocked keeps an admitted session on its captured project.
 	LocationLocked bool
+	// Docked is a package's assistant panel: it draws no context bar, as
+	// its location is captured and its session's usage shows on its page.
+	Docked bool
 	// PackageBranch says a package's context control chooses the branch and
 	// worktree of the conversation's Git project: the bar shows that one
 	// and not the native worktree menu, so there is one such control.

@@ -27,10 +27,11 @@ func (binding *NativeBinding) renderPath(view *ui.Context, element NativeElement
 				ui.Icon(view.Key(-index), icons.ChevronRight).Size(12, 12).Shrink(0).TextColor(theme.Of(view).MutedForeground)
 			}
 			button := kit.Ghost(view.Key(index), segment, false).MinWidth(0).Shrink(1).Padding(2, 6).Disabled(disabled).Tooltip(segment)
+			tone := theme.Of(view).MutedForeground
 			if index+1 == len(segments) {
-				button.FontWeight(500)
+				tone = theme.Of(view).Foreground
 			}
-			button.Children(func() { nativeText(view, segment).MinWidth(0).SingleLine() })
+			button.Children(func() { nativeText(view, segment).TextColor(tone).MinWidth(0).SingleLine() })
 			button.OnClick(func() { binding.emit("control", map[string]any{"id": identity, "value": index}) })
 		}
 	})
