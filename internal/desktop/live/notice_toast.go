@@ -9,12 +9,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// PresentNotice shows a new notice as a toast of this window, whose Details
-// action opens the notice's conversation, or the notification centre for a
+// PresentNotice shows a new notice as a toast of this window, whose body
+// opens the notice's conversation, or the notification centre for a
 // notice without one. A notice of a conversation the window already shows
 // has no toast: the conversation tells it. The Notifier calls it on the UI
 // thread between frames, for the active window only. In Demo mode the toast
-// still shows, without Details.
+// still shows, without navigation.
 func (r *Runtime) PresentNotice(notice *viewmodel.Notice) {
 	root := r.localRuntime()
 	if session, err := protocol.ParseSessionID(notice.Session); err == nil && root.seenConversation(session) {
@@ -40,6 +40,7 @@ func (r *Runtime) PresentNotice(notice *viewmodel.Notice) {
 		// While Demo mode shows, the window's own conversations and notices
 		// wait behind the demo's: the toast tells the notice and opens nothing.
 		if !root.App.Settings.DemoMode {
+			toast.Data = kit.ToastBodyAction{}
 			toast.Action = i18n.T(c, "notification_details")
 			toast.OnAction = func() {
 				if root.App.Settings.DemoMode {

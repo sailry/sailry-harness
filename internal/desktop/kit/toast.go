@@ -47,6 +47,10 @@ const (
 	toastPeek  = 12
 )
 
+// ToastBodyAction in ui.Toast.Data makes the toast's body run its Action
+// instead of showing an action button. The close button stays separate.
+type ToastBodyAction struct{}
+
 // Lobe MyGo's motion eases.
 var (
 	toastEase = ui.CubicBezier(0.22, 1, 0.36, 1)
@@ -142,9 +146,16 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 	if l.collapsed {
 		shown = 0
 	}
+	opacity := root.AnimateTo("content", shown, toastFade)
+	_, bodyAction := t.Data.(ToastBodyAction)
 	var body ui.Element
 	root.Children(func() {
-		body = ui.Row(c).Gap(12).Padding(12, 16).AlignItems(ui.Start).Shrink(0).Opacity(root.AnimateTo("content", shown, toastFade))
+		if bodyAction {
+			body = parts.ActionButton().Justify(ui.Start).Cursor(ui.CursorPointer)
+		} else {
+			body = ui.Row(c)
+		}
+		body.Gap(12).Padding(12, 16).AlignItems(ui.Start).Shrink(0).Opacity(opacity)
 		body.Children(func() {
 			icon, color := toastIcon(p, t.Type)
 			ui.Row(c).Height(21).AlignItems(ui.Center).Shrink(0).Children(func() {
@@ -157,18 +168,27 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 					} else {
 						ui.Text(c, t.Description).LineHeight(1.5).Grow(1)
 					}
-					toastClose(c, p, parts.CloseButton())
+					if bodyAction {
+						ui.Box(c).Size(20, 20).Shrink(0).Margin(1, 0, 0, 0)
+					} else {
+						toastClose(c, p, parts.CloseButton())
+					}
 				})
 				if t.Title != "" && t.Description != "" {
 					ui.Text(c, t.Description).FontSize(13).LineHeight(1.5).TextColor(p.MutedForeground).Margin(4, 0, 0, 0)
 				}
-				if t.Action != "" {
+				if t.Action != "" && !bodyAction {
 					ui.Row(c).Justify(ui.End).Margin(8, 0, 0, 0).Children(func() {
 						toastAction(c, p, parts.ActionButton(), t.Action)
 					})
 				}
 			})
 		})
+		if bodyAction {
+			// A sibling keeps Close independently reachable by pointer and
+			// keyboard instead of nesting it inside the body's button.
+			toastClose(c, p, parts.CloseButton().Absolute().Top(12).Right(16).Opacity(opacity))
+		}
 	})
 	if h := body.Bounds().H; h > 0 && h != heights[t.ID] {
 		heights[t.ID] = h
@@ -203,14 +223,14 @@ func toastClose(c *ui.Context, p *theme.Palette, b ui.Element) {
 }
 
 func toastAction(c *ui.Context, p *theme.Palette, b ui.Element, label string) {
-	bg := p.Primary
+	bg := p.ButtonPrimary
 	switch {
 	case b.Pressed():
-		bg = p.PrimaryActive
+		bg = p.ButtonPrimaryActive
 	case b.Hovered():
-		bg = p.PrimaryHover
+		bg = p.ButtonPrimaryHi
 	}
-	b.Height(28).PaddingX(12).Radius(p.Radius / 2).Background(bg).TextColor(p.PrimaryForeground).
+	b.Height(28).PaddingX(12).Radius(p.Radius / 2).Background(bg).TextColor(p.OnPrimary).
 		FontSize(12).FontWeight(500).Cursor(ui.CursorPointer).Transition(toastHover)
 	b.Children(func() { ui.Text(c, label).SingleLine() })
 }

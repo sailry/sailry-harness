@@ -239,7 +239,7 @@ func TestNoticeChannels(t *testing.T) {
 			t.Fatalf("system %v", system)
 		}
 	})
-	t.Run("the toast's Details opens the conversation or the notification centre", func(t *testing.T) {
+	t.Run("the toast body opens its destination and Close only dismisses it", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root
@@ -250,15 +250,31 @@ func TestNoticeChannels(t *testing.T) {
 			root.PresentNotice(task)
 			window.Frame()
 			window.Advance(500 * time.Millisecond)
-			if !window.HasText(i18n.In("en", "activity_failed")) || !window.HasText("Build the index") || !window.HasText(details) {
+			if !window.HasText(i18n.In("en", "activity_failed")) || !window.HasText("Build the index") || window.HasText(details) {
 				t.Fatalf("no notice toast: %q", window.Texts())
 			}
-			if err := window.Click(details); err != nil {
+			page, selected := root.App.Page, root.App.Sidebar.Selected
+			if _, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "close")); !ok {
+				t.Fatal("the body action hides Close from assistive technology")
+			}
+			if err := window.Click(i18n.In("en", "close")); err != nil {
 				t.Fatal(err)
 			}
+			window.Advance(500 * time.Millisecond)
+			if root.App.Page != page || root.App.Sidebar.Selected != selected || window.HasText("Build the index") {
+				t.Fatal("Close navigated or left the toast open")
+			}
+			root.PresentNotice(task)
 			window.Frame()
+			window.Advance(500 * time.Millisecond)
+			body, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "activity_failed")+" Build the index")
+			if !ok {
+				t.Fatal("no accessible toast body action")
+			}
+			// The padding opens it too, not only its text or icon.
+			window.ClickAt(body.Bounds.X+4, body.Bounds.Y+body.Bounds.H-4)
 			if root.App.Sidebar.Selected != "draft/first" || root.App.Page != shell.ConversationPage {
-				t.Fatalf("Details selected %q on page %v", root.App.Sidebar.Selected, root.App.Page)
+				t.Fatalf("the body selected %q on page %v", root.App.Sidebar.Selected, root.App.Page)
 			}
 			window.Advance(500 * time.Millisecond)
 			if window.HasText("Build the index") {
@@ -268,9 +284,11 @@ func TestNoticeChannels(t *testing.T) {
 			root.PresentNotice(notice)
 			window.Frame()
 			window.Advance(500 * time.Millisecond)
-			if err := window.Click(details); err != nil {
-				t.Fatalf("%v: %q", err, window.Texts())
+			window.Key(0, ui.KeyTab)
+			if body, ok := window.AccessByRole(ui.RoleButton, "Index Rebuilt"); !ok || !body.Focused {
+				t.Fatal("Tab did not reach the toast body")
 			}
+			window.Key(0, ui.KeyEnter)
 			if root.App.Page != shell.NotificationsPage {
 				t.Fatalf("a notice without a conversation opened page %v", root.App.Page)
 			}
