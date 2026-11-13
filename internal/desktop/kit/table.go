@@ -49,6 +49,11 @@ func TableCell(c *ui.Context, rowHeight float32, last bool, background ...func(u
 	_, pad := tableMetrics(c)
 	padX := theme.Neutral(c).Space(2.5)
 	cell := ui.Column(c).MinHeight(rowHeight - 2*pad).AlignSelf(ui.Stretch).Justify(ui.Center)
+	if len(background) != 0 {
+		// MyGo's outer cell is a Row: cross-axis stretch gives this
+		// column its height, but only Grow gives its fill the whole width.
+		cell.Grow(1).MinWidth(0)
+	}
 	if !last || len(background) != 0 {
 		cell.Draw(func(painter *ui.Painter, bounds ui.Rect) {
 			if len(background) != 0 {

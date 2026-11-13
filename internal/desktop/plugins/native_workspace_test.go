@@ -132,14 +132,12 @@ func TestPanelHeader(t *testing.T) {
 	}{{"default", "", 48}, {"table row", "row", 32}} {
 		t.Run(test.name, func(t *testing.T) {
 			native := NewNativeBinding(t.Context())
-			var header ui.Element
 			tester := ui.NewTester(func(view *ui.Context) {
 				theme.Apply(view, "", theme.Light)
 				view.Root().Background(theme.Of(view).Muted)
 				props, _ := json.Marshal([]any{"header", map[string]any{"size": test.size, "bordered": true, "surface": "content"}})
 				ui.Column(view).Fill().Padding(8).Children(func() {
-					var err error
-					header, err = native.renderLayout(view, NativeElement{Export: "PanelHeader", Props: props}, func() {
+					header, err := native.renderLayout(view, NativeElement{Export: "PanelHeader", Props: props}, func() {
 						ui.Row(view.Key("contents")).FillWidth().MinWidth(0).Children(func() {
 							ui.Text(view, "Panel title").Grow(1).SingleLine()
 							kit.IconButton(view.Key("close"), icons.Close, "Close", 28, false)
@@ -148,11 +146,16 @@ func TestPanelHeader(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
+					header.Role(ui.RoleGroup).Label("Panel header")
 				})
 			}, 420, 220)
 			tester.Frame()
 			tester.Frame()
-			bounds := header.Bounds()
+			group, exists := tester.AccessByRole(ui.RoleGroup, "Panel header")
+			if !exists {
+				t.Fatal("PanelHeader is missing")
+			}
+			bounds := group.Bounds
 			button, ok := tester.AccessByRole(ui.RoleButton, "Close")
 			if bounds.H != test.height || !ok || button.Bounds.H != 28 || button.Bounds.Y < bounds.Y || button.Bounds.Y+button.Bounds.H > bounds.Y+bounds.H {
 				t.Fatalf("header=%v button=%v, want fixed height %v with fitting controls", bounds, button.Bounds, test.height)

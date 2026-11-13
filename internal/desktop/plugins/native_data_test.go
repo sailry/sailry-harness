@@ -42,7 +42,7 @@ func TestNativeTable(t *testing.T) {
 					px := tester.Image().RGBAAt(int(edge), int(row.Y+row.H/2))
 					return [3]uint8{px.R, px.G, px.B}
 				}
-				for _, x := range []float32{25, 150, 205, 330} {
+				for _, x := range []float32{25, 150, 190, 205, 330, 375} {
 					if pixel(first, x) == pixel(second, x) || pixel(first, x) != pixel(third, x) {
 						t.Fatalf("stripe does not span alternating rows at %v: %v %v %v", x, pixel(first, x), pixel(second, x), pixel(third, x))
 					}
