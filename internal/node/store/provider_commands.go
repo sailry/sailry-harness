@@ -210,9 +210,6 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			if err := validateProviderKey(*secret); err != nil {
 				return protocol.Output{}, nil, err
 			}
-			if err := providerCredentialCapacity(ctx, db); err != nil {
-				return protocol.Output{}, nil, err
-			}
 			id := protocol.NewCredentialID()
 			saved.Authorizations[id] = providerAuthorization{Authentication: protocol.AuthenticationApiKey, Revision: 1, Key: secret}
 			provider.Credential = &protocol.CredentialRef{Node: node, ID: id}
@@ -242,6 +239,9 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			}
 			if authorization.Authentication != "" && authorization.Authentication != provider.Authentication {
 				return protocol.Output{}, nil, invalid("credential authentication does not match the provider")
+			}
+			if err := providerCredentialCapacity(ctx, db, provider.ID, 1); err != nil {
+				return protocol.Output{}, nil, err
 			}
 		}
 		provider.Revision, err = nextRevision(revision)

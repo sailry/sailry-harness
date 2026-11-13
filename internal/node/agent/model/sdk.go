@@ -182,6 +182,11 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 }
 
 func newSDK(_ context.Context, config transportConfig) (fantasy.LanguageModel, error) {
+	// GenAI fills an empty key from the process environment even with a custom
+	// endpoint. Only the captured provider's explicit credential may leave Node.
+	if config.Kind == "google" && config.Key == "" {
+		return nil, &Failure{Kind: NotConfigured, Message: "Gemini requires an explicitly configured API key"}
+	}
 	var transport http.RoundTripper = responseTransport{base: netproxy.Transport(), stall: stallTimeout}
 	if config.Kind == "anthropic" && config.OAuth {
 		transport = claudeTransport{base: transport}

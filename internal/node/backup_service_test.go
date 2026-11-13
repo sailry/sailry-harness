@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +190,41 @@ func TestBackupRoundTrip(t *testing.T) {
 	if value := commandFixture(t, copy, protocol.Command{Kind: "read_backup_settings"}).Data.(protocol.BackupSettings); value.Revision != settings.Revision || value.Local == nil || value.Local.Directory != directory || !value.PassphraseConfigured {
 		t.Fatalf("restored settings = %#v", value)
 	}
+
+	t.Run("a partial backup keeps its local copy and replays its failure", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			writer.WriteHeader(http.StatusForbidden)
+		}))
+		t.Cleanup(server.Close)
+		saved := backupFixtureSave(t, node, func(update *protocol.BackupUpdate) {
+			update.Settings.Destination = &protocol.BackupDestination{Kind: protocol.BackupKindWebdav, Endpoint: server.URL}
+			update.Settings.OnlineEnabled, update.Settings.Keep = true, 1
+		})
+		if saved.Fault != nil {
+			t.Fatal(saved.Fault)
+		}
+		revision := saved.Output.Data.(protocol.BackupSettings).Revision
+		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "export_backup", Data: protocol.CommandExportBackupPayload{ExpectedRevision: revision}})
+		first := dispatchFixture(t, node, node.ID(), request)
+		if first.Fault == nil || first.Fault.Code != protocol.ErrorCodePermissionDenied || first.Fault.Details == nil || first.Fault.Details.Kind != "backup_partial" {
+			t.Fatalf("partial backup lost its outcome: %#v", first)
+		}
+		// The successful local destination is pruned even though online export
+		// failed; its new copy remains available to restore.
+		page := commandFixture(t, node, protocol.Command{Kind: "list_backups"}).Data.(protocol.BackupPage)
+		if len(page.Records) != 1 || page.Records[0].ID != request.ID.String() || page.Locations[request.ID.String()] != (protocol.BackupLocations{Local: true}) {
+			t.Fatalf("partial export skipped local retention: %#v", page)
+		}
+		replayed := dispatchFixture(t, node, node.ID(), request)
+		entries, err := os.ReadDir(directory)
+		if replayed.Fault == nil || replayed.Fault.Details == nil || replayed.Fault.Details.Kind != "backup_partial" || err != nil || len(entries) != 2 {
+			t.Fatalf("partial replay created another archive: %#v, %v, %v", replayed, entries, err)
+		}
+		outcome := commandFixture(t, node, protocol.Command{Kind: "read_backup_settings"}).Data.(protocol.BackupSettings).Last
+		if outcome == nil || outcome.Error == nil || *outcome.Error != protocol.ErrorCodePermissionDenied || outcome.Details == nil || outcome.Details.Kind != "backup_partial" {
+			t.Fatalf("an unattended partial backup lost its saved copy: %#v", outcome)
+		}
+	})
 }
 
 // Over 1 s: a real download and file restore archive and flush the profile's bundled packages (about 690 files).

@@ -164,6 +164,9 @@ func checkBackupSettingsHelpers(t *testing.T) {
 
 	// Failure, conflict and uncertain outcomes are distinct toasts.
 	fault := func(code protocol.ErrorCode) error { return &link.FaultError{Fault: protocol.Fault{Code: code}} }
+	partial := func(code protocol.ErrorCode) *protocol.Fault {
+		return &protocol.Fault{Code: code, Details: &protocol.FaultDetails{Kind: "backup_partial", Data: protocol.FaultDetailsBackupPartialPayload{}}}
+	}
 	for _, test := range []struct {
 		err      error
 		outcome  kit.Outcome
@@ -175,6 +178,10 @@ func checkBackupSettingsHelpers(t *testing.T) {
 		{fault(protocol.ErrorCodeInvalidRequest), kit.Failed, "backup_invalid", false},
 		{fault(protocol.ErrorCodePermissionDenied), kit.Failed, "backup_denied", false},
 		{fault(protocol.ErrorCodeOutcomeUnknown), kit.Uncertain, "backup_unknown", false},
+		{partial(protocol.ErrorCodeUnavailable), kit.Failed, "backup_online_failed", false},
+		{partial(protocol.ErrorCodeOutcomeUnknown), kit.Uncertain, "backup_online_unknown", false},
+		{&link.FaultError{Fault: *partial(protocol.ErrorCodeUnavailable)}, kit.Failed, "backup_online_failed", false},
+		{&link.FaultError{Fault: *partial(protocol.ErrorCodeOutcomeUnknown)}, kit.Uncertain, "backup_online_unknown", false},
 		{errors.New("disk"), kit.Failed, "backup_failed", false},
 		{fault(protocol.ErrorCodeBusy), kit.Failed, "backup_sessions_busy", true},
 		{fault(protocol.ErrorCodeNotFound), kit.Conflict, "session_changed", true},

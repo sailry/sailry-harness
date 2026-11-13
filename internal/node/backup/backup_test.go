@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"golang.org/x/net/webdav"
 )
 
 const fixturePassphrase = "correct horse battery"
@@ -449,6 +452,61 @@ func TestBackupArchiveLayout(t *testing.T) {
 		cancel()
 		if _, err := List(cancelled, plan); code(err) != protocol.ErrorCodeCancelled {
 			t.Fatalf("cancelled list: %v", err)
+		}
+	})
+
+	t.Run("a failed online copy retains the committed local backup", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			status int
+			code   protocol.ErrorCode
+		}{
+			{"refused", http.StatusForbidden, protocol.ErrorCodePermissionDenied},
+			{"write outcome unknown", http.StatusServiceUnavailable, protocol.ErrorCodeOutcomeUnknown},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				handler := &webdav.Handler{FileSystem: webdav.Dir(t.TempDir()), LockSystem: webdav.NewMemLS()}
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					if test.status == http.StatusForbidden || request.Method == http.MethodPut {
+						writer.WriteHeader(test.status)
+						return
+					}
+					handler.ServeHTTP(writer, request)
+				}))
+				t.Cleanup(server.Close)
+				plan := Plan{
+					Local:         &protocol.BackupLocal{Directory: t.TempDir(), Enabled: true},
+					Destination:   &protocol.BackupDestination{Kind: protocol.BackupKindWebdav, Endpoint: server.URL},
+					OnlineEnabled: true, Transport: server.Client().Transport,
+				}
+				id := uuid.NewString()
+				record, err := Export(t.Context(), plan, packed, id)
+				var failure *protocol.Fault
+				if !errors.As(err, &failure) || failure.Code != test.code || record.ID != id || failure.Details == nil || failure.Details.Kind != "backup_partial" {
+					t.Fatalf("partial export: %+v, %v", record, err)
+				}
+				// Durable recovery must retain the completed record and the remote
+				// failure's certainty after the fault crosses the wire or storage.
+				body, err := json.Marshal(failure)
+				var decoded protocol.Fault
+				if err != nil || json.Unmarshal(body, &decoded) != nil || decoded.Details == nil {
+					t.Fatalf("partial fault round trip: %s, %v", body, err)
+				}
+				detail, ok := decoded.Details.Data.(*protocol.FaultDetailsBackupPartialPayload)
+				if !ok || detail.Record != record || detail.Location != protocol.BackupLocationOnline || detail.Failure.Code != test.code {
+					t.Fatalf("partial fault lost committed evidence: %+v", decoded)
+				}
+				local := Plan{Local: plan.Local}
+				page, err := List(t.Context(), local)
+				if err != nil || len(page.Records) != 1 || page.Records[0] != record || page.Locations[id] != (protocol.BackupLocations{Local: true}) {
+					t.Fatalf("local copy disappeared: %+v, %v", page, err)
+				}
+				_, sealed, err := Fetch(t.Context(), local, id, protocol.BackupLocationLocal, t.TempDir())
+				if err != nil {
+					t.Fatalf("local copy is not restorable: %v", err)
+				}
+				_ = sealed.Close()
+			})
 		}
 	})
 

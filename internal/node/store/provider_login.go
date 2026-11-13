@@ -167,7 +167,7 @@ func CompleteProviderLogin(ctx context.Context, db *sql.Conn, node protocol.Node
 	if err != nil {
 		return nil, err
 	}
-	if err := providerCredentialCapacity(ctx, db); err != nil {
+	if err := providerCredentialCapacity(ctx, db, capture.Provider.ID, 1); err != nil {
 		return nil, err
 	}
 	if grant.Kind != saved.Provider.Authentication {

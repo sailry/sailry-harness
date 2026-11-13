@@ -63,12 +63,24 @@ func providerCredentials(ctx context.Context, db *sql.Conn) ([]protocol.Credenti
 	sort.Slice(result, func(i, j int) bool { return result[i].ID.String() < result[j].ID.String() })
 	return result, nil
 }
-func providerCredentialCapacity(ctx context.Context, db *sql.Conn) error {
+
+// Capacity bounds current provider selections, not immutable authorizations
+// retained by captured work. An unlisted provider counts while a live session
+// uses it, including session-private providers imported from another Node.
+func providerCredentialCapacity(ctx context.Context, db *sql.Conn, replacing protocol.ProviderID, additional int) error {
 	var count int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM providers,json_each(providers.body,'$.authorizations')").Scan(&count); err != nil {
+	err := db.QueryRowContext(ctx, `SELECT count(*) FROM providers p JOIN json_each(p.body,'$.authorizations') a
+ ON a.key=json_extract(p.body,'$.provider.credential.id')
+ WHERE p.id!=?1 AND json_extract(a.value,'$.key') IS NOT NULL
+ AND (json_extract(p.body,'$.listed') OR EXISTS(
+ SELECT 1 FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision
+ WHERE s.state!='removed' AND (json_extract(r.config,'$.provider')=p.id
+ OR json_extract(r.profile,'$.provider.id')=p.id
+ OR EXISTS(SELECT 1 FROM json_each(r.roles,'$.providers') source WHERE json_extract(source.value,'$.id')=p.id))))`, replacing.String()).Scan(&count)
+	if err != nil {
 		return err
 	}
-	if count >= 256 {
+	if count+additional > 256 {
 		return fault(protocol.ErrorCodeBusy, "credential capacity exhausted")
 	}
 	return nil

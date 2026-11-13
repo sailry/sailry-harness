@@ -767,6 +767,8 @@ backup_endpoint: エンドポイント
 backup_export: 書き出す
 backup_export_data: データを書き出す
 backup_failed: バックアップ操作に失敗しました
+backup_online_failed: Local backup saved; online backup failed
+backup_online_unknown: Local backup saved; online backup outcome is unknown
 backup_identity: ユーザー名またはアクセスキー ID
 backup_import: ファイルから復元
 backup_invalid: バックアップ設定を確認してください

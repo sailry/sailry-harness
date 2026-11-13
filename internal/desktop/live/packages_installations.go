@@ -15,17 +15,22 @@ import (
 func (r *Runtime) observeInstallations() {
 	state := r.packages
 	state.observing = true
+	failed := func() {
+		r.enqueue(func(*ui.Context) {
+			state.connected, state.installFailed = false, true
+		})
+	}
 	r.observe(func() {
 		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "installations"})
 		if err != nil {
-			r.enqueue(func(*ui.Context) { state.connected = false })
+			failed()
 			return
 		}
 		defer stream.Close()
 		for {
 			update, err := stream.Next(r.ctx)
 			if err != nil {
-				r.enqueue(func(*ui.Context) { state.connected = false })
+				failed()
 				return
 			}
 			value, valid := detail[protocol.UpdateInstallationsPayload](update.Data)
@@ -42,6 +47,15 @@ func (r *Runtime) observeInstallations() {
 // settings show (settings/runtime/view.rs). A stream that ends leaves none.
 func (r *Runtime) observePython() {
 	state := r.packages
+	failed := func() {
+		r.enqueue(func(*ui.Context) {
+			state.pythonFailed = true
+			state.preparations = nil
+			if root := r.localRuntime(); root.packages != nil && root.packages.selectedNode == r.controller.Target().String() {
+				root.App.Settings.PythonPreparing = nil
+			}
+		})
+	}
 	show := func(preparations []settings.PythonPreparation) {
 		r.enqueue(func(*ui.Context) {
 			if r.packages != state {
@@ -56,13 +70,14 @@ func (r *Runtime) observePython() {
 	r.observe(func() {
 		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "python"})
 		if err != nil {
+			failed()
 			return
 		}
 		defer stream.Close()
 		for {
 			update, err := stream.Next(r.ctx)
 			if err != nil {
-				show(nil)
+				failed()
 				return
 			}
 			value, valid := detail[protocol.UpdatePythonPayload](update.Data)

@@ -42,7 +42,7 @@ func (source *pluginViewTestNode) Open(context.Context, protocol.NodeID, protoco
 }
 
 func (source *pluginViewTestNode) Dispatch(_ context.Context, _ protocol.NodeID, request protocol.Request) (link.Admission, error) {
-	if request.Command.Kind != "read_plugin_view" || source.bundle == nil {
+	if request.Command.Kind != "read_plugin_view" && request.Command.Kind != "read_plugin_settings" || source.bundle == nil {
 		return link.Admission{}, errors.New("unexpected fixture command")
 	}
 	return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: source.bundle}, nil
@@ -137,6 +137,111 @@ func pluginViewRejectedIntent(t *testing.T, root *Runtime, scope protocol.Plugin
 }
 
 func testPluginViewOwnership(t *testing.T) {
+	t.Run("a repeated initialization failure still offers recovery", func(t *testing.T) {
+		info := protocol.DefaultPluginInfo()
+		info.Summary.Name, info.Summary.Digest, info.Summary.Enabled = "retry-fixture", strings.Repeat("f", 64), true
+		info.Summary.Compatibility.Kind = "compatible"
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node, snapshot.Plugins = protocol.NodeID{1}, []protocol.PluginSummary{info.Summary}
+		source := &pluginViewTestNode{snapshot: snapshot, bundle: make(chan link.Response, 1)}
+		root := pluginViewFixture(t, source)
+		scope := protocol.DefaultPluginContext()
+		scope.Package, scope.Surface.Kind = packageReference(info.Summary), "workspace"
+		root.pluginViews.navigation["fixture"] = pluginNavigationEntry{owner: root, info: info, scope: scope}
+		mounted := root.ensurePluginView(nil, root, info, scope, "navigation", nil)
+		key := mounted.key
+		tester := ui.NewTesterWith(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			root.mu.Lock()
+			queued := root.queue
+			root.queue = nil
+			root.mu.Unlock()
+			for _, apply := range queued {
+				apply(view)
+			}
+			root.renderMountedPlugin(view, root.pluginViews.mounts[key])
+			kit.ToastHost(view)
+		}, 960, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tester.SetLocale("en")
+		for attempt := range 2 {
+			source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
+			root.workers.Wait()
+			for range 3 {
+				tester.Frame()
+			}
+			retry := i18n.In("en", "chat_retry")
+			var buttons []ui.AccessInfo
+			for _, node := range tester.AccessAll() {
+				if node.Name == retry {
+					buttons = append(buttons, node)
+				}
+			}
+			if len(buttons) != 1 || !tester.HasText(retry) || !tester.HasText(i18n.In("en", "plugin_initialization_failed")) {
+				t.Fatalf("attempt %d lost its failure recovery: %v, %q", attempt, buttons, tester.Texts())
+			}
+			if attempt == 0 {
+				tester.ClickAt(buttons[0].Bounds.X+buttons[0].Bounds.W/2, buttons[0].Bounds.Y+buttons[0].Bounds.H/2)
+				for range 2 {
+					tester.Frame()
+				}
+				tester.Advance(time.Second)
+			}
+		}
+	})
+	t.Run("a failed settings schema recovers through its toast", func(t *testing.T) {
+		info := protocol.DefaultPluginInfo()
+		info.Summary.Name, info.Summary.Digest = "settings-fixture", strings.Repeat("f", 64)
+		info.Settings = new(protocol.DefaultPluginSettingsSchema())
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{1}
+		source := &pluginViewTestNode{snapshot: snapshot, bundle: make(chan link.Response, 1)}
+		root := pluginViewFixture(t, source)
+		scope := protocol.DefaultPluginContext()
+		scope.Package, scope.Surface.Kind = packageReference(info.Summary), "settings"
+		entry := pluginSettingsEntry{section: "plugin:fixture", owner: root, info: info, scope: scope}
+		root.pluginViews.settings[entry.section] = entry
+		source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
+		failed := root.ensurePluginSchema(nil, entry)
+		root.workers.Wait()
+		tester := ui.NewTesterWith(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			root.mu.Lock()
+			queued := root.queue
+			root.queue = nil
+			root.mu.Unlock()
+			for _, apply := range queued {
+				apply(view)
+			}
+			ui.Column(view).Fill().Children(func() { root.renderPluginSchema(view, entry) })
+			kit.ToastHost(view)
+		}, 960, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tester.SetLocale("en")
+		for range 3 {
+			tester.Frame()
+		}
+		retry := i18n.In("en", "chat_retry")
+		var buttons []ui.AccessInfo
+		for _, node := range tester.AccessAll() {
+			if node.Name == retry {
+				buttons = append(buttons, node)
+			}
+		}
+		if failed.failure == nil || root.pluginViews.schemas[entry.section] != failed || len(buttons) != 1 || !tester.HasText(retry) {
+			t.Fatalf("failed settings did not keep one recovery toast: %v, %v, %q", failed.failure, buttons, tester.Texts())
+		}
+		state := protocol.DefaultPluginSettingsState()
+		state.Package = scope.Package
+		source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_settings", Data: state}}
+		tester.ClickAt(buttons[0].Bounds.X+buttons[0].Bounds.W/2, buttons[0].Bounds.Y+buttons[0].Bounds.H/2)
+		tester.Frame()
+		root.workers.Wait()
+		for range 2 {
+			tester.Frame()
+		}
+		if schema := root.pluginViews.schemas[entry.section]; schema == nil || schema == failed || schema.loading || schema.failure != nil || schema.state.Package != scope.Package {
+			t.Fatalf("the toast did not read settings again: %+v", schema)
+		}
+	})
 	t.Run("mixed surface publication retains every declared contribution", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			info := protocol.DefaultPluginInfo()

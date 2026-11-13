@@ -767,6 +767,8 @@ backup_endpoint: Адрес сервиса
 backup_export: Экспортировать
 backup_export_data: Экспорт данных
 backup_failed: Операция копирования не удалась
+backup_online_failed: Local backup saved; online backup failed
+backup_online_unknown: Local backup saved; online backup outcome is unknown
 backup_identity: Имя пользователя или ID ключа доступа
 backup_import: Восстановить из файла
 backup_invalid: Проверьте настройки копирования

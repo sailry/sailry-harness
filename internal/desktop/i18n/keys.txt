@@ -786,6 +786,8 @@ backup_endpoint
 backup_export
 backup_export_data
 backup_failed
+backup_online_failed
+backup_online_unknown
 backup_identity
 backup_import
 backup_invalid

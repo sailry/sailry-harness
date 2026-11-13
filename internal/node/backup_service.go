@@ -184,6 +184,7 @@ func backupOutcome(output protocol.Output, failure error, finished int64) protoc
 	var fault *protocol.Fault
 	if errors.As(failure, &fault) {
 		code, reason = fault.Code, fault.Message
+		outcome.Details = fault.Details
 	}
 	outcome.Error, outcome.Reason = &code, reason
 	return outcome

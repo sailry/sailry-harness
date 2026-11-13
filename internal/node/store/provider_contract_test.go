@@ -13,6 +13,7 @@ import (
 )
 
 func providerStoreFixtures(t *testing.T) {
+	providerCredentialFixtures(t)
 	t.Run("provider_inline_authorization_json", func(t *testing.T) {
 		raw := `{"authentication":"api_key","revision":3,"key":"fixture-key","expires_at_ms":null}`
 		var value providerAuthorization

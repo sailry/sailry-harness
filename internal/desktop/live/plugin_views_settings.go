@@ -8,7 +8,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -135,7 +134,11 @@ func (r *Runtime) ensurePluginSchema(view *ui.Context, entry pluginSettingsEntry
 			}
 			schema.loading, schema.failure = false, err
 			if err != nil {
-				entry.owner.packageReport(current, err)
+				entry.owner.reportKeysRetry(current, err, "plugins_failed", "plugins_settings_conflict", "plugins_unknown", func() {
+					if rootPluginSchemaCurrent(root, entry.section, schema) {
+						root.closePluginSchema(entry.section, schema)
+					}
+				})
 				return
 			}
 			schema.state = state
@@ -158,10 +161,6 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 		return
 	}
 	if schema.failure != nil {
-		kit.IconButton(view.Key("retry"), icons.RotateCw, i18n.T(view, "chat_retry"), 28, false).
-			Disabled(!entry.owner.controller.Connected()).OnClick(func() {
-			r.closePluginSchema(entry.section, schema)
-		})
 		return
 	}
 	disabled := schema.pending || !entry.owner.controller.Connected()

@@ -767,6 +767,8 @@ backup_endpoint: Endpoint
 backup_export: Exportar
 backup_export_data: Exportar datos
 backup_failed: La operación de copia falló
+backup_online_failed: Local backup saved; online backup failed
+backup_online_unknown: Local backup saved; online backup outcome is unknown
 backup_identity: Usuario o ID de clave de acceso
 backup_import: Restaurar desde archivo
 backup_invalid: Revisa la configuración

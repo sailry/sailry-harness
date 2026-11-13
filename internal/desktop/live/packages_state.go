@@ -45,6 +45,9 @@ type packageState struct {
 	tasks              []protocol.InstallationTask
 	connected          bool
 	observing          bool
+	installFailed      bool
+	pythonFailed       bool
+	pythonReadFailed   bool
 	preparations       []settings.PythonPreparation
 	queue              transfers.Queue
 	pythonRead         bool

@@ -269,6 +269,7 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 			cache.cancel()
 			cache.ctx, cache.cancel = context.WithCancel(state.ctx)
 			cache.loading = map[string]bool{}
+			clear(cache.failed)
 		}
 		for _, publication := range state.publications {
 			if !publication.ready {
@@ -283,7 +284,7 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 	cache := state.imageSessions[session]
 	if cache == nil {
 		ctx, cancel := context.WithCancel(state.ctx)
-		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*ui.Bitmap{}, loading: map[string]bool{}, missing: map[string]bool{}}
+		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*ui.Bitmap{}, loading: map[string]bool{}, failed: map[string]bool{}, missing: map[string]bool{}}
 		state.imageSessions[session] = cache
 	}
 	return cache
@@ -294,7 +295,7 @@ func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string
 	}
 	state := r.attachments
 	descriptor, ok := state.files[key]
-	if !ok || cache.loading[key] || !state.imageConnected {
+	if !ok || cache.loading[key] || cache.failed[key] || cache.missing[key] || !state.imageConnected {
 		return nil
 	}
 	cache.loading[key] = true
@@ -317,14 +318,18 @@ func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string
 			if ctx.Err() != nil {
 				return
 			}
+			delete(cache.loading, key)
 			if err == nil {
 				cache.images[key] = bitmap
 				return
 			}
 			// A picture that is gone or past the transfer and decoding limits
-			// never shows; a broken connection tries again once it returns.
+			// never shows. Other failed reads wait for an explicit refresh or
+			// a reconnected Node instead of retrying on every frame.
 			if code := faultCode(err); undecodable || code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeInvalidRequest {
 				cache.missing[key] = true
+			} else {
+				cache.failed[key] = true
 			}
 		})
 	})

@@ -225,8 +225,8 @@ func saveCaptures(t *testing.T, name string, captured []capturedRequest) {
 	}
 }
 
-// ambientSDKEnvironment sets every variable the Anthropic and OpenAI SDKs read
-// for a default client, as a shell prepared for another tool would.
+// ambientSDKEnvironment sets the Anthropic, OpenAI and Google SDK defaults,
+// as a shell prepared for another tool would.
 func ambientSDKEnvironment(t *testing.T) {
 	t.Helper()
 	for name, value := range map[string]string{
@@ -240,6 +240,8 @@ func ambientSDKEnvironment(t *testing.T) {
 		"OPENAI_ORG_ID":            "ambient-organization",
 		"OPENAI_PROJECT_ID":        "ambient-project",
 		"OPENAI_CUSTOM_HEADERS":    "x-environment: ambient-header",
+		"GOOGLE_API_KEY":           "ambient-google-key",
+		"GEMINI_API_KEY":           "ambient-gemini-key",
 	} {
 		t.Setenv(name, value)
 	}
@@ -250,6 +252,7 @@ func TestSDKClientsIgnoreEnvironment(t *testing.T) {
 		{"anthropic", "x-api-key", "configured-key"},
 		{"responses", "authorization", "Bearer configured-key"},
 		{"chat", "authorization", "Bearer configured-key"},
+		{"google", "x-goog-api-key", "configured-key"},
 	} {
 		t.Run(row.kind, func(t *testing.T) {
 			// ANTHROPIC_API_KEY ends the SDK's credential chain before the
@@ -283,6 +286,45 @@ func TestSDKClientsIgnoreEnvironment(t *testing.T) {
 			}
 		})
 	}
+	t.Run("google without a captured key", func(t *testing.T) {
+		for _, name := range []string{"GOOGLE_API_KEY", "GEMINI_API_KEY"} {
+			t.Run(name, func(t *testing.T) {
+				t.Setenv("GOOGLE_API_KEY", "")
+				t.Setenv("GEMINI_API_KEY", "")
+				t.Setenv(name, "ambient-key")
+				for _, empty := range []bool{false, true} {
+					t.Run(fmt.Sprintf("empty_secret_%v", empty), func(t *testing.T) {
+						server := serverFixture(t, string(fixture(t, "google-text.sse")))
+						provider := protocol.DefaultConversationProvider()
+						provider.ID, provider.Enabled = protocol.NewProviderID(), true
+						provider.Api, provider.Authentication, provider.Endpoint = protocol.ConversationModelApiGemini, protocol.AuthenticationApiKey, server.URL
+						config := protocol.DefaultSessionConfig()
+						config.Provider, config.Model = provider.ID, "fixture"
+						config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
+						var secret *protocol.Secret
+						if empty {
+							value := protocol.NewSecret("")
+							secret = &value
+						}
+						binding, err := Capture(provider, config, secret, protocol.NewSessionID())
+						if err != nil {
+							t.Fatal(err)
+						}
+						model, err := New(t.Context(), binding)
+						if err == nil {
+							_, err = model.Generate(t.Context(), requestCall(t, "google"))
+						}
+						if failure := Classify(err); failure == nil || failure.Kind != NotConfigured {
+							t.Errorf("missing captured credential = %v; want NotConfigured", err)
+						}
+						if requests := server.captured(); len(requests) != 0 {
+							t.Fatalf("provider without a captured key received %d requests", len(requests))
+						}
+					})
+				}
+			})
+		}
+	})
 }
 
 func TestRequestParity(t *testing.T) {

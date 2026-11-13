@@ -86,6 +86,30 @@ type FaultDetails struct {
 	Kind string
 	Data any
 }
+
+// FaultDetailsBackupPartialPayload retains the copy committed before another
+// destination failed. Failure keeps that destination's certainty and cause.
+type FaultDetailsBackupPartialPayload struct {
+	Record   BackupRecord   `json:"record"`
+	Location BackupLocation `json:"location"`
+	Failure  Fault          `json:"failure"`
+}
+
+func (value *FaultDetailsBackupPartialPayload) UnmarshalJSON(data []byte) error {
+	type plain FaultDetailsBackupPartialPayload
+	var decoded plain
+	if err := DecodeObject(data, &decoded, []string{"record", "location", "failure"}, false); err != nil {
+		return err
+	}
+	*value = FaultDetailsBackupPartialPayload(decoded)
+	return nil
+}
+
+func (value FaultDetailsBackupPartialPayload) MarshalJSON() ([]byte, error) {
+	type plain FaultDetailsBackupPartialPayload
+	return json.Marshal(plain(value))
+}
+
 type FaultDetailsPluginRequiresNewerPayload struct {
 	Required string `json:"required"`
 }
@@ -306,6 +330,7 @@ func (value FaultDetailsContinuationPayload) MarshalJSON() ([]byte, error) {
 }
 
 var faultDetailsVariants = variantFactories{"plugin_requires_newer": func() any { return new(FaultDetailsPluginRequiresNewerPayload) },
+	"backup_partial":          func() any { return new(FaultDetailsBackupPartialPayload) },
 	"continuation":            func() any { return new(FaultDetailsContinuationPayload) },
 	"storage_conflict":        nil,
 	"plugin_value_conflict":   nil,

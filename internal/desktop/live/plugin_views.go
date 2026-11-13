@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -167,7 +168,10 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 	r.projectMenuRegistries()
 	r.projectPluginViews(view)
 	for section, schema := range state.schemas {
-		if !rootPluginSchemaCurrent(r, section, schema) {
+		// Re-entering a failed settings page is an explicit read attempt,
+		// including after the user dismissed its recovery toast.
+		if !rootPluginSchemaCurrent(r, section, schema) || schema.failure != nil &&
+			(r.App.Page != shell.SettingsPage || r.App.Settings.Section != section) {
 			r.closePluginSchema(section, schema)
 		}
 	}
@@ -563,6 +567,7 @@ func (r *Runtime) retryPluginView(view *ui.Context, mounted *pluginMountedView) 
 	}
 	root.dropPluginView(mounted, true)
 	delete(root.pluginViews.mounts, mounted.key)
+	delete(root.pluginViews.failures, mounted.key)
 	return root.ensurePluginView(view, mounted.owner, mounted.info, mounted.scope, mounted.key.role, mounted.registry) != nil
 }
 

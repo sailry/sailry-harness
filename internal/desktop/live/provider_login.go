@@ -27,6 +27,7 @@ type authorizationState struct {
 	savedProviders                 map[string]protocol.ConversationProvider
 	types                          map[string]protocol.PluginConnectorType
 	connections                    map[string]protocol.PluginConnectorConnection
+	connectionsFailed              bool
 	packages                       map[string]protocol.PluginInfo
 	packagesReading, packagesStale bool
 	quotaReset                     uint64

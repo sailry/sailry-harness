@@ -291,6 +291,7 @@ func (r *Runtime) retryPluginContribution(key desktopplugins.ContributionKey) bo
 		}
 		root.dropPluginView(mounted, true)
 		delete(root.pluginViews.mounts, mounted.key)
+		delete(root.pluginViews.failures, mounted.key)
 		root.syncPluginRegistry(view, owner)
 	})
 	return true

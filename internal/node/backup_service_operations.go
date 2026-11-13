@@ -31,13 +31,22 @@ func (node *Node) changeBackup(ctx context.Context, caller protocol.NodeID, requ
 			}
 		}
 		record, err := backup.Export(ctx, plan, packed, request.ID.String())
-		if err != nil {
+		if err != nil && record.ID == "" {
 			return protocol.Output{}, err
+		}
+		prunePlan := plan
+		if err != nil {
+			// Export commits local storage first. A partial failure leaves that
+			// copy intact; retention must neither touch nor retry the failed one.
+			prunePlan.OnlineEnabled = false
 		}
 		// The new backup is published; a retention failure does not undo it
 		// and the next backup prunes again.
-		if removed, err := backup.Prune(ctx, plan, node.ID()); err != nil {
+		if removed, err := backup.Prune(ctx, prunePlan, node.ID()); err != nil {
 			slog.Warn("Backup retention failed", "removed", removed, "error", err)
+		}
+		if err != nil {
+			return protocol.Output{}, err
 		}
 		return protocol.Output{Kind: "backup", Data: record}, nil
 	case *protocol.CommandRestoreBackupPayload:

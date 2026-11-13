@@ -92,6 +92,7 @@ type Runtime struct {
 	unsubscribePrefs      func()
 	mu                    sync.Mutex
 	dirty                 bool
+	readsConnected        bool
 	closed                bool
 	queue                 []func(*ui.Context)
 	invalidate            func()
@@ -219,7 +220,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 		return nil, errors.New("desktop requires a Client and profile preferences")
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	r := &Runtime{controller: controller, ctx: ctx, cancel: cancel, Preferences: prefs, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+	r := &Runtime{controller: controller, ctx: ctx, cancel: cancel, Preferences: prefs, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}, readsConnected: controller.Connected()}
 	controller.OnDispatch(countSaved(controller))
 	snapshot := controller.Snapshot()
 	d := Sidebar(snapshot, prefs.Data)
@@ -417,6 +418,10 @@ func (r *Runtime) drain(c *ui.Context) {
 	}
 	for _, f := range queue {
 		f(c)
+	}
+	r.resumeReadsOnReconnect()
+	for _, bound := range r.bindings {
+		bound.resumeReadsOnReconnect()
 	}
 	r.draftsShown = map[string]bool{}
 	r.listSidebar()
@@ -692,6 +697,8 @@ func (r *Runtime) Refresh() {
 			delete(r.busy, "refresh")
 			if err != nil {
 				r.report(c, err, "session_changed")
+			} else {
+				r.retryFailedReads()
 			}
 			r.readSettings()
 		})

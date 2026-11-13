@@ -99,7 +99,7 @@ func PrepareSessionForward(ctx context.Context, db *sql.Conn, node, caller proto
 }
 
 // importedAuthorization validates one forwarded secret as a new credential.
-func importedAuthorization(ctx context.Context, db *sql.Conn, authentication protocol.Authentication, secret protocol.Secret, expiry *uint64) (providerAuthorization, error) {
+func importedAuthorization(authentication protocol.Authentication, secret protocol.Secret, expiry *uint64) (providerAuthorization, error) {
 	if err := transferable(authentication); err != nil {
 		return providerAuthorization{}, err
 	}
@@ -108,9 +108,6 @@ func importedAuthorization(ctx context.Context, db *sql.Conn, authentication pro
 	}
 	if expiry != nil && (*expiry > math.MaxInt64 || *expiry <= uint64(time.Now().UnixMilli())) {
 		return providerAuthorization{}, invalid("credential expiry must be in the future")
-	}
-	if err := providerCredentialCapacity(ctx, db); err != nil {
-		return providerAuthorization{}, err
 	}
 	if authentication != protocol.AuthenticationApiKey {
 		if _, err := providers.DecodeAccount(&secret, authentication); err != nil {
@@ -134,7 +131,7 @@ func retainPrivateProvider(ctx context.Context, db *sql.Conn, node protocol.Node
 	provider.ID, provider.Credential = protocol.NewProviderID(), nil
 	stored := providerConfiguration{ID: provider.ID, Authorizations: map[protocol.CredentialID]providerAuthorization{}}
 	if secret != nil {
-		authorization, err := importedAuthorization(ctx, db, provider.Authentication, *secret, expiry)
+		authorization, err := importedAuthorization(provider.Authentication, *secret, expiry)
 		if err != nil {
 			return provider, err
 		}
@@ -278,7 +275,16 @@ func importSession(ctx context.Context, db *sql.Conn, node, caller protocol.Node
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	return createProfiledSession(ctx, db, node, profile, protocol.CommandCreateSessionPayload{Project: bundle.Project, Worktree: bundle.Worktree, Config: &config}, &protocol.SessionProfile{Source: caller, Provider: provider}, &roles)
+	output, events, err := createProfiledSession(ctx, db, node, profile, protocol.CommandCreateSessionPayload{Project: bundle.Project, Worktree: bundle.Worktree, Config: &config}, &protocol.SessionProfile{Source: caller, Provider: provider}, &roles)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	// The session now references every private role provider. Check their total
+	// together so an over-capacity import rolls back the entire transaction.
+	if err := providerCredentialCapacity(ctx, db, protocol.ProviderID{}, 0); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	return output, events, nil
 }
 
 // removePrivateProviders deletes the providers forwarded for removed sessions

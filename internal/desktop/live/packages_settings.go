@@ -241,6 +241,7 @@ func (r *Runtime) readPython() {
 				err = errors.New("unexpected Python settings response")
 			}
 			if err != nil {
+				r.packages.pythonReadFailed = true
 				r.packageReport(c, err)
 				return
 			}

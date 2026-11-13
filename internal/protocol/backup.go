@@ -137,10 +137,11 @@ func (value BackupSettings) MarshalJSON() ([]byte, error) {
 // BackupOutcome is how one backup ended. Error is absent after a success;
 // Reason is the failure's message; Skipped counts the content left out.
 type BackupOutcome struct {
-	FinishedMs uint64     `json:"finished_ms"`
-	Error      *ErrorCode `json:"error,omitempty"`
-	Reason     string     `json:"reason,omitempty"`
-	Skipped    uint32     `json:"skipped,omitempty"`
+	FinishedMs uint64        `json:"finished_ms"`
+	Error      *ErrorCode    `json:"error,omitempty"`
+	Reason     string        `json:"reason,omitempty"`
+	Skipped    uint32        `json:"skipped,omitempty"`
+	Details    *FaultDetails `json:"details,omitempty"`
 }
 
 func DefaultBackupOutcome() BackupOutcome {
@@ -149,6 +150,7 @@ func DefaultBackupOutcome() BackupOutcome {
 		Error:      nil,
 		Reason:     "",
 		Skipped:    0,
+		Details:    nil,
 	}
 }
 func (value *BackupOutcome) UnmarshalJSON(data []byte) error {

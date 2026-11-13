@@ -123,7 +123,8 @@ func (r *Runtime) newBinding(controller *client.Client) *Runtime {
 	ctx, cancel := context.WithCancel(r.ctx)
 	bound := &Runtime{
 		parent: r, network: r.network, controller: controller, ctx: ctx, cancel: cancel,
-		App: r.App, Preferences: r.Preferences, busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
+		readsConnected: controller.Connected(),
+		App:            r.App, Preferences: r.Preferences, busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
 		conversationWatches: map[protocol.SessionID]func(){}, conversationSeen: map[protocol.SessionID]bool{},
 		composerInitialized: map[string]bool{}, composerObserved: map[string]string{}, composerRevisions: map[string]uint64{},
 		composerSaving: map[string]bool{}, composerWaiters: map[string][]func(bool){}, composerBases: map[*composer.State]protocol.SessionConfig{}, sessionBases: map[*composer.State]*sessionBaseStart{},

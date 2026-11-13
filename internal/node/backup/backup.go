@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -54,7 +55,15 @@ func Export(ctx context.Context, plan Plan, packed *Packed, id string) (protocol
 		}
 		if enabled {
 			if err := publish(ctx, plan, location, packed, record); err != nil {
-				return protocol.BackupRecord{}, err
+				if !exported {
+					return protocol.BackupRecord{}, err
+				}
+				failure := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "backup storage request failed"}
+				_ = errors.As(err, &failure)
+				return record, &protocol.Fault{
+					Code: failure.Code, Message: "backup saved to one destination; another destination failed",
+					Details: &protocol.FaultDetails{Kind: "backup_partial", Data: protocol.FaultDetailsBackupPartialPayload{Record: record, Location: location, Failure: *failure}},
+				}
 			}
 			exported = true
 		}

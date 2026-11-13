@@ -165,6 +165,7 @@ func (r *Runtime) selectPluginView(id string) bool {
 	if previous := root.pluginViews.mounts[key]; previous != nil && previous.failure != nil {
 		root.dropPluginView(previous, true)
 		delete(root.pluginViews.mounts, key)
+		delete(root.pluginViews.failures, key)
 	}
 	if mounted := root.ensurePluginView(nil, entry.owner, entry.info, entry.scope, "navigation", nil); mounted != nil && mounted.host != nil {
 		mounted.host.Enter()

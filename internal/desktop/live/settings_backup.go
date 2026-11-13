@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -188,7 +189,7 @@ func backupTarget(value protocol.BackupSettings) settings.BackupTarget {
 	if last := value.Last; last != nil {
 		target.Last = settings.BackupLast{At: time.UnixMilli(int64(min(last.FinishedMs, 1<<62))), Reason: last.Reason, Skipped: int(last.Skipped)}
 		if last.Error != nil {
-			_, target.Last.Problem = backupFailure(&protocol.Fault{Code: *last.Error, Message: last.Reason})
+			_, target.Last.Problem = backupFailure(&protocol.Fault{Code: *last.Error, Message: last.Reason, Details: last.Details})
 		}
 	}
 	return target
@@ -283,6 +284,21 @@ func backupRecords(page protocol.BackupPage) []settings.BackupRecord {
 
 // backupFailure is a failed backup action's toast.
 func backupFailure(err error) (kit.Outcome, string) {
+	var fault *protocol.Fault
+	var remote *link.FaultError
+	if errors.As(err, &remote) {
+		fault = &remote.Fault
+	} else {
+		errors.As(err, &fault)
+	}
+	if fault != nil && fault.Details != nil && fault.Details.Kind == "backup_partial" {
+		if _, ok := detail[protocol.FaultDetailsBackupPartialPayload](fault.Details.Data); ok {
+			if fault.Code == protocol.ErrorCodeOutcomeUnknown {
+				return kit.Uncertain, "backup_online_unknown"
+			}
+			return kit.Failed, "backup_online_failed"
+		}
+	}
 	switch faultCode(err) {
 	case protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeConflict:
 		return kit.Conflict, "backup_conflict"

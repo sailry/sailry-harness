@@ -41,13 +41,17 @@ func (r *Runtime) initConnectorUI() {
 	r.observe(func() {
 		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "connections"})
 		if err != nil {
-			r.enqueue(func(c *ui.Context) { r.connectorError(c, err) })
+			r.enqueue(func(c *ui.Context) {
+				r.authorizations.connectionsFailed = true
+				r.connectorError(c, err)
+			})
 			return
 		}
 		defer stream.Close()
 		for {
 			update, err := stream.Next(r.ctx)
 			if err != nil {
+				r.enqueue(func(*ui.Context) { r.authorizations.connectionsFailed = true })
 				return
 			}
 			value, ok := detail[protocol.PluginConnectorChanges](update.Data)
