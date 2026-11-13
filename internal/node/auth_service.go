@@ -21,7 +21,7 @@ type authControls struct {
 	cursor         uint64
 	host           string
 	closed         bool
-	connectorLocks sync.Map
+	connectorLocks sync.Map // PluginConnectorID -> chan struct{}, one renewal owner.
 	cli            map[protocol.PluginConnectorID]connectorCachedCLI
 	resources      map[[32]byte]*providerDocument
 	consents       map[protocol.RequestID]store.ConnectorLoginCapture

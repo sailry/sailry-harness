@@ -66,6 +66,9 @@ func runSQLite(ctx context.Context, operation Operation, requested string, query
 		return empty, err
 	}
 	defer connection.close()
+	if err := connection.protectStorage(storage); err != nil {
+		return empty, err
+	}
 	connection.busyTimeout(int32(min(query.TimeoutMS, 2000)))
 	connection.watch(ctx)
 	statement, write, err := connection.prepare(query.SQL, false)

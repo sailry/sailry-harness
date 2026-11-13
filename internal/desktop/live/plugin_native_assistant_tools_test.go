@@ -105,7 +105,13 @@ func TestNativeAssistantTools(t *testing.T) {
 		t.Fatalf("a call without its detail was published: %+v %v", conversations, err)
 	}
 	runtime.workers.Wait()
+	if current, exists := controller.Conversation(session); !exists || current.Snapshot.Page.Revision != 4 {
+		t.Fatal("loading a tool detail changed the captured conversation revision")
+	}
 	state.refreshAssistantTools()
+	if state.assistantTools.cursor == first {
+		t.Fatal("a detail arriving at the same page revision was not published")
+	}
 	second, conversations, err := read(t.Context(), first)
 	if err != nil || second == first {
 		t.Fatalf("the loaded detail did not change the cursor: %q %q %v", first, second, err)

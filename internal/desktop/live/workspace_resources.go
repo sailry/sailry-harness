@@ -353,33 +353,34 @@ func (p *workspaceProject) readCheckpointPage(session protocol.SessionID, turn p
 func (p *workspaceProject) restore(_ *ui.Context, id string) {
 	p.restoreTurn(p.session, id, "", func(bool) {})
 }
-func (p *workspaceProject) readTurnHunks(relative string) {
-	session := p.session
-	var turn protocol.TurnID
-	found := false
+func (p *workspaceProject) hunkReviewTurn(relative string) (protocol.TurnID, bool) {
 	if selected, exists := p.reviewTurns[relative]; exists {
-		turn, found = selected, true
+		return selected, true
 	}
 	for _, checkpoint := range p.data.Checkpoints {
-		if found {
-			break
-		}
 		for _, file := range p.checkpointOrder[checkpoint.ID] {
 			if file.Path == relative && file.Worktree == p.owner.ID {
-				turn = file.Turn
-				found = true
-				break
+				return file.Turn, true
 			}
 		}
-		if found {
-			break
-		}
 	}
+	return protocol.TurnID{}, false
+}
+func (p *workspaceProject) readTurnHunks(relative string) {
+	session := p.session
+	turn, found := p.hunkReviewTurn(relative)
 	if !found {
 		return
 	}
-	p.read("hunks/"+relative, protocol.Command{Kind: "read_turn_hunks", Data: protocol.CommandReadTurnHunksPayload{Session: session, Turn: turn, Path: relative}}, func(c *ui.Context, out protocol.Output) {
-		if value, ok := detail[protocol.ConversationCheckpointHunkReview](out.Data); ok && p.session == session && value.Session == session && value.Worktree == p.owner.ID {
+	// A project is reused across sessions and turn reviews. A pending read
+	// must neither suppress its successor nor replace a newer review.
+	key := "hunks/" + session.String() + "/" + turn.String() + "/" + relative
+	p.read(key, protocol.Command{Kind: "read_turn_hunks", Data: protocol.CommandReadTurnHunksPayload{Session: session, Turn: turn, Path: relative}}, func(c *ui.Context, out protocol.Output) {
+		current, found := p.hunkReviewTurn(relative)
+		if !found || current != turn || p.session != session {
+			return
+		}
+		if value, ok := detail[protocol.ConversationCheckpointHunkReview](out.Data); ok && value.Session == session && value.Turn == turn && value.Worktree == p.owner.ID {
 			p.hunks[relative] = value
 		}
 	})

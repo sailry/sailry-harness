@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -27,15 +28,18 @@ import (
 
 type pluginLocationTestNode struct {
 	pluginViewTestNode
-	prepared map[protocol.RequestID]protocol.Request
-	outcome  protocol.RequestOutcome
-	commands []string
-	pending  chan link.Response
-	dispatch func(protocol.Request) (link.Admission, error)
+	prepared   map[protocol.RequestID]protocol.Request
+	outcome    protocol.RequestOutcome
+	commandsMu sync.Mutex
+	commands   []string
+	pending    chan link.Response
+	dispatch   func(protocol.Request) (link.Admission, error)
 }
 
 func (source *pluginLocationTestNode) Dispatch(_ context.Context, _ protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	source.commandsMu.Lock()
 	source.commands = append(source.commands, request.Command.Kind)
+	source.commandsMu.Unlock()
 	if source.dispatch != nil && request.Command.Kind != "inspect_request" {
 		return source.dispatch(request)
 	}
@@ -60,6 +64,12 @@ func (source *pluginLocationTestNode) Dispatch(_ context.Context, _ protocol.Nod
 		}}
 	}
 	return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
+}
+
+func (source *pluginLocationTestNode) commandKinds() []string {
+	source.commandsMu.Lock()
+	defer source.commandsMu.Unlock()
+	return append([]string(nil), source.commands...)
 }
 
 type pluginLocationTestFixture struct {
@@ -261,7 +271,7 @@ func testPluginLocationHandoffs(t *testing.T) {
 			synctest.Wait()
 			select {
 			case err := <-completed:
-				if err == nil || len(fixture.root.workspace.admitted) != 0 || len(fixture.source.commands) != 1 {
+				if err == nil || len(fixture.root.workspace.admitted) != 0 || len(fixture.source.commandKinds()) != 1 {
 					t.Fatalf("late handoff ignored its changed captured source: %v", err)
 				}
 			default:
@@ -319,12 +329,12 @@ func testPluginLocationHandoffs(t *testing.T) {
 				fixture.source.outcome = pluginLocationTestOutcome(protocol.Output{Kind: "worktree", Data: fixture.target})
 				body, err := fixture.call(t, "sailry/ui.worktreeHasDrafts", pluginLocationTestArguments(t, fixture.target.ID, request.ID))
 				if err != nil || string(body) != "false" || fixture.root.workspace.admitted[fixture.target.ID].Path != fixture.target.Path ||
-					len(fixture.source.commands) != 1 || fixture.source.commands[0] != "inspect_request" {
-					t.Fatalf("captured handoff was not inspected once and retained: %s, %v, %v", body, err, fixture.source.commands)
+					len(fixture.source.commandKinds()) != 1 || fixture.source.commandKinds()[0] != "inspect_request" {
+					t.Fatalf("captured handoff was not inspected once and retained: %s, %v, %v", body, err, fixture.source.commandKinds())
 				}
 				body, err = fixture.call(t, "sailry/ui.selectLocation", pluginLocationTestArguments(t, "1", map[string]any{"worktree": fixture.target.ID}))
 				if err != nil || string(body) != "true" || fixture.root.App.Composer("draft/first").Worktree != fixture.target.Path ||
-					fixture.root.App.Composer("draft/second").Worktree != fixture.main.Path || len(fixture.source.commands) != 1 {
+					fixture.root.App.Composer("draft/second").Worktree != fixture.main.Path || len(fixture.source.commandKinds()) != 1 {
 					t.Fatalf("confirmed selection changed its source or replayed a command: %s, %v", body, err)
 				}
 			})
@@ -360,8 +370,8 @@ func testPluginLocationHandoffs(t *testing.T) {
 					selection["request"] = protocol.RequestID{9}
 				}
 				_, err := fixture.call(t, "sailry/ui.selectLocation", pluginLocationTestArguments(t, cursor, selection))
-				if err == nil || len(fixture.source.commands) != 0 || len(fixture.root.workspace.admitted) != 0 {
-					t.Fatalf("invalid handoff inspected or admitted a worktree: %v, %v", err, fixture.source.commands)
+				if err == nil || len(fixture.source.commandKinds()) != 0 || len(fixture.root.workspace.admitted) != 0 {
+					t.Fatalf("invalid handoff inspected or admitted a worktree: %v, %v", err, fixture.source.commandKinds())
 				}
 			})
 		})
@@ -403,8 +413,8 @@ func testPluginLocationHandoffs(t *testing.T) {
 				}
 				_, err := fixture.call(t, "sailry/ui.worktreeHasDrafts", pluginLocationTestArguments(t, fixture.target.ID, request.ID))
 				if faultCode(err) != want ||
-					len(fixture.source.commands) != 1 || len(fixture.root.workspace.admitted) != 0 {
-					t.Fatalf("unconfirmed handoff admitted a worktree or replayed its command: %v, want %s, %v", err, want, fixture.source.commands)
+					len(fixture.source.commandKinds()) != 1 || len(fixture.root.workspace.admitted) != 0 {
+					t.Fatalf("unconfirmed handoff admitted a worktree or replayed its command: %v, want %s, %v", err, want, fixture.source.commandKinds())
 				}
 			})
 		})
@@ -444,7 +454,7 @@ func testPluginSessionBase(t *testing.T) {
 			}
 		}
 		body, err := fixture.call(t, "sailry/ui.selectLocation", pluginLocationTestArguments(t, cursor(), map[string]any{"base": base}))
-		if err != nil || string(body) != "true" || len(fixture.source.commands) != 0 {
+		if err != nil || string(body) != "true" || len(fixture.source.commandKinds()) != 0 {
 			t.Fatalf("session base was not retained without a command: %s, %v", body, err)
 		}
 		body, err = fixture.state.native.Operations["sailry/ui.readLocation"](root.ctx, nil)
@@ -544,7 +554,7 @@ func testPluginLocationPicker(t *testing.T) {
 		}
 		tester.Frame()
 		if first.Project != firstProject || first.Worktree != "/fixture/first" ||
-			second.Project != fixture.main.Project.String() || second.Worktree != fixture.main.Path || len(fixture.source.commands) != 0 {
+			second.Project != fixture.main.Project.String() || second.Worktree != fixture.main.Path || len(fixture.source.commandKinds()) != 0 {
 			t.Fatal("project choice did not remain with its captured composer")
 		}
 		second.OpenProjectPicker()
@@ -635,8 +645,8 @@ func testPluginLocationReleases(t *testing.T) {
 				fixture.source.outcome = pluginLocationTestOutcome(protocol.Output{Kind: "worktree_removed", Data: protocol.OutputWorktreeRemovedPayload{ID: fixture.main.ID}})
 				body, err := fixture.call(t, "sailry/ui.releaseWorktree", pluginLocationTestArguments(t, fixture.main.ID, request.ID))
 				if err != nil || string(body) != "null" || cancelled != 1 || released != 1 ||
-					len(fixture.source.commands) != 1 || fixture.source.commands[0] != "inspect_request" {
-					t.Fatalf("confirmed removal did not release its existing native owners exactly once: %s, %v, %v", body, err, fixture.source.commands)
+					len(fixture.source.commandKinds()) != 1 || fixture.source.commandKinds()[0] != "inspect_request" {
+					t.Fatalf("confirmed removal did not release its existing native owners exactly once: %s, %v, %v", body, err, fixture.source.commandKinds())
 				}
 				if root.workspace.projects[fixture.target.ID] != other || root.workspace.selected != (protocol.WorktreeID{}) ||
 					len(root.workspace.admitted) != 0 {
@@ -699,8 +709,8 @@ func testPluginLocationReleases(t *testing.T) {
 				if initial {
 					expectedReads = 0
 				}
-				if err == nil || len(fixture.source.commands) != expectedReads || fixture.root.workspace.projects[fixture.main.ID] != project {
-					t.Fatalf("invalid removal released presentation or dispatched the original mutation: %v, %v", err, fixture.source.commands)
+				if err == nil || len(fixture.source.commandKinds()) != expectedReads || fixture.root.workspace.projects[fixture.main.ID] != project {
+					t.Fatalf("invalid removal released presentation or dispatched the original mutation: %v, %v", err, fixture.source.commandKinds())
 				}
 			})
 		})

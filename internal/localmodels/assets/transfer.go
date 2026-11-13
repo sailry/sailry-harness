@@ -199,8 +199,9 @@ func receive(ctx context.Context, client *http.Client, item Download, partial *p
 		response, err := client.Do(request)
 		if err != nil {
 			idle.Stop()
+			failure := interrupted(err)
 			cancel()
-			return interrupted(err)
+			return failure
 		}
 		retry, err := func() (bool, error) {
 			defer cancel()

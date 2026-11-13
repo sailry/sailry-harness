@@ -80,6 +80,7 @@ func (c *Client) ObserveCommandOutput(ctx context.Context, session protocol.Sess
 }
 func (c *Client) observeCommandOutput(w *commandOutputWatch) {
 	defer c.commandOwners.Done()
+	defer w.cancel()
 	wait := uint64(0)
 	for w.ctx.Err() == nil {
 		output, err := c.Do(w.ctx, protocol.Command{Kind: "read_command", Data: protocol.CommandReadCommandPayload{Session: w.key.session, ID: w.key.command, WaitMs: wait}})
@@ -93,10 +94,16 @@ func (c *Client) observeCommandOutput(w *commandOutputWatch) {
 		if w.ctx.Err() != nil {
 			return
 		}
+		ended := err != nil || snapshot.Info.Status.Kind != "running" && snapshot.Info.Status.Kind != "stopping"
 		c.commandsMu.Lock()
 		w.state.Err = err
 		if err == nil {
 			w.state.Snapshot, w.state.Known = snapshot, true
+		}
+		if ended {
+			// Callbacks may immediately observe again; they must not join
+			// the owner whose final state they are being told about.
+			w.cancel()
 		}
 		callbacks := make([]func(), 0, len(w.callbacks))
 		for _, f := range w.callbacks {
@@ -109,7 +116,7 @@ func (c *Client) observeCommandOutput(w *commandOutputWatch) {
 			}
 		}
 		c.changed()
-		if err != nil || snapshot.Info.Status.Kind != "running" && snapshot.Info.Status.Kind != "stopping" {
+		if ended {
 			return
 		}
 		wait = 30000

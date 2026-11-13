@@ -36,13 +36,39 @@ type Runner struct {
 	Report   func(error)
 }
 
+type completedWork struct {
+	job    protocol.JobID
+	result error
+}
+
 func (runner Runner) Serve(ctx context.Context) {
-	completed := make(chan struct{}, 1)
+	completed := make(chan completedWork, 1)
 	var running sync.WaitGroup
 	defer running.Wait()
 	recovering := true
+	var ending *completedWork
 	for ctx.Err() == nil {
-		batch, err := runner.Tick(ctx, recovering)
+		if ending == nil {
+			select {
+			case result := <-completed:
+				ending = &result
+			default:
+			}
+		}
+		var batch Batch
+		var err error
+		if ending != nil {
+			// Keep the completed effect's owner until its end is durable. A
+			// failed write uses the tick's existing retry wait below; only
+			// Finished repeats, never Execute.
+			err = runner.Finished(ctx, ending.job, ending.result)
+			if err == nil {
+				ending = nil
+			}
+		}
+		if err == nil {
+			batch, err = runner.Tick(ctx, recovering)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -65,15 +91,9 @@ func (runner Runner) Serve(ctx context.Context) {
 			go func() {
 				defer running.Done()
 				result := runner.Execute(ctx, work)
-				if ctx.Err() != nil {
-					return
-				}
-				if err := runner.Finished(ctx, work.Job, result); err != nil && runner.Report != nil {
-					runner.Report(err)
-				}
 				select {
-				case completed <- struct{}{}:
-				default:
+				case completed <- completedWork{job: work.Job, result: result}:
+				case <-ctx.Done():
 				}
 			}()
 		}
@@ -90,7 +110,8 @@ func (runner Runner) Serve(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 		case <-runner.Wake:
-		case <-completed:
+		case result := <-completed:
+			ending = &result
 		case <-due:
 		}
 		if timer != nil {

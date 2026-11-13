@@ -56,6 +56,7 @@ type workspaceProject struct {
 	turnChanges              map[string][]viewmodel.FileChange
 	reviewTurns              map[string]protocol.TurnID
 	turnView                 *protocol.TurnID
+	reviewTarget             *workspaceTurnReview
 	branches                 protocol.GitBranches
 	gitLogPages              []protocol.GitLog
 	gitLastRead              time.Time
@@ -181,6 +182,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		project.turnChanges = map[string][]viewmodel.FileChange{}
 		project.reviewTurns = map[string]protocol.TurnID{}
 		project.turnView = nil
+		project.reviewTarget = nil
 		project.readSessionResources()
 	}
 	project.owner = worktree
@@ -304,6 +306,8 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 }
 func (p *workspaceProject) refresh() {
 	p.turnView = nil
+	p.reviewTarget = nil
+	p.reviewTurns = map[string]protocol.TurnID{}
 	p.failedReads = map[string]bool{}
 	p.documents = map[string]uint32{}
 	p.diffs = map[string]bool{}

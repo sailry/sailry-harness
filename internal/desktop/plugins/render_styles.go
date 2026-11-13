@@ -411,9 +411,22 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 				return fmt.Errorf("invalid plugin transition")
 			}
 			var property string
-			var milliseconds float32
+			var milliseconds, delay float64
+			easing := "ease-out"
 			if json.Unmarshal(style.Arguments[0], &property) != nil || json.Unmarshal(style.Arguments[1], &milliseconds) != nil {
 				return fmt.Errorf("invalid plugin transition")
+			}
+			if len(style.Arguments) > 2 && json.Unmarshal(style.Arguments[2], &delay) != nil || len(style.Arguments) > 3 && json.Unmarshal(style.Arguments[3], &easing) != nil {
+				return fmt.Errorf("invalid plugin transition")
+			}
+			ease := ui.EaseOut
+			switch easing {
+			case "linear":
+				ease = ui.Linear
+			case "ease-in":
+				ease = ui.EaseIn
+			case "ease-in-out":
+				ease = ui.EaseInOut
 			}
 			properties := runtimeProperties(element)
 			styleName := map[string]string{"width": "w", "height": "h"}[property]
@@ -424,7 +437,10 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 			if lengthErr != nil {
 				return lengthErr
 			}
-			animated := target.Animate(property, current, time.Duration(milliseconds*float32(time.Millisecond)))
+			animated := target.AnimateTo(property, current, ui.Animation{
+				Duration: max(time.Duration(milliseconds*float64(time.Millisecond)), time.Millisecond),
+				Delay:    time.Duration(delay * float64(time.Millisecond)), Ease: ease,
+			})
 			switch property {
 			case "opacity":
 				target.Opacity(animated)

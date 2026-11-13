@@ -32,7 +32,7 @@ func testPluginStatusClick(t *testing.T) {
 		root.pluginStatus = map[string]*pluginStatusFeed{string(body): feed}
 		id := pluginStatusIdentity(entry)
 		context := protocol.PluginContext{Worktree: scope.Worktree}
-		if root.invokePluginStatus(context, id) || len(fixture.source.commands) != 0 {
+		if root.invokePluginStatus(context, id) || len(fixture.source.commandKinds()) != 0 {
 			t.Fatal("a disconnected badge started its action")
 		}
 		feed.view.Connected = true

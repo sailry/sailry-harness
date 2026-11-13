@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,8 +30,8 @@ type pluginNativeAssistantTools struct {
 	// reports and loads them again, the observer does not retry them.
 	failed map[string]bool
 	// signature names what the published value is built from — the mounted
-	// assistants, their sessions and revisions — so an idle history is not
-	// hashed every frame.
+	// assistants, their sessions, revisions and available call details — so
+	// an idle history is not hashed every frame.
 	signature string
 }
 
@@ -93,7 +94,13 @@ func (state *pluginNativeState) refreshAssistantTools() {
 	conversations := map[string]pluginAssistantHistory{}
 	var signature strings.Builder
 	waiting := false
-	for identity, mounted := range state.conversations {
+	identities := make([]string, 0, len(state.conversations))
+	for identity := range state.conversations {
+		identities = append(identities, identity)
+	}
+	slices.Sort(identities)
+	for _, identity := range identities {
+		mounted := state.conversations[identity]
 		session := mounted.session
 		if session == (protocol.SessionID{}) && mounted.view != nil {
 			if captured, exists := state.runtime.session(mounted.view.ID); exists {
@@ -110,7 +117,14 @@ func (state *pluginNativeState) refreshAssistantTools() {
 				revision, connected = current.Snapshot.Page.Revision, current.Connected
 			}
 		}
-		fmt.Fprintf(&signature, "%s/%s/%d/%t;", identity, session, revision, connected)
+		fmt.Fprintf(&signature, "%q/%s/%d/%t", identity, session, revision, connected)
+		// Detail reads populate the Client cache without changing the page
+		// revision. Include the calls now available, including after a
+		// failed read is retried by the conversation's own tool row.
+		for _, call := range history.Calls {
+			fmt.Fprintf(&signature, "/%q", call.Key)
+		}
+		signature.WriteByte(';')
 		conversations[identity] = history
 	}
 	// A detail still loading leaves the published value short: it is

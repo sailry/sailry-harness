@@ -235,6 +235,14 @@ func (r *Runtime) projectWorkspaceLocations() {
 		}
 	}
 }
+
+// workspaceTurnReview retains the user's latest navigation intent while a
+// turn diff loads. Repeating a pending turn may select another file of it.
+type workspaceTurnReview struct {
+	turn protocol.TurnID
+	path string
+}
+
 func (r *Runtime) openWorkspaceChange(x *conversationActions, relative string) {
 	session, ok := r.session(x.cv.ID)
 	if !ok {
@@ -247,7 +255,8 @@ func (r *Runtime) openWorkspaceChange(x *conversationActions, relative string) {
 		return
 	}
 	p.turnView = nil
-	delete(p.reviewTurns, relative)
+	p.reviewTarget = nil
+	p.reviewTurns = map[string]protocol.TurnID{}
 	p.projectStatus(p.status)
 	p.panel.DiffOpen(relative, "all")
 	r.App.PanelOpen = true
@@ -268,9 +277,10 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 	if p == nil {
 		return
 	}
+	p.reviewTarget = &workspaceTurnReview{turn: id, path: path}
 	p.read("review-turn/"+turn, protocol.Command{Kind: "read_turn_diff", Data: protocol.CommandReadTurnDiffPayload{Session: session.ID, Turn: id}}, func(c *ui.Context, out protocol.Output) {
 		value, ok := detail[protocol.ConversationCheckpointTurnDiff](out.Data)
-		if !ok || p.session != session.ID {
+		if !ok || p.session != session.ID || p.reviewTarget == nil || p.reviewTarget.turn != id {
 			return
 		}
 		changes := workspaceTurnFiles(value)
@@ -283,7 +293,7 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 		for _, file := range changes {
 			p.reviewTurns[file.Path] = id
 		}
-		target := path
+		target := p.reviewTarget.path
 		if target == "" {
 			target = ":changes"
 		}

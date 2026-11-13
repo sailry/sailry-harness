@@ -17,6 +17,64 @@ import (
 // Over 1 s only beside the package's other parallel tests: each opens its own synced store.
 func TestDispatchContracts(test *testing.T) {
 	test.Parallel()
+	test.Run("settlement preserves an already committed outcome", func(test *testing.T) {
+		fixture := newDispatchFixture(test, "settlement")
+		failure := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture callback failure"}
+		var ended protocol.DispatchJob
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 100)
+			if err != nil {
+				return err
+			}
+			work, _, _, err := claimDispatchJobs(ctx, db, fixture.node, 200)
+			if err != nil {
+				return err
+			}
+			if len(work) != 1 || work[0].Job != job.ID {
+				return errors.New("fixture did not claim the callback")
+			}
+			if _, err := FinishDispatch(ctx, db, job.ID, failure, 300); err != nil {
+				return err
+			}
+			ended, err = dispatchRequired[protocol.DispatchJob](ctx, db, "dispatch_jobs", fixture.reference.Name, "id", job.ID.String())
+			return err
+		})
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			events, err := FinishDispatch(ctx, db, ended.ID, failure, 400)
+			if err != nil {
+				return err
+			}
+			current, err := dispatchRequired[protocol.DispatchJob](ctx, db, "dispatch_jobs", fixture.reference.Name, "id", ended.ID.String())
+			if err != nil {
+				return err
+			}
+			if len(events) != 0 || !reflect.DeepEqual(current, ended) {
+				return errors.New("settlement replaced the stored outcome or repeated its notice")
+			}
+			// Completed history can be collected before an uncertain commit
+			// is confirmed; this must not keep the settlement owner alive.
+			if _, err := db.ExecContext(ctx, "DELETE FROM dispatch_jobs WHERE id=?1", ended.ID.String()); err != nil {
+				return err
+			}
+			events, err = FinishDispatch(ctx, db, ended.ID, failure, 500)
+			if err == nil && len(events) != 0 {
+				return errors.New("collected completion produced another event")
+			}
+			return err
+		})
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 600)
+			if err != nil {
+				return err
+			}
+			_, err = FinishDispatch(ctx, db, job.ID, nil, 700)
+			var failed *protocol.Fault
+			if !errors.As(err, &failed) || failed.Code != protocol.ErrorCodeConflict {
+				return fmt.Errorf("unexecuted callback accepted a completion: %v", err)
+			}
+			return nil
+		})
+	})
 	test.Run("metadata_edits_preserve_consumed_cursor", func(test *testing.T) {
 		fixture := newDispatchFixture(test, "weekday")
 		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {

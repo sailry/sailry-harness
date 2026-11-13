@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"io"
@@ -114,6 +115,48 @@ func TestConnectorRenewal(t *testing.T) {
 		renew(t, protocol.ErrorCodeUnavailable, false)
 		if requests != 2 {
 			t.Fatalf("an unreachable service was asked %d times in two uses", requests)
+		}
+	})
+	t.Run("a cancelled waiter does not wait for the renewal owner", func(t *testing.T) {
+		entered, release := make(chan struct{}), make(chan struct{})
+		answer = func(request *http.Request) (*http.Response, error) {
+			close(entered)
+			<-release
+			return respond(http.StatusBadRequest, `{"error":"invalid_grant"}`)(request)
+		}
+		ownerDone := make(chan error, 1)
+		go func() {
+			_, err := node.connectorAccess(ctx, record, declaration)
+			ownerDone <- err
+		}()
+		select {
+		case <-entered:
+		case err := <-ownerDone:
+			t.Fatalf("fixture renewal ended before its HTTP boundary: %v", err)
+		}
+		waiter, cancel := context.WithCancel(ctx)
+		cancel()
+		waiterDone := make(chan error, 1)
+		go func() {
+			_, err := node.connectorAccess(waiter, record, declaration)
+			waiterDone <- err
+		}()
+		returned := false
+		select {
+		case err := <-waiterDone:
+			returned = true
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("cancelled waiter returned %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			// Only a failing implementation waits: the owner remains at its
+			// controlled HTTP boundary until the cancellation was observed.
+			t.Error("cancelled waiter remained behind an unrelated renewal")
+		}
+		close(release)
+		settled(t, <-ownerDone, protocol.ErrorCodeExpired, false)
+		if !returned {
+			<-waiterDone
 		}
 	})
 	t.Run("a refusal asks for a new sign-in without the uncertain marker", func(t *testing.T) {

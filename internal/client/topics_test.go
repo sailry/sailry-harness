@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -43,10 +44,14 @@ func (stream *topicFixture) Close() error {
 
 type topicTransport struct {
 	*clientTransport
-	topics []*topicFixture
+	topics    []*topicFixture
+	subscribe func(context.Context, protocol.Topic) (link.Subscription, error)
 }
 
 func (transport *topicTransport) Subscribe(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
+	if transport.subscribe != nil {
+		return transport.subscribe(ctx, topic)
+	}
 	if topic.Kind == "node" {
 		return transport.clientTransport.Subscribe(ctx, topic)
 	}
@@ -59,6 +64,68 @@ func (transport *topicTransport) Subscribe(ctx context.Context, topic protocol.T
 	transport.topics = transport.topics[1:]
 	stream.ctx = ctx
 	return stream, nil
+}
+
+func TestTopicEstablishment(t *testing.T) {
+	t.Parallel()
+	t.Run("Close interrupts an unfinished subscription", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			transport := &topicTransport{clientTransport: &clientTransport{}, subscribe: func(ctx context.Context, _ protocol.Topic) (link.Subscription, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}}
+			controller := New(transport)
+			establishing := make(chan error, 1)
+			go func() {
+				_, err := controller.Subscribe(ctx, protocol.Topic{Kind: "connections"})
+				establishing <- err
+			}()
+			synctest.Wait()
+			closed := make(chan error, 1)
+			go func() { closed <- controller.Close() }()
+			synctest.Wait()
+			select {
+			case err := <-closed:
+				if err != nil {
+					t.Error(err)
+				}
+			default:
+				// Release the old implementation too, so the regression fails
+				// without leaving blocked goroutines or waiting for a timeout.
+				cancel()
+				synctest.Wait()
+				<-closed
+				t.Error("Close waited for the subscription's caller to cancel")
+			}
+			if err := <-establishing; !errors.Is(err, context.Canceled) {
+				t.Fatalf("unfinished subscription outlived Close: %v", err)
+			}
+		})
+	})
+	t.Run("a registered topic keeps its lifetime after establishment", func(t *testing.T) {
+		stream := &topicFixture{closed: make(chan struct{})}
+		transport := &topicTransport{clientTransport: &clientTransport{}, subscribe: func(ctx context.Context, _ protocol.Topic) (link.Subscription, error) {
+			stream.ctx = ctx
+			return stream, nil
+		}}
+		controller := New(transport)
+		t.Cleanup(func() { _ = controller.Close() })
+		if _, err := controller.Subscribe(t.Context(), protocol.Topic{Kind: "connections"}); err != nil {
+			t.Fatal(err)
+		}
+		if stream.ctx.Err() != nil {
+			t.Fatal("successful establishment cancelled the registered topic")
+		}
+		if err := controller.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if stream.ctx.Err() == nil {
+			t.Fatal("Close retained the registered topic's lifetime")
+		}
+		<-stream.closed
+	})
 }
 
 func TestTopicRecovery(t *testing.T) {

@@ -2,14 +2,130 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestDispatchSettlement(test *testing.T) {
+	test.Parallel()
+	test.Run("a failed end write keeps completed effects without replay", func(test *testing.T) {
+		synctest.Test(test, func(test *testing.T) {
+			clock := clockwork.NewFakeClock()
+			ctx, cancel := context.WithCancel(test.Context())
+			defer cancel()
+			first, second := protocol.NewJobID(), protocol.NewJobID()
+			callbackFailure := errors.New("fixture callback failure")
+			results := map[protocol.JobID]error{first: nil, second: callbackFailure}
+			var effects, writes, reports atomic.Int32
+			var mu sync.Mutex
+			settled := map[protocol.JobID]bool{}
+			var pending protocol.JobID
+			claimed := false
+			runner := Runner{
+				Clock: clock,
+				Tick: func(context.Context, bool) (Batch, error) {
+					if claimed {
+						return Batch{}, nil
+					}
+					claimed = true
+					return Batch{Work: []Work{{Job: first}, {Job: second}}}, nil
+				},
+				Execute: func(_ context.Context, work Work) error {
+					effects.Add(1)
+					return results[work.Job]
+				},
+				Finished: func(_ context.Context, job protocol.JobID, result error) error {
+					if result != results[job] {
+						test.Error("settlement changed the completed callback result")
+					}
+					attempt := writes.Add(1)
+					if attempt == 1 {
+						pending = job
+					}
+					if attempt <= 3 && job != pending {
+						test.Error("another completion replaced the unsettled owner")
+					}
+					if attempt <= 2 {
+						return errors.New("fixture storage failure")
+					}
+					mu.Lock()
+					settled[job] = true
+					mu.Unlock()
+					return nil
+				},
+				Report: func(error) { reports.Add(1) },
+			}
+			done := make(chan struct{})
+			go func() { defer close(done); runner.Serve(ctx) }()
+			synctest.Wait()
+			if effects.Load() != 2 || writes.Load() != 1 || reports.Load() != 1 {
+				test.Errorf("failed settlement was discarded: effects %d, writes %d, reports %d", effects.Load(), writes.Load(), reports.Load())
+			}
+			clock.Advance(time.Second - time.Nanosecond)
+			synctest.Wait()
+			if writes.Load() != 1 {
+				test.Error("settlement bypassed the tick's existing retry wait")
+			}
+			clock.Advance(time.Nanosecond)
+			synctest.Wait()
+			if effects.Load() != 2 || writes.Load() != 2 || reports.Load() != 2 {
+				test.Errorf("the failed owner was not retained for another retry: effects %d, writes %d, reports %d", effects.Load(), writes.Load(), reports.Load())
+			}
+			clock.Advance(time.Second)
+			synctest.Wait()
+			mu.Lock()
+			complete := settled[first] && settled[second]
+			mu.Unlock()
+			if !complete || effects.Load() != 2 || writes.Load() != 4 {
+				test.Errorf("completed callbacks did not settle exactly once after storage recovered: complete %v, effects %d, writes %d", complete, effects.Load(), writes.Load())
+			}
+			cancel()
+			<-done
+		})
+	})
+	test.Run("shutdown releases owners waiting for settlement", func(test *testing.T) {
+		synctest.Test(test, func(test *testing.T) {
+			ctx, cancel := context.WithCancel(test.Context())
+			defer cancel()
+			var effects, writes atomic.Int32
+			claimed := false
+			runner := Runner{
+				Clock: clockwork.NewFakeClock(),
+				Tick: func(context.Context, bool) (Batch, error) {
+					if claimed {
+						return Batch{}, nil
+					}
+					claimed = true
+					return Batch{Work: []Work{{Job: protocol.NewJobID()}, {Job: protocol.NewJobID()}, {Job: protocol.NewJobID()}}}, nil
+				},
+				Execute: func(context.Context, Work) error { effects.Add(1); return nil },
+				Finished: func(context.Context, protocol.JobID, error) error {
+					writes.Add(1)
+					return errors.New("fixture storage failure")
+				},
+			}
+			done := make(chan struct{})
+			go func() { defer close(done); runner.Serve(ctx) }()
+			synctest.Wait()
+			if effects.Load() != 3 || writes.Load() != 1 {
+				test.Errorf("fixture did not hold its completed owners: effects %d, writes %d", effects.Load(), writes.Load())
+			}
+			cancel()
+			synctest.Wait()
+			<-done
+			if effects.Load() != 3 || writes.Load() != 1 {
+				test.Fatal("shutdown replayed effects or wrote another completion")
+			}
+		})
+	})
+}
 
 func TestDispatchWakeup(test *testing.T) {
 	test.Parallel()

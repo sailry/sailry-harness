@@ -15,6 +15,10 @@ func (client *Client) Subscribe(ctx context.Context, topic protocol.Topic) (link
 		return nil, fault(protocol.ErrorCodeUnavailable, "Client is closed")
 	}
 	operation, cancel := context.WithCancel(ctx)
+	// Close must interrupt establishment before it waits for lifecycle. Once
+	// registered, the topic keeps operation until its own Close cancels it.
+	stop := context.AfterFunc(client.closing, cancel)
+	defer stop()
 	stream, err := client.transport.Subscribe(operation, copyValue(topic))
 	if err != nil {
 		cancel()

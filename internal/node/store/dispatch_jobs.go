@@ -266,6 +266,11 @@ func readDispatchInvocation(ctx context.Context, db *sql.Conn, identity string) 
 func FinishDispatch(ctx context.Context, db *sql.Conn, identity protocol.JobID, result error, timestamp int64) ([]protocol.Event, error) {
 	var owner string
 	if err := db.QueryRowContext(ctx, "SELECT package FROM dispatch_jobs WHERE id=?1", identity.String()).Scan(&owner); err != nil {
+		// An uncertain commit may already have ended this job and pruned it
+		// under the history limit. There is no running owner left to settle.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	job, err := dispatchRequired[protocol.DispatchJob](ctx, db, "dispatch_jobs", owner, "id", identity.String())
@@ -273,6 +278,12 @@ func FinishDispatch(ctx context.Context, db *sql.Conn, identity protocol.JobID, 
 		return nil, err
 	}
 	if job.Status != protocol.DispatchStatusRunning {
+		switch job.Status {
+		case protocol.DispatchStatusCompleted, protocol.DispatchStatusFailed, protocol.DispatchStatusCancelled, protocol.DispatchStatusUnknown:
+			// Only the end write is retried. Preserve the first committed
+			// outcome, timestamp and notice after an uncertain commit.
+			return nil, nil
+		}
 		return nil, fault(protocol.ErrorCodeConflict, "callback is not running")
 	}
 	job.Error, job.FinishedMs = dispatchFault(result), &timestamp
@@ -289,15 +300,15 @@ func FinishDispatch(ctx context.Context, db *sql.Conn, identity protocol.JobID, 
 	if err := putDispatchJob(ctx, db, job); err != nil {
 		return nil, err
 	}
-	if err := pruneDispatchJobs(ctx, db); err != nil {
-		return nil, err
-	}
 	_, _, reference, err := readDispatchInvocation(ctx, db, identity.String())
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	notices, err := dispatchNotice(ctx, db, job, reference, timestamp)
 	if err != nil {
+		return nil, err
+	}
+	if err := pruneDispatchJobs(ctx, db); err != nil {
 		return nil, err
 	}
 	return append([]protocol.Event{dispatchChanged([]string{owner})}, notices...), nil

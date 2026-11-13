@@ -7,7 +7,6 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
-	"sync"
 	"time"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -31,10 +30,14 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if record.Method == protocol.PluginConnectorKindSecret {
 		return nil, nil
 	}
-	value, _ := node.auth.connectorLocks.LoadOrStore(record.ID, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
-	lock.Lock()
-	defer lock.Unlock()
+	value, _ := node.auth.connectorLocks.LoadOrStore(record.ID, make(chan struct{}, 1))
+	lock := value.(chan struct{})
+	select {
+	case lock <- struct{}{}:
+		defer func() { <-lock }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	var current store.ConnectorRecord
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error

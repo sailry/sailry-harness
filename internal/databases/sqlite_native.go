@@ -27,13 +27,15 @@ import (
 
 const pointerBytes = bits.UintSize / 8
 
-// sqliteContexts maps an open handle to the context its progress callback
-// observes. Callbacks are package-level functions, so they cannot capture it.
-var sqliteContexts sync.Map // uintptr -> context.Context
+// sqliteConnections gives package-level SQLite callbacks their owning operation.
+var sqliteConnections sync.Map // uintptr -> *sqliteConnection
 
 type sqliteConnection struct {
-	tls *libc.TLS
-	db  uintptr
+	tls     *libc.TLS
+	db      uintptr
+	ctx     context.Context
+	storage string
+	denied  error
 }
 
 func openSQLite(path string, flags int32) (*sqliteConnection, error) {
@@ -58,13 +60,14 @@ func openSQLite(path string, flags int32) (*sqliteConnection, error) {
 		return nil, queryError(message)
 	}
 	sqlite3.Xsqlite3_extended_result_codes(tls, connection.db, 1)
+	sqliteConnections.Store(connection.db, connection)
 	return connection, nil
 }
 
 func (connection *sqliteConnection) close() {
 	if connection.db != 0 {
 		sqlite3.Xsqlite3_progress_handler(connection.tls, connection.db, 0, 0, 0)
-		sqliteContexts.Delete(connection.db)
+		sqliteConnections.Delete(connection.db)
 		sqlite3.Xsqlite3_close_v2(connection.tls, connection.db)
 		connection.db = 0
 	}
@@ -77,7 +80,7 @@ func (connection *sqliteConnection) busyTimeout(milliseconds int32) {
 
 // watch interrupts running statements once ctx is cancelled or expires.
 func (connection *sqliteConnection) watch(ctx context.Context) {
-	sqliteContexts.Store(connection.db, ctx)
+	connection.ctx = ctx
 	sqlite3.Xsqlite3_progress_handler(connection.tls, connection.db, 1000, cFuncPointer(sqliteProgress), connection.db)
 }
 
@@ -113,7 +116,9 @@ func (connection *sqliteConnection) prepare(sql string, classify bool) (uintptr,
 		statement := readPointer(slots)
 		if code != sqlite3.SQLITE_OK {
 			var failure error
-			if classify && code&0xff == sqlite3.SQLITE_AUTH {
+			if connection.denied != nil {
+				failure = connection.denied
+			} else if classify && code&0xff == sqlite3.SQLITE_AUTH {
 				failure = missing()
 			} else {
 				failure = queryError(connection.errorMessage())
@@ -179,6 +184,9 @@ func (connection *sqliteConnection) collect(statement uintptr, limit uint32) (pr
 			}
 			return result.result, nil
 		default:
+			if connection.denied != nil {
+				return empty, connection.denied
+			}
 			// An interrupted statement may already have changed the database.
 			if sqlite3.Xsqlite3_extended_errcode(connection.tls, connection.db) == sqlite3.SQLITE_INTERRUPT {
 				return empty, unknown()
@@ -233,7 +241,7 @@ func sqliteReal(value float64) string {
 }
 
 func sqliteProgress(_ *libc.TLS, db uintptr) int32 {
-	if ctx, ok := sqliteContexts.Load(db); ok && ctx.(context.Context).Err() == nil {
+	if owner, ok := sqliteConnections.Load(db); ok && owner.(*sqliteConnection).ctx.Err() == nil {
 		return 0
 	}
 	return 1
