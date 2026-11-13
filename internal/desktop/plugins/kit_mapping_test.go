@@ -170,6 +170,7 @@ func testKitMapping(t *testing.T) {
 		}
 	})
 	t.Run("list rows", testListRows)
+	t.Run("tree identity and events", testTreeRows)
 	t.Run("package-sized buttons", testSizedButtons)
 	t.Run("chart tokens", testChartTokens)
 	t.Run("empty state panel", func(t *testing.T) {

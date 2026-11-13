@@ -123,8 +123,9 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 						}
 					}
 					before := open != nil && *open
+					view.Key(item.ID)
 					parts := tree.Item(open)
-					row := parts.Row.Key(item.ID).Label(item.Label).Height(28).Gap(8).PaddingX(8).MinWidth(0).Radius(palette.Radius).Disabled(item.Disabled).Tooltip(item.Label)
+					row := parts.Row.Label(item.Label).Height(28).Gap(8).PaddingX(8).MinWidth(0).Radius(palette.Radius).Disabled(item.Disabled).Tooltip(item.Label)
 					depth := parts.Depth()
 					indent := nativeProp(props, "indent", float32(16))
 					skip := max(0, nativeProp(props, "skip_depth", 0))
