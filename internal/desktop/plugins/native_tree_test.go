@@ -15,6 +15,7 @@ func testTreeRows(t *testing.T) {
 			items := []nativeTreeItem{
 				{ID: "folder", Label: "Folder", Children: []nativeTreeItem{{ID: "child", Label: "Child"}}},
 				{ID: "file", Label: "File"},
+				{ID: "empty", Label: "Empty", Folder: true},
 			}
 			current := ""
 			var selected []string
@@ -78,6 +79,12 @@ func testTreeRows(t *testing.T) {
 			event("folder", "expand")
 			if !row("Folder").Expanded || row("Child").Level != 2 {
 				t.Fatal("expanding a folder did not show its child")
+			}
+			// A folder with no children still opens and closes.
+			click("Empty", "empty")
+			event("empty", "expand")
+			if !row("Empty").Expanded {
+				t.Fatal("an empty folder did not open")
 			}
 			click("Child", "child")
 			event("child", "open")

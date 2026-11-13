@@ -19,10 +19,12 @@ type treeDraft struct {
 }
 
 type nativeTreeItem struct {
-	ID         string                `json:"id"`
-	Label      string                `json:"label"`
-	Icon       string                `json:"icon"`
-	Expanded   bool                  `json:"expanded"`
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Icon     string `json:"icon"`
+	Expanded bool   `json:"expanded"`
+	// Folder opens and closes the item with no children: an empty folder.
+	Folder     bool                  `json:"folder"`
 	Disabled   bool                  `json:"disabled"`
 	Children   []nativeTreeItem      `json:"children"`
 	Menu       []nativeMenuItem      `json:"menu"`
@@ -114,7 +116,7 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 						decoration = *item.Decoration
 					}
 					var open *bool
-					if len(item.Children) > 0 {
+					if len(item.Children) > 0 || item.Folder {
 						open = state.expanded[item.ID]
 						if open == nil {
 							value := item.Expanded
@@ -170,9 +172,10 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 								if last && !continued {
 									end = middle
 								}
-								nativeTreeDashedLine(painter, horizontal, bounds.Y, horizontal, end, bounds.H/14, palette.Border)
+								guide := palette.MutedForeground.Alpha(0.5)
+								nativeTreeDashedLine(painter, horizontal, bounds.Y, horizontal, end, bounds.H/14, guide)
 								if last {
-									nativeTreeDashedLine(painter, horizontal, middle, horizontal+indent-4, middle, bounds.H/14, palette.Border)
+									nativeTreeDashedLine(painter, horizontal, middle, horizontal+indent-4, middle, bounds.H/14, guide)
 								}
 							}
 						})

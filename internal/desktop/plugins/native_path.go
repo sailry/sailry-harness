@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -20,18 +19,21 @@ func (binding *NativeBinding) renderPath(view *ui.Context, element NativeElement
 	// Crumbs does that too, owns a non-Kit overflow menu and lets long labels
 	// exceed the path's width (kit/crychic's Crumbs probe). Kit buttons keep
 	// every segment actionable and truncate within the available row.
-	path := ui.Row(view).FillWidth().MinWidth(0).Clip().Gap(2).AlignItems(ui.Center).Disabled(disabled)
+	// It reads as the path itself: the names in a row of plain text, a muted
+	// "/" between them, each a ghost button that shows on hover.
+	palette := theme.Of(view)
+	path := ui.Row(view).FillWidth().MinWidth(0).Clip().AlignItems(ui.Center).Disabled(disabled)
 	path.Children(func() {
 		for index, segment := range segments {
-			if index > 0 {
-				ui.Icon(view.Key(-index), icons.ChevronRight).Size(12, 12).Shrink(0).TextColor(theme.Of(view).MutedForeground)
+			if index > 0 && segments[index-1] != "/" {
+				ui.Text(view.Key(-index), "/").FontSize(13).Shrink(0).TextColor(palette.MutedForeground)
 			}
-			button := kit.Ghost(view.Key(index), segment, false).MinWidth(0).Shrink(1).Padding(2, 6).Disabled(disabled).Tooltip(segment)
-			tone := theme.Of(view).MutedForeground
+			tone := palette.MutedForeground
 			if index+1 == len(segments) {
-				tone = theme.Of(view).Foreground
+				tone = palette.Foreground
 			}
-			button.Children(func() { nativeText(view, segment).TextColor(tone).MinWidth(0).SingleLine() })
+			button := kit.Ghost(view.Key(index), segment, false).Height(24).MinWidth(0).Shrink(1).Padding(0, 4).Disabled(disabled).Tooltip(segment)
+			button.Children(func() { ui.Text(view, segment).FontSize(13).TextColor(tone).MinWidth(0).SingleLine() })
 			button.OnClick(func() { binding.emit("control", map[string]any{"id": identity, "value": index}) })
 		}
 	})
