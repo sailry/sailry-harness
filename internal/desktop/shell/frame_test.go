@@ -104,11 +104,16 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 		t.Fatal("Escape left the conversation's find bar open")
 	}
 	// ⌘F in the terminal opens its find bar, not the conversation's.
+	// The tab has no toolbar of its own: the shortcut alone opens the bar,
+	// which MyGo closes with Done.
 	click(t, tt, i18n.In("en", "workspace_terminal_preview"))
 	tt.Frame()
+	if tt.HasText("Done") || tt.HasText(i18n.In("en", "terminal_search_placeholder")) {
+		t.Fatalf("the terminal tab shows a find control before ⌘F: %q", tt.Texts())
+	}
 	tt.Key(ui.Cmd, ui.KeyF)
 	tt.Frame()
-	if !tt.HasText(i18n.In("en", "terminal_search_placeholder")) || a.Messages.SearchOpen() {
+	if !tt.HasText("Done") || a.Messages.SearchOpen() {
 		t.Errorf("no terminal find bar, or the conversation's opened: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-terminal")

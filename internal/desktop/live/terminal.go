@@ -101,7 +101,8 @@ func (r *Runtime) attachLiveTerminal(state *liveTerminal, info protocol.Terminal
 		var connection *terminalConn
 		if err == nil {
 			connection = &terminalConn{owner: owner, ctx: ctx, cancel: cancel, stream: stream, ready: make(chan struct{}), info: info, self: root.controller.Target()}
-			terminal, err = myterminal.New(myterminal.Options{Conn: connection, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk, Font: terminalFont(display),
+			// Transparent: the terminal shows on its pane's own surface.
+			terminal, err = myterminal.New(myterminal.Options{Conn: connection, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk, Font: terminalFont(display), Transparent: true,
 				OnClear: func(myterminal.Clear) bool { connection.clearScreen(); return true },
 				OnPaste: func(data transfer.Data) bool { return root.holdTerminalPaste(id, data) },
 			})

@@ -184,9 +184,9 @@ func (s *State) Find() bool {
 	return true
 }
 
-// terminal is a terminal tab: the folder it runs in, Close and New terminal
-// over the screen, and MyGo's find bar at its top right, ⌘F opening it while
-// the focus is in the tab. The preview starts no shell and shows the
+// terminal is a terminal tab: the screen alone, with MyGo's find bar at its
+// top right, ⌘F opening it while the focus is in the tab. The panel's tab
+// strip closes the terminal and opens another. The preview starts no shell and shows the
 // screen's placeholder: there is nothing to match. A live tab shows its Node
 // terminal through TerminalActions.
 func (s *State) terminal(c *ui.Context, t Tab) {
@@ -202,19 +202,6 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 		}
 	}
 	col.Children(func() {
-		toolbar(c, "toolbar", func() {
-			ui.Icon(c, icons.Terminal).FontSize(14).TextColor(p.MutedForeground)
-			ui.Text(c, x.cwd).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.MutedForeground)
-			kit.Action(c.Key("find"), icons.Search, i18n.T(c, "terminal_search_placeholder"), false).OnClick(func() { x.find = true })
-			kit.Action(c.Key("close"), icons.Close, i18n.T(c, "workspace_close_terminal"), false).OnClick(func() {
-				if s.TerminalActions != nil && s.TerminalActions.Close != nil {
-					s.TerminalActions.Close(t.ID)
-					return
-				}
-				s.Close(t)
-			})
-			kit.IconButtonHint(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_terminal"), "", 28, false).OnClick(func() { s.New(Terminal) })
-		})
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
 			if s.TerminalActions != nil && s.TerminalActions.View != nil {
 				s.TerminalActions.View(c, t.ID)

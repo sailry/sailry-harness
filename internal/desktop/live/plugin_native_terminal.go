@@ -168,11 +168,11 @@ func (state *pluginNativeState) mountTerminal(identity string, id protocol.Termi
 			if err == nil {
 				connection = &terminalConn{
 					owner: state.runtime, ctx: ctx, cancel: cancel, stream: stream,
-					ready: make(chan struct{}), info: snapshot.Info,
+					ready: make(chan struct{}), info: snapshot.Info, self: state.runtime.localRuntime().controller.Target(),
 				}
 				scoped := &pluginNativeTerminalConn{terminalConn: connection, native: state}
 				terminal, err = myterminal.New(myterminal.Options{
-					Conn: scoped, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk,
+					Conn: scoped, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk, Transparent: true,
 					OnClear: func(myterminal.Clear) bool { connection.clearScreen(); return true },
 				})
 				if err == nil {

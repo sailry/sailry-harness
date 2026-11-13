@@ -151,6 +151,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Right panel: History and Documents as launcher or "+" entries (the tab kinds
   stay); a preview of PDF, Office or other formats MyGo cannot draw (Open uses
   the system's app, on Mobile too)
+- Terminal tab: its own toolbar (folder, Search, Close terminal and New
+  terminal); the panel's tab strip closes and opens terminals and ⌘F finds
 - Split workspace: a pane close that stops, closes or removes its session or
   terminal (it only detaches; a terminal pane still confirms)
 - Activity strip: the `git` plugin's Status-slot entry (the +/− badge is
