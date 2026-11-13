@@ -9,9 +9,8 @@ Use **Add project** and choose **Local** for an existing directory or **Clone** 
 a Git repository. Enter the project name and path; cloning also needs a repository
 URL and destination. For a remote project, select the remote host in the form.
 
-When Sailry asks you to trust a project, review its source first. Project
-instructions and tools can run code across its worktrees. **Revoke trust** stops
-project tasks while keeping history and drafts.
+Adding a project trusts that directory for Sailry's work. Project instructions
+and tools can run code across its worktrees.
 
 ## Work in a session
 
@@ -20,7 +19,7 @@ and describe your task. Sessions belong to the selected host, project and worktr
 opening another session does not move its files or execution to another machine.
 
 Use the session menu to rename, pin or archive a conversation. Archived sessions
-remain in **Session records** and can be restored. **Delete session** permanently
+remain on the project page and can be restored. **Delete session** permanently
 removes that session and its subagent sessions; stop active work before deleting.
 
 ## Use a Git worktree
