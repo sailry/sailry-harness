@@ -49,6 +49,21 @@ func testSSHResourceRules(t *testing.T) {
 	stop()
 	expired, release := context.WithDeadline(live, time.Unix(0, 0))
 	defer release()
+	connectionFailure := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "SSH connection could not be established"}
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		code protocol.ErrorCode
+	}{
+		{"connection refused", live, protocol.ErrorCodeUnavailable},
+		{"connection deadline", expired, protocol.ErrorCodeUnavailable},
+		{"connection cancelled", stopped, protocol.ErrorCodeCancelled},
+	} {
+		var fault *protocol.Fault
+		if err := sshConnectionFailure(test.ctx, connectionFailure); !errors.As(err, &fault) || fault.Code != test.code {
+			t.Fatalf("%s = %v", test.name, err)
+		}
+	}
 	for _, test := range []struct {
 		name          string
 		parent, timed context.Context

@@ -123,7 +123,8 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 	x.settleGuidance()
 	x.reportHalt()
 	x.reportUsage()
-	if outgoing, sending := r.composerOutgoing[x.cv.ID]; sending {
+	if pending := r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
+		outgoing := pending.Queued
 		if outgoing.Text == "" {
 			outgoing.Text = i18n.T(x.c, "chat_attachment_count", "count", len(outgoing.Attachments))
 		}
@@ -134,10 +135,10 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 // outgoing shows m in the queue tray until the Host answers its submission.
 func (x *conversationActions) outgoing(m composer.Message, guide bool) {
 	if x.r.composerOutgoing == nil {
-		x.r.composerOutgoing = map[string]composer.Queued{}
+		x.r.composerOutgoing = map[string]*conversationOutgoing{}
 	}
 	// A message of files alone is named by their count, in the frame.
-	x.r.composerOutgoing[x.cv.ID] = composer.Queued{Text: strings.TrimSpace(m.Text), Guided: guide, Attachments: m.Attachments}
+	x.r.composerOutgoing[x.cv.ID] = &conversationOutgoing{Queued: composer.Queued{Text: strings.TrimSpace(m.Text), Guided: guide, Attachments: m.Attachments}}
 }
 
 // queueCommand runs a command of the queue tray. A conflict says the queue

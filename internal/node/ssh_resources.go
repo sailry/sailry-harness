@@ -147,11 +147,7 @@ func (node *Node) runSSHResource(ctx context.Context, caller protocol.NodeID, re
 		if errors.As(err, &required) {
 			return required.Outcome(), nil
 		}
-		if scoped.Err() != nil {
-			// Nothing was authenticated, so no remote effect can exist.
-			return protocol.SshOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "SSH connection cancelled"}
-		}
-		return protocol.SshOutcome{}, err
+		return protocol.SshOutcome{}, sshConnectionFailure(scoped, err)
 	}
 	defer connection.Close()
 	timed, cancel := context.WithTimeout(scoped, resource.timeout)
@@ -209,6 +205,15 @@ func (node *Node) runSSHFiles(ctx context.Context, caller protocol.NodeID, conne
 		return protocol.SshOutcome{Kind: "transferred", Data: protocol.SshOutcomeTransferredPayload{Bytes: bytes}}, err
 	}
 	return protocol.SshOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "SSH operation expected"}
+}
+
+// sshConnectionFailure preserves a definite connection failure: no remote
+// operation or shell has been requested yet, even when its deadline expires.
+func sshConnectionFailure(ctx context.Context, failure error) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "SSH connection cancelled"}
+	}
+	return failure
 }
 
 // sshInterrupted replaces the failure of an operation whose context ended with

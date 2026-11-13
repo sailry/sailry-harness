@@ -1,6 +1,7 @@
 chat_model_reconnecting_continuously: "正在重新连接"
 chat_model_connection_retried: "已尝试重新连接"
 chat_model_retry_exhausted: "重试次数已用尽"
+chat_model_retry_wait_exhausted: "重试等待时间已用尽"
 chat_model_request_rejected: "请求被拒绝"
 chat_model_context_exceeded: "上下文超出模型限制"
 chat_model_usage_exhausted: "用量额度已耗尽"

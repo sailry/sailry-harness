@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -130,13 +131,21 @@ func (r *Runtime) saveComposerConfig(session protocol.Session, config protocol.S
 	r.composerSaving[id] = true
 	value, _ := json.Marshal(config)
 	r.composerObserved[id] = string(value)
-	r.command(protocol.Command{Kind: "set_session_config", Data: protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: session.Revision, Config: config}}, "session_changed", func(output protocol.Output, ok bool) {
+	r.execute(protocol.Command{Kind: "set_session_config", Data: protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: session.Revision, Config: config}}, func(c *ui.Context, output protocol.Output, err error) {
+		ok := err == nil
 		if ok {
 			updated, valid := detail[protocol.Session](output.Data)
 			ok = valid && updated.ID == session.ID && updated.Revision > session.Revision
 			if ok {
 				r.admittedSessions[id] = updated
 				r.composerRevisions[id] = updated.Revision
+			} else {
+				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "session configuration result is unavailable")
+			}
+		}
+		if !ok {
+			if !r.failUnsubmitted(c, id, err) {
+				r.report(c, err, "session_changed")
 			}
 		}
 		r.composerSaving[id] = false

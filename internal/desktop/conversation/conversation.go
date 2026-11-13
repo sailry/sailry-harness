@@ -24,7 +24,7 @@ const (
 	turnGap    = 10 // user message to reply
 	turnBottom = 28 // between turns
 	bubbleMax  = 440
-	workGap    = 16 // between the blocks of the work region
+	workGap    = 16 // between reply blocks and tool groups
 )
 
 // State is the transcript's UI state: a list state per conversation, so
@@ -495,7 +495,11 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 	blocks := Compact(cited(r.Blocks, r.Citations))
 	from := AnswerFrom(blocks)
 	active := r.Status.Active()
-	ui.Column(c.Key("reply")).Gap(8).Children(func() {
+	gap := float32(8)
+	if from > 0 {
+		gap = workGap
+	}
+	ui.Column(c.Key("reply")).Gap(gap).Children(func() {
 		// The header: the status, its time, and the work region's trigger.
 		ui.Column(c).Gap(8).Children(func() {
 			key := "work-" + t.ID

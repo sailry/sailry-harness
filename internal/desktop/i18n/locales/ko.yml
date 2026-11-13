@@ -240,6 +240,7 @@ workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
 session_delete_private_files: Its private workspace files are deleted too
+session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
 workspace_rename: 이름 바꾸기
 session_title_required: 이름 입력
 session_mark_read: 읽은 것으로 표시
@@ -599,6 +600,7 @@ chat_model_reconnecting: 요청 재시도 %{attempt}/%{limit}
 chat_model_reconnecting_continuously: 다시 연결 중
 chat_model_retried: 모델 요청 재시도 %{attempt}/%{limit}
 chat_model_retry_exhausted: 재시도 횟수 한도에 도달함
+chat_model_retry_wait_exhausted: Retry wait limit reached
 chat_model_server_overloaded: 모델 서비스 과부하
 chat_reconnecting: 다시 연결 중
 chat_rewind: 이번 턴으로 되감기
@@ -2107,8 +2109,8 @@ host_wsl_requirement: WSL2, GNU Linux x64/arm64 및 systemd 필요
 host_wsl_empty: 설치된 WSL2 배포판 없음
 host_wsl_load_failed: WSL 배포판을 불러올 수 없음
 files_unsaved: 저장되지 않은 변경 사항
-files_unsaved_description: Closing without saving discards the changes to these documents
-files_unsaved_discard: Discard changes
+files_unsaved_description: Save changes before closing?
+files_unsaved_discard: Discard
 files_save_all: Save all
 app_exit: 종료
 app_exit_confirm: Sailry 종료

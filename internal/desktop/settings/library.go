@@ -246,7 +246,7 @@ func libraryDialogs(c *ui.Context, m *Model) {
 	}
 	if x := m.libraryModel(e.removing); x != nil {
 		open := true
-		title, consequence := t("knowledge_delete")+" "+x.Name, t("knowledge_delete_model_effect", "name", x.Name)
+		title, consequence := t("knowledge_delete"), t("knowledge_delete_model_effect", "name", x.Name)
 		if m.Live && x.Kind != ModelsEmbedding {
 			// Only an embedding model's removal changes collections; the
 			// others name the model, as the reference's prompt does.

@@ -396,7 +396,7 @@ func TestProjectMenu(t *testing.T) {
 		if !tt.HasText(en("session_delete_named", "name", other.Title)) || len(pr.Conversations) != n {
 			t.Fatalf("Delete did not ask: %q", tt.Texts())
 		}
-		last(t, tt, en("session_delete"))
+		last(t, tt, en("settings_delete"))
 		if len(pr.Conversations) != n-1 || slices.Contains(pr.Conversations, other) {
 			t.Fatalf("Delete left %d of %d sessions", len(pr.Conversations), n)
 		}

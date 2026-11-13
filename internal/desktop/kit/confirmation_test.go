@@ -170,6 +170,9 @@ func TestAlertDialogUsesNativeConfirmation(t *testing.T) {
 	if shown == nil || shown.request.Title != "Title" || shown.request.Message != "Consequence" || !slices.Equal(shown.request.Buttons, []string{"Cancel", "Continue"}) {
 		t.Fatal("AlertDialog did not use the window's native presenter")
 	}
+	if shown.request.Default != 1 || shown.request.Cancel != 0 {
+		t.Fatalf("confirmation default must be Continue and Escape must cancel: %+v", shown.request)
+	}
 	shown.answer(1)
 	tester.Frame()
 	if actions != 1 || open {

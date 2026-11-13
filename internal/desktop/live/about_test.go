@@ -51,7 +51,7 @@ func checkSystemHelpers(t *testing.T) {
 		{updater.Notice{Key: "updates_install_uncertain", Error: true, Detail: "kept"}, "warning", true},
 	} {
 		toast := updateToast(test.notice, "title", "action", 1, func() {})
-		if toast.Type != test.kind || (toast.OnAction != nil) != test.action || test.notice.Error && toast.Timeout != -1 {
+		if toast.Type != test.kind || (toast.OnAction != nil) != test.action || toast.Timeout != 1 {
 			t.Fatalf("toast for %+v = %+v", test.notice, toast)
 		}
 	}

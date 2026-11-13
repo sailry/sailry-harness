@@ -14,6 +14,8 @@ import (
 // stopKey is why the model recovery gave up.
 func stopKey(reason protocol.ConversationRecoveryStop) string {
 	switch reason {
+	case protocol.ConversationRecoveryStopWaitExhausted:
+		return "chat_model_retry_wait_exhausted"
 	case protocol.ConversationRecoveryStopRateLimited:
 		return "chat_model_rate_limited"
 	case protocol.ConversationRecoveryStopServerOverloaded:

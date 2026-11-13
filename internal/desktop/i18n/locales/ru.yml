@@ -240,6 +240,7 @@ workspace_archive: Архивная сессия
 session_delete: Исключить &quot; сессия &quot;
 session_delete_named: Исключить сессию “%{name}” и ее субагентов навсегда
 session_delete_private_files: Its private workspace files are deleted too
+session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
 workspace_rename: Переименовать
 session_title_required: Введите имя
 session_mark_read: Отметить как прочитанное
@@ -599,6 +600,7 @@ chat_model_reconnecting: Повтор запроса %{attempt}/%{limit}
 chat_model_reconnecting_continuously: Переподключение
 chat_model_retried: Тип запроса перепробован %{attempt}/%{limit}
 chat_model_retry_exhausted: Достигнут предел повторных попыток
+chat_model_retry_wait_exhausted: Retry wait limit reached
 chat_model_server_overloaded: Сервис модели перегружен
 chat_reconnecting: Повторное подключение
 chat_rewind: Перематывать до этого поворота
@@ -2107,8 +2109,8 @@ host_wsl_requirement: Требуются WSL2, GNU Linux x64/arm64 и systemd
 host_wsl_empty: Нет установленных дистрибутивов WSL2
 host_wsl_load_failed: Не удалось загрузить дистрибутивы WSL
 files_unsaved: Несохранённые изменения
-files_unsaved_description: Closing without saving discards the changes to these documents
-files_unsaved_discard: Discard changes
+files_unsaved_description: Save changes before closing?
+files_unsaved_discard: Discard
 files_save_all: Save all
 app_exit: Выйти
 app_exit_confirm: Выйти из Sailry

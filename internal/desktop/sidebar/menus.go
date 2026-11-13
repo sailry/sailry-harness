@@ -65,14 +65,7 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		s.archive(c, cv)
 	}
 	if m.Item(t("session_delete")).Chosen() {
-		// A session without a project keeps its files in a private
-		// workspace, which goes with it: the confirmation says so once.
-		message := i18n.T(c, "session_delete_named", "name", Title(c, cv))
-		if s.Data.ProjectOf(cv.ID) == nil {
-			message += "\n" + t("session_delete_private_files")
-		}
-		s.confirm = confirm{open: true, title: t("session_delete"), message: message,
-			action: t("session_delete"), run: func() { s.delete(cv) }}
+		s.confirmDelete(c, cv)
 	}
 	m.Separator()
 	pr := s.Data.ProjectOf(cv.ID)
@@ -163,8 +156,7 @@ func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation
 		}
 	}
 	if m.Item(t("session_delete")).Chosen() {
-		s.confirm = confirm{open: true, title: t("session_delete"), message: i18n.T(c, "session_delete_named", "name", Title(c, cv)),
-			action: t("session_delete"), run: func() { s.delete(cv) }}
+		s.confirmDelete(c, cv)
 	}
 	m.Separator()
 	m.Submenu(t("content_copy"), func(m *ui.Menu) {
@@ -175,6 +167,15 @@ func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation
 			c.WriteClipboard(cv.ID)
 		}
 	})
+}
+
+func (s *State) confirmDelete(c *ui.Context, cv *preview.Conversation) {
+	message := "session_delete_named"
+	if s.Data.ProjectOf(cv.ID) == nil {
+		message = "session_delete_private_named"
+	}
+	s.confirm = confirm{open: true, title: i18n.T(c, "session_delete"),
+		message: i18n.T(c, message, "name", Title(c, cv)), action: i18n.T(c, "settings_delete"), run: func() { s.delete(cv) }}
 }
 
 // ProjectActions fills the project page's More menu with the project's

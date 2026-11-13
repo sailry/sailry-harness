@@ -234,7 +234,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				failure := model.Classify(err)
 				code := string(failure.Kind)
 				failed := canonical.NewMessage(canonical.Assistant, canonical.Text(0, failure.Message))
-				failed.Error = &canonical.ResponseError{Code: &code, Message: failure.Message, RetryExhausted: failure.Exhausted}
+				failed.Error = &canonical.ResponseError{Code: &code, Message: failure.Message, RetryExhausted: failure.Exhausted, RetryWaitExhausted: failure.WaitExhausted}
 				failed.Finish = &finish
 				record := canonical.NewRecord(x.inv.Run.Turn, "message", failed, r.clock.Now())
 				record.Provenance.Author = "assistant"

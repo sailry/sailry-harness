@@ -268,7 +268,7 @@ func modelDetails(c *ui.Context, m *Model) {
 		// name the model, as the reference's prompt does.
 		title, consequence := t("knowledge_delete"), d.name
 		if d.kind == ModelsEmbedding {
-			title, consequence = t("knowledge_delete")+" "+d.name, t("knowledge_delete_model_effect", "name", d.name)
+			title, consequence = t("knowledge_delete"), t("knowledge_delete_model_effect", "name", d.name)
 		}
 		if confirm(c, "model-delete", &open, title, consequence, t("knowledge_delete")) {
 			m.modelAction(c, func(a *ModelActions) { a.Delete(d.kind, d.model.ID) })

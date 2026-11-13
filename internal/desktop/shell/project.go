@@ -270,7 +270,7 @@ func (state *projectOverview) initializeDialog(c *ui.Context) {
 	open := state.initialize
 	switch kit.Confirm(c.Key("initialize-project").Key(state), &open, kit.Confirmation{
 		Title: label, Message: i18n.T(c, "git_initialize_nested_confirm") + "\n\n" + strings.Join(state.repositories, "\n"),
-		Buttons: []string{i18n.T(c, "settings_cancel"), label},
+		Buttons: []string{i18n.T(c, "settings_cancel"), label}, Default: 1,
 	}) {
 	case 0:
 		state.initialize = false

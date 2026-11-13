@@ -166,7 +166,7 @@ func teams(c *ui.Context, m *Model) {
 	roleDialog(c, m)
 	if tm := m.team(m.teamRemoving); tm != nil {
 		open := true
-		if confirm(c, "delete-team", &open, t("team_delete")+" "+tm.Name, t("team_delete_prompt", "name", tm.Name), t("settings_delete")) {
+		if confirm(c, "delete-team", &open, t("team_delete"), t("team_delete_prompt", "name", tm.Name), t("settings_delete")) {
 			if m.Live && m.TeamActions != nil {
 				// The editor it was deleted from closes; one opened since for
 				// another team keeps its draft.
@@ -194,7 +194,7 @@ func teams(c *ui.Context, m *Model) {
 	}
 	if r := m.role(m.roleRemoving); r != nil {
 		open := true
-		if confirm(c, "delete-role", &open, t("settings_delete")+" "+r.Name, t("teams_role_delete_prompt", "name", r.Name), t("settings_delete")) {
+		if confirm(c, "delete-role", &open, t("settings_delete"), t("teams_role_delete_prompt", "name", r.Name), t("settings_delete")) {
 			if m.Live && m.TeamActions != nil {
 				id := r.ID
 				m.TeamActions.RemoveRole(*r, func(outcome kit.Outcome) {

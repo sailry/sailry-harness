@@ -164,29 +164,12 @@ func toast(w *terminalUI, text string) {
 	}
 	settle(w, fmt.Sprintf("a new toast %q (%d linger)", text, seen[text]), systemUIWait, func() bool { return shown(w, text) > seen[text] })
 	seen[text] = shown(w, text)
-	// Toasts run out on the frame clock; one with a recovery stays until
-	// closed, so whatever still shows is counted and the next wait asks for
-	// one more.
+	// Toasts, including recovery actions, run out on the frame clock.
+	// Move off the stack so hovering cannot pause its timer.
+	w.tester.Move(1, 1)
 	for range 48 {
 		w.tester.Advance(250 * time.Millisecond)
 		w.tester.Frame()
-	}
-	for range 6 {
-		closed := false
-		// A toast's Close is its 20-point icon button; a dialog's is wider.
-		for _, candidate := range w.buttons("Close") {
-			if candidate.Bounds.W <= 24 {
-				w.clickOn(candidate)
-				closed = true
-				break
-			}
-		}
-		if !closed {
-			break
-		}
-		for range 20 {
-			w.frame()
-		}
 	}
 	for known := range seen {
 		seen[known] = shown(w, known)
@@ -288,7 +271,7 @@ func pressIn(w *terminalUI, name string) {
 }
 
 // closeDialog clicks the footer's Close of the open dialog: the widest of
-// the buttons named Close, beside the dialog's corner icon and the toasts'.
+// the buttons named Close, beside the dialog's corner icon.
 func closeDialog(w *terminalUI) {
 	w.t.Helper()
 	closes := w.buttons("Close")

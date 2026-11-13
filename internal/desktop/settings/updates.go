@@ -227,7 +227,7 @@ func (u *Updater) notify(c *ui.Context) {
 			}})
 	}
 	if f := u.Failure; f != nil && f != u.shownFailure {
-		c.AddToast(ui.Toast{Type: "error", Title: i18n.T(c, f.Key), Timeout: -1, Action: i18n.T(c, "updates_details"),
+		c.AddToast(ui.Toast{Type: "error", Title: i18n.T(c, f.Key), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_details"),
 			OnAction: func() { u.details = true }})
 	}
 	u.shown, u.shownFailure = u.State, u.Failure

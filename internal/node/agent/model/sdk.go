@@ -359,7 +359,7 @@ func (emitter *sdkEmitter) fail(cause error) {
 	failure := &fantasy.ProviderError{Message: message, Cause: cause, StatusCode: emitter.facts.status, ResponseHeaders: headers, ResponseBody: emitter.facts.body}
 	lower := strings.ToLower(string(emitter.facts.body))
 	failure.ContextTooLargeErr = strings.Contains(lower, "context_length_exceeded") || strings.Contains(lower, "maximum context length")
-	emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: failure})
+	emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: withResponseHints(failure, emitter.facts.status, emitter.facts.headers)})
 }
 
 func decodeSDK(raw string) (map[string]any, error) {

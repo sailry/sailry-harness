@@ -330,8 +330,8 @@ panel_history_empty: No history yet
 panel_documents_empty: No documents yet
 connections_copy_id: Copy ID
 host_check_status: Check status
-files_unsaved_description: Closing without saving discards the changes to these documents
-files_unsaved_discard: Discard changes
+files_unsaved_description: Save changes before closing?
+files_unsaved_discard: Discard
 files_save_all: Save all
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
@@ -377,6 +377,7 @@ git_diff_side_by_side: Side by side
 git_diff_inline: Inline
 git_diff_needs_width: Side by side needs more width
 session_delete_private_files: Its private workspace files are deleted too
+session_delete_private_named: "Delete “%{name}”, its subagents and private workspace files permanently"
 port_count: "%{count} ports"
 queue_messages_one: 1 queued message
 queue_messages_count: "%{count} queued messages"

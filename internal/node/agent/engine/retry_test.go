@@ -27,10 +27,12 @@ func TestRetryExhaustionKeepsProviderCause(t *testing.T) {
 			f := newFixture(t, m)
 			f.start()
 			turn := f.submit("Task")
-			for range model.MainRetries {
+			intervals := []time.Duration{5, 10, 20, 40, 60, 60, 60, 60, 60}
+			for index := range model.MainRetries {
 				select {
 				case wait := <-f.r.clock.(*manualClock).waits:
-					if wait.duration != 60*time.Second {
+					base := intervals[index] * time.Second
+					if wait.duration < base*4/5 || wait.duration > min(base*6/5, time.Minute) {
 						t.Fatalf("retry wait = %s", wait.duration)
 					}
 					close(wait.advance)

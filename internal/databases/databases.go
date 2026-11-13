@@ -67,16 +67,14 @@ func Execute(ctx context.Context, operation Operation) (protocol.DatabaseOutcome
 		}
 	}
 	if ctx.Err() != nil {
-		return protocol.DatabaseOutcome{}, unknown()
+		return protocol.DatabaseOutcome{}, fault(protocol.ErrorCodeCancelled, "Database operation cancelled before execution")
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(query.TimeoutMS)*time.Millisecond)
 	defer cancel()
 	result, err := run(ctx, operation, query)
 	if err != nil {
-		// A stopped or expired operation may already have reached the database.
-		if ctx.Err() != nil {
-			return protocol.DatabaseOutcome{}, unknown()
-		}
+		// Drivers know whether SQL was sent. Connection and preparation
+		// failures stay definite even when the operation deadline has expired.
 		return protocol.DatabaseOutcome{}, err
 	}
 	if operation.Query == nil {

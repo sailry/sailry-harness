@@ -44,6 +44,7 @@ type ConversationRecoveryStop string
 
 const (
 	ConversationRecoveryStopAttemptsExhausted     ConversationRecoveryStop = "attempts_exhausted"
+	ConversationRecoveryStopWaitExhausted         ConversationRecoveryStop = "wait_exhausted"
 	ConversationRecoveryStopRateLimited           ConversationRecoveryStop = "rate_limited"
 	ConversationRecoveryStopServerOverloaded      ConversationRecoveryStop = "server_overloaded"
 	ConversationRecoveryStopInvalidRequest        ConversationRecoveryStop = "invalid_request"
@@ -65,7 +66,7 @@ func (value *ConversationRecoveryStop) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch ConversationRecoveryStop(decoded) {
-	case ConversationRecoveryStopAttemptsExhausted, ConversationRecoveryStopRateLimited, ConversationRecoveryStopServerOverloaded, ConversationRecoveryStopInvalidRequest, ConversationRecoveryStopInvalidPrompt, ConversationRecoveryStopContextWindowExceeded, ConversationRecoveryStopQuotaExceeded, ConversationRecoveryStopUsageNotIncluded, ConversationRecoveryStopUsageLimitReached, ConversationRecoveryStopResponseIncomplete, ConversationRecoveryStopFlexUnavailable, ConversationRecoveryStopPolicyViolation, ConversationRecoveryStopLocalFailure:
+	case ConversationRecoveryStopAttemptsExhausted, ConversationRecoveryStopWaitExhausted, ConversationRecoveryStopRateLimited, ConversationRecoveryStopServerOverloaded, ConversationRecoveryStopInvalidRequest, ConversationRecoveryStopInvalidPrompt, ConversationRecoveryStopContextWindowExceeded, ConversationRecoveryStopQuotaExceeded, ConversationRecoveryStopUsageNotIncluded, ConversationRecoveryStopUsageLimitReached, ConversationRecoveryStopResponseIncomplete, ConversationRecoveryStopFlexUnavailable, ConversationRecoveryStopPolicyViolation, ConversationRecoveryStopLocalFailure:
 		*value = ConversationRecoveryStop(decoded)
 		return nil
 	default:

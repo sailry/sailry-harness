@@ -49,6 +49,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Choose additional checks from the change and dependency boundaries. Reuse passing
   results until relevant code, dependencies, configuration or environment changes.
   Diagnose failures; never weaken assertions or report an unrun check as passed.
+- Use scripted models, fixtures and recorded replay for routine verification.
+  Run real-model acceptance only when the user explicitly requests it.
 - Reuse built native libraries. Rebuild Rust only when its source, C ABI,
   dependency pins or target changes; Go-only development does not rerun Cargo.
 - Tests use `t.TempDir()`. Manual backend runs use
@@ -119,6 +121,7 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 
 ### Removed UI
 
+- Toasts: the close (×) button; toasts expire automatically and keep their actions
 - Composer: a host choice or location dialog (choosing a project sets the host)
 - `@` and `/` picker: a header, footer, hint or check mark (group headings stay)
 - Approval popover: the Deny menu, "Deny with reason" and the reason field;
@@ -140,6 +143,9 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - File picker: the host's name on a second line under the title (this device
   is never named)
 - Connection banner: the Retry button (the Client reconnects by itself)
+- SSH workspace: the start-page content during connection progress; the
+  opening request's top-level Check result and Stop buttons (the saved
+  connection entry checks an uncertain opening)
 - Plugin page: a Retry icon button in a failed view's place, at the top
   left of the page (the failure's toast keeps Retry)
 - Right panel: History and Documents as launcher or "+" entries (the tab kinds

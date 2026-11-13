@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -547,7 +548,7 @@ func (r *Runtime) failPluginView(view *ui.Context, mounted *pluginMountedView, f
 			signature.code, mounted.scope.Package.Name, mounted.info.Summary.Version, "view_initialize", mounted.scope))
 	}
 	view.AddToast(ui.Toast{
-		Type: "error", Title: i18n.T(view, title), Description: failure.Error(), Timeout: -1,
+		Type: "error", Title: i18n.T(view, title), Description: failure.Error(), Timeout: kit.ToastDuration(view),
 		Action: i18n.T(view, "chat_retry"), OnAction: func() {
 			r.enqueue(func(current *ui.Context) {
 				if root.pluginViews != nil {

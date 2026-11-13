@@ -329,9 +329,12 @@ func (s *State) searchResult(c *ui.Context, id string) {
 func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 	p := theme.Of(c)
 	label := ""
+	waitExhausted := r.Stopped && r.Reason == "chat_model_retry_wait_exhausted"
 	switch {
 	case r.Exhausted:
 		label = i18n.T(c, "chat_model_retry_exhausted")
+	case waitExhausted:
+		label = i18n.T(c, r.Reason)
 	case r.Limit > 0 && active:
 		label = i18n.T(c, "chat_model_reconnecting", "attempt", r.Attempt, "limit", r.Limit)
 	case r.Limit > 0:
@@ -342,8 +345,8 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 		label = i18n.T(c, "chat_model_connection_retried")
 	}
 	head := Call{Label: label, Icon: "network", Running: active && !r.Stopped, Warning: r.Exhausted || r.Stopped}
-	// The reason a retry stopped for; exhausted attempts are the label itself.
-	if r.Reason != "" && !r.Exhausted {
+	// Exhausted attempts and waiting limits are already named in the label.
+	if r.Reason != "" && !r.Exhausted && !waitExhausted {
 		head.Detail = i18n.T(c, r.Reason)
 	}
 	if r.Detail == "" {

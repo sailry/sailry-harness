@@ -1,6 +1,7 @@
 chat_model_reconnecting_continuously: "Reconnecting"
 chat_model_connection_retried: "Connection retried"
 chat_model_retry_exhausted: "Retry limit reached"
+chat_model_retry_wait_exhausted: "Retry wait limit reached"
 chat_model_request_rejected: "Request rejected"
 chat_model_context_exceeded: "Model context limit exceeded"
 chat_model_usage_exhausted: "Usage limit reached"

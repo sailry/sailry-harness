@@ -243,7 +243,7 @@ func TestNativeClosePrompt(t *testing.T) {
 			tester.SetLocale("en")
 			a.ConfirmClose(r.request())
 			tester.Frame()
-			if !slices.Equal(request.Buttons, []string{i18n.In("en", "settings_cancel"), i18n.In("en", "app_exit")}) || request.Cancel != 0 {
+			if !slices.Equal(request.Buttons, []string{i18n.In("en", "settings_cancel"), i18n.In("en", "app_exit")}) || request.Default != 1 || request.Cancel != 0 {
 				t.Fatalf("native quit choices changed: %+v", request)
 			}
 			answer(choice)

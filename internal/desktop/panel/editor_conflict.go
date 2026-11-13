@@ -65,7 +65,7 @@ func (pr *Project) editorConflictDialog(c *ui.Context) {
 	answer := kit.Confirm(c.Key("file-conflict").Key(request), &request.open, kit.Confirmation{
 		Title:   i18n.T(c, "files_changed_on_disk"),
 		Message: strings.Join([]string{request.path, i18n.T(c, "files_conflict_description")}, "\n\n"),
-		Buttons: buttons, Destructive: destructive,
+		Buttons: buttons, Default: len(buttons) - 1, Destructive: destructive,
 	})
 	if answer >= 0 && actions[answer] != nil {
 		actions[answer](c)

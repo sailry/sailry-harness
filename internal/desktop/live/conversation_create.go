@@ -149,7 +149,12 @@ func (x *conversationActions) create(command protocol.Command, m composer.Messag
 	x.r.executeCreation("create/"+before, command, func(c *ui.Context, out protocol.Output, err error) {
 		delete(x.r.conversationCreating, before)
 		if err != nil {
-			x.r.reportCreation(c, err)
+			x.r.discardUnsubmitted(before)
+			if x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+				x.offerRestore(c, err)
+			} else {
+				x.r.reportCreation(c, err)
+			}
 			if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
 				delete(x.r.conversationCreations, before)
 			}
@@ -157,12 +162,17 @@ func (x *conversationActions) create(command protocol.Command, m composer.Messag
 		}
 		session, valid := detail[protocol.Session](out.Data)
 		if !valid {
+			x.r.discardUnsubmitted(before)
 			x.r.report(c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Session creation result is unavailable"}}, "session_changed")
 			return
 		}
 		delete(x.r.conversationCreations, before)
 		x.r.admittedSessions[session.ID.String()] = session
 		x.r.App.ReplaceConversationID(before, session.ID.String())
+		if pending := x.r.composerOutgoing[before]; pending != nil {
+			delete(x.r.composerOutgoing, before)
+			x.r.composerOutgoing[session.ID.String()] = pending
+		}
 		x.r.browserAdopt(before, session.ID.String())
 		x.cv.ID = session.ID.String()
 		x.r.composerInitialized[x.cv.ID] = true

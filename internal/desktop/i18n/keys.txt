@@ -254,6 +254,7 @@ workspace_archive
 session_delete
 session_delete_named
 session_delete_private_files
+session_delete_private_named
 workspace_rename
 session_title_required
 session_mark_read
@@ -616,6 +617,7 @@ chat_model_reconnecting
 chat_model_reconnecting_continuously
 chat_model_retried
 chat_model_retry_exhausted
+chat_model_retry_wait_exhausted
 chat_model_server_overloaded
 chat_reconnecting
 chat_rewind

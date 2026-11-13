@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -38,12 +40,74 @@ type Failure struct {
 	// Exhausted marks only Run's terminal recovery outcome. Kind still names
 	// the provider failure, including when a summary records why it failed.
 	Exhausted bool
+	// WaitExhausted distinguishes the cumulative wait budget from the attempt limit.
+	WaitExhausted bool
+	retryAfter    []string
+	retryAfterMs  *uint64
+	overloaded    bool
 }
 
 func (f *Failure) Error() string { return f.Message }
 func (f *Failure) Retryable() bool {
 	return f.Kind == RateLimited || f.Kind == Network || f.Kind == Unavailable
 }
+
+// httpResponseFailure carries only retry advice across a transport's decoding
+// failures. Keeping the cause preserves SDK error inspection without retaining
+// unrelated response headers in a Failure.
+type httpResponseFailure struct {
+	cause      error
+	status     *uint16
+	retryAfter []string
+}
+
+func (f *httpResponseFailure) Error() string { return f.cause.Error() }
+func (f *httpResponseFailure) Unwrap() error { return f.cause }
+
+func withResponseHints(err error, status int, headers http.Header) error {
+	if err == nil {
+		return nil
+	}
+	var retained *httpResponseFailure
+	if errors.As(err, &retained) {
+		return err
+	}
+	failure := &httpResponseFailure{cause: err, retryAfter: retryAfterValues(headers)}
+	if status > 0 && status <= 65535 {
+		value := uint16(status)
+		failure.status = &value
+	}
+	return failure
+}
+
+func retryAfterValues(headers http.Header) []string {
+	var names []string
+	for name := range headers {
+		if strings.EqualFold(name, "Retry-After") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var values []string
+	for _, name := range names {
+		values = append(values, headers[name]...)
+	}
+	return values
+}
+
+func (f *Failure) retainResponseHints(err error) {
+	var response *httpResponseFailure
+	if errors.As(err, &response) {
+		f.status = response.status
+		f.retryAfter = slices.Clone(response.retryAfter)
+	}
+	f.overloaded = f.Retryable() && (f.overloaded || f.Kind == RateLimited || f.status != nil && *f.status == 529)
+}
+
+func overloadedCode(code string) bool {
+	return containsCode(code, "server_is_overloaded", "overloaded_error", "server_overloaded", "overloaded", "model_overloaded", "server_busy", "model_busy", "busy")
+}
+
 func Classify(err error, secrets ...protocol.Secret) *Failure {
 	if err == nil {
 		return nil
@@ -51,6 +115,12 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 	var existing *Failure
 	if errors.As(err, &existing) {
 		copy := *existing
+		copy.retryAfter = slices.Clone(existing.retryAfter)
+		if existing.retryAfterMs != nil {
+			value := *existing.retryAfterMs
+			copy.retryAfterMs = &value
+		}
+		copy.retainResponseHints(err)
 		copy.Message = safeDiagnostic(copy.Message, secrets)
 		return &copy
 	}
@@ -63,6 +133,13 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		f.Kind = Cancelled
 	case errors.As(err, &provider):
 		status := provider.StatusCode
+		headers := http.Header{}
+		for name, value := range provider.ResponseHeaders {
+			if strings.EqualFold(name, "Retry-After") {
+				headers[name] = []string{value}
+			}
+		}
+		f.retryAfter = retryAfterValues(headers)
 		if status > 0 && status <= 65535 {
 			v := uint16(status)
 			f.status = &v
@@ -70,10 +147,14 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		var body map[string]any
 		json.Unmarshal(provider.ResponseBody, &body)
 		code := provider.ErrorType
+		overloaded := overloadedCode(code)
+		foundCode := false
 		for _, path := range [][]string{{"error", "code"}, {"error", "type"}, {"response", "error", "code"}, {"code"}, {"type"}} {
 			if value := jsonString(body, path...); value != "" {
-				code = value
-				break
+				overloaded = overloaded || overloadedCode(value)
+				if !foundCode {
+					code, foundCode = value, true
+				}
 			}
 		}
 		message := ""
@@ -106,7 +187,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Quota
 		case status == 429 || containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests"):
 			f.Kind = RateLimited
-		case status == 408 || status >= 500 && status <= 599 || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error", "server_is_overloaded", "overloaded_error"):
+		case status == 408 || status >= 500 && status <= 599 || overloaded || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error"):
 			f.Kind = Unavailable
 		case errors.Is(provider.Cause, context.Canceled):
 			f.Kind = Cancelled
@@ -119,6 +200,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		default:
 			f.Kind = InvalidResponse
 		}
+		f.overloaded = overloaded
 	case errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &malformed):
 		f.Kind = InvalidResponse
 	case errors.As(err, &network) || errors.Is(err, context.DeadlineExceeded):
@@ -130,6 +212,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 	if errors.Is(err, stallError{}) {
 		f.Kind, f.Message = Network, "Model stream sent no data for 600 seconds"
 	}
+	f.retainResponseHints(err)
 	f.Message = safeDiagnostic(f.Message, secrets)
 	return f
 }
@@ -180,8 +263,12 @@ func Fault(err error) *protocol.Fault {
 	if failure.Kind == NotConfigured {
 		code = protocol.ErrorCodeNotConfigured
 	}
-	if failure.Exhausted {
-		return &protocol.Fault{Code: code, Message: failure.Message, Details: &protocol.FaultDetails{Kind: "model_recovery", Data: protocol.FaultDetailsModelRecoveryPayload{Reason: protocol.ConversationRecoveryStopAttemptsExhausted}}}
+	if failure.Exhausted || failure.WaitExhausted {
+		reason := protocol.ConversationRecoveryStopAttemptsExhausted
+		if failure.WaitExhausted {
+			reason = protocol.ConversationRecoveryStopWaitExhausted
+		}
+		return &protocol.Fault{Code: code, Message: failure.Message, Details: &protocol.FaultDetails{Kind: "model_recovery", Data: protocol.FaultDetailsModelRecoveryPayload{Reason: reason}}}
 	}
 	reason := protocol.ModelFailureRequest
 	switch failure.Kind {

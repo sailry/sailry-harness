@@ -107,7 +107,8 @@ func TakeModal(c *ui.Context) bool {
 }
 
 // AlertDialog presents a confirmation through the native window service. The
-// first button cancels; headless harnesses use MyGo's in-memory dialog.
+// first button cancels and the last action is the default; headless harnesses
+// use MyGo's in-memory dialog.
 func AlertDialog(c *ui.Context, open *bool, title, message string, buttons ...string) int {
-	return Confirm(c, open, Confirmation{Title: title, Message: message, Buttons: buttons, Default: 0, Cancel: 0})
+	return Confirm(c, open, Confirmation{Title: title, Message: message, Buttons: buttons, Default: len(buttons) - 1, Cancel: 0})
 }

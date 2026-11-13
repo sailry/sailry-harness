@@ -142,9 +142,9 @@ type Runtime struct {
 	snapshotRead          bool
 	conversationCopies    map[protocol.SessionID]conversationCopy
 	conversationsStale    atomic.Bool
-	// composerOutgoing is a queued or guiding message on its way to the
-	// Host, by conversation: the queue tray's placeholder row.
-	composerOutgoing map[string]composer.Queued
+	// composerOutgoing holds the captured input until its Node projection arrives:
+	// ordinary sends appear in the transcript, and queued input in the tray.
+	composerOutgoing map[string]*conversationOutgoing
 	// guidanceSent is the guidance this desktop sent from the composer and
 	// has not seen settled, by conversation and turn: a message that did not
 	// join its recipient is reported once.
@@ -619,6 +619,7 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 	maps.DeleteFunc(r.composerRevisions, func(id string, _ uint64) bool { return gone(id) })
 	maps.DeleteFunc(r.composerSaving, func(id string, saving bool) bool { return !saving && gone(id) })
 	maps.DeleteFunc(r.conversationEdits, func(id string, _ conversationEdit) bool { return gone(id) })
+	maps.DeleteFunc(r.composerOutgoing, func(id string, _ *conversationOutgoing) bool { return gone(id) })
 	for id, retry := range r.turnRetries {
 		if !r.busy[retry.key] && gone(id) {
 			r.forgetTurnRetry(id)
@@ -718,15 +719,15 @@ func (r *Runtime) execute(command protocol.Command, finished func(*ui.Context, p
 	r.executeScoped("", command, finished)
 }
 
-func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error)) {
+func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error)) protocol.RequestID {
 	b, err := json.Marshal(command)
 	if err != nil {
 		r.enqueue(func(c *ui.Context) { finished(c, protocol.Output{}, err) })
-		return
+		return protocol.RequestID{}
 	}
 	key := scope + "\x00" + string(b)
 	if r.busy[key] {
-		return
+		return protocol.RequestID{}
 	}
 	r.busy[key] = true
 	request, exists := r.uncertain[key]
@@ -751,6 +752,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 			finished(c, output, err)
 		})
 	})
+	return request.ID
 }
 
 // forgetCommand drops the request kept for an unscoped command whose outcome

@@ -240,6 +240,7 @@ workspace_archive: 歸檔會話
 session_delete: 刪除會話
 session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
 session_delete_private_files: Its private workspace files are deleted too
+session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
 workspace_rename: 重新命名
 session_title_required: 請輸入名稱
 session_mark_read: 標記為已讀
@@ -599,6 +600,7 @@ chat_model_reconnecting: 重試請求 %{attempt}/%{limit}
 chat_model_reconnecting_continuously: 正在重新連線
 chat_model_retried: 模型請求已重試 %{attempt}/%{limit}
 chat_model_retry_exhausted: 重試次數已用盡
+chat_model_retry_wait_exhausted: Retry wait limit reached
 chat_model_server_overloaded: 模型服務繁忙
 chat_reconnecting: 正在重連
 chat_rewind: 回退到此回合
@@ -2107,8 +2109,8 @@ host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 與 systemd
 host_wsl_empty: 尚未安裝 WSL2 發行版
 host_wsl_load_failed: 無法載入 WSL 發行版
 files_unsaved: 有未儲存的修改
-files_unsaved_description: Closing without saving discards the changes to these documents
-files_unsaved_discard: Discard changes
+files_unsaved_description: Save changes before closing?
+files_unsaved_discard: Discard
 files_save_all: Save all
 app_exit: 退出
 app_exit_confirm: 退出 Sailry

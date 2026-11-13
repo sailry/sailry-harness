@@ -59,6 +59,7 @@ func (r *Runtime) projectConversations() {
 			if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 				if state, ok := owner.conversationState(id); ok {
 					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
+					owner.projectOutgoing(cv, state.Snapshot.Page)
 					owner.enrichDetails(cv, state)
 					owner.enrichQueue(cv, state.Snapshot.Page.Queue)
 					owner.projectConversationAssets(cv, state)
@@ -66,6 +67,8 @@ func (r *Runtime) projectConversations() {
 					owner.projectAttachmentImages(cv)
 					cv.Animating = len(state.Snapshot.Drafts) > 0
 				}
+			} else {
+				owner.projectOutgoing(cv, protocol.ConversationPage{})
 			}
 		}
 	}
@@ -187,6 +190,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		return owner.conversation(c, cv, comp)
 	}
 	snapshot := r.snapshot()
+	var page protocol.ConversationPage
 	if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 		r.conversationSeen[id] = true
 		if _, ok := r.conversationWatches[id]; !ok {
@@ -198,6 +202,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			}
 		}
 		if state, ok := r.conversationState(id); ok {
+			page = state.Snapshot.Page
 			cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state, c.Locale())
 			cv.Animating = len(state.Snapshot.Drafts) > 0
 			r.bindReferences(cv.ID, state.Snapshot.Page)
@@ -210,6 +215,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
 	}
+	r.projectOutgoing(cv, page)
 	r.projectControls(c, cv, comp)
 	for ti := range cv.Turns {
 		for bi := range cv.Turns[ti].Reply.Blocks {
@@ -323,7 +329,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: selectedEffort})
 	// A new turn needs a configured model and no creation under way; the
 	// running reply's guidance uses that turn's.
-	ctx.SendBlocked = !comp.Running && (err != nil || r.conversationCreating[cv.ID])
+	outgoing := r.composerOutgoing[cv.ID]
+	ctx.SendBlocked = !comp.Running && (err != nil || r.conversationCreating[cv.ID] || outgoing != nil && outgoing.transcript)
 	ctx.SelectModel = func() {
 		// The providers are those of the Node this conversation runs on.
 		root := r.localRuntime()
@@ -664,8 +671,16 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			return
 		}
 	}
+	sender := *x
+	sender.restore, sender.restoreDraft = &m, draft
+	x = &sender
+	if !guide && !queue {
+		x.stageOutgoing(m)
+	}
 	finish := func(output protocol.Output, ok bool) {
-		delete(x.r.composerOutgoing, x.cv.ID)
+		if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
+			delete(x.r.composerOutgoing, x.cv.ID)
+		}
 		if ok {
 			x.r.attachmentsCommitted(m.Attachments)
 		}
@@ -686,7 +701,12 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		if start := x.r.pendingSessionBase(x.comp); start != nil {
 			x.startSessionBase(start, func(c *ui.Context, err error) {
 				if err != nil {
-					x.r.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+					x.r.discardUnsubmitted(x.cv.ID)
+					if faultCode(err) != protocol.ErrorCodeOutcomeUnknown && x.restoreDraft != composerFingerprint(x.comp) {
+						x.offerRestore(c, err)
+					} else {
+						x.r.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+					}
 					return
 				}
 				next := *x
@@ -702,6 +722,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	}
 	config, revision, err := x.r.composerConfig(x.comp, m)
 	if err != nil {
+		x.r.discardUnsubmitted(x.cv.ID)
 		if _, exists := x.r.session(x.cv.ID); exists {
 			x.r.report(x.c, err, "session_changed")
 		} else {
@@ -711,11 +732,6 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	}
 	x.r.rememberConfig(config, x.comp.Team)
 	if s, ok := x.r.session(x.cv.ID); ok {
-		// A failed send whose composer was changed meanwhile offers the
-		// submission back from its toast.
-		sender := *x
-		sender.restore, sender.restoreDraft = &m, draft
-		x := &sender
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
 			if guide || queue {
@@ -751,6 +767,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	node := x.r.controller.Target()
 	owner := hex.EncodeToString(node[:])
 	if x.comp.Host != "" && x.comp.Host != owner {
+		x.r.discardUnsubmitted(x.cv.ID)
 		x.unavailable()
 		return
 	}
@@ -759,6 +776,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		if id, err := protocol.ParseProjectID(x.comp.Project); err == nil {
 			project = &id
 		} else {
+			x.r.discardUnsubmitted(x.cv.ID)
 			x.unavailable()
 			return
 		}

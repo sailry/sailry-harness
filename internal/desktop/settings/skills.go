@@ -99,7 +99,7 @@ func skills(c *ui.Context, s *State) {
 	skillInstallDialog(c, m)
 	if sk := m.skill(m.skillRemoving); sk != nil {
 		open := true
-		if confirm(c, "uninstall", &open, t("plugins_uninstall")+" "+sk.Name, t("skills_remove_effect", "name", sk.Name), t("plugins_uninstall")) {
+		if confirm(c, "uninstall", &open, t("plugins_uninstall"), t("skills_remove_effect", "name", sk.Name), t("plugins_uninstall")) {
 			if m.PackageActions != nil && m.PackageActions.Uninstall != nil {
 				m.PackageActions.Uninstall(sk.ID, func(bool) {})
 				m.skillRemoving = ""

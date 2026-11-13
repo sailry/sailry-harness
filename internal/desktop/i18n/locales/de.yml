@@ -240,6 +240,7 @@ workspace_archive: Sitzung archivieren
 session_delete: Sitzung löschen
 session_delete_named: Session „%{name}“ und ihre Subagenten dauerhaft löschen
 session_delete_private_files: Its private workspace files are deleted too
+session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
 workspace_rename: Umbenennen
 session_title_required: Geben Sie einen Namen ein
 session_mark_read: Als gelesen markieren
@@ -599,6 +600,7 @@ chat_model_reconnecting: Anfrage erneut versuchen %{attempt}/%{limit}
 chat_model_reconnecting_continuously: Verbindung wird wiederhergestellt
 chat_model_retried: Modellanfrage wiederholt %{attempt}/%{limit}
 chat_model_retry_exhausted: Wiederholungslimit erreicht
+chat_model_retry_wait_exhausted: Retry wait limit reached
 chat_model_server_overloaded: Modelldienst überlastet
 chat_reconnecting: Verbindung wird wiederhergestellt
 chat_rewind: Zurückspulen auf diese Runde
@@ -2107,8 +2109,8 @@ host_wsl_requirement: Erfordert WSL2, GNU Linux x64/arm64 und systemd
 host_wsl_empty: Keine installierten WSL2-Distributionen
 host_wsl_load_failed: WSL-Distributionen konnten nicht geladen werden
 files_unsaved: Nicht gespeicherte Änderungen
-files_unsaved_description: Closing without saving discards the changes to these documents
-files_unsaved_discard: Discard changes
+files_unsaved_description: Save changes before closing?
+files_unsaved_discard: Discard
 files_save_all: Save all
 app_exit: Beenden
 app_exit_confirm: Sailry beenden

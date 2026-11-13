@@ -234,13 +234,11 @@ func backup(c *ui.Context, m *Model) {
 		a.Restart(d.restart)
 	}
 	if d.removing && a != nil {
-		// Destructive: the session is named and its consequence said once.
-		// A session without a project loses its private workspace too.
-		consequence := t("backup_delete_session_consequence")
+		message := "session_delete_named"
 		if d.removedPrivate {
-			consequence += "\n" + t("session_delete_private_files")
+			message = "session_delete_private_named"
 		}
-		if kit.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", consequence,
+		if kit.AlertDialog(c.Key("delete-session"), &d.removing, t("session_delete"), i18n.T(c, message, "name", d.removedTitle),
 			t("settings_cancel"), t("backup_delete")) == 1 {
 			a.Delete(d.removed)
 		}

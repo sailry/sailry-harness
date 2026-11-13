@@ -28,14 +28,14 @@ func Notify(c *ui.Context, title, detail string) {
 }
 
 // Retry is an error toast whose action retries what failed: the action closes
-// the toast and runs again. It stays until closed, as its recovery does.
+// the toast and runs again. It expires after the window's selected duration.
 func Retry(c *ui.Context, message string, again func()) {
-	c.AddToast(ui.Toast{Type: "error", Title: message, Timeout: -1, Action: i18n.T(c, "chat_retry"), OnAction: again})
+	c.AddToast(ui.Toast{Type: "error", Title: message, Timeout: ToastDuration(c), Action: i18n.T(c, "chat_retry"), OnAction: again})
 }
 
 // Recover is an outcome's toast that offers Retry where trying again is the
-// recovery: a failure or an uncertain outcome with something to run again
-// stays until closed with that action. Any other outcome is Toast.
+// recovery: a failure or an uncertain outcome with something to run again.
+// The action and the timer can both close it. Any other outcome is Toast.
 func Recover(c *ui.Context, outcome Outcome, message string, again func()) {
 	if again == nil || outcome != Failed && outcome != Uncertain {
 		Toast(c, outcome, message)
@@ -45,7 +45,7 @@ func Recover(c *ui.Context, outcome Outcome, message string, again func()) {
 	if outcome == Uncertain {
 		kind = "warning"
 	}
-	c.AddToast(ui.Toast{Type: kind, Title: message, Timeout: -1, Action: i18n.T(c, "chat_retry"), OnAction: again})
+	c.AddToast(ui.Toast{Type: kind, Title: message, Timeout: ToastDuration(c), Action: i18n.T(c, "chat_retry"), OnAction: again})
 }
 
 // Details is a dialog up to 560 wide and 80% of the window high with the

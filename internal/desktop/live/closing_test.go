@@ -239,7 +239,7 @@ func TestNoticeChannels(t *testing.T) {
 			t.Fatalf("system %v", system)
 		}
 	})
-	t.Run("the toast body opens its destination and Close only dismisses it", func(t *testing.T) {
+	t.Run("the toast body opens its destination and expiry does not navigate", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root
@@ -254,15 +254,12 @@ func TestNoticeChannels(t *testing.T) {
 				t.Fatalf("no notice toast: %q", window.Texts())
 			}
 			page, selected := root.App.Page, root.App.Sidebar.Selected
-			if _, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "close")); !ok {
-				t.Fatal("the body action hides Close from assistive technology")
+			if _, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "close")); ok {
+				t.Fatal("the toast has a close button")
 			}
-			if err := window.Click(i18n.In("en", "close")); err != nil {
-				t.Fatal(err)
-			}
-			window.Advance(500 * time.Millisecond)
+			window.Advance(6 * time.Second)
 			if root.App.Page != page || root.App.Sidebar.Selected != selected || window.HasText("Build the index") {
-				t.Fatal("Close navigated or left the toast open")
+				t.Fatal("expiry navigated or left the toast open")
 			}
 			root.PresentNotice(task)
 			window.Frame()

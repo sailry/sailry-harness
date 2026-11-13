@@ -145,6 +145,9 @@ func runPostgres(ctx context.Context, operation Operation, target endpoint, quer
 		}
 	}
 	if err := reader.Close(); err != nil {
+		if ctx.Err() != nil {
+			return empty, unknown()
+		}
 		var database *pgconn.PgError
 		if errors.As(err, &database) {
 			return empty, queryError(postgresMessage(err))

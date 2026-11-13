@@ -238,8 +238,9 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Slide %{slide}
 workspace_archive: Archive session
 session_delete: Delete session
-session_delete_named: Delete session “%{name}” and its subagents permanently
+session_delete_named: Delete “%{name}” and its subagents permanently
 session_delete_private_files: Its private workspace files are deleted too
+session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
 workspace_rename: Rename
 session_title_required: Enter a name
 session_mark_read: Mark as read
@@ -599,6 +600,7 @@ chat_model_reconnecting: Retrying request %{attempt}/%{limit}
 chat_model_reconnecting_continuously: Reconnecting
 chat_model_retried: Model request retried %{attempt}/%{limit}
 chat_model_retry_exhausted: Retry limit reached
+chat_model_retry_wait_exhausted: Retry wait limit reached
 chat_model_server_overloaded: Model service overloaded
 chat_reconnecting: Reconnecting
 chat_rewind: Rewind to this turn
@@ -761,7 +763,7 @@ backup_conflict: Backup settings or destination changed; reload to review
 backup_delete: Delete
 backup_delete_all: Delete all sessions
 backup_delete_all_action: Delete all
-backup_delete_all_consequence: Delete all sessions, including archived sessions. This cannot be undone; project files and account settings are kept
+backup_delete_all_consequence: Permanently delete all sessions, including archives, subagents and private files; project files and settings stay
 backup_destination: Backup storage
 backup_endpoint: Endpoint
 backup_export: Export
@@ -1771,8 +1773,8 @@ files_bold: Bold
 files_content_partial: Only the first 128 KiB of this large file is shown
 files_create: Create
 files_discard: Discard draft
-files_discard_description: Discard unsaved changes? Content being saved may still be written
-files_discard_title: Discard the unsaved draft
+files_discard_description: Unsaved changes will be lost
+files_discard_title: Close file
 files_inline_code: Inline code
 files_insert: Insert
 files_insert_chart: Chart
@@ -2107,8 +2109,8 @@ host_wsl_requirement: Requires WSL2, GNU Linux x64/arm64 and systemd
 host_wsl_empty: No installed WSL2 distributions
 host_wsl_load_failed: Could not load WSL distributions
 files_unsaved: Unsaved changes
-files_unsaved_description: Closing without saving discards the changes to these documents
-files_unsaved_discard: Discard changes
+files_unsaved_description: Save changes before closing?
+files_unsaved_discard: Discard
 files_save_all: Save all
 app_exit: Quit
 app_exit_confirm: Quit Sailry

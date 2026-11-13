@@ -1907,8 +1907,8 @@ files_save_conflict: 文件已在外部修改，草稿仍保留。请检查磁�
 files_save_failed: 保存失败，草稿仍保留。请检查文件权限和主机连接。
 files_edit_limit: 文本编辑上限为 2 MiB
 files_outcome_unknown: 保存结果不确定，草稿仍保留。请检查文件内容后重新打开，不会自动重复写入。
-files_discard_title: 放弃未保存的草稿
-files_discard_description: 丢弃未保存修改？正在保存的内容仍可能写入
+files_discard_title: 关闭文件
+files_discard_description: 未保存的修改将丢失
 files_discard: 放弃草稿
 files_directory_empty: 空文件夹
 files_listing_partial: 目录较大或包含不支持的名称，仅显示部分条目
@@ -2159,7 +2159,7 @@ provider_tokens_k: "%{count}K"
 provider_tokens_m: "%{count}M"
 
 files_move: 移动
-session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
+session_delete_named: 删除“%{name}”及其子代理，无法恢复
 project_remove_named: "确认移除项目“%{name}”？将关闭其终端，文件和会话会保留"
 project_remove_sample: 确认移除示例项目“%{name}”
 worktree_remove_named: 确认删除 worktree“%{name}”？Git 分支会保留
@@ -2764,8 +2764,8 @@ panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
 host_check_status: 检查状态
-files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
-files_unsaved_discard: 放弃修改
+files_unsaved_description: 关闭前保存修改？
+files_unsaved_discard: 丢弃
 files_save_all: 全部保存
 settings_experimental: 实验
 settings_experimental_description: 开发与调试设置
@@ -2811,6 +2811,7 @@ git_diff_side_by_side: 并排
 git_diff_inline: 内联
 git_diff_needs_width: 宽度不足，无法并排
 session_delete_private_files: 其私有工作区中的文件也会一并删除
+session_delete_private_named: 删除“%{name}”、其子代理和私有工作区文件，无法恢复
 port_count: "%{count} 个端口"
 queue_messages_one: 1 条消息排队
 queue_messages_count: "%{count} 条消息排队"

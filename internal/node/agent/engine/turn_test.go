@@ -718,16 +718,18 @@ func TestCompactionAtThreshold(t *testing.T) {
 }
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
 
-// A transient failure is retried after the fixed wait, which the retry record
-// announces with the request's nine retries.
+// A transient failure records its chosen backoff with the request's nine-retry
+// limit, so the UI announces the same wait the scheduler actually uses.
 func TestTransientRetryRecord(t *testing.T) {
 	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down"}}
 	f := newFixture(t, &scriptedModel{scripts: []script{response(limited), response(text("Done"), finish())}})
 	f.start()
 	turn := f.submit("Task")
+	var delay time.Duration
 	select {
 	case wait := <-f.r.clock.(*manualClock).waits:
-		if wait.duration != 60*time.Second {
+		delay = wait.duration
+		if delay < 4*time.Second || delay > 6*time.Second {
 			t.Fatalf("retry wait = %s", wait.duration)
 		}
 		close(wait.advance)
@@ -744,7 +746,7 @@ func TestTransientRetryRecord(t *testing.T) {
 			retries = append(retries, *execution.Retry)
 		}
 	}
-	if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != 60000 || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
+	if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != uint64(delay.Milliseconds()) || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
 		t.Fatalf("retries = %+v", retries)
 	}
 }
@@ -795,7 +797,7 @@ func TestSummaryRetryRecord(t *testing.T) {
 	wait := func(f *engineFixture) clockWait {
 		select {
 		case wait := <-f.r.clock.(*manualClock).waits:
-			if wait.duration != 60*time.Second {
+			if wait.duration < 4*time.Second || wait.duration > 6*time.Second {
 				t.Fatalf("retry wait = %s", wait.duration)
 			}
 			return wait
@@ -811,7 +813,7 @@ func TestSummaryRetryRecord(t *testing.T) {
 		waiting := wait(f)
 		// The record is there during the wait, beside the compacting draft.
 		retries, observed, _ := summaries(f)
-		if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != 60000 || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" || observed != 1 {
+		if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != uint64(waiting.duration.Milliseconds()) || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" || observed != 1 {
 			t.Fatalf("retries during the wait = %+v, %d observations", retries, observed)
 		}
 		if compacting(f) != 1 {

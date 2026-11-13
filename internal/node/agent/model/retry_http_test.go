@@ -58,7 +58,7 @@ func TestHTTP408RetriesOnlyThroughSailryPolicy(t *testing.T) {
 			}
 			first, last := observed[0], observed[1]
 			if first.Failure == nil || first.Failure.Kind != Unavailable || first.Status == nil || *first.Status != 408 ||
-				first.RetryDelay == nil || *first.RetryDelay != 60*time.Second || len(timer.delays) != 1 || timer.delays[0] != 60*time.Second ||
+				first.RetryDelay == nil || *first.RetryDelay != 7*time.Second || len(timer.delays) != 1 || timer.delays[0] != 7*time.Second ||
 				last.Failure != nil || last.RetryDelay != nil || first.RequestID != last.RequestID || last.Index != 1 {
 				t.Fatalf("HTTP 408 lost its policy, cause or request identity: %+v, %+v", first, last)
 			}

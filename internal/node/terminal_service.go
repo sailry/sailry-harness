@@ -275,7 +275,7 @@ func (node *Node) openSSHTerminal(ctx context.Context, caller protocol.NodeID, r
 		if errors.As(err, &required) {
 			return required.Outcome(), nil
 		}
-		return protocol.SshOutcome{}, interrupted(err)
+		return protocol.SshOutcome{}, sshConnectionFailure(timed, err)
 	}
 	// Session requests have no cancellation; closing the connection releases them.
 	stop := context.AfterFunc(timed, func() { _ = connection.Close() })

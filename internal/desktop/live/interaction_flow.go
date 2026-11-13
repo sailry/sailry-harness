@@ -90,7 +90,7 @@ func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
 					a.done(output)
 				}
 			case a.retained:
-				toast := ui.Toast{Type: "warning", Title: i18n.T(c, "chat_action_unknown"), Timeout: -1, Action: i18n.T(c, "chat_retry"), OnAction: func() {
+				toast := ui.Toast{Type: "warning", Title: i18n.T(c, "chat_action_unknown"), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "chat_retry"), OnAction: func() {
 					if r.controller.Connected() {
 						r.sendInteraction(f, a)
 					}

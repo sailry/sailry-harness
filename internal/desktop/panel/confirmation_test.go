@@ -69,7 +69,7 @@ func TestNativeFileConfirmationChoices(t *testing.T) {
 		}, 600, 400)
 		tester.SetLocale("en")
 		tester.Frame()
-		if !slices.Equal(request.Buttons, []string{en("settings_cancel"), en("files_discard")}) || request.Default != 0 {
+		if !slices.Equal(request.Buttons, []string{en("settings_cancel"), en("files_discard")}) || request.Default != 1 || request.Cancel != 0 {
 			t.Fatalf("an unavailable save was offered: %+v", request)
 		}
 		answer(0)
@@ -91,7 +91,7 @@ func TestNativeFileConfirmationChoices(t *testing.T) {
 		}, 600, 400)
 		tester.SetLocale("en")
 		tester.Frame()
-		if !slices.Equal(request.Buttons, []string{en("files_keep_editing"), en("files_overwrite")}) || !strings.Contains(request.Message, "note.txt") {
+		if !slices.Equal(request.Buttons, []string{en("files_keep_editing"), en("files_overwrite")}) || request.Default != 1 || request.Cancel != 0 || !strings.Contains(request.Message, "note.txt") {
 			t.Fatalf("conflict choices lost their target or callback: %+v", request)
 		}
 		answer(1)

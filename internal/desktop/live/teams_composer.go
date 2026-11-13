@@ -318,6 +318,8 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 	if r.teams == nil || delegated(session) {
 		if !delegated(session) {
 			done(session)
+		} else {
+			r.discardUnsubmitted(session.ID.String())
 		}
 		return
 	}
@@ -355,7 +357,11 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 	} else {
 		models, modelErr := selectedMemberModels(comp, r.models(), session.Roles)
 		if modelErr != nil {
-			r.enqueue(func(c *ui.Context) { r.report(c, modelErr, "session_changed") })
+			r.enqueue(func(c *ui.Context) {
+				if !r.failUnsubmitted(c, id, modelErr) {
+					r.report(c, modelErr, "session_changed")
+				}
+			})
 			return
 		}
 		// Preserve the frozen roster while changing a member's override in place.
@@ -374,7 +380,11 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 		}
 	}
 	if err != nil {
-		r.enqueue(func(c *ui.Context) { r.report(c, err, "session_changed") })
+		r.enqueue(func(c *ui.Context) {
+			if !r.failUnsubmitted(c, id, err) {
+				r.report(c, err, "session_changed")
+			}
+		})
 		return
 	}
 	if command.Kind == "" {
@@ -410,7 +420,9 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 		waiters := state.waiters
 		state.waiters = nil
 		if err != nil {
-			r.report(c, err, "session_changed")
+			if !r.failUnsubmitted(c, id, err) {
+				r.report(c, err, "session_changed")
+			}
 			for _, waiter := range waiters {
 				waiter(false)
 			}

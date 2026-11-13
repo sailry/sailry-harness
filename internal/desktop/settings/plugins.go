@@ -216,7 +216,7 @@ func plugins(c *ui.Context, s *State) {
 	pluginUpdatesDialog(c, m)
 	if p := m.pkg(m.uninstalling); p != nil {
 		open := true
-		if confirm(c, "uninstall", &open, t("plugins_uninstall")+" "+p.Name, t("plugins_remove_effect", "name", p.Name), t("plugins_uninstall")) {
+		if confirm(c, "uninstall", &open, t("plugins_uninstall"), t("plugins_remove_effect", "name", p.Name), t("plugins_uninstall")) {
 			if m.PackageActions != nil && m.PackageActions.Uninstall != nil {
 				id := p.ID
 				m.PackageActions.Uninstall(id, func(ok bool) {

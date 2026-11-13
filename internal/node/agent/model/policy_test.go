@@ -77,6 +77,27 @@ func textPart(text string) fantasy.StreamPart {
 	return fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, Delta: text}
 }
 func TestRetryTransient(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		wait time.Duration
+	}{
+		{"service unavailable", `{"error":{"code":"service_unavailable","message":"unavailable"}}`, time.Second},
+		{"explicit overload", `{"error":{"code":"api_error","type":"overloaded_error","message":"busy"}}`, 5 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &policyModel{responses: [][]fantasy.StreamPart{{{
+				Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: 503, ResponseBody: []byte(test.body)},
+			}}, {finishPart()}}}
+			timer := &policyClock{}
+			if err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, nil); err != nil || fake.calls != 2 {
+				t.Fatalf("HTTP retry: calls=%d error=%v", fake.calls, err)
+			}
+			if len(timer.delays) != 1 || timer.delays[0] < test.wait*4/5 || timer.delays[0] > test.wait*6/5 {
+				t.Fatalf("HTTP retry waits=%v, expected %v with jitter", timer.delays, test.wait)
+			}
+		})
+	}
 	for _, purpose := range []Purpose{Main, SummaryPurpose} {
 		for _, kind := range []FailureKind{RateLimited, Network, Unavailable} {
 			t.Run(string(purpose)+"_"+string(kind), func(t *testing.T) {
@@ -88,9 +109,12 @@ func TestRetryTransient(t *testing.T) {
 				if err != nil || fake.calls != 2 || len(observations) != 2 || len(output) != 2 {
 					t.Fatalf("retry result: calls=%d observations=%d output=%d error=%v", fake.calls, len(observations), len(output), err)
 				}
-				// A main request and a summary wait alike.
-				want := 60 * time.Second
-				if len(timer.delays) != 1 || timer.delays[0] != want {
+				// Main and summary requests use the same transient policy.
+				want := time.Second
+				if kind == RateLimited {
+					want = 5 * time.Second
+				}
+				if len(timer.delays) != 1 || timer.delays[0] < want*4/5 || timer.delays[0] > want*6/5 {
 					t.Errorf("retry delays = %v", timer.delays)
 				}
 				if observations[0].RetryDelay == nil || *observations[0].RetryDelay != timer.delays[0] || observations[1].RetryDelay != nil {
@@ -120,9 +144,10 @@ func TestRetryTransient(t *testing.T) {
 		if fault.Details.Kind != "model_recovery" || fault.Details.Data.(protocol.FaultDetailsModelRecoveryPayload).Reason != protocol.ConversationRecoveryStopAttemptsExhausted {
 			t.Fatalf("exhaustion lost its recovery reason: %+v", fault)
 		}
-		// Every wait is 60 seconds: no growth and no spread.
+		intervals := []time.Duration{1, 2, 4, 8, 16, 30, 30, 30, 30}
 		for index, delay := range timer.delays {
-			if delay != 60*time.Second || *announced[index] != delay {
+			base := intervals[index] * time.Second
+			if delay < base*4/5 || delay > min(base*6/5, 30*time.Second) || *announced[index] != delay {
 				t.Fatalf("delay %d = %v, announced %v", index, delay, *announced[index])
 			}
 		}
@@ -136,8 +161,10 @@ func TestRetryTransient(t *testing.T) {
 		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil); err == nil || fake.calls != 10 || len(timer.delays) != 9 {
 			t.Fatalf("summary: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
 		}
+		intervals := []time.Duration{1, 2, 4, 8, 16, 30, 30, 30, 30}
 		for index, delay := range timer.delays {
-			if delay != 60*time.Second {
+			base := intervals[index] * time.Second
+			if delay < base*4/5 || delay > min(base*6/5, 30*time.Second) {
 				t.Fatalf("summary delay %d = %v", index, delay)
 			}
 		}

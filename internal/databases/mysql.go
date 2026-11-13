@@ -66,7 +66,12 @@ func runMySQL(ctx context.Context, operation Operation, target endpoint, query Q
 	if !ok {
 		return empty, fault(protocol.ErrorCodeInternal, "MySQL driver connection lacks context execution")
 	}
-	if operation.Profile.ReadOnly {
+	return queryMySQL(ctx, session, query, operation.Profile.ReadOnly)
+}
+
+func queryMySQL(ctx context.Context, session mysqlSession, query Query, readOnly bool) (protocol.DatabaseResultSet, error) {
+	var empty protocol.DatabaseResultSet
+	if readOnly {
 		if _, err := session.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY", nil); err != nil {
 			return empty, queryError(mysqlMessage(err))
 		}
@@ -79,10 +84,16 @@ func runMySQL(ctx context.Context, operation Operation, target endpoint, query Q
 	_ = statement.Close()
 	stream, err := session.QueryContext(ctx, query.SQL, nil)
 	if err != nil {
+		if ctx.Err() != nil {
+			return empty, unknown()
+		}
 		return empty, mysqlExecutionError(err)
 	}
 	result, err := mysqlCollect(stream, query.RowLimit)
 	if err != nil {
+		if ctx.Err() != nil {
+			return empty, unknown()
+		}
 		return empty, err
 	}
 	if len(result.Columns) == 0 {

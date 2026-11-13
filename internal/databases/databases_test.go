@@ -137,12 +137,26 @@ func TestQueryPaging(t *testing.T) {
 	}
 
 	t.Run("cancelled before start", func(t *testing.T) {
+		stopped, cancel := context.WithCancel(t.Context())
+		cancel()
+		expired, release := context.WithDeadline(t.Context(), time.Unix(0, 0))
+		defer release()
+		for _, ctx := range []context.Context{stopped, expired} {
+			_, err := Execute(ctx, sqliteOperation(path, false, &Query{SQL: "DELETE FROM items", RowLimit: 1, TimeoutMS: 30_000}))
+			requireFault(t, err, protocol.ErrorCodeCancelled)
+			if result := sqliteQuery(t, path, "SELECT count(*) FROM items", 1); !reflect.DeepEqual(result.Rows[0][0], integerValue(3)) {
+				t.Fatalf("cancelled statement ran: %#v", result.Rows)
+			}
+		}
+	})
+	t.Run("cancelled check does not create a database", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := Execute(ctx, sqliteOperation(path, false, &Query{SQL: "DELETE FROM items", RowLimit: 1, TimeoutMS: 30_000}))
-		requireFault(t, err, protocol.ErrorCodeOutcomeUnknown)
-		if result := sqliteQuery(t, path, "SELECT count(*) FROM items", 1); !reflect.DeepEqual(result.Rows[0][0], integerValue(3)) {
-			t.Fatalf("cancelled statement ran: %#v", result.Rows)
+		missing := filepath.Join(t.TempDir(), "not-created.sqlite")
+		_, err := Execute(ctx, sqliteOperation(missing, false, nil))
+		requireFault(t, err, protocol.ErrorCodeCancelled)
+		if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("cancelled connection check created a database: %v", err)
 		}
 	})
 	t.Run("timeout interrupts", func(t *testing.T) {

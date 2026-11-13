@@ -301,12 +301,6 @@ func panelTabs(t *testing.T) {
 	}
 
 	settle()
-	if tester.HasText(text("close")) {
-		if err := tester.Click(text("close")); err != nil {
-			t.Fatal(err)
-		}
-		settle()
-	}
 
 	// An unsent draft: no session and no project.
 	draft := app.Sidebar.Selected
@@ -354,10 +348,12 @@ func panelTabs(t *testing.T) {
 	if !tester.HasText(text("terminal_unavailable")) || tester.HasText(text("chat_action_failed")) || len(app.Panel.Tabs) != 0 {
 		t.Fatalf("a terminal that cannot start does not say why: %q", tester.Texts())
 	}
-	if err := tester.Click(text("close")); err != nil {
-		t.Fatal(err)
-	}
+	tester.Move(1, 1)
+	tester.Advance(6 * time.Second)
 	settle()
+	if tester.HasText(text("terminal_unavailable")) {
+		t.Fatal("the terminal failure toast did not expire")
+	}
 
 	// A real session in a project with a changed file.
 	folder, err := filepath.EvalSymlinks(t.TempDir())

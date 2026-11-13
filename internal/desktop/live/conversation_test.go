@@ -1092,12 +1092,19 @@ func TestComposerSendRouting(t *testing.T) {
 					t.Fatal("an open editor changed what the composer sends")
 				}
 				comp.Draft = "Unsent draft"
+				// Sending follows the new message. Return to the older bubble
+				// before interacting with its editor again.
+				tester.Scroll(320, 200, 0, -1000)
+				tester.Frame()
 				if !editing() {
 					open()
 				}
 				// The transport holds the request while the editor is looked at.
 				transport.mu.Lock()
-				tester.Click("Save")
+				if err := tester.Click("Save"); err != nil {
+					transport.mu.Unlock()
+					t.Fatal(err)
+				}
 				tester.Frame()
 				tester.Frame()
 				flying := cv.Turns[0].Editing
@@ -1112,6 +1119,18 @@ func TestComposerSendRouting(t *testing.T) {
 				comp.Draft = ""
 			} else if row.running {
 				actions.Guide(message)
+			} else if row.name == "existing" || row.name == "new_project_session" {
+				// Hold both session creation and turn admission. The captured
+				// input must already be visible in the actual transcript.
+				transport.mu.Lock()
+				actions.Send(message)
+				render(view)
+				visible := len(cv.Turns) == 1 && cv.Turns[0].User == message.Text && tester.HasText(message.Text)
+				active := cv.Running()
+				transport.mu.Unlock()
+				if !visible || active {
+					t.Fatal("unacknowledged send did not show only its captured user message", cv.Turns)
+				}
 			} else {
 				actions.Send(message)
 			}
@@ -1473,6 +1492,9 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			if row.failure != "" && comp.Draft != "Captured draft" {
 				t.Fatal("failed request discarded the draft")
+			}
+			if row.failure != "" && r.composerOutgoing[id] != nil {
+				t.Fatal("failed or unconfirmed request retained a successful-looking user message")
 			}
 			if based {
 				// The first submission was sent as captured, and what was typed

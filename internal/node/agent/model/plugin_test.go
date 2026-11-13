@@ -452,12 +452,12 @@ export function decode(input) { return {state:null,deltas:input.events.map(event
 	})
 	t.Run("keeps provider failures distinct from network failures", func(t *testing.T) {
 		for _, class := range []protocol.PluginModelAdapterWireClass{protocol.PluginModelAdapterWireClassUnknown, protocol.PluginModelAdapterWireClassUnavailable} {
-			failure := pluginClassified(class, "provider unavailable", nil)
+			failure := pluginClassified(protocol.PluginModelAdapterWireDeltaErrorPayload{Class: class, Message: "provider unavailable"}, nil)
 			if failure.Kind != Unavailable || !failure.Retryable() {
 				t.Fatalf("provider rejection = %+v", failure)
 			}
 		}
-		failure := pluginClassified(protocol.PluginModelAdapterWireClassRateLimited, "private-token quota", []protocol.Secret{protocol.NewSecret("private-token")})
+		failure := pluginClassified(protocol.PluginModelAdapterWireDeltaErrorPayload{Class: protocol.PluginModelAdapterWireClassRateLimited, Message: "private-token quota"}, []protocol.Secret{protocol.NewSecret("private-token")})
 		if failure.Kind != RateLimited || failure.Message != "[redacted] quota" {
 			t.Fatalf("classified private diagnostics = %+v", failure)
 		}

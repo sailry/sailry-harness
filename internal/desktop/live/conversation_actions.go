@@ -599,7 +599,16 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 	if retry, ok := x.r.turnRetries[id]; ok && (retry.key != key || retry.observed != "" && retry.observed != observed) {
 		x.r.forgetTurnRetry(id)
 	}
-	x.r.executeScoped("turn/"+id, command, func(c *ui.Context, output protocol.Output, err error) {
+	pending := x.r.composerOutgoing[id]
+	var request protocol.RequestID
+	request = x.r.executeScoped("turn/"+id, command, func(c *ui.Context, output protocol.Output, err error) {
+		if pending != nil && pending.transcript && x.r.composerOutgoing[id] == pending && command.Kind == "submit_turn" {
+			if err != nil {
+				x.r.discardOutgoing(id)
+			} else if turn, valid := detail[protocol.QueuedTurn](output.Data); valid && turn.ID != (protocol.TurnID{}) {
+				pending.turn = turn.ID
+			}
+		}
 		if request, uncertain := x.r.uncertain[key]; uncertain {
 			if x.r.turnRetries == nil {
 				x.r.turnRetries = map[string]turnRetry{}
@@ -617,6 +626,9 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			done(output, err == nil)
 		}
 	})
+	if pending != nil && pending.transcript && command.Kind == "submit_turn" && request != (protocol.RequestID{}) {
+		pending.request = request
+	}
 }
 
 // offerRestore reports a failed send whose composer no longer holds what was
@@ -624,8 +636,11 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 func (x *conversationActions) offerRestore(c *ui.Context, err error) {
 	message, comp := *x.restore, x.comp
 	toast := ui.Toast{Type: "error", Title: i18n.T(c, "chat_action_failed"), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "chat_restore_draft")}
-	if code := faultCode(err); code == protocol.ErrorCodeConflict || code == protocol.ErrorCodeRevisionConflict {
+	switch faultCode(err) {
+	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
 		toast.Type, toast.Title = "warning", i18n.T(c, "session_changed")
+	case protocol.ErrorCodeOutcomeUnknown:
+		toast.Type, toast.Title = "warning", i18n.T(c, "chat_action_unknown")
 	}
 	toast.OnAction = func() {
 		x.r.enqueue(func(c *ui.Context) {

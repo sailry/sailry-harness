@@ -314,9 +314,9 @@ func (s *State) tools(c *ui.Context, calls []Call, continuing bool) {
 	s.groups(c, calls)
 }
 
-// groups builds runs of calls of the same name, 8 DIPs apart.
+// groups gives adjacent runs the same spacing as the reply's other blocks.
 func (s *State) groups(c *ui.Context, calls []Call) {
-	ui.Column(c).Gap(8).Children(func() {
+	ui.Column(c).Gap(workGap).Children(func() {
 		for _, run := range Runs(calls) {
 			if len(run) == 1 && !pathList(run[0]) {
 				s.row(c, run[0])

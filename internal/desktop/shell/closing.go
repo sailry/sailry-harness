@@ -75,7 +75,7 @@ func (a *App) closeDialog(c *ui.Context) {
 	if len(st.names) == 0 {
 		if kit.Confirm(c.Key("close-guard").Key(st), &st.open, kit.Confirmation{
 			Title: i18n.T(c, "app_exit_confirm"), Message: i18n.T(c, "app_exit_description"),
-			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "app_exit")}, Destructive: []int{1},
+			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "app_exit")}, Default: 1, Destructive: []int{1},
 		}) == 1 {
 			a.finishClose(st)
 		}

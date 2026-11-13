@@ -19,9 +19,10 @@ func TestSavedConnectionList(t *testing.T) {
 	for _, current := range []struct {
 		name, state, first, address, second, other, open string
 	}{
-		{"ssh", `terminals:[],terminal:null,jobs:[],activeProfile(){return null;},files(){return null;},
+		{"ssh", `terminals:[],terminal:null,jobs:[],activeProfile(){return null;},files(){return null;},connectionLocked(){return false;},
   profiles:[{id:"a",revision:1,name:"Build host",username:"root",host:"build.example",port:22},
-    {id:"b",revision:1,name:"Mirror",username:"ops",host:"mirror.example",port:2222}]`,
+    {id:"b",revision:1,name:"Mirror",username:"ops",host:"mirror.example",port:2222}],
+  connectionLocked(){return false;}`,
 			"Build host", "root@build.example:22", "Mirror", "ops@mirror.example:2222", `"id":"ssh-open-b"`},
 		{"databases", `opened:null,catalog:{loading:new Set(),names:[]},profile(){return null;},
   profiles:[{id:"a",revision:1,name:"Ledger",connection:{kind:"sqlite",path:"/data/ledger.db"}},

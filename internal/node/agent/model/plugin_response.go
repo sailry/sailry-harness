@@ -184,7 +184,7 @@ func (accumulator *pluginAccumulator) push(deltas []protocol.PluginModelAdapterW
 			accumulator.flush(&parts)
 			accumulator.reason, accumulator.finished = value.Reason, true
 		case *protocol.PluginModelAdapterWireDeltaErrorPayload:
-			return nil, pluginClassified(value.Class, value.Message, accumulator.secrets)
+			return nil, pluginClassified(*value, accumulator.secrets)
 		}
 	}
 	return parts, nil
@@ -239,9 +239,9 @@ func (accumulator *pluginAccumulator) finish() ([]fantasy.StreamPart, error) {
 	return parts, nil
 }
 
-func pluginClassified(class protocol.PluginModelAdapterWireClass, message string, secrets []protocol.Secret) *Failure {
+func pluginClassified(value protocol.PluginModelAdapterWireDeltaErrorPayload, secrets []protocol.Secret) *Failure {
 	kind := Unavailable
-	switch class {
+	switch value.Class {
 	case protocol.PluginModelAdapterWireClassAuthentication, protocol.PluginModelAdapterWireClassPermission:
 		kind = Authentication
 	case protocol.PluginModelAdapterWireClassRateLimited:
@@ -255,5 +255,16 @@ func pluginClassified(class protocol.PluginModelAdapterWireClass, message string
 	case protocol.PluginModelAdapterWireClassUnsupported:
 		kind = Unsupported
 	}
-	return &Failure{Kind: kind, Message: safeDiagnostic(message, secrets)}
+	failure := &Failure{Kind: kind, Message: safeDiagnostic(value.Message, secrets)}
+	if value.RetryAfterMs != nil {
+		delay := *value.RetryAfterMs
+		failure.retryAfterMs = &delay
+	}
+	for _, code := range []*string{value.Code, value.ErrorType} {
+		if code != nil && overloadedCode(*code) {
+			failure.overloaded = true
+		}
+	}
+	failure.overloaded = failure.Retryable() && (failure.overloaded || kind == RateLimited)
+	return failure
 }

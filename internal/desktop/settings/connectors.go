@@ -260,7 +260,7 @@ func connectors(c *ui.Context, m *Model) {
 	}
 	if s := m.service(m.connRemoving); s != nil {
 		open := true
-		if confirm(c, "remove", &open, t("connector_remove")+" "+s.Name, t("connector_remove_effect", "name", s.Name), t("connector_remove")) {
+		if confirm(c, "remove", &open, t("connector_remove"), t("connector_remove_effect", "name", s.Name), t("connector_remove")) {
 			if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Remove != nil {
 				m.ConnectorActions.Remove(s.ID)
 			} else {

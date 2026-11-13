@@ -136,18 +136,14 @@ func browserChrome(t *testing.T) {
 		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 		settle()
 	}
-	// dismiss closes the toast shown, which lies over the toolbar: its close
-	// button is the one under the header.
-	dismiss := func() {
+	// expire lets the toast over the toolbar leave without changing focus.
+	expire := func(message string) {
 		t.Helper()
-		for _, info := range tester.AccessAll() {
-			if info.Role == ui.RoleButton && info.Name == text("close") && info.Bounds.Y >= shell.HeaderHeight {
-				tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-				settle()
-				return
-			}
+		tester.Move(1, 1)
+		tester.Advance(time.Duration(r.Preferences.Data.ToastSeconds)*time.Second + time.Second)
+		if tester.HasText(message) {
+			t.Fatalf("the toast did not expire: %q", tester.Texts())
 		}
-		t.Fatalf("no toast to close; visible text: %q", tester.Texts())
 	}
 	progress := func() bool {
 		for _, info := range tester.AccessAll() {
@@ -288,7 +284,7 @@ func browserChrome(t *testing.T) {
 	if len(navigated) != 0 || !tester.HasText(text("browser_invalid_address")) {
 		t.Fatalf("an invalid address: navigated %v; visible text: %q", navigated, tester.Texts())
 	}
-	dismiss()
+	expire(text("browser_invalid_address"))
 	click(need(ui.RoleTextField, text("browser_address")))
 	tester.Key(ui.Cmd, ui.KeyA)
 	tester.Type("www.baidu.com")
@@ -587,7 +583,7 @@ func browserChrome(t *testing.T) {
 	if tester.WebViewAt(float32(width)-40, float32(height)-40) != nil {
 		t.Fatal("the page stays on screen with another conversation")
 	}
-	dismiss()
+	expire(text("browser_annotation_stale"))
 	// Its conversation shows again: the tab and its page with it, nothing
 	// selecting.
 	back := func(when string) {

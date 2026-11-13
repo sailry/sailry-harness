@@ -246,8 +246,8 @@ func TestSystemAboutUI(t *testing.T) {
 	untouched("after two cancelled confirmations")
 	t.Logf("step 6 passed: the completed download showed %q once with Install and restart; the toast's action and the page's button each opened the confirmation naming the consequence; both were cancelled and nothing was installed", ready)
 
-	// (7) SABOUT-010: a failure keeps its toast, its Details and the
-	// installed version.
+	// (7) SABOUT-010: a failure offers Details on its toast and page, and
+	// keeps the installed version.
 	feed.Publish(damaged, true)
 	pickOption(window, "Update channel", "Experience")
 	settle(window, "the damaged release is offered", systemUIWait, func() bool {
@@ -262,13 +262,6 @@ func TestSystemAboutUI(t *testing.T) {
 	if u.Failure.Key != "updates_digest_invalid" || shown(window, "The update package is damaged") != 1 || u.State == settings.UpdateReady {
 		t.Fatalf("the damaged archive failed as %+v in state %v; visible text: %q", u.Failure, u.State, window.tester.Texts())
 	}
-	for range 48 {
-		window.tester.Advance(250 * time.Millisecond)
-		window.tester.Frame()
-	}
-	if shown(window, "The update package is damaged") != 1 {
-		t.Fatal("the failure toast ran out")
-	}
 	detail := u.Failure.Detail
 	action, _ = topButton(window, "Details", 2)
 	window.clickOn(action)
@@ -280,7 +273,7 @@ func TestSystemAboutUI(t *testing.T) {
 	window.tester.Key(0, ui.KeyEscape)
 	settle(window, "the details close again", systemUIWait, func() bool { return !visible(window, detail) })
 	untouched("after a failed download")
-	t.Logf("step 7 passed: the damaged archive of %s failed with the persistent toast The update package is damaged; the toast's Details and the page's Details show %q; the installed bundle is still %s", damaged, detail, link.ProductVersion)
+	t.Logf("step 7 passed: the damaged archive of %s failed with the toast The update package is damaged; the toast's Details and the page's Details show %q; the installed bundle is still %s", damaged, detail, link.ProductVersion)
 
 	// (8) SABOUT-006, SABOUT-008, SABOUT-009 as far as a fixture bundle
 	// goes: the confirmation installs; while it runs the page shows the

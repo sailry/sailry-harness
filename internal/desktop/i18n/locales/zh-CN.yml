@@ -238,8 +238,9 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 张
 workspace_archive: 归档会话
 session_delete: 删除会话
-session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
+session_delete_named: 删除“%{name}”及其子代理，无法恢复
 session_delete_private_files: 其私有工作区中的文件也会一并删除
+session_delete_private_named: 删除“%{name}”、其子代理和私有工作区文件，无法恢复
 workspace_rename: 重命名
 session_title_required: 请输入名称
 session_mark_read: 标记为已读
@@ -599,6 +600,7 @@ chat_model_reconnecting: 重试请求 %{attempt}/%{limit}
 chat_model_reconnecting_continuously: 正在重新连接
 chat_model_retried: 模型请求已重试 %{attempt}/%{limit}
 chat_model_retry_exhausted: 重试次数已用尽
+chat_model_retry_wait_exhausted: 重试等待时间已用尽
 chat_model_server_overloaded: 模型服务繁忙
 chat_reconnecting: 正在重连
 chat_rewind: 回退到此回合
@@ -761,7 +763,7 @@ backup_conflict: 备份设置或目标已变化，请重新加载后检查
 backup_delete: 删除
 backup_delete_all: 删除所有会话
 backup_delete_all_action: 全部删除
-backup_delete_all_consequence: 删除所有会话（包括已归档会话），无法恢复。项目文件和账户设置将保留
+backup_delete_all_consequence: 删除所有会话（含归档）、子代理及私有文件，无法恢复；项目文件和设置保留
 backup_destination: 备份存储
 backup_endpoint: 服务地址
 backup_export: 导出
@@ -1771,8 +1773,8 @@ files_bold: 粗体
 files_content_partial: 文件较大，仅显示前 128 KiB 的文本内容
 files_create: 新建
 files_discard: 放弃草稿
-files_discard_description: 丢弃未保存修改？正在保存的内容仍可能写入
-files_discard_title: 放弃未保存的草稿
+files_discard_description: 未保存的修改将丢失
+files_discard_title: 关闭文件
 files_inline_code: 行内代码
 files_insert: 插入
 files_insert_chart: 图表
@@ -2107,8 +2109,8 @@ host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 和 systemd
 host_wsl_empty: 未安装 WSL2 发行版
 host_wsl_load_failed: 无法加载 WSL 发行版
 files_unsaved: 有未保存的修改
-files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
-files_unsaved_discard: 放弃修改
+files_unsaved_description: 关闭前保存修改？
+files_unsaved_discard: 丢弃
 files_save_all: 全部保存
 app_exit: 退出
 app_exit_confirm: 退出 Sailry

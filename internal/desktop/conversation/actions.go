@@ -228,7 +228,7 @@ func (s *State) confirmRewind(c *ui.Context, session string, actions Actions) {
 	turn := s.rewind
 	if kit.Confirm(c.Key(turn), &open, kit.Confirmation{
 		Title: i18n.T(c, "chat_rewind"), Message: i18n.T(c, "chat_rewind_confirm"),
-		Buttons: []string{i18n.T(c, "interaction_cancel"), i18n.T(c, "chat_rewind_action")}, Destructive: []int{1},
+		Buttons: []string{i18n.T(c, "interaction_cancel"), i18n.T(c, "chat_rewind_action")}, Default: 1, Destructive: []int{1},
 	}) == 1 {
 		s.rewind = ""
 		actions.Rewind(turn)

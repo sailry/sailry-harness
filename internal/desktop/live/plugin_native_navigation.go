@@ -244,9 +244,6 @@ func (state *pluginNativeState) showToast(_ context.Context, arguments []json.Ra
 				state.mu.Unlock()
 			},
 		}
-		if value.Kind == "error" {
-			toast.Timeout = -1
-		}
 		if value.Action != nil {
 			toast.Action = value.Action.Label
 			toast.OnAction = func() {

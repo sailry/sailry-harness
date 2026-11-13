@@ -33,10 +33,6 @@ func (r *Runtime) PresentNotice(notice *viewmodel.Notice) {
 			kind = "warning"
 		}
 		toast := ui.Toast{ID: "notice/" + notice.ID, Type: kind, Title: title, Description: body, Timeout: kit.ToastDuration(c)}
-		// A persistent notice, as a reminder, stays until its user closes it.
-		if notice.Presentation != nil && notice.Presentation.Persistent {
-			toast.Timeout = -1
-		}
 		// While Demo mode shows, the window's own conversations and notices
 		// wait behind the demo's: the toast tells the notice and opens nothing.
 		if !root.App.Settings.DemoMode {

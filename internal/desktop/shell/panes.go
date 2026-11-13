@@ -333,7 +333,7 @@ func (a *App) confirmClose(c *ui.Context) {
 	open := true
 	if kit.Confirm(c.Key(t), &open, kit.Confirmation{
 		Title: i18n.T(c, "workspace_close_terminal"), Message: a.paneTitle(c, t),
-		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Destructive: []int{1},
+		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Default: 1, Destructive: []int{1},
 	}) == 1 {
 		a.panes.closing = panes.Target{}
 		a.closePane(c, t)

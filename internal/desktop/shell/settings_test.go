@@ -83,20 +83,15 @@ func TestShortcutRecorder(t *testing.T) {
 	if a.search.open || !tt.HasText(i18n.In("en", "shortcut_conflict")) || !a.Settings.Keys.Recording() {
 		t.Fatalf("conflict not refused: search %v recording %v %q", a.search.open, a.Settings.Keys.Recording(), tt.Texts())
 	}
-	// Closing the conflict's toast leaves the keys with the recorder.
+	// Expiring the conflict's toast leaves the keys with the recorder.
 	tt.Advance(500 * time.Millisecond)
-	message, _ := tt.Find(i18n.In("en", "shortcut_conflict"))
-	closed := false
-	for _, button := range tt.AccessAll() {
-		if button.Role == ui.RoleButton && button.Name == i18n.In("en", "close") && button.Bounds.X > message.X && button.Bounds.X < message.X+320 &&
-			button.Bounds.Y < message.Y+message.H && button.Bounds.Y+button.Bounds.H > message.Y {
-			tt.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
-			closed = true
-			break
-		}
+	if _, found := tt.AccessByRole(ui.RoleButton, i18n.In("en", "close")); found {
+		t.Fatal("the conflict toast has a close button")
 	}
-	if tt.Advance(500 * time.Millisecond); !closed || tt.HasText(i18n.In("en", "shortcut_conflict")) {
-		t.Fatalf("conflict toast not closed: %q", tt.Texts())
+	tt.Move(1, 1)
+	tt.Advance(time.Duration(settings.ToastSeconds[a.Settings.Toast])*time.Second + time.Second)
+	if tt.HasText(i18n.In("en", "shortcut_conflict")) || !a.Settings.Keys.Recording() {
+		t.Fatalf("the toast did not expire with the recorder active: %q", tt.Texts())
 	}
 	tt.Key(ui.Cmd|ui.Shift, ui.KeyN)
 	if a.Settings.Keys.Recording() || a.Page != SettingsPage {
@@ -198,33 +193,23 @@ func TestTerminalVariableDialog(t *testing.T) {
 	if !tt.HasText(invalid) || !tt.HasText(i18n.In("en", "terminal_environment_add")) {
 		t.Fatalf("invalid name not refused: %q", tt.Texts())
 	}
-	// The failure toast lies over the open dialog: its close button takes the
-	// click, and the dialog keeps its draft.
+	// The failure toast expires over the open dialog, which keeps its draft.
 	tt.Advance(500 * time.Millisecond) // the toast slid in
 	message, _ := tt.Find(invalid)
-	closed := false
 	for _, button := range tt.AccessAll() {
 		if button.Role == ui.RoleButton && button.Name == i18n.In("en", "close") &&
 			button.Bounds.X > message.X && button.Bounds.X < message.X+320 && // inside the 360 DIP toast, not the dialog's own
 			button.Bounds.Y+button.Bounds.H > message.Y && button.Bounds.Y < message.Y+message.H {
-			tt.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
-			closed = true
-			break
+			t.Fatal("the failure toast has a close button")
 		}
-	}
-	tt.Advance(500 * time.Millisecond) // and slid out
-	if !closed || tt.HasText(invalid) || !tt.HasText(i18n.In("en", "terminal_environment_add")) {
-		t.Fatalf("failure toast not closed over the dialog (found %v): %q", closed, tt.Texts())
-	}
-	// Left alone, a failure toast leaves after the selected duration.
-	click(t, tt, i18n.In("en", "settings_save"))
-	if !tt.HasText(invalid) {
-		t.Fatalf("invalid name not refused again: %q", tt.Texts())
 	}
 	tt.Move(1, 1)
 	tt.Advance(time.Duration(settings.ToastSeconds[a.Settings.Toast])*time.Second + time.Second)
 	if tt.HasText(invalid) || !tt.HasText(i18n.In("en", "terminal_environment_add")) {
 		t.Fatalf("failure toast outlived its duration: %q", tt.Texts())
+	}
+	if field, found := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "terminal_variable")); !found || field.Value != "1BAD" {
+		t.Fatalf("expiring the toast changed the dialog draft: %+v, found %v", field, found)
 	}
 	n := len(a.Settings.Host.Saved.Env)
 	click(t, tt, i18n.In("en", "terminal_variable"))

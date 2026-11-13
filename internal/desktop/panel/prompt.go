@@ -89,7 +89,7 @@ func (pr *Project) promptDialog(c *ui.Context) {
 		open := form.open
 		switch kit.Confirm(c.Key("workspace-confirm").Key(form.identity), &open, kit.Confirmation{
 			Title: title, Message: strings.Join(message, "\n\n"),
-			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, form.action)},
+			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, form.action)}, Default: 1,
 		}) {
 		case 0:
 			form.open = false

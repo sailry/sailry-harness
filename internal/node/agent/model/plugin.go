@@ -120,7 +120,7 @@ func (model *pluginModel) Stream(ctx context.Context, call fantasy.Call) (fantas
 	}, nil
 }
 
-func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModelAdapterWireRequest, yield func(fantasy.StreamPart) bool) error {
+func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModelAdapterWireRequest, yield func(fantasy.StreamPart) bool) (result error) {
 	worker, err := plugins.NewTranslation(ctx, model.capture.Bundle)
 	if err != nil {
 		return pluginTranslationFailure(err)
@@ -137,7 +137,7 @@ func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModel
 		Refusal *protocol.PluginModelAdapterWireDeltaErrorPayload `json:"refusal"`
 	}
 	if json.Unmarshal(raw, &refused) == nil && refused.Refusal != nil {
-		return pluginClassified(refused.Refusal.Class, refused.Refusal.Message, model.capture.Secrets)
+		return pluginClassified(*refused.Refusal, model.capture.Secrets)
 	}
 	var prepared protocol.PluginModelAdapterWirePrepared
 	if json.Unmarshal(raw, &prepared) != nil {
@@ -155,6 +155,7 @@ func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModel
 		return err
 	}
 	defer response.Body.Close()
+	defer func() { result = withResponseHints(result, response.StatusCode, response.Header) }()
 	captureHeaders(ctx, response.StatusCode)
 	headers, err := model.publicHeaders(response.Header)
 	if err != nil {
@@ -280,7 +281,8 @@ func (*pluginModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.O
 	return nil, &Failure{Kind: Unsupported, Message: "structured generation is not configured"}
 }
 
-func (model *pluginModel) classify(ctx context.Context, response *http.Response, headers map[string][]string, worker *plugins.Translation) error {
+func (model *pluginModel) classify(ctx context.Context, response *http.Response, headers map[string][]string, worker *plugins.Translation) (result error) {
+	defer func() { result = withResponseHints(result, response.StatusCode, response.Header) }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, pluginResponseBytes+1))
 	if err != nil {
 		return &Failure{Kind: Network, Message: "model connection failed"}
@@ -310,7 +312,7 @@ func (model *pluginModel) classify(ctx context.Context, response *http.Response,
 		if json.Unmarshal(raw, &classified) != nil {
 			return &Failure{Kind: InvalidRequest, Message: "model translation returned an invalid error"}
 		}
-		classifiedFailure := pluginClassified(classified.Class, classified.Message, model.capture.Secrets)
+		classifiedFailure := pluginClassified(classified, model.capture.Secrets)
 		classifiedFailure.status = &status
 		failure = classifiedFailure
 	}

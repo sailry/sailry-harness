@@ -54,6 +54,7 @@ type pluginCardInstance struct {
 	failure     error
 	reported    bool
 	visible     bool
+	visits      int
 	probed      bool
 	lastPaint   time.Time
 	login       pluginCardAuthorization
@@ -62,6 +63,20 @@ type pluginCardInstance struct {
 	browser     bool
 	mu          sync.Mutex
 	reference   protocol.PluginReference
+}
+
+// A failed card retries when its last presentation leaves and the user opens
+// it again, even after its recovery toast expires. Other panes may still show
+// the same card, so one presentation leaving must not reset their attempt.
+type pluginCardVisit struct{ card *pluginCardInstance }
+
+func (visit *pluginCardVisit) Close() error {
+	card := visit.card
+	card.visits--
+	if card.visits == 0 && card.failure != nil {
+		card.attempted, card.reported, card.failure = false, false, nil
+	}
+	return nil
 }
 
 func (r *Runtime) initPluginCards() *pluginCardState {
@@ -178,6 +193,10 @@ func (r *Runtime) pluginCardLive(card *pluginCardInstance, generation uint64) bo
 
 func (r *Runtime) renderPluginCard(view *ui.Context, card *pluginCardInstance) {
 	box := ui.Column(view).FillWidth().MinWidth(0).Gap(8)
+	ui.Local(box, card, func() pluginCardVisit {
+		card.visits++
+		return pluginCardVisit{card: card}
+	})
 	eligible := r.pluginCardEligible(card)
 	card.visible = box.InView() && eligible
 	if card.visible {
@@ -281,13 +300,15 @@ func (r *Runtime) suspendPluginCard(card *pluginCardInstance) {
 func (r *Runtime) failPluginCard(view *ui.Context, card *pluginCardInstance, err error, title string) {
 	card.failure = err
 	r.suspendPluginCard(card)
-	card.attempted = true
+	// A response can fail after the last presentation was unmounted but before
+	// its idle suspension ran. It must not block the next explicit visit.
+	card.attempted = card.visits > 0
 	if view == nil || card.reported {
 		return
 	}
 	card.reported = true
 	view.AddToast(ui.Toast{
-		Type: "error", Title: i18n.T(view, title), Description: err.Error(), Timeout: -1,
+		Type: "error", Title: i18n.T(view, title), Description: err.Error(), Timeout: kit.ToastDuration(view),
 		Action: i18n.T(view, "chat_retry"), OnAction: func() {
 			r.enqueue(func(*ui.Context) {
 				if r.pluginCardEligible(card) {

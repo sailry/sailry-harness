@@ -973,7 +973,7 @@ func testSidebarDeleteConfirms(t *testing.T) {
 	if private := i18n.In("en", "session_delete_private_files"); !tt.HasText(i18n.In("en", "session_delete_named", "name", title)) || strings.Contains(strings.Join(tt.Texts(), "\n"), private) {
 		t.Fatalf("the confirmation does not name the session alone: %q", tt.Texts())
 	}
-	clickButton(t, tt, i18n.In("en", "session_delete"))
+	clickButton(t, tt, i18n.In("en", "settings_delete"))
 	tt.Frame()
 	// A chat without a project is told once that its private workspace's
 	// files go with it.
@@ -991,7 +991,7 @@ func testSidebarDeleteConfirms(t *testing.T) {
 		t.Fatalf("%v: %q", err, tt.Menu())
 	}
 	tt.Frame()
-	if want := i18n.In("en", "session_delete_named", "name", name) + "\n" + i18n.In("en", "session_delete_private_files"); !tt.HasText(want) {
+	if want := i18n.In("en", "session_delete_private_named", "name", name); !tt.HasText(want) {
 		t.Fatalf("the chat's confirmation: %q, want %q", tt.Texts(), want)
 	}
 	clickButton(t, tt, i18n.In("en", "settings_cancel"))

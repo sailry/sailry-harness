@@ -1169,14 +1169,12 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 		return value
 	}
 	dismiss := func() {
-		for range 8 {
-			info, ok := tester.AccessByRole(ui.RoleButton, zh("close"))
-			if !ok {
-				return
-			}
-			tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-			settle()
-		}
+		// Toasts close on their own now. Move away from the toast stack so its
+		// hover pause cannot keep an earlier failure in the next assertion.
+		tester.Move(1, 1)
+		tester.Advance(6 * time.Second)
+		tester.Frame()
+		settle()
 	}
 
 	r.App.Settings.Open(settings.Connectors)

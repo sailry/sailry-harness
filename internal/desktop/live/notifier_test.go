@@ -162,23 +162,28 @@ func TestNotifierDelivery(t *testing.T) {
 			t.Fatalf("plain notice: %q, %q", title, body)
 		}
 	})
-	t.Run("a persistent notice's toast stays until closed", func(t *testing.T) {
+	t.Run("a persistent notice stays in the list after its toast expires", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root
 			window := closeTestWindow(root)
 			root.PresentNotice(&viewmodel.Notice{ID: "plain", Kind: viewmodel.NoticeInfo, Title: "Index", Message: "Rebuilt"})
-			root.PresentNotice(&viewmodel.Notice{ID: "reminder", Kind: viewmodel.NoticeInfo, Title: "Call the bank",
-				Presentation: &protocol.NotificationPresentation{Heading: "Reminder", Persistent: true}})
+			reminder := &viewmodel.Notice{ID: "reminder", Kind: viewmodel.NoticeInfo, Title: "Call the bank",
+				Presentation: &protocol.NotificationPresentation{Heading: "Reminder", Persistent: true}}
+			root.App.Data.Notices = []*viewmodel.Notice{reminder}
+			root.PresentNotice(reminder)
 			window.Frame()
 			window.Advance(500 * time.Millisecond)
 			if !window.HasText("Reminder") || !window.HasText("Call the bank") || !window.HasText("Rebuilt") {
 				t.Fatalf("no notice toasts: %q", window.Texts())
 			}
-			window.Advance(time.Hour)
+			window.Advance(6 * time.Second)
 			window.Frame()
-			if !window.HasText("Call the bank") || window.HasText("Rebuilt") {
-				t.Fatalf("after an hour: %q", window.Texts())
+			if window.HasText("Call the bank") || window.HasText("Rebuilt") {
+				t.Fatalf("the notice toasts did not expire: %q", window.Texts())
+			}
+			if len(root.App.Data.Notices) != 1 || root.App.Data.Notices[0] != reminder || !reminder.Presentation.Persistent {
+				t.Fatal("expiring the toast changed the persistent notice")
 			}
 		})
 	})

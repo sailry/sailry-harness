@@ -8,7 +8,6 @@ import (
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
-	"github.com/cenkalti/backoff/v5"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/clock"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -76,18 +75,14 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 	return previous
 }
 
-// MainRetries is how often a request, a main one or a summary, is sent again
-// after a transient failure, each time after retryDelay: a fixed wait, which
-// a provider's Retry-After neither shortens nor lengthens.
-const (
-	MainRetries = 9
-	retryDelay  = 60 * time.Second
-)
+// MainRetries bounds resends of one main or summary request. Both also share
+// the request's cumulative wait budget, regardless of the transient cause.
+const MainRetries = 9
 
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool) error {
 	retries := uint64(MainRetries)
 	buffered := purpose == SummaryPurpose
-	schedule := backoff.NewConstantBackOff(retryDelay)
+	schedule := newRetryPolicy()
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	var secrets []protocol.Secret
 	if sdk, ok := languageModel.(*sdkModel); ok {
@@ -155,18 +150,19 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		cancel()
 		attempt.Finished = timer.Now()
 		capture.apply(&attempt)
-		exhausted := false
+		exhausted, waitExhausted := false, false
 		if err != nil {
 			attempt.Failure = Classify(err, secrets...)
 			if attempt.Failure.status != nil {
 				attempt.Status = attempt.Failure.status
 			}
 			if !released && !escaped && attempt.Failure.Retryable() && ctx.Err() == nil {
-				if index < retries {
-					delay := schedule.NextBackOff()
+				if index >= retries {
+					exhausted = true
+				} else if delay, allowed := schedule.next(attempt.Failure, timer.Now()); allowed {
 					attempt.RetryDelay = &delay
 				} else {
-					exhausted = true
+					waitExhausted = true
 				}
 			}
 		}
@@ -189,11 +185,11 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			return nil
 		}
 		if attempt.RetryDelay == nil {
-			if exhausted {
+			if exhausted || waitExhausted {
 				// Observations retain the provider failure. Only the terminal
 				// result names the exhausted recovery for the turn's final fault.
 				failure := *attempt.Failure
-				failure.Exhausted = true
+				failure.Exhausted, failure.WaitExhausted = exhausted, waitExhausted
 				return &failure
 			}
 			return attempt.Failure
@@ -201,6 +197,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		if err := timer.Sleep(ctx, *attempt.RetryDelay); err != nil {
 			return Classify(err)
 		}
+		schedule.waited += *attempt.RetryDelay
 	}
 }
 func outputPart(part fantasy.StreamPart) bool {

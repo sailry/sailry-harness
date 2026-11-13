@@ -387,6 +387,9 @@ These suites run only when explicitly started. They are not included in CI,
 the listed assertions on that model and environment; it is not a claim that
 all backend behavior or all interface behavior is bug-free.
 
+Agents use scripted models, fixtures and recorded replay for routine verification.
+Real-model acceptance requires the user's explicit request.
+
 Acceptance is a development command, not a setting in the application. Configure a
 provider in an isolated profile once with `just desktop acceptance`, then close
 that Desktop before running tests on that profile. A channel can be selected by
@@ -525,8 +528,12 @@ These use a real conversation with any working model channel.
 - [ ] **[account]** Make a request fail in a retryable way: disconnect the
       network, or point a channel's base URL at an address that refuses the
       connection, then send a message. The turn shows "Retrying request 1/9"
-- [ ] Keep it failing and time the rows. "Retrying request 2/9" appears 60
-      seconds after 1/9, and each next one 60 seconds later
+- [ ] Keep it failing and time the rows. Network failures back off from about
+      1 second to 30 seconds; rate limits and overload back off from about
+      5 seconds to 60 seconds, with jitter. The row advances up to 9/9
+- [ ] A provider's `Retry-After` is a minimum wait. If that wait exceeds the
+      remaining ten-minute waiting budget, recovery ends with its own waiting
+      limit message instead of sending early or reporting exhausted attempts
 - [ ] Press Stop during a wait. The turn ends at once
 - [ ] Restore the network during a wait. The next attempt answers and the
       reply continues in the same turn

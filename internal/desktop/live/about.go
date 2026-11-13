@@ -121,7 +121,7 @@ func updateView(u *settings.Updater, state updater.State, failure *updater.Failu
 func updateToast(notice updater.Notice, title, action string, timeout time.Duration, run func()) ui.Toast {
 	toast := ui.Toast{Type: "success", Title: title, Timeout: timeout}
 	if notice.Error {
-		toast.Type, toast.Timeout = "error", -1
+		toast.Type = "error"
 		if notice.Key == "updates_install_uncertain" || notice.Key == "updates_receipt_failed" {
 			toast.Type = "warning"
 		}

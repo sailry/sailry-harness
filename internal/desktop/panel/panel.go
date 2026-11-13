@@ -100,7 +100,7 @@ func (s *State) confirmClose(c *ui.Context) {
 	open := true
 	if kit.Confirm(c.Key("close-terminal").Key(t), &open, kit.Confirmation{
 		Title: i18n.T(c, "workspace_close_terminal"), Message: s.Title(c, t),
-		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Destructive: []int{1},
+		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Default: 1, Destructive: []int{1},
 	}) == 1 {
 		s.closing = Tab{}
 		s.TerminalActions.Close(t.ID)

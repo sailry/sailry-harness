@@ -339,11 +339,18 @@ dispatch service and require an online Node.
   credential revision and package revisions. Updates affect only new admission.
 - **Retry.** Sailry owns request-scoped recovery. A model request, whether an
   ordinary one or a compaction summary, is sent again up to nine times after a
-  transient failure, each time after a fixed 60 seconds that a provider's
-  retry hint neither shortens nor lengthens. Ordinary requests stop automatic
-  recovery once a stream event has escaped; summary requests are buffered.
-  Permanent request, authentication and malformed-stream errors are terminal.
-  Completed tools are never replayed.
+  transient failure, with at most ten minutes of cumulative retry waits. Network,
+  timeout and general server failures back off from one second to thirty seconds;
+  rate limits and explicit overload back off from five seconds to one minute.
+  Both double their intervals with twenty-percent jitter and share the request's
+  retry and wait budgets. A provider's `Retry-After` or adapter wait hint is a
+  minimum, even above the local cap; a wait that exceeds the remaining budget
+  ends recovery instead of being shortened. The terminal result distinguishes
+  exhausted attempts from an exhausted wait budget and retains the provider cause.
+  Ordinary requests stop automatic recovery once a stream event has escaped;
+  summary requests are buffered. Cancellation interrupts every wait. Permanent
+  request, authentication and malformed-stream errors are terminal. Completed
+  tools are never replayed.
 - **Prompt stability.** Policy, personal instructions, guides and selected
   capabilities form a stable system prompt. Per-turn state goes in an agent-only
   context message that is appended only when session state changes, so each

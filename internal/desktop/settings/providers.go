@@ -113,7 +113,7 @@ func providers(c *ui.Context, s *State) {
 	}
 	if ch := m.channel(m.removing); ch != nil {
 		open := true
-		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title")+" "+ch.Name, i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
+		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title"), ch.Name+"\n"+i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
 			if m.Live && m.ProviderActions.Remove != nil {
 				m.ProviderActions.Remove(ch.ID, ch.Revision)
 			} else {

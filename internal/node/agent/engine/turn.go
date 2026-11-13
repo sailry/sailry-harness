@@ -354,7 +354,7 @@ func (r *Runtime) turn(x *execution) error {
 				recoveries++
 				continue
 			}
-			failure := &model.Failure{Kind: model.Other, Message: last.Error.Message, Exhausted: last.Error.RetryExhausted}
+			failure := &model.Failure{Kind: model.Other, Message: last.Error.Message, Exhausted: last.Error.RetryExhausted, WaitExhausted: last.Error.RetryWaitExhausted}
 			if last.Error.Code != nil {
 				failure.Kind = model.FailureKind(*last.Error.Code)
 			}

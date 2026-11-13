@@ -24,10 +24,9 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
-// Changes: the bottom right corner only, Sailry's palette and icons
-// (the panel through Floating), the eases inlined, our close label, and
-// ShowToast left out: the app adds MyGo toasts (c.AddToast, Error,
-// Notify, Retry) as before.
+// Changes: top-center placement, Sailry's palette and icons (the panel through
+// Floating), the eases inlined, body actions and no close button. ShowToast is
+// left out: the app adds MyGo toasts (c.AddToast, Error, Notify, Retry) as before.
 
 package kit
 
@@ -36,7 +35,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -48,7 +46,7 @@ const (
 )
 
 // ToastBodyAction in ui.Toast.Data makes the toast's body run its Action
-// instead of showing an action button. The close button stays separate.
+// instead of showing an action button.
 type ToastBodyAction struct{}
 
 // Lobe MyGo's motion eases.
@@ -69,9 +67,9 @@ var (
 // top center (under the header): the newest in front, sliding down from
 // the top, with the older ones peeking below it, spread out while the pointer rests on them. A toast has its
 // type's icon and color (info, success, warning, error), the title over
-// the description, a close button and its action; one with a negative
-// Timeout stays until closed. Call it once, last in the window's view, so
-// the toasts lie over an open dialog and stay closable.
+// the description and its action. Publishers use ToastDuration so every toast
+// expires through MyGo's timer, which pauses while hovered or focused. Call it
+// once, last in the window's view, so the toasts lie over an open dialog.
 func ToastHost(c *ui.Context) ui.Element {
 	return ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
 		viewport.Padding(56, 16, 16, 16).AlignItems(ui.Center).Justify(ui.Start)
@@ -168,11 +166,6 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 					} else {
 						ui.Text(c, t.Description).LineHeight(1.5).Grow(1)
 					}
-					if bodyAction {
-						ui.Box(c).Size(20, 20).Shrink(0).Margin(1, 0, 0, 0)
-					} else {
-						toastClose(c, p, parts.CloseButton())
-					}
 				})
 				if t.Title != "" && t.Description != "" {
 					ui.Text(c, t.Description).FontSize(13).LineHeight(1.5).TextColor(p.MutedForeground).Margin(4, 0, 0, 0)
@@ -184,11 +177,6 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 				}
 			})
 		})
-		if bodyAction {
-			// A sibling keeps Close independently reachable by pointer and
-			// keyboard instead of nesting it inside the body's button.
-			toastClose(c, p, parts.CloseButton().Absolute().Top(12).Right(16).Opacity(opacity))
-		}
 	})
 	if h := body.Bounds().H; h > 0 && h != heights[t.ID] {
 		heights[t.ID] = h
@@ -209,17 +197,6 @@ func toastIcon(p *theme.Palette, typ string) (*ui.SVG, ui.Color) {
 		return icons.CircleX, p.Danger
 	}
 	return icons.Info, p.Foreground
-}
-
-func toastClose(c *ui.Context, p *theme.Palette, b ui.Element) {
-	b.Label(i18n.T(c, "close")).Size(20, 20).Radius(p.Radius/2).Shrink(0).Margin(1, 0, 0, 0).
-		Cursor(ui.CursorPointer).Transition(toastHover)
-	if b.Hovered() {
-		b.Background(p.Hover).TextColor(p.Foreground)
-	} else {
-		b.TextColor(p.MutedForeground)
-	}
-	b.Children(func() { ui.Icon(c, icons.Close).FontSize(14) })
 }
 
 func toastAction(c *ui.Context, p *theme.Palette, b ui.Element, label string) {

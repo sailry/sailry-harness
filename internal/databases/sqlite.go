@@ -76,7 +76,11 @@ func runSQLite(ctx context.Context, operation Operation, requested string, query
 	if write && operation.Profile.ReadOnly {
 		return empty, fault(protocol.ErrorCodePermissionDenied, "Database profile is read-only")
 	}
-	return connection.collect(statement, query.RowLimit)
+	result, err := connection.collect(statement, query.RowLimit)
+	if err != nil && ctx.Err() != nil {
+		return empty, unknown()
+	}
+	return result, err
 }
 
 // sqliteInitializes classifies the statement on an empty in-memory database.
