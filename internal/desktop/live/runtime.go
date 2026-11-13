@@ -27,7 +27,6 @@ import (
 )
 
 type Runtime struct {
-	acceptance  acceptanceState
 	pluginViews *pluginViewState
 	// demoModels is the model each demo conversation's composer is set to,
 	// by conversation: what the statistics package reads as its model.
@@ -285,7 +284,6 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.projectConversations()
 	r.initTeams()
 	r.initNodeSettings()
-	r.initAcceptance()
 	r.initConversationSearch()
 	r.initNetworkUI()
 	r.initB8Packages()
@@ -464,7 +462,6 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.dictationFrame(c)
 	r.permissionsFrame()
 	r.nodeSettingsFrame()
-	r.acceptanceFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
 	r.terminalsFrame(c)

@@ -16,13 +16,21 @@ import (
 func liveFail(detail string) error { return &liveIssue{"failed", detail} }
 
 func (w *liveWindow) visibleAnswer(text string) bool {
-	// A plain-text reply can span several rendered paragraphs. Checking its
-	// trailing text avoids confusing a marker in the user's prompt with output.
-	runes := []rune(strings.TrimSpace(text))
+	// Paragraphs are separate rendered elements. Keep the trailing sample
+	// inside the final paragraph rather than searching across their boundary.
+	paragraphs := strings.Split(strings.TrimSpace(text), "\n\n")
+	runes := []rune(strings.TrimSpace(paragraphs[len(paragraphs)-1]))
+	if len(runes) == 0 {
+		return false
+	}
 	if len(runes) > 64 {
 		runes = runes[len(runes)-64:]
+		return w.tester.HasText(string(runes))
 	}
-	return len(runes) > 0 && w.tester.HasText(string(runes))
+	// A short marker may also occur inside the user's instructions. Require
+	// its complete rendered element instead of a matching prompt substring.
+	_, shown := w.tester.Find(string(runes))
+	return shown
 }
 
 func liveStream(w *liveWindow) error {

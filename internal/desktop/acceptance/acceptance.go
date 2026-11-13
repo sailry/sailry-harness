@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,6 +31,12 @@ type scenario struct {
 // that scenario. Callers run this in the dedicated acceptance subprocess because
 // the shell also applies process-wide theme settings while building frames.
 func Run(ctx context.Context, emit func(core.CaseResult)) core.Report {
+	return RunCases(ctx, nil, emit)
+}
+
+// RunCases selects fixture cases by their registered IDs. An empty selection
+// runs every fixture; IDs from another suite are left to that suite's runner.
+func RunCases(ctx context.Context, selected []string, emit func(core.CaseResult)) core.Report {
 	report := core.Report{Version: 1, Suite: "ui", Started: time.Now().UTC()}
 	cases := []scenario{
 		{"ui.send", "Send a message with the button", sendMessage},
@@ -46,6 +53,9 @@ func Run(ctx context.Context, emit func(core.CaseResult)) core.Report {
 		{"ui.width", "Send and retain the conversation across widths", resizeConversation},
 	}
 	for _, scene := range cases {
+		if len(selected) > 0 && !slices.Contains(selected, scene.id) {
+			continue
+		}
 		result := runCase(ctx, scene)
 		report.Cases = append(report.Cases, result)
 		if emit != nil {
@@ -167,13 +177,50 @@ func (w *window) button(name string) error {
 	return nil
 }
 
-func (w *window) typeMessage(text string) error {
-	if err := w.click(label("composer")); err != nil {
+func (w *window) typeMessage(text string) (err error) {
+	defer func() {
+		if err != nil {
+			w.recordComposerInput(text)
+		}
+	}()
+	if err = w.ctx.Err(); err != nil {
 		return err
+	}
+	// The preceding observation can finish before its projection is rendered.
+	// Refresh before locating the input so a loading-to-welcome transition
+	// cannot replace the text field between locating it and typing.
+	w.tester.Frame()
+	field, err := w.control(ui.RoleTextField, label("composer"))
+	if err != nil {
+		return err
+	}
+	if field.Disabled || field.ReadOnly {
+		return liveFail("The composer is not editable before typing")
+	}
+	if err = w.click(label("composer")); err != nil {
+		return err
+	}
+	field, err = w.control(ui.RoleTextField, label("composer"))
+	if err != nil {
+		return err
+	}
+	// Tester.Focused also accepts a focused ancestor. Text input needs the
+	// editor itself to own focus, as reported by its accessibility node.
+	if !field.Focused || field.Disabled || field.ReadOnly {
+		return liveFail("The composer did not receive keyboard focus before typing")
 	}
 	w.tester.Type(text)
 	w.tester.Frame()
 	return nil
+}
+
+func (w *window) recordComposerInput(expected string) {
+	field, present := w.tester.AccessByRole(ui.RoleTextField, label("composer"))
+	draft := w.app.Composer(w.app.Sidebar.Selected).Draft
+	// Record state and lengths only: an unexpected field must not copy
+	// another conversation's draft into the acceptance report.
+	w.evidence("composer_input", fmt.Sprintf("Field present=%t, focused=%t, disabled=%t, read-only=%t, expected bytes=%d, field bytes=%d, draft bytes=%d, field matches=%t, draft matches=%t",
+		present, field.Focused, field.Disabled, field.ReadOnly, len(expected), len(field.Value), len(draft), present && field.Value == expected, draft == expected))
 }
 
 func (w *window) advance(duration time.Duration) error {

@@ -164,6 +164,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   stepped sizes (Small to Extra large) it replaced; the Sessions group and
   its Session order row (the sidebar's sort menu sets the order)
 - Settings › General: the toast that a language change applies after a restart
+- Settings › Experimental: Demo mode and Test mode switches; conversation
+  acceptance controls, model selection and results (use the development commands)
 - Welcome guide: the telemetry or diagnostics note and a Settings button
 - Theme packages: transparency or blur values (the Appearance page owns them)
 

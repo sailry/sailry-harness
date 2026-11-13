@@ -49,12 +49,12 @@ func TestBackendConfigSelection(t *testing.T) {
 	provider.Credential = &protocol.CredentialRef{Node: protocol.NodeID{1}, ID: protocol.CredentialID{1}}
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Providers = []protocol.ConversationProvider{provider}
-	config, err := selectConfig(snapshot, nil)
+	config, err := SelectConfig(snapshot, nil)
 	if err != nil || config.Provider != provider.ID || config.Model != "fixture" || config.Credential == nil || *config.Credential != *provider.Credential {
 		t.Fatalf("unique configured model = %#v, %v", config, err)
 	}
 	requested := protocol.SessionConfig{Provider: provider.ID, Model: "fixture", Assistant: &protocol.PluginConversationBinding{}, Resource: &protocol.ConnectionResource{}, Features: map[string]string{"fixture": "original"}}
-	config, err = selectConfig(snapshot, &requested)
+	config, err = SelectConfig(snapshot, &requested)
 	if err != nil || config.Mode != protocol.WorkModeCode || config.Permission != protocol.PermissionProject || config.Assistant != nil || config.Resource != nil {
 		t.Fatalf("scoped model configuration = %#v, %v", config, err)
 	}
@@ -65,15 +65,15 @@ func TestBackendConfigSelection(t *testing.T) {
 	second := provider
 	second.ID = protocol.ProviderID{2}
 	snapshot.Providers = append(snapshot.Providers, second)
-	if _, err := selectConfig(snapshot, nil); err == nil {
+	if _, err := SelectConfig(snapshot, nil); err == nil {
 		t.Fatal("ambiguous providers were selected silently")
 	}
 	snapshot.Defaults.Config = &requested
-	if _, err := selectConfig(snapshot, nil); err != nil {
+	if _, err := SelectConfig(snapshot, nil); err != nil {
 		t.Fatalf("valid defaults were not selected: %v", err)
 	}
 	snapshot.Providers[0].Enabled = false
-	if _, err := selectConfig(snapshot, &requested); err == nil {
+	if _, err := SelectConfig(snapshot, &requested); err == nil {
 		t.Fatal("disabled requested provider was accepted")
 	}
 }
@@ -111,25 +111,25 @@ func TestBackendConfigUsesAdvertisedReasoningDefault(t *testing.T) {
 	provider.Models = []protocol.ConversationModel{model}
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Providers = []protocol.ConversationProvider{provider}
-	config, err := selectConfig(snapshot, nil)
+	config, err := SelectConfig(snapshot, nil)
 	if err != nil || config.Effort.Kind != "medium" {
 		t.Fatalf("unique reasoning model = effort %q, %v", config.Effort.Kind, err)
 	}
 	requested := protocol.DefaultSessionConfig()
 	requested.Provider, requested.Model = provider.ID, model.ID
-	config, err = selectConfig(snapshot, &requested)
+	config, err = SelectConfig(snapshot, &requested)
 	if err != nil || config.Effort.Kind != "medium" || requested.Effort.Kind != "default" {
 		t.Fatalf("provider/model-only request = effort %q, %v", config.Effort.Kind, err)
 	}
 	requested.Effort.Kind = "high"
 	snapshot.Defaults.Config = &requested
-	config, err = selectConfig(snapshot, nil)
+	config, err = SelectConfig(snapshot, nil)
 	if err != nil || config.Effort.Kind != "high" {
 		t.Fatalf("explicit saved effort was replaced: %q, %v", config.Effort.Kind, err)
 	}
 	requested.Effort.Kind = "default"
 	snapshot.Providers[0].Models[0].Efforts = append(model.Efforts, protocol.Effort{Kind: "default"})
-	config, err = selectConfig(snapshot, &requested)
+	config, err = SelectConfig(snapshot, &requested)
 	if err != nil || config.Effort.Kind != "default" {
 		t.Fatalf("advertised generic default was replaced: %q, %v", config.Effort.Kind, err)
 	}
@@ -166,7 +166,10 @@ func TestAdmissionInspectionDoesNotReplay(t *testing.T) {
 			}
 			controller := client.New(transport)
 			t.Cleanup(func() { _ = controller.Close() })
-			run := &caseRun{ctx: t.Context(), controller: controller, result: &CaseResult{}}
+			run := &caseRun{ctx: t.Context(), controller: controller, directory: testReportDirectory(t), result: &CaseResult{}}
+			if err := Own(run.directory, controller.Target(), protocol.SessionID{1}); err != nil {
+				t.Fatal(err)
+			}
 			output, err := run.command(t.Context(), "stop_commands", protocol.CommandStopCommandsPayload{Session: protocol.SessionID{1}})
 			if completed {
 				if err != nil || output.Kind != "commands" || run.unconfirmed != nil {
@@ -191,6 +194,8 @@ func TestAdmissionInspectionDoesNotReplay(t *testing.T) {
 func TestCleanupOwnsOnlyItsSessionAndVerifiesProcesses(t *testing.T) {
 	session, turn := protocol.SessionID{1}, protocol.TurnID{1}
 	stoppedTurn, stoppedCommands := false, 0
+	archived := false
+	fixture := lifecycleSession(session)
 	transport := &fixtureTransport{}
 	transport.dispatch = func(ctx context.Context, request protocol.Request) (link.Admission, error) {
 		if ctx.Err() != nil {
@@ -198,6 +203,12 @@ func TestCleanupOwnsOnlyItsSessionAndVerifiesProcesses(t *testing.T) {
 		}
 		var output protocol.Output
 		switch request.Command.Kind {
+		case "read_session":
+			input := request.Command.Data.(*protocol.CommandReadSessionPayload)
+			if input.Session != session {
+				t.Fatal("cleanup read an unowned session")
+			}
+			output = protocol.Output{Kind: "session", Data: fixture}
 		case "stop_commands":
 			input, err := decode[protocol.CommandStopCommandsPayload](request.Command.Data)
 			if err != nil || input.Session != session {
@@ -233,6 +244,14 @@ func TestCleanupOwnsOnlyItsSessionAndVerifiesProcesses(t *testing.T) {
 				t.Fatalf("process verification preceded final turn/process stops: %#v, %v", input, err)
 			}
 			output = protocol.Output{Kind: "commands", Data: []protocol.ProcessInfo{}}
+		case "set_session_archived":
+			input := request.Command.Data.(*protocol.CommandSetSessionArchivedPayload)
+			if input.Session != session || input.ExpectedRevision != fixture.Revision || !input.Archived || !stoppedTurn || stoppedCommands != 2 {
+				t.Fatal("archive did not follow confirmed cleanup at the current revision")
+			}
+			fixture.Archived, archived = true, true
+			fixture.Revision++
+			output = protocol.Output{Kind: "session", Data: fixture}
 		default:
 			t.Fatalf("unexpected cleanup request %q", request.Command.Kind)
 		}
@@ -242,12 +261,15 @@ func TestCleanupOwnsOnlyItsSessionAndVerifiesProcesses(t *testing.T) {
 	t.Cleanup(func() { _ = controller.Close() })
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
-	run := &caseRun{ctx: canceled, controller: controller, owned: []ownedSession{{session}}, result: &CaseResult{}}
+	run := &caseRun{ctx: canceled, controller: controller, directory: testReportDirectory(t), owned: []ownedSession{{session}}, result: &CaseResult{}}
+	if err := Own(run.directory, controller.Target(), session); err != nil {
+		t.Fatal(err)
+	}
 	if err := run.cleanup(); err != nil {
 		t.Fatal(err)
 	}
-	if !stoppedTurn || stoppedCommands != 2 {
-		t.Fatalf("cleanup turn=%v command stops=%d", stoppedTurn, stoppedCommands)
+	if !stoppedTurn || stoppedCommands != 2 || !archived {
+		t.Fatalf("cleanup turn=%v command stops=%d archived=%v", stoppedTurn, stoppedCommands, archived)
 	}
 }
 

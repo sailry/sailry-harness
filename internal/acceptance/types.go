@@ -9,10 +9,11 @@ import (
 )
 
 type Options struct {
-	Suite       string                  `json:"suite"`
-	Config      *protocol.SessionConfig `json:"config,omitempty"`
-	Cases       []string                `json:"cases,omitempty"`
-	CaseTimeout time.Duration           `json:"case_timeout,omitempty"`
+	Suite           string                  `json:"suite"`
+	Config          *protocol.SessionConfig `json:"config,omitempty"`
+	Cases           []string                `json:"cases,omitempty"`
+	CaseTimeout     time.Duration           `json:"case_timeout,omitempty"`
+	ReportDirectory string                  `json:"report_directory,omitempty"`
 }
 
 type Evidence struct {
@@ -21,20 +22,22 @@ type Evidence struct {
 }
 
 type CaseResult struct {
-	ID        string        `json:"id"`
-	Group     string        `json:"group"`
-	Title     string        `json:"title"`
-	Status    string        `json:"status"`
-	Detail    string        `json:"detail"`
-	Duration  time.Duration `json:"duration"`
-	Session   string        `json:"session,omitempty"`
-	Turns     []string      `json:"turns"`
-	Evidence  []Evidence    `json:"evidence"`
-	Uncertain bool          `json:"uncertain,omitempty"`
+	ID            string        `json:"id"`
+	Group         string        `json:"group"`
+	Title         string        `json:"title"`
+	Status        string        `json:"status"`
+	Detail        string        `json:"detail"`
+	Duration      time.Duration `json:"duration"`
+	Session       string        `json:"session,omitempty"`
+	OwnedSessions []string      `json:"owned_sessions,omitempty"`
+	Turns         []string      `json:"turns"`
+	Evidence      []Evidence    `json:"evidence"`
+	Uncertain     bool          `json:"uncertain,omitempty"`
 }
 
 type Report struct {
 	Version  int              `json:"version"`
+	Node     protocol.NodeID  `json:"node,omitempty"`
 	Suite    string           `json:"suite"`
 	Started  time.Time        `json:"started"`
 	Finished time.Time        `json:"finished"`

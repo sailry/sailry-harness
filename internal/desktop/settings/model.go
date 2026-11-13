@@ -176,15 +176,13 @@ type Model struct {
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool
-	// DemoMode shows the demo conversations in place of the window's own
-	// (Experimental).
-	DemoMode   bool
-	TestMode   bool
-	Acceptance Acceptance
-	Notify     [4]bool // system, approval, completed, failed
-	Toast      int     // of ToastSeconds
-	Power      Stored[bool]
-	Telemetry  Stored[Telemetry]
+	// DemoMode is an in-memory presentation switch for fixture harnesses.
+	// Normal startup never restores it from preferences.
+	DemoMode  bool
+	Notify    [4]bool // system, approval, completed, failed
+	Toast     int     // of ToastSeconds
+	Power     Stored[bool]
+	Telemetry Stored[Telemetry]
 
 	// Conversation.
 	Sandbox Stored[bool]

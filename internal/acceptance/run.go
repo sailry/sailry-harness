@@ -45,6 +45,19 @@ func RunBackend(ctx context.Context, controller *client.Client, options Options,
 	if controller == nil {
 		return report, errors.New("acceptance requires an existing Client")
 	}
+	report.Node = controller.Target()
+	if options.ReportDirectory == "" {
+		return report, errors.New("acceptance report directory is required")
+	}
+	if err := ImportReportOwnership(options.ReportDirectory, controller.Target()); err != nil {
+		return report, err
+	}
+	inspect, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	_, recoveryErr := recoverRequests(inspect, controller, options.ReportDirectory)
+	cancel()
+	if recoveryErr != nil {
+		return report, blocked("A previous acceptance request remains unconfirmed; run acceptance cleanup before starting another case")
+	}
 	if options.CaseTimeout < 0 {
 		return report, errors.New("acceptance case timeout must be positive")
 	}
@@ -56,7 +69,7 @@ func RunBackend(ctx context.Context, controller *client.Client, options Options,
 	if err != nil {
 		return report, err
 	}
-	config, err := selectConfig(controller.Snapshot(), options.Config)
+	config, err := SelectConfig(controller.Snapshot(), options.Config)
 	if err != nil {
 		return report, err
 	}
@@ -74,7 +87,7 @@ func RunBackend(ctx context.Context, controller *client.Client, options Options,
 		} else {
 			started := time.Now()
 			scoped, cancel := context.WithTimeout(ctx, timeout)
-			run := &caseRun{ctx: scoped, controller: controller, config: config, result: &result, wake: make(chan struct{}, 1)}
+			run := &caseRun{ctx: scoped, controller: controller, directory: options.ReportDirectory, config: config, result: &result, wake: make(chan struct{}, 1)}
 			err := definition.run(run)
 			if err == nil && scoped.Err() != nil {
 				err = scoped.Err()
@@ -165,7 +178,9 @@ func ListBackendCases(suite string) ([]CaseResult, error) {
 	return results, nil
 }
 
-func selectConfig(snapshot protocol.Snapshot, requested *protocol.SessionConfig) (protocol.SessionConfig, error) {
+// SelectConfig resolves the enabled acceptance model and its default effort
+// without changing Node defaults or retaining a resource or assistant binding.
+func SelectConfig(snapshot protocol.Snapshot, requested *protocol.SessionConfig) (protocol.SessionConfig, error) {
 	valid := func(config *protocol.SessionConfig) bool {
 		return config != nil && config.Model != "" && slices.ContainsFunc(snapshot.Providers, func(provider protocol.ConversationProvider) bool {
 			return provider.ID == config.Provider && provider.Enabled && (provider.DefaultModel == config.Model || slices.ContainsFunc(provider.Models, func(model protocol.ConversationModel) bool { return model.ID == config.Model }))
@@ -261,6 +276,7 @@ func decode[T any](data any) (T, error) {
 
 func cloneResult(result CaseResult) CaseResult {
 	result.Turns = slices.Clone(result.Turns)
+	result.OwnedSessions = slices.Clone(result.OwnedSessions)
 	result.Evidence = slices.Clone(result.Evidence)
 	return result
 }

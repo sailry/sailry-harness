@@ -387,104 +387,100 @@ These suites run only when explicitly started. They are not included in CI,
 the listed assertions on that model and environment; it is not a claim that
 all backend behavior or all interface behavior is bug-free.
 
-Settings › Experimental › Test mode shows the conversation acceptance controls.
-Choose a scope and, for a scope that includes the backend, an existing test
-model and its reasoning effort. Auto uses that model's default effort.
-Enabling Test mode does not start work. Run acceptance starts the chosen
-suite; Stop tests cancels it and requests cleanup of its test sessions. The
-controls show the current case results and Open report opens the saved report.
-Preview and Demo mode cannot start real acceptance work.
+Acceptance is a development command, not a setting in the application. Configure a
+provider in an isolated profile once with `just desktop acceptance`, then close
+that Desktop before running tests on that profile. A channel can be selected by
+its unique display name or provider ID. Model and effort parameters apply only to
+the test sessions and never change the configured defaults.
+
+```sh
+just acceptance acceptance --suite quick --provider "Test channel" --model gpt-6-luna --effort medium
+just acceptance acceptance --suite full --provider "Test channel" --model gpt-6-luna --effort medium
+just acceptance acceptance --suite backend --case F01-exit127 --timeout 3m
+just acceptance acceptance --suite e2e --case E2E01 --provider "Test channel" --model gpt-6-luna --effort medium
+just acceptance-ui
+```
+
+`just acceptance` builds Host and Desktop, starts one temporary Node owner of the
+selected test profile, and stops it after the run. Add `--start=false` to attach
+to an already running Host. The default profile is `.runtime/profiles/acceptance`;
+never point an implementer run at the user's profile. A live UI child attaches to
+that Node over its private control socket; it does not copy credentials or start
+a second Node. UI-only and replay runs open no Node and call no model.
 
 | Scope | Work performed |
 | --- | --- |
-| Quick acceptance | A small set of real Host conversation, file, command, approval and question cases, interface checks and three live UI cases |
-| Backend tests | Registered backend cases through Client and the Host; no interface process |
-| Interface interactions | Fixed conversation data and actual interface interactions in an isolated Desktop process; no Node or model |
-| Full acceptance | Backend and interface cases, with a small check across the live Client-to-interface boundary |
+| `quick` | Selected backend cases, fixture interface checks and three live UI cases |
+| `backend` | All registered backend cases through Client and Host |
+| `ui` | Fixed conversation data and real interface interactions in an isolated headless process |
+| `e2e` | Three real Client-to-interface conversation cases |
+| `full` | All backend cases, fixture interface checks and live UI cases |
+| `replay` | Recorded conversation snapshots and tool results through the real interface, without a model |
 
-For command-line backend runs, first configure the real provider and model in
-an isolated profile such as `.runtime/profiles/acceptance` using
-`just desktop acceptance`. Close that Desktop before starting a Host that owns
-the same profile. The acceptance command normally attaches to its existing
-Host; it never takes profile ownership implicitly. For example, in two terminals:
+The command saves private `latest.json` and `latest.html` under
+`<test-profile>/acceptance` and opens the HTML report in the system browser even
+when a case fails. `--report-dir` chooses another dedicated report directory.
+The direct Host CLI opens a report only with `--open-report`; `just` adds it.
+Exit codes are 0 for a passing run, 1 for failure/blocked/incomplete, and 130 for
+cancellation. Case progress is also written as JSON lines.
 
-```sh
-just host acceptance
-just acceptance acceptance --suite quick --provider <provider-id> --model gpt-6-luna --effort medium
-```
-
-For a profile with a saved default model, `--provider` and `--model` may both be
-omitted. An explicit `--effort`, such as `medium`, requires both `--provider`
-and `--model`. With an explicit model selection, omitting `--effort` uses that
-model's default effort.
-If that profile has no running owner, `--start` starts one Node and
-Client for the run and stops them afterward. It refuses an already owned
-profile. It does not start a Link listener, enable pairing or send telemetry.
-The real model and the usual tools still run:
+Every created test session is recorded in an ownership ledger, including fork
+and backup sessions. A run stops its work, saves the test-owned evidence, and
+removes its temporary conversations after publishing the report. An interrupted
+or failed cleanup leaves its recorded identities available to this command:
 
 ```sh
-just acceptance acceptance --start --suite backend --provider <provider-id> --model gpt-6-luna --effort medium
-just acceptance acceptance --start --case F01-exit127 --timeout 3m
+just acceptance-cleanup acceptance
 ```
 
-Direct invocation requires an explicit absolute `--data-dir`; it does not
-default to a user profile. `--case` may be repeated. It selects those case IDs
-even outside the default quick subset. `--timeout` is the limit for each case,
-as a duration such as `2m` or `90s`. List the registered cases without opening
-a profile or calling a model:
+Cleanup stops and confirms turns and processes before removing recorded test
+sessions. It never searches by title or removes ordinary conversations. Old
+reports can supply explicit test session IDs from earlier versions. Keep the
+report and ownership files so interrupted runs can be cleaned up safely.
+
+Live runs save bounded conversation recordings beside the report. Replay them
+without a provider account or network access:
 
 ```sh
-unset GOROOT
-export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
-go build -o .runtime/sailry-host ./cmd/sailry-host
-.runtime/sailry-host acceptance --list --suite backend
+just acceptance-replay acceptance
 ```
 
-The backend command writes one JSON line per completed case and a final report
-line. It exits 0 for a passing run, 1 for a failure, blocked or incomplete run,
-and 130 for cancellation. Reports retain case IDs, session and turn IDs,
-assertions and bounded test-owned evidence. A missing package or unsupported
-capability is recorded as skipped or blocked, not as a pass. Test cases use
-dedicated, unassigned conversation workspaces and do not register a user project
-or update the selected model defaults. Inspect a blocked cleanup before rerunning.
+Replay preserves recorded text, structured output, tool results and the order of
+captured interface snapshots; it accelerates time through the headless clock.
+Reports distinguish a complete captured sequence, a truncated capture and a
+terminal-only recording. A historical final response cannot recover streaming
+chunks that were never recorded. Replay checks presentation and interactions; it
+does not establish that a provider's authentication, network or new responses
+work. Normal `go test`, `just check`, CI and startup never invoke a real-model
+acceptance run.
 
-Run the interface suite separately with `just acceptance-ui`. This builds the
-Desktop executable beside its pinned native runtimes, then runs
-`sailry-desktop --acceptance-ui --acceptance-dir <private directory>`. It opens
-no execution profile and calls no model. It writes case/report JSON lines and
-checks interactions on real controls rather than comparing screenshots. This
-does not cover Mobile or another operating system.
+The development demo also has a command-only entry point:
 
-The backend report defaults to `<test-profile>/acceptance/latest.json` and
-`latest.html`; `--report-dir` selects another dedicated directory. Interface
-reports default to `.runtime/profiles/acceptance-ui/report`; runs from Settings
-save under `<profile>/desktop/acceptance`. Report directories are
-private and files are owner-only. HTML reports are self-contained and escape
-tool output as text. Each manual run replaces the previous `latest` files.
-Keep the reports and configured test profiles out of Git.
+```sh
+just demo
+```
 
-### 1. Start and Demo mode
+It starts the isolated fixture UI without opening a profile or running a Node,
+model or tool. Demo and acceptance switches are absent from the shipped settings.
+
+### 1. Start and development demo
 
 - [ ] Start Desktop. The window opens on the welcome page or the last
       conversation; no start failure dialog appears
 - [ ] Start a second Desktop on the same profile. The running window comes to
       the front and no second window stays
-- [ ] Settings › Experimental › turn Demo mode on. The sidebar shows the sample
-      projects and conversations at once, without a restart
-- [ ] Look over the sidebar, the header, a sample conversation and the host
-      page. Nothing marks the data as a demo, a preview or a sample
-- [ ] Open several sample conversations. Each shows a transcript; none is empty
-      or shows a loader that never ends
-- [ ] In a sample conversation send a message, press Stop, press Retry, and
-      queue two messages during a reply. The sample reply plays each time
-- [ ] Open the Usage page from the rail after those sends. It shows the sample
-      ledger. Turn Demo mode off and open it again: no request or usage figure
-      was added by the sample sends
-- [ ] Open the project menu, the panel's Files and Git tabs and the
-      notification centre in Demo mode. Every item either works on sample data
-      or is absent; none reports a failure
-- [ ] Turn Demo mode off. The real conversations return and none of the sample
-      messages sent above exists in them
+- [ ] Run `just demo`. The sidebar shows sample projects and conversations,
+      without a profile or a Node
+- [ ] Look over the sidebar, header, sample conversation and host page. Nothing
+      marks the data as a demo, preview or sample
+- [ ] Open several sample conversations; each has a transcript and no endless loader
+- [ ] Send a sample message, press Stop and Retry, and queue two messages during a
+      reply. The fixture reply plays each time
+- [ ] Open the Usage page; it shows the sample ledger
+- [ ] Open the project menu, Files and Git panels and notification centre. Items
+      either operate on fixture data or are absent
+- [ ] Close the demo and reopen the regular Desktop. Real conversations remain
+      unchanged, and Settings exposes no demo or acceptance controls
 
 ### 2. Conversation and composer
 

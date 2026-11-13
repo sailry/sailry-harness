@@ -139,6 +139,24 @@ func TestSidebarProjection(t *testing.T) {
 			t.Fatalf("the chosen channel was saved as %v", saved)
 		}
 	})
+	t.Run("saved developer switches do not enter demo presentation", func(t *testing.T) {
+		store := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
+		store.Data.DemoMode, store.Data.TestMode = true, true
+		r := &Runtime{ctx: t.Context(), App: shell.NewLive(Sidebar(snapshot, store.Data)), Preferences: store}
+		r.applyPreferences()
+		if r.App.Settings.Model.DemoMode || r.App.Demo() {
+			t.Fatal("a saved developer switch enabled demo presentation")
+		}
+		// A normal settings save keeps the old data without turning a launch
+		// mode into a user preference again.
+		r.App.Settings.Model.SidebarMetrics = !r.App.Settings.Model.SidebarMetrics
+		r.savePreferences()
+		r.workers.Wait()
+		stored := preferences.Open(store.Path).Data
+		if !stored.DemoMode || !stored.TestMode {
+			t.Fatal("saving settings rewrote retained developer preference fields")
+		}
+	})
 	t.Run("order survives a restart", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "preferences.json")
 		start := func() *Runtime {

@@ -66,12 +66,12 @@ func subagentTokens(cv *viewmodel.Conversation) int {
 	return cv.Session.Usage.Tokens / 8 * shares
 }
 
-// Demo mode over a real Node on a new profile: the settings' order, the
-// switch, the demo in place of the window's own conversations and the way
+// The fixture-only demo presentation over a real Node on a new profile:
+// the demo in place of the window's own conversations and the way
 // back to them, with no command sent by anything done in the demo and
 // nothing on screen that names it one. The Usage page's calls answer from
 // the demo's ledger meanwhile and from the Node again after the way back,
-// the page's watch moving over with the switch.
+// the page's watch moving over with the presentation.
 func TestDemoMode(t *testing.T) {
 	// The test names the statistics package's control panel, so the panel
 	// package's terminal kind is taken here.
@@ -177,24 +177,24 @@ func TestDemoMode(t *testing.T) {
 		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 		settle()
 	}
-	// experimental shows the Experimental settings and returns the Demo mode
-	// switch.
-	experimental := func() ui.AccessInfo {
+	// Developer launch modes have no controls in the application settings.
+	experimental := func() {
 		t.Helper()
 		r.App.Settings.Open(settings.Experimental)
 		r.App.Navigate(shell.SettingsPage)
 		settle()
-		info, ok := tester.AccessByRole(ui.RoleSwitch, text("settings_demo_mode"))
-		if !ok {
-			t.Fatalf("Experimental has no Demo mode switch: %q", tester.Texts())
+		for _, label := range []string{"Demo mode", "Test mode", "Run acceptance", "Conversation acceptance"} {
+			if tester.HasText(label) {
+				t.Fatalf("Experimental shows developer control %q", label)
+			}
 		}
-		return info
 	}
-	// flip presses the Demo mode switch itself.
+	// The fixture drives the internal presentation switch without adding a
+	// runtime control or persisting a developer mode in the user profile.
 	flip := func() {
 		t.Helper()
-		info := experimental()
-		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		experimental()
+		r.App.Settings.DemoMode = !r.App.Settings.DemoMode
 		settle()
 	}
 	// marked reports a text, an accessible name, value or description (a
@@ -203,7 +203,7 @@ func TestDemoMode(t *testing.T) {
 	// wording the preview's hints share, or the mode's own name.
 	fragments := []string{"ui preview", "ui 预览", "sample data", "示例数据", "preview only", "(preview)", "no runtime data", "示例", "（预览）"}
 	for _, locale := range []string{"en", "zh-CN"} {
-		for _, key := range []string{"preview", "preview_notice", "approval_preview_result", "settings_demo_mode", "composer_compression_hint",
+		for _, key := range []string{"preview", "preview_notice", "approval_preview_result", "composer_compression_hint",
 			"workspace_memory_only", "workspace_terminal_preview", "resource_browser_preview", "project_editor_preview", "directory_preview", "model_score_preview"} {
 			fragments = append(fragments, strings.ToLower(i18n.In(locale, key)))
 		}
@@ -678,8 +678,8 @@ func TestDemoMode(t *testing.T) {
 		if n := len(system); system[n-1].Section != settings.About || system[n-2].Section != settings.Experimental {
 			t.Fatalf("the last group ends with %q, %q", system[n-2].Section, system[n-1].Section)
 		}
-		toggle := experimental()
-		if toggle.Checked {
+		experimental()
+		if r.App.Settings.DemoMode || r.App.Demo() {
 			t.Fatal("Demo mode is on in a new profile")
 		}
 		about, ok := tester.AccessByRole(ui.RoleButton, text("settings_about"))
@@ -707,15 +707,15 @@ func TestDemoMode(t *testing.T) {
 		if _, ok := tester.AccessByRole(ui.RoleSwitch, text("settings_sidebar_metrics")); ok {
 			t.Error("General still has the performance indicator switch")
 		}
-		if _, ok := tester.AccessByRole(ui.RoleSwitch, text("settings_demo_mode")); ok {
+		if _, ok := tester.AccessByRole(ui.RoleSwitch, "Demo mode"); ok {
 			t.Error("General has the Demo mode switch")
 		}
 	})
 
 	t.Run("demo", func(t *testing.T) {
 		flip()
-		if !r.App.Settings.DemoMode || !r.App.Demo() || !r.Preferences.Data.DemoMode {
-			t.Fatalf("the switch: setting %v, window %v, preference %v", r.App.Settings.DemoMode, r.App.Demo(), r.Preferences.Data.DemoMode)
+		if !r.App.Settings.DemoMode || !r.App.Demo() || r.Preferences.Data.DemoMode {
+			t.Fatalf("the fixture presentation: setting %v, window %v, preference %v", r.App.Settings.DemoMode, r.App.Demo(), r.Preferences.Data.DemoMode)
 		}
 		// Settings stay the profile's own: its providers do not list the
 		// demo's.
@@ -1238,7 +1238,7 @@ func TestDemoMode(t *testing.T) {
 			if observed := fmt.Sprint(at(event, "view", "report", "totals", "responses")); err != nil || at(event, "cursor") != "0" || observed == "0" || observed == "<nil>" || at(event, "view", "connected") != true {
 				t.Fatalf("the Usage page's watch observes %v, %v", event, err)
 			}
-			// The page waits here while the switch is flipped back.
+			// The page waits here while the fixture presentation switches back.
 			go func() {
 				value, err := ask("nextUsageChange", `"0"`)
 				waiting <- usageAnswer{value, err}
@@ -1251,13 +1251,13 @@ func TestDemoMode(t *testing.T) {
 	})
 
 	t.Run("back", func(t *testing.T) {
-		toggle := experimental()
-		if !toggle.Checked {
-			t.Fatal("the switch is off while the demo shows")
+		experimental()
+		if !r.App.Settings.DemoMode || !r.App.Demo() {
+			t.Fatal("the fixture presentation is off while the demo shows")
 		}
 		flip()
 		if r.App.Settings.DemoMode || r.App.Demo() || r.Preferences.Data.DemoMode {
-			t.Fatalf("the switch: setting %v, window %v, preference %v", r.App.Settings.DemoMode, r.App.Demo(), r.Preferences.Data.DemoMode)
+			t.Fatalf("the fixture presentation: setting %v, window %v, preference %v", r.App.Settings.DemoMode, r.App.Demo(), r.Preferences.Data.DemoMode)
 		}
 		r.App.Navigate(shell.ConversationPage)
 		settle()

@@ -106,7 +106,7 @@ func TestLiveSessionSetupPreservesTypedRequestsAndOwner(t *testing.T) {
 			w := &liveWindow{window: &window{ctx: t.Context(), result: &result}, controller: controller, config: config,
 				progress: func(value core.CaseResult) { progress = append(progress, value) }}
 			err := w.newSession()
-			if w.session.ID != session.ID || result.Session != session.ID.String() || !w.owned {
+			if w.session.ID != session.ID || result.Session != session.ID.String() || !w.owned || !slices.Equal(result.OwnedSessions, []string{session.ID.String()}) {
 				t.Fatal("setup discarded the session identity needed by cleanup")
 			}
 			if malformed {
@@ -119,6 +119,38 @@ func TestLiveSessionSetupPreservesTypedRequestsAndOwner(t *testing.T) {
 			}
 			if len(progress[0].Evidence) != 1 {
 				t.Fatal("later mutations changed an already emitted progress value")
+			}
+		})
+	}
+}
+
+func TestLiveCaseSelectionDoesNotRunOtherSuites(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		cases []string
+		want  []string
+	}{
+		{"default", nil, []string{"E2E01", "E2E02", "E2E03"}},
+		{"fixture_only", []string{"ui.send"}, nil},
+		{"backend_only", []string{"A01"}, nil},
+		{"mixed", []string{"ui.send", "E2E02", "A01"}, []string{"E2E02"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var emitted []string
+			// A nil Client cannot start a model. Selected live cases remain
+			// blocked; other suites must not accidentally select all of them.
+			report := RunLiveWithOptions(t.Context(), nil, core.Options{Cases: test.cases}, func(result core.CaseResult) {
+				emitted = append(emitted, result.ID)
+			}, "")
+			var got []string
+			for _, result := range report.Cases {
+				got = append(got, result.ID)
+				if result.Status != "blocked" {
+					t.Fatalf("an unconfigured case was not blocked: %+v", result)
+				}
+			}
+			if !slices.Equal(got, test.want) || !slices.Equal(emitted, test.want) || report.Finished.IsZero() {
+				t.Fatalf("selection emitted %v and reported %v, want %v", emitted, got, test.want)
 			}
 		})
 	}

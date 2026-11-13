@@ -2211,8 +2211,6 @@ chat_provider_node: '%{name} · 主機'
 chat_config_desktop: 桌面配置
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
-settings_demo_mode: Demo mode
-settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
 settings_code_index: Code index
 settings_code_index_description: Index project code for the code search tools
@@ -2266,27 +2264,3 @@ python_validating: 檢查相依套件
 port_count: '%{count} ports'
 queue_messages_one: 1 queued message
 queue_messages_count: '%{count} queued messages'
-settings_test_mode: Test mode
-settings_test_mode_description: Show manual acceptance tests
-acceptance_title: Conversation acceptance
-acceptance_description: Backend tests use the selected model in dedicated test conversations. Interface tests use fixed data.
-acceptance_suite: Test suite
-acceptance_quick: Quick acceptance
-acceptance_backend: Backend tests
-acceptance_ui: Interface interactions
-acceptance_full: Full acceptance
-acceptance_model: Test model
-acceptance_run: Run acceptance
-acceptance_stop: Stop tests
-acceptance_report: Open report
-acceptance_results: Test report
-acceptance_running: Running
-acceptance_passed: Passed
-acceptance_failed: Failed
-acceptance_blocked: Blocked
-acceptance_skipped: Skipped
-acceptance_canceled: Stopped
-acceptance_finished: Acceptance tests completed
-acceptance_issues: Acceptance tests found issues
-acceptance_run_failed: Could not run acceptance tests
-acceptance_run_canceled: Acceptance tests stopped

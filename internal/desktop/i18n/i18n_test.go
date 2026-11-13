@@ -68,6 +68,12 @@ func TestCatalogKeys(t *testing.T) {
 			"project_empty",                               // the empty state of the host page's projects section
 			"settings_sessions", "settings_session_order", // the session order row of Settings › Conversation
 			"cli_launch", // the Launch AI CLI dialog of the project menu and page
+			// developer-only demo and acceptance controls
+			"settings_demo_mode", "settings_demo_mode_description", "settings_test_mode", "settings_test_mode_description",
+			"acceptance_title", "acceptance_description", "acceptance_suite", "acceptance_quick", "acceptance_backend", "acceptance_ui", "acceptance_full",
+			"acceptance_model", "acceptance_run", "acceptance_stop", "acceptance_report", "acceptance_results", "acceptance_running", "acceptance_passed",
+			"acceptance_failed", "acceptance_blocked", "acceptance_skipped", "acceptance_canceled", "acceptance_finished", "acceptance_issues",
+			"acceptance_run_failed", "acceptance_run_canceled",
 		} {
 			if _, listed := catalogs["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see Removed UI in AGENTS.md", key)

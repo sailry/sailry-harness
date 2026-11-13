@@ -32,8 +32,9 @@ func updateChannel(saved *string, version string) int {
 func (r *Runtime) applyPreferences() {
 	d := r.Preferences.Data
 	a, m := r.App, r.App.Settings.Model
-	m.Notify, m.SidebarMetrics, m.DemoMode = d.Notifications, d.SidebarMetrics, d.DemoMode
-	m.TestMode = d.TestMode
+	m.Notify, m.SidebarMetrics = d.Notifications, d.SidebarMetrics
+	// Demo is a developer launch mode, not a persisted user preference.
+	m.DemoMode = false
 	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, int(sidebar.SortUpdated), updateChannel(d.UpdateChannel, link.ProductVersion)
 	m.TextSize = 15
 	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
@@ -108,8 +109,7 @@ func setChoice[T comparable](field **T, value, fallback T) {
 func (r *Runtime) savePreferences() {
 	a, m := r.App, r.App.Settings.Model
 	d := &r.Preferences.Data
-	d.Notifications, d.SidebarMetrics, d.DemoMode = m.Notify, m.SidebarMetrics, m.DemoMode
-	d.TestMode = m.TestMode
+	d.Notifications, d.SidebarMetrics = m.Notify, m.SidebarMetrics
 	if m.Toast >= 0 && m.Toast < len(settings.ToastSeconds) {
 		d.ToastSeconds = uint64(settings.ToastSeconds[m.Toast])
 	}

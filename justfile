@@ -23,6 +23,10 @@ default:
 preview:
     go run ./cmd/sailry-desktop --preview
 
+# Show the development demo without a profile, Node or model calls.
+demo:
+    go run ./cmd/sailry-desktop --preview
+
 # Run Desktop live against the fixed profile .runtime/profiles/<name>.
 desktop name="desktop": native
     go run ./cmd/sailry-desktop --data-dir {{ quote(profiles / name) }}
@@ -32,15 +36,31 @@ host name="host" *options: native
     go build -o .runtime/sailry-host ./cmd/sailry-host
     .runtime/sailry-host --data-dir {{ quote(profiles / name) }} {{ options }}
 
-# Manually test sessions on an already running Host; --start opens this test profile exclusively.
+# Test a dedicated profile; --start=false attaches to its running Host.
+[positional-arguments]
 acceptance name="acceptance" *options: native
-    go build -o .runtime/sailry-host ./cmd/sailry-host
-    .runtime/sailry-host acceptance --data-dir {{ quote(profiles / name) }} {{ options }}
+    go build -o {{ quote(native / "sailry-host") }} ./cmd/sailry-host
+    go build -o {{ quote(native / "sailry-desktop") }} ./cmd/sailry-desktop
+    {{ quote(native / "sailry-host") }} acceptance --data-dir {{ quote(profiles / name) }} --start --desktop {{ quote(native / "sailry-desktop") }} --open-report "${@:2}"
+
+# Stop and remove only recorded acceptance sessions, preserving their recordings.
+[positional-arguments]
+acceptance-cleanup name="acceptance" *options: native
+    go build -o {{ quote(native / "sailry-host") }} ./cmd/sailry-host
+    {{ quote(native / "sailry-host") }} acceptance-cleanup --data-dir {{ quote(profiles / name) }} --start --open-report "${@:2}"
+
+# Replay recorded outputs through the real interface without a Node or model.
+[positional-arguments]
+acceptance-replay name="acceptance" *options:
+    go build -o {{ quote(native / "sailry-host") }} ./cmd/sailry-host
+    go build -o {{ quote(native / "sailry-desktop") }} ./cmd/sailry-desktop
+    {{ quote(native / "sailry-host") }} acceptance --data-dir {{ quote(profiles / name) }} --suite replay --desktop {{ quote(native / "sailry-desktop") }} --open-report "${@:2}"
 
 # Manually test conversation interactions in an isolated Desktop process, without a Node or model.
 acceptance-ui: native
     go build -o {{ quote(native / "sailry-desktop") }} ./cmd/sailry-desktop
-    {{ quote(native / "sailry-desktop") }} --acceptance-ui --acceptance-dir {{ quote(profiles / "acceptance-ui") }}
+    go build -o {{ quote(native / "sailry-host") }} ./cmd/sailry-host
+    {{ quote(native / "sailry-host") }} acceptance --data-dir {{ quote(profiles / "acceptance-ui") }} --suite ui --desktop {{ quote(native / "sailry-desktop") }} --open-report
 
 # Build the local iroh library with the pinned Rust toolchain when it is missing.
 native:

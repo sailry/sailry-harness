@@ -126,8 +126,8 @@ type Data struct {
 	UpdateChannel     *string                   `json:"update_channel"`
 	WelcomeSeen       *bool                     `json:"welcome_seen"`
 	SidebarMetrics    bool                      `json:"sidebar_metrics"`
-	// DemoMode is a Go desktop extension: unset, the file stays what the
-	// reference writes.
+	// Retained for preference round trips. Developer launch modes no longer
+	// restore or update these former UI switches.
 	DemoMode bool `json:"demo_mode,omitempty"`
 	TestMode bool `json:"test_mode,omitempty"`
 }

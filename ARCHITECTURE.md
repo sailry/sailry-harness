@@ -82,7 +82,7 @@ Production dependencies are acyclic:
 
 ```text
 cmd/sailry-desktop → desktop + desktop/live + desktop/acceptance + acceptance + client + link + node
-desktop/live       → acceptance + client + link + protocol + speech + desktop UI packages
+desktop/live       → client + link + protocol + speech + desktop UI packages
 desktop UI         → MyGo + CrychicUI + desktop/kit + desktop view models
 cmd/sailry-host    → acceptance + node + link + hostctl
 hostctl            → client + link + core + protocol
@@ -105,13 +105,17 @@ link               → protocol + protocol/wire + link/iroh
   `node/telemetry`); everything else reaches the Node through Client.
 - Preview and live actions are separate implementations of the same `Actions`
   contracts. Live never imports preview.
-- Manual acceptance is opt-in. Backend cases use Client commands and scoped
-  conversation observations against an existing Node, retain request identities
-  after uncertain outcomes, and stop only their own work. UI fixture checks run
-  in a separate Desktop process because rendering changes process-wide theme
-  state. Live checks connect that process to the same local Node through its
-  owner-only control socket; they do not copy model credentials or start another
-  Node. Normal startup, preview and CI never invoke real-model acceptance.
+- Manual acceptance is opt-in and command-only, through `just acceptance` and
+  Host's acceptance command. Backend cases use Client commands and scoped
+  conversation observations against the selected test Node. The runner journals
+  ownership and unresolved request identities, saves bounded evidence, then
+  removes only its recorded test conversations. `just acceptance-cleanup` can
+  finish interrupted cleanup. UI checks run in a separate headless Desktop
+  process because rendering changes process-wide theme state. Live checks attach
+  that process to the same Node through its owner-only control socket. Recorded
+  conversation snapshots and tool details can be replayed through the interface
+  without a Node, model or tool execution; truncated recordings declare their
+  limits. Normal startup, demo and CI never invoke real-model acceptance.
 - The Node uses two MyGo packages and no MyGo application, window or view:
   `netproxy` for proxy-aware HTTP, and the terminal package (libghostty-vt)
   for the headless PTY and Mirror owner in `internal/node/terminal`. Controller

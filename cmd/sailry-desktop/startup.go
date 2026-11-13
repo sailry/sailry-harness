@@ -29,6 +29,8 @@ type startupOptions struct {
 	AcceptanceUI        bool
 	AcceptanceDirectory string
 	AcceptanceSocket    string
+	AcceptanceMode      string
+	AcceptanceReplay    string
 	// Relays are the --relay URLs, in the order given.
 	Relays []string
 }
@@ -42,6 +44,8 @@ func parseOptions(args []string) (startupOptions, error) {
 	flags.BoolVar(&options.AcceptanceUI, "acceptance-ui", false, "Run explicit headless conversation acceptance without opening a native window")
 	flags.StringVar(&options.AcceptanceDirectory, "acceptance-dir", "", "Use this isolated acceptance controller directory")
 	flags.StringVar(&options.AcceptanceSocket, "acceptance-socket", "", "Attach live acceptance to this private Node control directory")
+	flags.StringVar(&options.AcceptanceMode, "acceptance-mode", "", "Choose the headless acceptance scope")
+	flags.StringVar(&options.AcceptanceReplay, "acceptance-replay", "", "Replay recorded acceptance output without a Node")
 	flags.Func("relay", "Start on this relay instead of the public ones; repeat for more", func(value string) error {
 		options.Relays = append(options.Relays, value)
 		return nil
@@ -56,7 +60,27 @@ func parseOptions(args []string) (startupOptions, error) {
 		if options.AcceptanceDirectory == "" || options.Preview || options.DataDir != "" || len(options.Relays) != 0 {
 			return options, errors.New("--acceptance-ui requires --acceptance-dir and cannot open a Node profile or preview")
 		}
-	} else if options.AcceptanceDirectory != "" || options.AcceptanceSocket != "" {
+		if options.AcceptanceMode != "" && !slices.Contains([]string{"quick", "ui", "e2e", "full", "replay"}, options.AcceptanceMode) {
+			return options, errors.New("invalid headless acceptance scope")
+		}
+		if options.AcceptanceReplay != "" && (options.AcceptanceSocket != "" || options.AcceptanceMode != "replay") {
+			return options, errors.New("acceptance replay cannot connect to a Node")
+		}
+		switch options.AcceptanceMode {
+		case "", "ui":
+			if options.AcceptanceSocket != "" {
+				return options, errors.New("fixture acceptance cannot connect to a Node")
+			}
+		case "replay":
+			if options.AcceptanceReplay == "" {
+				return options, errors.New("acceptance replay requires a recordings directory")
+			}
+		case "quick", "full", "e2e":
+			if options.AcceptanceSocket == "" {
+				return options, errors.New("live acceptance requires a Node control directory")
+			}
+		}
+	} else if options.AcceptanceDirectory != "" || options.AcceptanceSocket != "" || options.AcceptanceMode != "" || options.AcceptanceReplay != "" {
 		return options, errors.New("acceptance options require --acceptance-ui")
 	}
 	return options, nil

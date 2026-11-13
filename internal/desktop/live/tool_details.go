@@ -11,13 +11,8 @@ import (
 )
 
 func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.ConversationState, locales ...string) {
-	language := ""
-	if len(locales) > 0 {
-		language = locales[0]
-	}
 	type source struct {
 		ref     protocol.ToolDetailReference
-		name    string
 		summary *protocol.ToolDetailSummary
 	}
 	sources := map[string]source{}
@@ -58,7 +53,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				continue
 			}
 			ref := protocol.ToolDetailReference{Session: state.Snapshot.Page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(index), Call: id, Revision: summary.Revision}
-			sources[key] = source{ref, name, summary}
+			sources[key] = source{ref, summary}
 		}
 	}
 	for ti := range cv.Turns {
@@ -72,36 +67,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				}
 				if loaded, ok := r.controller.ConversationDetail(source.ref); ok {
 					r.bindPluginCards(cv, call.ID, loaded)
-					summary := *source.summary
-					summary.Resolved = loaded.Resolved
-					projected := projectCall(source.name, &summary, language)
-					projected.ID = call.ID
-					projected.Pending = call.Pending
-					projected.Running = call.Running
-					projected.Standalone, projected.Terminal = call.Standalone, call.Terminal
-					projected.Background = call.Background
-					if !projected.Failed {
-						projected.State = call.State
-					}
-					if call.State == conversation.Denied || call.State == conversation.StateInterrupted {
-						projected.State = call.State
-						projected.Failed = false
-						projected.Warning = true
-						projected.Running = false
-					}
-					if call.Pending {
-						projected.State = conversation.Pending
-						projected.Failed = false
-						projected.Running = false
-					}
-					projectToolContent(&projected, loaded)
-					if call.Output != nil && len(call.Output.Images) > 0 {
-						if projected.Output == nil {
-							projected.Output = &conversation.Output{}
-						}
-						projected.Output.Images = call.Output.Images
-					}
-					*call = projected
+					ProjectToolDetail(call, source.summary, loaded, locales...)
 					continue
 				}
 				if call.Output == nil {
@@ -129,4 +95,47 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 			}
 		}
 	}
+}
+
+// ProjectToolDetail applies a loaded tool detail to its projected call without
+// I/O. Live views and offline acceptance replay share the same row, content and
+// failure projection; loading callbacks and plugin cards remain runtime-owned.
+func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSummary, loaded protocol.ToolDetail, locales ...string) {
+	language := ""
+	if len(locales) > 0 {
+		language = locales[0]
+	}
+	value := protocol.ToolDetailSummary{}
+	if summary != nil {
+		value = *summary
+	}
+	value.Resolved = loaded.Resolved
+	projected := projectCall(call.Name, &value, language)
+	projected.ID = call.ID
+	projected.Pending = call.Pending
+	projected.Running = call.Running
+	projected.Standalone, projected.Terminal = call.Standalone, call.Terminal
+	projected.Background = call.Background
+	if !projected.Failed {
+		projected.State = call.State
+	}
+	if call.State == conversation.Denied || call.State == conversation.StateInterrupted {
+		projected.State = call.State
+		projected.Failed = false
+		projected.Warning = true
+		projected.Running = false
+	}
+	if call.Pending {
+		projected.State = conversation.Pending
+		projected.Failed = false
+		projected.Running = false
+	}
+	projectToolContent(&projected, loaded)
+	if call.Output != nil && len(call.Output.Images) > 0 {
+		if projected.Output == nil {
+			projected.Output = &conversation.Output{}
+		}
+		projected.Output.Images = call.Output.Images
+	}
+	*call = projected
 }

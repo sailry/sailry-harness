@@ -37,16 +37,39 @@ func unavailable(detail string) error { return &liveIssue{"blocked", detail} }
 // directory, never the user's controller profile. Client commands only prepare,
 // inspect and clean up sessions: messages are always sent through the composer.
 func RunLive(ctx context.Context, controller *client.Client, config *protocol.SessionConfig, emit func(core.CaseResult), profile string) core.Report {
-	report := core.Report{Version: 1, Suite: "e2e", Started: time.Now().UTC()}
-	selected, problem := liveConfig(controller, config, profile)
-	if problem == nil {
-		report.Provider, report.Model = selected.Provider.String(), selected.Model
-		report.Effort = &selected.Effort
+	return RunLiveWithOptions(ctx, controller, core.Options{Config: config, ReportDirectory: profile}, emit, profile)
+}
+
+// RunLiveWithOptions records real Client snapshots and temporary session
+// ownership in ReportDirectory. Profile contains only isolated UI preferences.
+// Explicit case selections may also name backend or fixture cases; only
+// matching E2E cases run here, and an empty selection runs all live cases.
+func RunLiveWithOptions(ctx context.Context, controller *client.Client, options core.Options, emit func(core.CaseResult), profile string) core.Report {
+	report := core.Report{Version: 1, Suite: "e2e", Started: time.Now().UTC(), Cases: []core.CaseResult{}}
+	if controller != nil {
+		report.Node = controller.Target()
 	}
 	cases := []liveScenario{
 		{"E2E01", "Send through the live composer and observe streamed text", false, liveStream},
 		{"E2E02", "Expand and copy a real tool result", true, liveTool},
 		{"E2E03", "Stop a real reply through the live composer", false, liveStop},
+	}
+	if len(options.Cases) > 0 {
+		cases = slices.DeleteFunc(cases, func(scene liveScenario) bool { return !slices.Contains(options.Cases, scene.id) })
+	}
+	if len(cases) == 0 {
+		report.Finished = time.Now().UTC()
+		return report
+	}
+	selected, problem := liveConfig(controller, options.Config, profile)
+	if options.ReportDirectory == "" {
+		problem = unavailable("A dedicated report directory is required for live UI acceptance")
+	} else if options.CaseTimeout < 0 {
+		problem = unavailable("The live UI case timeout must be positive")
+	}
+	if problem == nil {
+		report.Provider, report.Model = selected.Provider.String(), selected.Model
+		report.Effort = &selected.Effort
 	}
 	stop := false
 	for _, scene := range cases {
@@ -61,7 +84,7 @@ func RunLive(ctx context.Context, controller *client.Client, config *protocol.Se
 		case scene.tool && !commandsEnabled(controller.Snapshot()):
 			result.Status, result.Detail = "skipped", "The commands package is disabled, unavailable or incompatible"
 		default:
-			result, stop = runLiveCase(ctx, controller, selected, profile, scene, emit)
+			result, stop = runLiveCase(ctx, controller, selected, profile, options, scene, emit)
 		}
 		report.Cases = append(report.Cases, result)
 		if emit != nil {
@@ -115,32 +138,54 @@ func commandsEnabled(snapshot protocol.Snapshot) bool {
 
 type liveWindow struct {
 	*window
-	controller  *client.Client
-	runtime     *live.Runtime
-	config      protocol.SessionConfig
-	session     protocol.Session
-	owned       bool
-	unconfirmed bool
-	wake        chan struct{}
-	lastFrame   time.Time
-	turn        protocol.TurnID
-	progress    func(core.CaseResult)
+	controller      *client.Client
+	runtime         *live.Runtime
+	config          protocol.SessionConfig
+	session         protocol.Session
+	owned           bool
+	unconfirmed     bool
+	wake            chan struct{}
+	lastFrame       time.Time
+	turn            protocol.TurnID
+	progress        func(core.CaseResult)
+	reportDirectory string
+	recorder        *core.Recorder
+	started         time.Time
+	recordErr       error
 }
 
-func runLiveCase(ctx context.Context, controller *client.Client, config protocol.SessionConfig, profile string, scene liveScenario, emit func(core.CaseResult)) (core.CaseResult, bool) {
+func runLiveCase(ctx context.Context, controller *client.Client, config protocol.SessionConfig, profile string, options core.Options, scene liveScenario, emit func(core.CaseResult)) (core.CaseResult, bool) {
 	started := time.Now()
 	result := core.CaseResult{ID: scene.id, Group: "e2e", Title: scene.title, Status: "failed",
 		Evidence: []core.Evidence{{Kind: "scope", Value: "Headless MyGo input; real live adapter and existing Node; isolated unassigned session; no native window"}}}
-	scoped, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	w := &liveWindow{window: &window{ctx: scoped, result: &result}, controller: controller, config: config, wake: make(chan struct{}, 1), progress: emit}
+	timeout := options.CaseTimeout
+	if timeout == 0 {
+		timeout = 2 * time.Minute
+	}
+	scoped, cancel := context.WithTimeout(ctx, timeout)
+	w := &liveWindow{window: &window{ctx: scoped, result: &result}, controller: controller, config: config, wake: make(chan struct{}, 1), progress: emit,
+		reportDirectory: options.ReportDirectory, started: started}
 	err := w.run(profile, scene.run)
 	if w.runtime != nil {
 		if closeErr := w.runtime.Close(); err == nil {
 			err = closeErr
 		}
 	}
+	if recordErr := w.flushRecording(); recordErr != nil {
+		w.evidence("recording", recordErr.Error())
+		err = errors.Join(err, recordErr)
+	}
 	cancel()
 	cleanupErr := w.cleanup()
+	if w.owned && w.reportDirectory != "" {
+		if recording, recordErr := core.ReadRecording(w.reportDirectory, w.session.ID); recordErr == nil {
+			w.evidence("recording", core.RecordingPath(w.reportDirectory, w.session.ID))
+			w.evidence("recording_frames", fmt.Sprintf("Retained %d frames; truncated=%t; dropped=%d", len(recording.Frames), recording.Truncated, recording.DroppedFrames))
+		} else {
+			w.evidence("recording", "The saved live UI recording could not be read")
+			err = errors.Join(err, liveFail("The saved live UI recording could not be read"))
+		}
+	}
 	result.Status, result.Detail = "passed", "All live UI assertions passed"
 	if err != nil {
 		var issue *liveIssue
@@ -156,6 +201,9 @@ func runLiveCase(ctx context.Context, controller *client.Client, config protocol
 	if cleanupErr != nil {
 		result.Status, result.Detail = "blocked", "Cleanup is unconfirmed; inspect the recorded session before running more cases"
 		w.evidence("cleanup", liveError(cleanupErr))
+	}
+	if w.unconfirmed && cleanupErr == nil {
+		result.Status, result.Detail = "blocked", "Admission was unconfirmed; inspect its recorded request before running more cases"
 	}
 	result.Duration = time.Since(started)
 	result.Uncertain = cleanupErr != nil || w.unconfirmed
@@ -177,6 +225,13 @@ func (w *liveWindow) run(profile string, run func(*liveWindow) error) (err error
 	}
 	w.app = w.runtime.App
 	w.app.Effects = false
+	afterFrame := w.app.Hooks.AfterFrame
+	w.app.Hooks.AfterFrame = func() {
+		if afterFrame != nil {
+			afterFrame()
+		}
+		w.recordFrame()
+	}
 	// Select only our session before the first frame. If its sidebar event is
 	// still in flight, OpenSession completes selection when it is projected.
 	w.app.Sidebar.Selected = w.session.ID.String()
@@ -189,16 +244,14 @@ func (w *liveWindow) run(profile string, run func(*liveWindow) error) (err error
 	w.lastFrame = time.Now()
 	lastSetup := ""
 	if err = w.wait(func() (bool, error) {
-		cv := w.app.Data.Find(w.session.ID.String())
 		state, known := w.controller.Conversation(w.session.ID)
-		modelSelected := cv != nil && w.app.Composer(cv.ID).Model == modelID(w.config)
-		setup := fmt.Sprintf("Session present=%t, selected=%t, observed=%t, connected=%t, loading=%t, model selected=%t", cv != nil, w.app.Sidebar.Selected == w.session.ID.String(), known, state.Connected, state.Loading, modelSelected)
+		ready, setup := w.readyForInput(state, known)
 		if setup != lastSetup {
 			w.evidence("ui_setup", setup)
 			w.emitProgress()
 			lastSetup = setup
 		}
-		return cv != nil && known && state.Connected && !state.Loading && modelSelected, nil
+		return ready, nil
 	}); err != nil {
 		return err
 	}
@@ -207,6 +260,21 @@ func (w *liveWindow) run(profile string, run func(*liveWindow) error) (err error
 
 func modelID(config protocol.SessionConfig) string {
 	return config.Provider.String() + "/" + config.Model
+}
+
+func (w *liveWindow) readyForInput(state client.ConversationState, observed bool) (bool, string) {
+	id := w.session.ID.String()
+	cv := w.app.Data.Find(id)
+	selected := w.app.Sidebar.Selected == id
+	modelSelected := cv != nil && w.app.Composer(id).Model == modelID(w.config)
+	// Client can become ready after the preceding frame read it. Wait for
+	// that frame's projection too, so typing starts in the final text field.
+	projected := cv != nil && !cv.Session.Loading && cv.Session.Connection == conversation.Connected
+	field, present := w.tester.AccessByRole(ui.RoleTextField, label("composer"))
+	editable := present && field.Bounds.W > 0 && field.Bounds.H > 0 && !field.Disabled && !field.ReadOnly
+	detail := fmt.Sprintf("Session present=%t, selected=%t, observed=%t, connected=%t, loading=%t, model selected=%t, projected ready=%t, composer editable=%t",
+		cv != nil, selected, observed, state.Connected, state.Loading, modelSelected, projected, editable)
+	return selected && observed && state.Connected && !state.Loading && modelSelected && projected && editable, detail
 }
 
 func (w *liveWindow) notify() {
@@ -225,6 +293,33 @@ func (w *liveWindow) frame() {
 	w.tester.Frame()
 }
 
+func (w *liveWindow) recordFrame() {
+	if w.recorder == nil || w.recordErr != nil {
+		return
+	}
+	state, known := w.controller.Conversation(w.session.ID)
+	if !known || state.Snapshot.Page.Session != w.session.ID {
+		return
+	}
+	// Recorder deduplicates complete snapshots, so draft deltas are retained
+	// even when they do not advance the durable sequence.
+	if err := w.recorder.Append(core.RecordingFrame{At: time.Since(w.started), Snapshot: state.Snapshot}); err != nil {
+		w.recordErr = liveFail("The live UI recording could not capture a frame")
+		return
+	}
+}
+
+func (w *liveWindow) flushRecording() error {
+	if w.recorder == nil {
+		return w.recordErr
+	}
+	w.recordFrame()
+	if err := w.recorder.Flush(); err != nil {
+		return liveFail("The live UI recording could not be saved")
+	}
+	return w.recordErr
+}
+
 func (w *liveWindow) wait(assert func() (bool, error)) error {
 	ticker := time.NewTicker(40 * time.Millisecond)
 	defer ticker.Stop()
@@ -233,6 +328,9 @@ func (w *liveWindow) wait(assert func() (bool, error)) error {
 			return err
 		}
 		w.frame()
+		if w.recordErr != nil {
+			return w.recordErr
+		}
 		if state, known := w.controller.Conversation(w.session.ID); known {
 			if state.Err != nil {
 				return state.Err
@@ -274,7 +372,17 @@ func (w *liveWindow) newSession() error {
 	}
 	w.owned = true
 	w.result.Session = w.session.ID.String()
+	w.result.OwnedSessions = []string{w.session.ID.String()}
 	w.emitProgress()
+	if w.reportDirectory != "" {
+		if err := core.Own(w.reportDirectory, w.controller.Target(), w.session.ID); err != nil {
+			return liveFail("The temporary acceptance session could not be recorded for cleanup")
+		}
+		w.recorder, err = core.NewRecorder(w.reportDirectory, w.controller.Target(), w.session.ID)
+		if err != nil {
+			return liveFail("The live UI recording could not be initialized")
+		}
+	}
 	if w.session.Project != nil || w.session.Config.Resource != nil || w.session.Config.Assistant != nil {
 		return liveFail("The acceptance session was assigned to a non-fixture resource")
 	}
@@ -311,6 +419,7 @@ func (w *liveWindow) send(text string) error {
 		return err
 	}
 	if w.app.Composer(w.session.ID.String()).Draft != liveScope+text {
+		w.recordComposerInput(liveScope + text)
 		return liveFail("Typing into the live composer did not preserve the fixture message")
 	}
 	// Model/session projection can still be settling after the input frame.
@@ -371,6 +480,7 @@ func (w *liveWindow) emitProgress() {
 	result := *w.result
 	result.Status, result.Detail = "running", "Observing the owned acceptance session"
 	result.Turns = slices.Clone(result.Turns)
+	result.OwnedSessions = slices.Clone(result.OwnedSessions)
 	result.Evidence = slices.Clone(result.Evidence)
 	w.progress(result)
 }
@@ -420,6 +530,14 @@ func (w *liveWindow) capture() error {
 }
 
 func (w *liveWindow) command(ctx context.Context, kind string, data any) (protocol.Output, error) {
+	if w.reportDirectory != "" {
+		output, err := core.Execute(ctx, w.controller, w.reportDirectory, protocol.Command{Kind: kind, Data: data})
+		if fault, known := liveFault(err); known && fault.Code == protocol.ErrorCodeOutcomeUnknown {
+			w.unconfirmed = true
+			w.evidence("request", fault.Message)
+		}
+		return output, err
+	}
 	request := w.controller.Prepare(protocol.Command{Kind: kind, Data: data})
 	if request.Command.Durable() {
 		w.evidence("request", kind+" "+request.ID.String())
@@ -446,6 +564,13 @@ func (w *liveWindow) command(ctx context.Context, kind string, data any) (protoc
 }
 
 func (w *liveWindow) cleanup() error {
+	if w.reportDirectory != "" && (w.owned || w.unconfirmed) {
+		var sessions []protocol.SessionID
+		if w.owned {
+			sessions = append(sessions, w.session.ID)
+		}
+		return core.Archive(w.ctx, w.controller, w.reportDirectory, sessions)
+	}
 	if !w.owned {
 		return nil
 	}

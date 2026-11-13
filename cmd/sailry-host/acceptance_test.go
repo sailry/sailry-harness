@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/acceptance"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -47,8 +48,6 @@ func TestParseAcceptanceValidatesSelectionAndTimeout(t *testing.T) {
 		want string
 	}{
 		{"suite", []string{"--suite", "automatic"}, "--suite"},
-		{"ui_suite", []string{"--suite", "ui"}, "--suite"},
-		{"full_suite", []string{"--suite", "full"}, "--suite"},
 		{"provider_only", []string{"--provider", provider}, "both --provider and --model"},
 		{"model_only", []string{"--model", "fixture"}, "both --provider and --model"},
 		{"effort_only", []string{"--effort", "medium"}, "--effort requires both --provider and --model"},
@@ -56,8 +55,7 @@ func TestParseAcceptanceValidatesSelectionAndTimeout(t *testing.T) {
 		{"empty_effort", []string{"--provider", provider, "--model", "fixture", "--effort="}, "protocol effort level"},
 		{"budget_without_value", []string{"--provider", provider, "--model", "fixture", "--effort", "budget"}, "protocol effort level"},
 		{"numeric_effort", []string{"--provider", provider, "--model", "fixture", "--effort", "2000"}, "protocol effort level"},
-		{"invalid_provider", []string{"--provider", "invalid", "--model", "fixture"}, "valid provider ID"},
-		{"nil_provider", []string{"--provider", "00000000-0000-0000-0000-000000000000", "--model", "fixture"}, "valid provider ID"},
+		{"nil_provider", []string{"--provider", "00000000-0000-0000-0000-000000000000", "--model", "fixture"}, "nonzero provider ID"},
 		{"zero_timeout", []string{"--timeout", "0"}, "positive duration"},
 		{"negative_timeout", []string{"--timeout", "-1s"}, "positive duration"},
 		{"invalid_timeout", []string{"--timeout", "soon"}, "invalid value"},
@@ -82,6 +80,34 @@ func TestParseAcceptanceValidatesSelectionAndTimeout(t *testing.T) {
 				t.Fatalf("effort %q = %#v, help %v, error %v", level, options.effort, help, err)
 			}
 		})
+	}
+	for _, suite := range []string{"ui", "e2e", "full", "replay"} {
+		options, _, err := parseAcceptance([]string{"--data-dir", profile, "--suite", suite})
+		if err != nil || options.suite != suite {
+			t.Fatalf("suite %s: %v", suite, err)
+		}
+	}
+}
+
+func TestAcceptanceChannelSelection(t *testing.T) {
+	p := protocol.DefaultConversationProvider()
+	p.ID, p.Name, p.Enabled, p.DefaultModel = protocol.ProviderID{1}, "Test channel", true, "fixture"
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Providers = []protocol.ConversationProvider{p}
+	for _, selector := range []string{p.ID.String(), p.Name} {
+		config, err := acceptanceConfig(snapshot, acceptanceOptions{provider: selector, model: "fixture", effort: &protocol.Effort{Kind: "medium"}})
+		if err != nil || config.Provider != p.ID || config.Model != "fixture" || config.Effort.Kind != "medium" {
+			t.Fatalf("selection %s: %+v, %v", selector, config, err)
+		}
+	}
+	other := p
+	other.ID = protocol.ProviderID{2}
+	snapshot.Providers = append(snapshot.Providers, other)
+	if _, err := acceptanceConfig(snapshot, acceptanceOptions{provider: p.Name, model: "fixture"}); err == nil {
+		t.Fatal("an ambiguous channel name selected a provider")
+	}
+	if _, err := acceptanceConfig(snapshot, acceptanceOptions{provider: "missing", model: "fixture"}); err == nil {
+		t.Fatal("an unknown channel selected a provider")
 	}
 }
 
@@ -160,7 +186,7 @@ func TestAcceptanceMissingHostProducesBlockedReport(t *testing.T) {
 		t.Fatalf("missing Host = exit %d, %v", code, err)
 	}
 	events := decodeAcceptanceEvents(t, output.Bytes())
-	if len(events) != 3 || events[0].Type != "started" || events[1].Type != "case" || events[1].Case == nil || events[1].Case.ID != "setup" || events[1].Case.Status != "blocked" || events[2].Type != "report" || events[2].Report == nil || events[2].Files == nil {
+	if len(events) != 3 || events[0].Type != "started" || events[1].Type != "case" || events[1].Case == nil || events[1].Case.ID != "runner" || events[1].Case.Status != "blocked" || events[2].Type != "report" || events[2].Report == nil || events[2].Files == nil {
 		t.Fatalf("missing Host events = %#v", events)
 	}
 	final := events[2]
@@ -178,6 +204,52 @@ func TestAcceptanceMissingHostProducesBlockedReport(t *testing.T) {
 	entries, err := os.ReadDir(profile)
 	if err != nil || len(entries) != 1 || entries[0].Name() != "acceptance" || !entries[0].IsDir() {
 		t.Fatalf("attach opened a Node profile: %#v, %v", entries, err)
+	}
+}
+
+func TestAcceptanceConcurrentRunKeepsPublishedReport(t *testing.T) {
+	profile := t.TempDir()
+	directory := filepath.Join(profile, "acceptance")
+	paths, err := acceptance.WriteReport(directory, acceptance.Report{Version: 1, Suite: "backend", Model: "previous-model", Cases: []acceptance.CaseResult{{ID: "previous", Status: "passed"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(paths.JSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := core.AcquireProfile(filepath.Join(directory, "runner"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	var output bytes.Buffer
+	code, err := runAcceptance(t.Context(), []string{"--data-dir", profile}, &output)
+	if code != 1 || err == nil || output.Len() != 0 {
+		t.Fatalf("overlapping run: code %d, output %q, error %v", code, output.String(), err)
+	}
+	after, err := os.ReadFile(paths.JSON)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("a rejected run replaced the previous report")
+	}
+}
+
+func TestAcceptanceRejectsCasesOutsideSelectedSuite(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "unopened")
+	for _, args := range [][]string{
+		{"--suite", "backend", "--case", "A01", "--case", "E2E01"},
+		{"--suite", "ui", "--case", "ui.send", "--case", "A01"},
+		{"--suite", "e2e", "--case", "ui.send"},
+		{"--suite", "quick", "--case", "E2E01"},
+	} {
+		var output bytes.Buffer
+		code, err := runAcceptance(t.Context(), append([]string{"--data-dir", profile}, args...), &output)
+		if code != 1 || err == nil || output.Len() != 0 {
+			t.Fatalf("out-of-scope cases %v: code %d, output %q, error %v", args, code, output.String(), err)
+		}
+		if _, err := os.Stat(profile); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("invalid case selection opened a profile: %v", err)
+		}
 	}
 }
 

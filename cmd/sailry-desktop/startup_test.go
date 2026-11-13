@@ -80,12 +80,16 @@ func TestAcceptanceStartupIsolation(t *testing.T) {
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--data-dir", "/profile"},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--preview"},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--relay", "https://relay.example.test"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "ui", "--acceptance-socket", "/control"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "replay"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "replay", "--acceptance-replay", "/recordings", "--acceptance-socket", "/control"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "e2e"},
 	} {
 		if _, err := parseOptions(args); err == nil {
 			t.Fatalf("accepted ambiguous test startup: %v", args)
 		}
 	}
-	options, err := parseOptions([]string{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-socket", "/control"})
+	options, err := parseOptions([]string{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "full", "--acceptance-socket", "/control"})
 	if err != nil || !options.AcceptanceUI || options.AcceptanceDirectory != "/test" || options.AcceptanceSocket != "/control" || options.DataDir != "" {
 		t.Fatalf("isolated test startup: %+v, %v", options, err)
 	}

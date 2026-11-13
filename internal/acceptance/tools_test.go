@@ -112,7 +112,7 @@ func TestPackageToolsUseCapturedDeclarations(t *testing.T) {
 			}}
 			controller := client.New(transport)
 			t.Cleanup(func() { _ = controller.Close() })
-			run := &caseRun{ctx: t.Context(), controller: controller, session: protocol.Session{ID: view.page.Session}, result: &CaseResult{}}
+			run := &caseRun{ctx: t.Context(), controller: controller, directory: testReportDirectory(t), session: protocol.Session{ID: view.page.Session}, result: &CaseResult{}}
 			resolved, err := run.resolveToolNames(view)
 			if (err != nil) != test.mismatch {
 				t.Fatalf("mapping result = %v, mismatch %v", err, test.mismatch)
@@ -155,7 +155,7 @@ func TestCanonicalDetailDoesNotRequireExpandableUI(t *testing.T) {
 			}}
 			controller := client.New(transport)
 			t.Cleanup(func() { _ = controller.Close() })
-			run := &caseRun{ctx: t.Context(), controller: controller, result: &CaseResult{}}
+			run := &caseRun{ctx: t.Context(), controller: controller, directory: testReportDirectory(t), result: &CaseResult{}}
 			actual, err := run.detail(call)
 			if err != nil || argumentString(actual, "prompt") != "fixture" || (actual.Result != nil) != completed || call.summary.HasDetails {
 				t.Fatalf("canonical detail was confused with UI expandability: %v", err)

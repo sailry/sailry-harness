@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -23,6 +21,7 @@ type ownedSession struct {
 type caseRun struct {
 	ctx         context.Context
 	controller  *client.Client
+	directory   string
 	config      protocol.SessionConfig
 	result      *CaseResult
 	session     protocol.Session
@@ -48,27 +47,13 @@ func (run *caseRun) command(ctx context.Context, kind string, data any) (protoco
 	if request.Command.Durable() {
 		run.evidence("request", kind+" "+request.ID.String())
 	}
-	output, err := run.controller.Execute(ctx, request)
+	output, err := executeRecorded(ctx, run.controller, run.directory, request)
 	if err == nil {
 		return output, nil
 	}
 	fault, ok := nodeFault(err)
 	if !ok || fault.Code != protocol.ErrorCodeOutcomeUnknown {
 		return output, err
-	}
-	// Inspection uses the exact captured identity. Never replay a possibly
-	// admitted model request after a timeout or lost observation.
-	inspect, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	outcome, inspectErr := run.controller.Outcome(inspect, request)
-	if inspectErr == nil && outcome.Kind == "completed" {
-		completed, decodeErr := decode[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
-		if decodeErr == nil && completed.Err != nil {
-			return protocol.Output{}, completed.Err
-		}
-		if decodeErr == nil && completed.Ok != nil {
-			return *completed.Ok, nil
-		}
 	}
 	if run.unconfirmed == nil {
 		run.unconfirmed = &request
@@ -101,11 +86,11 @@ func (run *caseRun) newSession(mode protocol.WorkMode, permission protocol.Permi
 	}
 	run.session = session
 	run.result.Session = session.ID.String()
-	if session.Project != nil || session.Config.Resource != nil || session.Config.Assistant != nil {
-		return fail("Acceptance session was assigned to a non-fixture resource")
-	}
 	if err := run.own(session); err != nil {
 		return err
+	}
+	if session.Project != nil || session.Config.Resource != nil || session.Config.Assistant != nil {
+		return fail("Acceptance session was assigned to a non-fixture resource")
 	}
 	output, err = run.command(run.ctx, "set_session_team", protocol.CommandSetSessionExecutionPayload{Session: session.ID, ExpectedRevision: session.Revision, Execution: protocol.ConversationExecutionModel})
 	if err != nil {
@@ -122,10 +107,14 @@ func (run *caseRun) newSession(mode protocol.WorkMode, permission protocol.Permi
 }
 
 func (run *caseRun) own(session protocol.Session) error {
+	if err := Own(run.directory, run.controller.Target(), session.ID); err != nil {
+		return err
+	}
 	if slices.ContainsFunc(run.owned, func(value ownedSession) bool { return value.id == session.ID }) {
 		return nil
 	}
 	run.owned = append(run.owned, ownedSession{session.ID})
+	run.result.OwnedSessions = append(run.result.OwnedSessions, session.ID.String())
 	changed := func() {
 		select {
 		case run.wake <- struct{}{}:
@@ -260,94 +249,11 @@ func (run *caseRun) fileEquals(path, expected string) error {
 }
 
 func (run *caseRun) cleanup() error {
-	if len(run.owned) == 0 {
-		return nil
-	}
-	// Cancellation of observation does not cancel admitted model work. Cleanup
-	// has its own bounded context and targets only sessions this case created.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(run.ctx), 15*time.Second)
-	defer cancel()
-	var problems []error
+	sessions := make([]protocol.SessionID, 0, len(run.owned))
 	for _, session := range run.owned {
-		_, err := run.command(ctx, "stop_commands", protocol.CommandStopCommandsPayload{Session: session.id})
-		if err != nil {
-			problems = append(problems, err)
-		}
-		output, err := run.controller.Do(ctx, protocol.Command{Kind: "read_conversation", Data: protocol.CommandReadConversationPayload{Session: session.id, Limit: 100}})
-		if err != nil {
-			problems = append(problems, err)
-			continue
-		}
-		history, err := outputAs[protocol.ConversationHistory](output, "conversation")
-		if err != nil {
-			problems = append(problems, err)
-			continue
-		}
-		for _, turn := range history.Page.Runs {
-			if turn.Session == session.id && active(turn.Status) {
-				if _, err := run.command(ctx, "stop_turn", protocol.CommandStopTurnPayload{Turn: turn.Turn}); err != nil {
-					problems = append(problems, err)
-				} else {
-					run.evidence("cleanup", "Stopped owned turn "+turn.Turn.String())
-				}
-			}
-		}
-		// Verify cessation through the Node; a stop acknowledgment alone is not
-		// a claim that the provider or process has already finished.
-		for {
-			output, err := run.controller.Do(ctx, protocol.Command{Kind: "read_conversation", Data: protocol.CommandReadConversationPayload{Session: session.id, Limit: 100}})
-			if err != nil {
-				problems = append(problems, err)
-				break
-			}
-			history, err := outputAs[protocol.ConversationHistory](output, "conversation")
-			if err != nil {
-				problems = append(problems, err)
-				break
-			}
-			if !slices.ContainsFunc(history.Page.Runs, func(turn protocol.ConversationRun) bool { return turn.Session == session.id && active(turn.Status) }) {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				problems = append(problems, ctx.Err())
-			case <-time.After(100 * time.Millisecond):
-				continue
-			}
-			break
-		}
-		// A turn can start a process between the first stop and cancellation.
-		// Stop again after its terminal observation and verify the retained
-		// process list rather than treating the stop receipt as completion.
-		if _, err := run.command(ctx, "stop_commands", protocol.CommandStopCommandsPayload{Session: session.id}); err != nil {
-			problems = append(problems, err)
-		}
-		for {
-			output, err := run.controller.Do(ctx, protocol.Command{Kind: "list_commands", Data: protocol.CommandListCommandsPayload{Session: session.id}})
-			if err != nil {
-				problems = append(problems, err)
-				break
-			}
-			processes, err := outputAs[[]protocol.ProcessInfo](output, "commands")
-			if err != nil {
-				problems = append(problems, err)
-				break
-			}
-			if !slices.ContainsFunc(processes, func(value protocol.ProcessInfo) bool {
-				return value.Session == session.id && (value.Status.Kind == "running" || value.Status.Kind == "stopping")
-			}) {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				problems = append(problems, ctx.Err())
-			case <-time.After(100 * time.Millisecond):
-				continue
-			}
-			break
-		}
+		sessions = append(sessions, session.id)
 	}
-	return errors.Join(problems...)
+	return Archive(run.ctx, run.controller, run.directory, sessions)
 }
 
 func (run *caseRun) requireText(view turnView, text string) error {

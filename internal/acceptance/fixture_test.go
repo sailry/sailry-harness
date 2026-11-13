@@ -62,7 +62,7 @@ func TestFixtureSessionCommandsUseProtocolPayloads(t *testing.T) {
 			}
 			controller := client.New(transport)
 			t.Cleanup(func() { _ = controller.Close() })
-			run := &caseRun{ctx: t.Context(), controller: controller, config: config, result: &CaseResult{ID: "fixture"}, wake: make(chan struct{}, 1)}
+			run := &caseRun{ctx: t.Context(), controller: controller, directory: testReportDirectory(t), config: config, result: &CaseResult{ID: "fixture"}, wake: make(chan struct{}, 1)}
 			err := run.standard()
 			if err == nil {
 				err = run.refreshSession()
@@ -116,7 +116,7 @@ func TestCapturePreservesSelectedEffort(t *testing.T) {
 			}}
 			controller := client.New(transport)
 			t.Cleanup(func() { _ = controller.Close() })
-			run := &caseRun{ctx: t.Context(), controller: controller, config: config, session: protocol.Session{ID: turn.Session}, result: &CaseResult{}}
+			run := &caseRun{ctx: t.Context(), controller: controller, directory: testReportDirectory(t), config: config, session: protocol.Session{ID: turn.Session}, result: &CaseResult{}}
 			if err := run.assertCapture(turn); (err == nil) != test.valid {
 				t.Fatalf("capture validity = %v, want %v", err, test.valid)
 			}
@@ -199,9 +199,9 @@ func TestUnknownAdmissionStopsLaterCasesWithoutOwnedSession(t *testing.T) {
 	if err := controller.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	report, err := RunBackend(t.Context(), controller, Options{Suite: "quick", Cases: []string{"A01", "A03"}}, nil)
+	report, err := RunBackend(t.Context(), controller, Options{Suite: "quick", ReportDirectory: testReportDirectory(t), Cases: []string{"A01", "A03"}}, nil)
 	assertBlocked(t, err)
-	if creates != 1 || inspections != 1 || len(report.Cases) != 2 || !report.Cases[0].Uncertain || report.Cases[0].Status != "blocked" || report.Cases[1].Status != "blocked" || report.Cases[1].Session != "" || report.OK() {
+	if creates != 1 || inspections != 2 || len(report.Cases) != 2 || !report.Cases[0].Uncertain || report.Cases[0].Status != "blocked" || report.Cases[1].Status != "blocked" || report.Cases[1].Session != "" || report.OK() {
 		t.Fatalf("unconfirmed creation continued model work: creates=%d inspections=%d cases=%#v", creates, inspections, report.Cases)
 	}
 	if report.Effort == nil || report.Effort.Kind != "medium" {
