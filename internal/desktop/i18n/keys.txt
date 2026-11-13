@@ -2293,14 +2293,5 @@ ram_profiling
 ram_other
 plugins_settings_follow_model
 ram_plugins
-ram_plugins_estimate
-ram_plugins_view
-ram_plugins_callback
-ram_plugins_tool
-ram_plugins_model
-ram_plugins_pending
 ram_plugins_partial
-ram_plugins_idle
-ram_plugins_busy
-ram_plugins_sampled
 ram_plugins_error

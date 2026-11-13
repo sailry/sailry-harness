@@ -43,6 +43,8 @@ type pluginMemoryState struct {
 	views   map[*desktopplugins.Mounted]pluginMemoryValue
 	dirty   bool
 	locale  string
+	// group is the plugins' tiles on the memory map.
+	group kit.TreemapGroup
 }
 
 func (r *Runtime) closePluginMemory() {
@@ -53,10 +55,6 @@ func (r *Runtime) closePluginMemory() {
 		state.cancel()
 	}
 	r.pluginMemory = nil
-	if r.App != nil {
-		r.App.Settings.Model.PluginMemory = nil
-		r.App.Settings.Model.PluginMemoryRows = nil
-	}
 }
 
 // pluginMemoryFrame runs between plugin calls on the window's UI goroutine.
@@ -194,17 +192,14 @@ func (r *Runtime) projectPluginMemory(c *ui.Context, state *pluginMemoryState) {
 			}
 		}
 	}
-	r.App.Settings.Model.PluginMemory, r.App.Settings.Model.PluginMemoryRows = pluginMemoryGroups(c, names, values, state.backend)
+	state.group = pluginMemoryGroup(c, names, values, state.backend)
 }
 
-// pluginMemoryGroups never adds estimates to Go memory classes: the realm
-// walker uses logical sizes, excludes shared/native allocations, and cannot
-// partition runtime/metrics. Rows keep zero and unavailable values visible.
-func pluginMemoryGroups(c *ui.Context, names map[string]string, values []pluginMemoryValue, backend *protocol.PluginMemorySnapshot) ([]kit.TreemapGroup, []settings.PluginMemoryRow) {
+// pluginMemoryGroup is a tile per plugin with a measured runtime, its
+// realms and the Node's runtimes summed; a sample still missing marks the
+// total partial. The estimates are logical sizes (memoryWithPlugins).
+func pluginMemoryGroup(c *ui.Context, names map[string]string, values []pluginMemoryValue, backend *protocol.PluginMemorySnapshot) kit.TreemapGroup {
 	byName := map[string][]pluginMemoryValue{}
-	for name := range names {
-		byName[name] = nil
-	}
 	for _, value := range values {
 		byName[value.name] = append(byName[value.name], value)
 	}
@@ -213,73 +208,31 @@ func pluginMemoryGroups(c *ui.Context, names map[string]string, values []pluginM
 		order = append(order, name)
 	}
 	slices.Sort(order)
-	var groups []kit.TreemapGroup
-	rows := make([]settings.PluginMemoryRow, 0, len(order))
+	group := kit.TreemapGroup{ID: "plugins", Label: i18n.T(c, "ram_plugins")}
+	all := uint64(0)
 	for _, name := range order {
 		label := names[name]
 		if label == "" {
 			label = name
 		}
-		group := kit.TreemapGroup{ID: name, Label: label}
-		complete, total, busy := backend != nil, uint64(0), false
-		var parts []string
-		var oldest time.Time
-		if backend != nil {
-			oldest = time.UnixMilli(int64(backend.CapturedAtMs))
-		}
-		for _, kind := range []string{"view", "callback", "tool", "model"} {
-			bytes, present, known := uint64(0), false, true
-			for _, value := range byName[name] {
-				if value.kind != kind {
-					continue
-				}
-				present, busy = true, busy || value.busy
-				if value.bytes == nil {
-					known = false
-					continue
-				}
-				bytes += *value.bytes
-				if !value.at.IsZero() && (oldest.IsZero() || value.at.Before(oldest)) {
-					oldest = value.at
-				}
-			}
-			if !present {
+		complete, total := backend != nil, uint64(0)
+		for _, value := range byName[name] {
+			if value.bytes == nil {
+				complete = false
 				continue
 			}
-			complete = complete && known
-			title := i18n.T(c, "ram_plugins_"+kind)
-			detail := host.Bytes(float64(bytes))
-			if !known {
-				detail = i18n.T(c, "ram_plugins_pending")
-			}
-			parts = append(parts, title+" "+detail)
-			total += bytes
-			if bytes > 0 {
-				group.Items = append(group.Items, kit.TreemapItem{ID: kind, Label: title, Detail: host.Bytes(float64(bytes)), Value: float64(bytes)})
-			}
+			total += *value.bytes
 		}
-		value := host.Bytes(float64(total))
+		if total == 0 {
+			continue
+		}
+		detail := host.Bytes(float64(total))
 		if !complete {
-			if total == 0 {
-				value = i18n.T(c, "ram_plugins_pending")
-			} else {
-				value = i18n.T(c, "ram_plugins_partial", "bytes", value)
-			}
+			detail = i18n.T(c, "ram_plugins_partial", "bytes", detail)
 		}
-		if len(parts) == 0 && complete {
-			parts = append(parts, i18n.T(c, "ram_plugins_idle"))
-		}
-		if busy {
-			parts = append(parts, i18n.T(c, "ram_plugins_busy"))
-		}
-		if !oldest.IsZero() {
-			parts = append(parts, i18n.T(c, "ram_plugins_sampled", "time", oldest.Local().Format("15:04:05")))
-		}
-		group.Detail = value
-		// Zero groups keep the other plugins' series colors stable as VMs
-		// open and close; Treemap omits their tiles and legend entries.
-		groups = append(groups, group)
-		rows = append(rows, settings.PluginMemoryRow{ID: name, Name: label, Detail: strings.Join(parts, " · "), Total: value})
+		group.Items = append(group.Items, kit.TreemapItem{ID: name, Label: label, Detail: detail, Value: float64(total)})
+		all += total
 	}
-	return groups, rows
+	group.Detail = host.Bytes(float64(all))
+	return group
 }

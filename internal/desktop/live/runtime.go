@@ -91,7 +91,10 @@ type Runtime struct {
 	// filePreview is the window's preview dialog (file_preview.go).
 	filePreview *filePreview
 	// memoryNext is when Settings › Experimental samples memory again.
-	memoryNext            time.Time
+	memoryNext time.Time
+	// memoryBase is the last sample of the Go classes, beside which the
+	// plugins' group updates.
+	memoryBase            []kit.TreemapGroup
 	pluginMemory          *pluginMemoryState
 	cancel                context.CancelFunc
 	unsubscribe           func()

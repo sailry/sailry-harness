@@ -106,12 +106,14 @@ func memoryPollFixture(t *testing.T, observe ...func(*ui.Context)) (*Runtime, *m
 
 func assertMemoryPollValue(t *testing.T, r *Runtime, bytes uint64) {
 	t.Helper()
-	model := r.App.Settings.Model
-	if len(model.PluginMemory) != 1 || len(model.PluginMemory[0].Items) != 1 || model.PluginMemory[0].Items[0].Value != float64(bytes) {
-		t.Fatalf("plugin treemap does not project %d bytes: %+v", bytes, model.PluginMemory)
+	memory := r.App.Settings.Model.Memory
+	if len(memory) == 0 {
+		t.Fatal("the memory map is empty")
 	}
-	if len(model.PluginMemoryRows) != 1 || model.PluginMemoryRows[0].ID != "memory-fixture" || model.PluginMemoryRows[0].Total != host.Bytes(float64(bytes)) {
-		t.Fatalf("plugin row does not project %d bytes: %+v", bytes, model.PluginMemoryRows)
+	plugins := memory[len(memory)-1]
+	if plugins.ID != "plugins" || len(plugins.Items) != 1 || plugins.Items[0].ID != "memory-fixture" ||
+		plugins.Items[0].Value != float64(bytes) || plugins.Items[0].Detail != host.Bytes(float64(bytes)) {
+		t.Fatalf("the memory map does not project the plugin's %d bytes: %+v", bytes, plugins)
 	}
 }
 
@@ -176,13 +178,13 @@ func TestPluginMemoryPolling(t *testing.T) {
 			}
 			r.App.Settings.Section = settings.General
 			settle()
-			if reads[1].ctx.Err() != context.Canceled || r.pluginMemory != nil || r.App.Settings.Model.Memory != nil || r.App.Settings.Model.PluginMemory != nil || r.App.Settings.Model.PluginMemoryRows != nil {
+			if reads[1].ctx.Err() != context.Canceled || r.pluginMemory != nil || r.App.Settings.Model.Memory != nil {
 				t.Fatal("leaving Experimental retained its request or diagnostic values")
 			}
 			reads[1].completion <- memoryPollResponse(window.Now(), 99*1024)
 			window.Advance(6 * pluginMemoryInterval)
 			settle()
-			if len(source.captured()) != 2 || r.pluginMemory != nil || r.App.Settings.Model.PluginMemoryRows != nil {
+			if len(source.captured()) != 2 || r.pluginMemory != nil || r.App.Settings.Model.Memory != nil {
 				t.Fatal("a hidden page read again or accepted a late result")
 			}
 			r.App.Settings.Section = settings.Experimental
@@ -260,7 +262,7 @@ func TestPluginMemoryPolling(t *testing.T) {
 					t.Fatal("navigation cleared the state before its queued callback")
 				}
 				settle()
-				if toasted || old.error != "" || r.pluginMemory != nil || r.App.Settings.Model.PluginMemoryRows != nil || len(source.captured()) != 1 {
+				if toasted || old.error != "" || r.pluginMemory != nil || len(source.captured()) != 1 {
 					t.Fatal("a queued failure escaped its page lifetime")
 				}
 			})

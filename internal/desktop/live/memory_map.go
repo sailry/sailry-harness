@@ -2,6 +2,7 @@ package live
 
 import (
 	"runtime/metrics"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -19,7 +20,7 @@ const memoryInterval = 2 * time.Second
 // classifies it (runtime/metrics /memory/classes). This covers Go-managed
 // memory, not native allocations or every mapping of the process. Memory
 // returned to the system (heap/released) is left out. Plugin JS estimates
-// are separate diagnostics, not additional Go memory classes.
+// join the map as their own group (memoryWithPlugins).
 var memoryClasses = []struct {
 	group string
 	items []struct{ key, metric string }
@@ -54,15 +55,16 @@ func (r *Runtime) memoryMapFrame(c *ui.Context) {
 	}
 	m := r.App.Settings.Model
 	if r.App.Page != shell.SettingsPage || r.App.Settings.Section != settings.Experimental {
-		m.Memory, r.memoryNext = nil, time.Time{}
+		m.Memory, r.memoryBase, r.memoryNext = nil, nil, time.Time{}
 		r.closePluginMemory()
 		return
 	}
 	now := c.Now()
-	if m.Memory == nil || !now.Before(r.memoryNext) {
-		m.Memory, r.memoryNext = memoryGroups(c), now.Add(memoryInterval)
+	if r.memoryBase == nil || !now.Before(r.memoryNext) {
+		r.memoryBase, r.memoryNext = memoryGroups(c), now.Add(memoryInterval)
 	}
 	r.pluginMemoryFrame(c)
+	m.Memory = memoryWithPlugins(r.memoryBase, r.pluginMemory.group)
 	c.After(r.memoryNext.Sub(now))
 }
 
@@ -101,4 +103,32 @@ func memoryGroups(c *ui.Context) []kit.TreemapGroup {
 		groups = append(groups, group)
 	}
 	return groups
+}
+
+// memoryWithPlugins adds the plugins' group to the Go classes. Their
+// JavaScript runtimes are Go objects of this process, so their estimate is
+// taken out of live objects rather than counted twice; being logical sizes,
+// they take it no lower than zero.
+func memoryWithPlugins(base []kit.TreemapGroup, plugins kit.TreemapGroup) []kit.TreemapGroup {
+	if len(plugins.Items) == 0 {
+		return base
+	}
+	total := 0.0
+	for _, item := range plugins.Items {
+		total += item.Value
+	}
+	groups := make([]kit.TreemapGroup, 0, len(base)+1)
+	for _, group := range base {
+		if group.ID == "ram_heap" {
+			group.Items = slices.Clone(group.Items)
+			for i := range group.Items {
+				if group.Items[i].ID == "ram_objects" {
+					group.Items[i].Value = max(0, group.Items[i].Value-total)
+					group.Items[i].Detail = host.Bytes(group.Items[i].Value)
+				}
+			}
+		}
+		groups = append(groups, group)
+	}
+	return append(groups, plugins)
 }

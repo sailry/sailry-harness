@@ -2280,15 +2280,6 @@ ram_collector: 回收器元数据
 ram_profiling: 性能分析
 ram_other: 其他
 plugins_settings_follow_model: 跟随模型
-ram_plugins: 插件内存（估算）
-ram_plugins_estimate: 当前窗口与本机后台的 JavaScript 堆
-ram_plugins_view: 界面
-ram_plugins_callback: 回调
-ram_plugins_tool: 工具
-ram_plugins_model: 模型
-ram_plugins_pending: 尚未采样
+ram_plugins: 插件（估算）
 ram_plugins_partial: '%{bytes} · 部分样本'
-ram_plugins_idle: 无活动 JavaScript 运行时
-ram_plugins_busy: 运行中
-ram_plugins_sampled: 采样于 %{time}
 ram_plugins_error: 无法读取插件内存

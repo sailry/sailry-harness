@@ -21,23 +21,4 @@ func experimental(c *ui.Context, m *Model) {
 	kit.Group(c, "memory", i18n.T(c, "settings_ram"), "", nil, func() {
 		kit.Treemap(c, "memory-map", m.Memory, kit.TreemapOptions{})
 	})
-	if len(m.PluginMemoryRows) == 0 {
-		return
-	}
-	kit.Group(c, "plugin-memory", i18n.T(c, "ram_plugins"), "", nil, func() {
-		ui.Column(c).FillWidth().Gap(12).Children(func() {
-			hasValues := false
-			for _, group := range m.PluginMemory {
-				hasValues = hasValues || len(group.Items) > 0
-			}
-			if hasValues {
-				kit.Treemap(c, "plugin-memory-map", m.PluginMemory, kit.TreemapOptions{})
-			}
-			for _, row := range m.PluginMemoryRows {
-				kit.Row(c, row.ID, row.Name, "", func() {
-					ui.Text(c, row.Total).FontSize(kit.RowFont)
-				}).Tooltip(i18n.T(c, "ram_plugins_estimate") + " · " + row.Detail)
-			}
-		})
-	})
 }
