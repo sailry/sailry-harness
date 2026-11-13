@@ -4,13 +4,13 @@ This is the v1 plugin contract for `github.com/sailry/sailry-harness`. Node
 callbacks and Desktop entries run in the Go runtime; nothing described here
 executes in the `--preview` desktop.
 
-JavaScript module names, method names, payloads and examples remain the v1
-contract, including `gpui-kit` imports. The Go compatibility layer maps those
-elements to MyGo/Kit; packages do not port their business logic to Go.
+The current JavaScript contract includes `gpui-kit` module imports. The desktop
+bridge maps those elements to MyGo and Kit; packages own their JavaScript business
+logic and UI composition.
 
 Desktop plugins import the host-owned `sailry/sdk` module. The host registers it for each mounted plugin and uses the existing Client → Node commands on local and remote connections. Do not bundle a private copy of the SDK, model response parser, or request recovery loop.
 
-The desktop TypeScript contract is [api.d.ts](desktop/api.d.ts). The Go compatibility layer preserves that declaration and checks it against exported methods. Headless callbacks have a separate [Node SDK subset](node/api.d.ts); desktop-only exports are not available there.
+The desktop TypeScript contract is [api.d.ts](desktop/api.d.ts). The Go bridge checks those declarations against its exported methods. Headless callbacks have a separate [Node SDK subset](node/api.d.ts); desktop-only exports are not available there.
 Their [model](node/models.d.ts) and
 [installation](node/installations.d.ts) modules
 share the scoped request contract with bounded snapshot observations.
@@ -46,8 +46,8 @@ string pins an exact revision and rejects changes. Durable replay always returns
 the originally captured turn. `models` optionally maps role IDs to
 `{provider, model, effort}` overrides. `setSessionExecution(selection, revision,
 session?)` changes future turns through the same session revision fence; sent turns
-retain their immutable selection. Its v1 wire command keeps the existing
-`set_session_team` tag, extended with `execution` and `models`; omitted fields retain
+retain their immutable selection. Its wire command is
+`set_session_team`, with `execution` and `models`; omitted fields use
 Team execution and an empty override map. Team revisions in catalogs, sessions and admitted
 turns cross JavaScript as decimal strings, including nested dispatch callbacks.
 
@@ -70,10 +70,9 @@ run status/error changes from the shared Client snapshot. Content deltas leave
 that call pending. The default projection preserves the full conversation view;
 both projections retain the Node's access check before exposing session data.
 
-`Image.new(id, {path, fit, width, height})` renders declared package images through GPUI Kit.
+`Image.new(id, {path, fit, width, height})` renders declared package images through the MyGo bridge.
 `fit` defaults to `contain`; `cover` crops to the component bounds and `fill`
-maps the image to those bounds. The public adapter exposes Kit's existing
-`ObjectFit`, which the pinned script image export does not expose. Transparent
+maps the image to those bounds. The bridge applies the selected object fit. Transparent
 atlas composition can therefore share exact layer coordinates without changing
 image alpha or implementing another renderer.
 Optional positive pixel `width` and `height` set explicit image bounds and their
@@ -83,22 +82,20 @@ intrinsic source ratio from percentage heights during layout.
 `sailry/forms.NumberField` reuses Kit's native number input over a `createText`
 handle. `readText` retains the exact string; `nextTextEvent` reports `increment`
 or `decrement` without converting the value to a floating-point number. Packages
-own validation, exact arithmetic and saving. The bridge covers the pinned Kit
-script control's missing text-handle and step-event bindings.
+own validation, exact arithmetic and saving. The bridge connects the retained
+text handle and step events to the native control.
 
 `sailry/forms.SliderField` binds a `createSlider(value, {min, max, step})`
 handle to Kit's styled native Slider. `nextSliderEvent` reports local `change`
 values and one `release` at the end of interaction; packages decide when to save.
 `setSlider` updates presentation without publishing a user event. Release handles
-with `releaseSlider`. This bridge covers the pinned 98a5e5d styled script Slider's
-missing state and event bindings; it does not reproduce the native track or thumb.
+with `releaseSlider`. The native slider owns its track, thumb and interaction state.
 
 `sailry/ui.SettingsRow.new(id, {label})` reuses the application's settings row.
 Pass an already localized label and place the trailing controls in its children;
-packages retain their drafts, validation and save behavior. In the pinned Kit
-98a5e5d, `SettingItem` is a typed value consumed only by the complete `Settings`
-hierarchy. The shared row bridge supports standalone plugin settings pages
-without another settings sidebar or a package-specific renderer.
+Packages retain their drafts, validation and save behavior. The shared row
+bridge supports standalone plugin settings pages without another settings sidebar
+or a package-specific renderer.
 
 `SettingsRow` also takes `description`, `icon` and `wide`. The description is a
 muted second line under the label at the application's row metrics. `icon`
@@ -276,7 +273,7 @@ Menus reuse the existing declaration validation and 256 top-level item limit.
 Declare optional `min_sailry_version` inside `extensions.dev.sailry.platform`
 as a complete SemVer value, including a prerelease when applicable. The execution
 Node compares SemVer precedence against its own Sailry version. Omission imposes
-no minimum. Contracts remain `v1`; this field does not select another API version.
+no minimum. This field filters product versions; the extension's `api_version` selects its API contract.
 
 When a package uses a new `sailry/*` module or export, extension field or permission,
 set the minimum to the first Sailry version containing that capability. Publish the
@@ -616,9 +613,10 @@ The inert `sailry/adapter` module exposes `version` and `parseJson`; its
 the neutral input and deltas. These modules have no `sailry/sdk`, filesystem, network or tool dispatch. The Node performs
 transport and credential injection; model translation never receives tokens.
 Model callbacks use the shared 60-second script execution limit, including JSON
-conversion, with cancellation, a 64 MiB heap and a 512 KiB stack. Model requests
-remain bounded to 32 MiB. The script limit does not bound HTTP/SSE waiting or
-authorization I/O.
+conversion, with cancellation and a 64 MiB callback allocation budget. moejs
+enforces its recursion bound and reports excessive recursion as a script fault;
+there is no configured physical stack-byte limit. Model requests remain bounded
+to 32 MiB. The script deadline does not bound HTTP/SSE waiting or authorization I/O.
 The Sailry Node remains the sole model/tool execution and history owner. Package-owned tests
 can use `translationInput` and `translate` from `scripts/test-host.mjs` with an
 explicit current `SAILRY_PLUGIN_TEST_HOST`; that bridge runs the production pure
@@ -690,7 +688,7 @@ Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up
 
 ## UI and animation
 
-Use GPUI Kit controls and its native `transition` API for interpolated position, size and opacity. Plugin scripts sequence game events with `cx.sleep()` and `cx.notify()`; they do not need a per-frame rendering loop. Keep game rules and animation sequencing in the plugin.
+Use the shared script controls and their `transition` API for position, size and opacity; the bridge renders them with MyGo. Plugin scripts sequence game events with `cx.sleep()` and `cx.notify()`; they do not need a per-frame rendering loop. Keep game rules and animation sequencing in the plugin.
 
 `SegmentedTabs.new(id, {items, selected, disabled, fill})` uses native Kit tabs.
 Set `fill: true` for equal-width choices across a modal form; it defaults to
@@ -704,8 +702,8 @@ lower case. A suffix chooses a variant where the brand has it: `-color` (the
 mark in its own colors), `-text` (the wordmark), `-text-color`, `-text-cn`,
 `-brand` (mark and wordmark) and `-brand-color`; without a suffix the mark is
 one color. The `Icon` component draws a `-color` variant in the brand's colors
-and every other variant in the text color; menu items, table lines and other
-tinted places draw any variant as a one-color shape. A name the collection
+and every other variant in the text color. Settings rows also preserve explicit
+color variants; menu items, table lines and other tinted places draw a one-color shape. A name the collection
 lacks behaves as any unknown icon name does. Existing names are unchanged, and
 a manifest's navigation icon still takes a `phosphor:` or `reicon:` name or its
 own SVG. Brand
@@ -737,13 +735,13 @@ const content = CardList.new("records", {
 }).children(records.map(renderRecord));
 ```
 
-The pinned script Button does not expose composed accessibility names. `ComposedButton.new(id, { label, tooltip, size })` from `sailry/ui` reuses Kit's native ghost button for image targets. Optional `size` sets a square in pixels; activation arrives through `nextCardEvent()`.
+`ComposedButton.new(id, { label, tooltip, size })` from `sailry/ui` reuses Kit's native ghost button for image targets. Optional `size` sets a square in pixels; activation arrives through `nextCardEvent()`.
 
-The pinned Shell does not expose native Editor/Diff focus or an after-frame callback. Wrap a native focusable leaf with `FocusEntry.new(id)` from `sailry/ui`, then call `focusEntry(id)` and `cx.notify()` from a selection event to enter its keyboard target after the new layout paints. The host uses ordinary GPUI tab traversal within that leaf's group; without a descendant tab stop, focus stays on its wrapper rather than another control. A newer request or `focusEntry(null)` cancels an earlier request. Packages select the visible leaf and retain their own binary or collapsed-content fallback.
+Wrap a native focusable leaf with `FocusEntry.new(id)` from `sailry/ui`, then call `focusEntry(id)` and `cx.notify()` from a selection event. On rendering, the bridge focuses the first eligible native descendant; if none accepts focus, it focuses the wrapper. A newer request or `focusEntry(null)` replaces the pending request. Packages select the visible leaf and retain their own binary or collapsed-content fallback.
 
 Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Scripted surfaces declare their JavaScript entry and resources. The host resolves entries from the captured Node inventory and immutable package; packages do not gain native privileges by choosing a familiar name. Standard conversation controls remain host-owned.
 
-Workspace and scripted settings pages use Kit's retained View entities. The host loads each scoped page once and switches presentation to its existing `ScriptView` and `ShellRoot`; ordinary navigation does not create another VM or View. Returning runs the normal entry refresh without discarding the mounted page or its drafts. Hidden pages pause visibility-bound work. Package/settings changes, removal, invalid scopes and Node changes still invalidate their runtime; releasing a view does not cancel already admitted Node tasks. There is no separate KeepAlive or Snapshot cache and no package retention timer.
+Workspace and scripted settings pages retain a mounted JavaScript runtime and native state for their captured Node and resource scope. Ordinary navigation reuses that mount and its drafts; returning signals entry refresh. Hidden pages pause visibility-bound work. Package replacement, removal, invalid scope and Node changes invalidate the mount; supported settings refreshes can retain it under the same package digest. Releasing a view does not cancel already admitted Node tasks.
 
 Use `Workspace.new` from `sailry/ui` with children in this order: main content,
 optional details, optional resource navigation. `has_details` controls the right
@@ -761,7 +759,7 @@ hidden sidebar without changing its resized width. Do not call it on every rende
 `PanelHeader` has a fixed 48px height, or 32px for `size: "row"`. `bordered`
 draws its bottom edge; `surface: "content"` fills the content background.
 
-Entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a page creates its View on first use and reads current data; later section switches reuse that entity. Leaving the settings area releases preloaded files, while mounted page owners remain with the captured Node until invalidation or window close.
+A scripted settings page reads its immutable bundle and mounts on first use. Section switches reuse the mount while its captured scope remains valid. A settings page without a script uses the shared schema form.
 
 `permissions` contributes standard OS permissions to **Settings → Permissions** without a
 settings page. Each entry declares `kind` (`full_disk`, `accessibility`,
@@ -874,7 +872,7 @@ The browser package owns annotation review and note drafts. `browserAction({kind
 
 Knowledge retrieval is a shared Node service rather than a bundled feature plugin. Notes, reminders and other feature packages organize their own collections and expose their own settings and conversation tools using the storage and knowledge operations in the v1 contract. The built-in knowledge settings configure vector models only.
 
-`ResourceTree.new(id, { items: JSON.stringify(items), selected, current })` takes a serialized `ResourceTreeItem[]` as its `items` field. The pinned Kit host bridge limits structured arguments to 16 nested levels, so the native host decodes and validates this recursive model while retaining Kit's tree state, events and native menus.
+`ResourceTree.new(id, { items: JSON.stringify(items), selected, current })` takes a serialized `ResourceTreeItem[]` as its `items` field. The native bridge decodes and validates this recursive model and retains its tree state, events and native menus.
 
 Optional `guides: true` adds dashed hierarchy guides to resource rows, following `indent` and `skip_depth`; it defaults to false and leaves tree interactions and the branch variant unchanged.
 
@@ -1380,7 +1378,7 @@ fields are supported by the v1 `read_command` and `read_command_page` commands;
 page reads preserve their selected stream, offset and limit. Listing commands
 and reading an original tool-result reference do not accept wait options.
 
-The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid current-generation updates preserve the profile. The pre-generation development reset and unknown-generation refusal follow ARCHITECTURE.md; a validation failure never authorizes rebuilding a current database.
+Node owns storage evolution. Startup validates schema updates on an isolated snapshot, saves a private backup and applies them transactionally. Invalid updates and unsupported generations preserve the existing database. See [storage ownership](../ARCHITECTURE.md#contract-and-storage-versions).
 
 ## Service connections
 
@@ -1519,8 +1517,13 @@ typed request/reply fixtures. Unmatched or unused replies fail the fixture.
 Reports include the script result, observed requests and staged turn state.
 These checks do not start a Node or substitute for local/remote integration.
 
-The runner never builds the host implicitly. Without an explicitly selected
-host, runtime cases are reported as skipped; package JavaScript tests still run.
+The application test host is the test binary of `internal/node/plugins`; its
+`TestMain` dispatches fixture requests when `SAILRY_PLUGIN_TEST_HOST` is set.
+Build it explicitly with the environment and command in
+[the plugin test instructions](../plugins/README.md#checks-and-catalog). The runner
+sets that variable when given `--runtime-host`; it never builds the host implicitly.
+Without an explicitly selected host, runtime cases are reported as skipped while
+package JavaScript tests still run.
 Core host tests use neutral fixtures and do not depend on bundled package names.
 
 Package matrices can call `validateSchema(schema, values)` from the shared

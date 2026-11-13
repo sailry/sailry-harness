@@ -86,7 +86,7 @@ tools:
 i18n:
     go generate ./internal/desktop/i18n
 
-# Run the complete gate required before every code commit.
+# Run the standard full-repository Go checks.
 check:
     test -z "$(gofmt -l .)"
     go build ./...

@@ -9,22 +9,22 @@ The checkout is self-contained: locale sources live in `locales/`, plugin SDK
 declarations in `sdk/`, and official packages in the pinned submodules. Setup,
 generation, builds and tests do not read another project directory.
 
-Maintainers review feature, UI, protocol, storage and architecture changes before
-implementation. For fixes, include a reproduction and evidence of the corrected
-behavior. Keep local commits cohesive with imperative English subjects. Agents
-commit locally and never push or open pull requests unless explicitly requested.
+Keep changes within the requested scope. For fixes, include a reproduction and
+evidence of the corrected behavior. Keep local commits cohesive with imperative
+English subjects. Agents commit locally and push or open pull requests only when
+requested.
 
 ## Setup
 
 Requirements:
 
 - Go 1.27.3 and Git.
-- The MyGo version pinned in `go.mod`:
-  `v0.8.4-0.20261109104234-eadf1fce6af3`. Do not upgrade it or edit its source.
-- Platform-native runtime dependencies required by that MyGo version.
-- Building the Link native library requires the pinned Rust 1.98.0 toolchain
-  (iroh 1.3.0). Mobile requires Flutter and the target's Android NDK or Apple
-  SDK; the TypeScript pairing service uses its own Node.js package tooling.
+- The MyGo and other module versions pinned in `go.mod`, with their platform
+  runtime dependencies. Do not edit module-cache sources.
+- Native builds use the Rust toolchain and dependency locks under `native/`.
+  Mobile uses the Flutter version in `apps/mobile/.flutter-version` and the
+  target's Android NDK or Apple SDK. The TypeScript pairing service uses its
+  own Node.js package tooling.
 
 Use this environment before every Go command:
 
@@ -53,16 +53,15 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 go generate ./internal/desktop/i18n
 ```
 
-The source catalogs include the accepted desktop additions in `zz-desktop.*.yml`.
-A key is defined in one file of a language: the generator fails on a key that
-two of them define, so a changed wording is edited where the key already is.
+Each key is defined in one source file per language. Edit its existing definition
+when changing copy; the generator rejects duplicate keys.
 
 The desktop entry point is:
 
 ```sh
 unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
-go run ./cmd/sailry-desktop
+go run ./cmd/sailry-desktop --data-dir .runtime/profiles/desktop
 ```
 
 The desktop starts one local Node, Client and shared Network. `--preview` exits
@@ -78,7 +77,7 @@ UI checks, isolate that folder with MyGo's path override in a disposable harness
 With [just](https://just.systems) installed, `just --list` shows recipes for these
 commands with the same environment: `just preview`, `just desktop <name>` and
 `just host <name>` (profiles under `.runtime/profiles/<name>`), `just check` for
-the complete gate, and the test, plugin, pairing-service and Mobile recipes.
+the standard Go checks, and the test, plugin, pairing-service and Mobile recipes.
 
 Implementer runs use `--data-dir .runtime/profiles/<fixed-name>`. Development defaults to
 `~/.sailry-go` only for user acceptance. Never run against `~/.sailry`; it is the
@@ -112,7 +111,7 @@ relevant compilation and tests by category. Child agents perform only static
 checks on their own changes. Use worktrees for edits that could conflict, and
 keep each worktree's scope explicit.
 
-The complete gate runs before every code commit:
+The standard full-repository Go checks are `just check` or:
 
 ```sh
 unset GOROOT
@@ -123,7 +122,11 @@ go vet ./...
 go test ./...
 ```
 
-Additional checks apply only when their inputs change:
+Run the full checks for release review and broad changes. For a focused fix,
+select the affected packages and reuse passing results until their inputs change.
+Documentation-only changes need link and content review, not a repeated Go suite.
+
+Additional checks depend on the changed inputs:
 
 | Change | Additional check |
 |---|---|
@@ -177,15 +180,13 @@ does not prove live or cross-platform acceptance.
 
 ## Test conventions
 
-- Test our logic and contracts: pure mappings, state transitions, captured Rust
-  JSON round-trips, storage transactions and a scripted fake model's agent loop.
-  Libraries own their own tests.
-- Keep one assertion at one layer. Do not port Rust tests one for one or repeat
-  store assertions through Client and UI. Prefer compact table-driven cases.
-- Prefer a subtest in an existing test function to a new function.
-- Keep default tests deterministic and isolated. Use `t.TempDir()`, injected
-  clocks, local fakes and `net/http/httptest`. No sleeps, real timers, live
-  network, user profiles or real child processes in the default suite.
+- Test Sailry logic and contracts: mappings, state transitions, protocol fixtures,
+  storage transactions and scripted model turns. Libraries own their own tests.
+- Put a regression at the layer that owns the defect. Avoid repeating the same
+  assertion through Store, Client and UI; use compact table-driven cases where useful.
+- Keep default tests deterministic and isolated with `t.TempDir()`, injected
+  clocks, local fakes and `net/http/httptest`. User profiles, real provider accounts
+  and external services are not default test fixtures.
 - Use `t.Parallel()` when a test touches no shared state.
 - Real processes, providers, models, iroh, remote storage and OS permission prompts
   belong behind `//go:build integration`. Other-OS spike programs are run on the
@@ -199,15 +200,15 @@ does not prove live or cross-platform acceptance.
 
 ## Continuous integration
 
-Workflows run only after the user pushes. There are four:
+The checkout contains four workflows:
 
-`ci.yml` holds every check and nothing that packages or publishes. It runs on
-pull requests, on main, manually, and when `release.yml` calls it:
+`ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
+pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls it:
 
 - `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
 - `test`: `go test ./...` with cgo disabled on macOS, Windows and Linux,
   using only Go module/build caches. Pull requests select affected packages;
-  main and release runs test everything. Use one macOS job per run.
+  branch pushes and release runs test everything.
 - `native`: build `native/iroh` and `native/capture` with their `build.sh` for
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
   when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
@@ -254,9 +255,9 @@ per-test matrices or retry-on-flake wrappers.
 
 ## Release packages
 
-Allowed packaging tools are `mygo build`, `flutter build`,
-the specified `native/*/build.sh` scripts and the ported Host installer files
-under `internal/node/host/deployment/`.
+Packaging entry points are `mygo build`, `flutter build`,
+`native/*/build.sh` and the Host installer scripts under
+`internal/node/host/deployment/`.
 Signing credentials, profiles, binaries and native artifacts never enter Git.
 
 `go run ./native/fetch` stages one target's pinned native artifacts in
@@ -315,7 +316,7 @@ signature itself is enforced by macOS, not by Sailry.
 loaders from inside it: compile it with the release `-ldflags`, copy it beside
 the packaged executable and seal the bundle again.
 
-Signing uses the settings of the existing release repository unchanged.
+Signing is configured by the packaging scripts and release workflow.
 `SAILRY_SIGNING=developer-id` needs the variables `APPLE_SIGNING_IDENTITY` and
 `APPLE_TEAM_ID`; `SAILRY_NOTARIZE=1` needs `APPLE_API_KEY_ID`,
 `APPLE_API_ISSUER_ID` and the key file `APPLE_API_KEY_PATH`. The release
@@ -326,17 +327,15 @@ keychain (`APPLE_SIGNING_KEYCHAIN`). The bundle identifier is
 Mach-O file must carry the team, the hardened runtime and a secure timestamp;
 notarization submits with `notarytool --key` and staples the application and
 the disk image. The application keeps the microphone entitlement and the
-bundled Python interpreter keeps `disable-library-validation`. Windows packages
-are not signed: the existing release settings hold no Windows certificate, and
-`windows.certificate` and `windows.signCommand` stay unset in `mygo.json`.
+bundled Python interpreter keeps `disable-library-validation`. Windows packaging
+currently leaves `windows.certificate` and `windows.signCommand` unset in
+`mygo.json`, so its artifacts are unsigned.
 
-Storage is SQLite. A release opens `~/.sailry` in place. The Go Node creates `storage/node.sqlite` and `storage/knowledge.sqlite`
-and moves an earlier release's database files into `storage/rust-archive/`
-without opening, importing, changing or removing them; sessions and settings
-stored in them do not appear. It keeps the
-Node identity (`link.key`), `desktop/preferences.json`, installed themes and
-the profile's file trees. `cmd/sailry-desktop/upgrade_integration_test.go`
-checks this on a synthetic profile.
+A release opens its profile in place using `storage/node.sqlite` and
+`storage/knowledge.sqlite`. Recognized databases from another storage engine move
+unopened into `storage/rust-archive/`; their sessions and settings are not imported.
+Node identity, controller preferences, themes and file trees remain in place.
+`cmd/sailry-desktop/upgrade_integration_test.go` checks this on a synthetic profile.
 
 The Desktop update feed is written by
 `go run ./internal/desktop/updater/cmd/update-feed -version <version> -output
@@ -365,20 +364,17 @@ from `https://github.com/sailry/sailry-harness/releases/download/v<version>/`,
 so they work once the draft release is published.
 `internal/node/host/deployment/SOURCE` records where the ported files come from.
 
-## Manual acceptance for 0.1.6
+## Manual acceptance
 
-The checks a person runs in the real app before the release is tagged. Tests
-and CI cover the rest ([Checks](#checks)). Run the
-areas in order; each item names where to click and what must be seen.
+Manual checks exercise the actual application and packaged runtime. Select the
+areas affected by a change and record the build, operating system, result and
+limitations. A historical checklist or passing headless test does not establish
+current platform acceptance.
 
-- The user's acceptance profile is `~/.sailry-go`, the default of a
-  development build started without `--data-dir`. Only the user runs against
-  it. Development runs use `just desktop`, which is
-  `--data-dir .runtime/profiles/desktop`. Nothing runs against `~/.sailry`.
-- **[account]** needs a real provider account or a signed-in vendor CLI.
-- **[macOS]**, **[Windows]**, **[Linux]** need that system. Unmarked items run
-  on any Desktop system and are verified on macOS only so far.
-- A failed item is reported with the area, the item's text and what was seen.
+Development runs use `just desktop` or another isolated profile. The user's
+acceptance profile is `~/.sailry-go`; the installed release profile is `~/.sailry`.
+Account and device checks require the corresponding account or device and remain
+explicitly initiated.
 
 ### Manual conversation automation
 
@@ -397,10 +393,10 @@ its unique display name or provider ID. Model and effort parameters apply only t
 the test sessions and never change the configured defaults.
 
 ```sh
-just acceptance acceptance --suite quick --provider "Test channel" --model gpt-6-luna --effort medium
-just acceptance acceptance --suite full --provider "Test channel" --model gpt-6-luna --effort medium
+just acceptance acceptance --suite quick --provider "Test channel" --model "model-id" --effort medium
+just acceptance acceptance --suite full --provider "Test channel" --model "model-id" --effort medium
 just acceptance acceptance --suite backend --case F01-exit127 --timeout 3m
-just acceptance acceptance --suite e2e --case E2E01 --provider "Test channel" --model gpt-6-luna --effort medium
+just acceptance acceptance --suite e2e --case E2E01 --provider "Test channel" --model "model-id" --effort medium
 just acceptance-ui
 ```
 
@@ -437,9 +433,8 @@ just acceptance-cleanup acceptance
 ```
 
 Cleanup stops and confirms turns and processes before removing recorded test
-sessions. It never searches by title or removes ordinary conversations. Old
-reports can supply explicit test session IDs from earlier versions. Keep the
-report and ownership files so interrupted runs can be cleaned up safely.
+sessions. It never searches by title or removes ordinary conversations. Reports can supply explicit test session IDs. Keep the report and ownership
+files so interrupted runs can be cleaned up safely.
 
 Live runs save bounded conversation recordings beside the report. Replay them
 without a provider account or network access:
@@ -468,228 +463,28 @@ just demo
 It starts the isolated fixture UI without opening a profile or running a Node,
 model or tool. Demo and acceptance switches are absent from the shipped settings.
 
-### 1. Start and development demo
+### Application checks
 
-- [ ] Start Desktop. The window opens on the welcome page or the last
-      conversation; no start failure dialog appears
-- [ ] Start a second Desktop on the same profile. The running window comes to
-      the front and no second window stays
-- [ ] **[macOS]** With a local task or terminal running, press Command-Q.
-      The system confirmation is attached to its window; Cancel leaves it
-      open, and Quit closes it
-- [ ] Start deleting a disposable conversation. The system confirmation names
-      it and its consequences; Cancel preserves it, and Delete removes it
-- [ ] Close with an edited, unsaved file. The system confirmation offers Save,
-      Discard and Cancel; a failed save keeps the window and draft open
-- [ ] Run `just demo`. The sidebar shows sample projects and conversations,
-      without a profile or a Node
-- [ ] Look over the sidebar, header, sample conversation and host page. Nothing
-      marks the data as a demo, preview or sample
-- [ ] Open several sample conversations; each has a transcript and no endless loader
-- [ ] Send a sample message, press Stop and Retry, and queue two messages during a
-      reply. The fixture reply plays each time
-- [ ] Open the Usage page; it shows the sample ledger
-- [ ] Open the project menu, Files and Git panels and notification centre. Items
-      either operate on fixture data or are absent
-- [ ] Close the demo and reopen the regular Desktop. Real conversations remain
-      unchanged, and Settings exposes no demo or acceptance controls
+Use disposable resources for mutations. Verify the current UI and its actions;
+these areas are a guide for choosing checks, not additional automated gates.
 
-### 2. Conversation and composer
+| Area | Check |
+| --- | --- |
+| Startup and shutdown | Open the intended profile, restore the window, reject a second profile owner and close with active work or unsaved drafts |
+| Conversation | Send, stream, stop, queue guidance, approve tools, answer questions and restore history; verify a split pane's independent draft and focus |
+| Resource workspaces | Navigate files, Git, SSH and database views; resize shell columns, switch resources and preserve drafts and captured scope |
+| Plugin lifecycle | Open navigation and settings, leave and return, disable or update a package, and verify stale callbacks cannot act on a new view |
+| Files and terminals | Attach and preview a file, save with a revision conflict, type in a terminal, resize it and close its view without confusing detach with stop |
+| Model transport | Use scripted failures for retry, cancellation and uncertain outcomes; account sign-in and real requests require explicit account acceptance |
+| Connections | Disconnect and reconnect a Host, recover observations and inspect an uncertain original request without repeating its effect |
+| Diagnostics | Check host metrics, physical-disk scope and plugin heap estimates; hidden diagnostics must stop their own polling |
+| Appearance | Check the changed surface in light/dark and English/Simplified Chinese, including focus, menus, translated labels and clipping |
+| Packaging | Launch the target artifact with isolated data, load its sealed native resources and exercise the affected packaged feature |
 
-These use a real conversation with any working model channel.
-
-- [ ] Open a conversation longer than the window. The transcript fills the pane
-      to the bottom edge, the composer floats over its end, and the turns fade
-      out above the composer instead of being cut by a line
-- [ ] Scroll to the last turn. Its last line is fully readable above the
-      composer
-- [ ] Split the workspace by dragging a session onto it. Each pane has its own
-      docked composer and fade
-- [ ] While a reply runs, send three messages. The queue tray appears over the
-      composer under a header reading "3 queued messages"; clicking the header
-      folds and unfolds the rows
-- [ ] The queue rows show the messages only: no wait label and no row for a
-      background result
-- [ ] Click a web link in a reply. It opens in the conversation's right panel
-- [ ] Click a file path in a reply. It opens as a tab of the right panel
-- [ ] Click the same link with Command (macOS) or Control (elsewhere). It opens
-      in the system browser
-- [ ] Click Add attachment in the composer. The app's file picker opens, not
-      the system's file dialog; choose two files and both appear as cards
-- [ ] Drag the picker by its top band. It moves and stays inside the window
-- [ ] Settings › Conversation › move the message text size slider. Transcript
-      text follows a pixel at a time; the composer's figures and controls keep
-      their size
-- [ ] Ask for a Mermaid flowchart and a sequence diagram. Both are drawn in the
-      reply, in the theme's colours
-
-### 3. Model requests and the connection
-
-- [ ] **[account]** Make a request fail in a retryable way: disconnect the
-      network, or point a channel's base URL at an address that refuses the
-      connection, then send a message. The turn shows "Retrying request 1/9"
-- [ ] Keep it failing and time the rows. Network failures back off from about
-      1 second to 30 seconds; rate limits and overload back off from about
-      5 seconds to 60 seconds, with jitter. The row advances up to 9/9
-- [ ] A provider's `Retry-After` is a minimum wait. If that wait exceeds the
-      remaining ten-minute waiting budget, recovery ends with its own waiting
-      limit message instead of sending early or reporting exhausted attempts
-- [ ] Press Stop during a wait. The turn ends at once
-- [ ] Restore the network during a wait. The next attempt answers and the
-      reply continues in the same turn
-- [ ] Use a wrong API key. The turn fails at once without a retry row
-- [ ] With a remote Host connected, open one of its conversations and stop the
-      Host or cut its network. After about 5 seconds the banner "Reconnecting"
-      appears after the last turn, with no button
-- [ ] Start the Host again. The banner goes away by itself and the
-      conversation continues
-- [ ] Open a conversation on a healthy connection, and switch between
-      conversations quickly. No banner flashes
-
-### 4. Provider sign-in
-
-All in Settings › Models › Add provider.
-
-- [ ] **[account]** ChatGPT: choose the ChatGPT sign-in, complete it in the
-      browser. The channel is saved, "Update models" lists models and a message
-      gets a reply
-- [ ] ChatGPT: before signing in, open Advanced settings. The catalog version
-      and User-Agent fields are filled with the values in use, not empty
-- [ ] Claude and Copilot: open Advanced settings. Claude shows a filled
-      User-Agent; Copilot shows a filled User-Agent, editor version and editor
-      plugin version; neither shows the other's fields
-- [ ] **[account]** Copilot: choose the sign-in named Copilot. A device code
-      and the GitHub address appear; enter the code on GitHub. The channel is
-      saved, "Update models" lists models and a message gets a reply
-- [ ] **[account]** Copilot: leave the channel idle for an hour, then send a
-      message. It replies without asking to sign in again
-- [ ] WorkBuddy is listed under Settings › Plugins as installed on a new
-      profile, without visiting the Market
-- [ ] WorkBuddy: start a sign-in. A confirmation titled with the channel shows
-      the warning that the account may be suspended, once. Cancel: no browser
-      opens and nothing is saved
-- [ ] WorkBuddy: start it again. The warning is asked again. With the app in
-      zh-CN the warning is in Chinese
-- [ ] **[account]** WorkBuddy: Continue and complete the sign-in with an
-      account that may be lost. "Update models" lists only free models
-- [ ] **[account]** WorkBuddy: in the package's settings turn "Free models
-      only" off for that site and press "Update models". Charged models appear.
-      Turn it on again and update: they are gone
-- [ ] **[account]** WorkBuddy: on a profile with a WorkBuddy channel saved by
-      an earlier build, send a message before updating. The request is refused
-      with a message that says why and nothing is charged; after "Update
-      models" a free model replies
-- [ ] WorkBuddy: the package's settings show "Automatic check-in" off on a
-      profile that never saved them
-- [ ] **[account]** Antigravity: with `agy` installed and signed in in a
-      terminal, install the Antigravity package from the Market. Its details
-      name the permission "Run its declared programs on this device"
-- [ ] **[account]** Antigravity: add its channel, press "Update models", choose
-      a model and send a message. The reply streams; a tool call runs as
-      Sailry's own tool with its usual row and approval
-- [ ] Antigravity without `agy` on the search path, or signed out: the failure
-      names the missing command, or says to run `agy` in a terminal and sign in
-- [ ] Antigravity is not installed on a new profile until chosen in the Market
-- [ ] Copilot and Claude: start a sign-in. A confirmation titled with the
-      channel shows the warning about the provider's terms, once. Cancel: no
-      device code or browser appears and nothing is saved. Start again: it is
-      asked again
-- [ ] Antigravity: in Add provider choose Antigravity. A confirmation titled
-      "Add Antigravity" shows the warning before the form. Cancel: the editor
-      stays on its step and no channel is created. Continue: the form opens
-- [ ] Editing a saved Antigravity, Copilot or Claude channel asks nothing
-
-### 5. Pages
-
-- [ ] Open a project's page. Its More menu opens; every item acts on the
-      project. There is no trust item and no AI CLI item or button
-- [ ] The project page lists the project's sessions and terminals as rows of
-      the Settings list look. An archived session's menu has Unarchive, and it
-      returns to the sidebar
-- [ ] With the sidebar sorted by Created, drag a project's session onto
-      another session of that project. A line shows the target place and the
-      row moves there
-- [ ] Open the host page. Its header names the system, the Host version and
-      the Protocol version; the page has no Runtime section and no Projects
-      section
-- [ ] Move the pointer over a host chart. A tooltip shows the sample under the
-      pointer
-- [ ] The host page's process table has a filled header and compact rows, like
-      the Usage tables; rows have no letter tile and no memory bar
-- [ ] **[macOS]** A Mac with a GPU shows the GPU card with its load
-- [ ] Right-click a process, choose End process on a process of your own. It
-      ends and leaves the table
-- [ ] Open the notification centre from the header. Notices are full-width rows
-      of one card; each shows its title and, on a second line, its message; a
-      row's actions sit beside its button
-- [ ] The Usage page, opened from the rail, shows compact plain-text tables:
-      no provider tile, no project tag, no cache bar
-- [ ] Open the Market. A card shows the package's icon, name and description,
-      and no source line
-- [ ] Click the rail's Settings button. Settings opens; click it again and
-      Settings closes
-- [ ] Open the model picker in the composer. Groups fold; the chosen model is
-      marked by a neutral fill, with no check mark and no blue
-- [ ] Open a project's Git tab. History is a graph with lanes; Load more
-      extends the same list; the diff footer switches Unified and Split
-- [ ] Start a goal with `/goal <text>`. The badge shows an icon, the state and
-      a time; its panel has Pause or Resume and End only
-
-### 6. Appearance and language
-
-Repeat for light and dark (Settings › Appearance) and for English and 简体中文
-(Settings › General › Language). The language changes at once, with no
-restart toast.
-
-- [ ] Docked composer and fade: the fade matches the pane's background in both
-      modes, with no band of another colour
-- [ ] Queue tray: its fill is the composer's own; the header reads
-      "3 queued messages" and "3 条消息排队"
-- [ ] File picker: selection is the neutral fill in both modes; headings and
-      places are translated
-- [ ] Host page: header, chart tooltips and process table are readable in both
-      modes; "Host version" and "Protocol version" are translated
-- [ ] Notification centre, Usage tables and Market cards: separators are
-      visible in both modes and no text is clipped in either language
-- [ ] Retry row: "Retrying request 2/9" and "重试请求 2/9"
-- [ ] Connection banner: "Reconnecting" and "正在重连"
-- [ ] Sign-in dialogs: "Advanced settings", "Update models" ("更新模型") and
-      the WorkBuddy warning are translated, and no label ends in a full stop
-- [ ] Menus, popovers, forms and tooltips opened above are frosted in both
-      modes; right-click menus and confirmations are the system's own
-
-### 7. Other systems
-
-Only the user or CI can run these. A local build for another system proves
-nothing about its behaviour.
-
-- [ ] **[Windows]** Desktop starts from the packaged build, shows the window
-      frost and the title bar buttons, and section 2 passes
-- [ ] **[Windows]** Control-click opens a link in the system browser; a plain
-      click opens the panel
-- [ ] **[Windows]** The file picker lists the drives and the standard folders,
-      and Add attachment attaches a file from another drive
-- [ ] **[Windows]** Add host offers WSL instead of the agent; installing a
-      Host into a distribution pairs it
-- [ ] **[Windows]** The host page of a Windows host: the process menu has Force
-      quit and no End process
-- [ ] **[Windows]** Antigravity: the channel replies with `agy` installed.
-      Known difference: its tool-blocking hook uses `printf` and is inert
-      there, so confirm no agent tool of its own runs during a reply
-- [ ] **[Windows]** Run `just test-integration ./internal/node/wsl
-      ./internal/node/store`
-- [ ] **[Linux]** The Host archive installs and starts, pairs with a Desktop,
-      and a conversation on it replies
-- [ ] **[Linux]** The host page of a Linux host shows real volumes without
-      pseudo mounts, and no GPU card
-- [ ] **[Linux]** The file picker browsing that Host lists its home and
-      standard folders
-- [ ] **[Linux]** Antigravity on a Linux Host with `agy` signed in there: the
-      channel replies
-- [ ] CI: the `integration` input of `ci.yml`, left empty, passes on every
-      leg
-- [ ] Mobile is accepted on a physical device separately; no item here
-      covers it
+Windows, Linux, native permissions and physical Mobile behavior are checked on
+those targets. Cross-compilation and a local headless run are not substitutes.
+The release integration package set is maintained in `ci.yml`; tests needing
+accounts, downloaded models or external services remain separate.
 
 ## Host automation
 
@@ -743,7 +538,7 @@ any new operation.
 
 ## Licensing
 
-Contributions follow the Sailry reference's Apache-2.0 terms and contribution
+Contributions follow this repository's Apache-2.0 license and contribution
 agreement. Imported libraries, source, fonts, icons, themes and plugin resources
 retain their own copyright, provenance and license notices; the application
 license does not replace them. Do not commit private profiles, credentials,

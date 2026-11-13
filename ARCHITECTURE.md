@@ -1,640 +1,397 @@
 # Architecture
 
-## Purpose and scope
-
-Sailry separates execution, transport, shared controller state and presentation.
-Desktop and Host run the same Node implementation. Controllers never run a second
-agent engine or write another authoritative session history. This document
-describes repository boundaries and runtime contracts. It is not a delivery plan
-or a claim of platform acceptance. Coding rules are in [AGENTS.md](AGENTS.md);
-build, test and release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md).
-User guides cover [hosts](docs/hosts.md), [models](docs/models.md)
-and [projects](docs/projects.md).
+Sailry has one execution runtime, Node, and two controllers, Desktop and Mobile.
+Desktop includes a local Node; Host runs the same Node without a desktop window.
+This document describes the implemented system. Engineering guidance is in
+[AGENTS.md](AGENTS.md), development and release procedures in
+[CONTRIBUTING.md](CONTRIBUTING.md), and the package API in
+[sdk/plugins.md](sdk/plugins.md). Dependency versions are recorded in `go.mod`
+and the native and application lockfiles.
 
 ## System context
-
-Users control AI conversations and development resources from Desktop or Mobile.
-An execution Node owns the work and runs inside Desktop or as Host. External
-systems include model providers, SSH hosts, databases, Git repositories, MCP
-servers and optional pairing and data-relay services.
 
 ```text
 Desktop / MyGo ── Client ──┬── in-process ── local Node
                            └── Link / iroh ── remote Node
 
-Mobile / Flutter ── Dart FFI adapter ── Client ── Link / iroh ── Node
+Mobile / Flutter ── Dart FFI ── Client ── Link / iroh ── Node
 
-Host service ── Node bootstrap + Link endpoint
-Node ── Agent loop + scoped tools ── providers / files / Git / PTY / SSH / databases
+Host service ── Node + Link endpoint
+Node ── agent loop + resource services ── models / files / Git / PTY / SSH / databases
 ```
 
-- **Desktop** composes the UI with MyGo and Sailry Kit and bundles a local Node.
-- **Mobile** is a Flutter controller. It connects to the selected Node directly;
-  Desktop is not a gateway.
-- **Host** is a long-running headless service, not an interactive agent CLI. Its
-  command line starts and configures the service; conversations and tasks are
-  controlled through the shared protocol.
-- **Link** authenticates peers and carries commands, receipts and subscriptions.
-- **Client** turns Node events into ordered, deduplicated projections.
-- **Protocol** defines the shared command, event and snapshot types.
-- **Plugins** and **themes** are packages maintained in separate repositories and
-  pinned as submodules.
+Node owns execution, configuration, credentials and durable conversation history.
+Link authenticates peers and transports requests and observations. Client reduces
+those observations into ordered controller state. MyGo and Flutter own view state.
+Mobile connects directly to a Node; Desktop is not its gateway. A controller
+disconnect does not stop admitted work.
 
-Disconnecting a controller does not stop admitted work.
+Official plugins and themes are separate repositories, pinned by the `plugins/`
+and `themes/` submodules. `bundled.go` embeds those exact snapshots for offline
+installation. Installed packages and their mutable data live in the Node profile.
 
 ## Components and dependencies
 
 The Go module is `github.com/sailry/sailry-harness`.
 
-| Component | Responsibility | Excludes |
-| --- | --- | --- |
-| `internal/protocol` | IDs, commands, events, snapshots, faults and capabilities, as hand-maintained declarations with one decoder | Runtime, UI and concrete transport |
-| `internal/protocol/wire` | JSON envelopes, framing, compression and snapshot paging | Business execution and UI |
-| `internal/link` | Identity, pairing, authenticated transport, receipt, reconnect and the in-process local transport | Agent history and business execution |
-| `native/iroh`, `internal/link/iroh` | Pinned iroh C ABI and its purego binding | Protocol framing and business execution |
-| `internal/client` | Typed commands, ordered projections, deduplication, request recovery and snapshot recovery | UI widgets, Node execution and a business database |
-| `internal/acceptance` | Explicit manual conversation cases through an existing Client and private evidence reports | Node startup, credentials and UI automation |
-| `internal/node` | Admission, persistence, configuration, Agent execution and resource services | Flutter and controller presentation |
-| `internal/node/agent` | Turn engine, canonical history, model transport, compaction, prompt and the ephemeral feed | Storage schema and controller state |
-| `internal/node/store` | The Node database: one writer, read pool, schema and event log | Execution rules |
-| `internal/node/program` | Declared package executables: scrubbed start, process group, bound and idle stop | Protocols, vendors, shells and sockets |
-| `internal/core` | Node errors, profile ownership and lock, workspace layout and confined file primitives | Storage, agents and transport |
-| `internal/localmodels` | Local model registry, Hub discovery, verified installation and CPU scheduling | Node storage, admission and controllers |
-| `internal/localmodels/{embedding,ocr,decision,onnx,assets}` | CPU inference engines, model decoding and verified downloads | Node persistence and controller state |
-| `internal/office` | Office and PDF text extraction | File access and OCR |
-| `internal/databases` | External PostgreSQL, MySQL and SQLite drivers and SSH tunnels | Stored connections and approvals |
-| `internal/ssh` | Verified SSH connection setup | Remote commands, files and terminals |
-| `internal/speech` | Offline speech recognition on the controller through sherpa-onnx | Node, transport, UI and conversation ownership |
-| `internal/shipped` | Location of packaged files and the native library seal | Loading policy of each library |
-| `internal/desktop/kit` | Reusable MyGo controls, floating surfaces, Markdown, code and the CrychicUI adapter | Node, Client, file acquisition and application state |
-| `internal/desktop` | MyGo composition by feature: shell, sidebar, conversation, composer, panel, settings, host, transfers, onboarding, plugins, theme, i18n | Duplicate history or request recovery engines |
-| `internal/desktop/live` | Client projections and the live implementation of every UI action | Backend state, execution rules and Node startup |
-| `internal/desktop/preview` | Fixture data and simulated actions for `--preview` | Profiles, Nodes and any real effect |
-| `internal/desktop/acceptance` | Explicit headless conversation interaction checks and a small live UI suite | Node startup, native window acceptance and automatic CI runs |
-| `cmd/sailry-desktop` | Desktop composition, local Node startup and application lifecycle | Business execution outside Node |
-| `cmd/sailry-host`, `internal/hostctl` | Headless service lifecycle, control socket and noninteractive task commands | Desktop dependencies and a prompt loop |
-| `internal/mobile`, `cmd/sailry-mobile` | Client handles, subscriptions and the C ABI for Dart | Node, agent execution, provider transport, PTY and Git execution |
-| `apps/mobile` | Flutter controller presentation | Independent business rules or credential storage |
-| `bundled.go`, `plugins/`, `themes/` | Embedded, immutable submodule snapshots | Runtime package state |
-| `services/pairing-relay` | Expiring short-code ticket exchange | Business commands or agent execution |
+| Component | Responsibility |
+| --- | --- |
+| `internal/protocol` | Commands, events, IDs, snapshots, faults, capabilities and JSON decoding |
+| `internal/protocol/wire` | Envelopes, framing, compression and snapshot paging |
+| `internal/link` | Identity, pairing, authenticated transport, receipt, reconnect and local transport |
+| `native/iroh`, `internal/link/iroh` | Native iroh C ABI and its purego binding |
+| `internal/client` | Typed commands, projections, ordering, deduplication, request and snapshot recovery |
+| `internal/node` | Startup, admission, configuration, execution and resource-service composition |
+| `internal/node/agent` | Turn engine, canonical records, prompt, model adapters, tools and streaming feed |
+| `internal/node/store` | SQLite schema, transactions, durable requests, session records and event log |
+| `internal/node/program` | Package-declared executable lifecycle and process isolation |
+| `internal/core` | Profile ownership, paths, confined files and common faults |
+| `internal/localmodels` | Model registry, verified installation and CPU inference scheduling |
+| `internal/office`, `internal/databases`, `internal/ssh` | Document extraction, database drivers and verified SSH connections |
+| `internal/speech` | Controller-local speech recognition and capture |
+| `internal/shipped` | Packaged resources and native library seals |
+| `internal/desktop` | Feature views, view models and action contracts |
+| `internal/desktop/kit` | Shared MyGo controls, themes, overlays and CrychicUI adapters |
+| `internal/desktop/plugins` | JavaScript desktop runtime, SDK and native component bridge |
+| `internal/desktop/live` | Client projections, live actions and scoped plugin bindings |
+| `internal/desktop/preview` | Isolated fixture views and simulated actions |
+| `internal/acceptance`, `internal/desktop/acceptance` | Explicit conversation acceptance and recorded UI replay |
+| `cmd/sailry-desktop` | Window, local Node and shared Network lifecycle |
+| `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
+| `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
+| `services/pairing-relay` | Expiring short-code ticket exchange |
 
-Production dependencies are acyclic:
+The principal dependency direction is:
 
 ```text
-cmd/sailry-desktop → desktop + desktop/live + desktop/acceptance + acceptance + client + link + node
-desktop/live       → client + link + protocol + speech + desktop UI packages
-desktop UI         → MyGo + CrychicUI + desktop/kit + desktop view models
-cmd/sailry-host    → acceptance + node + link + hostctl
-hostctl            → client + link + core + protocol
-acceptance         → client + core + protocol
-mobile             → client + link + protocol
-client             → protocol + link
-node               → protocol + link + core + Node service packages + model transport
-databases          → core + ssh
-localmodels        → protocol + its engine packages
-link               → protocol + protocol/wire + link/iroh
+Desktop views ← desktop/live → Client → Link → Protocol
+                              ↑
+Mobile / Dart FFI ─────────────┘
+
+Desktop and Host entry points → Node → agent / store / resource services
+Node and Link share Protocol contracts
 ```
 
-- Service packages (`core`, `office`, `databases`, `ssh`, `localmodels`,
-  `speech` and `shipped`) never import `internal/node`. Client depends only on
-  Protocol and Link, apart from standard and designated external libraries.
-- Only `cmd/sailry-desktop` and `cmd/sailry-host` start a Node. No desktop
-  package imports `internal/node` itself. `internal/desktop/live` is the one
-  desktop package that uses Node leaf packages, and only for value types and
-  pure helpers (`node/git`, `node/knowledge`, `node/plugins`, `node/providers`,
-  `node/telemetry`); everything else reaches the Node through Client.
-- Preview and live actions are separate implementations of the same `Actions`
-  contracts. Live never imports preview.
-- Manual acceptance is opt-in and command-only, through `just acceptance` and
-  Host's acceptance command. Backend cases use Client commands and scoped
-  conversation observations against the selected test Node. The runner journals
-  ownership and unresolved request identities, saves bounded evidence, then
-  removes only its recorded test conversations. `just acceptance-cleanup` can
-  finish interrupted cleanup. UI checks run in a separate headless Desktop
-  process because rendering changes process-wide theme state. Live checks attach
-  that process to the same Node through its owner-only control socket. Recorded
-  conversation snapshots and tool details can be replayed through the interface
-  without a Node, model or tool execution; truncated recordings declare their
-  limits. Normal startup, demo and CI never invoke real-model acceptance.
-- The Node uses two MyGo packages and no MyGo application, window or view:
-  `netproxy` for proxy-aware HTTP, and the terminal package (libghostty-vt)
-  for the headless PTY and Mirror owner in `internal/node/terminal`. Controller
-  presentation stays in Desktop.
-- `internal/node/program` starts the executables a package declares and knows
-  no protocol. The Agent Client Protocol model route in
-  `internal/node/agent/model` is its one user. Packages reach neither from
-  script.
-- The Mobile adapter consumes only Client, Link and Protocol. Its C ABI is
-  consumed through `dart:ffi`, with no independent business rules or
-  persistence.
-- Go code uses `CGO_ENABLED=0` and purego for native libraries. The only cgo
-  package is `cmd/sailry-mobile`, built for Android and iOS.
-- Feature modules stay in their owning package. A new package needs a concrete
-  dependency, binary, platform, compile-time or testing boundary.
-- Node work uses goroutines and `context.Context`. Client callbacks invalidate
-  the MyGo window; UI code never blocks on Node work.
+`internal/client` imports only Protocol and Link from this repository. Service
+packages such as Core, SSH, databases, local models and speech do not import
+Node. Desktop production packages do not start Node or import its root package;
+`desktop/live` uses Node leaf value types and pure helpers from Git, knowledge,
+plugins, providers and telemetry. Production startup belongs to the entry points.
+
+Node uses MyGo's proxy-aware HTTP and headless terminal implementation. Terminal
+appearance also uses MyGo color values; Node creates no application, window or
+view. Desktop and Host use pure Go with purego native bindings. The Mobile C ABI
+is the cgo entry point. Flutter owns presentation, while shared Client code owns
+conversation reduction, paging and transfer verification.
 
 ## Data and ownership
 
-| Owner | Owns |
+| Owner | State |
 | --- | --- |
-| Node | Sessions, canonical history, configuration, credentials, immutable sent-turn revisions, admission and outcomes |
-| Client | Event reduction, ordering, deduplication, snapshot recovery and shared detail caches |
-| MyGo / Flutter | Layout, focus, drafts, selection and expansion |
-| Controller device | Identity, pairing records and rebuildable caches (not a business database) |
+| Node | Sessions, canonical history, configuration, credentials, admitted revisions and operation outcomes |
+| Client | Ordered projections, recovery state and shared detail caches |
+| Desktop / Flutter | Drafts, focus, layout, selection and expansion |
+| Controller device | Identity, paired peers, preferences and rebuildable caches |
 
-- **One profile, one Node.** A profile has one running Node owner, one Link
-  identity and one endpoint. The owner holds an exclusive OS advisory lock on
-  `node.lock`. Desktop's local Client reuses that Node. Desktop and Host share
-  bootstrap, recovery and shutdown. A controller profile (one with
-  `peers.json`) cannot be opened as a Node profile.
-- **Resource ownership.** Resources keep Node → project → worktree →
-  session/terminal ownership even when navigation hides the worktree layer. File
-  and Git actions are confined to the captured worktree. SSH, database and plugin
-  resources keep their captured Node and resource identity.
-- **Session configuration.** Controller defaults initialize new sessions. Changing
-  an existing session needs an explicit revision-checked command. Resuming from
-  another controller keeps the effective configuration.
-- **Credentials.** Configuration and credentials are stored as plaintext in the
-  execution Node's configuration database. There is no encrypted vault or OS
-  keychain. Credentials never appear in public events, logs or UI caches.
-- **Profiles.** A profile contains Node storage, plugin packages and data, and
-  uploaded attachments. Projects stay at their registered paths. Remote execution
-  data stays on the execution Node.
-- **Sessions.** `Session` is the shared conversation container for controllers,
-  Host automation and plugins. `StartSession` atomically creates a session and
-  admits its first turn. An optional immutable association (`namespace`, `kind`,
-  `id`) links a session to an external object. It grants no resource authority.
-- **Execution.** A turn selects a single model or a team. Team execution freezes
-  the team revision, instructions and models with the turn.
-- **Controller state.** Desktop keeps controller preferences in the profile's
-  `desktop/preferences.json` and UI-only state (`ui-state.json`) beside MyGo's
-  `window-state.json`, outside the Node profile.
+Each Node profile has one owner holding the OS advisory lock on `node.lock`, one
+Link identity and one endpoint. Desktop's local Client uses that owner. A
+controller profile with `peers.json` cannot be opened as a Node profile.
+
+Resource identity is Node → project → worktree → session or terminal. A hidden
+navigation layer does not change that scope. File and Git operations retain their
+captured worktree; SSH, database and plugin surfaces retain their Node and resource
+identity. Registered projects remain at their original filesystem paths.
+
+`Session` is the common conversation container for controllers, Host automation
+and plugin assistants. `StartSession` creates a session and admits its first turn
+atomically. An optional immutable association (`namespace`, `kind`, `id`) links a
+session to an external object without granting resource access. Defaults initialize
+new sessions; revision-checked commands change existing configuration. A turn
+captures its model or team, configuration, permissions and referenced revisions.
+
+Credentials are stored in the execution Node's configuration database as plaintext.
+The implementation has no encrypted vault or OS keychain. Public projections and
+diagnostics exclude credentials. Desktop controller preferences live at
+`<profile>/desktop/preferences.json`; UI layout state lives beside MyGo's
+`window-state.json` in its application-data directory.
 
 ### Storage
 
-- The Node uses pinned `modernc.org/sqlite` for `storage/node.sqlite` and
-  `storage/knowledge.sqlite`. Each file has one writer goroutine that
-  group-commits queued operations in a `BEGIN IMMEDIATE` transaction, with a
-  savepoint per operation, in WAL mode. Callers receive results after commit.
-  Reads use a separate read-only pool. Sequence counters advance with their
-  records, so identifiers are never reused.
-- External database tools use their own PostgreSQL, MySQL and SQLite drivers,
-  separate from Node storage.
-- Durable conversation records use Sailry-owned `Record`, `Message` and `Block`
-  types. Binary data is stored once per content digest in the Node database.
-  Unknown token counts stay unknown rather than becoming zero.
-- `storage/knowledge.sqlite` holds only derived chunks, full-text indexes and
-  vectors. Deleting it never removes sources or configuration.
-- Each worktree has a rebuildable code index at
-  `cache/code-index/<WorktreeId>/index.sqlite`. Source stays in the worktree.
-- New managed checkouts live under the main worktree's `.sailry/worktrees/<id>`,
-  excluded through Git's `info/exclude`.
-- Disposable command, browser and transfer staging lives under the profile's `tmp`
-  directory, which is cleared at every start after the profile lock is taken.
-  Managed command output is bounded per stream and by a shared Node budget.
+`internal/node/store` uses SQLite for `storage/node.sqlite` and
+`storage/knowledge.sqlite`. Each database has one writer goroutine, WAL mode and a
+separate read-only pool. The writer groups queued operations in a
+`BEGIN IMMEDIATE` transaction with a savepoint per operation. Results become
+visible to callers after commit. Identifiers and event sequences advance in the
+same transaction as their records.
+
+Canonical conversation data uses Sailry-owned records, messages and blocks.
+Binary content is stored by digest. Unknown usage counts remain unknown.
+Knowledge chunks, full-text indexes and vectors are derived data; their source
+files and configuration are independent. Worktree code indexes live under
+`cache/code-index/<WorktreeId>/index.sqlite`.
+
+Managed checkouts use the main worktree's `.sailry/worktrees/<id>` directory,
+excluded through Git's `info/exclude`. Command, browser and transfer staging uses
+the profile's `tmp` directory, cleared after acquiring the profile lock at startup.
+Command output is bounded both per stream and across the Node.
 
 ### Contract and storage versions
 
-Before the first product release, Sailry protocol, wire, schema, storage and
-extension contracts stay at `v1` (numeric fields use `1`) and change in place.
-There are no legacy wire branches, fallback decoders or versioned migration
-framework. Third-party dependency versions, data revisions and event sequences are
-independent of this policy.
+The current Protocol, wire and plugin contracts use version 1. Link compatibility
+compares protocol versions, not product version strings. The hand-maintained
+decoder distinguishes the source and purpose of input:
 
-A controller and a Host are compatible when their protocol versions are equal;
-the software version is never compared. Changing a contract in place therefore
-means two builds with the same protocol version exchange values the older one
-does not declare, and the older one must keep working. One decoding rule covers
-all of `internal/protocol`. It depends on who produced the bytes, not on the
-type:
+| Input | Unknown object members | Unknown enum values or union variants |
+| --- | --- | --- |
+| Authored configuration, manifests, stored records and tool input | Rejected for closed objects | Rejected |
+| Authenticated peer command | Ignored | Rejected |
+| Authenticated peer data | Ignored | Retained; unknown union content uses `UnknownVariant` |
 
-| The bytes carry | from a peer, as data (reply, event, snapshot) | from a peer, as a command | from an author |
-| --- | --- | --- | --- |
-| an unknown object member | ignored | ignored | refused |
-| an unknown enum value | kept as sent | refused | refused |
-| an unknown union variant | kept whole as `protocol.UnknownVariant` | refused | refused |
-| no value for an optional member | the declared default | the declared default | the declared default |
-| no value for a required member | refused | refused | refused |
+Required members are validated in each mode. Optional members use their declared
+defaults. The wire reader selects `PeerCommand` or `PeerData`; ordinary
+`json.Unmarshal` on Protocol types is `Authored`. Consumers skip unknown data
+without applying an unknown operation. Signatures and digests retain their original
+JSON input. These are current decoding semantics, not a restriction that future
+contracts must remain at version 1.
 
-- A peer is the other end of an authenticated Link running the same protocol
-  version. The wire reader is the only place that asks for tolerance:
-  `protocol.DecodeAs` with `PeerData` for a reply and a snapshot, `PeerCommand`
-  for a request. Every other decode, including plain `json.Unmarshal`, is
-  `Authored` and exact.
-- Authored input is everything else: a package manifest and its validation, a
-  plugin's script input and transaction operations, model tool arguments,
-  settings files, stored rows, the pairing frames exchanged before a peer is
-  authenticated, and the Dart command JSON of the mobile adapter. A value there
-  that this build does not declare is a mistake or an attack, never a newer
-  contract.
-- A Node acts on a command, so it never acts on a value it does not understand:
-  it ignores a member it does not declare and refuses an undeclared enum value
-  or variant with a fault the sender can show. A controller only displays data,
-  so an undeclared value reaches it intact, re-encodes byte for byte, and each
-  consumer treats it as no information: an unknown event or frame change is
-  skipped while its sequence still advances, an unknown part or kind is not
-  drawn.
-- Digests and signatures are computed over retained raw JSON, which no
-  tolerance level changes.
-- The consequence for a contract change: a new member is optional with a
-  default that means "as before", a new enum value or variant is sent only
-  where its receiver is data, and a required member is never added. A change
-  that cannot follow this needs a new protocol version.
-- The protocol files are maintained by hand. Their fixtures and tolerance tests
-  are the check on a change; there is no generator.
+Current Node storage uses `node.storage_generation=1`. Startup accepts an empty
+database or owned storage with the expected identity and generation. Missing or
+unsupported generations and foreign databases fail without replacing the database.
+Schema additions are rehearsed on an isolated snapshot, backed up and applied
+transactionally with current-format validation. Configuration and recovery records
+are checked at startup; history and captured turns are checked when read.
+Recognized database files from another storage engine are moved unopened into
+`storage/rust-archive/`; they are not imported or deleted.
 
-Storage follows the same policy:
-
-- Startup adds missing schema objects and fills missing storage fields with their
-  defaults.
-- An update is validated on an isolated snapshot, saved as a private backup, then
-  applied with current-format validation in one transaction. Invalid current-format
-  changes fail without applying the update.
-- The baseline stores `node.storage_generation=1`. Startup accepts an empty
-  database or owned Node storage at generation 1. Any other state, including a
-  missing or unknown generation, a foreign application or another Node's
-  identity, fails without changing storage; no startup path deletes a database.
-- A validation failure never authorizes rebuilding a current database.
-- Startup validates current configuration and recovery records. Historical
-  captures and history are validated when their readers load them.
-- Database files of another storage engine found in a profile are not opened or
-  imported. They move unchanged to `storage/rust-archive/`; the Node identity,
-  controller preferences, installed themes and the profile's file trees are
-  kept.
-- The default profile is `~/.sailry-go` for source builds and `~/.sailry` for
-  release builds, which set `core.Default` at link time.
+Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` to
+`~/.sailry` at link time. Development checks use isolated profiles as described in
+[CONTRIBUTING.md](CONTRIBUTING.md#setup).
 
 ### Backups
 
-Data management backups include both databases, referenced plugin packages,
-attachments, session documents and registered managed workspaces. Maintenance
-pauses new transactions, checkpoints and closes the databases, and copies their
-complete native file families. Archives are password-encrypted (age) and can target
-local folders, WebDAV or S3. Restore validates into a new empty profile, keeps the
-Node identity and does not start the profile automatically. Only one copy of a
-Node identity should run at a time. Automatic backups use the existing Node
-dispatch service and require an online Node.
+Backups include both databases, referenced packages, attachments, session documents
+and registered managed workspaces. Maintenance pauses transactions, checkpoints
+and closes databases, then copies complete file families. Password-encrypted age
+archives support local folders, WebDAV and S3. Restore validates into an empty
+profile, retains Node identity and does not start it. Automatic backups use the
+Node's dispatch service. A restored identity must not run beside its original.
 
 ## Command admission and recovery
 
 1. Client submits a typed command with a stable request ID and captured resources.
-2. Node validates scope, revisions and permissions. A durable command is admitted
-   durably before Link acknowledges safe receipt.
-3. Node executes the operation and records its business outcome.
-4. Client observes the result and ordered events. Reconnect uses the original
-   request ID and snapshot/subscription recovery.
+2. Node checks access and revisions, then durably admits persistent mutations.
+3. Link acknowledges safe receipt; Node executes and records the business outcome.
+4. Client observes the result and ordered events, recovering by the same request
+   identity after a disconnect.
 
-- Local access uses an in-process adapter with the same semantics as remote
-  access, not loopback networking. The local Link fixes the authenticated caller
-  at construction and calls the same Node handler as every other transport.
-- Link owns transport ordering and receipt, Client owns reduction and recovery,
-  Node owns admission and outcomes. Transport receipt is not business success.
-- A durable request is identified by its authenticated caller and request ID.
-  Replaying a completed request returns its stored success or fault without
-  another effect; reusing an ID for different content is a conflict.
-- A request still admitted when the Node stops is marked unknown at the next
-  start and never runs again automatically. `InspectRequest` tells a controller
-  what became of a request. Uncertain effects are reported as uncertain and
-  never replayed under a new identity. There is no second durable inbox.
-- Conflicts require fresh inspection, never a silent overwrite.
-- A snapshot and its cursor come from one read transaction; later payloads come
-  from the committed event log in cursor order. A cursor the Node can no longer
-  serve produces a reset: Client takes a fresh snapshot and never replays
-  commands.
-- Installations of plugins, local models and language packages share one bounded
-  Node queue. Work on the same resource keeps admission order. Failed and
-  uncertain installations remain visible until dismissed.
+The in-process local transport fixes its authenticated caller at construction and
+uses the same Node handler as remote transport. Transport receipt and business
+success are separate facts. Replaying a completed durable request returns its
+stored result; reusing its identity with different content produces a conflict.
+An admitted request interrupted by Node shutdown becomes unknown at restart.
+`InspectRequest` recovers its status without repeating the effect.
+
+A snapshot and cursor come from one read transaction. Subsequent observations
+follow the committed event log. An expired cursor causes a new snapshot, not
+command replay. Failed and uncertain installations remain observable in the
+bounded installation queue shared by plugins, models and language packages.
 
 ## Agent loop and model boundary
 
-- **Loop.** The asynchronous turn loop in `agent/engine` owns Agent execution. It
-  runs ordered operations for approvals, tools, child work, guidance, compaction,
-  error handling and inference. Each stage persists its effects before the next
-  session reload.
-- **History.** Node session services are the single canonical history writer.
-  Client and UI projections are read-only, rebuildable derivatives.
-- **Model types.** Requests, messages and events use Sailry-owned types in
-  `agent/model`. One binding covers three per-step transports: provider SDK
-  adapters, package-declared model translations and agent programs.
-- **Fantasy.** `charm.land/fantasy` is pinned to `v0.46.0` and supplies only the
-  per-step `LanguageModel` stream interface. Sailry owns the loop, tool
-  execution, approvals, persistence and delegation; Fantasy's agent loop, tool
-  runner and retry layer are not used. Requests to OpenAI, Anthropic and Google
-  style endpoints go through the providers' official SDKs with their own retries
-  disabled.
-- **Agent programs.** An installed command-line agent that speaks the Agent
-  Client Protocol is used as a plain model through pinned
-  `github.com/coder/acp-go-sdk`. Sailry still owns the loop, tools, history and
-  compaction; the route offers the agent no file, terminal or MCP capability,
-  refuses its permission requests and carries tool calls as text. The route
-  names no vendor: a package declares the executable and its differences as
-  data. The one such package is `agy` (Antigravity), installed on request.
-  There is no other command-line agent channel and no vendor-private protocol.
-- **Provenance.** Retained Goose-derived operations and provider adaptations keep
-  their source revisions and Apache-2.0 notices. Retained Rig- and omp-derived
-  source keeps its MIT notices beside the code in `agent/model`. Imported
-  transport libraries retain their own notices.
-- **Capture.** Admission freezes configuration, scope, model, reasoning effort,
-  credential revision and package revisions. Updates affect only new admission.
-- **Retry.** Sailry owns request-scoped recovery. A model request, whether an
-  ordinary one or a compaction summary, is sent again up to nine times after a
-  transient failure, with at most ten minutes of cumulative retry waits. Network,
-  timeout and general server failures back off from one second to thirty seconds;
-  rate limits and explicit overload back off from five seconds to one minute.
-  Both double their intervals with twenty-percent jitter and share the request's
-  retry and wait budgets. A provider's `Retry-After` or adapter wait hint is a
-  minimum, even above the local cap; a wait that exceeds the remaining budget
-  ends recovery instead of being shortened. The terminal result distinguishes
-  exhausted attempts from an exhausted wait budget and retains the provider cause.
-  Ordinary requests stop automatic recovery once a stream event has escaped;
-  summary requests are buffered. Cancellation interrupts every wait. Permanent
-  request, authentication and malformed-stream errors are terminal. Completed
-  tools are never replayed.
-- **Prompt stability.** Policy, personal instructions, guides and selected
-  capabilities form a stable system prompt. Per-turn state goes in an agent-only
-  context message that is appended only when session state changes, so each
-  request extends the previous one and provider prompt caches stay valid.
-- **Compaction.** Automatic compaction defaults to 80% of the captured context
-  window, configurable per Node and frozen per turn. Summary requests have no tools
-  and use the captured model. Original records and raw tool output are preserved;
-  the request loader uses the latest summary. Context-length errors can trigger at
-  most two reactive compactions.
-- **Tools.** Each turn builds model declarations from its captured tool instances.
-  The everyday file, command, Git, code and web tools are offered on the first
-  request; the others are listed by name and discovered through `tool_search`
-  without granting permissions. The model reads declared tool names; internal
-  aliases stay behind the model boundary. Approvals settle before calls run.
-  Adjacent read-only concurrent calls run together, up to eight at a time.
-  Results keep request order.
-- **Approvals.** Node owns each approval's and question's five-minute deadline.
-- **Work modes.** Standard (`code` on the wire) is the ordinary mode. Plan is
-  read-only with a reviewed transition to Standard. Flagship has Standard's
-  permissions plus autonomous coordination. Package-declared modes map to a
-  core mode without increasing permissions.
-- **Delegation.** `spawn_agent`, `guide_agent` and `wait_agent` delegate through
-  the same loop and history path with an explicit parent/child association.
-  Children inherit the admitted worktree, mode and permission; read-only roles
-  use Plan. Child concurrency defaults to eight per root session and is set
-  through `ReadTeamSettings`/`SaveTeamSettings`.
-- **Guidance.** Controllers have one send action. Input sent while a task runs is
-  admitted durably as guidance and joins at the next model boundary. Stop is the
-  only interruption.
-- **Streaming.** Partial text and reasoning use a bounded in-memory feed. Canonical
-  messages commit before durable changes publish. Stopped or failed runs seal
-  visible text as interrupted canonical output.
-- **Background work.** Background children and commands record durable completion
-  evidence. Evidence is reserved to one turn and consumed only with its exact
-  canonical input. An idle session continues automatically only for completions
-  that opt in, through the ordinary queue.
+`internal/node/agent/engine` owns asynchronous turn execution. Its loop reloads
+canonical state, settles approvals and tool results, consumes guidance and child
+outcomes, compacts when needed and requests the next model step. Effects commit
+through Store before publication. The engine keeps ownership until turn settlement
+is durable and drains admitted operations before finalizing the turn.
+
+The model boundary supports provider SDK adapters, package-declared translations
+and Agent Client Protocol programs. Fantasy supplies the per-step
+`LanguageModel` stream interface; Sailry runs the loop, tools, approvals,
+delegation, retries and persistence. Provider SDK retry layers are disabled.
+ACP programs act as models: their file, terminal and MCP capabilities and their
+own permission requests are refused. Packages declare executables and protocol
+differences; the process service owns their lifecycle.
+
+Admission freezes the worktree, permission, configuration, model or team,
+reasoning effort, credentials and package revisions. Updates affect subsequent
+admission. Policy, instructions, guides and selected capabilities form the stable
+prompt; changing per-turn state is carried as agent context. Automatic compaction
+uses the captured model and defaults to 80% of its context window. Summaries do not
+delete original records or raw tool output. Context-length failures allow up to two
+reactive compactions.
+
+Model request recovery permits up to nine retries and ten minutes of cumulative
+waiting. Network failures use exponential waits from one to thirty seconds;
+rate limits and overload use five seconds to one minute, with jitter. Provider
+wait hints are minimums, never shortened to fit the budget. Ordinary streaming
+requests stop automatic retry after emitting an event; summary requests buffer
+their output. Cancellation interrupts waits. Permanent failures terminate the
+request, and completed tools are not replayed.
+
+Tools come from the captured enabled declarations. Everyday file, command, Git,
+code and web tools are initially exposed; `tool_search` discovers other declared
+tools without granting permission. Approvals settle before execution. Adjacent
+read-only concurrent calls run in groups of at most eight and retain result order.
+Node owns approval and question deadlines.
+
+Standard mode (`code` on the wire) runs ordinary work. Plan is read-only with a
+reviewed transition to Standard. Flagship adds autonomous coordination under the
+same permission model. Package modes map to a core mode without escalating access.
+`spawn_agent`, `guide_agent` and `wait_agent` use the same execution and history
+path. Children inherit captured scope and permission; read-only roles use Plan.
+Team settings control child concurrency, with a default of eight per root session.
+
+Input received during a running task is durable guidance, consumed at a model
+boundary. Stop cancels work explicitly. Partial text and reasoning use a bounded
+in-memory feed; committed output is canonical. Interrupted streams seal visible
+text into history. Background children and commands publish durable completion
+evidence, reserved to one turn and consumed with its exact canonical input.
+Opted-in completions can continue an idle session through its normal queue.
 
 ## Tools and resource services
 
-- **Commands.** On macOS and Linux, Agent commands run in a workspace sandbox by
-  default: workspace writes, read-only toolchains, private temporary files and no
-  network. Full permission grants the complete environment. Workspace commands
-  cannot write captured Git metadata. User-created terminals start with the full
-  login-shell environment.
-- **Files.** Discovery and search run inside Node with confined paths, ignore rules
-  and bounded pages. Multi-file change sets are validated before one approval and
-  applied in order with per-file revision checks, stopping at the first failure.
-  `apply_patch` accepts the Codex patch format.
-- **Managed worktrees.** Agent and headless file operations stay inside their own
-  checkout and cannot reach `.sailry/worktrees`. Authenticated manual controller
-  workflows can access those descendants through the registered-root services,
-  still protecting Git metadata, the managed checkout root and Node storage.
-- **Terminals.** The Node owns each PTY and its screen mirror; controllers
-  attach to the mirror locally or over Link.
-- **Web.** Public web reads and search run on the execution Node. Direct reads pin
-  public DNS on every redirect and reject private addresses. Configured HTTP(S)
-  proxies are trusted to route public hostnames; proxy failures do not fall back to
-  direct access. Search channels are tried in saved order.
-- **Browser.** The managed external browser is a Node-owned Chromium process tree
-  per conversation session with its own user data directory. It never attaches
-  to a browser the user runs.
-- **Code index.** A lazy Node service built on pure-Go
-  `github.com/odvcencio/gotreesitter` at `v0.57.0`. Coverage is exactly that
-  version's grammar registry; a language outside it produces no outline or
-  symbols. Nothing downloads at runtime. Graph queries are bounded name-based
-  heuristics without type information. The code package owns `code_search`,
-  `code_outline`, `code_context`, `code_impact` and `code_map`. Neither the
-  editor nor the Agent starts language servers.
-- **Local models.** One Node-owned registry manages OCR, embedding and decision
-  models: definitions, explicit installation, and verification of immutable
-  revision, size and SHA-256. One CPU runtime runs one inference at a time, gives
-  interactive work priority and releases idle engines. Decision inference uses the
-  pinned llama.cpp C API and reports `Unavailable` on unsupported targets, with no
-  fallback. No decision model is selected automatically; embedding initially
-  selects `granite-multi`. Model downloads require explicit installation.
-- **Knowledge.** Retrieval is a Node service used by plugin-owned features. No
-  standalone knowledge plugin is bundled. Citations recheck source identity on the
-  execution Node.
-- **Python.** Desktop and Host bundle Python 3.12.13. Plugin environments are
-  prepared lazily from hash-locked requirements using prebuilt wheels. Python is
-  optional for commands and skills without requirements. No system interpreter
-  is selected.
-- **Session documents.** Bounded HTML is stored as immutable revisions. Preview
-  HTML renders in an opaque-origin sandbox with no Node, tool, credential or
-  filesystem bridge.
-- **Hooks.** Per-worktree hook scripts are captured at admission, and a launched
-  hook group is never replayed after a crash or cancellation.
-- **Dispatch.** Schedules are durable Node records driven by Sailry's own
-  dispatch calendar on standard timers. Automatic backups and package schedules
-  use it.
+| Service | Implemented boundary |
+| --- | --- |
+| Commands | Workspace sandbox on macOS and Linux by default; private temporary files, read-only toolchains and no network; full permission grants the full environment |
+| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes; change sets stop at the first failure |
+| Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
+| Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
+| Browser | Node-owned Chromium process tree and private browser profile per conversation |
+| Code index | Lazy gotreesitter index, using the pinned grammar registry; bounded name-based graph heuristics without language servers |
+| Local models | Verified explicit installation, one CPU inference at a time, interactive priority and idle engine release |
+| Knowledge | Shared retrieval service used by package-owned features; citations recheck source identity |
+| Python | Bundled runtime; lazy package environments from hash-locked requirements and prebuilt wheels |
+| Session documents | Immutable bounded HTML revisions, rendered in an opaque-origin sandbox |
+| Hooks | Captured worktree scripts; launched groups are not replayed after cancellation or a crash |
+| Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
+
+Agent file operations exclude managed-checkout descendants and protected Git
+metadata. Authenticated manual workflows can access registered managed worktrees
+through the scoped resource services. User-created terminals use their login-shell
+environment. Configured HTTP proxies are trusted to route public hostnames;
+failure does not silently bypass the proxy. Local model downloads require an
+installation action, and an unavailable engine reports that state.
 
 ## Extensions and plugins
 
-- **Repositories.** Official plugins live only in `sailry-plugins`, pinned by the
-  `plugins/` submodule. Official themes live in `sailry-themes`, pinned by
-  `themes/`. Builds embed the pinned snapshots for offline use. Desktop owns
-  the reusable theme loader, importer and renderer.
-- **Contract.** Packages use the Agent Plugins manifest and Sailry's v1 extension
-  contract, published under `schemas/` and described in the
-  [SDK contract](sdk/plugins.md). Node owns validation, immutable resources,
-  grants, private KV, callbacks, tools and dispatch. Admitted work keeps its
-  captured package and settings revision.
-- **Updates.** Startup adds missing default packages without resurrecting removed
-  ones, and refreshes bundled packages only on strictly newer SemVer (versioning
-  rules are in [AGENTS.md](AGENTS.md)). Online marketplaces read the website
-  catalog and acquire resources from GitHub at a captured immutable commit. Update
-  failures keep installed packages.
-- **Ownership.** A plugin owns its pages, panels, dialogs, view state, workflows,
-  tool orchestration, model prompts and product validation, including bundled
-  plugins. Core provides reusable scoped services through Protocol, Client and the
-  plugin SDK: process execution, package installation, persistence, search
-  drivers, credentials, permissions and durable admission.
-- **No package dispatch.** Core never selects UI or behavior by package name or a
-  package-specific renderer ID. Shared lifecycle bindings are validated
-  declarations, such as `enabled_service`, which binds one package's switch to a
-  Node service without granting capabilities. Schema-only plugins use the shared
-  configuration form.
-- **Native bridges.** Limited to reusable Kit or platform gaps, such as terminal
-  rendering, editor integration and protected credential inputs.
-- **Runtimes.** `github.com/MoeForge/moejs v0.1.0` is the one JavaScript engine,
-  for bounded Node callbacks, model translation and desktop plugin entries. A
-  callback has an allocation budget, a deadline and cancellation, and a
-  recursion fault never crashes the host. The desktop compatibility layer in
-  `internal/desktop/plugins` maps the v1 element and host SDK contracts onto
-  MyGo and Kit. The SDK grants no raw OS access. Desktop UI code is trusted, not
-  sandboxed. Files, Git and local terminals use native core panels; a package's
-  desktop surface for them is not mounted.
-- **Model plugins.** An installed, enabled model plugin is trusted with its
-  configured providers' messages and login credentials, without separate permission
-  checkboxes. Ordinary updates keep that trust. A changed OAuth issuer, client,
-  scopes or flow needs new authorization. Account sign-ins for Claude, ChatGPT
-  and Copilot are the `claude-auth`, `openai-auth` and `copilot-auth` packages:
-  package steps that the Node runs through its private HTTP, PKCE, OIDC and
-  credential services. `workbuddy` is installed by default alongside them.
-- **Declared programs.** A package may declare executables, under the
-  `process.run` action the user sees. The Node starts them without a shell,
-  with a scrubbed environment, on demand, bounded and stopped when idle.
-  Packages get no script-level process API.
-- **Service connections.** Package-declared connections are owned by the execution
-  Node. Generic OAuth, token exchange, MCP OAuth and local CLI sources share one
-  owner with no vendor dispatch. Only declared origins, headers, MCP servers and
-  environment targets receive credentials.
-- **MCP.** A Node-owned pool serves sessions and delegated work. Connections are
-  keyed by package digest, settings revision, server, authorization and launch
-  parameters. Server options (`tools`, `exclusive`, `keep_images`, `reuse`) are
-  part of the v1 configuration. Failed or uncertain cleanup returns
-  `OutcomeUnknown` and input is never replayed.
-- **Skills.** Sailry resolves `SKILL.md` and confined resources from exact captured
-  package references. The turn retains package digests and complete resources.
-  Loading a skill grants no additional permission, and there is no separate
-  Skills execution framework.
+Packages use the Agent Plugins manifest and Sailry extension declarations in
+`schemas/`. Node owns validation, immutable resources, permissions, private KV,
+callbacks, tools, dispatch and credentials. Startup installs missing defaults
+without resurrecting removed packages. Bundled updates require strictly newer
+SemVer precedence; same-version changes and build metadata do not offer an update.
+Online packages are acquired from captured immutable commits. Failed updates keep
+the installed package and its configuration.
+
+Plugins own their feature UI, state, workflows, prompts and orchestration. Core
+exposes shared scoped services through Protocol, Client and the SDK. Desktop
+navigation and settings pages resolve from declarations. Workspace content,
+navigation and details project into the shell's common columns; shell layout owns
+resizing, dividers and visibility. SSH and database workflows use package
+surfaces and reusable native components. Files and Git use the core panels; their
+package navigation and panel surfaces are not mounted. Local terminal tabs also
+use the shared native terminal, which packages can embed. A package name does not
+grant a privileged renderer.
+
+`internal/desktop/plugins` maps JavaScript elements and SDK calls to MyGo and Kit.
+The public module names include `gpui-kit`; the implementation is the Go bridge.
+Mounted pages retain their VM and drafts across ordinary navigation. Hidden views
+pause visibility-bound work; scope changes, package invalidation or closure release
+their resources without stopping admitted Node tasks. Native components cover
+shared editors, terminals, conversations, file previews and protected inputs.
+
+Both Node scripts and desktop entries use moejs. Node callbacks have a 64 MiB
+allocation budget, a 60-second deadline, cancellation and the engine's recursion
+bound. Desktop scripts run on the UI owner between frames and are trusted UI code;
+the SDK exposes scoped services rather than raw OS access. Plugin memory diagnostics
+estimate reachable JavaScript heaps for mounted views, tools, callbacks and model
+translations. They do not measure each plugin's complete Go or native allocation.
+
+Plugin assistants mount the shared conversation UI with an immutable package,
+assistant and resource binding. Mounting alone creates no session; the first send
+uses normal admission. They share model selection, approvals, questions and
+history, while the package owns its assistant declaration and selected tools.
+
+Model plugins handle their configured providers' messages and credentials under
+the installed trust decision. Changed OAuth identity, scopes or flow require new
+authorization. Declared programs start without a shell, with a scrubbed environment,
+bounded execution and idle cleanup. Service connections inject credentials only
+into declared origins, headers, MCP servers or environment targets.
+
+The Node-owned MCP pool keys connections by package digest, settings revision,
+server, authorization and launch parameters. Failed or uncertain cleanup reports
+`OutcomeUnknown`. Skills resolve `SKILL.md` and confined resources from captured
+packages and grant no additional permission. Detailed declarations and examples
+belong in [sdk/plugins.md](sdk/plugins.md).
 
 ## Presentation boundaries
 
-- MyGo and `internal/desktop/kit` own standard controls, semantic themes, focus,
-  keyboard behavior and overlays, with one application theme and semantic
-  tokens. Desktop owns product composition and small native adapters. Each
-  feature package exposes a view model and an `Actions` contract; preview and
-  live fill the same contract.
-- Confirmation-only choices use MyGo's native system message dialog, owned by
-  their Desktop window. Kit retains the frame-based action contract and
-  rejects responses to obsolete prompts; forms and content dialogs keep their
-  Kit surfaces. Headless tests use simulated confirmation responses and do not
-  establish native operating-system behavior.
-- CrychicUI is the second UI library, after MyGo's controls and before Kit or
-  custom drawing ([AGENTS.md](AGENTS.md) lists the verified components). Its
-  sound is off, data Sailry does not author passes through the adapter in
-  `internal/desktop/kit/crychic`, and floating surfaces stay Kit's frosted
-  ones: CrychicUI supplies their content, never the surface.
-- Terminal rendering uses MyGo's terminal package on libghostty-vt. The
-  controls around the terminal remain Kit controls.
-- Mermaid diagrams are drawn by CrychicUI's `diagram.Mermaid`, xychart and pie
-  by the conversation's own painter from limu's parsed model, and math by
-  Untie through its MyGo adapter. Failed rendering keeps source text. None of
-  them uses a WebView.
-- Session HTML uses an opaque-origin sandboxed MyGo WebView without a bridge;
-  browser content remains untrusted.
-- The right panel draws text, code, Markdown, notebooks and images natively.
-  Formats MyGo cannot draw, such as PDF and Office files, have no preview: they
-  open in the system application.
-- Flutter consumes shared Client state through the Dart FFI adapter rather than
-  its own conversation state machine. Client owns projections, history paging
-  and transfer verification; Dart owns Flutter view state.
-- Voice reading, speech recognition and global selection shortcuts stay local
-  to the controller and never start an Agent turn.
-- `--preview` shows fixture data without opening a profile or starting a Node.
+Feature packages expose view models and `Actions`; live and preview implement the
+same contracts. MyGo and Kit supply shared controls, semantic themes, focus and
+keyboard behavior. CrychicUI components use the adapters where external data or
+presentation needs them. Floating surfaces remain Kit's frost; right-click menus
+and confirmation-only dialogs use the operating system. Forms remain Kit surfaces.
 
-## Computer use
+Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
+CrychicUI, chart variants use the conversation painter over limu, and math uses
+Untie. These render natively and keep source text on failure. File preview draws
+text, code, Markdown, notebooks and images; unsupported formats open in the system
+application. Session HTML uses a sandboxed MyGo WebView with no privileged bridge.
 
-The `computer` package declares a stdio MCP server backed by Sailry's bundled
-`agent-desktop` helper. The helper is staged from pinned, checksum-verified release
-archives and is never searched on `PATH` or downloaded at runtime. It uses
-semantic accessibility calls rather than physical input. Every call goes through
-ordinary approval and an exclusive lock.
-On macOS the helper is a separately signed `Sailry Computer Use.app`, and the
-Accessibility and Screen Recording grants belong to it, not to Desktop or Host.
-Every platform needs a logged-in graphical session; Desktop and Host keep
-working when the helper is missing. The Node owns one cursor-overlay session per
-helper home, and the overlay never moves the physical pointer.
+Voice capture, speech recognition, voice reading and global selection shortcuts
+are controller-local. `--preview` opens no profile and starts no Node. Explicit
+acceptance and replay run in isolated processes; their limits and commands are in
+[CONTRIBUTING.md](CONTRIBUTING.md#manual-acceptance).
 
-## Pairing and reconnect
+## Pairing and operations
 
-- Link transport is iroh, pinned in `native/iroh` and loaded through purego.
-  Peers authenticate by endpoint identity.
-- The pairing service exchanges a six-digit code, valid for one minute, for an
-  opaque invitation ticket. Link authenticates the invited endpoint and persists
-  trust. The service is a short-lived trust boundary, not a business relay or
-  account system.
-- Paired peers reconnect without a new code. Established trust survives restart.
-- Desktop windows share one Network. It discovers remembered peers on peer
-  changes and on a ten-second cadence, and starts a shared Client only after
-  identifying a compatible execution peer; paired controllers remain devices,
-  not Nodes. iroh owns transport path recovery.
-- A separate iroh data relay carries encrypted traffic when a direct connection is
-  unavailable. Pairing-service and data-relay URLs are separate settings.
-- Relay settings belong to the execution Node and are changed by a
-  revision-checked durable command. Pairing on a selected network does not change
-  the controller's own relay settings.
-- Cloudflare and EdgeOne adapters share the ticket-exchange logic in
-  `services/pairing-relay`.
+Link uses iroh endpoint identity for authenticated transport. The pairing service
+exchanges a six-digit, one-minute code for an opaque invitation ticket; Link
+authenticates the endpoint and persists trust. Reconnect reuses that trust. An
+iroh data relay carries encrypted traffic when direct transport is unavailable;
+the pairing service and data relay are distinct services.
 
-## Deployment and operations
+Desktop windows share one Network and its remote Clients. Peer discovery runs on
+changes and periodically. Only compatible execution peers become Node Clients;
+paired controllers remain devices. Node relay changes use revision-checked durable
+commands. Cloudflare and EdgeOne pairing adapters share the ticket-exchange logic.
 
-- Desktop bundles presentation and a local Node. Host deploys the same Node as a
-  headless process with a private profile and explicit network and pairing
-  options. Pairing is opt-in for Host.
-- Host archives are released independently of Desktop. Add Host runs over
-  Node-owned SSH, installs the release that matches the controller's product
-  version from checksum-verified assets, starts systemd or launchd and pairs
-  through a private bootstrap ticket. Installation never overwrites an existing
-  profile. On Windows, a Linux Host is deployed into a WSL2 distribution.
-- The `sailry-host` management command talks to the running Host over a
-  profile-private, owner-only Unix socket with a v1 control envelope. It never
-  opens another Node or persistence owner. `submit` and `wait` use ordinary
-  Client commands and subscriptions and never grant approvals. Usage is
-  described in [Host automation](CONTRIBUTING.md#host-automation).
-- Host metrics use one Node-owned sampler, read through the same authenticated
-  command locally and remotely.
-- `internal/desktop/updater` checks, downloads, verifies and installs signed
-  `update-v1` releases: it verifies the catalog and archive signatures against
-  the publisher keys compiled into it. Stable takes final versions only; the
-  experience channel also takes prereleases. A controller update never replaces
-  or shuts down a remote Host. Release packaging is described in
-  [CONTRIBUTING.md](CONTRIBUTING.md#release-packages).
-- `internal/shipped` locates packaged files and verifies native libraries
-  against the package seal written after signing. A release build loads the
-  iroh and capture libraries only from its package and only when the seal
-  records them.
-- Shutdown rejects new work, closes subscriptions, joins admitted operations,
-  closes storage and then releases the profile lock. A disconnected client is
-  not a shutdown signal. Restore reads durable facts and never silently reruns
-  interrupted side effects.
-- Notifications (plugin notices, maintenance failures, session and terminal
-  outcomes) live in one Node-owned store that Client reduces the same way locally
-  and remotely.
-- Telemetry sends nothing and runs nothing in the background while its switch
-  is off.
+Host starts with an explicit profile, network configuration and opt-in pairing.
+Add Host installs checksum-verified assets over Node-owned SSH, starts systemd or
+launchd and pairs through a private bootstrap ticket. Windows controllers deploy a
+Linux Host into WSL2. Host's `submit`, `wait` and `share` management commands use
+the running owner's private Unix socket and never create another storage owner.
 
-## Security constraints
+Host metrics use one Node sampler for local and remote reads. macOS disk rates map
+APFS volumes to physical device counters; volumes sharing a physical device share
+its throughput. Desktop memory diagnostics sample Go runtime classes and plugin
+heap estimates while the diagnostics page is visible.
 
-- The primary boundaries are authenticated Node and resource access, path
-  confinement, Node-owned credentials, revision checks and honest reporting of
-  uncertain outcomes.
-- Destructive actions name their target and consequence.
-- Public web reads reject private addresses. Preview HTML and browser content are
-  untrusted.
-- An agent program's own tools and permission requests are refused.
-- Native OS permissions remain the platform's responsibility.
-- Protected profiles, credentials and local logs are not distributable source.
-- Imported sources and resources keep their licenses. The root Apache-2.0 license
-  does not replace those notices; `NOTICE` and `third_party_licenses/` index
-  them.
+The updater verifies signed `update-v1` catalogs and archives against compiled
+publisher keys. Stable selects final versions; the experience channel includes
+prereleases. The implemented updater installs macOS packages and does not replace
+remote Hosts. `internal/shipped` verifies packaged native libraries against their
+seal; release loading is confined to packaged resources.
 
-## Repository resources
+Computer use runs the bundled, checksum-verified `agent-desktop` helper through
+stdio MCP, ordinary approvals and an exclusive lock. It uses semantic accessibility
+calls. macOS permissions belong to the separately signed helper application.
+The helper requires a graphical login; its absence does not prevent Node startup.
 
-`bundled.go` embeds official themes and the plugin snapshot directly from the
-reviewed `themes/` and `plugins/` submodules. Runtime state never lives in those
-source snapshots, and there is no build-time copy of either.
+Shutdown rejects new work, closes subscriptions, joins admitted operations,
+closes storage and releases the profile lock. Recovery reads durable facts without
+silently rerunning uncertain effects. Notifications have one Node-owned store.
+Telemetry is inactive while its switch is off.
 
-Beside the Go packages above, the checkout holds the Flutter application
-(`apps/mobile`), the pinned native libraries with their lock files and staging
-tool (`native/`), the v1 plugin SDK declarations and published contract schemas
-(`sdk/`, `schemas/`), the source catalogs of the desktop i18n generator
-(`locales/`), the pairing service (`services/pairing-relay`), the public user
-guides (`docs/`) and the index of third-party notices
-(`third_party_licenses/`). All product copy stays in `internal/desktop/i18n`;
-code and public documentation use English.
+## Security and repository resources
+
+The implemented boundaries are authenticated access, captured resource scope,
+path confinement, private credentials, revision checks and explicit destructive
+actions. Public web reads reject private addresses; browser content and preview
+HTML are untrusted. Native permissions remain the operating system's responsibility.
+
+The checkout contains the Flutter controller (`apps/mobile`), native build inputs
+and locks (`native`), SDK and schemas (`sdk`, `schemas`), source locale catalogs
+(`locales`), user guides (`docs`) and the pairing service. Product copy is generated
+into `internal/desktop/i18n`. Imported code and resources retain their notices in
+source, `NOTICE` and `third_party_licenses`; the application license does not replace
+them. Profiles, credentials, runtime logs and build artifacts are not source.
