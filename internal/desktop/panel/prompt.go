@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -9,6 +11,7 @@ import (
 
 type prompt struct {
 	open, pending  bool
+	confirm        bool
 	locked         bool
 	title          string
 	target, action string
@@ -39,7 +42,7 @@ func (pr *Project) Confirm(title, target string, submit func(func(bool)), conseq
 	if len(consequence) > 0 {
 		message = consequence[0]
 	}
-	pr.prompt = prompt{open: true, identity: new(bool), title: title, target: target, action: title, baseAction: title, message: message, submit: func(_ []string, done func(bool)) { submit(done) }}
+	pr.prompt = prompt{open: true, confirm: true, identity: new(bool), title: title, target: target, action: title, baseAction: title, message: message, submit: func(_ []string, done func(bool)) { submit(done) }}
 }
 
 // Prompt opens a required operation form. A failed or uncertain save keeps the
@@ -71,8 +74,31 @@ func (pr *Project) promptDialog(c *ui.Context) {
 	if !form.open {
 		return
 	}
-	palette := theme.Of(c)
 	title := i18n.T(c, form.title, "branch", form.target)
+	if form.confirm {
+		if form.pending {
+			return
+		}
+		var message []string
+		if form.message != "" {
+			message = append(message, i18n.T(c, form.message))
+		}
+		if form.target != "" {
+			message = append(message, form.target)
+		}
+		open := form.open
+		switch kit.Confirm(c.Key("workspace-confirm").Key(form.identity), &open, kit.Confirmation{
+			Title: title, Message: strings.Join(message, "\n\n"),
+			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, form.action)},
+		}) {
+		case 0:
+			form.open = false
+		case 1:
+			pr.submitPrompt()
+		}
+		return
+	}
+	palette := theme.Of(c)
 	kit.Dialog(c.Key("workspace-form"), &form.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(palette.PopoverForeground)
 		ui.Column(c.Key("body")).Gap(16).Children(func() {

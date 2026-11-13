@@ -380,19 +380,12 @@ func (r *Runtime) terminalPasteDialog(c *ui.Context, id string, state *liveTermi
 	if paste == nil || paste.terminal != id {
 		return
 	}
-	palette := theme.Of(c)
 	open := true
-	kit.Dialog(c.Key("terminal-paste"), &open, func() {
-		ui.Text(c, i18n.T(c, "terminal_paste_confirm")).FontSize(16).FontWeight(600).TextColor(palette.PopoverForeground)
-		ui.Text(c, i18n.T(c, "terminal_paste_warning")).FontSize(14).MaxWidth(400).TextColor(palette.MutedForeground)
-		ui.Row(c.Key("actions")).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { inventory.paste = nil })
-			kit.Primary(c.Key("paste"), i18n.T(c, "terminal_paste"), false).Children(func() { ui.Text(c, i18n.T(c, "terminal_paste")).FontSize(14) }).OnClick(func() {
-				inventory.paste = nil
-				state.terminal.PasteData(paste.data)
-			})
-		})
-	})
+	if kit.AlertDialog(c.Key(paste), &open, i18n.T(c, "terminal_paste_confirm"), i18n.T(c, "terminal_paste_warning"),
+		i18n.T(c, "settings_cancel"), i18n.T(c, "terminal_paste")) == 1 {
+		inventory.paste = nil
+		state.terminal.PasteData(paste.data)
+	}
 	if !open {
 		inventory.paste = nil
 	}

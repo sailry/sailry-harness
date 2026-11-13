@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -47,24 +49,27 @@ func (pr *Project) editorConflictDialog(c *ui.Context) {
 	if request == nil {
 		return
 	}
-	choose := func(run func(*ui.Context)) func() {
-		return func() {
-			request.open = false
-			if run != nil {
-				run(c)
-			}
-		}
+	buttons := []string{i18n.T(c, "files_keep_editing")}
+	actions := []func(*ui.Context){nil}
+	var destructive []int
+	if request.reload != nil {
+		destructive = append(destructive, len(buttons))
+		buttons = append(buttons, i18n.T(c, "files_reload"))
+		actions = append(actions, request.reload)
 	}
-	kit.Dialog(c.Key("file-conflict"), &request.open, func() {
-		ui.Text(c, i18n.T(c, "files_changed_on_disk")).FontSize(16).FontWeight(600)
-		ui.Text(c, request.path).FontSize(14)
-		ui.Text(c, i18n.T(c, "files_conflict_description")).FontSize(14)
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("keep"), i18n.T(c, "files_keep_editing")).OnClick(choose(nil))
-			kit.Secondary(c.Key("reload"), i18n.T(c, "files_reload")).OnClick(choose(request.reload))
-			kit.Primary(c.Key("overwrite"), i18n.T(c, "files_overwrite"), request.overwrite == nil).OnClick(choose(request.overwrite))
-		})
-	}).Width(440)
+	if request.overwrite != nil {
+		destructive = append(destructive, len(buttons))
+		buttons = append(buttons, i18n.T(c, "files_overwrite"))
+		actions = append(actions, request.overwrite)
+	}
+	answer := kit.Confirm(c.Key("file-conflict").Key(request), &request.open, kit.Confirmation{
+		Title:   i18n.T(c, "files_changed_on_disk"),
+		Message: strings.Join([]string{request.path, i18n.T(c, "files_conflict_description")}, "\n\n"),
+		Buttons: buttons, Destructive: destructive,
+	})
+	if answer >= 0 && actions[answer] != nil {
+		actions[answer](c)
+	}
 	if !request.open && pr.conflict == request {
 		pr.conflict = nil
 	}

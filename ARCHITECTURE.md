@@ -503,6 +503,11 @@ dispatch service and require an online Node.
   tokens. Desktop owns product composition and small native adapters. Each
   feature package exposes a view model and an `Actions` contract; preview and
   live fill the same contract.
+- Confirmation-only choices use MyGo's native system message dialog, owned by
+  their Desktop window. Kit retains the frame-based action contract and
+  rejects responses to obsolete prompts; forms and content dialogs keep their
+  Kit surfaces. Headless tests use simulated confirmation responses and do not
+  establish native operating-system behavior.
 - CrychicUI is the second UI library, after MyGo's controls and before Kit or
   custom drawing ([AGENTS.md](AGENTS.md) lists the verified components). Its
   sound is off, data Sailry does not author passes through the adapter in

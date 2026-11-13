@@ -226,17 +226,13 @@ func (s *State) confirmRewind(c *ui.Context, session string, actions Actions) {
 		return
 	}
 	turn := s.rewind
-	kit.Dialog(c, &open, func() {
-		ui.Text(c, i18n.T(c, "chat_rewind")).FontSize(16).FontWeight(600)
-		ui.Text(c, i18n.T(c, "chat_rewind_confirm")).FontSize(14).MaxWidth(400)
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("cancel"), i18n.T(c, "interaction_cancel")).OnClick(func() { s.rewind = "" })
-			kit.Danger(c.Key("rewind"), i18n.T(c, "chat_rewind_action")).OnClick(func() {
-				s.rewind = ""
-				actions.Rewind(turn)
-			})
-		})
-	})
+	if kit.Confirm(c.Key(turn), &open, kit.Confirmation{
+		Title: i18n.T(c, "chat_rewind"), Message: i18n.T(c, "chat_rewind_confirm"),
+		Buttons: []string{i18n.T(c, "interaction_cancel"), i18n.T(c, "chat_rewind_action")}, Destructive: []int{1},
+	}) == 1 {
+		s.rewind = ""
+		actions.Rewind(turn)
+	}
 	if !open {
 		s.rewind = ""
 	}

@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -204,32 +203,18 @@ func consentDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 	if !k.open {
 		return
 	}
-	p := theme.Of(c)
 	title := i18n.T(c, "hooks_enable")
-	kit.Dialog(c.Key("consent"), &k.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Scroll(c.Key("details")).Grow(1).Shrink(1).Gap(12).Children(func() {
-			ui.Text(c, i18n.T(c, "hooks_consent")).FontSize(14)
-			ui.Text(c, i18n.T(c, hookScope(m))).FontSize(14)
-			location := i18n.T(c, "composer_host_local") + " · ~/Projects/sailry-go · main"
-			if m.Live && m.HooksContext != nil {
-				location, _ = m.HooksContext()
-			}
-			ui.Text(c, location).FontSize(14).Selectable()
-			for _, x := range k.settings.Scripts {
-				if !x.Enabled {
-					continue
-				}
-				ui.Column(c.Key(x.ID)).Gap(4).Children(func() {
-					ui.Text(c, i18n.T(c, phases[x.Phase])).FontSize(14).TextColor(p.MutedForeground)
-					ui.Text(c, x.Command).FontSize(14).Font("monospace").Selectable()
-					ui.Textf(c, "%s: %d", i18n.T(c, "hooks_timeout"), x.TimeoutMS).FontSize(14)
-				})
-			}
-		})
-		footer(c, title, func() { k.open = false }, func() {
-			k.open = false
-			save(k.settings)
-		})
-	}).Width(min(600, width(c)-48)).Label(title)
+	location := i18n.T(c, "composer_host_local") + " · ~/Projects/sailry-go · main"
+	if m.Live && m.HooksContext != nil {
+		location, _ = m.HooksContext()
+	}
+	message := []string{i18n.T(c, "hooks_consent"), i18n.T(c, hookScope(m)), location}
+	for _, x := range k.settings.Scripts {
+		if x.Enabled {
+			message = append(message, i18n.T(c, phases[x.Phase])+"\n"+x.Command+"\n"+i18n.T(c, "hooks_timeout")+": "+strconv.Itoa(x.TimeoutMS))
+		}
+	}
+	if kit.AlertDialog(c.Key("consent"), &k.open, title, strings.Join(message, "\n\n"), i18n.T(c, "settings_cancel"), title) == 1 {
+		save(k.settings)
+	}
 }

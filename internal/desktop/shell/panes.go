@@ -331,17 +331,13 @@ func (a *App) confirmClose(c *ui.Context) {
 		return
 	}
 	open := true
-	kit.Dialog(c, &open, func() {
-		ui.Text(c, i18n.T(c, "workspace_close_terminal")).FontSize(16).FontWeight(600)
-		ui.Text(c, a.paneTitle(c, t)).FontSize(14).MaxWidth(400).TextColor(theme.Of(c).MutedForeground)
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { a.panes.closing = panes.Target{} })
-			kit.Danger(c.Key("close"), i18n.T(c, "close")).OnClick(func() {
-				a.panes.closing = panes.Target{}
-				a.closePane(c, t)
-			})
-		})
-	})
+	if kit.Confirm(c.Key(t), &open, kit.Confirmation{
+		Title: i18n.T(c, "workspace_close_terminal"), Message: a.paneTitle(c, t),
+		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Destructive: []int{1},
+	}) == 1 {
+		a.panes.closing = panes.Target{}
+		a.closePane(c, t)
+	}
 	if !open {
 		a.panes.closing = panes.Target{}
 	}

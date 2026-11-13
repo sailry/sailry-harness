@@ -104,6 +104,10 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Custom rendering requires a verified framework gap and an explanation in a
   comment at the use. Right-click menus are OS-native; left-click menus use
   Kit menus or popovers.
+- Desktop confirmations, including deletion, exit and unsaved changes, use
+  MyGo's native system message dialogs through Kit's confirmation boundary.
+  Forms and content dialogs remain Kit surfaces; headless tests supply their
+  own confirmation responses.
 - Approved layouts are the baseline. Removed controls must not return through
   backend work. Rust and the root `locales/` catalogs still carry most of
   them, so before adding any control found in Rust or another reference, check

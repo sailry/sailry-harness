@@ -263,18 +263,18 @@ func (state *projectOverview) initializeGit() {
 }
 
 func (state *projectOverview) initializeDialog(c *ui.Context) {
-	if !state.initialize {
+	if !state.initialize || state.pending {
 		return
 	}
-	palette := theme.Of(c)
 	label := i18n.T(c, "git_initialize")
-	kit.Dialog(c.Key("initialize-project"), &state.initialize, func() {
-		ui.Text(c, label).FontSize(16).FontWeight(600).TextColor(palette.PopoverForeground)
-		ui.Text(c, i18n.T(c, "git_initialize_nested_confirm")).FontSize(14).TextColor(palette.MutedForeground)
-		ui.Text(c, strings.Join(state.repositories, "\n")).FontSize(14).Selectable()
-		ui.Row(c.Key("actions")).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(state.pending).OnClick(func() { state.initialize = false })
-			kit.PrimaryBusy(c.Key("initialize"), label, false, state.pending).OnClick(state.initializeGit)
-		})
-	}).Width(560).Label(label)
+	open := state.initialize
+	switch kit.Confirm(c.Key("initialize-project").Key(state), &open, kit.Confirmation{
+		Title: label, Message: i18n.T(c, "git_initialize_nested_confirm") + "\n\n" + strings.Join(state.repositories, "\n"),
+		Buttons: []string{i18n.T(c, "settings_cancel"), label},
+	}) {
+	case 0:
+		state.initialize = false
+	case 1:
+		state.initializeGit()
+	}
 }

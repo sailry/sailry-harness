@@ -469,6 +469,13 @@ model or tool. Demo and acceptance switches are absent from the shipped settings
       conversation; no start failure dialog appears
 - [ ] Start a second Desktop on the same profile. The running window comes to
       the front and no second window stays
+- [ ] **[macOS]** With a local task or terminal running, press Command-Q.
+      The system confirmation is attached to its window; Cancel leaves it
+      open, and Quit closes it
+- [ ] Start deleting a disposable conversation. The system confirmation names
+      it and its consequences; Cancel preserves it, and Delete removes it
+- [ ] Close with an edited, unsaved file. The system confirmation offers Save,
+      Discard and Cancel; a failed save keeps the window and draft open
 - [ ] Run `just demo`. The sidebar shows sample projects and conversations,
       without a profile or a Node
 - [ ] Look over the sidebar, header, sample conversation and host page. Nothing
@@ -639,8 +646,8 @@ restart toast.
 - [ ] Connection banner: "Reconnecting" and "正在重连"
 - [ ] Sign-in dialogs: "Advanced settings", "Update models" ("更新模型") and
       the WorkBuddy warning are translated, and no label ends in a full stop
-- [ ] Menus, popovers, dialogs and tooltips opened above are frosted in both
-      modes; right-click menus are the system's own
+- [ ] Menus, popovers, forms and tooltips opened above are frosted in both
+      modes; right-click menus and confirmations are the system's own
 
 ### 7. Other systems
 

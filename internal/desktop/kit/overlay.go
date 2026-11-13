@@ -106,11 +106,8 @@ func TakeModal(c *ui.Context) bool {
 	return was
 }
 
-// AlertDialog is MyGo's AlertDialog, noted as a modal dialog of the window
-// (TakeModal).
+// AlertDialog presents a confirmation through the native window service. The
+// first button cancels; headless harnesses use MyGo's in-memory dialog.
 func AlertDialog(c *ui.Context, open *bool, title, message string, buttons ...string) int {
-	if *open {
-		NoteModal(c)
-	}
-	return ui.AlertDialog(c, open, title, message, buttons...)
+	return Confirm(c, open, Confirmation{Title: title, Message: message, Buttons: buttons, Default: 0, Cancel: 0})
 }
