@@ -28,6 +28,10 @@ type pluginNativeAssistantTools struct {
 	// failed is the details whose read failed: the conversation's own row
 	// reports and loads them again, the observer does not retry them.
 	failed map[string]bool
+	// signature names what the published value is built from — the mounted
+	// assistants, their sessions and revisions — so an idle history is not
+	// hashed every frame.
+	signature string
 }
 
 type pluginAssistantCall struct {
@@ -87,6 +91,8 @@ func (state *pluginNativeState) refreshAssistantTools() {
 	}
 	prefix := nodeplugins.ToolAlias(state.scope.Package.Name, "")
 	conversations := map[string]pluginAssistantHistory{}
+	var signature strings.Builder
+	waiting := false
 	for identity, mounted := range state.conversations {
 		session := mounted.session
 		if session == (protocol.SessionID{}) && mounted.view != nil {
@@ -95,13 +101,24 @@ func (state *pluginNativeState) refreshAssistantTools() {
 			}
 		}
 		history := pluginAssistantHistory{Calls: []pluginAssistantCall{}}
+		revision, connected := uint64(0), false
 		if session != (protocol.SessionID{}) {
 			if current, exists := state.runtime.controller.Conversation(session); exists {
-				history = state.assistantHistory(current, prefix)
+				var pending bool
+				history, pending = state.assistantHistory(current, prefix)
+				waiting = waiting || pending
+				revision, connected = current.Snapshot.Page.Revision, current.Connected
 			}
 		}
+		fmt.Fprintf(&signature, "%s/%s/%d/%t;", identity, session, revision, connected)
 		conversations[identity] = history
 	}
+	// A detail still loading leaves the published value short: it is
+	// rebuilt until every call it holds has its arguments.
+	if signature.String() == owner.signature && !waiting {
+		return
+	}
+	owner.signature = signature.String()
 	body, err := json.Marshal(conversations)
 	if err != nil {
 		return
@@ -122,11 +139,11 @@ func (state *pluginNativeState) refreshAssistantTools() {
 // arguments and result are in its tool detail, which the Client reads on
 // demand: a call whose detail is not loaded yet is left out until it is, as
 // a call without arguments is.
-func (state *pluginNativeState) assistantHistory(current client.ConversationState, prefix string) pluginAssistantHistory {
+func (state *pluginNativeState) assistantHistory(current client.ConversationState, prefix string) (pluginAssistantHistory, bool) {
 	page := current.Snapshot.Page
 	history := pluginAssistantHistory{Connected: current.Connected, Calls: []pluginAssistantCall{}}
 	if page.Session == (protocol.SessionID{}) {
-		return history
+		return history, false
 	}
 	session := page.Session
 	history.Session, history.Revision = &session, strconv.FormatUint(page.Revision, 10)
@@ -143,6 +160,7 @@ func (state *pluginNativeState) assistantHistory(current client.ConversationStat
 		text := strconv.FormatUint(*latest, 10)
 		history.Latest = &text
 	}
+	waiting := false
 	for _, call := range client.ToolCalls(page) {
 		name, owned := strings.CutPrefix(call.Name, prefix)
 		source, sourced := entries[call.Source.Entry]
@@ -152,6 +170,7 @@ func (state *pluginNativeState) assistantHistory(current client.ConversationStat
 		detail, loaded := state.runtime.controller.ConversationDetail(*call.Reference)
 		if !loaded {
 			state.loadAssistantDetail(*call.Reference)
+			waiting = waiting || !state.assistantTools.failed[assistantDetailKey(*call.Reference)]
 			continue
 		}
 		if len(detail.Arguments) == 0 || string(detail.Arguments) == "null" {
@@ -173,14 +192,20 @@ func (state *pluginNativeState) assistantHistory(current client.ConversationStat
 		}
 		history.Calls = append(history.Calls, projected)
 	}
-	return history
+	return history, waiting
+}
+
+// assistantDetailKey names a call's detail as the conversation's own rows do,
+// so both share one load and one pending entry.
+func assistantDetailKey(ref protocol.ToolDetailReference) string {
+	return fmt.Sprintf("detail/%s/%s/%d/%s", ref.Session, ref.Entry, ref.Index, ref.Revision)
 }
 
 // loadAssistantDetail reads a call's detail once, under the key the
 // conversation's own rows load it by, and redraws when it arrives.
 func (state *pluginNativeState) loadAssistantDetail(ref protocol.ToolDetailReference) {
 	r := state.runtime
-	key := fmt.Sprintf("detail/%s/%s/%d/%s", ref.Session, ref.Entry, ref.Index, ref.Revision)
+	key := assistantDetailKey(ref)
 	if r.busy[key] || state.assistantTools.failed[key] {
 		return
 	}

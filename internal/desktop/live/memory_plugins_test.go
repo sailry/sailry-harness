@@ -37,7 +37,8 @@ func TestPluginMemoryGroup(t *testing.T) {
 		}
 		base := []kit.TreemapGroup{{ID: "ram_heap", Items: []kit.TreemapItem{{ID: "ram_objects", Value: 1000}, {ID: "ram_free", Value: 50}}}}
 		merged := memoryWithPlugins(base, group)
-		if len(merged) != 2 || merged[1].ID != "plugins" || merged[0].Items[0].Value != 0 || merged[0].Items[1].Value != 50 || base[0].Items[0].Value != 1000 {
+		if len(merged) != 2 || merged[1].ID != "plugins" || merged[0].Items[0].Value != 0 || merged[0].Items[1].Value != 50 || base[0].Items[0].Value != 1000 ||
+			merged[0].Detail != host.Bytes(50) {
 			t.Fatalf("plugins were not taken out of live objects on one map: %+v", merged)
 		}
 		if same := memoryWithPlugins(base, kit.TreemapGroup{ID: "plugins"}); len(same) != 1 {

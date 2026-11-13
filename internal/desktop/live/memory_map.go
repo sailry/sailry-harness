@@ -121,12 +121,16 @@ func memoryWithPlugins(base []kit.TreemapGroup, plugins kit.TreemapGroup) []kit.
 	for _, group := range base {
 		if group.ID == "ram_heap" {
 			group.Items = slices.Clone(group.Items)
+			sum := 0.0
 			for i := range group.Items {
 				if group.Items[i].ID == "ram_objects" {
 					group.Items[i].Value = max(0, group.Items[i].Value-total)
 					group.Items[i].Detail = host.Bytes(group.Items[i].Value)
 				}
+				sum += group.Items[i].Value
 			}
+			// The legend's total follows the tiles it names.
+			group.Detail = host.Bytes(sum)
 		}
 		groups = append(groups, group)
 	}
