@@ -134,6 +134,7 @@ func rustProfile(t *testing.T) string {
 		"plugins/packages/3f0c9a51d2e84b7796a5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3/plugin.json": []byte(`{"name":"dev.sailry.platform","version":"0.1.0"}`),
 		"plugins/packages/3f0c9a51d2e84b7796a5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3/main.js":     []byte("export default {}\n"),
 		"plugins/data/dev.sailry.platform/state.json":                                                   []byte(`{"count":1}`),
+		"attachments/0197c0de-0000-7000-8000-000000000004":                                              []byte("attachment bytes\n"),
 		"models/embedding/bge-small/files/model.onnx":                                                   []byte("onnx"),
 		"models/decision/laya/model.gguf":                                                               []byte("gguf"),
 		"models/ocr/ppocr/model.onnx":                                                                   []byte("onnx"),
@@ -227,8 +228,10 @@ func snapshot(t *testing.T, profile string) map[string]string {
 }
 
 // preserved fails when a file of before is missing or changed and returns
-// the files that were added. The Rust databases directly in storage may have
-// moved to storage/rust-archive under the same names.
+// the files that were added. The Rust databases directly in storage and their
+// collected resources are kept together in storage/rust-archive. Resource
+// copies retain their bytes and permissions even when current storage's
+// collectors remove the unreferenced live files.
 func preserved(t *testing.T, profile string, before map[string]string) []string {
 	t.Helper()
 	after := snapshot(t, profile)
@@ -236,6 +239,9 @@ func preserved(t *testing.T, profile string, before map[string]string) []string 
 		// A Node that opened its storage archived the database; a refused
 		// start left it where it was.
 		if archived := "storage/" + store.RustArchive + strings.TrimPrefix(name, "storage"); path.Dir(name) == "storage" && after[name] == "" {
+			before[archived], name = state, archived
+		} else if (strings.HasPrefix(name, "plugins/packages/") || strings.HasPrefix(name, "attachments/")) && after["storage/"+store.RustArchive+"/node.turso"] != "" {
+			archived := path.Join("storage", store.RustArchive, name)
 			before[archived], name = state, archived
 		}
 		switch current, present := after[name]; {
@@ -292,7 +298,23 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 	t.Run("compatible profile", func(t *testing.T) {
 		profile := rustProfile(t)
 		before := snapshot(t, profile)
+		orphans := []string{
+			filepath.Join("plugins", "packages", strings.Repeat("a", 64), "main.js"),
+			filepath.Join("attachments", "0197c0de-0000-7000-8000-000000000005"),
+		}
 		for round := 1; round <= 2; round++ {
+			if round == 2 {
+				// Resources published without a committed reference are still
+				// collected on an ordinary restart beside the kept archive.
+				for _, orphan := range orphans {
+					if err := os.MkdirAll(filepath.Dir(filepath.Join(profile, orphan)), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(profile, orphan), []byte("unreferenced current resource"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			backend, err := startDesktop(t, profile)
 			if err != nil {
 				t.Fatalf("start %d: %v", round, err)
@@ -328,6 +350,16 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 			preserved(t, profile, before)
 			if _, err := os.Stat(filepath.Join(profile, "storage", store.RustArchive, "node.turso")); err != nil {
 				t.Errorf("the Rust database was not archived: %v", err)
+			}
+			if round == 2 {
+				for _, orphan := range orphans {
+					if _, err := os.Stat(filepath.Join(profile, orphan)); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("the kept archive prevented current resource collection of %s: %v", orphan, err)
+					}
+					if _, err := os.Stat(filepath.Join(profile, "storage", store.RustArchive, orphan)); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("an ordinary restart added current resource %s to the archive: %v", orphan, err)
+					}
+				}
 			}
 			// A second owner, such as the Rust application started beside
 			// this one, is refused by the shared advisory lock.

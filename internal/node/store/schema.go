@@ -54,16 +54,17 @@ var rustDatabases = [...]string{
 	"node.turso", "knowledge.turso", "node.db", "knowledge.db", "node.sqlite3", "knowledge.sqlite3",
 }
 
-// RustArchive is the storage subdirectory that receives the Rust databases.
+// RustArchive receives the Rust databases and their collected file resources.
 // A later set of them goes to a numbered sibling ("rust-archive-2", ...).
 const RustArchive = "rust-archive"
 
 // archiveRustDatabases moves the Rust Node's databases out of storage,
-// unopened and unchanged; nothing is imported, replaced or deleted. The set
-// found at one start stays together: every target is checked before the first
-// move, and when an archive already holds one of the names, as after another
-// run of a Rust build, the whole set goes to the next archive that holds none.
-func archiveRustDatabases(storage string) error {
+// unopened and unchanged; nothing is imported, replaced or deleted. Packages
+// and attachments are copied before any database moves: their only remaining
+// references may be in those databases, outside the current store's collectors.
+// Live resources stay in place because a current Go database can reference them
+// too. A later set goes to an archive that holds none of its target names.
+func archiveRustDatabases(ctx context.Context, storage string) error {
 	entries, err := os.ReadDir(storage)
 	if err != nil {
 		return err
@@ -80,10 +81,19 @@ func archiveRustDatabases(storage string) error {
 	if len(names) == 0 {
 		return nil
 	}
+	profile := filepath.Dir(storage)
+	var resources []string
+	for _, name := range []string{"plugins/packages", "attachments"} {
+		if _, err := os.Lstat(filepath.Join(profile, filepath.FromSlash(name))); err == nil {
+			resources = append(resources, name)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	archive := filepath.Join(storage, RustArchive)
 	for number := 2; ; number++ {
 		held := false
-		for _, name := range names {
+		for _, name := range append(names, resources...) {
 			if _, err := os.Lstat(filepath.Join(archive, name)); err == nil {
 				held = true
 				break
@@ -99,6 +109,29 @@ func archiveRustDatabases(storage string) error {
 	if err := core.PrivateDirectory(archive); err != nil {
 		return err
 	}
+	if len(resources) != 0 {
+		profile, err = filepath.Abs(profile)
+		if err == nil {
+			profile, err = filepath.EvalSymlinks(profile)
+		}
+		if err != nil {
+			return err
+		}
+		files, err := core.OpenFiles(profile, core.ManualFiles)
+		if err != nil {
+			return err
+		}
+		defer files.Close()
+		for _, name := range resources {
+			if err := core.PrivateDirectory(filepath.Dir(filepath.Join(archive, filepath.FromSlash(name)))); err != nil {
+				return err
+			}
+			target := filepath.ToSlash(filepath.Join("storage", filepath.Base(archive), filepath.FromSlash(name)))
+			if err := files.CopyEntry(ctx, name, target); err != nil {
+				return fmt.Errorf("archive Rust resource %q: %w", name, err)
+			}
+		}
+	}
 	for _, name := range names {
 		if err := os.Rename(filepath.Join(storage, name), filepath.Join(archive, name)); err != nil {
 			return fmt.Errorf("archive Rust database %q: %w", name, err)
@@ -113,7 +146,7 @@ func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, 
 	if err := core.PrivateDirectory(storage); err != nil {
 		return nil, err
 	}
-	if err := archiveRustDatabases(storage); err != nil {
+	if err := archiveRustDatabases(ctx, storage); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(storage, "node.sqlite")

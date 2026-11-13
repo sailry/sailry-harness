@@ -161,7 +161,10 @@ Schema additions are rehearsed on an isolated snapshot, backed up and applied
 transactionally with current-format validation. Configuration and recovery records
 are checked at startup; history and captured turns are checked when read.
 Recognized database files from another storage engine are moved unopened into
-`storage/rust-archive/`; they are not imported or deleted.
+`storage/rust-archive/`; they are not imported or deleted. Before moving them,
+startup copies the existing plugin packages and attachments into the same archive.
+The active directories remain available to any current database, whose normal
+collection can then remove unreferenced resources without losing the archived copy.
 
 Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` to
 `~/.sailry` at link time. Development checks use isolated profiles as described in

@@ -334,7 +334,9 @@ currently leaves `windows.certificate` and `windows.signCommand` unset in
 A release opens its profile in place using `storage/node.sqlite` and
 `storage/knowledge.sqlite`. Recognized databases from another storage engine move
 unopened into `storage/rust-archive/`; their sessions and settings are not imported.
-Node identity, controller preferences, themes and file trees remain in place.
+Plugin packages and attachments are copied into that archive before the database
+files move, so current storage can collect unreferenced resources safely. Node
+identity, controller preferences, themes and file trees remain in place.
 `cmd/sailry-desktop/upgrade_integration_test.go` checks this on a synthetic profile.
 
 The Desktop update feed is written by
