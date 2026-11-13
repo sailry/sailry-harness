@@ -36,8 +36,9 @@ import (
 // It runs as a step of TestPanelProjection. SAILRY_SNAPSHOTS names a folder
 // that takes the frames.
 func panelTabs(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
-	defer cancel()
+	// The Node belongs to the whole fixture; individual interactions keep
+	// their own waits, and the test runner bounds the complete walkthrough.
+	ctx := t.Context()
 	profile := filepath.Join(t.TempDir(), "profile")
 	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
 	if err != nil {
@@ -67,6 +68,7 @@ func panelTabs(t *testing.T) {
 	options := ui.TesterOptions{Dark: true, Preferences: ui.Preferences{ReduceTransparency: true}}
 	tester := ui.NewTesterWith(r.App.View, width, height, options)
 	tester.SetLocale("zh-CN")
+	liveTesterScale(tester, "SAILRY_SNAPSHOTS")
 	text := func(key string) string { return i18n.In("zh-CN", key) }
 	app := r.App
 	settle := func() {
@@ -511,6 +513,7 @@ func panelTabs(t *testing.T) {
 	again.OpenSession(session.ID.String())
 	relaunched := ui.NewTesterWith(again.App.View, width, height, options)
 	relaunched.SetLocale("zh-CN")
+	liveTesterScale(relaunched, "SAILRY_SNAPSHOTS")
 	for range 8 {
 		again.workers.Wait()
 		relaunched.Advance(200 * time.Millisecond)

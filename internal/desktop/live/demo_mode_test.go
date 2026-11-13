@@ -76,10 +76,9 @@ func TestDemoMode(t *testing.T) {
 	// The test names the statistics package's control panel, so the panel
 	// package's terminal kind is taken here.
 	const terminalTab = panel.Terminal
-	// The walk opens every demo conversation in two languages; on a loaded
-	// machine that takes minutes, and the Node must outlive it.
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
-	defer cancel()
+	// The Node must outlive both language tours. The test runner bounds the
+	// complete fixture; a separate Node deadline would disconnect it mid-tour.
+	ctx := t.Context()
 	profile := filepath.Join(t.TempDir(), "profile")
 	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
 	if err != nil {

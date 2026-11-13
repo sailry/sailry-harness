@@ -584,6 +584,11 @@ func (t *conversationTestTransport) Subscribe(_ context.Context, topic protocol.
 	s := &conversationTestSubscription{updates: make(chan protocol.Update, 2), closed: make(chan struct{})}
 	if topic.Kind == "node" {
 		s.updates <- protocol.Update{Kind: "snapshot", Data: t.snapshot}
+	} else if topic.Kind == "status" {
+		status := protocol.DefaultPluginUiStatusSnapshot()
+		status.Node = t.snapshot.Node
+		status.Scope, _ = detail[protocol.PluginUiStatusScope](topic.Data)
+		s.updates <- protocol.Update{Kind: "status", Data: status}
 	} else {
 		s.updates <- protocol.Update{Kind: "conversation_snapshot", Data: t.conversation}
 	}
