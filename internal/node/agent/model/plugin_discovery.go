@@ -27,7 +27,7 @@ func DiscoverPlugin(ctx context.Context, binding Binding, capture PluginCapture)
 	}
 	owner, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	worker, err := plugins.NewTranslation(owner, model.capture.Bundle)
+	worker, err := plugins.NewTranslation(model.capture.Memory.Context(owner, *(**model.binding.Provider.Binding).Package, "model"), model.capture.Bundle)
 	if err != nil {
 		return catalog, pluginTranslationFailure(err)
 	}

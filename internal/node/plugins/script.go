@@ -58,6 +58,7 @@ type scriptVM struct {
 	releaseRoots func()
 	bridge       *scriptBridge
 	pure         bool
+	memory       *memoryInstance
 }
 
 func RunCallback(ctx context.Context, bundle ScriptBundle, handler string, input any, environment ScriptEnvironment, readOnly bool, dispatch ScriptDispatch) (json.RawMessage, error) {
@@ -163,6 +164,7 @@ func newScriptVM(ctx context.Context, bundle ScriptBundle, deadline time.Time, b
 		MutableIntrinsics: true, MemoryLimit: ScriptMemoryBytes, Importer: &moejs.Importer{Resolve: resolve},
 	})
 	runtime.vm = vm
+	runtime.attachMemory()
 	runtime.releaseRoots = vm.AddLiveRoots(func(add func(moejs.Value)) {
 		add(runtime.exports)
 		add(runtime.invoke)
@@ -232,6 +234,7 @@ func newScriptVM(ctx context.Context, bundle ScriptBundle, deadline time.Time, b
 	if err := runtime.arm(); err != nil {
 		return nil, err
 	}
+	runtime.memoryIdle()
 	return runtime, nil
 }
 
@@ -276,6 +279,8 @@ func (runtime *scriptVM) settle(promise moejs.Value) (moejs.Value, error) {
 }
 
 func (runtime *scriptVM) call(handler string, input any, maxBytes int) (json.RawMessage, error) {
+	runtime.memory.executing(true)
+	defer runtime.memoryIdle()
 	encoded, err := json.Marshal(input)
 	if err != nil {
 		return nil, scriptInvalid("plugin callback input is not JSON")
@@ -334,6 +339,7 @@ func (runtime *scriptVM) call(handler string, input any, maxBytes int) (json.Raw
 }
 
 func (runtime *scriptVM) close() {
+	runtime.detachMemory()
 	if runtime.releaseRoots != nil {
 		runtime.releaseRoots()
 		runtime.releaseRoots = nil

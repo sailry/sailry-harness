@@ -29,6 +29,16 @@ func TestPluginRuntimeAdmission(t *testing.T) {
 	t.Run("connection tools", testConnectionTools)
 	t.Run("callback storage receipt and read-only authority", func(t *testing.T) {
 		node := nodeFixture(t)
+		diagnostic := protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_plugin_memory", Data: protocol.CommandReadPluginMemoryPayload{}})
+		accepted, err := node.Dispatch(t.Context(), node.ID(), diagnostic)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := <-accepted.Completion
+		memory, ok := result.Output.Data.(*protocol.PluginMemorySnapshot)
+		if accepted.Receipt.Durable || result.Fault != nil || result.Output.Kind != "plugin_memory" || !ok || memory.Samples == nil || len(memory.Samples) != 0 || memory.CapturedAtMs == 0 {
+			t.Fatalf("controller diagnostic started an inactive package or lost its typed read: %+v %+v", accepted.Receipt, result)
+		}
 		source := t.TempDir()
 		entry := "dev.sailry.platform/host/main.js"
 		for name, content := range map[string]string{
@@ -61,6 +71,10 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 		}
 		scope := protocol.DefaultPluginContext()
 		scope.Package = plugins.PackageReference(info)
+		diagnostic.Plugin = &scope
+		if _, err := node.Dispatch(t.Context(), node.ID(), diagnostic); !pluginMessageFault(err, protocol.ErrorCodePermissionDenied) {
+			t.Fatalf("plugin scope read Node diagnostics: %v", err)
+		}
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: "write", Input: json.RawMessage(`{"captured":true}`)}})
 		request.Plugin = &scope
 		for range 2 {

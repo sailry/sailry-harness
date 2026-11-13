@@ -179,6 +179,9 @@ type Model struct {
 	// Memory is this Desktop's memory by class, projected by the live
 	// runtime while Experimental shows; nil hides its map.
 	Memory []kit.TreemapGroup
+	// PluginMemory is estimated retained JavaScript, separate from Go classes.
+	PluginMemory     []kit.TreemapGroup
+	PluginMemoryRows []PluginMemoryRow
 	// DemoMode is an in-memory presentation switch for fixture harnesses.
 	// Normal startup never restores it from preferences.
 	DemoMode  bool

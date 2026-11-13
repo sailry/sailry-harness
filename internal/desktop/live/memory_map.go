@@ -55,12 +55,14 @@ func (r *Runtime) memoryMapFrame(c *ui.Context) {
 	m := r.App.Settings.Model
 	if r.App.Page != shell.SettingsPage || r.App.Settings.Section != settings.Experimental {
 		m.Memory, r.memoryNext = nil, time.Time{}
+		r.closePluginMemory()
 		return
 	}
 	now := c.Now()
 	if m.Memory == nil || !now.Before(r.memoryNext) {
 		m.Memory, r.memoryNext = memoryGroups(c), now.Add(memoryInterval)
 	}
+	r.pluginMemoryFrame(c)
 	c.After(r.memoryNext.Sub(now))
 }
 

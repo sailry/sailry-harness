@@ -152,6 +152,7 @@ func (command Command) Durable() bool {
 		"test_database",
 		"inspect_host",
 		"read_host_metrics",
+		"read_plugin_memory",
 		"read_computer_permissions",
 		"request_computer_permission",
 		"list_directory",

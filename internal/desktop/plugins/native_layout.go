@@ -78,12 +78,18 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 		}
 		// The slot holds the row's icon, or stays empty beside rows that
 		// have one; a name no icon set knows draws nothing.
-		icon := nativeIcon(nativeProp(props, "icon", ""))
+		name := nativeProp(props, "icon", "")
+		icon := nativeIcon(name)
+		colored := icons.Colored(name)
 		var lead func()
 		if icon != nil || binding.state.rowLead {
 			lead = func() {
 				if icon != nil {
-					ui.Icon(view, icon).FontSize(rowIconSize)
+					if colored {
+						ui.Image(view, icon).Size(rowIconSize, rowIconSize).Fit(ui.Contain)
+					} else {
+						ui.Icon(view, icon).FontSize(rowIconSize)
+					}
 				}
 			}
 		}

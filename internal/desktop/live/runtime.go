@@ -92,6 +92,7 @@ type Runtime struct {
 	filePreview *filePreview
 	// memoryNext is when Settings › Experimental samples memory again.
 	memoryNext            time.Time
+	pluginMemory          *pluginMemoryState
 	cancel                context.CancelFunc
 	unsubscribe           func()
 	unsubscribePrefs      func()
@@ -352,6 +353,7 @@ func (r *Runtime) Close() error {
 	r.closePluginViews()
 	r.closePluginStatus()
 	r.closePluginCards()
+	r.closePluginMemory()
 	r.closeCommands()
 	r.closeAttachments()
 	r.closeWorkspace()

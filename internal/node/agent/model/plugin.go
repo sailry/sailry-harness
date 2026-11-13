@@ -25,6 +25,7 @@ const pluginDiscoveryBytes = 8 * 1024 * 1024
 type PluginCapture struct {
 	Declaration protocol.PluginModelAdapterDeclaration
 	Bundle      plugins.ScriptBundle
+	Memory      *plugins.MemoryTracker
 	Headers     http.Header
 	Access      *protocol.Secret
 	Key         *protocol.Secret
@@ -121,7 +122,7 @@ func (model *pluginModel) Stream(ctx context.Context, call fantasy.Call) (fantas
 }
 
 func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModelAdapterWireRequest, yield func(fantasy.StreamPart) bool) (result error) {
-	worker, err := plugins.NewTranslation(ctx, model.capture.Bundle)
+	worker, err := plugins.NewTranslation(model.capture.Memory.Context(ctx, *(**model.binding.Provider.Binding).Package, "model"), model.capture.Bundle)
 	if err != nil {
 		return pluginTranslationFailure(err)
 	}

@@ -2280,3 +2280,15 @@ ram_collector: Collector metadata
 ram_profiling: Profiling
 ram_other: Other
 plugins_settings_follow_model: フォローモデル
+ram_plugins: Plugin memory (estimated)
+ram_plugins_estimate: JavaScript heap in this window and local backend
+ram_plugins_view: Interface
+ram_plugins_callback: Callbacks
+ram_plugins_tool: Tools
+ram_plugins_model: Models
+ram_plugins_pending: Not sampled
+ram_plugins_partial: '%{bytes} · partial'
+ram_plugins_idle: No active JavaScript runtime
+ram_plugins_busy: Running
+ram_plugins_sampled: Sampled %{time}
+ram_plugins_error: Could not read plugin memory
