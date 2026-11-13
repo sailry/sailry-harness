@@ -120,7 +120,9 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Approval popover: the Deny menu, "Deny with reason" and the reason field;
   the arguments of a tool that declares no display (its name alone)
 - Question row: state text such as "waiting for answer" (the icon tells it)
-- Tool row: red for an error the tool returned (red only if the call did not run)
+- Tool row: red for an error the tool returned (red only if the call did not run);
+  a repeated failure notice in expanded output (the row keeps the failure,
+  and expansion shows the tool's original content)
 - Queue strip: a wait reason on a row ("Held", "Paused", "Not sent" and the
   like); held background results as rows; a paused-queue strip, "Queue paused"
   and Continue sending (a halt is one toast; Send now or a message resumes)

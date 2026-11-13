@@ -150,6 +150,25 @@ func TestConversationProjection(t *testing.T) {
 			t.Fatalf("checkpoint diff projection = %#v", call.Output)
 		}
 	})
+	t.Run("failed tools expand only their original result", func(t *testing.T) {
+		result := json.RawMessage(`{"kind":"command_result","data":{"outcome":{"kind":"exited","data":127},"stderr":{"text":"/bin/sh: python: command not found\n"}}}`)
+		want, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, origin := range []protocol.ToolFailureOrigin{protocol.ToolFailureOriginTool, protocol.ToolFailureOriginRuntime} {
+			t.Run(string(origin), func(t *testing.T) {
+				call := projectCall("run_command", &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: origin}}, "en")
+				projectToolContent(&call, protocol.ToolDetail{Result: &result})
+				if call.Error == "" || call.Failed != (origin == "runtime") || call.Warning != (origin == "tool") {
+					t.Fatalf("failure status was lost: %+v", call)
+				}
+				if call.Output == nil || call.Output.Failure != "" || call.Output.Text != string(want) || !call.Output.Command {
+					t.Fatalf("expanded output changed the original result: %+v", call.Output)
+				}
+			})
+		}
+	})
 	t.Run("grounding links and native command tail are live data", func(t *testing.T) {
 		session, turn := protocol.NewSessionID(), protocol.NewTurnID()
 		end := uint32(3)
