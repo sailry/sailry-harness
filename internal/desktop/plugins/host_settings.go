@@ -49,6 +49,9 @@ func (settings *hostSettings) observe(rows []protocol.PluginSummary, connected b
 			settings.invalid = true
 		}
 	} else if live.SettingsRevision > settings.current.SettingsRevision {
+		// Unlike the Rust Host, which ends the page here, a newer revision
+		// is adopted: the page stays mounted (RetainSettings), including
+		// across a Client refresh racing its construction.
 		settings.current.SettingsRevision = live.SettingsRevision
 	}
 	settings.live = live

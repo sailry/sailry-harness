@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -108,4 +109,57 @@ func testTreeRows(t *testing.T) {
 			}
 		})
 	}
+	// open:"double" selects a file on a click and opens it on a double click,
+	// as a file manager does.
+	t.Run("double", func(t *testing.T) {
+		native := NewNativeBinding(t.Context())
+		encoded, err := json.Marshal([]nativeTreeItem{{ID: "file", Label: "File"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		props, err := json.Marshal([]any{"tree", map[string]any{"items": string(encoded), "variant": "resource", "open": "double", "current": "file", "selected": []string{"file"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tester := ui.NewTester(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			ui.Column(view).Fill().Children(func() {
+				if _, err := native.renderTree(view, NativeElement{ID: 1, Module: "sailry/ui", Export: "ResourceTree", Props: props}, nil, nil); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}, 400, 300)
+		tester.Frame()
+		tester.Frame()
+		info, exists := tester.AccessByRole(ui.RoleTreeItem, "File")
+		if !exists {
+			t.Fatal("tree item File is not shown")
+		}
+		x, y := info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2
+		kinds := func() []string {
+			var got []string
+			for {
+				select {
+				case body := <-native.queue("tree", 128).events:
+					var event struct{ Kind string }
+					if err := json.Unmarshal(body, &event); err != nil {
+						t.Fatal(err)
+					}
+					got = append(got, event.Kind)
+				default:
+					return got
+				}
+			}
+		}
+		tester.ClickAt(x, y)
+		tester.Frame()
+		if got := kinds(); len(got) != 1 || got[0] != "select" {
+			t.Fatalf("a click sent %v, want only select", got)
+		}
+		tester.ClickAt(x, y)
+		tester.Frame()
+		if got := kinds(); !slices.Contains(got, "open") {
+			t.Fatalf("a double click sent %v, want open", got)
+		}
+	})
 }

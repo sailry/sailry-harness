@@ -377,7 +377,9 @@ func (state *pluginNativeState) sshTransferOperations() {
 			return nil, err
 		}
 		return state.effect(func(*ui.Context) {
-			state.runtime.openFilePreview(path, func(ctx context.Context) ([]byte, error) { return access.readPreview(ctx, path) })
+			state.runtime.openFilePreview(path, func(ctx context.Context, progress func(copied, size uint64)) ([]byte, error) {
+				return access.readPreview(ctx, path, progress)
+			})
 		})
 	}
 	operations["sailry/ssh-transfers.selectUpload"] = func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {

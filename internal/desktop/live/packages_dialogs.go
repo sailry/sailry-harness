@@ -6,12 +6,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func (r *Runtime) packageDialogs(c *ui.Context) {
 	r.skillSelectionDialog(c)
+	// Settings pages draw a package's configuration themselves.
+	if r.App.Page != shell.SettingsPage {
+		settings.PackageConfigurationDialog(c, r.App.Settings.Model)
+	}
 }
 
 func (r *Runtime) skillSelectionDialog(c *ui.Context) {

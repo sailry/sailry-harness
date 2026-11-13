@@ -176,6 +176,9 @@ type Model struct {
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool
+	// Memory is this Desktop's memory by class, projected by the live
+	// runtime while Experimental shows; nil hides its map.
+	Memory []kit.TreemapGroup
 	// DemoMode is an in-memory presentation switch for fixture harnesses.
 	// Normal startup never restores it from preferences.
 	DemoMode  bool

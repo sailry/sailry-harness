@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -88,7 +89,9 @@ type Runtime struct {
 	controller        *client.Client
 	ctx               context.Context
 	// filePreview is the window's preview dialog (file_preview.go).
-	filePreview           *filePreview
+	filePreview *filePreview
+	// memoryNext is when Settings › Experimental samples memory again.
+	memoryNext            time.Time
 	cancel                context.CancelFunc
 	unsubscribe           func()
 	unsubscribePrefs      func()
@@ -461,6 +464,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
 	r.backupSettingsFrame(c)
+	r.memoryMapFrame(c)
 	r.localModelsFrame()
 	r.dictationFrame(c)
 	r.permissionsFrame()

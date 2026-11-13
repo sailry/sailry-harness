@@ -92,7 +92,7 @@ func (owner *conversationObserver) control(_ context.Context, method string, arg
 			owner.selected[reference] = true
 		}
 		state, _ := owner.client.Conversation(owner.session)
-		calls := collectToolCalls(state.Snapshot.Page)
+		calls := ToolCalls(state.Snapshot.Page)
 		for _, call := range calls {
 			for _, retry := range selected.Retry {
 				if call.Source == retry && call.Reference != nil {
@@ -188,7 +188,7 @@ func (owner *conversationObserver) view() (any, error) {
 	if snapshot == nil {
 		return value, nil
 	}
-	calls := collectToolCalls(snapshot.Page)
+	calls := ToolCalls(snapshot.Page)
 	owner.syncDetails(calls)
 	owner.mu.Lock()
 	projected := make([]map[string]any, 0, len(calls))
@@ -240,7 +240,7 @@ func (owner *conversationObserver) view() (any, error) {
 	return value, nil
 }
 
-func (owner *conversationObserver) syncDetails(calls []projectedToolCall) {
+func (owner *conversationObserver) syncDetails(calls []ToolCall) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	wanted := map[string]protocol.ToolDetailReference{}

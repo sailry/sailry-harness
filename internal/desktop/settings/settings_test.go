@@ -2805,3 +2805,68 @@ func TestPermissionRowActions(t *testing.T) {
 		t.Fatalf("an unavailable row requested %v", requested)
 	}
 }
+
+// TestExperimentalMemory asserts the memory map shows under its heading
+// only while the runtime projects classes into it.
+func TestExperimentalMemory(t *testing.T) {
+	m := &Model{}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		experimental(c, m)
+	}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	if tt.HasText(i18n.In("en", "settings_ram")) {
+		t.Fatal("the memory map shows with no classes")
+	}
+	m.Memory = []kit.TreemapGroup{{ID: "ram_heap", Label: "Heap", Detail: "64.0 MiB", Items: []kit.TreemapItem{{ID: "ram_objects", Label: "Live objects", Detail: "60.0 MiB", Value: 60 << 20}}}}
+	for range 3 {
+		tt.Frame()
+	}
+	for _, text := range []string{i18n.In("en", "settings_ram"), "Live objects", "64.0 MiB"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q: %q", text, tt.Texts())
+		}
+	}
+}
+
+// TestPackageConfigurationTabs asserts a package's settings show by tab,
+// a tab's fields only while its Enabled switch is on, and an effort setting
+// offers the levels of the model it follows.
+func TestPackageConfigurationTabs(t *testing.T) {
+	m := &Model{Packages: []preview.Package{{ID: "trader", Name: "Trader"}}}
+	m.OpenPackageConfiguration("trader", "", []preview.Setting{
+		{Name: "player_name", Title: "Your name", Kind: "string"},
+		{Name: "player_1_enabled", Title: "Enabled", Kind: "bool", Value: "false", Required: true},
+		{Name: "player_1_model", Title: "Model", Kind: "choice", Options: []string{"m1", "m2"}, Value: "m1"},
+		{Name: "player_1_effort", Title: "Reasoning", Kind: "effort", Model: "player_1_model", Value: "none", Efforts: map[string][]string{"m1": {"low", "high"}}},
+	}, viewmodel.SettingsTab{ID: "one", Title: "You", Fields: []string{"player_name"}},
+		viewmodel.SettingsTab{ID: "two", Title: "Rival", Fields: []string{"player_1_enabled", "player_1_model", "player_1_effort"}, Enabled: "player_1_enabled"})
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		PackageConfigurationDialog(c, m)
+	}, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
+	tt.SetLocale("en")
+	frame := func() { tt.Frame(); tt.Frame() }
+	frame()
+	if !tt.HasText("You") || !tt.HasText("Rival") || !tt.HasText("Your name") || tt.HasText("Model") {
+		t.Fatalf("the first tab does not show alone: %q", tt.Texts())
+	}
+	if tt.HasText(i18n.In("en", "plugins_settings_required")) {
+		t.Fatal("a required hint shows before Save")
+	}
+	m.config.tab = 1
+	frame()
+	if !tt.HasText("Enabled") || tt.HasText("Model") {
+		t.Fatalf("a disabled tab shows more than its switch: %q", tt.Texts())
+	}
+	m.config.fields[1].Value = "true"
+	frame()
+	if !tt.HasText("Model") || !tt.HasText("Reasoning") {
+		t.Fatalf("an enabled tab hides its fields: %q", tt.Texts())
+	}
+	// "none" is not a level m1 takes: the setting follows the model.
+	if m.config.fields[3].Value != "" || !tt.HasText(i18n.In("en", "plugins_settings_follow_model")) {
+		t.Fatalf("an effort the model lacks stays: %q", m.config.fields[3].Value)
+	}
+}

@@ -207,11 +207,19 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	stripe := nativeProp(props, "stripe", false)
 	headHeight := theme.Neutral(view).Space(8)
 	cellPadding := theme.Neutral(view).Space(1.5)
-	stripeColor := theme.Of(view).Muted
+	// The alternate rows are a half tint: at full Muted, under the rows'
+	// separators, the stripes read heavier than the data.
+	stripeColor := theme.Of(view).Muted.Alpha(0.5)
 	state.list.HeaderCell = func(cell ui.Element, _ int) { cell.Hidden(!header) }
 	result := ui.Column(view).Fill().MinWidth(0)
 	if len(columns) > 0 {
-		kit.TableFrame(view, result)
+		// bordered:false is a table filling a region whose own edges bound
+		// it, where a frame would draw a second border inside the first.
+		if nativeProp(props, "bordered", true) {
+			kit.TableFrame(view, result)
+		} else {
+			kit.TableFlush(view, result)
+		}
 		if !header {
 			result.Draw(nil)
 		}
@@ -285,6 +293,11 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 			}
 			emit("selection", row, nil, "")
 		})
+		// A double click or Enter on a row opens it, as the package says.
+		if table.Submitted() && state.selected >= 0 {
+			absolute := state.selected + first
+			emit("open", &absolute, nil, "")
+		}
 		if table.Shortcut(ui.Cmd, ui.KeyC) {
 			selected := []int{}
 			for index := range state.selection.All() {

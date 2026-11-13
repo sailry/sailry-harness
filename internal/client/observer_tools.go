@@ -10,7 +10,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-type projectedToolCall struct {
+// ToolCall is a tool call of a conversation page paired with its result,
+// as the transcript and plugin observers read it.
+type ToolCall struct {
 	Turn         protocol.TurnID
 	ID           *string
 	Name         string
@@ -32,8 +34,9 @@ type callIdentity struct {
 	id     string
 }
 
-func collectToolCalls(page protocol.ConversationPage) []projectedToolCall {
-	calls := []projectedToolCall{}
+// ToolCalls pairs a page's tool calls with their results, in page order.
+func ToolCalls(page protocol.ConversationPage) []ToolCall {
+	calls := []ToolCall{}
 	pending := map[callIdentity][]int{}
 	for _, entry := range page.Entries {
 		for index, part := range entry.Parts {
@@ -48,7 +51,7 @@ func collectToolCalls(page protocol.ConversationPage) []projectedToolCall {
 					key := callIdentity{turn: entry.Turn, branch: entry.Branch, id: *value.ID}
 					pending[key] = append(pending[key], len(calls))
 				}
-				call := projectedToolCall{
+				call := ToolCall{
 					Turn: entry.Turn, ID: value.ID, Name: value.Name, Presentation: value.Presentation, Grouping: value.Grouping,
 					Source: source, State: "waiting", Summary: value.Summary,
 				}
@@ -91,7 +94,7 @@ func collectToolCalls(page protocol.ConversationPage) []projectedToolCall {
 					call := &calls[indices[0]]
 					call.Response, call.State, call.Summary, call.Images = &source, "returned", value.Summary, value.Images
 				} else {
-					calls = append(calls, projectedToolCall{
+					calls = append(calls, ToolCall{
 						Turn: entry.Turn, ID: value.ID, Name: value.Name, Presentation: "summary", Grouping: "sequence",
 						Source: source, Response: &source, State: "returned", Summary: value.Summary, Images: value.Images,
 					})
@@ -138,7 +141,7 @@ func collectToolCalls(page protocol.ConversationPage) []projectedToolCall {
 	return calls
 }
 
-func completionReview(page protocol.ConversationPage, call projectedToolCall) bool {
+func completionReview(page protocol.ConversationPage, call ToolCall) bool {
 	if call.Name != "plan_review" || call.Response != nil || call.Question == nil || call.Question.State.Kind != "pending" {
 		return false
 	}
@@ -160,16 +163,16 @@ func terminalInteraction(name string) bool {
 	return name == "ask_user" || name == "plan_review" || name == "mcp_elicitation"
 }
 
-func toolHidden(call projectedToolCall) bool {
+func toolHidden(call ToolCall) bool {
 	return call.Presentation == "hidden" && call.State == "returned" && call.Approval == nil && call.Question == nil &&
 		!terminalInteraction(call.Name) && (call.Summary == nil || !call.Summary.Diagnostics) && len(call.Images) == 0
 }
 
-func toolHasDetails(call projectedToolCall) bool {
+func toolHasDetails(call ToolCall) bool {
 	return (call.Approval == nil || call.Approval.State != "denied") && call.Summary != nil && call.Summary.HasDetails
 }
 
-func projectToolCall(page protocol.ConversationPage, call projectedToolCall) map[string]any {
+func projectToolCall(page protocol.ConversationPage, call ToolCall) map[string]any {
 	value := map[string]any{
 		"turn": call.Turn, "id": call.ID, "name": call.Name, "terminal_interaction": terminalInteraction(call.Name),
 		"presentation": call.Presentation, "grouping": call.Grouping, "source": call.Source, "response": call.Response,
@@ -199,7 +202,7 @@ func projectToolCall(page protocol.ConversationPage, call projectedToolCall) map
 	return value
 }
 
-func toolRow(call projectedToolCall) map[string]any {
+func toolRow(call ToolCall) map[string]any {
 	var label *protocol.ToolResultLocalText
 	var icon *protocol.PluginDesktopIcon
 	var detail *protocol.ToolDetailText
@@ -255,7 +258,7 @@ func toolRow(call projectedToolCall) map[string]any {
 	}
 }
 
-func toolApprovalView(call projectedToolCall, resolved *protocol.ToolDetailResolved) map[string]any {
+func toolApprovalView(call ToolCall, resolved *protocol.ToolDetailResolved) map[string]any {
 	value := map[string]any{
 		"prompt": nil, "context": nil, "description": nil, "unrestricted": false, "notices": []protocol.ToolResultLocalText{}, "code": false,
 	}
@@ -302,7 +305,7 @@ func toolApprovalView(call projectedToolCall, resolved *protocol.ToolDetailResol
 	return value
 }
 
-func toolDetailPacket(detail protocol.ToolDetail, call projectedToolCall) map[string]any {
+func toolDetailPacket(detail protocol.ToolDetail, call ToolCall) map[string]any {
 	resolved := detail.Resolved
 	if resolved == nil && call.Summary != nil {
 		resolved = call.Summary.Resolved
@@ -455,7 +458,7 @@ func projectChildren(page protocol.ConversationPage) map[string]any {
 	return value
 }
 
-func associatedChildren(page protocol.ConversationPage, call projectedToolCall) []map[string]any {
+func associatedChildren(page protocol.ConversationPage, call ToolCall) []map[string]any {
 	matching := []protocol.ConversationChild{}
 	for _, child := range page.Children {
 		if child.Origin.Session == page.Session && child.Origin.Turn == call.Turn && child.Origin.Entry == call.Source.Entry && child.Origin.Index == call.Source.Index {

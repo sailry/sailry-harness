@@ -237,7 +237,7 @@ func connectors(c *ui.Context, m *Model) {
 	// it, and a package's settings form is where its servers are configured.
 	serviceDetails(c, m)
 	mcpDialog(c, m)
-	pluginConfigDialog(c, m)
+	PackageConfigurationDialog(c, m)
 	connectorDialog(c, m)
 	if m.Live && m.ConnectorActions != nil {
 		actions := m.ConnectorActions

@@ -153,7 +153,9 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   count (breadcrumbs and Edit path provide path navigation)
 - Database workspace: the catalog tree header and its inline Refresh button
   (Refresh stays in the workspace header); the empty placeholder DataTable
-  behind execution history
+  behind execution history; the lower pane's History and SQL tabs (the pane
+  is the history, and New query opens SQL in a dialog); the SQL editor's
+  idle Ready status
 - Right panel: History and Documents as launcher or "+" entries (the tab kinds
   stay); a preview of PDF, Office or other formats MyGo cannot draw (Open uses
   the system's app, on Mobile too)

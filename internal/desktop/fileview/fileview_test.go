@@ -14,8 +14,11 @@ import (
 // the limit by its state, and Open only where the owner gives it.
 func TestDialog(t *testing.T) {
 	text := func(key string) string { return i18n.In("en", key) }
-	draw := func(f conversation.File, cb Callbacks) (*ui.Tester, *bool) {
+	draw := func(f conversation.File, cb Callbacks, progress ...float64) (*ui.Tester, *bool) {
 		open, view := true, &View{}
+		if len(progress) > 0 {
+			view.Progress = progress[0]
+		}
 		tester := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			if open {
@@ -40,10 +43,25 @@ func TestDialog(t *testing.T) {
 		if _, external := tester.Access(text("files_open_system")); external {
 			t.Error("Open shows without an owner to open the file")
 		}
+		// ⌘F opens the editor's find bar over the text.
+		tester.Key(ui.Cmd, ui.KeyF)
+		tester.Frame()
+		if !tester.HasText("Find") {
+			t.Fatalf("⌘F opened no find bar: %q", tester.Texts())
+		}
+		tester.Key(0, ui.KeyEscape)
+		tester.Frame()
 		tester.Key(0, ui.KeyEscape)
 		tester.Frame()
 		if *open {
 			t.Error("Escape left the preview open")
+		}
+	})
+	t.Run("loading", func(t *testing.T) {
+		tester, _ := draw(conversation.File{ID: "f", Path: "/srv/main.go", Kind: conversation.CodeFile, State: conversation.PreviewLoading}, Callbacks{}, 0.4)
+		bar, ok := tester.AccessByRole(ui.RoleProgress, text("artifact_preview_loading"))
+		if !ok || bar.Now < 0.39 || bar.Now > 0.41 {
+			t.Fatalf("no progress bar while loading: %+v %q", bar, tester.Texts())
 		}
 	})
 	t.Run("unsupported", func(t *testing.T) {

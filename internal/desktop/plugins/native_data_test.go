@@ -70,6 +70,28 @@ func TestNativeTable(t *testing.T) {
 					t.Fatalf("striped selection differs from an ordinary row: %v, %v", chosen, pixel(first, 150))
 				}
 			})
+			t.Run("bordered false draws no frame around the table", func(t *testing.T) {
+				edge := func(table string) [3]uint8 {
+					tester := makeTable(table)
+					row, shown := tester.Find("alpha")
+					if !shown {
+						t.Fatalf("missing rows: %q", tester.Texts())
+					}
+					px := tester.Image().RGBAAt(20, int(row.Y+row.H/2))
+					return [3]uint8{px.R, px.G, px.B}
+				}
+				framed := edge(`["table",{"columns":["Name"],"rows":[["alpha"]]}]`)
+				flush := edge(`["table",{"columns":["Name"],"rows":[["alpha"]],"bordered":false}]`)
+				inside := func() [3]uint8 {
+					tester := makeTable(`["table",{"columns":["Name"],"rows":[["alpha"]],"bordered":false}]`)
+					row, _ := tester.Find("alpha")
+					px := tester.Image().RGBAAt(24, int(row.Y+row.H/2))
+					return [3]uint8{px.R, px.G, px.B}
+				}()
+				if framed == flush || flush != inside {
+					t.Fatalf("a flush table keeps its frame: framed %v, flush %v, inside %v", framed, flush, inside)
+				}
+			})
 			t.Run("header false removes its strip and accessible cells", func(t *testing.T) {
 				tester := makeTable(`["table",{"columns":["Name","Size"],"rows":[["alpha","1"],["beta","2"]],"header":false}]`)
 				if tester.HasText("Name") || tester.HasText("Size") {

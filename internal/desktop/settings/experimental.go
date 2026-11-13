@@ -6,12 +6,19 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
 
-// experimental holds the sidebar's performance indicator. Developer demo
-// and acceptance runs are started from the command line.
+// experimental holds the sidebar's performance indicator and this
+// Desktop's memory map. Developer demo and acceptance runs are started from
+// the command line.
 func experimental(c *ui.Context, m *Model) {
 	kit.Group(c, "experimental", "", "", nil, func() {
 		kit.Card(c, func() {
 			kit.SwitchRow(c, "metrics", i18n.T(c, "settings_sidebar_metrics"), "", &m.SidebarMetrics)
 		})
+	})
+	if len(m.Memory) == 0 {
+		return
+	}
+	kit.Group(c, "memory", i18n.T(c, "settings_ram"), "", nil, func() {
+		kit.Treemap(c, "memory-map", m.Memory, kit.TreemapOptions{})
 	})
 }

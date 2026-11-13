@@ -67,6 +67,11 @@ type packageState struct {
 	terminals          map[string]*liveTerminal
 	skillOperation     *skillSourceOperation
 	configuration      uint64
+	// configurer is the runtime whose package the open dialog configures,
+	// as the reference binds a panel's settings to the panel's own client:
+	// a Desktop package's page keeps the local Node while another host is
+	// selected, and its Save goes there too.
+	configurer *Runtime
 }
 
 func newPackageState() *packageState {
@@ -109,7 +114,11 @@ func (r *Runtime) initB8Packages() {
 			}
 		},
 		SaveSettings: func(id string, fields []viewmodel.Setting, secrets map[string]int, done func(bool)) {
-			if owner := r.packageOwner(); owner != nil {
+			owner := r.localRuntime().packages.configurer
+			if owner == nil {
+				owner = r.packageOwner()
+			}
+			if owner != nil {
 				owner.savePackageSettings(id, fields, secrets, done)
 			} else {
 				done(false)

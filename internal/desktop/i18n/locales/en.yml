@@ -2266,3 +2266,17 @@ python_validating: Checking dependencies
 port_count: '%{count} ports'
 queue_messages_one: 1 queued message
 queue_messages_count: '%{count} queued messages'
+settings_ram: Memory usage
+ram_heap: Heap
+ram_objects: Live objects
+ram_fragmented: Fragmented
+ram_free: Free
+ram_stacks: Stacks
+ram_goroutine_stacks: Goroutine stacks
+ram_system_stacks: System stacks
+ram_runtime: Runtime
+ram_allocator: Allocator
+ram_collector: Collector metadata
+ram_profiling: Profiling
+ram_other: Other
+plugins_settings_follow_model: Follow model

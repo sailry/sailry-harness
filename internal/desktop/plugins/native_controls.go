@@ -25,6 +25,12 @@ func (binding *NativeBinding) renderControl(view *ui.Context, element NativeElem
 		if nativeProp(props, "size", "") == "medium" {
 			size = 32
 		}
+		// The tooltip names the shortcut as the platform writes it (⌘↵),
+		// not as the package declares it (secondary-enter).
+		hint := ""
+		if mods, key, err := nativeKeystroke(nativeProp(props, "shortcut", "")); err == nil && key != 0 {
+			hint = kit.KeyText(mods, key)
+		}
 		var button ui.Element
 		if nativeProp(props, "show_label", false) {
 			button = kit.Ghost(view, label, selected).Height(size).PaddingX(8).Gap(6).Children(func() {
@@ -36,8 +42,11 @@ func (binding *NativeBinding) renderControl(view *ui.Context, element NativeElem
 					ui.Icon(view, icons.ChevronDown).Size(12, 12)
 				}
 			})
+			if hint != "" {
+				kit.Tooltip(view, button, label+" "+hint)
+			}
 		} else {
-			button = kit.IconButtonHint(view, nativeIcon(nativeProp(props, "icon", "")), label, nativeProp(props, "shortcut", ""), size, selected)
+			button = kit.IconButtonHint(view, nativeIcon(nativeProp(props, "icon", "")), label, hint, size, selected)
 		}
 		if nativeProp(props, "variant", "") == "primary" {
 			button.Background(theme.Of(view).ButtonPrimary).TextColor(theme.Of(view).OnPrimary)

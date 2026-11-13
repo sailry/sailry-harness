@@ -63,8 +63,10 @@ type ThemeImport struct {
 	details       *themeDetails
 }
 
-func (m *Model) OpenPackageConfiguration(id string, fields []viewmodel.Setting) {
-	m.config = pluginConfig{open: true, generation: m.config.generation + 1, id: id, fields: fields, secrets: map[string]int{}}
+// OpenPackageConfiguration shows a package's settings, on tabs when the
+// package declares them.
+func (m *Model) OpenPackageConfiguration(id, name string, fields []viewmodel.Setting, tabs ...viewmodel.SettingsTab) {
+	m.config = pluginConfig{open: true, generation: m.config.generation + 1, id: id, name: name, fields: fields, secrets: map[string]int{}, tabs: tabs}
 }
 
 func (m *Model) ClosePackageConfiguration() { m.config.open = false }

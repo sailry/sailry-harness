@@ -13,6 +13,18 @@ type Setting struct {
 	Options           []string
 	Value             string
 	Set, Required     bool
+	// Model names the model field an "effort" setting follows; Efforts are
+	// the levels each of that field's models takes, by model ID.
+	Model   string
+	Efforts map[string][]string
+}
+
+// SettingsTab is a page of a package's settings: its fields, all of them
+// shown only while the Enabled field, when named, is on.
+type SettingsTab struct {
+	ID, Title string
+	Fields    []string
+	Enabled   string
 }
 
 type Package struct {

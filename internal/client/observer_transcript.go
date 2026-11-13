@@ -79,7 +79,7 @@ func projectGuidance(page protocol.ConversationPage) map[string]string {
 	return value
 }
 
-func projectTranscript(snapshot protocol.ConversationSnapshot, calls []projectedToolCall, guidance map[string]string) ([]protocol.TurnID, map[string]protocol.TurnID, map[string]any) {
+func projectTranscript(snapshot protocol.ConversationSnapshot, calls []ToolCall, guidance map[string]string) ([]protocol.TurnID, map[string]protocol.TurnID, map[string]any) {
 	page := snapshot.Page
 	runs := slices.Clone(page.Runs)
 	slices.SortFunc(runs, func(left, right protocol.ConversationRun) int {
@@ -191,7 +191,7 @@ func turnInputs(page protocol.ConversationPage, run protocol.ConversationRun) []
 	return value
 }
 
-func transcriptSegments(snapshot protocol.ConversationSnapshot, calls []projectedToolCall, guidance map[string]string, turn protocol.TurnID) []transcriptSegment {
+func transcriptSegments(snapshot protocol.ConversationSnapshot, calls []ToolCall, guidance map[string]string, turn protocol.TurnID) []transcriptSegment {
 	page := snapshot.Page
 	group := []protocol.ConversationRun{}
 	sequences := map[protocol.TurnID][]uint64{}
@@ -279,8 +279,8 @@ func transcriptSegments(snapshot protocol.ConversationSnapshot, calls []projecte
 	return append(segments, current)
 }
 
-func collectTranscriptRows(snapshot protocol.ConversationSnapshot, calls []projectedToolCall, turn protocol.TurnID) []transcriptRow {
-	selected := map[toolReference]projectedToolCall{}
+func collectTranscriptRows(snapshot protocol.ConversationSnapshot, calls []ToolCall, turn protocol.TurnID) []transcriptRow {
+	selected := map[toolReference]ToolCall{}
 	for _, call := range calls {
 		if call.Turn == turn {
 			selected[call.Source] = call
@@ -387,7 +387,7 @@ func equalOptionalString(left, right *string) bool {
 	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
-func waitingChildren(snapshot protocol.ConversationSnapshot, calls []projectedToolCall, guidance map[string]string, turn protocol.TurnID, rows []transcriptRow) *int {
+func waitingChildren(snapshot protocol.ConversationSnapshot, calls []ToolCall, guidance map[string]string, turn protocol.TurnID, rows []transcriptRow) *int {
 	page := snapshot.Page
 	running := slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
 		return run.Turn == turn && run.Kind == "task" && run.Status == "running"

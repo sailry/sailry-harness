@@ -61,6 +61,16 @@ func packageSettingsFields(schema *protocol.PluginSettingsSchema, state protocol
 				field.Options = append(field.Options, packageSettingText(choice))
 			}
 		}
+		if property.Effort != nil && len(catalogs) != 0 {
+			// The levels follow the model field the package names.
+			field.Kind, field.Model, field.Options = "effort", *property.Effort, nil
+			field.Efforts = map[string][]string{}
+			for _, model := range catalogs[0].Models {
+				for _, effort := range model.Efforts {
+					field.Efforts[model.ID] = append(field.Efforts[model.ID], effortName(effort))
+				}
+			}
+		}
 		if property.Model && len(catalogs) != 0 {
 			// A model field's options are model IDs: the forms draw them
 			// with kit.ModelSelect, by their names.
@@ -99,10 +109,12 @@ func (r *Runtime) configurePackage(id string) {
 	root := r.localRuntime()
 	root.packages.configuration++
 	generation := root.packages.configuration
-	section := root.App.Settings.Section
+	// The dialog opens where it was asked for: the settings section that
+	// asked, or the page, as a package's own page from its header.
+	page, section := root.App.Page, root.App.Settings.Section
 	modelsNeeded := false
 	for _, property := range info.Settings.Properties {
-		modelsNeeded = modelsNeeded || property.Model
+		modelsNeeded = modelsNeeded || property.Model || property.Effort != nil
 	}
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_plugin_settings", Data: protocol.CommandReadPluginSettingsPayload{Package: reference}})
@@ -124,8 +136,10 @@ func (r *Runtime) configurePackage(id string) {
 				return
 			}
 			r.packages.settings[name] = state
-			if root.packageOwner() == r && root.packages.configuration == generation && root.App.Page == shell.SettingsPage && root.App.Settings.Section == section {
-				r.App.Settings.OpenPackageConfiguration(name, packageSettingsFields(info.Settings, state, r.packageLocale(), models))
+			if root.packages.configuration == generation && root.App.Page == page &&
+				(page != shell.SettingsPage || root.packageOwner() == r && root.App.Settings.Section == section) {
+				root.packages.configurer = r
+				r.App.Settings.OpenPackageConfiguration(name, packageView(info, r.packageLocale()).Name, packageSettingsFields(info.Settings, state, r.packageLocale(), models), packageSettingsTabs(info.Settings, r.packageLocale())...)
 			}
 		})
 	})
@@ -297,4 +311,24 @@ func (r *Runtime) savePython() {
 		}
 		r.packages.pythonDraft = *field
 	})
+}
+
+// packageSettingsTabs are the package's settings pages (x-sailry-tabs),
+// titled in the locale as its settings' own labels are.
+func packageSettingsTabs(schema *protocol.PluginSettingsSchema, locale string) []viewmodel.SettingsTab {
+	if schema == nil {
+		return nil
+	}
+	tabs := make([]viewmodel.SettingsTab, 0, len(schema.Tabs))
+	for _, tab := range schema.Tabs {
+		view := viewmodel.SettingsTab{ID: tab.ID, Title: tab.Title, Fields: tab.Fields}
+		if title := schema.Locales[locale][tab.ID]; title != "" {
+			view.Title = title
+		}
+		if tab.Enabled != nil {
+			view.Enabled = *tab.Enabled
+		}
+		tabs = append(tabs, view)
+	}
+	return tabs
 }

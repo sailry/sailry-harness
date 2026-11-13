@@ -7,7 +7,9 @@ import (
 	"strconv"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 type textDraft struct {
@@ -16,10 +18,12 @@ type textDraft struct {
 	placeholder string
 	multiline   bool
 	rows        []int
-	focus       bool
-	focused     bool
-	steps       float64
-	input       ui.Element
+	// language makes a multiline field a code editor of that language.
+	language *editor.Language
+	focus    bool
+	focused  bool
+	steps    float64
+	input    ui.Element
 }
 
 type sliderDraft struct {
@@ -64,6 +68,12 @@ func (binding *NativeBinding) formOperation(ctx context.Context, name string, ar
 		if len(rows) != 0 && (len(rows) != 2 || rows[0] <= 0 || rows[1] < rows[0]) {
 			return nil, hostInvalid("text rows require positive ordered bounds")
 		}
+		var language *editor.Language
+		if name := nativeProp(options, "language", ""); name != "" {
+			if language = editor.LanguageNamed(name); language == nil || !nativeProp(options, "multiline", false) {
+				return nil, hostInvalid("a code field requires multiline and a known language")
+			}
+		}
 		if len(binding.state.text) >= 64 {
 			return nil, hostInvalid("plugin field capacity exhausted")
 		}
@@ -72,7 +82,7 @@ func (binding *NativeBinding) formOperation(ctx context.Context, name string, ar
 		binding.state.text[identity] = &textDraft{
 			value: value, label: nativeProp(options, "label", ""),
 			placeholder: nativeProp(options, "placeholder", ""),
-			multiline:   nativeProp(options, "multiline", false), rows: rows,
+			multiline:   nativeProp(options, "multiline", false), rows: rows, language: language,
 		}
 		return hostJSON(identity)
 	case "releaseText":
@@ -161,6 +171,9 @@ func (binding *NativeBinding) renderText(view *ui.Context, element NativeElement
 	readonly := nativeProp(props, "readonly", false)
 	if draft.multiline && element.Export == "NumberField" {
 		return ui.Box(view), nil
+	}
+	if draft.language != nil {
+		return binding.renderCodeText(view, identity, draft, props), nil
 	}
 	var input ui.Element
 	number := element.Export == "NumberField"
@@ -286,4 +299,51 @@ func (binding *NativeBinding) renderSlider(view *ui.Context, element NativeEleme
 
 func finiteNumber(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+// renderCodeText is a code field: Kit's editable code view with line
+// numbers and the language's highlighting, in an input's frame, as high as
+// its rows. ⌘↵ (Ctrl+Enter) sends "submit", Enter being a line break.
+func (binding *NativeBinding) renderCodeText(view *ui.Context, identity string, draft *textDraft, props map[string]json.RawMessage) ui.Element {
+	p := theme.Of(view)
+	locked := nativeProp(props, "disabled", false) || nativeProp(props, "readonly", false)
+	lines := 8
+	if len(draft.rows) == 2 {
+		lines = draft.rows[0]
+	}
+	box := ui.Column(view.Key(identity)).FillWidth().MinWidth(0).Height(float32(lines)*20+16).PaddingY(8).
+		Border(1, p.Input).Radius(p.Radius).Clip()
+	if nativeProp(props, "height", float32(0)) > 0 {
+		box.Height(nativeProp(props, "height", float32(0)))
+	}
+	leaf := kit.Code(view, box, draft.value, kit.CodeOptions{Language: draft.language, Numbers: true, Editable: true, Wrap: true, Fill: true,
+		Changed: func(text string) {
+			draft.value = text
+			binding.emit("text", map[string]any{"id": identity, "kind": "change"})
+		},
+		Bind: func(st *editor.State) {
+			st.ReadOnly = locked
+			st.Placeholder, st.Label = draft.placeholder, draft.label
+			st.OnInput = func(event ui.InputEvent) bool {
+				if event.Kind != ui.InputKeyDown || event.Key != ui.KeyEnter || event.Mods&(ui.Cmd|ui.Ctrl) == 0 {
+					return false
+				}
+				binding.emit("text", map[string]any{"id": identity, "kind": "submit"})
+				return true
+			}
+		}})
+	draft.input = leaf
+	if draft.focus {
+		leaf.Focus()
+		draft.focus = false
+	}
+	if focused := leaf.Focused(); focused != draft.focused {
+		draft.focused = focused
+		kind := "blur"
+		if focused {
+			kind = "focus"
+		}
+		binding.emit("text", map[string]any{"id": identity, "kind": kind})
+	}
+	return box
 }

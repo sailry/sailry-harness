@@ -150,7 +150,7 @@ func TestModelFields(t *testing.T) {
 		id, unknown := ch.ID+"/"+x.ID, "0d6f1c1e-7a52-4f0e-9a57-3f1f3c1f0a11/custom-model"
 		m.openConfig(m.pkg("figma"))
 		m.config.fields = []preview.Setting{{Name: "model", Title: "Summary model", Kind: "model", Options: []string{id, unknown}, Required: true}}
-		w := show(t, func(c *ui.Context) { pluginConfigDialog(c, m) })
+		w := show(t, func(c *ui.Context) { PackageConfigurationDialog(c, m) })
 		w.Advance(time.Second)
 		if !w.HasText(i18n.In("en", "composer_select_model")) || m.config.Check() != "plugins_settings_required" {
 			t.Fatalf("an unset model field: %q, check %q", w.Texts(), m.config.Check())

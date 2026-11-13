@@ -28,9 +28,23 @@ type Callbacks struct {
 	Render func(*ui.Context, conversation.File) bool
 }
 
-// View is a preview's own state: the image viewer over its picture.
+// View is a preview's own state: the image viewer over its picture and the
+// editor showing its text. Progress is how much of the file has been read,
+// 0 to 1, while it loads; 0 while that is not known.
 type View struct {
-	images kit.Viewer[conversation.Image]
+	Progress float64
+	images   kit.Viewer[conversation.Image]
+	editor   *editor.State
+}
+
+// Find opens the text's find bar (⌘F), reporting whether there is text to
+// search.
+func (v *View) Find() bool {
+	if v.editor == nil {
+		return false
+	}
+	v.editor.Find("")
+	return true
 }
 
 // Tools are the bar's actions after the file's name: Copy for text, Open.
@@ -53,14 +67,24 @@ func Title(c *ui.Context, f conversation.File) {
 	ui.Text(c, f.Path).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0).Tooltip(f.Path)
 }
 
-// Content is the file under the bar: the text in mono, the code highlighted,
-// the Markdown rendered, the picture fitted, or the state of a preview that
-// cannot show (loading, failed, too large, changed, unsupported).
+// Content is the file under the bar: the text in mono and the code
+// highlighted, both wrapping at the view's width, the Markdown rendered, the
+// picture fitted, or the state of a preview that cannot show (loading,
+// failed, too large, changed, unsupported).
 func Content(c *ui.Context, v *View, key string, f conversation.File, cb Callbacks) {
 	p := theme.Of(c)
+	v.editor = nil
 	state := func(name string) {
 		ui.Column(c.Key("state")).Grow(1).Padding(16).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, name)).FontSize(14).TextColor(p.MutedForeground)
+			if name == "artifact_preview_loading" {
+				// The read's share when known, else the bar's own motion.
+				value := v.Progress
+				if value <= 0 {
+					value = -1
+				}
+				ui.Progress(c.Key("progress"), value).FillWidth().MaxWidth(360).Height(4).Label(i18n.T(c, name))
+			}
 			if name != "artifact_preview_loading" && cb.OpenExternal != nil {
 				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).AlignSelf(ui.Start).OnClick(cb.OpenExternal)
 			}
@@ -100,12 +124,19 @@ func Content(c *ui.Context, v *View, key string, f conversation.File, cb Callbac
 		}}).Grow(1).Justify(ui.Center)
 		return
 	}
+	bind := func(st *editor.State) { v.editor = st }
+	switch f.Kind {
+	case conversation.TextFile, conversation.CodeFile:
+		// The editor scrolls itself, so its find bar stays in view.
+		o := kit.CodeOptions{Numbers: true, Wrap: true, Fill: true, Bind: bind}
+		if f.Kind == conversation.CodeFile {
+			o.Language = editor.LanguageFor(f.Path)
+		}
+		kit.Code(c, ui.Column(c.Key("artifact-"+key)).Grow(1).MinHeight(0).PaddingY(12), f.Text, o)
+		return
+	}
 	ui.Scroll(c.Key("artifact-" + key)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
-		case conversation.TextFile:
-			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Numbers: true})
-		case conversation.CodeFile:
-			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
 		case conversation.MarkdownFile:
 			ui.Column(c).Padding(16, 20).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
 		case conversation.ImageFile:
@@ -133,7 +164,11 @@ func Dialog(c *ui.Context, key any, v *View, f conversation.File, open *bool, cb
 	p := theme.Of(c)
 	w, h := c.Size()
 	kit.Dialog(c.Key(key), open, func() {
-		ui.Column(c.Key("file-preview")).Width(min(960, max(320, w-48))).Height(min(720, max(240, h-48))).MinHeight(0).Children(func() {
+		box := ui.Column(c.Key("file-preview")).Width(min(960, max(320, w-48))).Height(min(720, max(240, h-48))).MinHeight(0)
+		if box.Shortcut(ui.Cmd, ui.KeyF) && !c.ShortcutRepeated() {
+			v.Find()
+		}
+		box.Children(func() {
 			// The bar keeps clear of the dialog's close button at its right.
 			ui.Row(c.Key("bar")).FillWidth().Height(52).Shrink(0).PaddingStart(16).PaddingEnd(52).Gap(8).AlignItems(ui.Center).
 				BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {

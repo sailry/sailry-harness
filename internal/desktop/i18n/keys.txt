@@ -2278,3 +2278,17 @@ python_validating
 port_count
 queue_messages_one
 queue_messages_count
+settings_ram
+ram_heap
+ram_objects
+ram_fragmented
+ram_free
+ram_stacks
+ram_goroutine_stacks
+ram_system_stacks
+ram_runtime
+ram_allocator
+ram_collector
+ram_profiling
+ram_other
+plugins_settings_follow_model

@@ -31,6 +31,16 @@ func TableFrame(c *ui.Context, frame ui.Element) ui.Element {
 	})
 }
 
+// TableFlush is a table with no frame of its own, filling a page or panel
+// whose edges already bound it: the header's fill, square, alone.
+func TableFlush(c *ui.Context, frame ui.Element) ui.Element {
+	p := theme.Of(c)
+	head, _ := tableMetrics(c)
+	return frame.Clip().Draw(func(painter *ui.Painter, bounds ui.Rect) {
+		painter.FillRadii(ui.Rect{X: bounds.X, Y: bounds.Y, W: bounds.W, H: head + 1}, [4]float32{}, p.Muted)
+	})
+}
+
 // TableHeight is the height of a framed table that shows rows rows of
 // rowHeight without scrolling: the header, its divider and the frame.
 func TableHeight(c *ui.Context, rows int, rowHeight float32) float32 {

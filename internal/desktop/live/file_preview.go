@@ -31,9 +31,10 @@ type previewBuffer struct{ bytes.Buffer }
 
 func (*previewBuffer) Close() error { return nil }
 
-// openFilePreview shows path in the preview dialog, read by read. A file no
-// preview can draw is not read: the dialog names it.
-func (r *Runtime) openFilePreview(path string, read func(context.Context) ([]byte, error)) {
+// openFilePreview shows path in the preview dialog, read by read, which
+// reports its progress as it goes. A file no preview can draw is not read:
+// the dialog names it.
+func (r *Runtime) openFilePreview(path string, read func(context.Context, func(copied, size uint64)) ([]byte, error)) {
 	root := r.localRuntime()
 	if root.filePreview == nil {
 		root.filePreview = &filePreview{}
@@ -55,7 +56,17 @@ func (r *Runtime) openFilePreview(path string, read func(context.Context) ([]byt
 	ctx, cancel := context.WithCancel(root.ctx)
 	preview.cancel = cancel
 	if !root.async(func() {
-		data, err := read(ctx)
+		data, err := read(ctx, func(copied, size uint64) {
+			if size == 0 {
+				return
+			}
+			share := float64(copied) / float64(size)
+			root.enqueue(func(*ui.Context) {
+				if preview.generation == generation {
+					preview.view.Progress = share
+				}
+			})
+		})
 		loaded := file
 		loaded.State = conversation.PreviewReady
 		switch {
@@ -111,7 +122,7 @@ func (r *Runtime) renderFilePreview(c *ui.Context) {
 
 // readPreview reads a remote file for the preview, refusing one past
 // fileview.Limit before its bytes are sent.
-func (access sshTransferAccess) readPreview(ctx context.Context, path string) ([]byte, error) {
+func (access sshTransferAccess) readPreview(ctx context.Context, path string, progress func(copied, size uint64)) ([]byte, error) {
 	profile := access.profile
 	output, err := access.execute(ctx, protocol.Command{Kind: "download_ssh_file", Data: protocol.CommandDownloadSshFilePayload{Profile: profile.ID, ExpectedRevision: profile.Revision, Path: path}})
 	if err != nil {
@@ -133,7 +144,7 @@ func (access sshTransferAccess) readPreview(ctx context.Context, path string) ([
 		return nil, errPreviewLarge
 	}
 	buffer := &previewBuffer{}
-	if err := access.owner.controller.Download(ctx, download.Stream, download.Size, download.Revision, buffer, nil); err != nil {
+	if err := access.owner.controller.Download(ctx, download.Stream, download.Size, download.Revision, buffer, func(copied uint64) { progress(copied, download.Size) }); err != nil {
 		return nil, err
 	}
 	return buffer.Bytes(), nil

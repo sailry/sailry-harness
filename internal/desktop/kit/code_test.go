@@ -1,9 +1,11 @@
 package kit
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -86,4 +88,29 @@ func TestCodeLooks(t *testing.T) {
 			t.Fatal("the window's choice leaves the diff split")
 		}
 	})
+}
+
+// A long line stays inside a wrapping code view, as high as its rows, and
+// runs past a plain one.
+func TestCodeWrap(t *testing.T) {
+	line := strings.Repeat("wrap me ", 80)
+	for _, wrap := range []bool{false, true} {
+		var st *editor.State
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			Code(c, ui.Column(c).Width(300), line, CodeOptions{Wrap: wrap, Bind: func(s *editor.State) { st = s }})
+		}, 400, 600)
+		tt.Frame()
+		tt.Frame()
+		e, ok := tt.Access("Code editor")
+		if !ok || st == nil {
+			t.Fatal("no editor")
+		}
+		if st.SoftWrap != wrap {
+			t.Errorf("wrap=%v: soft wrap %v", wrap, st.SoftWrap)
+		}
+		if tall := e.Bounds.H > 2*codeLine*14; tall != wrap {
+			t.Errorf("wrap=%v: height %v", wrap, e.Bounds.H)
+		}
+	}
 }

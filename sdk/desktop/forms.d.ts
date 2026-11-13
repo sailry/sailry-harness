@@ -1,6 +1,8 @@
 /** View-local Kit editing state; release when the draft closes. No Node writes. */
 export function createText(value: string, options?: {
   multiline?: boolean; rows?: [number, number]; placeholder?: string; label?: string;
+  /** With multiline, a code editor of this language ("sql", "json", …) with line numbers; ⌘↵ sends a "submit" text event. */
+  language?: string;
 }): string;
 export function readText(handle: string): string;
 export function releaseText(handle: string): void;
@@ -24,7 +26,7 @@ export const DateTimeField: {
 export function setText(handle:string, value:string): void;
 export function focusText(handle:string): void;
 export function isTextFocused(handle:string): boolean;
-export function nextTextEvent(): Promise<{id:string;kind:'enter'|'change'|'focus'|'blur'|'increment'|'decrement'}>;
+export function nextTextEvent(): Promise<{id:string;kind:'enter'|'submit'|'change'|'focus'|'blur'|'increment'|'decrement'}>;
 
 /** View-local styled Kit Slider. Programmatic values do not emit user events. */
 export function createSlider(value:number, options:{min:number;max:number;step:number;label?:string}):string;

@@ -30,7 +30,9 @@ type pluginNativeState struct {
 	toastSequence uint64
 	toastEvents   chan json.RawMessage
 	composer      *pluginNativeComposer
-	providers     *pluginNativeProviders
+	// assistantTools is the package's calls in the assistants it mounts.
+	assistantTools *pluginNativeAssistantTools
+	providers      *pluginNativeProviders
 }
 
 func (r *Runtime) pluginNativeBinding(ctx context.Context, scope protocol.PluginContext, presentation string) *plugins.NativeBinding {
@@ -83,12 +85,14 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 	state.terminalOperations()
 	state.composerOperations()
 	state.providerOperations()
+	state.assistantToolOperations()
 	binding.Frame = func(view *ui.Context) {
 		state.mu.Lock()
 		state.palette = theme.Of(view)
 		state.mu.Unlock()
 		state.refreshComposer()
 		state.refreshProviders()
+		state.refreshAssistantTools()
 	}
 	state.locationOperations()
 	state.sshTransferOperations()

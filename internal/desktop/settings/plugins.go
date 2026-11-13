@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The Plugins page (settings/plugins*, plugins/*): the inventory's
@@ -44,8 +45,14 @@ type pluginConfig struct {
 	pending    bool
 	generation uint64
 	id         string
-	fields     []preview.Setting
-	secrets    map[string]int
+	// name is the package's, given by the live runtime that opened the
+	// dialog: a Desktop package configured while another host is selected
+	// is not in that host's list.
+	name    string
+	fields  []preview.Setting
+	secrets map[string]int
+	tabs    []viewmodel.SettingsTab
+	tab     int
 }
 
 // pluginDownload is the Git repository, revision and path, and the download's
@@ -210,7 +217,7 @@ func plugins(c *ui.Context, s *State) {
 			}
 		})
 	})
-	pluginConfigDialog(c, m)
+	PackageConfigurationDialog(c, m)
 	pluginInstallDialog(c, m)
 	pluginDownloadDialog(c, m)
 	pluginUpdatesDialog(c, m)
@@ -310,32 +317,44 @@ func (e *pluginConfig) Check() string {
 	return ""
 }
 
-// pluginConfigDialog is one field per setting; a saved secret keeps, replaces
-// or clears its value.
-func pluginConfigDialog(c *ui.Context, m *Model) {
+// PackageConfigurationDialog is one field per setting; a saved secret keeps,
+// replaces or clears its value. The Plugins and Connectors pages draw it;
+// elsewhere, as a package's own page whose header opens its settings, the
+// live runtime's dialog hook does.
+func PackageConfigurationDialog(c *ui.Context, m *Model) {
 	e := &m.config
 	p := m.pkg(e.id)
-	if !e.open || p == nil {
+	if !e.open || p == nil && e.name == "" {
 		return
+	}
+	name := e.name
+	if name == "" {
+		name = p.Name
 	}
 	pal := theme.Of(c)
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	title := t("plugins_settings_title")
 	kit.Dialog(c.Key("plugin-config"), &e.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Text(c, p.Name+" · "+t("plugins_settings_description")).FontSize(14).TextColor(pal.MutedForeground)
+		ui.Text(c, name+" · "+t("plugins_settings_description")).FontSize(14).TextColor(pal.MutedForeground)
+		if len(e.tabs) > 0 {
+			titles := make([]string, len(e.tabs))
+			for i, tab := range e.tabs {
+				titles[i] = tab.Title
+			}
+			e.tab = min(max(e.tab, 0), len(e.tabs)-1)
+			kit.Segmented(c, "tabs", &e.tab, titles, kit.SegmentedProps{Block: true}).Disabled(e.pending)
+		}
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			if len(e.fields) == 0 {
 				ui.Text(c, t("plugins_settings_none")).FontSize(14).TextColor(pal.MutedForeground)
 			}
-			for i := range e.fields {
+			// A required setting is checked on Save, as a toast names it,
+			// not marked under every field.
+			for _, i := range e.visible() {
 				f := &e.fields[i]
 				label := f.Title
-				hint := ""
-				if f.Required {
-					hint = t("plugins_settings_required")
-				}
-				kit.Field(c, f.Name, label, hint, func() {
+				kit.Field(c, f.Name, label, "", func() {
 					switch f.Kind {
 					case "bool":
 						on := f.Value == "true"
@@ -346,6 +365,23 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 						chosen := slices.Index(f.Options, f.Value)
 						if pick(c, "select", label, &chosen, f.Options, e.pending).FillWidth().Changed() {
 							f.Value = f.Options[chosen]
+						}
+					case "effort":
+						// The efforts the chosen model takes, after following
+						// the model's own; a level it does not take falls back.
+						options, labels := []string{""}, []string{t("plugins_settings_follow_model")}
+						for _, model := range e.fields {
+							if model.Name == f.Model {
+								options = append(options, f.Efforts[model.Value]...)
+								labels = append(labels, f.Efforts[model.Value]...)
+							}
+						}
+						if !slices.Contains(options, f.Value) {
+							f.Value = ""
+						}
+						chosen := slices.Index(options, f.Value)
+						if pick(c, "select", label, &chosen, labels, e.pending).FillWidth().Changed() {
+							f.Value = options[chosen]
 						}
 					case "model":
 						// A model a package asks for: the models the field offers,
@@ -397,6 +433,9 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 						}
 					}
 				})
+				return
+			}
+			if p == nil {
 				return
 			}
 			saved := Stored[[]preview.Setting]{Saved: p.Settings, Draft: e.fields}
@@ -664,4 +703,34 @@ func releaseNotes(c *ui.Context, notes string) {
 			}
 		}
 	})
+}
+
+// visible are the indexes of the fields the chosen tab shows, as the
+// reference's configuration tabs: its fields in its order, only its Enabled
+// field while that is off, then the fields no tab holds. Without tabs, all.
+func (e *pluginConfig) visible() []int {
+	index := func(name string) int {
+		return slices.IndexFunc(e.fields, func(f preview.Setting) bool { return f.Name == name })
+	}
+	if len(e.tabs) == 0 {
+		out := make([]int, len(e.fields))
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	tab := e.tabs[min(max(e.tab, 0), len(e.tabs)-1)]
+	on := tab.Enabled == "" || index(tab.Enabled) >= 0 && e.fields[index(tab.Enabled)].Value == "true"
+	var out []int
+	for _, name := range tab.Fields {
+		if i := index(name); i >= 0 && (on || name == tab.Enabled) {
+			out = append(out, i)
+		}
+	}
+	for i, f := range e.fields {
+		if !slices.ContainsFunc(e.tabs, func(tab viewmodel.SettingsTab) bool { return slices.Contains(tab.Fields, f.Name) }) {
+			out = append(out, i)
+		}
+	}
+	return out
 }

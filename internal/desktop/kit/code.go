@@ -113,6 +113,12 @@ type CodeOptions struct {
 	// Editable lets the text be edited, with the caret showing, as file
 	// tabs; the edits stay in the view.
 	Editable bool
+	// Wrap breaks long lines at the view's width instead of past it, from
+	// the view's first frame: a file tab's own wrap toggle keeps its choice.
+	Wrap bool
+	// Fill makes the view as high as box and scroll its own lines, so the
+	// editor's find bar stays at its top: a file's preview.
+	Fill bool
 }
 
 // Code is an editor of text, read-only unless Editable, as high as its
@@ -124,7 +130,7 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element 
 		text = strings.TrimRight(text, "\r\n")
 	}
 	v := ui.Local(box, codeView{}, func() codeView {
-		st := &editor.State{Buffer: editor.NewBuffer(text), ReadOnly: !o.Editable, FitContent: true, NoScrollbars: true,
+		st := &editor.State{Buffer: editor.NewBuffer(text), ReadOnly: !o.Editable, FitContent: !o.Fill, NoScrollbars: !o.Fill, SoftWrap: o.Wrap,
 			NoActiveLine: true, NoFolding: true, NoIndentGuides: true, Font: codeFont, LineHeight: codeLine}
 		st.Buffer.SetLanguage(o.Language)
 		if !o.Numbers {
@@ -151,7 +157,12 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element 
 		o.Bind(v.st)
 	}
 	var native ui.Element
-	box.Children(func() { native = editor.View(c, v.st).FillWidth() })
+	box.Children(func() {
+		native = editor.View(c, v.st).FillWidth()
+		if o.Fill {
+			native.Grow(1).MinHeight(0)
+		}
+	})
 	// An edit reaches the buffer with its input event, between frames as
 	// well as inside the view: Changed hears of every version once.
 	if now := v.st.Buffer.Version(); now != v.version {

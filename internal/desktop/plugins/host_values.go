@@ -338,3 +338,22 @@ func hostNativeError(module, operation string, err error) error {
 	}
 	return fmt.Errorf("`%s.%s`: %w", module, operation, err)
 }
+
+// PublicToolResult is a tool's result as a script reads it: a Node output
+// takes the scripts' public form, and any other value, or an output scripts
+// may not read in that form, stays as the model received it.
+func PublicToolResult(result json.RawMessage) json.RawMessage {
+	var output protocol.Output
+	if json.Unmarshal(result, &output) != nil {
+		return result
+	}
+	value, err := publicHostOutput(output)
+	if err != nil {
+		return result
+	}
+	body, err := json.Marshal(value)
+	if err != nil {
+		return result
+	}
+	return body
+}

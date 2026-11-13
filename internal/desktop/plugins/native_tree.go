@@ -95,6 +95,9 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 		binding.emit("tree", event)
 	}
 	externalFiles := nativeProp(props, "external_files", false)
+	// open:"double" opens a leaf on a double click, a click only selecting
+	// it, as a file manager does; a click opens it otherwise.
+	doubleOpen := nativeProp(props, "open", "click") == "double"
 	palette := theme.Of(view)
 	root := ui.Scroll(view).Fill().MinWidth(0)
 	root.ContextMenu(func(menu *ui.Menu) {
@@ -201,11 +204,15 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 						if modifiers&(ui.Shift|ui.Cmd|ui.Ctrl) == 0 {
 							if open != nil {
 								*open = !*open
-							} else {
+							} else if !doubleOpen {
 								emit(item.ID, "open", nil)
 							}
 						}
-					} else if row.Focused() && state.cursor != item.ID {
+					}
+					if doubleOpen && open == nil && row.DoubleClicked() {
+						emit(item.ID, "open", nil)
+					}
+					if !row.Clicked() && row.Focused() && state.cursor != item.ID {
 						state.cursor = item.ID
 						modifiers := view.Modifiers()
 						emit(item.ID, "select", map[string]any{"shift": modifiers&ui.Shift != 0, "additive": modifiers&(ui.Cmd|ui.Ctrl) != 0})
