@@ -29,7 +29,13 @@ func NewTranslationBounded(ctx context.Context, bundle ScriptBundle, budget time
 	if err != nil {
 		return nil, err
 	}
-	return &Translation{runtime: runtime, timeout: budget}, nil
+	session := &Translation{runtime: runtime, timeout: budget}
+	if entry := runtime.memory; entry != nil {
+		entry.tracker.mu.Lock()
+		entry.idle = session.sampleMemory
+		entry.tracker.mu.Unlock()
+	}
+	return session, nil
 }
 
 func Translate(ctx context.Context, bundle ScriptBundle, handler string, input any, maxBytes int, budget time.Duration) (json.RawMessage, error) {
@@ -47,6 +53,8 @@ func (session *Translation) HasExport(handler string) (bool, error) {
 	if session.runtime == nil || session.failed {
 		return false, scriptInvalid("plugin translation failed")
 	}
+	session.runtime.memory.executing(true)
+	defer session.runtime.memoryIdle()
 	session.runtime.deadline = scriptTranslationDeadline(session.runtime.ctx, session.timeout)
 	stop, err := session.runtime.begin()
 	if err != nil {
@@ -109,4 +117,16 @@ func scriptTranslationDeadline(ctx context.Context, budget time.Duration) time.T
 		return contextual
 	}
 	return deadline
+}
+
+// sampleMemory takes over an idle runtime only while its call mutex is free.
+// Diagnostics never wait for a model stream or run JavaScript themselves.
+func (session *Translation) sampleMemory() {
+	if !session.mu.TryLock() {
+		return
+	}
+	defer session.mu.Unlock()
+	if session.runtime != nil {
+		session.runtime.measureMemory()
+	}
 }

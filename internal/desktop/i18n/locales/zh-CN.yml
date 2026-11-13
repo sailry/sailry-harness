@@ -2266,3 +2266,28 @@ python_validating: 检查依赖
 port_count: '%{count} 个端口'
 queue_messages_one: 1 条消息排队
 queue_messages_count: '%{count} 条消息排队'
+settings_ram: 内存占用
+ram_heap: 堆
+ram_objects: 存活对象
+ram_fragmented: 碎片
+ram_free: 空闲
+ram_stacks: 栈
+ram_goroutine_stacks: 协程栈
+ram_system_stacks: 系统栈
+ram_runtime: 运行时
+ram_allocator: 分配器
+ram_collector: 回收器元数据
+ram_profiling: 性能分析
+ram_other: 其他
+ram_plugins: 插件内存（估算）
+ram_plugins_estimate: 当前窗口与本机后台的 JavaScript 堆
+ram_plugins_view: 界面
+ram_plugins_callback: 回调
+ram_plugins_tool: 工具
+ram_plugins_model: 模型
+ram_plugins_pending: 尚未采样
+ram_plugins_partial: '%{bytes} · 部分样本'
+ram_plugins_idle: 无活动 JavaScript 运行时
+ram_plugins_busy: 运行中
+ram_plugins_sampled: 采样于 %{time}
+ram_plugins_error: 无法读取插件内存

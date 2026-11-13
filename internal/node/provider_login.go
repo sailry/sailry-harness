@@ -165,6 +165,7 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			if stopped {
 				return
 			}
+			operation = node.plugins.memory.Context(operation, capture.Target.Package, "callback")
 			result, err := authorization.Run(operation, authorization.Input{
 				Declaration: capture.Target.Declaration, Fields: capture.Target.Fields, Redirect: redirect, Callback: returned, Bundle: bundle,
 				Client: node.auth.client,
@@ -382,6 +383,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		return err
 	}
 	target := renewal.Capture.Target
+	ctx = node.plugins.memory.Context(ctx, target.Package, "callback")
 	bundle, err := node.providerBundle(ctx, target)
 	transport := &renewalTransport{base: node.auth.client.Transport}
 	client := *node.auth.client

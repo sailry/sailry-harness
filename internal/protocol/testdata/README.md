@@ -41,8 +41,9 @@ including the explicit `set_session_team` rename of `SetSessionExecution`: the
 `bind_connection_session`, `validate_provider`, `read_catalog_status`,
 `read_file_checkpoint`).
 The Go v1 inventory appends the documented `apply_git_hunk` extension for native
-working-tree review, `synthesize_speech` for read-aloud and `count_feature` for
-the desktop's anonymous feature counters. Their strict
+working-tree review, `synthesize_speech` for read-aloud, `count_feature` for
+the desktop's anonymous feature counters and `read_plugin_memory` for live
+Node JavaScript diagnostics. Their strict
 command/result cases live in the grouped Go tests; the JSON fixture identities stay intact.
 Unknown and malformed input cases remain table entries in the Go tests instead
 of round-trip fixture files.

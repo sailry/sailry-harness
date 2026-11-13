@@ -2805,3 +2805,27 @@ func TestPermissionRowActions(t *testing.T) {
 		t.Fatalf("an unavailable row requested %v", requested)
 	}
 }
+
+// TestExperimentalMemory asserts the memory map shows under its heading
+// only while the runtime projects classes into it.
+func TestExperimentalMemory(t *testing.T) {
+	m := &Model{}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		experimental(c, m)
+	}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	if tt.HasText(i18n.In("en", "settings_ram")) {
+		t.Fatal("the memory map shows with no classes")
+	}
+	m.Memory = []kit.TreemapGroup{{ID: "ram_heap", Label: "Heap", Detail: "64.0 MiB", Items: []kit.TreemapItem{{ID: "ram_objects", Label: "Live objects", Detail: "60.0 MiB", Value: 60 << 20}}}}
+	for range 3 {
+		tt.Frame()
+	}
+	for _, text := range []string{i18n.In("en", "settings_ram"), "Live objects", "64.0 MiB"} {
+		if !tt.HasText(text) {
+			t.Fatalf("missing %q: %q", text, tt.Texts())
+		}
+	}
+}

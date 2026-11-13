@@ -33,6 +33,7 @@ type pluginInvocation struct {
 
 type pluginControls struct {
 	manager      *plugins.Manager
+	memory       *plugins.MemoryTracker
 	python       *python.Manager
 	pythonWake   chan struct{}
 	preparations []protocol.PythonPreparation
@@ -59,6 +60,7 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 	}
 	controls := &pluginControls{
 		manager:       plugins.NewManager(node.profile.Ownership.Path),
+		memory:        plugins.NewMemoryTracker(),
 		mcp:           mcp.New(context.WithoutCancel(node.ctx), options),
 		programs:      program.NewPool(programLimit, programIdle),
 		installations: installations.New(node.tasks, node.ID(), node.closed),
@@ -312,6 +314,7 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 	node.plugins.invocations[identity] = invocation
 	node.plugins.mu.Unlock()
 	defer func() { node.plugins.mu.Lock(); delete(node.plugins.invocations, identity); node.plugins.mu.Unlock() }()
+	operation = node.plugins.memory.Context(operation, scope.Package, "callback")
 	value, err := plugins.RunCallback(operation, plugins.ScriptBundle{Entry: host.Entry, Files: files}, handler, input,
 		plugins.ScriptEnvironment{Context: scope, Target: node.ID(), Deadline: time.Now().Add(time.Minute)}, readOnly,
 		func(ctx context.Context, command protocol.Request) (protocol.Output, error) {

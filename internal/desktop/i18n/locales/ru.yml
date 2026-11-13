@@ -2266,3 +2266,28 @@ python_validating: Проверка зависимостей
 port_count: '%{count} ports'
 queue_messages_one: 1 queued message
 queue_messages_count: '%{count} queued messages'
+settings_ram: Memory usage
+ram_heap: Heap
+ram_objects: Live objects
+ram_fragmented: Fragmented
+ram_free: Free
+ram_stacks: Stacks
+ram_goroutine_stacks: Goroutine stacks
+ram_system_stacks: System stacks
+ram_runtime: Runtime
+ram_allocator: Allocator
+ram_collector: Collector metadata
+ram_profiling: Profiling
+ram_other: Other
+ram_plugins: Plugin memory (estimated)
+ram_plugins_estimate: JavaScript heap in this window and local backend
+ram_plugins_view: Interface
+ram_plugins_callback: Callbacks
+ram_plugins_tool: Tools
+ram_plugins_model: Models
+ram_plugins_pending: Not sampled
+ram_plugins_partial: '%{bytes} · partial'
+ram_plugins_idle: No active JavaScript runtime
+ram_plugins_busy: Running
+ram_plugins_sampled: Sampled %{time}
+ram_plugins_error: Could not read plugin memory

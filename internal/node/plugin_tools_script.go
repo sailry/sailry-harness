@@ -45,6 +45,7 @@ func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	scope := owner.scope
+	operation = owner.node.plugins.memory.Context(operation, scope.Package, "tool")
 	execution := &plugins.ScriptExecution{CallID: &identity, Mode: owner.invocation.Turn.Config.Mode, ReadOnly: readOnly, Turn: owner.state, Writes: owner.writes[identity]}
 	result, err := plugins.RunTool(operation, owner.bundle, handler, input, plugins.ScriptEnvironment{
 		Context: scope, Target: owner.node.ID(), Deadline: time.Now().Add(plugins.ScriptCallTimeout),
