@@ -1,6 +1,8 @@
 export const IconButton: {new(id:string,props:{icon:string;label:string;disabled?:boolean;selected?:boolean;tone?:'success'|'muted';variant?:'primary';circular?:boolean;size?:'small'|'medium';show_label?:boolean;full_width?:boolean;dropdown_caret?:boolean;/** Keystroke such as `secondary-b`, shown in the tooltip. */shortcut?:string}):import('gpui-kit').Element};
 export const SelectableRow: {new(id:string,props:{selected:boolean;variant?:'list'|'card';label?:string;disabled?:boolean;stripe?:boolean}):import('gpui-kit').Element};
 export const SelectableText: {new(id:string,props:{text:string}):import('gpui-kit').Element};
+/** A path of clickable segments, including the current segment. Long labels truncate; control events carry the zero-based segment index. */
+export const PathBar: {new(id:string,props:{segments:string[];disabled?:boolean}):import('gpui-kit').Element};
 export const Toggle: {new(id:string,props:{label:string;checked:boolean;disabled?:boolean;variant?:'button'|'checkbox';text?:string}):import('gpui-kit').Element};
 export function nextControlEvent():Promise<{id:string;value?:boolean|string|number|{icon:string;color:string}|{model:string;effort:import('sailry/sdk').Json}|{from:number;to:number;order:string[]};click_count?:number}>;
 export const ActionScope: {new(id:string,props:{close?:string}):import('gpui-kit').Element};

@@ -283,7 +283,11 @@ func (a *App) headerSide(c *ui.Context, f frame, end float32) {
 		// act, and is disabled, while the page has nothing to show there or
 		// the window has no room for the column: the choice stays and shows
 		// when there is room.
-		kit.IconButtonHint(c.Key("details"), icons.PanelRight, i18n.T(c, "details"), a.hint("panel.toggle"), HeaderButton, f.showsPanel).
+		label := i18n.T(c, "details")
+		if a.pluginDetails() && a.PluginDetailsLabel != "" {
+			label = a.PluginDetailsLabel
+		}
+		kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), HeaderButton, f.showsPanel).
 			Disabled(!f.fitted || !a.hasDetails()).OnClick(a.togglePanel)
 	})
 }

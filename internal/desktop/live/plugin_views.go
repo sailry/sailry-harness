@@ -78,7 +78,10 @@ type pluginMountedView struct {
 	headerBody     string
 	// details is what the page's Workspace gave the right column in the
 	// frame being drawn.
-	details func(*ui.Context) error
+	details            func(*ui.Context) error
+	navigation         func(*ui.Context) error
+	workspaceLayout    func() desktopplugins.WorkspaceLayout
+	projectedWorkspace desktopplugins.WorkspaceLayout
 	// detailsHeading is what those details gave the column's header.
 	detailsHeading  func() func(*ui.Context)
 	activityVisible func(bool)
@@ -418,6 +421,8 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 	}
 	if mounted.key.role == "navigation" {
 		native.Details = func(render func(*ui.Context) error) { mounted.details = render }
+		native.Navigation = func(render func(*ui.Context) error) { mounted.navigation = render }
+		mounted.workspaceLayout = native.WorkspaceLayout
 		mounted.detailsHeading = native.DetailsHeading
 	}
 	post := native.Post

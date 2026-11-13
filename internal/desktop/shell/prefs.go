@@ -34,8 +34,9 @@ type Prefs struct {
 	// to conversations, whose tabs the first conversation shown takes.
 	PanelOf string `json:"panelOf,omitempty"`
 	// Panels are the other conversations' panels (panels.go).
-	Panels    map[string]ConversationPanel `json:"panels,omitempty"`
-	Collapsed []string                     `json:"collapsed,omitempty"`
+	Panels           map[string]ConversationPanel    `json:"panels,omitempty"`
+	PluginWorkspaces map[string]PluginWorkspacePrefs `json:"pluginWorkspaces,omitempty"`
+	Collapsed        []string                        `json:"collapsed,omitempty"`
 	// SessionOrder is the preview's sidebar order, a session_order value; a
 	// profile keeps its own in its preferences.
 	SessionOrder string   `json:"sessionOrder,omitempty"`
@@ -103,8 +104,9 @@ func (a *App) prefs() Prefs {
 	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
-		Panels:   a.savedPanels(),
-		Features: a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
+		Panels:           a.savedPanels(),
+		PluginWorkspaces: a.savedPluginWorkspaces(),
+		Features:         a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
 		Panes: a.panes.Saved(), DiffSplit: a.DiffSplit, ListShare: a.ListShare,
 	}
 	if keeps(a.Panel.Active) {
@@ -130,6 +132,11 @@ func (a *App) prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
+	a.pluginWorkspaces = make(map[string]*PluginWorkspacePrefs, len(p.PluginWorkspaces))
+	for key, value := range p.PluginWorkspaces {
+		value.Width = min(max(value.Width, 0), 480)
+		a.pluginWorkspaces[key] = &value
+	}
 	a.DiffSplit, a.ListShare = p.DiffSplit, p.ListShare
 	a.restorePanels(p)
 	a.Sidebar.SetCollapsed(p.Collapsed)

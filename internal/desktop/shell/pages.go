@@ -110,7 +110,11 @@ func (a *App) pluginDetails() bool {
 
 // RevealDetails shows the right column again after its toggle folded it.
 func (a *App) RevealDetails() {
-	a.PanelOpen, a.pluginDetailsFolded = true, false
+	if a.Page == PluginPage {
+		a.pluginWorkspacePrefs().Folded = false
+		return
+	}
+	a.PanelOpen = true
 }
 
 // featurePage is a rail feature's page: Files and Git as the project's

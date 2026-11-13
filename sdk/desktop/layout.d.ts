@@ -1,4 +1,6 @@
 export const PanelHeader: { new(id: string, props?: { padding?: number; gap?: number; surface?: "content"; size?: "row"; draggable?: boolean; bordered?: boolean }): import("gpui-kit").Element };
+/** Children are main content, optional details, and optional resource navigation. The Shell owns the columns and their toggles. */
+export const Workspace: { new(id: string, props?: { has_details?: boolean; details_label?: string; default_details_width?: number; min_navigation_width?: number; min_details_width?: number; navigation?: "default" | "none" | "resource" }): import("gpui-kit").Element };
 /** List and card share content; fill_height controls either variant independently. */
 export const EmptyState: { new(id: string, props: { icon: string; label: string; variant?: "panel" | "list" | "card"; fill_height?: boolean; vertical_align?: "start" | "center" }): import("gpui-kit").Element };
 /** Optional plain body precedes rows in the same scroll region. Body and row text are bounded to 32768 UTF-8 bytes. Children form a fixed, right-aligned footer. */

@@ -161,6 +161,9 @@ func (r *Runtime) selectPluginView(id string) bool {
 		}
 		return false
 	}
+	// The next page has not projected its slots yet. Do not let the Shell
+	// invoke the previous page's navigation before that projection runs.
+	root.showPluginDetails(nil)
 	key := pluginMountKey{scope: pluginScopeIdentity(entry.owner.controller.Target(), entry.scope), role: "navigation", name: entry.scope.Package.Name}
 	if previous := root.pluginViews.mounts[key]; previous != nil && previous.failure != nil {
 		root.dropPluginView(previous, true)
@@ -186,7 +189,7 @@ func (r *Runtime) renderPluginPage(view *ui.Context, id string) {
 	}
 	mounted := root.ensurePluginView(view, entry.owner, entry.info, entry.scope, "navigation", nil)
 	if mounted != nil {
-		mounted.details = nil
+		mounted.details, mounted.navigation = nil, nil
 	}
 	if !root.renderMountedPlugin(view, mounted) {
 		root.showPluginDetails(nil)
@@ -196,26 +199,65 @@ func (r *Runtime) renderPluginPage(view *ui.Context, id string) {
 	root.showPluginDetails(mounted)
 }
 
-// showPluginDetails hands the Shell's right column the details the page's
-// Workspace supplied in this frame. The Shell sized the frame before the
-// page drew, so a change of whether there are any asks for another frame.
+// showPluginDetails projects the Workspace's slots after drawing its content.
+// The left column precedes the page and uses the preceding snapshot; the right
+// column follows it and uses this one. Neither child is drawn inside the page.
+// Each closure checks its mount and selected feature before using its snapshot.
 func (r *Runtime) showPluginDetails(mounted *pluginMountedView) {
-	var details, heading func(*ui.Context)
+	var details, navigation, heading func(*ui.Context)
+	label := ""
+	feature := r.App.PluginFeature()
+	current := func() bool {
+		return mounted != nil && mounted.failure == nil && r.App.Page == shell.PluginPage && r.App.PluginFeature() == feature && r.pluginViewCurrent(mounted)
+	}
+	if mounted != nil && mounted.workspaceLayout != nil {
+		layout := mounted.workspaceLayout()
+		r.App.SetPluginWorkspace(feature+"/"+layout.ID, layout.MinNavigationWidth, layout.MinDetailsWidth, layout.DefaultDetailsWidth)
+		label = layout.DetailsLabel
+		if layout != mounted.projectedWorkspace {
+			mounted.projectedWorkspace = layout
+			r.wake()
+		}
+	}
+	if mounted != nil && mounted.navigation != nil {
+		render := mounted.navigation
+		navigation = func(view *ui.Context) {
+			if !current() {
+				return
+			}
+			target := view.Key(mounted.generation)
+			ui.Column(target).Fill().MinWidth(0).MinHeight(0).Disabled(mounted.disconnected).DimDisabled(false).Children(func() {
+				if err := render(target); err != nil {
+					r.failPluginView(view, mounted, err, "plugin_callback_failed")
+				}
+			})
+		}
+	}
 	if mounted != nil && mounted.details != nil {
 		heading = func(view *ui.Context) {
+			if !current() || mounted.detailsHeading == nil {
+				return
+			}
 			if draw := mounted.detailsHeading(); draw != nil {
 				draw(view.Key(mounted.generation))
 			}
 		}
 		render := mounted.details
 		details = func(view *ui.Context) {
-			if err := render(view.Key(mounted.generation)); err != nil {
-				r.failPluginView(view, mounted, err, "plugin_callback_failed")
+			if !current() {
+				return
 			}
+			target := view.Key(mounted.generation)
+			ui.Column(target).Fill().MinWidth(0).MinHeight(0).Disabled(mounted.disconnected).DimDisabled(false).Children(func() {
+				if err := render(target); err != nil {
+					r.failPluginView(view, mounted, err, "plugin_callback_failed")
+				}
+			})
 		}
 	}
-	if (details == nil) != (r.App.PluginDetails == nil) {
+	if (details == nil) != (r.App.PluginDetails == nil) || (navigation == nil) != (r.App.PluginNavigation == nil) || label != r.App.PluginDetailsLabel {
 		r.wake()
 	}
 	r.App.PluginDetails, r.App.PluginDetailsHeader = details, heading
+	r.App.PluginNavigation, r.App.PluginDetailsLabel = navigation, label
 }

@@ -18,6 +18,7 @@ import (
 )
 
 func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
+	mounted.focusContext = context
 	if mounted.suspended && !mounted.closed {
 		if mounted.last == nil {
 			return ui.Box(context), nil
@@ -53,11 +54,27 @@ func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElemen
 		return ui.Element{}, errors.New("plugin element is missing")
 	}
 	context = context.Key(mounted.widgetKey(element))
-	element.RenderChild = mounted.renderElement
+	previousKeys := mounted.keyboard
+	keys := previousKeys
+	if down, up := element.Callbacks["on_key_down"], element.Callbacks["on_key_up"]; down.ID != 0 || up.ID != 0 {
+		keys = append(append([]nativeKeyCallbacks{}, previousKeys...), nativeKeyCallbacks{down: down, up: up})
+	}
+	mounted.keyboard = keys
+	defer func() { mounted.keyboard = previousKeys }()
+	element.keyInput = mounted.keyInput(keys)
+	element.RenderChild = func(view *ui.Context, child *NativeElement) (ui.Element, error) {
+		before := mounted.keyboard
+		mounted.keyboard = keys
+		defer func() { mounted.keyboard = before }()
+		return mounted.renderElement(view, child)
+	}
 	var result ui.Element
 	var resultErr error
 	parent := mounted.scrollAxes(element)
 	children := func() {
+		before := mounted.keyboard
+		mounted.keyboard = keys
+		defer func() { mounted.keyboard = before }()
 		mounted.scrolling = append(mounted.scrolling, parent)
 		truncating := mounted.truncating
 		mounted.truncating = truncating || slices.ContainsFunc(element.Styles, func(style ElementStyle) bool {
@@ -115,6 +132,9 @@ func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElemen
 	}
 	if callback, exists := element.Callbacks["on_click"]; exists {
 		result.OnClick(func() { emit(callback, json.RawMessage(`{}`)) })
+	}
+	if element.keyInput != nil && (element.Module == "gpui-kit" || element.Module == "gpui-base" || element.Module == "gpui-component") {
+		result.HandleInput(element.keyInput)
 	}
 	if bind := mounted.runtime.bindings.BindActions; bind != nil && !mounted.suspended {
 		bind(context, result, *element, emit)

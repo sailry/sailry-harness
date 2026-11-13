@@ -98,6 +98,9 @@ type App struct {
 	// column and leaves the choice as it is.
 	NavOpen  bool
 	NavWidth float32
+	// PluginNavigation is the resource navigation supplied by the mounted
+	// package page. The Shell owns its position, width and fold toggle.
+	PluginNavigation func(*ui.Context)
 	// navigated is whether the last frame's page had a side column.
 	navigated bool
 	// PanelOpen is whether the user wants the right panel; a narrow window
@@ -110,8 +113,14 @@ type App struct {
 	// PluginDetailsHeader draws what those details give the column's
 	// header segment: their title, then their own actions.
 	PluginDetailsHeader func(*ui.Context)
-	pluginDetailsFolded bool
+	PluginDetailsLabel  string
 	PanelWidth          float32
+
+	pluginWorkspace      string
+	pluginWorkspaces     map[string]*PluginWorkspacePrefs
+	pluginNavigationMin  float32
+	pluginDetailsMin     float32
+	pluginDetailsDefault float32
 	// DiffSplit is the window's diff layout, side by side when set: the
 	// button at the end of a diff's footer writes it (kit.DiffSplit), and
 	// it is saved with the window's other choices (prefs.go).
@@ -353,12 +362,13 @@ type frame struct {
 // rail, as the reference's feature_navigation: the sessions on the
 // conversation and on the host and project pages opened from it, the
 // sections on Settings. Activity, Files, Git, Market, the notification
-// center and a plugin's page have none: a plugin lays out its own columns
-// inside its page.
+// center have none. A package page can supply its own resource navigation.
 func (a *App) HasNavigation() bool {
 	switch a.Page {
 	case ConversationPage, HostPage, ProjectPage, SettingsPage:
 		return true
+	case PluginPage:
+		return a.PluginNavigation != nil
 	}
 	return false
 }
@@ -380,7 +390,7 @@ func (a *App) toggleNav() {
 // frame.
 func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	w, _ := c.Size()
-	f := frame{navWidth: ClampNav(a.NavWidth)}
+	f := frame{navWidth: a.clampNavigation(a.NavWidth)}
 	navTarget := float32(0)
 	if a.NavShown() {
 		navTarget = 1
@@ -397,9 +407,12 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	// sidebar's motion does not toggle it.
 	nav := f.navWidth * navTarget
 	f.panelW = ClampPanel(a.PanelWidth, w, nav)
+	if a.pluginDetails() {
+		f.panelW = a.clampPluginDetails(a.pluginWorkspacePrefs().Width, w, nav)
+	}
 	f.fitted = PanelFits(w, nav, f.panelW)
 	f.showsPanel = (a.Page == ConversationPage && a.PanelOpen || a.Page == HostPage && a.Metrics || a.extensionDetails() ||
-		a.pluginDetails() && !a.pluginDetailsFolded) && f.fitted
+		a.pluginDetails() && !a.pluginWorkspacePrefs().Folded) && f.fitted
 	target := float32(0)
 	if f.showsPanel {
 		target = 1
@@ -422,13 +435,15 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 		kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
 			if a.Page == SettingsPage {
 				settings.Nav(c, a.Settings)
+			} else if a.Page == PluginPage && a.PluginNavigation != nil {
+				a.PluginNavigation(c)
 			} else {
 				sidebar.View(c, a.Sidebar)
 			}
 		})
 	})
 	if f.nav >= 0.999 {
-		resize(c, "nav-handle", i18n.T(c, "sidebar_toggle"), 1, &a.NavWidth, NavWidth, ClampNav)
+		resize(c, "nav-handle", i18n.T(c, "sidebar_toggle"), 1, &a.NavWidth, NavWidth, a.clampNavigation)
 	}
 }
 
@@ -441,9 +456,15 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 	p := theme.Of(c)
 	if f.details >= 0.999 {
 		w, _ := c.Size()
-		resize(c, "panel-handle", i18n.T(c, "details"), -1, &a.PanelWidth, PanelWidth, func(v float32) float32 {
+		width, reset := &a.PanelWidth, float32(PanelWidth)
+		clamp := func(v float32) float32 {
 			return ClampPanel(v, w, f.navWidth*f.nav)
-		})
+		}
+		if a.pluginDetails() {
+			width, reset = &a.pluginWorkspacePrefs().Width, a.pluginDetailsDefault
+			clamp = func(v float32) float32 { return a.clampPluginDetails(v, w, f.navWidth*f.nav) }
+		}
+		resize(c, "panel-handle", i18n.T(c, "details"), -1, width, reset, clamp)
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
 		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.panelW).Shrink(0), fill, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
@@ -453,7 +474,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				return
 			}
 			if a.pluginDetails() {
-				a.pluginDetailsFolded = true
+				a.pluginWorkspacePrefs().Folded = true
 				a.mainPane.Focus(c)
 				return
 			}
@@ -513,7 +534,7 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 		h.Justify(ui.Center).Children(func() { ui.Box(c).Width(2).FillHeight().Background(p.Ring.Alpha(0.5)) })
 	}
 	if dx, _, ok := h.Dragged(); ok {
-		*width = clamp(*width + dir*dx)
+		*width = clamp(clamp(*width) + dir*dx)
 	}
 	if h.DoubleClicked() {
 		*width = clamp(reset)
@@ -530,7 +551,8 @@ func (a *App) togglePanel() {
 		return
 	}
 	if a.pluginDetails() {
-		a.pluginDetailsFolded = !a.pluginDetailsFolded
+		state := a.pluginWorkspacePrefs()
+		state.Folded = !state.Folded
 		return
 	}
 	if a.Page == HostPage {

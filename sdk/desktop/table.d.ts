@@ -1,4 +1,4 @@
-/** Native Kit table. Page size is 50; scalar text is supplied exactly by the caller. */
+/** Native Kit table. Page size is 50; scalar text is supplied exactly by the caller. Header defaults to true and remains visible above the empty state when columns exist. Stripe alternates semantic row fills while preserving hover and selection. */
 export type TableTone="primary"|"muted"|"warning"|"chart_2"|"chart_3"|"chart_4";
 /** One cell line: optional leading monogram badge (or `badge_icon` on the same surface) and icon (colored by `tone`), the text (colored by `text_tone`), a muted trailing note, a bordered chip and a proportion meter (value 0-100, width 16-240, default 36; `fill` stretches it across the remaining line). */
 export type TableLine={text:string;icon?:string;tone?:TableTone;text_tone?:TableTone;badge?:string;badge_icon?:string;note?:string;chip?:string;meter?:{value:number;label:string;tone?:TableTone;icon?:string;width?:number;fill?:boolean}};

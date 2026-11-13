@@ -63,13 +63,13 @@ globalThis.__desktop = (() => {
     if(name==="id") target.Props.id=String(args[0]);
     target.Styles.push({name,arguments:args.map(serial)});
   };
-  const invoke = (body,args=[],kind="event",async=false,view=currentView) => {
+  const invoke = (body,args=[],kind="event",async=false,view=currentView,input=false) => {
     check();
     if(!liveView(view)) throw new Error("retained view is released");
-    const previous=phase, previousView=currentView, token={active:true};
+    const previous=phase, previousView=currentView, token={active:true,stopped:false};
     phase=kind;currentView=view;
     const context=makeContext(token,async,view);
-    try {return body(...args,context);}
+    try {const value=body(...args,context);return input?token.stopped:value;}
     finally {token.active=false;phase=previous;currentView=previousView;}
   };
   const makeContext = (token,async,view=currentView) => {
@@ -86,8 +86,8 @@ globalThis.__desktop = (() => {
       dirty=true;__desktop_notify();
     };
     context.phase=()=>{valid();return async&&phase==="none"?"task":phase;};
-    context.stop_propagation=()=>{valid();};
-    context.propagate=()=>{valid();};
+    context.stop_propagation=()=>{valid();token.stopped=true;};
+    context.propagate=()=>{valid();token.stopped=false;};
     return context;
   };
   const taskOwner=options=>{
@@ -149,6 +149,8 @@ globalThis.__desktop = (() => {
     configure(names){registered=new Set(names);},
     component(module,name,id,props) {
       if(!registered.has(module+"/"+name)) throw new Error("native component "+module+"."+name+" is unavailable");
+      if(module==="sailry/ui" && name==="PathBar" && (!Array.isArray(props?.segments) || !props.segments.every(segment=>typeof segment==="string")))
+        throw new TypeError("PathBar segments must be an array of strings");
       return create(name,{...props,id},module);
     },
     mount(Class) {
@@ -176,6 +178,11 @@ globalThis.__desktop = (() => {
       const callback=callbacks.get(id);
       if(!callback || callback.generation!==owner) throw new Error("event callback belongs to a retired render generation");
       return invoke(callback.handler,[event??{}],"event",false,callback.view);
+    },
+    dispatchInput(owner,id,event) {
+      const callback=callbacks.get(id);
+      if(!callback || callback.generation!==owner || !liveView(callback.view)) return false;
+      return invoke(callback.handler,[event??{}],"event",false,callback.view,true);
     },
     timer(id) {
       const task=tasks.get(id);
@@ -269,9 +276,9 @@ globalThis.__desktop = (() => {
     return child;
   };
   globalThis.__focus_handle_new=()=>{const id=++nextTask;focusHandles.add(id);return id;};
-  globalThis.__focus_focus=id=>{if(!focusHandles.has(id)) throw new Error("focus handle is released");focused=id;dirty=true;__desktop_notify();};
-  globalThis.__focus_is_focused=id=>focusHandles.has(id)&&focused===id;
-  globalThis.__focus_release=id=>{focusHandles.delete(id);if(focused===id) focused=null;};
+  globalThis.__focus_focus=id=>{if(!focusHandles.has(id)) throw new Error("focus handle is released");__desktop_focus("focus",id);focused=id;dirty=true;__desktop_notify();};
+  globalThis.__focus_is_focused=id=>focusHandles.has(id)&&__desktop_focus("focused",id);
+  globalThis.__focus_release=id=>{__desktop_focus("release",id);focusHandles.delete(id);if(focused===id) focused=null;};
   globalThis.__bind_keys=bindings=>bindings.map(binding=>({...binding}));
   globalThis.__view_new=(Class,props)=>{
     if(phase==="render"||phase==="layout") throw new Error("retained views cannot be created during render");

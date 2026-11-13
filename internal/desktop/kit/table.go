@@ -41,15 +41,25 @@ func TableHeight(c *ui.Context, rows int, rowHeight float32) float32 {
 // TableCell is a cell of a framed table: a column that makes its row
 // rowHeight high with the padding MyGo gives the cell, its content centered
 // in it. It draws the line under its row across that padding unless last,
-// which the table's last row is.
-func TableCell(c *ui.Context, rowHeight float32, last bool) ui.Element {
+// which the table's last row is. An optional background fills the whole cell,
+// including MyGo's padding. It reads the laid-out bounds so a data table's
+// alternating fill can yield to the hovered or chosen row.
+func TableCell(c *ui.Context, rowHeight float32, last bool, background ...func(ui.Rect) ui.Color) ui.Element {
 	p := theme.Of(c)
 	_, pad := tableMetrics(c)
+	padX := theme.Neutral(c).Space(2.5)
 	cell := ui.Column(c).MinHeight(rowHeight - 2*pad).AlignSelf(ui.Stretch).Justify(ui.Center)
-	if !last {
+	if !last || len(background) != 0 {
 		cell.Draw(func(painter *ui.Painter, bounds ui.Rect) {
+			if len(background) != 0 {
+				if fill := background[0](bounds); fill != ui.Transparent {
+					painter.Fill(ui.Rect{X: bounds.X - padX, Y: bounds.Y - pad, W: bounds.W + 2*padX, H: bounds.H + 2*pad}, fill, 0)
+				}
+			}
 			// The cell's own box clips the line to the column.
-			painter.Fill(ui.Rect{X: bounds.X - 4096, Y: bounds.Y + bounds.H + pad - 1, W: 8192, H: 1}, p.Border, 0)
+			if !last {
+				painter.Fill(ui.Rect{X: bounds.X - 4096, Y: bounds.Y + bounds.H + pad - 1, W: 8192, H: 1}, p.Border, 0)
+			}
 		})
 	}
 	return cell

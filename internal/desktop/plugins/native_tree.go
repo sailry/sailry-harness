@@ -133,7 +133,9 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 					active := slices.Contains(selected, item.ID) && !decoration.Group
 					if variant == "branch" {
 						left = 8 + 20*float32(depth)
-						active = state.cursor == item.ID
+						if len(selected) == 0 {
+							active = state.cursor == item.ID
+						}
 					}
 					row.PaddingStart(left).AccessSelected(active)
 					if active {

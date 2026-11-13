@@ -102,7 +102,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
     `overlay.Lightbox` (a floating surface of their own);
     `input.KeyValueField`, `input.PasswordField`, `code.BranchPicker` (fixed
     English) and `media.AudioPlayer` (plays no file); the `chart` package
-    (charts use MyGo's `ui/chart`)
+    (charts use MyGo's `ui/chart`); `navigation.Crumbs` (its own overflow menu and unbounded long segments;
+    PathBar needs every segment to be actionable)
 - Custom rendering requires a verified framework gap and an explanation in a
   comment at the use. Right-click menus are OS-native; left-click menus use
   Kit menus or popovers.
@@ -148,6 +149,11 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   connection entry checks an uncertain opening)
 - Plugin page: a Retry icon button in a failed view's place, at the top
   left of the page (the failure's toast keeps Retry)
+- SSH files: the full title row, Parent directory button and bottom item
+  count (breadcrumbs and Edit path provide path navigation)
+- Database workspace: the catalog tree header and its inline Refresh button
+  (Refresh stays in the workspace header); the empty placeholder DataTable
+  behind execution history
 - Right panel: History and Documents as launcher or "+" entries (the tab kinds
   stay); a preview of PDF, Office or other formats MyGo cannot draw (Open uses
   the system's app, on Mobile too)

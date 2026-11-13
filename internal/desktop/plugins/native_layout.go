@@ -155,11 +155,18 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 			})
 		}), nil
 	case "PanelHeader":
-		header := ui.Row(view).FillWidth().MinHeight(36).PaddingX(nativeProp(props, "padding", float32(12))).Gap(nativeProp(props, "gap", float32(8))).Children(children)
-		if nativeProp(props, "bordered", false) {
-			header.Border(1, palette.Border)
+		height := float32(48)
+		if nativeProp(props, "size", "") == "row" {
+			height = 32
 		}
-		return header, nil
+		header := ui.Row(view).FillWidth().Height(height).Shrink(0).PaddingX(nativeProp(props, "padding", float32(12))).Gap(nativeProp(props, "gap", float32(8)))
+		if nativeProp(props, "bordered", false) {
+			header.BorderWidth(0, 0, 1, 0).BorderColor(palette.Border)
+		}
+		if nativeProp(props, "surface", "") == "content" {
+			header.Background(palette.Background)
+		}
+		return header.Children(children), nil
 	case "EmptyState":
 		// Kit's empty state, placed as the reference places its variants: a
 		// panel centers it in the space it is given, a list keeps its own
@@ -227,7 +234,7 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	case "Collapse", "CollapseSlot":
 		return binding.renderCollapse(view, element, identity, props, children)
 	case "Workspace":
-		return binding.renderWorkspace(view, element, props, children)
+		return binding.renderWorkspace(view, element, identity, props, children)
 	case "CardButton", "ComposedButton":
 		return binding.renderActivityButton(view, element, identity, props, children), nil
 	case "ClampedText":
@@ -250,17 +257,54 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	return ui.Element{}, hostInvalid("unknown native layout")
 }
 
-// workspaceNavigation is the width of a Workspace's resource column.
-const workspaceNavigation = 260
+// WorkspaceLayout is the current Workspace's column constraints. Widths are
+// interpreted by the Shell, which owns their saved, user-adjustable state.
+type WorkspaceLayout struct {
+	ID                  string
+	MinNavigationWidth  float32
+	MinDetailsWidth     float32
+	DefaultDetailsWidth float32
+	DetailsLabel        string
+}
+
+func (binding *NativeBinding) WorkspaceLayout() WorkspaceLayout { return binding.state.workspace }
 
 // renderWorkspace lays out a Workspace's children: its content, then the
 // details the Shell's right sidebar shows unless has_details is false, then a
-// resource column that stands before the content. A child with no place of
+// resource column supplied to the Shell's left sidebar. A child with no place of
 // its own stays under the content.
-func (binding *NativeBinding) renderWorkspace(view *ui.Context, element NativeElement, props map[string]json.RawMessage, children func()) (ui.Element, error) {
+func (binding *NativeBinding) renderWorkspace(view *ui.Context, element NativeElement, identity string, props map[string]json.RawMessage, children func()) (ui.Element, error) {
 	count := len(element.Children)
 	details := binding.Details != nil && count > 1 && nativeProp(props, "has_details", true)
 	navigation := count > 2 && nativeProp(props, "navigation", "none") == "resource"
+	binding.state.workspace = WorkspaceLayout{
+		ID:                  identity,
+		MinNavigationWidth:  nativeProp(props, "min_navigation_width", float32(200)),
+		MinDetailsWidth:     nativeProp(props, "min_details_width", float32(260)),
+		DefaultDetailsWidth: nativeProp(props, "default_details_width", float32(400)),
+		DetailsLabel:        nativeProp(props, "details_label", ""),
+	}
+	var navigationID uint64
+	if navigation {
+		navigationID = element.Children[2].ID
+	}
+	// The sidebar is built before the page, so it draws the previous
+	// snapshot once. A changed snapshot asks for one more frame; stable
+	// snapshots do not keep the window repainting.
+	if binding.state.navigationID != navigationID {
+		binding.state.navigationID = navigationID
+		if binding.Invalidate != nil {
+			binding.Invalidate()
+		}
+	}
+	if binding.Navigation != nil {
+		var render func(*ui.Context) error
+		if navigation {
+			child := element.Children[2:3]
+			render = func(target *ui.Context) error { return renderNativeChildren(target, element, child) }
+		}
+		binding.Navigation(render)
+	}
 	if binding.Details != nil {
 		if details {
 			child := element.Children[1:2]
@@ -289,18 +333,8 @@ func (binding *NativeBinding) renderWorkspace(view *ui.Context, element NativeEl
 		content = content[:1]
 	}
 	var renderErr error
-	result := ui.Row(view).Fill().MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-		if navigation {
-			width := max(nativeProp(props, "min_navigation_width", float32(0)), workspaceNavigation)
-			ui.Column(view.Key("navigation")).Width(width).Shrink(0).MinHeight(0).BorderWidth(0, 1, 0, 0).BorderColor(theme.Of(view).Border).Children(func() {
-				renderErr = renderNativeChildren(view, element, element.Children[2:3])
-			})
-		}
-		ui.Column(view.Key("content")).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Children(func() {
-			if renderErr == nil {
-				renderErr = renderNativeChildren(view, element, content)
-			}
-		})
+	result := ui.Column(view.Key("content")).Fill().MinWidth(0).MinHeight(0).Children(func() {
+		renderErr = renderNativeChildren(view, element, content)
 	})
 	return result, renderErr
 }

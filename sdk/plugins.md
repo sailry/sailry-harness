@@ -745,7 +745,21 @@ Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Sc
 
 Workspace and scripted settings pages use Kit's retained View entities. The host loads each scoped page once and switches presentation to its existing `ScriptView` and `ShellRoot`; ordinary navigation does not create another VM or View. Returning runs the normal entry refresh without discarding the mounted page or its drafts. Hidden pages pause visibility-bound work. Package/settings changes, removal, invalid scopes and Node changes still invalidate their runtime; releasing a view does not cancel already admitted Node tasks. There is no separate KeepAlive or Snapshot cache and no package retention timer.
 
-Use `Workspace.new` from `sailry/ui` to supply main content and an optional details child to the Shell's common right sidebar. `has_details` controls availability. Embedded views set `has_content: false` when only their details navigation is present; the Shell uses that navigation's minimum width and retains its resized width separately from opened content. The Shell owns its header alignment, divider, width and visibility toggle. Call `showWorkspaceDetails()` after an explicit selection to reveal a previously hidden sidebar without changing its resized width. Do not call it on every render.
+Use `Workspace.new` from `sailry/ui` with children in this order: main content,
+optional details, optional resource navigation. `has_details` controls the right
+column's availability; `navigation: "resource"` places the third child in the
+Shell's left sidebar. The sidebar shares the application width, resize handle
+and navigation toggle. `min_navigation_width` is bounded to 0–320px, within the
+application sidebar's 200–320px range. Details keep their width and open choice
+per Workspace, separately from conversation panels. `min_details_width` is
+bounded to 0–480px (default 260); `default_details_width` applies on first
+projection, bounded to 260–480px (default 400). `details_label` names the right
+column's toggle. The Shell owns header alignment, dividers and visibility. Call
+`showWorkspaceDetails()` after an explicit selection to reveal a previously
+hidden sidebar without changing its resized width. Do not call it on every render.
+
+`PanelHeader` has a fixed 48px height, or 32px for `size: "row"`. `bordered`
+draws its bottom edge; `surface: "content"` fills the content background.
 
 Entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a page creates its View on first use and reads current data; later section switches reuse that entity. Leaving the settings area releases preloaded files, while mounted page owners remain with the captured Node until invalidation or window close.
 
@@ -863,6 +877,13 @@ Knowledge retrieval is a shared Node service rather than a bundled feature plugi
 `ResourceTree.new(id, { items: JSON.stringify(items), selected, current })` takes a serialized `ResourceTreeItem[]` as its `items` field. The pinned Kit host bridge limits structured arguments to 16 nested levels, so the native host decodes and validates this recursive model while retaining Kit's tree state, events and native menus.
 
 Optional `guides: true` adds dashed hierarchy guides to resource rows, following `indent` and `skip_depth`; it defaults to false and leaves tree interactions and the branch variant unchanged.
+
+`PathBar.new(id, { segments, disabled })` from `sailry/ui` displays a path of
+string segments. Every segment, including the current one, is a native Kit
+button; long labels truncate within the available width. A click emits
+`{id, value: index}` through `nextControlEvent()`, where `index` is zero-based.
+`disabled: true` keeps the path visible and prevents activation. The package
+owns the mapping from segment indices to paths and any optional path editor.
 
 `Terminal.new(id, {terminal})` mounts a terminal from the surface's captured Node
 and resource scope. `releaseTerminal(terminal)` from `sailry` synchronously stops

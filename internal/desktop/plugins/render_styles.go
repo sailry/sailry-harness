@@ -87,6 +87,10 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 			value = ui.Auto
 		}
 		switch name {
+		case "track_focus":
+			if !mounted.suspended {
+				target.TabStop(false).Bind(mounted.focusHandle(uint64(runtimeFloat(argument))))
+			}
 		case "w", "h", "size", "min_w", "min_h", "min_size", "max_w", "max_h", "max_size":
 			if err != nil {
 				return err
@@ -445,7 +449,7 @@ func (mounted *Mounted) applyStyles(context *ui.Context, target ui.Element, elem
 			"primary", "ghost", "outline", "danger", "loading", "compact", "text", "bordered", "closable", "appearance",
 			"multiple", "collapsible", "resizable", "default_size", "axis", "position", "closeable",
 			"line_numbers", "language", "placeholder", "show_whitespaces", "read_only", "soft_wrap", "auto_grow",
-			"move_to", "line_to", "curve_to", "cubic_bezier_to", "close", "dash_array", "track_focus", "track_scroll",
+			"move_to", "line_to", "curve_to", "cubic_bezier_to", "close", "dash_array", "track_scroll",
 			"content_focus_handle", "range_style", "cell_style", "spring", "frame_budget", "size_range", "panel_size", "panel_visible",
 			"overflow_scroll", "overflow_x_scroll", "overflow_y_scroll", "overflow_scrollbar", "overflow_x_scrollbar", "overflow_y_scrollbar":
 		default:

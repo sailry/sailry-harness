@@ -46,6 +46,10 @@ type NativeElement struct {
 	look        *elementLook
 	// panelAxis is the axis of the resizable group this panel is in.
 	panelAxis int
+	// keyInput reaches the actual input inside a native field whose returned
+	// element is its layout wrapper. The runtime supplies the script's key
+	// handlers; the field opts in without replacing another surface's input.
+	keyInput func(ui.InputEvent) bool
 }
 
 type NativeComponent struct {

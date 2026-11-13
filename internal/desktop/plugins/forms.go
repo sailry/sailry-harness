@@ -206,6 +206,9 @@ func (binding *NativeBinding) renderText(view *ui.Context, element NativeElement
 		return ui.Element{}, renderErr
 	}
 	draft.input = input
+	if element.keyInput != nil {
+		input.HandleInput(element.keyInput)
+	}
 	input.Label(draft.label).Placeholder(draft.placeholder).FillWidth().Disabled(disabled).ReadOnly(readonly)
 	if !nativeProp(props, "bordered", true) {
 		input.BorderWidth(0)

@@ -74,8 +74,11 @@ type Mounted struct {
 	scrolling []scrollParent
 	// truncating is whether the text being built stays on one line, as its
 	// container's truncate or whitespace_nowrap asks.
-	truncating  bool
-	scrollBoxes map[uint64]ui.Rect
+	truncating   bool
+	scrollBoxes  map[uint64]ui.Rect
+	keyboard     []nativeKeyCallbacks
+	focusHandles map[uint64]*ui.Handle
+	focusContext *ui.Context
 }
 
 // scrollParent is an element whose children are being built: the axes it
@@ -163,7 +166,8 @@ func (runtime *Runtime) Mount(bundle Bundle, pluginContext PluginContext) (_ *Mo
 		modules: map[string]*moejs.Module{}, pending: map[uint64]*desktopPromise{}, timers: map[uint64]clockwork.Timer{},
 		inputs: map[uint64]*string{}, toggles: map[uint64]*bool{}, popovers: map[uint64]*bool{},
 		selectors: map[uint64]*int{}, widgetIDs: map[string]uint64{},
-		viewport: map[string]float32{"width": 1280, "height": 820}, nativeText: map[uint64]string{}, images: map[string]ui.ImageSource{},
+		focusHandles: map[uint64]*ui.Handle{},
+		viewport:     map[string]float32{"width": 1280, "height": 820}, nativeText: map[uint64]string{}, images: map[string]ui.ImageSource{},
 	}
 	mounted.engine = moejs.NewRuntime(moejs.Options{Importer: &moejs.Importer{Resolve: mounted.resolveModule}})
 	mounted.unroot = mounted.engine.AddLiveRoots(func(add func(moejs.Value)) {
@@ -208,6 +212,7 @@ func (mounted *Mounted) installBridge(ctx context.Context) error {
 		"__desktop_host":        mounted.host,
 		"__desktop_async_value": mounted.async,
 		"__desktop_timer":       mounted.schedule,
+		"__desktop_focus":       mounted.nativeFocus,
 		"__desktop_cancel_timer": func(_ *moejs.Realm, _ moejs.Value, arguments []moejs.Value) (moejs.Value, error) {
 			identifier := runtimeUint(arguments, 0)
 			if timer := mounted.timers[identifier]; timer != nil {
@@ -487,19 +492,25 @@ func (mounted *Mounted) snapshot() (*NativeElement, error) {
 }
 
 func (mounted *Mounted) Dispatch(callback CallbackRef, event json.RawMessage) error {
+	_, err := mounted.dispatch("dispatch", callback, event)
+	return err
+}
+
+func (mounted *Mounted) dispatch(method string, callback CallbackRef, event json.RawMessage) (any, error) {
 	if mounted.closed || mounted.suspended {
-		return errors.New("plugin view is closed")
+		return nil, errors.New("plugin view is closed")
 	}
 	var data any
 	if len(event) != 0 {
 		if err := json.Unmarshal(event, &data); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if _, err := mounted.call("dispatch", callback.Generation, callback.ID, data); err != nil {
-		return err
+	value, err := mounted.call(method, callback.Generation, callback.ID, data)
+	if err != nil {
+		return nil, err
 	}
-	return mounted.Pump()
+	return value, mounted.Pump()
 }
 
 func (mounted *Mounted) Context() PluginContext {
@@ -523,6 +534,11 @@ func (mounted *Mounted) Suspend() {
 		return
 	}
 	mounted.suspended = true
+	for _, handle := range mounted.focusHandles {
+		handle.CancelFocus()
+	}
+	clear(mounted.focusHandles)
+	mounted.focusContext = nil
 	mounted.cancel()
 	for _, timer := range mounted.timers {
 		timer.Stop()

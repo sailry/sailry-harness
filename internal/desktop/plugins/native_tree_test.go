@@ -17,6 +17,7 @@ func testTreeRows(t *testing.T) {
 				{ID: "file", Label: "File"},
 			}
 			current := ""
+			var selected []string
 			tester := ui.NewTester(func(view *ui.Context) {
 				theme.Apply(view, "", theme.Light)
 				encoded, err := json.Marshal(items)
@@ -24,7 +25,7 @@ func testTreeRows(t *testing.T) {
 					t.Fatal(err)
 				}
 				props, err := json.Marshal([]any{"tree", map[string]any{
-					"items": string(encoded), "variant": variant, "current": current, "selected": []string{current},
+					"items": string(encoded), "variant": variant, "current": current, "selected": selected,
 				}})
 				if err != nil {
 					t.Fatal(err)
@@ -63,6 +64,7 @@ func testTreeRows(t *testing.T) {
 			click := func(label, id string) {
 				t.Helper()
 				current = id
+				selected = []string{id}
 				info := row(label)
 				tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 				frame()
@@ -86,6 +88,11 @@ func testTreeRows(t *testing.T) {
 			frame()
 			if child := row("Child"); !child.Focused || !child.Selected || child.Level != 2 || row("File").Focused {
 				t.Fatalf("reordered tree lost its child identity: %+v", child)
+			}
+			selected = []string{"child", "file"}
+			frame()
+			if !row("Child").Selected || !row("File").Selected || row("Folder").Selected {
+				t.Fatal("multiple selected rows were replaced by the branch cursor")
 			}
 			click("Folder", "folder")
 			event("folder", "collapse")

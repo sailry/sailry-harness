@@ -29,6 +29,9 @@ type NativeBinding struct {
 	// sidebar each time it draws, nil when it supplies nothing. Without it
 	// a Workspace draws its details under its content.
 	Details func(func(*ui.Context) error)
+	// Navigation receives a Workspace's resource tree for the Shell's left
+	// column. It is never drawn inside the page, even without this slot.
+	Navigation func(func(*ui.Context) error)
 	// Models are the Node's models as the application names them: a
 	// ModelPopup shows the names, marks and scores of the ones its catalog
 	// lists. Without it a model shows under its catalog's own identifiers.
@@ -58,6 +61,8 @@ type nativeState struct {
 	// drawingDetails and detailsHeading belong to the frame's goroutine.
 	drawingDetails bool
 	detailsHeading func(*ui.Context)
+	workspace      WorkspaceLayout
+	navigationID   uint64
 	// rowLead is set while a group whose rows have icons draws its rows;
 	// only the frame's own goroutine touches it.
 	rowLead         bool

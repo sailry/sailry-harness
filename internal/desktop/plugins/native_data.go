@@ -203,53 +203,80 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	// The frame, the header's fill and the rows' separators are Kit's table
 	// look (kit.TableFrame, kit.TableCell), shared with the host's processes.
 	rowHeight := nativeProp(props, "row_height", float32(32))
+	header := nativeProp(props, "header", true)
+	stripe := nativeProp(props, "stripe", false)
+	headHeight := theme.Neutral(view).Space(8)
+	cellPadding := theme.Neutral(view).Space(1.5)
+	stripeColor := theme.Of(view).Muted
+	state.list.HeaderCell = func(cell ui.Element, _ int) { cell.Hidden(!header) }
 	result := ui.Column(view).Fill().MinWidth(0)
-	if count > 0 {
+	if len(columns) > 0 {
 		kit.TableFrame(view, result)
-	}
-	result.Children(func() {
-		if count == 0 {
-			if icon := nativeIcon(nativeProp(props, "empty_icon", "")); icon != nil {
-				// Kit's empty state, as the reference's list_content.
-				ui.Column(view).Grow(1).FillWidth().AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-					kit.Result(view, kit.ResultProps{Title: nativeProp(props, "empty", ""), Icon: icon})
-				})
-			} else {
-				nativeText(view, nativeProp(props, "empty", "")).TextColor(theme.Of(view).MutedForeground).Padding(16)
-			}
-			return
+		if !header {
+			result.Draw(nil)
 		}
+	}
+	_, pointerY, over := result.PointerPosition()
+	pointerY += result.Bounds().Y
+	result.Children(func() {
 		// MyGo fills a chosen row with its theme's accent, the app's
 		// emphasis color: the table is built under the neutral theme, so a
 		// chosen row takes the neutral selected fill, as the file picker's
 		// and the host's processes do.
 		var table ui.Element
-		ui.Themed(view.Key("neutral"), theme.Neutral(view)).Background(ui.Transparent).Grow(1).FillWidth().MinHeight(0).Children(func() {
-			table = ui.Table(view, &state.list, definitions, count, func(row, column int) {
-				absolute := first + row
-				// A row is row_height high with the cell's padding, and
-				// its content is centered in it.
-				cell := kit.TableCell(view, rowHeight, row+1 == count).Gap(3)
-				if index := column; index < len(alignments) && alignments[index] == "end" {
-					cell.AlignItems(ui.End)
-				}
-				if absolute < len(details) {
-					cell.Tooltip(details[absolute][column])
-				} else {
-					cell.Tooltip(rows[absolute][column])
-				}
-				cell.Children(func() {
-					if absolute < len(cells) && column < len(cells[absolute]) {
-						binding.renderTableLine(view, cells[absolute][column].Primary, false)
-						if secondary := cells[absolute][column].Secondary; secondary != nil {
-							binding.renderTableLine(view, *secondary, true)
+		if len(columns) > 0 && (count > 0 || header) {
+			area := ui.Themed(view.Key("neutral"), theme.Neutral(view)).Background(ui.Transparent).FillWidth().MinHeight(0)
+			if count > 0 {
+				area.Grow(1)
+			} else {
+				area.Height(headHeight + 1).Shrink(0)
+			}
+			if !header {
+				// The pinned MyGo table always builds a header and divider.
+				// Hide its header cells from display and accessibility, and clip
+				// that fixed-height strip above the frame; row interaction and
+				// column layout still belong to ui.Table.
+				area.Margin(-headHeight-1, 0, 0, 0)
+			}
+			area.Children(func() {
+				table = ui.Table(view, &state.list, definitions, count, func(row, column int) {
+					absolute := first + row
+					// A row is row_height high with the cell's padding, and
+					// its content is centered in it.
+					cell := kit.TableCell(view, rowHeight, row+1 == count, func(bounds ui.Rect) ui.Color {
+						hovered := over && pointerY >= bounds.Y-cellPadding && pointerY < bounds.Y+bounds.H+cellPadding
+						if stripe && absolute%2 == 1 && !state.selection.Has(row) && !hovered {
+							return stripeColor
 						}
-					} else {
-						nativeText(view, rows[absolute][column]).SingleLine()
+						return ui.Transparent
+					}).Gap(3)
+					if index := column; index < len(alignments) && alignments[index] == "end" {
+						cell.AlignItems(ui.End)
 					}
-				})
-			}).Grow(1).FillWidth()
-		})
+					if absolute < len(details) {
+						cell.Tooltip(details[absolute][column])
+					} else {
+						cell.Tooltip(rows[absolute][column])
+					}
+					cell.Children(func() {
+						if absolute < len(cells) && column < len(cells[absolute]) {
+							binding.renderTableLine(view, cells[absolute][column].Primary, false)
+							if secondary := cells[absolute][column].Secondary; secondary != nil {
+								binding.renderTableLine(view, *secondary, true)
+							}
+						} else {
+							nativeText(view, rows[absolute][column]).SingleLine()
+						}
+					})
+				}).Grow(1).FillWidth()
+			})
+		}
+		if count == 0 {
+			ui.Column(view.Key("empty")).Grow(1).FillWidth().MinHeight(0).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+				kit.Result(view, kit.ResultProps{Title: nativeProp(props, "empty", ""), Icon: nativeIcon(nativeProp(props, "empty_icon", ""))})
+			})
+			return
+		}
 		table.OnChange(func() {
 			var row *int
 			if state.selected >= 0 {

@@ -49,6 +49,7 @@ func (binding *NativeBinding) components() []NativeComponent {
 		add("sailry/ui", name, binding.renderLayout)
 	}
 	add("sailry/ui", "DataTable", binding.renderTable)
+	add("sailry/ui", "PathBar", binding.renderPath)
 	add("sailry/ui", "ResourceTree", binding.renderTree)
 	add("sailry/ui", "Picker", binding.renderPicker)
 	for _, name := range []string{"Heatmap", "StackedChart", "ProgressBar"} {
@@ -90,18 +91,22 @@ func (binding *NativeBinding) renderHeader(view *ui.Context, element NativeEleme
 	}
 	content := nativeProp(props, "content", "")
 	if len(content) > 2*1024*1024 || !json.Valid([]byte(content)) {
-		return ui.Element{}, hostInvalid("invalid plugin header content")
+		// Header content is a projection: a transient invalid update keeps
+		// the last accepted header instead of failing the mounted page.
+		return ui.Box(view).Size(0, 0), nil
 	}
 	binding.state.mu.Lock()
 	changed := !bytes.Equal(binding.state.header, []byte(content))
-	if changed {
-		binding.state.header = append(binding.state.header[:0], content...)
-	}
 	binding.state.mu.Unlock()
 	if changed && binding.Header != nil {
 		if err := binding.Header(json.RawMessage(content)); err != nil {
-			return ui.Element{}, err
+			return ui.Box(view).Size(0, 0), nil
 		}
+	}
+	if changed {
+		binding.state.mu.Lock()
+		binding.state.header = append(binding.state.header[:0], content...)
+		binding.state.mu.Unlock()
 	}
 	if changed && binding.Invalidate != nil {
 		binding.Invalidate()
