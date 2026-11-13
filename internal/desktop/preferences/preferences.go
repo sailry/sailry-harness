@@ -129,6 +129,7 @@ type Data struct {
 	// DemoMode is a Go desktop extension: unset, the file stays what the
 	// reference writes.
 	DemoMode bool `json:"demo_mode,omitempty"`
+	TestMode bool `json:"test_mode,omitempty"`
 }
 
 func Default() Data {

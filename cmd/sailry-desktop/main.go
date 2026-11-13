@@ -46,6 +46,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if options.AcceptanceUI {
+		return runAcceptanceUI(options)
+	}
 	successor := os.Getenv(successorVariable) != ""
 	_ = os.Unsetenv(successorVariable)
 	if !options.Preview && options.DataDir == "" && !instanceLock(mygo.App.RequestSingleInstanceLock, successor, successorWait) {
@@ -63,6 +66,7 @@ func run() error {
 			log.Printf("Node shutdown: %v", err)
 		}
 	}()
+	acceptance := &desktopAcceptance{backend: backend}
 	mygo.App.SetLanguages(i18n.Languages...)
 	crychic.Setup()
 	if backend.Node != nil {
@@ -172,6 +176,7 @@ func run() error {
 			entry.live = runtime
 			runtime.SetNetwork(backend.Network)
 			runtime.SetLogFolder(logging.Directory())
+			runtime.SetAcceptanceRunner(acceptance.run, mygo.Shell.OpenPath)
 			entry.app = entry.live.App
 		}
 		app := entry.app

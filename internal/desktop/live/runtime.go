@@ -27,6 +27,7 @@ import (
 )
 
 type Runtime struct {
+	acceptance  acceptanceState
 	pluginViews *pluginViewState
 	// demoModels is the model each demo conversation's composer is set to,
 	// by conversation: what the statistics package reads as its model.
@@ -284,6 +285,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.projectConversations()
 	r.initTeams()
 	r.initNodeSettings()
+	r.initAcceptance()
 	r.initConversationSearch()
 	r.initNetworkUI()
 	r.initB8Packages()
@@ -291,6 +293,9 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Panel.SetCreateResource(r.createPanelResource)
 	r.App.Hooks.PluginOverlays = r.renderPluginOverlays
 	r.App.Hooks.PluginTitle = r.renderPluginTitle
+	// A Client event may arrive between the first snapshot and subscription.
+	// Project its latest state on the first frame even if no later event arrives.
+	r.changed()
 	return r, nil
 }
 
@@ -459,6 +464,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.dictationFrame(c)
 	r.permissionsFrame()
 	r.nodeSettingsFrame()
+	r.acceptanceFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
 	r.terminalsFrame(c)

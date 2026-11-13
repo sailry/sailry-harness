@@ -24,8 +24,11 @@ import (
 )
 
 type startupOptions struct {
-	Preview bool
-	DataDir string
+	Preview             bool
+	DataDir             string
+	AcceptanceUI        bool
+	AcceptanceDirectory string
+	AcceptanceSocket    string
 	// Relays are the --relay URLs, in the order given.
 	Relays []string
 }
@@ -36,6 +39,9 @@ func parseOptions(args []string) (startupOptions, error) {
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&options.Preview, "preview", false, "Show the isolated preview without starting a Node")
 	flags.StringVar(&options.DataDir, "data-dir", "", "Use this Node profile directory")
+	flags.BoolVar(&options.AcceptanceUI, "acceptance-ui", false, "Run explicit headless conversation acceptance without opening a native window")
+	flags.StringVar(&options.AcceptanceDirectory, "acceptance-dir", "", "Use this isolated acceptance controller directory")
+	flags.StringVar(&options.AcceptanceSocket, "acceptance-socket", "", "Attach live acceptance to this private Node control directory")
 	flags.Func("relay", "Start on this relay instead of the public ones; repeat for more", func(value string) error {
 		options.Relays = append(options.Relays, value)
 		return nil
@@ -45,6 +51,13 @@ func parseOptions(args []string) (startupOptions, error) {
 	}
 	if flags.NArg() != 0 {
 		return options, errors.New("unexpected desktop argument")
+	}
+	if options.AcceptanceUI {
+		if options.AcceptanceDirectory == "" || options.Preview || options.DataDir != "" || len(options.Relays) != 0 {
+			return options, errors.New("--acceptance-ui requires --acceptance-dir and cannot open a Node profile or preview")
+		}
+	} else if options.AcceptanceDirectory != "" || options.AcceptanceSocket != "" {
+		return options, errors.New("acceptance options require --acceptance-ui")
 	}
 	return options, nil
 }

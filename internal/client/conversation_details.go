@@ -63,15 +63,7 @@ func (c *Client) ReadConversationDetail(ctx context.Context, ref protocol.ToolDe
 	pending := &conversationDetailRead{done: make(chan struct{})}
 	c.conversationDetailReads[key] = pending
 	c.conversationMu.Unlock()
-	var value protocol.ToolDetail
-	var err error
-	select {
-	case c.detailSlots <- struct{}{}:
-		value, err = c.readConversationDetail(ctx, ref)
-		<-c.detailSlots
-	case <-ctx.Done():
-		err = ctx.Err()
-	}
+	value, err := c.readConversationDetail(ctx, ref)
 	c.conversationMu.Lock()
 	pending.value, pending.err = copyValue(value), err
 	delete(c.conversationDetailReads, key)
@@ -80,7 +72,17 @@ func (c *Client) ReadConversationDetail(ctx context.Context, ref protocol.ToolDe
 	return value, err
 }
 
-func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDetailReference) (protocol.ToolDetail, error) {
+// ReadToolDetail reads original tool data against a captured reference without
+// requiring an observed or expandable conversation card. Pages and retained
+// memory have the same bounds as the presentation cache, which this read leaves
+// untouched.
+func (c *Client) ReadToolDetail(ctx context.Context, ref protocol.ToolDetailReference) (protocol.ToolDetail, error) {
+	select {
+	case c.detailSlots <- struct{}{}:
+		defer func() { <-c.detailSlots }()
+	case <-ctx.Done():
+		return protocol.ToolDetail{}, ctx.Err()
+	}
 	var data []byte
 	var total *uint64
 	for {
@@ -119,6 +121,15 @@ func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDe
 	if allocation > conversationDetailLimit {
 		return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, detailMemoryLimit)
 	}
+	return value, nil
+}
+
+func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDetailReference) (protocol.ToolDetail, error) {
+	value, err := c.ReadToolDetail(ctx, ref)
+	if err != nil {
+		return protocol.ToolDetail{}, err
+	}
+	allocation := retainedDetailBytes(reflect.ValueOf(value)) + retainedDetailBytes(reflect.ValueOf(ref))
 	key := detailKey(ref)
 	c.conversationMu.Lock()
 	if !c.currentConversationDetail(ref) {

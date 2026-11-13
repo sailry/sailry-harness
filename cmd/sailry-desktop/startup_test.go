@@ -71,6 +71,26 @@ func TestPreviewFlagNoNode(t *testing.T) {
 	}
 }
 
+func TestAcceptanceStartupIsolation(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"--acceptance-ui"},
+		{"--acceptance-dir", "/test"},
+		{"--acceptance-socket", "/control"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--data-dir", "/profile"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--preview"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--relay", "https://relay.example.test"},
+	} {
+		if _, err := parseOptions(args); err == nil {
+			t.Fatalf("accepted ambiguous test startup: %v", args)
+		}
+	}
+	options, err := parseOptions([]string{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-socket", "/control"})
+	if err != nil || !options.AcceptanceUI || options.AcceptanceDirectory != "/test" || options.AcceptanceSocket != "/control" || options.DataDir != "" {
+		t.Fatalf("isolated test startup: %+v, %v", options, err)
+	}
+}
+
 func TestStartFailureCopy(t *testing.T) {
 	t.Parallel()
 	owned := fmt.Errorf("open profile: %w", &core.ProfileInUseError{Path: "/profiles/main"})

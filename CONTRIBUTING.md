@@ -380,6 +380,89 @@ areas in order; each item names where to click and what must be seen.
   on any Desktop system and are verified on macOS only so far.
 - A failed item is reported with the area, the item's text and what was seen.
 
+### Manual conversation automation
+
+These suites run only when explicitly started. They are not included in CI,
+`go test`, `just check` or the normal development startup. A passing run covers
+the listed assertions on that model and environment; it is not a claim that
+all backend behavior or all interface behavior is bug-free.
+
+Settings › Experimental › Test mode shows the conversation acceptance controls.
+Choose a scope and, for a scope that includes the backend, an existing test
+model and its reasoning effort. Auto uses that model's default effort.
+Enabling Test mode does not start work. Run acceptance starts the chosen
+suite; Stop tests cancels it and requests cleanup of its test sessions. The
+controls show the current case results and Open report opens the saved report.
+Preview and Demo mode cannot start real acceptance work.
+
+| Scope | Work performed |
+| --- | --- |
+| Quick acceptance | A small set of real Host conversation, file, command, approval and question cases, interface checks and three live UI cases |
+| Backend tests | Registered backend cases through Client and the Host; no interface process |
+| Interface interactions | Fixed conversation data and actual interface interactions in an isolated Desktop process; no Node or model |
+| Full acceptance | Backend and interface cases, with a small check across the live Client-to-interface boundary |
+
+For command-line backend runs, first configure the real provider and model in
+an isolated profile such as `.runtime/profiles/acceptance` using
+`just desktop acceptance`. Close that Desktop before starting a Host that owns
+the same profile. The acceptance command normally attaches to its existing
+Host; it never takes profile ownership implicitly. For example, in two terminals:
+
+```sh
+just host acceptance
+just acceptance acceptance --suite quick --provider <provider-id> --model gpt-6-luna --effort medium
+```
+
+For a profile with a saved default model, `--provider` and `--model` may both be
+omitted. An explicit `--effort`, such as `medium`, requires both `--provider`
+and `--model`. With an explicit model selection, omitting `--effort` uses that
+model's default effort.
+If that profile has no running owner, `--start` starts one Node and
+Client for the run and stops them afterward. It refuses an already owned
+profile. It does not start a Link listener, enable pairing or send telemetry.
+The real model and the usual tools still run:
+
+```sh
+just acceptance acceptance --start --suite backend --provider <provider-id> --model gpt-6-luna --effort medium
+just acceptance acceptance --start --case F01-exit127 --timeout 3m
+```
+
+Direct invocation requires an explicit absolute `--data-dir`; it does not
+default to a user profile. `--case` may be repeated. It selects those case IDs
+even outside the default quick subset. `--timeout` is the limit for each case,
+as a duration such as `2m` or `90s`. List the registered cases without opening
+a profile or calling a model:
+
+```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+go build -o .runtime/sailry-host ./cmd/sailry-host
+.runtime/sailry-host acceptance --list --suite backend
+```
+
+The backend command writes one JSON line per completed case and a final report
+line. It exits 0 for a passing run, 1 for a failure, blocked or incomplete run,
+and 130 for cancellation. Reports retain case IDs, session and turn IDs,
+assertions and bounded test-owned evidence. A missing package or unsupported
+capability is recorded as skipped or blocked, not as a pass. Test cases use
+dedicated, unassigned conversation workspaces and do not register a user project
+or update the selected model defaults. Inspect a blocked cleanup before rerunning.
+
+Run the interface suite separately with `just acceptance-ui`. This builds the
+Desktop executable beside its pinned native runtimes, then runs
+`sailry-desktop --acceptance-ui --acceptance-dir <private directory>`. It opens
+no execution profile and calls no model. It writes case/report JSON lines and
+checks interactions on real controls rather than comparing screenshots. This
+does not cover Mobile or another operating system.
+
+The backend report defaults to `<test-profile>/acceptance/latest.json` and
+`latest.html`; `--report-dir` selects another dedicated directory. Interface
+reports default to `.runtime/profiles/acceptance-ui/report`; runs from Settings
+save under `<profile>/desktop/acceptance`. Report directories are
+private and files are owner-only. HTML reports are self-contained and escape
+tool output as text. Each manual run replaces the previous `latest` files.
+Keep the reports and configured test profiles out of Git.
+
 ### 1. Start and Demo mode
 
 - [ ] Start Desktop. The window opens on the welcome page or the last
@@ -603,7 +686,8 @@ same Node as Desktop and never opens an interactive Agent prompt. Service
 options are `--data-dir`, `--bind`, `--internet`, repeated `--relay`,
 `--pairing-service`, `--bootstrap` and `--telemetry on|off`. Network modes are
 mutually exclusive; the default binds loopback and pairing is opt-in.
-`--version`, `share`, `submit` and `wait` are management commands.
+`--version`, `share`, `submit` and `wait` are management commands;
+`acceptance` is the explicit manual session test runner described above.
 
 ```sh
 unset GOROOT

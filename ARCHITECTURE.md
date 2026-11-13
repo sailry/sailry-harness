@@ -53,6 +53,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/link` | Identity, pairing, authenticated transport, receipt, reconnect and the in-process local transport | Agent history and business execution |
 | `native/iroh`, `internal/link/iroh` | Pinned iroh C ABI and its purego binding | Protocol framing and business execution |
 | `internal/client` | Typed commands, ordered projections, deduplication, request recovery and snapshot recovery | UI widgets, Node execution and a business database |
+| `internal/acceptance` | Explicit manual conversation cases through an existing Client and private evidence reports | Node startup, credentials and UI automation |
 | `internal/node` | Admission, persistence, configuration, Agent execution and resource services | Flutter and controller presentation |
 | `internal/node/agent` | Turn engine, canonical history, model transport, compaction, prompt and the ephemeral feed | Storage schema and controller state |
 | `internal/node/store` | The Node database: one writer, read pool, schema and event log | Execution rules |
@@ -69,6 +70,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/desktop` | MyGo composition by feature: shell, sidebar, conversation, composer, panel, settings, host, transfers, onboarding, plugins, theme, i18n | Duplicate history or request recovery engines |
 | `internal/desktop/live` | Client projections and the live implementation of every UI action | Backend state, execution rules and Node startup |
 | `internal/desktop/preview` | Fixture data and simulated actions for `--preview` | Profiles, Nodes and any real effect |
+| `internal/desktop/acceptance` | Explicit headless conversation interaction checks and a small live UI suite | Node startup, native window acceptance and automatic CI runs |
 | `cmd/sailry-desktop` | Desktop composition, local Node startup and application lifecycle | Business execution outside Node |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service lifecycle, control socket and noninteractive task commands | Desktop dependencies and a prompt loop |
 | `internal/mobile`, `cmd/sailry-mobile` | Client handles, subscriptions and the C ABI for Dart | Node, agent execution, provider transport, PTY and Git execution |
@@ -79,11 +81,12 @@ The Go module is `github.com/sailry/sailry-harness`.
 Production dependencies are acyclic:
 
 ```text
-cmd/sailry-desktop → desktop + desktop/live + client + link + node
-desktop/live       → client + link + protocol + speech + desktop UI packages
+cmd/sailry-desktop → desktop + desktop/live + desktop/acceptance + acceptance + client + link + node
+desktop/live       → acceptance + client + link + protocol + speech + desktop UI packages
 desktop UI         → MyGo + CrychicUI + desktop/kit + desktop view models
-cmd/sailry-host    → node + link + hostctl
+cmd/sailry-host    → acceptance + node + link + hostctl
 hostctl            → client + link + core + protocol
+acceptance         → client + core + protocol
 mobile             → client + link + protocol
 client             → protocol + link
 node               → protocol + link + core + Node service packages + model transport
@@ -102,6 +105,13 @@ link               → protocol + protocol/wire + link/iroh
   `node/telemetry`); everything else reaches the Node through Client.
 - Preview and live actions are separate implementations of the same `Actions`
   contracts. Live never imports preview.
+- Manual acceptance is opt-in. Backend cases use Client commands and scoped
+  conversation observations against an existing Node, retain request identities
+  after uncertain outcomes, and stop only their own work. UI fixture checks run
+  in a separate Desktop process because rendering changes process-wide theme
+  state. Live checks connect that process to the same local Node through its
+  owner-only control socket; they do not copy model credentials or start another
+  Node. Normal startup, preview and CI never invoke real-model acceptance.
 - The Node uses two MyGo packages and no MyGo application, window or view:
   `netproxy` for proxy-aware HTTP, and the terminal package (libghostty-vt)
   for the headless PTY and Mirror owner in `internal/node/terminal`. Controller

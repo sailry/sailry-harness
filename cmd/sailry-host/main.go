@@ -37,6 +37,9 @@ func run(args []string) (int, error) {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if len(args) > 0 && args[0] == "acceptance" {
+		return runAcceptance(ctx, args[1:], os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "share" {
 		return 0, hostctl.RunShare(ctx, args[1:], os.Stdout, os.Stderr)
 	}

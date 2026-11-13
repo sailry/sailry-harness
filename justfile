@@ -32,6 +32,16 @@ host name="host" *options: native
     go build -o .runtime/sailry-host ./cmd/sailry-host
     .runtime/sailry-host --data-dir {{ quote(profiles / name) }} {{ options }}
 
+# Manually test sessions on an already running Host; --start opens this test profile exclusively.
+acceptance name="acceptance" *options: native
+    go build -o .runtime/sailry-host ./cmd/sailry-host
+    .runtime/sailry-host acceptance --data-dir {{ quote(profiles / name) }} {{ options }}
+
+# Manually test conversation interactions in an isolated Desktop process, without a Node or model.
+acceptance-ui: native
+    go build -o {{ quote(native / "sailry-desktop") }} ./cmd/sailry-desktop
+    {{ quote(native / "sailry-desktop") }} --acceptance-ui --acceptance-dir {{ quote(profiles / "acceptance-ui") }}
+
 # Build the local iroh library with the pinned Rust toolchain when it is missing.
 native:
     test -f {{ quote(native / iroh) }} || sh native/iroh/build.sh
