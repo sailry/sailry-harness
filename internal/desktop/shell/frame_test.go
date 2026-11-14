@@ -1258,7 +1258,7 @@ func testHeaderSplit(t *testing.T) {
 	names := map[string]bool{}
 	for _, info := range tt.AccessAll() {
 		b := info.Bounds
-		if info.Role != ui.RoleButton || b.W == 0 || b.Y+b.H > HeaderHeight || b.X < split || info.Name == en("details") || info.Name == en("close") ||
+		if info.Offscreen || info.Role != ui.RoleButton || b.W == 0 || b.Y+b.H > HeaderHeight || b.X < split || info.Name == en("details") || info.Name == en("close") ||
 			strings.Contains(info.Name, " · ") {
 			continue
 		}
@@ -1270,7 +1270,7 @@ func testHeaderSplit(t *testing.T) {
 		t.Fatalf("the band shows %d tabs of %v: %q", len(tabs), a.Panel.Tabs, tt.Texts())
 	}
 	for _, info := range tt.AccessAll() {
-		if b := info.Bounds; info.Role == ui.RoleButton && names[info.Name] && b.W > 0 && b.X >= split && b.Y >= HeaderHeight && b.Y < HeaderHeight+40 {
+		if b := info.Bounds; !info.Offscreen && info.Role == ui.RoleButton && names[info.Name] && b.W > 0 && b.X >= split && b.Y >= HeaderHeight && b.Y < HeaderHeight+40 {
 			t.Errorf("the tab %q shows in a strip under the band at %v", info.Name, b)
 		}
 	}
@@ -1290,7 +1290,8 @@ func testHeaderSplit(t *testing.T) {
 		t.Errorf("the session status %v (shown %v) is not one gap before Find %v in the main region", st, shown, find.Bounds)
 	}
 	for _, info := range tt.AccessAll() {
-		if b := info.Bounds; b.W > 0 && b.Y+b.H <= HeaderHeight && b.X >= end(plus.Bounds) && b.X < f.Bounds.X && info.Role == ui.RoleButton {
+		// Scrolled-out tabs retain their layout bounds in the access tree.
+		if b := info.Bounds; !info.Offscreen && b.W > 0 && b.Y+b.H <= HeaderHeight && b.X >= end(plus.Bounds) && b.X < f.Bounds.X && info.Role == ui.RoleButton {
 			t.Errorf("%q at %v is between the tabs' + and the fold toggle", info.Name, b)
 		}
 	}

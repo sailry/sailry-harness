@@ -16,8 +16,8 @@ import (
 //
 //	SAILRY_CAPTURE_DIR directory holding the built capture library
 //
-// The system's permission prompt is not raised: without a granted
-// microphone the recording is skipped.
+// The system's permission prompt is not raised: without a default input
+// or a granted microphone the recording is skipped.
 func TestRecording(t *testing.T) {
 	directory := os.Getenv("SAILRY_CAPTURE_DIR")
 	if directory == "" {
@@ -46,11 +46,16 @@ func TestRecording(t *testing.T) {
 			defaults++
 		}
 	}
-	if len(devices) > 0 && defaults != 1 {
+	if defaults > 1 {
 		t.Fatalf("%d default devices among %d", defaults, len(devices))
 	}
 	if _, err := Open("00"); err == nil {
 		t.Fatal("an unknown device was opened")
+	}
+	// miniaudio 0.11.26's ALSA backend marks only the PCM named "default".
+	// A headless host can enumerate the non-default "null" PCM alone.
+	if defaults == 0 {
+		t.Skip("no default input device; recording and the request path were not exercised")
 	}
 
 	status := Status()
@@ -64,10 +69,6 @@ func TestRecording(t *testing.T) {
 	if granted, err := Request(ctx); err != nil || !granted {
 		t.Fatalf("request = %v, %v", granted, err)
 	}
-	if len(devices) == 0 {
-		t.Skip("no input device")
-	}
-
 	for _, id := range []string{"", devices[0].ID} {
 		recorder, err := Open(id)
 		if err != nil {

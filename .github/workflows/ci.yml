@@ -109,18 +109,27 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+      - name: UI fonts
+        if: runner.os == 'Linux'
+        # Fontconfig needs CJK glyphs for the Chinese UI's pixel assertions.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
       - name: Test
         run: |
           set -euo pipefail
+          # The UI packages exercise hundreds of software-rendered frames.
+          # Give the complete package a hosted-runner budget; individual
+          # operation and fixture deadlines still detect stalled work.
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            go test ./...
+            go test -timeout 20m ./...
             exit
           fi
           # Pull requests test the packages whose own files or dependencies,
           # including test dependencies, contain a changed file.
           changed=$(git diff --name-only HEAD^1 HEAD)
           if printf '%s\n' "$changed" | grep -Eq '^(go\.mod|go\.sum|\.github/workflows/ci\.yml)$'; then
-            go test ./...
+            go test -timeout 20m ./...
             exit
           fi
           module=$(go list -m)
@@ -158,7 +167,7 @@ jobs:
             echo 'No affected Go packages'
             exit
           fi
-          go test $affected
+          go test -timeout 20m $affected
 
   native:
     needs: lint
@@ -374,6 +383,8 @@ jobs:
       # closes a loopback endpoint: no relay and no external service.
       - name: Native libraries
         working-directory: .runtime/native/${{ matrix.target }}
+        env:
+          NATIVE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
         run: |
           set -euo pipefail
           case "$RUNNER_OS" in
@@ -386,6 +397,7 @@ jobs:
           else
             shasum -a 256 --check SHA256SUMS
           fi
+          printf 'SAILRY_IROH_LIB=%s/%s\n' "$NATIVE_DIR" "$library" >> "$GITHUB_ENV"
           printf '{"op":"close"}\n' |
             go run -tags integration github.com/sailry/sailry-harness/internal/link/iroh/cmd/iroh-spike --library "$library" |
             tee "$RUNNER_TEMP/iroh.txt"
@@ -394,4 +406,6 @@ jobs:
         env:
           PACKAGES: ${{ inputs.integration_packages }}
           SAILRY_CAPTURE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
-        run: go test -tags integration ${PACKAGES:-$RELEASE_PACKAGES}
+        # The storage load case keeps its concurrent writers and performance
+        # assertions, isolated from other packages' CPU and disk workloads.
+        run: go test -p 1 -tags integration ${PACKAGES:-$RELEASE_PACKAGES}

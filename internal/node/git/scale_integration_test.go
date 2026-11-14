@@ -75,20 +75,54 @@ func TestLargeRepositoryIntegration(t *testing.T) {
 		}
 		run(t, root, nil, "add", "-A")
 		run(t, root, nil, "commit", "-q", "-m", "base")
+		expected := make(map[string]bool, changed)
 		for index := range changed {
-			write(name("f", index), bytes.Repeat([]byte("changed line\n"), 210))
+			path := name("f", index)
+			expected[path] = true
+			write(path, bytes.Repeat([]byte("changed line\n"), 210))
 		}
 
 		started := time.Now()
 		status, err := s.Status(ctx, root)
 		t.Logf("status with %d changed of %d tracked files: %s", changed, tracked, time.Since(started))
-		if err != nil || len(status.Entries) != changed || status.Truncated {
-			t.Fatal(len(status.Entries), status.Truncated, err)
+		if err != nil || len(status.Entries) != changed || status.Truncated || status.OmittedPaths != 0 {
+			t.Fatal(len(status.Entries), status.Truncated, status.OmittedPaths, err)
 		}
 		want := protocol.GitLineStats{Additions: 210, Deletions: 200}
 		for _, entry := range status.Entries {
-			if entry.Unstaged == nil || entry.UnstagedDiff != want || entry.Diff != want || entry.StagedDiff != (protocol.GitLineStats{}) {
+			if !expected[entry.Path] {
+				t.Fatalf("unexpected or duplicate status path %q", entry.Path)
+			}
+			delete(expected, entry.Path)
+			if entry.Staged != nil || entry.Unstaged == nil || *entry.Unstaged != protocol.GitChangeKindModified || entry.Untracked || entry.Conflicted ||
+				entry.Diff != entry.UnstagedDiff || entry.StagedDiff != (protocol.GitLineStats{}) {
 				t.Fatalf("%+v", entry)
+			}
+			// A complete inventory can outlive its optional line-statistics share.
+			// Uncounted entries keep the marker; a comparison crossing the deadline
+			// may retain coarse counts, which are exact for these disjoint texts.
+			if entry.UnstagedDiff != (protocol.GitLineStats{Truncated: true}) {
+				counted := entry.UnstagedDiff
+				counted.Truncated = false
+				if counted != want {
+					t.Fatalf("%+v", entry)
+				}
+			}
+		}
+		if len(expected) != 0 {
+			t.Fatalf("missing status paths: %v", expected)
+		}
+		// On-demand review has its own read deadline, including entries whose
+		// optional status counts could not finish within the shared budget.
+		for _, index := range []int{0, changed / 2, changed - 1} {
+			path := status.Entries[index].Path
+			for _, scope := range []protocol.GitDiffScope{protocol.GitDiffScopeUnstaged, protocol.GitDiffScopeAll} {
+				limited, cancel := context.WithTimeout(ctx, readTimeout)
+				diff, err := s.Diff(limited, root, path, scope)
+				cancel()
+				if err != nil || diff.Binary || (protocol.GitLineStats{Additions: diff.Additions, Deletions: diff.Deletions, Truncated: diff.Truncated}) != want {
+					t.Fatalf("%s %s diff = %+v, error=%v", path, scope, diff, err)
+				}
 			}
 		}
 
