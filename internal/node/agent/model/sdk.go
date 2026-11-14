@@ -397,9 +397,7 @@ func (emitter *sdkEmitter) updateUsage(value map[string]any, family string) {
 		decoder.UseNumber()
 		decoder.Decode(&merged)
 	}
-	for key, field := range value {
-		merged[key] = field
-	}
+	mergeUsageFields(merged, value)
 	raw, _ := json.Marshal(merged)
 	emitter.usage.Raw = raw
 	keys := map[string]**int64{}
@@ -411,6 +409,8 @@ func (emitter *sdkEmitter) updateUsage(value map[string]any, family string) {
 	case "chat":
 		keys = map[string]**int64{"prompt_tokens": &emitter.usage.Input, "completion_tokens": &emitter.usage.Output, "total_tokens": &emitter.usage.Total}
 		if count := wireInt(wireObject(value["prompt_tokens_details"])["cached_tokens"]); count != nil {
+			emitter.usage.CacheRead = count
+		} else if count := wireInt(value["prompt_cache_hit_tokens"]); count != nil {
 			emitter.usage.CacheRead = count
 		}
 		if count := wireInt(wireObject(value["completion_tokens_details"])["reasoning_tokens"]); count != nil {
@@ -459,6 +459,18 @@ func (emitter *sdkEmitter) updateUsage(value map[string]any, family string) {
 			}
 			emitter.usage.Output = &output
 		}
+	}
+}
+
+// Usage deltas may report only one field of a nested cache or token breakdown.
+func mergeUsageFields(previous, current map[string]any) {
+	for key, value := range current {
+		old, next := wireObject(previous[key]), wireObject(value)
+		if old != nil && next != nil {
+			mergeUsageFields(old, next)
+			continue
+		}
+		previous[key] = value
 	}
 }
 

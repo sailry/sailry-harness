@@ -36,30 +36,19 @@ func observeUsage(response *http.Response, family string) *usageObserverBody {
 				continue
 			}
 			var usage map[string]any
-			var keys []string
 			if family == "google" {
 				usage = wireObject(value["usageMetadata"])
-				keys = []string{"promptTokenCount", "toolUsePromptTokenCount", "candidatesTokenCount", "totalTokenCount", "cachedContentTokenCount", "thoughtsTokenCount"}
 			} else {
 				if wireString(value["type"]) == "message_start" {
 					usage = wireObject(wireObject(value["message"])["usage"])
 				} else {
 					usage = wireObject(value["usage"])
 				}
-				keys = []string{"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"}
 			}
 			if usage == nil {
 				continue
 			}
-			counts := map[string]any{}
-			for _, key := range keys {
-				if count, present := usage[key]; present {
-					if count == nil || wireInt(count) != nil {
-						counts[key] = count
-					}
-				}
-			}
-			accumulator.updateUsage(counts, family)
+			accumulator.updateUsage(usage, family)
 			observed.mu.Lock()
 			observed.usage = accumulator.usage
 			observed.mu.Unlock()

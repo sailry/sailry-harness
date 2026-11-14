@@ -36,7 +36,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	for _, tool := range request.Tools {
 		call.Tools = append(call.Tools, tool)
 	}
-	records := visibleRecords(request.Records)
+	records := VisibleRecords(request.Records)
 	active := -1
 	for i := range records {
 		if message := records[i].Message(); message != nil && message.Role == canonical.User {
@@ -251,9 +251,10 @@ func copilotHeaders(request Request, records []canonical.Record, prompt fantasy.
 	return headers
 }
 
-// visibleRecords selects what a request carries: agent-visible records after
-// the boundary of the latest summary, with that summary in place of the rest.
-func visibleRecords(records []canonical.Record) []canonical.Record {
+// VisibleRecords selects what a request carries without changing its messages:
+// agent-visible records after the latest summary's boundary, with that summary
+// in place of the rest. It also accepts an already projected record list.
+func VisibleRecords(records []canonical.Record) []canonical.Record {
 	visibility := map[string]bool{}
 	boundary, summary := -1, -1
 	for index, record := range records {
@@ -278,6 +279,7 @@ func visibleRecords(records []canonical.Record) []canonical.Record {
 			}
 		}
 		if record.Kind == "compaction" && compaction != nil {
+			summary = index
 			for earlier := range index {
 				if records[earlier].ID == compaction.Boundary {
 					boundary, summary = earlier, index
@@ -289,6 +291,11 @@ func visibleRecords(records []canonical.Record) []canonical.Record {
 	result := []canonical.Record{}
 	for index, record := range records {
 		if index > boundary && (record.Kind != "compaction" || index == summary) && agentVisible(record, visibility) {
+			if record.Metadata.Runtime != nil && !record.Metadata.Runtime.AgentVisible {
+				runtime := *record.Metadata.Runtime
+				runtime.AgentVisible = true
+				record.Metadata.Runtime = &runtime
+			}
 			result = append(result, record)
 		}
 	}
@@ -302,7 +309,7 @@ func visibleRecords(records []canonical.Record) []canonical.Record {
 func Answered(records []canonical.Record) []canonical.Record {
 	pending := map[string]bool{}
 	orphans := map[string]bool{}
-	for _, record := range visibleRecords(records) {
+	for _, record := range VisibleRecords(records) {
 		message := record.Message()
 		if message == nil {
 			continue

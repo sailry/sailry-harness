@@ -15,13 +15,17 @@ func TestSummaryCapFollowsWindow(t *testing.T) {
 		output, limit            uint64
 		target, cut, absentLimit string
 	}{
-		{"small window", 32000, 8000, 8000, 4000, "under 3,000 tokens", "beyond 4,000 tokens", ""},
+		{"4k window", 4096, 8000, 1024, 512, "under 384 tokens", "beyond 512 tokens", "4,000"},
+		{"8k window", 8192, 8000, 2048, 1024, "under 768 tokens", "beyond 1,024 tokens", "4,000"},
+		{"8k window with lower model output", 8192, 1024, 1024, 512, "under 384 tokens", "beyond 512 tokens", "4,000"},
+		{"32k window is unchanged", 32000, 8000, 8000, 4000, "under 3,000 tokens", "beyond 4,000 tokens", ""},
+		{"128k window is unchanged", 128000, 64000, 8000, 4000, "under 3,000 tokens", "beyond 4,000 tokens", ""},
 		{"200k window is unchanged", 200000, 64000, 8000, 4000, "under 3,000 tokens", "beyond 4,000 tokens", ""},
 		{"400k window", 400000, 64000, 16000, 8000, "under 6,000 tokens", "beyond 8,000 tokens", "4,000"},
 		{"1M window", 1000000, 64000, 24000, 12000, "under 9,000 tokens", "beyond 12,000 tokens", "4,000"},
 		{"2M window stays at the maximum", 2000000, 64000, 24000, 12000, "under 9,000 tokens", "beyond 12,000 tokens", "4,000"},
 		{"model output bounds the cap", 1000000, 10000, 10000, 5000, "under 3,750 tokens", "beyond 5,000 tokens", "12,000"},
-		{"small model output keeps the minimum", 1000000, 4096, 4096, 4000, "under 3,000 tokens", "beyond 4,000 tokens", "12,000"},
+		{"small model output bounds the cap", 1000000, 4096, 4096, 2048, "under 1,536 tokens", "beyond 2,048 tokens", "12,000"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			output := min(Output(row.context), row.modelOutput)
@@ -58,6 +62,20 @@ func TestSummaryCapFollowsWindow(t *testing.T) {
 		}
 		if len(large.TechnicalConcepts) <= len(small.TechnicalConcepts) || large.CurrentWork == nil || *large.CurrentWork != work {
 			t.Fatal("the larger cap kept no more of the handoff")
+		}
+	})
+	t.Run("small cap bounds the rendered handoff", func(t *testing.T) {
+		document, _ := json.Marshal(map[string]any{"user_intent": []string{"Fix parser"}, "current_work": strings.Repeat("Preserve state and complete the task. ", 600)})
+		limit := Cap(4096, Output(4096))
+		summary, err := Parse(string(document), limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if size := tokens.Text(summary.Render()); size > limit || !strings.Contains(summary.Render(), "Fix parser") {
+			t.Fatalf("rendered handoff is %d tokens under cap %d", size, limit)
+		}
+		if _, err := Parse(`{"user_intent":["Complete the remaining task"]}`, 1); err == nil {
+			t.Fatal("accepted a handoff whose essential fields exceed the cap")
 		}
 	})
 }

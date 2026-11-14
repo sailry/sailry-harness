@@ -156,9 +156,36 @@ func TestCompactionHandoff(t *testing.T) {
 			t.Fatal("summary coverage timestamps describe the model request instead of the replaced history")
 		}
 		usage := compacted.Summary.Usage
-		normalized, _ := handoff.Parse(string(document), 4000)
-		if usage.Input == nil || *usage.Input != 123 || usage.Output == nil || *usage.Output != tokens.Text(normalized.Document()) || usage.Total == nil || *usage.Total != 123+*usage.Output || saved.Metadata.Execution.Source.ID != binding.Provider.ID {
-			t.Fatal("summary lost reported optional usage, normalized output estimate or captured scope")
+		if usage.Input == nil || *usage.Input != 123 || usage.Output != nil || usage.Total == nil || *usage.Total != 999 || saved.Metadata.Execution.Source.ID != binding.Provider.ID {
+			t.Fatal("summary changed reported optional usage or captured scope")
+		}
+	})
+	t.Run("usage remains reported", func(t *testing.T) {
+		input, output, total := int64(123), int64(45), int64(999)
+		for _, row := range []struct {
+			name     string
+			metadata *model.UsageMetadata
+		}{
+			{"missing", nil},
+			{"input only", &model.UsageMetadata{Reported: true, Input: &input}},
+			{"output only", &model.UsageMetadata{Reported: true, Output: &output}},
+			{"total only", &model.UsageMetadata{Reported: true, Total: &total}},
+			{"complete", &model.UsageMetadata{Reported: true, Input: &input, Output: &output, Total: &total}},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				part := finish()
+				if row.metadata != nil {
+					part.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: row.metadata}
+				}
+				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: []script{response(text(`{"user_intent":["Continue task"]}`), part)}})
+				if err := f.r.compact(x, binding, before, true); err != nil {
+					t.Fatal(err)
+				}
+				summary := f.state().Records[len(before.Records)].MutableMessage()
+				if want := model.PartUsage(part); summary.Usage == nil || !reflect.DeepEqual(*summary.Usage, want) {
+					t.Fatalf("summary usage = %+v, want %+v", summary.Usage, want)
+				}
+			})
 		}
 	})
 	t.Run("cap follows the window", func(t *testing.T) {
@@ -380,6 +407,47 @@ func TestCompactionHandoff(t *testing.T) {
 			} else if len(added) != 3 || added[2].Message().Role != canonical.User || added[2].Message().Content[0].Data.(*canonical.TextContent).Text != "Original task" || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "Just continue") {
 				t.Fatal("latest automatic input or natural continuation was lost")
 			}
+		}
+	})
+	t.Run("carry only pending media", func(t *testing.T) {
+		for _, processed := range []bool{false, true} {
+			name := "pending"
+			if processed {
+				name = "processed"
+			}
+			t.Run(name, func(t *testing.T) {
+				f, x, binding, _ := compactionFixture(t, &scriptedModel{scripts: []script{response(text(`{"user_intent":["Inspect the image"]}`), finish())}})
+				pixels := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 64))
+				var digest string
+				if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+					var err error
+					digest, err = store.PutBlob(f.ctx, db, pixels)
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+				input := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Inspect this image"), canonical.Block{Index: 1, Kind: "image", Data: &canonical.AssetContent{Asset: canonical.AssetRef{Digest: digest, Mime: "image/png", Size: uint64(len(pixels))}}}), f.r.clock.Now())
+				records := []canonical.Record{input}
+				if processed {
+					records = append(records, canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Inspected the image")), f.r.clock.Now()))
+				}
+				if err := f.r.save(f.ctx, f.session.ID, records...); err != nil {
+					t.Fatal(err)
+				}
+				before := f.state()
+				if err := f.r.compact(x, binding, before, false); err != nil {
+					t.Fatal(err)
+				}
+				after := f.state()
+				carry := after.Records[len(after.Records)-1].Message()
+				want := 2
+				if processed {
+					want = 1
+				}
+				if carry.Role != canonical.User || len(carry.Content) != want || want == 2 && carry.Content[1].Kind != "image" {
+					t.Fatalf("carried content = %+v", carry.Content)
+				}
+			})
 		}
 	})
 	t.Run("latest usage and discovered tools", func(t *testing.T) {

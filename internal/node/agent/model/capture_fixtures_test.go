@@ -141,7 +141,7 @@ func capturedPolicyFixtures(t *testing.T) {
 		for _, row := range []struct {
 			context, output uint32
 			want            int64
-		}{{200000, 64000, 8000}, {32000, 8000, 8000}, {400000, 64000, 16000}, {1000000, 64000, 24000}, {1000000, 10000, 10000}, {1000000, 0, 8000}} {
+		}{{4096, 0, 1024}, {8192, 0, 2048}, {8192, 8192, 2048}, {8192, 1024, 1024}, {200000, 64000, 8000}, {32000, 8000, 8000}, {128000, 0, 8000}, {400000, 64000, 16000}, {1000000, 64000, 24000}, {1000000, 10000, 10000}, {1000000, 0, 8000}} {
 			sized := binding
 			sized.Provider.Models = []protocol.ConversationModel{{ID: "fixture", Context: row.context, Output: row.output}}
 			if got := OutputLimit(sized, true); got != row.want {

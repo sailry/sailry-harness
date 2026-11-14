@@ -289,6 +289,7 @@ func (r *Runtime) turn(x *execution) error {
 		return err
 	}
 	recoveries := 0
+	compacted := false
 	for {
 		if err = x.ctx.Err(); err != nil {
 			return err
@@ -352,6 +353,7 @@ func (r *Runtime) turn(x *execution) error {
 					return err
 				}
 				recoveries++
+				compacted = true
 				continue
 			}
 			failure := &model.Failure{Kind: model.Other, Message: last.Error.Message, Exhausted: last.Error.RetryExhausted, WaitExhausted: last.Error.RetryWaitExhausted}
@@ -360,10 +362,13 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			return failure
 		}
-		if shouldCompact(binding, state, inv.CompactionPercent) {
+		if !compacted && shouldCompact(binding, state, inv.CompactionPercent) {
 			if err = r.compact(x, binding, state, false); err != nil {
 				return err
 			}
+			// The carried user input can itself exceed the threshold. Try the
+			// main request before considering another threshold compaction.
+			compacted = true
 			continue
 		}
 		if last != nil && last.Role == canonical.Assistant {
@@ -393,6 +398,7 @@ func (r *Runtime) turn(x *execution) error {
 		if err = r.infer(x, binding, languageModel, state); err != nil {
 			return err
 		}
+		compacted = false
 		x.foregroundSteered = false
 	}
 }

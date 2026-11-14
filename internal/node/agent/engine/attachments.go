@@ -52,6 +52,10 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 		var content []canonical.Block
 		changed := false
 		for _, block := range message.Content {
+			if input := request[i].Metadata.Input; input != nil && input.CapabilityPart != nil && *input.CapabilityPart == block.Index {
+				changed = true
+				continue
+			}
 			if block.Kind == "image" && !vision {
 				changed = true
 				continue
@@ -144,6 +148,11 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 		}
 		hydrated := *message
 		hydrated.Content, hydrated.PartCount = content, uint64(len(content))
+		if input := request[i].Metadata.Input; input != nil && input.CapabilityPart != nil {
+			copied := *input
+			copied.CapabilityPart = nil
+			request[i].Metadata.Input = &copied
+		}
 		if compaction, ok := request[i].Data.(*canonical.Compaction); ok {
 			summarized := *compaction
 			summarized.Summary = hydrated

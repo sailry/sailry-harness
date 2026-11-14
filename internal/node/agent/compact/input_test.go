@@ -37,8 +37,21 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// limit is the context limit that leaves budget tokens for the transcript.
-	limit := func(budget uint64) uint64 { return output + tokens.Text(base) + 256 + budget }
+	// The prompt's numeric cap changes with small windows. Recount it so each
+	// fixture still leaves exactly budget tokens for the transcript.
+	limit := func(budget uint64) uint64 {
+		contextLimit := output + tokens.Text(base) + 256 + budget
+		for range 8 {
+			prompt := instructions(Cap(contextLimit, output), "")
+			adjusted := output + tokens.Text(prompt) + 256 + budget
+			if adjusted == contextLimit {
+				return contextLimit
+			}
+			contextLimit = adjusted
+		}
+		t.Fatal("could not construct the exact transcript budget")
+		return 0
+	}
 	turn := longTurn(12)
 	whole, edged, omitted := tokens.Text(transcript(turn, -1)), tokens.Text(transcript(turn, 0)), tokens.Text(transcript(turn, 1))
 	if !(whole > edged && edged > omitted) {
@@ -126,4 +139,23 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 			t.Fatalf("error = %v", err)
 		}
 	})
+}
+
+func TestPrepareFitsSmallWindows(t *testing.T) {
+	for _, contextLimit := range []uint64{4096, 8192} {
+		t.Run(fmt.Sprint(contextLimit), func(t *testing.T) {
+			output := Output(contextLimit)
+			prepared, err := Prepare(longTurn(12), contextLimit, output, Request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.User, canonical.Text(0, Request)), time.Time{})
+			if total := tokens.Chat(prepared, []canonical.Record{request}) + output; total > contextLimit {
+				t.Fatalf("summary input and output use %d tokens in a %d-token window", total, contextLimit)
+			}
+			if !strings.Contains(prepared, "Kick off the migration exactly as specified") {
+				t.Fatal("fitting the small window lost the current user request")
+			}
+		})
+	}
 }

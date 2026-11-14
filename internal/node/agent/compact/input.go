@@ -17,16 +17,17 @@ const Request = "Please summarize the conversation history provided in the syste
 
 // Output is the output limit a summary request asks for in a context window:
 // twice the handoff's cap, since the JSON document is larger than the text
-// rendered from it. The model's own output limit bounds it.
+// rendered from it. Small windows reserve at most a quarter for output so the
+// transcript has room. The model's own output limit also bounds it.
 func Output(contextLimit uint64) uint64 {
-	return 2 * min(max(contextLimit*2/100, 4000), 12000)
+	return min(2*min(max(contextLimit*2/100, 4000), 12000), contextLimit/4)
 }
 
-// Cap is the rendered handoff's token limit: 2% of the context window, at
-// least 4,000 and at most 12,000 tokens, and no more than half the output the
-// summary request may write once that leaves the 4,000 of every window.
+// Cap bounds the rendered handoff to half the actual summary output budget.
+// Normal windows target 2% of context, between 4,000 and 12,000 tokens; smaller
+// windows and model output limits can reduce that target.
 func Cap(contextLimit, outputLimit uint64) uint64 {
-	return max(4000, min(Output(contextLimit), outputLimit)/2)
+	return min(Output(contextLimit), outputLimit) / 2
 }
 
 // instructions is the prompt with its handoff limits: the soft target is three
@@ -215,6 +216,11 @@ func transcript(records []canonical.Record, detail int) string {
 				text = value.Text
 			case *canonical.AssetContent:
 				text = "[" + block.Kind + ": " + value.Asset.Mime + "]"
+			case *canonical.FileContent:
+				text = "[file]"
+				if strings.HasPrefix(value.File.URI, "sailry-attachment://") {
+					text = "[file: " + value.File.URI + "]"
+				}
 			case *canonical.ToolRequest:
 				if value.Error != nil {
 					text = "tool_request: [error]"

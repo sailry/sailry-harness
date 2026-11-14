@@ -423,8 +423,9 @@ func priceSuppliers(preset, api string) []string {
 // entry returns the catalog entry that prices a model: the first of the
 // suppliers that lists the exact identifier, else the entry of any other
 // supplier when all that list it state one price. Resellers price the same
-// identifier differently, so a model they disagree on stays unpriced.
-func (prices modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []string, model string) ([]byte, error) {
+// identifier differently, so a model they disagree on stays unpriced. The
+// supplier identifies which vendor-specific pricing rules can be applied.
+func (prices modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []string, model string) ([]byte, string, error) {
 	for _, supplier := range append(suppliers, "") {
 		key := [2]string{supplier, model}
 		body, known := prices[key]
@@ -439,15 +440,15 @@ func (prices modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []s
 				body, err = agreedPrice(ctx, db, model)
 			}
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			prices[key] = body
 		}
 		if body != nil {
-			return body, nil
+			return body, supplier, nil
 		}
 	}
-	return nil, nil
+	return nil, "", nil
 }
 
 func agreedPrice(ctx context.Context, db *sql.Conn, model string) ([]byte, error) {
@@ -483,7 +484,7 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, pr
 	if usage.Input == nil || usage.Output == nil {
 		return nil, nil
 	}
-	body, err := prices.entry(ctx, db, priceSuppliers(preset, api), model)
+	body, supplier, err := prices.entry(ctx, db, priceSuppliers(preset, api), model)
 	if err != nil || body == nil {
 		return nil, err
 	}
@@ -533,6 +534,28 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, pr
 	if *usage.Input < read || *usage.Input-read < write || *usage.Output < reasoning {
 		return nil, nil
 	}
+	hourlyWrite := uint64(0)
+	if api == "anthropic" && write > 0 && len(usage.Provider) > 0 {
+		var reported struct {
+			Creation *struct {
+				FiveMinutes *uint64 `json:"ephemeral_5m_input_tokens"`
+				OneHour     *uint64 `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
+		}
+		if json.Unmarshal(usage.Provider, &reported) != nil {
+			return nil, nil
+		}
+		if creation := reported.Creation; creation != nil {
+			if creation.FiveMinutes == nil || creation.OneHour == nil || *creation.FiveMinutes > write || *creation.OneHour != write-*creation.FiveMinutes {
+				return nil, nil
+			}
+			hourlyWrite = *creation.OneHour
+			if hourlyWrite > 0 && supplier != "anthropic" {
+				// A compatible API does not imply Anthropic's cache pricing.
+				return nil, nil
+			}
+		}
+	}
 	rate := func(field string) (uint64, bool) {
 		var v float64
 		if json.Unmarshal(cost[field], &v) != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v*1000000 >= float64(math.MaxUint64) {
@@ -551,7 +574,17 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, pr
 		count           uint64
 		field, fallback string
 		category        int
-	}{{*usage.Input - read - write, "input", "", 0}, {*usage.Output - reasoning, "output", "", 1}, {read, "cache_read", "", 2}, {write, "cache_write", "", 3}, {reasoning, "reasoning", "output", 1}} {
+		multiplier      int64
+	}{
+		{*usage.Input - read - write, "input", "", 0, 1},
+		{*usage.Output - reasoning, "output", "", 1, 1},
+		{read, "cache_read", "", 2, 1},
+		{write - hourlyWrite, "cache_write", "", 3, 1},
+		// Anthropic's catalog cache_write rate is for five minutes. It bills
+		// one-hour writes at twice the base input rate, including context tiers.
+		{hourlyWrite, "input", "", 3, 2},
+		{reasoning, "reasoning", "output", 1, 1},
+	} {
 		if item.count == 0 {
 			continue
 		}
@@ -563,6 +596,7 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, pr
 			return nil, nil
 		}
 		product := new(big.Int).Mul(new(big.Int).SetUint64(r), new(big.Int).SetUint64(item.count))
+		product.Mul(product, big.NewInt(item.multiplier))
 		categories[item.category].Add(categories[item.category], product)
 	}
 	cumulative := new(big.Int)

@@ -223,6 +223,13 @@ uses the captured model and defaults to 80% of its context window. Summaries do 
 delete original records or raw tool output. Context-length failures allow up to two
 reactive compactions.
 
+Compaction sends a bounded text transcript without tool definitions or attachment
+payloads. Attachment references remain recoverable, and pending user attachments
+survive into the next main request. Hidden history is filtered before attachment
+materialization. A successful compaction must reach a main request before another
+threshold compaction. Provider-reported usage alone enters usage and cost totals;
+local token estimates inform context budgeting without inventing billed usage.
+
 Model request recovery permits up to nine retries and ten minutes of cumulative
 waiting. Network failures use exponential waits from one to thirty seconds;
 rate limits and overload use five seconds to one minute, with jitter. Provider

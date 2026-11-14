@@ -885,6 +885,134 @@ func TestReactiveCompactionAtMostTwo(t *testing.T) {
 		t.Fatalf("compactions=%d", n)
 	}
 }
+
+func TestThresholdCompactionAttemptsTheMainRequest(t *testing.T) {
+	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
+	m := &scriptedModel{scripts: []script{summary, response(call("probe", "probe", `{}`), finish()), summary, response(text("Done"), finish())}}
+	probe := objectTool("probe", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		return ToolResult{Value: "Tool completed"}
+	})
+	f := newFixture(t, m, probe)
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(f.ctx, "UPDATE providers SET body=json_set(body,'$.provider.models[0].compaction_tokens',200)")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.start()
+	f.waitRun(f.submit(strings.Repeat("Retain this exact requirement. ", 100)), protocol.ConversationStatusCompleted)
+	if m.count() != 4 {
+		t.Fatalf("requests = %d, want summary, main, summary, main", m.count())
+	}
+	if count := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); count != 2 {
+		t.Fatalf("compactions = %d, want one before each main request", count)
+	}
+	mustHaveText(t, f.state().Records, "Done")
+}
+
+func TestThresholdCompactionKeepsReactiveRecoveryBounded(t *testing.T) {
+	overflow := response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}})
+	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
+	m := &scriptedModel{scripts: []script{summary, overflow, summary, overflow, summary, overflow}}
+	f := newFixture(t, m)
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(f.ctx, "UPDATE providers SET body=json_set(body,'$.provider.models[0].compaction_tokens',200)")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.start()
+	f.waitRun(f.submit(strings.Repeat("Retain this exact requirement. ", 100)), protocol.ConversationStatusFailed)
+	if m.count() != 6 {
+		t.Fatalf("requests = %d, want one threshold and two reactive summaries", m.count())
+	}
+}
+
+func TestCompactionKeepsPendingAttachmentsWithoutReadingOldOnes(t *testing.T) {
+	m := &scriptedModel{scripts: []script{
+		response(text("Read the old note"), finish()),
+		response(text(`{"user_intent":["Read the pending attachment"]}`), finish()),
+		response(text("Read the pending note"), finish()),
+	}}
+	f := newFixture(t, m)
+	attachments := map[protocol.AttachmentID]protocol.Attachment{}
+	contents := map[protocol.AttachmentID]string{}
+	reads := map[protocol.AttachmentID]int{}
+	for _, name := range []string{"old", "pending"} {
+		attachment := protocol.DefaultAttachment()
+		attachment.ID = protocol.NewAttachmentID()
+		attachment.Spec.Worktree = f.session.Worktree
+		attachment.Spec.Name, attachment.Spec.MediaType = name+".txt", "text/plain"
+		contents[attachment.ID] = name + " attachment body"
+		attachment.Spec.Size = uint64(len(contents[attachment.ID]))
+		attachments[attachment.ID] = attachment
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			return store.InsertAttachment(f.ctx, db, f.node, attachment)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.r.attachment = func(_ context.Context, _ protocol.TurnID, id protocol.AttachmentID) (protocol.Attachment, bool, error) {
+		return attachments[id], true, nil
+	}
+	f.r.attachmentBytes = func(_ context.Context, attachment protocol.Attachment) ([]byte, error) {
+		reads[attachment.ID]++
+		return []byte(contents[attachment.ID]), nil
+	}
+	submit := func(name, text string) {
+		t.Helper()
+		input := protocol.DefaultConversationInput()
+		input.Text = text
+		for id, attachment := range attachments {
+			if attachment.Spec.Name == name+".txt" {
+				input.Attachments = []protocol.AttachmentID{id}
+			}
+		}
+		queued := f.command("submit_turn", &protocol.CommandSubmitTurnPayload{Session: f.session.ID, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn)
+		f.waitRun(queued.ID, protocol.ConversationStatusCompleted)
+	}
+	f.start()
+	submit("old", "Read this note")
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(f.ctx, "UPDATE providers SET body=json_set(body,'$.provider.models[0].compaction_tokens',200)")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	submit("pending", strings.Repeat("Inspect the newly attached note. ", 100))
+	if m.count() != 3 {
+		t.Fatalf("requests = %d, want main, summary, main", m.count())
+	}
+	for id, count := range reads {
+		if count != 1 {
+			t.Errorf("attachment %s read %d times", attachments[id].Spec.Name, count)
+		}
+	}
+	if len(reads) != 2 {
+		t.Fatalf("read %d attachments, want both", len(reads))
+	}
+	var summaryText, mainText strings.Builder
+	for i, request := range m.calls[1:] {
+		for _, message := range request.Prompt {
+			for _, part := range message.Content {
+				if value, ok := part.(fantasy.TextPart); ok {
+					if i == 0 {
+						summaryText.WriteString(value.Text)
+					} else {
+						mainText.WriteString(value.Text)
+					}
+				}
+			}
+		}
+	}
+	if !strings.Contains(summaryText.String(), attachmentPrefix) || strings.Contains(summaryText.String(), "attachment body") {
+		t.Fatal("summary lost attachment references or included attachment contents")
+	}
+	if !strings.Contains(mainText.String(), "pending attachment body") || strings.Contains(mainText.String(), "old attachment body") {
+		t.Fatal("the next main request lost pending attachment content or retained old content")
+	}
+}
+
 func TestCompactionKeepsRecords(t *testing.T) {
 	m := &scriptedModel{scripts: []script{response(text("Original answer"), finish()), response(text(`{"user_intent":["Task"],"files":[{"path":"a.go","summary":"pending"}]}`), finish())}}
 	f := newFixture(t, m)
@@ -910,6 +1038,35 @@ func TestCompactionKeepsRecords(t *testing.T) {
 		}
 	}
 	t.Fatal("no compaction record")
+}
+
+func TestOrphanToolResultDoesNotSuppressCurrentEvidence(t *testing.T) {
+	page := map[string]any{"kind": "file_lines", "data": map[string]any{"path": "fixture.go", "lines": []any{map[string]any{"number": 1, "text": "first line\n"}}, "size": 11, "revision": "file-revision", "offset": 0, "truncated": false}}
+	result := ToolResult{Value: page}
+	m := &scriptedModel{scripts: []script{response(text("Earlier reply"), finish()), response(call("current", "read_file", `{}`), finish()), response(text("Done"), finish())}}
+	f := newFixture(t, m, objectTool("read_file", true, true, func(context.Context, canonical.ToolRequest) ToolResult { return result }))
+	f.start()
+	previous := f.submit("Earlier task")
+	f.waitRun(previous, protocol.ConversationStatusCompleted)
+	orphan := canonical.NewRecord(previous, "message", canonical.NewMessage(canonical.User, responseBlock(0, canonical.ToolRequest{ID: "orphan", Name: "read_file"}, result)), f.r.clock.Now())
+	if err := f.r.save(f.ctx, f.session.ID, orphan); err != nil {
+		t.Fatal(err)
+	}
+	f.waitRun(f.submit("Read the file"), protocol.ConversationStatusCompleted)
+	if m.count() != 3 {
+		t.Fatalf("requests = %d, want 3", m.count())
+	}
+	var evidence string
+	for _, message := range m.calls[2].Prompt {
+		for _, part := range message.Content {
+			if result, ok := part.(fantasy.ToolResultPart); ok && result.ToolCallID == "current" {
+				evidence = result.Output.(fantasy.ToolResultOutputContentText).Text
+			}
+		}
+	}
+	if !strings.Contains(evidence, "first line") || strings.Contains(evidence, "are unchanged") {
+		t.Fatalf("current evidence = %q", evidence)
+	}
 }
 
 func TestSystemPromptByteStable(t *testing.T) {

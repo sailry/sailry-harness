@@ -145,7 +145,7 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 		}
 		delete(input.Options, "stop")
 	}
-	records := visibleRecords(request.Records)
+	records := VisibleRecords(request.Records)
 	calls := map[string]string{}
 	for _, record := range records {
 		record = output.Audience(record)

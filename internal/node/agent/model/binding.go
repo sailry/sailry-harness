@@ -123,8 +123,9 @@ func metadata(binding Binding) *protocol.ConversationModel {
 
 // OutputLimit is the model's listed output limit, 0 when it lists none. A
 // summary request asks for twice its handoff cap (compact.Output), which is
-// 8,000 tokens up to a 200,000 token window, and never more than the model's
-// limit; a model that lists none keeps 8,000.
+// 8,000 tokens for windows from 32,000 through 200,000, bounded by the model's
+// limit. A model that lists none uses at most 8,000, still within the window's
+// summary budget.
 func OutputLimit(binding Binding, summary bool) int64 {
 	var limit int64
 	if model := metadata(binding); model != nil {
@@ -132,7 +133,7 @@ func OutputLimit(binding Binding, summary bool) int64 {
 	}
 	if summary {
 		if limit == 0 {
-			return 8000
+			limit = 8000
 		}
 		return min(limit, int64(compact.Output(uint64(ContextLimit(binding)))))
 	}

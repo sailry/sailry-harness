@@ -97,7 +97,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			schemas[tool.Name] = captured.SchemaJSON
 		}
 	}
-	projected := model.Answered(x.output.Project(state.Records))
+	projected := x.output.Project(model.Answered(model.VisibleRecords(state.Records)))
 	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
 	if err != nil {
 		return err

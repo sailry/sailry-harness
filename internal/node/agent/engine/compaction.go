@@ -233,19 +233,6 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		return failed(protocol.ConversationCompactionStageSummary, reason, err)
 	}
 	rendered := summary.Render()
-	// Missing counters describe the bounded JSON document before rendering.
-	if usage.Input == nil {
-		input := tokens.Chat(system, []canonical.Record{request})
-		usage.Input = &input
-	}
-	if usage.Output == nil {
-		output := tokens.Text(summary.Document())
-		usage.Output = &output
-	}
-	if usage.Input != nil && usage.Output != nil {
-		total := *usage.Input + *usage.Output
-		usage.Total = &total
-	}
 	var boundary *canonical.Record
 	for i := len(state.Records) - 1; i >= 0; i-- {
 		if state.Records[i].Message() != nil {
@@ -281,7 +268,8 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if manual {
 		continuation = "Your context was compacted at the user's request. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
 	}
-	var preserved *canonical.Message
+	var preserved *canonical.Record
+	retainMedia := true
 	if !manual {
 		visible := handoff.Visible(state.Records)
 		summaries := map[string]bool{}
@@ -295,10 +283,16 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 				continue
 			}
 			candidate := visible[i].Message()
+			if candidate != nil && candidate.Role == canonical.Assistant && candidate.Error == nil {
+				retainMedia = false
+			}
 			if candidate != nil && candidate.Role == canonical.User && !containsTool(candidate) {
 				for _, block := range candidate.Content {
-					if block.Kind == "text" {
-						preserved = candidate
+					switch block.Kind {
+					case "text", "image", "document", "file":
+						preserved = &visible[i]
+					}
+					if preserved != nil {
 						break
 					}
 				}
@@ -325,13 +319,22 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	records = append(records, record, continued)
 	if preserved != nil {
 		var blocks []canonical.Block
-		for _, block := range preserved.Content {
-			if block.Kind == "text" {
-				block.Index = uint64(len(blocks))
-				blocks = append(blocks, block)
+		for _, block := range preserved.Message().Content {
+			switch block.Kind {
+			case "text":
+			case "image", "document", "file":
+				if !retainMedia {
+					continue
+				}
+			default:
+				continue
 			}
+			block.Index = uint64(len(blocks))
+			blocks = append(blocks, block)
 		}
-		carry := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
+		// Pending attachments keep their original turn binding, including when
+		// guidance joined this run. Already processed media stays in history.
+		carry := canonical.NewRecord(preserved.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
 		carry.Provenance.Author = "assistant"
 		carry.Metadata.Runtime = &runtime
 		records = append(records, carry)

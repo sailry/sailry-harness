@@ -3,7 +3,6 @@
 package compact
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -161,20 +160,14 @@ func Parse(text string, limit uint64) (Summary, error) {
 			continue
 		}
 		summary.Bound(limit)
+		if tokens.Text(summary.Render()) > limit {
+			continue
+		}
 		return summary, nil
 	}
 	return Summary{}, fmt.Errorf("compaction summary was not a structured handoff")
 }
 
-// Document is the bounded structured response used for missing output usage,
-// before the handoff is rendered for subsequent model requests.
-func (s Summary) Document() string {
-	var out bytes.Buffer
-	encoder := json.NewEncoder(&out)
-	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(s)
-	return strings.TrimSuffix(out.String(), "\n")
-}
 func object(text string) string {
 	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "{") {
@@ -335,8 +328,8 @@ func (s Summary) Render() string {
 	return strings.TrimSpace(out.String())
 }
 
-// Bound cuts the least essential sections until the rendered handoff is at
-// most limit tokens.
+// Bound cuts the least essential sections toward limit, retaining the last
+// essential fields. Parse rejects a handoff that still cannot fit.
 func (s *Summary) Bound(limit uint64) {
 	fits := func() bool { return tokens.Text(s.Render()) <= limit }
 	if fits() {
