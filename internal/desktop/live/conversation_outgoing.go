@@ -105,13 +105,24 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 	}
 	cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
 	if pending.turn != (protocol.TurnID{}) {
-		for _, item := range page.Queue.Items {
-			if item.Turn == pending.turn && !slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
+		// The Node admits every turn as a queued item and starts it from the
+		// queue. Only a turn that waits — behind an active run or another
+		// item, or in a paused queue — moves to the tray; the one that starts
+		// next keeps its message in the transcript until the run shows it.
+		for index, item := range page.Queue.Items {
+			if item.Turn != pending.turn || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
 				return run.Turn == pending.turn && (run.Status == "running" || run.Status == "stopping")
+			}) {
+				continue
+			}
+			ahead := slices.ContainsFunc(page.Queue.Items[:index], func(other protocol.ConversationPending) bool { return other.Guidance == nil })
+			if page.Queue.Paused || ahead || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
+				return run.Status == "running" || run.Status == "stopping"
 			}) {
 				delete(r.composerOutgoing, cv.ID)
 				return
 			}
+			cv.Queue = slices.DeleteFunc(cv.Queue, func(queued composer.Queued) bool { return queued.ID == pending.turn.String() })
 		}
 		for _, entry := range page.Entries {
 			if entry.Turn == pending.turn && entry.Author == "user" {

@@ -1,11 +1,13 @@
 package live
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -80,17 +82,53 @@ func TestOutgoingMessageProjection(t *testing.T) {
 			t.Fatal("failed prerequisite left its local input or replaced a newer draft")
 		}
 	})
-	t.Run("queued admission stays in the tray", func(t *testing.T) {
+	t.Run("idle admission keeps the message in the transcript", func(t *testing.T) {
+		// Every turn is admitted queued; on an idle session it starts next,
+		// so its message stays ahead of the reply that follows.
 		actions.stageOutgoing(message)
 		r.composerOutgoing[cv.ID].request = request
 		r.snapshotCopy.Turns = nil
 		page.Entries = nil
-		page.Runs = nil
+		page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Kind: "task", Status: "queued"}}
 		page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "Captured message"}}
 		project()
-		if len(cv.Turns) != 0 || r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 {
-			t.Fatal("queued admission became an active transcript message", cv.Turns, cv.Queue)
+		if len(cv.Turns) != 1 || cv.Turns[0].User != message.Text || cv.Running() || len(cv.Queue) != 0 || r.composerOutgoing[cv.ID] == nil {
+			t.Fatal("an admitted turn about to start left the transcript", cv.Turns, cv.Queue)
 		}
+		// It starts before its user entry arrives: the reply shows under
+		// the captured message, never alone.
+		page.Queue.Items = nil
+		page.Runs[0].Status = "running"
+		project()
+		if len(cv.Turns) != 1 || cv.Turns[0].ID != turn.String() || cv.Turns[0].User != message.Text || !cv.Turns[0].Reply.Status.Active() {
+			t.Fatal("the starting run showed without its message", cv.Turns)
+		}
+		page.Entries = []protocol.ConversationEntry{{Turn: turn, ID: "canonical-user", Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Captured message"}}}}
+		project()
+		project()
+		if r.composerOutgoing[cv.ID] != nil || len(cv.Turns) != 1 || cv.Turns[0].User != message.Text {
+			t.Fatal("canonical handoff lost or duplicated the message", cv.Turns)
+		}
+	})
+	t.Run("queued admission stays in the tray", func(t *testing.T) {
+		// Behind an active run, or in a paused queue, the turn waits.
+		for _, paused := range []bool{false, true} {
+			actions.stageOutgoing(message)
+			r.composerOutgoing[cv.ID].request = request
+			r.snapshotCopy.Turns = nil
+			page.Entries = nil
+			page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Kind: "task", Status: "queued"}}
+			if !paused {
+				page.Runs = append(page.Runs, protocol.ConversationRun{Session: session, Turn: other, Kind: "task", Status: "running"})
+			}
+			page.Queue.Paused = paused
+			page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "Captured message"}}
+			project()
+			if slices.ContainsFunc(cv.Turns, func(t conversation.Turn) bool { return t.User == message.Text }) || r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 {
+				t.Fatal("queued admission became an active transcript message", paused, cv.Turns, cv.Queue)
+			}
+		}
+		page.Queue.Paused = false
 	})
 }
 
