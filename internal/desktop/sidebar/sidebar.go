@@ -24,6 +24,7 @@ const (
 	rowHeight = 28
 	indent    = 30 // conversation rows under a project
 	guideX    = 16 // the status slot's center, from the row's left edge
+	rowGap    = 2  // between rows, so two highlighted rows stay apart
 )
 
 // State is the sidebar's part of the app state.
@@ -225,18 +226,22 @@ func View(c *ui.Context, s *State) {
 	ui.Scroll(c.Key("sessions")).Grow(1).Padding(8, 12).Gap(4).Children(func() {
 		if pinned := s.pinned(); len(pinned) > 0 {
 			section(c, s, "pinned", i18n.T(c, "sidebar_pinned"), nil, func() {
-				s.limited(c, "pinned", pinned, func(cv *preview.Conversation) {
-					s.conversation(c, cv, rowPinned)
+				ui.Column(c).Gap(rowGap).Children(func() {
+					s.limited(c, "pinned", pinned, func(cv *preview.Conversation) {
+						s.conversation(c, cv, rowPinned)
+					})
 				})
 			})
 		}
 		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat}, func() {
-			s.limited(c, "unassigned", s.sessions(s.Data.Unassigned), func(cv *preview.Conversation) {
-				s.conversation(c, cv, rowPlain)
+			ui.Column(c).Gap(rowGap).Children(func() {
+				s.limited(c, "unassigned", s.sessions(s.Data.Unassigned), func(cv *preview.Conversation) {
+					s.conversation(c, cv, rowPlain)
+				})
 			})
 		})
 		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }}, func() {
-			ui.Column(c).Gap(2).Children(func() {
+			ui.Column(c).Gap(rowGap).Children(func() {
 				for _, pr := range s.projects() {
 					s.project(c, pr)
 				}
@@ -340,7 +345,7 @@ func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation,
 // right-click menu is the system's.
 func (s *State) project(c *ui.Context, pr *preview.Project) {
 	p := theme.Of(c)
-	ui.Column(c.Key(pr.ID)).Gap(2).Children(func() {
+	ui.Column(c.Key(pr.ID)).Gap(rowGap).Children(func() {
 		parts := ui.CollapsibleBase(c, s.opened("project/"+pr.ID))
 		hovered := parts.Trigger.Hovered()
 		parts.Trigger.Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).TextColor(p.SidebarForeground).
@@ -358,7 +363,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 			}
 		})
 		parts.Panel(func() {
-			ui.Column(c).Gap(2).Children(func() {
+			ui.Column(c).Gap(rowGap).Children(func() {
 				s.limited(c, pr.ID, s.sessions(pr.Conversations), func(cv *preview.Conversation) {
 					s.conversation(c, cv, rowTree)
 				})
