@@ -282,7 +282,15 @@ func (binding *NativeBinding) renderModelPopup(view *ui.Context, identity string
 	}
 	level := func(effort json.RawMessage) string {
 		text := string(effort)
-		_ = json.Unmarshal(effort, &text)
+		if json.Unmarshal(effort, &text) != nil {
+			// A token budget is named by its number.
+			var budget struct {
+				Budget *json.Number `json:"budget"`
+			}
+			if json.Unmarshal(effort, &budget) == nil && budget.Budget != nil {
+				text = budget.Budget.String()
+			}
+		}
 		return text
 	}
 	var offered []kit.ModelOption

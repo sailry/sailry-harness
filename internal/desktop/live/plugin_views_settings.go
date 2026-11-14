@@ -166,6 +166,9 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 	disabled := schema.pending || !entry.owner.controller.Connected()
 	for index := range schema.fields {
 		field := &schema.fields[index]
+		if settings.PluginEffortShown(schema.fields, *field) {
+			continue
+		}
 		label := field.Title
 		kit.Field(view, field.Name, label, "", func() {
 			switch field.Kind {
@@ -178,10 +181,7 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 				control, _ := kit.Select(view.Key(field.Name), "value", label, &field.Value, field.Options, disabled)
 				control.FillWidth()
 			case "model":
-				// The models the field offers, by their names.
-				models := kit.ModelsOffered(entry.owner.modelOptions(), field.Options)
-				kit.ModelSelect(view.Key(field.Name), kit.ModelSelectProps{Label: label, Placeholder: i18n.T(view, "composer_select_model"),
-					Models: models, Model: field.Value, Disabled: disabled, OnChange: func(id, _ string) { field.Value = id }}).FillWidth()
+				settings.PluginModelField(view.Key(field.Name), schema.fields, field, entry.owner.modelOptions(), label, disabled)
 			case "secret":
 				action := schema.secrets[field.Name]
 				if field.Set {

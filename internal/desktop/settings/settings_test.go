@@ -2832,13 +2832,14 @@ func TestExperimentalMemory(t *testing.T) {
 
 // TestPackageConfigurationTabs asserts a package's settings show by tab,
 // a tab's fields only while its Enabled switch is on, and an effort setting
-// offers the levels of the model it follows.
+// is chosen in its model's picker, among that model's levels, with no row of
+// its own.
 func TestPackageConfigurationTabs(t *testing.T) {
 	m := &Model{Packages: []preview.Package{{ID: "trader", Name: "Trader"}}}
 	m.OpenPackageConfiguration("trader", "", []preview.Setting{
 		{Name: "player_name", Title: "Your name", Kind: "string"},
 		{Name: "player_1_enabled", Title: "Enabled", Kind: "bool", Value: "false", Required: true},
-		{Name: "player_1_model", Title: "Model", Kind: "choice", Options: []string{"m1", "m2"}, Value: "m1"},
+		{Name: "player_1_model", Title: "Model", Kind: "model", Options: []string{"m1", "m2"}, Value: "m1"},
 		{Name: "player_1_effort", Title: "Reasoning", Kind: "effort", Model: "player_1_model", Value: "none", Efforts: map[string][]string{"m1": {"low", "high"}}},
 	}, viewmodel.SettingsTab{ID: "one", Title: "You", Fields: []string{"player_name"}},
 		viewmodel.SettingsTab{ID: "two", Title: "Rival", Fields: []string{"player_1_enabled", "player_1_model", "player_1_effort"}, Enabled: "player_1_enabled"})
@@ -2862,11 +2863,29 @@ func TestPackageConfigurationTabs(t *testing.T) {
 	}
 	m.config.fields[1].Value = "true"
 	frame()
-	if !tt.HasText("Model") || !tt.HasText("Reasoning") {
-		t.Fatalf("an enabled tab hides its fields: %q", tt.Texts())
+	if !tt.HasText("Model") || tt.HasText("Reasoning") {
+		t.Fatalf("want the model's picker alone, no effort row: %q", tt.Texts())
 	}
 	// "none" is not a level m1 takes: the setting follows the model.
-	if m.config.fields[3].Value != "" || !tt.HasText(i18n.In("en", "plugins_settings_follow_model")) {
+	if m.config.fields[3].Value != "" {
 		t.Fatalf("an effort the model lacks stays: %q", m.config.fields[3].Value)
+	}
+	click := func(role ui.Role, name string) {
+		t.Helper()
+		target, ok := tt.AccessByRole(role, name)
+		if !ok {
+			t.Fatalf("no %q: %q", name, tt.Texts())
+		}
+		tt.ClickAt(target.Bounds.X+target.Bounds.W/2, target.Bounds.Y+target.Bounds.H/2)
+		frame()
+	}
+	click(ui.RoleButton, "Model")
+	click(ui.RoleOption, "m1")
+	if !tt.HasText(i18n.In("en", "plugins_settings_follow_model")) {
+		t.Fatalf("the picker offers no Follow model beside m1's levels: %q", tt.Texts())
+	}
+	click(ui.RoleOption, "high")
+	if m.config.fields[2].Value != "m1" || m.config.fields[3].Value != "high" {
+		t.Fatalf("the picker chose %q at %q, want m1 at high", m.config.fields[2].Value, m.config.fields[3].Value)
 	}
 }

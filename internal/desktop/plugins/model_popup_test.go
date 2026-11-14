@@ -19,7 +19,7 @@ func TestModelPopup(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{
 		"label": "Model", "placeholder": "Choose a model", "selected": null,
 		"catalog": {"models": [
-			{"kind": "provider", "id": "`+fast+`", "provider": "OpenAI", "model": "gpt-5.5", "efforts": ["low", "medium", "high"], "default_effort": "medium"},
+			{"kind": "provider", "id": "`+fast+`", "provider": "OpenAI", "model": "gpt-5.5", "efforts": ["low", "medium", "high", {"budget": 1024}], "default_effort": "medium"},
 			{"kind": "provider", "id": "`+plain+`", "provider": "OpenAI", "model": "plain"},
 			{"kind": "agent", "id": "agent/one", "name": "An agent"}
 		]}
@@ -108,4 +108,13 @@ func TestModelPopup(t *testing.T) {
 	if _, listed := tester.AccessByRole(ui.RoleOption, "high"); listed {
 		t.Error("the popover stays open after an effort")
 	}
+	// A token budget is offered by its number and reported as the catalog
+	// wrote it.
+	props["selected"] = json.RawMessage(`"` + plain + `"`)
+	tester.Frame()
+	open()
+	click("GPT-5.5")
+	reported(`{"id":"model","value":{"effort":"high","model":"` + fast + `"}}`)
+	click("1024")
+	reported(`{"id":"model","value":{"effort":{"budget":1024},"model":"` + fast + `"}}`)
 }

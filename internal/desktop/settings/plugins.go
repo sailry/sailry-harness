@@ -353,6 +353,9 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 			// not marked under every field.
 			for _, i := range e.visible() {
 				f := &e.fields[i]
+				if PluginEffortShown(e.fields, *f) {
+					continue
+				}
 				label := f.Title
 				kit.Field(c, f.Name, label, "", func() {
 					switch f.Kind {
@@ -366,29 +369,8 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 						if pick(c, "select", label, &chosen, f.Options, e.pending).FillWidth().Changed() {
 							f.Value = f.Options[chosen]
 						}
-					case "effort":
-						// The efforts the chosen model takes, after following
-						// the model's own; a level it does not take falls back.
-						options, labels := []string{""}, []string{t("plugins_settings_follow_model")}
-						for _, model := range e.fields {
-							if model.Name == f.Model {
-								options = append(options, f.Efforts[model.Value]...)
-								labels = append(labels, f.Efforts[model.Value]...)
-							}
-						}
-						if !slices.Contains(options, f.Value) {
-							f.Value = ""
-						}
-						chosen := slices.Index(options, f.Value)
-						if pick(c, "select", label, &chosen, labels, e.pending).FillWidth().Changed() {
-							f.Value = options[chosen]
-						}
 					case "model":
-						// A model a package asks for: the models the field offers,
-						// by their names; the efforts are not the field's to choose.
-						models := kit.ModelsOffered(m.modelOptions(), f.Options)
-						kit.ModelSelect(c.Key("select"), kit.ModelSelectProps{Label: label, Placeholder: t("composer_select_model"), Models: models,
-							Model: f.Value, Disabled: e.pending, OnChange: func(id, _ string) { f.Value = id }}).FillWidth()
+						PluginModelField(c, e.fields, f, m.modelOptions(), label, e.pending)
 					case "secret":
 						action := e.secrets[f.Name]
 						if f.Set {
@@ -733,4 +715,42 @@ func (e *pluginConfig) visible() []int {
 		}
 	}
 	return out
+}
+
+// PluginEffortShown reports whether f is an effort a model field of fields
+// chooses in its own picker: the form draws no field of its own for it.
+func PluginEffortShown(fields []preview.Setting, f preview.Setting) bool {
+	return f.Kind == "effort" && slices.ContainsFunc(fields, func(model preview.Setting) bool {
+		return model.Kind == "model" && model.Name == f.Model
+	})
+}
+
+// PluginModelField is a package's model setting: kit.ModelSelect of the
+// models it offers, by their names. Where an effort setting follows the
+// field, the picker offers each model's efforts after Follow model, the
+// effort "", and choosing writes both, so the form has no effort row.
+// PluginEffortShown tells the forms which fields it draws this way.
+func PluginModelField(c *ui.Context, fields []preview.Setting, f *preview.Setting, known []kit.ModelOption, label string, disabled bool) {
+	models := kit.ModelsOffered(known, f.Options)
+	var effort *preview.Setting
+	for i := range fields {
+		if fields[i].Kind == "effort" && fields[i].Model == f.Name {
+			effort = &fields[i]
+		}
+	}
+	props := kit.ModelSelectProps{Label: label, Placeholder: i18n.T(c, "composer_select_model"), Models: models,
+		Model: f.Value, Disabled: disabled, OnChange: func(id, _ string) { f.Value = id }}
+	if effort != nil {
+		// A level the chosen model does not take, as the schemas' "none",
+		// follows the model: resolveModel would reject it.
+		if !slices.Contains(effort.Efforts[f.Value], effort.Value) {
+			effort.Value = ""
+		}
+		for i := range models {
+			models[i].Efforts = effort.Efforts[models[i].ID]
+		}
+		props.Effort, props.AutoEffort = effort.Value, i18n.T(c, "plugins_settings_follow_model")
+		props.OnChange = func(id, level string) { f.Value, effort.Value = id, level }
+	}
+	kit.ModelSelect(c.Key("select"), props).FillWidth()
 }
