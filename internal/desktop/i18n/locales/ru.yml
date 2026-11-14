@@ -1324,31 +1324,9 @@ role_instructions: Инструкции
 role_save: Сохранить
 teams_role_saved: Роль сохранена
 role_avatar: Avatar
+role_avatar_seed: Avatar %{seed}
+role_avatar_shuffle: Shuffle
 role_avatar_none: No avatar
-avatar_fox: Fox
-avatar_panda: Panda
-avatar_bear: Bear
-avatar_rabbit: Rabbit
-avatar_cat: Cat
-avatar_dog: Dog
-avatar_penguin: Penguin
-avatar_owl: Owl
-avatar_koala: Koala
-avatar_frog: Frog
-avatar_lion: Lion
-avatar_tiger: Tiger
-avatar_elephant: Elephant
-avatar_whale: Whale
-avatar_duck: Duck
-avatar_pig: Pig
-avatar_monkey: Monkey
-avatar_deer: Deer
-avatar_hedgehog: Hedgehog
-avatar_seal: Seal
-avatar_octopus: Octopus
-avatar_sheep: Sheep
-avatar_raccoon: Raccoon
-avatar_dino: Dinosaur
 market_plugin_details: Сведения о плагине
 market_skill_details: Сведения о навыке
 market_theme_details: Сведения о теме

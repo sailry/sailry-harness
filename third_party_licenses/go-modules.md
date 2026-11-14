@@ -61,6 +61,8 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/coder/websocket` | v1.8.15 | ISC | `LICENSE.txt` | D H |
 | `github.com/creack/pty/v2` | v2.0.1 | MIT | `LICENSE` | D H |
 | `github.com/cyphar/filepath-securejoin` | v0.6.1 | MPL-2.0, BSD-3-Clause | `COPYING.md`, `LICENSE.BSD`, `LICENSE.MPL-2.0` | D H |
+| `github.com/dicebear/dicebear-go/v10` | v10.7.0 | MIT | `LICENSE` | D |
+| `github.com/dicebear/schema` | v1.5.1 | MIT | `LICENSE` | D |
 | `github.com/dlclark/regexp2` | v1.11.0 | MIT | `LICENSE` | D H |
 | `github.com/dustin/go-humanize` | v1.1.0 | MIT | `LICENSE` | D H |
 | `github.com/ebitengine/purego` | v0.11.3 | Apache-2.0 | `LICENSE` | D H M |

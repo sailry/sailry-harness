@@ -19,9 +19,6 @@ func ReadTeams(ctx context.Context, db *sql.Conn) ([]protocol.TeamProfile, error
 	return readBodies[protocol.TeamProfile](ctx, db, "SELECT body FROM teams ORDER BY key")
 }
 
-// roleAvatars are the pictures a role's icon may name as "avatar-<name>".
-var roleAvatars = strings.Fields("fox panda bear rabbit cat dog penguin owl koala frog lion tiger elephant whale duck pig monkey deer hedgehog seal octopus sheep raccoon dino")
-
 func roleKey(key string) bool {
 	if key == "" || key[0] < 'a' || key[0] > 'z' {
 		return false
@@ -63,10 +60,10 @@ func ValidateRole(role protocol.RoleProfile) error {
 		return invalid("role model identifier is invalid")
 	}
 	if role.Appearance != nil {
-		// A role's icon is a project icon or one of the role avatars the
-		// Desktop draws (internal/desktop/icons.AvatarNames).
+		// A role's icon is a project icon or a generated avatar's seed
+		// (protocol.RoleAvatarSeed), which the Desktop draws.
 		appearance := *role.Appearance
-		if name, ok := strings.CutPrefix(appearance.Icon, "avatar-"); ok && slices.Contains(roleAvatars, name) {
+		if _, ok := protocol.RoleAvatarSeed(appearance.Icon); ok {
 			appearance.Icon = protocol.DefaultProjectsAppearance().Icon
 		}
 		if err := validateAppearance(appearance); err != nil {

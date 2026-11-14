@@ -60,6 +60,7 @@ var (
 	Loader           = load("loader-circle")
 	Copy             = load("copy")
 	RotateCw         = load("rotate-cw")
+	Shuffle          = load("shuffle")
 	Volume           = load("volume-2")
 	Brain            = load("brain")
 	Pin              = load("pin")

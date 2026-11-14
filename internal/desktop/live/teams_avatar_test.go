@@ -40,9 +40,9 @@ func TestRoleAvatar(t *testing.T) {
 	if cleared, err := r.roleDraft(draft); err != nil || cleared.Appearance != nil {
 		t.Fatalf("No avatar keeps %+v, %v", cleared.Appearance, err)
 	}
-	// An icon this build has no picture of shows the mark and is kept.
+	// An icon that names no avatar shows the mark and is kept.
 	unknown := saved
-	unknown.Revision, unknown.Appearance = 5, &protocol.ProjectsAppearance{Icon: "avatar-unicorn", Color: "teal"}
+	unknown.Revision, unknown.Appearance = 5, &protocol.ProjectsAppearance{Icon: "avatar-Unicorn", Color: "teal"}
 	r.teams.roles[profileKey(unknown.ID.String(), unknown.Revision)] = unknown
 	draft = roleView(unknown)
 	if kept, err := r.roleDraft(draft); draft.Avatar != "" || err != nil || *kept.Appearance != *unknown.Appearance {
@@ -54,11 +54,12 @@ func TestRoleAvatar(t *testing.T) {
 	if created, err := r.roleDraft(fresh); err != nil || *created.Appearance != (protocol.ProjectsAppearance{Icon: "avatar-owl", Color: "none"}) || store.ValidateRole(created) != nil {
 		t.Fatalf("a new role's appearance is %+v, %v", created.Appearance, err)
 	}
-	// The Node's list of avatars is the Desktop's.
-	for _, name := range icons.AvatarNames {
-		saved.Appearance = &protocol.ProjectsAppearance{Icon: icons.AvatarPrefix + name, Color: "none"}
+	// The Node takes the avatars the Desktop draws: random ones and those
+	// stored before the pictures were generated.
+	for _, avatar := range []string{icons.RandomAvatar(), icons.RandomAvatar(), "avatar-fox", "avatar-dino"} {
+		saved.Appearance = &protocol.ProjectsAppearance{Icon: avatar, Color: "none"}
 		if icons.Avatar(saved.Appearance.Icon) == nil || store.ValidateRole(saved) != nil {
-			t.Errorf("%s: picture %v, Node %v", name, icons.Avatar(saved.Appearance.Icon) != nil, store.ValidateRole(saved))
+			t.Errorf("%s: picture %v, Node %v", avatar, icons.Avatar(saved.Appearance.Icon) != nil, store.ValidateRole(saved))
 		}
 	}
 	// A child shows the avatar of the role it was delegated to.

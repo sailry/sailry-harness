@@ -1,7 +1,7 @@
 package settings
 
 import (
-	"strings"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -9,27 +9,45 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // The avatar picker's grid: every picture avatarCell across, avatarGap
-// apart, avatarColumns to a row.
+// apart, avatarColumns to a row, avatarRows rows.
 const (
 	avatarCell    = 44
 	avatarGap     = 8
 	avatarColumns = 6
+	avatarRows    = 4
 )
 
-// avatarPicker is the role editor's avatar popover: whether it shows, and
-// enter, which gives the chosen avatar the focus as it opens.
+// avatarPicker is the role editor's avatar popover: whether it shows,
+// enter, which gives the chosen avatar the focus as it opens, and the
+// avatars it offers.
 type avatarPicker struct {
 	open, enter bool
+	choices     []string
 }
 
-// avatarName is what an avatar is called: its animal, or "No avatar" for a
-// role that shows its mark.
+// deal fills the grid with new random avatars after the chosen one, which
+// stays first so the grid always shows it.
+func (st *avatarPicker) deal(chosen string) {
+	st.choices = st.choices[:0]
+	if icons.Avatar(chosen) != nil {
+		st.choices = append(st.choices, chosen)
+	}
+	for len(st.choices) < avatarColumns*avatarRows {
+		if avatar := icons.RandomAvatar(); !slices.Contains(st.choices, avatar) {
+			st.choices = append(st.choices, avatar)
+		}
+	}
+}
+
+// avatarName is what an avatar is called: "Avatar" and its seed, or "No
+// avatar" for a role that shows its mark.
 func avatarName(c *ui.Context, avatar string) string {
-	if name, ok := strings.CutPrefix(avatar, icons.AvatarPrefix); ok && icons.Avatar(avatar) != nil {
-		return i18n.T(c, "avatar_"+name)
+	if seed, ok := protocol.RoleAvatarSeed(avatar); ok {
+		return i18n.T(c, "role_avatar_seed", "seed", seed)
 	}
 	return i18n.T(c, "role_avatar_none")
 }
@@ -59,7 +77,11 @@ func avatarField(c *ui.Context, role *preview.Role, disabled bool) {
 					ui.Text(c, avatarName(c, role.Avatar)).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
 				})
 				ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
-			}).OnClick(func() { st.open, st.enter = !st.open, true })
+			}).OnClick(func() {
+				if st.open, st.enter = !st.open, true; st.open {
+					st.deal(role.Avatar)
+				}
+			})
 			panel := kit.Popover(c, b, &st.open, func() { avatarChoices(c, st, role) })
 			if panel != (ui.Element{}) {
 				panel.AttachTo(b, ui.AnchorBottomStart, ui.AnchorTopStart).Padding(12)
@@ -69,7 +91,8 @@ func avatarField(c *ui.Context, role *preview.Role, disabled bool) {
 }
 
 // avatarChoices is the popover's content: No avatar, which gives the role
-// its mark again, over the pictures in rows of avatarColumns. The chosen
+// its mark again, and Shuffle, which deals new random pictures, over the
+// pictures in rows of avatarColumns. The chosen
 // picture has a ring in the emphasis color around it, since a fill would
 // be under the picture; the one under the pointer has a faint one. Left
 // and Right move through the choices, Up and Down by a row, with No avatar
@@ -78,30 +101,33 @@ func avatarChoices(c *ui.Context, st *avatarPicker, role *preview.Role) {
 	p := theme.Of(c)
 	choose := func(avatar string) { role.Avatar, st.open = avatar, false }
 	// The choices in the keys' order: No avatar, then the pictures.
-	cells := make([]ui.Element, 0, 1+len(icons.AvatarNames))
+	cells := make([]ui.Element, 0, 1+len(st.choices))
 	chosen := 0
 	body := ui.Column(c.Key("avatars")).Gap(avatarGap).FocusGroup(ui.Horizontal)
 	body.Children(func() {
-		name := i18n.T(c, "role_avatar_none")
-		none := kit.Ghost(c.Key("none"), name, false).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
-			AccessSelected(icons.Avatar(role.Avatar) == nil)
-		if icons.Avatar(role.Avatar) == nil {
-			none.Background(p.Selected())
-		}
-		none.Children(func() {
-			kit.RoleAvatar(c, role.ID, "", 20)
-			ui.Text(c, name).FontSize(14).SingleLine()
-		}).OnClick(func() { choose("") })
-		cells = append(cells, none)
+		ui.Row(c.Key("head")).Gap(avatarGap).AlignItems(ui.Center).Children(func() {
+			name := i18n.T(c, "role_avatar_none")
+			none := kit.Ghost(c.Key("none"), name, false).Grow(1).Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
+				AccessSelected(icons.Avatar(role.Avatar) == nil)
+			if icons.Avatar(role.Avatar) == nil {
+				none.Background(p.Selected())
+			}
+			none.Children(func() {
+				kit.RoleAvatar(c, role.ID, "", 20)
+				ui.Text(c, name).FontSize(14).SingleLine()
+			}).OnClick(func() { choose("") })
+			cells = append(cells, none)
+			kit.IconButton(c.Key("shuffle"), icons.Shuffle, i18n.T(c, "role_avatar_shuffle"), 32, false).
+				OnClick(func() { st.deal(role.Avatar) })
+		})
 		width := float32(avatarColumns*avatarCell + (avatarColumns-1)*avatarGap)
 		ui.Grid(c.Key("grid")).Columns(avatarColumns).Gap(avatarGap).Width(width).Children(func() {
-			for i, animal := range icons.AvatarNames {
-				avatar := icons.AvatarPrefix + animal
+			for i, avatar := range st.choices {
 				selected := role.Avatar == avatar
 				if selected {
 					chosen = i + 1
 				}
-				b := ui.ButtonBase(c.Key(animal)).Label(i18n.T(c, "avatar_"+animal)).Size(avatarCell, avatarCell).
+				b := ui.ButtonBase(c.Key(avatar)).Label(avatarName(c, avatar)).Size(avatarCell, avatarCell).
 					Radius(avatarCell / 4).Cursor(ui.CursorPointer).AccessSelected(selected)
 				ring := ui.Color{}
 				switch {
