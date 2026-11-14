@@ -29,7 +29,7 @@ demo:
 
 # Run Desktop live against the fixed profile .runtime/profiles/<name>.
 desktop name="desktop": native
-    go run ./cmd/sailry-desktop --data-dir {{ quote(profiles / name) }}
+    SAILRY_HELPERS_DIR={{ quote(native / "helpers") }} go run ./cmd/sailry-desktop --data-dir {{ quote(profiles / name) }}
 
 # Build and run Host against the fixed profile .runtime/profiles/<name>; extra arguments are Host options such as --internet.
 host name="host" *options: native

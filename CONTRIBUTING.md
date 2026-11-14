@@ -61,8 +61,13 @@ The desktop entry point is:
 ```sh
 unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+export SAILRY_HELPERS_DIR="$PWD/.runtime/native/$(go env GOOS)-$(go env GOARCH)/helpers"
 go run ./cmd/sailry-desktop --data-dir .runtime/profiles/desktop
 ```
+
+The helper directory points source runs at the staged computer-use helper;
+`go run` places its executable in a temporary directory without bundled helpers.
+`just desktop` supplies this path automatically.
 
 The desktop starts one local Node, Client and shared Network. `--preview` exits
 backend startup before opening any profile, including an explicit `--data-dir`.
