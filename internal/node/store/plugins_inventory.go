@@ -89,12 +89,16 @@ func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	if err := checkRevision(revision, expectedRevision); err != nil {
-		return protocol.PluginInfo{}, err
-	}
 	current, err := ReadPlugin(ctx, db, info.Summary.Name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
+	}
+	// Zero asserts absence from the installed inventory exposed to clients.
+	// Removed packages retain their revisions for monotonic reinstall identity.
+	if current != nil || expectedRevision != 0 {
+		if err := checkRevision(revision, expectedRevision); err != nil {
+			return protocol.PluginInfo{}, err
+		}
 	}
 	if current != nil {
 		enabled = current.Summary.Enabled
