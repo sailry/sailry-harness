@@ -384,7 +384,8 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 		if err != nil {
 			return nil, err
 		}
-		query := protocol.UsageQuery{StartMs: 0, EndMs: 1, Dimension: protocol.UsageDimensionModel}
+		query := protocol.DefaultUsageQuery()
+		query.EndMs, query.Dimension = 1, protocol.UsageDimensionModel
 		if _, err := selected.ReadUsage(scoped, query); err != nil {
 			return nil, err
 		}

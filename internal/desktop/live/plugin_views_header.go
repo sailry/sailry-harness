@@ -195,7 +195,7 @@ func (r *Runtime) renderPluginTitle(view *ui.Context) bool {
 		}
 		for _, component := range mounted.components {
 			if component.Module == "sailry/ui" && component.Export == "NavigationTabs" {
-				element, err := component.Render(view.Key("plugin-title").Key(mounted.generation), desktopplugins.NativeElement{
+				element, err := component.Render(view.Key([2]any{"plugin-title", mounted.generation}), desktopplugins.NativeElement{
 					Module: component.Module, Export: component.Export, Props: props,
 				}, func() {}, func(desktopplugins.CallbackRef, json.RawMessage) {})
 				if err != nil {
@@ -245,7 +245,7 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 	if mounted == nil || len(content.Items) == 0 && len(content.Actions) == 0 && len(content.Filters) == 0 && configure == nil {
 		return
 	}
-	current := view.Key("plugin-header").Key(mounted.generation)
+	current := view.Key([2]any{"plugin-header", mounted.generation})
 	palette := theme.Of(current)
 	row := ui.Row(current).MinWidth(0).Shrink(1).Gap(12).AlignItems(ui.Center).Disabled(mounted.disconnected).DimDisabled(false)
 	compact := row.Bounds().W > 0 && row.Bounds().W < 660

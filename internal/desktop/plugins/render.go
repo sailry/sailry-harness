@@ -630,5 +630,9 @@ func runtimeTheme(context *ui.Context) map[string]any {
 	result["dark"] = palette.Dark
 	result["spacing"] = map[string]any{"base": 4}
 	result["radius"] = map[string]any{"default": palette.Radius, "large": palette.RadiusLg, "sm": float32(4), "md": palette.Radius, "lg": palette.RadiusLg, "xl": float32(12)}
+	// Package layouts use the bridge's 16 DIP base and Kit's 13 DIP mono text.
+	result["typography"] = map[string]any{
+		"mono": "monospace", "md": map[string]any{"size": 16}, "mono_md": map[string]any{"size": 13},
+	}
 	return result
 }
