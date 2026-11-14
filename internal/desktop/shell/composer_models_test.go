@@ -551,15 +551,16 @@ func composerModels(t *testing.T) {
 		if !ok || !inside(score, low.Bounds) || score.X < low.Bounds.X+low.Bounds.W/2 {
 			t.Errorf("the score measured at low is %v (shown %v), its row %v", score, ok, low.Bounds)
 		}
-		// 9.1, measured at high: on the model's row and on high's.
+		// 9.1, measured at high: on the model's row, on high's and in the
+		// context bar, the chosen model's at medium, which has none of its own.
 		shown := 0
 		for _, text := range tt.Texts() {
 			if text == "9.1" {
 				shown++
 			}
 		}
-		if shown != 2 {
-			t.Errorf("the model's score shows %d times, want its row and the effort it was measured at: %q", shown, tt.Texts())
+		if shown != 3 {
+			t.Errorf("the model's score shows %d times, want its row, the effort it was measured at and the context bar: %q", shown, tt.Texts())
 		}
 	})
 
@@ -891,9 +892,11 @@ func composerModels(t *testing.T) {
 	// the efforts have no heading over them (AGENTS.md, Removed UI).
 	t.Run("scores at the row's end", func(t *testing.T) {
 		tt := demoPicker(t, func(models []composer.Model) {
-			// Pro: its score, and scores measured at two efforts.
+			// Pro: its score, and scores measured at two efforts. The one
+			// at medium, its chosen effort, is the context bar's figure,
+			// apart from the rows' scores.
 			pro := &models[0]
-			pro.Scores = map[string]*composer.Score{"low": {Overall: 7.3, Tested: "low"}, "high": {Overall: 9.4, Tested: "high"}}
+			pro.Scores = map[string]*composer.Score{"low": {Overall: 7.3, Tested: "low"}, "medium": {Overall: 9.0}, "high": {Overall: 9.4, Tested: "high"}}
 		})
 		tt.Move(2, 2)
 		rest(tt)
@@ -931,7 +934,7 @@ func composerModels(t *testing.T) {
 		tt, _, _ := modelPickerAt(t, 960, nil)
 		still := func(what string, x, y float32) {
 			t.Helper()
-			if restTip(tt, x, y) || tt.HasText(zh("model_score_overall")) {
+			if restTip(tt, x, y) || tt.HasText(zh("model_score_axis_backend")) {
 				t.Errorf("the pointer at rest on %s opens a tooltip: %q", what, tt.Texts())
 			}
 			if panels, menus := popups(tt); len(panels) != 1 || menus != 0 {

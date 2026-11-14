@@ -510,6 +510,7 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 			}
 			s.renderPluginControls(c, "context", ControlStart)
 		})
+		s.scoreFigure(c, ctx)
 		if s.Metrics != nil {
 			s.Metrics(c, compact, &s.stats)
 		}

@@ -324,13 +324,16 @@ func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 			ui.Row(c.Key("features")).Absolute().Left(0).Top(0).Height(28).Gap(4).AlignItems(ui.Center).Children(func() {
 				s.features(c, m)
 			})
-			e := ui.Text(c.Key("effort"), effort).FontSize(16).Height(28).FillWidth().TextAlign(ui.Center).TextColor(p.Primary)
-			if highest {
-				e.TextColor(p.Warning)
-			}
-			if m.Score != nil {
-				scoreTip(c, e, m.Score)
-			}
+			// The effort stays centered; its score's help mark follows it.
+			ui.Row(c.Key("effort-label")).FillWidth().Height(28).Center().Gap(4).Children(func() {
+				e := ui.Text(c.Key("effort"), effort).FontSize(16).SingleLine().TextColor(p.Primary)
+				if highest {
+					e.TextColor(p.Warning)
+				}
+				if sc := measuredAt(m, effort); sc != nil {
+					scoreHelp(c, sc)
+				}
+			})
 			ui.Row(c.Key("reset-row")).Absolute().Right(0).Top(0).Height(28).AlignItems(ui.Center).Children(func() {
 				resettable := int(*effortIndex) != defaultEffort(m) || len(s.controlFeatures()) > 0
 				kit.IconButton(c.Key("reset"), icons.Restore, i18n.T(c, "composer_effort_reset"), 28, false).Radius(14).
@@ -937,41 +940,4 @@ func (s *State) pick(m Model, effort int) {
 		s.Model, s.Effort, s.Features = m.ID, float64(effort), map[string]string{}
 	}
 	s.layer, s.efforts = layerMain, effortState{}
-}
-
-// scoreTip is the overall score, the five axes and the effort they were
-// measured at, over the controls' effort. The picker's scores have none
-// (AGENTS.md, Removed UI).
-func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
-	p := theme.Of(c)
-	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",
-		"model_score_axis_aesthetic", "model_score_axis_maintainability"}
-	if kit.TipsHidden(c) {
-		return
-	}
-	ui.TooltipBase(c, anchor, func(tip ui.Element) {
-		kit.Anchored(tip, anchor, kit.TipLayer)
-		kit.Attach(kit.Floating(c, tip), anchor, kit.Top, 6).Padding(8, 10).Gap(4).Radius(p.Radius).Width(200)
-		tip.Children(func() {
-			ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {
-				ui.Text(c, i18n.T(c, "model_score_overall")).FontSize(12).TextColor(p.MutedForeground)
-				ui.Text(c, fmt.Sprintf("%.1f", sc.Overall)).Font("monospace").FontSize(14).FontWeight(600)
-			})
-			for i, a := range axes {
-				ui.Row(c.Key(a)).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, i18n.T(c, a)).FontSize(12).Width(96).SingleLine()
-					ui.Box(c).Grow(1).Height(4).Radius(2).Background(p.Border).Children(func() {
-						ui.Box(c).WidthPercent(float32(sc.Axes[i] * 10)).FillHeight().Radius(2).Background(p.Primary)
-					})
-					ui.Text(c, fmt.Sprintf("%.1f", sc.Axes[i])).Font("monospace").FontSize(12).Width(28).TextAlign(ui.End)
-				})
-			}
-			if sc.Tested != "" {
-				ui.Text(c, i18n.T(c, "model_score_tested", "effort", sc.Tested)).FontSize(12).TextColor(p.MutedForeground)
-			}
-			if !kit.Demo(c) {
-				ui.Text(c, i18n.T(c, "model_score_preview")).FontSize(12).TextColor(p.MutedForeground)
-			}
-		})
-	})
 }
