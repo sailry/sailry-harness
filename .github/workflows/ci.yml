@@ -118,18 +118,51 @@ jobs:
       - name: Test
         run: |
           set -euo pipefail
-          # The UI packages exercise hundreds of software-rendered frames.
-          # Give the complete package a hosted-runner budget; individual
-          # operation and fixture deadlines still detect stalled work.
+          unset GOROOT
+          # Each rasterizer already uses the runner's CPUs. Keep package
+          # binaries serial, and give the large shell suite three disjoint
+          # batches without changing animations, assertions or coverage.
+          run_tests() {
+            local result=0 shell_package= package batch pattern
+            local packages=()
+            for package in "$@"; do
+              case "$package" in
+                */internal/desktop/shell) shell_package=$package ;;
+                *) packages+=("$package") ;;
+              esac
+            done
+            if [ "${#packages[@]}" -gt 0 ]; then
+              go test -p 1 -timeout 20m "${packages[@]}" || result=$?
+            fi
+            if [ -n "$shell_package" ]; then
+              if go test -list . "$shell_package" > "$RUNNER_TEMP/shell-tests.txt"; then
+                for batch in 0 1 2; do
+                  pattern=$(awk -v batch="$batch" '
+                    /^(Test|Example|Fuzz)/ {
+                      if (count++ % 3 == batch) { printf "%s%s", separator, $0; separator = "|" }
+                    }
+                    END { print "" }
+                  ' "$RUNNER_TEMP/shell-tests.txt")
+                  [ -n "$pattern" ] || continue
+                  go test -p 1 -timeout 20m "$shell_package" -run "^($pattern)$" || result=$?
+                done
+              else
+                result=1
+              fi
+            fi
+            return "$result"
+          }
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            go test -timeout 20m ./...
+            all_packages=$(go list ./...)
+            run_tests $all_packages
             exit
           fi
           # Pull requests test the packages whose own files or dependencies,
           # including test dependencies, contain a changed file.
           changed=$(git diff --name-only HEAD^1 HEAD)
           if printf '%s\n' "$changed" | grep -Eq '^(go\.mod|go\.sum|\.github/workflows/ci\.yml)$'; then
-            go test -timeout 20m ./...
+            all_packages=$(go list ./...)
+            run_tests $all_packages
             exit
           fi
           module=$(go list -m)
@@ -167,7 +200,7 @@ jobs:
             echo 'No affected Go packages'
             exit
           fi
-          go test -timeout 20m $affected
+          run_tests $affected
 
   native:
     needs: lint
@@ -406,6 +439,11 @@ jobs:
         env:
           PACKAGES: ${{ inputs.integration_packages }}
           SAILRY_CAPTURE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
-        # The storage load case keeps its concurrent writers and performance
-        # assertions, isolated from other packages' CPU and disk workloads.
+        # Isolate the concurrent storage corpus from other packages' CPU
+        # and disk workloads; measure hardware budgets separately below.
         run: go test -p 1 -tags integration ${PACKAGES:-$RELEASE_PACKAGES}
+      - name: Reference storage performance
+        if: runner.os == 'macOS'
+        # Keep the original hardware budgets on one reference platform;
+        # all platforms still run the complete concurrent correctness corpus.
+        run: go test -tags integration ./internal/node/store -run '^$' -bench '^BenchmarkStorageLoad$' -benchtime=1x -count=1

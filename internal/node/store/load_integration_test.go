@@ -66,28 +66,49 @@ type storageLoadReport struct {
 	WriterElapsedSeconds float64 `json:"writer_elapsed_seconds"`
 }
 
-// TestStorageLoad is the manual storage measurement, including real file I/O.
-// It creates a disposable SQL corpus rather than a conversation lifecycle fixture.
+// TestStorageLoad checks concurrent storage correctness with real file I/O.
+// It reports performance without assuming the integration runner's hardware.
 func TestStorageLoad(t *testing.T) {
+	storageLoadFixture(t)
+}
+
+// BenchmarkStorageLoad applies the original budgets on reference hardware.
+// Run with -benchtime=1x for one complete, fixed 20-session workload.
+func BenchmarkStorageLoad(b *testing.B) {
+	for range b.N {
+		report := storageLoadFixture(b)
+		b.ReportMetric(report.CommitP99MS, "commit-p99-ms")
+		b.ReportMetric(report.RecordWritesSecond, "record-writes/s")
+		if report.CommitP99MS > 20 {
+			b.Errorf("commit p99 %.3f ms exceeds 20 ms", report.CommitP99MS)
+		}
+		if report.RecordWritesSecond < 2000 {
+			b.Errorf("%.1f record writes/s is below 2000", report.RecordWritesSecond)
+		}
+	}
+}
+
+func storageLoadFixture(t testing.TB) storageLoadReport {
+	t.Helper()
 	ctx := context.Background()
 	profile, err := core.AcquireProfile(filepath.Join(t.TempDir(), "profile"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
+	defer func() {
 		if err := profile.Close(); err != nil {
 			t.Error(err)
 		}
-	})
+	}()
 	storage, err := Open(ctx, profile.Path, protocol.NodeID{1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
+	defer func() {
 		if err := storage.Close(); err != nil {
 			t.Error(err)
 		}
-	})
+	}()
 	codeDirectory := filepath.Join(profile.Path, "cache", "code-index", storageLoadWorktree)
 	if err := core.PrivateDirectory(codeDirectory); err != nil {
 		t.Fatal(err)
@@ -96,11 +117,11 @@ func TestStorageLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
+	defer func() {
 		if err := code.Close(); err != nil {
 			t.Error(err)
 		}
-	})
+	}()
 	if err := code.Write(ctx, func(connection *sql.Conn) error {
 		_, err := connection.ExecContext(ctx, sqliteSchema(CodeSchema))
 		return err
@@ -117,7 +138,8 @@ func TestStorageLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	measurements := &storageLoadMeasurements{}
-	storageLoadObserveCommits(t, storage.Node, measurements)
+	restore := storageLoadObserveCommits(t, storage.Node, measurements)
+	defer restore()
 	report, err := storageLoadRun(ctx, storage, code, measurements)
 	encoded, encodeErr := json.Marshal(report)
 	if encodeErr != nil {
@@ -136,12 +158,7 @@ func TestStorageLoad(t *testing.T) {
 	if report.CommitAttempts == 0 || report.CommitFailures != 0 {
 		t.Errorf("commit observations: %d attempts, %d failures", report.CommitAttempts, report.CommitFailures)
 	}
-	if report.CommitP99MS > 20 {
-		t.Errorf("commit p99 %.3f ms exceeds 20 ms", report.CommitP99MS)
-	}
-	if report.RecordWritesSecond < 2000 {
-		t.Errorf("%.1f record writes/s is below 2000", report.RecordWritesSecond)
-	}
+	return report
 }
 
 // The decorator observes the actual COMMIT at the SQL driver boundary. It does
@@ -208,7 +225,7 @@ func (connection *storageLoadConnection) CheckNamedValue(value *driver.NamedValu
 	return driver.ErrSkip
 }
 
-func storageLoadObserveCommits(t *testing.T, handle *Handle, measurements *storageLoadMeasurements) {
+func storageLoadObserveCommits(t testing.TB, handle *Handle, measurements *storageLoadMeasurements) func() {
 	t.Helper()
 	ctx := context.Background()
 	connector, err := sqlite.NewConnector(databaseDSN(handle.Path(), false))
@@ -237,7 +254,7 @@ func storageLoadObserveCommits(t *testing.T, handle *Handle, measurements *stora
 	if err := exclusive.Close(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
+	return func() {
 		exclusive, err := handle.Exclusive(context.Background())
 		if err != nil {
 			t.Error(err)
@@ -250,7 +267,7 @@ func storageLoadObserveCommits(t *testing.T, handle *Handle, measurements *stora
 		if err != nil {
 			t.Error(err)
 		}
-	})
+	}
 }
 
 func storageLoadSeedKnowledge(ctx context.Context, handle *Handle) error {
