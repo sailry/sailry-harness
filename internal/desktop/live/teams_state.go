@@ -65,7 +65,7 @@ func (r *Runtime) teamsFrame() {
 
 func roleView(role protocol.RoleProfile) viewmodel.Role {
 	model, effort := roleModelView(role.Model)
-	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Builtin: role.Key == "explore" || role.Key == "research", Features: roleFeatures(role.Model), Avatar: roleAvatar(role.Appearance)}
+	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Features: roleFeatures(role.Model), Avatar: roleAvatar(role.Appearance)}
 }
 
 // roleAvatar is the avatar a role's appearance names: its icon, when that

@@ -11,9 +11,8 @@ type Role struct {
 	Features     map[string]string
 	ReadOnly     bool
 	Instructions string
-	Builtin      bool
 	// Avatar is the identifier of the role's picture (icons.Avatar), as
-	// "avatar-fox"; "" shows the mark the role's ID picks.
+	// "avatar-fox"; "" shows the default face on the color its ID picks.
 	Avatar string
 }
 

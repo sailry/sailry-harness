@@ -294,7 +294,7 @@ func roleRows(c *ui.Context, m *Model) {
 				kit.MediaRow(c, r.Name, desc, func() { kit.RoleAvatar(c, r.ID, r.Avatar, kit.TileSize) }, nil)
 			}, nil, func() {
 				kit.Action(c.Key("edit"), icons.Pencil, i18n.T(c, "settings_edit"), false).OnClick(func() { m.roleEdit = roleEditor{open: true, role: *r} })
-				kit.Action(c.Key("delete"), icons.Trash, i18n.T(c, "settings_delete"), r.Builtin).OnClick(func() { m.roleRemoving = r.ID })
+				kit.Action(c.Key("delete"), icons.Trash, i18n.T(c, "settings_delete"), false).OnClick(func() { m.roleRemoving = r.ID })
 			})
 		}
 	})
@@ -529,7 +529,7 @@ func roleDialog(c *ui.Context, m *Model) {
 	if e.role.ID == "" {
 		title = t("role_new")
 	}
-	locked := e.role.Builtin || e.pending || e.locked
+	locked := e.pending || e.locked
 	kit.Dialog(c.Key("role-editor"), &e.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
