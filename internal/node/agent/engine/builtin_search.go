@@ -31,7 +31,8 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 	terms := map[string]bool{}
 	stop := strings.Fields("and are can could for from get have how into need please that the their them these this those tool tools use using want what when where which with would you")
 	for _, term := range strings.FieldsFunc(query, func(c rune) bool { return !unicode.IsLetter(c) && !unicode.IsNumber(c) }) {
-		if len([]rune(term)) >= 3 && !slices.Contains(stop, term) {
+		characters := []rune(term)
+		if (len(characters) >= 3 || len(characters) == 2 && slices.ContainsFunc(characters, func(c rune) bool { return c > unicode.MaxASCII })) && !slices.Contains(stop, term) {
 			terms[term] = true
 		}
 	}
@@ -46,14 +47,25 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 			continue
 		}
 		name, description := strings.ToLower(tool.Definition.Name), strings.ToLower(tool.Definition.Description)
+		labels := make([]string, len(tool.SearchLabels))
+		for index, label := range tool.SearchLabels {
+			labels[index] = strings.ToLower(strings.TrimSpace(label))
+		}
 		score := 0
 		for term := range terms {
 			if strings.Contains(name, term) {
 				score += 4
 			}
 			if strings.Contains(description, term) {
-				score++
+				score += 2
 			}
+			if slices.ContainsFunc(labels, func(label string) bool { return strings.Contains(label, term) }) {
+				score += 4
+			}
+		}
+		// A localized label may appear inside a sentence without word spaces.
+		if slices.ContainsFunc(labels, func(label string) bool { return label != "" && strings.Contains(query, label) }) {
+			score += 4
 		}
 		exact := name == query
 		if exact || score >= 2 {

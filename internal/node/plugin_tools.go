@@ -21,6 +21,7 @@ import (
 
 func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvocation, native ...[]engine.Tool) (tools []engine.Tool, resultErr error) {
 	byName := map[string]engine.Tool{}
+	labels := map[string][]string{}
 	var candidates []pluginMCPBinding
 	if len(native) != 0 {
 		tools = slices.Clone(native[0])
@@ -50,6 +51,23 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 		})
 		if err != nil {
 			return tools, err
+		}
+		if info.Extension != nil {
+			for _, declaration := range info.Extension.Tools {
+				if declaration.Display == nil {
+					continue
+				}
+				name := operations.Alias(info.Summary.Name, declaration.Name)
+				if declaration.Server != nil {
+					name = mcp.Alias(info.Summary.Name, *declaration.Server, declaration.Name)
+				}
+				values := []string{declaration.Display.Label}
+				for _, label := range declaration.Display.Locales {
+					values = append(values, label)
+				}
+				slices.Sort(values)
+				labels[name] = slices.Compact(values)
+			}
 		}
 		if info.Extension != nil && info.Extension.Host != nil {
 			for _, declaration := range info.Extension.Tools {
@@ -96,7 +114,11 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 		}
 	}
 	mcpTools, err := node.bindMCPTools(ctx, invocation, candidates)
-	return append(tools, mcpTools...), err
+	tools = append(tools, mcpTools...)
+	for index := range tools {
+		tools[index].SearchLabels = labels[tools[index].Definition.Name]
+	}
+	return tools, err
 }
 
 // selectedMCPServer keeps only the owner's servers an assistant declares.

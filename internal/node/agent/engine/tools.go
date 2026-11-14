@@ -58,7 +58,10 @@ type Tool struct {
 	// Exposed is the name an MCP tool is offered under when no other tool
 	// owns it. A package tool is offered under its declared name.
 	Exposed string
-	schema  *jsonschema.Schema
+	// SearchLabels are the captured display labels and translations used only
+	// for discovery. They do not enlarge the model's tool declarations.
+	SearchLabels []string
+	schema       *jsonschema.Schema
 	// ExecutePrepared runs a call with arguments a package prepared. The call
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
