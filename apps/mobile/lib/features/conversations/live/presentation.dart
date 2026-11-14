@@ -82,6 +82,14 @@ String title(Map<String, dynamic> session, {Translator translate = tr}) {
   return value.isEmpty ? translate('conversationNew') : value;
 }
 
+/// Resource assistants and delegated sessions keep their own entry points.
+bool ordinarySession(Map<String, dynamic> session) {
+  final config = object(session['config']);
+  return session['delegation'] == null &&
+      config['assistant'] == null &&
+      config['resource'] == null;
+}
+
 String status(Map<String, dynamic> session) {
   final activity = object(session['activity']);
   if (activity['waiting'] != null) return 'waiting';

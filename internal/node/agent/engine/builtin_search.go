@@ -88,6 +88,26 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 	}
 	return selected
 }
+
+// capabilityInstructions reads only admitted tools. The final loaded set is
+// shared by every discovery in a model step; their policy additions must be
+// merged together instead of letting the last discovery replace the others.
+func capabilityInstructions(x *execution, policy string, loaded []string) string {
+	var additions []string
+	for _, instruction := range x.inv.Instructions {
+		if instruction.Text == "" || strings.Contains(policy, instruction.Text) || slices.Contains(additions, instruction.Text) {
+			continue
+		}
+		if slices.ContainsFunc(x.tools, func(tool Tool) bool {
+			return slices.Contains(instruction.AnyTools, tool.Definition.Name) && (!tool.Deferred || slices.Contains(loaded, tool.Definition.Name))
+		}) {
+			additions = append(additions, instruction.Text)
+		}
+	}
+	slices.Sort(additions)
+	return strings.Join(additions, "\n\n")
+}
+
 func (r *Runtime) builtinSearch(x *execution) *Tool {
 	if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return tool.Deferred }) {
 		return nil
@@ -118,48 +138,19 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 			return toolFault(err)
 		}
 		matched := builtinMatches(x.tools, arguments.Query, limit)
-		contexts := func(name string) []string {
-			values := []string{}
-			for _, instruction := range x.inv.Instructions {
-				if slices.Contains(instruction.AnyTools, name) {
-					values = append(values, instruction.Text)
-				}
-			}
-			return values
-		}
-		previous := map[string]bool{}
-		for _, entry := range x.tools {
-			if !entry.Deferred || slices.Contains(loaded, entry.Definition.Name) {
-				for _, text := range contexts(entry.Definition.Name) {
-					previous[text] = true
-				}
-			}
-		}
-		additions := []string{}
 		tools := []map[string]string{}
 		for _, entry := range matched {
 			name := entry.Definition.Name
 			tools = append(tools, map[string]string{"name": name, "description": entry.Definition.Description})
-			for _, text := range contexts(name) {
-				if !previous[text] && !slices.Contains(additions, text) {
-					additions = append(additions, text)
-				}
-			}
 			if !slices.Contains(loaded, name) {
 				loaded = append(loaded, name)
 			}
 		}
-		slices.Sort(additions)
-		addition := strings.Join(additions, "\n\n")
-		delta := canonical.Context{LoadedTools: &loaded}
-		if addition != "" {
-			if captured.Policy == nil {
-				return invalidTool("captured policy is unavailable")
-			}
-			policy := *captured.Policy + "\n\n" + addition
-			delta.Policy = &policy
+		if captured.Policy == nil {
+			return invalidTool("captured policy is unavailable")
 		}
-		return ToolResult{Value: map[string]any{"tools": tools, "sailry_context": addition}, Context: &delta}
+		addition := capabilityInstructions(x, *captured.Policy, loaded)
+		return ToolResult{Value: map[string]any{"tools": tools, "sailry_context": addition}, Context: &canonical.Context{LoadedTools: &loaded}}
 	})
 	return &tool
 }

@@ -33,7 +33,10 @@ extension _HistoryActions on _LiveConversationPageState {
         _backup = null;
       }
       if (kind == 'replace_turn') {
-        _backup = object(object(object(output['data'])['history'])['backup']);
+        final backup = object(
+          object(object(output['data'])['history'])['backup'],
+        );
+        _backup = backup['id'] is String ? backup : null;
       }
       _rebuild();
       if (kind == 'fork_conversation') _openSession(object(output['data']));

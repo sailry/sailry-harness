@@ -153,11 +153,20 @@ func (r *Runtime) captureTools(x *execution) error {
 }
 
 func (r *Runtime) closeTools(x *execution) error {
-	var failures []error
-	for _, close := range x.toolCleanup {
-		failures = append(failures, close())
-	}
+	cleanup := x.toolCleanup
 	x.toolCleanup = nil
+	var failures []error
+	for _, close := range cleanup {
+		failures = append(failures, func() (err error) {
+			defer func() {
+				if value := recover(); value != nil {
+					logPanic(x, "tool cleanup", "", value)
+					err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "tool resource cleanup failed unexpectedly"}
+				}
+			}()
+			return close()
+		}())
+	}
 	if errors.Join(failures...) != nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "tool resource cleanup could not be confirmed"}
 	}
@@ -436,6 +445,16 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					}
 				}
 			}
+		}
+	}
+	if contextDelta.LoadedTools != nil && state.Context.Policy != nil {
+		policy := *state.Context.Policy
+		if contextDelta.Policy != nil {
+			policy = *contextDelta.Policy
+		}
+		if addition := capabilityInstructions(x, policy, *contextDelta.LoadedTools); addition != "" {
+			policy += "\n\n" + addition
+			contextDelta.Policy = &policy
 		}
 	}
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())

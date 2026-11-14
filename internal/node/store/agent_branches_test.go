@@ -212,7 +212,7 @@ func TestForkRewindReplace(t *testing.T) {
 					t.Fatalf("expected injected admission failure, got %v", failure)
 				}
 				if after := schemaInteger(t, storage.Node, "SELECT count(*) FROM sessions"); after != sessions {
-					t.Fatal("failed replacement retained backup")
+					t.Fatal("failed replacement created another session")
 				}
 				err = storage.Node.Read(ctx, func(db *sql.Conn) error {
 					revision, e := historyRevision(ctx, db, session.ID)
@@ -239,6 +239,7 @@ func TestForkRewindReplace(t *testing.T) {
 					return nil
 				})
 			case "replace is atomic":
+				sessions := schemaInteger(t, storage.Node, "SELECT count(*) FROM sessions")
 				err = storage.Node.Write(ctx, func(db *sql.Conn) error {
 					message := protocol.DefaultConversationInput()
 					message.Text = "Replacement"
@@ -255,8 +256,8 @@ func TestForkRewindReplace(t *testing.T) {
 						return err
 					}
 					replaced := output.Data.(protocol.OutputTurnReplacedPayload)
-					if replaced.History.Backup == nil || replaced.History.Revision != initialHistoryRevision+1 {
-						return errors.New("replacement did not preserve backup/revision")
+					if replaced.History == nil || replaced.History.Backup != nil || replaced.History.Session != session.ID || replaced.History.Revision != initialHistoryRevision+1 {
+						return errors.New("replacement branched the session or lost its revision")
 					}
 					history, err := ReadConversation(ctx, db, session.ID, nil, 20)
 					if err != nil {
@@ -267,6 +268,9 @@ func TestForkRewindReplace(t *testing.T) {
 					}
 					return nil
 				})
+				if after := schemaInteger(t, storage.Node, "SELECT count(*) FROM sessions"); after != sessions {
+					t.Fatal("replacement created another session")
+				}
 			}
 			if err != nil {
 				t.Fatal(err)

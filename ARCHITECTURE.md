@@ -108,6 +108,9 @@ atomically. An optional immutable association (`namespace`, `kind`, `id`) links 
 session to an external object without granting resource access. Defaults initialize
 new sessions; revision-checked commands change existing configuration. A turn
 captures its model or team, configuration, permissions and referenced revisions.
+Editing a message updates the visible history and admits its replacement turn in
+the same session atomically. Original records remain stored. Explicit forks and
+rewind backups copy history into a separate session.
 
 Credentials are stored in the execution Node's configuration database as plaintext.
 The implementation has no encrypted vault or OS keychain. Public projections and
@@ -258,8 +261,9 @@ read-only concurrent calls run in groups of at most eight and retain result orde
 Node owns approval and question deadlines.
 
 Standard mode (`code` on the wire) runs ordinary work. Plan is read-only with a
-reviewed transition to Standard. Flagship adds autonomous coordination under the
-same permission model. Package modes map to a core mode without escalating access.
+reviewed transition to Standard. Collaborate (`flagship` on the wire) adds autonomous
+coordination under the same permission model. Package modes map to a core mode
+without escalating access.
 `spawn_agent`, `guide_agent` and `wait_agent` use the same execution and history
 path. Children inherit captured scope and permission; read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.

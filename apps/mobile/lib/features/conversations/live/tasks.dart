@@ -175,8 +175,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       final tasks = <(HostConnection, Map<String, dynamic>)>[
         for (final host in hosts.where((host) => host.id == selected?.id))
           for (final session in objects(host.snapshot['sessions']))
-            // Like Desktop, subagent sessions open from their parent, not the list.
-            if (session['delegation'] == null &&
+            if (ordinarySession(session) &&
                 inProject(projectId, session['project']) &&
                 (session['archived'] == true) == (_filter == 'archived') &&
                 (_filter == 'all' ||
@@ -213,7 +212,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       final counts = <String, int>{};
       var archived = 0;
       for (final session in objects(selected?.snapshot['sessions'])) {
-        if (session['delegation'] != null ||
+        if (!ordinarySession(session) ||
             !inProject(projectId, session['project'])) {
           continue;
         }

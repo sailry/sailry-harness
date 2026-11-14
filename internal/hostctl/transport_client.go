@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"sync"
 
@@ -38,17 +39,17 @@ type incomingControl struct {
 func connectTransport(ctx context.Context, dial func(context.Context) (net.Conn, error)) (*controlTransport, error) {
 	connection, err := dial(ctx)
 	if err != nil {
-		return nil, err
+		return nil, controlIOError(err)
 	}
 	defer connection.Close()
 	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stop()
 	if err := writeLine(connection, helloFrame{Command: "node_hello", Version: 1}, protocol.MAX_FRAME_BYTES); err != nil {
-		return nil, err
+		return nil, controlIOError(err)
 	}
 	hello, err := readControl(bufio.NewReader(connection), protocol.NodeID{})
 	if err != nil {
-		return nil, err
+		return nil, controlIOError(err)
 	}
 	if hello.Body.Kind != "hello" {
 		return nil, errors.New("Host did not confirm the control transport")
@@ -98,7 +99,7 @@ func (transport *controlTransport) Dispatch(ctx context.Context, request protoco
 	}
 	connection, err := transport.dial(ctx)
 	if err != nil {
-		return link.Admission{}, err
+		return link.Admission{}, controlIOError(err)
 	}
 	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	accepted := false
@@ -151,14 +152,14 @@ func (transport *controlTransport) Dispatch(ctx context.Context, request protoco
 func (transport *controlTransport) Subscribe(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
 	connection, err := transport.dial(ctx)
 	if err != nil {
-		return nil, err
+		return nil, controlIOError(err)
 	}
 	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stop()
 	subscription := &controlSubscription{connection: connection, reader: bufio.NewReader(connection), node: transport.node}
 	if err := writeLine(connection, subscribeFrame{Command: "node_subscribe", Version: 1, Topic: topic}, protocol.MAX_FRAME_BYTES); err != nil {
 		_ = subscription.Close()
-		return nil, err
+		return nil, controlIOError(err)
 	}
 	frame, err := readControl(subscription.reader, transport.node)
 	if err == nil && frame.Body.Kind != "subscribed" {
@@ -169,7 +170,7 @@ func (transport *controlTransport) Subscribe(ctx context.Context, topic protocol
 	}
 	if err != nil {
 		_ = subscription.Close()
-		return nil, err
+		return nil, controlIOError(err)
 	}
 	// Client cancels the establishment context after Subscribe returns. The
 	// observation is subsequently owned by Next's context and Close.
@@ -205,7 +206,20 @@ func (subscription *controlSubscription) Next(ctx context.Context) (protocol.Upd
 	if err != nil {
 		_ = subscription.Close()
 	}
-	return update, err
+	return update, controlIOError(err)
+}
+
+// Socket loss is recoverable by Client; malformed frames and identity failures
+// remain permanent. Admission reads use their own uncertain-outcome handling.
+func controlIOError(err error) error {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var network net.Error
+	if errors.As(err, &network) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.ErrShortWrite) {
+		return &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Host control connection is unavailable"}}
+	}
+	return err
 }
 
 func (subscription *controlSubscription) Close() error {

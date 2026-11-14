@@ -230,7 +230,8 @@ func replaceConversationTurn(ctx context.Context, db *sql.Conn, node, caller pro
 		}
 		through = &id
 	}
-	history, _, err := rewindConversation(ctx, db, protocol.CommandRewindConversationPayload{Session: input.Session, Through: through, ExpectedHead: input.ExpectedHead, ExpectedRevision: input.ExpectedHistoryRevision}, true)
+	// Editing changes this session's membership while retaining canonical records.
+	history, _, err := rewindConversation(ctx, db, protocol.CommandRewindConversationPayload{Session: input.Session, Through: through, ExpectedHead: input.ExpectedHead, ExpectedRevision: input.ExpectedHistoryRevision}, false)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}

@@ -981,9 +981,22 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			var context *ui.Context
 			var frame func(*ui.Context)
+			var fixedStatus *pluginStatusFeed
+			if row.name == "replace_references" {
+				// Status-watch lifecycle is covered separately. Keep this routing
+				// fixture's empty feed mounted so its callbacks cannot be counted
+				// as the native browser/file loads held below.
+				scope := protocol.PluginUiStatusScope{Worktree: &worktree, Session: &session}
+				body, _ := json.Marshal(scope)
+				fixedStatus = &pluginStatusFeed{scope: scope, view: pluginStatusView{Connected: true}, open: map[string]bool{}, pending: map[string]*pluginStatusPending{}, cancel: func() {}}
+				r.pluginStatus = map[string]*pluginStatusFeed{string(body): fixedStatus}
+			}
 			hold := false // keeps queued work, as a page load no headless window can make
 			tester := ui.NewTester(func(c *ui.Context) {
 				context = c
+				if fixedStatus != nil {
+					fixedStatus.seen = true
+				}
 				if !hold {
 					r.drain(c)
 				}

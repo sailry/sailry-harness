@@ -65,9 +65,15 @@ func TestModelPopup(t *testing.T) {
 	}
 	reported := func(want string) {
 		t.Helper()
-		event, err := native.next(t.Context(), "control")
-		if err != nil || string(event) != want {
-			t.Fatalf("reported %s %v, want %s", event, err, want)
+		// ModelSelect emits during the synchronous test frame. A missing
+		// change is a failed interaction, not an asynchronous event to await.
+		select {
+		case event := <-native.queue("control", 32).events:
+			if string(event) != want {
+				t.Fatalf("reported %s, want %s", event, want)
+			}
+		default:
+			t.Fatalf("model choice was not reported; want %s, shown %q", want, tester.Texts())
 		}
 	}
 	open()

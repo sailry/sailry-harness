@@ -254,6 +254,9 @@ func (r *Runtime) turn(x *execution) error {
 			policy += "\n\nTeam instructions\n" + lead
 		}
 	}
+	if addition := capabilityInstructions(x, policy, state.LoadedTools); addition != "" {
+		policy += "\n\n" + addition
+	}
 	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, os.Getenv("SHELL"), inv.Worktree.Project != nil)
 	personal, err := prompt.CapturePersonal(x.ctx, r.profile)
 	if err != nil {

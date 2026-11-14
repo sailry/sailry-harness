@@ -654,10 +654,11 @@ func callAt(page protocol.ConversationPage, entry string, index uint64) *protoco
 }
 
 type toolAssociation struct {
-	ID, Name string
-	Hidden   bool
-	Progress bool
-	Block    int
+	ID, Name   string
+	Hidden     bool
+	Progress   bool
+	Standalone bool
+	Block      int
 }
 
 func toolCallKey(entry string, index uint64) string {
@@ -706,11 +707,12 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 			if source, ok := detail[protocol.ConversationPartToolCallPayload](part.Data); ok {
 				id := toolCallKey(entry, uint64(index))
 				progress := source.Summary != nil && source.Summary.Progress != nil
+				hidden := source.Presentation == protocol.ToolPresentationHidden && !toolDiagnostics(source.Summary)
 				if source.ID != nil {
 					key := toolPendingKey(turn, branch, *source.ID)
-					pending[key] = append(pending[key], toolAssociation{ID: id, Name: source.Name, Hidden: source.Presentation == "hidden", Progress: progress, Block: len(reply.Blocks)})
+					pending[key] = append(pending[key], toolAssociation{ID: id, Name: source.Name, Hidden: hidden, Progress: progress, Standalone: source.Grouping == protocol.ToolGroupingStandalone, Block: len(reply.Blocks)})
 				}
-				if source.Presentation == "hidden" {
+				if hidden {
 					continue
 				}
 				if progress {
@@ -730,15 +732,19 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 		case "tool_result":
 			if result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok {
 				var call *conversation.Call
+				id, standalone := toolCallKey(entry, uint64(index)), false
 				if result.ID != nil {
 					key := toolPendingKey(turn, branch, *result.ID)
 					matches := pending[key]
 					delete(pending, key)
 					if len(matches) == 1 && matches[0].Name == result.Name {
-						if matches[0].Hidden {
+						if matches[0].Hidden && !toolDiagnostics(result.Summary) {
 							continue
 						}
-						if result.Summary != nil && result.Summary.Progress != nil {
+						// A hidden activity's failure still has the original call's
+						// identity, so revision-scoped detail loading can resolve it.
+						id, standalone = matches[0].ID, matches[0].Standalone
+						if !matches[0].Hidden && result.Summary != nil && result.Summary.Progress != nil {
 							// A pending plan becomes progress only after its validated result arrives.
 							reply.Blocks[matches[0].Block] = conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*result.Summary.Progress)}
 							continue
@@ -755,7 +761,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						continue
 					}
 					value := projectCall(result.Name, result.Summary, language)
-					value.ID = toolCallKey(entry, uint64(index))
+					value.ID, value.Standalone = id, standalone
 					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ToolsBlock, Calls: []conversation.Call{value}})
 					call = &reply.Blocks[len(reply.Blocks)-1].Calls[0]
 				}
@@ -797,6 +803,10 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 			projectResource(reply, part.Data)
 		}
 	}
+}
+
+func toolDiagnostics(summary *protocol.ToolDetailSummary) bool {
+	return summary != nil && (summary.Failure != nil || summary.Diagnostics)
 }
 
 func draftPhase(parts []protocol.ConversationPart) conversation.Phase {

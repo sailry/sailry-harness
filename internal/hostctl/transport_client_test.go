@@ -12,9 +12,85 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestControlClientReconnectsAfterSocketLoss(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	backend := &pipeSubscriptionFixture{updates: make(chan protocol.Update, 1), closed: make(chan struct{})}
+	transport := &fixtureTransport{subscribe: func(context.Context, protocol.Topic) (link.Subscription, error) { return backend, nil }}
+	fixture := newPipeControlFixture(t, transport, nil)
+	serve := fixture.handler
+	var subscriptions atomic.Int32
+	fixture.handler = func(ctx context.Context, line []byte, writer io.Writer) error {
+		var command struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal(line, &command); err != nil {
+			return err
+		}
+		if command.Command == "node_subscribe" && subscriptions.Add(1) == 1 {
+			if err := writeLine(writer, controlReply{Version: 1, Node: transport.Target(), Body: replyBody{Kind: "subscribed"}}, protocol.MAX_FRAME_BYTES); err != nil {
+				return err
+			}
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Node = transport.Target()
+			// Close the socket after a valid initial snapshot, as a Host restart
+			// does, without a protocol fault frame or replaying a command.
+			return writeLine(writer, controlReply{Version: 1, Node: transport.Target(), Body: replyBody{Kind: "update", Data: protocol.Update{Kind: "snapshot", Data: snapshot}}}, protocol.MAX_FRAME_BYTES)
+		}
+		return serve(ctx, line, writer)
+	}
+	controller, err := connectTransport(ctx, fixture.dial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node, snapshot.Cursor = transport.Target(), 1
+	backend.updates <- protocol.Update{Kind: "snapshot", Data: snapshot}
+	client := client.New(controller)
+	defer client.Close()
+	changed := make(chan struct{}, 1)
+	release := client.OnChange(func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	})
+	defer release()
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for client.Snapshot().Cursor != 1 || !client.Connected() {
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			t.Fatalf("socket loss stopped Client recovery: subscriptions=%d err=%v", subscriptions.Load(), client.Err())
+		}
+	}
+	if subscriptions.Load() != 2 {
+		t.Fatalf("expected exactly one replacement observation, got %d", subscriptions.Load())
+	}
+}
+
+func TestControlTransportClassifiesSocketFailuresOnly(t *testing.T) {
+	t.Parallel()
+	for _, cause := range []error{io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe, &net.OpError{Op: "dial", Net: "unix", Err: errors.New("connection refused")}} {
+		var fault *link.FaultError
+		if err := controlIOError(cause); !errors.As(err, &fault) || fault.Fault.Code != protocol.ErrorCodeUnavailable {
+			t.Fatalf("socket failure %v became permanent: %v", cause, err)
+		}
+	}
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, errors.New("Host control Node or version mismatch"), &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodePermissionDenied}}} {
+		if err := controlIOError(cause); err != cause {
+			t.Fatalf("non-transport failure changed: %v to %v", cause, err)
+		}
+	}
+}
 
 // pipeControlFixture keeps the real server framing and command decoder. Only
 // the socket and Node implementation are replaced, so these tests own no profile.

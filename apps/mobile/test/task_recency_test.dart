@@ -29,6 +29,36 @@ void main() {
   String label(DateTime time, [String locale = 'en']) =>
       timeLabel(time, now, locale: locale, yesterday: 'Yesterday');
 
+  test('ordinary task lists and counts exclude scoped assistants', () {
+    for (final project in [null, 'project']) {
+      for (final archived in [false, true]) {
+        final session = <String, dynamic>{
+          'project': project,
+          'archived': archived,
+          'config': {'assistant': null, 'resource': null},
+        };
+        expect(ordinarySession(session), isTrue);
+        for (final config in [
+          {
+            'assistant': {'plugin': 'databases', 'id': 'database'},
+          },
+          {
+            'resource': {'kind': 'database', 'id': 'resource'},
+          },
+        ]) {
+          expect(ordinarySession({...session, 'config': config}), isFalse);
+        }
+        expect(
+          ordinarySession({
+            ...session,
+            'delegation': {'session': 'parent'},
+          }),
+          isFalse,
+        );
+      }
+    }
+  });
+
   group('run time', () {
     test("prefers terminal timestamps and preserves missing times", () {
       for (final (caseName, run) in <(String, void Function(String))>[
