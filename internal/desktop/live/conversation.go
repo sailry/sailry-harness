@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -205,7 +206,20 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if state, ok := r.conversationState(id); ok {
 			page = state.Snapshot.Page
 			unsynced = !state.Connected
-			cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state, c.Locale())
+			cv.Turns, cv.Session, cv.Waiting, cv.Queue = conversationAt(state, c.Now(), c.Locale())
+			if state.Connected {
+				// Elapsed labels need a rebuilt frame, including in plugin panels;
+				// paint-only activity animations cannot update projected text.
+				for _, turn := range cv.Turns {
+					if (turn.Reply.Status == conversation.Running || turn.Reply.Status == conversation.Stopping) && !turn.Sent.IsZero() {
+						next := time.Second - turn.Reply.Elapsed%time.Second
+						if turn.Reply.Phase == conversation.Compacting && turn.Reply.PhaseElapsed > 0 {
+							next = min(next, time.Second-turn.Reply.PhaseElapsed%time.Second)
+						}
+						c.After(next)
+					}
+				}
+			}
 			cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 			r.bindReferences(cv.ID, state.Snapshot.Page)
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)

@@ -225,17 +225,22 @@ func (r *Runtime) emitPluginHeader(mounted *pluginMountedView, identity string) 
 func (r *Runtime) renderPluginHeader(view *ui.Context) {
 	root := r.localRuntime()
 	if root.App.Page == shell.ConversationPage {
-		if conversation := root.App.Data.Find(root.App.Sidebar.Selected); conversation != nil && root.App.Demo() {
-			// A demo conversation is no session of a Node: the statistics
-			// package alone is mounted over it (plugin_demo.go).
-			if registry := root.demoPluginRegistry(conversation); registry != nil {
-				root.renderPluginControls(view, registry, protocol.PluginUiSlotHeader, composer.ControlStart)
-			}
-		} else if conversation != nil {
-			draft := root.App.Composer(conversation.ID)
-			if owner := root.conversationRuntime(conversation, draft); owner != nil {
-				if registry := owner.pluginRegistry(composerPluginScope(owner, conversation, draft), conversation.ID); registry != nil {
-					owner.renderPluginControls(view, registry, protocol.PluginUiSlotHeader, composer.ControlStart)
+		if conversation := root.App.Data.Find(root.App.Sidebar.Selected); conversation != nil && len(conversation.Turns) > 0 {
+			if root.App.Demo() {
+				// A demo conversation is no session of a Node: the statistics
+				// package alone is mounted over it (plugin_demo.go).
+				if registry := root.demoPluginRegistry(conversation); registry != nil {
+					root.renderPluginControls(view, registry, protocol.PluginUiSlotHeader, composer.ControlStart)
+				}
+			} else {
+				draft := root.App.Composer(conversation.ID)
+				if owner := root.conversationRuntime(conversation, draft); owner != nil {
+					scope := composerPluginScope(owner, conversation, draft)
+					if scope.Session != nil {
+						if registry := owner.pluginRegistry(scope, conversation.ID); registry != nil {
+							owner.renderPluginControls(view, registry, protocol.PluginUiSlotHeader, composer.ControlStart)
+						}
+					}
 				}
 			}
 		}

@@ -4,7 +4,11 @@ package wsl
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -58,5 +62,47 @@ func TestWSLLauncher(t *testing.T) {
 	}
 	if _, err := query(stopping, shell, []string{"-c", "exit 0"}, environment, 5*time.Second); faultCode(err) != protocol.ErrorCodeCancelled {
 		t.Errorf("discovery cancelled before launch: %v", err)
+	}
+}
+
+func TestWSLReleaseUpdateOutcome(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		status int
+		code   protocol.ErrorCode
+	}{
+		{"refused before changes", 1, protocol.ErrorCodeUnavailable},
+		{"recovery unconfirmed", 73, protocol.ErrorCodeOutcomeUnknown},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			directory := t.TempDir()
+			installer := []byte(fmt.Sprintf("#!/bin/sh\nexit %d\n", fixture.status))
+			if err := os.WriteFile(filepath.Join(directory, "installer"), installer, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			checksum := fmt.Sprintf("%x  install-host.sh\n", sha256.Sum256(installer))
+			if err := os.WriteFile(filepath.Join(directory, "checksums"), []byte(checksum), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			script, err := ReleaseScript("0.1.0", true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Substitute only the download with local files. The real
+			// bootstrap still verifies the checksum and launches the update.
+			const downloads = `curl() {
+  for destination do :; done
+  case "$destination" in
+    */install-host.sh) cp "$SAILRY_FIXTURE/installer" "$destination" ;;
+    */SHA256SUMS-installer) cp "$SAILRY_FIXTURE/checksums" "$destination" ;;
+    *) return 1 ;;
+  esac
+}
+`
+			environment := []string{"PATH=/usr/bin:/bin", "TMPDIR=" + directory, "SAILRY_FIXTURE=" + directory}
+			if _, err := run(t.Context(), "/bin/sh", []string{"-s"}, environment, downloads+script, 5*time.Second); faultCode(err) != fixture.code {
+				t.Fatalf("release update outcome changed: %v", err)
+			}
+		})
 	}
 }

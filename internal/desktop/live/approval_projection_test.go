@@ -1,6 +1,7 @@
 package live
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -79,6 +80,40 @@ func testApprovalProjection(t *testing.T) {
 	resolved.Input.Summary = nil
 	if got := projectApproval(approval, &call, "en"); got.Description != "" || got.Title != "Apply changes" {
 		t.Fatal("a call without display fields gained a description", got)
+	}
+}
+
+func TestApprovalProjectionCommandNotices(t *testing.T) {
+	command := `powershell -NoProfile -Command "Get-ChildItem -LiteralPath 'E:\workspace'"`
+	reason := "Inspect the workspace without changing files."
+	for _, fixture := range []struct {
+		name, context, wantContext string
+	}{
+		{name: "working directory", context: `E:\workspace`, wantContext: `E:\workspace`},
+		{name: "repeated content", context: command},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			// The command package declares /command as both content and its
+			// first approval notice; /description supplies the separate reason.
+			call := protocol.ConversationPartToolCallPayload{Name: "run_command", Summary: &protocol.ToolDetailSummary{Resolved: &protocol.ToolDetailResolved{
+				Label: &protocol.ToolResultLocalText{Label: "Command", Locales: map[string]string{"zh-CN": "命令"}},
+				Input: protocol.ToolDetailInput{
+					Summary: &protocol.ToolDetailText{Text: command, Code: true},
+					Context: &protocol.ToolDetailText{Text: fixture.context},
+					Content: &protocol.ToolDetailText{Text: command},
+				},
+				Approval: []protocol.ToolResultLocalText{
+					{Label: command, Locales: map[string]string{"zh-CN": command}},
+					{Label: reason},
+					{Label: "\r\n" + command + "\r\n"},
+					{Label: reason},
+				},
+			}}}
+			got := projectApproval(protocol.ConversationApproval{ID: protocol.NewApprovalID()}, &call, "zh-CN")
+			if got.Title != "命令" || got.Context != fixture.wantContext || got.Description != command || got.Code || !slices.Equal(got.Notices, []string{reason}) {
+				t.Fatalf("command approval repeated content or lost its context or reason: %+v", got)
+			}
+		})
 	}
 }
 

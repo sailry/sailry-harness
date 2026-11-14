@@ -1,0 +1,44 @@
+package client
+
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+func TestTranscriptRetriesUseModelRequestIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		ids      []string
+		fallback bool
+		want     int
+	}{
+		{"one request", []string{"request-a", "request-a", "request-a"}, false, 1},
+		{"different requests with increasing attempts", []string{"request-a", "request-b"}, false, 2},
+		{"unknown request identity", []string{"", ""}, false, 2},
+		{"fallback marker", []string{"request-a", "request-a"}, true, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := conversationFixture()
+			turn := snapshot.Page.Runs[0].Turn
+			for index, id := range test.ids {
+				raw, err := json.Marshal(map[string]any{"type": "model_retry", "id": id, "attempt": index + 2, "limit": 9, "fallback": test.fallback})
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{ID: fmt.Sprint(index), Turn: turn, Author: "assistant",
+					Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(raw)}},
+				})
+			}
+			rows := collectTranscriptRows(snapshot, nil, turn)
+			if len(rows) != test.want || resourceValue(rows[len(rows)-1].Part.Data).Attempt != uint64(len(test.ids)+1) {
+				t.Fatalf("retry request identity changed its rows: %+v", rows)
+			}
+			if rows[0].Source.Entry != "0" || resourceValue(snapshot.Page.Entries[1].Parts[0].Data).Attempt != 2 {
+				t.Fatal("retry update changed the row identity or canonical attempt")
+			}
+		})
+	}
+}

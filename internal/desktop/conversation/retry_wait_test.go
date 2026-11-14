@@ -50,3 +50,43 @@ func TestRetryWaitBudgetShowsDistinctTerminalLabel(t *testing.T) {
 		})
 	}
 }
+
+func TestRetryLabelDoesNotChangeWithActivity(t *testing.T) {
+	for _, language := range []string{"en", "zh-CN"} {
+		t.Run(language, func(t *testing.T) {
+			state := conversation.New()
+			retry := &conversation.Retry{Attempt: 1, Limit: 9}
+			turns := []conversation.Turn{{ID: "retry", User: "Task", Reply: conversation.Reply{Status: conversation.Running,
+				Blocks: []conversation.Block{{Kind: conversation.RetryBlock, Retry: retry}},
+			}}}
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				ui.Column(c).Fill().Children(func() { conversation.View(c, state, "session", turns, &conversation.Session{}, noActions{}) })
+			}, 800, 500)
+			tester.SetLocale(language)
+			tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+			tester.Frame()
+			first := i18n.In(language, "chat_model_reconnecting", "attempt", 1, "limit", 9)
+			if !tester.HasText(first) {
+				t.Fatalf("active retry has no label: %q", tester.Texts())
+			}
+			retry.Attempt = 3
+			tester.Frame()
+			latest := i18n.In(language, "chat_model_reconnecting", "attempt", 3, "limit", 9)
+			if !tester.HasText(latest) || tester.HasText(first) {
+				t.Fatalf("retry counter did not update its row: %q", tester.Texts())
+			}
+			turns[0].Reply.Status = conversation.Completed
+			tester.Frame()
+			work, ok := tester.AccessByRole(ui.RoleButton, i18n.In(language, "turn_completed"))
+			if !ok {
+				t.Fatal("the completed turn has no work disclosure")
+			}
+			tester.ClickAt(work.Bounds.X+work.Bounds.W/2, work.Bounds.Y+work.Bounds.H/2)
+			tester.Frame()
+			if !tester.HasText(latest) || tester.HasText(i18n.In(language, "chat_model_retried", "attempt", 3, "limit", 9)) {
+				t.Fatalf("finishing the request renamed its retry row: %q", tester.Texts())
+			}
+		})
+	}
+}

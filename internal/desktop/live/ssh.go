@@ -134,17 +134,11 @@ func sshRecoverable(operation *sshInstallation) bool {
 	return !operation.active && !operation.running && (operation.uncertain || operation.partial || operation.networkFix != nil)
 }
 
-// sshUncertain is whether a failure leaves its step's outcome unknown. A
-// connection test changes nothing, so its unreachable target, refused login
-// or missing agent is a plain failure.
-func sshUncertain(request *protocol.Request, err error) bool {
-	switch faultCode(err) {
-	case protocol.ErrorCodeOutcomeUnknown:
-		return true
-	case protocol.ErrorCodeUnavailable:
-		return request == nil || request.Command.Kind != "check_ssh"
-	}
-	return false
+// sshUncertain follows the durable request contract. Link reports a lost
+// admission or completion as OutcomeUnknown; Unavailable is a definite refusal
+// or a failure before sending, including an installer download failure.
+func sshUncertain(err error) bool {
+	return faultCode(err) == protocol.ErrorCodeOutcomeUnknown
 }
 
 // sshSaveCommand saves the draft's connection: a new one, or the saved one at
@@ -254,7 +248,7 @@ func (r *Runtime) executeSSH(operation *sshInstallation, command protocol.Comman
 
 func (r *Runtime) completeSSH(c *ui.Context, operation *sshInstallation, output protocol.Output, err error) {
 	if err != nil {
-		uncertain := sshUncertain(operation.request, err)
+		uncertain := sshUncertain(err)
 		if !uncertain {
 			// A saved connection that changed or went away answers with a
 			// conflict and is not updated again. Any other refusal, as of a
@@ -263,7 +257,7 @@ func (r *Runtime) completeSSH(c *ui.Context, operation *sshInstallation, output 
 				(code == protocol.ErrorCodeRevisionConflict || code == protocol.ErrorCodeConflict) {
 				operation.profile, operation.retry = nil, protocol.Command{}
 			}
-			operation.request = nil
+			operation.request, operation.uncertain = nil, false
 		}
 		r.endSSH(c, operation, err, uncertain)
 		return
@@ -389,7 +383,8 @@ func (r *Runtime) trustSSH(operation *sshInstallation, required protocol.SshOutc
 }
 
 func (r *Runtime) failSSH(c *ui.Context, operation *sshInstallation, err error) {
-	r.endSSH(c, operation, err, sshUncertain(operation.request, err))
+	// A failed inspection does not settle the original unknown operation.
+	r.endSSH(c, operation, err, operation.uncertain || operation.partial || operation.networkFix != nil || sshUncertain(err))
 }
 
 // endSSH stops the operation on a failure, which leaves its outcome to be
@@ -417,7 +412,7 @@ func (r *Runtime) endSSH(c *ui.Context, operation *sshInstallation, err error, u
 }
 
 func (r *Runtime) reportSSH(c *ui.Context, err error, updating bool) {
-	r.toastSSH(c, err, updating, sshUncertain(nil, err))
+	r.toastSSH(c, err, updating, sshUncertain(err))
 }
 
 func (r *Runtime) toastSSH(c *ui.Context, err error, updating, uncertain bool) {

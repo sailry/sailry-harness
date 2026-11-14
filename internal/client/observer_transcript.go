@@ -287,6 +287,7 @@ func collectTranscriptRows(snapshot protocol.ConversationSnapshot, calls []ToolC
 		}
 	}
 	rows := []transcriptRow{}
+	retries := map[string]int{}
 	appendParts := func(id string, parts []protocol.ConversationPart, sequence uint64, draft bool) {
 		offset, lastText := 0, -1
 		for index, part := range parts {
@@ -353,13 +354,12 @@ func collectTranscriptRows(snapshot protocol.ConversationSnapshot, calls []ToolC
 				if value.Type != "model_retry" && value.Type != "compaction_failure" && value.Type != "compacting" {
 					continue
 				}
-				if value.Type == "model_retry" && len(rows) > 0 && rows[len(rows)-1].Part.Kind == "resource" {
-					before := resourceValue(rows[len(rows)-1].Part.Data)
-					if before.Type == "model_retry" && !before.Fallback && !value.Fallback && equalOptionalUint(before.Limit, value.Limit) &&
-						equalOptionalString(before.Transport, value.Transport) && value.Attempt > before.Attempt {
-						rows[len(rows)-1].Part = part
+				if value.Type == "model_retry" && value.ID != "" && !value.Fallback {
+					if position, exists := retries[value.ID]; exists {
+						rows[position].Part = part
 						continue
 					}
+					retries[value.ID] = len(rows)
 				}
 			}
 			row.Work = workPart(part)
@@ -377,14 +377,6 @@ func collectTranscriptRows(snapshot protocol.ConversationSnapshot, calls []ToolC
 		}
 	}
 	return rows
-}
-
-func equalOptionalUint(left, right *uint64) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
-}
-
-func equalOptionalString(left, right *string) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func waitingChildren(snapshot protocol.ConversationSnapshot, calls []ToolCall, guidance map[string]string, turn protocol.TurnID, rows []transcriptRow) *int {

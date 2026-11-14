@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -63,12 +64,26 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 			clock := &projectionRetryClock{now: time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)}
 			err := model.Run(t.Context(), language, fantasy.Call{}, model.Main, clock, func(attempt model.Attempt) error {
 				if attempt.RetryDelay != nil {
-					raw, err := json.Marshal(map[string]any{"type": "model_retry", "attempt": attempt.Index + 1, "limit": model.MainRetries,
-						"delay_ms": attempt.RetryDelay.Milliseconds(), "error": attempt.Failure.Message})
+					limit, delay := uint64(model.MainRetries), uint64(attempt.RetryDelay.Milliseconds())
+					record := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant), attempt.Finished)
+					record.Provenance.Author = "assistant"
+					record.Metadata.Execution = &canonical.Execution{
+						Observation: &protocol.ConversationObservationRequest{ID: attempt.RequestID, Turn: turn},
+						Retry:       &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Error: &attempt.Failure.Message},
+					}
+					raw, err := json.Marshal(record)
 					if err != nil {
 						return err
 					}
-					appendEntry(protocol.ConversationPart{Kind: "resource", Data: json.RawMessage(raw)})
+					var restored canonical.Record
+					if err := json.Unmarshal(raw, &restored); err != nil {
+						return err
+					}
+					entry, err := store.CanonicalEntry(restored, uint64(len(snapshot.Page.Entries)+1))
+					if err != nil {
+						return err
+					}
+					snapshot.Page.Entries = append(snapshot.Page.Entries, entry)
 				}
 				return nil
 			}, func(part fantasy.StreamPart) bool {
@@ -106,10 +121,12 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 				t.Fatalf("failed retry did not project its turn: %+v", turns)
 			}
 			var retry *conversation.Retry
+			retryCount := 0
 			var text, title string
 			for _, block := range turns[0].Reply.Blocks {
 				if block.Retry != nil {
 					retry = block.Retry
+					retryCount++
 				}
 				if block.Kind == conversation.TextBlock {
 					text += block.Text
@@ -118,8 +135,15 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 					title = block.Label
 				}
 			}
-			if retry == nil || retry.Attempt != model.MainRetries || retry.Limit != model.MainRetries || retry.Exhausted != wantExhausted || retry.Stopped != wantExhausted || retry.Detail != "Fixture connection failed" {
+			if retryCount != 1 || retry == nil || retry.Request == "" || retry.Attempt != model.MainRetries || retry.Limit != model.MainRetries || retry.Exhausted != wantExhausted || retry.Stopped != wantExhausted || retry.Detail != "Fixture connection failed" {
 				t.Fatalf("retry projection lost the actual recovery outcome: %+v", retry)
+			}
+			entryCount := model.MainRetries
+			if partial {
+				entryCount++
+			}
+			if len(snapshot.Page.Entries) != entryCount {
+				t.Fatal("projecting the current retry removed canonical attempts")
 			}
 			if partial {
 				if text != "Visible partial reply" || title == "chat_model_retry_exhausted" {
@@ -127,6 +151,41 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 				}
 			} else if title != "chat_model_retry_exhausted" || retry.Reason != title {
 				t.Fatalf("exhaustion was not shown as the terminal reason: title=%q retry=%+v", title, retry)
+			}
+		})
+	}
+}
+
+func TestRetryProjectionUsesModelRequestIdentity(t *testing.T) {
+	for _, row := range []struct {
+		name string
+		ids  []string
+		want int
+	}{
+		{"one request", []string{"request-a", "request-a", "request-a"}, 1},
+		{"different requests with increasing attempts", []string{"request-a", "request-b"}, 2},
+		{"unknown request identity", []string{"", ""}, 2},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			turn := protocol.TurnID{1}
+			snapshot := protocol.DefaultConversationSnapshot()
+			snapshot.Page.Runs = []protocol.ConversationRun{{Turn: turn, Kind: "task", Status: "running"}}
+			for index, id := range row.ids {
+				raw, err := json.Marshal(map[string]any{"type": "model_retry", "id": id, "attempt": index + 2, "limit": 9})
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{ID: fmt.Sprint(index), Turn: turn, Author: "assistant",
+					Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(raw)}},
+				})
+			}
+			turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: snapshot})
+			blocks := turns[0].Reply.Blocks
+			if len(blocks) != row.want || blocks[len(blocks)-1].Retry.Attempt != len(row.ids)+1 {
+				t.Fatalf("retry request identity changed its rows: %+v", blocks)
+			}
+			if len(snapshot.Page.Entries) != len(row.ids) {
+				t.Fatal("retry presentation changed stored attempts")
 			}
 		})
 	}

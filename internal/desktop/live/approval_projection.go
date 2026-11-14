@@ -2,6 +2,7 @@ package live
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -37,7 +38,6 @@ func projectApproval(approval protocol.ConversationApproval, call *protocol.Conv
 				view.Description, view.Code = input.Content.Text, input.Content.Code
 			case len(view.Notices) > 0:
 				view.Description = view.Notices[0]
-				view.Notices = slices.DeleteFunc(view.Notices, func(notice string) bool { return notice == view.Description })
 				view.Code = input.Summary != nil && input.Summary.Code && input.Summary.Text == view.Description
 			case input.Target != nil:
 				view.Description = input.Target.Text
@@ -65,6 +65,25 @@ func projectApproval(approval protocol.ConversationApproval, call *protocol.Conv
 			view.Changes = append(view.Changes, change)
 		}
 	}
+	if strings.TrimSpace(view.Context) == strings.TrimSpace(view.Description) {
+		view.Context = ""
+	}
+	// Display templates can repeat the content as an approval notice. Keep the
+	// full content once, along with any distinct context and original reasons.
+	shown := map[string]bool{
+		"":                                  true,
+		strings.TrimSpace(view.Title):       true,
+		strings.TrimSpace(view.Context):     true,
+		strings.TrimSpace(view.Description): true,
+	}
+	view.Notices = slices.DeleteFunc(view.Notices, func(notice string) bool {
+		text := strings.TrimSpace(notice)
+		if shown[text] {
+			return true
+		}
+		shown[text] = true
+		return false
+	})
 	return view
 }
 

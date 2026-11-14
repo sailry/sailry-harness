@@ -289,7 +289,7 @@ func checkTranscript(t *testing.T) {
 		t.Fatalf("the tool output did not open: %q", tt.Texts())
 	}
 	// The stopped retry names its reason; the interrupted compaction its state and time.
-	if !tt.HasText(T("chat_model_rate_limited")) || !tt.HasText(T("chat_model_retried", "attempt", 2, "limit", 5)) {
+	if !tt.HasText(T("chat_model_rate_limited")) || !tt.HasText(T("chat_model_reconnecting", "attempt", 2, "limit", 5)) {
 		t.Fatalf("retry notice: %q", tt.Texts())
 	}
 	if want := T("chat_compact_interrupted") + " " + conversation.Elapsed(83*1e9); !tt.HasText(want) {

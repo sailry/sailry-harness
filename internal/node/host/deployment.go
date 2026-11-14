@@ -453,7 +453,7 @@ func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.N
 		endpoint.Disconnect(expected)
 		peers, err := endpoint.Peers(ctx)
 		if err != nil {
-			return err
+			return unknown("Host update was started but reconnection could not be confirmed")
 		}
 		for _, address := range peers {
 			if address.ID != expected {

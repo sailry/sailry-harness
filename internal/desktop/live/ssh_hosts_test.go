@@ -76,6 +76,7 @@ func testSSHHostInstall(t *testing.T) {
 		revision := uint64(0)
 		answers := map[string]link.Response{}
 		var receipt protocol.RequestOutcome
+		var receiptFailure *protocol.Fault
 		var refused *link.Response
 		source.respond = func(request protocol.Request) link.Response {
 			switch request.Command.Kind {
@@ -92,6 +93,9 @@ func testSSHHostInstall(t *testing.T) {
 				profile.Revision = revision
 				return link.Response{Output: protocol.Output{Kind: "ssh_profile", Data: profile}}
 			case "inspect_request":
+				if receiptFailure != nil {
+					return link.Response{Fault: receiptFailure}
+				}
 				payload, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
 				return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: payload.ID, Outcome: receipt}}}
 			}
@@ -395,6 +399,44 @@ func testSSHHostInstall(t *testing.T) {
 		}
 		if payload, _ := detail[protocol.CommandInstallWslHostPayload](wsl[0].Data); payload.Distribution != "Ubuntu" || payload.Network == nil || payload.Network.Kind != "iroh" {
 			t.Fatalf("WSL installation payload: %+v", payload)
+		}
+		// An unavailable inspection cannot settle an original unknown result.
+		answers["install_wsl_host"] = fault(protocol.ErrorCodeOutcomeUnknown)
+		root.addSSHHost(settings.ConnectionDraft{Method: settings.ByWSL, Distribution: "archlinux"}, completed)
+		settle()
+		original := local.install.request
+		if original == nil || !root.connectionStatus().Recovery {
+			t.Fatal("an unknown WSL result lost its original request")
+		}
+		before := len(source.sent("install_wsl_host"))
+		receiptFailure = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "receipt lookup is unavailable"}
+		root.checkSSHHost(completed)
+		settle()
+		if !root.connectionStatus().Recovery || local.install.request == nil || local.install.request.ID != original.ID || len(source.sent("install_wsl_host")) != before {
+			t.Fatal("an unavailable inspection released or repeated an unknown WSL installation")
+		}
+		receiptFailure, local.install = nil, nil
+		// The installer has not started when its download fails. The Node's
+		// completed failure must keep its detail and leave no receipt to check.
+		for _, message := range []string{
+			"WSL command failed (22): curl: (22) The requested URL returned error: 404",
+			"WSL command failed (35): curl: (35) TLS connect error: error:0A000126:SSL routines::unexpected eof while reading",
+		} {
+			answers["install_wsl_host"] = link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: message}}
+			before, inspected := len(source.sent("install_wsl_host")), count("inspect_request")
+			root.addSSHHost(settings.ConnectionDraft{Method: settings.ByWSL, Distribution: "archlinux"}, completed)
+			settle()
+			if len(source.sent("install_wsl_host")) != before+1 || results[len(results)-1] || root.App.Settings.ConnectionPending || root.connectionStatus().Recovery || local.install.request != nil {
+				t.Fatalf("definite WSL failure stayed uncertain: %+v", local.install)
+			}
+			if failure := root.App.Settings.ConnectionFailure; failure == nil || failure.Title != "host_install_failed" || failure.Detail != message {
+				t.Fatalf("definite WSL failure lost its cause: %+v", failure)
+			}
+			root.checkSSHHost(completed)
+			settle()
+			if count("inspect_request") != inspected || len(source.sent("install_wsl_host")) != before+1 {
+				t.Fatal("a definite WSL failure was checked or installed again")
+			}
 		}
 
 		// Only WSL2 distributions are offered.

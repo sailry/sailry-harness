@@ -546,8 +546,8 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 		t.Errorf("a draft shows %d context rings", len(projected.Indicators))
 	}
 
-	// Every button of the header, the plugins' as the shell's own, is the
-	// same box on one line, the ones side by side one gap apart.
+	// The empty conversation keeps its navigation and right-column toggles;
+	// the statistics package's context control waits for the first turn.
 	var header []ui.AccessInfo
 	for _, info := range tester.AccessAll() {
 		if info.Role == ui.RoleButton && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
@@ -560,8 +560,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 		}
 		return
 	}
-	statistics := "上下文" // the statistics package's header control
-	if !slices.Contains(names(), statistics) || !slices.Contains(names(), zh("details")) || len(header) < 3 {
+	if !slices.Equal(names(), []string{zh("sidebar_toggle"), zh("details")}) {
 		t.Fatalf("the header's buttons are %q", names())
 	}
 	for index, info := range header {
@@ -574,17 +573,6 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 				t.Errorf("%q starts %v after %q, want %v", info.Name, gap, header[index-1].Name, shell.ButtonGap)
 			}
 		}
-	}
-	// The statistics package's control is the window's to open: a press
-	// shows its panel and leaves the button enabled, a second one closes it.
-	click(button(statistics))
-	if opened := button(statistics); !opened.Expanded || opened.Disabled {
-		t.Errorf("a press on %q left it expanded %v, disabled %v", statistics, opened.Expanded, opened.Disabled)
-	}
-	shots("first-run-context-panel")
-	click(button(statistics))
-	if closed := button(statistics); closed.Expanded || closed.Disabled {
-		t.Errorf("a second press on %q left it expanded %v, disabled %v", statistics, closed.Expanded, closed.Disabled)
 	}
 	shots("first-run-draft")
 

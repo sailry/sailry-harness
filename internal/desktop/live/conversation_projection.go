@@ -19,6 +19,10 @@ import (
 // Conversation projects canonical and live data without changing Client state.
 // Thinking is retained for provider replay but intentionally has no UI row.
 func Conversation(state client.ConversationState, locales ...string) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued) {
+	return conversationAt(state, time.Now(), locales...)
+}
+
+func conversationAt(state client.ConversationState, now time.Time, locales ...string) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued) {
 	language := ""
 	if len(locales) > 0 {
 		language = locales[0]
@@ -119,7 +123,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		}
 		if t.Reply.Status.Active() {
 			if state.Connected && r.StartedMs != nil {
-				t.Reply.Elapsed = max(0, time.Since(time.UnixMilli(*r.StartedMs)))
+				t.Reply.Elapsed = max(0, now.Sub(time.UnixMilli(*r.StartedMs)))
 			}
 			t.Reply.Phase = conversation.AwaitingResponse
 			if !state.Connected {
@@ -239,7 +243,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 			// Search is work in the accepted layout, so it precedes the answer.
 			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources, Suggestions: searchSuggestions(*entry.SearchSuggestions)})
 		}
-		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, language)
+		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, language, now)
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
@@ -275,7 +279,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	for _, draft := range snapshot.Drafts {
 		if position, ok := positions[owners[draft.Turn]]; ok {
 			t := &turns[position]
-			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, language)
+			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, language, now)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
 			}
@@ -309,8 +313,16 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	calls := map[string]*conversation.Call{}
 	for ti := range turns {
 		firstProgress := -1
+		retries := map[string]int{}
 		blocks := turns[ti].Reply.Blocks[:0]
 		for _, block := range turns[ti].Reply.Blocks {
+			if retry := block.Retry; retry != nil && retry.Request != "" {
+				if position, exists := retries[retry.Request]; exists {
+					blocks[position] = block
+					continue
+				}
+				retries[retry.Request] = len(blocks)
+			}
 			if block.Kind == conversation.ProgressBlock {
 				if firstProgress >= 0 {
 					blocks[firstProgress].Steps = block.Steps
@@ -678,7 +690,7 @@ func projectedCall(reply *conversation.Reply, id string) *conversation.Call {
 	return nil
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, language string) {
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, language string, now time.Time) {
 	for index, part := range parts {
 		switch part.Kind {
 		case "thinking":
@@ -800,7 +812,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 					continue
 				}
 			}
-			projectResource(reply, part.Data)
+			projectResource(reply, part.Data, now)
 		}
 	}
 }
@@ -1054,7 +1066,7 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	return call
 }
 
-func projectResource(reply *conversation.Reply, data any) {
+func projectResource(reply *conversation.Reply, data any, now time.Time) {
 	var raw json.RawMessage
 	if v, ok := detail[json.RawMessage](data); ok {
 		raw = v
@@ -1064,6 +1076,7 @@ func projectResource(reply *conversation.Reply, data any) {
 	var resource struct {
 		Kind string          `json:"kind"`
 		Type string          `json:"type"`
+		ID   string          `json:"id"`
 		Data json.RawMessage `json:"data"`
 	}
 	if json.Unmarshal(raw, &resource) != nil {
@@ -1078,6 +1091,9 @@ func projectResource(reply *conversation.Reply, data any) {
 		var r protocol.ConversationRecoveryRetry
 		if json.Unmarshal(raw, &r) == nil {
 			v := &conversation.Retry{Attempt: int(r.Attempt)}
+			if !r.Fallback {
+				v.Request = resource.ID
+			}
 			if r.Limit != nil {
 				v.Limit = int(*r.Limit)
 			}
@@ -1093,7 +1109,7 @@ func projectResource(reply *conversation.Reply, data any) {
 			Started int64 `json:"started_ms"`
 		}
 		if json.Unmarshal(raw, &started) == nil && started.Started > 0 {
-			reply.PhaseElapsed = max(0, time.Since(time.UnixMilli(started.Started)))
+			reply.PhaseElapsed = max(0, now.Sub(time.UnixMilli(started.Started)))
 		}
 	case "output_limit":
 		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.LimitBlock})

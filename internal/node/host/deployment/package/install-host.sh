@@ -128,7 +128,7 @@ task_cleanup() {
     if ! task_rollback; then
       printf 'Host recovery failed; inspect program files at %s and %s\n' "$task_existing" "$task_backup" >&2
       printf 'Recovery files remain at %s\n' "$task_stage" >&2
-      exit 1
+      exit 73
     fi
     echo 'Host update failed; the previous installation was restored' >&2
   fi
@@ -136,7 +136,7 @@ task_cleanup() {
     if test -e "$task_backup" || test -L "$task_backup" \
       || ! mv "$task_stage/previous-backup" "$task_backup"; then
       printf 'Host backup recovery failed; files remain at %s\n' "$task_stage" >&2
-      exit 1
+      exit 73
     fi
   fi
   find "$task_stage" -type d -exec chmod u+w {} +

@@ -19,6 +19,8 @@ import (
 type pluginControlPresentation struct {
 	key      plugins.ContributionKey
 	open     bool
+	header   bool
+	shown    bool
 	query    string
 	previous string
 	selected int
@@ -283,9 +285,10 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 	}
 	state := r.pluginControls[identity]
 	if state == nil {
-		state = &pluginControlPresentation{key: entry.Key}
+		state = &pluginControlPresentation{key: entry.Key, header: entry.Declaration.Slot == protocol.PluginUiSlotHeader}
 		r.pluginControls[identity] = state
 	}
+	state.shown = true
 	label, icon := pluginEntryLabel(entry, view.Locale()), pluginEntryIcon(entry)
 	palette := theme.Of(view)
 	selected := false
@@ -452,6 +455,10 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 
 func (r *Runtime) pluginControlsAfterFrame() {
 	for identity, presentation := range r.pluginControls {
+		if presentation.header && !presentation.shown {
+			presentation.open = false
+		}
+		presentation.shown = false
 		if owner, _ := r.pluginContribution(presentation.key); owner == nil {
 			delete(r.pluginControls, identity)
 		}

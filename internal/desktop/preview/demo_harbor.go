@@ -219,8 +219,8 @@ func (b *demo) invoices() *Conversation {
 	why.Reply = done(cv.Failed, 555)
 	why.Reply.Blocks = []cv.Block{
 		text(b.t("invoice.2.partial")),
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded"}},
-		{Kind: cv.RetryBlock, Retry: &cv.Retry{Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded", Stopped: true, Exhausted: true,
+		{Kind: cv.RetryBlock, Retry: &cv.Retry{Request: why.ID + "/request/1", Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded"}},
+		{Kind: cv.RetryBlock, Retry: &cv.Retry{Request: why.ID + "/request/2", Attempt: 9, Limit: 9, Reason: "chat_model_server_overloaded", Stopped: true, Exhausted: true,
 			Detail: `503 {"error":{"type":"server_overloaded","message":"The service is temporarily overloaded"}}`}},
 		{Kind: cv.ErrorBlock, Label: b.t("invoice.error.label"), Text: b.t("invoice.error.text")},
 	}

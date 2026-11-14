@@ -1,7 +1,8 @@
 Host installer files ported from the Rust implementation of Sailry at commit
 eaad1b7f18e448c8c4e9e9286e19560c8a351ae1.
 
-package/install-host.sh   scripts/install-host.sh, unchanged
+package/install-host.sh   scripts/install-host.sh, adapted: recovery failures
+                          preserve an unknown installation outcome
 package/sailry            scripts/host-command.sh, unchanged
 package/service.sh        crates/node-runtime/src/ssh/install/service.sh, unchanged
 dependencies.jq           scripts/package/dependencies.jq, unchanged

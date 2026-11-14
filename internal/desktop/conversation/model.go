@@ -234,6 +234,7 @@ type Citation struct {
 // key, chat_model_*) and whether it gave up. Stopped is a retry the provider
 // ended for Reason before the attempts ran out.
 type Retry struct {
+	Request        string // shared by the attempts of one model request
 	Attempt, Limit int
 	Reason         string
 	Detail         string // the provider's message, shown when opened

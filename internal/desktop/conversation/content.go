@@ -335,10 +335,8 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 		label = i18n.T(c, "chat_model_retry_exhausted")
 	case waitExhausted:
 		label = i18n.T(c, r.Reason)
-	case r.Limit > 0 && active:
-		label = i18n.T(c, "chat_model_reconnecting", "attempt", r.Attempt, "limit", r.Limit)
 	case r.Limit > 0:
-		label = i18n.T(c, "chat_model_retried", "attempt", r.Attempt, "limit", r.Limit)
+		label = i18n.T(c, "chat_model_reconnecting", "attempt", r.Attempt, "limit", r.Limit)
 	case active:
 		label = i18n.T(c, "chat_model_reconnecting_continuously")
 	default:
