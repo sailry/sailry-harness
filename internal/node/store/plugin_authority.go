@@ -8,67 +8,87 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func PluginRequestPackage(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request, invocation *protocol.PluginInfo) (protocol.PluginInfo, error) {
+	info, _, err := pluginRequestPackage(ctx, db, node, caller, request, invocation)
+	return info, err
+}
+
+// AuthorizePluginRequest keeps verified dispatch provenance inside the Node.
+// Authored plugin contexts cannot grant themselves deferred session creation.
+func AuthorizePluginRequest(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request, invocation *protocol.PluginInfo) (protocol.PluginInfo, error) {
+	info, dispatched, err := pluginRequestPackage(ctx, db, node, caller, request, invocation)
+	if err == nil {
+		err = checkPluginRequest(ctx, db, request, info, dispatched)
+	}
+	return info, err
+}
+
+func pluginRequestPackage(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request, invocation *protocol.PluginInfo) (protocol.PluginInfo, bool, error) {
 	scope := request.Plugin
 	if scope == nil {
-		return protocol.PluginInfo{}, fault(protocol.ErrorCodePermissionDenied, "plugin provenance is required")
+		return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin provenance is required")
 	}
 	if invocation != nil {
-		return *invocation, nil
+		return *invocation, false, nil
 	}
 	if scope.Invocation != nil {
-		return protocol.PluginInfo{}, fault(protocol.ErrorCodePermissionDenied, "plugin invocation is unavailable")
+		return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin invocation is unavailable")
 	}
 	if scope.Turn != nil {
 		if caller != node {
-			return protocol.PluginInfo{}, fault(protocol.ErrorCodePermissionDenied, "plugin turn belongs to the execution Node")
+			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin turn belongs to the execution Node")
 		}
 		if _, err := activeAgentRun(ctx, db, *scope.Turn); err != nil {
-			return protocol.PluginInfo{}, err
+			return protocol.PluginInfo{}, false, err
 		}
 		capture, err := readTurnCapture(ctx, db, *scope.Turn)
 		if err != nil {
-			return protocol.PluginInfo{}, err
+			return protocol.PluginInfo{}, false, err
 		}
 		session, err := ReadSession(ctx, db, capture.Session)
 		if err != nil {
-			return protocol.PluginInfo{}, err
+			return protocol.PluginInfo{}, false, err
 		}
 		if scope.Session == nil || *scope.Session != capture.Session || scope.Worktree == nil || *scope.Worktree != session.Worktree || !slices.Contains(capture.Plugins, scope.Package) {
-			return protocol.PluginInfo{}, fault(protocol.ErrorCodePermissionDenied, "plugin does not belong to the captured turn")
+			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin does not belong to the captured turn")
 		}
 		info, err := ResolvePluginInfo(ctx, db, scope.Package)
 		info.Summary.Enabled = true
-		return info, err
+		return info, false, err
 	}
-	claimed, err := DispatchPackage(ctx, db, node, caller, request)
+	claimed, sessionStart, err := dispatchPackage(ctx, db, node, caller, request)
 	if err != nil {
-		return protocol.PluginInfo{}, err
+		return protocol.PluginInfo{}, false, err
 	}
 	if claimed != nil {
 		claimed.Summary.Enabled = true
-		return *claimed, nil
+		return *claimed, sessionStart, nil
 	}
 	current, err := ReadPlugin(ctx, db, scope.Package.Name)
 	if err != nil {
-		return protocol.PluginInfo{}, err
+		return protocol.PluginInfo{}, false, err
 	}
 	if current == nil {
-		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotFound, "plugin is not installed")
+		return protocol.PluginInfo{}, false, fault(protocol.ErrorCodeNotFound, "plugin is not installed")
 	}
 	reference := protocol.PluginReference{Name: current.Summary.Name, Digest: current.Summary.Digest, SettingsRevision: current.Summary.SettingsRevision}
 	if reference != scope.Package {
-		return protocol.PluginInfo{}, fault(protocol.ErrorCodeRevisionConflict, "plugin package changed")
+		return protocol.PluginInfo{}, false, fault(protocol.ErrorCodeRevisionConflict, "plugin package changed")
 	}
-	return *current, nil
+	return *current, false, nil
 }
 
 func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Request, info protocol.PluginInfo) error {
+	return checkPluginRequest(ctx, db, request, info, false)
+}
+
+func checkPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Request, info protocol.PluginInfo, dispatched bool) error {
 	scope := request.Plugin
 	if scope == nil {
 		return nil
@@ -171,7 +191,7 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
 		}
 	case "start_session":
-		if err := checkPluginSessionStart(ctx, db, request); err != nil {
+		if err := checkPluginSessionStart(ctx, db, request, dispatched); err != nil {
 			return err
 		}
 	case "set_session_config":
@@ -263,25 +283,30 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	case "dispatch":
 		// A saved handler later runs in its callback scope, which therefore
 		// stays inside the scope that saves it.
-		var input struct {
-			Action struct {
-				Kind string          `json:"kind"`
-				Data json.RawMessage `json:"data"`
-			} `json:"action"`
-		}
+		var input protocol.CommandDispatchPayload
 		if err := json.Unmarshal(body, &input); err != nil {
 			return err
 		}
+		if err := checkPluginDispatchTargets(ctx, db, *scope, input.Action); err != nil {
+			return err
+		}
 		if input.Action.Kind == "save_handler" {
-			var handler struct {
-				Callback struct {
-					Scope protocol.DispatchScope `json:"scope"`
-				} `json:"callback"`
-			}
-			if err := json.Unmarshal(input.Action.Data, &handler); err != nil {
-				return err
+			handler, valid := dispatchValue[protocol.DispatchHandler](input.Action.Data)
+			if !valid {
+				return invalid("invalid dispatch handler")
 			}
 			target.Worktree, target.Session = handler.Callback.Scope.Worktree, handler.Callback.Scope.Session
+			// Omitting a captured bound would give the later callback broader
+			// authority, even though the target checks below accept nil fields.
+			if scope.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) ||
+				scope.Session != nil && !reflect.DeepEqual(target.Session, scope.Session) {
+				return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
+			}
+			if handler.Callback.Command != nil && handler.Callback.Command.Kind == "start_session" && handler.Callback.Scope.Session != nil {
+				if err := checkPluginScheduledStart(ctx, db, *scope, handler.Callback); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) {
@@ -305,7 +330,7 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
 		}
 	}
-	if scope.Session != nil {
+	if scope.Session != nil && !pluginSessionIndependent(request.Command) && !(dispatched && request.Command.Kind == "start_session") {
 		session, err := ReadSession(ctx, db, *scope.Session)
 		if err != nil {
 			return err
@@ -593,19 +618,43 @@ func checkPluginConnectorRequest(ctx context.Context, db *sql.Conn, request prot
 	return false, nil
 }
 
-// checkPluginSessionStart confines a package's start_session: outside a turn
-// and a session, under its own association namespace and conversation
-// options, inside its captured worktree, and never as an assistant or
-// connection conversation, which have their own resource commands.
-func checkPluginSessionStart(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+// checkPluginSessionStart confines new sessions to the package's resources.
+// Ordinary turn/session surfaces cannot create another conversation. A verified
+// dispatch callback retains its source session and may create a fresh one within
+// that source's resource and permission bounds.
+func checkPluginSessionStart(ctx context.Context, db *sql.Conn, request protocol.Request, dispatched bool) error {
 	scope := request.Plugin
-	if scope.Turn != nil || scope.Session != nil {
+	if scope.Turn != nil || scope.Session != nil && !dispatched {
 		return fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
 	}
 	draft, err := providerPayload[protocol.ConversationStart](request.Command)
 	if err != nil {
 		return err
 	}
+	return checkPluginSessionDraft(ctx, db, *scope, draft, dispatched)
+}
+
+func checkPluginScheduledStart(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, callback protocol.DispatchCallback) error {
+	// The fixed draft carries the saved permission ceiling. Event bindings
+	// may supply content, but cannot replace the authority checked at save.
+	for target := range callback.Bindings {
+		for _, field := range []string{"/data/config", "/data/project", "/data/worktree"} {
+			if target == field || strings.HasPrefix(target, field+"/") || strings.HasPrefix(field, target+"/") {
+				return fault(protocol.ErrorCodePermissionDenied, "scheduled session bindings cannot change captured authority")
+			}
+		}
+	}
+	draft, err := providerPayload[protocol.ConversationStart](*callback.Command)
+	if err != nil {
+		return err
+	}
+	if draft.Config == nil {
+		return fault(protocol.ErrorCodePermissionDenied, "scheduled session requires an explicit configuration")
+	}
+	return checkPluginSessionDraft(ctx, db, scope, draft, false)
+}
+
+func checkPluginSessionDraft(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, draft protocol.ConversationStart, dispatched bool) error {
 	if draft.Association != nil {
 		if err := validateSessionAssociation(*draft.Association); err != nil {
 			return err
@@ -614,12 +663,38 @@ func checkPluginSessionStart(ctx context.Context, db *sql.Conn, request protocol
 			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
 		}
 	}
-	if draft.Config != nil {
-		if err := checkPluginSessionOptions(ctx, db, nil, *draft.Config, scope.Package); err != nil {
+	// A verified callback uses its immutable, validated draft even if the
+	// originating conversation was later reconfigured or removed.
+	unassigned := dispatched && scope.Session != nil && draft.Project == nil && draft.Worktree == nil
+	var previous *protocol.SessionConfig
+	if scope.Session != nil && !dispatched {
+		source, err := ReadSession(ctx, db, *scope.Session)
+		if err != nil {
+			return err
+		}
+		ceiling := source.Config
+		if scope.Turn != nil {
+			capture, err := readTurnCapture(ctx, db, *scope.Turn)
+			if err != nil {
+				return err
+			}
+			ceiling = capture.Config
+		}
+		previous = &ceiling
+		if draft.Config == nil || !withinSessionPermissions(ceiling, *draft.Config) {
+			return fault(protocol.ErrorCodePermissionDenied, "scheduled session exceeds source permissions")
+		}
+		if !sameProject(source.Project, draft.Project) {
+			return fault(protocol.ErrorCodePermissionDenied, "session creation is outside the captured project")
+		}
+		unassigned = source.Project == nil && source.Config.Assistant == nil && source.Config.Resource == nil && draft.Worktree == nil
+	}
+	if draft.Config != nil && !dispatched {
+		if err := checkPluginSessionOptions(ctx, db, previous, *draft.Config, scope.Package); err != nil {
 			return err
 		}
 	}
-	if scope.Worktree != nil && (draft.Worktree == nil || *draft.Worktree != *scope.Worktree) {
+	if scope.Worktree != nil && !unassigned && (draft.Worktree == nil || *draft.Worktree != *scope.Worktree) {
 		return fault(protocol.ErrorCodePermissionDenied, "session creation is outside the captured worktree")
 	}
 	if draft.Config != nil && (draft.Config.Assistant != nil || draft.Config.Resource != nil) {

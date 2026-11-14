@@ -242,25 +242,6 @@ func testPluginSessionAuthority(t *testing.T) {
 		scope := protocol.DefaultPluginContext()
 		scope.Package = plugins.PackageReference(info)
 		scope0 := scope
-		associated := func(namespace string) (protocol.Session, error) {
-			out, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &session.Config})
-			if err != nil {
-				return protocol.Session{}, err
-			}
-			created := out.Data.(protocol.Session)
-			if namespace != "" {
-				_, err = db.ExecContext(ctx, "INSERT INTO session_associations(session,namespace,kind,identity) VALUES(?1,?2,'task',?3)", created.ID.String(), namespace, created.ID.String())
-			}
-			return created, err
-		}
-		owned, err := associated("session-fixture")
-		if err != nil {
-			return err
-		}
-		foreign, err := associated("another-package")
-		if err != nil {
-			return err
-		}
 		draft := func(change func(*protocol.ConversationStart)) protocol.Command {
 			value := protocol.DefaultConversationStart()
 			value.Worktree, value.Execution = &session.Worktree, protocol.ConversationExecutionModel
@@ -291,6 +272,29 @@ func testPluginSessionAuthority(t *testing.T) {
 			if _, err := db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,?2,?3,0)", id.String(), project.String(), "/fixture-checkout/"+id.String()); err != nil {
 				return err
 			}
+		}
+		associated := func(namespace string) (protocol.Session, error) {
+			out, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Project: &own, Worktree: &session.Worktree, Config: &session.Config})
+			if err != nil {
+				return protocol.Session{}, err
+			}
+			created := out.Data.(protocol.Session)
+			if namespace != "" {
+				_, err = db.ExecContext(ctx, "INSERT INTO session_associations(session,namespace,kind,identity) VALUES(?1,?2,'task',?3)", created.ID.String(), namespace, created.ID.String())
+			}
+			return created, err
+		}
+		owned, err := associated("session-fixture")
+		if err != nil {
+			return err
+		}
+		ownedSecond, err := associated("session-fixture")
+		if err != nil {
+			return err
+		}
+		foreign, err := associated("another-package")
+		if err != nil {
+			return err
 		}
 		inSession := func(scope *protocol.PluginContext) { scope.Worktree, scope.Session = &session.Worktree, &session.ID }
 		inTurn := func(scope *protocol.PluginContext) {
@@ -364,7 +368,16 @@ func testPluginSessionAuthority(t *testing.T) {
 			{"notify about an owned session", notify(&owned.ID), nil, "", ""},
 			{"notify about another package's session", notify(&foreign.ID), nil, protocol.ErrorCodePermissionDenied, outside},
 			{"save a handler in the caller's scope", handler(protocol.DispatchScope{Worktree: &session.Worktree, Session: &session.ID}), inSession, "", ""},
+			{"save a handler in the caller's worktree", handler(protocol.DispatchScope{Worktree: &session.Worktree}),
+				func(scope *protocol.PluginContext) { scope.Worktree = &session.Worktree }, "", ""},
 			{"save a Node-wide handler", handler(protocol.DispatchScope{}), nil, "", ""},
+			{"save a Node-wide handler from a worktree", handler(protocol.DispatchScope{}),
+				func(scope *protocol.PluginContext) { scope.Worktree = &session.Worktree }, protocol.ErrorCodePermissionDenied, outside},
+			{"save a Node-wide handler from a session", handler(protocol.DispatchScope{}), inSession, protocol.ErrorCodePermissionDenied, outside},
+			{"save a handler without the caller's session", handler(protocol.DispatchScope{Worktree: &session.Worktree}), inSession, protocol.ErrorCodePermissionDenied, outside},
+			{"save a handler without the caller's worktree", handler(protocol.DispatchScope{Session: &session.ID}), inSession, protocol.ErrorCodePermissionDenied, outside},
+			{"save a handler for another owned session", handler(protocol.DispatchScope{Worktree: &ownedSecond.Worktree, Session: &ownedSecond.ID}),
+				func(scope *protocol.PluginContext) { scope.Worktree, scope.Session = &owned.Worktree, &owned.ID }, protocol.ErrorCodePermissionDenied, outside},
 			{"save a handler for another worktree", handler(protocol.DispatchScope{Worktree: &sibling}), inSession, protocol.ErrorCodePermissionDenied, outside},
 			{"save a handler for another package's session", handler(protocol.DispatchScope{Session: &foreign.ID}), nil, protocol.ErrorCodePermissionDenied, outside},
 			{"a turn reads Git in a sibling checkout", protocol.Command{Kind: "read_git_log", Data: &protocol.CommandReadGitLogPayload{Worktree: sibling}}, inTurn, "", ""},

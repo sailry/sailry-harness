@@ -22,7 +22,7 @@ func TestDispatchContracts(test *testing.T) {
 		failure := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture callback failure"}
 		var ended protocol.DispatchJob
 		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
-			job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 100)
+			job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 100, false)
 			if err != nil {
 				return err
 			}
@@ -63,7 +63,7 @@ func TestDispatchContracts(test *testing.T) {
 			return err
 		})
 		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
-			job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 600)
+			job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 600, false)
 			if err != nil {
 				return err
 			}
@@ -174,7 +174,7 @@ func TestDispatchContracts(test *testing.T) {
 			}
 			var firstJob protocol.JobID
 			for index := 0; index < dispatchMaxPending; index++ {
-				job, err := enqueueDispatch(ctx, db, &fixture.reference, filler, fixture.event(), 100)
+				job, err := enqueueDispatch(ctx, db, &fixture.reference, filler, fixture.event(), 100, false)
 				if err != nil {
 					return err
 				}
@@ -365,13 +365,13 @@ func TestDispatchContracts(test *testing.T) {
 			}
 			// Run now and another handler of the same queue are not schedule
 			// occurrences of this handler and still start.
-			manual, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 3600)
+			manual, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 3600, false)
 			if err != nil {
 				return err
 			}
 			scheduled := fixture.event()
 			scheduled.Schedule, scheduled.ScheduledMs = &item.ID, &manual.CreatedMs
-			other, err := enqueueDispatch(ctx, db, &fixture.reference, neighbour, scheduled, 3600)
+			other, err := enqueueDispatch(ctx, db, &fixture.reference, neighbour, scheduled, 3600, false)
 			if err != nil {
 				return err
 			}
@@ -637,7 +637,7 @@ func TestDispatchContracts(test *testing.T) {
 			handler := fixture.handler
 			handler.Callback.Command = &protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: "run", Input: json.RawMessage("null")}}
 			handler.Callback.Bindings = map[string]string{"/data/input": "/payload"}
-			job, err := enqueueDispatch(ctx, db, &old, handler, fixture.event(), 1)
+			job, err := enqueueDispatch(ctx, db, &old, handler, fixture.event(), 1, false)
 			if err != nil {
 				return err
 			}
@@ -710,7 +710,7 @@ func TestDispatchContracts(test *testing.T) {
 				if index == 2 {
 					handler.Callback.Completion = protocol.DispatchCompletionTurn
 				}
-				if _, err := enqueueDispatch(ctx, db, &fixture.reference, handler, fixture.event(), 1); err != nil {
+				if _, err := enqueueDispatch(ctx, db, &fixture.reference, handler, fixture.event(), 1, false); err != nil {
 					return err
 				}
 			}

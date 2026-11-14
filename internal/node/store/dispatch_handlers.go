@@ -70,7 +70,8 @@ func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.P
 	if err != nil {
 		return protocol.DispatchHandler{}, err
 	}
-	capture, err := encode(reference)
+	sessionStart := handler.Callback.Scope.Session != nil && handler.Callback.Command.Kind == "start_session"
+	capture, err := encodeDispatchCapture(&reference, sessionStart)
 	if err != nil {
 		return protocol.DispatchHandler{}, err
 	}

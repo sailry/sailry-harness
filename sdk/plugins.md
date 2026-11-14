@@ -38,6 +38,17 @@ association})` prepares one durable request: complete it with `completeRequest(i
 and retain that ID to recover an uncertain result. `sessions.start` permits creation;
 `teams.read` permits `listTeams()`. Null `config` uses the execution Node's defaults.
 
+Ordinary turn and session surfaces cannot call `startSession` directly. A verified
+dispatch callback may create a session while retaining its originating worktree
+and session in `callback.scope`. When saving such a callback, its explicit config
+must stay within the source turn's captured mode and permission (or the source
+session's settings for a non-turn caller). The fixed draft preserves that ceiling;
+bindings cannot replace its config, project or worktree. Node stores private proof
+of this validation with the handler and each queued job; execution does not depend
+on the source session's later settings or continued existence. A project task stays in its source
+worktree; an unassigned source may create a fresh unassigned session with null
+project and worktree. Node-wide management retains its ordinary creation authority.
+
 `execution: "model"` runs the selected model without a delegation roster and rejects
 team/member overrides. `execution: "team"` captures a team and its roles; omitted
 execution retains the Default team behavior. A `team` selection is `{id, revision?}`.

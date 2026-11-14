@@ -230,6 +230,30 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 				t.Fatalf("bootstrap changed preserved inventory: %#v", value)
 			}
 		}
+		t.Run("explicit reinstall and receipt replay", func(t *testing.T) {
+			// A refreshed marketplace sees no installed entry after removal and
+			// therefore sends zero even though the Node retains a tombstone.
+			request := protocol.NewRequest(reopened.ID(), protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: selected.Name, ExpectedRevision: 0}})
+			result := dispatchFixture(t, reopened, reopened.ID(), request)
+			installed, ok := dispatchPayload[protocol.PluginInfo](result.Output.Data)
+			if result.Fault != nil || result.Output.Kind != "plugin" || !ok || installed.Summary.Revision != selected.Revision+2 || installed.Summary.Digest != selected.Digest {
+				t.Fatalf("reinstall after restart: %+v", result)
+			}
+			duplicate := request
+			duplicate.ID = protocol.NewRequestID()
+			if refused := dispatchFixture(t, reopened, reopened.ID(), duplicate); refused.Fault == nil || refused.Fault.Code != protocol.ErrorCodeRevisionConflict {
+				t.Fatalf("another install replaced the installed package: %+v", refused)
+			}
+			commandFixture(t, reopened, protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: selected.Name, ExpectedRevision: installed.Summary.Revision}})
+			replay := dispatchFixture(t, reopened, reopened.ID(), request)
+			replayed, ok := dispatchPayload[protocol.PluginInfo](replay.Output.Data)
+			if replay.Fault != nil || replay.Output.Kind != "plugin" || !ok || replayed.Summary.Revision != installed.Summary.Revision || replayed.Summary.Digest != installed.Summary.Digest {
+				t.Fatalf("reinstall receipt changed after removal: %+v", replay)
+			}
+			if slices.ContainsFunc(snapshotFixture(t, reopened).Plugins, func(value protocol.PluginSummary) bool { return value.Name == selected.Name }) {
+				t.Fatal("replaying a completed install resurrected a removed package")
+			}
+		})
 		// The installed package's settings scope, for the controller-only checks.
 		var scope protocol.PluginContext
 		t.Run("controller reads a saved secret slot", func(t *testing.T) {

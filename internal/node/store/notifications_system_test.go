@@ -486,7 +486,7 @@ func TestDispatchNotices(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			fixture := newDispatchFixture(t, "notice")
 			fixture.write(t, func(ctx context.Context, db *sql.Conn) error {
-				queued, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 1)
+				queued, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 1, false)
 				if err != nil {
 					return err
 				}
@@ -527,7 +527,7 @@ func TestDispatchNotices(t *testing.T) {
 		fixture.write(t, func(ctx context.Context, db *sql.Conn) error {
 			handler := fixture.handler
 			handler.Callback.Completion = protocol.DispatchCompletionTurn
-			queued, err := enqueueDispatch(ctx, db, &fixture.reference, handler, fixture.event(), 1)
+			queued, err := enqueueDispatch(ctx, db, &fixture.reference, handler, fixture.event(), 1, false)
 			if err != nil {
 				return err
 			}
@@ -551,7 +551,7 @@ func TestDispatchNotices(t *testing.T) {
 	t.Run("callback_refused_at_claim_raises_one_error_notice", func(t *testing.T) {
 		fixture := newDispatchFixture(t, "refused")
 		fixture.write(t, func(ctx context.Context, db *sql.Conn) error {
-			queued, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 1)
+			queued, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 1, false)
 			if err != nil {
 				return err
 			}

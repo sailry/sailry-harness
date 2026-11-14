@@ -121,8 +121,12 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 		}
 		currentReference := dispatchReference(current.Summary)
 		event := protocol.DispatchEvent{ID: protocol.NewEventID(), Source: protocol.DispatchSource{Package: reference.Name, Topic: handler.Source.Topic}, Payload: input.Payload, TimestampMs: timestamp}
+		var sessionStart bool
+		if err := db.QueryRowContext(ctx, "SELECT coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_handlers WHERE package=?1 AND name=?2", reference.Name, handler.Name).Scan(&sessionStart); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		output.Kind, changed = "job", true
-		output.Data, err = enqueueDispatch(ctx, db, &currentReference, handler, event, timestamp)
+		output.Data, err = enqueueDispatch(ctx, db, &currentReference, handler, event, timestamp, sessionStart)
 	case "list_jobs":
 		input, ok := dispatchValue[protocol.DispatchCommandListJobsPayload](action.Data)
 		if !ok {

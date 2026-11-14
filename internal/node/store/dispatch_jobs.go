@@ -208,41 +208,47 @@ func dispatchPackageVersion(ctx context.Context, db *sql.Conn, reference protoco
 }
 
 func DispatchPackage(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, submitted protocol.Request) (*protocol.PluginInfo, error) {
+	info, _, err := dispatchPackage(ctx, db, node, caller, submitted)
+	return info, err
+}
+
+func dispatchPackage(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, submitted protocol.Request) (*protocol.PluginInfo, bool, error) {
 	if caller != node {
-		return nil, nil
+		return nil, false, nil
 	}
 	var identity string
-	err := db.QueryRowContext(ctx, "SELECT id FROM dispatch_jobs WHERE status='running' AND json_extract(body,'$.request')=?1", submitted.ID.String()).Scan(&identity)
+	var sessionStart bool
+	err := db.QueryRowContext(ctx, "SELECT id,coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_jobs WHERE status='running' AND json_extract(body,'$.request')=?1", submitted.ID.String()).Scan(&identity, &sessionStart)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	job, callback, reference, err := readDispatchInvocation(ctx, db, identity)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	expected, err := dispatchRequest(node, job, callback, reference)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	original, err := encode(expected)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	actual, err := encode(submitted)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !bytes.Equal(original, actual) {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "dispatch callback does not match its claimed job")
+		return nil, false, fault(protocol.ErrorCodePermissionDenied, "dispatch callback does not match its claimed job")
 	}
 	if reference != nil {
 		info, err := dispatchPackageVersion(ctx, db, *reference)
-		return &info, err
+		return &info, sessionStart, err
 	}
-	return nil, dispatchNativeCallback(dispatchNativeOwner, job, callback)
+	return nil, false, dispatchNativeCallback(dispatchNativeOwner, job, callback)
 }
 
 func readDispatchInvocation(ctx context.Context, db *sql.Conn, identity string) (protocol.DispatchJob, protocol.DispatchCallback, *protocol.PluginReference, error) {

@@ -41,14 +41,11 @@ func (node *Node) readPluginConnection(ctx context.Context, caller protocol.Node
 			}
 			node.plugins.mu.Unlock()
 		}
-		info, err := store.PluginRequestPackage(ctx, db, node.ID(), caller, request, captured)
+		info, err := store.AuthorizePluginRequest(ctx, db, node.ID(), caller, request, captured)
 		if err != nil {
 			return err
 		}
 		if err := store.CheckPluginConnectionRequest(request, info); err != nil {
-			return err
-		}
-		if err := store.CheckPluginRequest(ctx, db, request, info); err != nil {
 			return err
 		}
 		value, err = store.ReadPluginConnectionAdmitted(ctx, db, node.profile.Ownership.Path, info, input.Card)

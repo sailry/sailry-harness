@@ -225,11 +225,8 @@ func (node *Node) validatePluginRequestDB(ctx context.Context, db *sql.Conn, cal
 			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation is unavailable"}
 		}
 	}
-	info, err := store.PluginRequestPackage(ctx, db, node.ID(), caller, request, captured)
-	if err != nil {
-		return err
-	}
-	return store.CheckPluginRequest(ctx, db, request, info)
+	_, err := store.AuthorizePluginRequest(ctx, db, node.ID(), caller, request, captured)
+	return err
 }
 
 func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, request protocol.Request, readOnly bool) (protocol.Output, error) {

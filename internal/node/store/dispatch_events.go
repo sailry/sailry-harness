@@ -41,6 +41,10 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 		if err := json.Unmarshal(item.reference, &reference); err != nil {
 			return nil, nil, err
 		}
+		sessionStart, err := dispatchSessionStart(item.reference)
+		if err != nil {
+			return nil, nil, err
+		}
 		if !handler.Enabled {
 			continue
 		}
@@ -58,7 +62,7 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 		} else if err := dispatchNativeHandler(handler); err != nil {
 			return nil, nil, err
 		}
-		job, err := enqueueDispatch(ctx, db, reference, handler, event, timestamp)
+		job, err := enqueueDispatch(ctx, db, reference, handler, event, timestamp, sessionStart)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -82,7 +86,7 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 	return jobs, slices.Compact(owners), nil
 }
 
-func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.PluginReference, handler protocol.DispatchHandler, event protocol.DispatchEvent, timestamp int64) (protocol.DispatchJob, error) {
+func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.PluginReference, handler protocol.DispatchHandler, event protocol.DispatchEvent, timestamp int64, sessionStart bool) (protocol.DispatchJob, error) {
 	owner := dispatchNativeOwner
 	if reference != nil {
 		owner = reference.Name
@@ -121,7 +125,7 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	if err != nil {
 		return protocol.DispatchJob{}, err
 	}
-	capture, err := encode(reference)
+	capture, err := encodeDispatchCapture(reference, sessionStart)
 	if err != nil {
 		return protocol.DispatchJob{}, err
 	}

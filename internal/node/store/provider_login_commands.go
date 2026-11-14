@@ -49,11 +49,6 @@ func PluginTransactionProviders(ctx context.Context, db *sql.Conn, request proto
 		if err != nil {
 			return nil, err
 		}
-		nested := request
-		nested.Command = command
-		if err := CheckPluginRequest(ctx, db, nested, info); err != nil {
-			return nil, err
-		}
 		var session protocol.SessionID
 		switch value := command.Data.(type) {
 		case *protocol.CommandSubmitTurnPayload:
@@ -62,6 +57,14 @@ func PluginTransactionProviders(ctx context.Context, db *sql.Conn, request proto
 			session = value.Session
 		default:
 			continue
+		}
+		// Only operations that need a provider are authorized in this read
+		// phase. Other operations may depend on earlier writes in the atomic
+		// transaction, which checks each command immediately before executing it.
+		nested := request
+		nested.Command = command
+		if err := CheckPluginRequest(ctx, db, nested, info); err != nil {
+			return nil, err
 		}
 		current, err := ReadSession(ctx, db, session)
 		if err != nil {

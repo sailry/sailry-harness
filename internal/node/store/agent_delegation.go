@@ -250,17 +250,7 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 		if !sameProject(previous.Project, session.Project) || previous.Project == nil && session.Worktree != parentRun.Worktree {
 			return empty, nil, fault(protocol.ErrorCodeWrongTarget, "child belongs to another project or worktree")
 		}
-		permission := func(value protocol.Permission) int {
-			switch value {
-			case protocol.PermissionAsk:
-				return 0
-			case protocol.PermissionProject:
-				return 1
-			default:
-				return 2
-			}
-		}
-		if capture.Config.Mode == protocol.WorkModePlan && session.Config.Mode != protocol.WorkModePlan || permission(session.Config.Permission) > permission(capture.Config.Permission) {
+		if !withinSessionPermissions(capture.Config, session.Config) {
 			return empty, nil, fault(protocol.ErrorCodePermissionDenied, "child exceeds parent permissions")
 		}
 		role, err = roleFromDelegation(ctx, db, *origin)
