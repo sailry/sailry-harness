@@ -885,6 +885,7 @@ model_library_selected: Seleccionado
 model_library_source: Fuente
 pairing_connect: Conectar el dispositivo
 pairing_local_code: Código de emparejamiento local
+pairing_pin_hint: Ingresa el código de emparejamiento de 6 dígitos
 pairing_preview_disabled: La vista previa de la interfaz de usuario no conecta dispositivos reales; comience con --data-dir para emparejar
 pairing_relay_address: Dirección de iroh
 pairing_relay_address_hint: https://relay.example.com

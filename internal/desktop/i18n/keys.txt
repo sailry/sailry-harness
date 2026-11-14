@@ -904,6 +904,7 @@ model_library_selected
 model_library_source
 pairing_connect
 pairing_local_code
+pairing_pin_hint
 pairing_preview_disabled
 pairing_relay_address
 pairing_relay_address_hint

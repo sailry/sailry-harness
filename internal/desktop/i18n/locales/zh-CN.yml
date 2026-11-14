@@ -885,6 +885,7 @@ model_library_selected: 已选择
 model_library_source: 来源
 pairing_connect: 连接设备
 pairing_local_code: 本机配对码
+pairing_pin_hint: 输入 6 位配对码
 pairing_preview_disabled: UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。
 pairing_relay_address: iroh 地址
 pairing_relay_address_hint: https://relay.example.com

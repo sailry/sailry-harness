@@ -885,6 +885,7 @@ model_library_selected: Selected
 model_library_source: Source
 pairing_connect: Connect device
 pairing_local_code: Local pairing code
+pairing_pin_hint: Enter 6-digit pairing code
 pairing_preview_disabled: UI preview does not connect real devices; start with --data-dir to pair
 pairing_relay_address: iroh address
 pairing_relay_address_hint: https://relay.example.com

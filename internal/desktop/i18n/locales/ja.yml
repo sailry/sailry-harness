@@ -885,6 +885,7 @@ model_library_selected: 選択済み
 model_library_source: ソース
 pairing_connect: デバイスを接続
 pairing_local_code: ローカルペアリングコード
+pairing_pin_hint: 6 桁のペアリングコードを入力
 pairing_preview_disabled: UI プレビューは実際のデバイスを接続しません。ペアを作成するには --data-dir を起動してください
 pairing_relay_address: いろはの住所
 pairing_relay_address_hint: https://relay.example.com

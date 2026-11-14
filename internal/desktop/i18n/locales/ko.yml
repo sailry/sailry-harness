@@ -885,6 +885,7 @@ model_library_selected: 선택됨
 model_library_source: 소스
 pairing_connect: 장치 연결
 pairing_local_code: 로컬 페어링 코드
+pairing_pin_hint: 6자리 페어링 코드 입력
 pairing_preview_disabled: UI 미리보기는 실제 장치를 연결하지 않습니다. --data-dir 으로 시작하여 페어링합니다
 pairing_relay_address: 주소
 pairing_relay_address_hint: https://relay.example.com

@@ -885,6 +885,7 @@ model_library_selected: Ausgewählt
 model_library_source: Quelle
 pairing_connect: Verbinden Sie Gerät
 pairing_local_code: Lokaler Pairingcode
+pairing_pin_hint: 6-stelligen Pairing-Code eingeben
 pairing_preview_disabled: UI-Vorschau verbindet keine echten Geräte; starten Sie mit --data-dir, um zu paaren
 pairing_relay_address: Adresse von iroh
 pairing_relay_address_hint: https://relay.example.com

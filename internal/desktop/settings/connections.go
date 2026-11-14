@@ -369,8 +369,11 @@ func addHost(c *ui.Context, m *Model) {
 			pr.method = int(offered[choice])
 			switch method := Method(pr.method); {
 			case method == ByPairing:
-				ui.Row(c.Key("code")).FillWidth().Justify(ui.Center).Padding(16, 0).Children(func() {
-					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Disabled(locked).Label(i18n.T(c, "host_pairing_mode"))
+				codePanel(c, func() {
+					ui.Row(c.Key("cells")).FillWidth().Justify(ui.Center).Children(func() {
+						kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Disabled(locked).Label(i18n.T(c, "host_pairing_mode"))
+					})
+					ui.Text(c, i18n.T(c, "pairing_pin_hint")).FontSize(13).TextColor(p.MutedForeground)
 				})
 			case method == ByWSL:
 				wslFields(c, pr, locked)
@@ -541,58 +544,70 @@ func wslFields(c *ui.Context, pr *pairing, locked bool) {
 	})
 }
 
-// shareCode is the share dialog: the network, this computer's pairing code in
-// six cells, and how to use it. The preview has no pairing service, so it
+// shareCode is the share dialog: the title over how to use the code, this
+// computer's pairing code in a panel with its validity or progress, and the
+// network last, as in Add host. The preview has no pairing service, so it
 // shows no code.
 func shareCode(c *ui.Context, m *Model) {
 	pr := &m.pairing
 	if !pr.sharing {
 		return
 	}
-	p := theme.Of(c)
+	p, t := theme.Of(c), c.Theme()
 	title := i18n.T(c, "pairing_local_code")
 	kit.Dialog(c.Key("share"), &pr.sharing, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Column(c.Key("body")).Gap(16).Padding(0, 0, 8, 0).AlignItems(ui.Center).Children(func() {
-			ui.Column(c).FillWidth().Gap(16).Children(func() { connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false) })
-			ui.Row(c.Key("digits")).Gap(8).Children(func() {
-				for i := range 6 {
-					digit := "–"
-					if i < len(m.Share.Code) {
-						digit = m.Share.Code[i : i+1]
+		ui.Column(c.Key("head")).Gap(4).Children(func() {
+			ui.Text(c, title).FontSize(16).FontWeight(600)
+			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextColor(p.MutedForeground)
+		})
+		ui.Column(c.Key("body")).Gap(16).Padding(4, 0, 0, 0).Children(func() {
+			codePanel(c, func() {
+				ready := m.Live && len(m.Share.Code) == 6
+				// The cells of a large InputOTP, so the code reads as the one
+				// typed on the other device.
+				ui.Row(c.Key("digits")).Gap(8).Children(func() {
+					for i := range 6 {
+						digit, color := "–", p.MutedForeground
+						if ready {
+							digit, color = m.Share.Code[i:i+1], p.Foreground
+						}
+						ui.Row(c.Key(i)).Size(48, 56).AlignItems(ui.Center).Justify(ui.Center).Radius(p.RadiusLg).
+							Background(t.Surface).Border(1, p.Input).Children(func() {
+							ui.Text(c, digit).FontSize(24).FontWeight(600).FontFeatures("tnum").TextColor(color)
+						})
 					}
-					color := p.MutedForeground
-					if m.Live && len(m.Share.Code) == 6 {
-						color = p.Success
-					}
-					ui.Text(c.Key(i), digit).Size(48, 64).TextAlign(ui.Center).Center().FontSize(30).FontWeight(600).
-						Radius(p.RadiusLg).Background(p.Secondary).TextColor(color)
-				}
-			})
-			if m.Live {
-				if m.Share.Kind == "preparing" || m.Share.Kind == "retrying" || m.Share.Kind == "checking" {
+				})
+				status := func(key string) { ui.Text(c, i18n.T(c, key)).FontSize(13).TextColor(p.MutedForeground) }
+				switch {
+				case !m.Live:
+					status("pairing_preview_disabled")
+				case m.Share.Kind == "preparing" || m.Share.Kind == "retrying" || m.Share.Kind == "checking":
 					key := "pairing_preparing"
 					if m.Share.Kind == "checking" {
 						key = "pairing_relay_checking"
 					}
-					kit.Shimmer(c, i18n.T(c, key), 14, p.MutedForeground)
-				}
-				if m.Share.Code != "" {
-					ui.Text(c, i18n.T(c, "pairing_refresh_hint")).FontSize(14).TextColor(p.MutedForeground)
-				}
-				if m.Share.Kind == "failed" {
+					kit.Shimmer(c, i18n.T(c, key), 13, p.MutedForeground)
+				case m.Share.Kind == "failed":
 					kit.Secondary(c.Key("retry"), i18n.T(c, "update_retry")).OnClick(func() {
 						if m.ConnectionActions != nil && m.ConnectionActions.RetryShare != nil {
 							m.ConnectionActions.RetryShare()
 						}
 					})
+				case m.Share.Code != "":
+					status("pairing_refresh_hint")
 				}
-			} else {
-				ui.Text(c, i18n.T(c, "pairing_preview_disabled")).FontSize(14).TextColor(p.MutedForeground)
-			}
-			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
+			})
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false)
 		})
-	}).Width(min(400, width(c)-48)).Label(title)
+	}).Width(min(460, width(c)-48)).Label(title)
+}
+
+// codePanel is the inset panel a pairing code sits in, centered with its
+// status line below.
+func codePanel(c *ui.Context, children func()) {
+	p := theme.Of(c)
+	ui.Column(c.Key("code")).FillWidth().Padding(24, 16).Gap(12).AlignItems(ui.Center).
+		Radius(p.RadiusLg).Background(p.Background).Border(1, p.Border).Children(children)
 }
 
 // AddHost opens the Add host dialog (Shell::add_host), as the rail's Add

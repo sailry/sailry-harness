@@ -885,6 +885,7 @@ model_library_selected: Выбрано
 model_library_source: Источник
 pairing_connect: Подключить устройство
 pairing_local_code: Локальный код сопряжения
+pairing_pin_hint: Введите 6-значный парольный код
 pairing_preview_disabled: Предварительный просмотр пользовательского интерфейса не подключает реальные устройства; начните с --data-dir для создания пары
 pairing_relay_address: ИРОХ адрес
 pairing_relay_address_hint: https://relay.example.com
