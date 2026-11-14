@@ -35,7 +35,10 @@ class Fixture {
         if (error != null) throw CommandFailure(error, request: request);
         return receipts[request]!;
       },
-      accept: (response) => session = object(response['data']),
+      accept: (response, kind) {
+        accepted.add(kind);
+        session = object(response['data']);
+      },
       active: () => active,
     );
   }
@@ -43,6 +46,7 @@ class Fixture {
   final bool uncertain;
   final sent = <(String, Map<String, dynamic>)>[];
   final recovered = <String>[];
+  final accepted = <String>[];
   final receipts = <String, Map<String, dynamic>>{};
   late final ConfigurationCommands commands;
   String? failure;
@@ -78,6 +82,38 @@ class Fixture {
 }
 
 void main() {
+  test('conflict rebase preserves local edits and remote untouched fields', () {
+    const baseline = {
+      'model': 'old',
+      'permission': 'ask',
+      'features': {'speed': 'normal', 'thinking': 'normal'},
+      'options': {'removed': true},
+    };
+    const draft = {
+      'model': 'chosen',
+      'permission': 'ask',
+      'features': {'speed': 'fast', 'thinking': 'normal'},
+      'options': <String, dynamic>{},
+    };
+    const remote = {
+      'model': 'remote',
+      'permission': 'allow',
+      'features': {'speed': 'normal', 'thinking': 'high', 'new': 'value'},
+      'options': {'removed': true, 'remote': true},
+    };
+    final merged = rebaseConfiguration(baseline, draft, remote);
+    expect(merged, {
+      'model': 'chosen',
+      'permission': 'allow',
+      'features': {'speed': 'fast', 'thinking': 'high', 'new': 'value'},
+      'options': {'remote': true},
+    });
+    expect(baseline['model'], 'old');
+    expect(draft['permission'], 'ask');
+    expect(remote['model'], 'remote');
+    expect(rebaseConfiguration(baseline, baseline, remote), remote);
+  });
+
   test(
     "accepts effective configuration after explicit team selection",
     () async {
@@ -168,6 +204,7 @@ void main() {
           ], reason: caseName);
           expect(fixture.session['revision'], 8, reason: caseName);
           expect(fixture.session['config'], selectedConfig, reason: caseName);
+          expect(fixture.accepted, ['set_session_team'], reason: caseName);
           expect(fixture.commands.pending, isFalse, reason: caseName);
           await fixture.commands.check();
           expect(fixture.sent, hasLength(1), reason: caseName);

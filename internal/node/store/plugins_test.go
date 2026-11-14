@@ -238,6 +238,9 @@ func TestPluginConversationCheckpoints(t *testing.T) {
 		if _, err := db.ExecContext(ctx, "INSERT INTO sessions(id,revision,history_revision) VALUES(?1,1,1)", target.String()); err != nil {
 			return err
 		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", target.String(), turn.String()); err != nil {
+			return err
+		}
 		if err := ForkPluginConversation(ctx, db, source.ID, target, turn, false); err != nil {
 			return err
 		}

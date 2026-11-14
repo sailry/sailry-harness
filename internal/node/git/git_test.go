@@ -500,10 +500,14 @@ func TestGitMutationMapping(t *testing.T) {
 	})
 	t.Run("transfers_with_a_remote_run_outside_the_root_lock", func(t *testing.T) {
 		root, r, commit := fixture(t)
+		configurePullUpstream(t, r)
 		var log []string
 		s := New(Options{
 			Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
 				log = append(log, strings.Join(args, " "))
+				if args[0] == "for-each-ref" {
+					return CommandResult{Stdout: []byte("origin\x00refs/heads/main\x00\x00origin\n")}, nil
+				}
 				return CommandResult{}, nil
 			},
 			Lock: func(string) func() {
@@ -523,11 +527,11 @@ func TestGitMutationMapping(t *testing.T) {
 			run  func() error
 			want []string
 		}{
-			{"push", func() error { return action("push", protocol.GitActionPushPayload{}) }, []string{"push --progress"}},
+			{"push", func() error { return action("push", protocol.GitActionPushPayload{}) }, []string{"for-each-ref --format=%(push:remotename)%00%(push:remoteref)%00%(push)%00%(upstream:remotename) refs/heads/main", "push --progress origin refs/heads/main:refs/heads/main"}},
 			{"fetch", func() error { return action("fetch", protocol.GitActionFetchPayload{All: true}) }, []string{"fetch --progress --all"}},
 			// The transfer of a pull is a fetch without the lock; git pull then integrates under it.
-			{"pull", func() error { return action("pull", protocol.GitActionPullPayload{Rebase: true}) }, []string{"fetch --progress", "lock", "pull --progress --rebase --no-edit", "unlock"}},
-			{"sync", func() error { return action("sync", protocol.GitActionSyncPayload{}) }, []string{"fetch --progress", "lock", "pull --progress --no-rebase --no-edit", "unlock", "push --progress"}},
+			{"pull", func() error { return action("pull", protocol.GitActionPullPayload{Rebase: true}) }, []string{"fetch --progress origin refs/heads/main", "lock", "pull --progress --rebase --no-edit origin refs/heads/main", "unlock"}},
+			{"sync", func() error { return action("sync", protocol.GitActionSyncPayload{}) }, []string{"for-each-ref --format=%(push:remotename)%00%(push:remoteref)%00%(push)%00%(upstream:remotename) refs/heads/main", "fetch --progress origin refs/heads/main", "lock", "pull --progress --no-rebase --no-edit origin refs/heads/main", "unlock", "push --progress origin refs/heads/main:refs/heads/main"}},
 			{"local action", func() error {
 				return action("add_remote", protocol.GitActionAddRemotePayload{Name: "origin", Url: "https://example.invalid/repository.git"})
 			}, []string{"lock", "remote add -- origin https://example.invalid/repository.git", "unlock"}},
@@ -536,7 +540,7 @@ func TestGitMutationMapping(t *testing.T) {
 				input.Options.After = protocol.GitAfterCommitSync
 				_, err := s.CreateCommit(ctx, root, input)
 				return err
-			}, []string{"lock", "commit --message Change", "unlock", "fetch --progress", "lock", "pull --progress --no-rebase --no-edit", "unlock", "push --progress"}},
+			}, []string{"lock", "commit --message Change", "unlock", "for-each-ref --format=%(push:remotename)%00%(push:remoteref)%00%(push)%00%(upstream:remotename) refs/heads/main", "fetch --progress origin refs/heads/main", "lock", "pull --progress --no-rebase --no-edit origin refs/heads/main", "unlock", "push --progress origin refs/heads/main:refs/heads/main"}},
 		} {
 			log = nil
 			if err := probe.run(); err != nil || !reflect.DeepEqual(log, probe.want) {

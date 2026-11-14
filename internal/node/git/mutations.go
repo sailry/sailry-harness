@@ -60,27 +60,42 @@ func (s *Service) CreateCommit(ctx context.Context, root string, input protocol.
 		return result, fault(protocol.ErrorCodeOutcomeUnknown, "Git commit result could not be confirmed")
 	}
 	result.ID = *h.Head
+	// A commit can update both HEAD and the index (including commit --all).
+	// Its sync must compare the committed state, not the pre-commit request.
+	committed := worktreeRevision{head: h.Head, branch: h.Branch}
+	var captureErr error
+	if input.Options.After == protocol.GitAfterCommitSync && input.Options.PushRemote == nil {
+		committed.index, captureErr = indexRevision(root, r)
+	}
 	release()
 	follow := func() error {
 		if input.Options.After == protocol.GitAfterCommitNone {
 			return nil
 		}
+		if captureErr != nil {
+			return captureErr
+		}
 		if input.Options.PushRemote != nil {
-			if input.ExpectedBranch == nil {
+			if committed.branch == nil {
 				return invalid("publishing requires an attached branch")
 			}
 			if _, err := r.Remote(*input.Options.PushRemote); err != nil {
 				return mapError(err)
 			}
-			_, err := s.network(ctx, root, []string{"push", "--set-upstream", *input.Options.PushRemote, "HEAD:refs/heads/" + *input.ExpectedBranch})
+			ref := plumbing.NewBranchReferenceName(*committed.branch).String()
+			_, err := s.network(ctx, root, []string{"push", "--set-upstream", *input.Options.PushRemote, ref + ":" + ref})
+			return err
+		}
+		push, err := s.branchPush(ctx, root, valueOr(committed.branch))
+		if err != nil {
 			return err
 		}
 		if input.Options.After == protocol.GitAfterCommitSync {
-			if err := s.pull(ctx, root, "--no-rebase"); err != nil {
+			if err := s.pull(ctx, root, "--no-rebase", committed); err != nil {
 				return err
 			}
 		}
-		_, err := s.network(ctx, root, []string{"push"})
+		_, err = s.network(ctx, root, push)
 		return err
 	}
 	if err := follow(); err != nil {

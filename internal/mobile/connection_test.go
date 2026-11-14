@@ -58,6 +58,8 @@ func TestMobileUncertainRequest(t *testing.T) {
 	t.Parallel()
 	stored := protocol.Output{Kind: "notifications_updated"}
 	conflict := protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "session changed"}
+	busy := protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "session is busy"}
+	denied := protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "access denied"}
 	completed := func(value protocol.Result[protocol.Output, protocol.Fault]) *protocol.RequestOutcome {
 		return &protocol.RequestOutcome{Kind: "completed", Data: value}
 	}
@@ -69,6 +71,8 @@ func TestMobileUncertainRequest(t *testing.T) {
 	}{
 		{"applied", completed(protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}), "", false},
 		{"failed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &conflict}), protocol.ErrorCodeConflict, false},
+		{"failed busy", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &busy}), protocol.ErrorCodeBusy, false},
+		{"failed permission", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &denied}), protocol.ErrorCodePermissionDenied, false},
 		{"interrupted by a restart", &protocol.RequestOutcome{Kind: "unknown"}, protocol.ErrorCodeOutcomeUnknown, true},
 		{"never admitted", &protocol.RequestOutcome{Kind: "not_admitted"}, protocol.ErrorCodeUnavailable, true},
 		{"still running", &protocol.RequestOutcome{Kind: "admitted"}, protocol.ErrorCodeOutcomeUnknown, false},
@@ -103,8 +107,11 @@ func TestMobileUncertainRequest(t *testing.T) {
 					if answer.Ok == nil || answer.Err != nil || answer.Released {
 						t.Fatalf("%s %d = %#v", method, sent, answer)
 					}
-				} else if answer.Ok != nil || answer.Err == nil || answer.Err.Code != test.code || answer.Released != test.released {
-					t.Fatalf("%s %d = %#v, fault %#v", method, sent, answer, answer.Err)
+				} else {
+					released := test.released || method == "resolve" && test.outcome != nil && test.outcome.Kind == "completed"
+					if answer.Ok != nil || answer.Err == nil || answer.Err.Code != test.code || answer.Released != released {
+						t.Fatalf("%s %d = %#v, fault %#v", method, sent, answer, answer.Err)
+					}
 				}
 				if mutations != 1 {
 					t.Fatalf("the mutation was sent %d times after %s %d", mutations, method, sent)

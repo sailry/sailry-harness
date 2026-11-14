@@ -4,6 +4,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_output.dart';
 
 void main() {
+  test('detail failures notify once until cleared or changed', () {
+    const failure = {'code': 'unavailable', 'message': 'Detail unavailable'};
+    const changed = {'code': 'not_found', 'message': 'Detail removed'};
+    final failed = {
+      'detail_errors': [failure, failure],
+    };
+    expect(newDetailErrors({}, failed), [failure]);
+    expect(newDetailErrors(failed, failed), isEmpty);
+    expect(
+      newDetailErrors(failed, {
+        'detail_errors': [failure, changed],
+      }),
+      [changed],
+    );
+    expect(newDetailErrors(failed, {}), isEmpty);
+    expect(newDetailErrors({}, failed), [failure]);
+  });
+
   Map<String, dynamic> call(String entry) => {
     'source': {'entry': entry, 'index': 0},
   };

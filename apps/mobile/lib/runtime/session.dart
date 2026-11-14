@@ -600,9 +600,9 @@ class CommandFailure implements Exception {
   final Map<String, dynamic> details;
   // Retained only in memory, never logged, rendered or persisted in a UI cache.
   final String? request;
-  // The Node holds nothing more for the request: it never arrived
-  // (`unavailable`, nothing changed) or its result can never be confirmed
-  // (`outcome_unknown`). The request is dropped; the next attempt is a new one.
+  // No further inspection is needed: the Node reported a terminal failure,
+  // the request never arrived, or its result can never be confirmed.
+  // The request is dropped; the next attempt is a new one.
   final bool released;
 
   /// The result is still to be learned: keep [request] and check it later.

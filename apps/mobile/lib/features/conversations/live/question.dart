@@ -241,10 +241,11 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
               onPressed: _busy ? null : () => _send({'kind': 'cancel'}),
               child: Text(context.tr('cancel')),
             ),
-            TextButton(
-              onPressed: _busy ? null : () => _send({'kind': 'decline'}),
-              child: Text(context.tr('deny')),
-            ),
+            if (kind == 'form' || kind == 'url')
+              TextButton(
+                onPressed: _busy ? null : () => _send({'kind': 'decline'}),
+                child: Text(context.tr('deny')),
+              ),
             if (kind == 'plan')
               FilledButton(
                 onPressed: _busy
@@ -253,7 +254,12 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
                         'kind': 'start_coding',
                         'data': {
                           'expected_revision': widget.session['revision'],
-                          'message': {'text': _text.text, 'attachments': []},
+                          'message': {
+                            'text': _text.text.trim().isEmpty
+                                ? context.tr('conversationStartCoding')
+                                : _text.text,
+                            'attachments': [],
+                          },
                         },
                       }),
                 child: Text(context.tr('conversationStartCoding')),

@@ -209,6 +209,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         _error = null;
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
+        final detailErrors = newDetailErrors(_view.value, value).toList();
         _view.value = mergeToolDetails(_view.value, value);
         _submission.observe(object(_view.value['guidance']));
         if (statisticsError != null &&
@@ -219,7 +220,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             '${context.tr('conversationStats')}: ${context.tr('settingsLoadFailed')}',
           );
         }
-        for (final fault in objects(value['detail_errors'])) {
+        for (final fault in detailErrors) {
           showToast(
             context,
             failureLabel(fault['message'], translate: context.tr),

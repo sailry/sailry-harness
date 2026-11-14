@@ -121,9 +121,9 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 }
 
 // resolve reports what became of a request whose result was not observed,
-// without running it: its stored output or fault, a released failure when it
-// never reached the Node or the Node can never tell, and OutcomeUnknown while
-// it still runs or the Node cannot be asked.
+// without running it: its stored output or released terminal fault, a released
+// failure when it never reached the Node or the Node can never tell, and
+// OutcomeUnknown while it still runs or the Node cannot be asked.
 func (owner *connection) resolve(ctx context.Context, request protocol.Request) (protocol.Output, bool, error) {
 	if !request.Command.Durable() {
 		// The Node keeps no outcome for it, so only a new request can answer.
@@ -137,7 +137,7 @@ func (owner *connection) resolve(ctx context.Context, request protocol.Request) 
 	case client.RequestApplied:
 		return resolution.Output, false, nil
 	case client.RequestFailed:
-		return protocol.Output{}, false, resolution.Fault
+		return protocol.Output{}, true, resolution.Fault
 	case client.RequestAbsent:
 		return protocol.Output{}, true, unavailable("the request did not reach the Node; nothing was changed")
 	case client.RequestUnknown:

@@ -96,25 +96,38 @@ func pauseQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID, r
 }
 func readQueuedMessage(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationQueuedMessage, error) {
 	value := protocol.DefaultConversationQueuedMessage()
-	var body []byte
-	err := db.QueryRowContext(ctx, "SELECT p.revision,r.body FROM agent_pending p JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE p.turn=?1", turn.String()).Scan(&value.Revision, &body)
+	var captured, requestBody []byte
+	err := db.QueryRowContext(ctx, "SELECT p.revision,a.input,r.body FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE p.turn=?1", turn.String()).Scan(&value.Revision, &captured, &requestBody)
 	if errors.Is(err, sql.ErrNoRows) {
 		return value, fault(protocol.ErrorCodeConflict, "turn input is no longer queued")
 	}
 	if err != nil {
 		return value, err
 	}
-	var request protocol.Request
-	if err = json.Unmarshal(body, &request); err != nil {
-		return value, err
-	}
-	value.Message, err = agentInput(request.Command)
+	value.Message, err = decodeQueuedInput(captured, requestBody)
 	if err != nil {
 		return value, err
 	}
 	value.Turn, err = readTurnCapture(ctx, db, turn)
 	return value, err
 }
+
+// A plugin transaction keeps only its digest in the request ledger, so its
+// queued message is captured on the run. Ordinary queued input remains in its
+// request until claimed.
+func decodeQueuedInput(captured, requestBody []byte) (protocol.ConversationInput, error) {
+	if len(captured) > 0 {
+		var message protocol.ConversationInput
+		err := json.Unmarshal(captured, &message)
+		return message, err
+	}
+	var request protocol.Request
+	if err := json.Unmarshal(requestBody, &request); err != nil {
+		return protocol.ConversationInput{}, err
+	}
+	return agentInput(request.Command)
+}
+
 func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.ConversationQueue, error) {
 	value := protocol.DefaultConversationQueue()
 	if err := requireSession(ctx, db, session); err != nil {
@@ -151,17 +164,7 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 		if e != nil {
 			return value, e
 		}
-		// Captured input is read from the run: a request admitted inside a
-		// plugin transaction is stored as a digest, not as its command.
-		var message protocol.ConversationInput
-		if len(capturedInput) > 0 {
-			e = json.Unmarshal(capturedInput, &message)
-		} else {
-			var request protocol.Request
-			if e = json.Unmarshal(requestBody, &request); e == nil {
-				message, e = agentInput(request.Command)
-			}
-		}
+		message, e := decodeQueuedInput(capturedInput, requestBody)
 		if e != nil {
 			return value, e
 		}

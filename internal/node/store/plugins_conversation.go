@@ -57,18 +57,11 @@ func pluginConversationAnchor(ctx context.Context, db *sql.Conn, session protoco
 		}
 		return turn, err
 	}
-	var latest string
-	err := db.QueryRowContext(ctx, "SELECT c.turn FROM conversation_turns c JOIN turns t ON t.id=c.turn WHERE c.session=?1 ORDER BY t.rowid DESC LIMIT 1", session.String()).Scan(&latest)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
+	groups, err := conversationGroups(ctx, db, session)
+	if err != nil || len(groups) == 0 {
 		return nil, err
 	}
-	var result protocol.TurnID
-	if err := result.UnmarshalText([]byte(latest)); err != nil {
-		return nil, err
-	}
+	result := groups[len(groups)-1].run.Turn
 	return &result, nil
 }
 
@@ -204,9 +197,9 @@ JOIN plugin_conversation_records r ON r.sequence=h.record WHERE h.session=?1 GRO
 
 func ForkPluginConversation(ctx context.Context, db *sql.Conn, source, target protocol.SessionID, through protocol.TurnID, preserveCurrent bool) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO plugin_conversation_history(session,record,turn)
-SELECT ?2,h.record,h.turn FROM plugin_conversation_history h LEFT JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND
-(h.turn IS NULL OR t.rowid<=(SELECT rowid FROM turns WHERE id=?3) AND EXISTS(SELECT 1 FROM conversation_turns c WHERE c.session=?1 AND c.turn=h.turn))`,
-		source.String(), target.String(), through.String())
+SELECT ?2,h.record,h.turn FROM plugin_conversation_history h WHERE h.session=?1 AND
+(h.turn IS NULL OR EXISTS(SELECT 1 FROM conversation_turns c WHERE c.session=?2 AND c.turn=h.turn))`,
+		source.String(), target.String())
 	if err != nil {
 		return err
 	}
@@ -257,7 +250,7 @@ func RewindPluginConversation(ctx context.Context, db *sql.Conn, session protoco
 	if through == nil {
 		_, err = db.ExecContext(ctx, "DELETE FROM plugin_conversation_history WHERE session=?1", session.String())
 	} else {
-		_, err = db.ExecContext(ctx, "DELETE FROM plugin_conversation_history WHERE session=?1 AND turn IN (SELECT id FROM turns WHERE rowid>(SELECT rowid FROM turns WHERE id=?2))", session.String(), through.String())
+		_, err = db.ExecContext(ctx, "DELETE FROM plugin_conversation_history WHERE session=?1 AND turn IS NOT NULL AND NOT EXISTS(SELECT 1 FROM conversation_turns c WHERE c.session=?1 AND c.turn=plugin_conversation_history.turn)", session.String())
 	}
 	if err != nil {
 		return err

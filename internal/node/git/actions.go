@@ -251,18 +251,6 @@ func remoteAction(action protocol.GitAction) bool {
 	return false
 }
 
-// pull fetches outside the root lock and lets git pull integrate under it. Its
-// own fetch then finds the objects present, so the lock covers a short
-// negotiation and the merge or rebase, not the transfer.
-func (s *Service) pull(ctx context.Context, root, flag string, target ...string) error {
-	if _, err := s.network(ctx, root, append([]string{"fetch"}, target...)); err != nil {
-		return err
-	}
-	defer s.lock(root)()
-	_, err := s.network(ctx, root, append([]string{"pull", flag, "--no-edit"}, target...))
-	return err
-}
-
 func (s *Service) Action(ctx context.Context, root string, input protocol.CommandRunGitActionPayload) error {
 	action := input.Action
 	// A transfer with a remote must not hold the root lock that file effects
@@ -360,10 +348,14 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 		if v.Rebase {
 			flag = "--rebase"
 		}
-		if err := s.pull(ctx, root, flag); err != nil {
+		push, err := s.branchPush(ctx, root, branch)
+		if err != nil {
 			return err
 		}
-		return transfer([]string{"push"})
+		if err := s.pull(ctx, root, flag, worktreeRevision{input.ExpectedIndex, input.ExpectedHead, input.ExpectedBranch}); err != nil {
+			return err
+		}
+		return transfer(push)
 	case "start_branch":
 		if input.ExpectedHead != nil {
 			return conflict()
@@ -468,9 +460,24 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	// fetch, pull and push talk to a remote; so do the pushes that delete a
 	// remote tag or branch.
 	if args[0] == "pull" {
-		return s.pull(ctx, root, args[1], args[3:]...)
+		return s.pull(ctx, root, args[1], worktreeRevision{input.ExpectedIndex, input.ExpectedHead, input.ExpectedBranch}, args[3:]...)
 	}
-	if args[0] == "fetch" || args[0] == "push" {
+	if args[0] == "fetch" {
+		unlock, err := s.lockFetch(ctx, r)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		return transfer(args)
+	}
+	if args[0] == "push" {
+		if action.Kind == "push" && data[protocol.GitActionPushPayload](action.Data).Remote == nil {
+			push, err := s.branchPush(ctx, root, branch)
+			if err != nil {
+				return err
+			}
+			args = append(args, push[1:]...)
+		}
 		return transfer(args)
 	}
 	return run(args)

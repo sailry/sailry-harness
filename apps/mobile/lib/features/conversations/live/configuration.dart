@@ -22,9 +22,12 @@ class ConversationConfiguration extends StatefulWidget {
 }
 
 class _ConversationConfigurationState extends State<ConversationConfiguration> {
-  late Map<String, dynamic> _config = Map.of(object(widget.session['config']));
+  late Map<String, dynamic> _baseline = object(widget.session['config']);
+  late Map<String, dynamic> _config = Map.of(_baseline);
+  bool _retry = false;
+  bool _hasDraft = false;
 
-  /// The latest admitted revision, shared by configuration and team commands.
+  /// The captured revision, shared by configuration and team commands.
   late final _session = ValueNotifier<Map<String, dynamic>>(widget.session);
   late final _commands = ConfigurationCommands(
     command: widget.host.command,
@@ -54,17 +57,65 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
   int get _revision => _session.value['revision'] as int;
 
   @override
+  void initState() {
+    super.initState();
+    widget.host.addListener(_hostChanged);
+  }
+
+  void _hostChanged() {
+    if (!mounted || _saving || _commands.pending || _hasDraft) return;
+    final current = objects(
+      widget.host.snapshot['sessions'],
+    ).where((session) => session['id'] == _id).firstOrNull;
+    if (current != null && number(current['revision']) > _revision) {
+      _accept({'data': current});
+    }
+  }
+
+  @override
   void dispose() {
+    widget.host.removeListener(_hostChanged);
     _session.dispose();
     super.dispose();
   }
 
-  void _accept(Map<String, dynamic> response) {
+  void _accept(Map<String, dynamic> response, [String? kind]) {
     final session = object(response['data']);
+    final latest = object(session['config']);
+    final preserve = _hasDraft && kind != null && kind != 'set_session_config';
+    final merged = preserve
+        ? rebaseConfiguration(_baseline, _config, latest)
+        : latest;
     _session.value = session;
     setState(() {
-      _config = Map.of(object(session['config']));
+      _baseline = latest;
+      _config = Map.of(merged);
+      _retry = _hasDraft = preserve;
     });
+  }
+
+  void _edit(Map<String, dynamic> config) {
+    setState(() {
+      _config = config;
+      _hasDraft = true;
+    });
+  }
+
+  Future<void> _refreshConflict() async {
+    final response = await widget.host.command('read_session', {
+      'session': _id,
+    });
+    if (!mounted) return;
+    final current = object(response['data']);
+    if (!_hasDraft) {
+      _accept(response);
+      return;
+    }
+    final latest = object(current['config']);
+    final merged = rebaseConfiguration(_baseline, _config, latest);
+    _session.value = current;
+    _baseline = latest;
+    _edit(merged);
   }
 
   Future<void> _run(
@@ -78,11 +129,24 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
     try {
       await action();
     } catch (error) {
+      if (mounted &&
+          error is CommandFailure &&
+          error.code == 'revision_conflict') {
+        try {
+          await _refreshConflict();
+        } catch (_) {
+          // Preserve the original baseline if the recovery read also fails.
+        }
+      }
       if (mounted) {
+        _retry = _hasDraft && !_commands.pending;
         showToast(context, failureLabel(error, translate: context.tr));
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+        _hostChanged();
+      }
     }
   }
 
@@ -90,7 +154,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
       _run(() => _sendConfig(config));
 
   Future<void> _sendConfig(Map<String, dynamic> config) async {
-    setState(() => _config = config);
+    _edit(config);
     await _commands.send('set_session_config', {
       'session': _id,
       'expected_revision': _revision,
@@ -126,15 +190,20 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
             config: _config,
             enabled: enabled,
             onChanged: (config) {
-              if (!_saving) setState(() => _config = config);
+              if (!_saving) _edit(config);
             },
-            onCommitted: _save,
+            onCommitted: _retry ? null : _save,
             team: widget.session['delegation'] == null ? _team : null,
           ),
           if (_commands.pending)
             TextButton(
               onPressed: widget.host.connected ? _check : null,
               child: Text(context.tr('conversationCheckResult')),
+            ),
+          if (_retry && !_commands.pending)
+            TextButton(
+              onPressed: widget.host.connected ? () => _save(_config) : null,
+              child: Text(context.tr('save')),
             ),
         ],
       ),

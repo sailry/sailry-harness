@@ -372,7 +372,6 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 			if err := r.save(x.ctx, x.inv.Session.ID, record); err != nil {
 				return false, err
 			}
-			child.delivered = true
 			if err := r.consumeChild(x, child.session, &state.Run.Turn); err != nil {
 				return false, err
 			}
@@ -402,6 +401,19 @@ func (r *Runtime) consumeChild(x *execution, session protocol.SessionID, turn *p
 		return err
 	})
 	if err == nil {
+		// Explicit wait_agent results and automatic delivery share the same
+		// completion state. Collecting an older turn must not hide a successor.
+		r.mu.Lock()
+		for _, child := range x.foreground {
+			current := child
+			for current.successor != nil {
+				current = current.successor
+			}
+			if child.session == session && turn != nil && current.turn == *turn {
+				child.delivered = true
+			}
+		}
+		r.mu.Unlock()
 		r.publish()
 		r.RefreshCommitted(x.inv.Session.ID)
 	}

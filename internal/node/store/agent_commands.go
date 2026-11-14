@@ -212,12 +212,14 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		if err = validateAgentInput(v.Message); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		var captured bool
-		if err = db.QueryRowContext(ctx, "SELECT input IS NOT NULL FROM agent_runs WHERE turn=?1", v.Turn.String()).Scan(&captured); err != nil {
-			return protocol.Output{}, nil, err
-		}
-		if captured {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "admitted input is immutable; submit an edited message")
+		if run.Status != protocol.ConversationStatusQueued {
+			retained, err := retainedTurn(ctx, db, v.Turn)
+			if err != nil {
+				return protocol.Output{}, nil, err
+			}
+			if !retained {
+				return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "turn input is no longer editable")
+			}
 		}
 		queued, err := readTurnCapture(ctx, db, v.Turn)
 		if err != nil {
@@ -235,6 +237,15 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "queued maintenance input is read-only")
 		}
 		if err = bindAgentAttachments(ctx, db, v.Turn, run.Worktree, v.Message.Attachments); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		message, err := encode(v.Message)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		// Capturing input before execution does not consume it. Keep the run's
+		// authoritative copy in sync without rewriting the admission ledger.
+		if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET input=?2 WHERE turn=?1 AND input IS NOT NULL", v.Turn.String(), message); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET revision=revision+1,request=?2,caller=?3,recipient=NULL WHERE turn=?1", v.Turn.String(), request.ID.String(), caller[:]); err != nil {

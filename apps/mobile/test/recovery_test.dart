@@ -24,6 +24,8 @@ void main() {
     ('unavailable', false, false),
     ('permission_denied', false, false),
     ('busy', false, false),
+    ('busy', true, true),
+    ('permission_denied', true, true),
     ('unavailable', true, true),
     ('outcome_unknown', true, true),
   ]) {

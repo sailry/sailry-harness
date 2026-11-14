@@ -29,14 +29,8 @@ extension _HistoryActions on _LiveConversationPageState {
           : await widget.host.check(pending.request);
       if (!mounted) return true;
       _historyPending = null;
-      if (kind == 'rewind_conversation') {
-        _backup = null;
-      }
-      if (kind == 'replace_turn') {
-        final backup = object(
-          object(object(output['data'])['history'])['backup'],
-        );
-        _backup = backup['id'] is String ? backup : null;
+      if (kind == 'rewind_conversation' || kind == 'replace_turn') {
+        _backup = historyBackup(kind, output);
       }
       _rebuild();
       if (kind == 'fork_conversation') _openSession(object(output['data']));

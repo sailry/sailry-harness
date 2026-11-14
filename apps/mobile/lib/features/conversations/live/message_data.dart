@@ -1,5 +1,15 @@
 import '../../../runtime/json.dart';
 
+/// Rewind returns a recovery copy; editing replaces the original branch.
+Map<String, dynamic>? historyBackup(
+  String command,
+  Map<String, dynamic> output,
+) {
+  if (command != 'rewind_conversation') return null;
+  final backup = object(object(output['data'])['backup']);
+  return backup['id'] is String ? backup : null;
+}
+
 String turnOwner(Map<String, dynamic> view, String turn) =>
     text(object(view['owners'])[turn], turn);
 

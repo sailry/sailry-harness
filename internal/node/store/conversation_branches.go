@@ -58,18 +58,31 @@ func branchConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 	if activeRunStatus(boundary.Status) {
 		return protocol.Session{}, nil, fault(protocol.ErrorCodeBusy, "fork target has not finished")
 	}
-	var active bool
-	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM conversation_turns h JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=h.turn WHERE h.session=?1 AND t.rowid<=?2 AND json_extract(a.body,'$.status') IN ('running','stopping'))", input.Session.String(), boundary.Sequence).Scan(&active); err != nil {
+	groups, err := conversationGroups(ctx, db, input.Session)
+	if err != nil {
 		return protocol.Session{}, nil, err
 	}
-	if active {
-		return protocol.Session{}, nil, fault(protocol.ErrorCodeBusy, "fork history contains an active turn")
+	index := conversationGroupIndex(groups, input.Through)
+	if index < 0 {
+		return protocol.Session{}, nil, invalid("fork target has no conversation history")
+	}
+	if !preserveCurrent {
+		groups = groups[:index+1]
+	}
+	for _, group := range groups {
+		if activeRunStatus(group.run.Status) {
+			return protocol.Session{}, nil, fault(protocol.ErrorCodeBusy, "fork history contains an active turn")
+		}
+	}
+	members, err := encode(conversationGroupTurns(groups))
+	if err != nil {
+		return protocol.Session{}, nil, err
 	}
 	value, err := insertBranchSession(ctx, db, previous, previous.Worktree)
 	if err != nil {
 		return value, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) SELECT ?1,h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=h.turn WHERE h.session=?2 AND t.rowid<=?3 AND json_extract(a.body,'$.status')!='queued'", value.ID.String(), input.Session.String(), boundary.Sequence); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) SELECT ?1,value FROM json_each(?2)", value.ID.String(), string(members)); err != nil {
 		return value, nil, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO session_forks(session,source,through_turn) VALUES(?1,?2,?3)", value.ID.String(), input.Session.String(), input.Through.String()); err != nil {
@@ -96,6 +109,8 @@ func rebuildConversationMembership(ctx context.Context, db *sql.Conn, session pr
 	return err
 }
 func conversationHead(ctx context.Context, db *sql.Conn, session protocol.SessionID) (*protocol.TurnID, error) {
+	// This is the public page's admission-order concurrency token. History
+	// boundaries and predecessors are selected separately by execution order.
 	var text string
 	err := db.QueryRowContext(ctx, "SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 ORDER BY t.rowid DESC LIMIT 1", session.String()).Scan(&text)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -144,16 +159,27 @@ func rewindConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 	if head == nil || *head != input.ExpectedHead {
 		return value, nil, fault(protocol.ErrorCodeRevisionConflict, "conversation head changed")
 	}
-	if input.Through != nil && *input.Through == *head {
-		return value, nil, fault(protocol.ErrorCodeConflict, "conversation is already at this turn")
+	groups, err := conversationGroups(ctx, db, input.Session)
+	if err != nil {
+		return value, nil, err
 	}
-	boundary := uint64(0)
+	var retainedGroups []conversationGroup
 	if input.Through != nil {
-		run, e := visibleAgentRun(ctx, db, input.Session, *input.Through)
-		if e != nil {
+		if _, e := visibleAgentRun(ctx, db, input.Session, *input.Through); e != nil {
 			return value, nil, e
 		}
-		boundary = run.Sequence
+		index := conversationGroupIndex(groups, *input.Through)
+		if index < 0 {
+			return value, nil, invalid("rewind target has no conversation history")
+		}
+		if index == len(groups)-1 {
+			return value, nil, fault(protocol.ErrorCodeConflict, "conversation is already at this turn")
+		}
+		retainedGroups = groups[:index+1]
+	}
+	members, err := encode(conversationGroupTurns(retainedGroups))
+	if err != nil {
+		return value, nil, err
 	}
 	if backup {
 		saved, _, e := branchConversation(ctx, db, protocol.CommandForkConversationPayload{Session: input.Session, Through: *head, ExpectedRevision: current.Revision}, true)
@@ -166,7 +192,7 @@ func rewindConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 	// in the queue. Once the conversation no longer lists the turn, sending it
 	// would run a turn no history shows, so its input leaves the queue here.
 	// Only this session's own turns: a fork also lists its source's.
-	retained, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn IN (SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.session=?1 AND t.rowid>?2)", input.Session.String(), boundary)
+	retained, err := db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn IN (SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.session=?1 AND h.turn NOT IN (SELECT value FROM json_each(?2)))", input.Session.String(), string(members))
 	if err != nil {
 		return value, nil, err
 	}
@@ -177,7 +203,7 @@ func rewindConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 			return value, nil, err
 		}
 	}
-	if _, err = db.ExecContext(ctx, "DELETE FROM conversation_turns WHERE session=?1 AND turn IN (SELECT id FROM turns WHERE rowid>?2)", input.Session.String(), boundary); err != nil {
+	if _, err = db.ExecContext(ctx, "DELETE FROM conversation_turns WHERE session=?1 AND turn NOT IN (SELECT value FROM json_each(?2))", input.Session.String(), string(members)); err != nil {
 		return value, nil, err
 	}
 	if _, err = db.ExecContext(ctx, "UPDATE sessions SET history_revision=history_revision+1 WHERE id=?1", input.Session.String()); err != nil {
@@ -218,17 +244,17 @@ func replaceConversationTurn(ctx context.Context, db *sql.Conn, node, caller pro
 	if target.Kind != protocol.ConversationRunKindTask {
 		return protocol.Output{}, nil, invalid("only task turns can be edited")
 	}
-	var previous sql.NullString
-	if err = db.QueryRowContext(ctx, "SELECT (SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.rowid<?2 ORDER BY t.rowid DESC LIMIT 1)", input.Session.String(), target.Sequence).Scan(&previous); err != nil {
+	groups, err := conversationGroups(ctx, db, input.Session)
+	if err != nil {
 		return protocol.Output{}, nil, err
 	}
+	index := conversationGroupIndex(groups, input.Turn)
+	if index < 0 {
+		return protocol.Output{}, nil, invalid("edit target has no conversation history")
+	}
 	var through *protocol.TurnID
-	if previous.Valid {
-		id, e := protocol.ParseTurnID(previous.String)
-		if e != nil {
-			return protocol.Output{}, nil, e
-		}
-		through = &id
+	if index > 0 {
+		through = &groups[index-1].run.Turn
 	}
 	// Editing changes this session's membership while retaining canonical records.
 	history, _, err := rewindConversation(ctx, db, protocol.CommandRewindConversationPayload{Session: input.Session, Through: through, ExpectedHead: input.ExpectedHead, ExpectedRevision: input.ExpectedHistoryRevision}, false)
@@ -295,11 +321,11 @@ func forkConversationAt(ctx context.Context, db *sql.Conn, input protocol.Comman
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	head, err := conversationHead(ctx, db, input.Session)
+	groups, err := conversationGroups(ctx, db, input.Session)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if head == nil {
+	if len(groups) == 0 {
 		value, e := insertBranchSession(ctx, db, current, input.Worktree)
 		if e != nil {
 			return protocol.Output{}, nil, e
@@ -307,7 +333,7 @@ func forkConversationAt(ctx context.Context, db *sql.Conn, input protocol.Comman
 		value.Activity, e = readActivity(ctx, db, value.ID)
 		return protocol.Output{Kind: "session", Data: value}, []protocol.Event{{Kind: "session_changed", Data: &value}}, e
 	}
-	value, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: input.Session, Through: *head, ExpectedRevision: input.ExpectedRevision})
+	value, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: input.Session, Through: groups[len(groups)-1].run.Turn, ExpectedRevision: input.ExpectedRevision})
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}

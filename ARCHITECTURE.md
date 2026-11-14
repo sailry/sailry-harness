@@ -111,6 +111,9 @@ captures its model or team, configuration, permissions and referenced revisions.
 Editing a message updates the visible history and admits its replacement turn in
 the same session atomically. Original records remain stored. Explicit forks and
 rewind backups copy history into a separate session.
+History boundaries follow recorded execution order and retain consumed guidance
+with its recipient turn. Queue admission order remains the public history-head
+concurrency token; it does not determine which messages a history action retains.
 
 Credentials are stored in the execution Node's configuration database as plaintext.
 The implementation has no encrypted vault or OS keychain. Public projections and

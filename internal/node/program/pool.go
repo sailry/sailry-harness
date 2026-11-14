@@ -92,8 +92,10 @@ func (pool *Pool) Lease(owner string, rank func(*Entry) int, start func() (*Proc
 	process, value, err := start()
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	if err == nil && pool.closed {
-		err = errors.New("programs are stopped")
+	if _, retained := pool.entries[entry]; err == nil && !retained {
+		// Invalidation also removes starting entries. A completed launch must
+		// not escape the pool after its package has been disabled or replaced.
+		err = errors.New("program start was invalidated")
 	}
 	if err != nil {
 		delete(pool.entries, entry)

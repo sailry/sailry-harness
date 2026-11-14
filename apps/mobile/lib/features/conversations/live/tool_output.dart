@@ -59,6 +59,17 @@ bool detailAllowsApproval(Map<String, dynamic> call) =>
 bool detailAllowsDecision(Map<String, dynamic> call, String decision) =>
     decision == 'deny' || (decision == 'approve' && detailAllowsApproval(call));
 
+/// Client snapshots retain failures until their detail is retried or released.
+Iterable<Map<String, dynamic>> newDetailErrors(
+  Map<String, dynamic> previous,
+  Map<String, dynamic> next,
+) sync* {
+  final seen = objects(previous['detail_errors']).map(jsonEncode).toSet();
+  for (final fault in objects(next['detail_errors'])) {
+    if (seen.add(jsonEncode(fault))) yield fault;
+  }
+}
+
 /// Omitted ready values retain the previously delivered allocation for that revision.
 Map<String, dynamic> mergeToolDetails(
   Map<String, dynamic> previous,
