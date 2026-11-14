@@ -118,7 +118,7 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 		if text != "" {
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(text)
-				kit.Message(c, i18n.T(c, "content_copied"))
+				kit.Copied(c)
 			})
 			icon, label := icons.Volume, "reader_read"
 			reading := s.reading == t.ID
@@ -206,7 +206,7 @@ func userFooter(c *ui.Context, t *Turn, actions Actions) {
 		if t.User != "" {
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(t.User)
-				kit.Message(c, i18n.T(c, "content_copied"))
+				kit.Copied(c)
 			})
 		}
 		// A read-only session has no Edit; elsewhere it is disabled while it

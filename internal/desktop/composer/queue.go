@@ -386,7 +386,7 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 				kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false).Radius(14).Disabled(q.loading).
 					OnClick(func() {
 						c.WriteClipboard(q.text)
-						kit.Message(c, i18n.T(c, "content_copied"))
+						kit.Copied(c)
 					})
 				button("close", i18n.T(c, "close")).OnClick(func() { *q = queueState{generation: q.generation + 1} })
 				id := q.editing

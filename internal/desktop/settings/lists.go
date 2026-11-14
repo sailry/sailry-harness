@@ -223,7 +223,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 					}
 					kit.Action(c.Key("copy"), icons.Copy, t("authorization_copy_code"), false).OnClick(func() {
 						c.WriteClipboard(a.Code)
-						kit.Toast(c, kit.Done, t("content_copied"))
+						kit.Copied(c)
 					})
 				})
 			}
@@ -280,7 +280,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 			case FlowBrowser:
 				secondary, onSecondary = "authorization_copy_link", func() {
 					c.WriteClipboard(a.URL)
-					kit.Toast(c, kit.Done, t("content_copied"))
+					kit.Copied(c)
 				}
 				primary, onPrimary = "authorization_reopen", open
 			case FlowExpired:

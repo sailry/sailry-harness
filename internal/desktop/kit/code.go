@@ -192,7 +192,7 @@ func CodeBlock(c *ui.Context, b *markdown.CodeBlockView) {
 			IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 24, false).TextColor(p.MutedForeground).
 				Disabled(b.Open).OnClick(func() {
 				c.WriteClipboard(b.Code())
-				Message(c, i18n.T(c, "content_copied"))
+				Copied(c)
 			})
 		})
 		body := ui.Column(c).Padding(4, 0, 8, 4)

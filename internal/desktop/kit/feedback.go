@@ -12,6 +12,12 @@ func Message(c *ui.Context, message string) {
 	c.AddToast(ui.Toast{ID: message, Title: message, Timeout: ToastDuration(c)})
 }
 
+// Copied confirms a copy to the clipboard as a success. Copies in a row
+// share the toast instead of stacking.
+func Copied(c *ui.Context) {
+	c.AddToast(ui.Toast{ID: "content_copied", Type: "success", Title: i18n.T(c, "content_copied"), Timeout: ToastDuration(c)})
+}
+
 // Error is an error toast with an optional title over the problem's detail.
 // Views keep their content and drafts; the toast is the only place a failure
 // shows.

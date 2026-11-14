@@ -39,10 +39,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// A toast is as wide as its content, from toastMin to toastMax, where its
+// text wraps.
 const (
-	toastWidth = 360
-	toastGap   = 12
-	toastPeek  = 12
+	toastMin  = 160
+	toastMax  = 420
+	toastGap  = 12
+	toastPeek = 12
 )
 
 // ToastBodyAction in ui.Toast.Data makes the toast's body run its Action
@@ -73,7 +76,7 @@ var (
 func ToastHost(c *ui.Context) ui.Element {
 	return ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
 		viewport.Padding(56, 16, 16, 16).AlignItems(ui.Center).Justify(ui.Start)
-		stack := ui.Box(c).Width(toastWidth).MaxWidthPercent(100)
+		stack := ui.Box(c).Width(toastMax).MaxWidthPercent(100)
 		heights := *ui.Local(stack, "heights", func() map[string]float32 { return map[string]float32{} })
 		expanded := stack.Hovered()
 		n := len(toasts)
@@ -127,8 +130,15 @@ type toastLayout struct {
 // own; its Transition plays only its Enter and Exit.
 func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout) {
 	p := theme.Of(c)
-	parts := ui.ToastBase(c, t)
-	root := Floating(c, parts.Root.Absolute().Left(0).Right(0).Top(0).TransformOrigin(0.5, 0).Clip()).FontSize(14)
+	// The lane spans the stack and centers the toast, which fits its content.
+	// ToastBase builds the toast where it is called: inside the lane.
+	lane := ui.Row(c.Key(t.ID)).Absolute().Left(0).Right(0).Top(0).Justify(ui.Center)
+	var parts ui.ToastParts
+	var root ui.Element
+	lane.Children(func() {
+		parts = ui.ToastBase(c, t)
+		root = Floating(c, parts.Root.MinWidth(toastMin).MaxWidthPercent(100).TransformOrigin(0.5, 0).Clip()).FontSize(14)
+	})
 	root.Transition(toastEnter)
 	height := heights[t.ID]
 	if l.collapsed && l.front > 0 {
@@ -159,12 +169,12 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 			ui.Row(c).Height(21).AlignItems(ui.Center).Shrink(0).Children(func() {
 				ui.Icon(c, icon).FontSize(18).TextColor(color)
 			})
-			ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			ui.Column(c).Shrink(1).MinWidth(0).Children(func() {
 				ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
 					if t.Title != "" {
-						ui.Text(c, t.Title).FontWeight(500).LineHeight(1.5).Grow(1)
+						ui.Text(c, t.Title).FontWeight(500).LineHeight(1.5).Shrink(1).MinWidth(0)
 					} else {
-						ui.Text(c, t.Description).LineHeight(1.5).Grow(1)
+						ui.Text(c, t.Description).LineHeight(1.5).Shrink(1).MinWidth(0)
 					}
 				})
 				if t.Title != "" && t.Description != "" {

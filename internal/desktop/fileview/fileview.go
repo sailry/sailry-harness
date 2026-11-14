@@ -52,7 +52,7 @@ func Tools(c *ui.Context, f conversation.File, cb Callbacks) {
 	if f.State == conversation.PreviewReady && (f.Kind == conversation.CodeFile || f.Kind == conversation.TextFile || f.Kind == conversation.MarkdownFile) {
 		kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
 			c.WriteClipboard(f.Text)
-			kit.Message(c, i18n.T(c, "content_copied"))
+			kit.Copied(c)
 		})
 	}
 	if cb.OpenExternal != nil {
