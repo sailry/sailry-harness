@@ -32,7 +32,8 @@
 // above and below (list_content py_10), the actions 4 further down (the 16 of
 // the terminal's panel gap_4); the outcome statuses Success and Warning
 // dropped, as an operation's outcome is only a toast, leaving the empty
-// state's Info and the load failure's Error; Card for a group without rows;
+// state's Info and the load failure's Error; Card for a group without rows,
+// frosted as the surface cards;
 // internal/desktop/icons and the palette.
 
 package kit
@@ -90,7 +91,8 @@ func Result(c *ui.Context, p ResultProps) ui.Element {
 	}
 	root := ui.Column(c).Padding(40, 16).Gap(12).AlignItems(ui.Center)
 	if p.Card {
-		root.Border(1, pal.Border).BorderStyle(ui.BorderDashed).Radius(pal.RadiusLg).Background(pal.Surface)
+		// The surface cards' frost (Card), dashed as a group without rows.
+		Frost(c, root.Border(1, pal.Border).BorderStyle(ui.BorderDashed).Radius(pal.RadiusLg), pal.Surface, CardTint)
 	}
 	return root.Children(func() {
 		ui.Row(c.Key("media")).Size(48, 48).Radius(24).Center().Background(bg).Shrink(0).Children(func() {

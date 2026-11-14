@@ -375,9 +375,15 @@ func (p *Palette) Backdrop() ui.Color { return ui.RGBA(0, 0, 0, 0.4) }
 // Description is the receding secondary text of media rows and the sidebar.
 func (p *Palette) Description() ui.Color { return p.MutedForeground.Alpha(0.7) }
 
-// Separator is the hairline between a card's rows, fainter than the border
-// around them.
-func (p *Palette) Separator() ui.Color { return p.Border.Alpha(0.5) }
+// Separator is the hairline between a card's rows: fainter than the border
+// around them in light mode, the border itself in dark mode, where the
+// border is already so faint that half of it disappears.
+func (p *Palette) Separator() ui.Color {
+	if p.Dark {
+		return p.Border
+	}
+	return p.Border.Alpha(0.5)
+}
 
 // build maps the palette onto MyGo's widget tokens, so built-in controls
 // (inputs, menus, popovers, switches, segmented controls, scroll bars)
