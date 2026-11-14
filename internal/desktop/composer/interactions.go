@@ -275,13 +275,15 @@ func place(c *ui.Context, panel, anchor ui.Element, gap float32) {
 	}
 }
 
-// offer opens the approval popover on a request that arrives while the
-// composer shows, so a run does not wait behind a capsule nobody pressed.
-// The requests a composer first shows with stay behind their capsule: a
-// popover opening by itself over a window just opened, or a dialog, would
-// take the first click meant for something else. It runs every frame, also
-// with no request, so the first one to arrive is known as new.
-func (s *State) offer(list []Approval) {
+// offer opens a request's popover when the request arrives while the
+// composer shows, an approval's or the question's, so a run does not wait
+// behind a capsule nobody pressed; the other popover closes, so one shows
+// at a time and no draft is lost. The requests a composer first shows with
+// stay behind their capsule: a popover opening by itself over a window just
+// opened, or a dialog, would take the first click meant for something else.
+// It runs every frame, also with no request, so the first one to arrive is
+// known as new.
+func (s *State) offer(list []Approval, question *Ask) {
 	first := s.in.offered == nil
 	if first {
 		s.in.offered = map[string]bool{}
@@ -294,7 +296,14 @@ func (s *State) offer(list []Approval) {
 		// while its host reconnects, does not open the popover again.
 		s.in.offered[a.ID] = true
 		if !first {
-			s.in.approvals, s.in.at = true, i
+			s.in.approvals, s.in.question, s.in.at = true, false, i
+		}
+	}
+	// A question's ID is kept apart from the approvals' by its prefix.
+	if question != nil && !s.in.offered["question/"+question.ID] {
+		s.in.offered["question/"+question.ID] = true
+		if !first {
+			s.in.question, s.in.approvals = true, false
 		}
 	}
 }

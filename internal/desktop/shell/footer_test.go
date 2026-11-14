@@ -758,3 +758,32 @@ func TestApprovalPopoverOpensForArrival(t *testing.T) {
 		t.Fatal("the popover opened by itself over a composer just shown")
 	}
 }
+
+// A question opens its popover as it arrives, once, as an approval does,
+// and closes the approvals' so one shows at a time.
+func TestQuestionPopoverOpensForArrival(t *testing.T) {
+	var approvals []composer.Approval
+	var question *composer.Ask
+	tt, _, _ := composerAlone(t, "en", 900, func(_ *composer.State, ctx *composer.Context) {
+		ctx.Interactions.Approvals, ctx.Interactions.Question = approvals, question
+	})
+	shown := func(text string) bool { tt.Frame(); tt.Frame(); return tt.HasText(text) }
+	approvals = []composer.Approval{{ID: "one", Title: "Open app", Description: "Notes"}}
+	if !shown("Notes") {
+		t.Fatalf("the approval's popover did not open: %q", tt.Texts())
+	}
+	question = &composer.Ask{ID: "q1", Prompt: "Which scope should the review cover?", Kind: composer.AskChoice, Options: []string{"Staged", "All changes"}}
+	if !shown(question.Prompt) {
+		t.Fatalf("the popover did not open for a question that arrived: %q", tt.Texts())
+	}
+	if tt.HasText("Notes") {
+		t.Error("the approvals' popover stayed open under the question's")
+	}
+	tt.Key(0, ui.KeyEscape)
+	if shown(question.Prompt) {
+		t.Fatal("Escape did not close the question's popover")
+	}
+	if shown(question.Prompt) {
+		t.Fatal("the popover opened again for the same question")
+	}
+}
