@@ -681,15 +681,13 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 					switch cols[col].ID {
 					case "name":
 						// The row of CrychicUI's file list: a tinted tile of
-						// the entry's type before its name, bold once chosen.
+						// the entry's type before its name. The row's fill
+						// marks the chosen one; its name keeps its weight.
 						cell := ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center)
 						dim(e, cell)
 						cell.Children(func() {
 							tile(c, e, 16)
-							name := ui.Text(c, e.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
-							if on(row) {
-								name.FontWeight(600)
-							}
+							ui.Text(c, e.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
 						})
 					case "kind":
 						detail(kind(c, e))
