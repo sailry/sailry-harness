@@ -72,3 +72,31 @@ func TestRoleAvatar(t *testing.T) {
 		t.Errorf("the child's avatar is %q", got)
 	}
 }
+
+// A team's avatar is its appearance's icon as a role's is, and the Node
+// takes it.
+func TestTeamAvatar(t *testing.T) {
+	team := protocol.DefaultTeamProfile()
+	team.ID, team.Revision, team.Key, team.Name = protocol.TeamID{1}, 2, "ship", "Ship"
+	r := &Runtime{teams: newTeamState()}
+	r.teams.teams[profileKey(team.ID.String(), team.Revision)] = team
+	draft := teamView(team)
+	if draft.Avatar != "" {
+		t.Fatalf("a team without an appearance shows %q", draft.Avatar)
+	}
+	draft.Avatar = icons.RandomAvatar()
+	saved, err := r.teamDraft(draft)
+	if err != nil || saved.Appearance == nil || saved.Appearance.Icon != draft.Avatar || store.ValidateTeam(saved) != nil {
+		t.Fatalf("the draft's appearance is %+v, %v, Node %v", saved.Appearance, err, store.ValidateTeam(saved))
+	}
+	saved.Revision = 3
+	r.teams.teams[profileKey(saved.ID.String(), saved.Revision)] = saved
+	if teamView(saved).Avatar != draft.Avatar {
+		t.Fatal("the saved team does not show its avatar")
+	}
+	draft = teamView(saved)
+	draft.Avatar = ""
+	if cleared, err := r.teamDraft(draft); err != nil || cleared.Appearance != nil {
+		t.Fatalf("the default keeps %+v, %v", cleared.Appearance, err)
+	}
+}

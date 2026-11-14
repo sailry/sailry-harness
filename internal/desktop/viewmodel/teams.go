@@ -25,4 +25,7 @@ type Team struct {
 	// Features are the lead model's feature options, as Role.Features;
 	// nil follows the conversation.
 	Features map[string]string
+	// Avatar is the identifier of the team's picture (icons.TeamAvatar);
+	// "" shows the one its ID picks.
+	Avatar string
 }

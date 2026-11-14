@@ -95,20 +95,26 @@ func (r *Runtime) roleDraft(d viewmodel.Role) (protocol.RoleProfile, error) {
 	profile.Revision = d.Revision
 	profile.Key, profile.Name = strings.TrimSpace(d.Key), strings.TrimSpace(d.Name)
 	profile.Description, profile.Instructions, profile.ReadOnly, profile.Model = d.Description, d.Instructions, d.ReadOnly, model
-	// An avatar is the appearance's icon, beside the color the role had.
-	// Without one, an appearance that named an avatar goes back to the
-	// Node, which gives the role an icon again; any other is kept.
-	switch {
-	case d.Avatar != "":
-		appearance := protocol.ProjectsAppearance{Icon: d.Avatar, Color: "none"}
-		if profile.Appearance != nil {
-			appearance.Color = profile.Appearance.Color
-		}
-		profile.Appearance = &appearance
-	case roleAvatar(profile.Appearance) != "":
-		profile.Appearance = nil
-	}
+	profile.Appearance = draftAppearance(profile.Appearance, d.Avatar, roleAvatar(profile.Appearance) != "")
 	return profile, nil
+}
+
+// draftAppearance is the appearance a draft's avatar gives a role or team
+// that had appearance: the avatar is the icon, beside the color it had.
+// Without one, an appearance that named an avatar (named) goes back to the
+// Node, which gives it an icon again; any other is kept.
+func draftAppearance(appearance *protocol.ProjectsAppearance, avatar string, named bool) *protocol.ProjectsAppearance {
+	switch {
+	case avatar != "":
+		next := protocol.ProjectsAppearance{Icon: avatar, Color: "none"}
+		if appearance != nil {
+			next.Color = appearance.Color
+		}
+		return &next
+	case named:
+		return nil
+	}
+	return appearance
 }
 
 func (r *Runtime) teamDraft(d viewmodel.Team) (protocol.TeamProfile, error) {
@@ -130,6 +136,7 @@ func (r *Runtime) teamDraft(d viewmodel.Team) (protocol.TeamProfile, error) {
 	draftFeatures(model, d.Features)
 	profile.Revision = d.Revision
 	profile.Name, profile.Description, profile.Instructions, profile.Model = strings.TrimSpace(d.Name), d.Description, d.Instructions, model
+	profile.Appearance = draftAppearance(profile.Appearance, d.Avatar, teamAvatar(profile.Appearance) != "")
 	profile.Members = nil
 	for _, member := range d.Members {
 		id, err := protocol.ParseRoleID(member)

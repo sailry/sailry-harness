@@ -50,6 +50,16 @@ func validRolePackage(value string) bool {
 	return true
 }
 
+// validateAvatarAppearance checks a role's or a team's appearance: its icon
+// is a project icon or a generated avatar's seed (protocol.RoleAvatarSeed),
+// which the Desktop draws.
+func validateAvatarAppearance(appearance protocol.ProjectsAppearance) error {
+	if _, ok := protocol.RoleAvatarSeed(appearance.Icon); ok {
+		appearance.Icon = protocol.DefaultProjectsAppearance().Icon
+	}
+	return validateAppearance(appearance)
+}
+
 // ValidateRole reports what a role definition alone makes invalid. A caller
 // that asks for approval of a definition checks it first.
 func ValidateRole(role protocol.RoleProfile) error {
@@ -60,13 +70,7 @@ func ValidateRole(role protocol.RoleProfile) error {
 		return invalid("role model identifier is invalid")
 	}
 	if role.Appearance != nil {
-		// A role's icon is a project icon or a generated avatar's seed
-		// (protocol.RoleAvatarSeed), which the Desktop draws.
-		appearance := *role.Appearance
-		if _, ok := protocol.RoleAvatarSeed(appearance.Icon); ok {
-			appearance.Icon = protocol.DefaultProjectsAppearance().Icon
-		}
-		if err := validateAppearance(appearance); err != nil {
+		if err := validateAvatarAppearance(*role.Appearance); err != nil {
 			return err
 		}
 	}
@@ -194,7 +198,7 @@ func ValidateTeam(team protocol.TeamProfile) error {
 		return invalid("team key or name is invalid")
 	}
 	if team.Appearance != nil {
-		if err := validateAppearance(*team.Appearance); err != nil {
+		if err := validateAvatarAppearance(*team.Appearance); err != nil {
 			return err
 		}
 	}

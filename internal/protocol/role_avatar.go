@@ -2,8 +2,9 @@
 
 package protocol
 
-// RoleAvatarPrefix starts a role icon that names a generated avatar: the
-// prefix and the seed the Desktop draws the picture from, "avatar-k3f9x2a1".
+// RoleAvatarPrefix starts a role's or a team's icon that names a generated
+// avatar: the prefix and the seed the Desktop draws the picture from,
+// "avatar-k3f9x2a1".
 // Icons stored before the pictures were generated, such as "avatar-fox",
 // are seeds as well.
 const RoleAvatarPrefix = "avatar-"

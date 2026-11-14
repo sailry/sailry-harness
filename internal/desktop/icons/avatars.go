@@ -11,29 +11,54 @@ import (
 )
 
 // Role avatars are DiceBear's Gaze drawn from a seed: a pair of eyes on a
-// colored body. The same seed always draws the same face, here and in
-// DiceBear's other ports. See avatars/SOURCE.md.
+// colored body. Team avatars are its Shape Grid: a few shapes on a colored
+// square, a group as a face is one. The same seed always draws the same
+// picture, here and in DiceBear's other ports. See avatars/SOURCE.md.
 
 //go:embed avatars/gaze.json
 var gazeDefinition []byte
 
-// gaze is the parsed style, read once on the first picture.
-var gaze = sync.OnceValue(func() *dicebear.Style {
-	style, err := dicebear.NewStyle(gazeDefinition)
-	if err != nil {
-		panic("icons: gaze.json: " + err.Error())
-	}
-	return style
-})
+//go:embed avatars/shape-grid.json
+var shapeGridDefinition []byte
+
+// parse reads a style definition once, on its first picture.
+func parse(name string, definition []byte) func() *dicebear.Style {
+	return sync.OnceValue(func() *dicebear.Style {
+		style, err := dicebear.NewStyle(definition)
+		if err != nil {
+			panic("icons: " + name + ": " + err.Error())
+		}
+		return style
+	})
+}
+
+var (
+	gaze      = parse("gaze.json", gazeDefinition)
+	shapeGrid = parse("shape-grid.json", shapeGridDefinition)
+)
 
 // faceScale leaves the body room inside its tile, which Kit fills.
 const faceScale = 0.82
 
-// Picture is a drawn avatar: the face, transparent around its body, and
-// the body's color, which tints the tile under it.
+// Picture is a drawn avatar. A role's face is transparent around its
+// body, whose color tints the tile under it; a team's fills its square,
+// and Body is unset.
 type Picture struct {
 	Face *ui.SVG
 	Body ui.Color
+}
+
+// team draws the Shape Grid of seed, nil when it is invalid.
+func team(seed string) *Picture {
+	avatar, err := dicebear.NewAvatar(shapeGrid(), map[string]any{"seed": seed})
+	if err != nil {
+		return nil
+	}
+	svg, err := ui.ParseSVG([]byte(avatar.SVG()))
+	if err != nil {
+		return nil
+	}
+	return &Picture{Face: svg}
 }
 
 // face draws the Gaze face of options, nil when they are invalid.
@@ -83,20 +108,45 @@ var avatars struct {
 // Avatar is the picture of a role avatar's identifier, nil for any other
 // icon.
 func Avatar(id string) *Picture {
+	return cached("role\x00"+id, func() *Picture {
+		if seed, ok := protocol.RoleAvatarSeed(id); ok {
+			return face(map[string]any{"seed": seed})
+		}
+		return nil
+	})
+}
+
+// TeamAvatar is the picture of a team avatar's identifier, which names a
+// seed as a role's does, nil for any other icon.
+func TeamAvatar(id string) *Picture {
+	return cached("team\x00"+id, func() *Picture {
+		if seed, ok := protocol.RoleAvatarSeed(id); ok {
+			return team(seed)
+		}
+		return nil
+	})
+}
+
+// DefaultTeamAvatar is the picture of a team without an avatar: the Shape
+// Grid its ID seeds, so each team has its own from the start.
+func DefaultTeamAvatar(id string) *Picture {
+	return cached("default\x00"+id, func() *Picture { return team(id) })
+}
+
+// cached is the picture drawn under key, drawing it the first time.
+func cached(key string, draw func() *Picture) *Picture {
 	avatars.Lock()
-	picture, cached := avatars.pictures[id]
+	picture, ok := avatars.pictures[key]
 	avatars.Unlock()
-	if cached {
+	if ok {
 		return picture
 	}
-	if seed, ok := protocol.RoleAvatarSeed(id); ok {
-		picture = face(map[string]any{"seed": seed})
-	}
+	picture = draw()
 	avatars.Lock()
 	if len(avatars.pictures) >= avatarCacheLimit || avatars.pictures == nil {
 		avatars.pictures = make(map[string]*Picture, avatarCacheLimit)
 	}
-	avatars.pictures[id] = picture
+	avatars.pictures[key] = picture
 	avatars.Unlock()
 	return picture
 }

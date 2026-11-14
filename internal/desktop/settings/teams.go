@@ -229,27 +229,23 @@ func (m *Model) team(id string) *preview.Team {
 // marks; clicking opens the editor.
 func teamRows(c *ui.Context, m *Model) {
 	p := theme.Of(c)
-	row := func(key, name, desc, meta string, builtin bool, members []string, open func()) {
+	row := func(key, name, desc, meta, avatar string, builtin bool, members []string, open func()) {
 		kit.Bleed(c, "row:"+key, func() {
 			b := ui.ButtonBase(c.Key(key)).Label(name).Padding(12, 16).Margin(0, -16).Gap(12).Justify(ui.Start).Cursor(ui.CursorPointer).OnClick(open)
 			if b.Hovered() {
 				b.Background(p.Hover)
 			}
 			b.Children(func() {
-				faces := make([]kit.TeamMember, 0, len(members))
-				for _, id := range members {
-					if r := m.role(id); r != nil {
-						faces = append(faces, kit.TeamMember{ID: r.ID, Avatar: r.Avatar})
-					}
-				}
-				kit.MediaRow(c, name, desc, func() { kit.TeamAvatar(c, key, faces, kit.TileSize) }, func() {
+				kit.MediaRow(c, name, desc, func() { kit.TeamAvatar(c, key, avatar, kit.TileSize) }, func() {
 					if builtin {
 						kit.Tag(c, i18n.T(c, "team_builtin"))
 					}
 				})
 				ui.Row(c).Shrink(0).Gap(4).Children(func() {
-					for i, f := range faces[:min(5, len(faces))] {
-						kit.RoleAvatar(c.Key(i), f.ID, f.Avatar, 20)
+					for i, id := range members[:min(5, len(members))] {
+						if r := m.role(id); r != nil {
+							kit.RoleAvatar(c.Key(i), r.ID, r.Avatar, 20)
+						}
 					}
 				})
 				ui.Text(c, meta).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
@@ -262,13 +258,13 @@ func teamRows(c *ui.Context, m *Model) {
 		for i, r := range m.Roles {
 			all[i] = r.ID
 		}
-		row("default", i18n.T(c, "team_default"), i18n.T(c, "team_default_description"), roleCount(c, len(all)), true, all, func() {
+		row("default", i18n.T(c, "team_default"), i18n.T(c, "team_default_description"), roleCount(c, len(all)), "", true, all, func() {
 			m.teamEdit = teamEditor{open: true, def: true, team: preview.Team{Name: i18n.T(c, "team_default"), Members: all}}
 		})
 		for i := range m.Teams {
 			tm := &m.Teams[i]
 			meta := roleCount(c, len(tm.Members)) + " · " + m.modelSummary(c, tm.Lead, "team_follow_conversation")
-			row(tm.ID, tm.Name, tm.Description, meta, false, tm.Members, func() {
+			row(tm.ID, tm.Name, tm.Description, meta, tm.Avatar, false, tm.Members, func() {
 				x := *tm
 				x.Members = slices.Clone(tm.Members)
 				m.teamEdit = teamEditor{open: true, team: x}
@@ -375,6 +371,7 @@ func teamDialog(c *ui.Context, m *Model) {
 				kit.Field(c, "name", t("settings_name"), "", func() {
 					ui.TextInput(c.Key("input"), &e.team.Name).Label(t("settings_name")).Placeholder(t("form_name_hint")).FillWidth()
 				})
+				avatarField(c, teamAvatars(e.team.ID), &e.team.Avatar, e.pending || e.locked)
 				kit.Field(c, "description", t("teams_description"), "", func() {
 					ui.TextInput(c.Key("input"), &e.team.Description).Label(t("teams_description")).Placeholder(t("teams_description")).FillWidth()
 				})
@@ -559,7 +556,7 @@ func roleDialog(c *ui.Context, m *Model) {
 					})
 				})
 			})
-			avatarField(c, &e.role, e.pending || e.locked)
+			avatarField(c, roleAvatars(e.role.ID), &e.role.Avatar, e.pending || e.locked)
 			kit.Field(c, "description", t("teams_description"), "", func() {
 				ui.TextInput(c.Key("input"), &e.role.Description).Label(t("teams_description")).FillWidth().Disabled(locked)
 			})

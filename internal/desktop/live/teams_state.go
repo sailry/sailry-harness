@@ -78,6 +78,15 @@ func roleAvatar(appearance *protocol.ProjectsAppearance) string {
 	return appearance.Icon
 }
 
+// teamAvatar is the avatar a team's appearance names, as roleAvatar is a
+// role's.
+func teamAvatar(appearance *protocol.ProjectsAppearance) string {
+	if appearance == nil || icons.TeamAvatar(appearance.Icon) == nil {
+		return ""
+	}
+	return appearance.Icon
+}
+
 // childAvatar is the avatar of the role a child was delegated to, "" for
 // a child without a role or whose role the Node no longer has.
 func childAvatar(roles []protocol.RoleProfile, child protocol.ConversationChild) string {
@@ -107,7 +116,7 @@ func roleFeatures(model *protocol.RoleModel) map[string]string {
 
 func teamView(team protocol.TeamProfile) viewmodel.Team {
 	model, effort := roleModelView(team.Model)
-	view := viewmodel.Team{ID: team.ID.String(), Revision: team.Revision, Name: team.Name, Description: team.Description, Lead: model, Effort: effort, Instructions: team.Instructions, Features: roleFeatures(team.Model)}
+	view := viewmodel.Team{ID: team.ID.String(), Revision: team.Revision, Name: team.Name, Description: team.Description, Lead: model, Effort: effort, Instructions: team.Instructions, Features: roleFeatures(team.Model), Avatar: teamAvatar(team.Appearance)}
 	for _, member := range team.Members {
 		view.Members = append(view.Members, member.String())
 	}

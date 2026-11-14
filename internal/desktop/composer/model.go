@@ -142,6 +142,9 @@ type FeatureOption struct {
 type Team struct {
 	ID, Name string
 	Members  []Member
+	// Avatar is the team's picture (icons.TeamAvatar), "" for the one its
+	// ID picks.
+	Avatar string
 }
 
 // Member is a team's role, whose model the controls set apart.

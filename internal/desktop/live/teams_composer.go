@@ -95,7 +95,7 @@ func teamCatalog(snapshot protocol.Snapshot, roles protocol.RoleSnapshot) []comp
 	}
 	result := []composer.Team{all}
 	for _, team := range snapshot.Teams {
-		view := composer.Team{ID: team.ID.String(), Name: team.Name}
+		view := composer.Team{ID: team.ID.String(), Name: team.Name, Avatar: teamAvatar(team.Appearance)}
 		for _, id := range team.Members {
 			for _, role := range snapshot.Roles {
 				if role.ID == id {

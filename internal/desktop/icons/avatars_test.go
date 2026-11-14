@@ -33,6 +33,15 @@ func TestAvatar(t *testing.T) {
 			t.Errorf("%q has a picture", icon)
 		}
 	}
+	// Teams draw from the same seeds, in their own style, and a team
+	// without one from its ID.
+	if TeamAvatar("avatar-fox") == nil || TeamAvatar("code") != nil || DefaultTeamAvatar("ship") == nil ||
+		string(TeamAvatar("avatar-fox").Face.Image(64, 64, nil).Pix) == string(fox.Pix) {
+		t.Error("team avatars are not their own pictures")
+	}
+	if corner := DefaultTeamAvatar("ship").Face.Image(64, 64, nil).RGBAAt(2, 2); corner.A != 255 {
+		t.Errorf("a team's picture does not fill its square: %v", corner)
+	}
 	for _, f := range []struct {
 		name string
 		draw func() *ui.SVG

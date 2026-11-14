@@ -6,10 +6,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// Avatars are a face in a rounded square size across, its corners a
-// quarter of the size: a role's own face (icons.Avatar) on a pale tile of
-// its body's color, or a white face on a solid color, which tells roles
-// without one apart by their color alone.
+// Avatars are a picture in a rounded square size across, its corners a
+// quarter of the size. A role's own face (icons.Avatar) is on a pale tile
+// of its body's color, and a role without one has a white face on a solid
+// color, which tells such roles apart by their color alone. A team's
+// picture fills its tile.
 
 // face draws picture in a tile of fill.
 func face(c *ui.Context, picture *ui.SVG, fill ui.Color, size float32) ui.Element {
@@ -59,36 +60,14 @@ func RoleAvatar(c *ui.Context, id, avatar string, size float32) ui.Element {
 	return DefaultAvatar(c, id, size)
 }
 
-// TeamMember is a member a team's avatar shows: its role's ID and avatar.
-type TeamMember struct{ ID, Avatar string }
-
-// TeamAvatar is a team: its first four members' faces in a 2 by 2 grid on
-// a pale tile of the team's color, as a group chat shows; a team of one
-// shows that member, and an empty team the default face on its color.
-func TeamAvatar(c *ui.Context, id string, members []TeamMember, size float32) ui.Element {
-	switch len(members) {
-	case 0:
-		return DefaultAvatar(c, id, size)
-	case 1:
-		return RoleAvatar(c, members[0].ID, members[0].Avatar, size)
+// TeamAvatar is how a team shows: its avatar's Shape Grid, or the one its
+// ID picks for a team without one. The pictures fill their tile.
+func TeamAvatar(c *ui.Context, id, avatar string, size float32) ui.Element {
+	picture := icons.TeamAvatar(avatar)
+	if picture == nil {
+		picture = icons.DefaultTeamAvatar(id)
 	}
-	members = members[:min(4, len(members))]
-	pad := max(2, size/16)
-	cell := (size - 3*pad) / 2
-	return ui.Box(c).Size(size, size).Shrink(0).Radius(size / 4).Clip().Background(AgentColor(c, id).Alpha(avatarTint(c))).Children(func() {
-		for i, m := range members {
-			x, y := pad+float32(i%2)*(cell+pad), pad+float32(i/2)*(cell+pad)
-			switch {
-			case len(members) == 2:
-				// Two side by side, centered down the tile.
-				y = (size - cell) / 2
-			case len(members) == 3 && i == 2:
-				// The third centers under the first two.
-				x = (size - cell) / 2
-			}
-			ui.Box(c.Key(i)).Absolute().Left(x).Top(y).Children(func() { RoleAvatar(c, m.ID, m.Avatar, cell) })
-		}
-	})
+	return face(c, picture.Face, ui.Color{}, size)
 }
 
 // RoleIdenticon is a subagent's mark: its role's avatar when the role has

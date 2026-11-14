@@ -526,24 +526,21 @@ func memberButton(c *ui.Context, key, name string, face func() ui.Element, overr
 	}).OnClick(pick)
 }
 
-// teamAvatar is a team's members' faces in its tile (kit.TeamAvatar).
+// teamAvatar is a team's picture (kit.TeamAvatar).
 func teamAvatar(c *ui.Context, team Team, size float32) ui.Element {
-	members := make([]kit.TeamMember, len(team.Members))
-	for i, m := range team.Members {
-		members[i] = kit.TeamMember{ID: m.ID, Avatar: m.Avatar}
-	}
-	return kit.TeamAvatar(c, team.ID, members, size)
+	return kit.TeamAvatar(c, team.ID, team.Avatar, size)
 }
 
 // avatar is the identity's icon on its fill, faded unless selected, with a
-// dot where the model was set apart.
+// dot where the model was set apart. Its tile is the rounded square of Kit's
+// avatars, so it lines up with the roles' and the teams'.
 func avatar(c *ui.Context, icon *ui.SVG, fill ui.Color, size float32, selected, overridden bool) {
 	p := theme.Of(c)
 	a := float32(1)
 	if !selected {
 		a = 0.35
 	}
-	ui.Box(c).Size(size, size).Shrink(0).Radius(size / 2).Background(fill.Alpha(a)).Center().Children(func() {
+	ui.Box(c).Size(size, size).Shrink(0).Radius(size / 4).Background(fill.Alpha(a)).Center().Children(func() {
 		glyph := ui.Icon(c, icon).FontSize(size * 0.58).TextColor(p.PrimaryForeground)
 		if !selected {
 			glyph.Opacity(0.6)
